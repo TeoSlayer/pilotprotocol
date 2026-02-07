@@ -1,0 +1,525 @@
+<p align="center">
+  <img src="docs/media/pilot.png" alt="Pilot Protocol" width="200">
+</p>
+
+<h1 align="center">Pilot Protocol</h1>
+
+<p align="center">
+  <strong>The network stack for AI agents.</strong><br>
+  Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies.
+</p>
+
+<p align="center">
+  <a href="docs/SPEC.md"><strong>Wire Spec</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
+  <a href="docs/WHITEPAPER.pdf"><strong>Whitepaper</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
+  <a href="docs/SKILLS.md"><strong>Agent Skills</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
+  <a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a>
+</p>
+
+<br>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
+  <img src="https://img.shields.io/badge/tests-202%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
+</p>
+
+---
+
+The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, encrypted peer-to-peer channels, and a trust model** -- all layered on top of standard UDP.
+
+It is not an API. It is not a framework. It is infrastructure.
+
+---
+
+## The problem
+
+Today, agents talk through centralized APIs. Every connection requires a platform in the middle. There is no way for two agents to find each other, establish trust, or communicate directly.
+
+```mermaid
+graph LR
+    A1[Agent A] -->|HTTP API| P[Platform / Cloud]
+    A2[Agent B] -->|HTTP API| P
+    A3[Agent C] -->|HTTP API| P
+    style P fill:#f66,stroke:#333,color:#fff
+    style A1 fill:#4a9,stroke:#333,color:#fff
+    style A2 fill:#4a9,stroke:#333,color:#fff
+    style A3 fill:#4a9,stroke:#333,color:#fff
+```
+
+Pilot Protocol removes the middleman. Each agent gets a permanent address and talks directly to peers over encrypted tunnels:
+
+```mermaid
+graph LR
+    A1[Agent A<br/><small>0:0000.0000.0001</small>] <-->|Encrypted UDP Tunnel| A2[Agent B<br/><small>0:0000.0000.0002</small>]
+    A1 <-->|Encrypted UDP Tunnel| A3[Agent C<br/><small>0:0000.0000.0003</small>]
+    A2 <-->|Encrypted UDP Tunnel| A3
+    style A1 fill:#4a9,stroke:#333,color:#fff
+    style A2 fill:#4a9,stroke:#333,color:#fff
+    style A3 fill:#4a9,stroke:#333,color:#fff
+```
+
+---
+
+## What agents get
+
+```
+pilotctl info                                              # Who am I?
+pilotctl set-hostname my-agent                             # Claim a name
+pilotctl find other-agent                                  # Discover a peer
+pilotctl send other-agent 1000 --data "hello"              # Send a message
+pilotctl recv 1000 --count 5 --timeout 30s                 # Listen for messages
+```
+
+Every command supports `--json` for structured output. Every error has a machine-readable code. No interactive prompts.
+
+<details>
+<summary><strong>Example JSON output</strong></summary>
+
+```json
+$ pilotctl --json info
+{"status":"ok","data":{"address":"0:0000.0000.0005","node_id":5,"hostname":"my-agent","peers":3,"connections":1,"uptime_secs":3600}}
+
+$ pilotctl --json find other-agent
+{"status":"ok","data":{"hostname":"other-agent","address":"0:0000.0000.0003"}}
+
+$ pilotctl --json recv 1000 --count 1
+{"status":"ok","data":{"messages":[{"seq":0,"port":1000,"data":"hello","bytes":5}]}}
+
+$ pilotctl --json find nonexistent
+{"status":"error","code":"not_found","message":"hostname not found: nonexistent"}
+```
+
+</details>
+
+---
+
+## Highlights
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Addressing**
+- 48-bit virtual addresses (`N:NNNN.HHHH.LLLL`)
+- 16-bit ports with well-known assignments
+- Hostname-based discovery
+
+**Transport**
+- Reliable streams (TCP-equivalent)
+- Sliding window, SACK, congestion control (AIMD)
+- Flow control (advertised receive window)
+- Nagle coalescing, auto segmentation, zero-window probing
+
+</td>
+<td width="50%" valign="top">
+
+**Security**
+- Encrypt-by-default (X25519 + AES-256-GCM)
+- Ed25519 identities with persistence
+- Nodes are private by default
+- Mutual trust handshake protocol (signed, relay via registry)
+
+**Operations**
+- Single daemon binary with built-in services
+- Structured JSON logging (`slog`)
+- Atomic persistence for all state
+- Hot-standby registry replication
+
+</td>
+</tr>
+</table>
+
+---
+
+## Architecture
+
+```mermaid
+graph LR
+    subgraph Local Machine
+        Agent[Your Agent] -->|commands| CLI[pilotctl]
+        CLI -->|Unix socket| D[Daemon]
+        D --- E[Echo :7]
+        D --- DX[Data Exchange :1001]
+        D --- ES[Event Stream :1002]
+    end
+
+    D <====>|UDP Tunnel<br/>AES-256-GCM + NAT traversal| RD
+
+    subgraph Remote Machine
+        RD[Remote Daemon] -->|Unix socket| RC[pilotctl]
+        RC -->|commands| RA[Remote Agent]
+        RD --- RE[Echo :7]
+        RD --- RDX[Data Exchange :1001]
+        RD --- RES[Event Stream :1002]
+    end
+
+    D -.->|register + discover| RV
+    RD -.->|register + discover| RV
+
+    subgraph Rendezvous
+        RV[Registry :9000<br/>Beacon :9001]
+    end
+```
+
+Your agent talks to a local **daemon** over a Unix socket. The daemon handles everything: tunnel encryption, NAT traversal, packet routing, congestion control, connection management, and built-in services. You never touch sockets, ports, or crypto directly.
+
+The daemon connects to a **rendezvous** server that combines two roles:
+- **Registry** (TCP :9000) -- node directory, trust relay, state persistence
+- **Beacon** (UDP :9001) -- STUN-based NAT traversal
+
+### Connection lifecycle
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant DA as Daemon A
+    participant R as Registry
+    participant DB as Daemon B
+    participant B as Agent B
+
+    Note over DA, DB: Both daemons register on startup
+
+    A->>DA: pilotctl handshake agent-b
+    DA->>R: Handshake request (signed Ed25519)
+    R->>DB: Relay handshake
+    DB->>B: Pending trust request
+
+    B->>DB: pilotctl approve <node_id>
+    DB->>R: Approval (signed)
+    R->>DA: Trust established
+
+    Note over DA, DB: Mutual trust established
+
+    A->>DA: pilotctl connect agent-b --message "hello"
+    DA->>R: Resolve hostname
+    R-->>DA: Address + endpoint
+    DA->>DB: SYN (UDP tunnel, encrypted)
+    DB-->>DA: SYN-ACK
+    DA->>DB: ACK + data
+    DB->>B: Deliver message
+```
+
+### Gateway bridging
+
+```mermaid
+graph LR
+    subgraph Standard Tools
+        C[curl / browser]
+    end
+
+    subgraph Gateway Machine
+        C -->|TCP| GW[Gateway]
+        GW -->|Pilot Protocol| D[Daemon]
+    end
+
+    D <====>|Encrypted UDP Tunnel| RD[Remote Daemon]
+
+    subgraph Remote Machine
+        RD --> WS[Webserver :80<br/>or any port]
+    end
+```
+
+---
+
+## Binaries
+
+| Binary | Description |
+|--------|-------------|
+| `daemon` | Core network agent. Manages tunnel, connections, and built-in services (echo, data exchange, event stream) |
+| `pilotctl` | CLI tool for agents and operators. All daemon interaction goes through this |
+| `rendezvous` | Combined registry + beacon server. One per deployment |
+| `gateway` | IP-to-Pilot bridge. Maps pilot addresses to local IPs for standard TCP tools (curl, browsers) |
+
+**Standalone binaries** (registry, beacon, nameserver) exist in `cmd/` for split deployments but are not needed for typical setups.
+
+### Build
+
+```bash
+go build ./cmd/daemon
+go build ./cmd/pilotctl
+go build ./cmd/rendezvous
+go build ./cmd/gateway
+```
+
+---
+
+## Quick start
+
+### 1. Start the rendezvous server
+
+```bash
+./rendezvous -store /var/lib/pilot/registry.json
+```
+
+Listens on `:9000` (registry) and `:9001` (beacon) by default. The `-store` flag enables persistence across restarts.
+
+### 2. Start the daemon
+
+```bash
+./daemon -registry <rendezvous-ip>:9000 -beacon <rendezvous-ip>:9001 \
+         -listen :4000 -socket /tmp/pilot.sock \
+         -identity /path/to/identity.json \
+         -hostname my-agent -encrypt -public
+```
+
+The daemon auto-starts three built-in services:
+
+| Port | Service | Description | Disable flag |
+|------|---------|-------------|-------------|
+| 7 | Echo | Liveness probes, latency measurement, benchmarks | `-no-echo` |
+| 1001 | Data Exchange | Typed frames (text, JSON, binary, file) with ACK | `-no-dataexchange` |
+| 1002 | Event Stream | Pub/sub broker with topic filtering and wildcards | `-no-eventstream` |
+
+### 3. Use pilotctl
+
+```bash
+# Check status
+pilotctl info
+
+# Ping a peer
+pilotctl ping other-agent
+
+# Send a message
+pilotctl connect other-agent --message "hello"
+
+# Transfer a file
+pilotctl send-file other-agent ./data.json
+
+# Run throughput benchmark (1 MB default)
+pilotctl bench other-agent
+```
+
+---
+
+## Commands
+
+### Identity & Discovery
+
+| Command | Description |
+|---------|-------------|
+| `info` | Your address, hostname, node ID, status, connection table |
+| `set-hostname <name>` | Claim a hostname on the network |
+| `clear-hostname` | Remove your hostname |
+| `find <hostname>` | Look up another agent by name |
+| `set-public <node_id>` | Make endpoint visible to all |
+| `set-private <node_id>` | Hide endpoint (default) |
+
+### Communication
+
+| Command | Description |
+|---------|-------------|
+| `send <addr\|hostname> <port> --data <msg>` | Send a message to a port |
+| `recv <port> [--count n] [--timeout dur]` | Listen for incoming messages |
+| `connect <addr\|hostname> [port] [--message msg]` | Interactive or single-shot connection (default port: 1000) |
+| `send-file <addr\|hostname> <path>` | Transfer a file via data exchange (port 1001) |
+| `listen <port> [--count n]` | Raw port listener (NDJSON in `--json` mode) |
+| `broadcast <network_id> <message>` | Broadcast to all nodes on a network |
+
+### Trust
+
+Agents are **private by default**. Two agents must establish mutual trust before they can communicate.
+
+| Command | Description |
+|---------|-------------|
+| `handshake <hostname> [reason]` | Request trust (auto-approves if mutual) |
+| `pending` | See incoming trust requests |
+| `approve <node_id>` | Accept a request |
+| `reject <node_id> [reason]` | Decline a request |
+| `trust` | List trusted peers |
+| `untrust <node_id>` | Revoke trust |
+
+### Daemon Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `daemon start [flags]` | Start the daemon (background by default) |
+| `daemon stop` | Stop the running daemon |
+| `daemon status [--check]` | Show status (`--check`: silent exit 0/1 for scripts) |
+
+### Diagnostics
+
+| Command | Description |
+|---------|-------------|
+| `ping <addr\|hostname> [--count n]` | Echo probes for reachability and latency |
+| `bench <addr\|hostname> [size_mb]` | Throughput benchmark via echo service |
+| `traceroute <addr>` | Connection setup time and RTT samples |
+| `peers [--search query]` | Connected peers with encryption status |
+| `connections` | Active connections with per-conn stats (CWND, SRTT, flight) |
+| `disconnect <conn_id>` | Close a connection |
+
+### Gateway
+
+The gateway bridges standard IP/TCP traffic to Pilot Protocol. Maps pilot addresses to local IPs on a private subnet, starts TCP proxy listeners. Requires root for ports below 1024.
+
+| Command | Description |
+|---------|-------------|
+| `gateway start [--subnet cidr] [--ports list] [addrs...]` | Start the IP-to-Pilot bridge |
+| `gateway stop` | Stop the gateway |
+| `gateway map <pilot-addr> [local-ip]` | Add a mapping |
+| `gateway unmap <local-ip>` | Remove a mapping |
+| `gateway list` | Show active mappings |
+
+Example:
+```bash
+sudo pilotctl gateway start 0:0000.0000.0001
+# mapped 10.4.0.1 -> 0:0000.0000.0001
+curl http://10.4.0.1:3000/status
+# {"status":"ok","protocol":"pilot","port":3000}
+```
+
+### Registry Operations
+
+| Command | Description |
+|---------|-------------|
+| `register [listen_addr]` | Register a node |
+| `lookup <node_id>` | Look up a node |
+| `deregister <node_id>` | Remove a node |
+| `rotate-key <node_id> <owner>` | Rotate Ed25519 keypair via owner recovery |
+
+### Agent Integration
+
+| Command | Description |
+|---------|-------------|
+| `context` | Machine-readable command catalog with args, flags, return schemas, and error codes |
+| `config [--set key=value]` | Show or update configuration |
+
+---
+
+## Well-known ports
+
+| Port | Service | Built-in | Description |
+|------|---------|----------|-------------|
+| 0 | Ping | Yes | Internal control |
+| 7 | Echo | Yes | Liveness and latency testing |
+| 53 | Nameserver | No | DNS-equivalent name resolution (WIP) |
+| 80 | HTTP | No | Standard web endpoints (use with gateway) |
+| 443 | Secure | No | End-to-end encrypted channel (X25519 + AES-GCM) |
+| 444 | Handshake | Yes | Trust negotiation protocol |
+| 1000 | Stdio | No | Text streams between agents |
+| 1001 | Data Exchange | Yes | Typed frames (text, JSON, binary, file) |
+| 1002 | Event Stream | Yes | Pub/sub with topic filtering |
+
+---
+
+## Deployment
+
+### Daemon flags
+
+```
+-registry        Registry address (default: 127.0.0.1:9000)
+-beacon          Beacon address (default: 127.0.0.1:9001)
+-listen          UDP tunnel address (default: :0)
+-socket          IPC socket path (default: /tmp/pilot.sock)
+-identity        Path to persist Ed25519 identity
+-hostname        Hostname for discovery
+-encrypt         Enable tunnel encryption (default: true)
+-public          Make node publicly visible (default: false)
+-owner           Owner email for key rotation recovery
+-no-echo         Disable built-in echo service (port 7)
+-no-dataexchange Disable built-in data exchange service (port 1001)
+-no-eventstream  Disable built-in event stream service (port 1002)
+-log-level       Log level: debug, info, warn, error (default: info)
+-log-format      Log format: text, json (default: text)
+-config          Path to JSON config file
+```
+
+### Rendezvous flags
+
+```
+-registry-addr   Registry listen address (default: :9000)
+-beacon-addr     Beacon listen address (default: :9001)
+-store           Path to persist registry state (JSON snapshot)
+-tls             Enable TLS for registry connections
+-tls-cert        TLS certificate file
+-tls-key         TLS key file
+-standby         Run as hot standby replicating from a primary address
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PILOT_SOCKET` | `/tmp/pilot.sock` | Daemon IPC socket path |
+| `PILOT_REGISTRY` | `127.0.0.1:9000` | Registry server address |
+
+### Persistence with systemd
+
+```ini
+[Unit]
+Description=Pilot Protocol Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=pilot
+ExecStart=/usr/local/bin/daemon \
+  -registry <rendezvous>:9000 \
+  -beacon <rendezvous>:9001 \
+  -listen :4000 \
+  -socket /tmp/pilot.sock \
+  -identity /var/lib/pilot/identity.json \
+  -encrypt -public \
+  -hostname my-agent
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## Testing
+
+```bash
+go test -parallel 4 -count=1 ./tests/
+```
+
+202 tests pass, 24 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+
+---
+
+## Error codes
+
+| Code | Meaning | Retry? |
+|------|---------|--------|
+| `invalid_argument` | Bad input or usage error | No |
+| `not_found` | Resource not found (hostname/node) | No |
+| `already_exists` | Duplicate operation (daemon/gateway already running) | No |
+| `not_running` | Service not available (daemon/gateway not running) | No |
+| `connection_failed` | Network or dial failure | Yes |
+| `timeout` | Operation timed out | Yes (with longer timeout) |
+| `internal` | Unexpected system error | Maybe |
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[Wire Specification](docs/SPEC.md)** | Packet format, addressing, flags, checksums |
+| **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
+| **[Agent Skills](docs/SKILLS.md)** | Machine-readable skill definition for AI agent integration |
+| **[Contributing](CONTRIBUTING.md)** | Guidelines for contributing to the project |
+
+---
+
+## License
+
+Pilot Protocol is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+---
+
+<p align="center">
+  <br>
+  <a href="https://vulturelabs.com">
+    <strong>Vulture Labs</strong>
+  </a>
+  <br>
+  <sub>Built for agents, by humans.</sub>
+</p>

@@ -1,0 +1,11 @@
+{
+  "registry": "127.0.0.1:9000",
+  "beacon": "127.0.0.1:9001",
+  "listen": ":4000",
+  "socket": "/tmp/pilot.sock",
+  "encrypt": true,
+  "identity": "/var/lib/pilot/identity.key",
+  "owner": "",
+  "log-level": "info",
+  "log-format": "text"
+}
