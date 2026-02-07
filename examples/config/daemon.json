@@ -1,0 +1,18 @@
+{
+  "registry": "35.193.106.76:9000",
+  "beacon": "35.193.106.76:9001",
+  "listen": ":4000",
+  "socket": "/tmp/pilot.sock",
+  "encrypt": true,
+  "registry-tls": false,
+  "identity": "/var/lib/pilot/identity.key",
+  "owner": "",
+  "keepalive": "30s",
+  "idle-timeout": "120s",
+  "syn-rate-limit": 100,
+  "max-conns-per-port": 1024,
+  "max-conns-total": 4096,
+  "time-wait": "10s",
+  "log-level": "info",
+  "log-format": "text"
+}

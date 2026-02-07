@@ -1,0 +1,7 @@
+{
+  "socket": "/tmp/pilot.sock",
+  "subnet": "10.4.0.0/16",
+  "ports": "80,443,1000,1001,1002,7,8080,8443",
+  "log-level": "info",
+  "log-format": "text"
+}

@@ -1,0 +1,6 @@
+{
+  "registry-addr": ":9000",
+  "beacon-addr": ":9001",
+  "log-level": "info",
+  "log-format": "text"
+}
