@@ -1,0 +1,51 @@
+# Compiled binaries
+bin/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Cross-compiled Linux binaries (root level artifacts)
+*-linux
+pilotctl
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.prof
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs — only track .tex, .pdf, SPEC.md, SKILLS.md, and media/
+docs/*
+!docs/*.tex
+!docs/*.pdf
+!docs/SPEC.md
+!docs/SKILLS.md
+!docs/media/
+
+# Daemon socket
+*.sock
+
+# Identity keys
+*.key
+
+# Temporary
+tmp/

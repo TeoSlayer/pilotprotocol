@@ -1,0 +1,6 @@
+{
+  "socket": "/tmp/pilot.sock",
+  "store": "/var/lib/pilot/nameserver.json",
+  "log-level": "info",
+  "log-format": "text"
+}
