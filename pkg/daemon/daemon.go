@@ -1594,8 +1594,8 @@ func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 	return crypto.DecodePublicKey(pubKeyB64)
 }
 
-// pollRelayedHandshakes checks the registry for handshake requests relayed
-// to this node and processes them like direct incoming requests.
+// pollRelayedHandshakes checks the registry for handshake requests and
+// responses relayed to this node and processes them.
 func (d *Daemon) pollRelayedHandshakes() {
 	resp, err := d.regConn.PollHandshakes(d.nodeID)
 	if err != nil {
@@ -1603,11 +1603,8 @@ func (d *Daemon) pollRelayedHandshakes() {
 		return
 	}
 
-	requests, ok := resp["requests"].([]interface{})
-	if !ok || len(requests) == 0 {
-		return
-	}
-
+	// Process incoming handshake requests
+	requests, _ := resp["requests"].([]interface{})
 	for _, r := range requests {
 		req, ok := r.(map[string]interface{})
 		if !ok {
@@ -1624,6 +1621,29 @@ func (d *Daemon) pollRelayedHandshakes() {
 
 		// Process through the handshake manager as if it were a direct request
 		d.handshakes.processRelayedRequest(fromNodeID, justification)
+	}
+
+	// Process handshake responses (approvals/rejections relayed back to us)
+	responses, _ := resp["responses"].([]interface{})
+	for _, r := range responses {
+		respMsg, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fromIDVal, ok := respMsg["from_node_id"].(float64)
+		if !ok {
+			continue
+		}
+		fromNodeID := uint32(fromIDVal)
+		accept, _ := respMsg["accept"].(bool)
+
+		if accept {
+			slog.Info("relayed handshake approval received", "from_node_id", fromNodeID)
+			d.handshakes.processRelayedApproval(fromNodeID)
+		} else {
+			slog.Info("relayed handshake rejection received", "from_node_id", fromNodeID)
+			d.handshakes.processRelayedRejection(fromNodeID)
+		}
 	}
 }
 

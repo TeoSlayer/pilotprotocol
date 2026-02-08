@@ -518,6 +518,37 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 	slog.Info("relayed handshake request pending approval", "from_node_id", fromNodeID, "justification", justification)
 }
 
+// processRelayedApproval handles a handshake approval received via registry relay.
+// This is called when the peer approved our outgoing request and the acceptance
+// was relayed back through the registry (because direct dial to port 444 failed).
+func (hm *HandshakeManager) processRelayedApproval(fromNodeID uint32) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+
+	// Already trusted? Nothing to do.
+	if _, ok := hm.trusted[fromNodeID]; ok {
+		slog.Debug("relayed approval from already-trusted node", "peer_node_id", fromNodeID)
+		return
+	}
+
+	delete(hm.outgoing, fromNodeID)
+	hm.trusted[fromNodeID] = &TrustRecord{
+		NodeID:     fromNodeID,
+		ApprovedAt: time.Now(),
+		Mutual:     true,
+	}
+	hm.saveTrust()
+	slog.Info("trust established via relayed approval", "peer_node_id", fromNodeID)
+}
+
+// processRelayedRejection handles a handshake rejection received via registry relay.
+func (hm *HandshakeManager) processRelayedRejection(fromNodeID uint32) {
+	hm.mu.Lock()
+	delete(hm.outgoing, fromNodeID)
+	hm.mu.Unlock()
+	slog.Info("handshake rejected via relay", "peer_node_id", fromNodeID)
+}
+
 // ApproveHandshake approves a pending handshake request.
 func (hm *HandshakeManager) ApproveHandshake(peerNodeID uint32) error {
 	hm.mu.Lock()
@@ -559,6 +590,18 @@ func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) er
 	delete(hm.pending, peerNodeID)
 	hm.mu.Unlock()
 
+	slog.Info("handshake rejected", "peer_node_id", peerNodeID, "reason", reason)
+
+	// Relay rejection via registry so the requester learns about it even behind NAT
+	if hm.daemon.regConn != nil {
+		nodeID := hm.daemon.nodeID
+		sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerNodeID))
+		hm.goRPC(func() {
+			hm.daemon.regConn.RespondHandshake(nodeID, peerNodeID, false, sig)
+		})
+	}
+
+	// Also try direct notification (best-effort)
 	pubKeyStr := ""
 	if hm.daemon.identity != nil {
 		pubKeyStr = crypto.EncodePublicKey(hm.daemon.identity.PublicKey)
@@ -572,8 +615,8 @@ func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) er
 		Timestamp: time.Now().Unix(),
 	}
 
-	slog.Info("handshake rejected", "peer_node_id", peerNodeID, "reason", reason)
-	return hm.sendMessage(peerNodeID, &msg)
+	hm.sendMessage(peerNodeID, &msg) // best-effort, ignore error
+	return nil
 }
 
 // RevokeTrust removes a peer from the trusted set and notifies both the
@@ -694,7 +737,21 @@ func (hm *HandshakeManager) sendAccept(peerNodeID uint32) error {
 		PublicKey: pubKeyStr,
 		Timestamp: time.Now().Unix(),
 	}
-	return hm.sendMessage(peerNodeID, &msg)
+	err := hm.sendMessage(peerNodeID, &msg)
+	if err != nil {
+		// Direct dial failed (peer may be private) — relay acceptance through registry
+		slog.Info("direct accept failed, relaying via registry", "peer_node_id", peerNodeID, "error", err)
+		if hm.daemon.regConn != nil {
+			nodeID := hm.daemon.nodeID
+			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerNodeID))
+			_, relayErr := hm.daemon.regConn.RespondHandshake(nodeID, peerNodeID, true, sig)
+			if relayErr != nil {
+				return fmt.Errorf("accept relay: %w", relayErr)
+			}
+			return nil
+		}
+	}
+	return err
 }
 
 // signHandshakeChallenge signs a handshake challenge string with the daemon's identity (M12 fix).

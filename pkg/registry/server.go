@@ -78,6 +78,8 @@ type Server struct {
 
 	// Handshake relay inbox: target nodeID -> pending requests
 	handshakeInbox map[uint32][]*HandshakeRelayMsg
+	// Handshake response inbox: requester nodeID -> approval/rejection responses
+	handshakeResponses map[uint32][]*HandshakeResponseMsg
 
 	// Rate limiting
 	rateLimiter *RateLimiter
@@ -206,6 +208,13 @@ type HandshakeRelayMsg struct {
 	Timestamp     time.Time `json:"timestamp"`
 }
 
+// HandshakeResponseMsg is a handshake approval/rejection stored for the original requester.
+type HandshakeResponseMsg struct {
+	FromNodeID uint32    `json:"from_node_id"` // the node that approved/rejected
+	Accept     bool      `json:"accept"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
 // maxHandshakeInbox limits the number of pending handshake requests per node.
 const maxHandshakeInbox = 100
 
@@ -277,7 +286,8 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		beaconAddr:  beaconAddr,
 		storePath:   storePath,
 		trustPairs:     make(map[string]bool),
-		handshakeInbox: make(map[uint32][]*HandshakeRelayMsg),
+		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
+		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
 		replMgr:     newReplicationManager(),
 		readyCh:     make(chan struct{}),
@@ -1391,6 +1401,9 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 	inbox := s.handshakeInbox[nodeID]
 	delete(s.handshakeInbox, nodeID)
 
+	respInbox := s.handshakeResponses[nodeID]
+	delete(s.handshakeResponses, nodeID)
+
 	requests := make([]map[string]interface{}, len(inbox))
 	for i, req := range inbox {
 		requests[i] = map[string]interface{}{
@@ -1400,9 +1413,19 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 		}
 	}
 
+	responses := make([]map[string]interface{}, len(respInbox))
+	for i, resp := range respInbox {
+		responses[i] = map[string]interface{}{
+			"from_node_id": resp.FromNodeID,
+			"accept":       resp.Accept,
+			"timestamp":    resp.Timestamp.Unix(),
+		}
+	}
+
 	return map[string]interface{}{
-		"type":     "poll_handshakes_ok",
-		"requests": requests,
+		"type":      "poll_handshakes_ok",
+		"requests":  requests,
+		"responses": responses,
 	}, nil
 }
 
@@ -1449,6 +1472,13 @@ func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]
 	} else {
 		slog.Info("handshake rejected via relay", "node", nodeID, "peer", peerID)
 	}
+
+	// Store response in requester's response inbox so they learn about the approval
+	s.handshakeResponses[peerID] = append(s.handshakeResponses[peerID], &HandshakeResponseMsg{
+		FromNodeID: nodeID,
+		Accept:     accept,
+		Timestamp:  time.Now(),
+	})
 
 	return map[string]interface{}{
 		"type":    "respond_handshake_ok",
@@ -1688,11 +1718,13 @@ func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}
 
 // snapshot is the JSON-serializable registry state.
 type snapshot struct {
-	NextNode   uint32                   `json:"next_node"`
-	NextNet    uint16                   `json:"next_net"`
-	Nodes      map[string]*snapshotNode `json:"nodes"`
-	Networks   map[string]*snapshotNet  `json:"networks"`
-	TrustPairs []string                 `json:"trust_pairs,omitempty"`
+	NextNode           uint32                                `json:"next_node"`
+	NextNet            uint16                                `json:"next_net"`
+	Nodes              map[string]*snapshotNode              `json:"nodes"`
+	Networks           map[string]*snapshotNet               `json:"networks"`
+	TrustPairs         []string                              `json:"trust_pairs,omitempty"`
+	HandshakeInbox     map[string][]*HandshakeRelayMsg       `json:"handshake_inbox,omitempty"`
+	HandshakeResponses map[string][]*HandshakeResponseMsg    `json:"handshake_responses,omitempty"`
 }
 
 type snapshotNode struct {
@@ -1753,6 +1785,20 @@ func (s *Server) save() {
 	// Persist trust pairs
 	for key := range s.trustPairs {
 		snap.TrustPairs = append(snap.TrustPairs, key)
+	}
+
+	// Persist handshake inboxes
+	if len(s.handshakeInbox) > 0 {
+		snap.HandshakeInbox = make(map[string][]*HandshakeRelayMsg, len(s.handshakeInbox))
+		for nodeID, msgs := range s.handshakeInbox {
+			snap.HandshakeInbox[fmt.Sprintf("%d", nodeID)] = msgs
+		}
+	}
+	if len(s.handshakeResponses) > 0 {
+		snap.HandshakeResponses = make(map[string][]*HandshakeResponseMsg, len(s.handshakeResponses))
+		for nodeID, msgs := range s.handshakeResponses {
+			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
+		}
 	}
 
 	data, err := json.MarshalIndent(snap, "", "  ")
@@ -1846,6 +1892,24 @@ func (s *Server) load() error {
 	}
 	if len(snap.TrustPairs) > 0 {
 		slog.Info("loaded trust pairs", "count", len(snap.TrustPairs))
+	}
+
+	// Restore handshake inboxes
+	for nodeIDStr, msgs := range snap.HandshakeInbox {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.handshakeInbox[nodeID] = msgs
+		}
+	}
+	for nodeIDStr, msgs := range snap.HandshakeResponses {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.handshakeResponses[nodeID] = msgs
+		}
+	}
+	inboxCount := len(s.handshakeInbox) + len(s.handshakeResponses)
+	if inboxCount > 0 {
+		slog.Info("loaded handshake inboxes", "request_queues", len(s.handshakeInbox), "response_queues", len(s.handshakeResponses))
 	}
 
 	// Ensure store directory exists for future saves
