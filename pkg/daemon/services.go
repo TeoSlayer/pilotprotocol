@@ -172,14 +172,19 @@ func (d *Daemon) handleDataExchangeConn(conn *Connection) {
 		)
 
 		// Save received files to disk
+		var saveErr error
 		if frame.Type == dataexchange.TypeFile && frame.Filename != "" {
-			d.saveReceivedFile(frame)
+			saveErr = d.saveReceivedFile(frame)
 		}
 
 		// ACK: echo back a text frame confirming receipt
+		ackMsg := fmt.Sprintf("ACK %s %d bytes", dataexchange.TypeName(frame.Type), len(frame.Payload))
+		if saveErr != nil {
+			ackMsg = fmt.Sprintf("ERR %s save failed: %v", dataexchange.TypeName(frame.Type), saveErr)
+		}
 		ack := &dataexchange.Frame{
 			Type:    dataexchange.TypeText,
-			Payload: []byte(fmt.Sprintf("ACK %s %d bytes", dataexchange.TypeName(frame.Type), len(frame.Payload))),
+			Payload: []byte(ackMsg),
 		}
 		if err := dataexchange.WriteFrame(adapter, ack); err != nil {
 			return
@@ -188,21 +193,21 @@ func (d *Daemon) handleDataExchangeConn(conn *Connection) {
 }
 
 // saveReceivedFile saves a received file frame to ~/.pilot/received/.
-func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) {
+func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Warn("save received file: cannot determine home dir", "err", err)
-		return
+		return fmt.Errorf("home dir: %w", err)
 	}
 	dir := filepath.Join(home, ".pilot", "received")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		slog.Warn("save received file: mkdir failed", "err", err)
-		return
+		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	// Sanitize filename and add timestamp to avoid overwrites
+	// Sanitize filename and add timestamp (with ms precision) to avoid overwrites
 	safeName := filepath.Base(frame.Filename)
-	ts := time.Now().Format("20060102-150405")
+	ts := time.Now().Format("20060102-150405.000")
 	ext := filepath.Ext(safeName)
 	base := safeName[:len(safeName)-len(ext)]
 	destName := fmt.Sprintf("%s-%s%s", base, ts, ext)
@@ -210,9 +215,10 @@ func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) {
 
 	if err := os.WriteFile(destPath, frame.Payload, 0600); err != nil {
 		slog.Warn("save received file: write failed", "path", destPath, "err", err)
-		return
+		return fmt.Errorf("write: %w", err)
 	}
 	slog.Info("file saved", "path", destPath, "bytes", len(frame.Payload))
+	return nil
 }
 
 // startEventStreamService binds port 1002 and runs a pub/sub broker.
@@ -297,19 +303,30 @@ func (b *eventBroker) removeSub(adapter *connAdapter) {
 
 func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-
+	var dead []*connAdapter
 	for _, conn := range b.subs[evt.Topic] {
 		if conn != sender {
-			eventstream.WriteEvent(conn, evt)
+			if err := eventstream.WriteEvent(conn, evt); err != nil {
+				slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
+				dead = append(dead, conn)
+			}
 		}
 	}
 	if evt.Topic != "*" {
 		for _, conn := range b.subs["*"] {
 			if conn != sender {
-				eventstream.WriteEvent(conn, evt)
+				if err := eventstream.WriteEvent(conn, evt); err != nil {
+					slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
+					dead = append(dead, conn)
+				}
 			}
 		}
+	}
+	b.mu.RUnlock()
+
+	// Clean up dead subscribers outside the read lock
+	for _, conn := range dead {
+		b.removeSub(conn)
 	}
 	slog.Debug("eventstream published", "topic", evt.Topic, "bytes", len(evt.Payload), "from", sender.RemoteAddr())
 }

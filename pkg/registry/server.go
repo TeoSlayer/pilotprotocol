@@ -503,6 +503,7 @@ func (s *Server) reapStaleNodes() {
 			if node.Hostname != "" {
 				delete(s.hostnameIdx, node.Hostname)
 			}
+			s.cleanupNode(id)
 			delete(s.nodes, id)
 			reaped = true
 		}
@@ -1173,6 +1174,24 @@ func trustPairKey(a, b uint32) string {
 	return fmt.Sprintf("%d:%d", a, b)
 }
 
+// cleanupNode removes all trust pairs, handshake inboxes, and response
+// queues associated with a departed node. Caller must hold s.mu.
+func (s *Server) cleanupNode(nodeID uint32) {
+	// Remove all trust pairs involving this node
+	for key := range s.trustPairs {
+		// Trust pair key format is "min:max"
+		var a, b uint32
+		if _, err := fmt.Sscanf(key, "%d:%d", &a, &b); err == nil {
+			if a == nodeID || b == nodeID {
+				delete(s.trustPairs, key)
+			}
+		}
+	}
+	// Remove handshake inboxes
+	delete(s.handshakeInbox, nodeID)
+	delete(s.handshakeResponses, nodeID)
+}
+
 func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	requesterID := jsonUint32(msg, "requester_id")
@@ -1654,6 +1673,7 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	if node.Hostname != "" {
 		delete(s.hostnameIdx, node.Hostname)
 	}
+	s.cleanupNode(nodeID)
 	delete(s.nodes, nodeID)
 	s.save()
 

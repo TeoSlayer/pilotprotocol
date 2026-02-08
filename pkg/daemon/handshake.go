@@ -500,11 +500,14 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 		}
 		slog.Info("mutual relayed handshake auto-approved", "peer_node_id", fromNodeID)
 		hm.saveTrust()
-		// Report trust to registry
+		// Respond via registry and backfill public key
 		if hm.daemon.regConn != nil {
 			nodeID, peerID := hm.daemon.nodeID, fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() { hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig) })
+			hm.goRPC(func() {
+				hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig)
+				hm.backfillPeerKey(peerID)
+			})
 		}
 		return
 	}
@@ -539,6 +542,38 @@ func (hm *HandshakeManager) processRelayedApproval(fromNodeID uint32) {
 	}
 	hm.saveTrust()
 	slog.Info("trust established via relayed approval", "peer_node_id", fromNodeID)
+
+	// Backfill public key from registry
+	if hm.daemon.regConn != nil {
+		peerID := fromNodeID
+		hm.goRPC(func() { hm.backfillPeerKey(peerID) })
+	}
+}
+
+// backfillPeerKey fetches a peer's public key from the registry and updates
+// the trust record. Called asynchronously after relay-based trust establishment,
+// where the P2P public key exchange didn't happen.
+func (hm *HandshakeManager) backfillPeerKey(peerNodeID uint32) {
+	if hm.daemon.regConn == nil {
+		return
+	}
+	resp, err := hm.daemon.regConn.Lookup(peerNodeID)
+	if err != nil {
+		slog.Debug("backfill peer key lookup failed", "peer_node_id", peerNodeID, "error", err)
+		return
+	}
+	pubKeyB64, _ := resp["public_key"].(string)
+	if pubKeyB64 == "" {
+		return
+	}
+
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if rec, ok := hm.trusted[peerNodeID]; ok && rec.PublicKey == "" {
+		rec.PublicKey = pubKeyB64
+		hm.saveTrust()
+		slog.Debug("backfilled peer public key", "peer_node_id", peerNodeID)
+	}
 }
 
 // processRelayedRejection handles a handshake rejection received via registry relay.

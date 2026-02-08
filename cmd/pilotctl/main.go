@@ -762,13 +762,13 @@ func cmdContext() {
 				"returns":     "node_id, new public_key",
 			},
 			"set-public": map[string]interface{}{
-				"args":        []string{"<node_id>"},
-				"description": "Make node endpoint publicly visible",
+				"args":        []string{},
+				"description": "Make this node's endpoint publicly visible (routes through daemon)",
 				"returns":     "status",
 			},
 			"set-private": map[string]interface{}{
-				"args":        []string{"<node_id>"},
-				"description": "Hide node endpoint (private, default)",
+				"args":        []string{},
+				"description": "Hide this node's endpoint (private, default; routes through daemon)",
 				"returns":     "status",
 			},
 			"deregister": map[string]interface{}{
@@ -1606,7 +1606,10 @@ func cmdConnect(args []string) {
 
 	port := protocol.PortStdIO
 	if len(pos) > 1 {
-		p, _ := strconv.ParseUint(pos[1], 10, 16)
+		p, err := strconv.ParseUint(pos[1], 10, 16)
+		if err != nil {
+			fatalCode("invalid_argument", "invalid port %q: %v", pos[1], err)
+		}
 		port = uint16(p)
 	}
 
@@ -1712,7 +1715,10 @@ func cmdSend(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
-	p, _ := strconv.ParseUint(pos[1], 10, 16)
+	p, err := strconv.ParseUint(pos[1], 10, 16)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid port %q: %v", pos[1], err)
+	}
 	port := uint16(p)
 
 	data := flagString(flags, "data", "")
@@ -1767,7 +1773,10 @@ func cmdRecv(args []string) {
 		fatalCode("invalid_argument", "usage: pilotctl recv <port> [--count <n>] [--timeout <dur>]")
 	}
 
-	p, _ := strconv.ParseUint(pos[0], 10, 16)
+	p, err := strconv.ParseUint(pos[0], 10, 16)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid port %q: %v", pos[0], err)
+	}
 	port := uint16(p)
 	count := flagInt(flags, "count", 1)
 	timeout := flagDuration(flags, "timeout", 30*time.Second)
@@ -2862,7 +2871,10 @@ func cmdListen(args []string) {
 		fatalCode("invalid_argument", "usage: pilotctl listen <port> [--count <n>] [--timeout <dur>]")
 	}
 
-	p, _ := strconv.ParseUint(pos[0], 10, 16)
+	p, err := strconv.ParseUint(pos[0], 10, 16)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid port %q: %v", pos[0], err)
+	}
 	port := uint16(p)
 	count := flagInt(flags, "count", 0) // 0 = infinite
 	timeout := flagDuration(flags, "timeout", 0)
