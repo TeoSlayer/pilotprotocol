@@ -9,9 +9,8 @@ set -e
 REPO="TeoSlayer/pilotprotocol"
 REGISTRY="35.193.106.76:9000"
 BEACON="35.193.106.76:9001"
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="$HOME/.pilot"
-IDENTITY_DIR="$HOME/.pilot"
+PILOT_DIR="$HOME/.pilot"
+BIN_DIR="$PILOT_DIR/bin"
 
 # --- Uninstall ---
 
@@ -21,23 +20,22 @@ if [ "${1}" = "uninstall" ]; then
     echo ""
 
     OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    SUDO=""
-    if [ ! -w "$INSTALL_DIR" ]; then
-        SUDO="sudo"
-    fi
 
     # Stop daemon
-    if command -v pilotctl >/dev/null 2>&1; then
+    if [ -x "$BIN_DIR/pilotctl" ]; then
+        "$BIN_DIR/pilotctl" daemon stop 2>/dev/null || true
+        "$BIN_DIR/pilotctl" gateway stop 2>/dev/null || true
+    elif command -v pilotctl >/dev/null 2>&1; then
         pilotctl daemon stop 2>/dev/null || true
         pilotctl gateway stop 2>/dev/null || true
     fi
 
     # Remove system service
     if [ "$OS" = "linux" ] && [ -f /etc/systemd/system/pilot-daemon.service ]; then
-        $SUDO systemctl stop pilot-daemon 2>/dev/null || true
-        $SUDO systemctl disable pilot-daemon 2>/dev/null || true
-        $SUDO rm -f /etc/systemd/system/pilot-daemon.service
-        $SUDO systemctl daemon-reload
+        sudo systemctl stop pilot-daemon 2>/dev/null || true
+        sudo systemctl disable pilot-daemon 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/pilot-daemon.service
+        sudo systemctl daemon-reload
         echo "  Removed systemd service"
     fi
     if [ "$OS" = "darwin" ]; then
@@ -49,14 +47,10 @@ if [ "${1}" = "uninstall" ]; then
         fi
     fi
 
-    # Remove binaries
-    $SUDO rm -f "$INSTALL_DIR/pilot-daemon" "$INSTALL_DIR/pilotctl" "$INSTALL_DIR/pilot-gateway"
-    echo "  Removed binaries"
-
-    # Remove config and identity
-    if [ -d "$CONFIG_DIR" ]; then
-        rm -rf "$CONFIG_DIR"
-        echo "  Removed $CONFIG_DIR"
+    # Remove pilot directory (binaries, config, identity, received files)
+    if [ -d "$PILOT_DIR" ]; then
+        rm -rf "$PILOT_DIR"
+        echo "  Removed $PILOT_DIR"
     fi
 
     # Remove socket
@@ -135,33 +129,29 @@ if [ -z "$TAG" ]; then
     CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" "$TMPDIR/src/cmd/gateway"
 fi
 
-# --- Install binaries ---
+# --- Install binaries to ~/.pilot/bin ---
 
 echo "Installing binaries..."
-SUDO=""
-if [ ! -w "$INSTALL_DIR" ]; then
-    SUDO="sudo"
-fi
+mkdir -p "$BIN_DIR"
 
-$SUDO install -m 755 "$TMPDIR/pilot-daemon" "$INSTALL_DIR/pilot-daemon"
-$SUDO install -m 755 "$TMPDIR/pilotctl" "$INSTALL_DIR/pilotctl"
-$SUDO install -m 755 "$TMPDIR/pilot-gateway" "$INSTALL_DIR/pilot-gateway"
+cp "$TMPDIR/pilot-daemon" "$BIN_DIR/pilot-daemon"
+cp "$TMPDIR/pilotctl" "$BIN_DIR/pilotctl"
+cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
+chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
 
 # --- Write config ---
 
-mkdir -p "$CONFIG_DIR"
-
-cat > "$CONFIG_DIR/config.json" <<CONF
+cat > "$PILOT_DIR/config.json" <<CONF
 {
   "registry": "${REGISTRY}",
   "beacon": "${BEACON}",
   "socket": "/tmp/pilot.sock",
   "encrypt": true,
-  "identity": "${IDENTITY_DIR}/identity.json"
+  "identity": "${PILOT_DIR}/identity.json"
 }
 CONF
 
-echo "Config written to ${CONFIG_DIR}/config.json"
+echo "Config written to ${PILOT_DIR}/config.json"
 
 # --- Set up system service ---
 
@@ -175,7 +165,7 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -n "$PILOT_PUBLIC" ]; then
         PUBLIC_FLAG="-public"
     fi
-    $SUDO tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
+    sudo tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
 [Unit]
 Description=Pilot Protocol Daemon
 After=network-online.target
@@ -184,12 +174,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$(whoami)
-ExecStart=${INSTALL_DIR}/pilot-daemon \\
+ExecStart=${BIN_DIR}/pilot-daemon \\
   -registry ${REGISTRY} \\
   -beacon ${BEACON} \\
   -listen :4000 \\
   -socket /tmp/pilot.sock \\
-  -identity ${IDENTITY_DIR}/identity.json \\
+  -identity ${PILOT_DIR}/identity.json \\
   -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
 Restart=on-failure
 RestartSec=5
@@ -197,7 +187,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 SVC
-    $SUDO systemctl daemon-reload
+    sudo systemctl daemon-reload
     echo "  Service: pilot-daemon.service"
     echo "  Start:   sudo systemctl start pilot-daemon"
     echo "  Enable:  sudo systemctl enable pilot-daemon"
@@ -226,7 +216,7 @@ if [ "$OS" = "darwin" ]; then
     <string>com.vulturelabs.pilot-daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${INSTALL_DIR}/pilot-daemon</string>
+        <string>${BIN_DIR}/pilot-daemon</string>
         <string>-registry</string>
         <string>${REGISTRY}</string>
         <string>-beacon</string>
@@ -236,7 +226,7 @@ if [ "$OS" = "darwin" ]; then
         <string>-socket</string>
         <string>/tmp/pilot.sock</string>
         <string>-identity</string>
-        <string>${IDENTITY_DIR}/identity.json</string>
+        <string>${PILOT_DIR}/identity.json</string>
         <string>-encrypt</string>
 ${EXTRA_ARGS}    </array>
     <key>RunAtLoad</key>
@@ -247,9 +237,9 @@ ${EXTRA_ARGS}    </array>
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>${HOME}/.pilot/daemon.log</string>
+    <string>${PILOT_DIR}/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>${HOME}/.pilot/daemon.log</string>
+    <string>${PILOT_DIR}/daemon.log</string>
 </dict>
 </plist>
 PLIST
@@ -258,28 +248,53 @@ PLIST
     echo "  Stop:    launchctl unload $PLIST"
 fi
 
+# --- Add to PATH ---
+
+IN_PATH=false
+case ":$PATH:" in
+    *":${BIN_DIR}:"*) IN_PATH=true ;;
+esac
+
+if [ "$IN_PATH" = false ]; then
+    SHELL_NAME=$(basename "$SHELL" 2>/dev/null || echo "sh")
+    case "$SHELL_NAME" in
+        zsh)  RC="$HOME/.zshrc" ;;
+        bash) RC="$HOME/.bashrc" ;;
+        *)    RC="$HOME/.profile" ;;
+    esac
+    if [ -f "$RC" ] && grep -q "$BIN_DIR" "$RC" 2>/dev/null; then
+        : # already in rc file
+    else
+        echo "" >> "$RC"
+        echo "# Pilot Protocol" >> "$RC"
+        echo "export PATH=\"${BIN_DIR}:\$PATH\"" >> "$RC"
+        echo "  Added ${BIN_DIR} to PATH in ${RC}"
+    fi
+fi
+
 # --- Verify ---
 
 echo ""
 echo "Installed:"
-echo "  pilot-daemon   ${INSTALL_DIR}/pilot-daemon"
-echo "  pilotctl        ${INSTALL_DIR}/pilotctl"
-echo "  pilot-gateway   ${INSTALL_DIR}/pilot-gateway"
+echo "  pilot-daemon   ${BIN_DIR}/pilot-daemon"
+echo "  pilotctl        ${BIN_DIR}/pilotctl"
+echo "  pilot-gateway   ${BIN_DIR}/pilot-gateway"
 echo ""
-echo "Config: ${CONFIG_DIR}/config.json"
+echo "Config: ${PILOT_DIR}/config.json"
 echo "  Registry: ${REGISTRY}"
 echo "  Beacon:   ${BEACON}"
 echo "  Socket:   /tmp/pilot.sock"
-echo "  Identity: ${IDENTITY_DIR}/identity.json"
+echo "  Identity: ${PILOT_DIR}/identity.json"
 echo ""
 echo "Get started:"
 echo ""
+echo "  export PATH=\"${BIN_DIR}:\$PATH\"    # if not restarting your shell"
 echo "  pilotctl daemon start --hostname my-agent"
 echo "  pilotctl info"
 echo "  pilotctl ping <other-agent>"
 echo ""
 echo "Bridge IP traffic (requires root for ports < 1024):"
 echo ""
-echo "  sudo pilotctl gateway start --ports 80,3000 <pilot-addr>"
+echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
 echo "  curl http://10.4.0.1:3000/status"
 echo ""

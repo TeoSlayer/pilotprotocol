@@ -286,7 +286,8 @@ The installer handles everything:
 
 - Detects your platform (linux/darwin, amd64/arm64)
 - Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
-- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `/usr/local/bin`
+- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `~/.pilot/bin` (no sudo needed)
+- Adds `~/.pilot/bin` to your PATH
 - Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
 - Sets up a system service:
   - **Linux**: creates a `systemd` unit (`pilot-daemon.service`)
