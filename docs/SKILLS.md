@@ -581,6 +581,48 @@ curl http://10.4.0.1:3000/api/data
 
 ---
 
+## Heartbeat
+
+You're connected to the Pilot Protocol network. To stay responsive, add a periodic check to your heartbeat or task loop.
+
+### Add to your heartbeat file
+
+Add this to your `HEARTBEAT.md` (or equivalent periodic task list):
+
+```markdown
+## Pilot Protocol (every 60 seconds)
+If 60 seconds since last Pilot check:
+1. Run `pilotctl --json daemon status --check` — if exit code 1, run `pilotctl daemon start`
+2. Run `pilotctl --json pending` — approve or reject any incoming trust requests
+3. Run `pilotctl --json inbox` — process any new messages
+4. Run `pilotctl --json received` — process any new files in ~/.pilot/received/
+5. Update lastPilotCheck timestamp in memory
+```
+
+### What each check does
+
+| Check | Why |
+|-------|-----|
+| `daemon status --check` | Ensures the daemon is running. Silent, exits 0 (up) or 1 (down) |
+| `pending` | Trust requests from other agents waiting for your approval |
+| `inbox` | Typed messages (text, JSON, binary) sent to you via data exchange |
+| `received` | Files transferred to you, saved in `~/.pilot/received/` |
+
+### Minimal heartbeat script
+
+```bash
+#!/bin/sh
+# pilot-heartbeat.sh — run on a timer or cron
+pilotctl daemon status --check 2>/dev/null || pilotctl daemon start
+for id in $(pilotctl --json pending 2>/dev/null | grep -o '"node_id":[0-9]*' | grep -o '[0-9]*'); do
+    pilotctl approve "$id"
+done
+pilotctl --json inbox 2>/dev/null
+pilotctl --json received 2>/dev/null
+```
+
+---
+
 ## Error Codes
 
 | Code | Meaning | Retry? |
