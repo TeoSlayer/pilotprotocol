@@ -32,11 +32,15 @@ if [ "${1}" = "uninstall" ]; then
 
     # Remove system service
     if [ "$OS" = "linux" ] && [ -f /etc/systemd/system/pilot-daemon.service ]; then
-        sudo systemctl stop pilot-daemon 2>/dev/null || true
-        sudo systemctl disable pilot-daemon 2>/dev/null || true
-        sudo rm -f /etc/systemd/system/pilot-daemon.service
-        sudo systemctl daemon-reload
-        echo "  Removed systemd service"
+        if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
+            sudo systemctl stop pilot-daemon 2>/dev/null || true
+            sudo systemctl disable pilot-daemon 2>/dev/null || true
+            sudo rm -f /etc/systemd/system/pilot-daemon.service
+            sudo systemctl daemon-reload
+            echo "  Removed systemd service"
+        else
+            echo "  Skipped systemd removal (run with sudo to remove)"
+        fi
     fi
     if [ "$OS" = "darwin" ]; then
         PLIST="$HOME/Library/LaunchAgents/com.vulturelabs.pilot-daemon.plist"
@@ -166,6 +170,11 @@ echo "Config written to ${PILOT_DIR}/config.json"
 # --- Set up system service ---
 
 if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+    CAN_SUDO=false
+    if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
+        CAN_SUDO=true
+    fi
+    if [ "$CAN_SUDO" = true ]; then
     echo "Setting up systemd service..."
     HOSTNAME_FLAG=""
     if [ -n "$PILOT_HOSTNAME" ]; then
@@ -201,6 +210,9 @@ SVC
     echo "  Service: pilot-daemon.service"
     echo "  Start:   sudo systemctl start pilot-daemon"
     echo "  Enable:  sudo systemctl enable pilot-daemon"
+    else
+    echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
+    fi
 fi
 
 if [ "$OS" = "darwin" ]; then
