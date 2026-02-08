@@ -12,8 +12,8 @@ Thank you for your interest in contributing to Pilot Protocol. This document cov
 ### Setup
 
 ```bash
-git clone https://github.com/user/web4.git
-cd web4
+git clone git clone git@github.com:TeoSlayer/pilotprotocol.git
+cd pilotprotocol
 go build ./...
 ```
 
