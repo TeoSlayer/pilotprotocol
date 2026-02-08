@@ -75,8 +75,8 @@ func (p pilotAddr) String() string {
 }
 
 func (a *connAdapter) SetDeadline(t time.Time) error      { return nil }
-func (a *connAdapter) SetReadDeadline(t time.Time) error   { return nil }
-func (a *connAdapter) SetWriteDeadline(t time.Time) error  { return nil }
+func (a *connAdapter) SetReadDeadline(t time.Time) error  { return nil }
+func (a *connAdapter) SetWriteDeadline(t time.Time) error { return nil }
 
 // startBuiltinServices starts all enabled built-in port services.
 func (d *Daemon) startBuiltinServices() {

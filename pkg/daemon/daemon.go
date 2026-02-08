@@ -21,18 +21,18 @@ var (
 )
 
 type Config struct {
-	RegistryAddr string
-	BeaconAddr   string
-	ListenAddr   string // UDP listen address for tunnel traffic
-	SocketPath   string // Unix socket path for IPC
-	Encrypt      bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
+	RegistryAddr        string
+	BeaconAddr          string
+	ListenAddr          string // UDP listen address for tunnel traffic
+	SocketPath          string // Unix socket path for IPC
+	Encrypt             bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
 	RegistryTLS         bool   // use TLS for registry connection
 	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning
-	IdentityPath string // path to persist Ed25519 identity (empty = no persistence)
-	Owner        string // owner identifier (email) for key rotation recovery
+	IdentityPath        string // path to persist Ed25519 identity (empty = no persistence)
+	Owner               string // owner identifier (email) for key rotation recovery
 
-	Public       bool   // make this node's endpoint publicly discoverable
-	Hostname     string // hostname for discovery (empty = none)
+	Public   bool   // make this node's endpoint publicly discoverable
+	Hostname string // hostname for discovery (empty = none)
 
 	// Built-in services
 	DisableEcho         bool // disable built-in echo service (port 7)
@@ -40,23 +40,23 @@ type Config struct {
 	DisableEventStream  bool // disable built-in event stream service (port 1002)
 
 	// Tuning (zero = use defaults)
-	KeepaliveInterval    time.Duration // default 30s
-	IdleTimeout          time.Duration // default 120s
-	SYNRateLimit         int           // default 100
-	MaxConnectionsPerPort int          // default 1024
-	MaxTotalConnections  int           // default 4096
-	TimeWaitDuration     time.Duration // default 10s
+	KeepaliveInterval     time.Duration // default 30s
+	IdleTimeout           time.Duration // default 120s
+	SYNRateLimit          int           // default 100
+	MaxConnectionsPerPort int           // default 1024
+	MaxTotalConnections   int           // default 4096
+	TimeWaitDuration      time.Duration // default 10s
 }
 
 // Default tuning constants (used when Config fields are zero).
 const (
-	DefaultKeepaliveInterval    = 30 * time.Second
-	DefaultIdleTimeout          = 120 * time.Second
-	DefaultIdleSweepInterval    = 15 * time.Second
-	DefaultSYNRateLimit         = 100
+	DefaultKeepaliveInterval     = 30 * time.Second
+	DefaultIdleTimeout           = 120 * time.Second
+	DefaultIdleSweepInterval     = 15 * time.Second
+	DefaultSYNRateLimit          = 100
 	DefaultMaxConnectionsPerPort = 1024
-	DefaultMaxTotalConnections  = 4096
-	DefaultTimeWaitDuration     = 10 * time.Second
+	DefaultMaxTotalConnections   = 4096
+	DefaultTimeWaitDuration      = 10 * time.Second
 )
 
 type Daemon struct {
@@ -83,41 +83,53 @@ type Daemon struct {
 	perSrcSYN   map[uint32]*srcSYNBucket // source nodeID -> bucket
 }
 
-const perSourceSYNLimit = 10    // max SYNs per source per second
+const perSourceSYNLimit = 10     // max SYNs per source per second
 const maxPerSrcSYNEntries = 4096 // max tracked source entries (M9 fix)
 
 type srcSYNBucket struct {
-	tokens  int
+	tokens   int
 	lastFill time.Time
 }
 
 func (c *Config) keepaliveInterval() time.Duration {
-	if c.KeepaliveInterval > 0 { return c.KeepaliveInterval }
+	if c.KeepaliveInterval > 0 {
+		return c.KeepaliveInterval
+	}
 	return DefaultKeepaliveInterval
 }
 
 func (c *Config) idleTimeout() time.Duration {
-	if c.IdleTimeout > 0 { return c.IdleTimeout }
+	if c.IdleTimeout > 0 {
+		return c.IdleTimeout
+	}
 	return DefaultIdleTimeout
 }
 
 func (c *Config) synRateLimit() int {
-	if c.SYNRateLimit > 0 { return c.SYNRateLimit }
+	if c.SYNRateLimit > 0 {
+		return c.SYNRateLimit
+	}
 	return DefaultSYNRateLimit
 }
 
 func (c *Config) maxConnectionsPerPort() int {
-	if c.MaxConnectionsPerPort > 0 { return c.MaxConnectionsPerPort }
+	if c.MaxConnectionsPerPort > 0 {
+		return c.MaxConnectionsPerPort
+	}
 	return DefaultMaxConnectionsPerPort
 }
 
 func (c *Config) maxTotalConnections() int {
-	if c.MaxTotalConnections > 0 { return c.MaxTotalConnections }
+	if c.MaxTotalConnections > 0 {
+		return c.MaxTotalConnections
+	}
 	return DefaultMaxTotalConnections
 }
 
 func (c *Config) timeWaitDuration() time.Duration {
-	if c.TimeWaitDuration > 0 { return c.TimeWaitDuration }
+	if c.TimeWaitDuration > 0 {
+		return c.TimeWaitDuration
+	}
 	return DefaultTimeWaitDuration
 }
 
@@ -450,6 +462,7 @@ func (d *Daemon) NodeID() uint32 {
 	defer d.addrMu.RUnlock()
 	return d.nodeID
 }
+
 // Identity returns the daemon's Ed25519 identity (may be nil if unset).
 func (d *Daemon) Identity() *crypto.Identity { return d.identity }
 
@@ -461,25 +474,25 @@ func (d *Daemon) Addr() protocol.Addr {
 
 // DaemonInfo holds status information about the running daemon.
 type DaemonInfo struct {
-	NodeID         uint32
-	Address        string
-	Hostname       string
-	Uptime         time.Duration
-	Connections    int
-	Ports          int
-	Peers          int
+	NodeID             uint32
+	Address            string
+	Hostname           string
+	Uptime             time.Duration
+	Connections        int
+	Ports              int
+	Peers              int
 	EncryptedPeers     int
 	AuthenticatedPeers int
 	Encrypt            bool
-	Identity       bool   // true if identity is persisted
-	PublicKey      string // base64 Ed25519 public key (empty if no identity)
-	Owner          string // owner identifier for key rotation recovery
-	BytesSent      uint64
-	BytesRecv      uint64
-	PktsSent       uint64
-	PktsRecv       uint64
-	PeerList       []PeerInfo
-	ConnList       []ConnectionInfo
+	Identity           bool   // true if identity is persisted
+	PublicKey          string // base64 Ed25519 public key (empty if no identity)
+	Owner              string // owner identifier for key rotation recovery
+	BytesSent          uint64
+	BytesRecv          uint64
+	PktsSent           uint64
+	PktsRecv           uint64
+	PeerList           []PeerInfo
+	ConnList           []ConnectionInfo
 }
 
 // Info returns current daemon status.
@@ -516,25 +529,25 @@ func (d *Daemon) Info() *DaemonInfo {
 	}
 
 	return &DaemonInfo{
-		NodeID:         d.nodeID,
-		Address:        d.addr.String(),
-		Hostname:       d.config.Hostname,
-		Uptime:         time.Since(d.startTime).Round(time.Second),
-		Connections:    numConns,
-		Ports:          numPorts,
-		Peers:          d.tunnels.PeerCount(),
+		NodeID:             d.nodeID,
+		Address:            d.addr.String(),
+		Hostname:           d.config.Hostname,
+		Uptime:             time.Since(d.startTime).Round(time.Second),
+		Connections:        numConns,
+		Ports:              numPorts,
+		Peers:              d.tunnels.PeerCount(),
 		EncryptedPeers:     encryptedPeers,
 		AuthenticatedPeers: authenticatedPeers,
 		Encrypt:            d.config.Encrypt,
-		Identity:       hasIdentity,
-		PublicKey:      pubKeyStr,
-		Owner:          d.config.Owner,
-		BytesSent:      atomic.LoadUint64(&d.tunnels.BytesSent),
-		BytesRecv:      atomic.LoadUint64(&d.tunnels.BytesRecv),
-		PktsSent:       atomic.LoadUint64(&d.tunnels.PktsSent),
-		PktsRecv:       atomic.LoadUint64(&d.tunnels.PktsRecv),
-		PeerList:       peerList,
-		ConnList:       d.ports.ConnectionList(),
+		Identity:           hasIdentity,
+		PublicKey:          pubKeyStr,
+		Owner:              d.config.Owner,
+		BytesSent:          atomic.LoadUint64(&d.tunnels.BytesSent),
+		BytesRecv:          atomic.LoadUint64(&d.tunnels.BytesRecv),
+		PktsSent:           atomic.LoadUint64(&d.tunnels.PktsSent),
+		PktsRecv:           atomic.LoadUint64(&d.tunnels.PktsRecv),
+		PeerList:           peerList,
+		ConnList:           d.ports.ConnectionList(),
 	}
 }
 

@@ -1,6 +1,7 @@
-.PHONY: all build test clean vet ci release
+.PHONY: all build test clean vet ci release coverage coverage-html
 
 BINDIR := bin
+COVERDIR := coverage
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
@@ -29,8 +30,19 @@ build:
 test:
 	go test -parallel 4 -count=1 ./tests/...
 
+coverage:
+	@mkdir -p $(COVERDIR)
+	@go test -parallel 4 -count=1 -coverprofile=$(COVERDIR)/coverage.out -covermode=atomic ./tests/...
+	@go tool cover -func=$(COVERDIR)/coverage.out | tail -1 | awk '{print "Total coverage: " $$3}'
+	@go tool cover -func=$(COVERDIR)/coverage.out -o=$(COVERDIR)/coverage.txt
+	@./scripts/generate-coverage-badge.sh
+
+coverage-html: coverage
+	@go tool cover -html=$(COVERDIR)/coverage.out -o=$(COVERDIR)/coverage.html
+	@echo "Coverage report generated: $(COVERDIR)/coverage.html"
+
 clean:
-	rm -rf $(BINDIR)
+	rm -rf $(BINDIR) $(COVERDIR)
 
 # Build for Linux (GCP deployment)
 build-linux:

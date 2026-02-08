@@ -38,12 +38,12 @@ const (
 
 // Record is a name record in the nameserver.
 type Record struct {
-	Type    string        `json:"type"`
-	Name    string        `json:"name"`
-	Address string        `json:"address,omitempty"`   // for A records
-	NetID   uint16        `json:"network_id,omitempty"` // for N records
-	Port    uint16        `json:"port,omitempty"`       // for S records
-	NodeID  uint32        `json:"node_id,omitempty"`    // for S records (who registered it)
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Address string `json:"address,omitempty"`    // for A records
+	NetID   uint16 `json:"network_id,omitempty"` // for N records
+	Port    uint16 `json:"port,omitempty"`       // for S records
+	NodeID  uint32 `json:"node_id,omitempty"`    // for S records (who registered it)
 }
 
 // Default TTL for nameserver records.
@@ -64,10 +64,10 @@ type nEntry struct {
 // RecordStore holds all nameserver records in memory.
 type RecordStore struct {
 	mu        sync.RWMutex
-	aRecords  map[string]*aEntry         // name → addr entry
-	nRecords  map[string]*nEntry         // network name → network ID entry
-	sRecords  map[svcKey][]ServiceEntry  // (network_id, port) → providers
-	storePath string                     // path to persist records (empty = no persistence)
+	aRecords  map[string]*aEntry        // name → addr entry
+	nRecords  map[string]*nEntry        // network name → network ID entry
+	sRecords  map[svcKey][]ServiceEntry // (network_id, port) → providers
+	storePath string                    // path to persist records (empty = no persistence)
 	ttl       time.Duration
 	done      chan struct{}
 }

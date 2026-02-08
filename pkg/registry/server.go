@@ -267,21 +267,21 @@ func New(beaconAddr string) *Server {
 
 func NewWithStore(beaconAddr, storePath string) *Server {
 	s := &Server{
-		nodes:       make(map[uint32]*NodeInfo),
-		networks:    make(map[uint16]*NetworkInfo),
-		pubKeyIdx:   make(map[string]uint32),
-		ownerIdx:    make(map[string]uint32),
-		hostnameIdx: make(map[string]uint32),
-		nextNode:    1, // 0 is reserved
-		nextNet:     1, // 0 is backbone
-		beaconAddr:  beaconAddr,
-		storePath:   storePath,
+		nodes:          make(map[uint32]*NodeInfo),
+		networks:       make(map[uint16]*NetworkInfo),
+		pubKeyIdx:      make(map[string]uint32),
+		ownerIdx:       make(map[string]uint32),
+		hostnameIdx:    make(map[string]uint32),
+		nextNode:       1, // 0 is reserved
+		nextNet:        1, // 0 is backbone
+		beaconAddr:     beaconAddr,
+		storePath:      storePath,
 		trustPairs:     make(map[string]bool),
 		handshakeInbox: make(map[uint32][]*HandshakeRelayMsg),
 		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
-		replMgr:     newReplicationManager(),
-		readyCh:     make(chan struct{}),
-		done:        make(chan struct{}),
+		replMgr:        newReplicationManager(),
+		readyCh:        make(chan struct{}),
+		done:           make(chan struct{}),
 	}
 
 	// Try loading from disk
@@ -823,12 +823,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 
 		// Node was deregistered/reaped but key is known — recreate with same ID
 		node := &NodeInfo{
-			ID:       nodeID,
-			Owner:    owner,
+			ID:        nodeID,
+			Owner:     owner,
 			PublicKey: pubKey,
-			RealAddr: listenAddr,
-			Networks: []uint16{0},
-			LastSeen: time.Now(),
+			RealAddr:  listenAddr,
+			Networks:  []uint16{0},
+			LastSeen:  time.Now(),
 		}
 		s.nodes[nodeID] = node
 		if owner != "" {
@@ -879,12 +879,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			// Owner's node was deregistered — reclaim with new key
 			s.pubKeyIdx[pubKeyB64] = existingID
 			node := &NodeInfo{
-				ID:       existingID,
-				Owner:    owner,
+				ID:        existingID,
+				Owner:     owner,
 				PublicKey: pubKey,
-				RealAddr: listenAddr,
-				Networks: []uint16{0},
-				LastSeen: time.Now(),
+				RealAddr:  listenAddr,
+				Networks:  []uint16{0},
+				LastSeen:  time.Now(),
 			}
 			s.nodes[existingID] = node
 			s.networks[0].Members = append(s.networks[0].Members, existingID)
@@ -914,12 +914,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 	}
 
 	node := &NodeInfo{
-		ID:       nodeID,
-		Owner:    owner,
+		ID:        nodeID,
+		Owner:     owner,
 		PublicKey: pubKey,
-		RealAddr: listenAddr,
-		Networks: []uint16{0},
-		LastSeen: time.Now(),
+		RealAddr:  listenAddr,
+		Networks:  []uint16{0},
+		LastSeen:  time.Now(),
 	}
 	s.nodes[nodeID] = node
 	s.networks[0].Members = append(s.networks[0].Members, nodeID)
@@ -1410,8 +1410,8 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 // If approved, creates a mutual trust pair.
 // M12 fix: verifies responder signature to prevent spoofed trust approvals.
 func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]interface{}, error) {
-	nodeID := jsonUint32(msg, "node_id")   // responder
-	peerID := jsonUint32(msg, "peer_id")   // original requester
+	nodeID := jsonUint32(msg, "node_id") // responder
+	peerID := jsonUint32(msg, "peer_id") // original requester
 	accept, _ := msg["accept"].(bool)
 
 	s.mu.Lock()
@@ -1730,7 +1730,7 @@ func (s *Server) save() {
 		snap.Nodes[fmt.Sprintf("%d", id)] = &snapshotNode{
 			ID:        n.ID,
 			Owner:     n.Owner,
-			PublicKey:  base64.StdEncoding.EncodeToString(n.PublicKey),
+			PublicKey: base64.StdEncoding.EncodeToString(n.PublicKey),
 			RealAddr:  n.RealAddr,
 			Networks:  n.Networks,
 			Public:    n.Public,
@@ -1810,7 +1810,7 @@ func (s *Server) load() error {
 		node := &NodeInfo{
 			ID:        n.ID,
 			Owner:     n.Owner,
-			PublicKey:  pubKey,
+			PublicKey: pubKey,
 			RealAddr:  n.RealAddr,
 			Networks:  n.Networks,
 			LastSeen:  lastSeen,
