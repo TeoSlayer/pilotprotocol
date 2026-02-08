@@ -745,7 +745,10 @@ func TestCmdHandshakeRelaySignedOK(t *testing.T) {
 		t.Fatalf("signed handshake request should succeed: %v", err)
 	}
 
-	// Poll inbox — should have the request
+	// Poll inbox — sign as node B (H3 auth required)
+	rc.SetSigner(func(challenge string) string {
+		return base64.StdEncoding.EncodeToString(b.Daemon.Identity().Sign([]byte(challenge)))
+	})
 	resp, err := rc.PollHandshakes(b.Daemon.NodeID())
 	if err != nil {
 		t.Fatalf("poll: %v", err)

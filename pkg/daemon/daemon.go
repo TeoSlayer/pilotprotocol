@@ -31,6 +31,7 @@ type Config struct {
 	IdentityPath string // path to persist Ed25519 identity (empty = no persistence)
 	Owner        string // owner identifier (email) for key rotation recovery
 
+	Endpoint     string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
 	Public       bool   // make this node's endpoint publicly discoverable
 	Hostname     string // hostname for discovery (empty = none)
 
@@ -212,14 +213,21 @@ func (d *Daemon) reapPerSrcSYN() {
 
 func (d *Daemon) Start() error {
 	// 1. Discover our public endpoint via beacon using a temporary UDP socket.
-	registrationAddr := resolveLocalAddr(d.config.ListenAddr)
-	if d.config.BeaconAddr != "" {
-		pubAddr, err := discoverWithTempSocket(d.config.BeaconAddr, d.config.ListenAddr)
-		if err != nil {
-			slog.Warn("beacon discover failed, using local addr", "error", err)
-		} else {
-			registrationAddr = pubAddr
-			slog.Debug("discovered public endpoint", "endpoint", pubAddr)
+	// If -endpoint is set, skip STUN and use the fixed address (for cloud VMs).
+	var registrationAddr string
+	if d.config.Endpoint != "" {
+		registrationAddr = d.config.Endpoint
+		slog.Info("using fixed endpoint", "endpoint", registrationAddr)
+	} else {
+		registrationAddr = resolveLocalAddr(d.config.ListenAddr)
+		if d.config.BeaconAddr != "" {
+			pubAddr, err := discoverWithTempSocket(d.config.BeaconAddr, d.config.ListenAddr)
+			if err != nil {
+				slog.Warn("beacon discover failed, using local addr", "error", err)
+			} else {
+				registrationAddr = pubAddr
+				slog.Debug("discovered public endpoint", "endpoint", pubAddr)
+			}
 		}
 	}
 
@@ -237,10 +245,15 @@ func (d *Daemon) Start() error {
 	actualAddr := d.tunnels.LocalAddr().String()
 	slog.Info("tunnel listening", "addr", actualAddr)
 
-	// Always use the tunnel's actual bound port for registration.
-	// STUN discovery used a temporary socket that is already closed,
-	// so its port is stale — replace with the real tunnel port.
-	registrationAddr = resolveLocalAddr(actualAddr)
+	// If STUN discovered a public endpoint, keep it. The temp socket and
+	// tunnel socket bind the same local port, so endpoint-independent NAT
+	// (like Cloud NAT) maps them to the same external IP:port.
+	// Only fall back to the local address if STUN didn't run or failed.
+	stunHost, _, splitErr := net.SplitHostPort(registrationAddr)
+	isLocalAddr := splitErr != nil || stunHost == "" || stunHost == "127.0.0.1" || stunHost == "::1" || stunHost == "0.0.0.0" || stunHost == "::"
+	if isLocalAddr {
+		registrationAddr = resolveLocalAddr(actualAddr)
+	}
 
 	// 3. Load or generate identity locally
 	if d.config.IdentityPath != "" {
@@ -310,7 +323,11 @@ func (d *Daemon) Start() error {
 	if !ok {
 		return fmt.Errorf("register: missing address in response")
 	}
-	d.addr, _ = protocol.ParseAddr(addrStr)
+	parsedAddr, err := protocol.ParseAddr(addrStr)
+	if err != nil {
+		return fmt.Errorf("register: invalid address %q: %w", addrStr, err)
+	}
+	d.addr = parsedAddr
 	d.tunnels.SetNodeID(d.nodeID)
 
 	// Set identity on tunnel manager for authenticated key exchange
@@ -320,6 +337,15 @@ func (d *Daemon) Start() error {
 	}
 
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
+
+	// Register with beacon using real nodeID for NAT traversal (punch/relay)
+	if d.config.BeaconAddr != "" {
+		if err := d.tunnels.SetBeaconAddr(d.config.BeaconAddr); err != nil {
+			slog.Warn("failed to set beacon addr", "error", err)
+		} else {
+			d.tunnels.RegisterWithBeacon()
+		}
+	}
 
 	// Set node visibility
 	if d.config.Public {
@@ -357,10 +383,10 @@ func (d *Daemon) Start() error {
 	// 7. Start packet router
 	go d.routeLoop()
 
-	// 6. Start heartbeat
+	// 8. Start heartbeat
 	go d.heartbeatLoop()
 
-	// 7. Start idle connection sweeper
+	// 9. Start idle connection sweeper
 	go d.idleSweepLoop()
 
 	d.startTime = time.Now()
@@ -410,7 +436,7 @@ func (d *Daemon) Stop() error {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagFIN,
 				Protocol: protocol.ProtoStream,
-				Src:      d.addr,
+				Src:      d.Addr(),
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -436,7 +462,7 @@ func (d *Daemon) Stop() error {
 
 	// Deregister from registry
 	if d.regConn != nil {
-		d.regConn.Deregister(d.nodeID)
+		d.regConn.Deregister(d.NodeID())
 		d.regConn.Close()
 	}
 
@@ -515,10 +541,16 @@ func (d *Daemon) Info() *DaemonInfo {
 		pubKeyStr = crypto.EncodePublicKey(d.identity.PublicKey)
 	}
 
+	d.addrMu.RLock()
+	nid := d.nodeID
+	addrStr := d.addr.String()
+	hostname := d.config.Hostname
+	d.addrMu.RUnlock()
+
 	return &DaemonInfo{
-		NodeID:         d.nodeID,
-		Address:        d.addr.String(),
-		Hostname:       d.config.Hostname,
+		NodeID:         nid,
+		Address:        addrStr,
+		Hostname:       hostname,
 		Uptime:         time.Since(d.startTime).Round(time.Second),
 		Connections:    numConns,
 		Ports:          numPorts,
@@ -545,9 +577,14 @@ func (d *Daemon) routeLoop() {
 }
 
 func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
-	// Update peer mapping
+	// D14 mitigation: when encryption is enabled, only auto-add peers that have an
+	// established crypto context (proving prior key exchange). This prevents peer table
+	// poisoning from spoofed packets. In plaintext mode, auto-add is safe since
+	// there's no authentication to bypass.
 	if !d.tunnels.HasPeer(pkt.Src.Node) {
-		d.tunnels.AddPeer(pkt.Src.Node, from)
+		if !d.config.Encrypt || d.tunnels.HasCrypto(pkt.Src.Node) {
+			d.tunnels.AddPeer(pkt.Src.Node, from)
+		}
 	}
 
 	switch pkt.Protocol {
@@ -581,7 +618,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagSYN | protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.addr,
+				Src:      d.Addr(),
 				Dst:      pkt.Src,
 				SrcPort:  pkt.DstPort,
 				DstPort:  pkt.SrcPort,
@@ -619,7 +656,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		conn := d.ports.NewConnection(pkt.DstPort, pkt.Src, pkt.SrcPort)
 		conn.Mu.Lock()
-		conn.LocalAddr = d.addr
+		conn.LocalAddr = d.Addr()
 		conn.State = StateSynReceived
 		conn.RecvAck = pkt.Seq + 1
 		conn.ExpectedSeq = pkt.Seq + 1 // first data segment after SYN
@@ -636,7 +673,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagSYN | protocol.FlagACK,
 			Protocol: protocol.ProtoStream,
-			Src:      d.addr,
+			Src:      d.Addr(),
 			Dst:      pkt.Src,
 			SrcPort:  pkt.DstPort,
 			DstPort:  pkt.SrcPort,
@@ -655,7 +692,9 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		case ln.AcceptCh <- conn:
 		default:
 			slog.Warn("accept queue full after SYN-ACK, closing connection", "port", pkt.DstPort, "src_addr", pkt.Src)
+			conn.Mu.Lock()
 			conn.State = StateClosed
+			conn.Mu.Unlock()
 			d.ports.RemoveConnection(conn.ID)
 			d.sendRST(pkt)
 		}
@@ -693,7 +732,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagACK,
 			Protocol: protocol.ProtoStream,
-			Src:      d.addr,
+			Src:      d.Addr(),
 			Dst:      pkt.Src,
 			SrcPort:  pkt.DstPort,
 			DstPort:  pkt.SrcPort,
@@ -722,7 +761,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagFIN | protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.addr,
+				Src:      d.Addr(),
 				Dst:      pkt.Src,
 				SrcPort:  pkt.DstPort,
 				DstPort:  pkt.SrcPort,
@@ -840,7 +879,7 @@ func (d *Daemon) sendDelayedACK(conn *Connection) {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagACK,
 		Protocol: protocol.ProtoStream,
-		Src:      d.addr,
+		Src:      d.Addr(),
 		Dst:      conn.RemoteAddr,
 		SrcPort:  conn.LocalPort,
 		DstPort:  conn.RemotePort,
@@ -876,7 +915,7 @@ func (d *Daemon) handleControlPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagACK,
 			Protocol: protocol.ProtoControl,
-			Src:      d.addr,
+			Src:      d.Addr(),
 			Dst:      pkt.Src,
 			SrcPort:  protocol.PortPing,
 			DstPort:  pkt.SrcPort,
@@ -893,7 +932,7 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagRST,
 		Protocol: protocol.ProtoStream,
-		Src:      d.addr,
+		Src:      d.Addr(),
 		Dst:      orig.Src,
 		SrcPort:  orig.DstPort,
 		DstPort:  orig.SrcPort,
@@ -910,7 +949,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 
 	localPort := d.ports.AllocEphemeralPort()
 	conn := d.ports.NewConnection(localPort, dstAddr, dstPort)
-	conn.LocalAddr = d.addr
+	conn.LocalAddr = d.Addr()
 	conn.State = StateSynSent
 
 	// Send SYN with our receive window
@@ -918,7 +957,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 		Version:  protocol.Version,
 		Flags:    protocol.FlagSYN,
 		Protocol: protocol.ProtoStream,
-		Src:      d.addr,
+		Src:      d.Addr(),
 		Dst:      dstAddr,
 		SrcPort:  localPort,
 		DstPort:  dstPort,
@@ -934,9 +973,16 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 	conn.SendSeq++
 	conn.Mu.Unlock()
 
-	// Wait for ESTABLISHED with SYN retransmission
+	// Wait for ESTABLISHED with SYN retransmission.
+	// Phase 1: Direct connection (3 retries).
+	// Phase 2: Relay through beacon if direct fails (3 more retries).
 	retries := 0
-	maxRetries := 5
+	directRetries := 3
+	maxRetries := 6
+	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node) // may already be relay from prior attempt
+	if relayActive {
+		directRetries = 0 // skip direct phase, go straight to relay
+	}
 	rto := 1 * time.Second
 	timer := time.NewTimer(rto)
 	defer timer.Stop()
@@ -959,11 +1005,20 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 			}
 		case <-timer.C:
 			retries++
+
+			// Switch to relay mode after direct retries exhaust
+			if retries == directRetries && d.config.BeaconAddr != "" && !relayActive {
+				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
+				d.tunnels.SetRelayPeer(dstAddr.Node, true)
+				relayActive = true
+				rto = 1 * time.Second // reset backoff for relay phase
+			}
+
 			if retries > maxRetries {
 				d.ports.RemoveConnection(conn.ID)
 				return nil, fmt.Errorf("dial timeout")
 			}
-			// Resend SYN
+			// Resend SYN (uses relay if relayActive)
 			conn.Mu.Lock()
 			syn.Seq = conn.SendSeq - 1
 			conn.Mu.Unlock()
@@ -1128,7 +1183,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.addr,
+				Src:      d.Addr(),
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -1153,7 +1208,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagACK,
 		Protocol: protocol.ProtoStream,
-		Src:      d.addr,
+		Src:      d.Addr(),
 		Dst:      conn.RemoteAddr,
 		SrcPort:  conn.LocalPort,
 		DstPort:  conn.RemotePort,
@@ -1304,7 +1359,7 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.addr,
+				Src:      d.Addr(),
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -1333,7 +1388,7 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagFIN,
 			Protocol: protocol.ProtoStream,
-			Src:      d.addr,
+			Src:      d.Addr(),
 			Dst:      conn.RemoteAddr,
 			SrcPort:  conn.LocalPort,
 			DstPort:  conn.RemotePort,
@@ -1365,7 +1420,7 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	pkt := &protocol.Packet{
 		Version:  protocol.Version,
 		Protocol: protocol.ProtoDatagram,
-		Src:      d.addr,
+		Src:      d.Addr(),
 		Dst:      dstAddr,
 		SrcPort:  srcPort,
 		DstPort:  dstPort,
@@ -1397,7 +1452,7 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 			continue
 		}
 		nodeID := uint32(nidVal)
-		if nodeID == d.nodeID {
+		if nodeID == d.NodeID() {
 			continue // skip self
 		}
 
@@ -1409,7 +1464,7 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 		pkt := &protocol.Packet{
 			Version:  protocol.Version,
 			Protocol: protocol.ProtoDatagram,
-			Src:      d.addr,
+			Src:      d.Addr(),
 			Dst:      protocol.Addr{Network: netID, Node: nodeID},
 			SrcPort:  srcPort,
 			DstPort:  dstPort,
@@ -1421,13 +1476,14 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 }
 
 // ensureTunnel makes sure we have a route to the given node.
+// Requests beacon hole-punching for NAT traversal when beacon is configured.
 func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	if d.tunnels.HasPeer(nodeID) {
 		return nil
 	}
 
 	// Resolve the node's real address from registry (requires our node ID)
-	resp, err := d.regConn.Resolve(nodeID, d.nodeID)
+	resp, err := d.regConn.Resolve(nodeID, d.NodeID())
 	if err != nil {
 		return fmt.Errorf("resolve node %d: %w", nodeID, err)
 	}
@@ -1440,6 +1496,13 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	udpAddr, err := net.ResolveUDPAddr("udp", realAddr)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", realAddr, err)
+	}
+
+	// Request beacon-coordinated NAT hole-punching (cheap, one UDP packet).
+	// Works for Full Cone, Restricted Cone, and Port-Restricted Cone NAT.
+	// For Symmetric NAT, hole-punching fails but relay fallback kicks in during DialConnection.
+	if d.config.BeaconAddr != "" {
+		d.tunnels.RequestHolePunch(nodeID)
 	}
 
 	d.tunnels.AddPeer(nodeID, udpAddr)
@@ -1456,7 +1519,7 @@ func (d *Daemon) heartbeatLoop() {
 			return
 		case <-ticker.C:
 			if d.regConn != nil {
-				_, err := d.regConn.Heartbeat(d.nodeID)
+				_, err := d.regConn.Heartbeat(d.NodeID())
 				if err != nil {
 					consecutiveFailures++
 					slog.Warn("heartbeat failed", "consecutive_failures", consecutiveFailures, "error", err)
@@ -1475,6 +1538,11 @@ func (d *Daemon) heartbeatLoop() {
 					}
 					consecutiveFailures = 0
 
+					// Re-register with beacon (keeps NAT mapping alive)
+					if d.config.BeaconAddr != "" {
+						d.tunnels.RegisterWithBeacon()
+					}
+
 					// Poll for relayed handshake requests
 					d.pollRelayedHandshakes()
 				}
@@ -1485,9 +1553,14 @@ func (d *Daemon) heartbeatLoop() {
 
 // reRegister re-registers with the registry after a connection loss or registry restart.
 func (d *Daemon) reRegister() {
-	registrationAddr := resolveLocalAddr(d.config.ListenAddr)
-	if d.tunnels.LocalAddr() != nil {
-		registrationAddr = resolveLocalAddr(d.tunnels.LocalAddr().String())
+	var registrationAddr string
+	if d.config.Endpoint != "" {
+		registrationAddr = d.config.Endpoint
+	} else {
+		registrationAddr = resolveLocalAddr(d.config.ListenAddr)
+		if d.tunnels.LocalAddr() != nil {
+			registrationAddr = resolveLocalAddr(d.tunnels.LocalAddr().String())
+		}
 	}
 
 	// Always re-register with client-generated key
@@ -1509,7 +1582,11 @@ func (d *Daemon) reRegister() {
 		slog.Error("re-registration: missing address in response")
 		return
 	}
-	newAddr, _ := protocol.ParseAddr(addrStr)
+	newAddr, err := protocol.ParseAddr(addrStr)
+	if err != nil {
+		slog.Error("re-registration: invalid address", "address", addrStr, "error", err)
+		return
+	}
 
 	d.addrMu.Lock()
 	if newNodeID != d.nodeID {
@@ -1518,8 +1595,26 @@ func (d *Daemon) reRegister() {
 		d.addr = newAddr
 		d.tunnels.SetNodeID(d.nodeID)
 	}
-	slog.Info("re-registered", "node_id", d.nodeID, "addr", d.addr)
+	nodeID := d.nodeID
+	slog.Info("re-registered", "node_id", nodeID, "addr", d.addr)
 	d.addrMu.Unlock()
+
+	// Restore visibility and hostname after re-registration
+	if d.config.Public {
+		if _, err := d.regConn.SetVisibility(nodeID, true); err != nil {
+			slog.Warn("re-registration: failed to restore visibility", "error", err)
+		}
+	}
+	if d.config.Hostname != "" {
+		if _, err := d.regConn.SetHostname(nodeID, d.config.Hostname); err != nil {
+			slog.Warn("re-registration: failed to restore hostname", "error", err)
+		}
+	}
+
+	// Re-register with beacon for NAT traversal
+	if d.config.BeaconAddr != "" {
+		d.tunnels.RegisterWithBeacon()
+	}
 }
 
 // idleSweepLoop periodically sends keepalive probes and closes dead connections.
@@ -1566,7 +1661,7 @@ func (d *Daemon) idleSweepLoop() {
 					Version:  protocol.Version,
 					Flags:    protocol.FlagACK,
 					Protocol: protocol.ProtoStream,
-					Src:      d.addr,
+					Src:      d.Addr(),
 					Dst:      conn.RemoteAddr,
 					SrcPort:  conn.LocalPort,
 					DstPort:  conn.RemotePort,
@@ -1597,7 +1692,7 @@ func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 // pollRelayedHandshakes checks the registry for handshake requests and
 // responses relayed to this node and processes them.
 func (d *Daemon) pollRelayedHandshakes() {
-	resp, err := d.regConn.PollHandshakes(d.nodeID)
+	resp, err := d.regConn.PollHandshakes(d.NodeID())
 	if err != nil {
 		slog.Debug("poll handshakes failed", "error", err)
 		return

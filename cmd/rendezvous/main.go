@@ -24,6 +24,7 @@ func main() {
 	tlsKey := flag.String("tls-key", "", "TLS key file")
 	enableTLS := flag.Bool("tls", false, "enable TLS for registry connections")
 	standbyPrimary := flag.String("standby", "", "run as hot standby replicating from the given primary address (e.g. primary:9000)")
+	httpAddr := flag.String("http", "", "HTTP dashboard listen address (e.g. :3000)")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
@@ -64,6 +65,15 @@ func main() {
 			log.Fatalf("registry: %v", err)
 		}
 	}()
+
+	if *httpAddr != "" {
+		go func() {
+			if err := r.ServeDashboard(*httpAddr); err != nil {
+				log.Fatalf("dashboard: %v", err)
+			}
+		}()
+		slog.Info("dashboard running", "http", *httpAddr)
+	}
 
 	mode := "primary"
 	if *standbyPrimary != "" {

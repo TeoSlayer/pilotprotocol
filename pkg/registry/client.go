@@ -138,8 +138,9 @@ func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error
 	defer c.mu.Unlock()
 
 	resp, err := c.sendLocked(msg)
-	if err != nil && !c.closed {
-		// Connection might be broken — try to reconnect and retry once
+	if err != nil && resp == nil && !c.closed {
+		// Connection-level failure (no response received) — reconnect and retry once.
+		// Server error responses (resp != nil) do NOT trigger reconnection.
 		if reconnErr := c.reconnect(); reconnErr != nil {
 			return nil, fmt.Errorf("send failed and reconnect failed: %w", err)
 		}
@@ -218,11 +219,15 @@ func (c *Client) Lookup(nodeID uint32) (map[string]interface{}, error) {
 }
 
 func (c *Client) Resolve(nodeID, requesterID uint32) (map[string]interface{}, error) {
-	return c.Send(map[string]interface{}{
+	msg := map[string]interface{}{
 		"type":         "resolve",
 		"node_id":      nodeID,
 		"requester_id": requesterID,
-	})
+	}
+	if sig := c.sign(fmt.Sprintf("resolve:%d:%d", requesterID, nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
 }
 
 func (c *Client) ReportTrust(nodeID, peerID uint32) (map[string]interface{}, error) {
@@ -336,12 +341,17 @@ func (c *Client) Heartbeat(nodeID uint32) (map[string]interface{}, error) {
 	return c.Send(msg)
 }
 
-func (c *Client) Punch(nodeA, nodeB uint32) (map[string]interface{}, error) {
-	return c.Send(map[string]interface{}{
-		"type":   "punch",
-		"node_a": nodeA,
-		"node_b": nodeB,
-	})
+func (c *Client) Punch(requesterID, nodeA, nodeB uint32) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":         "punch",
+		"requester_id": requesterID,
+		"node_a":       nodeA,
+		"node_b":       nodeB,
+	}
+	if sig := c.sign(fmt.Sprintf("punch:%d:%d", nodeA, nodeB)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
 }
 
 // RequestHandshake relays a handshake request through the registry to a target node.
@@ -361,11 +371,16 @@ func (c *Client) RequestHandshake(fromNodeID, toNodeID uint32, justification, si
 }
 
 // PollHandshakes retrieves and clears pending handshake requests for a node.
+// H3 fix: includes a signature to prove node identity.
 func (c *Client) PollHandshakes(nodeID uint32) (map[string]interface{}, error) {
-	return c.Send(map[string]interface{}{
+	msg := map[string]interface{}{
 		"type":    "poll_handshakes",
 		"node_id": nodeID,
-	})
+	}
+	if sig := c.sign(fmt.Sprintf("poll_handshakes:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
 }
 
 // RespondHandshake approves or rejects a relayed handshake request.

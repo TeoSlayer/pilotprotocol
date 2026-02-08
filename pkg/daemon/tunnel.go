@@ -55,10 +55,10 @@ func (pc *peerCrypto) checkAndRecordNonce(counter uint64) bool {
 			// Clear entire bitmap
 			pc.replayBitmap = [replayWindowSize / 64]uint64{}
 		} else {
-			// Shift bitmap to make room for new entries
+			// Clear the new positions that the shifted window will occupy
 			for s := uint64(0); s < shift; s++ {
-				oldBit := (pc.maxRecvNonce - s) % replayWindowSize
-				pc.replayBitmap[oldBit/64] &^= 1 << (oldBit % 64)
+				newBit := (counter - s) % replayWindowSize
+				pc.replayBitmap[newBit/64] &^= 1 << (newBit % 64)
 			}
 		}
 		pc.maxRecvNonce = counter
@@ -112,6 +112,10 @@ type TunnelManager struct {
 	pendMu   sync.Mutex
 	pending  map[uint32][][]byte  // node_id → queued frames
 
+	// NAT traversal: beacon-coordinated hole-punching and relay
+	beaconAddr *net.UDPAddr            // beacon address for punch/relay
+	relayPeers map[uint32]bool         // peers that need relay (symmetric NAT)
+
 	// Metrics
 	BytesSent uint64
 	BytesRecv uint64
@@ -138,6 +142,7 @@ func NewTunnelManager() *TunnelManager {
 		crypto:      make(map[uint32]*peerCrypto),
 		peerPubKeys: make(map[uint32]ed25519.PublicKey),
 		pending:     make(map[uint32][][]byte),
+		relayPeers:  make(map[uint32]bool),
 		recvCh:      make(chan *IncomingPacket, 1024),
 		done:        make(chan struct{}),
 	}
@@ -159,7 +164,12 @@ func (tm *TunnelManager) EnableEncryption() error {
 
 // SetNodeID sets our node ID (called after registration).
 func (tm *TunnelManager) SetNodeID(id uint32) {
-	tm.nodeID = id
+	atomic.StoreUint32(&tm.nodeID, id)
+}
+
+// loadNodeID atomically loads our node ID.
+func (tm *TunnelManager) loadNodeID() uint32 {
+	return atomic.LoadUint32(&tm.nodeID)
 }
 
 // SetIdentity sets our Ed25519 identity for signing authenticated key exchanges.
@@ -181,6 +191,107 @@ func (tm *TunnelManager) SetPeerPubKey(nodeID uint32, pubKey ed25519.PublicKey) 
 	tm.mu.Lock()
 	tm.peerPubKeys[nodeID] = pubKey
 	tm.mu.Unlock()
+}
+
+// SetBeaconAddr configures the beacon address for NAT hole-punching and relay.
+func (tm *TunnelManager) SetBeaconAddr(addr string) error {
+	a, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return fmt.Errorf("resolve beacon: %w", err)
+	}
+	tm.mu.Lock()
+	tm.beaconAddr = a
+	tm.mu.Unlock()
+	return nil
+}
+
+// SetRelayPeer marks a peer as needing relay through the beacon (symmetric NAT).
+func (tm *TunnelManager) SetRelayPeer(nodeID uint32, relay bool) {
+	tm.mu.Lock()
+	tm.relayPeers[nodeID] = relay
+	tm.mu.Unlock()
+	if relay {
+		slog.Info("peer marked for relay", "node_id", nodeID)
+	}
+}
+
+// IsRelayPeer returns true if the peer is in relay mode.
+func (tm *TunnelManager) IsRelayPeer(nodeID uint32) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	return tm.relayPeers[nodeID]
+}
+
+// RegisterWithBeacon sends a MsgDiscover to the beacon from the tunnel socket
+// using the real nodeID, so the beacon knows our endpoint for punch coordination.
+func (tm *TunnelManager) RegisterWithBeacon() {
+	tm.mu.RLock()
+	bAddr := tm.beaconAddr
+	tm.mu.RUnlock()
+	if bAddr == nil || tm.conn == nil {
+		return
+	}
+	msg := make([]byte, 5)
+	msg[0] = 0x01 // MsgDiscover
+	binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
+	if _, err := tm.conn.WriteToUDP(msg, bAddr); err != nil {
+		slog.Warn("beacon registration failed", "error", err)
+	} else {
+		slog.Debug("registered with beacon", "node_id", tm.loadNodeID(), "beacon", bAddr)
+	}
+}
+
+// RequestHolePunch asks the beacon to coordinate NAT hole-punching with a target peer.
+func (tm *TunnelManager) RequestHolePunch(targetNodeID uint32) {
+	tm.mu.RLock()
+	bAddr := tm.beaconAddr
+	tm.mu.RUnlock()
+	if bAddr == nil || tm.conn == nil {
+		return
+	}
+	// Format: [MsgPunchRequest(1)][ourNodeID(4)][targetNodeID(4)]
+	msg := make([]byte, 9)
+	msg[0] = 0x03 // MsgPunchRequest
+	binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
+	binary.BigEndian.PutUint32(msg[5:9], targetNodeID)
+	if _, err := tm.conn.WriteToUDP(msg, bAddr); err != nil {
+		slog.Debug("hole punch request failed", "target", targetNodeID, "error", err)
+	} else {
+		slog.Debug("hole punch requested", "target", targetNodeID)
+	}
+}
+
+// writeFrame sends a raw frame to a peer, using relay through the beacon if needed.
+func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
+	tm.mu.RLock()
+	relay := tm.relayPeers[nodeID]
+	bAddr := tm.beaconAddr
+	tm.mu.RUnlock()
+
+	if relay && bAddr != nil {
+		// MsgRelay: [0x05][senderNodeID(4)][destNodeID(4)][frame...]
+		msg := make([]byte, 1+4+4+len(frame))
+		msg[0] = 0x05 // MsgRelay
+		binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
+		binary.BigEndian.PutUint32(msg[5:9], nodeID)
+		copy(msg[9:], frame)
+		n, err := tm.conn.WriteToUDP(msg, bAddr)
+		if err == nil {
+			atomic.AddUint64(&tm.PktsSent, 1)
+			atomic.AddUint64(&tm.BytesSent, uint64(n))
+		}
+		return err
+	}
+
+	if addr == nil {
+		return fmt.Errorf("no address for node %d", nodeID)
+	}
+	n, err := tm.conn.WriteToUDP(frame, addr)
+	if err == nil {
+		atomic.AddUint64(&tm.PktsSent, 1)
+		atomic.AddUint64(&tm.BytesSent, uint64(n))
+	}
+	return err
 }
 
 // getPeerPubKey returns the cached Ed25519 public key for a peer, fetching from
@@ -264,6 +375,17 @@ func (tm *TunnelManager) readLoop() {
 			return
 		}
 
+		if n < 1 {
+			continue
+		}
+
+		// Beacon messages use single-byte type codes < 0x10.
+		// All tunnel magic starts with 'P' (0x50), so no collision.
+		if buf[0] < 0x10 {
+			tm.handleBeaconMessage(buf[:n], remote)
+			continue
+		}
+
 		if n < 4 {
 			continue
 		}
@@ -273,17 +395,22 @@ func (tm *TunnelManager) readLoop() {
 		switch magic {
 		case protocol.TunnelMagicAuthEx:
 			// Authenticated key exchange: [PILA][4-byte nodeID][32-byte X25519][32-byte Ed25519][64-byte sig]
-			tm.handleAuthKeyExchange(buf[4:n], remote)
+			tm.handleAuthKeyExchange(buf[4:n], remote, false)
 			continue
 
 		case protocol.TunnelMagicKeyEx:
 			// Key exchange packet: [PILK][4-byte nodeID][32-byte pubkey]
-			tm.handleKeyExchange(buf[4:n], remote)
+			tm.handleKeyExchange(buf[4:n], remote, false)
 			continue
 
 		case protocol.TunnelMagicSecure:
 			// Encrypted packet: [PILS][4-byte nodeID][12-byte nonce][ciphertext+tag]
 			tm.handleEncrypted(buf[4:n], remote)
+			continue
+
+		case protocol.TunnelMagicPunch:
+			// NAT punch packet — expected during hole-punching, silently acknowledged
+			slog.Debug("NAT punch received", "from", remote)
 			continue
 
 		case protocol.TunnelMagic:
@@ -317,7 +444,8 @@ func (tm *TunnelManager) readLoop() {
 // handleAuthKeyExchange processes an authenticated key exchange packet.
 // Format: [4-byte nodeID][32-byte X25519 pubkey][32-byte Ed25519 pubkey][64-byte Ed25519 signature]
 // The signature is over: "auth:" + nodeID(4 bytes) + X25519-pubkey(32 bytes)
-func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr) {
+// fromRelay indicates this was received via beacon relay — don't update peer endpoint.
+func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, fromRelay bool) {
 	if len(data) < 4+32+32+64 {
 		return
 	}
@@ -371,7 +499,9 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr) {
 	hadCrypto := oldPC != nil
 	keyChanged := hadCrypto && oldPC.peerX25519Key != pc.peerX25519Key
 	tm.crypto[peerNodeID] = pc
-	tm.peers[peerNodeID] = from
+	if !fromRelay {
+		tm.peers[peerNodeID] = from
+	}
 	// Cache the peer's Ed25519 pubkey
 	tm.peerPubKeys[peerNodeID] = peerEd25519PubKey
 	tm.mu.Unlock()
@@ -379,11 +509,11 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr) {
 	if keyChanged {
 		slog.Info("peer rekeyed (auth), re-establishing tunnel", "peer_node_id", peerNodeID)
 	} else {
-		slog.Info("encrypted tunnel established", "auth", authenticated, "peer_node_id", peerNodeID, "endpoint", from)
+		slog.Info("encrypted tunnel established", "auth", authenticated, "peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 	}
 
 	if !hadCrypto || keyChanged {
-		tm.sendAuthKeyExchange(from)
+		tm.sendKeyExchangeToNode(peerNodeID)
 	}
 
 	tm.flushPending(peerNodeID)
@@ -393,7 +523,8 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr) {
 // Format: [4-byte nodeID][32-byte X25519 pubkey]
 // If we have an identity and the peer has a registered pubkey, reject unauthenticated
 // exchange and require authenticated (PILA) instead.
-func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr) {
+// fromRelay indicates this was received via beacon relay — don't update peer endpoint.
+func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromRelay bool) {
 	if len(data) < 36 {
 		return
 	}
@@ -415,7 +546,7 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr) {
 		expectedPubKey, err := tm.getPeerPubKey(peerNodeID)
 		if err == nil && expectedPubKey != nil {
 			slog.Warn("rejecting unauthenticated key exchange from peer with known identity", "peer_node_id", peerNodeID)
-			tm.sendAuthKeyExchange(from)
+			tm.sendKeyExchangeToNode(peerNodeID)
 			return
 		}
 	}
@@ -433,19 +564,20 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr) {
 	// Detect rekeying: peer restarted with a new keypair
 	keyChanged := hadCrypto && oldPC.peerX25519Key != pc.peerX25519Key
 	tm.crypto[peerNodeID] = pc
-	// Update peer address
-	tm.peers[peerNodeID] = from
+	if !fromRelay {
+		tm.peers[peerNodeID] = from
+	}
 	tm.mu.Unlock()
 
 	if keyChanged {
 		slog.Info("peer rekeyed, re-establishing tunnel", "peer_node_id", peerNodeID)
 	} else {
-		slog.Info("encrypted tunnel established", "peer_node_id", peerNodeID, "endpoint", from)
+		slog.Info("encrypted tunnel established", "peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 	}
 
 	// Respond with our key if this is a new peer or the peer rekeyed
 	if !hadCrypto || keyChanged {
-		tm.sendKeyExchange(from)
+		tm.sendKeyExchangeToNode(peerNodeID)
 	}
 
 	// Flush any pending packets now that encryption is ready
@@ -549,8 +681,72 @@ func (tm *TunnelManager) deriveSecret(peerPubKeyBytes []byte) (*peerCrypto, erro
 	return pc, nil
 }
 
+// sendKeyExchangeToNode sends an authenticated key exchange if identity is available,
+// otherwise falls back to unauthenticated. Uses nodeID-based routing (relay-aware).
+func (tm *TunnelManager) sendKeyExchangeToNode(peerNodeID uint32) {
+	tm.mu.RLock()
+	hasIdentity := tm.identity != nil
+	addr := tm.peers[peerNodeID]
+	tm.mu.RUnlock()
+
+	frame := tm.buildKeyExchangeFrame()
+	if frame == nil {
+		return
+	}
+
+	if hasIdentity {
+		authFrame := tm.buildAuthKeyExchangeFrame()
+		if authFrame != nil {
+			frame = authFrame
+		}
+	}
+
+	if err := tm.writeFrame(peerNodeID, addr, frame); err != nil {
+		slog.Error("send key exchange failed", "peer_node_id", peerNodeID, "error", err)
+	}
+}
+
+// buildAuthKeyExchangeFrame builds an authenticated key exchange frame.
+// Returns nil if identity is not available.
+func (tm *TunnelManager) buildAuthKeyExchangeFrame() []byte {
+	tm.mu.RLock()
+	id := tm.identity
+	tm.mu.RUnlock()
+	if tm.pubKey == nil || id == nil {
+		return nil
+	}
+
+	challenge := make([]byte, 4+4+32)
+	copy(challenge[0:4], []byte("auth"))
+	binary.BigEndian.PutUint32(challenge[4:8], tm.loadNodeID())
+	copy(challenge[8:40], tm.pubKey)
+	signature := id.Sign(challenge)
+
+	ed25519PubKey := []byte(id.PublicKey)
+
+	frame := make([]byte, 4+4+32+32+64)
+	copy(frame[0:4], protocol.TunnelMagicAuthEx[:])
+	binary.BigEndian.PutUint32(frame[4:8], tm.loadNodeID())
+	copy(frame[8:40], tm.pubKey)
+	copy(frame[40:72], ed25519PubKey)
+	copy(frame[72:136], signature)
+	return frame
+}
+
+// buildKeyExchangeFrame builds an unauthenticated key exchange frame.
+func (tm *TunnelManager) buildKeyExchangeFrame() []byte {
+	if tm.pubKey == nil {
+		return nil
+	}
+	frame := make([]byte, 4+4+32)
+	copy(frame[0:4], protocol.TunnelMagicKeyEx[:])
+	binary.BigEndian.PutUint32(frame[4:8], tm.loadNodeID())
+	copy(frame[8:40], tm.pubKey)
+	return frame
+}
+
 // sendKeyExchangeAuto sends an authenticated key exchange if identity is available,
-// otherwise falls back to unauthenticated.
+// otherwise falls back to unauthenticated. Uses addr-based direct send (for backward compat).
 func (tm *TunnelManager) sendKeyExchangeAuto(addr *net.UDPAddr) {
 	tm.mu.RLock()
 	hasIdentity := tm.identity != nil
@@ -562,51 +758,24 @@ func (tm *TunnelManager) sendKeyExchangeAuto(addr *net.UDPAddr) {
 	}
 }
 
-// sendAuthKeyExchange sends our X25519 public key + Ed25519 signature to a peer.
-// Format: [PILA magic][4-byte nodeID][32-byte X25519 pubkey][32-byte Ed25519 pubkey][64-byte sig]
+// sendAuthKeyExchange sends our X25519 public key + Ed25519 signature to a peer (direct).
 func (tm *TunnelManager) sendAuthKeyExchange(addr *net.UDPAddr) {
-	tm.mu.RLock()
-	id := tm.identity
-	tm.mu.RUnlock()
-	if tm.pubKey == nil || id == nil {
-		// Fall back to unauthenticated
+	frame := tm.buildAuthKeyExchangeFrame()
+	if frame == nil {
 		tm.sendKeyExchange(addr)
 		return
 	}
-
-	// Sign: "auth" + nodeID(4 bytes) + X25519-pubkey(32 bytes)
-	challenge := make([]byte, 4+4+32)
-	copy(challenge[0:4], []byte("auth"))
-	binary.BigEndian.PutUint32(challenge[4:8], tm.nodeID)
-	copy(challenge[8:40], tm.pubKey)
-	signature := id.Sign(challenge)
-
-	ed25519PubKey := []byte(id.PublicKey)
-
-	// Format: [PILA][4-byte nodeID][32-byte X25519][32-byte Ed25519][64-byte sig]
-	frame := make([]byte, 4+4+32+32+64)
-	copy(frame[0:4], protocol.TunnelMagicAuthEx[:])
-	binary.BigEndian.PutUint32(frame[4:8], tm.nodeID)
-	copy(frame[8:40], tm.pubKey)
-	copy(frame[40:72], ed25519PubKey)
-	copy(frame[72:136], signature)
-
 	if _, err := tm.conn.WriteToUDP(frame, addr); err != nil {
 		slog.Error("send auth key exchange failed", "addr", addr, "error", err)
 	}
 }
 
-// sendKeyExchange sends our public key to a peer (unauthenticated).
+// sendKeyExchange sends our public key to a peer (unauthenticated, direct).
 func (tm *TunnelManager) sendKeyExchange(addr *net.UDPAddr) {
-	if tm.pubKey == nil {
+	frame := tm.buildKeyExchangeFrame()
+	if frame == nil {
 		return
 	}
-	// Format: [PILK magic][4-byte nodeID][32-byte pubkey]
-	frame := make([]byte, 4+4+32)
-	copy(frame[0:4], protocol.TunnelMagicKeyEx[:])
-	binary.BigEndian.PutUint32(frame[4:8], tm.nodeID)
-	copy(frame[8:40], tm.pubKey)
-
 	if _, err := tm.conn.WriteToUDP(frame, addr); err != nil {
 		slog.Error("send key exchange failed", "addr", addr, "error", err)
 	}
@@ -628,13 +797,13 @@ func (tm *TunnelManager) flushPending(nodeID uint32) {
 	pc := tm.crypto[nodeID]
 	tm.mu.RUnlock()
 
-	if addr == nil || pc == nil || !pc.ready {
+	if pc == nil || !pc.ready {
 		return
 	}
 
 	for _, plaintext := range frames {
 		encrypted := tm.encryptFrame(pc, plaintext)
-		if _, err := tm.conn.WriteToUDP(encrypted, addr); err != nil {
+		if err := tm.writeFrame(nodeID, addr, encrypted); err != nil {
 			slog.Error("flush pending to node failed", "node_id", nodeID, "error", err)
 		}
 	}
@@ -653,7 +822,7 @@ func (tm *TunnelManager) encryptFrame(pc *peerCrypto, plaintext []byte) []byte {
 
 	frame := make([]byte, 4+4+len(nonce)+len(ciphertext))
 	copy(frame[0:4], protocol.TunnelMagicSecure[:])
-	binary.BigEndian.PutUint32(frame[4:8], tm.nodeID)
+	binary.BigEndian.PutUint32(frame[4:8], tm.loadNodeID())
 	copy(frame[8:8+len(nonce)], nonce)
 	copy(frame[8+len(nonce):], ciphertext)
 
@@ -673,7 +842,7 @@ func (tm *TunnelManager) Send(nodeID uint32, pkt *protocol.Packet) error {
 	return tm.SendTo(addr, nodeID, pkt)
 }
 
-// SendTo sends a packet to a specific UDP address.
+// SendTo sends a packet to a specific UDP address (relay-aware).
 func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.Packet) error {
 	data, err := pkt.Marshal()
 	if err != nil {
@@ -687,53 +856,37 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		tm.mu.RUnlock()
 
 		if pc != nil && pc.ready {
-			// Encrypt and send
 			frame := tm.encryptFrame(pc, data)
-			n, err := tm.conn.WriteToUDP(frame, addr)
-			if err == nil {
-				atomic.AddUint64(&tm.PktsSent, 1)
-				atomic.AddUint64(&tm.BytesSent, uint64(n))
-			}
-			return err
+			return tm.writeFrame(nodeID, addr, frame)
 		}
 
 		// No key yet — initiate key exchange and queue the packet
-		tm.sendKeyExchangeAuto(addr)
+		tm.sendKeyExchangeToNode(nodeID)
 		tm.pendMu.Lock()
 		if _, exists := tm.pending[nodeID]; !exists && len(tm.pending) >= maxPendingPeers {
-			// Too many peers pending key exchange — skip queueing, send plaintext
 			tm.pendMu.Unlock()
-			return tm.sendPlaintext(addr, data)
+			return tm.sendPlaintextToNode(nodeID, addr, data)
 		}
 		q := tm.pending[nodeID]
 		if len(q) >= maxPendingPerPeer {
-			// Drop oldest to prevent unbounded growth
 			q = q[1:]
 		}
 		tm.pending[nodeID] = append(q, data)
 		tm.pendMu.Unlock()
 
 		// Also send plaintext so the connection isn't blocked
-		// (the peer may not support encryption)
-		return tm.sendPlaintext(addr, data)
+		return tm.sendPlaintextToNode(nodeID, addr, data)
 	}
 
-	// No encryption — send plaintext
-	return tm.sendPlaintext(addr, data)
+	return tm.sendPlaintextToNode(nodeID, addr, data)
 }
 
-// sendPlaintext sends a marshaled packet with the PILT magic.
-func (tm *TunnelManager) sendPlaintext(addr *net.UDPAddr, data []byte) error {
+// sendPlaintextToNode sends a marshaled packet with PILT magic (relay-aware).
+func (tm *TunnelManager) sendPlaintextToNode(nodeID uint32, addr *net.UDPAddr, data []byte) error {
 	frame := make([]byte, 4+len(data))
 	copy(frame[0:4], protocol.TunnelMagic[:])
 	copy(frame[4:], data)
-
-	n, err := tm.conn.WriteToUDP(frame, addr)
-	if err == nil {
-		atomic.AddUint64(&tm.PktsSent, 1)
-		atomic.AddUint64(&tm.BytesSent, uint64(n))
-	}
-	return err
+	return tm.writeFrame(nodeID, addr, frame)
 }
 
 // AddPeer registers a peer's real UDP endpoint.
@@ -743,9 +896,9 @@ func (tm *TunnelManager) AddPeer(nodeID uint32, addr *net.UDPAddr) {
 	tm.mu.Unlock()
 	slog.Debug("added peer", "node_id", nodeID, "addr", addr)
 
-	// If encryption is enabled, initiate key exchange (prefer authenticated)
+	// If encryption is enabled, initiate key exchange (relay-aware)
 	if tm.encrypt {
-		tm.sendKeyExchangeAuto(addr)
+		tm.sendKeyExchangeToNode(nodeID)
 	}
 }
 
@@ -762,6 +915,14 @@ func (tm *TunnelManager) HasPeer(nodeID uint32) bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	_, ok := tm.peers[nodeID]
+	return ok
+}
+
+// HasCrypto returns true if we have an encryption context for a peer (proving prior key exchange).
+func (tm *TunnelManager) HasCrypto(nodeID uint32) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	_, ok := tm.crypto[nodeID]
 	return ok
 }
 
@@ -786,6 +947,7 @@ type PeerInfo struct {
 	Endpoint      string
 	Encrypted     bool
 	Authenticated bool // true if peer proved Ed25519 identity
+	Relay         bool // true if using beacon relay (symmetric NAT)
 }
 
 // PeerList returns all known peers and their endpoints.
@@ -800,9 +962,114 @@ func (tm *TunnelManager) PeerList() []PeerInfo {
 			Endpoint:      addr.String(),
 			Encrypted:     pc != nil && pc.ready,
 			Authenticated: pc != nil && pc.authenticated,
+			Relay:         tm.relayPeers[id],
 		})
 	}
 	return list
+}
+
+// handleBeaconMessage processes beacon protocol messages received on the tunnel socket.
+func (tm *TunnelManager) handleBeaconMessage(data []byte, from *net.UDPAddr) {
+	if len(data) < 1 {
+		return
+	}
+	switch data[0] {
+	case 0x02: // MsgDiscoverReply
+		slog.Debug("beacon discover reply on tunnel socket", "from", from)
+	case 0x04: // MsgPunchCommand
+		tm.handlePunchCommand(data[1:])
+	case 0x06: // MsgRelayDeliver
+		tm.handleRelayDeliver(data[1:])
+	default:
+		slog.Debug("unknown beacon message on tunnel socket", "type", data[0], "from", from)
+	}
+}
+
+// handlePunchCommand processes a beacon punch command, sending a punch packet
+// to the specified target to create a NAT mapping.
+func (tm *TunnelManager) handlePunchCommand(data []byte) {
+	// Format: [iplen(1)][IP(4 or 16)][port(2)]
+	if len(data) < 1 {
+		return
+	}
+	ipLen := int(data[0])
+	if ipLen != 4 && ipLen != 16 {
+		return
+	}
+	if len(data) < 1+ipLen+2 {
+		return
+	}
+	ip := net.IP(make([]byte, ipLen))
+	copy(ip, data[1:1+ipLen])
+	port := binary.BigEndian.Uint16(data[1+ipLen:])
+	addr := &net.UDPAddr{IP: ip, Port: int(port)}
+
+	// Send punch packets to create NAT mapping (send multiple for reliability)
+	punch := make([]byte, 4)
+	copy(punch, protocol.TunnelMagicPunch[:])
+	for i := 0; i < 3; i++ {
+		tm.conn.WriteToUDP(punch, addr)
+	}
+	slog.Info("NAT punch sent", "target", addr)
+}
+
+// handleRelayDeliver processes a beacon relay delivery, extracting the inner tunnel frame.
+func (tm *TunnelManager) handleRelayDeliver(data []byte) {
+	// Format: [srcNodeID(4)][payload...]
+	if len(data) < 5 {
+		return
+	}
+	srcNodeID := binary.BigEndian.Uint32(data[0:4])
+	payload := data[4:]
+
+	// Mark this peer as relay-capable (they sent through relay, so they're behind NAT)
+	tm.mu.Lock()
+	tm.relayPeers[srcNodeID] = true
+	// Ensure we have a peer entry (use beacon addr as placeholder for relay peers)
+	if _, ok := tm.peers[srcNodeID]; !ok && tm.beaconAddr != nil {
+		tm.peers[srcNodeID] = tm.beaconAddr
+	}
+	tm.mu.Unlock()
+
+	if len(payload) < 4 {
+		return
+	}
+
+	// Get peer's stored address for packet handling
+	tm.mu.RLock()
+	srcAddr := tm.peers[srcNodeID]
+	tm.mu.RUnlock()
+	if srcAddr == nil {
+		srcAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+	}
+
+	// Process the inner tunnel frame
+	magic := [4]byte{payload[0], payload[1], payload[2], payload[3]}
+	switch magic {
+	case protocol.TunnelMagicAuthEx:
+		tm.handleAuthKeyExchange(payload[4:], srcAddr, true)
+	case protocol.TunnelMagicKeyEx:
+		tm.handleKeyExchange(payload[4:], srcAddr, true)
+	case protocol.TunnelMagicSecure:
+		tm.handleEncrypted(payload[4:], srcAddr)
+	case protocol.TunnelMagic:
+		if len(payload) < 4+protocol.PacketHeaderSize() {
+			return
+		}
+		frameData := make([]byte, len(payload)-4)
+		copy(frameData, payload[4:])
+		pkt, err := protocol.Unmarshal(frameData)
+		if err != nil {
+			slog.Error("tunnel unmarshal error from relay", "src_node", srcNodeID, "error", err)
+			return
+		}
+		atomic.AddUint64(&tm.PktsRecv, 1)
+		atomic.AddUint64(&tm.BytesRecv, uint64(len(payload)))
+		select {
+		case tm.recvCh <- &IncomingPacket{Packet: pkt, From: srcAddr}:
+		case <-tm.done:
+		}
+	}
 }
 
 // RecvCh returns the channel for incoming packets.

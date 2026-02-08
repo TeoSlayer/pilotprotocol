@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"web4/internal/ipcutil"
 	"web4/pkg/protocol"
 )
 
@@ -54,7 +55,7 @@ type ipcConn struct {
 func (c *ipcConn) ipcWrite(data []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	return ipcWrite(c.Conn, data)
+	return ipcutil.Write(c.Conn, data)
 }
 
 func (c *ipcConn) trackPort(port uint16) {
@@ -158,7 +159,7 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 	}()
 
 	for {
-		msg, err := ipcRead(conn)
+		msg, err := ipcutil.Read(conn)
 		if err != nil {
 			if err != io.EOF {
 				slog.Error("IPC read error", "error", err)
@@ -474,13 +475,15 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 
 func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 	hostname := string(payload)
-	result, err := s.daemon.regConn.SetHostname(s.daemon.nodeID, hostname)
+	result, err := s.daemon.regConn.SetHostname(s.daemon.NodeID(), hostname)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_hostname: %v", err))
 		return
 	}
 	// Update daemon's local config so Info() reflects the change
+	s.daemon.addrMu.Lock()
 	s.daemon.config.Hostname = hostname
+	s.daemon.addrMu.Unlock()
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_hostname marshal: %v", err))
@@ -500,13 +503,15 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, payload []byte) {
 		return
 	}
 	public := payload[0] == 1
-	result, err := s.daemon.regConn.SetVisibility(s.daemon.nodeID, public)
+	result, err := s.daemon.regConn.SetVisibility(s.daemon.NodeID(), public)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_visibility: %v", err))
 		return
 	}
 	// Update daemon's local config so Info() reflects the change
+	s.daemon.addrMu.Lock()
 	s.daemon.config.Public = public
+	s.daemon.addrMu.Unlock()
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_visibility marshal: %v", err))
@@ -521,7 +526,7 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, payload []byte) {
 }
 
 func (s *IPCServer) handleDeregister(conn *ipcConn) {
-	result, err := s.daemon.regConn.Deregister(s.daemon.nodeID)
+	result, err := s.daemon.regConn.Deregister(s.daemon.NodeID())
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("deregister: %v", err))
 		return
@@ -713,30 +718,3 @@ func (s *IPCServer) DeliverDatagram(srcAddr protocol.Addr, srcPort uint16, dstPo
 	}
 }
 
-// IPC framing: 4-byte length + message
-
-func ipcRead(r io.Reader) ([]byte, error) {
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint32(lenBuf[:])
-	if length > 1<<20 {
-		return nil, fmt.Errorf("ipc message too large: %d", length)
-	}
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-func ipcWrite(w io.Writer, data []byte) error {
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
-	if _, err := w.Write(lenBuf[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(data)
-	return err
-}

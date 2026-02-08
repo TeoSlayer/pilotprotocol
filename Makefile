@@ -69,7 +69,3 @@ release:
 		rm $(BINDIR)/release/pilot-daemon-$$os-$$arch $(BINDIR)/release/pilot-pilotctl-$$os-$$arch $(BINDIR)/release/pilot-gateway-$$os-$$arch; \
 	done
 	@echo "Release archives in $(BINDIR)/release/"
-
-# Docker
-docker:
-	docker build -t pilot-rendezvous .

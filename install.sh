@@ -171,6 +171,10 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -n "$PILOT_HOSTNAME" ]; then
         HOSTNAME_FLAG="-hostname $PILOT_HOSTNAME"
     fi
+    PUBLIC_FLAG=""
+    if [ -n "$PILOT_PUBLIC" ]; then
+        PUBLIC_FLAG="-public"
+    fi
     $SUDO tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
 [Unit]
 Description=Pilot Protocol Daemon
@@ -186,7 +190,7 @@ ExecStart=${INSTALL_DIR}/pilot-daemon \\
   -listen :4000 \\
   -socket /tmp/pilot.sock \\
   -identity ${IDENTITY_DIR}/identity.json \\
-  -encrypt ${HOSTNAME_FLAG}
+  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
 Restart=on-failure
 RestartSec=5
 
@@ -203,6 +207,16 @@ if [ "$OS" = "darwin" ]; then
     PLIST_DIR="$HOME/Library/LaunchAgents"
     PLIST="$PLIST_DIR/com.vulturelabs.pilot-daemon.plist"
     mkdir -p "$PLIST_DIR"
+    EXTRA_ARGS=""
+    if [ -n "$PILOT_HOSTNAME" ]; then
+        EXTRA_ARGS="${EXTRA_ARGS}        <string>-hostname</string>
+        <string>${PILOT_HOSTNAME}</string>
+"
+    fi
+    if [ -n "$PILOT_PUBLIC" ]; then
+        EXTRA_ARGS="${EXTRA_ARGS}        <string>-public</string>
+"
+    fi
     cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -224,7 +238,7 @@ if [ "$OS" = "darwin" ]; then
         <string>-identity</string>
         <string>${IDENTITY_DIR}/identity.json</string>
         <string>-encrypt</string>
-    </array>
+${EXTRA_ARGS}    </array>
     <key>RunAtLoad</key>
     <false/>
     <key>KeepAlive</key>

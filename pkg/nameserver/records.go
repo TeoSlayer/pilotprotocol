@@ -9,25 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"web4/internal/fsutil"
 	"web4/pkg/protocol"
 )
-
-// atomicWrite writes data to a file with fsync to ensure durability.
-func atomicWrite(path string, data []byte) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
-}
 
 // Record types
 const (
@@ -222,15 +206,13 @@ func (rs *RecordStore) save() {
 	}
 
 	dir := filepath.Dir(rs.storePath)
-	os.MkdirAll(dir, 0700)
-
-	tmpPath := rs.storePath + ".tmp"
-	if err := atomicWrite(tmpPath, data); err != nil {
-		slog.Error("write nameserver state", "err", err)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		slog.Error("create nameserver state directory", "dir", dir, "err", err)
 		return
 	}
-	if err := os.Rename(tmpPath, rs.storePath); err != nil {
-		slog.Error("rename nameserver state", "err", err)
+
+	if err := fsutil.AtomicWrite(rs.storePath, data); err != nil {
+		slog.Error("write nameserver state", "err", err)
 		return
 	}
 	slog.Debug("nameserver state saved", "a_records", len(rs.aRecords), "n_records", len(rs.nRecords))

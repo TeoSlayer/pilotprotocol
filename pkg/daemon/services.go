@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -36,7 +38,7 @@ func (a *connAdapter) Read(p []byte) (int, error) {
 	}
 	data, ok := <-a.conn.RecvBuf
 	if !ok {
-		return 0, fmt.Errorf("connection closed")
+		return 0, io.EOF
 	}
 	n := copy(p, data)
 	if n < len(data) {
@@ -171,10 +173,13 @@ func (d *Daemon) handleDataExchangeConn(conn *Connection) {
 			"remote", conn.RemoteAddr,
 		)
 
-		// Save received files to disk
 		var saveErr error
 		if frame.Type == dataexchange.TypeFile && frame.Filename != "" {
+			// Save received files to disk
 			saveErr = d.saveReceivedFile(frame)
+		} else if frame.Type == dataexchange.TypeText || frame.Type == dataexchange.TypeJSON || frame.Type == dataexchange.TypeBinary {
+			// Save messages to inbox
+			saveErr = d.saveInboxMessage(frame, conn.RemoteAddr)
 		}
 
 		// ACK: echo back a text frame confirming receipt
@@ -218,6 +223,41 @@ func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) error {
 		return fmt.Errorf("write: %w", err)
 	}
 	slog.Info("file saved", "path", destPath, "bytes", len(frame.Payload))
+	return nil
+}
+
+// saveInboxMessage saves a received text/JSON/binary message to ~/.pilot/inbox/.
+func (d *Daemon) saveInboxMessage(frame *dataexchange.Frame, from protocol.Addr) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".pilot", "inbox")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	ts := time.Now()
+	msg := map[string]interface{}{
+		"type":        dataexchange.TypeName(frame.Type),
+		"from":        from.String(),
+		"data":        string(frame.Payload),
+		"bytes":       len(frame.Payload),
+		"received_at": ts.Format(time.RFC3339),
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s-%s.json", dataexchange.TypeName(frame.Type), ts.Format("20060102-150405.000"))
+	destPath := filepath.Join(dir, filename)
+
+	if err := os.WriteFile(destPath, data, 0600); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	slog.Info("inbox message saved", "path", destPath, "type", dataexchange.TypeName(frame.Type), "bytes", len(frame.Payload))
 	return nil
 }
 

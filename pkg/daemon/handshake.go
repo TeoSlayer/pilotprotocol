@@ -12,25 +12,10 @@ import (
 	"time"
 
 	"web4/internal/crypto"
+	"web4/internal/fsutil"
 	"web4/pkg/protocol"
 )
 
-// atomicWrite writes data to a file with fsync to ensure durability.
-func atomicWrite(path string, data []byte) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
-}
 
 // Handshake message types
 const (
@@ -132,7 +117,8 @@ func (hm *HandshakeManager) goRPC(fn func()) {
 // --- Trust persistence ---
 
 type trustSnapshot struct {
-	Trusted []trustSnapshotEntry `json:"trusted"`
+	Trusted []trustSnapshotEntry   `json:"trusted"`
+	Pending []pendingSnapshotEntry `json:"pending,omitempty"`
 }
 
 type trustSnapshotEntry struct {
@@ -141,6 +127,13 @@ type trustSnapshotEntry struct {
 	ApprovedAt string `json:"approved_at"`
 	Mutual     bool   `json:"mutual"`
 	Network    uint16 `json:"network,omitempty"`
+}
+
+type pendingSnapshotEntry struct {
+	NodeID        uint32 `json:"node_id"`
+	PublicKey     string `json:"public_key,omitempty"`
+	Justification string `json:"justification,omitempty"`
+	ReceivedAt    string `json:"received_at"`
 }
 
 func (hm *HandshakeManager) saveTrust() {
@@ -158,6 +151,14 @@ func (hm *HandshakeManager) saveTrust() {
 			Network:    r.Network,
 		})
 	}
+	for _, p := range hm.pending {
+		snap.Pending = append(snap.Pending, pendingSnapshotEntry{
+			NodeID:        p.NodeID,
+			PublicKey:     p.PublicKey,
+			Justification: p.Justification,
+			ReceivedAt:    p.ReceivedAt.Format(time.RFC3339),
+		})
+	}
 
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
@@ -166,18 +167,16 @@ func (hm *HandshakeManager) saveTrust() {
 	}
 
 	dir := filepath.Dir(hm.storePath)
-	os.MkdirAll(dir, 0700)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		slog.Error("create trust state directory", "dir", dir, "err", err)
+		return
+	}
 
-	tmpPath := hm.storePath + ".tmp"
-	if err := atomicWrite(tmpPath, data); err != nil {
+	if err := fsutil.AtomicWrite(hm.storePath, data); err != nil {
 		slog.Error("write trust state", "err", err)
 		return
 	}
-	if err := os.Rename(tmpPath, hm.storePath); err != nil {
-		slog.Error("rename trust state", "err", err)
-		return
-	}
-	slog.Debug("trust state saved", "peers", len(hm.trusted))
+	slog.Debug("trust state saved", "peers", len(hm.trusted), "pending", len(hm.pending))
 }
 
 func (hm *HandshakeManager) loadTrust() {
@@ -206,7 +205,16 @@ func (hm *HandshakeManager) loadTrust() {
 			Network:    e.Network,
 		}
 	}
-	slog.Info("loaded trust state", "peers", len(hm.trusted))
+	for _, e := range snap.Pending {
+		received, _ := time.Parse(time.RFC3339, e.ReceivedAt)
+		hm.pending[e.NodeID] = &PendingHandshake{
+			NodeID:        e.NodeID,
+			PublicKey:     e.PublicKey,
+			Justification: e.Justification,
+			ReceivedAt:    received,
+		}
+	}
+	slog.Info("loaded trust state", "peers", len(hm.trusted), "pending", len(hm.pending))
 }
 
 // Start binds port 444 and begins handling handshake connections.
@@ -292,7 +300,7 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 			slog.Warn("handshake: missing signature from authenticated node", "peer_node_id", msg.NodeID)
 			return
 		}
-		challenge := fmt.Sprintf("handshake:%d:%d", msg.NodeID, hm.daemon.nodeID)
+		challenge := fmt.Sprintf("handshake:%d:%d", msg.NodeID, hm.daemon.NodeID())
 		pubKeyBytes, err := base64.StdEncoding.DecodeString(msg.PublicKey)
 		if err != nil {
 			slog.Warn("handshake: invalid public key encoding", "peer_node_id", msg.NodeID, "err", err)
@@ -363,7 +371,7 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
 		if hm.daemon.regConn != nil {
-			hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.nodeID, peerNodeID) })
+			hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.NodeID(), peerNodeID) })
 		}
 		return
 	}
@@ -381,7 +389,7 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
 		if hm.daemon.regConn != nil {
-			hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.nodeID, peerNodeID) })
+			hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.NodeID(), peerNodeID) })
 		}
 		return
 	}
@@ -393,6 +401,7 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		Justification: msg.Justification,
 		ReceivedAt:    time.Now(),
 	}
+	hm.saveTrust()
 	slog.Info("handshake request pending approval", "peer_node_id", peerNodeID)
 }
 
@@ -415,7 +424,7 @@ func (hm *HandshakeManager) handleAccept(msg *HandshakeMsg) {
 
 	// Report trust to registry
 	if hm.daemon.regConn != nil {
-		hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.nodeID, peerNodeID) })
+		hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.NodeID(), peerNodeID) })
 	}
 }
 
@@ -447,7 +456,7 @@ func (hm *HandshakeManager) SendRequest(peerNodeID uint32, justification string)
 
 	msg := HandshakeMsg{
 		Type:          HandshakeRequest,
-		NodeID:        hm.daemon.nodeID,
+		NodeID:        hm.daemon.NodeID(),
 		PublicKey:     pubKeyStr,
 		Justification: justification,
 		Timestamp:     time.Now().Unix(),
@@ -462,8 +471,8 @@ func (hm *HandshakeManager) SendRequest(peerNodeID uint32, justification string)
 	// Direct failed (likely private node) — relay through registry
 	slog.Info("direct handshake failed, relaying via registry", "peer_node_id", peerNodeID, "error", err)
 	if hm.daemon.regConn != nil {
-		sig := hm.signHandshakeChallenge(fmt.Sprintf("handshake:%d:%d", hm.daemon.nodeID, peerNodeID))
-		_, relayErr := hm.daemon.regConn.RequestHandshake(hm.daemon.nodeID, peerNodeID, justification, sig)
+		sig := hm.signHandshakeChallenge(fmt.Sprintf("handshake:%d:%d", hm.daemon.NodeID(), peerNodeID))
+		_, relayErr := hm.daemon.regConn.RequestHandshake(hm.daemon.NodeID(), peerNodeID, justification, sig)
 		if relayErr != nil {
 			return fmt.Errorf("handshake relay: %w", relayErr)
 		}
@@ -483,7 +492,7 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 		slog.Debug("relayed request from already-trusted node", "peer_node_id", fromNodeID)
 		// Respond via registry that we accept
 		if hm.daemon.regConn != nil {
-			nodeID, peerID := hm.daemon.nodeID, fromNodeID
+			nodeID, peerID := hm.daemon.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
 			hm.goRPC(func() { hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig) })
 		}
@@ -502,7 +511,7 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 		hm.saveTrust()
 		// Respond via registry and backfill public key
 		if hm.daemon.regConn != nil {
-			nodeID, peerID := hm.daemon.nodeID, fromNodeID
+			nodeID, peerID := hm.daemon.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
 			hm.goRPC(func() {
 				hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig)
@@ -518,6 +527,7 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 		Justification: justification,
 		ReceivedAt:    time.Now(),
 	}
+	hm.saveTrust()
 	slog.Info("relayed handshake request pending approval", "from_node_id", fromNodeID, "justification", justification)
 }
 
@@ -605,7 +615,7 @@ func (hm *HandshakeManager) ApproveHandshake(peerNodeID uint32) error {
 
 	// Report trust to registry (creates the trust pair for resolve authorization)
 	if hm.daemon.regConn != nil {
-		nodeID := hm.daemon.nodeID
+		nodeID := hm.daemon.NodeID()
 		sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerNodeID))
 		hm.goRPC(func() {
 			hm.daemon.regConn.ReportTrust(nodeID, peerNodeID)
@@ -623,13 +633,14 @@ func (hm *HandshakeManager) ApproveHandshake(peerNodeID uint32) error {
 func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) error {
 	hm.mu.Lock()
 	delete(hm.pending, peerNodeID)
+	hm.saveTrust()
 	hm.mu.Unlock()
 
 	slog.Info("handshake rejected", "peer_node_id", peerNodeID, "reason", reason)
 
 	// Relay rejection via registry so the requester learns about it even behind NAT
 	if hm.daemon.regConn != nil {
-		nodeID := hm.daemon.nodeID
+		nodeID := hm.daemon.NodeID()
 		sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerNodeID))
 		hm.goRPC(func() {
 			hm.daemon.regConn.RespondHandshake(nodeID, peerNodeID, false, sig)
@@ -644,7 +655,7 @@ func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) er
 
 	msg := HandshakeMsg{
 		Type:      HandshakeReject,
-		NodeID:    hm.daemon.nodeID,
+		NodeID:    hm.daemon.NodeID(),
 		PublicKey: pubKeyStr,
 		Reason:    reason,
 		Timestamp: time.Now().Unix(),
@@ -659,10 +670,11 @@ func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) er
 func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 	hm.mu.Lock()
 	_, wasTrusted := hm.trusted[peerNodeID]
+	_, wasPending := hm.pending[peerNodeID]
 	delete(hm.trusted, peerNodeID)
 	delete(hm.pending, peerNodeID)
 	delete(hm.outgoing, peerNodeID)
-	if wasTrusted {
+	if wasTrusted || wasPending {
 		hm.saveTrust()
 	}
 	hm.mu.Unlock()
@@ -678,7 +690,7 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 
 	// Revoke the trust pair at the registry so resolve is blocked again
 	if hm.daemon.regConn != nil {
-		hm.goRPC(func() { hm.daemon.regConn.RevokeTrust(hm.daemon.nodeID, peerNodeID) })
+		hm.goRPC(func() { hm.daemon.regConn.RevokeTrust(hm.daemon.NodeID(), peerNodeID) })
 	}
 
 	// Best-effort: notify the peer so they can remove us from their trusted set
@@ -689,7 +701,7 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 		}
 		msg := HandshakeMsg{
 			Type:      HandshakeRevoke,
-			NodeID:    hm.daemon.nodeID,
+			NodeID:    hm.daemon.NodeID(),
 			PublicKey: pubKeyStr,
 			Reason:    "trust revoked",
 			Timestamp: time.Now().Unix(),
@@ -707,10 +719,11 @@ func (hm *HandshakeManager) handleRevokeMsg(msg *HandshakeMsg) {
 
 	hm.mu.Lock()
 	_, wasTrusted := hm.trusted[peerNodeID]
+	_, wasPending := hm.pending[peerNodeID]
 	delete(hm.trusted, peerNodeID)
 	delete(hm.pending, peerNodeID)
 	delete(hm.outgoing, peerNodeID)
-	if wasTrusted {
+	if wasTrusted || wasPending {
 		hm.saveTrust()
 	}
 	hm.mu.Unlock()
@@ -720,7 +733,7 @@ func (hm *HandshakeManager) handleRevokeMsg(msg *HandshakeMsg) {
 
 	// Also remove from registry (in case peer's revoke_trust didn't reach registry)
 	if wasTrusted && hm.daemon.regConn != nil {
-		hm.goRPC(func() { hm.daemon.regConn.RevokeTrust(hm.daemon.nodeID, peerNodeID) })
+		hm.goRPC(func() { hm.daemon.regConn.RevokeTrust(hm.daemon.NodeID(), peerNodeID) })
 	}
 }
 
@@ -768,7 +781,7 @@ func (hm *HandshakeManager) sendAccept(peerNodeID uint32) error {
 	}
 	msg := HandshakeMsg{
 		Type:      HandshakeAccept,
-		NodeID:    hm.daemon.nodeID,
+		NodeID:    hm.daemon.NodeID(),
 		PublicKey: pubKeyStr,
 		Timestamp: time.Now().Unix(),
 	}
@@ -777,7 +790,7 @@ func (hm *HandshakeManager) sendAccept(peerNodeID uint32) error {
 		// Direct dial failed (peer may be private) — relay acceptance through registry
 		slog.Info("direct accept failed, relaying via registry", "peer_node_id", peerNodeID, "error", err)
 		if hm.daemon.regConn != nil {
-			nodeID := hm.daemon.nodeID
+			nodeID := hm.daemon.NodeID()
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerNodeID))
 			_, relayErr := hm.daemon.regConn.RespondHandshake(nodeID, peerNodeID, true, sig)
 			if relayErr != nil {
@@ -844,7 +857,7 @@ func (hm *HandshakeManager) sharedNetwork(peerNodeID uint32) uint16 {
 		return 0
 	}
 
-	myResp, err := hm.daemon.regConn.Lookup(hm.daemon.nodeID)
+	myResp, err := hm.daemon.regConn.Lookup(hm.daemon.NodeID())
 	if err != nil {
 		return 0
 	}

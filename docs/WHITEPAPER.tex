@@ -60,7 +60,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small\textit{Pilot Protocol}}
-\fancyhead[R]{\small\textit{Version 1.7}}
+\fancyhead[R]{\small\textit{Version 1.8}}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -75,7 +75,7 @@
 {\Huge\bfseries Pilot Protocol\\[0.3em]}
 {\LARGE A Network Stack for Autonomous Agents\\[2em]}
 
-{\large Version 1.7 --- February 2026\\[3em]}
+{\large Version 1.8 --- February 2026\\[3em]}
 
 {\Large Calin Teodor\\[0.5em]}
 {\large Vulture Labs\\[0.3em]}
@@ -712,6 +712,50 @@ The integration test verifies that after shutdown, the node is no longer found i
 
 A concurrency stress test opens 20 simultaneous connections from Agent~B to Agent~A's echo server. All 20 connections complete successfully with correct echoed payloads, validating that the daemon, IPC layer, and registry handle concurrent load without corruption or deadlock.
 
+\subsection{NAT Traversal Validation}
+
+The deployment was expanded to five nodes across five geographic regions to validate NAT traversal under real-world conditions. Three additional agents were placed behind Cloud NAT (no public IP, no port forwarding):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Role} & \textbf{Region} & \textbf{Network} & \textbf{NAT Type} \\
+\midrule
+Rendezvous     & us-central1-a      & Public IP          & --- \\
+Agent~Alpha    & us-east1-b         & Public IP          & --- \\
+Agent~Bravo    & europe-west1-b     & Public IP          & --- \\
+NAT~West       & us-west1-b         & Cloud NAT          & EIM \\
+NAT~Asia       & asia-east1-b       & Cloud NAT          & EIM \\
+NAT~South      & southamerica-east1-b & Cloud NAT        & EIM \\
+\bottomrule
+\end{tabular}
+\caption{Extended deployment topology for NAT traversal validation. EIM = Endpoint-Independent Mapping.}
+\label{tab:nat-deployment}
+\end{table}
+
+All ten pairwise connections between the five agents established successfully. GCP Cloud NAT uses Endpoint-Independent Mapping, which means the STUN-discovered endpoint is valid for all peers---every connection was direct (no relay fallback required), including NAT$\rightarrow$NAT paths.
+
+Representative ping latencies across topology combinations:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{From} & \textbf{To} & \textbf{RTT} \\
+\midrule
+Agent~Alpha (US-East)  & Agent~Bravo (Europe)  & ${\sim}$194\,ms \\
+Agent~Alpha (US-East)  & NAT~West (US-West)    & ${\sim}$136\,ms \\
+NAT~West (US-West)     & NAT~Asia (Asia)       & ${\sim}$241\,ms \\
+NAT~West (US-West)     & NAT~South (S.~America) & ${\sim}$341\,ms \\
+\bottomrule
+\end{tabular}
+\caption{Cross-continent ping latencies (4-probe average).}
+\label{tab:nat-latency}
+\end{table}
+
+HTTP gateway bridging, pub/sub event streaming, data exchange, and handshake relay were all validated across Public$\rightarrow$Public, Public$\rightarrow$NAT, NAT$\rightarrow$Public, and NAT$\rightarrow$NAT topologies.
+
 \subsection{Summary}
 
 \begin{table}[h]
@@ -763,6 +807,11 @@ Frame + event wire format (4 tests) & Unit test & Pass (all types, size limits) 
 Gateway mapping (2 tests) & Unit test & Pass (auto/explicit, subnet) \\
 Rate limiter (11 tests) & Unit test & Pass (token bucket, concurrent) \\
 Config + IPv6 & Local & Pass (JSON config, full IPv6 stack) \\
+\midrule
+NAT traversal (STUN + hole-punch) & Cross-continent & Pass (5 regions, all direct) \\
+NAT$\rightarrow$NAT direct connection & Cross-continent & Pass (Cloud NAT EIM) \\
+Gateway over NAT & Cross-continent & Pass (all 4 topologies) \\
+Handshake relay over NAT & Cross-continent & Pass \\
 \bottomrule
 \end{tabular}
 \normalsize
@@ -770,7 +819,7 @@ Config + IPv6 & Local & Pass (JSON config, full IPv6 stack) \\
 \label{tab:results}
 \end{table}
 
-This validates the complete stack: address assignment, NAT traversal, tunnel establishment, session handshake, reliable data delivery with sliding window and congestion control, retransmission, flow control, write coalescing, automatic segmentation, tunnel encryption, authenticated key exchange, identity persistence, key rotation, peer trust handshakes (mutual and manual), endpoint privacy, handshake relay, backbone enumeration protection, HTTP compatibility (including trust-gated access), hostname discovery, typed data exchange, pub/sub event streaming, IP bridging, gateway proxying, zero-window probing, simultaneous close, connection limits, admin token gating, rate limiting, IPv6, graceful shutdown, connection lifecycle management, and concurrent load handling---all across continental distances over the public internet. The test suite comprises 226~integration and unit tests (202~pass, 24~skipped).
+This validates the complete stack: address assignment, NAT traversal, tunnel establishment, session handshake, reliable data delivery with sliding window and congestion control, retransmission, flow control, write coalescing, automatic segmentation, tunnel encryption, authenticated key exchange, identity persistence, key rotation, peer trust handshakes (mutual and manual), endpoint privacy, handshake relay, backbone enumeration protection, HTTP compatibility (including trust-gated access), hostname discovery, typed data exchange, pub/sub event streaming, IP bridging, gateway proxying, zero-window probing, simultaneous close, connection limits, admin token gating, rate limiting, IPv6, graceful shutdown, connection lifecycle management, and concurrent load handling---all across continental distances over the public internet. The test suite comprises 247~integration and unit tests (223~pass, 24~skipped).
 
 % ============================================================
 \section{Operations}

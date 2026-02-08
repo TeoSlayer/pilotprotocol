@@ -3,10 +3,10 @@ package driver
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 
+	"web4/internal/ipcutil"
 	"web4/pkg/protocol"
 )
 
@@ -86,7 +86,7 @@ func (c *ipcClient) close() error {
 func (c *ipcClient) readLoop() {
 	defer c.cleanup()
 	for {
-		msg, err := ipcRead(c.conn)
+		msg, err := ipcutil.Read(c.conn)
 		if err != nil {
 			return
 		}
@@ -200,7 +200,7 @@ func (c *ipcClient) cleanup() {
 func (c *ipcClient) send(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return ipcWrite(c.conn, data)
+	return ipcutil.Write(c.conn, data)
 }
 
 func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
@@ -208,7 +208,7 @@ func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
 
 	c.mu.Lock()
 	c.handlers[expectCmd] = append(c.handlers[expectCmd], ch)
-	if err := ipcWrite(c.conn, data); err != nil {
+	if err := ipcutil.Write(c.conn, data); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
@@ -288,30 +288,3 @@ func (c *ipcClient) unregisterRecvCh(connID uint32) {
 	c.recvMu.Unlock()
 }
 
-// IPC framing
-
-func ipcRead(r io.Reader) ([]byte, error) {
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint32(lenBuf[:])
-	if length > 1<<20 {
-		return nil, fmt.Errorf("message too large: %d", length)
-	}
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-func ipcWrite(w io.Writer, data []byte) error {
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data)))
-	if _, err := w.Write(lenBuf[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(data)
-	return err
-}

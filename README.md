@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-202%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-223%20pass-success" alt="Tests">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
 </p>
 
@@ -76,7 +76,7 @@ pilotctl send other-agent 1000 --data "hello"              # Send a message
 pilotctl recv 1000 --count 5 --timeout 30s                 # Listen for messages
 ```
 
-Every command supports `--json` for structured output. Every error has a machine-readable code. No interactive prompts.
+Every command supports `--json` for structured output. Every error has a machine-readable code and an actionable hint. No interactive prompts.
 
 <details>
 <summary><strong>Example JSON output</strong></summary>
@@ -92,7 +92,7 @@ $ pilotctl --json recv 1000 --count 1
 {"status":"ok","data":{"messages":[{"seq":0,"port":1000,"data":"hello","bytes":5}]}}
 
 $ pilotctl --json find nonexistent
-{"status":"error","code":"not_found","message":"hostname not found: nonexistent"}
+{"status":"error","code":"not_found","message":"hostname not found: nonexistent","hint":"check the hostname and ensure mutual trust exists"}
 ```
 
 </details>
@@ -115,6 +115,7 @@ $ pilotctl --json find nonexistent
 - Sliding window, SACK, congestion control (AIMD)
 - Flow control (advertised receive window)
 - Nagle coalescing, auto segmentation, zero-window probing
+- NAT traversal: STUN discovery, hole-punching, relay fallback
 
 </td>
 <td width="50%" valign="top">
@@ -227,6 +228,54 @@ graph LR
 
 ---
 
+## NAT traversal
+
+Pilot Protocol handles NAT automatically with a three-tier connection strategy:
+
+1. **Direct** -- If both peers have public endpoints (or Full Cone NAT), the tunnel connects directly using the STUN-discovered address.
+2. **Hole-punch** -- For Restricted/Port-Restricted Cone NAT, the beacon coordinates simultaneous UDP sends from both sides to punch through the NAT.
+3. **Relay** -- When hole-punching fails (Symmetric NAT), traffic is relayed through the beacon transparently. The daemon auto-detects and falls back.
+
+The beacon also sends periodic heartbeat keepalives to maintain NAT port mappings. Cloud NAT (GCP, AWS) uses Endpoint-Independent Mapping, so direct connections work even between two NATted nodes.
+
+No configuration is needed -- the daemon handles everything on startup.
+
+---
+
+## Demo
+
+A public demo agent (`agent-alpha`) is running on the Pilot Protocol network with auto-accept enabled. You can connect to its website from your machine:
+
+```bash
+# 1. Install
+curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+
+# 2. Start the daemon
+pilotctl daemon start --hostname my-agent
+
+# 3. Request trust (auto-approved within seconds)
+pilotctl handshake agent-alpha "hello"
+
+# 4. Wait a few seconds, then verify trust
+pilotctl trust
+
+# 5. Start the gateway (maps the agent to a local IP)
+sudo pilotctl gateway start --ports 80 0:0000.0000.0004
+
+# 6. Open the website
+curl http://10.4.0.1/
+curl http://10.4.0.1/status
+```
+
+You can also ping and benchmark:
+
+```bash
+pilotctl ping agent-alpha
+pilotctl bench agent-alpha
+```
+
+---
+
 ## Install
 
 ```bash
@@ -335,8 +384,8 @@ pilotctl bench other-agent
 | `set-hostname <name>` | Claim a hostname on the network |
 | `clear-hostname` | Remove your hostname |
 | `find <hostname>` | Look up another agent by name |
-| `set-public <node_id>` | Make endpoint visible to all |
-| `set-private <node_id>` | Hide endpoint (default) |
+| `set-public` | Make this node visible to all |
+| `set-private` | Hide this node (default) |
 
 ### Communication
 
@@ -344,9 +393,9 @@ pilotctl bench other-agent
 |---------|-------------|
 | `send <addr\|hostname> <port> --data <msg>` | Send a message to a port |
 | `recv <port> [--count n] [--timeout dur]` | Listen for incoming messages |
-| `connect <addr\|hostname> [port] [--message msg]` | Interactive or single-shot connection (default port: 1000) |
+| `connect <addr\|hostname> [port] --message <msg>` | Send a message and get a response (default port: 1000). Supports pipe mode via stdin |
 | `send-file <addr\|hostname> <path>` | Transfer a file via data exchange (port 1001). Saved to `~/.pilot/received/` on target |
-| `send-message <addr\|hostname> --data <text> [--type text\|json\|binary]` | Send a typed message via data exchange (port 1001) |
+| `send-message <addr\|hostname> --data <text> [--type text\|json\|binary]` | Send a typed message via data exchange (port 1001). Saved to `~/.pilot/inbox/` on target |
 | `subscribe <addr\|hostname> <topic> [--count n] [--timeout dur]` | Subscribe to event stream topics (port 1002). Use `*` for all topics |
 | `publish <addr\|hostname> <topic> --data <msg>` | Publish an event to a topic on the target's event stream broker |
 | `listen <port> [--count n]` | Raw port listener (NDJSON in `--json` mode) |
@@ -358,8 +407,8 @@ Agents are **private by default**. Two agents must establish mutual trust before
 
 | Command | Description |
 |---------|-------------|
-| `handshake <hostname> [reason]` | Request trust (auto-approves if mutual) |
-| `pending` | See incoming trust requests |
+| `handshake <hostname> [reason]` | Request trust (auto-approves if mutual). Relayed via registry for NAT traversal |
+| `pending` | See incoming trust requests (persisted across restarts) |
 | `approve <node_id>` | Accept a request |
 | `reject <node_id> [reason]` | Decline a request |
 | `trust` | List trusted peers |
@@ -372,6 +421,15 @@ Agents are **private by default**. Two agents must establish mutual trust before
 | `daemon start [flags]` | Start the daemon (background by default) |
 | `daemon stop` | Stop the running daemon |
 | `daemon status [--check]` | Show status (`--check`: silent exit 0/1 for scripts) |
+
+### Mailbox
+
+Received files and messages are stored locally and can be inspected at any time.
+
+| Command | Description |
+|---------|-------------|
+| `received [--clear]` | List files received via data exchange. Files saved to `~/.pilot/received/` |
+| `inbox [--clear]` | List messages received via data exchange. Messages saved to `~/.pilot/inbox/` |
 
 ### Diagnostics
 
@@ -410,7 +468,7 @@ curl http://10.4.0.1:3000/status
 |---------|-------------|
 | `register [listen_addr]` | Register a node |
 | `lookup <node_id>` | Look up a node |
-| `deregister <node_id>` | Remove a node |
+| `deregister` | Deregister this node from the registry |
 | `rotate-key <node_id> <owner>` | Rotate Ed25519 keypair via owner recovery |
 
 ### Agent Integration
@@ -511,11 +569,13 @@ WantedBy=multi-user.target
 go test -parallel 4 -count=1 ./tests/
 ```
 
-202 tests pass, 24 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+223 tests pass, 24 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 
 ## Error codes
+
+Every error includes a `hint` field telling you what to do next.
 
 | Code | Meaning | Retry? |
 |------|---------|--------|

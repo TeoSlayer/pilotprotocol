@@ -51,5 +51,8 @@ var TunnelMagicKeyEx = [4]byte{0x50, 0x49, 0x4C, 0x4B}
 // Tunnel magic bytes for authenticated key exchange: "PILA" (0x50494C41)
 var TunnelMagicAuthEx = [4]byte{0x50, 0x49, 0x4C, 0x41}
 
+// Tunnel magic bytes for NAT punch packet: "PILP" (0x50494C50)
+var TunnelMagicPunch = [4]byte{0x50, 0x49, 0x4C, 0x50}
+
 // Well-known port for handshake requests
 const PortHandshake uint16 = 444

@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -83,6 +85,23 @@ func fatalCode(code string, format string, args ...interface{}) {
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+	}
+	os.Exit(1)
+}
+
+// fatalHint is like fatalCode but adds an actionable hint telling the user what to do next.
+func fatalHint(code, hint, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	if jsonOutput {
+		b, _ := json.Marshal(map[string]string{
+			"status":  "error",
+			"code":    code,
+			"message": msg,
+			"hint":    hint,
+		})
+		fmt.Fprintln(os.Stderr, string(b))
+	} else {
+		fmt.Fprintf(os.Stderr, "error: %s\nhint:  %s\n", msg, hint)
 	}
 	os.Exit(1)
 }
@@ -245,15 +264,20 @@ func flagBool(flags map[string]string, key string) bool {
 func connectDriver() *driver.Driver {
 	d, err := driver.Connect(getSocket())
 	if err != nil {
-		fatalCode("not_running", "connect to daemon: %v", err)
+		fatalHint("not_running",
+			"start the daemon with: pilotctl daemon start",
+			"daemon is not running")
 	}
 	return d
 }
 
 func connectRegistry() *registry.Client {
-	rc, err := registry.Dial(getRegistry())
+	addr := getRegistry()
+	rc, err := registry.Dial(addr)
 	if err != nil {
-		fatalCode("connection_failed", "connect to registry: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that the registry is running at %s, or set PILOT_REGISTRY", addr),
+			"cannot reach registry at %s", addr)
 	}
 	return rc
 }
@@ -286,10 +310,10 @@ func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
 	}
 	resolved, _, resolveErr := resolveHostnameToAddr(d, arg)
 	if resolveErr != nil {
-		return protocol.Addr{}, fmt.Errorf("not a valid address or hostname: %v", resolveErr)
+		return protocol.Addr{}, fmt.Errorf("cannot resolve %q — is the hostname correct and is there mutual trust? (see: pilotctl handshake)", arg)
 	}
 	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "resolved hostname %q → %s\n", arg, resolved)
+		fmt.Fprintf(os.Stderr, "resolved %q → %s\n", arg, resolved)
 	}
 	return resolved, nil
 }
@@ -315,9 +339,9 @@ Registry commands:
   pilotctl register [listen_addr]
   pilotctl lookup <node_id>
   pilotctl rotate-key <node_id> <owner>
-  pilotctl set-public <node_id>
-  pilotctl set-private <node_id>
-  pilotctl deregister <node_id>
+  pilotctl set-public
+  pilotctl set-private
+  pilotctl deregister
 
 Discovery commands:
   pilotctl find <hostname>
@@ -344,6 +368,10 @@ Trust commands:
 Management commands:
   pilotctl connections
   pilotctl disconnect <conn_id>
+
+Mailbox:
+  pilotctl received [--clear]
+  pilotctl inbox [--clear]
 
 Diagnostic commands:
   pilotctl info
@@ -405,7 +433,9 @@ func main() {
 	// Daemon lifecycle
 	case "daemon":
 		if len(cmdArgs) < 1 {
-			fatalCode("invalid_argument", "usage: pilotctl daemon <start|stop|status>")
+			fatalHint("invalid_argument",
+				"available: pilotctl daemon start | stop | status",
+				"missing subcommand")
 		}
 		switch cmdArgs[0] {
 		case "start":
@@ -415,13 +445,17 @@ func main() {
 		case "status":
 			cmdDaemonStatus(cmdArgs[1:])
 		default:
-			fatalCode("invalid_argument", "unknown daemon subcommand: %s", cmdArgs[0])
+			fatalHint("invalid_argument",
+				"available: start, stop, status",
+				"unknown daemon subcommand: %s", cmdArgs[0])
 		}
 
 	// Gateway
 	case "gateway":
 		if len(cmdArgs) < 1 {
-			fatalCode("invalid_argument", "usage: pilotctl gateway <start|stop|map|unmap|list>")
+			fatalHint("invalid_argument",
+				"available: pilotctl gateway start | stop | map | unmap | list",
+				"missing subcommand")
 		}
 		switch cmdArgs[0] {
 		case "start":
@@ -435,7 +469,9 @@ func main() {
 		case "list":
 			cmdGatewayList()
 		default:
-			fatalCode("invalid_argument", "unknown gateway subcommand: %s", cmdArgs[0])
+			fatalHint("invalid_argument",
+				"available: start, stop, map, unmap, list",
+				"unknown gateway subcommand: %s", cmdArgs[0])
 		}
 
 	// Registry
@@ -512,14 +548,23 @@ func main() {
 	case "broadcast":
 		cmdBroadcast(cmdArgs)
 
+	// Mailbox
+	case "received":
+		cmdReceived(cmdArgs)
+	case "inbox":
+		cmdInbox(cmdArgs)
+
 	// Internal: forked daemon process
 	case "_daemon-run":
 		runDaemonInternal(cmdArgs)
 
 	default:
 		if jsonOutput {
-			fatalCode("invalid_argument", "unknown command: %s", cmd)
+			fatalHint("invalid_argument",
+				"run 'pilotctl context' for the full command list",
+				"unknown command: %s", cmd)
 		}
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage()
 	}
 }
@@ -772,8 +817,8 @@ func cmdContext() {
 				"returns":     "status",
 			},
 			"deregister": map[string]interface{}{
-				"args":        []string{"<node_id>"},
-				"description": "Remove a node from the registry",
+				"args":        []string{},
+				"description": "Deregister this node from the registry (routes through daemon)",
 				"returns":     "status",
 			},
 			"gateway start": map[string]interface{}{
@@ -800,6 +845,16 @@ func cmdContext() {
 				"args":        []string{},
 				"description": "List all current gateway mappings",
 				"returns":     "mappings [{local_ip, pilot_addr}], total",
+			},
+			"received": map[string]interface{}{
+				"args":        []string{"[--clear]"},
+				"description": "List files received via data exchange (port 1001). Files saved to ~/.pilot/received/. Use --clear to delete all",
+				"returns":     "files [{name, bytes, modified, path}], total, dir",
+			},
+			"inbox": map[string]interface{}{
+				"args":        []string{"[--clear]"},
+				"description": "List messages received via data exchange (port 1001). Messages saved to ~/.pilot/inbox/. Use --clear to delete all",
+				"returns":     "messages [{type, from, data, received_at}], total, dir",
 			},
 		},
 		"error_codes": map[string]interface{}{
@@ -831,9 +886,11 @@ func cmdDaemonStart(args []string) {
 	// Check if already running
 	if pid := readPID(); pid > 0 {
 		if processExists(pid) {
-			fatalCode("already_exists", "daemon already running (pid %d)", pid)
+			fatalHint("already_exists",
+				"stop it first with: pilotctl daemon stop",
+				"daemon is already running (pid %d)", pid)
 		}
-		// Stale PID file
+		// Stale PID file — clean up silently
 		os.Remove(pidFilePath())
 	}
 
@@ -844,9 +901,11 @@ func cmdDaemonStart(args []string) {
 		d, err := driver.Connect(socketPath)
 		if err == nil {
 			d.Close()
-			fatalCode("already_exists", "daemon already running (socket %s is active)", socketPath)
+			fatalHint("already_exists",
+				"stop it first with: pilotctl daemon stop",
+				"daemon is already running (socket %s is active)", socketPath)
 		}
-		// Stale socket — remove it
+		// Stale socket — clean up silently
 		os.Remove(socketPath)
 	}
 
@@ -943,10 +1002,19 @@ func cmdDaemonStart(args []string) {
 	pid := proc.Process.Pid
 	os.WriteFile(pidFilePath(), []byte(strconv.Itoa(pid)), 0600)
 
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "starting daemon (pid %d)...", pid)
+	}
+
 	// Wait for daemon to become ready (socket appears and responds)
 	deadline := time.Now().Add(15 * time.Second)
+	dots := 0
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
+		dots++
+		if !jsonOutput && dots%5 == 0 { // every second
+			fmt.Fprint(os.Stderr, ".")
+		}
 		d, err := driver.Connect(socketPath)
 		if err != nil {
 			continue
@@ -956,19 +1024,41 @@ func cmdDaemonStart(args []string) {
 		if err != nil {
 			continue
 		}
-		// Daemon is ready
-		outputOK(map[string]interface{}{
-			"pid":      pid,
-			"node_id":  int(info["node_id"].(float64)),
-			"address":  info["address"],
-			"hostname": info["hostname"],
-			"socket":   socketPath,
-			"log_file": logFilePath(),
-		})
+		if !jsonOutput {
+			fmt.Fprintln(os.Stderr) // end the dots line
+		}
+		// Daemon is ready — show a friendly summary
+		nodeID := int(info["node_id"].(float64))
+		address := info["address"]
+		hn, _ := info["hostname"].(string)
+		if jsonOutput {
+			outputOK(map[string]interface{}{
+				"pid":      pid,
+				"node_id":  nodeID,
+				"address":  address,
+				"hostname": hn,
+				"socket":   socketPath,
+				"log_file": logFilePath(),
+			})
+		} else {
+			fmt.Printf("Daemon running (pid %d)\n", pid)
+			fmt.Printf("  Address:  %s\n", address)
+			if hn != "" {
+				fmt.Printf("  Hostname: %s\n", hn)
+			}
+			fmt.Printf("  Socket:   %s\n", socketPath)
+			fmt.Printf("  Logs:     %s\n", logFilePath())
+		}
 		return
 	}
 
-	fatalCode("timeout", "daemon started (pid %d) but did not become ready within 15s — check %s", pid, logFilePath())
+	if !jsonOutput {
+		fmt.Fprintln(os.Stderr) // end the dots line
+	}
+
+	fatalHint("timeout",
+		fmt.Sprintf("check logs: tail -f %s", logFilePath()),
+		"daemon started (pid %d) but did not become ready within 15s", pid)
 }
 
 func cmdDaemonStop() {
@@ -977,15 +1067,17 @@ func cmdDaemonStop() {
 		// Try socket
 		d, err := driver.Connect(getSocket())
 		if err != nil {
-			fatalCode("not_running", "no daemon running (no PID file and socket not responding)")
+			fatalCode("not_running", "daemon is not running")
 		}
 		d.Close()
-		fatalCode("not_running", "daemon socket active but no PID file — kill manually")
+		fatalHint("not_running",
+			fmt.Sprintf("find and kill the process manually: lsof -U | grep %s", getSocket()),
+			"daemon socket is active but PID file is missing")
 	}
 
 	if !processExists(pid) {
 		os.Remove(pidFilePath())
-		fatalCode("not_running", "daemon not running (stale pid %d)", pid)
+		fatalCode("not_running", "daemon is not running (cleaned up stale state)")
 	}
 
 	// Send SIGTERM
@@ -998,12 +1090,16 @@ func cmdDaemonStop() {
 	}
 
 	// Wait for exit
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	waitDeadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(waitDeadline) {
 		time.Sleep(200 * time.Millisecond)
 		if !processExists(pid) {
 			os.Remove(pidFilePath())
-			outputOK(map[string]interface{}{"pid": pid})
+			if jsonOutput {
+				outputOK(map[string]interface{}{"pid": pid})
+			} else {
+				fmt.Printf("daemon stopped (pid %d)\n", pid)
+			}
 			return
 		}
 	}
@@ -1011,7 +1107,11 @@ func cmdDaemonStop() {
 	// Force kill
 	proc.Signal(syscall.SIGKILL)
 	os.Remove(pidFilePath())
-	outputOK(map[string]interface{}{"pid": pid, "forced": true})
+	if jsonOutput {
+		outputOK(map[string]interface{}{"pid": pid, "forced": true})
+	} else {
+		fmt.Printf("daemon force-stopped (pid %d)\n", pid)
+	}
 }
 
 func cmdDaemonStatus(args []string) {
@@ -1055,7 +1155,12 @@ func cmdDaemonStatus(args []string) {
 			}
 		}
 		result["responsive"] = false
-		output(result)
+		if jsonOutput {
+			output(result)
+		} else {
+			fmt.Println("Daemon: stopped")
+			fmt.Printf("  start with: pilotctl daemon start\n")
+		}
 		return
 	}
 	defer d.Close()
@@ -1224,7 +1329,9 @@ func cmdGatewayStart(args []string) {
 
 	// Check if already running
 	if pid := readGatewayPID(); pid > 0 && processExists(pid) {
-		fatalCode("already_exists", "gateway already running (pid %d)", pid)
+		fatalHint("already_exists",
+			"stop it first with: pilotctl gateway stop",
+			"gateway is already running (pid %d)", pid)
 	}
 
 	subnet := flagString(flags, "subnet", "10.4.0.0/16")
@@ -1301,7 +1408,7 @@ func cmdGatewayStart(args []string) {
 func cmdGatewayStop() {
 	pid := readGatewayPID()
 	if pid <= 0 || !processExists(pid) {
-		fatalCode("not_running", "gateway not running")
+		fatalCode("not_running", "gateway is not running")
 	}
 	proc, _ := os.FindProcess(pid)
 	proc.Signal(syscall.SIGTERM)
@@ -1350,7 +1457,9 @@ func cmdGatewayUnmap(args []string) {
 
 	pid := readGatewayPID()
 	if pid <= 0 || !processExists(pid) {
-		fatalCode("not_running", "gateway not running")
+		fatalHint("not_running",
+			"start with: pilotctl gateway start",
+			"gateway is not running")
 	}
 
 	gw, err := gateway.New(gateway.Config{
@@ -1360,7 +1469,7 @@ func cmdGatewayUnmap(args []string) {
 		fatalCode("internal", "create gateway: %v", err)
 	}
 	if err := gw.Unmap(localIP); err != nil {
-		fatalCode("not_found", "unmap: %v", err)
+		fatalCode("not_found", "no mapping for %s", localIP)
 	}
 	outputOK(map[string]interface{}{
 		"unmapped": localIP,
@@ -1370,7 +1479,9 @@ func cmdGatewayUnmap(args []string) {
 func cmdGatewayList() {
 	pid := readGatewayPID()
 	if pid <= 0 || !processExists(pid) {
-		fatalCode("not_running", "gateway not running")
+		fatalHint("not_running",
+			"start with: pilotctl gateway start [--ports <list>] [<pilot-addr>...]",
+			"gateway is not running")
 	}
 
 	gw, err := gateway.New(gateway.Config{
@@ -1502,7 +1613,9 @@ func cmdFind(args []string) {
 	hostname := args[0]
 	result, err := d.ResolveHostname(hostname)
 	if err != nil {
-		fatalCode("not_found", "find: %v", err)
+		fatalHint("not_found",
+			fmt.Sprintf("establish trust first: pilotctl handshake %s \"reason\"", hostname),
+			"cannot find %q — hostname not found or no mutual trust", hostname)
 	}
 
 	nodeID := int(result["node_id"].(float64))
@@ -1620,7 +1733,9 @@ func cmdConnect(args []string) {
 	if message != "" {
 		conn, err := d.DialAddr(target, port)
 		if err != nil {
-			fatalCode("connection_failed", "dial: %v", err)
+			fatalHint("connection_failed",
+				fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+				"cannot connect to %s port %d", target, port)
 		}
 		defer conn.Close()
 
@@ -1639,10 +1754,13 @@ func cmdConnect(args []string) {
 
 		select {
 		case n := <-done:
-			if readErr != nil {
+			response := ""
+			if n > 0 {
+				response = string(buf[:n])
+			}
+			if readErr != nil && response == "" && !errors.Is(readErr, io.EOF) {
 				fatalCode("connection_failed", "read: %v", readErr)
 			}
-			response := string(buf[:n])
 			if jsonOutput {
 				output(map[string]interface{}{
 					"target":   target.String(),
@@ -1650,56 +1768,88 @@ func cmdConnect(args []string) {
 					"sent":     message,
 					"response": response,
 				})
+			} else if response != "" {
+				fmt.Println(response)
 			} else {
-				fmt.Print(response)
-				fmt.Println()
+				fmt.Fprintf(os.Stderr, "sent %d bytes (no response)\n", len(message))
 			}
 		case <-time.After(timeout):
-			fatalCode("timeout", "timeout waiting for response")
+			fatalHint("timeout",
+				"increase with --timeout, or check if the target is listening on that port",
+				"no response within %s", timeout)
 		}
 		return
 	}
 
-	// Interactive mode (unchanged from original)
-	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "connecting to %s:%d...\n", target, port)
-	}
-	conn, err := d.DialAddr(target, port)
-	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
-	}
-	defer conn.Close()
-	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "connected. Type messages, Ctrl+D to quit.\n")
+	// Pipe mode: read all of stdin, send it, read response
+	stat, _ := os.Stdin.Stat()
+	if stat.Mode()&os.ModeCharDevice != 0 {
+		// stdin is a terminal — require --message
+		fatalHint("invalid_argument",
+			"use --message to send a single message, or pipe data via stdin",
+			"--message is required (interactive mode not supported)")
 	}
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		buf := make([]byte, 65535)
-		for {
-			n, err := conn.Read(buf)
-			if err != nil {
-				return
-			}
-			os.Stdout.Write(buf[:n])
-			os.Stdout.Write([]byte("\n"))
-		}
-	}()
-
+	// Read all piped stdin
+	var stdinData []byte
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if _, err := conn.Write([]byte(line)); err != nil {
-			break
+		if len(stdinData) > 0 {
+			stdinData = append(stdinData, '\n')
 		}
+		stdinData = append(stdinData, scanner.Bytes()...)
+	}
+	if len(stdinData) == 0 {
+		fatalCode("invalid_argument", "no data on stdin — use --message or pipe data")
 	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
+	conn, err := d.DialAddr(target, port)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s port %d", target, port)
 	}
-	conn.Close()
+	defer conn.Close()
+
+	if _, err := conn.Write(stdinData); err != nil {
+		fatalCode("connection_failed", "write failed: %v", err)
+	}
+
+	buf := make([]byte, 65535)
+	done := make(chan int)
+	var readErr error
+	go func() {
+		n, err := conn.Read(buf)
+		readErr = err
+		done <- n
+	}()
+
+	select {
+	case n := <-done:
+		response := ""
+		if n > 0 {
+			response = string(buf[:n])
+		}
+		if readErr != nil && response == "" && !errors.Is(readErr, io.EOF) {
+			fatalCode("connection_failed", "read failed: %v", readErr)
+		}
+		if jsonOutput {
+			output(map[string]interface{}{
+				"target":   target.String(),
+				"port":     port,
+				"sent":     string(stdinData),
+				"response": response,
+			})
+		} else if response != "" {
+			fmt.Println(response)
+		} else {
+			fmt.Fprintf(os.Stderr, "sent %d bytes (no response)\n", len(stdinData))
+		}
+	case <-time.After(timeout):
+		fatalHint("timeout",
+			"increase with --timeout, or check if the target is listening on that port",
+			"no response within %s", timeout)
+	}
 }
 
 func cmdSend(args []string) {
@@ -1729,12 +1879,14 @@ func cmdSend(args []string) {
 
 	conn, err := d.DialAddr(target, port)
 	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s port %d", target, port)
 	}
 	defer conn.Close()
 
 	if _, err := conn.Write([]byte(data)); err != nil {
-		fatalCode("connection_failed", "write: %v", err)
+		fatalCode("connection_failed", "write failed: %v", err)
 	}
 
 	buf := make([]byte, 65535)
@@ -1748,10 +1900,13 @@ func cmdSend(args []string) {
 
 	select {
 	case n := <-doneCh:
-		if readErr != nil {
-			fatalCode("connection_failed", "read: %v", readErr)
+		response := ""
+		if n > 0 {
+			response = string(buf[:n])
 		}
-		response := string(buf[:n])
+		if readErr != nil && response == "" && !errors.Is(readErr, io.EOF) {
+			fatalCode("connection_failed", "read failed: %v", readErr)
+		}
 		if jsonOutput {
 			output(map[string]interface{}{
 				"target":   target.String(),
@@ -1759,11 +1914,15 @@ func cmdSend(args []string) {
 				"sent":     data,
 				"response": response,
 			})
-		} else {
+		} else if response != "" {
 			fmt.Println(response)
+		} else {
+			fmt.Fprintf(os.Stderr, "sent %d bytes (no response)\n", len(data))
 		}
 	case <-time.After(timeout):
-		fatalCode("timeout", "timeout waiting for response")
+		fatalHint("timeout",
+			fmt.Sprintf("increase with --timeout, or check peer: pilotctl ping %s", target),
+			"no response within %s", timeout)
 	}
 }
 
@@ -1867,6 +2026,12 @@ func cmdSendFile(args []string) {
 	filePath := args[1]
 	data, err := os.ReadFile(filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			fatalCode("not_found", "file not found: %s", filePath)
+		}
+		if os.IsPermission(err) {
+			fatalCode("internal", "permission denied: %s", filePath)
+		}
 		fatalCode("internal", "read file: %v", err)
 	}
 
@@ -1874,12 +2039,14 @@ func cmdSendFile(args []string) {
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
 	}
 	defer client.Close()
 
 	if err := client.SendFile(filename, data); err != nil {
-		fatalCode("connection_failed", "send: %v", err)
+		fatalCode("connection_failed", "send failed: %v", err)
 	}
 
 	// Read ACK
@@ -1922,7 +2089,9 @@ func cmdSendMessage(args []string) {
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
 	}
 	defer client.Close()
 
@@ -1977,12 +2146,14 @@ func cmdSubscribe(args []string) {
 
 	client, err := eventstream.Subscribe(d, target, topic)
 	if err != nil {
-		fatalCode("connection_failed", "subscribe: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot subscribe on %s (event stream port %d)", target, protocol.PortEventStream)
 	}
 	defer client.Close()
 
 	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "subscribed to %q on %s (port %d)\n", topic, target, protocol.PortEventStream)
+		fmt.Fprintf(os.Stderr, "subscribed to %q on %s — waiting for events...\n", topic, target)
 	}
 
 	var events []map[string]interface{}
@@ -2088,12 +2259,14 @@ func cmdPublish(args []string) {
 	// Subscribe first (required by the broker protocol), then publish
 	client, err := eventstream.Subscribe(d, target, topic)
 	if err != nil {
-		fatalCode("connection_failed", "subscribe: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s (event stream port %d)", target, protocol.PortEventStream)
 	}
 	defer client.Close()
 
 	if err := client.Publish(topic, []byte(data)); err != nil {
-		fatalCode("connection_failed", "publish: %v", err)
+		fatalCode("connection_failed", "publish failed: %v", err)
 	}
 
 	outputOK(map[string]interface{}{
@@ -2140,9 +2313,14 @@ func cmdHandshake(args []string) {
 		result["node_id"] = nodeID
 		output(result)
 	} else {
-		fmt.Printf("handshake request sent to node %d\n", nodeID)
-		b, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(b))
+		status, _ := result["status"].(string)
+		if status == "already_trusted" {
+			fmt.Printf("already trusted with node %d — ready to communicate\n", nodeID)
+		} else {
+			fmt.Printf("handshake request sent to node %d\n", nodeID)
+			fmt.Printf("  next: node %d must approve — or send a handshake back for auto-approval\n", nodeID)
+			fmt.Printf("  check: pilotctl trust\n")
+		}
 	}
 }
 
@@ -2163,9 +2341,8 @@ func cmdApprove(args []string) {
 		result["node_id"] = nodeID
 		output(result)
 	} else {
-		fmt.Printf("handshake from node %d approved\n", nodeID)
-		b, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(b))
+		fmt.Printf("trust established with node %d\n", nodeID)
+		fmt.Printf("  try: pilotctl ping %d\n", nodeID)
 	}
 }
 
@@ -2191,8 +2368,6 @@ func cmdReject(args []string) {
 		output(result)
 	} else {
 		fmt.Printf("handshake from node %d rejected\n", nodeID)
-		b, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(b))
 	}
 }
 
@@ -2236,6 +2411,7 @@ func cmdPending() {
 
 	if len(pending) == 0 {
 		fmt.Println("no pending handshake requests")
+		fmt.Println("  requests appear here when another node sends: pilotctl handshake <your-node-id>")
 		return
 	}
 
@@ -2271,6 +2447,7 @@ func cmdTrust() {
 
 	if len(trusted) == 0 {
 		fmt.Println("no trusted peers")
+		fmt.Println("  establish trust: pilotctl handshake <node_id|hostname> \"reason\"")
 		return
 	}
 
@@ -2327,6 +2504,7 @@ func cmdConnections() {
 
 	if len(connList) == 0 {
 		fmt.Println("no active connections")
+		fmt.Println("  connect to a peer: pilotctl connect <address|hostname> --message \"hello\"")
 		return
 	}
 
@@ -2547,6 +2725,7 @@ func cmdPeers(args []string) {
 			fmt.Printf("no peers matching %q\n", search)
 		} else {
 			fmt.Println("no peers connected")
+			fmt.Println("  peers appear when you communicate with other nodes")
 		}
 		return
 	}
@@ -2798,7 +2977,9 @@ func cmdBench(args []string) {
 
 	conn, err := d.DialAddr(target, protocol.PortEcho)
 	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s echo port", target)
 	}
 	defer conn.Close()
 
@@ -2883,7 +3064,7 @@ func cmdListen(args []string) {
 	defer d.Close()
 
 	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "listening for datagrams on port %d...\n", port)
+		fmt.Fprintf(os.Stderr, "listening on port %d — waiting for datagrams...\n", port)
 	}
 
 	var messages []map[string]interface{}
@@ -2960,4 +3141,192 @@ func cmdListen(args []string) {
 
 func cmdBroadcast(args []string) {
 	fatalCode("unavailable", "broadcast is not available yet — custom networks are WIP")
+}
+
+// ===================== MAILBOX =====================
+
+// cmdReceived lists or clears files received via data exchange (port 1001).
+// Files are saved to ~/.pilot/received/ by the daemon's built-in service.
+func cmdReceived(args []string) {
+	flags, _ := parseFlags(args)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fatalCode("internal", "cannot determine home directory")
+	}
+	dir := filepath.Join(home, ".pilot", "received")
+
+	if flagBool(flags, "clear") {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fatalCode("not_found", "no received files")
+			}
+			fatalCode("internal", "read directory: %v", err)
+		}
+		count := 0
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			os.Remove(filepath.Join(dir, e.Name()))
+			count++
+		}
+		if jsonOutput {
+			outputOK(map[string]interface{}{"cleared": count})
+		} else {
+			fmt.Printf("cleared %d received file(s)\n", count)
+		}
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if jsonOutput {
+				output(map[string]interface{}{"files": []interface{}{}, "total": 0})
+			} else {
+				fmt.Println("no received files")
+				fmt.Println("  files appear here when someone sends: pilotctl send-file <your-hostname> <file>")
+			}
+			return
+		}
+		fatalCode("internal", "read directory: %v", err)
+	}
+
+	var files []map[string]interface{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, map[string]interface{}{
+			"name":     e.Name(),
+			"bytes":    info.Size(),
+			"modified": info.ModTime().Format(time.RFC3339),
+			"path":     filepath.Join(dir, e.Name()),
+		})
+	}
+
+	if jsonOutput {
+		output(map[string]interface{}{
+			"files": files,
+			"total": len(files),
+			"dir":   dir,
+		})
+		return
+	}
+
+	if len(files) == 0 {
+		fmt.Println("no received files")
+		fmt.Println("  files appear here when someone sends: pilotctl send-file <your-hostname> <file>")
+		return
+	}
+
+	fmt.Printf("Received files (%s):\n\n", dir)
+	fmt.Printf("  %-40s  %-10s  %s\n", "NAME", "SIZE", "RECEIVED")
+	for _, f := range files {
+		fmt.Printf("  %-40s  %-10s  %s\n",
+			f["name"], formatBytes(uint64(f["bytes"].(int64))), f["modified"])
+	}
+	fmt.Printf("\ntotal: %d\n", len(files))
+}
+
+// cmdInbox lists or clears messages received via data exchange (port 1001).
+// Messages are saved to ~/.pilot/inbox/ by the daemon's built-in service.
+func cmdInbox(args []string) {
+	flags, _ := parseFlags(args)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fatalCode("internal", "cannot determine home directory")
+	}
+	dir := filepath.Join(home, ".pilot", "inbox")
+
+	if flagBool(flags, "clear") {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fatalCode("not_found", "inbox is empty")
+			}
+			fatalCode("internal", "read directory: %v", err)
+		}
+		count := 0
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			os.Remove(filepath.Join(dir, e.Name()))
+			count++
+		}
+		if jsonOutput {
+			outputOK(map[string]interface{}{"cleared": count})
+		} else {
+			fmt.Printf("cleared %d message(s)\n", count)
+		}
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if jsonOutput {
+				output(map[string]interface{}{"messages": []interface{}{}, "total": 0})
+			} else {
+				fmt.Println("inbox is empty")
+				fmt.Println("  messages appear here when someone sends: pilotctl send-message <your-hostname> --data \"hello\"")
+			}
+			return
+		}
+		fatalCode("internal", "read directory: %v", err)
+	}
+
+	var messages []map[string]interface{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+
+	if jsonOutput {
+		output(map[string]interface{}{
+			"messages": messages,
+			"total":    len(messages),
+			"dir":      dir,
+		})
+		return
+	}
+
+	if len(messages) == 0 {
+		fmt.Println("inbox is empty")
+		fmt.Println("  messages appear here when someone sends: pilotctl send-message <your-hostname> --data \"hello\"")
+		return
+	}
+
+	fmt.Printf("Inbox (%d messages):\n\n", len(messages))
+	for _, m := range messages {
+		msgType, _ := m["type"].(string)
+		from, _ := m["from"].(string)
+		ts, _ := m["received_at"].(string)
+		data, _ := m["data"].(string)
+		preview := data
+		if len(preview) > 80 {
+			preview = preview[:80] + "..."
+		}
+		fmt.Printf("  [%s] from %s type=%s\n", ts, from, msgType)
+		fmt.Printf("    %s\n", preview)
+	}
+	fmt.Printf("\nclear with: pilotctl inbox --clear\n")
 }

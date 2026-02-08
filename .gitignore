@@ -9,7 +9,7 @@ build/
 
 # Cross-compiled Linux binaries (root level artifacts)
 *-linux
-pilotctl
+/pilotctl
 
 # Test binary, built with `go test -c`
 *.test
@@ -49,3 +49,5 @@ docs/*
 
 # Temporary
 tmp/
+
+web/

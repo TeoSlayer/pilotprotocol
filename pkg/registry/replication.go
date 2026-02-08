@@ -392,6 +392,22 @@ func (s *Server) applySnapshot(data []byte) error {
 		s.trustPairs[key] = true
 	}
 
+	// Restore handshake inboxes (S20 fix — match load() behavior)
+	s.handshakeInbox = make(map[uint32][]*HandshakeRelayMsg)
+	s.handshakeResponses = make(map[uint32][]*HandshakeResponseMsg)
+	for nodeIDStr, msgs := range snap.HandshakeInbox {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.handshakeInbox[nodeID] = msgs
+		}
+	}
+	for nodeIDStr, msgs := range snap.HandshakeResponses {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.handshakeResponses[nodeID] = msgs
+		}
+	}
+
 	// Persist to local disk for crash recovery
 	s.save()
 

@@ -35,6 +35,7 @@ func TestPrivateNodeResolveBlocked(t *testing.T) {
 	}
 	defer rc.Close()
 
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err == nil {
 		t.Fatal("expected resolve to fail for private node, but it succeeded")
@@ -65,6 +66,7 @@ func TestPublicNodeResolveAllowed(t *testing.T) {
 	defer rc.Close()
 
 	// Resolve public A from private B — should succeed
+	setClientSigner(rc, infoB.Daemon.Identity())
 	resp, err := rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve public node failed: %v", err)
@@ -76,6 +78,7 @@ func TestPublicNodeResolveAllowed(t *testing.T) {
 	t.Logf("public node resolved: real_addr=%s", realAddr)
 
 	// Resolve private B from A — should fail (no trust)
+	setClientSigner(rc, infoA.Daemon.Identity())
 	_, err = rc.Resolve(nodeB, nodeA)
 	if err == nil {
 		t.Fatal("expected resolve to fail for private node B, but it succeeded")
@@ -107,6 +110,7 @@ func TestTrustPairEnablesResolve(t *testing.T) {
 	defer rc.Close()
 
 	// Before trust: resolve should fail
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err == nil {
 		t.Fatal("expected resolve to fail before trust")
@@ -120,6 +124,7 @@ func TestTrustPairEnablesResolve(t *testing.T) {
 	}
 
 	// After trust: resolve should succeed both ways
+	setClientSigner(rc, infoB.Daemon.Identity())
 	resp, err := rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve A from B after trust: %v", err)
@@ -129,6 +134,7 @@ func TestTrustPairEnablesResolve(t *testing.T) {
 	}
 	t.Logf("A resolved by B after trust: %s", resp["real_addr"])
 
+	setClientSigner(rc, infoA.Daemon.Identity())
 	resp, err = rc.Resolve(nodeB, nodeA)
 	if err != nil {
 		t.Fatalf("resolve B from A after trust: %v", err)
@@ -167,6 +173,7 @@ func TestRevokeTrustBlocksResolve(t *testing.T) {
 	}
 
 	// Resolve should work
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve after trust: %v", err)
@@ -174,6 +181,7 @@ func TestRevokeTrustBlocksResolve(t *testing.T) {
 	t.Log("resolve succeeds with trust (correct)")
 
 	// Revoke trust (A revokes B)
+	setClientSigner(rc, infoA.Daemon.Identity())
 	_, err = rc.RevokeTrust(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("revoke trust: %v", err)
@@ -181,12 +189,14 @@ func TestRevokeTrustBlocksResolve(t *testing.T) {
 	t.Log("trust revoked")
 
 	// Resolve should now fail both ways
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err == nil {
 		t.Fatal("expected resolve A from B to fail after revocation, but it succeeded")
 	}
 	t.Logf("resolve A from B correctly blocked: %v", err)
 
+	setClientSigner(rc, infoA.Daemon.Identity())
 	_, err = rc.Resolve(nodeB, nodeA)
 	if err == nil {
 		t.Fatal("expected resolve B from A to fail after revocation, but it succeeded")
@@ -225,7 +235,10 @@ func TestHandshakeRelayForPrivateNode(t *testing.T) {
 		t.Fatalf("relay handshake: %v", err)
 	}
 
-	// Poll B's inbox — should have the request
+	// Poll B's inbox — sign as node B (H3 auth required)
+	rc.SetSigner(func(challenge string) string {
+		return base64.StdEncoding.EncodeToString(infoB.Daemon.Identity().Sign([]byte(challenge)))
+	})
 	resp, err := rc.PollHandshakes(nodeB)
 	if err != nil {
 		t.Fatalf("poll handshakes: %v", err)
@@ -256,10 +269,12 @@ func TestHandshakeRelayForPrivateNode(t *testing.T) {
 	}
 
 	// Now resolve should work both ways
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve A from B after approval: %v", err)
 	}
+	setClientSigner(rc, infoA.Daemon.Identity())
 	_, err = rc.Resolve(nodeB, nodeA)
 	if err != nil {
 		t.Fatalf("resolve B from A after approval: %v", err)
@@ -434,6 +449,7 @@ func TestHTTPAfterTrustRevoke(t *testing.T) {
 	t.Log("trust revoked")
 
 	// Step 3: Verify resolve is now blocked
+	setClientSigner(rc, client.Daemon.Identity())
 	_, err = rc.Resolve(server.Daemon.NodeID(), client.Daemon.NodeID())
 	if err == nil {
 		t.Fatal("expected resolve to fail after revocation")
@@ -468,6 +484,7 @@ func TestTrustRevokeAndReestablish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("report trust: %v", err)
 	}
+	setClientSigner(rc, b.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve after trust: %v", err)
@@ -475,10 +492,12 @@ func TestTrustRevokeAndReestablish(t *testing.T) {
 	t.Log("phase 1: trust established, resolve works")
 
 	// Phase 2: Revoke
+	setClientSigner(rc, a.Daemon.Identity())
 	_, err = rc.RevokeTrust(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
+	setClientSigner(rc, b.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err == nil {
 		t.Fatal("phase 2: expected resolve to fail after revoke")
@@ -486,14 +505,17 @@ func TestTrustRevokeAndReestablish(t *testing.T) {
 	t.Log("phase 2: trust revoked, resolve blocked")
 
 	// Phase 3: Re-establish trust
+	setClientSigner(rc, a.Daemon.Identity())
 	_, err = rc.ReportTrust(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("re-report trust: %v", err)
 	}
+	setClientSigner(rc, b.Daemon.Identity())
 	_, err = rc.Resolve(nodeA, nodeB)
 	if err != nil {
 		t.Fatalf("resolve after re-trust: %v", err)
 	}
+	setClientSigner(rc, a.Daemon.Identity())
 	_, err = rc.Resolve(nodeB, nodeA)
 	if err != nil {
 		t.Fatalf("resolve B→A after re-trust: %v", err)

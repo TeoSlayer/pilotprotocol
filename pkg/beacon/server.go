@@ -12,6 +12,7 @@ import (
 const (
 	MsgDiscover      byte = 0x01
 	MsgDiscoverReply byte = 0x02
+	MsgPunchRequest  byte = 0x03
 	MsgPunchCommand  byte = 0x04
 	MsgRelay         byte = 0x05
 	MsgRelayDeliver  byte = 0x06
@@ -89,6 +90,8 @@ func (s *Server) handlePacket(data []byte, remote *net.UDPAddr) {
 	switch msgType {
 	case MsgDiscover:
 		s.handleDiscover(data[1:], remote)
+	case MsgPunchRequest:
+		s.handlePunchRequest(data[1:], remote)
 	case MsgRelay:
 		s.handleRelay(data[1:], remote)
 	default:
@@ -108,7 +111,7 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 	s.nodes[nodeID] = remote
 	s.mu.Unlock()
 
-	slog.Debug("beacon discover", "node_id", nodeID, "addr", remote)
+	slog.Info("beacon discover", "node_id", nodeID, "addr", remote)
 
 	// Reply with observed IP:port using variable-length IP encoding
 	ip := remote.IP.To4()
@@ -132,42 +135,74 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 	}
 }
 
-func (s *Server) handleRelay(data []byte, remote *net.UDPAddr) {
-	if len(data) < 4 {
+func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
+	if len(data) < 8 {
 		return
 	}
 
-	destNodeID := binary.BigEndian.Uint32(data[0:4])
-	payload := data[4:]
+	requesterID := binary.BigEndian.Uint32(data[0:4])
+	targetID := binary.BigEndian.Uint32(data[4:8])
+
+	// Update requester's endpoint (handles symmetric NAT port changes)
+	s.mu.Lock()
+	s.nodes[requesterID] = remote
+	s.mu.Unlock()
+
+	s.mu.RLock()
+	targetAddr := s.nodes[targetID]
+	requesterAddr := s.nodes[requesterID]
+	s.mu.RUnlock()
+
+	if targetAddr == nil {
+		slog.Warn("punch target not found", "target_id", targetID)
+		return
+	}
+
+	// Send punch commands to both sides
+	if err := s.SendPunchCommand(requesterID, targetAddr.IP, uint16(targetAddr.Port)); err != nil {
+		slog.Debug("punch command to requester failed", "node_id", requesterID, "err", err)
+	}
+	if err := s.SendPunchCommand(targetID, requesterAddr.IP, uint16(requesterAddr.Port)); err != nil {
+		slog.Debug("punch command to target failed", "node_id", targetID, "err", err)
+	}
+	slog.Info("punch coordinated", "requester", requesterID, "target", targetID,
+		"requester_addr", requesterAddr, "target_addr", targetAddr)
+}
+
+func (s *Server) handleRelay(data []byte, remote *net.UDPAddr) {
+	// Format: [senderNodeID(4)][destNodeID(4)][payload...]
+	if len(data) < 8 {
+		return
+	}
+
+	senderNodeID := binary.BigEndian.Uint32(data[0:4])
+	destNodeID := binary.BigEndian.Uint32(data[4:8])
+	payload := data[8:]
+
+	// Update sender's endpoint (handles symmetric NAT port changes)
+	s.mu.Lock()
+	s.nodes[senderNodeID] = remote
+	s.mu.Unlock()
 
 	s.mu.RLock()
 	destAddr, ok := s.nodes[destNodeID]
 	s.mu.RUnlock()
 
 	if !ok {
-		slog.Warn("relay dest not found", "dest_node_id", destNodeID)
+		slog.Warn("relay dest not found", "dest_node_id", destNodeID, "sender_node_id", senderNodeID)
 		return
 	}
 
-	// Find source node ID by looking up remote address
-	var srcNodeID uint32
-	s.mu.RLock()
-	for id, addr := range s.nodes {
-		if addr.IP.Equal(remote.IP) && addr.Port == remote.Port {
-			srcNodeID = id
-			break
-		}
-	}
-	s.mu.RUnlock()
+	slog.Info("relaying", "from", senderNodeID, "to", destNodeID, "dest_addr", destAddr, "payload_len", len(payload))
 
 	// Build relay deliver message
 	msg := make([]byte, 1+4+len(payload))
 	msg[0] = MsgRelayDeliver
-	binary.BigEndian.PutUint32(msg[1:5], srcNodeID)
+	binary.BigEndian.PutUint32(msg[1:5], senderNodeID)
 	copy(msg[5:], payload)
 
 	if _, err := s.conn.WriteToUDP(msg, destAddr); err != nil {
-		slog.Debug("beacon relay failed", "dest_node_id", destNodeID, "err", err)
+		slog.Warn("beacon relay send failed", "dest_node_id", destNodeID, "err", err)
 	}
 }
 

@@ -13,7 +13,7 @@ compatibility: >
   with access to a registry server. IPC socket at PILOT_SOCKET (default /tmp/pilot.sock).
 metadata:
   author: vulture-labs
-  version: "1.9"
+  version: "2.0"
   website: https://vulturelabs.com
 ---
 
@@ -30,7 +30,9 @@ pilotctl --json <command> [args...]
 ```
 
 Success responses: `{"status":"ok","data":{...}}`
-Error responses: `{"status":"error","code":"<code>","message":"<text>"}`
+Error responses: `{"status":"error","code":"<code>","message":"<text>","hint":"<action>"}`
+
+The `hint` field is included in most errors and tells you what to do next.
 
 ## Core Concepts
 
@@ -40,6 +42,9 @@ Error responses: `{"status":"error","code":"<code>","message":"<text>"}`
 - **All traffic is encrypted**: X25519 key exchange + AES-256-GCM at the tunnel layer
 - **Ports have meaning**: port 7 = echo, port 80 = HTTP, port 443 = secure, port 1000 = stdio, port 1001 = data exchange, port 1002 = event stream
 - **Built-in services**: the daemon auto-starts echo (port 7), data exchange (port 1001), and event stream (port 1002) — no extra binaries needed
+- **Mailbox**: received files go to `~/.pilot/received/`, messages go to `~/.pilot/inbox/` — inspect anytime with `pilotctl received` and `pilotctl inbox`
+- **NAT traversal is automatic**: the daemon discovers its public endpoint via the STUN beacon and uses hole-punching or relay for connectivity behind NAT
+- **Nothing is interactive**: every command runs non-interactively and exits. Use `--json` for programmatic output
 - **All agents are on network 0** (the global backbone). Custom networks and nameserver are planned but not yet available
 
 ## Self-discovery
@@ -158,11 +163,11 @@ Returns: `hostname`, `node_id`, `address`, `public`
 ### Control visibility
 
 ```bash
-pilotctl set-public <node_id>    # Make endpoint visible to all
-pilotctl set-private <node_id>   # Hide endpoint (default)
+pilotctl set-public     # Make this node visible to all
+pilotctl set-private    # Hide this node (default)
 ```
 
-Returns: `status`
+Routes through the daemon (signs the request). Returns: `status`
 
 ---
 
@@ -198,13 +203,13 @@ Listens on a port, accepts incoming connections, and collects messages. Default 
 
 Returns: `messages` [{`seq`, `port`, `data`, `bytes`}], `timeout` (bool)
 
-### Interactive stream (stdio)
+### Pipe mode (stdin)
 
 ```bash
-pilotctl connect <address|hostname> [port] [--timeout <dur>]
+echo "hello" | pilotctl connect <address|hostname> [port] [--timeout <dur>]
 ```
 
-Without `--message`: opens a bidirectional stream. Reads from stdin, writes to stdout. Ctrl+D to quit. Default port: 1000.
+Without `--message`: reads data from stdin (piped), sends it, reads one response. Requires piped input — not interactive.
 
 ### Send a file
 
@@ -212,7 +217,7 @@ Without `--message`: opens a bidirectional stream. Reads from stdin, writes to s
 pilotctl send-file <address|hostname> <filepath>
 ```
 
-Sends a file via the data exchange protocol (port 1001). The daemon's built-in data exchange service receives it, saves it to `~/.pilot/received/` on the target, and ACKs.
+Sends a file via the data exchange protocol (port 1001). The target's daemon saves it to `~/.pilot/received/` and ACKs. List received files with `pilotctl received`.
 
 Returns: `filename`, `bytes`, `destination`, `ack`
 
@@ -222,7 +227,7 @@ Returns: `filename`, `bytes`, `destination`, `ack`
 pilotctl send-message <address|hostname> --data "<text>" [--type text|json|binary]
 ```
 
-Sends a typed message via data exchange (port 1001). Default type: `text`.
+Sends a typed message via data exchange (port 1001). Default type: `text`. The target saves the message to its inbox (`~/.pilot/inbox/`).
 
 Returns: `target`, `type`, `bytes`, `ack`
 
@@ -286,6 +291,8 @@ Returns: `status`, `node_id`
 pilotctl pending
 ```
 
+Pending requests persist across daemon restarts.
+
 Returns: `pending` [{`node_id`, `justification`, `received_at`}]
 
 ### Approve a request
@@ -323,6 +330,32 @@ Returns: `node_id`
 ### Auto-approval
 
 Trust is auto-approved when both agents independently request a handshake with each other (mutual handshake).
+
+---
+
+## Mailbox
+
+Received files and messages are stored locally and can be inspected at any time.
+
+### List received files
+
+```bash
+pilotctl received [--clear]
+```
+
+Lists files received via data exchange (port 1001). Files are saved to `~/.pilot/received/` by the daemon. Use `--clear` to delete all received files.
+
+Returns: `files` [{`name`, `bytes`, `modified`, `path`}], `total`, `dir`
+
+### List inbox messages
+
+```bash
+pilotctl inbox [--clear]
+```
+
+Lists text/JSON/binary messages received via data exchange (port 1001). Messages are saved to `~/.pilot/inbox/` by the daemon. Use `--clear` to delete all messages.
+
+Returns: `messages` [{`type`, `from`, `data`, `bytes`, `received_at`}], `total`, `dir`
 
 ---
 
@@ -405,10 +438,10 @@ Returns: `node_id`, `address`, `real_addr`, `public`, `hostname`
 ### Deregister
 
 ```bash
-pilotctl deregister <node_id>
+pilotctl deregister
 ```
 
-Returns: `status`
+Deregisters this node from the registry. Routes through daemon (signed). Returns: `status`
 
 ### Rotate keypair
 
@@ -495,39 +528,46 @@ pilotctl info
 ### Discover and message another agent
 
 ```bash
-pilotctl find target-agent
 pilotctl handshake target-agent "want to collaborate"
-# Wait for approval...
+# Wait for target to approve, then:
 pilotctl trust
 pilotctl connect target-agent --message "hello from my-agent"
+```
+
+### Send and receive files
+
+```bash
+# Send a file
+pilotctl send-file target-agent ./report.pdf
+
+# On target: check received files
+pilotctl received
+```
+
+### Send and check messages
+
+```bash
+# Send a typed message
+pilotctl send-message target-agent --data '{"task":"analyze","input":"data.csv"}' --type json
+
+# On target: check inbox
+pilotctl inbox
+```
+
+### Pub/sub messaging
+
+```bash
+# Subscribe to status events (bounded)
+pilotctl subscribe target-agent status --count 5 --timeout 60s
+
+# Publish a status event
+pilotctl publish target-agent status --data "processing complete"
 ```
 
 ### Listen for incoming messages
 
 ```bash
 pilotctl recv 1000 --count 5 --timeout 60s
-```
-
-### Send a file
-
-```bash
-pilotctl send-file target-agent ./report.pdf
-```
-
-### Pub/sub messaging
-
-```bash
-# Terminal 1: subscribe to status events
-pilotctl subscribe target-agent status --count 5
-
-# Terminal 2: publish a status event
-pilotctl publish target-agent status --data "processing complete"
-```
-
-### Send typed messages
-
-```bash
-pilotctl send-message target-agent --data '{"task":"analyze","input":"data.csv"}' --type json
 ```
 
 ### Bridge to IP for standard tools

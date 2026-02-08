@@ -258,12 +258,36 @@ func (pm *PortManager) TotalActiveConnections() int {
 func (pm *PortManager) AllocEphemeralPort() uint16 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	port := pm.nextEphPort
-	pm.nextEphPort++
-	if pm.nextEphPort > protocol.PortEphemeralMax {
-		pm.nextEphPort = protocol.PortEphemeralMin
+	start := pm.nextEphPort
+	for {
+		port := pm.nextEphPort
+		pm.nextEphPort++
+		if pm.nextEphPort > protocol.PortEphemeralMax {
+			pm.nextEphPort = protocol.PortEphemeralMin
+		}
+		if !pm.portInUse(port) {
+			return port
+		}
+		if pm.nextEphPort == start {
+			return port // full wrap, return anyway (16384 ports)
+		}
 	}
-	return port
+}
+
+// portInUse returns true if any active connection is using the given local port.
+// Must be called with pm.mu held.
+func (pm *PortManager) portInUse(port uint16) bool {
+	for _, c := range pm.connections {
+		if c.LocalPort == port {
+			c.Mu.Lock()
+			st := c.State
+			c.Mu.Unlock()
+			if st != StateClosed && st != StateTimeWait {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr, remotePort uint16) *Connection {

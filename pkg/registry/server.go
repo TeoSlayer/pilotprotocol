@@ -22,9 +22,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"web4/internal/crypto"
+	"web4/internal/fsutil"
 	"web4/pkg/protocol"
 )
 
@@ -55,6 +57,8 @@ func (s *Server) requireAdminToken(msg map[string]interface{}) error {
 type Server struct {
 	mu          sync.RWMutex
 	nodes       map[uint32]*NodeInfo
+	startTime   time.Time
+	requestCount atomic.Int64
 	networks    map[uint16]*NetworkInfo
 	pubKeyIdx   map[string]uint32 // base64(pubkey) -> nodeID for re-registration
 	ownerIdx    map[string]uint32 // owner -> nodeID for key rotation
@@ -93,6 +97,9 @@ type Server struct {
 	// Shutdown
 	done chan struct{}
 }
+
+// staleNodeThreshold is how long since last heartbeat before a node is stale/offline.
+const staleNodeThreshold = 3 * time.Minute // 3 missed heartbeats (60s heartbeat interval)
 
 // RateLimiter tracks per-IP registration attempts using a token bucket.
 type RateLimiter struct {
@@ -285,6 +292,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		nextNet:     1, // 0 is backbone
 		beaconAddr:  beaconAddr,
 		storePath:   storePath,
+		startTime:   time.Now(),
 		trustPairs:     make(map[string]bool),
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
@@ -434,7 +442,10 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 		return tls.Certificate{}, err
 	}
 
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate serial: %w", err)
+	}
 	tmpl := x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{Organization: []string{"Pilot Protocol"}},
@@ -477,7 +488,7 @@ func (s *Server) reapLoop() {
 }
 
 func (s *Server) reapStaleNodes() {
-	threshold := time.Now().Add(-3 * time.Minute) // 3 missed heartbeats (30s interval)
+	threshold := time.Now().Add(-staleNodeThreshold)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -554,6 +565,8 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	for {
+		// S27 fix: read deadline prevents idle connections from holding goroutines forever
+		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		msg, err := readMessage(conn)
 		if err != nil {
 			if err != io.EOF {
@@ -604,6 +617,7 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (map[string]interface{}, error) {
+	s.requestCount.Add(1)
 	msgType, _ := msg["type"].(string)
 
 	// Standby mode: reject write operations, allow reads
@@ -1200,8 +1214,14 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 	defer s.mu.RUnlock()
 
 	// Requester must be a registered node
-	if _, ok := s.nodes[requesterID]; !ok {
+	requester, ok := s.nodes[requesterID]
+	if !ok {
 		return nil, fmt.Errorf("resolve denied: requester node %d is not registered", requesterID)
+	}
+
+	// S2 fix: verify requester signature to prevent impersonation
+	if err := s.verifyNodeSignature(requester, msg, fmt.Sprintf("resolve:%d:%d", requesterID, nodeID)); err != nil {
+		return nil, err
 	}
 
 	node, ok := s.nodes[nodeID]
@@ -1289,11 +1309,13 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// H3 fix: verify signature
-	if nodeAInfo, ok := s.nodes[nodeA]; ok {
-		if err := s.verifyNodeSignature(nodeAInfo, msg, fmt.Sprintf("revoke_trust:%d:%d", nodeA, nodeB)); err != nil {
-			return nil, err
-		}
+	// H3 fix: verify signature — node must exist (prevents auth bypass on missing node)
+	nodeAInfo, ok := s.nodes[nodeA]
+	if !ok {
+		return nil, fmt.Errorf("node %d not found", nodeA)
+	}
+	if err := s.verifyNodeSignature(nodeAInfo, msg, fmt.Sprintf("revoke_trust:%d:%d", nodeA, nodeB)); err != nil {
+		return nil, err
 	}
 
 	key := trustPairKey(nodeA, nodeB)
@@ -1413,8 +1435,14 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.nodes[nodeID]; !ok {
+	node, ok := s.nodes[nodeID]
+	if !ok {
 		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	// H3 fix: verify signature to prevent unauthorized inbox access
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("poll_handshakes:%d", nodeID)); err != nil {
+		return nil, err
 	}
 
 	inbox := s.handshakeInbox[nodeID]
@@ -1709,14 +1737,28 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 }
 
 func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}, error) {
+	requesterID := jsonUint32(msg, "requester_id")
 	nodeA := jsonUint32(msg, "node_a")
 	nodeB := jsonUint32(msg, "node_b")
 
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	requester, ok := s.nodes[requesterID]
+	if !ok {
+		return nil, fmt.Errorf("node %d not found", requesterID)
+	}
+
+	// H3 fix: verify requester signature and ensure requester is a participant
+	if requesterID != nodeA && requesterID != nodeB {
+		return nil, fmt.Errorf("punch denied: requester must be participant")
+	}
+	if err := s.verifyNodeSignature(requester, msg, fmt.Sprintf("punch:%d:%d", nodeA, nodeB)); err != nil {
+		return nil, err
+	}
+
 	a, okA := s.nodes[nodeA]
 	b, okB := s.nodes[nodeB]
-	s.mu.RUnlock()
-
 	if !okA {
 		return nil, fmt.Errorf("node %d not found", nodeA)
 	}
@@ -1827,13 +1869,10 @@ func (s *Server) save() {
 		return
 	}
 
-	// Persist to disk with fsync before rename
+	// Persist to disk atomically
 	if s.storePath != "" {
-		tmpPath := s.storePath + ".tmp"
-		if err := atomicWrite(tmpPath, data); err != nil {
-			slog.Error("registry save write error", "err", err)
-		} else if err := os.Rename(tmpPath, s.storePath); err != nil {
-			slog.Error("registry save rename error", "err", err)
+		if err := fsutil.AtomicWrite(s.storePath, data); err != nil {
+			slog.Error("registry save error", "err", err)
 		}
 	}
 
@@ -1934,26 +1973,11 @@ func (s *Server) load() error {
 
 	// Ensure store directory exists for future saves
 	dir := filepath.Dir(s.storePath)
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create store directory %s: %w", dir, err)
+	}
 
 	return nil
-}
-
-// atomicWrite writes data to a file with fsync to ensure durability.
-func atomicWrite(path string, data []byte) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
 }
 
 // Wire helpers: 4-byte big-endian length prefix + JSON body
@@ -2022,6 +2046,78 @@ func jsonUint16(msg map[string]interface{}, key string) uint16 {
 
 func base64Decode(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
+}
+
+// --- Dashboard ---
+
+// DashboardNode is a public-safe view of a node for the dashboard.
+type DashboardNode struct {
+	Address  string `json:"address"`
+	Hostname string `json:"hostname"`
+	Online   bool   `json:"online"`
+}
+
+// DashboardNetwork is a public-safe view of a network for the dashboard.
+type DashboardNetwork struct {
+	ID      uint16 `json:"id"`
+	Name    string `json:"name"`
+	Members int    `json:"members"`
+}
+
+// DashboardStats is the public-safe data returned by the dashboard API.
+type DashboardStats struct {
+	TotalNodes    int                `json:"total_nodes"`
+	ActiveNodes   int                `json:"active_nodes"`
+	TotalRequests int64              `json:"total_requests"`
+	Networks      []DashboardNetwork `json:"networks"`
+	Nodes         []DashboardNode    `json:"nodes"`
+	UptimeSecs    int64              `json:"uptime_secs"`
+}
+
+// GetDashboardStats returns public-safe statistics for the dashboard.
+// No IPs, keys, or endpoints are exposed.
+func (s *Server) GetDashboardStats() DashboardStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	onlineThreshold := now.Add(-staleNodeThreshold)
+
+	nodes := make([]DashboardNode, 0, len(s.nodes))
+	activeCount := 0
+	for _, node := range s.nodes {
+		online := node.LastSeen.After(onlineThreshold)
+		if online {
+			activeCount++
+		}
+		addr := protocol.Addr{Network: 0, Node: node.ID}
+		if len(node.Networks) > 0 {
+			addr.Network = node.Networks[0]
+		}
+		nodes = append(nodes, DashboardNode{
+			Address:  addr.String(),
+			Hostname: node.Hostname,
+			Online:   online,
+		})
+	}
+
+	networks := make([]DashboardNetwork, 0, len(s.networks))
+	for _, net := range s.networks {
+		networks = append(networks, DashboardNetwork{
+			ID:      net.ID,
+			Name:    net.Name,
+			Members: len(net.Members),
+		})
+	}
+
+	return DashboardStats{
+		TotalNodes:    len(s.nodes),
+		ActiveNodes:   activeCount,
+		TotalRequests: s.requestCount.Load(),
+		Networks:      networks,
+		Nodes:         nodes,
+		UptimeSecs:    int64(now.Sub(s.startTime).Seconds()),
+	}
 }
 
 // verifyNodeSignature checks a signature for a registry write operation (H3 fix).
