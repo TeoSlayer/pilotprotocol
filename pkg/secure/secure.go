@@ -28,9 +28,9 @@ type SecureConn struct {
 	aead        cipher.AEAD
 	rmu         sync.Mutex
 	wmu         sync.Mutex
-	nonce       uint64   // monotonic counter for nonces
-	noncePrefix [4]byte  // role-based prefix for nonce domain separation
-	readBuf     []byte   // leftover plaintext from a previous Read
+	nonce       uint64  // monotonic counter for nonces
+	noncePrefix [4]byte // role-based prefix for nonce domain separation
+	readBuf     []byte  // leftover plaintext from a previous Read
 }
 
 // Handshake performs an ECDH key exchange over the connection.
@@ -190,12 +190,12 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (sc *SecureConn) Close() error               { return sc.raw.Close() }
-func (sc *SecureConn) LocalAddr() net.Addr         { return sc.raw.LocalAddr() }
-func (sc *SecureConn) RemoteAddr() net.Addr        { return sc.raw.RemoteAddr() }
+func (sc *SecureConn) Close() error                       { return sc.raw.Close() }
+func (sc *SecureConn) LocalAddr() net.Addr                { return sc.raw.LocalAddr() }
+func (sc *SecureConn) RemoteAddr() net.Addr               { return sc.raw.RemoteAddr() }
 func (sc *SecureConn) SetDeadline(t time.Time) error      { return sc.raw.SetDeadline(t) }
-func (sc *SecureConn) SetReadDeadline(t time.Time) error   { return sc.raw.SetReadDeadline(t) }
-func (sc *SecureConn) SetWriteDeadline(t time.Time) error  { return sc.raw.SetWriteDeadline(t) }
+func (sc *SecureConn) SetReadDeadline(t time.Time) error  { return sc.raw.SetReadDeadline(t) }
+func (sc *SecureConn) SetWriteDeadline(t time.Time) error { return sc.raw.SetWriteDeadline(t) }
 
 func readExact(r io.Reader, n int) ([]byte, error) {
 	buf := make([]byte, n)

@@ -16,20 +16,20 @@ import (
 
 // IPC commands (daemon ↔ driver)
 const (
-	CmdBind     byte = 0x01
-	CmdBindOK   byte = 0x02
-	CmdDial     byte = 0x03
-	CmdDialOK   byte = 0x04
-	CmdAccept   byte = 0x05
-	CmdSend     byte = 0x06
-	CmdRecv     byte = 0x07
-	CmdClose    byte = 0x08
-	CmdCloseOK  byte = 0x09
-	CmdError    byte = 0x0A
-	CmdSendTo   byte = 0x0B
-	CmdRecvFrom byte = 0x0C
-	CmdInfo          byte = 0x0D
-	CmdInfoOK        byte = 0x0E
+	CmdBind              byte = 0x01
+	CmdBindOK            byte = 0x02
+	CmdDial              byte = 0x03
+	CmdDialOK            byte = 0x04
+	CmdAccept            byte = 0x05
+	CmdSend              byte = 0x06
+	CmdRecv              byte = 0x07
+	CmdClose             byte = 0x08
+	CmdCloseOK           byte = 0x09
+	CmdError             byte = 0x0A
+	CmdSendTo            byte = 0x0B
+	CmdRecvFrom          byte = 0x0C
+	CmdInfo              byte = 0x0D
+	CmdInfoOK            byte = 0x0E
 	CmdHandshake         byte = 0x0F // driver → daemon: handshake request/approve/reject
 	CmdHandshakeOK       byte = 0x10
 	CmdResolveHostname   byte = 0x11
@@ -52,8 +52,8 @@ type ipcConn struct {
 	net.Conn
 	wmu   sync.Mutex
 	rmu   sync.Mutex
-	ports []uint16  // ports bound by this client
-	conns []uint32  // connection IDs owned by this client
+	ports []uint16 // ports bound by this client
+	conns []uint32 // connection IDs owned by this client
 }
 
 func (c *ipcConn) ipcWrite(data []byte) error {
@@ -356,53 +356,53 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 	conns := make([]map[string]interface{}, len(info.ConnList))
 	for i, c := range info.ConnList {
 		conns[i] = map[string]interface{}{
-			"id":           c.ID,
-			"local_port":   c.LocalPort,
-			"remote_addr":  c.RemoteAddr,
-			"remote_port":  c.RemotePort,
-			"state":        c.State,
-			"cong_win":     c.CongWin,
-			"ssthresh":     c.SSThresh,
-			"in_flight":    c.InFlight,
-			"srtt_ms":      float64(c.SRTT.Milliseconds()),
-			"rttvar_ms":    float64(c.RTTVAR.Milliseconds()),
-			"unacked":      c.Unacked,
-			"ooo_buf":      c.OOOBuf,
+			"id":            c.ID,
+			"local_port":    c.LocalPort,
+			"remote_addr":   c.RemoteAddr,
+			"remote_port":   c.RemotePort,
+			"state":         c.State,
+			"cong_win":      c.CongWin,
+			"ssthresh":      c.SSThresh,
+			"in_flight":     c.InFlight,
+			"srtt_ms":       float64(c.SRTT.Milliseconds()),
+			"rttvar_ms":     float64(c.RTTVAR.Milliseconds()),
+			"unacked":       c.Unacked,
+			"ooo_buf":       c.OOOBuf,
 			"peer_recv_win": c.PeerRecvWin,
-			"recv_win":     c.RecvWin,
-			"in_recovery":  c.InRecovery,
-			"bytes_sent":   c.Stats.BytesSent,
-			"bytes_recv":   c.Stats.BytesRecv,
-			"segs_sent":    c.Stats.SegsSent,
-			"segs_recv":    c.Stats.SegsRecv,
-			"retransmits":  c.Stats.Retransmits,
-			"fast_retx":    c.Stats.FastRetx,
-			"sack_recv":    c.Stats.SACKRecv,
-			"sack_sent":    c.Stats.SACKSent,
-			"dup_acks":     c.Stats.DupACKs,
+			"recv_win":      c.RecvWin,
+			"in_recovery":   c.InRecovery,
+			"bytes_sent":    c.Stats.BytesSent,
+			"bytes_recv":    c.Stats.BytesRecv,
+			"segs_sent":     c.Stats.SegsSent,
+			"segs_recv":     c.Stats.SegsRecv,
+			"retransmits":   c.Stats.Retransmits,
+			"fast_retx":     c.Stats.FastRetx,
+			"sack_recv":     c.Stats.SACKRecv,
+			"sack_sent":     c.Stats.SACKSent,
+			"dup_acks":      c.Stats.DupACKs,
 		}
 	}
 
 	data, err := json.Marshal(map[string]interface{}{
-		"node_id":         info.NodeID,
-		"address":         info.Address,
-		"hostname":        info.Hostname,
-		"uptime_secs":     info.Uptime.Seconds(),
-		"connections":     info.Connections,
-		"ports":           info.Ports,
-		"peers":           info.Peers,
+		"node_id":             info.NodeID,
+		"address":             info.Address,
+		"hostname":            info.Hostname,
+		"uptime_secs":         info.Uptime.Seconds(),
+		"connections":         info.Connections,
+		"ports":               info.Ports,
+		"peers":               info.Peers,
 		"encrypted_peers":     info.EncryptedPeers,
 		"authenticated_peers": info.AuthenticatedPeers,
 		"encrypt":             info.Encrypt,
-		"identity":        info.Identity,
-		"public_key":      info.PublicKey,
-		"owner":           info.Owner,
-		"bytes_sent":      info.BytesSent,
-		"bytes_recv":      info.BytesRecv,
-		"pkts_sent":       info.PktsSent,
-		"pkts_recv":       info.PktsRecv,
-		"peer_list":       peers,
-		"conn_list":       conns,
+		"identity":            info.Identity,
+		"public_key":          info.PublicKey,
+		"owner":               info.Owner,
+		"bytes_sent":          info.BytesSent,
+		"bytes_recv":          info.BytesRecv,
+		"pkts_sent":           info.PktsSent,
+		"pkts_recv":           info.PktsRecv,
+		"peer_list":           peers,
+		"conn_list":           conns,
 	})
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("info marshal: %v", err))

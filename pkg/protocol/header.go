@@ -45,10 +45,10 @@ const (
 
 // Port ranges
 const (
-	PortReservedMax  uint16 = 1023
+	PortReservedMax   uint16 = 1023
 	PortRegisteredMax uint16 = 49151
-	PortEphemeralMin uint16 = 49152
-	PortEphemeralMax uint16 = 65535
+	PortEphemeralMin  uint16 = 49152
+	PortEphemeralMax  uint16 = 65535
 )
 
 // Tunnel magic bytes: "PILT" (0x50494C54)

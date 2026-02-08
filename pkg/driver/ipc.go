@@ -12,20 +12,20 @@ import (
 
 // IPC commands (must match daemon/ipc.go)
 const (
-	cmdBind     byte = 0x01
-	cmdBindOK   byte = 0x02
-	cmdDial     byte = 0x03
-	cmdDialOK   byte = 0x04
-	cmdAccept   byte = 0x05
-	cmdSend     byte = 0x06
-	cmdRecv     byte = 0x07
-	cmdClose    byte = 0x08
-	cmdCloseOK  byte = 0x09
-	cmdError    byte = 0x0A
-	cmdSendTo   byte = 0x0B
-	cmdRecvFrom byte = 0x0C
-	cmdInfo        byte = 0x0D
-	cmdInfoOK      byte = 0x0E
+	cmdBind              byte = 0x01
+	cmdBindOK            byte = 0x02
+	cmdDial              byte = 0x03
+	cmdDialOK            byte = 0x04
+	cmdAccept            byte = 0x05
+	cmdSend              byte = 0x06
+	cmdRecv              byte = 0x07
+	cmdClose             byte = 0x08
+	cmdCloseOK           byte = 0x09
+	cmdError             byte = 0x0A
+	cmdSendTo            byte = 0x0B
+	cmdRecvFrom          byte = 0x0C
+	cmdInfo              byte = 0x0D
+	cmdInfoOK            byte = 0x0E
 	cmdHandshake         byte = 0x0F
 	cmdHandshakeOK       byte = 0x10
 	cmdResolveHostname   byte = 0x11
@@ -51,16 +51,16 @@ type Datagram struct {
 }
 
 type ipcClient struct {
-	conn     net.Conn
-	mu       sync.Mutex
-	handlers map[byte][]chan []byte // command type → waiting channels
-	recvMu   sync.Mutex
-	recvChs  map[uint32]chan []byte // conn_id → data channel
-	pendRecv map[uint32][][]byte   // conn_id → buffered data before recvCh registered
-	acceptMu sync.Mutex
+	conn      net.Conn
+	mu        sync.Mutex
+	handlers  map[byte][]chan []byte // command type → waiting channels
+	recvMu    sync.Mutex
+	recvChs   map[uint32]chan []byte // conn_id → data channel
+	pendRecv  map[uint32][][]byte    // conn_id → buffered data before recvCh registered
+	acceptMu  sync.Mutex
 	acceptChs map[uint16]chan []byte // H12 fix: per-port accept channels
-	dgCh     chan *Datagram // incoming datagrams
-	doneCh   chan struct{}  // closed when readLoop exits
+	dgCh      chan *Datagram         // incoming datagrams
+	doneCh    chan struct{}          // closed when readLoop exits
 }
 
 func newIPCClient(socketPath string) (*ipcClient, error) {

@@ -38,8 +38,12 @@ func TestConcurrentBidirectionalReadWrite(t *testing.T) {
 
 	// Accept goroutine
 	type acceptResult struct {
-		conn interface{ Read([]byte) (int, error); Write([]byte) (int, error); Close() error }
-		err  error
+		conn interface {
+			Read([]byte) (int, error)
+			Write([]byte) (int, error)
+			Close() error
+		}
+		err error
 	}
 	acceptCh := make(chan acceptResult, 1)
 	go func() {

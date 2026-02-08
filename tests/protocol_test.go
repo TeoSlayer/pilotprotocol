@@ -424,7 +424,7 @@ func TestParseSocketAddrErrors(t *testing.T) {
 	bad := []string{
 		"",
 		"noport",
-		"1:0001.00A3.F291:",     // empty port
+		"1:0001.00A3.F291:",      // empty port
 		"1:0001.00A3.F291:99999", // port > 65535
 	}
 	for _, s := range bad {
