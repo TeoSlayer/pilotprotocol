@@ -50,4 +50,4 @@ docs/*
 # Temporary
 tmp/
 
-web/
+web/node_modules/

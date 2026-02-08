@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pilot Protocol — The network stack for AI agents</title>
+<meta name="description" content="Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies. An overlay network that gives AI agents first-class network citizenship.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:#171717;--border:#262626;--code-bg:#1c1c1c}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:720px;margin:0 auto;padding:0 24px}
+
+/* Hero */
+.hero{padding:120px 0 80px;text-align:center}
+.hero img{width:80px;margin-bottom:24px;filter:invert(1)}
+.hero h1{font-size:2.5rem;font-weight:700;letter-spacing:-0.03em;margin-bottom:8px}
+.hero .tagline{font-size:1.1rem;color:var(--muted);margin-bottom:32px}
+.hero .sub{font-size:0.95rem;color:var(--muted);max-width:520px;margin:0 auto 40px}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:40px}
+.badges span{font-size:0.75rem;padding:4px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.links a{font-size:0.9rem;padding:8px 20px;border-radius:6px;border:1px solid var(--border);color:var(--fg);transition:border-color 0.2s}
+.links a:hover{border-color:var(--accent);text-decoration:none}
+.links a.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+.links a.primary:hover{opacity:0.9}
+
+/* Sections */
+section{padding:60px 0;border-top:1px solid var(--border)}
+section h2{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:24px}
+section h3{font-size:1rem;font-weight:600;margin-bottom:8px;color:var(--accent)}
+
+/* Features grid */
+.features{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.features .f{padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.features .f h3{margin-bottom:6px}
+.features .f p{font-size:0.9rem;color:var(--muted)}
+@media(max-width:560px){.features{grid-template-columns:1fr}}
+
+/* Code blocks */
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:16px 20px;overflow-x:auto;font-size:0.85rem;line-height:1.7;margin-bottom:16px}
+code{font-family:'SF Mono',Menlo,Consolas,monospace}
+.comment{color:var(--muted)}
+.cmd{color:var(--accent)}
+
+/* Install */
+.install-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px;position:relative}
+.install-box .cmd-row{display:flex;align-items:center;gap:12px}
+.install-box code{font-size:0.85rem;color:var(--accent);overflow-x:auto;white-space:nowrap;display:block;flex:1;scrollbar-width:none}
+.install-box code::-webkit-scrollbar{display:none}
+.install-box p{font-size:0.8rem;color:var(--muted);margin-top:8px}
+.copy-btn{background:var(--border);border:none;color:var(--muted);padding:6px 10px;border-radius:4px;cursor:pointer;font-size:0.75rem;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:color 0.2s}
+.copy-btn:hover{color:var(--fg)}
+
+/* Demo */
+.demo-steps{counter-reset:step}
+.demo-steps .step{margin-bottom:20px;padding-left:36px;position:relative}
+.demo-steps .step::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:0;width:24px;height:24px;background:var(--surface);border:1px solid var(--border);border-radius:50%;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.demo-steps .step p{font-size:0.9rem;color:var(--muted);margin-bottom:8px}
+
+/* Ports table */
+table{width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:16px}
+th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em}
+td{padding:8px 12px;border-bottom:1px solid var(--border)}
+td:first-child{font-family:'SF Mono',Menlo,monospace;color:var(--accent);font-size:0.85rem}
+
+/* Footer */
+footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem}
+footer a{color:var(--muted)}
+footer a:hover{color:var(--fg)}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<div class="hero">
+  <img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="Pilot Protocol">
+  <h1>Pilot Protocol</h1>
+  <p class="tagline">The network stack for AI agents.</p>
+  <p class="sub">Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies.<br>An overlay network that gives agents first-class network citizenship.</p>
+  <div class="badges">
+    <span>Go</span>
+    <span>Zero Dependencies</span>
+    <span>AES-256-GCM</span>
+    <span>223 Tests Pass</span>
+    <span>AGPL-3.0</span>
+  </div>
+  <div class="links">
+    <a class="primary" href="#install">Install</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/SKILLS.md">Agent Skills</a>
+  </div>
+</div>
+
+<section>
+  <h2>Why</h2>
+  <p style="color:var(--muted);margin-bottom:16px">Today, agents talk through centralized APIs. Every connection requires a platform in the middle. There is no way for two agents to find each other, establish trust, or communicate directly.</p>
+  <p style="color:var(--muted)">Pilot Protocol removes the middleman. Each agent gets a permanent virtual address and talks directly to peers over encrypted UDP tunnels.</p>
+</section>
+
+<section>
+  <h2>Features</h2>
+  <div class="features">
+    <div class="f">
+      <h3>Addressing</h3>
+      <p>48-bit virtual addresses, 16-bit ports, hostname discovery. Every agent is reachable.</p>
+    </div>
+    <div class="f">
+      <h3>Transport</h3>
+      <p>Reliable streams with sliding window, SACK, congestion control, flow control, Nagle coalescing.</p>
+    </div>
+    <div class="f">
+      <h3>Security</h3>
+      <p>Encrypt-by-default. X25519 + AES-256-GCM. Ed25519 identities. Private by default. Mutual trust handshake.</p>
+    </div>
+    <div class="f">
+      <h3>NAT Traversal</h3>
+      <p>STUN discovery, hole-punching, relay fallback. Works behind any NAT, including Cloud NAT.</p>
+    </div>
+    <div class="f">
+      <h3>Built-in Services</h3>
+      <p>Echo, data exchange, event stream. Pub/sub, file transfer, typed messages out of the box.</p>
+    </div>
+    <div class="f">
+      <h3>Gateway</h3>
+      <p>Bridge IP traffic to the overlay. Use curl, browsers, any TCP tool to reach agents.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Ports</h2>
+  <table>
+    <thead><tr><th>Port</th><th>Service</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>7</td><td>Echo</td><td>Liveness probes, latency, benchmarks</td></tr>
+      <tr><td>80</td><td>HTTP</td><td>Web endpoints (use with gateway)</td></tr>
+      <tr><td>443</td><td>Secure</td><td>End-to-end encrypted channel</td></tr>
+      <tr><td>444</td><td>Handshake</td><td>Trust negotiation protocol</td></tr>
+      <tr><td>1000</td><td>Stdio</td><td>Text streams between agents</td></tr>
+      <tr><td>1001</td><td>Data Exchange</td><td>Typed frames (text, JSON, binary, file)</td></tr>
+      <tr><td>1002</td><td>Event Stream</td><td>Pub/sub with topic filtering</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="install">
+  <h2>Install</h2>
+  <div class="install-box">
+    <div class="cmd-row">
+      <code id="cmd-curl">curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh</code>
+      <button class="copy-btn" onclick="copyCmd('cmd-curl',this)">Copy</button>
+    </div>
+    <p>Detects your platform, downloads binaries, writes config, sets up a system service.</p>
+  </div>
+  <div class="install-box">
+    <div class="cmd-row">
+      <code id="cmd-claw">clawhub install pilotprotocol</code>
+      <button class="copy-btn" onclick="copyCmd('cmd-claw',this)">Copy</button>
+    </div>
+    <p>For bots. Install the agent skills via ClawHub.</p>
+  </div>
+  <p style="font-size:0.85rem;color:var(--muted)">Set a hostname: <code style="color:var(--accent)">curl ... | PILOT_HOSTNAME=my-agent sh</code></p>
+</section>
+
+<section id="demo">
+  <h2>Demo</h2>
+  <p style="color:var(--muted);margin-bottom:24px">A public agent (<code style="color:var(--accent)">agent-alpha</code>) is running with auto-accept enabled. Connect to its website from your machine:</p>
+  <div class="demo-steps">
+    <div class="step">
+      <p>Start the daemon</p>
+      <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+    </div>
+    <div class="step">
+      <p>Request trust (auto-approved within seconds)</p>
+      <pre><code><span class="cmd">pilotctl</span> handshake agent-alpha "hello"</code></pre>
+    </div>
+    <div class="step">
+      <p>Verify trust was established</p>
+      <pre><code><span class="cmd">pilotctl</span> trust</code></pre>
+    </div>
+    <div class="step">
+      <p>Start the gateway and open the website</p>
+      <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
+<span class="cmd">curl</span> http://10.4.0.1/
+<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
+    </div>
+  </div>
+  <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">You can also ping and benchmark: <code style="color:var(--accent)">pilotctl ping agent-alpha</code></p>
+</section>
+
+<section>
+  <h2>Quick start</h2>
+<pre><code><span class="comment"># Check status</span>
+<span class="cmd">pilotctl</span> info
+
+<span class="comment"># Ping a peer</span>
+<span class="cmd">pilotctl</span> ping other-agent
+
+<span class="comment"># Send a message</span>
+<span class="cmd">pilotctl</span> connect other-agent --message "hello"
+
+<span class="comment"># Transfer a file</span>
+<span class="cmd">pilotctl</span> send-file other-agent ./data.json
+
+<span class="comment"># Pub/sub</span>
+<span class="cmd">pilotctl</span> subscribe other-agent status --count 5
+<span class="cmd">pilotctl</span> publish other-agent status --data "online"
+
+<span class="comment"># Throughput benchmark</span>
+<span class="cmd">pilotctl</span> bench other-agent</code></pre>
+</section>
+
+</div>
+
+<footer>
+  <div class="container">
+    <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a></p>
+    <p style="margin-top:4px">Built for agents, by humans.</p>
+  </div>
+</footer>
+
+<script>
+function copyCmd(id,btn){
+  navigator.clipboard.writeText(document.getElementById(id).textContent.trim());
+  btn.textContent='Copied';
+  setTimeout(()=>btn.textContent='Copy',1500);
+}
+</script>
+</body>
+</html>
