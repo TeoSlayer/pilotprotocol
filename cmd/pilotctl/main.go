@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,7 +17,9 @@ import (
 
 	"web4/pkg/config"
 	"web4/pkg/daemon"
+	"web4/pkg/dataexchange"
 	"web4/pkg/driver"
+	"web4/pkg/eventstream"
 	"web4/pkg/gateway"
 	"web4/pkg/logging"
 	"web4/pkg/protocol"
@@ -326,7 +328,10 @@ Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
   pilotctl send <address|hostname> <port> --data <msg> [--timeout <dur>]
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
-  pilotctl send-file <address> <filepath>
+  pilotctl send-file <address|hostname> <filepath>
+  pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]
+  pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
+  pilotctl publish <address|hostname> <topic> --data <message>
 
 Trust commands:
   pilotctl handshake <node_id|hostname> [justification]
@@ -464,6 +469,12 @@ func main() {
 		cmdRecv(cmdArgs)
 	case "send-file":
 		cmdSendFile(cmdArgs)
+	case "send-message":
+		cmdSendMessage(cmdArgs)
+	case "subscribe":
+		cmdSubscribe(cmdArgs)
+	case "publish":
+		cmdPublish(cmdArgs)
 
 	// Trust
 	case "handshake":
@@ -583,7 +594,7 @@ func cmdConfig(args []string) {
 
 func cmdContext() {
 	ctx := map[string]interface{}{
-		"version": "1.1",
+		"version": "1.2",
 		"commands": map[string]interface{}{
 			"init": map[string]interface{}{
 				"args":        []string{"--registry <addr>", "--beacon <addr>", "--hostname <name>", "[--socket <path>]"},
@@ -666,9 +677,24 @@ func cmdContext() {
 				"returns":     "messages [{seq, port, data, bytes}], timeout (bool)",
 			},
 			"send-file": map[string]interface{}{
-				"args":        []string{"<address>", "<filepath>"},
+				"args":        []string{"<address|hostname>", "<filepath>"},
 				"description": "Send a file to a node on port 1001 (data exchange)",
-				"returns":     "filename, bytes, destination",
+				"returns":     "filename, bytes, destination, ack",
+			},
+			"send-message": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]"},
+				"description": "Send a typed message via data exchange (port 1001). Default type: text",
+				"returns":     "target, type, bytes, ack",
+			},
+			"subscribe": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "<topic>", "[--count <n>]", "[--timeout <dur>]"},
+				"description": "Subscribe to event stream topics (port 1002). Use * for all topics. Without --count: streams NDJSON",
+				"returns":     "events [{topic, data, bytes}], timeout (bool). Unbounded: NDJSON per line",
+			},
+			"publish": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "<topic>", "--data <message>"},
+				"description": "Publish an event to a topic on the target's event stream broker (port 1002)",
+				"returns":     "target, topic, bytes",
 			},
 			"ping": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "[--count <n>]", "[--timeout <dur>]"},
@@ -1518,6 +1544,15 @@ func cmdSetHostname(args []string) {
 		fatalCode("connection_failed", "set-hostname: %v", err)
 	}
 
+	// Persist to config.json so hostname survives daemon restart
+	cfg := loadConfig()
+	if hostname != "" {
+		cfg["hostname"] = hostname
+	} else {
+		delete(cfg, "hostname")
+	}
+	saveConfig(cfg)
+
 	if jsonOutput {
 		outputOK(map[string]interface{}{
 			"hostname": result["hostname"],
@@ -1538,6 +1573,11 @@ func cmdClearHostname() {
 	if err != nil {
 		fatalCode("connection_failed", "clear-hostname: %v", err)
 	}
+
+	// Persist to config.json so hostname stays cleared on daemon restart
+	cfg := loadConfig()
+	delete(cfg, "hostname")
+	saveConfig(cfg)
 
 	if jsonOutput {
 		outputOK(map[string]interface{}{
@@ -1804,7 +1844,7 @@ func cmdRecv(args []string) {
 
 func cmdSendFile(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl send-file <address> <filepath>")
+		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath>")
 	}
 
 	d := connectDriver()
@@ -1816,49 +1856,241 @@ func cmdSendFile(args []string) {
 	}
 
 	filePath := args[1]
-	f, err := os.Open(filePath)
-	if err != nil {
-		fatalCode("internal", "open file: %v", err)
-	}
-	defer f.Close()
-
-	fi, err := f.Stat()
-	if err != nil {
-		fatalCode("internal", "stat file: %v", err)
-	}
-
-	conn, err := d.DialAddr(target, protocol.PortDataExchange)
-	if err != nil {
-		fatalCode("connection_failed", "dial: %v", err)
-	}
-	defer conn.Close()
-
-	filename := fi.Name()
-	data, err := io.ReadAll(f)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		fatalCode("internal", "read file: %v", err)
 	}
 
-	payload := append([]byte(filename), 0)
-	payload = append(payload, data...)
+	filename := filepath.Base(filePath)
 
-	header := make([]byte, 8)
-	header[3] = 4 // type = file
-	l := uint32(len(payload))
-	header[4] = byte(l >> 24)
-	header[5] = byte(l >> 16)
-	header[6] = byte(l >> 8)
-	header[7] = byte(l)
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		fatalCode("connection_failed", "dial: %v", err)
+	}
+	defer client.Close()
 
-	frame := append(header, payload...)
-	if _, err := conn.Write(frame); err != nil {
+	if err := client.SendFile(filename, data); err != nil {
 		fatalCode("connection_failed", "send: %v", err)
 	}
 
-	outputOK(map[string]interface{}{
+	// Read ACK
+	ack, err := client.Recv()
+	if err != nil {
+		// ACK is best-effort; file was sent successfully
+		slog.Debug("send-file ACK read failed", "err", err)
+	}
+
+	result := map[string]interface{}{
 		"filename":    filename,
 		"bytes":       len(data),
 		"destination": target.String(),
+	}
+	if ack != nil {
+		result["ack"] = string(ack.Payload)
+	}
+	outputOK(result)
+}
+
+func cmdSendMessage(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+
+	data := flagString(flags, "data", "")
+	if data == "" {
+		fatalCode("invalid_argument", "--data is required")
+	}
+	msgType := flagString(flags, "type", "text")
+
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		fatalCode("connection_failed", "dial: %v", err)
+	}
+	defer client.Close()
+
+	switch msgType {
+	case "text":
+		err = client.SendText(data)
+	case "json":
+		err = client.SendJSON([]byte(data))
+	case "binary":
+		err = client.SendBinary([]byte(data))
+	default:
+		fatalCode("invalid_argument", "unknown type %q (use text, json, or binary)", msgType)
+	}
+	if err != nil {
+		fatalCode("connection_failed", "send: %v", err)
+	}
+
+	// Read ACK
+	ack, err := client.Recv()
+	if err != nil {
+		slog.Debug("send-message ACK read failed", "err", err)
+	}
+
+	result := map[string]interface{}{
+		"target": target.String(),
+		"type":   msgType,
+		"bytes":  len(data),
+	}
+	if ack != nil {
+		result["ack"] = string(ack.Payload)
+	}
+	outputOK(result)
+}
+
+func cmdSubscribe(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+
+	topic := pos[1]
+	count := flagInt(flags, "count", 0) // 0 = infinite
+	timeout := flagDuration(flags, "timeout", 0)
+
+	client, err := eventstream.Subscribe(d, target, topic)
+	if err != nil {
+		fatalCode("connection_failed", "subscribe: %v", err)
+	}
+	defer client.Close()
+
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "subscribed to %q on %s (port %d)\n", topic, target, protocol.PortEventStream)
+	}
+
+	var events []map[string]interface{}
+	received := 0
+
+	var deadline <-chan time.Time
+	if timeout > 0 {
+		deadline = time.After(timeout)
+	}
+
+	for {
+		if count > 0 && received >= count {
+			break
+		}
+
+		evtCh := make(chan *eventstream.Event)
+		errCh := make(chan error)
+		go func() {
+			evt, err := client.Recv()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			evtCh <- evt
+		}()
+
+		select {
+		case evt := <-evtCh:
+			received++
+			msg := map[string]interface{}{
+				"topic":   evt.Topic,
+				"data":    string(evt.Payload),
+				"bytes":   len(evt.Payload),
+			}
+			events = append(events, msg)
+
+			if jsonOutput {
+				if count > 0 && received >= count {
+					break // will exit loop and print all
+				}
+				// Stream each event as NDJSON for unbounded
+				if count == 0 {
+					b, _ := json.Marshal(msg)
+					fmt.Println(string(b))
+				}
+			} else {
+				fmt.Printf("[%s] %s\n", evt.Topic, string(evt.Payload))
+			}
+		case err := <-errCh:
+			if count > 0 && received > 0 {
+				// Partial results
+				if jsonOutput {
+					output(map[string]interface{}{
+						"events":  events,
+						"timeout": false,
+						"error":   err.Error(),
+					})
+				}
+				return
+			}
+			fatalCode("connection_failed", "recv: %v", err)
+		case <-deadline:
+			if jsonOutput && count > 0 {
+				output(map[string]interface{}{
+					"events":  events,
+					"timeout": true,
+				})
+			} else if !jsonOutput {
+				fmt.Fprintln(os.Stderr, "timeout")
+			}
+			return
+		}
+	}
+
+	if jsonOutput && count > 0 {
+		output(map[string]interface{}{
+			"events":  events,
+			"timeout": false,
+		})
+	}
+}
+
+func cmdPublish(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl publish <address|hostname> <topic> --data <message>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+
+	topic := pos[1]
+	data := flagString(flags, "data", "")
+	if data == "" {
+		fatalCode("invalid_argument", "--data is required")
+	}
+
+	// Subscribe first (required by the broker protocol), then publish
+	client, err := eventstream.Subscribe(d, target, topic)
+	if err != nil {
+		fatalCode("connection_failed", "subscribe: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Publish(topic, []byte(data)); err != nil {
+		fatalCode("connection_failed", "publish: %v", err)
+	}
+
+	outputOK(map[string]interface{}{
+		"target": target.String(),
+		"topic":  topic,
+		"bytes":  len(data),
 	})
 }
 

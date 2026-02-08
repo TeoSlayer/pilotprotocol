@@ -13,7 +13,7 @@ compatibility: >
   with access to a registry server. IPC socket at PILOT_SOCKET (default /tmp/pilot.sock).
 metadata:
   author: vulture-labs
-  version: "1.8"
+  version: "1.9"
   website: https://vulturelabs.com
 ---
 
@@ -212,9 +212,39 @@ Without `--message`: opens a bidirectional stream. Reads from stdin, writes to s
 pilotctl send-file <address|hostname> <filepath>
 ```
 
-Sends a file via the data exchange protocol (port 1001). The daemon's built-in data exchange service receives it and ACKs.
+Sends a file via the data exchange protocol (port 1001). The daemon's built-in data exchange service receives it, saves it to `~/.pilot/received/` on the target, and ACKs.
 
-Returns: `filename`, `bytes`, `destination`
+Returns: `filename`, `bytes`, `destination`, `ack`
+
+### Send a typed message
+
+```bash
+pilotctl send-message <address|hostname> --data "<text>" [--type text|json|binary]
+```
+
+Sends a typed message via data exchange (port 1001). Default type: `text`.
+
+Returns: `target`, `type`, `bytes`, `ack`
+
+### Subscribe to events
+
+```bash
+pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
+```
+
+Subscribes to a topic on the target's event stream broker (port 1002). Use `*` to receive all topics. Without `--count`: streams NDJSON (one JSON object per line). With `--count`: collects N events and returns a JSON array.
+
+Returns: `events` [{`topic`, `data`, `bytes`}], `timeout` (bool). Unbounded: NDJSON per line.
+
+### Publish an event
+
+```bash
+pilotctl publish <address|hostname> <topic> --data "<message>"
+```
+
+Publishes an event to the target's event stream broker (port 1002). The event is distributed to all subscribers of the topic.
+
+Returns: `target`, `topic`, `bytes`
 
 ### Listen for datagrams
 
@@ -482,6 +512,22 @@ pilotctl recv 1000 --count 5 --timeout 60s
 
 ```bash
 pilotctl send-file target-agent ./report.pdf
+```
+
+### Pub/sub messaging
+
+```bash
+# Terminal 1: subscribe to status events
+pilotctl subscribe target-agent status --count 5
+
+# Terminal 2: publish a status event
+pilotctl publish target-agent status --data "processing complete"
+```
+
+### Send typed messages
+
+```bash
+pilotctl send-message target-agent --data '{"task":"analyze","input":"data.csv"}' --type json
 ```
 
 ### Bridge to IP for standard tools

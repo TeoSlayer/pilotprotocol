@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -168,6 +170,12 @@ func (d *Daemon) handleDataExchangeConn(conn *Connection) {
 			"bytes", len(frame.Payload),
 			"remote", conn.RemoteAddr,
 		)
+
+		// Save received files to disk
+		if frame.Type == dataexchange.TypeFile && frame.Filename != "" {
+			d.saveReceivedFile(frame)
+		}
+
 		// ACK: echo back a text frame confirming receipt
 		ack := &dataexchange.Frame{
 			Type:    dataexchange.TypeText,
@@ -177,6 +185,34 @@ func (d *Daemon) handleDataExchangeConn(conn *Connection) {
 			return
 		}
 	}
+}
+
+// saveReceivedFile saves a received file frame to ~/.pilot/received/.
+func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("save received file: cannot determine home dir", "err", err)
+		return
+	}
+	dir := filepath.Join(home, ".pilot", "received")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		slog.Warn("save received file: mkdir failed", "err", err)
+		return
+	}
+
+	// Sanitize filename and add timestamp to avoid overwrites
+	safeName := filepath.Base(frame.Filename)
+	ts := time.Now().Format("20060102-150405")
+	ext := filepath.Ext(safeName)
+	base := safeName[:len(safeName)-len(ext)]
+	destName := fmt.Sprintf("%s-%s%s", base, ts, ext)
+	destPath := filepath.Join(dir, destName)
+
+	if err := os.WriteFile(destPath, frame.Payload, 0600); err != nil {
+		slog.Warn("save received file: write failed", "path", destPath, "err", err)
+		return
+	}
+	slog.Info("file saved", "path", destPath, "bytes", len(frame.Payload))
 }
 
 // startEventStreamService binds port 1002 and runs a pub/sub broker.

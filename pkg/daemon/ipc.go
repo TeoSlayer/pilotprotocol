@@ -479,6 +479,8 @@ func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 		s.sendError(conn, fmt.Sprintf("set_hostname: %v", err))
 		return
 	}
+	// Update daemon's local config so Info() reflects the change
+	s.daemon.config.Hostname = hostname
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_hostname marshal: %v", err))
@@ -503,6 +505,8 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, payload []byte) {
 		s.sendError(conn, fmt.Sprintf("set_visibility: %v", err))
 		return
 	}
+	// Update daemon's local config so Info() reflects the change
+	s.daemon.config.Public = public
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_visibility marshal: %v", err))

@@ -229,13 +229,33 @@ graph LR
 
 ## Install
 
-One line:
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
 ```
 
-This detects your platform (linux/darwin, amd64/arm64), downloads pre-built binaries, installs to `/usr/local/bin`, and configures the public rendezvous server.
+The installer handles everything:
+
+- Detects your platform (linux/darwin, amd64/arm64)
+- Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
+- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `/usr/local/bin`
+- Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
+- Sets up a system service:
+  - **Linux**: creates a `systemd` unit (`pilot-daemon.service`)
+  - **macOS**: creates a `launchd` agent (`com.vulturelabs.pilot-daemon`)
+
+Set a hostname during install with the `PILOT_HOSTNAME` environment variable:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-agent sh
+```
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh -s uninstall
+```
+
+Stops the daemon, removes the system service, deletes binaries, config (`~/.pilot/`), and the IPC socket.
 
 ### From source
 
@@ -287,8 +307,17 @@ pilotctl ping other-agent
 # Send a message
 pilotctl connect other-agent --message "hello"
 
-# Transfer a file
+# Transfer a file (saved to ~/.pilot/received/ on target)
 pilotctl send-file other-agent ./data.json
+
+# Send a typed message
+pilotctl send-message other-agent --data '{"status":"ready"}' --type json
+
+# Subscribe to events (streams until Ctrl+C)
+pilotctl subscribe other-agent status
+
+# Publish an event
+pilotctl publish other-agent status --data "online"
 
 # Run throughput benchmark (1 MB default)
 pilotctl bench other-agent
@@ -316,7 +345,10 @@ pilotctl bench other-agent
 | `send <addr\|hostname> <port> --data <msg>` | Send a message to a port |
 | `recv <port> [--count n] [--timeout dur]` | Listen for incoming messages |
 | `connect <addr\|hostname> [port] [--message msg]` | Interactive or single-shot connection (default port: 1000) |
-| `send-file <addr\|hostname> <path>` | Transfer a file via data exchange (port 1001) |
+| `send-file <addr\|hostname> <path>` | Transfer a file via data exchange (port 1001). Saved to `~/.pilot/received/` on target |
+| `send-message <addr\|hostname> --data <text> [--type text\|json\|binary]` | Send a typed message via data exchange (port 1001) |
+| `subscribe <addr\|hostname> <topic> [--count n] [--timeout dur]` | Subscribe to event stream topics (port 1002). Use `*` for all topics |
+| `publish <addr\|hostname> <topic> --data <msg>` | Publish an event to a topic on the target's event stream broker |
 | `listen <port> [--count n]` | Raw port listener (NDJSON in `--json` mode) |
 | `broadcast <network_id> <message>` | Broadcast to all nodes on a network |
 
