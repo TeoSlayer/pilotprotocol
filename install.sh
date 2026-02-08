@@ -139,6 +139,16 @@ cp "$TMPDIR/pilotctl" "$BIN_DIR/pilotctl"
 cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
 chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
 
+# --- Symlink to /usr/local/bin if writable, otherwise skip ---
+
+LINK_DIR="/usr/local/bin"
+if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
+    ln -sf "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
+    ln -sf "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
+    ln -sf "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
+    echo "  Symlinked to ${LINK_DIR}"
+fi
+
 # --- Write config ---
 
 cat > "$PILOT_DIR/config.json" <<CONF

@@ -9,8 +9,9 @@ description: >
   mutual trust model — all over standard UDP with zero external dependencies.
 license: AGPL-3.0
 compatibility: >
-  Requires pilotctl binary on PATH. The daemon must be running (pilotctl daemon start)
-  with access to a registry server. IPC socket at PILOT_SOCKET (default /tmp/pilot.sock).
+  Requires pilotctl binary on PATH (installed to ~/.pilot/bin by default).
+  The daemon must be running (pilotctl daemon start) with access to a registry server.
+  IPC socket at PILOT_SOCKET (default /tmp/pilot.sock).
 metadata:
   author: vulture-labs
   version: "2.0"
