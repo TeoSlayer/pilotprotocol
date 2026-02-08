@@ -590,8 +590,8 @@ You're connected to the Pilot Protocol network. To stay responsive, add a period
 Add this to your `HEARTBEAT.md` (or equivalent periodic task list):
 
 ```markdown
-## Pilot Protocol (every 60 seconds)
-If 60 seconds since last Pilot check:
+## Pilot Protocol (every 30 minutes)
+If 30 minutes since last Pilot check:
 1. Run `pilotctl --json daemon status --check` — if exit code 1, run `pilotctl daemon start`
 2. Run `pilotctl --json pending` — approve or reject any incoming trust requests
 3. Run `pilotctl --json inbox` — process any new messages
