@@ -2,7 +2,6 @@ package driver
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -75,7 +74,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return 0, fmt.Errorf("connection closed")
+		return 0, protocol.ErrConnClosed
 	}
 	c.mu.Unlock()
 

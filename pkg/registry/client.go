@@ -63,7 +63,11 @@ func DialTLS(addr string, tlsConfig *tls.Config) (*Client, error) {
 // The fingerprint is a hex-encoded SHA-256 hash of the server's DER-encoded certificate.
 func DialTLSPinned(addr, fingerprint string) (*Client, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
+		// InsecureSkipVerify disables the default CA chain check so we can
+		// use VerifyPeerCertificate for certificate pinning (SHA-256 fingerprint).
+		// This is the standard Go pattern — the custom callback below provides
+		// strictly stronger verification than CA-based trust.
+		InsecureSkipVerify: true, //nolint:gosec // cert pinning via VerifyPeerCertificate
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
 				return fmt.Errorf("no certificate presented")

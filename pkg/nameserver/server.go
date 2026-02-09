@@ -81,12 +81,12 @@ func (s *Server) handleConn(conn net.Conn) {
 	line := string(buf[:n])
 	req, err := ParseRequest(line)
 	if err != nil {
-		conn.Write([]byte(FormatResponseErr(err.Error())))
+		_, _ = conn.Write([]byte(FormatResponseErr(err.Error())))
 		return
 	}
 
 	resp := s.handleRequest(req, conn.RemoteAddr())
-	conn.Write([]byte(resp))
+	_, _ = conn.Write([]byte(resp))
 }
 
 func (s *Server) handleRequest(req Request, remoteAddr net.Addr) string {

@@ -136,6 +136,9 @@ const maxPendingPerPeer = 64
 // maxPendingPeers limits the total number of peers with pending key exchanges.
 const maxPendingPeers = 256
 
+// RecvChSize is the capacity of the incoming packet channel.
+const RecvChSize = 1024
+
 func NewTunnelManager() *TunnelManager {
 	return &TunnelManager{
 		peers:       make(map[uint32]*net.UDPAddr),
@@ -143,7 +146,7 @@ func NewTunnelManager() *TunnelManager {
 		peerPubKeys: make(map[uint32]ed25519.PublicKey),
 		pending:     make(map[uint32][][]byte),
 		relayPeers:  make(map[uint32]bool),
-		recvCh:      make(chan *IncomingPacket, 1024),
+		recvCh:      make(chan *IncomingPacket, RecvChSize),
 		done:        make(chan struct{}),
 	}
 }
@@ -232,7 +235,7 @@ func (tm *TunnelManager) RegisterWithBeacon() {
 		return
 	}
 	msg := make([]byte, 5)
-	msg[0] = 0x01 // MsgDiscover
+	msg[0] = protocol.BeaconMsgDiscover
 	binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
 	if _, err := tm.conn.WriteToUDP(msg, bAddr); err != nil {
 		slog.Warn("beacon registration failed", "error", err)
@@ -251,7 +254,7 @@ func (tm *TunnelManager) RequestHolePunch(targetNodeID uint32) {
 	}
 	// Format: [MsgPunchRequest(1)][ourNodeID(4)][targetNodeID(4)]
 	msg := make([]byte, 9)
-	msg[0] = 0x03 // MsgPunchRequest
+	msg[0] = protocol.BeaconMsgPunchRequest
 	binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
 	binary.BigEndian.PutUint32(msg[5:9], targetNodeID)
 	if _, err := tm.conn.WriteToUDP(msg, bAddr); err != nil {
@@ -271,7 +274,7 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	if relay && bAddr != nil {
 		// MsgRelay: [0x05][senderNodeID(4)][destNodeID(4)][frame...]
 		msg := make([]byte, 1+4+4+len(frame))
-		msg[0] = 0x05 // MsgRelay
+		msg[0] = protocol.BeaconMsgRelay
 		binary.BigEndian.PutUint32(msg[1:5], tm.loadNodeID())
 		binary.BigEndian.PutUint32(msg[5:9], nodeID)
 		copy(msg[9:], frame)
@@ -974,11 +977,11 @@ func (tm *TunnelManager) handleBeaconMessage(data []byte, from *net.UDPAddr) {
 		return
 	}
 	switch data[0] {
-	case 0x02: // MsgDiscoverReply
+	case protocol.BeaconMsgDiscoverReply:
 		slog.Debug("beacon discover reply on tunnel socket", "from", from)
-	case 0x04: // MsgPunchCommand
+	case protocol.BeaconMsgPunchCommand:
 		tm.handlePunchCommand(data[1:])
-	case 0x06: // MsgRelayDeliver
+	case protocol.BeaconMsgRelayDeliver:
 		tm.handleRelayDeliver(data[1:])
 	default:
 		slog.Debug("unknown beacon message on tunnel socket", "type", data[0], "from", from)
@@ -1086,7 +1089,7 @@ func DiscoverEndpoint(beaconAddr string, nodeID uint32, conn *net.UDPConn) (*net
 
 	// Send discover message
 	msg := make([]byte, 5)
-	msg[0] = 0x01 // MsgDiscover
+	msg[0] = protocol.BeaconMsgDiscover
 	binary.BigEndian.PutUint32(msg[1:5], nodeID)
 
 	if _, err := conn.WriteToUDP(msg, bAddr); err != nil {
@@ -1103,7 +1106,7 @@ func DiscoverEndpoint(beaconAddr string, nodeID uint32, conn *net.UDPConn) (*net
 	}
 
 	// Format: [type(1)][iplen(1)][IP(4 or 16)][port(2)]
-	if n < 4 || buf[0] != 0x02 {
+	if n < 4 || buf[0] != protocol.BeaconMsgDiscoverReply {
 		return nil, fmt.Errorf("invalid discover reply")
 	}
 	ipLen := int(buf[1])

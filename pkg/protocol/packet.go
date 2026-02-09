@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 )
 
@@ -49,7 +48,8 @@ func (p *Packet) Marshal() ([]byte, error) {
 		return nil, fmt.Errorf("payload too large: %d bytes (max 65535)", payloadLen)
 	}
 
-	buf := make([]byte, packetHeaderSize+payloadLen)
+	totalLen := packetHeaderSize + payloadLen // safe: payloadLen ≤ 0xFFFF (checked above)
+	buf := make([]byte, totalLen)
 
 	buf[0] = (p.Version << 4) | (p.Flags & 0x0F)
 	buf[1] = p.Protocol
@@ -92,7 +92,7 @@ func Unmarshal(data []byte) (*Packet, error) {
 	binary.BigEndian.PutUint32(data[30:34], wireChecksum) // restore
 
 	if computed != wireChecksum {
-		return nil, errors.New("checksum mismatch")
+		return nil, ErrChecksumMismatch
 	}
 
 	p := &Packet{

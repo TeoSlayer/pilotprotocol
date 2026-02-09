@@ -36,22 +36,18 @@ func newReplicationManager() *replicationManager {
 func (rm *replicationManager) addSub(conn net.Conn) {
 	rm.mu.Lock()
 	rm.subs[conn] = &connWriter{conn: conn}
+	total := len(rm.subs)
 	rm.mu.Unlock()
-	slog.Info("replication subscriber added", "remote", conn.RemoteAddr(), "total", rm.count())
+	slog.Info("replication subscriber added", "remote", conn.RemoteAddr(), "total", total)
 }
 
 // removeSub removes a disconnected subscriber.
 func (rm *replicationManager) removeSub(conn net.Conn) {
 	rm.mu.Lock()
 	delete(rm.subs, conn)
+	total := len(rm.subs)
 	rm.mu.Unlock()
-	slog.Info("replication subscriber removed", "remote", conn.RemoteAddr(), "total", rm.count())
-}
-
-func (rm *replicationManager) count() int {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-	return len(rm.subs)
+	slog.Info("replication subscriber removed", "remote", conn.RemoteAddr(), "total", total)
 }
 
 // push sends a snapshot to all subscribers. Failed subscribers are removed.

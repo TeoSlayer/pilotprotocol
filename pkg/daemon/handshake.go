@@ -53,10 +53,13 @@ type PendingHandshake struct {
 	ReceivedAt    time.Time
 }
 
-// Handshake replay protection constants
+// Handshake timing constants
 const (
-	handshakeMaxAge    = 5 * time.Minute
-	handshakeMaxFuture = 30 * time.Second
+	handshakeMaxAge      = 5 * time.Minute        // replay protection: max message age
+	handshakeMaxFuture   = 30 * time.Second        // replay protection: max clock skew
+	handshakeReapInterval = 5 * time.Minute        // how often to reap stale replay entries
+	handshakeRecvTimeout = 10 * time.Second        // time to wait for handshake message
+	handshakeCloseDelay  = 500 * time.Millisecond  // delay before closing after send to let data flush
 )
 
 // HandshakeManager handles the trust handshake protocol on port 444.
@@ -233,7 +236,7 @@ func (hm *HandshakeManager) Start() error {
 	// Start periodic replay set reaper
 	hm.reapStop = make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(handshakeReapInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -263,7 +266,7 @@ func (hm *HandshakeManager) handleConnection(conn *Connection) {
 			return
 		}
 		hm.processMessage(conn, &msg)
-	case <-time.After(10 * time.Second):
+	case <-time.After(handshakeRecvTimeout):
 		slog.Warn("handshake timeout waiting for message", "remote_addr", conn.RemoteAddr)
 	}
 }
@@ -838,7 +841,7 @@ func (hm *HandshakeManager) sendMessage(peerNodeID uint32, msg *HandshakeMsg) er
 
 	// Close after brief delay to let the data flush
 	hm.goRPC(func() {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(handshakeCloseDelay)
 		hm.daemon.CloseConnection(conn)
 	})
 

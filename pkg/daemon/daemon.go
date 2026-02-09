@@ -60,6 +60,25 @@ const (
 	DefaultTimeWaitDuration     = 10 * time.Second
 )
 
+// Dial and retransmission constants.
+const (
+	DialDirectRetries    = 3                      // direct connection attempts before relay
+	DialMaxRetries       = 6                      // total attempts (direct + relay)
+	DialInitialRTO       = 1 * time.Second        // initial SYN retransmission timeout
+	DialMaxRTO           = 8 * time.Second         // max backoff for SYN retransmission
+	DialCheckInterval    = 10 * time.Millisecond   // poll interval for state changes during dial
+	RetxCheckInterval    = 100 * time.Millisecond  // retransmission check ticker
+	MaxRetxAttempts      = 8                       // abandon connection after this many retransmissions
+	HeartbeatReregThresh = 3                       // heartbeat failures before re-registration
+	SYNBucketAge         = 10 * time.Second        // stale per-source SYN bucket reap threshold
+)
+
+// Zero-window probe constants.
+const (
+	ZeroWinProbeInitial = 500 * time.Millisecond  // initial zero-window probe interval
+	ZeroWinProbeMax     = 30 * time.Second         // max zero-window probe backoff
+)
+
 type Daemon struct {
 	config     Config
 	addrMu     sync.RWMutex // protects nodeID and addr (H6 fix)
@@ -203,7 +222,7 @@ func (d *Daemon) allowSYNFromSource(srcNode uint32) bool {
 func (d *Daemon) reapPerSrcSYN() {
 	d.perSrcSYNMu.Lock()
 	defer d.perSrcSYNMu.Unlock()
-	threshold := time.Now().Add(-10 * time.Second)
+	threshold := time.Now().Add(-SYNBucketAge)
 	for id, b := range d.perSrcSYN {
 		if b.lastFill.Before(threshold) {
 			delete(d.perSrcSYN, id)
@@ -977,17 +996,17 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 	// Phase 1: Direct connection (3 retries).
 	// Phase 2: Relay through beacon if direct fails (3 more retries).
 	retries := 0
-	directRetries := 3
-	maxRetries := 6
+	directRetries := DialDirectRetries
+	maxRetries := DialMaxRetries
 	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node) // may already be relay from prior attempt
 	if relayActive {
 		directRetries = 0 // skip direct phase, go straight to relay
 	}
-	rto := 1 * time.Second
+	rto := DialInitialRTO
 	timer := time.NewTimer(rto)
 	defer timer.Stop()
 
-	check := time.NewTicker(10 * time.Millisecond)
+	check := time.NewTicker(DialCheckInterval)
 	defer check.Stop()
 
 	for {
@@ -1001,7 +1020,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 				return conn, nil
 			}
 			if st == StateClosed {
-				return nil, fmt.Errorf("connection refused")
+				return nil, protocol.ErrConnRefused
 			}
 		case <-timer.C:
 			retries++
@@ -1011,12 +1030,12 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
 				d.tunnels.SetRelayPeer(dstAddr.Node, true)
 				relayActive = true
-				rto = 1 * time.Second // reset backoff for relay phase
+				rto = DialInitialRTO // reset backoff for relay phase
 			}
 
 			if retries > maxRetries {
 				d.ports.RemoveConnection(conn.ID)
-				return nil, fmt.Errorf("dial timeout")
+				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
 			conn.Mu.Lock()
@@ -1024,8 +1043,8 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 			conn.Mu.Unlock()
 			d.tunnels.Send(dstAddr.Node, syn)
 			rto = rto * 2 // exponential backoff
-			if rto > 8*time.Second {
-				rto = 8 * time.Second
+			if rto > DialMaxRTO {
+				rto = DialMaxRTO
 			}
 			timer.Reset(rto)
 		}
@@ -1111,7 +1130,7 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 		case <-time.After(NagleTimeout):
 			// Timeout — flush regardless
 		case <-conn.RetxStop:
-			return fmt.Errorf("connection closed")
+			return protocol.ErrConnClosed
 		}
 
 		// Re-check under lock after waking
@@ -1156,7 +1175,7 @@ func (d *Daemon) sendDataImmediate(conn *Connection, data []byte) error {
 // sendSegment sends a single segment, waiting for the congestion window.
 // Implements zero-window probing when the peer's receive window is 0.
 func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
-	probeInterval := 500 * time.Millisecond
+	probeInterval := ZeroWinProbeInitial
 
 	// Wait for effective window to have space
 	for {
@@ -1170,9 +1189,9 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		// Window full — wait for ACK to open it, with zero-window probing
 		select {
 		case <-conn.WindowCh:
-			probeInterval = 500 * time.Millisecond
+			probeInterval = ZeroWinProbeInitial
 		case <-conn.RetxStop:
-			return fmt.Errorf("connection closed")
+			return protocol.ErrConnClosed
 		case <-time.After(probeInterval):
 			// Send zero-window probe (empty ACK) to trigger window update
 			conn.Mu.Lock()
@@ -1194,8 +1213,8 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 			d.tunnels.Send(conn.RemoteAddr.Node, probe)
 			// Exponential backoff up to 30s
 			probeInterval = probeInterval * 2
-			if probeInterval > 30*time.Second {
-				probeInterval = 30 * time.Second
+			if probeInterval > ZeroWinProbeMax {
+				probeInterval = ZeroWinProbeMax
 			}
 		}
 	}
@@ -1243,7 +1262,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 
 // startRetxLoop starts the retransmission goroutine for a connection.
 func (d *Daemon) startRetxLoop(conn *Connection) {
-	conn.RTO = 1 * time.Second
+	conn.RTO = InitialRTO
 	conn.RetxStop = make(chan struct{})
 	conn.RetxSend = func(pkt *protocol.Packet) {
 		d.tunnels.Send(conn.RemoteAddr.Node, pkt)
@@ -1252,7 +1271,7 @@ func (d *Daemon) startRetxLoop(conn *Connection) {
 }
 
 func (d *Daemon) retxLoop(conn *Connection) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(RetxCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -1300,7 +1319,7 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			continue
 		}
 		if now.Sub(e.sentAt) > conn.RTO {
-			if e.attempts >= 8 {
+			if e.attempts >= MaxRetxAttempts {
 				// Too many retransmissions — abandon connection
 				slog.Error("max retransmits exceeded, sending RST", "conn_id", conn.ID)
 				// Send RST to notify the remote peer
@@ -1510,7 +1529,7 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 }
 
 func (d *Daemon) heartbeatLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(d.config.keepaliveInterval())
 	defer ticker.Stop()
 	consecutiveFailures := 0
 	for {
@@ -1527,7 +1546,7 @@ func (d *Daemon) heartbeatLoop() {
 					// After 3 failures, try to re-register (the auto-reconnect in
 					// the registry client will re-establish the TCP connection, but
 					// after a registry restart we need to re-register our node)
-					if consecutiveFailures >= 3 {
+					if consecutiveFailures >= HeartbeatReregThresh {
 						slog.Info("attempting re-registration")
 						d.reRegister()
 						consecutiveFailures = 0

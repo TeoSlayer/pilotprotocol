@@ -10,6 +10,30 @@ import (
 
 const DefaultSocketPath = "/tmp/pilot.sock"
 
+// Handshake sub-commands (must match daemon SubHandshake* constants)
+const (
+	subHandshakeSend    byte = 0x01
+	subHandshakeApprove byte = 0x02
+	subHandshakeReject  byte = 0x03
+	subHandshakePending byte = 0x04
+	subHandshakeTrusted byte = 0x05
+	subHandshakeRevoke  byte = 0x06
+)
+
+// jsonRPC sends an IPC message, waits for the expected response, and
+// unmarshals the JSON payload. Most driver methods follow this pattern.
+func (d *Driver) jsonRPC(msg []byte, expectCmd byte, label string) (map[string]interface{}, error) {
+	resp, err := d.ipc.sendAndWait(msg, expectCmd)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("%s unmarshal: %w", label, err)
+	}
+	return result, nil
+}
+
 // Driver is the main entry point for the Pilot Protocol SDK.
 type Driver struct {
 	ipc        *ipcClient
@@ -115,126 +139,55 @@ func (d *Driver) RecvFrom() (*Datagram, error) {
 
 // Info returns the daemon's status information.
 func (d *Driver) Info() (map[string]interface{}, error) {
-	msg := []byte{cmdInfo}
-	resp, err := d.ipc.sendAndWait(msg, cmdInfoOK)
-	if err != nil {
-		return nil, fmt.Errorf("info: %w", err)
-	}
-	var info map[string]interface{}
-	if err := json.Unmarshal(resp, &info); err != nil {
-		return nil, fmt.Errorf("info unmarshal: %w", err)
-	}
-	return info, nil
+	return d.jsonRPC([]byte{cmdInfo}, cmdInfoOK, "info")
 }
 
 // Handshake sends a trust handshake request to a remote node.
 func (d *Driver) Handshake(nodeID uint32, justification string) (map[string]interface{}, error) {
-	payload := make([]byte, 1+4+len(justification))
-	payload[0] = 0x01 // SendRequest sub-command
-	binary.BigEndian.PutUint32(payload[1:5], nodeID)
-	copy(payload[5:], justification)
-
-	msg := make([]byte, 1+len(payload))
+	msg := make([]byte, 1+1+4+len(justification))
 	msg[0] = cmdHandshake
-	copy(msg[1:], payload)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("handshake: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("handshake unmarshal: %w", err)
-	}
-	return result, nil
+	msg[1] = subHandshakeSend
+	binary.BigEndian.PutUint32(msg[2:6], nodeID)
+	copy(msg[6:], justification)
+	return d.jsonRPC(msg, cmdHandshakeOK, "handshake")
 }
 
 // ApproveHandshake approves a pending trust handshake request.
 func (d *Driver) ApproveHandshake(nodeID uint32) (map[string]interface{}, error) {
-	msg := make([]byte, 1+1+4)
+	msg := make([]byte, 6)
 	msg[0] = cmdHandshake
-	msg[1] = 0x02 // Approve sub-command
+	msg[1] = subHandshakeApprove
 	binary.BigEndian.PutUint32(msg[2:6], nodeID)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("approve: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("approve unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC(msg, cmdHandshakeOK, "approve")
 }
 
 // RejectHandshake rejects a pending trust handshake request.
 func (d *Driver) RejectHandshake(nodeID uint32, reason string) (map[string]interface{}, error) {
-	payload := make([]byte, 1+4+len(reason))
-	payload[0] = 0x03 // Reject sub-command
-	binary.BigEndian.PutUint32(payload[1:5], nodeID)
-	copy(payload[5:], reason)
-
-	msg := make([]byte, 1+len(payload))
+	msg := make([]byte, 1+1+4+len(reason))
 	msg[0] = cmdHandshake
-	copy(msg[1:], payload)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("reject: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("reject unmarshal: %w", err)
-	}
-	return result, nil
+	msg[1] = subHandshakeReject
+	binary.BigEndian.PutUint32(msg[2:6], nodeID)
+	copy(msg[6:], reason)
+	return d.jsonRPC(msg, cmdHandshakeOK, "reject")
 }
 
 // PendingHandshakes returns pending trust handshake requests.
 func (d *Driver) PendingHandshakes() (map[string]interface{}, error) {
-	msg := []byte{cmdHandshake, 0x04}
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("pending: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("pending unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC([]byte{cmdHandshake, subHandshakePending}, cmdHandshakeOK, "pending")
 }
 
 // TrustedPeers returns all trusted peers from the handshake protocol.
 func (d *Driver) TrustedPeers() (map[string]interface{}, error) {
-	msg := []byte{cmdHandshake, 0x05}
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("trusted: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("trusted unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC([]byte{cmdHandshake, subHandshakeTrusted}, cmdHandshakeOK, "trusted")
 }
 
 // RevokeTrust removes a peer from the trusted set and notifies the registry.
 func (d *Driver) RevokeTrust(nodeID uint32) (map[string]interface{}, error) {
 	msg := make([]byte, 6)
 	msg[0] = cmdHandshake
-	msg[1] = 0x06 // SubHandshakeRevoke
+	msg[1] = subHandshakeRevoke
 	binary.BigEndian.PutUint32(msg[2:6], nodeID)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdHandshakeOK)
-	if err != nil {
-		return nil, fmt.Errorf("revoke: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("revoke unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC(msg, cmdHandshakeOK, "revoke")
 }
 
 // ResolveHostname resolves a hostname to node info via the daemon.
@@ -242,16 +195,7 @@ func (d *Driver) ResolveHostname(hostname string) (map[string]interface{}, error
 	msg := make([]byte, 1+len(hostname))
 	msg[0] = cmdResolveHostname
 	copy(msg[1:], hostname)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdResolveHostnameOK)
-	if err != nil {
-		return nil, fmt.Errorf("resolve_hostname: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("resolve_hostname unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC(msg, cmdResolveHostnameOK, "resolve_hostname")
 }
 
 // SetHostname sets or clears the daemon's hostname via the registry.
@@ -259,16 +203,7 @@ func (d *Driver) SetHostname(hostname string) (map[string]interface{}, error) {
 	msg := make([]byte, 1+len(hostname))
 	msg[0] = cmdSetHostname
 	copy(msg[1:], hostname)
-
-	resp, err := d.ipc.sendAndWait(msg, cmdSetHostnameOK)
-	if err != nil {
-		return nil, fmt.Errorf("set_hostname: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("set_hostname unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC(msg, cmdSetHostnameOK, "set_hostname")
 }
 
 // SetVisibility sets the daemon's visibility on the registry.
@@ -278,31 +213,12 @@ func (d *Driver) SetVisibility(public bool) (map[string]interface{}, error) {
 	if public {
 		msg[1] = 1
 	}
-
-	resp, err := d.ipc.sendAndWait(msg, cmdSetVisibilityOK)
-	if err != nil {
-		return nil, fmt.Errorf("set_visibility: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("set_visibility unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC(msg, cmdSetVisibilityOK, "set_visibility")
 }
 
 // Deregister removes the daemon from the registry.
 func (d *Driver) Deregister() (map[string]interface{}, error) {
-	msg := []byte{cmdDeregister}
-
-	resp, err := d.ipc.sendAndWait(msg, cmdDeregisterOK)
-	if err != nil {
-		return nil, fmt.Errorf("deregister: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("deregister unmarshal: %w", err)
-	}
-	return result, nil
+	return d.jsonRPC([]byte{cmdDeregister}, cmdDeregisterOK, "deregister")
 }
 
 // Disconnect closes a connection by ID. Used by administrative tools.

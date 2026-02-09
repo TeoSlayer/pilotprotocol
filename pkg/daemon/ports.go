@@ -103,6 +103,16 @@ const (
 	RecvBufSize    = 512                 // receive buffer channel capacity (segments)
 	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 2 MB max receive window
 	MaxOOOBuf      = 128                 // max out-of-order segments buffered per connection
+	AcceptQueueLen = 64                  // listener accept channel capacity
+	SendBufLen     = 256                 // send buffer channel capacity (segments)
+)
+
+// RTO parameters (RFC 6298)
+const (
+	ClockGranularity = 10 * time.Millisecond   // minimum RTTVAR for RTO calculation
+	RTOMin           = 200 * time.Millisecond  // minimum retransmission timeout
+	RTOMax           = 10 * time.Second        // maximum retransmission timeout
+	InitialRTO       = 1 * time.Second         // initial retransmission timeout
 )
 
 type Connection struct {
@@ -183,6 +193,29 @@ const (
 	StateTimeWait
 )
 
+func (s ConnState) String() string {
+	switch s {
+	case StateClosed:
+		return "CLOSED"
+	case StateListen:
+		return "LISTEN"
+	case StateSynSent:
+		return "SYN_SENT"
+	case StateSynReceived:
+		return "SYN_RECV"
+	case StateEstablished:
+		return "ESTABLISHED"
+	case StateFinWait:
+		return "FIN_WAIT"
+	case StateCloseWait:
+		return "CLOSE_WAIT"
+	case StateTimeWait:
+		return "TIME_WAIT"
+	default:
+		return "unknown"
+	}
+}
+
 func NewPortManager() *PortManager {
 	return &PortManager{
 		listeners:   make(map[uint16]*Listener),
@@ -202,7 +235,7 @@ func (pm *PortManager) Bind(port uint16) (*Listener, error) {
 
 	ln := &Listener{
 		Port:     port,
-		AcceptCh: make(chan *Connection, 64),
+		AcceptCh: make(chan *Connection, AcceptQueueLen),
 	}
 	pm.listeners[port] = ln
 	return ln, nil
@@ -301,7 +334,7 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		RemotePort:   remotePort,
 		State:        StateClosed,
 		LastActivity: time.Now(),
-		SendBuf:      make(chan []byte, 256),
+		SendBuf:      make(chan []byte, SendBufLen),
 		RecvBuf:      make(chan []byte, RecvBufSize),
 		CongWin:      InitialCongWin,
 		SSThresh:     MaxCongWin / 2,
@@ -382,32 +415,12 @@ func (pm *PortManager) ConnectionList() []ConnectionInfo {
 		stats := c.Stats
 		c.Mu.Unlock()
 
-		stateStr := "unknown"
-		switch st {
-		case StateClosed:
-			stateStr = "CLOSED"
-		case StateListen:
-			stateStr = "LISTEN"
-		case StateSynSent:
-			stateStr = "SYN_SENT"
-		case StateSynReceived:
-			stateStr = "SYN_RECV"
-		case StateEstablished:
-			stateStr = "ESTABLISHED"
-		case StateFinWait:
-			stateStr = "FIN_WAIT"
-		case StateCloseWait:
-			stateStr = "CLOSE_WAIT"
-		case StateTimeWait:
-			stateStr = "TIME_WAIT"
-		}
-
 		list = append(list, ConnectionInfo{
 			ID:          c.ID,
 			LocalPort:   c.LocalPort,
 			RemoteAddr:  c.RemoteAddr.String(),
 			RemotePort:  c.RemotePort,
-			State:       stateStr,
+			State:       st.String(),
 			SendSeq:     sendSeq,
 			RecvAck:     recvAck,
 			CongWin:     congWin,
@@ -701,16 +714,16 @@ func (c *Connection) updateRTT(rtt time.Duration) {
 	}
 	// RTO = SRTT + max(G, K·RTTVAR) where K=4, G=clock granularity
 	kvar := c.RTTVAR * 4
-	if kvar < 10*time.Millisecond {
-		kvar = 10 * time.Millisecond // clock granularity floor
+	if kvar < ClockGranularity {
+		kvar = ClockGranularity
 	}
 	c.RTO = c.SRTT + kvar
 	// Clamp RTO
-	if c.RTO < 200*time.Millisecond {
-		c.RTO = 200 * time.Millisecond
+	if c.RTO < RTOMin {
+		c.RTO = RTOMin
 	}
-	if c.RTO > 10*time.Second {
-		c.RTO = 10 * time.Second
+	if c.RTO > RTOMax {
+		c.RTO = RTOMax
 	}
 }
 
