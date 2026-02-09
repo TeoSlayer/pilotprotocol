@@ -52,7 +52,7 @@ func TestBeaconPunchRequest(t *testing.T) {
 
 	// Node A discovers
 	discoverA := make([]byte, 5)
-	discoverA[0] = beacon.MsgDiscover
+	discoverA[0] = protocol.BeaconMsgDiscover
 	binary.BigEndian.PutUint32(discoverA[1:], nodeA)
 	connA.WriteToUDP(discoverA, beaconAddr)
 
@@ -63,14 +63,14 @@ func TestBeaconPunchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node A discover reply: %v", err)
 	}
-	if n < 4 || buf[0] != beacon.MsgDiscoverReply {
+	if n < 4 || buf[0] != protocol.BeaconMsgDiscoverReply {
 		t.Fatalf("unexpected reply type: 0x%02x", buf[0])
 	}
 	t.Logf("node A registered with beacon")
 
 	// Node B discovers
 	discoverB := make([]byte, 5)
-	discoverB[0] = beacon.MsgDiscover
+	discoverB[0] = protocol.BeaconMsgDiscover
 	binary.BigEndian.PutUint32(discoverB[1:], nodeB)
 	connB.WriteToUDP(discoverB, beaconAddr)
 
@@ -79,14 +79,14 @@ func TestBeaconPunchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node B discover reply: %v", err)
 	}
-	if n < 4 || buf[0] != beacon.MsgDiscoverReply {
+	if n < 4 || buf[0] != protocol.BeaconMsgDiscoverReply {
 		t.Fatalf("unexpected reply type: 0x%02x", buf[0])
 	}
 	t.Logf("node B registered with beacon")
 
 	// Node A sends MsgPunchRequest for node B
 	punch := make([]byte, 9)
-	punch[0] = beacon.MsgPunchRequest
+	punch[0] = protocol.BeaconMsgPunchRequest
 	binary.BigEndian.PutUint32(punch[1:], nodeA)
 	binary.BigEndian.PutUint32(punch[5:], nodeB)
 	connA.WriteToUDP(punch, beaconAddr)
@@ -97,7 +97,7 @@ func TestBeaconPunchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node A punch command: %v", err)
 	}
-	if buf[0] != beacon.MsgPunchCommand {
+	if buf[0] != protocol.BeaconMsgPunchCommand {
 		t.Fatalf("expected MsgPunchCommand (0x04), got 0x%02x", buf[0])
 	}
 	// Parse punch target — should be node B's address
@@ -110,7 +110,7 @@ func TestBeaconPunchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("node B punch command: %v", err)
 	}
-	if buf[0] != beacon.MsgPunchCommand {
+	if buf[0] != protocol.BeaconMsgPunchCommand {
 		t.Fatalf("expected MsgPunchCommand (0x04), got 0x%02x", buf[0])
 	}
 	ipLen = int(buf[1])
@@ -394,7 +394,7 @@ func TestBeaconRelayDeliver(t *testing.T) {
 		nodeID uint32
 	}{{connA, nodeA}, {connB, nodeB}} {
 		msg := make([]byte, 5)
-		msg[0] = beacon.MsgDiscover
+		msg[0] = protocol.BeaconMsgDiscover
 		binary.BigEndian.PutUint32(msg[1:], pair.nodeID)
 		pair.conn.WriteToUDP(msg, beaconAddr)
 
@@ -410,7 +410,7 @@ func TestBeaconRelayDeliver(t *testing.T) {
 	// MsgRelay format: [0x05][senderNodeID(4)][destNodeID(4)][payload...]
 	payload := []byte("test relay payload")
 	relay := make([]byte, 1+4+4+len(payload))
-	relay[0] = beacon.MsgRelay
+	relay[0] = protocol.BeaconMsgRelay
 	binary.BigEndian.PutUint32(relay[1:5], nodeA)
 	binary.BigEndian.PutUint32(relay[5:9], nodeB)
 	copy(relay[9:], payload)
@@ -424,7 +424,7 @@ func TestBeaconRelayDeliver(t *testing.T) {
 		t.Fatalf("relay deliver: %v", err)
 	}
 
-	if buf[0] != beacon.MsgRelayDeliver {
+	if buf[0] != protocol.BeaconMsgRelayDeliver {
 		t.Fatalf("expected MsgRelayDeliver (0x06), got 0x%02x", buf[0])
 	}
 
