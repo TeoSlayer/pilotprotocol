@@ -1,7 +1,19 @@
 package protocol
 
+import "errors"
+
 // Protocol version
 const Version uint8 = 1
+
+// Sentinel errors shared across packages.
+var (
+	ErrNodeNotFound    = errors.New("node not found")
+	ErrNetworkNotFound = errors.New("network not found")
+	ErrConnClosed      = errors.New("connection closed")
+	ErrConnRefused     = errors.New("connection refused")
+	ErrDialTimeout     = errors.New("dial timeout")
+	ErrChecksumMismatch = errors.New("checksum mismatch")
+)
 
 // Flags (4 bits, stored in lower nibble of first byte alongside version)
 const (

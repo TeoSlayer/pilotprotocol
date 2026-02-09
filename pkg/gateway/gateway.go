@@ -257,12 +257,16 @@ func (gw *Gateway) bridgeConnection(tcpConn net.Conn, pilotAddr protocol.Addr, p
 	// to unblock the other goroutine and prevent leaks
 	done := make(chan struct{}, 2)
 	go func() {
-		io.Copy(pilotConn, tcpConn)
+		if _, err := io.Copy(pilotConn, tcpConn); err != nil {
+			slog.Debug("gateway copy tcp→pilot ended", "error", err)
+		}
 		pilotConn.Close()
 		done <- struct{}{}
 	}()
 	go func() {
-		io.Copy(tcpConn, pilotConn)
+		if _, err := io.Copy(tcpConn, pilotConn); err != nil {
+			slog.Debug("gateway copy pilot→tcp ended", "error", err)
+		}
 		tcpConn.Close()
 		done <- struct{}{}
 	}()

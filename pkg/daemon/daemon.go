@@ -1020,7 +1020,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 				return conn, nil
 			}
 			if st == StateClosed {
-				return nil, fmt.Errorf("connection refused")
+				return nil, protocol.ErrConnRefused
 			}
 		case <-timer.C:
 			retries++
@@ -1035,7 +1035,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 
 			if retries > maxRetries {
 				d.ports.RemoveConnection(conn.ID)
-				return nil, fmt.Errorf("dial timeout")
+				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
 			conn.Mu.Lock()
@@ -1130,7 +1130,7 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 		case <-time.After(NagleTimeout):
 			// Timeout — flush regardless
 		case <-conn.RetxStop:
-			return fmt.Errorf("connection closed")
+			return protocol.ErrConnClosed
 		}
 
 		// Re-check under lock after waking
@@ -1191,7 +1191,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		case <-conn.WindowCh:
 			probeInterval = ZeroWinProbeInitial
 		case <-conn.RetxStop:
-			return fmt.Errorf("connection closed")
+			return protocol.ErrConnClosed
 		case <-time.After(probeInterval):
 			// Send zero-window probe (empty ACK) to trigger window update
 			conn.Mu.Lock()

@@ -205,7 +205,7 @@ func (s *Server) SendPunchCommand(nodeID uint32, targetIP net.IP, targetPort uin
 	s.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("node %d not found", nodeID)
+		return fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	ip := targetIP.To4()

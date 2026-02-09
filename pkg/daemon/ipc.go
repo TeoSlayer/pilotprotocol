@@ -60,14 +60,14 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 
 func (c *ipcConn) trackPort(port uint16) {
 	c.rmu.Lock()
+	defer c.rmu.Unlock()
 	c.ports = append(c.ports, port)
-	c.rmu.Unlock()
 }
 
 func (c *ipcConn) trackConn(connID uint32) {
 	c.rmu.Lock()
+	defer c.rmu.Unlock()
 	c.conns = append(c.conns, connID)
-	c.rmu.Unlock()
 }
 
 // IPCServer handles connections from local drivers over Unix socket.
@@ -242,26 +242,7 @@ func (s *IPCServer) handleBind(conn *ipcConn, payload []byte) {
 				return
 			}
 
-			// Start pushing received data
-			go func(c *Connection) {
-				for data := range c.RecvBuf {
-					msg := make([]byte, 1+4+len(data))
-					msg[0] = CmdRecv
-					binary.BigEndian.PutUint32(msg[1:5], c.ID)
-					copy(msg[5:], data)
-					if err := conn.ipcWrite(msg); err != nil {
-						slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
-						return
-					}
-				}
-				// RecvBuf closed — notify driver the connection is done
-				closeMsg := make([]byte, 5)
-				closeMsg[0] = CmdCloseOK
-				binary.BigEndian.PutUint32(closeMsg[1:5], c.ID)
-				if err := conn.ipcWrite(closeMsg); err != nil {
-					slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
-				}
-			}(c)
+			s.startRecvPusher(conn, c)
 		}
 	}()
 }
@@ -292,26 +273,7 @@ func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 		return
 	}
 
-	// Start pushing received data
-	go func() {
-		for data := range c.RecvBuf {
-			msg := make([]byte, 1+4+len(data))
-			msg[0] = CmdRecv
-			binary.BigEndian.PutUint32(msg[1:5], c.ID)
-			copy(msg[5:], data)
-			if err := conn.ipcWrite(msg); err != nil {
-				slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
-				return
-			}
-		}
-		// RecvBuf closed — notify driver the connection is done
-		closeMsg := make([]byte, 5)
-		closeMsg[0] = CmdCloseOK
-		binary.BigEndian.PutUint32(closeMsg[1:5], c.ID)
-		if err := conn.ipcWrite(closeMsg); err != nil {
-			slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
-		}
-	}()
+	s.startRecvPusher(conn, c)
 }
 
 func (s *IPCServer) handleSend(conn *ipcConn, payload []byte) {
@@ -680,6 +642,29 @@ func (s *IPCServer) ipcWriteHandshakeOK(conn *ipcConn, data []byte) {
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC handshake reply failed", "err", err)
 	}
+}
+
+// startRecvPusher drains c.RecvBuf and pushes data to the IPC client.
+// When RecvBuf closes (remote FIN), it sends CmdCloseOK to the driver.
+func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
+	go func() {
+		for data := range c.RecvBuf {
+			msg := make([]byte, 1+4+len(data))
+			msg[0] = CmdRecv
+			binary.BigEndian.PutUint32(msg[1:5], c.ID)
+			copy(msg[5:], data)
+			if err := conn.ipcWrite(msg); err != nil {
+				slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
+				return
+			}
+		}
+		closeMsg := make([]byte, 5)
+		closeMsg[0] = CmdCloseOK
+		binary.BigEndian.PutUint32(closeMsg[1:5], c.ID)
+		if err := conn.ipcWrite(closeMsg); err != nil {
+			slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
+		}
+	}()
 }
 
 func (s *IPCServer) sendError(conn *ipcConn, msg string) {

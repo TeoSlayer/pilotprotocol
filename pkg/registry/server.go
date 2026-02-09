@@ -759,7 +759,7 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// Verify signature: message = "rotate:<node_id>"
@@ -1045,7 +1045,7 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 
 	network, ok := s.networks[netID]
 	if !ok {
-		return nil, fmt.Errorf("network %d not found", netID)
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
 	}
 
 	// Check join rules
@@ -1119,7 +1119,7 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 
 	network, ok := s.networks[netID]
 	if !ok {
-		return nil, fmt.Errorf("network %d not found", netID)
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
 	}
 
 	// Remove network from node's list
@@ -1160,7 +1160,7 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	resp := map[string]interface{}{
@@ -1226,7 +1226,7 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// Public nodes: endpoint always available
@@ -1280,10 +1280,10 @@ func (s *Server) handleReportTrust(msg map[string]interface{}) (map[string]inter
 	// Both nodes must exist
 	nodeAInfo, ok := s.nodes[nodeA]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeA)
+		return nil, fmt.Errorf("node %d: %w", nodeA, protocol.ErrNodeNotFound)
 	}
 	if _, ok := s.nodes[nodeB]; !ok {
-		return nil, fmt.Errorf("node %d not found", nodeB)
+		return nil, fmt.Errorf("node %d: %w", nodeB, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify signature
@@ -1312,7 +1312,7 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 	// H3 fix: verify signature — node must exist (prevents auth bypass on missing node)
 	nodeAInfo, ok := s.nodes[nodeA]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeA)
+		return nil, fmt.Errorf("node %d: %w", nodeA, protocol.ErrNodeNotFound)
 	}
 	if err := s.verifyNodeSignature(nodeAInfo, msg, fmt.Sprintf("revoke_trust:%d:%d", nodeA, nodeB)); err != nil {
 		return nil, err
@@ -1342,7 +1342,7 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify signature
@@ -1380,10 +1380,10 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 	// Both nodes must exist
 	fromNode, ok := s.nodes[fromNodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", fromNodeID)
+		return nil, fmt.Errorf("node %d: %w", fromNodeID, protocol.ErrNodeNotFound)
 	}
 	if _, ok := s.nodes[toNodeID]; !ok {
-		return nil, fmt.Errorf("node %d not found", toNodeID)
+		return nil, fmt.Errorf("node %d: %w", toNodeID, protocol.ErrNodeNotFound)
 	}
 
 	// M12 fix: verify sender signature if node has a public key
@@ -1437,7 +1437,7 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify signature to prevent unauthorized inbox access
@@ -1489,10 +1489,10 @@ func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]
 
 	respNode, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 	if _, ok := s.nodes[peerID]; !ok {
-		return nil, fmt.Errorf("node %d not found", peerID)
+		return nil, fmt.Errorf("node %d: %w", peerID, protocol.ErrNodeNotFound)
 	}
 
 	// M12 fix: verify responder signature if node has a public key
@@ -1547,7 +1547,7 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify signature
@@ -1644,7 +1644,7 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 
 	network, ok := s.networks[netID]
 	if !ok {
-		return nil, fmt.Errorf("network %d not found", netID)
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
 	}
 
 	nodes := make([]map[string]interface{}, 0)
@@ -1720,7 +1720,7 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 
 	node, ok := s.nodes[nodeID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", nodeID)
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify signature
@@ -1746,7 +1746,7 @@ func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}
 
 	requester, ok := s.nodes[requesterID]
 	if !ok {
-		return nil, fmt.Errorf("node %d not found", requesterID)
+		return nil, fmt.Errorf("node %d: %w", requesterID, protocol.ErrNodeNotFound)
 	}
 
 	// H3 fix: verify requester signature and ensure requester is a participant
@@ -1760,10 +1760,10 @@ func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}
 	a, okA := s.nodes[nodeA]
 	b, okB := s.nodes[nodeB]
 	if !okA {
-		return nil, fmt.Errorf("node %d not found", nodeA)
+		return nil, fmt.Errorf("node %d: %w", nodeA, protocol.ErrNodeNotFound)
 	}
 	if !okB {
-		return nil, fmt.Errorf("node %d not found", nodeB)
+		return nil, fmt.Errorf("node %d: %w", nodeB, protocol.ErrNodeNotFound)
 	}
 
 	// Return both endpoints so the caller (daemon) can attempt direct connection

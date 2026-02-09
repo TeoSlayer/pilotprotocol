@@ -254,18 +254,18 @@ func (c *ipcClient) removeHandler(cmd byte, ch chan []byte) {
 func (c *ipcClient) registerAcceptCh(port uint16) chan []byte {
 	ch := make(chan []byte, 64)
 	c.acceptMu.Lock()
+	defer c.acceptMu.Unlock()
 	c.acceptChs[port] = ch
-	c.acceptMu.Unlock()
 	return ch
 }
 
 func (c *ipcClient) unregisterAcceptCh(port uint16) {
 	c.acceptMu.Lock()
+	defer c.acceptMu.Unlock()
 	if ch, ok := c.acceptChs[port]; ok {
 		close(ch)
 		delete(c.acceptChs, port)
 	}
-	c.acceptMu.Unlock()
 }
 
 func (c *ipcClient) registerRecvCh(connID uint32) chan []byte {
@@ -284,7 +284,7 @@ func (c *ipcClient) registerRecvCh(connID uint32) chan []byte {
 
 func (c *ipcClient) unregisterRecvCh(connID uint32) {
 	c.recvMu.Lock()
+	defer c.recvMu.Unlock()
 	delete(c.recvChs, connID)
-	c.recvMu.Unlock()
 }
 
