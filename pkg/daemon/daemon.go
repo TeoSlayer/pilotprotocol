@@ -1630,6 +1630,20 @@ func (d *Daemon) reRegister() {
 		}
 	}
 
+	// Re-sync local trust pairs to registry (trust survives disconnection locally
+	// but the registry may have lost and re-loaded state)
+	if d.handshakes != nil {
+		peers := d.handshakes.TrustedPeers()
+		for _, rec := range peers {
+			if _, err := d.regConn.ReportTrust(nodeID, rec.NodeID); err != nil {
+				slog.Debug("re-registration: failed to re-sync trust pair", "peer", rec.NodeID, "error", err)
+			}
+		}
+		if len(peers) > 0 {
+			slog.Info("re-synced trust pairs", "count", len(peers))
+		}
+	}
+
 	// Re-register with beacon for NAT traversal
 	if d.config.BeaconAddr != "" {
 		d.tunnels.RegisterWithBeacon()
