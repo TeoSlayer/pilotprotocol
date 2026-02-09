@@ -6,16 +6,8 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-)
 
-// Message types
-const (
-	MsgDiscover      byte = 0x01
-	MsgDiscoverReply byte = 0x02
-	MsgPunchRequest  byte = 0x03
-	MsgPunchCommand  byte = 0x04
-	MsgRelay         byte = 0x05
-	MsgRelayDeliver  byte = 0x06
+	"web4/pkg/protocol"
 )
 
 type Server struct {
@@ -88,11 +80,11 @@ func (s *Server) handlePacket(data []byte, remote *net.UDPAddr) {
 	msgType := data[0]
 
 	switch msgType {
-	case MsgDiscover:
+	case protocol.BeaconMsgDiscover:
 		s.handleDiscover(data[1:], remote)
-	case MsgPunchRequest:
+	case protocol.BeaconMsgPunchRequest:
 		s.handlePunchRequest(data[1:], remote)
-	case MsgRelay:
+	case protocol.BeaconMsgRelay:
 		s.handleRelay(data[1:], remote)
 	default:
 		slog.Warn("unknown beacon message type", "type", fmt.Sprintf("0x%02X", msgType), "from", remote)
@@ -125,7 +117,7 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 
 	// Format: [type(1)][iplen(1)][IP(4 or 16)][port(2)]
 	reply := make([]byte, 1+1+len(ip)+2)
-	reply[0] = MsgDiscoverReply
+	reply[0] = protocol.BeaconMsgDiscoverReply
 	reply[1] = byte(len(ip))
 	copy(reply[2:2+len(ip)], ip)
 	binary.BigEndian.PutUint16(reply[2+len(ip):], uint16(remote.Port))
@@ -197,7 +189,7 @@ func (s *Server) handleRelay(data []byte, remote *net.UDPAddr) {
 
 	// Build relay deliver message
 	msg := make([]byte, 1+4+len(payload))
-	msg[0] = MsgRelayDeliver
+	msg[0] = protocol.BeaconMsgRelayDeliver
 	binary.BigEndian.PutUint32(msg[1:5], senderNodeID)
 	copy(msg[5:], payload)
 
@@ -226,7 +218,7 @@ func (s *Server) SendPunchCommand(nodeID uint32, targetIP net.IP, targetPort uin
 
 	// Format: [type(1)][iplen(1)][IP(4 or 16)][port(2)]
 	msg := make([]byte, 1+1+len(ip)+2)
-	msg[0] = MsgPunchCommand
+	msg[0] = protocol.BeaconMsgPunchCommand
 	msg[1] = byte(len(ip))
 	copy(msg[2:2+len(ip)], ip)
 	binary.BigEndian.PutUint16(msg[2+len(ip):], targetPort)

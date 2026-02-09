@@ -56,3 +56,13 @@ var TunnelMagicPunch = [4]byte{0x50, 0x49, 0x4C, 0x50}
 
 // Well-known port for handshake requests
 const PortHandshake uint16 = 444
+
+// Beacon message types (single-byte codes, all < 0x10 to avoid collision with tunnel magic)
+const (
+	BeaconMsgDiscover      byte = 0x01
+	BeaconMsgDiscoverReply byte = 0x02
+	BeaconMsgPunchRequest  byte = 0x03
+	BeaconMsgPunchCommand  byte = 0x04
+	BeaconMsgRelay         byte = 0x05
+	BeaconMsgRelayDeliver  byte = 0x06
+)
