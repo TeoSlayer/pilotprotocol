@@ -304,10 +304,16 @@ func resolveHostnameToAddr(d *driver.Driver, hostname string) (protocol.Addr, ui
 }
 
 func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
+	// Try full address (e.g. "0:0000.0000.000B")
 	addr, err := protocol.ParseAddr(arg)
 	if err == nil {
 		return addr, nil
 	}
+	// Try bare node ID (e.g. "11" → backbone address 0:0000.0000.000B)
+	if id, numErr := strconv.ParseUint(arg, 10, 32); numErr == nil {
+		return protocol.Addr{Network: 0, Node: uint32(id)}, nil
+	}
+	// Try hostname resolution
 	resolved, _, resolveErr := resolveHostnameToAddr(d, arg)
 	if resolveErr != nil {
 		return protocol.Addr{}, fmt.Errorf("cannot resolve %q — is the hostname correct and is there mutual trust? (see: pilotctl handshake)", arg)
