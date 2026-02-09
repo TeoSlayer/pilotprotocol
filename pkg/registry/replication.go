@@ -211,6 +211,25 @@ func (s *Server) snapshotJSON() []byte {
 		}
 	}
 
+	// Include trust pairs
+	for key := range s.trustPairs {
+		snap.TrustPairs = append(snap.TrustPairs, key)
+	}
+
+	// Include handshake inboxes
+	if len(s.handshakeInbox) > 0 {
+		snap.HandshakeInbox = make(map[string][]*HandshakeRelayMsg, len(s.handshakeInbox))
+		for nodeID, msgs := range s.handshakeInbox {
+			snap.HandshakeInbox[fmt.Sprintf("%d", nodeID)] = msgs
+		}
+	}
+	if len(s.handshakeResponses) > 0 {
+		snap.HandshakeResponses = make(map[string][]*HandshakeResponseMsg, len(s.handshakeResponses))
+		for nodeID, msgs := range s.handshakeResponses {
+			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
+		}
+	}
+
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("snapshot marshal error", "err", err)

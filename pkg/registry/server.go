@@ -507,10 +507,7 @@ func (s *Server) reapStaleNodes() {
 					}
 				}
 			}
-			// Keep pubKeyIdx entry so re-registration can reclaim the node_id
-			if node.Owner != "" {
-				delete(s.ownerIdx, node.Owner)
-			}
+			// Keep pubKeyIdx and ownerIdx entries so re-registration can reclaim the node_id
 			if node.Hostname != "" {
 				delete(s.hostnameIdx, node.Hostname)
 			}
@@ -1188,22 +1185,12 @@ func trustPairKey(a, b uint32) string {
 	return fmt.Sprintf("%d:%d", a, b)
 }
 
-// cleanupNode removes all trust pairs, handshake inboxes, and response
-// queues associated with a departed node. Caller must hold s.mu.
+// cleanupNode removes transient state for a departed node. Caller must hold s.mu.
+// Trust pairs and handshake inboxes are preserved — trust is identity-to-identity
+// and must survive disconnections. Only explicit revoke_trust removes trust pairs.
 func (s *Server) cleanupNode(nodeID uint32) {
-	// Remove all trust pairs involving this node
-	for key := range s.trustPairs {
-		// Trust pair key format is "min:max"
-		var a, b uint32
-		if _, err := fmt.Sscanf(key, "%d:%d", &a, &b); err == nil {
-			if a == nodeID || b == nodeID {
-				delete(s.trustPairs, key)
-			}
-		}
-	}
-	// Remove handshake inboxes
-	delete(s.handshakeInbox, nodeID)
-	delete(s.handshakeResponses, nodeID)
+	// Trust pairs: intentionally preserved (identity-level, survive disconnect)
+	// Handshake inboxes/responses: intentionally preserved (node may reconnect)
 }
 
 func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface{}, error) {
