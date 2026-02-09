@@ -90,6 +90,17 @@ echo "  Registry:   ${REGISTRY}"
 echo "  Beacon:     ${BEACON}"
 echo ""
 
+# --- Detect existing installation ---
+
+UPDATING=false
+if [ -x "$BIN_DIR/pilotctl" ]; then
+    UPDATING=true
+    CURRENT=$("$BIN_DIR/pilotctl" version 2>/dev/null || echo "unknown")
+    echo "  Existing install detected (${CURRENT})"
+    echo "  Updating binaries..."
+    echo ""
+fi
+
 # --- Download or build ---
 
 TMPDIR=$(mktemp -d)
@@ -104,9 +115,6 @@ if [ -n "$TAG" ]; then
     echo "Downloading ${TAG}..."
     if curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE" 2>/dev/null; then
         tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
-        mv "$TMPDIR/pilot-daemon-${OS}-${ARCH}" "$TMPDIR/pilot-daemon"
-        mv "$TMPDIR/pilot-pilotctl-${OS}-${ARCH}" "$TMPDIR/pilotctl"
-        mv "$TMPDIR/pilot-gateway-${OS}-${ARCH}" "$TMPDIR/pilot-gateway"
     else
         TAG=""
     fi
@@ -153,7 +161,22 @@ if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
     echo "  Symlinked to ${LINK_DIR}"
 fi
 
-# --- Write config ---
+# --- Update: stop here, skip config/service/PATH setup ---
+
+if [ "$UPDATING" = true ]; then
+    echo ""
+    echo "Updated to ${TAG:-source}:"
+    echo "  pilot-daemon   ${BIN_DIR}/pilot-daemon"
+    echo "  pilotctl        ${BIN_DIR}/pilotctl"
+    echo "  pilot-gateway   ${BIN_DIR}/pilot-gateway"
+    echo ""
+    echo "Restart the daemon to use the new version:"
+    echo "  pilotctl daemon stop && pilotctl daemon start"
+    echo ""
+    exit 0
+fi
+
+# --- Fresh install: write config ---
 
 cat > "$PILOT_DIR/config.json" <<CONF
 {
