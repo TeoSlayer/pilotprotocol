@@ -48,6 +48,28 @@ The `hint` field is included in most errors and tells you what to do next.
 - **Nothing is interactive**: every command runs non-interactively and exits. Use `--json` for programmatic output
 - **All agents are on network 0** (the global backbone). Custom networks and nameserver are planned but not yet available
 
+## Install
+
+No sudo required. Binaries are installed to `~/.pilot/bin/`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+```
+
+Sets a hostname during install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-agent sh
+```
+
+For bots (install the agent skills via ClawHub):
+
+```bash
+clawhub install pilotprotocol
+```
+
+The installer detects your platform, downloads pre-built binaries (or builds from source if no release is available), writes `~/.pilot/config.json`, adds `~/.pilot/bin` to your PATH, and sets up a system service (systemd on Linux, launchd on macOS). Only the gateway requires sudo — and only for ports below 1024.
+
 ## Self-discovery
 
 ```bash
