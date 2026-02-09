@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"web4/internal/crypto"
+	"web4/internal/pool"
 	"web4/pkg/protocol"
 	"web4/pkg/registry"
 )
@@ -67,7 +68,7 @@ const (
 	DialInitialRTO       = 1 * time.Second        // initial SYN retransmission timeout
 	DialMaxRTO           = 8 * time.Second         // max backoff for SYN retransmission
 	DialCheckInterval    = 10 * time.Millisecond   // poll interval for state changes during dial
-	RetxCheckInterval    = 100 * time.Millisecond  // retransmission check ticker
+	RetxCheckInterval    = 50 * time.Millisecond   // retransmission check ticker
 	MaxRetxAttempts      = 8                       // abandon connection after this many retransmissions
 	HeartbeatReregThresh = 3                       // heartbeat failures before re-registration
 	SYNBucketAge         = 10 * time.Second        // stale per-source SYN bucket reap threshold
@@ -1096,12 +1097,15 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 
 		// If we have at least MSS bytes, send a full segment
 		if len(conn.NagleBuf) >= MaxSegmentSize {
-			segment := make([]byte, MaxSegmentSize)
+			bp := pool.GetSegment()
+			segment := (*bp)[:MaxSegmentSize]
 			copy(segment, conn.NagleBuf[:MaxSegmentSize])
 			conn.NagleBuf = conn.NagleBuf[MaxSegmentSize:]
 			conn.NagleMu.Unlock()
 
-			if err := d.sendSegment(conn, segment); err != nil {
+			err := d.sendSegment(conn, segment)
+			pool.PutSegment(bp)
+			if err != nil {
 				return err
 			}
 			continue

@@ -75,7 +75,7 @@ func TestZeroWindowProbing(t *testing.T) {
 
 	// Prepare data: we'll send multiple 4KB blocks. The total should exceed
 	// the receive buffer to force back-pressure.
-	// RecvBufSize = 512 segments * 4096 bytes = 2MB max. But the actual
+	// RecvBufSize = 1024 segments * 8192 bytes = 8MB max. But the actual
 	// channel buffer will fill up since B is not reading.
 	const blockSize = 4096
 	const totalBlocks = 200 // 200 * 4KB = 800KB — enough to fill windows

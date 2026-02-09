@@ -4,8 +4,9 @@ import "sync"
 
 // Packet buffers sized for typical tunnel frames.
 const (
-	SmallBufSize = 4096               // for IPC messages, small packets
-	LargeBufSize = 65535 + 38         // max payload + tunnel magic(4) + header(34)
+	SmallBufSize   = 8192             // for IPC messages, small packets (matches MaxSegmentSize)
+	LargeBufSize   = 65535 + 38       // max payload + tunnel magic(4) + header(34)
+	SegmentBufSize = 8192             // segment-sized buffers for retransmission/OOO tracking
 )
 
 var (
@@ -18,6 +19,12 @@ var (
 	largePool = sync.Pool{
 		New: func() interface{} {
 			b := make([]byte, LargeBufSize)
+			return &b
+		},
+	}
+	segmentPool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, SegmentBufSize)
 			return &b
 		},
 	}
@@ -49,4 +56,18 @@ func PutLarge(b *[]byte) {
 	}
 	*b = (*b)[:LargeBufSize]
 	largePool.Put(b)
+}
+
+// GetSegment returns a segment-sized buffer from the pool.
+func GetSegment() *[]byte {
+	return segmentPool.Get().(*[]byte)
+}
+
+// PutSegment returns a segment-sized buffer to the pool.
+func PutSegment(b *[]byte) {
+	if b == nil || cap(*b) < SegmentBufSize {
+		return
+	}
+	*b = (*b)[:SegmentBufSize]
+	segmentPool.Put(b)
 }

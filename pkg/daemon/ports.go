@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"web4/internal/pool"
 	"web4/pkg/protocol"
 )
 
@@ -66,11 +67,21 @@ func DecodeSACK(data []byte) ([]SACKBlock, bool) {
 // MaxConnectionsPerPort and MaxTotalConnections defaults are defined in daemon.go Config.
 // The daemon passes resolved values when checking limits.
 
+// connKey is the composite key for O(1) connection lookup by 4-tuple.
+type connKey struct {
+	localPort  uint16
+	remoteAddr protocol.Addr
+	remotePort uint16
+}
+
 // PortManager handles virtual port binding and connection tracking.
 type PortManager struct {
 	mu          sync.RWMutex
 	listeners   map[uint16]*Listener
-	connections map[uint32]*Connection // conn_id → connection
+	connections map[uint32]*Connection  // conn_id → connection
+	connIndex   map[connKey]*Connection // 4-tuple → connection (O(1) lookup)
+	portConns   map[uint16]int          // port → active connection count (O(1) lookup)
+	activeConns int                     // total active connections (O(1) lookup)
 	nextConnID  uint32
 	nextEphPort uint16
 }
@@ -86,7 +97,8 @@ type retxEntry struct {
 	seq      uint32
 	sentAt   time.Time
 	attempts int
-	sacked   bool // true if covered by a SACK block (don't retransmit)
+	sacked   bool     // true if covered by a SACK block (don't retransmit)
+	poolBuf  *[]byte  // pooled buffer backing data (returned on ACK)
 }
 
 // recvSegment is an out-of-order received segment waiting for reassembly.
@@ -97,11 +109,11 @@ type recvSegment struct {
 
 // Default window parameters
 const (
-	InitialCongWin = 10 * MaxSegmentSize // 40 KB initial congestion window (IW10, RFC 6928)
-	MaxCongWin     = 1024 * 1024         // 1 MB max congestion window
-	MaxSegmentSize = 4096                // MTU for virtual segments
-	RecvBufSize    = 512                 // receive buffer channel capacity (segments)
-	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 2 MB max receive window
+	InitialCongWin = 10 * MaxSegmentSize // 80 KB initial congestion window (IW10, RFC 6928)
+	MaxCongWin     = 4 * 1024 * 1024     // 4 MB max congestion window (supports ~300 Mbps at 100ms RTT)
+	MaxSegmentSize = 8192                // virtual segment size (must fit in UDP datagram with 38-byte tunnel overhead)
+	RecvBufSize    = 1024                // receive buffer channel capacity (segments)
+	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 8 MB max receive window
 	MaxOOOBuf      = 128                 // max out-of-order segments buffered per connection
 	AcceptQueueLen = 64                  // listener accept channel capacity
 	SendBufLen     = 256                 // send buffer channel capacity (segments)
@@ -110,9 +122,9 @@ const (
 // RTO parameters (RFC 6298)
 const (
 	ClockGranularity = 10 * time.Millisecond   // minimum RTTVAR for RTO calculation
-	RTOMin           = 200 * time.Millisecond  // minimum retransmission timeout
+	RTOMin           = 100 * time.Millisecond  // minimum retransmission timeout (overlay has sub-ms local RTT)
 	RTOMax           = 10 * time.Second        // maximum retransmission timeout
-	InitialRTO       = 1 * time.Second         // initial retransmission timeout
+	InitialRTO       = 500 * time.Millisecond  // initial retransmission timeout
 )
 
 type Connection struct {
@@ -130,8 +142,9 @@ type Connection struct {
 	SendBuf    chan []byte
 	RecvBuf    chan []byte
 	// Sliding window + retransmission (send side)
-	RetxMu      sync.Mutex
-	Unacked     []*retxEntry            // ordered by seq
+	RetxMu        sync.Mutex
+	Unacked       []*retxEntry            // ordered by seq
+	bytesInFlight int                     // cached sum of unacked segment lengths
 	LastAck       uint32                  // highest cumulative ACK received
 	DupAckCount   int                     // consecutive duplicate ACKs
 	RTO           time.Duration           // retransmission timeout
@@ -152,8 +165,8 @@ type Connection struct {
 	NoDelay     bool                    // if true, disable Nagle (send immediately)
 	// Receive window (reassembly)
 	RecvMu      sync.Mutex
-	ExpectedSeq uint32                  // next in-order seq expected
-	OOOBuf      []*recvSegment          // out-of-order buffer
+	ExpectedSeq uint32                            // next in-order seq expected
+	OOOBuf      map[uint32]*recvSegment           // seq → out-of-order segment (O(1) lookup)
 	// Delayed ACK
 	AckMu         sync.Mutex            // protects PendingACKs and ACKTimer
 	PendingACKs   int                   // count of unacked received segments
@@ -220,6 +233,8 @@ func NewPortManager() *PortManager {
 	return &PortManager{
 		listeners:   make(map[uint16]*Listener),
 		connections: make(map[uint32]*Connection),
+		connIndex:   make(map[connKey]*Connection),
+		portConns:   make(map[uint16]int),
 		nextConnID:  1,
 		nextEphPort: protocol.PortEphemeralMin,
 	}
@@ -256,36 +271,36 @@ func (pm *PortManager) GetListener(port uint16) *Listener {
 	return pm.listeners[port]
 }
 
-// ConnectionCountForPort returns the number of active connections on a port.
+// ConnectionCountForPort returns the number of active connections on a port (O(1)).
 func (pm *PortManager) ConnectionCountForPort(port uint16) int {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	count := 0
-	for _, c := range pm.connections {
-		c.Mu.Lock()
-		st := c.State
-		c.Mu.Unlock()
-		if c.LocalPort == port && st != StateClosed && st != StateTimeWait {
-			count++
-		}
-	}
-	return count
+	return pm.portConns[port]
 }
 
-// TotalActiveConnections returns the total number of non-closed connections.
+// TotalActiveConnections returns the total number of non-closed connections (O(1)).
 func (pm *PortManager) TotalActiveConnections() int {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	count := 0
-	for _, c := range pm.connections {
-		c.Mu.Lock()
-		st := c.State
-		c.Mu.Unlock()
-		if st != StateClosed && st != StateTimeWait {
-			count++
-		}
+	return pm.activeConns
+}
+
+// trackActive increments the per-port and total active counters.
+// Must be called with pm.mu held.
+func (pm *PortManager) trackActive(port uint16) {
+	pm.portConns[port]++
+	pm.activeConns++
+}
+
+// untrackActive decrements the per-port and total active counters.
+// Must be called with pm.mu held.
+func (pm *PortManager) untrackActive(port uint16) {
+	if pm.portConns[port] > 0 {
+		pm.portConns[port]--
 	}
-	return count
+	if pm.activeConns > 0 {
+		pm.activeConns--
+	}
 }
 
 func (pm *PortManager) AllocEphemeralPort() uint16 {
@@ -307,20 +322,10 @@ func (pm *PortManager) AllocEphemeralPort() uint16 {
 	}
 }
 
-// portInUse returns true if any active connection is using the given local port.
+// portInUse returns true if any active connection is using the given local port (O(1)).
 // Must be called with pm.mu held.
 func (pm *PortManager) portInUse(port uint16) bool {
-	for _, c := range pm.connections {
-		if c.LocalPort == port {
-			c.Mu.Lock()
-			st := c.State
-			c.Mu.Unlock()
-			if st != StateClosed && st != StateTimeWait {
-				return true
-			}
-		}
-	}
-	return false
+	return pm.portConns[port] > 0
 }
 
 func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr, remotePort uint16) *Connection {
@@ -340,9 +345,12 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		SSThresh:     MaxCongWin / 2,
 		WindowCh:     make(chan struct{}, 1),
 		NagleCh:      make(chan struct{}, 1),
+		OOOBuf:       make(map[uint32]*recvSegment),
 	}
 	pm.nextConnID++
 	pm.connections[conn.ID] = conn
+	pm.connIndex[connKey{localPort, remoteAddr, remotePort}] = conn
+	pm.trackActive(localPort)
 	return conn
 }
 
@@ -355,12 +363,7 @@ func (pm *PortManager) GetConnection(id uint32) *Connection {
 func (pm *PortManager) FindConnection(localPort uint16, remoteAddr protocol.Addr, remotePort uint16) *Connection {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	for _, c := range pm.connections {
-		if c.LocalPort == localPort && c.RemoteAddr == remoteAddr && c.RemotePort == remotePort {
-			return c
-		}
-	}
-	return nil
+	return pm.connIndex[connKey{localPort, remoteAddr, remotePort}]
 }
 
 // ConnectionInfo describes an active connection for diagnostics.
@@ -496,6 +499,10 @@ func (pm *PortManager) AllConnections() []*Connection {
 func (pm *PortManager) RemoveConnection(id uint32) {
 	pm.mu.Lock()
 	c := pm.connections[id]
+	if c != nil {
+		delete(pm.connIndex, connKey{c.LocalPort, c.RemoteAddr, c.RemotePort})
+		pm.untrackActive(c.LocalPort)
+	}
 	delete(pm.connections, id)
 	pm.mu.Unlock()
 	// Stop retransmission goroutine
@@ -508,13 +515,10 @@ func (pm *PortManager) RemoveConnection(id uint32) {
 	}
 }
 
-// BytesInFlight returns total unacknowledged bytes.
+// BytesInFlight returns total unacknowledged bytes (O(1) cached value).
+// Must be called with RetxMu held.
 func (c *Connection) BytesInFlight() int {
-	total := 0
-	for _, e := range c.Unacked {
-		total += len(e.data)
-	}
-	return total
+	return c.bytesInFlight
 }
 
 // EffectiveWindow returns the effective send window (minimum of congestion
@@ -541,14 +545,29 @@ func (c *Connection) WindowAvailable() bool {
 func (c *Connection) TrackSend(seq uint32, data []byte) {
 	c.RetxMu.Lock()
 	defer c.RetxMu.Unlock()
-	saved := make([]byte, len(data))
-	copy(saved, data)
-	c.Unacked = append(c.Unacked, &retxEntry{
-		data:     saved,
-		seq:      seq,
-		sentAt:   time.Now(),
-		attempts: 1,
-	})
+	var pb *[]byte
+	if len(data) <= pool.SegmentBufSize {
+		pb = pool.GetSegment()
+		saved := (*pb)[:len(data)]
+		copy(saved, data)
+		c.Unacked = append(c.Unacked, &retxEntry{
+			data:     saved,
+			seq:      seq,
+			sentAt:   time.Now(),
+			attempts: 1,
+			poolBuf:  pb,
+		})
+	} else {
+		saved := make([]byte, len(data))
+		copy(saved, data)
+		c.Unacked = append(c.Unacked, &retxEntry{
+			data:     saved,
+			seq:      seq,
+			sentAt:   time.Now(),
+			attempts: 1,
+		})
+	}
+	c.bytesInFlight += len(data)
 }
 
 // ProcessAck removes segments acknowledged by the given ack number,
@@ -616,6 +635,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			if e.attempts == 1 && !e.sacked {
 				rtt := time.Since(e.sentAt)
 				c.updateRTT(rtt)
+			}
+			c.bytesInFlight -= len(e.data)
+			// Return pooled buffer
+			if e.poolBuf != nil {
+				pool.PutSegment(e.poolBuf)
 			}
 		} else {
 			// Reset sacked flag for segments that are still unacked
@@ -761,28 +785,22 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 		toDeliver = append(toDeliver, data)
 		c.ExpectedSeq = seq + uint32(len(data))
 
-		// Drain any buffered segments that are now in order
+		// Drain any buffered segments that are now in order (O(n) via map lookup)
 		for {
-			found := false
-			for i, seg := range c.OOOBuf {
-				if seg.seq == c.ExpectedSeq {
-					toDeliver = append(toDeliver, seg.data)
-					c.ExpectedSeq = seg.seq + uint32(len(seg.data))
-					c.OOOBuf = append(c.OOOBuf[:i], c.OOOBuf[i+1:]...)
-					found = true
-					break
-				}
-			}
-			if !found {
+			seg, ok := c.OOOBuf[c.ExpectedSeq]
+			if !ok {
 				break
 			}
+			toDeliver = append(toDeliver, seg.data)
+			delete(c.OOOBuf, c.ExpectedSeq)
+			c.ExpectedSeq = seg.seq + uint32(len(seg.data))
 		}
 	} else if seqAfter(seq, c.ExpectedSeq) {
-		// Out of order — buffer it (avoid duplicates, enforce bound)
-		if !c.hasOOOSeg(seq) && len(c.OOOBuf) < MaxOOOBuf {
+		// Out of order — buffer it (O(1) duplicate check via map)
+		if _, dup := c.OOOBuf[seq]; !dup && len(c.OOOBuf) < MaxOOOBuf {
 			saved := make([]byte, len(data))
 			copy(saved, data)
-			c.OOOBuf = append(c.OOOBuf, &recvSegment{seq: seq, data: saved})
+			c.OOOBuf[seq] = &recvSegment{seq: seq, data: saved}
 		}
 	}
 	// seq before ExpectedSeq means it's a duplicate — ignore
@@ -828,15 +846,6 @@ func (c *Connection) RecvWindow() uint16 {
 	return uint16(free)
 }
 
-func (c *Connection) hasOOOSeg(seq uint32) bool {
-	for _, seg := range c.OOOBuf {
-		if seg.seq == seq {
-			return true
-		}
-	}
-	return false
-}
-
 // SACKBlocks returns SACK blocks describing out-of-order received segments.
 // Must be called with RecvMu held.
 func (c *Connection) SACKBlocks() []SACKBlock {
@@ -844,9 +853,11 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 		return nil
 	}
 
-	// Sort OOO segments by seq
-	sorted := make([]*recvSegment, len(c.OOOBuf))
-	copy(sorted, c.OOOBuf)
+	// Collect OOO segments from map and sort by seq
+	sorted := make([]*recvSegment, 0, len(c.OOOBuf))
+	for _, seg := range c.OOOBuf {
+		sorted = append(sorted, seg)
+	}
 	sort.Slice(sorted, func(i, j int) bool { return seqAfter(sorted[j].seq, sorted[i].seq) })
 
 	// Merge into contiguous blocks

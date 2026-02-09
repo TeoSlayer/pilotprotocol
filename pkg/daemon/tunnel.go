@@ -421,10 +421,9 @@ func (tm *TunnelManager) readLoop() {
 			if n < 4+protocol.PacketHeaderSize() {
 				continue
 			}
-			data := make([]byte, n-4)
-			copy(data, buf[4:n])
-
-			pkt, err := protocol.Unmarshal(data)
+			// Pass buf subslice directly — Unmarshal copies the payload internally
+			// and restores the checksum field, so the shared pool buffer is safe.
+			pkt, err := protocol.Unmarshal(buf[4:n])
 			if err != nil {
 				slog.Error("tunnel unmarshal error", "remote", remote, "error", err)
 				continue
@@ -816,18 +815,17 @@ func (tm *TunnelManager) flushPending(nodeID uint32) {
 // encryptFrame encrypts a marshaled packet and returns a full tunnel frame.
 // Format: [PILS][4-byte nodeID][12-byte nonce][ciphertext+GCM tag]
 func (tm *TunnelManager) encryptFrame(pc *peerCrypto, plaintext []byte) []byte {
-	nonce := make([]byte, pc.aead.NonceSize())
+	var nonce [12]byte
 	copy(nonce[0:4], pc.noncePrefix[:])
 	counter := atomic.AddUint64(&pc.nonce, 1)
-	binary.BigEndian.PutUint64(nonce[pc.aead.NonceSize()-8:], counter)
+	binary.BigEndian.PutUint64(nonce[4:], counter)
 
-	ciphertext := pc.aead.Seal(nil, nonce, plaintext, nil)
-
-	frame := make([]byte, 4+4+len(nonce)+len(ciphertext))
+	// Single allocation: header (4+4+12=20 bytes) + ciphertext + GCM tag
+	frame := make([]byte, 20, 20+len(plaintext)+pc.aead.Overhead())
 	copy(frame[0:4], protocol.TunnelMagicSecure[:])
 	binary.BigEndian.PutUint32(frame[4:8], tm.loadNodeID())
-	copy(frame[8:8+len(nonce)], nonce)
-	copy(frame[8+len(nonce):], ciphertext)
+	copy(frame[8:20], nonce[:])
+	frame = pc.aead.Seal(frame, nonce[:], plaintext, nil)
 
 	return frame
 }
@@ -1059,9 +1057,8 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 		if len(payload) < 4+protocol.PacketHeaderSize() {
 			return
 		}
-		frameData := make([]byte, len(payload)-4)
-		copy(frameData, payload[4:])
-		pkt, err := protocol.Unmarshal(frameData)
+		// Pass subslice directly — Unmarshal copies the payload internally.
+		pkt, err := protocol.Unmarshal(payload[4:])
 		if err != nil {
 			slog.Error("tunnel unmarshal error from relay", "src_node", srcNodeID, "error", err)
 			return

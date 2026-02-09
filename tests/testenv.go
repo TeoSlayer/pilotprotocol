@@ -45,7 +45,7 @@ const TestAdminToken = "test-admin-secret"
 // TestEnv manages a complete Pilot Protocol test environment with
 // OS-assigned ports and proper readiness signaling (no time.Sleep).
 type TestEnv struct {
-	t *testing.T
+	t testing.TB
 
 	Beacon   *beacon.Server
 	Registry *registry.Server
@@ -69,7 +69,7 @@ type DaemonInfo struct {
 
 // NewTestEnv creates and starts a beacon + registry with OS-assigned ports.
 // Call AddDaemon() to add daemons after creation.
-func NewTestEnv(t *testing.T) *TestEnv {
+func NewTestEnv(t testing.TB) *TestEnv {
 	t.Helper()
 
 	// Use /tmp for short socket paths — macOS limits unix socket paths to 104 bytes.

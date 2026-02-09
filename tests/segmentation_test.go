@@ -28,7 +28,7 @@ func TestLargeWriteSegmentation(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 
-	const dataSize = 64 * 1024 // 64 KB — well above MSS of 4096
+	const dataSize = 64 * 1024 // 64 KB — well above MSS of 8192
 
 	go func() {
 		conn, err := ln.Accept()
