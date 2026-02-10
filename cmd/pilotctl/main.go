@@ -337,7 +337,7 @@ Bootstrap:
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
-  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>]
+  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--webhook <url>]
   pilotctl daemon stop
   pilotctl daemon status
 
@@ -353,6 +353,8 @@ Discovery commands:
   pilotctl find <hostname>
   pilotctl set-hostname <hostname>
   pilotctl clear-hostname
+  pilotctl set-tags <tag1> [tag2] ...
+  pilotctl clear-tags
 
 Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
@@ -501,6 +503,14 @@ func main() {
 		cmdSetHostname(cmdArgs)
 	case "clear-hostname":
 		cmdClearHostname()
+	case "set-tags":
+		cmdSetTags(cmdArgs)
+	case "clear-tags":
+		cmdClearTags()
+	case "set-webhook":
+		cmdSetWebhook(cmdArgs)
+	case "clear-webhook":
+		cmdClearWebhook()
 
 	// Communication
 	case "connect":
@@ -658,7 +668,7 @@ func cmdContext() {
 				"returns":     "current configuration as JSON",
 			},
 			"daemon start": map[string]interface{}{
-				"args":        []string{"[--config <path>]", "[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--owner <owner>]", "[--hostname <name>]", "[--log-level <level>]", "[--log-format <fmt>]", "[--public]", "[--foreground]", "[--no-encrypt]", "[--socket <path>]"},
+				"args":        []string{"[--config <path>]", "[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--owner <owner>]", "[--hostname <name>]", "[--log-level <level>]", "[--log-format <fmt>]", "[--public]", "[--foreground]", "[--no-encrypt]", "[--socket <path>]", "[--webhook <url>]"},
 				"description": "Start the daemon as a background process. Blocks until registered, then prints status and exits",
 				"returns":     "node_id, address, pid, socket, hostname, log_file",
 			},
@@ -696,6 +706,26 @@ func cmdContext() {
 				"args":        []string{},
 				"description": "Clear hostname for this daemon's node",
 				"returns":     "hostname, node_id",
+			},
+			"set-tags": map[string]interface{}{
+				"args":        []string{"<tag1>", "[tag2]", "..."},
+				"description": "Set capability tags for this daemon's node (replaces existing tags)",
+				"returns":     "node_id, tags",
+			},
+			"clear-tags": map[string]interface{}{
+				"args":        []string{},
+				"description": "Clear all tags for this daemon's node",
+				"returns":     "node_id, tags",
+			},
+			"set-webhook": map[string]interface{}{
+				"args":        []string{"<url>"},
+				"description": "Set the webhook URL for event notifications (applies immediately if daemon is running)",
+				"returns":     "webhook, applied",
+			},
+			"clear-webhook": map[string]interface{}{
+				"args":        []string{},
+				"description": "Clear the webhook URL (applies immediately if daemon is running)",
+				"returns":     "webhook, applied",
 			},
 			"info": map[string]interface{}{
 				"args":        []string{},
@@ -901,7 +931,10 @@ func cmdDaemonStart(args []string) {
 	}
 
 	// Clean up stale socket
-	socketPath := getSocket()
+	socketPath := flagString(flags, "socket", "")
+	if socketPath == "" {
+		socketPath = getSocket()
+	}
 	if _, err := os.Stat(socketPath); err == nil {
 		// Try to connect — if it works, daemon is running
 		d, err := driver.Connect(socketPath)
@@ -950,11 +983,17 @@ func cmdDaemonStart(args []string) {
 	logLevel := flagString(flags, "log-level", "info")
 	logFormat := flagString(flags, "log-format", "text")
 	public := flagBool(flags, "public")
+	webhookURL := flagString(flags, "webhook", "")
+	if webhookURL == "" {
+		if w, ok := cfg["webhook"].(string); ok {
+			webhookURL = w
+		}
+	}
 
 	// If --foreground, run in-process
 	if flagBool(flags, "foreground") {
 		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-			socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public)
+			socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public, webhookURL)
 		return
 	}
 
@@ -994,6 +1033,9 @@ func cmdDaemonStart(args []string) {
 	}
 	if public {
 		daemonArgs = append(daemonArgs, "--public")
+	}
+	if webhookURL != "" {
+		daemonArgs = append(daemonArgs, "--webhook", webhookURL)
 	}
 
 	proc := exec.Command(selfPath, daemonArgs...)
@@ -1228,14 +1270,15 @@ func runDaemonInternal(args []string) {
 	configFile := flagString(flags, "config", "")
 	encrypt := !flagBool(flags, "no-encrypt")
 	public := flagBool(flags, "public")
+	webhookURL := flagString(flags, "webhook", "")
 
 	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-		socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public)
+		socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public, webhookURL)
 }
 
 func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	socketPath string, encrypt bool, identityPath, owner, hostname,
-	logLevel, logFormat string, public bool) {
+	logLevel, logFormat string, public bool, webhookURL string) {
 
 	if configFile != "" {
 		cfg, err := config.Load(configFile)
@@ -1268,6 +1311,7 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		Owner:        owner,
 		Public:       public,
 		Hostname:     hostname,
+		WebhookURL:   webhookURL,
 	})
 
 	if err := d.Start(); err != nil {
@@ -1704,6 +1748,132 @@ func cmdClearHostname() {
 		})
 	} else {
 		fmt.Printf("hostname cleared\n")
+	}
+}
+
+func cmdSetWebhook(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl set-webhook <url>")
+	}
+	url := args[0]
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		fatalCode("invalid_argument", "webhook URL must start with http:// or https://")
+	}
+
+	// Persist to config so it survives daemon restart
+	cfg := loadConfig()
+	cfg["webhook"] = url
+	if err := saveConfig(cfg); err != nil {
+		fatalCode("internal", "save config: %v", err)
+	}
+
+	// Apply to running daemon (best-effort — daemon may not be running)
+	applied := false
+	d, err := driver.Connect(getSocket())
+	if err == nil {
+		_, err = d.SetWebhook(url)
+		d.Close()
+		if err == nil {
+			applied = true
+		}
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"webhook": url,
+			"applied": applied,
+		})
+	} else {
+		fmt.Printf("webhook set: %s\n", url)
+		if applied {
+			fmt.Printf("applied to running daemon\n")
+		} else {
+			fmt.Printf("will take effect on next daemon start\n")
+		}
+	}
+}
+
+func cmdClearWebhook() {
+	cfg := loadConfig()
+	delete(cfg, "webhook")
+	if err := saveConfig(cfg); err != nil {
+		fatalCode("internal", "save config: %v", err)
+	}
+
+	// Apply to running daemon (best-effort)
+	applied := false
+	d, err := driver.Connect(getSocket())
+	if err == nil {
+		_, err = d.SetWebhook("")
+		d.Close()
+		if err == nil {
+			applied = true
+		}
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"webhook": "",
+			"applied": applied,
+		})
+	} else {
+		fmt.Printf("webhook cleared\n")
+		if applied {
+			fmt.Printf("applied to running daemon\n")
+		} else {
+			fmt.Printf("will take effect on next daemon start\n")
+		}
+	}
+}
+
+func cmdSetTags(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl set-tags <tag1> [tag2] ...")
+	}
+	if len(args) > 3 {
+		fatalCode("invalid_argument", "set-tags: maximum 3 tags allowed, got %d", len(args))
+	}
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.SetTags(args)
+	if err != nil {
+		fatalCode("connection_failed", "set-tags: %v", err)
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"node_id": result["node_id"],
+			"tags":    result["tags"],
+		})
+	} else {
+		tags := "none"
+		if t, ok := result["tags"].([]interface{}); ok && len(t) > 0 {
+			parts := make([]string, len(t))
+			for i, v := range t {
+				parts[i] = fmt.Sprintf("#%s", v)
+			}
+			tags = strings.Join(parts, " ")
+		}
+		fmt.Printf("tags set: %s\n", tags)
+	}
+}
+
+func cmdClearTags() {
+	d := connectDriver()
+	defer d.Close()
+
+	_, err := d.SetTags([]string{})
+	if err != nil {
+		fatalCode("connection_failed", "clear-tags: %v", err)
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"tags": []string{},
+		})
+	} else {
+		fmt.Printf("tags cleared\n")
 	}
 }
 
@@ -2286,7 +2456,7 @@ func cmdPublish(args []string) {
 
 func cmdHandshake(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl handshake <node_id|hostname> [justification]")
+		fatalCode("invalid_argument", "usage: pilotctl handshake <node_id|address|hostname> [justification]")
 	}
 	d := connectDriver()
 	defer d.Close()
@@ -2295,10 +2465,15 @@ func cmdHandshake(args []string) {
 	target := args[0]
 	if id, err := strconv.ParseUint(target, 10, 32); err == nil {
 		nodeID = uint32(id)
+	} else if addr, err := protocol.ParseAddr(target); err == nil {
+		nodeID = addr.Node
+		if !jsonOutput {
+			fmt.Fprintf(os.Stderr, "parsed address %s → node %d\n", target, nodeID)
+		}
 	} else {
 		_, resolved, err := resolveHostnameToAddr(d, target)
 		if err != nil {
-			fatalCode("not_found", "resolve hostname %q: %v", target, err)
+			fatalCode("not_found", "resolve %q: %v", target, err)
 		}
 		nodeID = resolved
 		if !jsonOutput {

@@ -40,6 +40,9 @@ type Config struct {
 	DisableDataExchange bool // disable built-in data exchange service (port 1001)
 	DisableEventStream  bool // disable built-in event stream service (port 1002)
 
+	// Webhook
+	WebhookURL string // HTTP(S) endpoint for event notifications (empty = disabled)
+
 	// Tuning (zero = use defaults)
 	KeepaliveInterval    time.Duration // default 30s
 	IdleTimeout          time.Duration // default 120s
@@ -90,6 +93,7 @@ type Daemon struct {
 	ports      *PortManager
 	ipc        *IPCServer
 	handshakes *HandshakeManager
+	webhook    *WebhookClient
 	startTime  time.Time
 	stopCh     chan struct{} // closed on Stop() to signal goroutines
 
@@ -357,6 +361,15 @@ func (d *Daemon) Start() error {
 
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
 
+	// Initialize webhook client (no-op if URL is empty)
+	d.webhook = NewWebhookClient(d.config.WebhookURL, d.NodeID)
+	d.tunnels.SetWebhook(d.webhook)
+	d.handshakes.SetWebhook(d.webhook)
+	d.webhook.Emit("node.registered", map[string]interface{}{
+		"address":  d.addr.String(),
+		"endpoint": registrationAddr,
+	})
+
 	// Register with beacon using real nodeID for NAT traversal (punch/relay)
 	if d.config.BeaconAddr != "" {
 		if err := d.tunnels.SetBeaconAddr(d.config.BeaconAddr); err != nil {
@@ -481,12 +494,14 @@ func (d *Daemon) Stop() error {
 
 	// Deregister from registry
 	if d.regConn != nil {
+		d.webhook.Emit("node.deregistered", nil)
 		d.regConn.Deregister(d.NodeID())
 		d.regConn.Close()
 	}
 
 	d.ipc.Close()
 	d.tunnels.Close()
+	d.webhook.Close()
 	return nil
 }
 
@@ -495,6 +510,22 @@ func (d *Daemon) NodeID() uint32 {
 	defer d.addrMu.RUnlock()
 	return d.nodeID
 }
+
+// SetWebhookURL hot-swaps the webhook client at runtime.
+// An empty URL disables the webhook (all Emit calls become no-ops).
+func (d *Daemon) SetWebhookURL(url string) {
+	old := d.webhook
+	d.webhook = NewWebhookClient(url, d.NodeID)
+	d.tunnels.SetWebhook(d.webhook)
+	d.handshakes.SetWebhook(d.webhook)
+	old.Close()
+	if url != "" {
+		slog.Info("webhook updated", "url", url)
+	} else {
+		slog.Info("webhook cleared")
+	}
+}
+
 // Identity returns the daemon's Ed25519 identity (may be nil if unset).
 func (d *Daemon) Identity() *crypto.Identity { return d.identity }
 
@@ -603,6 +634,9 @@ func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
 	if !d.tunnels.HasPeer(pkt.Src.Node) {
 		if !d.config.Encrypt || d.tunnels.HasCrypto(pkt.Src.Node) {
 			d.tunnels.AddPeer(pkt.Src.Node, from)
+			d.webhook.Emit("tunnel.peer_added", map[string]interface{}{
+				"peer_node_id": pkt.Src.Node, "endpoint": from.String(),
+			})
 		}
 	}
 
@@ -652,6 +686,9 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// SYN rate limiting
 		if !d.allowSYN() {
 			slog.Warn("SYN rate limit exceeded", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
+			d.webhook.Emit("security.syn_rate_limited", map[string]interface{}{
+				"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+			})
 			return // silently drop — don't even RST (avoid amplification)
 		}
 		if !d.allowSYNFromSource(pkt.Src.Node) {
@@ -680,6 +717,10 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RecvAck = pkt.Seq + 1
 		conn.ExpectedSeq = pkt.Seq + 1 // first data segment after SYN
 		conn.Mu.Unlock()
+		d.webhook.Emit("conn.syn_received", map[string]interface{}{
+			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+			"dst_port": pkt.DstPort, "conn_id": conn.ID,
+		})
 
 		// Process peer's receive window from SYN (H9 fix: always update, including Window==0)
 		conn.RetxMu.Lock()
@@ -704,6 +745,10 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.SendSeq++
 		conn.State = StateEstablished
 		conn.Mu.Unlock()
+		d.webhook.Emit("conn.established", map[string]interface{}{
+			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+			"dst_port": pkt.DstPort, "conn_id": conn.ID,
+		})
 
 		d.startRetxLoop(conn)
 		// Non-blocking push to accept queue — if full, clean up and RST
@@ -769,10 +814,17 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		if conn != nil {
 			conn.CloseRecvBuf()
 			conn.Mu.Lock()
+			wasTimeWait := conn.State == StateTimeWait
 			conn.State = StateTimeWait
 			conn.LastActivity = time.Now()
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
+			if !wasTimeWait {
+				d.webhook.Emit("conn.fin", map[string]interface{}{
+					"remote_addr": pkt.Src.String(), "remote_port": pkt.SrcPort,
+					"local_port": pkt.DstPort, "conn_id": conn.ID,
+				})
+			}
 			// Connection will be reaped by idleSweepLoop after TimeWaitDuration
 
 			// Send FIN-ACK
@@ -801,6 +853,10 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			conn.Mu.Unlock()
 			conn.CloseRecvBuf()
 			d.ports.RemoveConnection(conn.ID)
+			d.webhook.Emit("conn.rst", map[string]interface{}{
+				"remote_addr": pkt.Src.String(), "remote_port": pkt.SrcPort,
+				"local_port": pkt.DstPort, "conn_id": conn.ID,
+			})
 		}
 		return
 	}
@@ -923,6 +979,10 @@ func (d *Daemon) sendDelayedACK(conn *Connection) {
 
 func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 	if len(pkt.Payload) > 0 {
+		d.webhook.Emit("data.datagram", map[string]interface{}{
+			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+			"dst_port": pkt.DstPort, "size": len(pkt.Payload),
+		})
 		d.ipc.DeliverDatagram(pkt.Src, pkt.SrcPort, pkt.DstPort, pkt.Payload)
 	}
 }
@@ -1617,6 +1677,9 @@ func (d *Daemon) reRegister() {
 	nodeID := d.nodeID
 	slog.Info("re-registered", "node_id", nodeID, "addr", d.addr)
 	d.addrMu.Unlock()
+	d.webhook.Emit("node.reregistered", map[string]interface{}{
+		"address": d.addr.String(),
+	})
 
 	// Restore visibility and hostname after re-registration
 	if d.config.Public {
@@ -1673,6 +1736,10 @@ func (d *Daemon) idleSweepLoop() {
 			dead := d.ports.IdleConnections(idleTimeout)
 			for _, conn := range dead {
 				slog.Debug("closing dead connection", "conn_id", conn.ID, "idle_timeout", idleTimeout, "remote_addr", conn.RemoteAddr, "remote_port", conn.RemotePort)
+				d.webhook.Emit("conn.idle_timeout", map[string]interface{}{
+					"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
+					"local_port": conn.LocalPort, "conn_id": conn.ID,
+				})
 				d.CloseConnection(conn)
 			}
 

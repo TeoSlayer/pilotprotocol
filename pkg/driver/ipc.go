@@ -36,6 +36,10 @@ const (
 	cmdSetVisibilityOK   byte = 0x16
 	cmdDeregister        byte = 0x17
 	cmdDeregisterOK      byte = 0x18
+	cmdSetTags           byte = 0x19
+	cmdSetTagsOK         byte = 0x1A
+	cmdSetWebhook        byte = 0x1B
+	cmdSetWebhookOK      byte = 0x1C
 )
 
 // Datagram represents a received unreliable datagram.

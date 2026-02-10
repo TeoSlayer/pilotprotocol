@@ -74,6 +74,9 @@ type HandshakeManager struct {
 	reapStop  chan struct{}                  // signals replay reaper to stop
 	stopOnce  sync.Once                     // ensures reapStop is closed only once
 
+	// Webhook
+	webhook *WebhookClient
+
 	// Replay protection
 	replayMu  sync.Mutex
 	replaySet map[[32]byte]time.Time // message hash → first seen
@@ -96,6 +99,11 @@ func NewHandshakeManager(d *Daemon) *HandshakeManager {
 	}
 
 	return hm
+}
+
+// SetWebhook configures the webhook client for event notifications.
+func (hm *HandshakeManager) SetWebhook(wc *WebhookClient) {
+	hm.webhook = wc
 }
 
 // Stop waits for all background RPCs to finish and stops the replay reaper.
@@ -348,6 +356,9 @@ func (hm *HandshakeManager) reapReplay() {
 func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 	peerNodeID := msg.NodeID
 	slog.Info("handshake request received", "peer_node_id", peerNodeID, "justification", msg.Justification)
+	hm.webhook.Emit("handshake.received", map[string]interface{}{
+		"peer_node_id": peerNodeID, "justification": msg.Justification,
+	})
 
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
@@ -370,6 +381,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 			Mutual:     true,
 		}
 		slog.Info("mutual handshake auto-approved", "peer_node_id", peerNodeID)
+		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
+			"peer_node_id": peerNodeID, "reason": "mutual",
+		})
 		hm.saveTrust()
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
@@ -388,6 +402,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 			Network:    hm.sharedNetwork(peerNodeID),
 		}
 		slog.Info("same network handshake auto-approved", "peer_node_id", peerNodeID)
+		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
+			"peer_node_id": peerNodeID, "reason": "same_network",
+		})
 		hm.saveTrust()
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
@@ -406,6 +423,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 	}
 	hm.saveTrust()
 	slog.Info("handshake request pending approval", "peer_node_id", peerNodeID)
+	hm.webhook.Emit("handshake.pending", map[string]interface{}{
+		"peer_node_id": peerNodeID, "justification": msg.Justification,
+	})
 }
 
 // handleAccept processes a handshake acceptance from a peer.
@@ -615,6 +635,9 @@ func (hm *HandshakeManager) ApproveHandshake(peerNodeID uint32) error {
 	hm.mu.Unlock()
 
 	slog.Info("handshake approved", "peer_node_id", peerNodeID)
+	hm.webhook.Emit("handshake.approved", map[string]interface{}{
+		"peer_node_id": peerNodeID,
+	})
 
 	// Report trust to registry (creates the trust pair for resolve authorization)
 	if hm.daemon.regConn != nil {
@@ -640,6 +663,9 @@ func (hm *HandshakeManager) RejectHandshake(peerNodeID uint32, reason string) er
 	hm.mu.Unlock()
 
 	slog.Info("handshake rejected", "peer_node_id", peerNodeID, "reason", reason)
+	hm.webhook.Emit("handshake.rejected", map[string]interface{}{
+		"peer_node_id": peerNodeID, "reason": reason,
+	})
 
 	// Relay rejection via registry so the requester learns about it even behind NAT
 	if hm.daemon.regConn != nil {
@@ -687,6 +713,9 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 	}
 
 	slog.Info("trust revoked", "peer_node_id", peerNodeID)
+	hm.webhook.Emit("trust.revoked", map[string]interface{}{
+		"peer_node_id": peerNodeID,
+	})
 
 	// Tear down the tunnel to the revoked peer immediately
 	hm.daemon.tunnels.RemovePeer(peerNodeID)
@@ -719,6 +748,9 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 func (hm *HandshakeManager) handleRevokeMsg(msg *HandshakeMsg) {
 	peerNodeID := msg.NodeID
 	slog.Info("trust revoked by peer", "peer_node_id", peerNodeID)
+	hm.webhook.Emit("trust.revoked_by_peer", map[string]interface{}{
+		"peer_node_id": peerNodeID,
+	})
 
 	hm.mu.Lock()
 	_, wasTrusted := hm.trusted[peerNodeID]

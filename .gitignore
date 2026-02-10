@@ -51,3 +51,6 @@ docs/*
 tmp/
 
 web/node_modules/
+
+# Internal tooling
+cmd/spoof/

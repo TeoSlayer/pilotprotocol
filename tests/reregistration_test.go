@@ -71,14 +71,14 @@ func TestReRegistrationAfterRegistryRestart(t *testing.T) {
 
 	rc1.Close()
 
-	// Verify store file exists
+	// --- Phase 2: Stop registry 1 (flushes state to disk) ---
+	reg1.Close()
+	t.Log("phase 2: registry 1 stopped")
+
+	// Verify store file exists (after close guarantees flush)
 	if _, err := os.Stat(storePath); err != nil {
 		t.Fatalf("store file not created: %v", err)
 	}
-
-	// --- Phase 2: Stop registry 1 ---
-	reg1.Close()
-	t.Log("phase 2: registry 1 stopped")
 
 	// --- Phase 3: Start NEW registry from same store path ---
 	reg2 := registry.NewWithStore(beaconAddr, storePath)

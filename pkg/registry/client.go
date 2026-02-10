@@ -417,6 +417,19 @@ func (c *Client) SetHostname(nodeID uint32, hostname string) (map[string]interfa
 	return c.Send(msg)
 }
 
+// SetTags sets the capability tags for a node.
+func (c *Client) SetTags(nodeID uint32, tags []string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":    "set_tags",
+		"node_id": nodeID,
+		"tags":    tags,
+	}
+	if sig := c.sign(fmt.Sprintf("set_tags:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
+}
+
 // ResolveHostname resolves a hostname to node info (node_id, address, public flag).
 func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{

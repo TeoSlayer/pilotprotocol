@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,7 +73,9 @@ type Server struct {
 	beaconAddr string
 
 	// Persistence
-	storePath string // empty = no persistence
+	storePath string        // empty = no persistence
+	saveCh    chan struct{}  // debounced save signal
+	saveDone  chan struct{}  // closed when saveLoop exits
 
 	// TLS
 	tlsConfig *tls.Config
@@ -195,8 +198,9 @@ type NodeInfo struct {
 	RealAddr  string
 	Networks  []uint16
 	LastSeen  time.Time
-	Public    bool   // if true, endpoint is visible in lookup/list_nodes
-	Hostname  string // unique hostname for discovery (empty = none)
+	Public    bool     // if true, endpoint is visible in lookup/list_nodes
+	Hostname  string   // unique hostname for discovery (empty = none)
+	Tags      []string // capability tags (e.g., "webserver", "assistant")
 }
 
 type NetworkInfo struct {
@@ -227,6 +231,9 @@ const maxHandshakeInbox = 100
 
 // hostnameRegex validates hostname format: lowercase alphanumeric + hyphens, 1-63 chars.
 var hostnameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// tagRegex validates tag format: lowercase alphanumeric + hyphens, 1-32 chars.
+var tagRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 
 // networkNameRegex validates network name format: lowercase alphanumeric + hyphens, 1-63 chars.
 var networkNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -300,7 +307,11 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		replMgr:     newReplicationManager(),
 		readyCh:     make(chan struct{}),
 		done:        make(chan struct{}),
+		saveCh:      make(chan struct{}, 1),
+		saveDone:    make(chan struct{}),
 	}
+
+	go s.saveLoop()
 
 	// Try loading from disk
 	if storePath != "" {
@@ -540,11 +551,7 @@ func (s *Server) Close() error {
 	default:
 		close(s.done)
 	}
-	if s.storePath != "" {
-		s.mu.RLock()
-		s.save()
-		s.mu.RUnlock()
-	}
+	<-s.saveDone // wait for saveLoop to finish its final flush
 	if s.listener != nil {
 		return s.listener.Close()
 	}
@@ -632,11 +639,17 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 
 	switch msgType {
 	case "register":
-		// Rate limit registrations by source IP
+		// Rate limit registrations by source IP (exempt known-key re-registrations)
 		host, _, _ := net.SplitHostPort(remoteAddr)
 		if !s.rateLimiter.Allow(host) {
-			slog.Warn("registration rate limited", "remote_ip", host)
-			return nil, fmt.Errorf("rate limited: too many registrations from %s", host)
+			pubKeyB64, _ := msg["public_key"].(string)
+			s.mu.RLock()
+			_, knownKey := s.pubKeyIdx[pubKeyB64]
+			s.mu.RUnlock()
+			if !knownKey {
+				slog.Warn("registration rate limited", "remote_ip", host)
+				return nil, fmt.Errorf("rate limited: too many registrations from %s", host)
+			}
 		}
 		return s.handleRegister(msg, remoteAddr)
 	case "create_network":
@@ -675,6 +688,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 		return s.handlePunch(msg)
 	case "set_hostname":
 		return s.handleSetHostname(msg)
+	case "set_tags":
+		return s.handleSetTags(msg)
 	case "resolve_hostname":
 		return s.handleResolveHostname(msg)
 	default:
@@ -779,7 +794,7 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 	s.save()
 
 	addr := protocol.Addr{Network: 0, Node: nodeID}
-	slog.Info("rotated key", "node_id", nodeID, "addr", addr)
+	slog.Debug("rotated key", "node_id", nodeID, "addr", addr)
 
 	return map[string]interface{}{
 		"type":       "rotate_key_ok",
@@ -803,7 +818,7 @@ func (s *Server) setNodeHostname(node *NodeInfo, hostname string, resp map[strin
 	node.Hostname = hostname
 	s.hostnameIdx[hostname] = node.ID
 	resp["hostname"] = hostname
-	slog.Info("hostname set during registration", "node_id", node.ID, "hostname", hostname)
+	slog.Debug("hostname set during registration", "node_id", node.ID, "hostname", hostname)
 }
 
 // handleReRegister handles a node presenting an existing public key.
@@ -839,7 +854,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			}
 			s.setNodeHostname(node, hostname, resp)
 			s.save()
-			slog.Info("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "existing_identity")
+			slog.Debug("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "existing_identity")
 			return resp, nil
 		}
 
@@ -868,7 +883,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 		}
 		s.setNodeHostname(node, hostname, resp)
 		s.save()
-		slog.Info("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "reclaimed_identity")
+		slog.Debug("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "reclaimed_identity")
 		return resp, nil
 	}
 
@@ -894,7 +909,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 				}
 				s.setNodeHostname(existingNode, hostname, resp)
 				s.save()
-				slog.Info("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_key_update")
+				slog.Debug("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_key_update")
 				return resp, nil
 			}
 
@@ -921,7 +936,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			}
 			s.setNodeHostname(node, hostname, resp)
 			s.save()
-			slog.Info("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_reclaim")
+			slog.Debug("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_reclaim")
 			return resp, nil
 		}
 	}
@@ -1170,6 +1185,9 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	}
 	if node.Hostname != "" {
 		resp["hostname"] = node.Hostname
+	}
+	if len(node.Tags) > 0 {
+		resp["tags"] = node.Tags
 	}
 	if node.Public {
 		resp["real_addr"] = node.RealAddr
@@ -1561,12 +1579,72 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 	}
 	s.save()
 
-	slog.Info("hostname set", "node_id", nodeID, "hostname", hostname)
+	slog.Debug("hostname set", "node_id", nodeID, "hostname", hostname)
 
 	return map[string]interface{}{
 		"type":     "set_hostname_ok",
 		"node_id":  nodeID,
 		"hostname": hostname,
+	}, nil
+}
+
+func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	// Extract tags array from message
+	var tags []string
+	if rawTags, ok := msg["tags"].([]interface{}); ok {
+		for _, rt := range rawTags {
+			if t, ok := rt.(string); ok {
+				tags = append(tags, t)
+			}
+		}
+	}
+
+	// Normalize: strip leading '#'
+	for i, t := range tags {
+		if len(t) > 0 && t[0] == '#' {
+			tags[i] = t[1:]
+		}
+	}
+
+	// Validate tags
+	if len(tags) > 10 {
+		return nil, fmt.Errorf("too many tags (max 10)")
+	}
+	for _, t := range tags {
+		if len(t) == 0 {
+			return nil, fmt.Errorf("empty tag not allowed")
+		}
+		if len(t) > 32 {
+			return nil, fmt.Errorf("tag %q too long (max 32 chars)", t)
+		}
+		if !tagRegex.MatchString(t) {
+			return nil, fmt.Errorf("tag %q must be lowercase alphanumeric with hyphens", t)
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_tags:%d", nodeID)); err != nil {
+		return nil, err
+	}
+
+	node.Tags = tags
+	s.save()
+
+	slog.Debug("tags set", "node_id", nodeID, "tags", tags)
+
+	return map[string]interface{}{
+		"type":    "set_tags_ok",
+		"node_id": nodeID,
+		"tags":    tags,
 	}, nil
 }
 
@@ -1772,6 +1850,7 @@ type snapshot struct {
 	Nodes              map[string]*snapshotNode              `json:"nodes"`
 	Networks           map[string]*snapshotNet               `json:"networks"`
 	TrustPairs         []string                              `json:"trust_pairs,omitempty"`
+	PubKeyIdx          map[string]uint32                     `json:"pub_key_idx,omitempty"`
 	HandshakeInbox     map[string][]*HandshakeRelayMsg       `json:"handshake_inbox,omitempty"`
 	HandshakeResponses map[string][]*HandshakeResponseMsg    `json:"handshake_responses,omitempty"`
 }
@@ -1785,6 +1864,7 @@ type snapshotNode struct {
 	Public    bool     `json:"public,omitempty"`
 	LastSeen  string   `json:"last_seen,omitempty"`
 	Hostname  string   `json:"hostname,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
 }
 
 type snapshotNet struct {
@@ -1796,10 +1876,51 @@ type snapshotNet struct {
 	Created  string   `json:"created"`
 }
 
-// save writes the registry state to disk atomically and pushes to
-// replication subscribers.
+// save signals that state has changed and should be persisted.
+// Non-blocking: actual serialization and disk I/O happen in saveLoop.
 // Caller must hold s.mu (read or write lock).
 func (s *Server) save() {
+	select {
+	case s.saveCh <- struct{}{}:
+	default: // already signaled, will be picked up
+	}
+}
+
+// saveLoop runs in the background and coalesces save signals. It flushes
+// state to disk at most once per second, preventing serialization storms
+// when many mutations happen in quick succession (trust pairs, registrations).
+func (s *Server) saveLoop() {
+	defer close(s.saveDone)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	dirty := false
+	for {
+		select {
+		case <-s.saveCh:
+			dirty = true
+		case <-ticker.C:
+			if dirty {
+				s.flushSave()
+				dirty = false
+			}
+		case <-s.done:
+			// Drain pending save signal
+			select {
+			case <-s.saveCh:
+				dirty = true
+			default:
+			}
+			if dirty {
+				s.flushSave()
+			}
+			return
+		}
+	}
+}
+
+// flushSave serializes the full registry state and writes it to disk.
+func (s *Server) flushSave() {
+	s.mu.RLock()
 	snap := snapshot{
 		NextNode: s.nextNode,
 		NextNet:  s.nextNet,
@@ -1817,6 +1938,7 @@ func (s *Server) save() {
 			Public:    n.Public,
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
+			Tags:      n.Tags,
 		}
 	}
 
@@ -1828,6 +1950,14 @@ func (s *Server) save() {
 			Token:    n.Token,
 			Members:  n.Members,
 			Created:  n.Created.Format(time.RFC3339),
+		}
+	}
+
+	// Persist pubKeyIdx (survives reap cycles so re-registering nodes reclaim their ID)
+	if len(s.pubKeyIdx) > 0 {
+		snap.PubKeyIdx = make(map[string]uint32, len(s.pubKeyIdx))
+		for key, id := range s.pubKeyIdx {
+			snap.PubKeyIdx[key] = id
 		}
 	}
 
@@ -1849,8 +1979,11 @@ func (s *Server) save() {
 			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
 		}
 	}
+	nodeCount := len(s.nodes)
+	netCount := len(s.networks)
+	s.mu.RUnlock()
 
-	data, err := json.MarshalIndent(snap, "", "  ")
+	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("registry save marshal error", "err", err)
 		return
@@ -1866,7 +1999,7 @@ func (s *Server) save() {
 	// Push to replication subscribers
 	s.replMgr.push(data)
 
-	slog.Debug("registry state saved", "nodes", len(s.nodes), "networks", len(s.networks))
+	slog.Debug("registry state saved", "nodes", nodeCount, "networks", netCount)
 }
 
 // load reads the registry state from disk.
@@ -1908,6 +2041,7 @@ func (s *Server) load() error {
 			LastSeen:  lastSeen,
 			Public:    n.Public,
 			Hostname:  n.Hostname,
+			Tags:      n.Tags,
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
@@ -1938,6 +2072,16 @@ func (s *Server) load() error {
 	}
 	if len(snap.TrustPairs) > 0 {
 		slog.Info("loaded trust pairs", "count", len(snap.TrustPairs))
+	}
+
+	// Restore persisted pubKeyIdx (entries for reaped nodes that aren't in snap.Nodes)
+	for key, id := range snap.PubKeyIdx {
+		if _, exists := s.pubKeyIdx[key]; !exists {
+			s.pubKeyIdx[key] = id
+		}
+	}
+	if len(snap.PubKeyIdx) > 0 {
+		slog.Info("loaded pub_key_idx", "persisted", len(snap.PubKeyIdx), "total", len(s.pubKeyIdx))
 	}
 
 	// Restore handshake inboxes
@@ -2039,9 +2183,10 @@ func base64Decode(s string) ([]byte, error) {
 
 // DashboardNode is a public-safe view of a node for the dashboard.
 type DashboardNode struct {
-	Address  string `json:"address"`
-	Hostname string `json:"hostname"`
-	Online   bool   `json:"online"`
+	Address    string   `json:"address"`
+	Tags       []string `json:"tags"`
+	Online     bool     `json:"online"`
+	TrustLinks int      `json:"trust_links"`
 }
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
@@ -2053,12 +2198,14 @@ type DashboardNetwork struct {
 
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
-	TotalNodes    int                `json:"total_nodes"`
-	ActiveNodes   int                `json:"active_nodes"`
-	TotalRequests int64              `json:"total_requests"`
-	Networks      []DashboardNetwork `json:"networks"`
-	Nodes         []DashboardNode    `json:"nodes"`
-	UptimeSecs    int64              `json:"uptime_secs"`
+	TotalNodes      int                `json:"total_nodes"`
+	ActiveNodes     int                `json:"active_nodes"`
+	TotalTrustLinks int                `json:"total_trust_links"`
+	TotalRequests   int64              `json:"total_requests"`
+	UniqueTags      int                `json:"unique_tags"`
+	Networks        []DashboardNetwork `json:"networks"`
+	Nodes           []DashboardNode    `json:"nodes"`
+	UptimeSecs      int64              `json:"uptime_secs"`
 }
 
 // GetDashboardStats returns public-safe statistics for the dashboard.
@@ -2070,8 +2217,18 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	now := time.Now()
 	onlineThreshold := now.Add(-staleNodeThreshold)
 
+	// Count trust links per node
+	trustCount := make(map[uint32]int)
+	for key := range s.trustPairs {
+		var a, b uint32
+		fmt.Sscanf(key, "%d:%d", &a, &b)
+		trustCount[a]++
+		trustCount[b]++
+	}
+
 	nodes := make([]DashboardNode, 0, len(s.nodes))
 	activeCount := 0
+	tagSet := make(map[string]bool)
 	for _, node := range s.nodes {
 		online := node.LastSeen.After(onlineThreshold)
 		if online {
@@ -2081,12 +2238,25 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		if len(node.Networks) > 0 {
 			addr.Network = node.Networks[0]
 		}
+		for _, t := range node.Tags {
+			tagSet[t] = true
+		}
+		tags := node.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		nodes = append(nodes, DashboardNode{
-			Address:  addr.String(),
-			Hostname: node.Hostname,
-			Online:   online,
+			Address:    addr.String(),
+			Tags:       tags,
+			Online:     online,
+			TrustLinks: trustCount[node.ID],
 		})
 	}
+
+	// Sort nodes by address (ascending)
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].Address < nodes[j].Address
+	})
 
 	networks := make([]DashboardNetwork, 0, len(s.networks))
 	for _, net := range s.networks {
@@ -2098,12 +2268,14 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	}
 
 	return DashboardStats{
-		TotalNodes:    len(s.nodes),
-		ActiveNodes:   activeCount,
-		TotalRequests: s.requestCount.Load(),
-		Networks:      networks,
-		Nodes:         nodes,
-		UptimeSecs:    int64(now.Sub(s.startTime).Seconds()),
+		TotalNodes:      len(s.nodes),
+		ActiveNodes:     activeCount,
+		TotalTrustLinks: len(s.trustPairs),
+		TotalRequests:   s.requestCount.Load(),
+		UniqueTags:      len(tagSet),
+		Networks:        networks,
+		Nodes:           nodes,
+		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 	}
 }
 
