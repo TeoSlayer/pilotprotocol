@@ -118,15 +118,11 @@ func TestDashboardStatsWithNodes(t *testing.T) {
 		}
 	}
 
-	// Verify hostnames are present
-	hostnames := map[string]bool{}
+	// Verify node addresses are pilot addresses (not IPs)
 	for _, node := range stats.Nodes {
-		if node.Hostname != "" {
-			hostnames[node.Hostname] = true
+		if strings.Contains(node.Address, "127.0.0.1") {
+			t.Fatalf("node address should be a pilot address, not IP: %s", node.Address)
 		}
-	}
-	if !hostnames["alpha"] || !hostnames["beta"] {
-		t.Fatalf("expected hostnames alpha and beta, got %v", hostnames)
 	}
 }
 

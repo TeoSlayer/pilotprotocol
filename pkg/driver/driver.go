@@ -221,6 +221,24 @@ func (d *Driver) Deregister() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdDeregister}, cmdDeregisterOK, "deregister")
 }
 
+// SetTags sets the capability tags for this daemon's node.
+func (d *Driver) SetTags(tags []string) (map[string]interface{}, error) {
+	data, _ := json.Marshal(tags)
+	msg := make([]byte, 1+len(data))
+	msg[0] = cmdSetTags
+	copy(msg[1:], data)
+	return d.jsonRPC(msg, cmdSetTagsOK, "set_tags")
+}
+
+// SetWebhook sets or clears the daemon's webhook URL at runtime.
+// An empty URL disables the webhook.
+func (d *Driver) SetWebhook(url string) (map[string]interface{}, error) {
+	msg := make([]byte, 1+len(url))
+	msg[0] = cmdSetWebhook
+	copy(msg[1:], url)
+	return d.jsonRPC(msg, cmdSetWebhookOK, "set_webhook")
+}
+
 // Disconnect closes a connection by ID. Used by administrative tools.
 func (d *Driver) Disconnect(connID uint32) error {
 	msg := make([]byte, 5)

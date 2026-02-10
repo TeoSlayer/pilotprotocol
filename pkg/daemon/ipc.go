@@ -40,6 +40,10 @@ const (
 	CmdSetVisibilityOK   byte = 0x16
 	CmdDeregister        byte = 0x17
 	CmdDeregisterOK      byte = 0x18
+	CmdSetTags           byte = 0x19
+	CmdSetTagsOK         byte = 0x1A
+	CmdSetWebhook        byte = 0x1B
+	CmdSetWebhookOK      byte = 0x1C
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -196,6 +200,10 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleSetVisibility(conn, payload)
 		case CmdDeregister:
 			s.handleDeregister(conn)
+		case CmdSetTags:
+			s.handleSetTags(conn, payload)
+		case CmdSetWebhook:
+			s.handleSetWebhook(conn, payload)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -503,6 +511,47 @@ func (s *IPCServer) handleDeregister(conn *ipcConn) {
 	copy(resp[1:], data)
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC deregister reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleSetTags(conn *ipcConn, payload []byte) {
+	var tags []string
+	if err := json.Unmarshal(payload, &tags); err != nil {
+		s.sendError(conn, fmt.Sprintf("set_tags: invalid JSON: %v", err))
+		return
+	}
+	if len(tags) > 3 {
+		s.sendError(conn, "set_tags: maximum 3 tags allowed")
+		return
+	}
+	result, err := s.daemon.regConn.SetTags(s.daemon.NodeID(), tags)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("set_tags: %v", err))
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("set_tags marshal: %v", err))
+		return
+	}
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdSetTagsOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC set_tags reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleSetWebhook(conn *ipcConn, payload []byte) {
+	url := string(payload) // empty string = clear webhook
+	s.daemon.SetWebhookURL(url)
+	result := map[string]interface{}{"webhook": url}
+	data, _ := json.Marshal(result)
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdSetWebhookOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC set_webhook reply failed", "err", err)
 	}
 }
 

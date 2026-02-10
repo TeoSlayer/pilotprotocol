@@ -223,6 +223,9 @@ func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) error {
 		return fmt.Errorf("write: %w", err)
 	}
 	slog.Info("file saved", "path", destPath, "bytes", len(frame.Payload))
+	d.webhook.Emit("file.received", map[string]interface{}{
+		"filename": safeName, "size": len(frame.Payload), "path": destPath,
+	})
 	return nil
 }
 
@@ -258,6 +261,10 @@ func (d *Daemon) saveInboxMessage(frame *dataexchange.Frame, from protocol.Addr)
 		return fmt.Errorf("write: %w", err)
 	}
 	slog.Info("inbox message saved", "path", destPath, "type", dataexchange.TypeName(frame.Type), "bytes", len(frame.Payload))
+	d.webhook.Emit("message.received", map[string]interface{}{
+		"type": dataexchange.TypeName(frame.Type), "from": from.String(),
+		"size": len(frame.Payload),
+	})
 	return nil
 }
 
@@ -268,7 +275,8 @@ func (d *Daemon) startEventStreamService() error {
 		return err
 	}
 	broker := &eventBroker{
-		subs: make(map[string][]*connAdapter),
+		subs:    make(map[string][]*connAdapter),
+		webhook: d.webhook,
 	}
 	go func() {
 		for {
@@ -290,14 +298,21 @@ func (d *Daemon) startEventStreamService() error {
 
 // eventBroker is an in-process pub/sub broker for the event stream service.
 type eventBroker struct {
-	mu   sync.RWMutex
-	subs map[string][]*connAdapter // topic → subscribers
+	mu      sync.RWMutex
+	subs    map[string][]*connAdapter // topic → subscribers
+	webhook *WebhookClient
 }
 
 func (b *eventBroker) handleConn(adapter *connAdapter) {
+	var topic string
 	defer func() {
 		b.removeSub(adapter)
 		adapter.Close()
+		if topic != "" {
+			b.webhook.Emit("pubsub.unsubscribed", map[string]interface{}{
+				"topic": topic, "remote": adapter.RemoteAddr().String(),
+			})
+		}
 	}()
 
 	// First event = subscription
@@ -305,9 +320,12 @@ func (b *eventBroker) handleConn(adapter *connAdapter) {
 	if err != nil {
 		return
 	}
-	topic := subEvt.Topic
+	topic = subEvt.Topic
 	b.addSub(topic, adapter)
 	slog.Debug("eventstream subscription", "remote", adapter.RemoteAddr(), "topic", topic)
+	b.webhook.Emit("pubsub.subscribed", map[string]interface{}{
+		"topic": topic, "remote": adapter.RemoteAddr().String(),
+	})
 
 	// Remaining events = publish
 	for {
@@ -369,4 +387,7 @@ func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
 		b.removeSub(conn)
 	}
 	slog.Debug("eventstream published", "topic", evt.Topic, "bytes", len(evt.Payload), "from", sender.RemoteAddr())
+	b.webhook.Emit("pubsub.published", map[string]interface{}{
+		"topic": evt.Topic, "size": len(evt.Payload), "from": sender.RemoteAddr().String(),
+	})
 }

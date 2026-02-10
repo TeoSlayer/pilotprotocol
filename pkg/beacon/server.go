@@ -5,23 +5,41 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime"
 	"sync"
 
 	"web4/pkg/protocol"
 )
+
+// relayJob is a pre-parsed relay packet dispatched to a worker.
+type relayJob struct {
+	senderID uint32
+	destID   uint32
+	payload  []byte // owned by the job, returned to pool after send
+}
 
 type Server struct {
 	mu      sync.RWMutex
 	conn    *net.UDPConn
 	nodes   map[uint32]*net.UDPAddr // node_id → observed public endpoint
 	readyCh chan struct{}
+	relayCh chan relayJob // buffered channel for relay workers
+	pool    sync.Pool     // reusable payload buffers
 }
 
+const relayQueueSize = 4096 // buffered relay jobs before backpressure
+
 func New() *Server {
-	return &Server{
+	s := &Server{
 		nodes:   make(map[uint32]*net.UDPAddr),
 		readyCh: make(chan struct{}),
+		relayCh: make(chan relayJob, relayQueueSize),
 	}
+	s.pool.New = func() interface{} {
+		b := make([]byte, 1500)
+		return &b
+	}
+	return s
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -35,8 +53,22 @@ func (s *Server) ListenAndServe(addr string) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	s.conn = conn
+
+	// Increase UDP receive buffer to handle bursts
+	_ = conn.SetReadBuffer(4 * 1024 * 1024) // 4MB
+
 	slog.Info("beacon listening", "addr", conn.LocalAddr())
 	close(s.readyCh)
+
+	// Start relay workers — one per CPU core, each processes relay
+	// jobs independently: lookup dest + WriteToUDP in parallel.
+	workers := runtime.NumCPU()
+	if workers < 2 {
+		workers = 2
+	}
+	for i := 0; i < workers; i++ {
+		go s.relayWorker()
+	}
 
 	buf := make([]byte, 65535)
 	for {
@@ -85,9 +117,9 @@ func (s *Server) handlePacket(data []byte, remote *net.UDPAddr) {
 	case protocol.BeaconMsgPunchRequest:
 		s.handlePunchRequest(data[1:], remote)
 	case protocol.BeaconMsgRelay:
-		s.handleRelay(data[1:], remote)
+		s.dispatchRelay(data[1:])
 	default:
-		slog.Warn("unknown beacon message type", "type", fmt.Sprintf("0x%02X", msgType), "from", remote)
+		slog.Debug("unknown beacon message type", "type", fmt.Sprintf("0x%02X", msgType), "from", remote)
 	}
 }
 
@@ -103,7 +135,7 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 	s.nodes[nodeID] = remote
 	s.mu.Unlock()
 
-	slog.Info("beacon discover", "node_id", nodeID, "addr", remote)
+	slog.Debug("beacon discover", "node_id", nodeID, "addr", remote)
 
 	// Reply with observed IP:port using variable-length IP encoding
 	ip := remote.IP.To4()
@@ -157,45 +189,79 @@ func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
 	if err := s.SendPunchCommand(targetID, requesterAddr.IP, uint16(requesterAddr.Port)); err != nil {
 		slog.Debug("punch command to target failed", "node_id", targetID, "err", err)
 	}
-	slog.Info("punch coordinated", "requester", requesterID, "target", targetID,
+	slog.Debug("punch coordinated", "requester", requesterID, "target", targetID,
 		"requester_addr", requesterAddr, "target_addr", targetAddr)
 }
 
-func (s *Server) handleRelay(data []byte, remote *net.UDPAddr) {
-	// Format: [senderNodeID(4)][destNodeID(4)][payload...]
+// dispatchRelay parses the relay header and dispatches to a worker goroutine.
+// The read loop stays fast — no locks, no syscalls, no allocations on the hot path.
+func (s *Server) dispatchRelay(data []byte) {
 	if len(data) < 8 {
 		return
 	}
 
-	senderNodeID := binary.BigEndian.Uint32(data[0:4])
-	destNodeID := binary.BigEndian.Uint32(data[4:8])
+	senderID := binary.BigEndian.Uint32(data[0:4])
+	destID := binary.BigEndian.Uint32(data[4:8])
+
+	// Copy payload into a pooled buffer so we don't hold the read buffer
 	payload := data[8:]
-
-	// Update sender's endpoint (handles symmetric NAT port changes)
-	s.mu.Lock()
-	s.nodes[senderNodeID] = remote
-	s.mu.Unlock()
-
-	s.mu.RLock()
-	destAddr, ok := s.nodes[destNodeID]
-	s.mu.RUnlock()
-
-	if !ok {
-		slog.Warn("relay dest not found", "dest_node_id", destNodeID, "sender_node_id", senderNodeID)
-		return
+	bp := s.pool.Get().(*[]byte)
+	buf := *bp
+	if cap(buf) < len(payload) {
+		buf = make([]byte, len(payload))
+	} else {
+		buf = buf[:len(payload)]
 	}
+	copy(buf, payload)
 
-	slog.Info("relaying", "from", senderNodeID, "to", destNodeID, "dest_addr", destAddr, "payload_len", len(payload))
-
-	// Build relay deliver message
-	msg := make([]byte, 1+4+len(payload))
-	msg[0] = protocol.BeaconMsgRelayDeliver
-	binary.BigEndian.PutUint32(msg[1:5], senderNodeID)
-	copy(msg[5:], payload)
-
-	if _, err := s.conn.WriteToUDP(msg, destAddr); err != nil {
-		slog.Warn("beacon relay send failed", "dest_node_id", destNodeID, "err", err)
+	select {
+	case s.relayCh <- relayJob{senderID: senderID, destID: destID, payload: buf}:
+	default:
+		// Queue full — drop packet (UDP is best-effort)
+		*bp = buf[:cap(buf)]
+		s.pool.Put(bp)
 	}
+}
+
+// relayWorker processes relay jobs: dest lookup and UDP send.
+// Multiple workers run in parallel to distribute the WriteToUDP syscalls.
+// Sender endpoint is NOT updated here — discover/punch already handle it.
+// This keeps the relay path entirely read-only (no write lock contention).
+func (s *Server) relayWorker() {
+	sendBuf := make([]byte, 1500) // per-worker send buffer, no allocations
+	for job := range s.relayCh {
+		// Lookup dest (read lock — all workers can do this concurrently)
+		s.mu.RLock()
+		destAddr, ok := s.nodes[job.destID]
+		s.mu.RUnlock()
+
+		if !ok {
+			slog.Debug("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
+			s.returnPayload(job.payload)
+			continue
+		}
+
+		// Build relay deliver message in pre-allocated send buffer
+		msgLen := 1 + 4 + len(job.payload)
+		if cap(sendBuf) < msgLen {
+			sendBuf = make([]byte, msgLen)
+		}
+		msg := sendBuf[:msgLen]
+		msg[0] = protocol.BeaconMsgRelayDeliver
+		binary.BigEndian.PutUint32(msg[1:5], job.senderID)
+		copy(msg[5:], job.payload)
+
+		if _, err := s.conn.WriteToUDP(msg, destAddr); err != nil {
+			slog.Debug("beacon relay send failed", "dest_node_id", job.destID, "err", err)
+		}
+
+		s.returnPayload(job.payload)
+	}
+}
+
+func (s *Server) returnPayload(buf []byte) {
+	buf = buf[:cap(buf)]
+	s.pool.Put(&buf)
 }
 
 // SendPunchCommand tells a node to send UDP to a target endpoint.

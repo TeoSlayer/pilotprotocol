@@ -116,6 +116,9 @@ type TunnelManager struct {
 	beaconAddr *net.UDPAddr            // beacon address for punch/relay
 	relayPeers map[uint32]bool         // peers that need relay (symmetric NAT)
 
+	// Webhook
+	webhook *WebhookClient
+
 	// Metrics
 	BytesSent uint64
 	BytesRecv uint64
@@ -149,6 +152,13 @@ func NewTunnelManager() *TunnelManager {
 		recvCh:      make(chan *IncomingPacket, RecvChSize),
 		done:        make(chan struct{}),
 	}
+}
+
+// SetWebhook configures the webhook client for event notifications.
+func (tm *TunnelManager) SetWebhook(wc *WebhookClient) {
+	tm.mu.Lock()
+	tm.webhook = wc
+	tm.mu.Unlock()
 }
 
 // EnableEncryption generates an X25519 keypair and enables tunnel encryption.
@@ -514,6 +524,10 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 	} else {
 		slog.Info("encrypted tunnel established", "auth", authenticated, "peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 	}
+	tm.webhook.Emit("tunnel.established", map[string]interface{}{
+		"peer_node_id": peerNodeID, "authenticated": authenticated,
+		"relay": fromRelay, "rekeyed": keyChanged,
+	})
 
 	if !hadCrypto || keyChanged {
 		tm.sendKeyExchangeToNode(peerNodeID)
@@ -577,6 +591,10 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	} else {
 		slog.Info("encrypted tunnel established", "peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 	}
+	tm.webhook.Emit("tunnel.established", map[string]interface{}{
+		"peer_node_id": peerNodeID, "authenticated": false,
+		"relay": fromRelay, "rekeyed": keyChanged,
+	})
 
 	// Respond with our key if this is a new peer or the peer rekeyed
 	if !hadCrypto || keyChanged {
@@ -613,6 +631,9 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	if !pc.checkAndRecordNonce(recvCounter) {
 		pc.replayMu.Unlock()
 		slog.Warn("tunnel nonce replay detected", "peer_node_id", peerNodeID, "counter", recvCounter, "max", pc.maxRecvNonce)
+		tm.webhook.Emit("security.nonce_replay", map[string]interface{}{
+			"peer_node_id": peerNodeID, "counter": recvCounter,
+		})
 		return
 	}
 	pc.replayMu.Unlock()
@@ -1027,12 +1048,18 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 
 	// Mark this peer as relay-capable (they sent through relay, so they're behind NAT)
 	tm.mu.Lock()
+	wasRelay := tm.relayPeers[srcNodeID]
 	tm.relayPeers[srcNodeID] = true
 	// Ensure we have a peer entry (use beacon addr as placeholder for relay peers)
 	if _, ok := tm.peers[srcNodeID]; !ok && tm.beaconAddr != nil {
 		tm.peers[srcNodeID] = tm.beaconAddr
 	}
 	tm.mu.Unlock()
+	if !wasRelay {
+		tm.webhook.Emit("tunnel.relay_activated", map[string]interface{}{
+			"peer_node_id": srcNodeID,
+		})
+	}
 
 	if len(payload) < 4 {
 		return

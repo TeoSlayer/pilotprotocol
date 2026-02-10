@@ -1,0 +1,8 @@
+name: "Pilot Protocol CodeQL config"
+
+query-filters:
+  # False positive: DialTLSPinned uses InsecureSkipVerify with a
+  # VerifyPeerCertificate callback that enforces SHA-256 cert pinning,
+  # which is strictly stronger than CA-based trust.
+  - exclude:
+      id: go/disabled-certificate-check

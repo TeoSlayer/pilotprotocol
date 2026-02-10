@@ -36,6 +36,7 @@ func main() {
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
+	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
@@ -72,6 +73,7 @@ func main() {
 		DisableEcho:           *noEcho,
 		DisableDataExchange:   *noDataExchange,
 		DisableEventStream:    *noEventStream,
+		WebhookURL:            *webhookURL,
 	})
 
 	if err := d.Start(); err != nil {
