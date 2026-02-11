@@ -2,7 +2,9 @@ package beacon
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -35,6 +37,8 @@ type Server struct {
 	peerNodes map[uint32]*net.UDPAddr // nodeID → peer beacon that owns it
 	peerMu    sync.RWMutex
 	healthOk  atomic.Bool
+
+	registryAddr string // registry address for dynamic peer discovery
 
 	done chan struct{} // closed on shutdown
 }
@@ -103,9 +107,12 @@ func (s *Server) ListenAndServe(addr string) error {
 		go s.relayWorker()
 	}
 
-	// Start gossip loop if we have peers
-	if len(s.peers) > 0 {
-		go s.gossipLoop()
+	// Start gossip loop (always — peers may be added dynamically via registry)
+	go s.gossipLoop()
+
+	// Start registry-based peer discovery if configured
+	if s.registryAddr != "" {
+		go s.registryDiscoveryLoop()
 	}
 
 	buf := make([]byte, 65535)
@@ -404,13 +411,18 @@ func (s *Server) sendGossip() {
 		binary.BigEndian.PutUint32(msg[7+4*i:7+4*i+4], id)
 	}
 
-	for _, peer := range s.peers {
+	s.peerMu.RLock()
+	peers := make([]*net.UDPAddr, len(s.peers))
+	copy(peers, s.peers)
+	s.peerMu.RUnlock()
+
+	for _, peer := range peers {
 		if _, err := s.conn.WriteToUDP(msg, peer); err != nil {
 			slog.Debug("gossip send failed", "peer", peer, "err", err)
 		}
 	}
 
-	slog.Debug("gossip sent", "beacon_id", s.beaconID, "nodes", len(nodeIDs), "peers", len(s.peers))
+	slog.Debug("gossip sent", "beacon_id", s.beaconID, "nodes", len(nodeIDs), "peers", len(peers))
 }
 
 // handleSync processes an incoming gossip sync message from a peer beacon.
@@ -455,6 +467,150 @@ func (s *Server) handleSync(data []byte, remote *net.UDPAddr) {
 	s.peerMu.Unlock()
 
 	slog.Debug("gossip sync received", "peer_beacon_id", peerBeaconID, "nodes", nodeCount, "from", remote)
+}
+
+// --- Registry-based peer discovery ---
+
+// SetRegistry sets the registry address for dynamic peer discovery.
+// The beacon will periodically register itself and discover peers via the registry.
+func (s *Server) SetRegistry(addr string) {
+	s.registryAddr = addr
+}
+
+// registryDiscoveryLoop registers this beacon with the registry and discovers
+// peers every 30 seconds. Requires the beacon to be listening (conn bound).
+func (s *Server) registryDiscoveryLoop() {
+	// Wait until we have a bound address
+	<-s.readyCh
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	// Run immediately, then on tick
+	s.registryDiscover()
+	for {
+		select {
+		case <-ticker.C:
+			s.registryDiscover()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+func (s *Server) registryDiscover() {
+	if s.registryAddr == "" || s.beaconID == 0 {
+		return
+	}
+
+	conn, err := net.DialTimeout("tcp", s.registryAddr, 5*time.Second)
+	if err != nil {
+		slog.Debug("beacon registry connect failed", "addr", s.registryAddr, "err", err)
+		return
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// Registry uses 4-byte big-endian length-prefix framing
+	sendMsg := func(msg map[string]interface{}) error {
+		body, err := json.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(body)))
+		if _, err := conn.Write(lenBuf[:]); err != nil {
+			return err
+		}
+		_, err = conn.Write(body)
+		return err
+	}
+	recvMsg := func() (map[string]interface{}, error) {
+		var lenBuf [4]byte
+		if _, err := io.ReadFull(conn, lenBuf[:]); err != nil {
+			return nil, err
+		}
+		length := binary.BigEndian.Uint32(lenBuf[:])
+		if length > 1<<20 {
+			return nil, fmt.Errorf("message too large: %d", length)
+		}
+		body := make([]byte, length)
+		if _, err := io.ReadFull(conn, body); err != nil {
+			return nil, err
+		}
+		var resp map[string]interface{}
+		return resp, json.Unmarshal(body, &resp)
+	}
+
+	// Register this beacon with our listen address
+	listenAddr := s.conn.LocalAddr().String()
+	// Resolve wildcard to actual IP for peers to reach us
+	host, port, _ := net.SplitHostPort(listenAddr)
+	if host == "::" || host == "0.0.0.0" || host == "" {
+		// Use the outbound IP (the IP used to reach the registry)
+		if tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
+			host = tcpAddr.IP.String()
+		}
+	}
+	myAddr := net.JoinHostPort(host, port)
+
+	if err := sendMsg(map[string]interface{}{
+		"type":      "beacon_register",
+		"beacon_id": s.beaconID,
+		"addr":      myAddr,
+	}); err != nil {
+		slog.Debug("beacon register send failed", "err", err)
+		return
+	}
+
+	if _, err := recvMsg(); err != nil {
+		slog.Debug("beacon register response failed", "err", err)
+		return
+	}
+
+	// List all beacons
+	if err := sendMsg(map[string]interface{}{
+		"type": "beacon_list",
+	}); err != nil {
+		slog.Debug("beacon list send failed", "err", err)
+		return
+	}
+
+	listResp, err := recvMsg()
+	if err != nil {
+		slog.Debug("beacon list response failed", "err", err)
+		return
+	}
+
+	beacons, _ := listResp["beacons"].([]interface{})
+	var newPeers []*net.UDPAddr
+	for _, b := range beacons {
+		bm, ok := b.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		bid := uint32(0)
+		if v, ok := bm["id"].(float64); ok {
+			bid = uint32(v)
+		}
+		baddr, _ := bm["addr"].(string)
+		if bid == s.beaconID || baddr == "" {
+			continue // skip self
+		}
+		udpAddr, err := net.ResolveUDPAddr("udp", baddr)
+		if err != nil {
+			slog.Debug("beacon peer resolve failed", "addr", baddr, "err", err)
+			continue
+		}
+		newPeers = append(newPeers, udpAddr)
+	}
+
+	// Update peers atomically
+	s.peerMu.Lock()
+	s.peers = newPeers
+	s.peerMu.Unlock()
+
+	slog.Info("beacon registry discovery", "beacon_id", s.beaconID, "my_addr", myAddr, "peers", len(newPeers))
 }
 
 // --- Health ---
