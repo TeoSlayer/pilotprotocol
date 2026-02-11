@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Webhooks - Pilot Protocol</title>
+<meta name="description" content="Receive real-time HTTP notifications for Pilot Protocol daemon events.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a class="active" href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Webhooks</h1>
+  <p class="subtitle">Receive real-time HTTP POST notifications for daemon events.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#configuration">Configuration</a></li>
+      <li><a href="#events">Event types</a></li>
+      <li><a href="#payload">Payload format</a></li>
+      <li><a href="#example">Example receiver</a></li>
+      <li><a href="#hot-swap">Runtime hot-swap</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>When configured, the daemon POSTs a JSON event to your webhook URL every time something happens — connections, trust changes, messages received, pub/sub activity, and more. Events are delivered asynchronously and non-blocking; if the endpoint is down, events are dropped (no queuing).</p>
+
+  <h2 id="configuration">Configuration</h2>
+
+  <h3>At daemon startup</h3>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --webhook http://localhost:8080/events</code></pre>
+
+  <h3>At runtime</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-webhook http://localhost:8080/events</code></pre>
+  <p>Persists to <code>~/.pilot/config.json</code> and applies immediately to the running daemon.</p>
+  <p>Returns: <code>webhook</code>, <code>applied</code> (bool — true if daemon is running and accepted the change)</p>
+
+  <h3>Clear webhook</h3>
+  <pre><code><span class="cmd">pilotctl</span> clear-webhook</code></pre>
+  <p>Removes the webhook URL from config and the running daemon. Returns: <code>webhook</code>, <code>applied</code> (bool)</p>
+
+  <h3>Via config file</h3>
+  <p>You can also set the webhook URL in <code>~/.pilot/config.json</code>:</p>
+  <pre><code>{
+  "registry": "34.71.57.205:9000",
+  "beacon": "34.71.57.205:9001",
+  "webhook": "http://localhost:8080/events"
+}</code></pre>
+
+  <h2 id="events">Event types</h2>
+
+  <h3>Node lifecycle</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>node.registered</td><td>Daemon registered with the registry</td></tr>
+      <tr><td>node.reregistered</td><td>Re-registration after keepalive timeout</td></tr>
+      <tr><td>node.deregistered</td><td>Daemon deregistered from the registry</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Connections</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>conn.syn_received</td><td>Incoming connection request</td></tr>
+      <tr><td>conn.established</td><td>Connection fully established</td></tr>
+      <tr><td>conn.fin</td><td>Connection closed gracefully (FIN)</td></tr>
+      <tr><td>conn.rst</td><td>Connection reset</td></tr>
+      <tr><td>conn.idle_timeout</td><td>Connection timed out due to inactivity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Tunnels</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>tunnel.peer_added</td><td>New tunnel peer discovered</td></tr>
+      <tr><td>tunnel.established</td><td>Tunnel handshake completed</td></tr>
+      <tr><td>tunnel.relay_activated</td><td>Relay fallback activated for a peer (symmetric NAT)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Trust & handshakes</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>handshake.received</td><td>Trust handshake request received from a peer</td></tr>
+      <tr><td>handshake.pending</td><td>Handshake queued for approval</td></tr>
+      <tr><td>handshake.approved</td><td>Handshake approved (by you)</td></tr>
+      <tr><td>handshake.rejected</td><td>Handshake rejected (by you)</td></tr>
+      <tr><td>handshake.auto_approved</td><td>Mutual handshake — auto-approved</td></tr>
+      <tr><td>trust.revoked</td><td>Trust revoked locally (you untrusted a peer)</td></tr>
+      <tr><td>trust.revoked_by_peer</td><td>Trust revoked by a remote peer</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Data</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>message.received</td><td>Typed message received via data exchange (port 1001)</td></tr>
+      <tr><td>file.received</td><td>File received via data exchange (port 1001)</td></tr>
+      <tr><td>data.datagram</td><td>Datagram received</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Pub/Sub</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>pubsub.subscribed</td><td>Subscriber joined a topic</td></tr>
+      <tr><td>pubsub.unsubscribed</td><td>Subscriber left a topic</td></tr>
+      <tr><td>pubsub.published</td><td>Event published to a topic</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Security</h3>
+  <table>
+    <thead><tr><th>Event</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>security.syn_rate_limited</td><td>SYN rate limiter triggered</td></tr>
+      <tr><td>security.nonce_replay</td><td>Nonce replay detected (potential attack)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="payload">Payload format</h2>
+
+  <p>Every webhook POST contains a JSON body with this structure:</p>
+
+  <pre><code>{
+  "event": "handshake.received",
+  "node_id": 5,
+  "timestamp": "2026-01-15T12:34:56.789Z",
+  "data": {
+    "peer_node_id": 7,
+    "justification": "want to collaborate"
+  }
+}</code></pre>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>event</td><td>string</td><td>The event type (e.g. <code>conn.established</code>)</td></tr>
+      <tr><td>node_id</td><td>uint32</td><td>Your node's ID (the daemon emitting the event)</td></tr>
+      <tr><td>timestamp</td><td>string</td><td>ISO 8601 timestamp</td></tr>
+      <tr><td>data</td><td>object</td><td>Event-specific data (may be null for some events)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="example">Example receiver</h2>
+
+  <p>A minimal webhook receiver in Python:</p>
+
+  <pre><code><span class="comment">#!/usr/bin/env python3</span>
+<span class="comment"># webhook_receiver.py</span>
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length))
+
+        event = body["event"]
+        data = body.get("data", {})
+
+        if event == "handshake.received":
+            print(f"Handshake from node {data['peer_node_id']}: {data['justification']}")
+        elif event == "message.received":
+            print(f"Message from {data['from']}: {data['type']}")
+        elif event == "file.received":
+            print(f"File received: {data['filename']} ({data['size']} bytes)")
+        else:
+            print(f"Event: {event}")
+
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass  <span class="comment"># suppress request logs</span>
+
+HTTPServer(("", 8080), Handler).serve_forever()</code></pre>
+
+  <pre><code><span class="comment"># Start the receiver, then configure the webhook:</span>
+<span class="cmd">python3</span> webhook_receiver.py &amp;
+<span class="cmd">pilotctl</span> set-webhook http://localhost:8080/events</code></pre>
+
+  <h2 id="hot-swap">Runtime hot-swap</h2>
+
+  <p>You can change the webhook URL while the daemon is running. The new URL takes effect immediately — no restart needed:</p>
+
+  <pre><code><span class="comment"># Switch to a new endpoint</span>
+<span class="cmd">pilotctl</span> set-webhook http://localhost:9090/v2/events
+
+<span class="comment"># Disable webhooks temporarily</span>
+<span class="cmd">pilotctl</span> clear-webhook
+
+<span class="comment"># Re-enable</span>
+<span class="cmd">pilotctl</span> set-webhook http://localhost:8080/events</code></pre>
+
+  <p>The webhook URL is persisted to <code>~/.pilot/config.json</code>, so it survives daemon restarts.</p>
+
+  <div class="page-nav">
+    <a href="pubsub.html">&larr; Pub/Sub</a>
+    <a class="next" href="gateway.html">Gateway &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

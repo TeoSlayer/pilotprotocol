@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CLI Reference - Pilot Protocol</title>
+<meta name="description" content="Complete reference for all pilotctl commands — syntax, flags, return values, and examples.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a class="active" href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>CLI Reference</h1>
+  <p class="subtitle">Complete reference for <code>pilotctl</code>. All commands support <code>--json</code> for structured output.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#global">Global flags</a></li>
+      <li><a href="#bootstrap">Bootstrap</a></li>
+      <li><a href="#daemon">Daemon lifecycle</a></li>
+      <li><a href="#identity">Identity & Discovery</a></li>
+      <li><a href="#communication">Communication</a></li>
+      <li><a href="#trust">Trust management</a></li>
+      <li><a href="#webhooks">Webhooks</a></li>
+      <li><a href="#tags">Tags</a></li>
+      <li><a href="#mailbox">Mailbox</a></li>
+      <li><a href="#diagnostics">Diagnostics</a></li>
+      <li><a href="#registry">Registry</a></li>
+      <li><a href="#gateway">Gateway</a></li>
+    </ul>
+  </div>
+
+  <h2 id="global">Global flags</h2>
+
+  <pre><code><span class="cmd">pilotctl</span> --json &lt;command&gt; [args...]</code></pre>
+
+  <p>Use <code>--json</code> with any command for structured output:</p>
+  <ul>
+    <li>Success: <code>{"status":"ok","data":{...}}</code></li>
+    <li>Error: <code>{"status":"error","code":"...","message":"...","hint":"..."}</code></li>
+  </ul>
+
+  <h3>Self-discovery</h3>
+  <pre><code><span class="cmd">pilotctl</span> --json context</code></pre>
+  <p>Returns the full command schema — use this to discover capabilities at runtime.</p>
+
+  <h2 id="bootstrap">Bootstrap</h2>
+
+  <h3>init</h3>
+  <pre><code><span class="cmd">pilotctl</span> init --registry &lt;addr&gt; --beacon &lt;addr&gt; [--hostname &lt;name&gt;] [--socket &lt;path&gt;]</code></pre>
+  <p>Creates <code>~/.pilot/config.json</code> with registry, beacon, socket, and hostname settings.</p>
+  <p>Returns: <code>config_path</code>, <code>registry</code>, <code>beacon</code>, <code>socket</code>, <code>hostname</code></p>
+
+  <h3>config</h3>
+  <pre><code><span class="cmd">pilotctl</span> config                          <span class="comment"># Show current config</span>
+<span class="cmd">pilotctl</span> config --set registry=host:9000  <span class="comment"># Update a key</span></code></pre>
+  <p>Returns: current configuration as JSON.</p>
+
+  <h2 id="daemon">Daemon lifecycle</h2>
+
+  <h3>daemon start</h3>
+  <pre><code><span class="cmd">pilotctl</span> daemon start [--registry &lt;addr&gt;] [--beacon &lt;addr&gt;] [--listen &lt;addr&gt;]
+  [--identity &lt;path&gt;] [--owner &lt;owner&gt;] [--hostname &lt;name&gt;] [--public]
+  [--no-encrypt] [--foreground] [--log-level &lt;level&gt;] [--log-format &lt;fmt&gt;]
+  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]</code></pre>
+  <p>Starts as a background process. Blocks until registered, prints status, then exits. Use <code>--foreground</code> to run in the current process.</p>
+  <p>Returns: <code>node_id</code>, <code>address</code>, <code>pid</code>, <code>socket</code>, <code>hostname</code>, <code>log_file</code></p>
+
+  <h3>daemon stop</h3>
+  <pre><code><span class="cmd">pilotctl</span> daemon stop</code></pre>
+  <p>Returns: <code>pid</code>, <code>forced</code> (bool)</p>
+
+  <h3>daemon status</h3>
+  <pre><code><span class="cmd">pilotctl</span> daemon status [--check]</code></pre>
+  <p><code>--check</code> mode: silent, exits 0 if responsive, 1 otherwise.</p>
+  <p>Returns: <code>running</code>, <code>responsive</code>, <code>pid</code>, <code>pid_file</code>, <code>socket</code>, <code>node_id</code>, <code>address</code>, <code>hostname</code>, <code>uptime_secs</code>, <code>peers</code>, <code>connections</code></p>
+
+  <h2 id="identity">Identity & Discovery</h2>
+
+  <h3>info</h3>
+  <pre><code><span class="cmd">pilotctl</span> info</code></pre>
+  <p>Returns: <code>node_id</code>, <code>address</code>, <code>hostname</code>, <code>uptime_secs</code>, <code>connections</code>, <code>ports</code>, <code>peers</code>, <code>encrypt</code>, <code>bytes_sent</code>, <code>bytes_recv</code>, per-connection stats, peer list with encryption status.</p>
+
+  <h3>set-hostname</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-hostname &lt;name&gt;</code></pre>
+  <p>Names must be lowercase alphanumeric with hyphens, 1-63 characters.</p>
+  <p>Returns: <code>hostname</code>, <code>node_id</code></p>
+
+  <h3>clear-hostname</h3>
+  <pre><code><span class="cmd">pilotctl</span> clear-hostname</code></pre>
+  <p>Returns: <code>hostname</code>, <code>node_id</code></p>
+
+  <h3>find</h3>
+  <pre><code><span class="cmd">pilotctl</span> find &lt;hostname&gt;</code></pre>
+  <p>Discovers a node by hostname. Requires mutual trust.</p>
+  <p>Returns: <code>hostname</code>, <code>node_id</code>, <code>address</code>, <code>public</code></p>
+
+  <h3>set-public / set-private</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-public      <span class="comment"># Make this node visible to all</span>
+<span class="cmd">pilotctl</span> set-private     <span class="comment"># Hide this node (default)</span></code></pre>
+  <p>Routes through the daemon (signs the request). Returns: <code>status</code></p>
+
+  <h2 id="communication">Communication</h2>
+
+  <h3>connect</h3>
+  <pre><code><span class="cmd">pilotctl</span> connect &lt;address|hostname&gt; [port] --message "&lt;msg&gt;" [--timeout &lt;dur&gt;]</code></pre>
+  <p>Dials the target, sends the message, reads one response, exits. Default port: 1000 (stdio).</p>
+  <p>Returns: <code>target</code>, <code>port</code>, <code>sent</code>, <code>response</code></p>
+
+  <h3>send</h3>
+  <pre><code><span class="cmd">pilotctl</span> send &lt;address|hostname&gt; &lt;port&gt; --data "&lt;msg&gt;" [--timeout &lt;dur&gt;]</code></pre>
+  <p>Returns: <code>target</code>, <code>port</code>, <code>sent</code>, <code>response</code></p>
+
+  <h3>recv</h3>
+  <pre><code><span class="cmd">pilotctl</span> recv &lt;port&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Listens on a port, accepts incoming connections, collects messages. Default count: 1.</p>
+  <p>Returns: <code>messages</code> [{<code>seq</code>, <code>port</code>, <code>data</code>, <code>bytes</code>}], <code>timeout</code> (bool)</p>
+
+  <h3>send-file</h3>
+  <pre><code><span class="cmd">pilotctl</span> send-file &lt;address|hostname&gt; &lt;filepath&gt;</code></pre>
+  <p>Sends via data exchange (port 1001). Saved to <code>~/.pilot/received/</code> on the target.</p>
+  <p>Returns: <code>filename</code>, <code>bytes</code>, <code>destination</code>, <code>ack</code></p>
+
+  <h3>send-message</h3>
+  <pre><code><span class="cmd">pilotctl</span> send-message &lt;address|hostname&gt; --data "&lt;text&gt;" [--type text|json|binary]</code></pre>
+  <p>Sends a typed message via data exchange (port 1001). Default type: <code>text</code>.</p>
+  <p>Returns: <code>target</code>, <code>type</code>, <code>bytes</code>, <code>ack</code></p>
+
+  <h3>listen</h3>
+  <pre><code><span class="cmd">pilotctl</span> listen &lt;port&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Listens for datagrams. Without <code>--count</code>: streams NDJSON indefinitely.</p>
+  <p>Returns: <code>messages</code> [{<code>src_addr</code>, <code>src_port</code>, <code>data</code>, <code>bytes</code>}], <code>timeout</code> (bool)</p>
+
+  <h3>broadcast</h3>
+  <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
+  <p>Not yet available — custom networks are in development. Returns: <code>network_id</code>, <code>message</code></p>
+
+  <h3>subscribe</h3>
+  <pre><code><span class="cmd">pilotctl</span> subscribe &lt;address|hostname&gt; &lt;topic&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Subscribes to event stream (port 1002). Use <code>*</code> for all topics. Without <code>--count</code>: streams NDJSON.</p>
+  <p>Returns: <code>events</code> [{<code>topic</code>, <code>data</code>, <code>bytes</code>}], <code>timeout</code> (bool)</p>
+
+  <h3>publish</h3>
+  <pre><code><span class="cmd">pilotctl</span> publish &lt;address|hostname&gt; &lt;topic&gt; --data "&lt;message&gt;"</code></pre>
+  <p>Returns: <code>target</code>, <code>topic</code>, <code>bytes</code></p>
+
+  <h3>Pipe mode</h3>
+  <pre><code><span class="cmd">echo</span> "hello" | <span class="cmd">pilotctl</span> connect &lt;address|hostname&gt; [port] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Without <code>--message</code>: reads from stdin (piped), sends it, reads one response.</p>
+
+  <h2 id="trust">Trust management</h2>
+
+  <h3>handshake</h3>
+  <pre><code><span class="cmd">pilotctl</span> handshake &lt;node_id|hostname&gt; "reason for connecting"</code></pre>
+  <p>Returns: <code>status</code>, <code>node_id</code></p>
+
+  <h3>pending</h3>
+  <pre><code><span class="cmd">pilotctl</span> pending</code></pre>
+  <p>Pending requests persist across daemon restarts.</p>
+  <p>Returns: <code>pending</code> [{<code>node_id</code>, <code>justification</code>, <code>received_at</code>}]</p>
+
+  <h3>approve</h3>
+  <pre><code><span class="cmd">pilotctl</span> approve &lt;node_id&gt;</code></pre>
+  <p>Returns: <code>status</code>, <code>node_id</code></p>
+
+  <h3>reject</h3>
+  <pre><code><span class="cmd">pilotctl</span> reject &lt;node_id&gt; "reason"</code></pre>
+  <p>Returns: <code>status</code>, <code>node_id</code></p>
+
+  <h3>trust</h3>
+  <pre><code><span class="cmd">pilotctl</span> trust</code></pre>
+  <p>Returns: <code>trusted</code> [{<code>node_id</code>, <code>mutual</code>, <code>network</code>, <code>approved_at</code>}]</p>
+
+  <h3>untrust</h3>
+  <pre><code><span class="cmd">pilotctl</span> untrust &lt;node_id&gt;</code></pre>
+  <p>Returns: <code>node_id</code></p>
+
+  <h2 id="webhooks">Webhooks</h2>
+
+  <h3>set-webhook</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-webhook &lt;url&gt;</code></pre>
+  <p>Persists to config and applies immediately to a running daemon.</p>
+  <p>Returns: <code>webhook</code>, <code>applied</code> (bool)</p>
+
+  <h3>clear-webhook</h3>
+  <pre><code><span class="cmd">pilotctl</span> clear-webhook</code></pre>
+  <p>Returns: <code>webhook</code>, <code>applied</code> (bool)</p>
+
+  <h2 id="tags">Tags</h2>
+
+  <h3>set-tags</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-tags &lt;tag1&gt; [tag2] [tag3]</code></pre>
+  <p>Maximum 3 tags. Lowercase alphanumeric + hyphens, 1-32 characters each.</p>
+  <p>Returns: <code>node_id</code>, <code>tags</code></p>
+
+  <h3>clear-tags</h3>
+  <pre><code><span class="cmd">pilotctl</span> clear-tags</code></pre>
+  <p>Returns: <code>tags</code> (empty array)</p>
+
+  <h2 id="mailbox">Mailbox</h2>
+
+  <h3>received</h3>
+  <pre><code><span class="cmd">pilotctl</span> received [--clear]</code></pre>
+  <p>Lists files in <code>~/.pilot/received/</code>. Use <code>--clear</code> to delete all.</p>
+  <p>Returns: <code>files</code> [{<code>name</code>, <code>bytes</code>, <code>modified</code>, <code>path</code>}], <code>total</code>, <code>dir</code></p>
+
+  <h3>inbox</h3>
+  <pre><code><span class="cmd">pilotctl</span> inbox [--clear]</code></pre>
+  <p>Lists messages in <code>~/.pilot/inbox/</code>. Use <code>--clear</code> to delete all.</p>
+  <p>Returns: <code>messages</code> [{<code>type</code>, <code>from</code>, <code>data</code>, <code>received_at</code>}], <code>total</code>, <code>dir</code></p>
+
+  <h2 id="diagnostics">Diagnostics</h2>
+
+  <h3>ping</h3>
+  <pre><code><span class="cmd">pilotctl</span> ping &lt;address|hostname&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Sends echo probes (port 7). Default: 4 pings.</p>
+  <p>Returns: <code>target</code>, <code>results</code> [{<code>seq</code>, <code>bytes</code>, <code>rtt_ms</code>, <code>error</code>}], <code>timeout</code> (bool)</p>
+
+  <h3>traceroute</h3>
+  <pre><code><span class="cmd">pilotctl</span> traceroute &lt;address&gt; [--timeout &lt;dur&gt;]</code></pre>
+  <p>Returns: <code>target</code>, <code>setup_ms</code>, <code>rtt_samples</code> [{<code>rtt_ms</code>, <code>bytes</code>}]</p>
+
+  <h3>bench</h3>
+  <pre><code><span class="cmd">pilotctl</span> bench &lt;address|hostname&gt; [size_mb] [--timeout &lt;dur&gt;]</code></pre>
+  <p>Throughput benchmark via echo port. Default: 1 MB.</p>
+  <p>Returns: <code>target</code>, <code>sent_bytes</code>, <code>recv_bytes</code>, <code>send_duration_ms</code>, <code>total_duration_ms</code>, <code>send_mbps</code>, <code>total_mbps</code></p>
+
+  <h3>peers</h3>
+  <pre><code><span class="cmd">pilotctl</span> peers [--search &lt;query&gt;]</code></pre>
+  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>endpoint</code>, <code>encrypted</code>, <code>authenticated</code>}], <code>total</code></p>
+
+  <h3>connections</h3>
+  <pre><code><span class="cmd">pilotctl</span> connections</code></pre>
+  <p>Returns: <code>connections</code> [{<code>id</code>, <code>local_port</code>, <code>remote_addr</code>, <code>remote_port</code>, <code>state</code>, bytes/segments/retransmissions/SACK stats}], <code>total</code></p>
+
+  <h3>disconnect</h3>
+  <pre><code><span class="cmd">pilotctl</span> disconnect &lt;conn_id&gt;</code></pre>
+  <p>Returns: <code>conn_id</code></p>
+
+  <h2 id="registry">Registry</h2>
+
+  <h3>register</h3>
+  <pre><code><span class="cmd">pilotctl</span> register [listen_addr]</code></pre>
+  <p>Returns: <code>node_id</code>, <code>address</code>, <code>public_key</code></p>
+
+  <h3>lookup</h3>
+  <pre><code><span class="cmd">pilotctl</span> lookup &lt;node_id&gt;</code></pre>
+  <p>Returns: <code>node_id</code>, <code>address</code>, <code>real_addr</code>, <code>public</code>, <code>hostname</code></p>
+
+  <h3>deregister</h3>
+  <pre><code><span class="cmd">pilotctl</span> deregister</code></pre>
+  <p>Routes through daemon (signed). Returns: <code>status</code></p>
+
+  <h3>rotate-key</h3>
+  <pre><code><span class="cmd">pilotctl</span> rotate-key &lt;node_id&gt; &lt;owner&gt;</code></pre>
+  <p>Returns: <code>node_id</code>, new <code>public_key</code></p>
+
+  <h2 id="gateway">Gateway</h2>
+
+  <h3>gateway start</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
+  <p>Maps pilot addresses to local IPs on a private subnet (default: <code>10.4.0.0/16</code>). Requires root for ports below 1024.</p>
+  <p>Returns: <code>pid</code>, <code>subnet</code>, <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}]</p>
+
+  <h3>gateway stop</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway stop</code></pre>
+  <p>Returns: <code>pid</code></p>
+
+  <h3>gateway map</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway map &lt;pilot-addr&gt; [local-ip]</code></pre>
+  <p>Returns: <code>local_ip</code>, <code>pilot_addr</code></p>
+
+  <h3>gateway unmap</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway unmap &lt;local-ip&gt;</code></pre>
+  <p>Returns: <code>unmapped</code></p>
+
+  <h3>gateway list</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
+  <p>Returns: <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}], <code>total</code></p>
+
+  <div class="page-nav">
+    <a href="concepts.html">&larr; Core Concepts</a>
+    <a class="next" href="messaging.html">Messaging &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

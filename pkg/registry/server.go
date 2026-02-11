@@ -2196,6 +2196,12 @@ type DashboardNetwork struct {
 	Members int    `json:"members"`
 }
 
+// DashboardEdge represents a trust relationship between two nodes.
+type DashboardEdge struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
 	TotalNodes      int                `json:"total_nodes"`
@@ -2205,6 +2211,7 @@ type DashboardStats struct {
 	UniqueTags      int                `json:"unique_tags"`
 	Networks        []DashboardNetwork `json:"networks"`
 	Nodes           []DashboardNode    `json:"nodes"`
+	Edges           []DashboardEdge    `json:"edges"`
 	UptimeSecs      int64              `json:"uptime_secs"`
 }
 
@@ -2217,13 +2224,28 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	now := time.Now()
 	onlineThreshold := now.Add(-staleNodeThreshold)
 
-	// Count trust links per node
+	// Count trust links per node and build edge list
 	trustCount := make(map[uint32]int)
+	// Build nodeID→address map for edges
+	nodeAddr := make(map[uint32]string, len(s.nodes))
+	for _, node := range s.nodes {
+		addr := protocol.Addr{Network: 0, Node: node.ID}
+		if len(node.Networks) > 0 {
+			addr.Network = node.Networks[0]
+		}
+		nodeAddr[node.ID] = addr.String()
+	}
+	edges := make([]DashboardEdge, 0, len(s.trustPairs))
 	for key := range s.trustPairs {
 		var a, b uint32
 		fmt.Sscanf(key, "%d:%d", &a, &b)
 		trustCount[a]++
 		trustCount[b]++
+		if addrA, okA := nodeAddr[a]; okA {
+			if addrB, okB := nodeAddr[b]; okB {
+				edges = append(edges, DashboardEdge{Source: addrA, Target: addrB})
+			}
+		}
 	}
 
 	nodes := make([]DashboardNode, 0, len(s.nodes))
@@ -2275,6 +2297,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		UniqueTags:      len(tagSet),
 		Networks:        networks,
 		Nodes:           nodes,
+		Edges:           edges,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 	}
 }

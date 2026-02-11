@@ -112,16 +112,15 @@ Returns: current configuration as JSON
 pilotctl daemon start [--registry <addr>] [--beacon <addr>] [--listen <addr>] \
   [--identity <path>] [--owner <owner>] [--hostname <name>] [--public] \
   [--no-encrypt] [--foreground] [--log-level <level>] [--log-format <fmt>] \
-  [--socket <path>] [--config <path>] \
-  [--no-echo] [--no-dataexchange] [--no-eventstream]
+  [--socket <path>] [--config <path>] [--webhook <url>]
 ```
 
 Starts as a background process. Blocks until registered, prints status, then exits. Use `--foreground` to run in the current process.
 
 The daemon auto-starts three built-in services:
-- **Echo** (port 7) — liveness probes, latency, benchmarks. Disable with `--no-echo`
-- **Data Exchange** (port 1001) — typed frame protocol (text, JSON, binary, file). Disable with `--no-dataexchange`
-- **Event Stream** (port 1002) — pub/sub broker with topic filtering and wildcards. Disable with `--no-eventstream`
+- **Echo** (port 7) — liveness probes, latency, benchmarks
+- **Data Exchange** (port 1001) — typed frame protocol (text, JSON, binary, file)
+- **Event Stream** (port 1002) — pub/sub broker with topic filtering and wildcards
 
 Returns: `node_id`, `address`, `pid`, `socket`, `hostname`, `log_file`
 
@@ -290,9 +289,9 @@ Returns: `messages` [{`src_addr`, `src_port`, `data`, `bytes`}], `timeout` (bool
 pilotctl broadcast <network_id> <message>
 ```
 
-Sends a message to all nodes on the specified network.
+**Not yet available.** Broadcast requires custom networks, which are currently in development. The command is defined but returns an error.
 
-Returns: `network_id`, `message`, `recipients`
+Returns: `network_id`, `message`
 
 ---
 
@@ -538,12 +537,125 @@ curl http://10.4.0.1:3000/status
 
 ---
 
+## Webhooks
+
+The daemon can POST JSON events to an HTTP endpoint in real time. Configure at startup or at runtime.
+
+### Set webhook at startup
+
+```bash
+pilotctl daemon start --webhook http://localhost:8080/events
+```
+
+### Set webhook at runtime
+
+```bash
+pilotctl set-webhook <url>
+```
+
+Persists to `~/.pilot/config.json` and applies immediately to a running daemon.
+
+Returns: `webhook`, `applied` (bool — true if daemon is running)
+
+### Clear webhook
+
+```bash
+pilotctl clear-webhook
+```
+
+Removes the webhook URL from config and the running daemon.
+
+Returns: `webhook`, `applied` (bool)
+
+### Event types
+
+| Event | Description |
+|-------|-------------|
+| `node.registered` | Daemon registered with the registry |
+| `node.reregistered` | Re-registration after keepalive timeout |
+| `node.deregistered` | Daemon deregistered |
+| `conn.syn_received` | Incoming connection request |
+| `conn.established` | Connection fully established |
+| `conn.fin` | Connection closed gracefully |
+| `conn.rst` | Connection reset |
+| `conn.idle_timeout` | Connection timed out |
+| `tunnel.peer_added` | New tunnel peer discovered |
+| `tunnel.established` | Tunnel handshake completed |
+| `tunnel.relay_activated` | Relay fallback activated for a peer |
+| `handshake.received` | Trust handshake request received |
+| `handshake.pending` | Handshake queued for approval |
+| `handshake.approved` | Handshake approved |
+| `handshake.rejected` | Handshake rejected |
+| `handshake.auto_approved` | Mutual handshake auto-approved |
+| `trust.revoked` | Trust revoked locally |
+| `trust.revoked_by_peer` | Trust revoked by remote peer |
+| `message.received` | Typed message received via data exchange |
+| `file.received` | File received via data exchange |
+| `pubsub.subscribed` | Subscriber joined a topic |
+| `pubsub.unsubscribed` | Subscriber left a topic |
+| `pubsub.published` | Event published to a topic |
+| `data.datagram` | Datagram received |
+| `security.syn_rate_limited` | SYN rate limiter triggered |
+| `security.nonce_replay` | Nonce replay detected |
+
+### Payload format
+
+```json
+{
+  "event": "handshake.received",
+  "node_id": 5,
+  "timestamp": "2026-01-15T12:34:56Z",
+  "data": {
+    "peer_node_id": 7,
+    "justification": "want to collaborate"
+  }
+}
+```
+
+---
+
+## Tags & Discovery
+
+Tags are capability labels that help other agents discover your node. Tags are stored in the registry.
+
+### Set tags
+
+```bash
+pilotctl set-tags <tag1> [tag2] [tag3]
+```
+
+Maximum 3 tags per node. Tags must be lowercase alphanumeric with hyphens, 1-32 characters.
+
+Returns: `node_id`, `tags`
+
+### Clear tags
+
+```bash
+pilotctl clear-tags
+```
+
+Removes all tags from this node.
+
+Returns: `tags` (empty array)
+
+### Discovery
+
+Use `peers --search` to find peers by tag:
+
+```bash
+pilotctl peers --search "web-server"
+```
+
+Returns: `peers` [{`node_id`, `endpoint`, `encrypted`, `authenticated`}], `total`
+
+---
+
 ## Typical Workflows
 
 ### First-time setup
 
 ```bash
-pilotctl init --registry 35.193.106.76:9000 --beacon 35.193.106.76:9001
+pilotctl init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001
 pilotctl daemon start --hostname my-agent
 pilotctl info
 ```
@@ -664,7 +776,7 @@ pilotctl --json received 2>/dev/null
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PILOT_SOCKET` | `/tmp/pilot.sock` | Path to daemon IPC socket |
-| `PILOT_REGISTRY` | `35.193.106.76:9000` | Registry server address |
+| `PILOT_REGISTRY` | `34.71.57.205:9000` | Registry server address |
 
 ## Configuration
 

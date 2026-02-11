@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gateway - Pilot Protocol</title>
+<meta name="description" content="Bridge IP traffic to the Pilot Protocol overlay network — use curl, browsers, and any TCP tool.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a class="active" href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Gateway</h1>
+  <p class="subtitle">Bridge standard IP/TCP traffic to the Pilot Protocol overlay.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#what">What the gateway does</a></li>
+      <li><a href="#start">Starting the gateway</a></li>
+      <li><a href="#mappings">Managing mappings</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#notes">Notes</a></li>
+    </ul>
+  </div>
+
+  <h2 id="what">What the gateway does</h2>
+
+  <p>The gateway maps pilot addresses to local IP addresses on a private subnet. It starts TCP proxy listeners on the specified ports, so you can use standard tools — curl, browsers, any TCP client — to reach agents on the overlay network.</p>
+
+  <p>When a connection comes in to a mapped local IP, the gateway opens a pilot connection to the corresponding remote agent and bridges the data bidirectionally.</p>
+
+  <h2 id="start">Starting the gateway</h2>
+
+  <pre><code><span class="comment"># Map one agent, proxy port 80</span>
+<span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
+
+<span class="comment"># Map multiple agents, multiple ports</span>
+<span class="cmd">sudo pilotctl</span> gateway start --ports 80,3000,8080 0:0000.0000.0001 0:0000.0000.0002
+
+<span class="comment"># Custom subnet</span>
+<span class="cmd">sudo pilotctl</span> gateway start --subnet 10.5.0.0/16 --ports 80 0:0000.0000.0001</code></pre>
+
+  <p>Returns: <code>pid</code>, <code>subnet</code>, <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}]</p>
+
+  <p>The default subnet is <code>10.4.0.0/16</code>. Each mapped agent gets the next available IP in the subnet (10.4.0.1, 10.4.0.2, etc.).</p>
+
+  <h3>How it works</h3>
+  <ol>
+    <li>The gateway adds a loopback alias for each mapped IP (Linux: <code>ip addr add</code>, macOS: <code>ifconfig lo0 alias</code>)</li>
+    <li>It starts TCP listeners on the specified ports for each mapped IP</li>
+    <li>Incoming TCP connections are bridged to pilot connections on the corresponding remote agent</li>
+  </ol>
+
+  <h2 id="mappings">Managing mappings</h2>
+
+  <h3>Add a mapping</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007          <span class="comment"># Auto-assign IP</span>
+<span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007 10.4.0.5  <span class="comment"># Specific IP</span></code></pre>
+
+  <h3>Remove a mapping</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway unmap 10.4.0.1</code></pre>
+
+  <h3>List all mappings</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
+
+  <h3>Stop the gateway</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway stop</code></pre>
+
+  <h2 id="examples">Examples</h2>
+
+  <h3>Browse an agent's website</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
+<span class="cmd">curl</span> http://10.4.0.1/
+<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
+
+  <h3>Access an API on a custom port</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 3000 0:0000.0000.0001
+<span class="cmd">curl</span> http://10.4.0.1:3000/api/data
+<span class="comment"># {"status":"ok","protocol":"pilot","port":3000}</span></code></pre>
+
+  <h3>Multi-agent dashboard</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80,8080 0:0000.0000.0001 0:0000.0000.0002
+<span class="comment"># Agent 1: http://10.4.0.1/</span>
+<span class="comment"># Agent 2: http://10.4.0.2/</span></code></pre>
+
+  <h2 id="notes">Notes</h2>
+
+  <ul>
+    <li><strong>Root required</strong> — ports below 1024 require root/sudo. Ports 1024+ can run without root</li>
+    <li><strong>Loopback aliases</strong> — the gateway automatically manages loopback aliases; they are cleaned up on <code>gateway stop</code> or <code>gateway unmap</code></li>
+    <li><strong>Trust required</strong> — you must have mutual trust with the remote agent before the gateway can bridge traffic</li>
+    <li><strong>TCP only</strong> — the gateway proxies TCP connections; UDP is not supported through the gateway</li>
+  </ul>
+
+  <div class="page-nav">
+    <a href="webhooks.html">&larr; Webhooks</a>
+    <a class="next" href="tags.html">Tags & Discovery &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

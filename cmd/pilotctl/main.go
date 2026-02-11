@@ -162,7 +162,7 @@ func getRegistry() string {
 	if s, ok := cfg["registry"].(string); ok && s != "" {
 		return s
 	}
-	return "35.193.106.76:9000"
+	return "34.71.57.205:9000"
 }
 
 func loadConfig() map[string]interface{} {
@@ -401,7 +401,7 @@ Gateway (requires root for ports <1024):
   pilotctl gateway list
 
 Environment:
-  PILOT_REGISTRY     Registry address (default: 35.193.106.76:9000)
+  PILOT_REGISTRY     Registry address (default: 34.71.57.205:9000)
   PILOT_SOCKET       Daemon socket path (default: /tmp/pilot.sock)
 
 Config file: ~/.pilot/config.json
@@ -590,7 +590,7 @@ func main() {
 func cmdInit(args []string) {
 	flags, _ := parseFlags(args)
 
-	registryAddr := flagString(flags, "registry", "35.193.106.76:9000")
+	registryAddr := flagString(flags, "registry", "34.71.57.205:9000")
 	beaconAddr := flagString(flags, "beacon", "127.0.0.1:9001")
 	hostname := flagString(flags, "hostname", "")
 	socketPath := flagString(flags, "socket", defaultSocket)
@@ -906,7 +906,7 @@ func cmdContext() {
 			"--json": "Output structured JSON for all commands. Success: {status:ok, data:{...}}. Error: {status:error, code:string, message:string}",
 		},
 		"environment": map[string]interface{}{
-			"PILOT_REGISTRY": "Registry address (default: 35.193.106.76:9000)",
+			"PILOT_REGISTRY": "Registry address (default: 34.71.57.205:9000)",
 			"PILOT_SOCKET":   "Daemon socket path (default: /tmp/pilot.sock)",
 		},
 		"config_file": "~/.pilot/config.json",
@@ -1258,7 +1258,7 @@ func cmdDaemonStatus(args []string) {
 func runDaemonInternal(args []string) {
 	flags, _ := parseFlags(args)
 
-	registryAddr := flagString(flags, "registry", "35.193.106.76:9000")
+	registryAddr := flagString(flags, "registry", "34.71.57.205:9000")
 	beaconAddr := flagString(flags, "beacon", "127.0.0.1:9001")
 	listenAddr := flagString(flags, "listen", ":0")
 	socketPath := flagString(flags, "socket", defaultSocket)
@@ -1287,7 +1287,7 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 			os.Exit(1)
 		}
 		// Apply config values as defaults (CLI flags override)
-		if registryAddr == "35.193.106.76:9000" {
+		if registryAddr == "34.71.57.205:9000" {
 			if v, ok := cfg["registry"].(string); ok {
 				registryAddr = v
 			}

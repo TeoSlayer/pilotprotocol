@@ -7,8 +7,8 @@ set -e
 #   Uninstall:  curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh -s uninstall
 
 REPO="TeoSlayer/pilotprotocol"
-REGISTRY="35.193.106.76:9000"
-BEACON="35.193.106.76:9001"
+REGISTRY="34.71.57.205:9000"
+BEACON="34.71.57.205:9001"
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
 
