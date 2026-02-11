@@ -20,6 +20,7 @@ func main() {
 	beaconID := flag.Uint("beacon-id", 0, "unique beacon ID (0 = standalone)")
 	peersFlag := flag.String("peers", "", "comma-separated peer beacon addresses for gossip")
 	healthAddr := flag.String("health", "", "health check HTTP address (e.g. :8080)")
+	registryAddr := flag.String("registry", "", "registry address for dynamic peer discovery (e.g. 10.128.0.12:9000)")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
@@ -46,6 +47,10 @@ func main() {
 
 	s := beacon.NewWithPeers(uint32(*beaconID), peers)
 
+	if *registryAddr != "" {
+		s.SetRegistry(*registryAddr)
+	}
+
 	if *healthAddr != "" {
 		go func() {
 			if err := s.ServeHealth(*healthAddr); err != nil {
@@ -60,7 +65,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("beacon running", "addr", *addr, "beacon_id", *beaconID, "peers", len(peers))
+	slog.Info("beacon running", "addr", *addr, "beacon_id", *beaconID, "peers", len(peers), "registry", *registryAddr)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
