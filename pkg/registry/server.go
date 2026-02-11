@@ -97,9 +97,22 @@ type Server struct {
 	standby    bool   // if true, reject writes and receive snapshots from primary
 	adminToken string // required for create_network; empty = creation disabled
 
+	// Beacon cluster: beacon instances register themselves for peer discovery
+	beacons map[uint32]*beaconEntry
+
 	// Shutdown
 	done chan struct{}
 }
+
+// beaconEntry tracks a registered beacon instance.
+type beaconEntry struct {
+	ID       uint32
+	Addr     string
+	LastSeen time.Time
+}
+
+// beaconTTL is how long a beacon registration is valid without re-register.
+const beaconTTL = 60 * time.Second
 
 // staleNodeThreshold is how long since last heartbeat before a node is stale/offline.
 const staleNodeThreshold = 3 * time.Minute // 3 missed heartbeats (60s heartbeat interval)
@@ -304,6 +317,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		beacons:     make(map[uint32]*beaconEntry),
 		replMgr:     newReplicationManager(),
 		readyCh:     make(chan struct{}),
 		done:        make(chan struct{}),
@@ -491,6 +505,7 @@ func (s *Server) reapLoop() {
 		select {
 		case <-ticker.C:
 			s.reapStaleNodes()
+			s.reapStaleBeacons()
 			s.rateLimiter.Cleanup()
 		case <-s.done:
 			return
@@ -529,6 +544,18 @@ func (s *Server) reapStaleNodes() {
 	}
 	if reaped {
 		s.save()
+	}
+}
+
+func (s *Server) reapStaleBeacons() {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, b := range s.beacons {
+		if now.Sub(b.LastSeen) > beaconTTL {
+			slog.Info("reaping stale beacon", "beacon_id", id, "last_seen_ago", now.Sub(b.LastSeen).Round(time.Second))
+			delete(s.beacons, id)
+		}
 	}
 }
 
@@ -630,7 +657,7 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 	s.mu.RUnlock()
 	if isStandby {
 		switch msgType {
-		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "resolve_hostname":
+		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "resolve_hostname", "beacon_list":
 			// reads are allowed on standby
 		default:
 			return nil, fmt.Errorf("standby mode: write operations not accepted (use primary)")
@@ -692,6 +719,10 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 		return s.handleSetTags(msg)
 	case "resolve_hostname":
 		return s.handleResolveHostname(msg)
+	case "beacon_register":
+		return s.handleBeaconRegister(msg)
+	case "beacon_list":
+		return s.handleBeaconList()
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -1673,6 +1704,57 @@ func (s *Server) handleResolveHostname(msg map[string]interface{}) (map[string]i
 		"address":  protocol.Addr{Network: 0, Node: node.ID}.String(),
 		"public":   node.Public,
 		"hostname": node.Hostname,
+	}, nil
+}
+
+// handleBeaconRegister registers or refreshes a beacon instance for peer discovery.
+func (s *Server) handleBeaconRegister(msg map[string]interface{}) (map[string]interface{}, error) {
+	beaconID := jsonUint32(msg, "beacon_id")
+	addr, _ := msg["addr"].(string)
+
+	if beaconID == 0 {
+		return nil, fmt.Errorf("beacon_id required")
+	}
+	if addr == "" {
+		return nil, fmt.Errorf("addr required")
+	}
+
+	s.mu.Lock()
+	s.beacons[beaconID] = &beaconEntry{
+		ID:       beaconID,
+		Addr:     addr,
+		LastSeen: time.Now(),
+	}
+	s.mu.Unlock()
+
+	slog.Debug("beacon registered", "beacon_id", beaconID, "addr", addr)
+
+	return map[string]interface{}{
+		"type":      "beacon_register_ok",
+		"beacon_id": beaconID,
+	}, nil
+}
+
+// handleBeaconList returns all known beacon instances (for peer discovery).
+func (s *Server) handleBeaconList() (map[string]interface{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	beacons := make([]map[string]interface{}, 0, len(s.beacons))
+	for _, b := range s.beacons {
+		if now.Sub(b.LastSeen) > beaconTTL {
+			continue // skip expired
+		}
+		beacons = append(beacons, map[string]interface{}{
+			"id":   b.ID,
+			"addr": b.Addr,
+		})
+	}
+
+	return map[string]interface{}{
+		"type":    "beacon_list_ok",
+		"beacons": beacons,
 	}, nil
 }
 
