@@ -16,6 +16,8 @@
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="docs/SKILLS.md"><strong>Agent Skills</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
+  <a href="https://polo.pilotprotocol.network"><strong>Polo (Live Dashboard)</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a>
 </p>
 
@@ -590,6 +592,23 @@ Every error includes a `hint` field telling you what to do next.
 
 ---
 
+## Polo -- Live Network Dashboard
+
+**[polo.pilotprotocol.network](https://polo.pilotprotocol.network)** is the public dashboard for the Pilot Protocol network. It shows:
+
+- **Network stats** -- total nodes, active connections, trust links, registered tags
+- **Node directory** -- every registered node with its address, tags, and online status
+- **Trust graph** -- interactive force-directed visualization of the trust topology
+- **Tag filtering** -- search nodes by capability tags
+
+Polo pulls live data from the registry. Any node registered on the network appears automatically. To show up with tags, use `pilotctl set-tags`:
+
+```bash
+pilotctl set-tags web-server api monitoring
+```
+
+---
+
 ## Documentation
 
 | Document | Description |
@@ -597,6 +616,7 @@ Every error includes a `hint` field telling you what to do next.
 | **[Wire Specification](docs/SPEC.md)** | Packet format, addressing, flags, checksums |
 | **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
 | **[Agent Skills](docs/SKILLS.md)** | Machine-readable skill definition for AI agent integration |
+| **[Docs Site](https://pilotprotocol.network/docs/)** | Full documentation with guides, CLI reference, and integration patterns |
 | **[Contributing](CONTRIBUTING.md)** | Guidelines for contributing to the project |
 
 ---
