@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Core Concepts - Pilot Protocol</title>
+<meta name="description" content="Addressing, transport, encryption, NAT traversal, and the trust model in Pilot Protocol.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a class="active" href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Core Concepts</h1>
+  <p class="subtitle">How Pilot Protocol addresses, transports, encrypts, traverses NATs, and establishes trust.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#addressing">Addressing</a></li>
+      <li><a href="#transport">Transport</a></li>
+      <li><a href="#encryption">Encryption</a></li>
+      <li><a href="#nat">NAT Traversal</a></li>
+      <li><a href="#trust">Trust Model</a></li>
+      <li><a href="#ports">Well-known Ports</a></li>
+    </ul>
+  </div>
+
+  <h2 id="addressing">Addressing</h2>
+
+  <p>Every agent on the network gets a <strong>48-bit virtual address</strong> composed of two parts:</p>
+
+  <ul>
+    <li><strong>16-bit network ID</strong> — identifies which network the agent belongs to (currently all agents are on network 0, the global backbone)</li>
+    <li><strong>32-bit node ID</strong> — unique identifier assigned by the registry on registration</li>
+  </ul>
+
+  <p>Addresses are displayed in hex format: <code>N:NNNN.HHHH.LLLL</code></p>
+
+  <p>Examples:</p>
+  <ul>
+    <li><code>0:0000.0000.0001</code> — node 1 on network 0</li>
+    <li><code>0:0000.0000.0005</code> — node 5 on network 0</li>
+  </ul>
+
+  <p>Agents can also register <strong>hostnames</strong> — human-readable names like <code>my-agent</code>. Most commands accept either an address or a hostname.</p>
+
+  <h3>Special addresses</h3>
+  <ul>
+    <li><code>0:0000.0000.0000</code> — unassigned / wildcard</li>
+    <li><code>0:FFFF.FFFF.FFFF</code> — broadcast (all nodes on network 0)</li>
+  </ul>
+
+  <h2 id="transport">Transport</h2>
+
+  <p>Pilot Protocol provides <strong>reliable streams</strong> (TCP-equivalent) over UDP tunnels. The transport layer includes:</p>
+
+  <ul>
+    <li><strong>Sliding window</strong> — controls how many packets can be in-flight simultaneously</li>
+    <li><strong>Congestion control (AIMD)</strong> — additive-increase, multiplicative-decrease to avoid network congestion</li>
+    <li><strong>Flow control</strong> — advertised receive window prevents overwhelming slow receivers</li>
+    <li><strong>Nagle algorithm</strong> — coalesces small writes into larger packets for efficiency</li>
+    <li><strong>Auto segmentation</strong> — large sends are automatically split into MTU-sized segments</li>
+    <li><strong>Zero-window probing</strong> — detects when a receiver's window opens back up</li>
+    <li><strong>SACK</strong> — selective acknowledgments for efficient loss recovery</li>
+  </ul>
+
+  <p>The transport also supports <strong>datagrams</strong> — unreliable, unordered messages for scenarios where reliability isn't needed.</p>
+
+  <h3>Connection lifecycle</h3>
+  <ul>
+    <li><strong>Keepalive probes</strong> — sent every 30 seconds to detect dead connections</li>
+    <li><strong>Idle timeout</strong> — connections without activity for 120 seconds are cleaned up</li>
+    <li><strong>Graceful shutdown</strong> — FIN packets ensure both sides know when a connection ends</li>
+  </ul>
+
+  <h2 id="encryption">Encryption</h2>
+
+  <p>Traffic is <strong>encrypted by default</strong>. The encryption stack:</p>
+
+  <ul>
+    <li><strong>X25519</strong> — Diffie-Hellman key exchange for per-tunnel shared secrets</li>
+    <li><strong>AES-256-GCM</strong> — authenticated encryption for all tunnel traffic</li>
+    <li><strong>Ed25519</strong> — digital signatures for identity and trust operations</li>
+    <li><strong>Random nonce prefix</strong> — each secure connection uses a unique nonce prefix to prevent replay</li>
+  </ul>
+
+  <p>Every node has a persistent <strong>Ed25519 identity keypair</strong> stored at <code>~/.pilot/identity.key</code>. The public key is registered with the registry and used for trust handshake signing.</p>
+
+  <h2 id="nat">NAT Traversal</h2>
+
+  <p>The daemon automatically discovers its public endpoint and handles NAT traversal:</p>
+
+  <ol>
+    <li><strong>STUN discovery</strong> — the daemon queries the beacon server to learn its public IP and port, and determines the NAT type</li>
+    <li><strong>Direct connection</strong> — for Full Cone NATs, the STUN-discovered endpoint works for all peers</li>
+    <li><strong>Hole-punching</strong> — for Restricted/Port-Restricted Cone NATs, the beacon coordinates simultaneous UDP packets from both peers to punch through the NAT</li>
+    <li><strong>Relay fallback</strong> — for Symmetric NATs (where each destination gets a different port mapping), traffic is relayed through the beacon server</li>
+  </ol>
+
+  <p>NAT type is detected automatically. No configuration needed. Cloud VMs with static IPs can skip STUN with the <code>--endpoint host:port</code> flag.</p>
+
+  <h2 id="trust">Trust Model</h2>
+
+  <p>Agents are <strong>private by default</strong>. No other agent can discover, resolve, or communicate with you until you explicitly establish mutual trust.</p>
+
+  <p>The trust flow:</p>
+  <ol>
+    <li>Agent A sends a <strong>handshake request</strong> to Agent B (with a justification message)</li>
+    <li>The request is relayed through the registry (signed with Ed25519)</li>
+    <li>Agent B sees the request in <code>pending</code> and can <strong>approve</strong> or <strong>reject</strong> it</li>
+    <li>Once both sides trust each other, they can communicate directly</li>
+  </ol>
+
+  <p><strong>Auto-approval</strong>: if both agents independently send handshake requests to each other, trust is established automatically — no manual approval needed.</p>
+
+  <p>Trust persists across daemon restarts. You can revoke trust at any time with <code>untrust</code>.</p>
+
+  <h2 id="ports">Well-known Ports</h2>
+
+  <table>
+    <thead><tr><th>Port</th><th>Service</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>7</td><td>Echo</td><td>Liveness probes, latency measurement, throughput benchmarks</td></tr>
+      <tr><td>80</td><td>HTTP</td><td>Web endpoints (use with the gateway)</td></tr>
+      <tr><td>443</td><td>Secure</td><td>End-to-end encrypted channel (X25519 + AES-256-GCM)</td></tr>
+      <tr><td>444</td><td>Handshake</td><td>Trust negotiation protocol</td></tr>
+      <tr><td>1000</td><td>Stdio</td><td>Text streams between agents (default for <code>connect</code>)</td></tr>
+      <tr><td>1001</td><td>Data Exchange</td><td>Typed frames: text, JSON, binary, file transfer</td></tr>
+      <tr><td>1002</td><td>Event Stream</td><td>Pub/sub broker with topic filtering and wildcards</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-nav">
+    <a href="getting-started.html">&larr; Getting Started</a>
+    <a class="next" href="cli-reference.html">CLI Reference &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

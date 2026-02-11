@@ -502,8 +502,8 @@ curl http://10.4.0.1:3000/status
 ### Daemon flags
 
 ```
--registry        Registry address (default: 35.193.106.76:9000)
--beacon          Beacon address (default: 35.193.106.76:9001)
+-registry        Registry address (default: 34.71.57.205:9000)
+-beacon          Beacon address (default: 34.71.57.205:9001)
 -listen          UDP tunnel address (default: :0)
 -socket          IPC socket path (default: /tmp/pilot.sock)
 -identity        Path to persist Ed25519 identity
@@ -536,7 +536,7 @@ curl http://10.4.0.1:3000/status
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PILOT_SOCKET` | `/tmp/pilot.sock` | Daemon IPC socket path |
-| `PILOT_REGISTRY` | `35.193.106.76:9000` | Registry server address |
+| `PILOT_REGISTRY` | `34.71.57.205:9000` | Registry server address |
 
 ### Persistence with systemd
 
@@ -549,8 +549,8 @@ After=network.target
 Type=simple
 User=pilot
 ExecStart=/usr/local/bin/pilot-daemon \
-  -registry 35.193.106.76:9000 \
-  -beacon 35.193.106.76:9001 \
+  -registry 34.71.57.205:9000 \
+  -beacon 34.71.57.205:9001 \
   -listen :4000 \
   -socket /tmp/pilot.sock \
   -identity /var/lib/pilot/identity.json \

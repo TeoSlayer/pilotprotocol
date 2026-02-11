@@ -70,9 +70,21 @@ th{text-align:left;font-size:11px;font-weight:600;color:#8b949e;text-transform:u
 td{padding:10px 16px;border-bottom:1px solid #21262d;font-size:13px}
 tr:last-child td{border-bottom:none}
 
-.diagrams{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
-.diagram-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
-.diagram-card h3{font-size:13px;font-weight:600;color:#8b949e;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px}
+.graph-section{position:relative;margin-bottom:32px}
+.graph-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d}
+.graph-header h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin:0;padding:0;border:none}
+.graph-wrap{position:relative;background:#0d1117;border:1px solid #21262d;border-radius:8px;overflow:hidden}
+#graph-canvas{display:block;width:100%;cursor:grab}
+#graph-canvas:active{cursor:grabbing}
+.fs-btn{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:5px 10px;color:#8b949e;font-family:inherit;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px}
+.fs-btn:hover{border-color:#58a6ff;color:#58a6ff}
+.graph-wrap.fullscreen{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;border-radius:0;border:none}
+.graph-wrap.fullscreen #graph-canvas{height:100vh!important}
+.graph-wrap.fullscreen .fs-exit{position:absolute;top:16px;right:16px;z-index:10000}
+.graph-tooltip{position:absolute;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 12px;font-size:12px;color:#e6edf3;pointer-events:none;display:none;z-index:10;white-space:nowrap}
+.graph-tooltip .tt-addr{color:#3fb950;font-weight:600}
+.graph-tooltip .tt-tags{color:#58a6ff;margin-top:2px}
+.graph-tooltip .tt-trust{color:#8b949e;margin-top:2px}
 
 .tag{display:inline-block;background:#1f2937;border:1px solid #30363d;border-radius:12px;padding:2px 10px;font-size:11px;color:#58a6ff;margin:2px 4px 2px 0;white-space:nowrap}
 .tag-filter{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;color:#c9d1d9;font-family:inherit;font-size:13px;width:100%;margin-bottom:12px;outline:none}
@@ -92,7 +104,6 @@ footer a:hover{color:#58a6ff}
 
 @media(max-width:640px){
   .stats-row{grid-template-columns:repeat(2,1fr)}
-  .diagrams{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -129,66 +140,25 @@ footer a:hover{color:#58a6ff}
   </div>
 </div>
 
-<div class="diagrams">
-  <div class="diagram-card">
-    <h3>The Problem</h3>
-    <svg viewBox="0 0 280 180" width="280" height="180" xmlns="http://www.w3.org/2000/svg">
-      <!-- Agent boxes -->
-      <rect x="10" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#f85149" stroke-width="1.5"/>
-      <text x="45" y="43" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent A</text>
-      <rect x="105" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#f85149" stroke-width="1.5"/>
-      <text x="140" y="43" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent B</text>
-      <rect x="200" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#f85149" stroke-width="1.5"/>
-      <text x="235" y="43" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent C</text>
-      <!-- NAT/Firewall bars -->
-      <rect x="10" y="68" width="70" height="16" rx="2" fill="#21262d"/>
-      <text x="45" y="80" text-anchor="middle" fill="#f85149" font-size="8" font-family="monospace">NAT</text>
-      <rect x="105" y="68" width="70" height="16" rx="2" fill="#21262d"/>
-      <text x="140" y="80" text-anchor="middle" fill="#f85149" font-size="8" font-family="monospace">FIREWALL</text>
-      <rect x="200" y="68" width="70" height="16" rx="2" fill="#21262d"/>
-      <text x="235" y="80" text-anchor="middle" fill="#f85149" font-size="8" font-family="monospace">NAT</text>
-      <!-- Broken lines -->
-      <line x1="45" y1="84" x2="140" y2="110" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3"/>
-      <line x1="140" y1="84" x2="140" y2="110" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3"/>
-      <line x1="235" y1="84" x2="140" y2="110" stroke="#f85149" stroke-width="1" stroke-dasharray="4,3"/>
-      <!-- X marks -->
-      <text x="85" y="100" fill="#f85149" font-size="14" font-family="monospace" font-weight="bold">✕</text>
-      <text x="180" y="100" fill="#f85149" font-size="14" font-family="monospace" font-weight="bold">✕</text>
-      <!-- Cloud -->
-      <rect x="80" y="108" width="120" height="30" rx="4" fill="#1a1e2a" stroke="#484f58" stroke-width="1"/>
-      <text x="140" y="127" text-anchor="middle" fill="#484f58" font-size="9" font-family="monospace">No addressability</text>
-      <!-- Caption -->
-      <text x="140" y="160" text-anchor="middle" fill="#8b949e" font-size="9" font-family="monospace">Isolated agents, custom integrations</text>
-    </svg>
+<div class="graph-section">
+  <div class="graph-header">
+    <h2>Trust Graph</h2>
+    <button class="fs-btn" id="fs-btn" onclick="toggleFullscreen()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 1h5V0H0v6h1V1zm14 0h-5V0h6v6h-1V1zM1 15h5v1H0v-6h1v5zm14 0h-5v1h6v-6h-1v5z"/></svg>
+      Fullscreen
+    </button>
   </div>
-  <div class="diagram-card">
-    <h3>The Solution</h3>
-    <svg viewBox="0 0 280 180" width="280" height="180" xmlns="http://www.w3.org/2000/svg">
-      <!-- Agent boxes with addresses -->
-      <rect x="10" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#3fb950" stroke-width="1.5"/>
-      <text x="45" y="38" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent A</text>
-      <text x="45" y="50" text-anchor="middle" fill="#3fb950" font-size="7" font-family="monospace">0:0000.0000.0001</text>
-      <rect x="105" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#3fb950" stroke-width="1.5"/>
-      <text x="140" y="38" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent B</text>
-      <text x="140" y="50" text-anchor="middle" fill="#3fb950" font-size="7" font-family="monospace">0:0000.0000.0002</text>
-      <rect x="200" y="20" width="70" height="36" rx="4" fill="#1a1e2a" stroke="#3fb950" stroke-width="1.5"/>
-      <text x="235" y="38" text-anchor="middle" fill="#c9d1d9" font-size="10" font-family="monospace">Agent C</text>
-      <text x="235" y="50" text-anchor="middle" fill="#3fb950" font-size="7" font-family="monospace">0:0000.0000.0003</text>
-      <!-- Tunnel lines -->
-      <line x1="45" y1="56" x2="140" y2="100" stroke="#3fb950" stroke-width="1.5"/>
-      <line x1="140" y1="56" x2="140" y2="100" stroke="#3fb950" stroke-width="1.5"/>
-      <line x1="235" y1="56" x2="140" y2="100" stroke="#3fb950" stroke-width="1.5"/>
-      <line x1="45" y1="56" x2="235" y2="56" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>
-      <!-- Overlay network -->
-      <rect x="70" y="96" width="140" height="30" rx="4" fill="#0d2818" stroke="#3fb950" stroke-width="1"/>
-      <text x="140" y="115" text-anchor="middle" fill="#3fb950" font-size="9" font-family="monospace">Pilot Overlay Network</text>
-      <!-- Checkmarks -->
-      <text x="85" y="82" fill="#3fb950" font-size="14" font-family="monospace" font-weight="bold">✓</text>
-      <text x="180" y="82" fill="#3fb950" font-size="14" font-family="monospace" font-weight="bold">✓</text>
-      <!-- Caption -->
-      <text x="140" y="148" text-anchor="middle" fill="#8b949e" font-size="9" font-family="monospace">Virtual addresses, P2P tunnels</text>
-      <text x="140" y="162" text-anchor="middle" fill="#8b949e" font-size="9" font-family="monospace">NAT traversal, encryption</text>
-    </svg>
+  <div class="graph-wrap" id="graph-wrap">
+    <canvas id="graph-canvas" height="400"></canvas>
+    <button class="fs-btn fs-exit" id="fs-exit" style="display:none" onclick="toggleFullscreen()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 0v5H0v1h6V0H5zm6 0v6h6V5h-5V0h-1zM0 11h5v5h1v-6H0v1zm11 0v6h1v-5h5v-1h-6z"/></svg>
+      Exit
+    </button>
+    <div class="graph-tooltip" id="graph-tooltip">
+      <div class="tt-addr" id="tt-addr"></div>
+      <div class="tt-tags" id="tt-tags"></div>
+      <div class="tt-trust" id="tt-trust"></div>
+    </div>
   </div>
 </div>
 
@@ -222,9 +192,159 @@ footer a:hover{color:#58a6ff}
 
 </div>
 <script>
-var allNodes=[],currentPage=1,pageSize=25;
-function fmt(n){if(n>=1e9)return (n/1e9).toFixed(1)+'B';if(n>=1e6)return (n/1e6).toFixed(1)+'M';if(n>=1e3)return (n/1e3).toFixed(1)+'K';return n.toString()}
+var allNodes=[],allEdges=[],currentPage=1,pageSize=25;
+var gNodes=[],gEdges=[],simRunning=false,animId=null;
+var camX=0,camY=0,camZ=1,dragX=0,dragY=0,dragging=false,hoveredNode=-1;
+var dpr=window.devicePixelRatio||1;
+
+function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);var p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ')}
+
+/* ---- Force-directed graph ---- */
+function initGraph(nodes,edges){
+  var addrMap={};
+  gNodes=nodes.map(function(n,i){
+    addrMap[n.address]=i;
+    return{addr:n.address,tags:n.tags||[],online:n.online,trust:n.trust_links||0,
+      x:(Math.random()-0.5)*600,y:(Math.random()-0.5)*400,vx:0,vy:0};
+  });
+  gEdges=[];
+  edges.forEach(function(e){
+    var si=addrMap[e.source],ti=addrMap[e.target];
+    if(si!==undefined&&ti!==undefined)gEdges.push({s:si,t:ti});
+  });
+  camX=0;camY=0;camZ=1;
+  if(!simRunning){simRunning=true;simLoop();}
+}
+
+function simLoop(){
+  var alpha=0.3,repulse=30000,spring=0.002,damp=0.82,center=0.0001;
+  var N=gNodes.length;
+  for(var i=0;i<N;i++){
+    for(var j=i+1;j<N;j++){
+      var dx=gNodes[j].x-gNodes[i].x,dy=gNodes[j].y-gNodes[i].y;
+      var d2=dx*dx+dy*dy;if(d2<1)d2=1;
+      var f=repulse/d2;
+      var dist=Math.sqrt(d2);
+      var fx=dx/dist*f,fy=dy/dist*f;
+      gNodes[i].vx-=fx*alpha;gNodes[i].vy-=fy*alpha;
+      gNodes[j].vx+=fx*alpha;gNodes[j].vy+=fy*alpha;
+    }
+  }
+  gEdges.forEach(function(e){
+    var a=gNodes[e.s],b=gNodes[e.t];
+    var dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+    var f=(d-400)*spring;
+    a.vx+=dx/d*f*alpha;a.vy+=dy/d*f*alpha;
+    b.vx-=dx/d*f*alpha;b.vy-=dy/d*f*alpha;
+  });
+  gNodes.forEach(function(n){n.vx-=n.x*center;n.vy-=n.y*center;});
+  gNodes.forEach(function(n){n.vx*=damp;n.vy*=damp;n.x+=n.vx;n.y+=n.vy;});
+  drawGraph();
+  animId=requestAnimationFrame(simLoop);
+}
+
+function drawGraph(){
+  var c=document.getElementById('graph-canvas');
+  var ctx=c.getContext('2d');
+  var W=c.width/dpr,H=c.height/dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(W/2+camX,H/2+camY);
+  ctx.scale(camZ,camZ);
+  ctx.strokeStyle='rgba(63,185,80,0.12)';ctx.lineWidth=0.5;
+  ctx.beginPath();
+  gEdges.forEach(function(e){
+    var a=gNodes[e.s],b=gNodes[e.t];
+    ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+  });
+  ctx.stroke();
+  gNodes.forEach(function(n,i){
+    var r=Math.max(2,Math.min(6,1.5+n.trust*0.4));
+    var col=n.online?'#3fb950':'#484f58';
+    if(i===hoveredNode){col='#58a6ff';r+=2;}
+    ctx.beginPath();ctx.arc(n.x,n.y,r,0,6.283);
+    ctx.fillStyle=col;ctx.fill();
+  });
+  ctx.restore();
+}
+
+function resizeCanvas(){
+  var c=document.getElementById('graph-canvas');
+  var wrap=document.getElementById('graph-wrap');
+  var isFs=wrap.classList.contains('fullscreen');
+  var w=isFs?window.innerWidth:wrap.clientWidth;
+  var h=isFs?window.innerHeight:400;
+  c.width=w*dpr;c.height=h*dpr;
+  c.style.width=w+'px';c.style.height=h+'px';
+}
+
+function findNode(mx,my){
+  var c=document.getElementById('graph-canvas');
+  var W=c.width/dpr,H=c.height/dpr;
+  var gx=(mx-W/2-camX)/camZ,gy=(my-H/2-camY)/camZ;
+  var best=-1,bd=Infinity;
+  gNodes.forEach(function(n,i){
+    var dx=n.x-gx,dy=n.y-gy,d=dx*dx+dy*dy;
+    var r=Math.max(2,Math.min(6,1.5+n.trust*0.4))+4;
+    if(d<(r*r)/(camZ*camZ)&&d<bd){bd=d;best=i;}
+  });
+  return best;
+}
+
+(function(){
+  var c=document.getElementById('graph-canvas');
+  c.addEventListener('mousedown',function(e){dragging=true;dragX=e.clientX;dragY=e.clientY;});
+  window.addEventListener('mousemove',function(e){
+    if(dragging){camX+=e.clientX-dragX;camY+=e.clientY-dragY;dragX=e.clientX;dragY=e.clientY;return;}
+    var rect=c.getBoundingClientRect();
+    var mx=e.clientX-rect.left,my=e.clientY-rect.top;
+    var idx=findNode(mx,my);
+    if(idx!==hoveredNode){
+      hoveredNode=idx;
+      var tt=document.getElementById('graph-tooltip');
+      if(idx>=0){
+        var n=gNodes[idx];
+        document.getElementById('tt-addr').textContent=n.addr;
+        document.getElementById('tt-tags').textContent=n.tags.length?n.tags.map(function(t){return'#'+t}).join(' '):'no tags';
+        document.getElementById('tt-trust').textContent=n.trust+' trust link'+(n.trust!==1?'s':'');
+        tt.style.display='block';
+      }else{tt.style.display='none';}
+    }
+    if(hoveredNode>=0){
+      var tt=document.getElementById('graph-tooltip');
+      var rect2=c.getBoundingClientRect();
+      tt.style.left=(e.clientX-rect2.left+12)+'px';
+      tt.style.top=(e.clientY-rect2.top-10)+'px';
+    }
+  });
+  window.addEventListener('mouseup',function(){dragging=false;});
+  c.addEventListener('mouseleave',function(){hoveredNode=-1;document.getElementById('graph-tooltip').style.display='none';});
+  c.addEventListener('wheel',function(e){
+    e.preventDefault();
+    var d=e.deltaY>0?0.9:1.1;
+    camZ=Math.max(0.1,Math.min(10,camZ*d));
+  },{passive:false});
+  window.addEventListener('resize',resizeCanvas);
+  resizeCanvas();
+})();
+
+function toggleFullscreen(){
+  var wrap=document.getElementById('graph-wrap');
+  var isFs=wrap.classList.contains('fullscreen');
+  wrap.classList.toggle('fullscreen');
+  document.getElementById('fs-exit').style.display=isFs?'none':'flex';
+  resizeCanvas();
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    var wrap=document.getElementById('graph-wrap');
+    if(wrap.classList.contains('fullscreen'))toggleFullscreen();
+  }
+});
+
+/* ---- Table rendering ---- */
 function getFiltered(){
   var filter=document.getElementById('tag-filter').value;
   if(!filter)return allNodes;
@@ -279,11 +399,13 @@ function update(){
       });
     }else{nb.innerHTML='<tr><td colspan="3" class="empty">No networks</td></tr>'}
     allNodes=d.nodes||[];
+    allEdges=d.edges||[];
     renderNodes();
+    initGraph(allNodes,allEdges);
   }).catch(function(){})
 }
 document.getElementById('tag-filter').addEventListener('input',function(){currentPage=1;renderNodes()});
-update();setInterval(update,5000);
+update();setInterval(update,30000);
 </script>
 </body>
 </html>`

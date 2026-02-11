@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuration - Pilot Protocol</title>
+<meta name="description" content="Config files, environment variables, directory structure, and daemon flags for Pilot Protocol.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a class="active" href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Configuration</h1>
+  <p class="subtitle">Config files, environment variables, directory structure, and daemon flags.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#config-file">Config file</a></li>
+      <li><a href="#commands">Config commands</a></li>
+      <li><a href="#env">Environment variables</a></li>
+      <li><a href="#directory">Directory structure</a></li>
+      <li><a href="#daemon-flags">Daemon flags</a></li>
+      <li><a href="#logging">Logging</a></li>
+    </ul>
+  </div>
+
+  <h2 id="config-file">Config file</h2>
+
+  <p>Configuration is stored in <code>~/.pilot/config.json</code>:</p>
+
+  <pre><code>{
+  "registry": "34.71.57.205:9000",
+  "beacon": "34.71.57.205:9001",
+  "hostname": "my-agent",
+  "socket": "/tmp/pilot.sock",
+  "webhook": "http://localhost:8080/events"
+}</code></pre>
+
+  <p>CLI flags override config file values. The config file is created by <code>pilotctl init</code> and can be updated with <code>pilotctl config --set</code>.</p>
+
+  <h2 id="commands">Config commands</h2>
+
+  <h3>Initialize</h3>
+  <pre><code><span class="cmd">pilotctl</span> init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001 --hostname my-agent</code></pre>
+  <p>Creates <code>~/.pilot/config.json</code> with the specified settings.</p>
+
+  <h3>View config</h3>
+  <pre><code><span class="cmd">pilotctl</span> config</code></pre>
+
+  <h3>Set a value</h3>
+  <pre><code><span class="cmd">pilotctl</span> config --set registry=host:9000
+<span class="cmd">pilotctl</span> config --set hostname=new-name</code></pre>
+
+  <h2 id="env">Environment variables</h2>
+
+  <table>
+    <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
+      <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
+      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install</td></tr>
+    </tbody>
+  </table>
+
+  <p>Environment variables override config file values but are overridden by CLI flags.</p>
+
+  <h2 id="directory">Directory structure</h2>
+
+  <pre><code>~/.pilot/
+  bin/                <span class="comment"># Installed binaries (pilotctl, pilot-rendezvous)</span>
+  config.json         <span class="comment"># Configuration file</span>
+  identity.key        <span class="comment"># Ed25519 keypair (persistent identity)</span>
+  trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
+  received/           <span class="comment"># Files received via data exchange</span>
+  inbox/              <span class="comment"># Messages received via data exchange</span>
+  pilot.pid           <span class="comment"># Daemon PID file</span>
+  pilot.log           <span class="comment"># Daemon log file</span></code></pre>
+
+  <h2 id="daemon-flags">Daemon flags</h2>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>--registry &lt;addr&gt;</td><td>Registry server address</td></tr>
+      <tr><td>--beacon &lt;addr&gt;</td><td>Beacon server address (STUN)</td></tr>
+      <tr><td>--listen &lt;addr&gt;</td><td>Local UDP listen address (default: :0)</td></tr>
+      <tr><td>--identity &lt;path&gt;</td><td>Path to identity key file</td></tr>
+      <tr><td>--owner &lt;owner&gt;</td><td>Owner identifier for key recovery</td></tr>
+      <tr><td>--hostname &lt;name&gt;</td><td>Register with this hostname</td></tr>
+      <tr><td>--public</td><td>Start as a public node</td></tr>
+      <tr><td>--no-encrypt</td><td>Disable tunnel encryption</td></tr>
+      <tr><td>--foreground</td><td>Run in the current process (don't fork)</td></tr>
+      <tr><td>--log-level &lt;level&gt;</td><td>Log level: debug, info, warn, error</td></tr>
+      <tr><td>--log-format &lt;fmt&gt;</td><td>Log format: text or json</td></tr>
+      <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>
+      <tr><td>--config &lt;path&gt;</td><td>Config file path</td></tr>
+      <tr><td>--webhook &lt;url&gt;</td><td>Webhook URL for event notifications</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="logging">Logging</h2>
+
+  <p>The daemon uses structured logging via Go's <code>slog</code> package. Logs are written to <code>~/.pilot/pilot.log</code>.</p>
+
+  <pre><code><span class="comment"># Debug logging</span>
+<span class="cmd">pilotctl</span> daemon start --log-level debug
+
+<span class="comment"># JSON log format (for log aggregation)</span>
+<span class="cmd">pilotctl</span> daemon start --log-format json
+
+<span class="comment"># View logs</span>
+<span class="cmd">tail</span> -f ~/.pilot/pilot.log</code></pre>
+
+  <p>Log levels: <code>debug</code>, <code>info</code> (default), <code>warn</code>, <code>error</code></p>
+
+  <div class="page-nav">
+    <a href="diagnostics.html">&larr; Diagnostics</a>
+    <a class="next" href="integration.html">Integration &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnostics - Pilot Protocol</title>
+<meta name="description" content="Ping, traceroute, bench, connections, and peer inspection for Pilot Protocol.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a class="active" href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Diagnostics</h1>
+  <p class="subtitle">Tools for measuring latency, throughput, and inspecting network state.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#ping">ping</a></li>
+      <li><a href="#traceroute">traceroute</a></li>
+      <li><a href="#bench">bench</a></li>
+      <li><a href="#peers">peers</a></li>
+      <li><a href="#connections">connections</a></li>
+      <li><a href="#info">info</a></li>
+      <li><a href="#disconnect">disconnect</a></li>
+    </ul>
+  </div>
+
+  <h2 id="ping">ping</h2>
+
+  <p>Send echo probes to measure round-trip time:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> ping other-agent
+<span class="cmd">pilotctl</span> ping other-agent --count 10
+<span class="cmd">pilotctl</span> ping 0:0000.0000.0005 --timeout 30s</code></pre>
+
+  <p>Uses the built-in echo service (port 7). Default: 4 pings.</p>
+
+  <p>Returns: <code>target</code>, <code>results</code> [{<code>seq</code>, <code>bytes</code>, <code>rtt_ms</code>, <code>error</code>}], <code>timeout</code> (bool)</p>
+
+  <pre><code><span class="comment"># Example output (human-readable)</span>
+PING 0:0000.0000.0004 (agent-alpha):
+  seq=0 bytes=32 rtt=12.4ms
+  seq=1 bytes=32 rtt=11.8ms
+  seq=2 bytes=32 rtt=13.1ms
+  seq=3 bytes=32 rtt=12.0ms</code></pre>
+
+  <h2 id="traceroute">traceroute</h2>
+
+  <p>Measure connection setup time and RTT samples:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> traceroute 0:0000.0000.0005</code></pre>
+
+  <p>Returns: <code>target</code>, <code>setup_ms</code>, <code>rtt_samples</code> [{<code>rtt_ms</code>, <code>bytes</code>}]</p>
+
+  <h2 id="bench">bench</h2>
+
+  <p>Measure throughput by sending data through the echo service:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> bench other-agent          <span class="comment"># 1 MB (default)</span>
+<span class="cmd">pilotctl</span> bench other-agent 10       <span class="comment"># 10 MB</span>
+<span class="cmd">pilotctl</span> bench other-agent 50 --timeout 120s</code></pre>
+
+  <p>Returns: <code>target</code>, <code>sent_bytes</code>, <code>recv_bytes</code>, <code>send_duration_ms</code>, <code>total_duration_ms</code>, <code>send_mbps</code>, <code>total_mbps</code></p>
+
+  <pre><code><span class="comment"># Example output</span>
+benchmark 0:0000.0000.0004: sent 1048576 bytes, recv 1048576 bytes
+  send: 850ms (9.87 Mbps)
+  total: 1.2s (6.99 Mbps)</code></pre>
+
+  <h2 id="peers">peers</h2>
+
+  <p>List connected peers:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> peers
+<span class="cmd">pilotctl</span> peers --search "web-server"  <span class="comment"># Filter by tag or query</span></code></pre>
+
+  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>endpoint</code>, <code>encrypted</code>, <code>authenticated</code>}], <code>total</code></p>
+
+  <h2 id="connections">connections</h2>
+
+  <p>List active connections with transport stats:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> connections</code></pre>
+
+  <p>Returns detailed per-connection information: connection ID, local/remote port, state, bytes sent/received, segments, retransmissions, SACK stats, congestion window (CWND), and smoothed RTT (SRTT).</p>
+
+  <h2 id="info">info</h2>
+
+  <p>Full daemon status — everything at a glance:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> info</code></pre>
+
+  <p>Returns: <code>node_id</code>, <code>address</code>, <code>hostname</code>, <code>uptime_secs</code>, <code>connections</code>, <code>ports</code>, <code>peers</code>, <code>encrypt</code>, <code>bytes_sent</code>, <code>bytes_recv</code>, per-connection stats, peer list with encryption status.</p>
+
+  <h2 id="disconnect">disconnect</h2>
+
+  <p>Close a specific connection by ID:</p>
+
+  <pre><code><span class="comment"># Find the connection ID first</span>
+<span class="cmd">pilotctl</span> connections
+
+<span class="comment"># Close it</span>
+<span class="cmd">pilotctl</span> disconnect 42</code></pre>
+
+  <p>Returns: <code>conn_id</code></p>
+
+  <div class="page-nav">
+    <a href="tags.html">&larr; Tags & Discovery</a>
+    <a class="next" href="configuration.html">Configuration &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

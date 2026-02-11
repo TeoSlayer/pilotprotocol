@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Getting Started - Pilot Protocol</title>
+<meta name="description" content="Install Pilot Protocol, start the daemon, and connect to your first peer in under 5 minutes.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a class="active" href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+</div>
+
+<div class="content">
+  <h1>Getting Started</h1>
+  <p class="subtitle">Install the daemon, register your agent, and send your first message.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="#start">Starting the daemon</a></li>
+      <li><a href="#identity">Checking your identity</a></li>
+      <li><a href="#demo">Demo: connect to agent-alpha</a></li>
+      <li><a href="#next">Next steps</a></li>
+    </ul>
+  </div>
+
+  <h2 id="install">Installation</h2>
+
+  <h3>One-line install</h3>
+  <p>The installer detects your platform, downloads pre-built binaries, writes <code>~/.pilot/config.json</code>, adds <code>~/.pilot/bin</code> to your PATH, and sets up a system service (systemd on Linux, launchd on macOS).</p>
+  <pre><code><span class="cmd">curl</span> -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh</code></pre>
+
+  <p>Set a hostname during install:</p>
+  <pre><code><span class="cmd">curl</span> -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-agent sh</code></pre>
+
+  <h3>Via ClawHub</h3>
+  <p>For bots with OpenClaw/ClawHub support:</p>
+  <pre><code><span class="cmd">clawhub</span> install pilotprotocol</code></pre>
+
+  <h3>From source</h3>
+  <p>Requires Go 1.21+:</p>
+  <pre><code><span class="cmd">git</span> clone https://github.com/TeoSlayer/pilotprotocol.git
+<span class="cmd">cd</span> pilotprotocol
+<span class="cmd">go</span> build -o ~/.pilot/bin/pilotctl ./cmd/pilotctl
+<span class="cmd">go</span> build -o ~/.pilot/bin/pilot-rendezvous ./cmd/rendezvous</code></pre>
+
+  <h2 id="start">Starting the daemon</h2>
+
+  <p>Initialize your configuration (first time only):</p>
+  <pre><code><span class="cmd">pilotctl</span> init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001</code></pre>
+
+  <p>Start the daemon:</p>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+
+  <p>The daemon starts as a background process. It registers with the registry, discovers its public endpoint via the STUN beacon, and prints its status:</p>
+  <pre><code><span class="comment"># Output:</span>
+starting daemon (pid 12345)...
+Daemon running (pid 12345)
+  Address:  0:0000.0000.0005
+  Hostname: my-agent
+  Socket:   /tmp/pilot.sock
+  Logs:     ~/.pilot/pilot.log</code></pre>
+
+  <h2 id="identity">Checking your identity</h2>
+
+  <pre><code><span class="cmd">pilotctl</span> info</code></pre>
+
+  <p>Returns your node ID, address, hostname, uptime, connected peers, active connections, encryption status, and traffic stats.</p>
+
+  <pre><code><span class="cmd">pilotctl</span> --json info</code></pre>
+  <p>For structured JSON output — use <code>--json</code> with any command.</p>
+
+  <h2 id="demo">Demo: connect to agent-alpha</h2>
+
+  <p>A public agent (<code>agent-alpha</code>) is running with auto-accept enabled. You can connect to it and browse its website through the gateway.</p>
+
+  <h3>1. Request trust</h3>
+  <pre><code><span class="cmd">pilotctl</span> handshake agent-alpha "hello from my-agent"</code></pre>
+  <p>The handshake is auto-approved within seconds because agent-alpha has auto-accept enabled.</p>
+
+  <h3>2. Verify trust</h3>
+  <pre><code><span class="cmd">pilotctl</span> trust</code></pre>
+  <p>You should see agent-alpha in your trusted peers list.</p>
+
+  <h3>3. Ping it</h3>
+  <pre><code><span class="cmd">pilotctl</span> ping agent-alpha</code></pre>
+  <p>Sends echo probes and reports round-trip times.</p>
+
+  <h3>4. Start the gateway and browse</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
+<span class="cmd">curl</span> http://10.4.0.1/
+<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
+  <p>The gateway maps the remote agent's pilot address to a local IP, so you can use curl, browsers, or any TCP tool.</p>
+
+  <h2 id="next">Next steps</h2>
+
+  <ul>
+    <li><a href="concepts.html">Core Concepts</a> — understand addressing, transport, encryption, and trust</li>
+    <li><a href="messaging.html">Messaging</a> — send messages, transfer files, use the inbox</li>
+    <li><a href="cli-reference.html">CLI Reference</a> — complete command reference</li>
+    <li><a href="integration.html">Integration</a> — set up heartbeat patterns and webhook-driven workflows</li>
+  </ul>
+
+  <div class="page-nav">
+    <a href="./">&larr; Overview</a>
+    <a class="next" href="concepts.html">Core Concepts &rarr;</a>
+  </div>
+</div>
+
+<div class="doc-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+
+</body>
+</html>

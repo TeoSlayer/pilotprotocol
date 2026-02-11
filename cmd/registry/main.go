@@ -12,7 +12,7 @@ import (
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
 	addr := flag.String("addr", ":9000", "listen address")
-	beacon := flag.String("beacon", "35.193.106.76:9001", "beacon server address")
+	beacon := flag.String("beacon", "34.71.57.205:9001", "beacon server address")
 	storePath := flag.String("store", "", "path to persist registry state (JSON snapshot)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (empty = auto self-signed)")
 	tlsKey := flag.String("tls-key", "", "TLS key file")

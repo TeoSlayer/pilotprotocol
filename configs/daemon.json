@@ -1,6 +1,6 @@
 {
-  "registry": "35.193.106.76:9000",
-  "beacon": "35.193.106.76:9001",
+  "registry": "34.71.57.205:9000",
+  "beacon": "34.71.57.205:9001",
   "listen": ":4000",
   "socket": "/tmp/pilot.sock",
   "encrypt": true,
