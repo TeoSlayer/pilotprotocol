@@ -146,9 +146,18 @@ fi
 echo "Installing binaries..."
 mkdir -p "$BIN_DIR"
 
-cp "$TMPDIR/pilot-daemon" "$BIN_DIR/pilot-daemon"
+# Handle both naming conventions (release: daemon/gateway, source: pilot-daemon/pilot-gateway)
+if [ -f "$TMPDIR/daemon" ]; then
+    cp "$TMPDIR/daemon" "$BIN_DIR/pilot-daemon"
+else
+    cp "$TMPDIR/pilot-daemon" "$BIN_DIR/pilot-daemon"
+fi
 cp "$TMPDIR/pilotctl" "$BIN_DIR/pilotctl"
-cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
+if [ -f "$TMPDIR/gateway" ]; then
+    cp "$TMPDIR/gateway" "$BIN_DIR/pilot-gateway"
+else
+    cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
+fi
 chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
 
 # --- Symlink to /usr/local/bin if writable, otherwise skip ---
