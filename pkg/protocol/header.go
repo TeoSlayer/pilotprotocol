@@ -77,4 +77,5 @@ const (
 	BeaconMsgPunchCommand  byte = 0x04
 	BeaconMsgRelay         byte = 0x05
 	BeaconMsgRelayDeliver  byte = 0x06
+	BeaconMsgSync          byte = 0x07 // gossip: beacon-to-beacon node list exchange
 )
