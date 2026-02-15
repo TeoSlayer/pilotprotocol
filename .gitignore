@@ -15,6 +15,7 @@ build/
 *.test
 
 tests/end-to-end/results
+tests/developement-versions
 
 # Output of the go coverage tool
 *.out

@@ -32,7 +32,7 @@ test:
 
 coverage:
 	@mkdir -p $(COVERDIR)
-	@go test -parallel 4 -count=1 -coverprofile=$(COVERDIR)/coverage.out -covermode=atomic ./tests/...
+	@cd tests && go test -parallel 4 -count=1 -coverprofile=../$(COVERDIR)/coverage.out -covermode=atomic -timeout 30s
 	@go tool cover -func=$(COVERDIR)/coverage.out | tail -1 | awk '{print "Total coverage: " $$3}'
 	@go tool cover -func=$(COVERDIR)/coverage.out -o=$(COVERDIR)/coverage.txt
 	@./scripts/generate-coverage-badge.sh

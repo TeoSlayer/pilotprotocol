@@ -214,6 +214,7 @@ type NodeInfo struct {
 	Public    bool     // if true, endpoint is visible in lookup/list_nodes
 	Hostname  string   // unique hostname for discovery (empty = none)
 	Tags      []string // capability tags (e.g., "webserver", "assistant")
+	KarmaScore int    // karma score for reputation system (default: 0)
 }
 
 type NetworkInfo struct {
@@ -695,6 +696,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 		return s.handleListNodes(msg)
 	case "rotate_key":
 		return s.handleRotateKey(msg)
+	case "update_karma":
+		return s.handleUpdateKarma(msg)
+	case "set_karma":
+		return s.handleSetKarma(msg)
+	case "get_karma":
+		return s.handleGetKarma(msg)
 	case "deregister":
 		return s.handleDeregister(msg)
 	case "set_visibility":
@@ -832,6 +839,90 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 		"node_id":    nodeID,
 		"address":    addr.String(),
 		"public_key": newPubKeyB64,
+	}, nil
+}
+
+// handleUpdateKarma adjusts the karma score of a node by a delta value.
+func (s *Server) handleUpdateKarma(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	delta, ok := msg["delta"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("update_karma requires delta field")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	node.KarmaScore += int(delta)
+	node.LastSeen = time.Now()
+	s.save()
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+	slog.Info("karma updated", "node_id", nodeID, "delta", int(delta), "new_score", node.KarmaScore)
+
+	return map[string]interface{}{
+		"type":        "update_karma_ok",
+		"node_id":     nodeID,
+		"address":     addr.String(),
+		"karma_score": node.KarmaScore,
+	}, nil
+}
+
+// handleSetKarma sets the karma score of a node to a specific value.
+func (s *Server) handleSetKarma(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	karmaScore, ok := msg["karma_score"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("set_karma requires karma_score field")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	node.KarmaScore = int(karmaScore)
+	node.LastSeen = time.Now()
+	s.save()
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+	slog.Info("karma set", "node_id", nodeID, "karma_score", node.KarmaScore)
+
+	return map[string]interface{}{
+		"type":        "set_karma_ok",
+		"node_id":     nodeID,
+		"address":     addr.String(),
+		"karma_score": node.KarmaScore,
+	}, nil
+}
+
+// handleGetKarma retrieves the karma score for a node.
+func (s *Server) handleGetKarma(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+
+	return map[string]interface{}{
+		"type":        "get_karma_ok",
+		"node_id":     nodeID,
+		"address":     addr.String(),
+		"karma_score": node.KarmaScore,
 	}, nil
 }
 
@@ -1207,12 +1298,13 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	}
 
 	resp := map[string]interface{}{
-		"type":       "lookup_ok",
-		"node_id":    node.ID,
-		"address":    protocol.Addr{Network: 0, Node: node.ID}.String(),
-		"networks":   node.Networks,
-		"public_key": crypto.EncodePublicKey(node.PublicKey),
-		"public":     node.Public,
+		"type":        "lookup_ok",
+		"node_id":     node.ID,
+		"address":     protocol.Addr{Network: 0, Node: node.ID}.String(),
+		"networks":    node.Networks,
+		"public_key":  crypto.EncodePublicKey(node.PublicKey),
+		"public":      node.Public,
+		"karma_score": node.KarmaScore,
 	}
 	if node.Hostname != "" {
 		resp["hostname"] = node.Hostname
@@ -1947,6 +2039,7 @@ type snapshotNode struct {
 	LastSeen  string   `json:"last_seen,omitempty"`
 	Hostname  string   `json:"hostname,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
+	KarmaScore int     `json:"karma_score,omitempty"`
 }
 
 type snapshotNet struct {
@@ -2021,6 +2114,7 @@ func (s *Server) flushSave() {
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			KarmaScore: n.KarmaScore,
 		}
 	}
 
@@ -2124,6 +2218,7 @@ func (s *Server) load() error {
 			Public:    n.Public,
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			KarmaScore: n.KarmaScore,
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID

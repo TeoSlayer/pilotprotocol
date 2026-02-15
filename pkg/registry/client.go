@@ -437,3 +437,37 @@ func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error
 		"hostname": hostname,
 	})
 }
+
+// UpdateKarma adjusts the karma score of a node by the given delta.
+// Delta can be positive (increase karma) or negative (decrease karma).
+func (c *Client) UpdateKarma(nodeID uint32, delta int) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":    "update_karma",
+		"node_id": nodeID,
+		"delta":   float64(delta),
+	})
+}
+
+// SetKarma sets the karma score of a node to a specific value.
+func (c *Client) SetKarma(nodeID uint32, karmaScore int) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_karma",
+		"node_id":     nodeID,
+		"karma_score": float64(karmaScore),
+	})
+}
+
+// GetKarma retrieves the current karma score for a node.
+func (c *Client) GetKarma(nodeID uint32) (int, error) {
+	resp, err := c.Send(map[string]interface{}{
+		"type":    "get_karma",
+		"node_id": nodeID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if karmaScore, ok := resp["karma_score"].(float64); ok {
+		return int(karmaScore), nil
+	}
+	return 0, fmt.Errorf("karma_score not found in response")
+}

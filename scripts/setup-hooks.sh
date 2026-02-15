@@ -39,10 +39,12 @@ fi
 
 # 3. Run tests
 echo "→ Running tests..."
-if ! (cd tests && go test -v -timeout 30s); then
-    echo "✗ tests failed"
+if ! (cd tests && go test -timeout 30s > /tmp/pilot-test.log 2>&1); then
+    echo "✗ tests failed - see /tmp/pilot-test.log for details"
+    tail -20 /tmp/pilot-test.log
     exit 1
 fi
+echo "✓ tests passed"
 
 # 4. Update coverage
 echo "→ Updating coverage badge..."
