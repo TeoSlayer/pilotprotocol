@@ -216,6 +216,16 @@ func (d *Driver) SetVisibility(public bool) (map[string]interface{}, error) {
 	return d.jsonRPC(msg, cmdSetVisibilityOK, "set_visibility")
 }
 
+// SetTaskExec enables or disables task execution capability on the registry.
+func (d *Driver) SetTaskExec(enabled bool) (map[string]interface{}, error) {
+	msg := make([]byte, 2)
+	msg[0] = cmdSetTaskExec
+	if enabled {
+		msg[1] = 1
+	}
+	return d.jsonRPC(msg, cmdSetTaskExecOK, "set_task_exec")
+}
+
 // Deregister removes the daemon from the registry.
 func (d *Driver) Deregister() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdDeregister}, cmdDeregisterOK, "deregister")

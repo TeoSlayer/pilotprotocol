@@ -430,6 +430,18 @@ func (c *Client) SetTags(nodeID uint32, tags []string) (map[string]interface{}, 
 	return c.Send(msg)
 }
 
+func (c *Client) SetTaskExec(nodeID uint32, enabled bool) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":    "set_task_exec",
+		"node_id": nodeID,
+		"enabled": enabled,
+	}
+	if sig := c.sign(fmt.Sprintf("set_task_exec:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
+}
+
 // ResolveHostname resolves a hostname to node info (node_id, address, public flag).
 func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{

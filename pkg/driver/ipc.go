@@ -40,6 +40,8 @@ const (
 	cmdSetTagsOK         byte = 0x1A
 	cmdSetWebhook        byte = 0x1B
 	cmdSetWebhookOK      byte = 0x1C
+	cmdSetTaskExec       byte = 0x1D
+	cmdSetTaskExecOK     byte = 0x1E
 )
 
 // Datagram represents a received unreliable datagram.
