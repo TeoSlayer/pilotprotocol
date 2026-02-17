@@ -109,6 +109,15 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "tags", fmtCount(stats.UniqueTags), c)
 	})
 
+	mux.HandleFunc("/api/badge/task-executors", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		c := "#4c1"
+		if stats.TaskExecutors == 0 {
+			c = "#9f9f9f"
+		}
+		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
+	})
+
 	// pprof endpoints for live profiling
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -139,7 +148,7 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 header .links{display:flex;gap:16px;font-size:13px}
 .uptime{font-size:12px;color:#8b949e;margin-top:4px}
 
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:32px}
 .stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
@@ -156,6 +165,10 @@ tr:last-child td{border-bottom:none}
 .tag-filter{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;color:#c9d1d9;font-family:inherit;font-size:13px;width:100%;margin-bottom:12px;outline:none}
 .tag-filter:focus{border-color:#58a6ff}
 .tag-filter::placeholder{color:#484f58}
+.task-badge{display:inline-block;background:#1a3a2a;border:1px solid #3fb950;border-radius:12px;padding:2px 10px;font-size:11px;color:#3fb950;white-space:nowrap}
+.filter-row{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.filter-row .tag-filter{margin-bottom:0;flex:1}
+.filter-row label{font-size:13px;color:#8b949e;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:4px}
 .empty{color:#484f58;font-style:italic;padding:20px;text-align:center}
 
 .pagination{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:13px}
@@ -204,6 +217,10 @@ footer a:hover{color:#58a6ff}
     <span class="value" id="unique-tags">—</span>
     <span class="label">Unique Tags</span>
   </div>
+  <div class="stat-card">
+    <span class="value" id="task-executors">—</span>
+    <span class="label">Task Executors</span>
+  </div>
 </div>
 
 <div class="section">
@@ -218,11 +235,14 @@ footer a:hover{color:#58a6ff}
 
 <div class="section">
   <h2>Nodes</h2>
-  <input type="text" id="tag-filter" class="tag-filter" placeholder="Filter by tag...">
+  <div class="filter-row">
+    <input type="text" id="tag-filter" class="tag-filter" placeholder="Filter by tag...">
+    <label><input type="checkbox" id="task-filter"> Tasks only</label>
+  </div>
   <table>
-    <thead><tr><th>Address</th><th>Status</th><th>Trust</th><th>Tags</th></tr></thead>
+    <thead><tr><th>Address</th><th>Status</th><th>Trust</th><th>Tags</th><th>Tasks</th></tr></thead>
     <tbody id="nodes-body">
-      <tr><td colspan="4" class="empty">Loading...</td></tr>
+      <tr><td colspan="5" class="empty">Loading...</td></tr>
     </tbody>
   </table>
   <div class="pagination" id="pagination"></div>
@@ -244,9 +264,11 @@ function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Mat
 /* ---- Table rendering ---- */
 function getFiltered(){
   var filter=document.getElementById('tag-filter').value;
-  if(!filter)return allNodes;
-  var q=filter.toLowerCase().replace(/^#/,'');
-  return allNodes.filter(function(n){return n.tags&&n.tags.some(function(t){return t.indexOf(q)>=0})});
+  var taskOnly=document.getElementById('task-filter').checked;
+  var result=allNodes;
+  if(filter){var q=filter.toLowerCase().replace(/^#/,'');result=result.filter(function(n){return n.tags&&n.tags.some(function(t){return t.indexOf(q)>=0})})}
+  if(taskOnly){result=result.filter(function(n){return n.task_exec})}
+  return result;
 }
 function renderNodes(){
   var tb=document.getElementById('nodes-body');
@@ -266,9 +288,11 @@ function renderNodes(){
       var td3=document.createElement('td');td3.textContent=n.trust_links||0;td3.style.color=n.trust_links?'#58a6ff':'#484f58';
       var td4=document.createElement('td');
       if(n.tags&&n.tags.length){n.tags.forEach(function(t){var s=document.createElement('span');s.className='tag';s.textContent='#'+t;td4.appendChild(s)})}else{td4.textContent='\u2014'}
-      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tb.appendChild(tr);
+      var td5=document.createElement('td');
+      if(n.task_exec){var b=document.createElement('span');b.className='task-badge';b.textContent='executor';td5.appendChild(b)}else{td5.textContent='\u2014'}
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tb.appendChild(tr);
     });
-  }else{tb.innerHTML='<tr><td colspan="4" class="empty">No nodes'+(document.getElementById('tag-filter').value?' matching filter':' registered')+'</td></tr>'}
+  }else{tb.innerHTML='<tr><td colspan="5" class="empty">No nodes'+(document.getElementById('tag-filter').value||document.getElementById('task-filter').checked?' matching filter':' registered')+'</td></tr>'}
   var pg=document.getElementById('pagination');
   if(filtered.length<=pageSize){pg.innerHTML='';return}
   pg.innerHTML='';
@@ -283,6 +307,7 @@ function update(){
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('unique-tags').textContent=fmt(d.unique_tags||0);
+    document.getElementById('task-executors').textContent=fmt(d.task_executors||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     var nb=document.getElementById('networks-body');
     nb.innerHTML='';
@@ -301,6 +326,7 @@ function update(){
   }).catch(function(){})
 }
 document.getElementById('tag-filter').addEventListener('input',function(){currentPage=1;renderNodes()});
+document.getElementById('task-filter').addEventListener('change',function(){currentPage=1;renderNodes()});
 update();setInterval(update,30000);
 </script>
 </body>

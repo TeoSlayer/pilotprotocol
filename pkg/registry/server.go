@@ -214,6 +214,7 @@ type NodeInfo struct {
 	Public    bool     // if true, endpoint is visible in lookup/list_nodes
 	Hostname  string   // unique hostname for discovery (empty = none)
 	Tags      []string // capability tags (e.g., "webserver", "assistant")
+	TaskExec  bool     // if true, node advertises task execution capability
 }
 
 type NetworkInfo struct {
@@ -717,6 +718,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 		return s.handleSetHostname(msg)
 	case "set_tags":
 		return s.handleSetTags(msg)
+	case "set_task_exec":
+		return s.handleSetTaskExec(msg)
 	case "resolve_hostname":
 		return s.handleResolveHostname(msg)
 	case "beacon_register":
@@ -1220,6 +1223,9 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	if len(node.Tags) > 0 {
 		resp["tags"] = node.Tags
 	}
+	if node.TaskExec {
+		resp["task_exec"] = true
+	}
 	if node.Public {
 		resp["real_addr"] = node.RealAddr
 	}
@@ -1399,6 +1405,35 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		"type":       "set_visibility_ok",
 		"node_id":    nodeID,
 		"visibility": visibility,
+	}, nil
+}
+
+func (s *Server) handleSetTaskExec(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	enabled, _ := msg["enabled"].(bool)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	// H3 fix: verify signature
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_task_exec:%d", nodeID)); err != nil {
+		return nil, err
+	}
+
+	node.TaskExec = enabled
+	s.save()
+
+	slog.Info("node task_exec changed", "node_id", nodeID, "task_exec", enabled)
+
+	return map[string]interface{}{
+		"type":      "set_task_exec_ok",
+		"node_id":   nodeID,
+		"task_exec": enabled,
 	}, nil
 }
 
@@ -1804,6 +1839,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
 			}
+			if node.TaskExec {
+				entry["task_exec"] = true
+			}
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
 			}
@@ -1947,6 +1985,7 @@ type snapshotNode struct {
 	LastSeen  string   `json:"last_seen,omitempty"`
 	Hostname  string   `json:"hostname,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
+	TaskExec  bool     `json:"task_exec,omitempty"`
 }
 
 type snapshotNet struct {
@@ -2021,6 +2060,7 @@ func (s *Server) flushSave() {
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			TaskExec:  n.TaskExec,
 		}
 	}
 
@@ -2124,6 +2164,7 @@ func (s *Server) load() error {
 			Public:    n.Public,
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			TaskExec:  n.TaskExec,
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
@@ -2269,6 +2310,7 @@ type DashboardNode struct {
 	Tags       []string `json:"tags"`
 	Online     bool     `json:"online"`
 	TrustLinks int      `json:"trust_links"`
+	TaskExec   bool     `json:"task_exec"`
 }
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
@@ -2291,6 +2333,7 @@ type DashboardStats struct {
 	TotalTrustLinks int                `json:"total_trust_links"`
 	TotalRequests   int64              `json:"total_requests"`
 	UniqueTags      int                `json:"unique_tags"`
+	TaskExecutors   int                `json:"task_executors"`
 	Networks        []DashboardNetwork `json:"networks"`
 	Nodes           []DashboardNode    `json:"nodes"`
 	Edges           []DashboardEdge    `json:"edges"`
@@ -2332,11 +2375,15 @@ func (s *Server) GetDashboardStats() DashboardStats {
 
 	nodes := make([]DashboardNode, 0, len(s.nodes))
 	activeCount := 0
+	taskExecCount := 0
 	tagSet := make(map[string]bool)
 	for _, node := range s.nodes {
 		online := node.LastSeen.After(onlineThreshold)
 		if online {
 			activeCount++
+		}
+		if node.TaskExec {
+			taskExecCount++
 		}
 		addr := protocol.Addr{Network: 0, Node: node.ID}
 		if len(node.Networks) > 0 {
@@ -2354,6 +2401,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 			Tags:       tags,
 			Online:     online,
 			TrustLinks: trustCount[node.ID],
+			TaskExec:   node.TaskExec,
 		})
 	}
 
@@ -2377,6 +2425,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
 		UniqueTags:      len(tagSet),
+		TaskExecutors:   taskExecCount,
 		Networks:        networks,
 		Nodes:           nodes,
 		Edges:           edges,
