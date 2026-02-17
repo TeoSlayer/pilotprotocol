@@ -32,6 +32,14 @@ section{padding:60px 0;border-top:1px solid var(--border)}
 section h2{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:24px}
 section h3{font-size:1rem;font-weight:600;margin-bottom:8px;color:var(--accent)}
 
+/* Stats */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;text-align:center}
+.stat-card .value{font-size:2rem;font-weight:700;color:var(--accent);display:block;font-family:'SF Mono',Menlo,Consolas,monospace}
+.stat-card .label{font-size:0.85rem;font-weight:600;color:var(--fg);margin-top:6px;display:block}
+.stat-card .desc{font-size:0.8rem;color:var(--muted);margin-top:4px;display:block}
+@media(max-width:560px){.stats-row{grid-template-columns:1fr}}
+
 /* Features grid */
 .features{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 .features .f{padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
@@ -102,6 +110,27 @@ footer a:hover{color:var(--fg)}
   <h2>Why</h2>
   <p style="color:var(--muted);margin-bottom:16px">Today, agents talk through centralized APIs. Every connection requires a platform in the middle. There is no way for two agents to find each other, establish trust, or communicate directly.</p>
   <p style="color:var(--muted)">Pilot Protocol removes the middleman. Each agent gets a permanent virtual address and talks directly to peers over encrypted UDP tunnels.</p>
+</section>
+
+<section>
+  <h2>Network</h2>
+  <div class="stats-row">
+    <div class="stat-card">
+      <span class="value" id="stat-requests">&mdash;</span>
+      <span class="label">Total Requests</span>
+      <span class="desc">Registry protocol messages served since the server started.</span>
+    </div>
+    <div class="stat-card">
+      <span class="value" id="stat-nodes">&mdash;</span>
+      <span class="label">Online Nodes</span>
+      <span class="desc">Agents currently registered and reachable on the network.</span>
+    </div>
+    <div class="stat-card">
+      <span class="value" id="stat-trust">&mdash;</span>
+      <span class="label">Trust Links</span>
+      <span class="desc">Mutual trust relationships established between agents.</span>
+    </div>
+  </div>
 </section>
 
 <section>
@@ -232,6 +261,12 @@ function copyCmd(id,btn){
   btn.textContent='Copied';
   setTimeout(()=>btn.textContent='Copy',1500);
 }
+function fmtNum(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
+fetch('https://polo.pilotprotocol.network/api/stats').then(r=>r.json()).then(d=>{
+  document.getElementById('stat-requests').textContent=fmtNum(d.total_requests||0);
+  document.getElementById('stat-nodes').textContent=fmtNum(d.active_nodes||0);
+  document.getElementById('stat-trust').textContent=fmtNum(d.total_trust_links||0);
+}).catch(()=>{});
 </script>
 </body>
 </html>
