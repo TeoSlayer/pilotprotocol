@@ -4,8 +4,8 @@ import (
 	"net"
 	"testing"
 
-	"web4/pkg/gateway"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 func TestMappingTableAutoAssign(t *testing.T) {

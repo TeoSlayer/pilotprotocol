@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Conn implements net.Conn over a Pilot Protocol stream.

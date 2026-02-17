@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"web4/internal/crypto"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // startTestRegistryWithAdmin starts a registry with admin token and returns client, server, cleanup.

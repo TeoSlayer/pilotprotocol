@@ -118,6 +118,13 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
 	})
 
+	// Prometheus metrics endpoint
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		s.metrics.updateGauges(s)
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s.metrics.WriteTo(w)
+	})
+
 	// pprof endpoints for live profiling
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)

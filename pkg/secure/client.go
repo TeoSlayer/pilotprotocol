@@ -1,8 +1,8 @@
 package secure
 
 import (
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Dial connects to a remote agent's secure port and performs the handshake.

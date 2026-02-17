@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/pkg/daemon"
-	"web4/pkg/driver"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // waitForSocketRemoval polls until the given unix socket file is removed,

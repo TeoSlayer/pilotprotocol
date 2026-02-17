@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"web4/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 )
 
 func TestGenerateIdentity(t *testing.T) {

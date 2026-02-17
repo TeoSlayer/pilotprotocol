@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"web4/internal/fsutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Record types

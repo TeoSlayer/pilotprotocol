@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 func TestAddrString(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // MappingTable maps local IPs to Pilot addresses and vice versa.

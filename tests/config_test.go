@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"web4/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 )
 
 // NOTE: These tests modify the global flag.CommandLine and cannot use t.Parallel().

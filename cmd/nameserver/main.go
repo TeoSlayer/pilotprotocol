@@ -4,10 +4,10 @@ import (
 	"flag"
 	"log"
 
-	"web4/pkg/config"
-	"web4/pkg/driver"
-	"web4/pkg/logging"
-	"web4/pkg/nameserver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/nameserver"
 )
 
 func main() {

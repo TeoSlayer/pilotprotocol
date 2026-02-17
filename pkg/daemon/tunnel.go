@@ -14,9 +14,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"web4/internal/crypto"
-	"web4/internal/pool"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/pool"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // replayWindowSize is the number of nonces tracked in the sliding window bitmap

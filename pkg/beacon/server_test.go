@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // helper: send a discover message to register a node with a beacon

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	icrypto "web4/internal/crypto"
-	"web4/pkg/registry"
+	icrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // dashRegisterNode registers a test node with the given hostname via the registry client.

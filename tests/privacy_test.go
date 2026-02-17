@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	"web4/pkg/daemon"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // TestPrivateNodeResolveBlocked verifies that a private node cannot be resolved

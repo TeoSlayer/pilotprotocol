@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/daemon"
-	"web4/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
 )
 
 func TestDataExchange(t *testing.T) {

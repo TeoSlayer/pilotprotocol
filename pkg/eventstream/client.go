@@ -1,8 +1,8 @@
 package eventstream
 
 import (
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Client connects to a remote event stream broker on port 1002.

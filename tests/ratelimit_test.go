@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // testClock provides a controllable time source for rate limiter tests.

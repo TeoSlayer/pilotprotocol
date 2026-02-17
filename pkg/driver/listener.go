@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Listener implements net.Listener over a Pilot Protocol port.

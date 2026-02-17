@@ -3,8 +3,8 @@ package nameserver
 import (
 	"fmt"
 
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Client queries a Pilot Protocol nameserver over the overlay.

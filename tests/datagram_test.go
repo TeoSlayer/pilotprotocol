@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // TestUnicastDatagram verifies point-to-point datagram delivery.

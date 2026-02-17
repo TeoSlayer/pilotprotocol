@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // startTestRegistry starts a registry on a random port and returns the client and cleanup func.

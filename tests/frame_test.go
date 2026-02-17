@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"web4/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
 )
 
 func TestFrameTextRoundTrip(t *testing.T) {

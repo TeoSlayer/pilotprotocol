@@ -9,9 +9,9 @@ import (
 	"strings"
 	"syscall"
 
-	"web4/pkg/beacon"
-	"web4/pkg/config"
-	"web4/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 )
 
 func main() {

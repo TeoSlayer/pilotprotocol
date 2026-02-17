@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/daemon"
-	"web4/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 )
 
 // TestDialClosedPort verifies that dialing a port with no listener returns an error (RST).
