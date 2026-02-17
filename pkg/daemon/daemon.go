@@ -39,6 +39,7 @@ type Config struct {
 	DisableEcho         bool // disable built-in echo service (port 7)
 	DisableDataExchange bool // disable built-in data exchange service (port 1001)
 	DisableEventStream  bool // disable built-in event stream service (port 1002)
+	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
 
 	// Webhook
 	WebhookURL string // HTTP(S) endpoint for event notifications (empty = disabled)
@@ -94,6 +95,7 @@ type Daemon struct {
 	ipc        *IPCServer
 	handshakes *HandshakeManager
 	webhook    *WebhookClient
+	taskQueue  *TaskQueue
 	startTime  time.Time
 	stopCh     chan struct{} // closed on Stop() to signal goroutines
 
@@ -162,6 +164,7 @@ func New(cfg Config) *Daemon {
 		config:      cfg,
 		tunnels:     NewTunnelManager(),
 		ports:       NewPortManager(),
+		taskQueue:   NewTaskQueue(),
 		stopCh:      make(chan struct{}),
 		synTokens:   cfg.synRateLimit(),
 		synLastFill: time.Now(),
@@ -540,6 +543,9 @@ func (d *Daemon) SetWebhookURL(url string) {
 
 // Identity returns the daemon's Ed25519 identity (may be nil if unset).
 func (d *Daemon) Identity() *crypto.Identity { return d.identity }
+
+// TaskQueue returns the daemon's task queue.
+func (d *Daemon) TaskQueue() *TaskQueue { return d.taskQueue }
 
 func (d *Daemon) Addr() protocol.Addr {
 	d.addrMu.RLock()

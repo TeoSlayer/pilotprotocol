@@ -1,0 +1,6 @@
+{
+  "registry-addr": "127.0.0.1:14001",
+  "beacon-addr": "127.0.0.1:14002",
+  "log-level": "debug",
+  "log-format": "text"
+}

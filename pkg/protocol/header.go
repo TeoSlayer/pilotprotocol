@@ -7,11 +7,11 @@ const Version uint8 = 1
 
 // Sentinel errors shared across packages.
 var (
-	ErrNodeNotFound    = errors.New("node not found")
-	ErrNetworkNotFound = errors.New("network not found")
-	ErrConnClosed      = errors.New("connection closed")
-	ErrConnRefused     = errors.New("connection refused")
-	ErrDialTimeout     = errors.New("dial timeout")
+	ErrNodeNotFound     = errors.New("node not found")
+	ErrNetworkNotFound  = errors.New("network not found")
+	ErrConnClosed       = errors.New("connection closed")
+	ErrConnRefused      = errors.New("connection refused")
+	ErrDialTimeout      = errors.New("dial timeout")
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
@@ -41,6 +41,7 @@ const (
 	PortStdIO        uint16 = 1000
 	PortDataExchange uint16 = 1001
 	PortEventStream  uint16 = 1002
+	PortTaskSubmit   uint16 = 1003
 )
 
 // Port ranges

@@ -14,6 +14,7 @@ import (
 	"web4/pkg/dataexchange"
 	"web4/pkg/eventstream"
 	"web4/pkg/protocol"
+	"web4/pkg/tasksubmit"
 )
 
 // connAdapter wraps a daemon *Connection as a net.Conn so that existing
@@ -97,6 +98,11 @@ func (d *Daemon) startBuiltinServices() {
 	if !d.config.DisableEventStream {
 		if err := d.startEventStreamService(); err != nil {
 			slog.Warn("eventstream service failed to start", "error", err)
+		}
+	}
+	if !d.config.DisableTaskSubmit {
+		if err := d.startTaskSubmitService(); err != nil {
+			slog.Warn("tasksubmit service failed to start", "error", err)
 		}
 	}
 }
@@ -390,4 +396,277 @@ func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
 	b.webhook.Emit("pubsub.published", map[string]interface{}{
 		"topic": evt.Topic, "size": len(evt.Payload), "from": sender.RemoteAddr().String(),
 	})
+}
+
+// ===================== TASK SUBMISSION SERVICE =====================
+
+// TaskQueue manages pending task submissions.
+type TaskQueue struct {
+	mu    sync.Mutex
+	tasks []QueuedTask
+}
+
+// QueuedTask represents a task in the queue.
+type QueuedTask struct {
+	Description string
+	SubmitterID uint32
+	SubmittedAt time.Time
+}
+
+// NewTaskQueue creates a new task queue.
+func NewTaskQueue() *TaskQueue {
+	return &TaskQueue{
+		tasks: make([]QueuedTask, 0),
+	}
+}
+
+// Add adds a task to the queue.
+func (q *TaskQueue) Add(description string, submitterID uint32) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.tasks = append(q.tasks, QueuedTask{
+		Description: description,
+		SubmitterID: submitterID,
+		SubmittedAt: time.Now(),
+	})
+}
+
+// Pop removes and returns the next task from the queue, or nil if empty.
+func (q *TaskQueue) Pop() *QueuedTask {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.tasks) == 0 {
+		return nil
+	}
+	task := q.tasks[0]
+	q.tasks = q.tasks[1:]
+	return &task
+}
+
+// Len returns the number of tasks in the queue.
+func (q *TaskQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.tasks)
+}
+
+// startTaskSubmitService binds port 1003 and handles task submissions.
+func (d *Daemon) startTaskSubmitService() error {
+	ln, err := d.ports.Bind(protocol.PortTaskSubmit)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			select {
+			case conn, ok := <-ln.AcceptCh:
+				if !ok {
+					return
+				}
+				go d.handleTaskSubmitConn(conn)
+			case <-d.stopCh:
+				return
+			}
+		}
+	}()
+	slog.Info("tasksubmit service listening", "port", protocol.PortTaskSubmit)
+	return nil
+}
+
+func (d *Daemon) handleTaskSubmitConn(conn *Connection) {
+	adapter := newConnAdapter(d, conn)
+	defer adapter.Close()
+
+	// Read task submission request
+	frame, err := tasksubmit.ReadFrame(adapter)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to read frame", "error", err)
+		return
+	}
+
+	if frame.Type != tasksubmit.TypeSubmit {
+		slog.Warn("tasksubmit: unexpected frame type", "type", frame.Type)
+		return
+	}
+
+	req, err := tasksubmit.UnmarshalSubmitRequest(frame)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to unmarshal request", "error", err)
+		return
+	}
+
+	slog.Debug("tasksubmit: received task",
+		"description", req.TaskDescription,
+		"remote", conn.RemoteAddr,
+		"remote_node", conn.RemoteAddr.Node,
+	)
+
+	// For now, auto-accept all tasks (can be extended with policy later)
+	accepted := true
+
+	var resp *tasksubmit.SubmitResponse
+	if accepted {
+		// Add to queue
+		d.taskQueue.Add(req.TaskDescription, conn.RemoteAddr.Node)
+
+		resp = &tasksubmit.SubmitResponse{
+			Status:  tasksubmit.StatusAccepted,
+			Message: "Task accepted and queued",
+		}
+
+		slog.Info("tasksubmit: task accepted",
+			"description", req.TaskDescription,
+			"submitter_node", conn.RemoteAddr.Node,
+			"queue_length", d.taskQueue.Len(),
+		)
+
+		// Process task asynchronously
+		go d.processNextTask()
+	} else {
+		resp = &tasksubmit.SubmitResponse{
+			Status:  tasksubmit.StatusRejected,
+			Message: "Task rejected",
+		}
+	}
+
+	// Send response
+	respFrame, err := tasksubmit.MarshalSubmitResponse(resp)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to marshal response", "error", err)
+		return
+	}
+
+	if err := tasksubmit.WriteFrame(adapter, respFrame); err != nil {
+		slog.Warn("tasksubmit: failed to write response", "error", err)
+		return
+	}
+
+	slog.Info("tasksubmit: response sent",
+		"status", resp.Status,
+		"accepted", accepted,
+		"remote_node", conn.RemoteAddr.Node,
+	)
+}
+
+// processNextTask processes the next task in the queue.
+func (d *Daemon) processNextTask() {
+	task := d.taskQueue.Pop()
+	if task == nil {
+		return
+	}
+
+	slog.Info("tasksubmit: processing task",
+		"description", task.Description,
+		"submitter_node", task.SubmitterID,
+	)
+
+	// Update karma scores: receiver +1, submitter -1
+	d.updateKarmaScores(d.nodeID, task.SubmitterID)
+
+	// Simulate task execution (mock for now)
+	result := &tasksubmit.TaskResult{
+		TaskDescription: task.Description,
+		Status:          "success",
+		Result:          "Mock task completed successfully",
+		Timestamp:       time.Now().Format(time.RFC3339),
+	}
+
+	// Send result back to submitter via data exchange
+	d.sendTaskResult(task.SubmitterID, result)
+
+	slog.Info("tasksubmit: task completed",
+		"description", task.Description,
+		"submitter_node", task.SubmitterID,
+	)
+}
+
+// updateKarmaScores updates karma scores for task processing.
+func (d *Daemon) updateKarmaScores(receiverNode, submitterNode uint32) {
+	if d.regConn == nil {
+		slog.Warn("tasksubmit: cannot update karma, no registry connection")
+		return
+	}
+
+	// Receiver gets +1 karma
+	if _, err := d.regConn.UpdateKarma(receiverNode, 1); err != nil {
+		slog.Warn("tasksubmit: failed to update receiver karma",
+			"node_id", receiverNode,
+			"error", err,
+		)
+	} else {
+		slog.Info("tasksubmit: karma updated",
+			"node_id", receiverNode,
+			"delta", 1,
+		)
+	}
+
+	// Submitter gets -1 karma
+	if _, err := d.regConn.UpdateKarma(submitterNode, -1); err != nil {
+		slog.Warn("tasksubmit: failed to update submitter karma",
+			"node_id", submitterNode,
+			"error", err,
+		)
+	} else {
+		slog.Info("tasksubmit: karma updated",
+			"node_id", submitterNode,
+			"delta", -1,
+		)
+	}
+}
+
+// sendTaskResult sends the task result back to the submitter via data exchange.
+func (d *Daemon) sendTaskResult(submitterNode uint32, result *tasksubmit.TaskResult) {
+	// Convert node ID to address
+	addr := protocol.Addr{
+		Network: 0, // backbone
+		Node:    submitterNode,
+	}
+
+	// Marshal result to JSON
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to marshal result", "error", err)
+		return
+	}
+
+	// Connect to submitter's data exchange port
+	conn, err := d.DialConnection(addr, protocol.PortDataExchange)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to connect to submitter for result delivery",
+			"submitter_node", submitterNode,
+			"error", err,
+		)
+		return
+	}
+	defer d.CloseConnection(conn)
+
+	// Create adapter
+	adapter := newConnAdapter(d, conn)
+	defer adapter.Close()
+
+	// Send as JSON message
+	frame := &dataexchange.Frame{
+		Type:    dataexchange.TypeJSON,
+		Payload: resultJSON,
+	}
+
+	if err := dataexchange.WriteFrame(adapter, frame); err != nil {
+		slog.Warn("tasksubmit: failed to send result",
+			"submitter_node", submitterNode,
+			"error", err,
+		)
+		return
+	}
+
+	// Read ACK
+	ackFrame, err := dataexchange.ReadFrame(adapter)
+	if err != nil {
+		slog.Warn("tasksubmit: failed to read ACK", "error", err)
+		return
+	}
+
+	slog.Info("tasksubmit: result sent",
+		"submitter_node", submitterNode,
+		"ack", string(ackFrame.Payload),
+	)
 }

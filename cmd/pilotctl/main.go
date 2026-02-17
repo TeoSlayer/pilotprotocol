@@ -26,6 +26,7 @@ import (
 	"web4/pkg/logging"
 	"web4/pkg/protocol"
 	"web4/pkg/registry"
+	"web4/pkg/tasksubmit"
 )
 
 // Global flags
@@ -523,6 +524,8 @@ func main() {
 		cmdSendFile(cmdArgs)
 	case "send-message":
 		cmdSendMessage(cmdArgs)
+	case "submit-task":
+		cmdSubmitTask(cmdArgs)
 	case "subscribe":
 		cmdSubscribe(cmdArgs)
 	case "publish":
@@ -2302,6 +2305,54 @@ func cmdSendMessage(args []string) {
 	outputOK(result)
 }
 
+func cmdSubmitTask(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl submit-task <address|hostname> --task <description>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+
+	taskDesc := flagString(flags, "task", "")
+	if taskDesc == "" {
+		fatalCode("invalid_argument", "--task is required")
+	}
+
+	client, err := tasksubmit.Dial(d, target)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s (task submit port %d)", target, protocol.PortTaskSubmit)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask(taskDesc)
+	if err != nil {
+		fatalCode("connection_failed", "submit: %v", err)
+	}
+
+	result := map[string]interface{}{
+		"target":  target.String(),
+		"task":    taskDesc,
+		"status":  resp.Status,
+		"message": resp.Message,
+	}
+
+	if resp.Status == tasksubmit.StatusAccepted {
+		result["accepted"] = true
+	} else {
+		result["accepted"] = false
+	}
+
+	outputOK(result)
+}
+
 func cmdSubscribe(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 2 {
@@ -2360,9 +2411,9 @@ func cmdSubscribe(args []string) {
 		case evt := <-evtCh:
 			received++
 			msg := map[string]interface{}{
-				"topic":   evt.Topic,
-				"data":    string(evt.Payload),
-				"bytes":   len(evt.Payload),
+				"topic": evt.Topic,
+				"data":  string(evt.Payload),
+				"bytes": len(evt.Payload),
 			}
 			events = append(events, msg)
 
