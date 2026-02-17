@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Wire protocol for the nameserver. Plain text, newline-delimited.

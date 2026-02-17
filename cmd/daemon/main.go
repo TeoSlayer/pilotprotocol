@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"web4/pkg/config"
-	"web4/pkg/daemon"
-	"web4/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 )
 
 func main() {

@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"sync"
 
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // DefaultPorts is the default set of ports the gateway proxies.

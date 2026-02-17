@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"net"
 
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Handler is called for each incoming frame on a connection.

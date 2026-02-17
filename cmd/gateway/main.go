@@ -12,10 +12,10 @@ import (
 	"strings"
 	"syscall"
 
-	"web4/pkg/config"
-	"web4/pkg/gateway"
-	"web4/pkg/logging"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 func main() {

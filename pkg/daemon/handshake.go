@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/internal/fsutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 

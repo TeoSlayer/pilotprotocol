@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/driver"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 func TestGracefulShutdown(t *testing.T) {

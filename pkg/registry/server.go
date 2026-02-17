@@ -26,9 +26,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/internal/fsutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // hashOwner returns a truncated SHA-256 hash of the owner for safe logging.
@@ -99,6 +99,9 @@ type Server struct {
 
 	// Beacon cluster: beacon instances register themselves for peer discovery
 	beacons map[uint32]*beaconEntry
+
+	// Prometheus metrics
+	metrics *registryMetrics
 
 	// Shutdown
 	done chan struct{}
@@ -320,6 +323,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
 		beacons:     make(map[uint32]*beaconEntry),
 		replMgr:     newReplicationManager(),
+		metrics:     newRegistryMetrics(),
 		readyCh:     make(chan struct{}),
 		done:        make(chan struct{}),
 		saveCh:      make(chan struct{}, 1),
@@ -648,9 +652,19 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (map[string]interface{}, error) {
+func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (resp map[string]interface{}, err error) {
 	s.requestCount.Add(1)
 	msgType, _ := msg["type"].(string)
+
+	// Prometheus instrumentation
+	s.metrics.requestsTotal.WithLabel(msgType).Inc()
+	start := time.Now()
+	defer func() {
+		s.metrics.requestDuration.WithLabel(msgType).Observe(time.Since(start).Seconds())
+		if err != nil {
+			s.metrics.errorsTotal.WithLabel(msgType).Inc()
+		}
+	}()
 
 	// Standby mode: reject write operations, allow reads
 	s.mu.RLock()
@@ -770,6 +784,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 			if regErr != nil {
 				return resp, regErr
 			}
+			s.metrics.registrations.Inc()
 			resp["hostname_error"] = err.Error()
 			return resp, nil
 		}
@@ -777,7 +792,11 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 
 	// M3 fix: pass hostname into handleReRegister so registration + hostname
 	// are set atomically under a single lock acquisition.
-	return s.handleReRegister(pubKeyB64, listenAddr, owner, hostname)
+	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname)
+	if err == nil {
+		s.metrics.registrations.Inc()
+	}
+	return resp, err
 }
 
 // handleRotateKey rotates the Ed25519 keypair for a node.
@@ -1336,6 +1355,7 @@ func (s *Server) handleReportTrust(msg map[string]interface{}) (map[string]inter
 	key := trustPairKey(nodeA, nodeB)
 	s.trustPairs[key] = true
 	s.save()
+	s.metrics.trustReports.Inc()
 
 	slog.Info("trust pair registered", "node_a", nodeA, "node_b", nodeB)
 
@@ -1367,6 +1387,7 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 
 	delete(s.trustPairs, key)
 	s.save()
+	s.metrics.trustRevocations.Inc()
 
 	slog.Info("trust pair revoked", "node_a", nodeA, "node_b", nodeB)
 
@@ -1490,6 +1511,8 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 		Justification: justification,
 		Timestamp:     time.Now(),
 	})
+
+	s.metrics.handshakeRequests.Inc()
 
 	slog.Info("handshake request relayed", "from", fromNodeID, "to", toNodeID)
 
@@ -1889,6 +1912,7 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	s.cleanupNode(nodeID)
 	delete(s.nodes, nodeID)
 	s.save()
+	s.metrics.deregistrations.Inc()
 
 	slog.Info("deregistered node", "node_id", nodeID)
 

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/daemon"
-	"web4/pkg/driver"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 func TestHandshakeMutualAutoApprove(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"os"
 	"sync"
 
-	"web4/internal/ipcutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // IPC commands (daemon ↔ driver)

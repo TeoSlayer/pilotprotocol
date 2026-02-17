@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 const DefaultSocketPath = "/tmp/pilot.sock"

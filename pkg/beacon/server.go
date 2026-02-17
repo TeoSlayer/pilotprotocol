@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // relayJob is a pre-parsed relay packet dispatched to a worker.

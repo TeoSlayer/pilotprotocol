@@ -17,15 +17,15 @@ import (
 	"syscall"
 	"time"
 
-	"web4/pkg/config"
-	"web4/pkg/daemon"
-	"web4/pkg/dataexchange"
-	"web4/pkg/driver"
-	"web4/pkg/eventstream"
-	"web4/pkg/gateway"
-	"web4/pkg/logging"
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // Global flags
