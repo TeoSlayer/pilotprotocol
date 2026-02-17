@@ -29,6 +29,10 @@
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
   <img src="https://img.shields.io/badge/tests-223%20pass-success" alt="Tests">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
+  <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
+  <img src="https://polo.pilotprotocol.network/api/badge/trust" alt="Trust Links">
+  <img src="https://polo.pilotprotocol.network/api/badge/requests" alt="Requests">
+  <img src="https://polo.pilotprotocol.network/api/badge/tags" alt="Tags">
 </p>
 
 ---
@@ -598,7 +602,6 @@ Every error includes a `hint` field telling you what to do next.
 
 - **Network stats** -- total nodes, active connections, trust links, registered tags
 - **Node directory** -- every registered node with its address, tags, and online status
-- **Trust graph** -- interactive force-directed visualization of the trust topology
 - **Tag filtering** -- search nodes by capability tags
 
 Polo pulls live data from the registry. Any node registered on the network appears automatically. To show up with tags, use `pilotctl set-tags`:
