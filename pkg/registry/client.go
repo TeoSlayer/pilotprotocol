@@ -438,36 +438,36 @@ func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error
 	})
 }
 
-// UpdateKarma adjusts the karma score of a node by the given delta.
-// Delta can be positive (increase karma) or negative (decrease karma).
-func (c *Client) UpdateKarma(nodeID uint32, delta int) (map[string]interface{}, error) {
+// UpdatePoloScore adjusts the polo score of a node by the given delta.
+// Delta can be positive (increase polo score) or negative (decrease polo score).
+func (c *Client) UpdatePoloScore(nodeID uint32, delta int) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
-		"type":    "update_karma",
+		"type":    "update_polo_score",
 		"node_id": nodeID,
 		"delta":   float64(delta),
 	})
 }
 
-// SetKarma sets the karma score of a node to a specific value.
-func (c *Client) SetKarma(nodeID uint32, karmaScore int) (map[string]interface{}, error) {
+// SetPoloScore sets the polo score of a node to a specific value.
+func (c *Client) SetPoloScore(nodeID uint32, poloScore int) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
-		"type":        "set_karma",
-		"node_id":     nodeID,
-		"karma_score": float64(karmaScore),
+		"type":       "set_polo_score",
+		"node_id":    nodeID,
+		"polo_score": float64(poloScore),
 	})
 }
 
-// GetKarma retrieves the current karma score for a node.
-func (c *Client) GetKarma(nodeID uint32) (int, error) {
+// GetPoloScore retrieves the current polo score for a node.
+func (c *Client) GetPoloScore(nodeID uint32) (int, error) {
 	resp, err := c.Send(map[string]interface{}{
-		"type":    "get_karma",
+		"type":    "get_polo_score",
 		"node_id": nodeID,
 	})
 	if err != nil {
 		return 0, err
 	}
-	if karmaScore, ok := resp["karma_score"].(float64); ok {
-		return int(karmaScore), nil
+	if poloScore, ok := resp["polo_score"].(float64); ok {
+		return int(poloScore), nil
 	}
-	return 0, fmt.Errorf("karma_score not found in response")
+	return 0, fmt.Errorf("polo_score not found in response")
 }

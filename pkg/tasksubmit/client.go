@@ -7,7 +7,8 @@ import (
 
 // Client connects to a remote task submission service on port 1003.
 type Client struct {
-	conn *driver.Conn
+	conn      *driver.Conn
+	localAddr string
 }
 
 // Dial connects to a remote agent's task submission port.
@@ -16,13 +17,24 @@ func Dial(d *driver.Driver, addr protocol.Addr) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn}, nil
+	// Get local address from driver
+	info, _ := d.Info()
+	localAddr := ""
+	if addrStr, ok := info["address"].(string); ok {
+		localAddr = addrStr
+	}
+	return &Client{conn: conn, localAddr: localAddr}, nil
 }
 
 // SubmitTask sends a task submission request and waits for a response.
-func (c *Client) SubmitTask(taskDescription string) (*SubmitResponse, error) {
+// Returns the task_id assigned to this task.
+func (c *Client) SubmitTask(taskDescription string, targetAddr string) (*SubmitResponse, error) {
+	taskID := GenerateTaskID()
 	req := &SubmitRequest{
+		TaskID:          taskID,
 		TaskDescription: taskDescription,
+		FromAddr:        c.localAddr,
+		ToAddr:          targetAddr,
 	}
 	frame, err := MarshalSubmitRequest(req)
 	if err != nil {
@@ -39,6 +51,29 @@ func (c *Client) SubmitTask(taskDescription string) (*SubmitResponse, error) {
 	}
 
 	return UnmarshalSubmitResponse(respFrame)
+}
+
+// SendStatusUpdate sends a task status update to the remote agent.
+func (c *Client) SendStatusUpdate(taskID, status, justification string) error {
+	update := &TaskStatusUpdate{
+		TaskID:        taskID,
+		Status:        status,
+		Justification: justification,
+	}
+	frame, err := MarshalTaskStatusUpdate(update)
+	if err != nil {
+		return err
+	}
+	return WriteFrame(c.conn, frame)
+}
+
+// SendResults sends task results to the remote agent.
+func (c *Client) SendResults(msg *TaskResultMessage) error {
+	frame, err := MarshalTaskResultMessage(msg)
+	if err != nil {
+		return err
+	}
+	return WriteFrame(c.conn, frame)
 }
 
 // RecvResult reads a task result from the connection.
