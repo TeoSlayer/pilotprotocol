@@ -26,16 +26,16 @@ const replayWindowSize = 256
 
 // peerCrypto holds per-peer encryption state.
 type peerCrypto struct {
-	aead          cipher.AEAD
-	nonce         uint64   // monotonic send counter (atomic)
-	noncePrefix   [4]byte  // random prefix for nonce domain separation
+	aead        cipher.AEAD
+	nonce       uint64  // monotonic send counter (atomic)
+	noncePrefix [4]byte // random prefix for nonce domain separation
 	// Replay detection (H8 fix): sliding window bitmap instead of simple high-water mark.
 	replayMu      sync.Mutex
-	maxRecvNonce  uint64                         // highest nonce received
-	replayBitmap  [replayWindowSize / 64]uint64  // bitmap for nonces in [max-windowSize, max]
-	ready         bool     // true once key exchange is complete
-	authenticated bool     // true if peer proved Ed25519 identity
-	peerX25519Key [32]byte // peer's X25519 public key (for detecting rekeying)
+	maxRecvNonce  uint64                        // highest nonce received
+	replayBitmap  [replayWindowSize / 64]uint64 // bitmap for nonces in [max-windowSize, max]
+	ready         bool                          // true once key exchange is complete
+	authenticated bool                          // true if peer proved Ed25519 identity
+	peerX25519Key [32]byte                      // peer's X25519 public key (for detecting rekeying)
 }
 
 // checkAndRecordNonce returns true if the nonce is valid (not replayed, not too old).
@@ -90,27 +90,27 @@ func (pc *peerCrypto) setReplayBit(counter uint64) {
 type TunnelManager struct {
 	mu        sync.RWMutex
 	conn      *net.UDPConn
-	peers     map[uint32]*net.UDPAddr  // node_id → real UDP endpoint
-	crypto    map[uint32]*peerCrypto   // node_id → encryption state
+	peers     map[uint32]*net.UDPAddr // node_id → real UDP endpoint
+	crypto    map[uint32]*peerCrypto  // node_id → encryption state
 	recvCh    chan *IncomingPacket
-	done      chan struct{}             // closed on Close() to stop readLoop sends
-	readWg    sync.WaitGroup           // tracks readLoop goroutine for clean shutdown
+	done      chan struct{}  // closed on Close() to stop readLoop sends
+	readWg    sync.WaitGroup // tracks readLoop goroutine for clean shutdown
 	closeOnce sync.Once
 
 	// Encryption config
-	encrypt bool                  // if true, attempt encrypted tunnels
-	privKey *ecdh.PrivateKey      // our X25519 private key
-	pubKey  []byte                // our X25519 public key (32 bytes)
-	nodeID  uint32                // our node ID (set after registration)
+	encrypt bool             // if true, attempt encrypted tunnels
+	privKey *ecdh.PrivateKey // our X25519 private key
+	pubKey  []byte           // our X25519 public key (32 bytes)
+	nodeID  uint32           // our node ID (set after registration)
 
 	// Identity authentication (Ed25519)
-	identity    *crypto.Identity                  // our Ed25519 identity for signing
-	peerPubKeys map[uint32]ed25519.PublicKey       // node_id → Ed25519 pubkey (from registry)
+	identity    *crypto.Identity                        // our Ed25519 identity for signing
+	peerPubKeys map[uint32]ed25519.PublicKey            // node_id → Ed25519 pubkey (from registry)
 	verifyFunc  func(uint32) (ed25519.PublicKey, error) // callback to fetch peer pubkey
 
 	// Pending sends waiting for key exchange to complete
-	pendMu   sync.Mutex
-	pending  map[uint32][][]byte  // node_id → queued frames
+	pendMu  sync.Mutex
+	pending map[uint32][][]byte // node_id → queued frames
 
 	// NAT traversal: beacon-coordinated hole-punching and relay
 	beaconAddr *net.UDPAddr            // beacon address for punch/relay
@@ -358,8 +358,8 @@ func (tm *TunnelManager) Close() error {
 		if tm.conn != nil {
 			connErr = tm.conn.Close() // causes readLoop to exit on ReadFromUDP error
 		}
-		tm.readWg.Wait()  // wait for readLoop to fully exit before closing recvCh
-		close(tm.recvCh)  // unblock routeLoop (H5 fix — prevents goroutine leak)
+		tm.readWg.Wait() // wait for readLoop to fully exit before closing recvCh
+		close(tm.recvCh) // unblock routeLoop (H5 fix — prevents goroutine leak)
 	})
 	return connErr
 }

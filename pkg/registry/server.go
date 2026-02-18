@@ -56,26 +56,26 @@ func (s *Server) requireAdminToken(msg map[string]interface{}) error {
 }
 
 type Server struct {
-	mu          sync.RWMutex
-	nodes       map[uint32]*NodeInfo
-	startTime   time.Time
+	mu           sync.RWMutex
+	nodes        map[uint32]*NodeInfo
+	startTime    time.Time
 	requestCount atomic.Int64
-	networks    map[uint16]*NetworkInfo
-	pubKeyIdx   map[string]uint32 // base64(pubkey) -> nodeID for re-registration
-	ownerIdx    map[string]uint32 // owner -> nodeID for key rotation
-	hostnameIdx map[string]uint32 // hostname -> nodeID (unique index)
-	nextNode    uint32
-	nextNet     uint16
-	listener    net.Listener
-	readyCh     chan struct{}
+	networks     map[uint16]*NetworkInfo
+	pubKeyIdx    map[string]uint32 // base64(pubkey) -> nodeID for re-registration
+	ownerIdx     map[string]uint32 // owner -> nodeID for key rotation
+	hostnameIdx  map[string]uint32 // hostname -> nodeID (unique index)
+	nextNode     uint32
+	nextNet      uint16
+	listener     net.Listener
+	readyCh      chan struct{}
 
 	// Beacon coordination
 	beaconAddr string
 
 	// Persistence
 	storePath string        // empty = no persistence
-	saveCh    chan struct{}  // debounced save signal
-	saveDone  chan struct{}  // closed when saveLoop exits
+	saveCh    chan struct{} // debounced save signal
+	saveDone  chan struct{} // closed when saveLoop exits
 
 	// TLS
 	tlsConfig *tls.Config
@@ -217,6 +217,7 @@ type NodeInfo struct {
 	Public    bool     // if true, endpoint is visible in lookup/list_nodes
 	Hostname  string   // unique hostname for discovery (empty = none)
 	Tags      []string // capability tags (e.g., "webserver", "assistant")
+	PoloScore int      // polo score for reputation system (default: 0)
 	TaskExec  bool     // if true, node advertises task execution capability
 }
 
@@ -307,17 +308,17 @@ func New(beaconAddr string) *Server {
 
 func NewWithStore(beaconAddr, storePath string) *Server {
 	s := &Server{
-		nodes:       make(map[uint32]*NodeInfo),
-		networks:    make(map[uint16]*NetworkInfo),
-		pubKeyIdx:   make(map[string]uint32),
-		ownerIdx:    make(map[string]uint32),
-		hostnameIdx: make(map[string]uint32),
-		nextNode:    1, // 0 is reserved
-		nextNet:     1, // 0 is backbone
-		beaconAddr:  beaconAddr,
-		storePath:   storePath,
-		startTime:   time.Now(),
-		trustPairs:     make(map[string]bool),
+		nodes:              make(map[uint32]*NodeInfo),
+		networks:           make(map[uint16]*NetworkInfo),
+		pubKeyIdx:          make(map[string]uint32),
+		ownerIdx:           make(map[string]uint32),
+		hostnameIdx:        make(map[string]uint32),
+		nextNode:           1, // 0 is reserved
+		nextNet:            1, // 0 is backbone
+		beaconAddr:         beaconAddr,
+		storePath:          storePath,
+		startTime:          time.Now(),
+		trustPairs:         make(map[string]bool),
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
@@ -710,6 +711,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleListNodes(msg)
 	case "rotate_key":
 		return s.handleRotateKey(msg)
+	case "update_polo_score":
+		return s.handleUpdatePoloScore(msg)
+	case "set_polo_score":
+		return s.handleSetPoloScore(msg)
+	case "get_polo_score":
+		return s.handleGetPoloScore(msg)
 	case "deregister":
 		return s.handleDeregister(msg)
 	case "set_visibility":
@@ -857,6 +864,90 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 	}, nil
 }
 
+// handleUpdatePoloScore adjusts the polo score of a node by a delta value.
+func (s *Server) handleUpdatePoloScore(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	delta, ok := msg["delta"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("update_polo_score requires delta field")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	node.PoloScore += int(delta)
+	node.LastSeen = time.Now()
+	s.save()
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+	slog.Info("polo score updated", "node_id", nodeID, "delta", int(delta), "new_score", node.PoloScore)
+
+	return map[string]interface{}{
+		"type":       "update_polo_score_ok",
+		"node_id":    nodeID,
+		"address":    addr.String(),
+		"polo_score": node.PoloScore,
+	}, nil
+}
+
+// handleSetPoloScore sets the polo score of a node to a specific value.
+func (s *Server) handleSetPoloScore(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	poloScore, ok := msg["polo_score"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("set_polo_score requires polo_score field")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	node.PoloScore = int(poloScore)
+	node.LastSeen = time.Now()
+	s.save()
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+	slog.Info("polo score set", "node_id", nodeID, "polo_score", node.PoloScore)
+
+	return map[string]interface{}{
+		"type":       "set_polo_score_ok",
+		"node_id":    nodeID,
+		"address":    addr.String(),
+		"polo_score": node.PoloScore,
+	}, nil
+}
+
+// handleGetPoloScore retrieves the polo score for a node.
+func (s *Server) handleGetPoloScore(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+
+	addr := protocol.Addr{Network: 0, Node: nodeID}
+
+	return map[string]interface{}{
+		"type":       "get_polo_score_ok",
+		"node_id":    nodeID,
+		"address":    addr.String(),
+		"polo_score": node.PoloScore,
+	}, nil
+}
+
 // setNodeHostname sets the hostname on a node atomically. Must be called with s.mu held.
 func (s *Server) setNodeHostname(node *NodeInfo, hostname string, resp map[string]interface{}) {
 	if hostname == "" {
@@ -913,12 +1004,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 
 		// Node was deregistered/reaped but key is known — recreate with same ID
 		node := &NodeInfo{
-			ID:       nodeID,
-			Owner:    owner,
+			ID:        nodeID,
+			Owner:     owner,
 			PublicKey: pubKey,
-			RealAddr: listenAddr,
-			Networks: []uint16{0},
-			LastSeen: time.Now(),
+			RealAddr:  listenAddr,
+			Networks:  []uint16{0},
+			LastSeen:  time.Now(),
 		}
 		s.nodes[nodeID] = node
 		if owner != "" {
@@ -969,12 +1060,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			// Owner's node was deregistered — reclaim with new key
 			s.pubKeyIdx[pubKeyB64] = existingID
 			node := &NodeInfo{
-				ID:       existingID,
-				Owner:    owner,
+				ID:        existingID,
+				Owner:     owner,
 				PublicKey: pubKey,
-				RealAddr: listenAddr,
-				Networks: []uint16{0},
-				LastSeen: time.Now(),
+				RealAddr:  listenAddr,
+				Networks:  []uint16{0},
+				LastSeen:  time.Now(),
 			}
 			s.nodes[existingID] = node
 			s.networks[0].Members = append(s.networks[0].Members, existingID)
@@ -1004,12 +1095,12 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 	}
 
 	node := &NodeInfo{
-		ID:       nodeID,
-		Owner:    owner,
+		ID:        nodeID,
+		Owner:     owner,
 		PublicKey: pubKey,
-		RealAddr: listenAddr,
-		Networks: []uint16{0},
-		LastSeen: time.Now(),
+		RealAddr:  listenAddr,
+		Networks:  []uint16{0},
+		LastSeen:  time.Now(),
 	}
 	s.nodes[nodeID] = node
 	s.networks[0].Members = append(s.networks[0].Members, nodeID)
@@ -1235,6 +1326,7 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 		"networks":   node.Networks,
 		"public_key": crypto.EncodePublicKey(node.PublicKey),
 		"public":     node.Public,
+		"polo_score": node.PoloScore,
 	}
 	if node.Hostname != "" {
 		resp["hostname"] = node.Hostname
@@ -1574,8 +1666,8 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 // If approved, creates a mutual trust pair.
 // M12 fix: verifies responder signature to prevent spoofed trust approvals.
 func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]interface{}, error) {
-	nodeID := jsonUint32(msg, "node_id")   // responder
-	peerID := jsonUint32(msg, "peer_id")   // original requester
+	nodeID := jsonUint32(msg, "node_id") // responder
+	peerID := jsonUint32(msg, "peer_id") // original requester
 	accept, _ := msg["accept"].(bool)
 
 	s.mu.Lock()
@@ -1989,14 +2081,14 @@ func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}
 
 // snapshot is the JSON-serializable registry state.
 type snapshot struct {
-	NextNode           uint32                                `json:"next_node"`
-	NextNet            uint16                                `json:"next_net"`
-	Nodes              map[string]*snapshotNode              `json:"nodes"`
-	Networks           map[string]*snapshotNet               `json:"networks"`
-	TrustPairs         []string                              `json:"trust_pairs,omitempty"`
-	PubKeyIdx          map[string]uint32                     `json:"pub_key_idx,omitempty"`
-	HandshakeInbox     map[string][]*HandshakeRelayMsg       `json:"handshake_inbox,omitempty"`
-	HandshakeResponses map[string][]*HandshakeResponseMsg    `json:"handshake_responses,omitempty"`
+	NextNode           uint32                             `json:"next_node"`
+	NextNet            uint16                             `json:"next_net"`
+	Nodes              map[string]*snapshotNode           `json:"nodes"`
+	Networks           map[string]*snapshotNet            `json:"networks"`
+	TrustPairs         []string                           `json:"trust_pairs,omitempty"`
+	PubKeyIdx          map[string]uint32                  `json:"pub_key_idx,omitempty"`
+	HandshakeInbox     map[string][]*HandshakeRelayMsg    `json:"handshake_inbox,omitempty"`
+	HandshakeResponses map[string][]*HandshakeResponseMsg `json:"handshake_responses,omitempty"`
 }
 
 type snapshotNode struct {
@@ -2009,6 +2101,7 @@ type snapshotNode struct {
 	LastSeen  string   `json:"last_seen,omitempty"`
 	Hostname  string   `json:"hostname,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
+	PoloScore int      `json:"polo_score,omitempty"`
 	TaskExec  bool     `json:"task_exec,omitempty"`
 }
 
@@ -2077,13 +2170,14 @@ func (s *Server) flushSave() {
 		snap.Nodes[fmt.Sprintf("%d", id)] = &snapshotNode{
 			ID:        n.ID,
 			Owner:     n.Owner,
-			PublicKey:  base64.StdEncoding.EncodeToString(n.PublicKey),
+			PublicKey: base64.StdEncoding.EncodeToString(n.PublicKey),
 			RealAddr:  n.RealAddr,
 			Networks:  n.Networks,
 			Public:    n.Public,
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
 		}
 	}
@@ -2181,13 +2275,14 @@ func (s *Server) load() error {
 		node := &NodeInfo{
 			ID:        n.ID,
 			Owner:     n.Owner,
-			PublicKey:  pubKey,
+			PublicKey: pubKey,
 			RealAddr:  n.RealAddr,
 			Networks:  n.Networks,
 			LastSeen:  lastSeen,
 			Public:    n.Public,
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
+			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
 		}
 		s.nodes[n.ID] = node

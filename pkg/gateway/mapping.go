@@ -10,11 +10,11 @@ import (
 
 // MappingTable maps local IPs to Pilot addresses and vice versa.
 type MappingTable struct {
-	mu       sync.RWMutex
-	forward  map[string]protocol.Addr // local IP → pilot addr
-	reverse  map[protocol.Addr]net.IP // pilot addr → local IP
-	subnet   *net.IPNet
-	nextIP   net.IP
+	mu      sync.RWMutex
+	forward map[string]protocol.Addr // local IP → pilot addr
+	reverse map[protocol.Addr]net.IP // pilot addr → local IP
+	subnet  *net.IPNet
+	nextIP  net.IP
 }
 
 // NewMappingTable creates a mapping table for the given subnet (e.g. "10.4.0.0/16").

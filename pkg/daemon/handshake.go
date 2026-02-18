@@ -29,20 +29,20 @@ const (
 type HandshakeMsg struct {
 	Type          string `json:"type"`
 	NodeID        uint32 `json:"node_id"`
-	PublicKey     string `json:"public_key"`     // base64 Ed25519 public key
-	Justification string `json:"justification"`  // why the sender wants to connect
-	Signature     string `json:"signature"`       // Ed25519 sig over "handshake:<node_id>:<peer_id>"
-	Reason        string `json:"reason"`          // rejection reason
+	PublicKey     string `json:"public_key"`    // base64 Ed25519 public key
+	Justification string `json:"justification"` // why the sender wants to connect
+	Signature     string `json:"signature"`     // Ed25519 sig over "handshake:<node_id>:<peer_id>"
+	Reason        string `json:"reason"`        // rejection reason
 	Timestamp     int64  `json:"timestamp"`
 }
 
 // TrustRecord holds information about a trusted peer.
 type TrustRecord struct {
-	NodeID      uint32
-	PublicKey   string // base64 Ed25519 pubkey
-	ApprovedAt  time.Time
-	Mutual      bool   // true if both sides initiated
-	Network     uint16 // non-zero if trust is via network membership
+	NodeID     uint32
+	PublicKey  string // base64 Ed25519 pubkey
+	ApprovedAt time.Time
+	Mutual     bool   // true if both sides initiated
+	Network    uint16 // non-zero if trust is via network membership
 }
 
 // PendingHandshake is an unapproved incoming request.
@@ -66,13 +66,13 @@ const (
 type HandshakeManager struct {
 	mu        sync.RWMutex
 	daemon    *Daemon
-	trusted   map[uint32]*TrustRecord       // approved peers
-	pending   map[uint32]*PendingHandshake   // incoming unapproved requests
-	outgoing  map[uint32]bool                // nodes we've sent requests to
-	storePath string                          // path to persist trust state (empty = no persistence)
-	wg        sync.WaitGroup                 // tracks background RPCs for clean shutdown
-	reapStop  chan struct{}                  // signals replay reaper to stop
-	stopOnce  sync.Once                     // ensures reapStop is closed only once
+	trusted   map[uint32]*TrustRecord      // approved peers
+	pending   map[uint32]*PendingHandshake // incoming unapproved requests
+	outgoing  map[uint32]bool              // nodes we've sent requests to
+	storePath string                       // path to persist trust state (empty = no persistence)
+	wg        sync.WaitGroup               // tracks background RPCs for clean shutdown
+	reapStop  chan struct{}                // signals replay reaper to stop
+	stopOnce  sync.Once                    // ensures reapStop is closed only once
 
 	// Webhook
 	webhook *WebhookClient

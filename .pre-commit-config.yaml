@@ -1,0 +1,31 @@
+repos:
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        entry: bash -c 'gofmt -w -s . && git add -A'
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      - id: go-test
+        name: go test
+        entry: bash -c 'cd tests && go test -v -timeout 30s'
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      - id: go-coverage
+        name: update coverage badge
+        entry: make coverage
+        language: system
+        files: \.go$
+        pass_filenames: false
+        stages: [commit]

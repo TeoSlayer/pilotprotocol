@@ -7,11 +7,11 @@ const Version uint8 = 1
 
 // Sentinel errors shared across packages.
 var (
-	ErrNodeNotFound    = errors.New("node not found")
-	ErrNetworkNotFound = errors.New("network not found")
-	ErrConnClosed      = errors.New("connection closed")
-	ErrConnRefused     = errors.New("connection refused")
-	ErrDialTimeout     = errors.New("dial timeout")
+	ErrNodeNotFound     = errors.New("node not found")
+	ErrNetworkNotFound  = errors.New("network not found")
+	ErrConnClosed       = errors.New("connection closed")
+	ErrConnRefused      = errors.New("connection refused")
+	ErrDialTimeout      = errors.New("dial timeout")
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
@@ -41,14 +41,15 @@ const (
 	PortStdIO        uint16 = 1000
 	PortDataExchange uint16 = 1001
 	PortEventStream  uint16 = 1002
+	PortTaskSubmit   uint16 = 1003
 )
 
 // Port ranges
 const (
-	PortReservedMax  uint16 = 1023
+	PortReservedMax   uint16 = 1023
 	PortRegisteredMax uint16 = 49151
-	PortEphemeralMin uint16 = 49152
-	PortEphemeralMax uint16 = 65535
+	PortEphemeralMin  uint16 = 49152
+	PortEphemeralMax  uint16 = 65535
 )
 
 // Tunnel magic bytes: "PILT" (0x50494C54)

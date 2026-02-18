@@ -4,8 +4,8 @@ import "sync"
 
 // Packet buffers sized for typical tunnel frames.
 const (
-	SmallBufSize = 4096               // for IPC messages, small packets
-	LargeBufSize = 65535 + 38         // max payload + tunnel magic(4) + header(34)
+	SmallBufSize = 4096       // for IPC messages, small packets
+	LargeBufSize = 65535 + 38 // max payload + tunnel magic(4) + header(34)
 )
 
 var (
