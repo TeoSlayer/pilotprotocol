@@ -262,10 +262,8 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeHelp(&b, "pilot_request_duration_seconds", "Histogram of request durations in seconds.")
 	writeType(&b, "pilot_request_duration_seconds", "histogram")
 	for _, lh := range m.requestDuration.snapshot() {
-		cumulative := uint64(0)
 		for i, bound := range lh.buckets {
-			cumulative += lh.counts[i]
-			writeBucketMetric(&b, "pilot_request_duration_seconds", "type", lh.label, bound, cumulative)
+			writeBucketMetric(&b, "pilot_request_duration_seconds", "type", lh.label, bound, lh.counts[i])
 		}
 		writeBucketInf(&b, "pilot_request_duration_seconds", "type", lh.label, lh.count)
 		writeLabeledMetric(&b, "pilot_request_duration_seconds_sum", "type", lh.label, lh.sum)

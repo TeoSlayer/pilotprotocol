@@ -65,6 +65,9 @@ vet:
 ci: vet test build build-linux
 	@echo "CI: all checks passed"
 
+# All binaries included in release archives
+RELEASE_BINS := daemon pilotctl gateway registry beacon rendezvous nameserver
+
 # Cross-platform release builds
 release:
 	@mkdir -p $(BINDIR)/release
@@ -72,12 +75,13 @@ release:
 		os=$$(echo $$platform | cut -d/ -f1); \
 		arch=$$(echo $$platform | cut -d/ -f2); \
 		echo "Building $$os/$$arch..."; \
-		for bin in $(CORE_BINS); do \
+		mkdir -p $(BINDIR)/release/$$os-$$arch; \
+		for bin in $(RELEASE_BINS); do \
 			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" \
-				-o $(BINDIR)/release/pilot-$$bin-$$os-$$arch ./cmd/$$bin; \
+				-o $(BINDIR)/release/$$os-$$arch/$$bin ./cmd/$$bin; \
 		done; \
 		tar -czf $(BINDIR)/release/pilot-$$os-$$arch.tar.gz \
-			-C $(BINDIR)/release pilot-daemon-$$os-$$arch pilot-pilotctl-$$os-$$arch pilot-gateway-$$os-$$arch; \
-		rm $(BINDIR)/release/pilot-daemon-$$os-$$arch $(BINDIR)/release/pilot-pilotctl-$$os-$$arch $(BINDIR)/release/pilot-gateway-$$os-$$arch; \
+			-C $(BINDIR)/release/$$os-$$arch .; \
+		rm -rf $(BINDIR)/release/$$os-$$arch; \
 	done
 	@echo "Release archives in $(BINDIR)/release/"
