@@ -76,7 +76,7 @@ type PortManager struct {
 }
 
 type Listener struct {
-	Port    uint16
+	Port     uint16
 	AcceptCh chan *Connection
 }
 
@@ -97,22 +97,22 @@ type recvSegment struct {
 
 // Default window parameters
 const (
-	InitialCongWin = 10 * MaxSegmentSize // 40 KB initial congestion window (IW10, RFC 6928)
-	MaxCongWin     = 1024 * 1024         // 1 MB max congestion window
-	MaxSegmentSize = 4096                // MTU for virtual segments
-	RecvBufSize    = 512                 // receive buffer channel capacity (segments)
+	InitialCongWin = 10 * MaxSegmentSize          // 40 KB initial congestion window (IW10, RFC 6928)
+	MaxCongWin     = 1024 * 1024                  // 1 MB max congestion window
+	MaxSegmentSize = 4096                         // MTU for virtual segments
+	RecvBufSize    = 512                          // receive buffer channel capacity (segments)
 	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 2 MB max receive window
-	MaxOOOBuf      = 128                 // max out-of-order segments buffered per connection
-	AcceptQueueLen = 64                  // listener accept channel capacity
-	SendBufLen     = 256                 // send buffer channel capacity (segments)
+	MaxOOOBuf      = 128                          // max out-of-order segments buffered per connection
+	AcceptQueueLen = 64                           // listener accept channel capacity
+	SendBufLen     = 256                          // send buffer channel capacity (segments)
 )
 
 // RTO parameters (RFC 6298)
 const (
-	ClockGranularity = 10 * time.Millisecond   // minimum RTTVAR for RTO calculation
-	RTOMin           = 200 * time.Millisecond  // minimum retransmission timeout
-	RTOMax           = 10 * time.Second        // maximum retransmission timeout
-	InitialRTO       = 1 * time.Second         // initial retransmission timeout
+	ClockGranularity = 10 * time.Millisecond  // minimum RTTVAR for RTO calculation
+	RTOMin           = 200 * time.Millisecond // minimum retransmission timeout
+	RTOMax           = 10 * time.Second       // maximum retransmission timeout
+	InitialRTO       = 1 * time.Second        // initial retransmission timeout
 )
 
 type Connection struct {
@@ -125,65 +125,65 @@ type Connection struct {
 	State        ConnState
 	LastActivity time.Time // updated on send/recv
 	// Reliable delivery
-	SendSeq    uint32
-	RecvAck    uint32
-	SendBuf    chan []byte
-	RecvBuf    chan []byte
+	SendSeq uint32
+	RecvAck uint32
+	SendBuf chan []byte
+	RecvBuf chan []byte
 	// Sliding window + retransmission (send side)
-	RetxMu      sync.Mutex
-	Unacked     []*retxEntry            // ordered by seq
-	LastAck       uint32                  // highest cumulative ACK received
-	DupAckCount   int                     // consecutive duplicate ACKs
-	RTO           time.Duration           // retransmission timeout
-	SRTT          time.Duration           // smoothed RTT
-	RTTVAR        time.Duration           // RTT variance (RFC 6298)
-	CongWin       int                     // congestion window in bytes
-	SSThresh      int                     // slow-start threshold
-	InRecovery    bool                    // true during timeout loss recovery
-	RecoveryPoint uint32                  // highest seq sent when entering recovery
-	RetxStop    chan struct{}            // closed to stop retx goroutine
-	RetxSend    func(*protocol.Packet)  // callback to send retransmitted packets
-	WindowCh    chan struct{}            // signaled when window opens up
-	PeerRecvWin int                     // peer's advertised receive window (0 = unknown/unlimited)
+	RetxMu        sync.Mutex
+	Unacked       []*retxEntry           // ordered by seq
+	LastAck       uint32                 // highest cumulative ACK received
+	DupAckCount   int                    // consecutive duplicate ACKs
+	RTO           time.Duration          // retransmission timeout
+	SRTT          time.Duration          // smoothed RTT
+	RTTVAR        time.Duration          // RTT variance (RFC 6298)
+	CongWin       int                    // congestion window in bytes
+	SSThresh      int                    // slow-start threshold
+	InRecovery    bool                   // true during timeout loss recovery
+	RecoveryPoint uint32                 // highest seq sent when entering recovery
+	RetxStop      chan struct{}          // closed to stop retx goroutine
+	RetxSend      func(*protocol.Packet) // callback to send retransmitted packets
+	WindowCh      chan struct{}          // signaled when window opens up
+	PeerRecvWin   int                    // peer's advertised receive window (0 = unknown/unlimited)
 	// Nagle algorithm (write coalescing)
-	NagleBuf    []byte                  // pending small write data
-	NagleMu     sync.Mutex             // protects NagleBuf
-	NagleCh     chan struct{}           // signaled when Nagle should flush
-	NoDelay     bool                    // if true, disable Nagle (send immediately)
+	NagleBuf []byte        // pending small write data
+	NagleMu  sync.Mutex    // protects NagleBuf
+	NagleCh  chan struct{} // signaled when Nagle should flush
+	NoDelay  bool          // if true, disable Nagle (send immediately)
 	// Receive window (reassembly)
 	RecvMu      sync.Mutex
-	ExpectedSeq uint32                  // next in-order seq expected
-	OOOBuf      []*recvSegment          // out-of-order buffer
+	ExpectedSeq uint32         // next in-order seq expected
+	OOOBuf      []*recvSegment // out-of-order buffer
 	// Delayed ACK
-	AckMu         sync.Mutex            // protects PendingACKs and ACKTimer
-	PendingACKs   int                   // count of unacked received segments
-	ACKTimer      *time.Timer           // delayed ACK timer
+	AckMu       sync.Mutex  // protects PendingACKs and ACKTimer
+	PendingACKs int         // count of unacked received segments
+	ACKTimer    *time.Timer // delayed ACK timer
 	// Close
-	CloseOnce     sync.Once             // ensures RecvBuf is closed exactly once
-	RecvClosed    bool                  // true after RecvBuf is closed (guarded by RecvMu)
+	CloseOnce  sync.Once // ensures RecvBuf is closed exactly once
+	RecvClosed bool      // true after RecvBuf is closed (guarded by RecvMu)
 	// Retransmit state
-	LastRetxTime  time.Time             // when last RTO retransmission fired (prevents cascading)
+	LastRetxTime time.Time // when last RTO retransmission fired (prevents cascading)
 	// Per-connection statistics
-	Stats         ConnStats
+	Stats ConnStats
 }
 
 // ConnStats tracks per-connection traffic and reliability metrics.
 type ConnStats struct {
-	BytesSent     uint64 // total user bytes sent
-	BytesRecv     uint64 // total user bytes received
-	SegsSent      uint64 // data segments sent
-	SegsRecv      uint64 // data segments received
-	Retransmits   uint64 // timeout-based retransmissions
-	FastRetx      uint64 // fast retransmissions (3 dup ACKs)
-	SACKRecv      uint64 // SACK blocks received from peer
-	SACKSent      uint64 // SACK blocks sent to peer
-	DupACKs       uint64 // duplicate ACKs received
+	BytesSent   uint64 // total user bytes sent
+	BytesRecv   uint64 // total user bytes received
+	SegsSent    uint64 // data segments sent
+	SegsRecv    uint64 // data segments received
+	Retransmits uint64 // timeout-based retransmissions
+	FastRetx    uint64 // fast retransmissions (3 dup ACKs)
+	SACKRecv    uint64 // SACK blocks received from peer
+	SACKSent    uint64 // SACK blocks sent to peer
+	DupACKs     uint64 // duplicate ACKs received
 }
 
 type ConnState uint8
 
 const (
-	StateClosed      ConnState = iota
+	StateClosed ConnState = iota
 	StateListen
 	StateSynSent
 	StateSynReceived

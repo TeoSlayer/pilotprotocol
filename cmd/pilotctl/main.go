@@ -26,6 +26,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+  "github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
 // Global flags
@@ -367,6 +368,15 @@ Communication commands:
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
 
+Task commands:
+  pilotctl task submit <address|hostname> --task <description>
+  pilotctl task accept --id <task_id>
+  pilotctl task decline --id <task_id> --justification <reason>
+  pilotctl task execute
+  pilotctl task send-results --id <task_id> --results <text> | --file <filepath>
+  pilotctl task list [--type received|submitted]
+  pilotctl task queue
+
 Trust commands:
   pilotctl handshake <node_id|hostname> [justification]
   pilotctl approve <node_id>
@@ -529,6 +539,32 @@ func main() {
 		cmdSendFile(cmdArgs)
 	case "send-message":
 		cmdSendMessage(cmdArgs)
+	case "task":
+		if len(cmdArgs) < 1 {
+			fatalHint("invalid_argument",
+				"available: pilotctl task submit | accept | decline | execute | send-results | list | queue",
+				"missing subcommand")
+		}
+		switch cmdArgs[0] {
+		case "submit":
+			cmdTaskSubmit(cmdArgs[1:])
+		case "accept":
+			cmdTaskAccept(cmdArgs[1:])
+		case "decline":
+			cmdTaskDecline(cmdArgs[1:])
+		case "execute":
+			cmdTaskExecute(cmdArgs[1:])
+		case "send-results":
+			cmdTaskSendResults(cmdArgs[1:])
+		case "list":
+			cmdTaskList(cmdArgs[1:])
+		case "queue":
+			cmdTaskQueue(cmdArgs[1:])
+		default:
+			fatalHint("invalid_argument",
+				"available: submit, accept, decline, execute, send-results, list, queue",
+				"unknown task subcommand: %s", cmdArgs[0])
+		}
 	case "subscribe":
 		cmdSubscribe(cmdArgs)
 	case "publish":
@@ -2338,6 +2374,521 @@ func cmdSendMessage(args []string) {
 	outputOK(result)
 }
 
+// ===================== TASK SUBCOMMANDS =====================
+
+func cmdTaskSubmit(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl task submit <address|hostname> --task <description>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+
+	taskDesc := flagString(flags, "task", "")
+	if taskDesc == "" {
+		fatalCode("invalid_argument", "--task is required")
+	}
+
+	client, err := tasksubmit.Dial(d, target)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			"cannot connect to %s (task submit port %d)", target, protocol.PortTaskSubmit)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask(taskDesc, target.String())
+	if err != nil {
+		fatalCode("connection_failed", "submit: %v", err)
+	}
+
+	// Save task file locally (submitted/)
+	if resp.Status == tasksubmit.StatusAccepted {
+		info, _ := d.Info()
+		localAddr := ""
+		if addr, ok := info["address"].(string); ok {
+			localAddr = addr
+		}
+		tf := tasksubmit.NewTaskFile(resp.TaskID, taskDesc, localAddr, target.String())
+		if err := daemon.SaveTaskFile(tf, true); err != nil {
+			slog.Warn("failed to save submitted task file", "error", err)
+		}
+	}
+
+	result := map[string]interface{}{
+		"target":   target.String(),
+		"task_id":  resp.TaskID,
+		"task":     taskDesc,
+		"status":   resp.Status,
+		"message":  resp.Message,
+		"accepted": resp.Status == tasksubmit.StatusAccepted,
+	}
+
+	outputOK(result)
+}
+
+func cmdTaskAccept(args []string) {
+	flags, _ := parseFlags(args)
+
+	taskID := flagString(flags, "id", "")
+	if taskID == "" {
+		fatalCode("invalid_argument", "--id is required")
+	}
+
+	// Load task from received/
+	tf, err := daemon.LoadTaskFile(taskID)
+	if err != nil {
+		fatalHint("not_found",
+			"check pilotctl task list --type received",
+			"task not found: %s", taskID)
+	}
+
+	if tf.Status != tasksubmit.TaskStatusNew {
+		fatalCode("invalid_state", "task %s is already %s", taskID, tf.Status)
+	}
+
+	// Check if task has expired for acceptance (1 minute timeout)
+	if tf.IsExpiredForAccept() {
+		fatalCode("expired", "task %s has expired (accept deadline was 1 minute after creation)", taskID)
+	}
+
+	// Update status to ACCEPTED with time_idle calculation
+	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusAccepted, "Task accepted", "accept", false, ""); err != nil {
+		fatalCode("internal_error", "failed to update task status: %v", err)
+	}
+
+	// Send status update to submitter
+	d := connectDriver()
+	defer d.Close()
+
+	fromAddr, err := protocol.ParseAddr(tf.From)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid from address: %v", err)
+	}
+
+	client, err := tasksubmit.Dial(d, fromAddr)
+	if err != nil {
+		// Still accept locally even if we can't notify submitter
+		slog.Warn("could not notify submitter", "error", err)
+		outputOK(map[string]interface{}{
+			"task_id": taskID,
+			"status":  tasksubmit.TaskStatusAccepted,
+			"message": "Task accepted (submitter notification failed)",
+		})
+		return
+	}
+	defer client.Close()
+
+	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusAccepted, "Task accepted"); err != nil {
+		slog.Warn("could not send status update", "error", err)
+	}
+
+	outputOK(map[string]interface{}{
+		"task_id": taskID,
+		"status":  tasksubmit.TaskStatusAccepted,
+		"message": "Task accepted",
+	})
+}
+
+func cmdTaskDecline(args []string) {
+	flags, _ := parseFlags(args)
+
+	taskID := flagString(flags, "id", "")
+	if taskID == "" {
+		fatalCode("invalid_argument", "--id is required")
+	}
+
+	justification := flagString(flags, "justification", "")
+	if justification == "" {
+		fatalCode("invalid_argument", "--justification is required")
+	}
+
+	// Load task from received/
+	tf, err := daemon.LoadTaskFile(taskID)
+	if err != nil {
+		fatalHint("not_found",
+			"check pilotctl task list --type received",
+			"task not found: %s", taskID)
+	}
+
+	if tf.Status != tasksubmit.TaskStatusNew {
+		fatalCode("invalid_state", "task %s is already %s", taskID, tf.Status)
+	}
+
+	// Update status to DECLINED with time_idle calculation
+	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusDeclined, justification, "decline", false, ""); err != nil {
+		fatalCode("internal_error", "failed to update task status: %v", err)
+	}
+
+	// Remove from queue if present (shouldn't be, but just in case)
+	daemon.RemoveFromQueue(taskID)
+
+	// Send status update to submitter
+	d := connectDriver()
+	defer d.Close()
+
+	fromAddr, err := protocol.ParseAddr(tf.From)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid from address: %v", err)
+	}
+
+	client, err := tasksubmit.Dial(d, fromAddr)
+	if err != nil {
+		// Still decline locally even if we can't notify submitter
+		slog.Warn("could not notify submitter", "error", err)
+		outputOK(map[string]interface{}{
+			"task_id":       taskID,
+			"status":        tasksubmit.TaskStatusDeclined,
+			"justification": justification,
+			"message":       "Task declined (submitter notification failed)",
+		})
+		return
+	}
+	defer client.Close()
+
+	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusDeclined, justification); err != nil {
+		slog.Warn("could not send status update", "error", err)
+	}
+
+	outputOK(map[string]interface{}{
+		"task_id":       taskID,
+		"status":        tasksubmit.TaskStatusDeclined,
+		"justification": justification,
+		"message":       "Task declined",
+	})
+}
+
+func cmdTaskExecute(args []string) {
+	// Get first ACCEPTED task from received/ and mark as EXECUTING
+	// This should be the task at the head of the queue
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		fatalCode("internal_error", "failed to get tasks directory: %v", err)
+	}
+
+	receivedDir := filepath.Join(tasksDir, "received")
+	entries, err := os.ReadDir(receivedDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fatalCode("not_found", "no received tasks found")
+		}
+		fatalCode("internal_error", "failed to read tasks directory: %v", err)
+	}
+
+	var taskToExecute *tasksubmit.TaskFile
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(receivedDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		tf, err := tasksubmit.UnmarshalTaskFile(data)
+		if err != nil {
+			continue
+		}
+		if tf.Status == tasksubmit.TaskStatusAccepted {
+			taskToExecute = tf
+			break
+		}
+	}
+
+	if taskToExecute == nil {
+		fatalCode("not_found", "no accepted tasks to execute")
+	}
+
+	// Get staged time from queue before removing
+	stagedAt := daemon.GetQueueStagedAt(taskToExecute.TaskID)
+
+	// Remove task from queue since we're executing it
+	daemon.RemoveFromQueue(taskToExecute.TaskID)
+
+	// Update status to EXECUTING with time_staged calculation
+	if err := daemon.UpdateTaskFileWithTimes(taskToExecute.TaskID, tasksubmit.TaskStatusExecuting, "Task execution started", "execute", false, stagedAt); err != nil {
+		fatalCode("internal_error", "failed to update task status: %v", err)
+	}
+
+	// Send status update to submitter
+	d := connectDriver()
+	defer d.Close()
+
+	fromAddr, err := protocol.ParseAddr(taskToExecute.From)
+	if err == nil {
+		client, err := tasksubmit.Dial(d, fromAddr)
+		if err == nil {
+			_ = client.SendStatusUpdate(taskToExecute.TaskID, tasksubmit.TaskStatusExecuting, "Task execution started")
+			client.Close()
+		}
+	}
+
+	outputOK(map[string]interface{}{
+		"task_id":          taskToExecute.TaskID,
+		"task_description": taskToExecute.TaskDescription,
+		"status":           tasksubmit.TaskStatusExecuting,
+		"from":             taskToExecute.From,
+	})
+}
+
+func cmdTaskSendResults(args []string) {
+	flags, _ := parseFlags(args)
+
+	taskID := flagString(flags, "id", "")
+	if taskID == "" {
+		fatalCode("invalid_argument", "--id is required")
+	}
+
+	results := flagString(flags, "results", "")
+	filePath := flagString(flags, "file", "")
+
+	if results == "" && filePath == "" {
+		fatalCode("invalid_argument", "either --results or --file is required")
+	}
+
+	// Load task from received/ to verify it exists and get submitter address
+	tf, err := daemon.LoadTaskFile(taskID)
+	if err != nil {
+		fatalHint("not_found",
+			"check pilotctl task list --type received",
+			"task not found: %s", taskID)
+	}
+
+	if tf.Status != tasksubmit.TaskStatusExecuting && tf.Status != tasksubmit.TaskStatusAccepted {
+		fatalCode("invalid_state", "task %s cannot receive results (status: %s)", taskID, tf.Status)
+	}
+
+	var resultMsg *tasksubmit.TaskResultMessage
+
+	if filePath != "" {
+		// Validate file extension
+		ext := strings.ToLower(filepath.Ext(filePath))
+		if !tasksubmit.AllowedResultExtensions[ext] {
+			fatalCode("invalid_argument", "file type %q not allowed for results", ext)
+		}
+		if tasksubmit.ForbiddenResultExtensions[ext] {
+			fatalCode("invalid_argument", "source code files cannot be sent as results")
+		}
+
+		// Read file
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fatalCode("internal_error", "failed to read file: %v", err)
+		}
+
+		resultMsg = &tasksubmit.TaskResultMessage{
+			TaskID:      taskID,
+			ResultType:  "file",
+			Filename:    filepath.Base(filePath),
+			FileData:    data,
+			CompletedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+	} else {
+		resultMsg = &tasksubmit.TaskResultMessage{
+			TaskID:      taskID,
+			ResultType:  "text",
+			ResultText:  results,
+			CompletedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+
+	// Update local status to SUCCEEDED with time_cpu calculation
+	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusSucceeded, "Results sent successfully", "complete", false, ""); err != nil {
+		slog.Warn("failed to update local task status", "error", err)
+	}
+
+	// Reload task file to get computed time values for polo score calculation
+	updatedTf, err := daemon.LoadTaskFile(taskID)
+	if err == nil {
+		// Include time metadata in the result message for polo score calculation
+		resultMsg.TimeIdleMs = updatedTf.TimeIdleMs
+		resultMsg.TimeStagedMs = updatedTf.TimeStagedMs
+		resultMsg.TimeCpuMs = updatedTf.TimeCpuMs
+	}
+
+	// Send results to submitter
+	d := connectDriver()
+	defer d.Close()
+
+	fromAddr, err := protocol.ParseAddr(tf.From)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid from address: %v", err)
+	}
+
+	client, err := tasksubmit.Dial(d, fromAddr)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("check that %s is reachable", tf.From),
+			"cannot connect to submitter %s", tf.From)
+	}
+	defer client.Close()
+
+	if err := client.SendResults(resultMsg); err != nil {
+		fatalCode("connection_failed", "failed to send results: %v", err)
+	}
+
+	// Also update submitter's copy to SUCCEEDED
+	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusSucceeded, "Task completed successfully"); err != nil {
+		slog.Warn("could not send status update to submitter", "error", err)
+	}
+
+	output := map[string]interface{}{
+		"task_id":   taskID,
+		"status":    tasksubmit.TaskStatusSucceeded,
+		"sent_to":   tf.From,
+		"sent_type": resultMsg.ResultType,
+	}
+	if filePath != "" {
+		output["filename"] = filepath.Base(filePath)
+		output["file_size"] = len(resultMsg.FileData)
+	}
+
+	outputOK(output)
+}
+
+func cmdTaskList(args []string) {
+	flags, _ := parseFlags(args)
+	taskType := flagString(flags, "type", "")
+
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		fatalCode("internal_error", "failed to get tasks directory: %v", err)
+	}
+
+	var tasks []map[string]interface{}
+
+	listTasksInDir := func(dir, category string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			tf, err := tasksubmit.UnmarshalTaskFile(data)
+			if err != nil {
+				continue
+			}
+			tasks = append(tasks, map[string]interface{}{
+				"task_id":     tf.TaskID,
+				"description": tf.TaskDescription,
+				"status":      tf.Status,
+				"from":        tf.From,
+				"to":          tf.To,
+				"created_at":  tf.CreatedAt,
+				"category":    category,
+			})
+		}
+	}
+
+	if taskType == "" || taskType == "received" {
+		listTasksInDir(filepath.Join(tasksDir, "received"), "received")
+	}
+	if taskType == "" || taskType == "submitted" {
+		listTasksInDir(filepath.Join(tasksDir, "submitted"), "submitted")
+	}
+
+	if len(tasks) == 0 {
+		if jsonOutput {
+			outputOK(map[string]interface{}{"tasks": []interface{}{}})
+		} else {
+			fmt.Println("No tasks found")
+		}
+		return
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{"tasks": tasks})
+	} else {
+		for _, t := range tasks {
+			fmt.Printf("[%s] %s (%s) - %s\n  From: %s → To: %s\n",
+				t["category"], t["task_id"], t["status"], t["description"], t["from"], t["to"])
+		}
+	}
+}
+
+func cmdTaskQueue(args []string) {
+	// Show queued (ACCEPTED) tasks in FIFO order
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		fatalCode("internal_error", "failed to get tasks directory: %v", err)
+	}
+
+	receivedDir := filepath.Join(tasksDir, "received")
+	entries, err := os.ReadDir(receivedDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if jsonOutput {
+				outputOK(map[string]interface{}{"queue": []interface{}{}})
+			} else {
+				fmt.Println("Queue is empty")
+			}
+			return
+		}
+		fatalCode("internal_error", "failed to read tasks directory: %v", err)
+	}
+
+	var queuedTasks []map[string]interface{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(receivedDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		tf, err := tasksubmit.UnmarshalTaskFile(data)
+		if err != nil {
+			continue
+		}
+		if tf.Status == tasksubmit.TaskStatusAccepted {
+			queuedTasks = append(queuedTasks, map[string]interface{}{
+				"task_id":     tf.TaskID,
+				"description": tf.TaskDescription,
+				"from":        tf.From,
+				"created_at":  tf.CreatedAt,
+			})
+		}
+	}
+
+	if len(queuedTasks) == 0 {
+		if jsonOutput {
+			outputOK(map[string]interface{}{"queue": []interface{}{}})
+		} else {
+			fmt.Println("Queue is empty")
+		}
+		return
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{"queue": queuedTasks, "count": len(queuedTasks)})
+	} else {
+		fmt.Printf("Queued tasks (%d):\n", len(queuedTasks))
+		for i, t := range queuedTasks {
+			fmt.Printf("  %d. %s: %s\n     From: %s\n", i+1, t["task_id"], t["description"], t["from"])
+		}
+	}
+}
+
+// getTasksDir returns the path to ~/.pilot/tasks directory.
+func getTasksDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".pilot", "tasks"), nil
+}
+
 func cmdSubscribe(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 2 {
@@ -2396,9 +2947,9 @@ func cmdSubscribe(args []string) {
 		case evt := <-evtCh:
 			received++
 			msg := map[string]interface{}{
-				"topic":   evt.Topic,
-				"data":    string(evt.Payload),
-				"bytes":   len(evt.Payload),
+				"topic": evt.Topic,
+				"data":  string(evt.Payload),
+				"bytes": len(evt.Payload),
 			}
 			events = append(events, msg)
 

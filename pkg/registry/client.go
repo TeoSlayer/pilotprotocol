@@ -449,3 +449,37 @@ func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error
 		"hostname": hostname,
 	})
 }
+
+// UpdatePoloScore adjusts the polo score of a node by the given delta.
+// Delta can be positive (increase polo score) or negative (decrease polo score).
+func (c *Client) UpdatePoloScore(nodeID uint32, delta int) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":    "update_polo_score",
+		"node_id": nodeID,
+		"delta":   float64(delta),
+	})
+}
+
+// SetPoloScore sets the polo score of a node to a specific value.
+func (c *Client) SetPoloScore(nodeID uint32, poloScore int) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":       "set_polo_score",
+		"node_id":    nodeID,
+		"polo_score": float64(poloScore),
+	})
+}
+
+// GetPoloScore retrieves the current polo score for a node.
+func (c *Client) GetPoloScore(nodeID uint32) (int, error) {
+	resp, err := c.Send(map[string]interface{}{
+		"type":    "get_polo_score",
+		"node_id": nodeID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if poloScore, ok := resp["polo_score"].(float64); ok {
+		return int(poloScore), nil
+	}
+	return 0, fmt.Errorf("polo_score not found in response")
+}

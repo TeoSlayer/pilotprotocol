@@ -140,16 +140,16 @@ func TestHostnameValidation(t *testing.T) {
 	setClientSigner(rc, id)
 
 	invalid := []string{
-		"Alice",           // uppercase
-		"hello world",     // space
-		"-start",          // starts with hyphen
-		"end-",            // ends with hyphen
-		"localhost",       // reserved
-		"backbone",        // reserved
-		"broadcast",       // reserved
+		"Alice",       // uppercase
+		"hello world", // space
+		"-start",      // starts with hyphen
+		"end-",        // ends with hyphen
+		"localhost",   // reserved
+		"backbone",    // reserved
+		"broadcast",   // reserved
 		"this-hostname-is-way-too-long-and-exceeds-the-sixty-three-character-limit-by-quite-a-bit",
-		"hello@world",     // special char
-		"hello.world",     // dot not allowed
+		"hello@world", // special char
+		"hello.world", // dot not allowed
 	}
 
 	for _, name := range invalid {

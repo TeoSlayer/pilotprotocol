@@ -32,7 +32,7 @@ type Gateway struct {
 	driver    *driver.Driver
 	mu        sync.Mutex
 	listeners map[string]net.Listener // localIP:port → TCP listener
-	aliases   []net.IP               // loopback aliases to clean up on Stop
+	aliases   []net.IP                // loopback aliases to clean up on Stop
 	done      chan struct{}
 }
 

@@ -13,7 +13,7 @@ import (
 type Listener struct {
 	port     uint16
 	ipc      *ipcClient
-	acceptCh chan []byte  // H12 fix: per-port accept channel
+	acceptCh chan []byte // H12 fix: per-port accept channel
 	mu       sync.Mutex
 	closed   bool
 	done     chan struct{} // closed on Close() to unblock Accept (H13 fix)

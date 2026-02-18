@@ -460,4 +460,3 @@ func TestEventStreamSubscriberDisconnect(t *testing.T) {
 	}
 	t.Log("broker handled subscriber disconnect gracefully")
 }
-

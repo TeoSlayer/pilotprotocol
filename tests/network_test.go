@@ -24,14 +24,14 @@ func TestNetworkNameValidation(t *testing.T) {
 	nodeID, _ := registerTestNode(t, rc)
 
 	invalid := []string{
-		"",                // empty
-		"MyNetwork",      // uppercase
-		"hello world",    // space
-		"-start",         // starts with hyphen
-		"end-",           // ends with hyphen
-		"backbone",       // reserved
-		"hello@net",      // special char
-		"hello.net",      // dot
+		"",            // empty
+		"MyNetwork",   // uppercase
+		"hello world", // space
+		"-start",      // starts with hyphen
+		"end-",        // ends with hyphen
+		"backbone",    // reserved
+		"hello@net",   // special char
+		"hello.net",   // dot
 		"this-network-name-is-way-too-long-and-exceeds-the-sixty-three-character-limit-by-quite-a-bit",
 	}
 

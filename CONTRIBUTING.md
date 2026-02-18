@@ -12,8 +12,8 @@ Thank you for your interest in contributing to Pilot Protocol. This document cov
 ### Setup
 
 ```bash
-git clone https://github.com/user/web4.git
-cd web4
+git clone git clone git@github.com:TeoSlayer/pilotprotocol.git
+cd pilotprotocol
 go build ./...
 ```
 
@@ -125,3 +125,32 @@ docs/                   # Documentation
 ## License
 
 By contributing to Pilot Protocol, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+
+---
+
+## Development
+
+### Running tests
+
+```bash
+make test              # Run all tests
+make coverage          # Run tests with coverage and update badge
+make coverage-html     # Generate HTML coverage report
+```
+
+### Pre-commit hooks
+
+Set up automatic code quality checks before each commit:
+
+```bash
+./scripts/setup-hooks.sh
+```
+
+This installs a git hook that automatically runs:
+- `go fmt` - Code formatting
+- `go vet` - Static analysis
+- `go test` - All tests
+- Coverage badge update
+
+To skip the hook temporarily: `git commit --no-verify`

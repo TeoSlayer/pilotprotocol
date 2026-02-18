@@ -27,7 +27,8 @@
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-223%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-202%20pass-success" alt="Tests">
+  <img src="coverage/badge.svg" alt="Coverage">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
   <img src="https://polo.pilotprotocol.network/api/badge/trust" alt="Trust Links">

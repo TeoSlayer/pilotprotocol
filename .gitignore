@@ -14,9 +14,14 @@ build/
 # Test binary, built with `go test -c`
 *.test
 
+tests/end-to-end/results
+tests/developement-versions
+
 # Output of the go coverage tool
 *.out
 *.prof
+coverage/
+!coverage/badge.svg
 
 # Go workspace
 go.work

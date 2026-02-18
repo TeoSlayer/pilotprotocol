@@ -12,10 +12,11 @@ const AddrSize = 6 // 48 bits: 2 bytes network + 4 bytes node
 // Addr is a 48-bit Pilot Protocol virtual address.
 // Layout: [16-bit Network ID][32-bit Node ID]
 // Text format: N:NNNN.HHHH.LLLL
-//   N    = network ID in decimal
-//   NNNN = network ID in hex (redundant, for readability)
-//   HHHH = node ID high 16 bits in hex
-//   LLLL = node ID low 16 bits in hex
+//
+//	N    = network ID in decimal
+//	NNNN = network ID in hex (redundant, for readability)
+//	HHHH = node ID high 16 bits in hex
+//	LLLL = node ID low 16 bits in hex
 type Addr struct {
 	Network uint16
 	Node    uint32
