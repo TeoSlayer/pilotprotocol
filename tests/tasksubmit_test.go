@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/registry"
-	"web4/pkg/tasksubmit"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
 // TestTaskSubmitBasic tests basic task submission and response.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/pprof"
 )
@@ -118,19 +119,36 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
 	})
 
-	// Prometheus metrics endpoint
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	// localhostOnly rejects requests not originating from loopback.
+	// Checks X-Real-IP / X-Forwarded-For (set by nginx) to detect proxied public requests.
+	localhostOnly := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// If behind a reverse proxy, the real client IP is in X-Real-IP
+			clientIP := r.Header.Get("X-Real-IP")
+			if clientIP == "" {
+				clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+			}
+			if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			next(w, r)
+		}
+	}
+
+	// Prometheus metrics endpoint (localhost only — scraped by Alloy on the same host)
+	mux.HandleFunc("/metrics", localhostOnly(func(w http.ResponseWriter, r *http.Request) {
 		s.metrics.updateGauges(s)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		s.metrics.WriteTo(w)
-	})
+	}))
 
-	// pprof endpoints for live profiling
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	// pprof endpoints for live profiling (localhost only)
+	mux.HandleFunc("/debug/pprof/", localhostOnly(pprof.Index))
+	mux.HandleFunc("/debug/pprof/cmdline", localhostOnly(pprof.Cmdline))
+	mux.HandleFunc("/debug/pprof/profile", localhostOnly(pprof.Profile))
+	mux.HandleFunc("/debug/pprof/symbol", localhostOnly(pprof.Symbol))
+	mux.HandleFunc("/debug/pprof/trace", localhostOnly(pprof.Trace))
 
 	slog.Info("dashboard listening", "addr", addr)
 	return http.ListenAndServe(addr, mux)
