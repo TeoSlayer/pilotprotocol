@@ -6,9 +6,9 @@ import (
 	"log"
 	"net"
 
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
-	"web4/pkg/secure"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
 )
 
 func main() {

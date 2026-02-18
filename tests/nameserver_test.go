@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/nameserver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/nameserver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 func waitNSReady(t *testing.T, ns interface{ Ready() <-chan struct{} }) {

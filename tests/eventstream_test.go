@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/daemon"
-	"web4/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
 )
 
 // disableES disables the built-in eventstream service so tests can bind port 1002 via driver.

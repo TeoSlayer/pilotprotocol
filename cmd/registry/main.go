@@ -4,9 +4,9 @@ import (
 	"flag"
 	"log"
 
-	"web4/pkg/config"
-	"web4/pkg/logging"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 func main() {

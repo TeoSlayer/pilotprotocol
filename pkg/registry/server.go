@@ -26,9 +26,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/internal/fsutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // hashOwner returns a truncated SHA-256 hash of the owner for safe logging.
@@ -99,6 +99,9 @@ type Server struct {
 
 	// Beacon cluster: beacon instances register themselves for peer discovery
 	beacons map[uint32]*beaconEntry
+
+	// Prometheus metrics
+	metrics *registryMetrics
 
 	// Shutdown
 	done chan struct{}
@@ -215,6 +218,7 @@ type NodeInfo struct {
 	Hostname  string   // unique hostname for discovery (empty = none)
 	Tags      []string // capability tags (e.g., "webserver", "assistant")
 	PoloScore int      // polo score for reputation system (default: 0)
+	TaskExec  bool     // if true, node advertises task execution capability
 }
 
 type NetworkInfo struct {
@@ -317,13 +321,14 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		trustPairs:         make(map[string]bool),
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
-		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
-		beacons:            make(map[uint32]*beaconEntry),
-		replMgr:            newReplicationManager(),
-		readyCh:            make(chan struct{}),
-		done:               make(chan struct{}),
-		saveCh:             make(chan struct{}, 1),
-		saveDone:           make(chan struct{}),
+		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		beacons:     make(map[uint32]*beaconEntry),
+		replMgr:     newReplicationManager(),
+		metrics:     newRegistryMetrics(),
+		readyCh:     make(chan struct{}),
+		done:        make(chan struct{}),
+		saveCh:      make(chan struct{}, 1),
+		saveDone:    make(chan struct{}),
 	}
 
 	go s.saveLoop()
@@ -648,9 +653,19 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (map[string]interface{}, error) {
+func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (resp map[string]interface{}, err error) {
 	s.requestCount.Add(1)
 	msgType, _ := msg["type"].(string)
+
+	// Prometheus instrumentation
+	s.metrics.requestsTotal.WithLabel(msgType).Inc()
+	start := time.Now()
+	defer func() {
+		s.metrics.requestDuration.WithLabel(msgType).Observe(time.Since(start).Seconds())
+		if err != nil {
+			s.metrics.errorsTotal.WithLabel(msgType).Inc()
+		}
+	}()
 
 	// Standby mode: reject write operations, allow reads
 	s.mu.RLock()
@@ -724,6 +739,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (m
 		return s.handleSetHostname(msg)
 	case "set_tags":
 		return s.handleSetTags(msg)
+	case "set_task_exec":
+		return s.handleSetTaskExec(msg)
 	case "resolve_hostname":
 		return s.handleResolveHostname(msg)
 	case "beacon_register":
@@ -774,6 +791,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 			if regErr != nil {
 				return resp, regErr
 			}
+			s.metrics.registrations.Inc()
 			resp["hostname_error"] = err.Error()
 			return resp, nil
 		}
@@ -781,7 +799,11 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 
 	// M3 fix: pass hostname into handleReRegister so registration + hostname
 	// are set atomically under a single lock acquisition.
-	return s.handleReRegister(pubKeyB64, listenAddr, owner, hostname)
+	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname)
+	if err == nil {
+		s.metrics.registrations.Inc()
+	}
+	return resp, err
 }
 
 // handleRotateKey rotates the Ed25519 keypair for a node.
@@ -1312,6 +1334,9 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	if len(node.Tags) > 0 {
 		resp["tags"] = node.Tags
 	}
+	if node.TaskExec {
+		resp["task_exec"] = true
+	}
 	if node.Public {
 		resp["real_addr"] = node.RealAddr
 	}
@@ -1422,6 +1447,7 @@ func (s *Server) handleReportTrust(msg map[string]interface{}) (map[string]inter
 	key := trustPairKey(nodeA, nodeB)
 	s.trustPairs[key] = true
 	s.save()
+	s.metrics.trustReports.Inc()
 
 	slog.Info("trust pair registered", "node_a", nodeA, "node_b", nodeB)
 
@@ -1453,6 +1479,7 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 
 	delete(s.trustPairs, key)
 	s.save()
+	s.metrics.trustRevocations.Inc()
 
 	slog.Info("trust pair revoked", "node_a", nodeA, "node_b", nodeB)
 
@@ -1491,6 +1518,35 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		"type":       "set_visibility_ok",
 		"node_id":    nodeID,
 		"visibility": visibility,
+	}, nil
+}
+
+func (s *Server) handleSetTaskExec(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	enabled, _ := msg["enabled"].(bool)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	// H3 fix: verify signature
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_task_exec:%d", nodeID)); err != nil {
+		return nil, err
+	}
+
+	node.TaskExec = enabled
+	s.save()
+
+	slog.Info("node task_exec changed", "node_id", nodeID, "task_exec", enabled)
+
+	return map[string]interface{}{
+		"type":      "set_task_exec_ok",
+		"node_id":   nodeID,
+		"task_exec": enabled,
 	}, nil
 }
 
@@ -1547,6 +1603,8 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 		Justification: justification,
 		Timestamp:     time.Now(),
 	})
+
+	s.metrics.handshakeRequests.Inc()
 
 	slog.Info("handshake request relayed", "from", fromNodeID, "to", toNodeID)
 
@@ -1896,6 +1954,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
 			}
+			if node.TaskExec {
+				entry["task_exec"] = true
+			}
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
 			}
@@ -1943,6 +2004,7 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	s.cleanupNode(nodeID)
 	delete(s.nodes, nodeID)
 	s.save()
+	s.metrics.deregistrations.Inc()
 
 	slog.Info("deregistered node", "node_id", nodeID)
 
@@ -2040,6 +2102,7 @@ type snapshotNode struct {
 	Hostname  string   `json:"hostname,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
 	PoloScore int      `json:"polo_score,omitempty"`
+	TaskExec  bool     `json:"task_exec,omitempty"`
 }
 
 type snapshotNet struct {
@@ -2115,6 +2178,7 @@ func (s *Server) flushSave() {
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
 			PoloScore: n.PoloScore,
+			TaskExec:  n.TaskExec,
 		}
 	}
 
@@ -2219,6 +2283,7 @@ func (s *Server) load() error {
 			Hostname:  n.Hostname,
 			Tags:      n.Tags,
 			PoloScore: n.PoloScore,
+			TaskExec:  n.TaskExec,
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
@@ -2364,6 +2429,7 @@ type DashboardNode struct {
 	Tags       []string `json:"tags"`
 	Online     bool     `json:"online"`
 	TrustLinks int      `json:"trust_links"`
+	TaskExec   bool     `json:"task_exec"`
 }
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
@@ -2386,6 +2452,7 @@ type DashboardStats struct {
 	TotalTrustLinks int                `json:"total_trust_links"`
 	TotalRequests   int64              `json:"total_requests"`
 	UniqueTags      int                `json:"unique_tags"`
+	TaskExecutors   int                `json:"task_executors"`
 	Networks        []DashboardNetwork `json:"networks"`
 	Nodes           []DashboardNode    `json:"nodes"`
 	Edges           []DashboardEdge    `json:"edges"`
@@ -2427,11 +2494,15 @@ func (s *Server) GetDashboardStats() DashboardStats {
 
 	nodes := make([]DashboardNode, 0, len(s.nodes))
 	activeCount := 0
+	taskExecCount := 0
 	tagSet := make(map[string]bool)
 	for _, node := range s.nodes {
 		online := node.LastSeen.After(onlineThreshold)
 		if online {
 			activeCount++
+		}
+		if node.TaskExec {
+			taskExecCount++
 		}
 		addr := protocol.Addr{Network: 0, Node: node.ID}
 		if len(node.Networks) > 0 {
@@ -2449,6 +2520,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 			Tags:       tags,
 			Online:     online,
 			TrustLinks: trustCount[node.ID],
+			TaskExec:   node.TaskExec,
 		})
 	}
 
@@ -2472,6 +2544,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
 		UniqueTags:      len(tagSet),
+		TaskExecutors:   taskExecCount,
 		Networks:        networks,
 		Nodes:           nodes,
 		Edges:           edges,

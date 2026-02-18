@@ -6,8 +6,8 @@ import (
 	"net"
 	"sync"
 
-	"web4/internal/ipcutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // IPC commands (must match daemon/ipc.go)
@@ -40,6 +40,8 @@ const (
 	cmdSetTagsOK         byte = 0x1A
 	cmdSetWebhook        byte = 0x1B
 	cmdSetWebhookOK      byte = 0x1C
+	cmdSetTaskExec       byte = 0x1D
+	cmdSetTaskExecOK     byte = 0x1E
 )
 
 // Datagram represents a received unreliable datagram.

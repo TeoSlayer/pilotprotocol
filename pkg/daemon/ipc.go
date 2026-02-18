@@ -10,8 +10,8 @@ import (
 	"os"
 	"sync"
 
-	"web4/internal/ipcutil"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // IPC commands (daemon ↔ driver)
@@ -44,6 +44,8 @@ const (
 	CmdSetTagsOK         byte = 0x1A
 	CmdSetWebhook        byte = 0x1B
 	CmdSetWebhookOK      byte = 0x1C
+	CmdSetTaskExec       byte = 0x1D
+	CmdSetTaskExecOK     byte = 0x1E
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -204,6 +206,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleSetTags(conn, payload)
 		case CmdSetWebhook:
 			s.handleSetWebhook(conn, payload)
+		case CmdSetTaskExec:
+			s.handleSetTaskExec(conn, payload)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -552,6 +556,30 @@ func (s *IPCServer) handleSetWebhook(conn *ipcConn, payload []byte) {
 	copy(resp[1:], data)
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC set_webhook reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleSetTaskExec(conn *ipcConn, payload []byte) {
+	if len(payload) < 1 {
+		s.sendError(conn, "set_task_exec: missing value")
+		return
+	}
+	enabled := payload[0] == 1
+	result, err := s.daemon.regConn.SetTaskExec(s.daemon.NodeID(), enabled)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("set_task_exec: %v", err))
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("set_task_exec marshal: %v", err))
+		return
+	}
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdSetTaskExecOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC set_task_exec reply failed", "err", err)
 	}
 }
 

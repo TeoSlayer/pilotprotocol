@@ -17,16 +17,16 @@ import (
 	"syscall"
 	"time"
 
-	"web4/pkg/config"
-	"web4/pkg/daemon"
-	"web4/pkg/dataexchange"
-	"web4/pkg/driver"
-	"web4/pkg/eventstream"
-	"web4/pkg/gateway"
-	"web4/pkg/logging"
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
-	"web4/pkg/tasksubmit"
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+  "github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
 // Global flags
@@ -356,6 +356,8 @@ Discovery commands:
   pilotctl clear-hostname
   pilotctl set-tags <tag1> [tag2] ...
   pilotctl clear-tags
+  pilotctl enable-tasks
+  pilotctl disable-tasks
 
 Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
@@ -517,6 +519,10 @@ func main() {
 		cmdSetTags(cmdArgs)
 	case "clear-tags":
 		cmdClearTags()
+	case "enable-tasks":
+		cmdEnableTasks()
+	case "disable-tasks":
+		cmdDisableTasks()
 	case "set-webhook":
 		cmdSetWebhook(cmdArgs)
 	case "clear-webhook":
@@ -752,6 +758,16 @@ func cmdContext() {
 				"args":        []string{},
 				"description": "Clear all tags for this daemon's node",
 				"returns":     "node_id, tags",
+			},
+			"enable-tasks": map[string]interface{}{
+				"args":        []string{},
+				"description": "Advertise that this node can execute tasks",
+				"returns":     "node_id, task_exec",
+			},
+			"disable-tasks": map[string]interface{}{
+				"args":        []string{},
+				"description": "Stop advertising task execution capability",
+				"returns":     "node_id, task_exec",
 			},
 			"set-webhook": map[string]interface{}{
 				"args":        []string{"<url>"},
@@ -1673,6 +1689,26 @@ func cmdSetPrivate(args []string) {
 	resp, err := d.SetVisibility(false)
 	if err != nil {
 		fatalCode("connection_failed", "set-private: %v", err)
+	}
+	output(resp)
+}
+
+func cmdEnableTasks() {
+	d := connectDriver()
+	defer d.Close()
+	resp, err := d.SetTaskExec(true)
+	if err != nil {
+		fatalCode("connection_failed", "enable-tasks: %v", err)
+	}
+	output(resp)
+}
+
+func cmdDisableTasks() {
+	d := connectDriver()
+	defer d.Close()
+	resp, err := d.SetTaskExec(false)
+	if err != nil {
+		fatalCode("connection_failed", "disable-tasks: %v", err)
 	}
 	output(resp)
 }

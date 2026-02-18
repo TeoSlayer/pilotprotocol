@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/secure"
+	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
 )
 
 func TestSecureChannel(t *testing.T) {

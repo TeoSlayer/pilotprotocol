@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 var (

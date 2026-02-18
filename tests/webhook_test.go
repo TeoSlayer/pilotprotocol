@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/daemon"
-	"web4/pkg/dataexchange"
-	"web4/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
 )
 
 // webhookCollector is a test HTTP server that records received webhook events.

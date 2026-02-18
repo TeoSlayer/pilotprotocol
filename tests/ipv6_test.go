@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/beacon"
-	"web4/pkg/daemon"
-	"web4/pkg/driver"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // TestIPv6EndToEnd verifies that all Pilot components work over IPv6 loopback.

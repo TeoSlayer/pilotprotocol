@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"web4/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 )
 
 // TestIPCDisconnectRecovery tests that driver operations return errors when

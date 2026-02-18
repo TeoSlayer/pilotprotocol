@@ -2,6 +2,7 @@ package registry
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
@@ -25,6 +26,103 @@ func (s *Server) ServeDashboard(addr string) error {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		stats := s.GetDashboardStats()
 		_ = json.NewEncoder(w).Encode(stats)
+	})
+
+	serveBadge := func(w http.ResponseWriter, label, value, color string) {
+		lw := int(float64(len(label))*6.5) + 10
+		vw := int(float64(len(value))*6.5) + 10
+		tw := lw + vw
+		svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="20" role="img" aria-label="%s: %s">`+
+			`<title>%s: %s</title>`+
+			`<linearGradient id="s" x2="0" y2="100%%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>`+
+			`<clipPath id="r"><rect width="%d" height="20" rx="3" fill="#fff"/></clipPath>`+
+			`<g clip-path="url(#r)">`+
+			`<rect width="%d" height="20" fill="#555"/>`+
+			`<rect x="%d" width="%d" height="20" fill="%s"/>`+
+			`<rect width="%d" height="20" fill="url(#s)"/>`+
+			`</g>`+
+			`<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">`+
+			`<text aria-hidden="true" x="%d" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)">%s</text>`+
+			`<text x="%d" y="140" transform="scale(.1)">%s</text>`+
+			`<text aria-hidden="true" x="%d" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)">%s</text>`+
+			`<text x="%d" y="140" transform="scale(.1)">%s</text>`+
+			`</g></svg>`,
+			tw, label, value,
+			label, value,
+			tw,
+			lw,
+			lw, vw, color,
+			tw,
+			lw*5, label,
+			lw*5, label,
+			lw*10+vw*5, value,
+			lw*10+vw*5, value,
+		)
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = w.Write([]byte(svg))
+	}
+
+	fmtCount := func(n int) string {
+		switch {
+		case n >= 1e9:
+			return fmt.Sprintf("%.1fB", float64(n)/1e9)
+		case n >= 1e6:
+			return fmt.Sprintf("%.1fM", float64(n)/1e6)
+		case n >= 1e3:
+			return fmt.Sprintf("%.1fK", float64(n)/1e3)
+		default:
+			return fmt.Sprintf("%d", n)
+		}
+	}
+
+	mux.HandleFunc("/api/badge/nodes", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		c := "#4c1"
+		if stats.ActiveNodes == 0 {
+			c = "#9f9f9f"
+		}
+		serveBadge(w, "online nodes", fmtCount(stats.ActiveNodes), c)
+	})
+
+	mux.HandleFunc("/api/badge/trust", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		c := "#58a6ff"
+		if stats.TotalTrustLinks == 0 {
+			c = "#9f9f9f"
+		}
+		serveBadge(w, "trust links", fmtCount(stats.TotalTrustLinks), c)
+	})
+
+	mux.HandleFunc("/api/badge/requests", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		serveBadge(w, "requests", fmtCount(int(stats.TotalRequests)), "#a855f7")
+	})
+
+	mux.HandleFunc("/api/badge/tags", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		c := "#f59e0b"
+		if stats.UniqueTags == 0 {
+			c = "#9f9f9f"
+		}
+		serveBadge(w, "tags", fmtCount(stats.UniqueTags), c)
+	})
+
+	mux.HandleFunc("/api/badge/task-executors", func(w http.ResponseWriter, r *http.Request) {
+		stats := s.GetDashboardStats()
+		c := "#4c1"
+		if stats.TaskExecutors == 0 {
+			c = "#9f9f9f"
+		}
+		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
+	})
+
+	// Prometheus metrics endpoint
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		s.metrics.updateGauges(s)
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s.metrics.WriteTo(w)
 	})
 
 	// pprof endpoints for live profiling
@@ -57,7 +155,7 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 header .links{display:flex;gap:16px;font-size:13px}
 .uptime{font-size:12px;color:#8b949e;margin-top:4px}
 
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:32px}
 .stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
@@ -70,26 +168,14 @@ th{text-align:left;font-size:11px;font-weight:600;color:#8b949e;text-transform:u
 td{padding:10px 16px;border-bottom:1px solid #21262d;font-size:13px}
 tr:last-child td{border-bottom:none}
 
-.graph-section{position:relative;margin-bottom:32px}
-.graph-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d}
-.graph-header h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin:0;padding:0;border:none}
-.graph-wrap{position:relative;background:#0d1117;border:1px solid #21262d;border-radius:8px;overflow:hidden}
-#graph-canvas{display:block;width:100%;cursor:grab}
-#graph-canvas:active{cursor:grabbing}
-.fs-btn{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:5px 10px;color:#8b949e;font-family:inherit;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px}
-.fs-btn:hover{border-color:#58a6ff;color:#58a6ff}
-.graph-wrap.fullscreen{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;border-radius:0;border:none}
-.graph-wrap.fullscreen #graph-canvas{height:100vh!important}
-.graph-wrap.fullscreen .fs-exit{position:absolute;top:16px;right:16px;z-index:10000}
-.graph-tooltip{position:absolute;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 12px;font-size:12px;color:#e6edf3;pointer-events:none;display:none;z-index:10;white-space:nowrap}
-.graph-tooltip .tt-addr{color:#3fb950;font-weight:600}
-.graph-tooltip .tt-tags{color:#58a6ff;margin-top:2px}
-.graph-tooltip .tt-trust{color:#8b949e;margin-top:2px}
-
 .tag{display:inline-block;background:#1f2937;border:1px solid #30363d;border-radius:12px;padding:2px 10px;font-size:11px;color:#58a6ff;margin:2px 4px 2px 0;white-space:nowrap}
 .tag-filter{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;color:#c9d1d9;font-family:inherit;font-size:13px;width:100%;margin-bottom:12px;outline:none}
 .tag-filter:focus{border-color:#58a6ff}
 .tag-filter::placeholder{color:#484f58}
+.task-badge{display:inline-block;background:#1a3a2a;border:1px solid #3fb950;border-radius:12px;padding:2px 10px;font-size:11px;color:#3fb950;white-space:nowrap}
+.filter-row{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.filter-row .tag-filter{margin-bottom:0;flex:1}
+.filter-row label{font-size:13px;color:#8b949e;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:4px}
 .empty{color:#484f58;font-style:italic;padding:20px;text-align:center}
 
 .pagination{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:13px}
@@ -138,27 +224,9 @@ footer a:hover{color:#58a6ff}
     <span class="value" id="unique-tags">—</span>
     <span class="label">Unique Tags</span>
   </div>
-</div>
-
-<div class="graph-section">
-  <div class="graph-header">
-    <h2>Trust Graph</h2>
-    <button class="fs-btn" id="fs-btn" onclick="toggleFullscreen()">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1 1h5V0H0v6h1V1zm14 0h-5V0h6v6h-1V1zM1 15h5v1H0v-6h1v5zm14 0h-5v1h6v-6h-1v5z"/></svg>
-      Fullscreen
-    </button>
-  </div>
-  <div class="graph-wrap" id="graph-wrap">
-    <canvas id="graph-canvas" height="400"></canvas>
-    <button class="fs-btn fs-exit" id="fs-exit" style="display:none" onclick="toggleFullscreen()">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 0v5H0v1h6V0H5zm6 0v6h6V5h-5V0h-1zM0 11h5v5h1v-6H0v1zm11 0v6h1v-5h5v-1h-6z"/></svg>
-      Exit
-    </button>
-    <div class="graph-tooltip" id="graph-tooltip">
-      <div class="tt-addr" id="tt-addr"></div>
-      <div class="tt-tags" id="tt-tags"></div>
-      <div class="tt-trust" id="tt-trust"></div>
-    </div>
+  <div class="stat-card">
+    <span class="value" id="task-executors">—</span>
+    <span class="label">Task Executors</span>
   </div>
 </div>
 
@@ -174,11 +242,14 @@ footer a:hover{color:#58a6ff}
 
 <div class="section">
   <h2>Nodes</h2>
-  <input type="text" id="tag-filter" class="tag-filter" placeholder="Filter by tag...">
+  <div class="filter-row">
+    <input type="text" id="tag-filter" class="tag-filter" placeholder="Filter by tag...">
+    <label><input type="checkbox" id="task-filter"> Tasks only</label>
+  </div>
   <table>
-    <thead><tr><th>Address</th><th>Status</th><th>Trust</th><th>Tags</th></tr></thead>
+    <thead><tr><th>Address</th><th>Status</th><th>Trust</th><th>Tags</th><th>Tasks</th></tr></thead>
     <tbody id="nodes-body">
-      <tr><td colspan="4" class="empty">Loading...</td></tr>
+      <tr><td colspan="5" class="empty">Loading...</td></tr>
     </tbody>
   </table>
   <div class="pagination" id="pagination"></div>
@@ -193,163 +264,18 @@ footer a:hover{color:#58a6ff}
 </div>
 <script>
 var allNodes=[],allEdges=[],currentPage=1,pageSize=25;
-var gNodes=[],gEdges=[],simRunning=false,animId=null;
-var camX=0,camY=0,camZ=1,dragX=0,dragY=0,dragging=false,hoveredNode=-1;
-var dpr=window.devicePixelRatio||1;
 
 function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);var p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ')}
 
-/* ---- Force-directed graph ---- */
-function initGraph(nodes,edges){
-  var addrMap={};
-  gNodes=nodes.map(function(n,i){
-    addrMap[n.address]=i;
-    return{addr:n.address,tags:n.tags||[],online:n.online,trust:n.trust_links||0,
-      x:(Math.random()-0.5)*600,y:(Math.random()-0.5)*400,vx:0,vy:0};
-  });
-  gEdges=[];
-  edges.forEach(function(e){
-    var si=addrMap[e.source],ti=addrMap[e.target];
-    if(si!==undefined&&ti!==undefined)gEdges.push({s:si,t:ti});
-  });
-  camX=0;camY=0;camZ=1;
-  if(!simRunning){simRunning=true;simLoop();}
-}
-
-function simLoop(){
-  var alpha=0.3,repulse=30000,spring=0.002,damp=0.82,center=0.0001;
-  var N=gNodes.length;
-  for(var i=0;i<N;i++){
-    for(var j=i+1;j<N;j++){
-      var dx=gNodes[j].x-gNodes[i].x,dy=gNodes[j].y-gNodes[i].y;
-      var d2=dx*dx+dy*dy;if(d2<1)d2=1;
-      var f=repulse/d2;
-      var dist=Math.sqrt(d2);
-      var fx=dx/dist*f,fy=dy/dist*f;
-      gNodes[i].vx-=fx*alpha;gNodes[i].vy-=fy*alpha;
-      gNodes[j].vx+=fx*alpha;gNodes[j].vy+=fy*alpha;
-    }
-  }
-  gEdges.forEach(function(e){
-    var a=gNodes[e.s],b=gNodes[e.t];
-    var dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1;
-    var f=(d-400)*spring;
-    a.vx+=dx/d*f*alpha;a.vy+=dy/d*f*alpha;
-    b.vx-=dx/d*f*alpha;b.vy-=dy/d*f*alpha;
-  });
-  gNodes.forEach(function(n){n.vx-=n.x*center;n.vy-=n.y*center;});
-  gNodes.forEach(function(n){n.vx*=damp;n.vy*=damp;n.x+=n.vx;n.y+=n.vy;});
-  drawGraph();
-  animId=requestAnimationFrame(simLoop);
-}
-
-function drawGraph(){
-  var c=document.getElementById('graph-canvas');
-  var ctx=c.getContext('2d');
-  var W=c.width/dpr,H=c.height/dpr;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.clearRect(0,0,W,H);
-  ctx.save();
-  ctx.translate(W/2+camX,H/2+camY);
-  ctx.scale(camZ,camZ);
-  ctx.strokeStyle='rgba(63,185,80,0.12)';ctx.lineWidth=0.5;
-  ctx.beginPath();
-  gEdges.forEach(function(e){
-    var a=gNodes[e.s],b=gNodes[e.t];
-    ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
-  });
-  ctx.stroke();
-  gNodes.forEach(function(n,i){
-    var r=Math.max(2,Math.min(6,1.5+n.trust*0.4));
-    var col=n.online?'#3fb950':'#484f58';
-    if(i===hoveredNode){col='#58a6ff';r+=2;}
-    ctx.beginPath();ctx.arc(n.x,n.y,r,0,6.283);
-    ctx.fillStyle=col;ctx.fill();
-  });
-  ctx.restore();
-}
-
-function resizeCanvas(){
-  var c=document.getElementById('graph-canvas');
-  var wrap=document.getElementById('graph-wrap');
-  var isFs=wrap.classList.contains('fullscreen');
-  var w=isFs?window.innerWidth:wrap.clientWidth;
-  var h=isFs?window.innerHeight:400;
-  c.width=w*dpr;c.height=h*dpr;
-  c.style.width=w+'px';c.style.height=h+'px';
-}
-
-function findNode(mx,my){
-  var c=document.getElementById('graph-canvas');
-  var W=c.width/dpr,H=c.height/dpr;
-  var gx=(mx-W/2-camX)/camZ,gy=(my-H/2-camY)/camZ;
-  var best=-1,bd=Infinity;
-  gNodes.forEach(function(n,i){
-    var dx=n.x-gx,dy=n.y-gy,d=dx*dx+dy*dy;
-    var r=Math.max(2,Math.min(6,1.5+n.trust*0.4))+4;
-    if(d<(r*r)/(camZ*camZ)&&d<bd){bd=d;best=i;}
-  });
-  return best;
-}
-
-(function(){
-  var c=document.getElementById('graph-canvas');
-  c.addEventListener('mousedown',function(e){dragging=true;dragX=e.clientX;dragY=e.clientY;});
-  window.addEventListener('mousemove',function(e){
-    if(dragging){camX+=e.clientX-dragX;camY+=e.clientY-dragY;dragX=e.clientX;dragY=e.clientY;return;}
-    var rect=c.getBoundingClientRect();
-    var mx=e.clientX-rect.left,my=e.clientY-rect.top;
-    var idx=findNode(mx,my);
-    if(idx!==hoveredNode){
-      hoveredNode=idx;
-      var tt=document.getElementById('graph-tooltip');
-      if(idx>=0){
-        var n=gNodes[idx];
-        document.getElementById('tt-addr').textContent=n.addr;
-        document.getElementById('tt-tags').textContent=n.tags.length?n.tags.map(function(t){return'#'+t}).join(' '):'no tags';
-        document.getElementById('tt-trust').textContent=n.trust+' trust link'+(n.trust!==1?'s':'');
-        tt.style.display='block';
-      }else{tt.style.display='none';}
-    }
-    if(hoveredNode>=0){
-      var tt=document.getElementById('graph-tooltip');
-      var rect2=c.getBoundingClientRect();
-      tt.style.left=(e.clientX-rect2.left+12)+'px';
-      tt.style.top=(e.clientY-rect2.top-10)+'px';
-    }
-  });
-  window.addEventListener('mouseup',function(){dragging=false;});
-  c.addEventListener('mouseleave',function(){hoveredNode=-1;document.getElementById('graph-tooltip').style.display='none';});
-  c.addEventListener('wheel',function(e){
-    e.preventDefault();
-    var d=e.deltaY>0?0.9:1.1;
-    camZ=Math.max(0.1,Math.min(10,camZ*d));
-  },{passive:false});
-  window.addEventListener('resize',resizeCanvas);
-  resizeCanvas();
-})();
-
-function toggleFullscreen(){
-  var wrap=document.getElementById('graph-wrap');
-  var isFs=wrap.classList.contains('fullscreen');
-  wrap.classList.toggle('fullscreen');
-  document.getElementById('fs-exit').style.display=isFs?'none':'flex';
-  resizeCanvas();
-}
-document.addEventListener('keydown',function(e){
-  if(e.key==='Escape'){
-    var wrap=document.getElementById('graph-wrap');
-    if(wrap.classList.contains('fullscreen'))toggleFullscreen();
-  }
-});
-
 /* ---- Table rendering ---- */
 function getFiltered(){
   var filter=document.getElementById('tag-filter').value;
-  if(!filter)return allNodes;
-  var q=filter.toLowerCase().replace(/^#/,'');
-  return allNodes.filter(function(n){return n.tags&&n.tags.some(function(t){return t.indexOf(q)>=0})});
+  var taskOnly=document.getElementById('task-filter').checked;
+  var result=allNodes;
+  if(filter){var q=filter.toLowerCase().replace(/^#/,'');result=result.filter(function(n){return n.tags&&n.tags.some(function(t){return t.indexOf(q)>=0})})}
+  if(taskOnly){result=result.filter(function(n){return n.task_exec})}
+  return result;
 }
 function renderNodes(){
   var tb=document.getElementById('nodes-body');
@@ -369,9 +295,11 @@ function renderNodes(){
       var td3=document.createElement('td');td3.textContent=n.trust_links||0;td3.style.color=n.trust_links?'#58a6ff':'#484f58';
       var td4=document.createElement('td');
       if(n.tags&&n.tags.length){n.tags.forEach(function(t){var s=document.createElement('span');s.className='tag';s.textContent='#'+t;td4.appendChild(s)})}else{td4.textContent='\u2014'}
-      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tb.appendChild(tr);
+      var td5=document.createElement('td');
+      if(n.task_exec){var b=document.createElement('span');b.className='task-badge';b.textContent='executor';td5.appendChild(b)}else{td5.textContent='\u2014'}
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tb.appendChild(tr);
     });
-  }else{tb.innerHTML='<tr><td colspan="4" class="empty">No nodes'+(document.getElementById('tag-filter').value?' matching filter':' registered')+'</td></tr>'}
+  }else{tb.innerHTML='<tr><td colspan="5" class="empty">No nodes'+(document.getElementById('tag-filter').value||document.getElementById('task-filter').checked?' matching filter':' registered')+'</td></tr>'}
   var pg=document.getElementById('pagination');
   if(filtered.length<=pageSize){pg.innerHTML='';return}
   pg.innerHTML='';
@@ -386,6 +314,7 @@ function update(){
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('unique-tags').textContent=fmt(d.unique_tags||0);
+    document.getElementById('task-executors').textContent=fmt(d.task_executors||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     var nb=document.getElementById('networks-body');
     nb.innerHTML='';
@@ -401,10 +330,10 @@ function update(){
     allNodes=d.nodes||[];
     allEdges=d.edges||[];
     renderNodes();
-    initGraph(allNodes,allEdges);
   }).catch(function(){})
 }
 document.getElementById('tag-filter').addEventListener('input',function(){currentPage=1;renderNodes()});
+document.getElementById('task-filter').addEventListener('change',function(){currentPage=1;renderNodes()});
 update();setInterval(update,30000);
 </script>
 </body>

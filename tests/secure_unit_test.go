@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"web4/pkg/secure"
+	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
 )
 
 func TestSecureHandshakeAndRoundTrip(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"web4/pkg/dataexchange"
-	"web4/pkg/eventstream"
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
-	"web4/pkg/tasksubmit"
+	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+  "github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
 // connAdapter wraps a daemon *Connection as a net.Conn so that existing

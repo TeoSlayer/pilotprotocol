@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	icrypto "web4/internal/crypto"
-	"web4/pkg/daemon"
-	"web4/pkg/protocol"
-	"web4/pkg/registry"
+	icrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // ======================

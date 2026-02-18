@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"web4/internal/crypto"
-	"web4/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
 // TestAdminTokenRequired verifies that with an admin token configured,

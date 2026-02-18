@@ -1,8 +1,8 @@
 package dataexchange
 
 import (
-	"web4/pkg/driver"
-	"web4/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Client connects to a remote data exchange service on port 1001.
