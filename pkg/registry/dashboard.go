@@ -321,8 +321,8 @@ function getFiltered(){
   return result;
 }
 function getPoloClass(score){
-  if(score>=100)return 'polo-high';
-  if(score>=50)return 'polo-medium';
+  if(score>=50)return 'polo-high';
+  if(score>=0)return 'polo-medium';
   return 'polo-low';
 }
 function renderNodes(){

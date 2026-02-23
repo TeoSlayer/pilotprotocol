@@ -40,5 +40,5 @@ go test -v -run TestRunDashboardWithSeed -timeout=0 ./tests/pilot_dashboard
 - By Status (Online first)
 
 ### POLO Score Display
-- Color-coded scores: Green (≥100), Blue (≥50), Gray (<50)
+- Color-coded scores: Green (≥50), Blue (≥0), Gray (<0)
 - Visible in dedicated column for easy comparison
