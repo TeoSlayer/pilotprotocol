@@ -321,14 +321,14 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		trustPairs:         make(map[string]bool),
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
-		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
-		beacons:     make(map[uint32]*beaconEntry),
-		replMgr:     newReplicationManager(),
-		metrics:     newRegistryMetrics(),
-		readyCh:     make(chan struct{}),
-		done:        make(chan struct{}),
-		saveCh:      make(chan struct{}, 1),
-		saveDone:    make(chan struct{}),
+		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		beacons:            make(map[uint32]*beaconEntry),
+		replMgr:            newReplicationManager(),
+		metrics:            newRegistryMetrics(),
+		readyCh:            make(chan struct{}),
+		done:               make(chan struct{}),
+		saveCh:             make(chan struct{}, 1),
+		saveDone:           make(chan struct{}),
 	}
 
 	go s.saveLoop()
@@ -2430,6 +2430,7 @@ type DashboardNode struct {
 	Online     bool     `json:"online"`
 	TrustLinks int      `json:"trust_links"`
 	TaskExec   bool     `json:"task_exec"`
+	PoloScore  int      `json:"polo_score"`
 }
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
@@ -2521,6 +2522,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 			Online:     online,
 			TrustLinks: trustCount[node.ID],
 			TaskExec:   node.TaskExec,
+			PoloScore:  node.PoloScore,
 		})
 	}
 
