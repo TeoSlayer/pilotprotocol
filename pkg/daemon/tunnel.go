@@ -113,8 +113,8 @@ type TunnelManager struct {
 	pending map[uint32][][]byte // node_id → queued frames
 
 	// NAT traversal: beacon-coordinated hole-punching and relay
-	beaconAddr *net.UDPAddr            // beacon address for punch/relay
-	relayPeers map[uint32]bool         // peers that need relay (symmetric NAT)
+	beaconAddr *net.UDPAddr    // beacon address for punch/relay
+	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
 
 	// Webhook
 	webhook *WebhookClient
