@@ -2435,9 +2435,10 @@ type DashboardNode struct {
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
 type DashboardNetwork struct {
-	ID      uint16 `json:"id"`
-	Name    string `json:"name"`
-	Members int    `json:"members"`
+	ID            uint16 `json:"id"`
+	Name          string `json:"name"`
+	Members       int    `json:"members"`
+	OnlineMembers int    `json:"online_members"`
 }
 
 // DashboardEdge represents a trust relationship between two nodes.
@@ -2533,10 +2534,19 @@ func (s *Server) GetDashboardStats() DashboardStats {
 
 	networks := make([]DashboardNetwork, 0, len(s.networks))
 	for _, net := range s.networks {
+		onlineCount := 0
+		for _, memberID := range net.Members {
+			if node, exists := s.nodes[memberID]; exists {
+				if node.LastSeen.After(onlineThreshold) {
+					onlineCount++
+				}
+			}
+		}
 		networks = append(networks, DashboardNetwork{
-			ID:      net.ID,
-			Name:    net.Name,
-			Members: len(net.Members),
+			ID:            net.ID,
+			Name:          net.Name,
+			Members:       len(net.Members),
+			OnlineMembers: onlineCount,
 		})
 	}
 

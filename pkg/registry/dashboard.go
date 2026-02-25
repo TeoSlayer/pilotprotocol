@@ -173,7 +173,7 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 header .links{display:flex;gap:16px;font-size:13px}
 .uptime{font-size:12px;color:#8b949e;margin-top:4px}
 
-.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:32px}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:32px}
 .stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
@@ -237,6 +237,10 @@ footer a:hover{color:#58a6ff}
     <span class="label">Total Requests</span>
   </div>
   <div class="stat-card">
+    <span class="value" id="total-nodes">—</span>
+    <span class="label">Total Nodes</span>
+  </div>
+  <div class="stat-card">
     <span class="value" id="active-nodes">—</span>
     <span class="label">Online Nodes</span>
   </div>
@@ -257,7 +261,7 @@ footer a:hover{color:#58a6ff}
 <div class="section">
   <h2>Networks</h2>
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Members</th></tr></thead>
+    <thead><tr><th>ID</th><th>Name</th><th>Members (Online/Total)</th></tr></thead>
     <tbody id="networks-body">
       <tr><td colspan="3" class="empty">Loading...</td></tr>
     </tbody>
@@ -362,6 +366,7 @@ function renderNodes(){
 function update(){
   fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
     document.getElementById('total-requests').textContent=fmt(d.total_requests);
+    document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('unique-tags').textContent=fmt(d.unique_tags||0);
@@ -374,7 +379,11 @@ function update(){
         var tr=document.createElement('tr');
         var td1=document.createElement('td');td1.textContent=n.id;
         var td2=document.createElement('td');td2.textContent=n.name;
-        var td3=document.createElement('td');td3.textContent=n.members;
+        var td3=document.createElement('td');
+        var onlineMembers=n.online_members||0;
+        var totalMembers=n.members||0;
+        td3.textContent=onlineMembers+' / '+totalMembers;
+        if(onlineMembers>0){td3.style.color='#3fb950'}else{td3.style.color='#8b949e'}
         tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);nb.appendChild(tr);
       });
     }else{nb.innerHTML='<tr><td colspan="3" class="empty">No networks</td></tr>'}
