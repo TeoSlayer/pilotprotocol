@@ -26,7 +26,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
-  "github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
+	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
 // Global flags

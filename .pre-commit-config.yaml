@@ -28,4 +28,4 @@ repos:
         language: system
         files: \.go$
         pass_filenames: false
-        stages: [commit]
+        stages: [pre-commit]

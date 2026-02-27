@@ -139,8 +139,8 @@ func TestCrossBeaconRelay(t *testing.T) {
 	payload := []byte("hello from node 10")
 	relayMsg := make([]byte, 1+4+4+len(payload))
 	relayMsg[0] = protocol.BeaconMsgRelay
-	binary.BigEndian.PutUint32(relayMsg[1:5], 10)  // sender
-	binary.BigEndian.PutUint32(relayMsg[5:9], 20)  // dest
+	binary.BigEndian.PutUint32(relayMsg[1:5], 10) // sender
+	binary.BigEndian.PutUint32(relayMsg[5:9], 20) // dest
 	copy(relayMsg[9:], payload)
 
 	if _, err := conn1.Write(relayMsg); err != nil {
