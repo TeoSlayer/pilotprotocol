@@ -364,7 +364,7 @@ Communication commands:
   pilotctl send <address|hostname> <port> --data <msg> [--timeout <dur>]
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
   pilotctl send-file <address|hostname> <filepath>
-  pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]
+  pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--encoding <name>]
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
 
@@ -815,9 +815,9 @@ func cmdContext() {
 				"returns":     "filename, bytes, destination, ack",
 			},
 			"send-message": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]"},
-				"description": "Send a typed message via data exchange (port 1001). Default type: text",
-				"returns":     "target, type, bytes, ack",
+				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]", "[--encoding <name>]"},
+				"description": "Send a typed message via data exchange (port 1001). Default type: text. --encoding wraps data in a JSON envelope {\"encoding\":\"<name>\",\"data\":\"...\"}",
+				"returns":     "target, type, bytes, encoding, ack",
 			},
 			"subscribe": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "<topic>", "[--count <n>]", "[--timeout <dur>]"},
@@ -2318,7 +2318,7 @@ func cmdSendFile(args []string) {
 func cmdSendMessage(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]")
+		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--encoding <name>]")
 	}
 
 	d := connectDriver()
@@ -2334,6 +2334,27 @@ func cmdSendMessage(args []string) {
 		fatalCode("invalid_argument", "--data is required")
 	}
 	msgType := flagString(flags, "type", "text")
+	encoding := flagString(flags, "encoding", "")
+
+	// If --encoding is set, wrap the payload in a JSON envelope and force type to json.
+	// This is a client-side convenience: the wire still carries a standard JSON frame.
+	// The receiver can inspect the "encoding" field to decode the payload.
+	//
+	// Example:
+	//   pilotctl send-message target --data "?Uk/co" --encoding lambda
+	//   → sends TypeJSON: {"encoding":"lambda","data":"?Uk/co"}
+	if encoding != "" {
+		envelope := map[string]string{
+			"encoding": encoding,
+			"data":     data,
+		}
+		b, marshalErr := json.Marshal(envelope)
+		if marshalErr != nil {
+			fatalCode("internal", "marshal encoding envelope: %v", marshalErr)
+		}
+		data = string(b)
+		msgType = "json"
+	}
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
@@ -2367,6 +2388,9 @@ func cmdSendMessage(args []string) {
 		"target": target.String(),
 		"type":   msgType,
 		"bytes":  len(data),
+	}
+	if encoding != "" {
+		result["encoding"] = encoding
 	}
 	if ack != nil {
 		result["ack"] = string(ack.Payload)
