@@ -293,4 +293,3 @@ func (c *ipcClient) unregisterRecvCh(connID uint32) {
 	defer c.recvMu.Unlock()
 	delete(c.recvChs, connID)
 }
-

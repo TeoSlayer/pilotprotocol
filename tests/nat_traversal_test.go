@@ -454,16 +454,16 @@ func TestNATScenarios(t *testing.T) {
 		description string
 	}{
 		{
-			name:    "FullCone",
-			natType: "Full Cone (Endpoint Independent Mapping + Endpoint Independent Filtering)",
+			name:      "FullCone",
+			natType:   "Full Cone (Endpoint Independent Mapping + Endpoint Independent Filtering)",
 			mechanism: "direct",
 			description: "STUN-discovered endpoint works for all peers. " +
 				"Any external host can send to the mapped address:port. " +
 				"No hole-punching needed — direct tunnel works immediately.",
 		},
 		{
-			name:    "RestrictedCone",
-			natType: "Restricted Cone (Endpoint Independent Mapping + Address Restricted Filtering)",
+			name:      "RestrictedCone",
+			natType:   "Restricted Cone (Endpoint Independent Mapping + Address Restricted Filtering)",
 			mechanism: "hole-punch",
 			description: "Same external port for all destinations, but NAT only allows " +
 				"return traffic from hosts we've sent to. Beacon coordinates simultaneous " +
@@ -471,16 +471,16 @@ func TestNATScenarios(t *testing.T) {
 				"the required NAT filter entries.",
 		},
 		{
-			name:    "PortRestrictedCone",
-			natType: "Port Restricted Cone (Endpoint Independent Mapping + Address+Port Restricted Filtering)",
+			name:      "PortRestrictedCone",
+			natType:   "Port Restricted Cone (Endpoint Independent Mapping + Address+Port Restricted Filtering)",
 			mechanism: "hole-punch",
 			description: "Like restricted cone but filtering checks both address AND port. " +
 				"Still works with beacon hole-punching because both sides punch to the " +
 				"exact STUN-discovered endpoint (which uses endpoint-independent mapping).",
 		},
 		{
-			name:    "Symmetric",
-			natType: "Symmetric (Endpoint Dependent Mapping)",
+			name:      "Symmetric",
+			natType:   "Symmetric (Endpoint Dependent Mapping)",
 			mechanism: "relay",
 			description: "Different external port for each destination. STUN port is only " +
 				"valid for beacon, not for peers. Hole-punching fails because port is " +
@@ -488,8 +488,8 @@ func TestNATScenarios(t *testing.T) {
 				"and forwarded through the beacon server.",
 		},
 		{
-			name:    "CloudVM",
-			natType: "No NAT (Public IP / Cloud VM)",
+			name:      "CloudVM",
+			natType:   "No NAT (Public IP / Cloud VM)",
 			mechanism: "direct",
 			description: "Use -endpoint flag to specify the known public IP:port. " +
 				"Skips STUN discovery entirely. Direct tunnel works immediately " +

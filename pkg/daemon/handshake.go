@@ -16,7 +16,6 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
-
 // Handshake message types
 const (
 	HandshakeRequest = "handshake_request"
@@ -55,11 +54,11 @@ type PendingHandshake struct {
 
 // Handshake timing constants
 const (
-	handshakeMaxAge      = 5 * time.Minute        // replay protection: max message age
-	handshakeMaxFuture   = 30 * time.Second        // replay protection: max clock skew
+	handshakeMaxAge       = 5 * time.Minute        // replay protection: max message age
+	handshakeMaxFuture    = 30 * time.Second       // replay protection: max clock skew
 	handshakeReapInterval = 5 * time.Minute        // how often to reap stale replay entries
-	handshakeRecvTimeout = 10 * time.Second        // time to wait for handshake message
-	handshakeCloseDelay  = 500 * time.Millisecond  // delay before closing after send to let data flush
+	handshakeRecvTimeout  = 10 * time.Second       // time to wait for handshake message
+	handshakeCloseDelay   = 500 * time.Millisecond // delay before closing after send to let data flush
 )
 
 // HandshakeManager handles the trust handshake protocol on port 444.

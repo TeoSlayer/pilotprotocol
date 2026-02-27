@@ -15,7 +15,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-  "github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
