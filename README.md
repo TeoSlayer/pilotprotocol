@@ -75,15 +75,42 @@ graph LR
 
 ## What agents get
 
-```
-pilotctl info                                              # Who am I?
-pilotctl set-hostname my-agent                             # Claim a name
-pilotctl find other-agent                                  # Discover a peer
-pilotctl send other-agent 1000 --data "hello"              # Send a message
-pilotctl recv 1000 --count 5 --timeout 30s                 # Listen for messages
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Via CLI**
+
+```bash
+pilotctl info
+pilotctl set-hostname my-agent
+pilotctl find other-agent
+pilotctl send other-agent 1000 --data "hello"
+pilotctl recv 1000 --count 5 --timeout 30s
 ```
 
-Every command supports `--json` for structured output. Every error has a machine-readable code and an actionable hint. No interactive prompts.
+</td>
+<td width="50%" valign="top">
+
+**Via Python SDK**
+
+```python
+from pilotprotocol import Driver
+
+with Driver() as d:
+    info = d.info()
+    d.set_hostname("my-agent")
+    peer = d.resolve_hostname("other-agent")
+    with d.dial("other-agent:1000") as conn:
+        conn.write(b"hello")
+        data = conn.read(4096)
+```
+
+</td>
+</tr>
+</table>
+
+Every CLI command supports `--json` for structured output. The Python SDK provides synchronous access via ctypes FFI to the Go driver. No interactive prompts.
 
 <details>
 <summary><strong>Example JSON output</strong></summary>
@@ -334,6 +361,44 @@ make build
 
 ---
 
+## Python SDK
+
+```bash
+pip install pilotprotocol
+```
+
+The Python SDK wraps the Go driver via a C-shared library (`libpilot.so` / `.dylib`) called through `ctypes` — every SDK call runs the same Go code the CLI uses (single source of truth):
+
+```python
+from pilotprotocol import Driver
+
+with Driver() as d:
+    info = d.info()
+    print(f"Address: {info['address']}")
+    print(f"Hostname: {info.get('hostname', 'none')}")
+
+    # Establish trust
+    d.handshake(peer_node_id, "collaboration request")
+
+    # Open a stream connection
+    with d.dial("other-agent:1000") as conn:
+        conn.write(b"hello from Python!")
+        response = conn.read(4096)
+
+    # Configure node
+    d.set_hostname("python-agent")
+    d.set_tags(["python", "ml", "api"])
+```
+
+See [`examples/python_sdk/`](examples/python_sdk/) for:
+- Basic usage (info, hostname, handshake)
+- Data Exchange service integration
+- Event Stream pub/sub
+- Task Submit service
+- **PydanticAI integration** (function tools for agent-to-agent communication)
+
+---
+
 ## Quick start
 
 ### 1. Start the daemon
@@ -354,31 +419,77 @@ The daemon auto-starts three built-in services:
 
 ### 2. Use it
 
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**CLI Examples**
+
 ```bash
 # Check status
 pilotctl info
 
-# Ping a peer
-pilotctl ping other-agent
+# Discover a peer
+pilotctl find other-agent
 
 # Send a message
-pilotctl connect other-agent --message "hello"
+pilotctl connect other-agent \
+  --message "hello"
 
-# Transfer a file (saved to ~/.pilot/received/ on target)
-pilotctl send-file other-agent ./data.json
+# Transfer a file
+pilotctl send-file other-agent \
+  ./data.json
 
-# Send a typed message
-pilotctl send-message other-agent --data '{"status":"ready"}' --type json
+# Send typed message
+pilotctl send-message other-agent \
+  --data '{"status":"ready"}' \
+  --type json
 
-# Subscribe to events (streams until Ctrl+C)
+# Subscribe to events
 pilotctl subscribe other-agent status
 
 # Publish an event
-pilotctl publish other-agent status --data "online"
-
-# Run throughput benchmark (1 MB default)
-pilotctl bench other-agent
+pilotctl publish other-agent status \
+  --data "online"
 ```
+
+</td>
+<td width="50%" valign="top">
+
+**Python SDK Examples**
+
+```python
+from pilotprotocol import Driver
+
+with Driver() as d:
+    # Check status
+    info = d.info()
+    
+    # Discover a peer
+    peer = d.resolve_hostname(
+        "other-agent"
+    )
+    
+    # Send a message
+    with d.dial("other-agent:1000") as conn:
+        conn.write(b"hello")
+    
+    # Handshake & trust
+    d.handshake(peer_id, "hello")
+    d.approve_handshake(peer_id)
+    
+    # Set hostname
+    d.set_hostname("my-agent")
+    
+    # Configure tags
+    d.set_tags(["api", "ml"])
+```
+
+See [`examples/python_sdk/`](examples/python_sdk/) for complete examples including PydanticAI integration.
+
+</td>
+</tr>
+</table>
 
 ---
 

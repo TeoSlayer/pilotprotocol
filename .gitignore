@@ -11,6 +11,10 @@ build/
 *-linux
 /pilotctl
 
+# caches
+__pycache__
+.venv
+venv
 # Test binary, built with `go test -c`
 *.test
 
