@@ -1,0 +1,220 @@
+name: Build and Publish Python SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - test
+      
+  push:
+    branches:
+      - main
+      - 'build/**'
+    paths:
+      - 'sdk/python/**'
+      - '.github/workflows/publish-python-sdk.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # Determine whether this is a production or test deployment
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+      should-publish: ${{ steps.determine-env.outputs.should-publish }}
+    steps:
+      - name: Determine environment
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "should-publish=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "should-publish=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Push to main detected - manual approval required via workflow_dispatch"
+          elif [[ "${{ github.ref }}" == refs/heads/build/* ]]; then
+            echo "environment=test" >> $GITHUB_OUTPUT
+            echo "should-publish=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Push to build/** detected - manual approval required via workflow_dispatch"
+          else
+            echo "environment=test" >> $GITHUB_OUTPUT
+            echo "should-publish=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Build wheels for each platform
+  build-wheels:
+    needs: setup
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build wheel (${{ matrix.platform }})
+        shell: bash
+        run: |
+          cd sdk/python
+          chmod +x scripts/build-binaries.sh scripts/build.sh
+          ./scripts/build.sh
+
+      - name: Verify wheel contents
+        shell: bash
+        run: |
+          cd sdk/python
+          python -m twine check dist/*
+          
+          # List wheel contents
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            unzip -l dist/*.whl | grep -E "bin/|entry_points" || echo "Warning: binaries may be missing"
+          else
+            unzip -l dist/*.whl | grep -E "bin/|entry_points"
+          fi
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: sdk/python/dist/*.whl
+          retention-days: 7
+
+      - name: Upload sdist artifact (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: sdk/python/dist/*.tar.gz
+          retention-days: 7
+
+  # Publish to PyPI or TestPyPI (requires manual approval)
+  publish:
+    needs: [setup, build-wheels]
+    if: needs.setup.outputs.should-publish == 'true'
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ needs.setup.outputs.environment }}
+      url: ${{ needs.setup.outputs.environment == 'production' && 'https://pypi.org/project/pilotprotocol/' || 'https://test.pypi.org/project/pilotprotocol/' }}
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Prepare distribution directory
+        run: |
+          mkdir -p dist
+          find dist-artifacts -name "*.whl" -exec cp {} dist/ \;
+          find dist-artifacts -name "*.tar.gz" -exec cp {} dist/ \;
+          ls -lh dist/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Verify all packages
+        run: python -m twine check dist/*
+
+      - name: Publish to TestPyPI
+        if: needs.setup.outputs.environment == 'test'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload --repository testpypi dist/*
+
+      - name: Publish to PyPI
+        if: needs.setup.outputs.environment == 'production'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload dist/*
+
+      - name: Create summary
+        run: |
+          echo "## 🎉 Python SDK Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Packages:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh dist/ >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            echo "**Install:** \`pip install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+            echo "**PyPI:** https://pypi.org/project/pilotprotocol/" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Install:** \`pip install --index-url https://test.pypi.org/simple/ --no-deps pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+            echo "**TestPyPI:** https://test.pypi.org/project/pilotprotocol/" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Test installation on each platform
+  test-install:
+    needs: [setup, publish]
+    if: needs.setup.outputs.should-publish == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Wait for package availability
+        run: sleep 60
+
+      - name: Install from PyPI
+        if: needs.setup.outputs.environment == 'production'
+        run: |
+          pip install pilotprotocol
+          pilotctl --help
+          python -c "from pilotprotocol import Driver; print('✓ SDK installed')"
+
+      - name: Install from TestPyPI
+        if: needs.setup.outputs.environment == 'test'
+        run: |
+          pip install --index-url https://test.pypi.org/simple/ --no-deps pilotprotocol
+          pilotctl --help
+          python -c "from pilotprotocol import Driver; print('✓ SDK installed')"

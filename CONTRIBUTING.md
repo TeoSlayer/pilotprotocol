@@ -58,11 +58,34 @@ examples/               # Example applications
   httpclient/           # HTTP client over Pilot
   secure/               # Secure connection example
   config/               # Config file example
+sdk/                    # Language SDKs
+  python/               # Python SDK (see sdk/python/CONTRIBUTING.md)
+  cgo/                  # CGO bindings
 tests/                  # Integration tests (39 test files, 202+ passing)
 docs/                   # Documentation
   SPEC.md               # Wire specification
   WHITEPAPER.pdf        # Protocol whitepaper (LaTeX source: WHITEPAPER.tex)
   SKILLS.md             # Agent skill definition
+```
+
+## Contributing to the Python SDK
+
+The Python SDK has its own development workflow and guidelines. For detailed information on:
+- Setting up the Python development environment
+- Running tests and achieving 100% coverage
+- Building wheels for distribution
+- Publishing to PyPI/TestPyPI
+- Using GitHub Actions for CI/CD
+
+See the **[Python SDK Contributing Guide](sdk/python/CONTRIBUTING.md)**.
+
+Quick start for Python SDK development:
+```bash
+cd sdk/python
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -e .[dev]
+make test
 ```
 
 ## How to Contribute
@@ -116,11 +139,13 @@ docs/                   # Documentation
 
 ## Areas for Contribution
 
+- **Python SDK**: Improve the Python SDK, add examples, enhance documentation (see [sdk/python/CONTRIBUTING.md](sdk/python/CONTRIBUTING.md))
 - **Nameserver** (port 53): DNS-equivalent name resolution is WIP and needs implementation
 - **Tests**: expanding coverage, especially for edge cases in transport and security
 - **Documentation**: improving examples, tutorials, architecture docs
 - **Performance**: profiling and optimizing the transport layer
 - **Platform support**: testing on different OS/architectures
+- **Language SDKs**: Create SDKs for other languages (JavaScript, Rust, Java, etc.)
 
 ## License
 

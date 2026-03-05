@@ -23,11 +23,27 @@ echo ""
 
 # Step 3: Build wheel and sdist
 echo "3. Building wheel and source distribution..."
-if [ -n "$VIRTUAL_ENV" ]; then
-    python -m build
+# Build platform-specific wheel (contains native binaries)
+# All package metadata remains in pyproject.toml (PEP 621 compliant).
+cat > setup.py << 'EOF'
+from setuptools import setup
+from setuptools.dist import Distribution
+class BinaryDistribution(Distribution):
+    def has_ext_modules(self):
+        return True
+setup(distclass=BinaryDistribution)
+EOF
+
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+    python -m build --wheel
+    python -m build --sdist
 else
-    python3 -m build
+    python3 -m build --wheel
+    python3 -m build --sdist
 fi
+
+# Clean up temporary setup.py
+rm -f setup.py
 echo ""
 
 # Step 4: Verify with twine
