@@ -29,25 +29,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.determine-env.outputs.environment }}
-      should-publish: ${{ steps.determine-env.outputs.should-publish }}
     steps:
       - name: Determine environment
         id: determine-env
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
-            echo "should-publish=true" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "environment=production" >> $GITHUB_OUTPUT
-            echo "should-publish=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Push to main detected - manual approval required via workflow_dispatch"
           elif [[ "${{ github.ref }}" == refs/heads/build/* ]]; then
             echo "environment=test" >> $GITHUB_OUTPUT
-            echo "should-publish=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Push to build/** detected - manual approval required via workflow_dispatch"
           else
             echo "environment=test" >> $GITHUB_OUTPUT
-            echo "should-publish=false" >> $GITHUB_OUTPUT
           fi
 
   # Build wheels for each platform
@@ -113,10 +106,9 @@ jobs:
           path: sdk/python/dist/*.tar.gz
           retention-days: 7
 
-  # Publish to PyPI or TestPyPI (requires manual approval)
+  # Publish to PyPI or TestPyPI
   publish:
     needs: [setup, build-wheels]
-    if: needs.setup.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     environment: 
       name: ${{ needs.setup.outputs.environment }}
@@ -183,7 +175,6 @@ jobs:
   # Test installation on each platform
   test-install:
     needs: [setup, publish]
-    if: needs.setup.outputs.should-publish == 'true'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
