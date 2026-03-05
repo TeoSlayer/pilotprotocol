@@ -110,9 +110,6 @@ jobs:
   publish:
     needs: [setup, build-wheels]
     runs-on: ubuntu-latest
-    environment: 
-      name: ${{ needs.setup.outputs.environment }}
-      url: ${{ needs.setup.outputs.environment == 'production' && 'https://pypi.org/project/pilotprotocol/' || 'https://test.pypi.org/project/pilotprotocol/' }}
     
     steps:
       - name: Download all artifacts
