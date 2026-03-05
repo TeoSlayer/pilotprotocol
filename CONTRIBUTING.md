@@ -70,20 +70,13 @@ docs/                   # Documentation
 
 ## Contributing to the Python SDK
 
-The Python SDK has its own development workflow and guidelines. For detailed information on:
-- Setting up the Python development environment
-- Running tests and achieving 100% coverage
-- Building wheels for distribution
-- Publishing to PyPI/TestPyPI
-- Using GitHub Actions for CI/CD
-
 See the **[Python SDK Contributing Guide](sdk/python/CONTRIBUTING.md)**.
 
 Quick start for Python SDK development:
 ```bash
 cd sdk/python
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+source venv/bin/activate
 pip install -e .[dev]
 make test
 ```
