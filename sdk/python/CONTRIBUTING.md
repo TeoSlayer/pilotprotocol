@@ -377,7 +377,7 @@ Go maintains a global `map[uint64]interface{}` storing Driver/Conn/Listener obje
 4. Tag release:
    ```bash
    git tag -a v0.2.2 -m "Release 0.2.2"
-   git push --follow-tags
+   git push --follow-tags 
    ```
 
 ### Release Workflow
