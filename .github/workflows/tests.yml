@@ -26,14 +26,37 @@ jobs:
           go-version: '1.21'
       
       - name: Run unit tests
+        env:
+          PILOT_LOG_LEVEL: error
         run: |
-          go test -parallel 4 -count=1 -v ./tests/...
+          # Run tests and capture output
+          set +e
+          go test -parallel 4 -count=1 -v ./tests/... 2>&1 | tee /tmp/test_output.txt
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          
+          # If tests failed, show last 200 lines and summary
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "::error::Unit tests failed with exit code $TEST_EXIT_CODE"
+            echo ""
+            echo "=== Test Failures (last 200 lines) ==="
+            tail -200 /tmp/test_output.txt
+            echo ""
+            echo "=== Failed Tests Summary ==="
+            grep -E "FAIL|PASS" /tmp/test_output.txt | tail -50
+            exit $TEST_EXIT_CODE
+          fi
+          
+          # Show summary on success
+          echo "=== Test Summary ==="
+          grep -E "PASS|ok\s+" /tmp/test_output.txt | tail -20
         timeout-minutes: 5
       
       - name: Generate coverage
+        env:
+          PILOT_LOG_LEVEL: error
         run: |
           mkdir -p coverage
-          cd tests && go test -parallel 4 -count=1 -coverprofile=../coverage/coverage.out -covermode=atomic -timeout 30s
+          cd tests && go test -parallel 4 -count=1 -coverprofile=../coverage/coverage.out -covermode=atomic -timeout 30s 2>&1 | grep -v "WARN\|INFO\|DEBUG" || true
           cd ..
           go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
       
@@ -63,9 +86,35 @@ jobs:
           ./validate.sh
       
       - name: Run integration tests
+        env:
+          PILOT_LOG_LEVEL: error
         run: |
           cd tests/integration
-          make test
+          set +e
+          make test 2>&1 | tee /tmp/integration_output.txt
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          
+          # Always show test results
+          echo ""
+          echo "=== CLI Test Results ==="
+          if [ -f results/cli_results.txt ]; then
+            grep -E "Test Summary|Passed:|Failed:" results/cli_results.txt
+          fi
+          
+          echo ""
+          echo "=== SDK Test Results ==="
+          if [ -f results/sdk_results.txt ]; then
+            grep -E "Test Summary|Passed:|Failed:" results/sdk_results.txt
+          fi
+          
+          # If tests failed, show failures
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "::error::Integration tests failed with exit code $TEST_EXIT_CODE"
+            echo ""
+            echo "=== Failed Tests ==="
+            grep -E "\[FAIL\]" results/*.txt 2>/dev/null || echo "No specific test failures found"
+            exit $TEST_EXIT_CODE
+          fi
         timeout-minutes: 10
       
       - name: Upload test results

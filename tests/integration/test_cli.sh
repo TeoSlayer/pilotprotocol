@@ -66,10 +66,14 @@ echo ""
 log_test "Starting daemon with hostname: $TEST_HOSTNAME"
 mkdir -p /root/.pilot
 DAEMON_LOG="/tmp/pilot-daemon.log"
+
+# Use error level logging in CI, info level locally
+LOG_LEVEL="${PILOT_LOG_LEVEL:-info}"
+
 pilot-daemon \
     --hostname "$TEST_HOSTNAME" \
     --identity /root/.pilot/identity.key \
-    --log-level info > "$DAEMON_LOG" 2>&1 &
+    --log-level "$LOG_LEVEL" > "$DAEMON_LOG" 2>&1 &
 DAEMON_PID=$!
 
 # Wait for socket + registration (daemon registers during Start())

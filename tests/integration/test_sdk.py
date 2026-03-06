@@ -61,13 +61,16 @@ def start_daemon():
     global daemon_process
     log_test(f"Starting daemon with hostname: {TEST_HOSTNAME}")
     
+    # Respect PILOT_LOG_LEVEL environment variable (defaults to info for local testing)
+    log_level = os.getenv("PILOT_LOG_LEVEL", "info")
+    
     os.makedirs("/root/.pilot", exist_ok=True)
     daemon_process = subprocess.Popen(
         [
             "pilot-daemon",
             "--hostname", TEST_HOSTNAME,
             "--identity", "/root/.pilot/identity-sdk.key",
-            "--log-level", "info",
+            "--log-level", log_level,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
