@@ -107,11 +107,30 @@ jobs:
         run: |
           cd sdk/python
           
-          # Get latest git tag matching sdk-v*.*.* pattern (SDK-specific tags)
-          LATEST_TAG=$(git describe --tags --match "sdk-v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "sdk-v0.1.0")
+          # Get current branch name
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BRANCH="${{ github.ref_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
           
-          # Extract version without 'sdk-v' prefix
-          BASE_VERSION=${LATEST_TAG#sdk-v}
+          echo "Branch: $BRANCH"
+          
+          # Get latest SDK tag based on environment
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            # Production: Use only production tags (sdk-v*.*.*)
+            LATEST_TAG=$(git describe --tags --match "sdk-v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "sdk-v0.1.0")
+          else
+            # Test/Dev: Use dev tags for this branch (sdk-dev-branchname-v*.*.*)
+            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
+            DEV_TAG_PATTERN="sdk-dev-${SAFE_BRANCH}-v[0-9]*.[0-9]*.[0-9]*"
+            LATEST_TAG=$(git describe --tags --match "$DEV_TAG_PATTERN" --abbrev=0 2>/dev/null || echo "sdk-dev-${SAFE_BRANCH}-v0.1.0")
+          fi
+          
+          # Extract version without prefix
+          BASE_VERSION=$(echo "$LATEST_TAG" | grep -oP '(?<=v)[0-9]+\.[0-9]+\.[0-9]+$')
           
           # Count commits since last tag (only in sdk/python directory)
           COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count -- . 2>/dev/null || echo "0")
@@ -131,12 +150,13 @@ jobs:
               VERSION="${MAJOR}.${MINOR}.${PATCH}"
             fi
           else
-            # Test/Dev: Use dev version with commit info
+            # Test/Dev: Use dev version with branch name and commit info
             IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
             if [ "$COMMITS_SINCE_TAG" = "0" ]; then
-              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1+${SHORT_SHA}"
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1+${SAFE_BRANCH}.${SHORT_SHA}"
             else
-              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}+${SHORT_SHA}"
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}+${SAFE_BRANCH}.${SHORT_SHA}"
             fi
           fi
           
@@ -284,6 +304,34 @@ jobs:
             echo "3. Package metadata issue"
             exit 1
           }
+      
+      - name: Create git tag for dev release
+        if: needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          
+          # Get branch name
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BRANCH="${{ github.ref_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
+          BASE_VERSION=$(echo "$VERSION" | grep -oP '^[0-9]+\.[0-9]+\.[0-9]+')
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create branch-specific dev tag
+          git tag -a "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" -m "Python SDK Dev Release v$VERSION (branch: $BRANCH)"
+          
+          # Push tag
+          git push origin "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" || echo "Tag already exists or push failed"
+          
+          echo "✓ Created branch-specific dev tag: sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}"
 
       - name: Publish to PyPI
         if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
