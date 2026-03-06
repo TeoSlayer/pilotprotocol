@@ -25,6 +25,19 @@ go test -parallel 4 -count=1 ./tests/
 
 The `-parallel 4` flag is required. Unlimited parallelism exhausts ports and sockets, causing dial timeouts and flaky failures.
 
+#### Integration Tests
+
+Full integration tests against a real test network are available using Docker:
+
+```bash
+cd tests/integration
+make test                # Run all integration tests
+make test-cli            # Run CLI tests only
+make test-sdk            # Run Python SDK tests only
+```
+
+These tests validate the entire stack (Go binaries + Python SDK) against **agent-alpha**, a public demo agent running on the network. See [tests/integration/README.md](tests/integration/README.md) for details.
+
 ### Project Structure
 
 ```

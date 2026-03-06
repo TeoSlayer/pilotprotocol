@@ -119,24 +119,28 @@ def _get_lib() -> ctypes.CDLL:  # pragma: no cover
 # ---------------------------------------------------------------------------
 # C struct return types (match the generated header)
 # ---------------------------------------------------------------------------
+# IMPORTANT: All char* fields/returns MUST be c_void_p (not c_char_p).
+# ctypes auto-converts c_char_p returns into Python bytes and drops the
+# original pointer; passing those bytes back into FreeString then calls
+# C.free() on a ctypes-internal buffer → munmap_chunk() / double-free.
 
 class _HandleErr(ctypes.Structure):
     """Return type for PilotConnect / PilotDial / PilotListen / PilotListenerAccept."""
-    _fields_ = [("handle", ctypes.c_uint64), ("err", ctypes.c_char_p)]
+    _fields_ = [("handle", ctypes.c_uint64), ("err", ctypes.c_void_p)]
 
 
 class _ReadResult(ctypes.Structure):
     """Return type for PilotConnRead."""
     _fields_ = [
         ("n", ctypes.c_int),
-        ("data", ctypes.c_char_p),
-        ("err", ctypes.c_char_p),
+        ("data", ctypes.c_void_p),
+        ("err", ctypes.c_void_p),
     ]
 
 
 class _WriteResult(ctypes.Structure):
     """Return type for PilotConnWrite."""
-    _fields_ = [("n", ctypes.c_int), ("err", ctypes.c_char_p)]
+    _fields_ = [("n", ctypes.c_int), ("err", ctypes.c_void_p)]
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +148,15 @@ class _WriteResult(ctypes.Structure):
 # ---------------------------------------------------------------------------
 
 def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
-    """Declare argtypes / restype for every exported function."""
+    """Declare argtypes / restype for every exported function.
 
-    # Memory
-    lib.FreeString.argtypes = [ctypes.c_char_p]
+    IMPORTANT: All functions that return *C.char use c_void_p (NOT c_char_p)
+    so we keep the raw pointer for FreeString.  c_char_p auto-converts to
+    Python bytes and discards the original pointer, making FreeString crash.
+    """
+
+    # Memory — FreeString accepts the raw void* pointer
+    lib.FreeString.argtypes = [ctypes.c_void_p]
     lib.FreeString.restype = None
 
     # Lifecycle
@@ -155,46 +164,46 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotConnect.restype = _HandleErr
 
     lib.PilotClose.argtypes = [ctypes.c_uint64]
-    lib.PilotClose.restype = ctypes.c_char_p
+    lib.PilotClose.restype = ctypes.c_void_p
 
-    # JSON-RPC (single *C.char return)
+    # JSON-RPC (single *C.char return → c_void_p)
     for name in (
         "PilotInfo", "PilotPendingHandshakes", "PilotTrustedPeers",
         "PilotDeregister", "PilotRecvFrom",
     ):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64]
-        fn.restype = ctypes.c_char_p
+        fn.restype = ctypes.c_void_p
 
     # (handle, uint32) -> *char
     for name in ("PilotApproveHandshake", "PilotRevokeTrust"):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64, ctypes.c_uint32]
-        fn.restype = ctypes.c_char_p
+        fn.restype = ctypes.c_void_p
 
     # (handle, string) -> *char
     for name in ("PilotResolveHostname", "PilotSetHostname",
                  "PilotSetTags", "PilotSetWebhook"):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64, ctypes.c_char_p]
-        fn.restype = ctypes.c_char_p
+        fn.restype = ctypes.c_void_p
 
     # (handle, int) -> *char
     for name in ("PilotSetVisibility", "PilotSetTaskExec"):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64, ctypes.c_int]
-        fn.restype = ctypes.c_char_p
+        fn.restype = ctypes.c_void_p
 
     # (handle, uint32, string) -> *char
     lib.PilotHandshake.argtypes = [ctypes.c_uint64, ctypes.c_uint32, ctypes.c_char_p]
-    lib.PilotHandshake.restype = ctypes.c_char_p
+    lib.PilotHandshake.restype = ctypes.c_void_p
 
     lib.PilotRejectHandshake.argtypes = [ctypes.c_uint64, ctypes.c_uint32, ctypes.c_char_p]
-    lib.PilotRejectHandshake.restype = ctypes.c_char_p
+    lib.PilotRejectHandshake.restype = ctypes.c_void_p
 
     # Disconnect (handle, uint32) -> *char
     lib.PilotDisconnect.argtypes = [ctypes.c_uint64, ctypes.c_uint32]
-    lib.PilotDisconnect.restype = ctypes.c_char_p
+    lib.PilotDisconnect.restype = ctypes.c_void_p
 
     # Dial: (handle, string) -> struct{handle, err}
     lib.PilotDial.argtypes = [ctypes.c_uint64, ctypes.c_char_p]
@@ -209,7 +218,7 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotListenerAccept.restype = _HandleErr
 
     lib.PilotListenerClose.argtypes = [ctypes.c_uint64]
-    lib.PilotListenerClose.restype = ctypes.c_char_p
+    lib.PilotListenerClose.restype = ctypes.c_void_p
 
     # Conn Read / Write / Close
     lib.PilotConnRead.argtypes = [ctypes.c_uint64, ctypes.c_int]
@@ -219,11 +228,11 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotConnWrite.restype = _WriteResult
 
     lib.PilotConnClose.argtypes = [ctypes.c_uint64]
-    lib.PilotConnClose.restype = ctypes.c_char_p
+    lib.PilotConnClose.restype = ctypes.c_void_p
 
     # SendTo: (handle, string, void*, int) -> *char
     lib.PilotSendTo.argtypes = [ctypes.c_uint64, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int]
-    lib.PilotSendTo.restype = ctypes.c_char_p
+    lib.PilotSendTo.restype = ctypes.c_void_p
 
 
 # ---------------------------------------------------------------------------
@@ -235,28 +244,49 @@ class PilotError(Exception):
     pass
 
 
-def _check_err(raw: Optional[bytes]) -> None:
-    """If raw is non-null, parse the JSON error and raise."""
-    if raw is None:
+def _void_ptr_to_bytes(ptr: Optional[int]) -> Optional[bytes]:
+    """Convert a c_void_p (int) to bytes by reading the C string.
+
+    Returns None if ptr is None/0 (null pointer).
+    """
+    if not ptr:
+        return None
+    return ctypes.string_at(ptr)
+
+
+def _check_err(ptr: Optional[int]) -> None:
+    """If ptr is a non-null C string, parse the JSON error and raise.
+
+    ptr is a raw c_void_p integer (NOT bytes).  We read the string first,
+    then free the C pointer.
+    """
+    if not ptr:
         return
+    raw = ctypes.string_at(ptr)
+    _get_lib().FreeString(ptr)
     obj = json.loads(raw)
     if "error" in obj:
         raise PilotError(obj["error"])
 
 
-def _parse_json(raw: Optional[bytes]) -> dict[str, Any]:
-    """Parse a JSON *C.char return, raising on error."""
-    if raw is None:
+def _parse_json(ptr: Optional[int]) -> dict[str, Any]:
+    """Parse a JSON *C.char return, raising on error.
+
+    ptr is a raw c_void_p integer.  We read + free it.
+    """
+    if not ptr:
         return {}
+    raw = ctypes.string_at(ptr)
+    _get_lib().FreeString(ptr)
     obj = json.loads(raw)
     if "error" in obj:
         raise PilotError(obj["error"])
     return obj
 
 
-def _free(ptr: Optional[bytes]) -> None:
-    """Free a C string if non-null."""
-    if ptr is not None:
+def _free(ptr: Optional[int]) -> None:
+    """Free a C void pointer if non-null."""
+    if ptr:
         _get_lib().FreeString(ptr)
 
 
@@ -281,9 +311,9 @@ class Conn:
         lib = _get_lib()
         res = lib.PilotConnRead(self._h, size)
         if res.err:
-            err = res.err
-            _get_lib().FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         if res.n == 0:
             return b""
         data = ctypes.string_at(res.data, res.n)
@@ -298,9 +328,9 @@ class Conn:
         buf = ctypes.create_string_buffer(data)
         res = lib.PilotConnWrite(self._h, buf, len(data))
         if res.err:
-            err = res.err
-            lib.FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         return res.n
 
     def close(self) -> None:
@@ -309,11 +339,11 @@ class Conn:
             return
         self._closed = True
         lib = _get_lib()
-        raw = lib.PilotConnClose(self._h)
-        if raw:
-            err = raw
-            lib.FreeString(err)
-            obj = json.loads(err)
+        ptr = lib.PilotConnClose(self._h)
+        if ptr:
+            raw = ctypes.string_at(ptr)
+            lib.FreeString(ptr)
+            obj = json.loads(raw)
             if "error" in obj:
                 raise PilotError(obj["error"])
 
@@ -349,9 +379,9 @@ class Listener:
         lib = _get_lib()
         res = lib.PilotListenerAccept(self._h)
         if res.err:
-            err = res.err
-            lib.FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         return Conn(res.handle)
 
     def close(self) -> None:
@@ -360,11 +390,11 @@ class Listener:
             return
         self._closed = True
         lib = _get_lib()
-        raw = lib.PilotListenerClose(self._h)
-        if raw:
-            err = raw
-            lib.FreeString(err)
-            obj = json.loads(err)
+        ptr = lib.PilotListenerClose(self._h)
+        if ptr:
+            raw = ctypes.string_at(ptr)
+            lib.FreeString(ptr)
+            obj = json.loads(raw)
             if "error" in obj:
                 raise PilotError(obj["error"])
 
@@ -399,9 +429,9 @@ class Driver:
         lib = _get_lib()
         res = lib.PilotConnect(socket_path.encode())
         if res.err:
-            err = res.err
-            lib.FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         self._h: int = res.handle
         self._closed = False
 
@@ -420,9 +450,8 @@ class Driver:
         if self._closed:
             return
         self._closed = True
-        raw = _get_lib().PilotClose(self._h)
-        _check_err(raw)
-        _free(raw)
+        ptr = _get_lib().PilotClose(self._h)
+        _check_err(ptr)
 
     # -- JSON-RPC helpers --
 
@@ -430,11 +459,8 @@ class Driver:
         """Call a C function that returns *C.char JSON, parse & free."""
         lib = _get_lib()
         fn = getattr(lib, fn_name)
-        raw = fn(self._h, *args)
-        try:
-            return _parse_json(raw)
-        finally:
-            _free(raw)
+        ptr = fn(self._h, *args)
+        return _parse_json(ptr)
 
     # -- Info --
 
@@ -505,9 +531,8 @@ class Driver:
     def disconnect(self, conn_id: int) -> None:
         """Close a connection by ID (administrative)."""
         lib = _get_lib()
-        raw = lib.PilotDisconnect(self._h, ctypes.c_uint32(conn_id))
-        _check_err(raw)
-        _free(raw)
+        ptr = lib.PilotDisconnect(self._h, ctypes.c_uint32(conn_id))
+        _check_err(ptr)
 
     # -- Streams --
 
@@ -516,9 +541,9 @@ class Driver:
         lib = _get_lib()
         res = lib.PilotDial(self._h, addr.encode())
         if res.err:
-            err = res.err
-            lib.FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         return Conn(res.handle)
 
     def listen(self, port: int) -> Listener:
@@ -526,9 +551,9 @@ class Driver:
         lib = _get_lib()
         res = lib.PilotListen(self._h, ctypes.c_uint16(port))
         if res.err:
-            err = res.err
-            lib.FreeString(err)
-            raise PilotError(json.loads(err)["error"])
+            raw = ctypes.string_at(res.err)
+            lib.FreeString(res.err)
+            raise PilotError(json.loads(raw)["error"])
         return Listener(res.handle)
 
     # -- Datagrams --
@@ -537,9 +562,8 @@ class Driver:
         """Send an unreliable datagram. addr = "N:XXXX.YYYY.YYYY:PORT"."""
         lib = _get_lib()
         buf = ctypes.create_string_buffer(data)
-        raw = lib.PilotSendTo(self._h, addr.encode(), buf, len(data))
-        _check_err(raw)
-        _free(raw)
+        ptr = lib.PilotSendTo(self._h, addr.encode(), buf, len(data))
+        _check_err(ptr)
 
     def recv_from(self) -> dict[str, Any]:
         """Receive the next incoming datagram (blocks).
@@ -547,3 +571,300 @@ class Driver:
         Returns dict with keys: src_addr, src_port, dst_port, data.
         """
         return self._call_json("PilotRecvFrom")
+
+    # -- High-level service methods --
+
+    def send_message(self, target: str, data: bytes, msg_type: str = "text") -> dict[str, Any]:
+        """Send a message via the data exchange service (port 1001).
+
+        Args:
+            target: Hostname or protocol address (N:XXXX.YYYY.YYYY)
+            data: Message data (text, JSON, or binary)
+            msg_type: Message type: "text", "json", or "binary"
+
+        Returns:
+            Response from data exchange service with 'ack', 'bytes', 'type' keys
+        """
+        import struct
+        
+        # Resolve hostname if needed
+        if not target.startswith("0:"):
+            result = self.resolve_hostname(target)
+            addr = result.get("address", "")
+            if not addr:
+                raise PilotError(f"Could not resolve hostname: {target}")
+        else:
+            addr = target
+
+        # Map msg_type to frame type: 1=text, 2=binary, 3=json, 4=file
+        type_map = {"text": 1, "binary": 2, "json": 3, "file": 4}
+        frame_type = type_map.get(msg_type, 1)
+
+        # Build frame: [4-byte type][4-byte length][payload]
+        frame = struct.pack('>II', frame_type, len(data)) + data
+
+        # Connect to data exchange service (port 1001)
+        # Daemon sends ACK frame: [4-byte type=1][4-byte length]["ACK TYPE N bytes"]
+        with self.dial(f"{addr}:1001") as conn:
+            conn.write(frame)
+            
+            # Read ACK response frame
+            try:
+                ack_header = conn.read(8)
+                if ack_header and len(ack_header) == 8:
+                    ack_type, ack_len = struct.unpack('>II', ack_header)
+                    ack_payload = conn.read(ack_len)
+                    if ack_payload:
+                        ack_msg = ack_payload.decode('utf-8', errors='replace')
+                        return {"sent": len(data), "type": msg_type, "target": addr, "ack": ack_msg}
+            except Exception:
+                pass  # ACK read failed, but message was sent
+            
+            return {"sent": len(data), "type": msg_type, "target": addr}
+
+    def send_file(self, target: str, file_path: str) -> dict[str, Any]:
+        """Send a file via the data exchange service (port 1001).
+
+        For TypeFile (4), payload format: [2-byte name length][name][file data]
+
+        Args:
+            target: Hostname or protocol address
+            file_path: Path to file to send
+
+        Returns:
+            Response from data exchange service
+        """
+        import os
+        import struct
+        
+        if not os.path.isfile(file_path):
+            raise PilotError(f"File not found: {file_path}")
+
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+
+        filename = os.path.basename(file_path)
+        filename_bytes = filename.encode('utf-8')
+        
+        # For TypeFile: payload = [2-byte name len][name][file data]
+        payload = struct.pack('>H', len(filename_bytes)) + filename_bytes + file_data
+        
+        # Build frame: [4-byte type=4][4-byte length][payload]
+        frame = struct.pack('>II', 4, len(payload)) + payload
+
+        # Resolve hostname if needed
+        if not target.startswith("0:"):
+            result = self.resolve_hostname(target)
+            addr = result.get("address", "")
+            if not addr:
+                raise PilotError(f"Could not resolve hostname: {target}")
+        else:
+            addr = target
+
+        # Send frame and read ACK
+        with self.dial(f"{addr}:1001") as conn:
+            conn.write(frame)
+            
+            # Read ACK response frame
+            try:
+                ack_header = conn.read(8)
+                if ack_header and len(ack_header) == 8:
+                    ack_type, ack_len = struct.unpack('>II', ack_header)
+                    ack_payload = conn.read(ack_len)
+                    if ack_payload:
+                        ack_msg = ack_payload.decode('utf-8', errors='replace')
+                        return {"sent": len(file_data), "filename": filename, "target": addr, "ack": ack_msg}
+            except Exception:
+                pass  # ACK read failed, but file was sent
+            
+            return {"sent": len(file_data), "filename": filename, "target": addr}
+
+    def publish_event(self, target: str, topic: str, data: bytes) -> dict[str, Any]:
+        """Publish an event via the event stream service (port 1002).
+
+        Wire format: [2-byte topic len][topic][4-byte payload len][payload]
+        Protocol: first event = subscribe, subsequent events = publish
+
+        Args:
+            target: Hostname or protocol address of event stream server
+            topic: Event topic (e.g., "sensor/temperature")
+            data: Event payload
+
+        Returns:
+            Response from event stream service
+        """
+        import struct
+        
+        # Resolve hostname if needed
+        if not target.startswith("0:"):
+            result = self.resolve_hostname(target)
+            addr = result.get("address", "")
+            if not addr:
+                raise PilotError(f"Could not resolve hostname: {target}")
+        else:
+            addr = target
+
+        # Helper to build event frame
+        def build_event(topic_str: str, payload: bytes) -> bytes:
+            topic_bytes = topic_str.encode('utf-8')
+            return (struct.pack('>H', len(topic_bytes)) + topic_bytes +
+                    struct.pack('>I', len(payload)) + payload)
+
+        # Connect to event stream service (port 1002)
+        # Protocol: first event = subscribe, subsequent = publish
+        with self.dial(f"{addr}:1002") as conn:
+            # Subscribe to topic first (empty payload)
+            conn.write(build_event(topic, b''))
+            
+            # Now publish the actual event
+            conn.write(build_event(topic, data))
+            
+            return {"status": "published", "topic": topic, "bytes": len(data)}
+
+    def subscribe_event(self, target: str, topic: str, callback=None, timeout: int = 30):
+        """Subscribe to events from the event stream service (port 1002).
+
+        Wire format: [2-byte topic len][topic][4-byte payload len][payload]
+
+        Args:
+            target: Hostname or protocol address
+            topic: Topic pattern to subscribe to (use "*" for all)
+            callback: Optional callback function(topic, data) for each event
+            timeout: Timeout in seconds (default: 30)
+
+        Yields:
+            (topic, data) tuples for each received event
+        """
+        import struct
+        import time
+        
+        # Resolve hostname if needed
+        if not target.startswith("0:"):
+            result = self.resolve_hostname(target)
+            addr = result.get("address", "")
+            if not addr:
+                raise PilotError(f"Could not resolve hostname: {target}")
+        else:
+            addr = target
+
+        # Helper to build event frame
+        def build_event(topic_str: str, payload: bytes) -> bytes:
+            topic_bytes = topic_str.encode('utf-8')
+            return (struct.pack('>H', len(topic_bytes)) + topic_bytes +
+                    struct.pack('>I', len(payload)) + payload)
+
+        # Helper to read event frame
+        def read_event(conn):
+            # Read 2-byte topic length
+            topic_len_bytes = conn.read(2)
+            if not topic_len_bytes or len(topic_len_bytes) < 2:
+                return None
+            topic_len = struct.unpack('>H', topic_len_bytes)[0]
+            
+            # Read topic
+            topic_bytes = conn.read(topic_len)
+            if not topic_bytes or len(topic_bytes) < topic_len:
+                return None
+            topic_str = topic_bytes.decode('utf-8')
+            
+            # Read 4-byte payload length
+            payload_len_bytes = conn.read(4)
+            if not payload_len_bytes or len(payload_len_bytes) < 4:
+                return None
+            payload_len = struct.unpack('>I', payload_len_bytes)[0]
+            
+            # Read payload
+            payload = conn.read(payload_len)
+            if not payload or len(payload) < payload_len:
+                return None
+                
+            return (topic_str, payload)
+
+        # Connect to event stream service (port 1002)
+        conn = self.dial(f"{addr}:1002")
+        try:
+            # Send subscription (empty payload)
+            conn.write(build_event(topic, b''))
+
+            # Read events until timeout or connection closes
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                try:
+                    event = read_event(conn)
+                    if not event:
+                        break
+                    event_topic, event_data = event
+                    if callback:
+                        callback(event_topic, event_data)
+                    else:
+                        yield (event_topic, event_data)
+                except Exception as e:
+                    if "connection closed" in str(e).lower() or "EOF" in str(e):
+                        break
+                    raise
+        finally:
+            conn.close()
+
+    def submit_task(self, target: str, task_data: dict[str, Any]) -> dict[str, Any]:
+        """Submit a task via the task submit service (port 1003).
+
+        Args:
+            target: Hostname or protocol address of task execution server
+            task_data: Task specification as dict. Must include 'task_description'.
+                      Optional: 'task_id' (auto-generated if not provided)
+
+        Returns:
+            Response from task submit service (StatusAccepted=200 or StatusRejected=400)
+        """
+        import struct
+        import uuid
+        
+        # Resolve hostname if needed
+        if not target.startswith("0:"):
+            result = self.resolve_hostname(target)
+            addr = result.get("address", "")
+            if not addr:
+                raise PilotError(f"Could not resolve hostname: {target}")
+        else:
+            addr = target
+
+        # Get local address
+        info = self.info()
+        from_addr = info.get("address", "unknown")
+        
+        # Build proper SubmitRequest
+        submit_req = {
+            "task_id": task_data.get("task_id", str(uuid.uuid4())),
+            "task_description": task_data.get("task_description", json.dumps(task_data)),
+            "from_addr": from_addr,
+            "to_addr": addr
+        }
+        
+        # Encode task request as JSON
+        task_json = json.dumps(submit_req).encode('utf-8')
+        
+        # Build submit frame: [4-byte type=1][4-byte length][JSON payload]
+        frame = struct.pack('>II', 1, len(task_json)) + task_json
+
+        # Connect to task submit service (port 1003)
+        with self.dial(f"{addr}:1003") as conn:
+            # Send submit frame
+            conn.write(frame)
+            
+            # Read response frame: [4-byte type][4-byte length][JSON payload]
+            header = conn.read(8)
+            if not header or len(header) < 8:
+                raise PilotError("No response from task submit service")
+            
+            resp_type, resp_len = struct.unpack('>II', header)
+            response_data = conn.read(resp_len)
+            
+            if not response_data or len(response_data) < resp_len:
+                raise PilotError("Incomplete response from task submit service")
+            
+            # Parse JSON response
+            try:
+                resp = json.loads(response_data.decode('utf-8'))
+                return resp
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                raise PilotError(f"Invalid response format: {e}")

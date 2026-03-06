@@ -46,10 +46,12 @@ fi
 rm -f setup.py
 echo ""
 
-# Step 4: Verify with twine
-echo "4. Verifying package..."
-python3 -m twine check dist/*
-echo ""
+# Step 4: Verify with twine (skip in CI/Docker)
+if [ "${SKIP_TWINE_CHECK:-}" != "1" ]; then
+    echo "4. Verifying package..."
+    python3 -m twine check dist/*
+    echo ""
+fi
 
 echo "================================================================"
 echo "✓ Build complete!"
@@ -57,9 +59,4 @@ echo "================================================================"
 echo ""
 echo "Created:"
 ls -lh dist/
-echo ""
-echo "Next steps:"
-echo "  - Test locally: python3 -m venv /tmp/test && /tmp/test/bin/pip install dist/*.whl"
-echo "  - Publish to TestPyPI: ./scripts/publish.sh testpypi"
-echo "  - Publish to PyPI: ./scripts/publish.sh pypi"
 echo ""

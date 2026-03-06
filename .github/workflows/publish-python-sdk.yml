@@ -10,23 +10,47 @@ on:
         options:
           - production
           - test
-      
-  push:
+  
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
     branches:
       - main
       - 'build/**'
-    paths:
-      - 'sdk/python/**'
-      - '.github/workflows/publish-python-sdk.yml'
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
+  # Check if tests passed (for workflow_run trigger)
+  check-tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run'
+    outputs:
+      tests-passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check test workflow result
+        id: check
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+            echo "✅ Tests passed - proceeding with publish"
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+            echo "❌ Tests failed - skipping publish"
+            exit 1
+          fi
+
   # Determine whether this is a production or test deployment
   setup:
     runs-on: ubuntu-latest
+    needs: check-tests
+    if: |
+      always() && 
+      (github.event_name == 'workflow_dispatch' || 
+       (github.event_name == 'workflow_run' && needs.check-tests.outputs.tests-passed == 'true'))
     outputs:
       environment: ${{ steps.determine-env.outputs.environment }}
     steps:
@@ -35,9 +59,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
             echo "environment=production" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/heads/build/* ]]; then
+          elif [[ "${{ github.event.workflow_run.head_branch }}" == build/* ]]; then
             echo "environment=test" >> $GITHUB_OUTPUT
           else
             echo "environment=test" >> $GITHUB_OUTPUT
@@ -135,21 +159,61 @@ jobs:
       - name: Verify all packages
         run: python -m twine check dist/*
 
-      - name: Publish to TestPyPI
+      - name: Check if version exists on TestPyPI
         if: needs.setup.outputs.environment == 'test'
+        id: check-testpypi
+        run: |
+          VERSION=$(ls dist/*.whl | head -1 | grep -oP '(?<=pilotprotocol-)\d+\.\d+\.\d+' || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if curl -s https://test.pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Version $VERSION already exists on TestPyPI"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✓ Version $VERSION does not exist on TestPyPI"
+          fi
+
+      - name: Check if version exists on PyPI
+        if: needs.setup.outputs.environment == 'production'
+        id: check-pypi
+        run: |
+          VERSION=$(ls dist/*.whl | head -1 | grep -oP '(?<=pilotprotocol-)\d+\.\d+\.\d+' || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if curl -s https://pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Version $VERSION already exists on PyPI"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✓ Version $VERSION does not exist on PyPI"
+          fi
+
+      - name: Publish to TestPyPI
+        if: needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'false'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
-          python -m twine upload --repository testpypi dist/*
+          python -m twine upload --repository testpypi dist/* --verbose || {
+            echo "⚠️ Upload failed. This may be because:"
+            echo "1. Version already exists on TestPyPI (versions cannot be re-uploaded)"
+            echo "2. API token is not configured correctly"
+            echo "3. Package metadata issue"
+            exit 1
+          }
 
       - name: Publish to PyPI
-        if: needs.setup.outputs.environment == 'production'
+        if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           python -m twine upload dist/*
+
+      - name: Skip publish - version exists
+        if: (needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'true') || (needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'true')
+        run: |
+          echo "⚠️ Skipping publish - version already exists"
+          echo "To publish a new version, update the version in sdk/python/pyproject.toml"
 
       - name: Create summary
         run: |

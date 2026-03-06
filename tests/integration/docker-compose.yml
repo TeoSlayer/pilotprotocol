@@ -1,0 +1,54 @@
+services:
+  pilot-integration-test:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile
+    container_name: pilot-integration-test
+    environment:
+      - PILOT_LOG_LEVEL=info
+      # Prevent munmap_chunk() crash when Go c-shared runtime initialises
+      # inside Python/ctypes.  GODEBUG=madvdontneed=1 forces the Go GC to
+      # use MADV_DONTNEED instead of MADV_FREE, avoiding glibc heap corruption.
+      - GODEBUG=madvdontneed=1
+      - MALLOC_ARENA_MAX=2
+    volumes:
+      - ./results:/results
+    networks:
+      - pilot-test
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /tmp/pilot.sock || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    command: >
+      /bin/bash -c "
+        echo '=================================================';
+        echo 'Running Pilot Protocol Integration Tests';
+        echo '=================================================';
+        echo '';
+        set -o pipefail;
+        /bin/bash /tests/test_cli.sh 2>&1 | tee /results/cli_results.txt;
+        CLI_EXIT=$$?;
+        echo '';
+        python /tests/test_sdk.py 2>&1 | tee /results/sdk_results.txt;
+        SDK_EXIT=$$?;
+        echo '';
+        echo '=================================================';
+        echo 'All Tests Complete';
+        echo '=================================================';
+        if [ $$CLI_EXIT -eq 0 ] && [ $$SDK_EXIT -eq 0 ]; then
+          echo 'Status: SUCCESS';
+          exit 0;
+        else
+          echo 'Status: FAILURE';
+          echo 'CLI Exit Code:' $$CLI_EXIT;
+          echo 'SDK Exit Code:' $$SDK_EXIT;
+          exit 1;
+        fi
+      "
+
+networks:
+  pilot-test:
+    driver: bridge
