@@ -20,30 +20,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.21.x'
+          cache: true
       
-      - name: Run unit tests
+      - name: Build
+        run: go build -v ./...
+      
+      - name: Test
         env:
           PILOT_LOG_LEVEL: error
         run: |
-          # Run tests without -v for speed, use -short to skip manual tests
-          # Use -parallel 2 in CI due to resource constraints
-          set +e
-          go test -short -parallel 2 -count=1 -timeout 10m ./tests/ 2>&1 | tee /tmp/test_output.txt
-          TEST_EXIT_CODE=${PIPESTATUS[0]}
-          
-          # If tests failed, run again with -v to get detailed output
-          if [ $TEST_EXIT_CODE -ne 0 ]; then
-            echo "::error::Unit tests failed with exit code $TEST_EXIT_CODE"
-            echo ""
-            echo "=== Re-running failed tests with verbose output ==="
-            go test -short -parallel 2 -count=1 -v -timeout 10m ./tests/ 2>&1 | tail -300
-            exit $TEST_EXIT_CODE
-          fi
-          
-          # Show summary on success
-          echo "=== Test Summary ==="
-          cat /tmp/test_output.txt
+          go test -short -parallel 2 -count=1 -timeout 10m ./tests/
         timeout-minutes: 15
       
       - name: Generate coverage
@@ -51,7 +38,7 @@ jobs:
           PILOT_LOG_LEVEL: error
         run: |
           mkdir -p coverage
-          go test -short -parallel 2 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 10m ./tests/ 2>&1 | grep -v "WARN\|INFO\|DEBUG" || true
+          go test -short -parallel 2 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 10m ./tests/
           go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
       
       - name: Upload coverage
