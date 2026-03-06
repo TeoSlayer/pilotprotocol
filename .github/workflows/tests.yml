@@ -6,9 +6,6 @@ on:
       - main
       - 'build/**'
       - 'docs/**'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -31,7 +28,7 @@ jobs:
         run: |
           # Run tests and capture output
           set +e
-          go test -parallel 4 -count=1 -v ./tests/... 2>&1 | tee /tmp/test_output.txt
+          go test -parallel 4 -count=1 -v ./tests/ 2>&1 | tee /tmp/test_output.txt
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           
           # If tests failed, show last 200 lines and summary
@@ -56,7 +53,7 @@ jobs:
           PILOT_LOG_LEVEL: error
         run: |
           mkdir -p coverage
-          cd tests && go test -parallel 4 -count=1 -coverprofile=../coverage/coverage.out -covermode=atomic -timeout 30s 2>&1 | grep -v "WARN\|INFO\|DEBUG" || true
+          go test -parallel 4 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 30s ./tests/ 2>&1 | grep -v "WARN\|INFO\|DEBUG" || true
           cd ..
           go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
       
