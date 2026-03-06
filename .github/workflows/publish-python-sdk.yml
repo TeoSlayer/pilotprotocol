@@ -93,14 +93,14 @@ jobs:
         run: |
           cd sdk/python
           
-          # Get latest git tag matching v*.*.* pattern
-          LATEST_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # Get latest git tag matching sdk-v*.*.* pattern (SDK-specific tags)
+          LATEST_TAG=$(git describe --tags --match "sdk-v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "sdk-v0.1.0")
           
-          # Extract version without 'v' prefix
-          BASE_VERSION=${LATEST_TAG#v}
+          # Extract version without 'sdk-v' prefix
+          BASE_VERSION=${LATEST_TAG#sdk-v}
           
-          # Count commits since last tag
-          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || echo "0")
+          # Count commits since last tag (only in sdk/python directory)
+          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count -- . 2>/dev/null || echo "0")
           
           # Get short commit hash
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -127,7 +127,7 @@ jobs:
           fi
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Generated version: $VERSION"
+          echo "Generated version: $VERSION (SDK-specific)"
           echo "Base version: $BASE_VERSION"
           echo "Commits since tag: $COMMITS_SINCE_TAG"
           echo "Environment: ${{ needs.setup.outputs.environment }}"
@@ -286,13 +286,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Create annotated tag
-          git tag -a "v$VERSION" -m "Release Python SDK v$VERSION"
+          # Create annotated tag with sdk- prefix to separate from project tags
+          git tag -a "sdk-v$VERSION" -m "Python SDK Release v$VERSION"
           
           # Push tag
-          git push origin "v$VERSION"
+          git push origin "sdk-v$VERSION"
           
-          echo "✓ Created and pushed git tag: v$VERSION"
+          echo "✓ Created and pushed SDK-specific git tag: sdk-v$VERSION"
 
       - name: Skip publish - version exists
         if: (needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'true') || (needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'true')
