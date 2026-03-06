@@ -84,6 +84,60 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version calculation
+
+      - name: Generate version
+        id: version
+        shell: bash
+        run: |
+          cd sdk/python
+          
+          # Get latest git tag matching v*.*.* pattern
+          LATEST_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
+          
+          # Extract version without 'v' prefix
+          BASE_VERSION=${LATEST_TAG#v}
+          
+          # Count commits since last tag
+          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || echo "0")
+          
+          # Get short commit hash
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          
+          # Determine version based on environment
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            # Production: Use tag version or bump patch
+            if [ "$COMMITS_SINCE_TAG" = "0" ]; then
+              VERSION="$BASE_VERSION"
+            else
+              # Parse version and increment patch
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+              PATCH=$((PATCH + 1))
+              VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            fi
+          else
+            # Test/Dev: Use dev version with commit info
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+            if [ "$COMMITS_SINCE_TAG" = "0" ]; then
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1+${SHORT_SHA}"
+            else
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}+${SHORT_SHA}"
+            fi
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+          echo "Base version: $BASE_VERSION"
+          echo "Commits since tag: $COMMITS_SINCE_TAG"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          
+          # Update pyproject.toml with new version
+          sed -i.bak "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          rm pyproject.toml.bak
+          
+          echo "Updated pyproject.toml:"
+          grep "^version =" pyproject.toml
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -137,6 +191,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -148,6 +208,15 @@ jobs:
           find dist-artifacts -name "*.whl" -exec cp {} dist/ \;
           find dist-artifacts -name "*.tar.gz" -exec cp {} dist/ \;
           ls -lh dist/
+      
+      - name: Extract version from wheel
+        id: extract-version
+        run: |
+          # Get version from first wheel filename
+          WHEEL_FILE=$(ls dist/*.whl | head -1)
+          VERSION=$(echo "$WHEEL_FILE" | grep -oP 'pilotprotocol-\K[0-9]+\.[0-9]+\.[0-9]+(\.(dev|post|rc|a|b)[0-9]+)?(\+[a-f0-9]+)?' || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -164,7 +233,7 @@ jobs:
         if: needs.setup.outputs.environment == 'test'
         id: check-testpypi
         run: |
-          VERSION=$(ls dist/*.whl | head -1 | grep -oP '(?<=pilotprotocol-)\d+\.\d+\.\d+' || echo "0.1.0")
+          VERSION=${{ steps.extract-version.outputs.version }}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           if curl -s https://test.pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -178,7 +247,7 @@ jobs:
         if: needs.setup.outputs.environment == 'production'
         id: check-pypi
         run: |
-          VERSION=$(ls dist/*.whl | head -1 | grep -oP '(?<=pilotprotocol-)\d+\.\d+\.\d+' || echo "0.1.0")
+          VERSION=${{ steps.extract-version.outputs.version }}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           if curl -s https://pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -209,6 +278,21 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           python -m twine upload dist/*
+      
+      - name: Create git tag for production release
+        if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create annotated tag
+          git tag -a "v$VERSION" -m "Release Python SDK v$VERSION"
+          
+          # Push tag
+          git push origin "v$VERSION"
+          
+          echo "✓ Created and pushed git tag: v$VERSION"
 
       - name: Skip publish - version exists
         if: (needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'true') || (needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'true')

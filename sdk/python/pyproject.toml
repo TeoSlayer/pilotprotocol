@@ -14,7 +14,7 @@ pilotprotocol = [
 
 [project]
 name = "pilotprotocol"
-version = "0.1.0"
+version = "0.1.1"  # Auto-updated by CI workflow
 description = "Python SDK for Pilot Protocol - the network stack for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
