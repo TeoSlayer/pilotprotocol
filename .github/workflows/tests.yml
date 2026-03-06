@@ -26,20 +26,14 @@ jobs:
       - name: Build
         run: go build -v ./...
       
-      - name: Test
-        env:
-          PILOT_LOG_LEVEL: error
-        run: |
-          go test -short -parallel 2 -count=1 -timeout 10m ./tests/
-        timeout-minutes: 15
-      
-      - name: Generate coverage
+      - name: Test with coverage
         env:
           PILOT_LOG_LEVEL: error
         run: |
           mkdir -p coverage
-          go test -short -parallel 2 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 10m ./tests/
+          go test -short -parallel 4 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 10m ./tests/
           go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
+        timeout-minutes: 15
       
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -130,7 +124,8 @@ jobs:
       - name: Check for test failures
         if: always()
         run: |
-          if grep -q "Failed: [^0]" tests/integration/results/*.txt 2>/dev/null; then
+          # Check if any test has non-zero failures
+          if grep -E "Failed: [1-9][0-9]*" tests/integration/results/*.txt 2>/dev/null; then
             echo "⚠️ Some tests failed"
             exit 1
           fi
