@@ -1,5 +1,8 @@
 # Makefile for integration tests
 
+# Use bash instead of sh for pipefail support
+SHELL := /bin/bash
+
 .PHONY: help test test-cli test-sdk build clean results
 
 help:
