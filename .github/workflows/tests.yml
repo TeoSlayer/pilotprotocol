@@ -26,26 +26,23 @@ jobs:
         env:
           PILOT_LOG_LEVEL: error
         run: |
-          # Run tests and capture output
+          # Run tests without -v for speed, capture output
           set +e
-          go test -parallel 4 -count=1 -v ./tests/ 2>&1 | tee /tmp/test_output.txt
+          go test -parallel 4 -count=1 ./tests/ 2>&1 | tee /tmp/test_output.txt
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           
-          # If tests failed, show last 200 lines and summary
+          # If tests failed, run again with -v to get detailed output
           if [ $TEST_EXIT_CODE -ne 0 ]; then
             echo "::error::Unit tests failed with exit code $TEST_EXIT_CODE"
             echo ""
-            echo "=== Test Failures (last 200 lines) ==="
-            tail -200 /tmp/test_output.txt
-            echo ""
-            echo "=== Failed Tests Summary ==="
-            grep -E "FAIL|PASS" /tmp/test_output.txt | tail -50
+            echo "=== Re-running failed tests with verbose output ==="
+            go test -parallel 4 -count=1 -v ./tests/ 2>&1 | tail -300
             exit $TEST_EXIT_CODE
           fi
           
           # Show summary on success
           echo "=== Test Summary ==="
-          grep -E "PASS|ok\s+" /tmp/test_output.txt | tail -20
+          cat /tmp/test_output.txt
         timeout-minutes: 5
       
       - name: Generate coverage
