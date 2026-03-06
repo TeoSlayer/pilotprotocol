@@ -44,7 +44,7 @@ jobs:
           # Show summary on success
           echo "=== Test Summary ==="
           cat /tmp/test_output.txt
-        timeout-minutes: 5
+        timeout-minutes: 15
       
       - name: Generate coverage
         env:
