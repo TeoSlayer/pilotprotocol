@@ -1,0 +1,153 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'build/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+          cache: true
+      
+      - name: Build
+        run: go build -v ./...
+      
+      - name: Test with coverage
+        env:
+          PILOT_LOG_LEVEL: error
+        run: |
+          mkdir -p coverage
+          go test -short -parallel 4 -count=1 -coverprofile=coverage/coverage.out -covermode=atomic -timeout 10m ./tests/
+          go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
+        timeout-minutes: 15
+      
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Validate test setup
+        run: |
+          cd tests/integration
+          chmod +x validate.sh
+          ./validate.sh
+      
+      - name: Run integration tests
+        env:
+          PILOT_LOG_LEVEL: error
+        run: |
+          cd tests/integration
+          set +e
+          make test 2>&1 | tee /tmp/integration_output.txt
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          
+          # Always show test results
+          echo ""
+          echo "=== CLI Test Results ==="
+          if [ -f results/cli_results.txt ]; then
+            grep -E "Test Summary|Passed:|Failed:" results/cli_results.txt
+          fi
+          
+          echo ""
+          echo "=== SDK Test Results ==="
+          if [ -f results/sdk_results.txt ]; then
+            grep -E "Test Summary|Passed:|Failed:" results/sdk_results.txt
+          fi
+          
+          # If tests failed, show failures
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "::error::Integration tests failed with exit code $TEST_EXIT_CODE"
+            echo ""
+            echo "=== Failed Tests ==="
+            grep -E "\[FAIL\]" results/*.txt 2>/dev/null || echo "No specific test failures found"
+            exit $TEST_EXIT_CODE
+          fi
+        timeout-minutes: 10
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: tests/integration/results/
+          retention-days: 30
+      
+      - name: Display test summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f tests/integration/results/cli_results.txt ]; then
+            echo "### CLI Tests (21 tests)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -A 3 "Test Summary" tests/integration/results/cli_results.txt | sed 's/\x1b\[[0-9;]*m//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f tests/integration/results/sdk_results.txt ]; then
+            echo "### Python SDK Tests (34 tests)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -A 3 "Test Summary" tests/integration/results/sdk_results.txt | sed 's/\x1b\[[0-9;]*m//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Check for test failures
+        if: always()
+        run: |
+          # Check if any test has non-zero failures
+          if grep -E "Failed: [1-9][0-9]*" tests/integration/results/*.txt 2>/dev/null; then
+            echo "⚠️ Some tests failed"
+            exit 1
+          fi
+          echo "✅ All tests passed"
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            echo "## ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Unit Tests: ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "## ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Unit Tests: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration Tests: ✅ Passed (55 tests: 21 CLI + 34 SDK)" >> $GITHUB_STEP_SUMMARY

@@ -21,6 +21,7 @@ a:hover{text-decoration:underline}
 .sidebar a{display:block;padding:6px 12px;border-radius:6px;color:var(--muted);font-size:0.85rem;margin-bottom:2px;transition:color 0.15s,background 0.15s}
 .sidebar a:hover{color:var(--fg);background:var(--surface);text-decoration:none}
 .sidebar a.active{color:var(--accent);background:var(--surface);font-weight:600}
+.sidebar .new-badge{background:#1f6feb;color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:10px;font-weight:600;text-transform:lowercase;margin-left:6px;line-height:1;display:inline-block;vertical-align:middle}
 .sidebar .nav-section{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);padding:16px 12px 6px;font-weight:600}
 .sidebar .nav-section:first-child{padding-top:0}
 
@@ -47,6 +48,12 @@ pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;p
 pre code{color:var(--fg);background:none;padding:0;font-size:inherit}
 .comment{color:var(--muted)}
 .cmd{color:var(--accent)}
+.py-keyword{color:#c678dd}
+.py-string{color:#98c379}
+.py-function{color:#61afef}
+.py-builtin{color:#e5c07b}
+.py-number{color:#d19a66}
+.py-operator{color:#56b6c2}
 .copy-btn{position:absolute;top:8px;right:8px;background:var(--border);border:none;color:var(--muted);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:0.7rem;font-family:inherit;transition:color 0.2s;opacity:0;transition:opacity 0.15s}
 pre:hover .copy-btn{opacity:1}
 .copy-btn:hover{color:var(--fg)}
@@ -61,8 +68,9 @@ td:first-child{font-family:'SF Mono',Menlo,monospace;color:var(--accent);font-si
 .card-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;max-width:720px}
 .card{padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface);transition:border-color 0.15s}
 .card:hover{border-color:var(--accent);text-decoration:none}
-.card h4{color:var(--fg);font-weight:600;margin-bottom:4px;font-size:0.9rem}
+.card h4{color:var(--fg);font-weight:600;margin-bottom:4px;font-size:0.9rem;display:flex;align-items:center;gap:8px}
 .card p{color:var(--muted);font-size:0.82rem;margin-bottom:0}
+.new-badge{background:#1f6feb;color:#fff;font-size:0.7rem;padding:3px 8px;border-radius:12px;font-weight:600;text-transform:lowercase;letter-spacing:0;line-height:1;display:inline-block}
 
 /* Callout */
 .callout{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:16px 20px;margin-bottom:24px;max-width:720px}

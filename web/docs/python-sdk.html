@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Python SDK - Pilot Protocol</title>
+<meta name="description" content="Complete Python SDK documentation for Pilot Protocol — installation, usage, API reference, and examples.">
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+
+<div class="sidebar">
+  <div class="nav-section">Documentation</div>
+  <a href="./">Overview</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="concepts.html">Core Concepts</a>
+  <a href="cli-reference.html">CLI Reference</a>
+  <a class="active" href="python-sdk.html">Python SDK <span class="new-badge">new</span></a>
+  <div class="nav-section">Features</div>
+  <a href="messaging.html">Messaging</a>
+  <a href="trust.html">Trust & Handshakes</a>
+  <a href="services.html">Built-in Services</a>
+  <a href="pubsub.html">Pub/Sub</a>
+  <a href="webhooks.html">Webhooks</a>
+  <a href="gateway.html">Gateway</a>
+  <a href="tags.html">Tags & Discovery</a>
+  <div class="nav-section">Operations</div>
+  <a href="diagnostics.html">Diagnostics</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="integration.html">Integration</a>
+  <div class="nav-section">Network</div>
+  <a href="polo.html">Polo</a>
+  <div class="nav-section">Research</div>
+  <a href="research.html">Papers</a>
+</div>
+
+<div class="content">
+  <h1>Python SDK</h1>
+  <p class="subtitle">Native Python client library for Pilot Protocol with CLI tools and type hints.</p>
+
+  <div class="callout">
+    <p><strong>Package:</strong> <code>pilotprotocol</code> &nbsp;&bull;&nbsp; <strong>PyPI:</strong> <a href="https://pypi.org/project/pilotprotocol/">pypi.org/project/pilotprotocol</a> &nbsp;&bull;&nbsp; <strong>Requires:</strong> Python 3.10+</p>
+  </div>
+
+  <h2>Installation</h2>
+  <pre><code>pip install pilotprotocol</code></pre>
+  <p>This installs:</p>
+  <ul>
+    <li><strong>Python SDK</strong> — <code>pilotprotocol</code> module with <code>Driver</code>, <code>DataExchange</code>, <code>EventStream</code> classes</li>
+    <li><strong>CLI Tools</strong> — <code>pilotctl</code>, <code>pilot-daemon</code>, <code>pilot-gateway</code> executables</li>
+    <li><strong>Native Binaries</strong> — Platform-specific Go binaries bundled in the wheel</li>
+  </ul>
+
+  <h2>Quick Start</h2>
+  
+  <h3>1. Start the Daemon</h3>
+  <p>The daemon must be running before using the SDK:</p>
+  <pre><code>pilot-daemon start --hostname my-agent</code></pre>
+  <p>Or use the CLI wrapper:</p>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol.cli <span class="py-keyword">import</span> run_daemon
+<span class="comment"># Starts daemon in subprocess (not typical usage)</span></code></pre>
+
+  <h3>2. Connect to the Daemon</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+<span class="comment"># Get agent information</span>
+info = driver.<span class="py-function">info</span>()
+<span class="py-builtin">print</span>(<span class="py-string">f"Address: {info['address']}"</span>)
+<span class="py-builtin">print</span>(<span class="py-string">f"Hostname: {info['hostname']}"</span>)
+<span class="py-builtin">print</span>(<span class="py-string">f"Public: {info['public']}"</span>)
+
+driver.<span class="py-function">close</span>()</code></pre>
+
+  <h3>3. Establish Connections</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+<span class="comment"># Connect to a peer on port 1000 (stdio)</span>
+conn = driver.<span class="py-function">pilot_connect</span>(<span class="py-string">"other-agent"</span>, port=<span class="py-number">1000</span>)
+
+<span class="comment"># Send data</span>
+conn.<span class="py-function">write</span>(<span class="py-string">b"Hello from Python!"</span>)
+
+<span class="comment"># Receive response</span>
+data = conn.<span class="py-function">read</span>(timeout=<span class="py-number">5.0</span>)
+<span class="py-builtin">print</span>(<span class="py-string">f"Received: {data.decode()}"</span>)
+
+conn.<span class="py-function">close</span>()
+driver.<span class="py-function">close</span>()</code></pre>
+
+  <h2>API Reference</h2>
+
+  <h3>Driver</h3>
+  <p>Main entry point for interacting with the Pilot Protocol daemon.</p>
+
+  <h4>Constructor</h4>
+  <pre><code>driver = <span class="py-function">Driver</span>(socket_path: <span class="py-builtin">str</span> = <span class="py-string">"/tmp/pilot.sock"</span>)</code></pre>
+  <p><strong>Parameters:</strong></p>
+  <ul>
+    <li><code>socket_path</code> — Path to the daemon's Unix socket (default: <code>/tmp/pilot.sock</code>)</li>
+  </ul>
+
+  <h4>Methods</h4>
+
+  <h5>connect()</h5>
+  <pre><code>driver.<span class="py-function">connect</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Connects to the daemon. Must be called before any other operations.</p>
+  <p><strong>Raises:</strong> <code>RuntimeError</code> if connection fails.</p>
+
+  <h5>close()</h5>
+  <pre><code>driver.<span class="py-function">close</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Closes the connection to the daemon. Always call this when done to release resources.</p>
+
+  <h5>info()</h5>
+  <pre><code>driver.<span class="py-function">info</span>() -> <span class="py-builtin">dict</span></code></pre>
+  <p>Returns agent information.</p>
+  <p><strong>Returns:</strong></p>
+  <pre><code>{
+  <span class="py-string">"address"</span>: <span class="py-string">"0:0000.0000.0042"</span>,  <span class="comment"># Virtual address</span>
+  <span class="py-string">"hostname"</span>: <span class="py-string">"my-agent"</span>,          <span class="comment"># Hostname</span>
+  <span class="py-string">"public"</span>: <span class="py-builtin">false</span>,                 <span class="comment"># Public visibility</span>
+  <span class="py-string">"uptime"</span>: <span class="py-number">3600</span>                   <span class="comment"># Uptime in seconds</span>
+}</code></pre>
+
+  <h5>pilot_connect()</h5>
+  <pre><code>driver.<span class="py-function">pilot_connect</span>(addr: <span class="py-builtin">str</span>, port: <span class="py-builtin">int</span> = <span class="py-number">1000</span>) -> Connection</code></pre>
+  <p>Establishes a connection to a peer.</p>
+  <p><strong>Parameters:</strong></p>
+  <ul>
+    <li><code>addr</code> — Peer address (hostname or virtual address)</li>
+    <li><code>port</code> — Target port (default: 1000)</li>
+  </ul>
+  <p><strong>Returns:</strong> <code>Connection</code> object</p>
+  <p><strong>Raises:</strong> <code>RuntimeError</code> on connection failure</p>
+
+  <h5>pilot_listen()</h5>
+  <pre><code>driver.<span class="py-function">pilot_listen</span>(port: <span class="py-builtin">int</span>) -> Listener</code></pre>
+  <p>Listens for incoming connections on a port.</p>
+  <p><strong>Parameters:</strong></p>
+  <ul>
+    <li><code>port</code> — Port to listen on</li>
+  </ul>
+  <p><strong>Returns:</strong> <code>Listener</code> object</p>
+
+  <h5>resolve()</h5>
+  <pre><code>driver.<span class="py-function">resolve</span>(hostname: <span class="py-builtin">str</span>) -> <span class="py-builtin">str</span></code></pre>
+  <p>Resolves a hostname to a virtual address.</p>
+  <p><strong>Returns:</strong> Virtual address (e.g., <code>"0:0000.0000.0042"</code>)</p>
+
+  <h5>ping()</h5>
+  <pre><code>driver.<span class="py-function">ping</span>(addr: <span class="py-builtin">str</span>) -> <span class="py-builtin">dict</span></code></pre>
+  <p>Pings a peer and returns RTT statistics.</p>
+  <p><strong>Returns:</strong></p>
+  <pre><code>{
+  <span class="py-string">"min"</span>: <span class="py-number">12.3</span>,     <span class="comment"># Min RTT (ms)</span>
+  <span class="py-string">"avg"</span>: <span class="py-number">15.7</span>,     <span class="comment"># Avg RTT (ms)</span>
+  <span class="py-string">"max"</span>: <span class="py-number">18.2</span>,     <span class="comment"># Max RTT (ms)</span>
+  <span class="py-string">"count"</span>: <span class="py-number">10</span>      <span class="comment"># Packets sent</span>
+}</code></pre>
+
+  <h3>Connection</h3>
+  <p>Represents an active connection to a peer.</p>
+
+  <h4>Methods</h4>
+
+  <h5>write()</h5>
+  <pre><code>conn.<span class="py-function">write</span>(data: <span class="py-builtin">bytes</span>) -> <span class="py-builtin">int</span></code></pre>
+  <p>Writes data to the connection.</p>
+  <p><strong>Returns:</strong> Number of bytes written</p>
+
+  <h5>read()</h5>
+  <pre><code>conn.<span class="py-function">read</span>(size: <span class="py-builtin">int</span> = <span class="py-number">65536</span>, timeout: <span class="py-builtin">float</span> = <span class="py-number">10.0</span>) -> <span class="py-builtin">bytes</span></code></pre>
+  <p>Reads data from the connection.</p>
+  <p><strong>Parameters:</strong></p>
+  <ul>
+    <li><code>size</code> — Maximum bytes to read (default: 64KB)</li>
+    <li><code>timeout</code> — Read timeout in seconds (default: 10s)</li>
+  </ul>
+  <p><strong>Returns:</strong> Received data</p>
+  <p><strong>Raises:</strong> <code>TimeoutError</code> if no data received within timeout</p>
+
+  <h5>close()</h5>
+  <pre><code>conn.<span class="py-function">close</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Closes the connection.</p>
+
+  <h3>Listener</h3>
+  <p>Listens for incoming connections.</p>
+
+  <h4>Methods</h4>
+
+  <h5>accept()</h5>
+  <pre><code>listener.<span class="py-function">accept</span>(timeout: <span class="py-builtin">float</span> = <span class="py-number">60.0</span>) -> Connection</code></pre>
+  <p>Accepts an incoming connection.</p>
+  <p><strong>Returns:</strong> <code>Connection</code> object</p>
+  <p><strong>Raises:</strong> <code>TimeoutError</code> if no connection within timeout</p>
+
+  <h5>close()</h5>
+  <pre><code>listener.<span class="py-function">close</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Closes the listener.</p>
+
+  <h3>DataExchange</h3>
+  <p>High-level protocol for typed data exchange (port 1001).</p>
+
+  <h4>Constructor</h4>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> DataExchange
+
+de = <span class="py-function">DataExchange</span>(driver: Driver)</code></pre>
+
+  <h4>Methods</h4>
+
+  <h5>connect()</h5>
+  <pre><code>de.<span class="py-function">connect</span>(addr: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Connects to a peer's data exchange service.</p>
+
+  <h5>send_text()</h5>
+  <pre><code>de.<span class="py-function">send_text</span>(text: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Sends a text message.</p>
+
+  <h5>send_json()</h5>
+  <pre><code>de.<span class="py-function">send_json</span>(data: <span class="py-builtin">dict</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Sends JSON data.</p>
+
+  <h5>send_binary()</h5>
+  <pre><code>de.<span class="py-function">send_binary</span>(data: <span class="py-builtin">bytes</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Sends binary data.</p>
+
+  <h5>send_file()</h5>
+  <pre><code>de.<span class="py-function">send_file</span>(path: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Sends a file.</p>
+
+  <h5>receive()</h5>
+  <pre><code>de.<span class="py-function">receive</span>(timeout: <span class="py-builtin">float</span> = <span class="py-number">10.0</span>) -> <span class="py-builtin">dict</span></code></pre>
+  <p>Receives a typed frame.</p>
+  <p><strong>Returns:</strong></p>
+  <pre><code>{
+  <span class="py-string">"type"</span>: <span class="py-string">"text"</span>,           <span class="comment"># Frame type: text, json, binary, file</span>
+  <span class="py-string">"data"</span>: <span class="py-string">"..."</span>,            <span class="comment"># Data (decoded based on type)</span>
+  <span class="py-string">"filename"</span>: <span class="py-string">"file.txt"</span>    <span class="comment"># Filename (only for file type)</span>
+}</code></pre>
+
+  <h5>close()</h5>
+  <pre><code>de.<span class="py-function">close</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Closes the connection.</p>
+
+  <h3>EventStream</h3>
+  <p>Pub/sub event broker (port 1002).</p>
+
+  <h4>Constructor</h4>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> EventStream
+
+es = <span class="py-function">EventStream</span>(driver: Driver)</code></pre>
+
+  <h4>Methods</h4>
+
+  <h5>connect()</h5>
+  <pre><code>es.<span class="py-function">connect</span>(addr: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Connects to a peer's event stream service.</p>
+
+  <h5>subscribe()</h5>
+  <pre><code>es.<span class="py-function">subscribe</span>(topic: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Subscribes to a topic. Supports wildcards: <code>*</code>, <code>**</code></p>
+  <p><strong>Examples:</strong></p>
+  <ul>
+    <li><code>status</code> — Exact match</li>
+    <li><code>sensor.*</code> — Single-level wildcard</li>
+    <li><code>sensor/**</code> — Multi-level wildcard</li>
+  </ul>
+
+  <h5>publish()</h5>
+  <pre><code>es.<span class="py-function">publish</span>(topic: <span class="py-builtin">str</span>, data: <span class="py-builtin">str</span>) -> <span class="py-builtin">None</span></code></pre>
+  <p>Publishes an event to a topic.</p>
+
+  <h5>receive()</h5>
+  <pre><code>es.<span class="py-function">receive</span>(timeout: <span class="py-builtin">float</span> = <span class="py-number">10.0</span>) -> <span class="py-builtin">dict</span></code></pre>
+  <p>Receives an event.</p>
+  <p><strong>Returns:</strong></p>
+  <pre><code>{
+  <span class="py-string">"topic"</span>: <span class="py-string">"sensor/temperature"</span>,
+  <span class="py-string">"data"</span>: <span class="py-string">"23.5"</span>
+}</code></pre>
+
+  <h5>close()</h5>
+  <pre><code>es.<span class="py-function">close</span>() -> <span class="py-builtin">None</span></code></pre>
+  <p>Closes the connection.</p>
+
+  <h2>Usage Examples</h2>
+
+  <h3>Echo Server</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+<span class="comment"># Listen on port 5000</span>
+listener = driver.<span class="py-function">pilot_listen</span>(<span class="py-number">5000</span>)
+<span class="py-builtin">print</span>(<span class="py-string">"Listening on port 5000..."</span>)
+
+<span class="py-keyword">while</span> <span class="py-builtin">True</span>:
+    conn = listener.<span class="py-function">accept</span>()
+    <span class="py-builtin">print</span>(<span class="py-string">"Connection accepted"</span>)
+    
+    data = conn.<span class="py-function">read</span>()
+    <span class="py-builtin">print</span>(<span class="py-string">f"Received: {data.decode()}"</span>)
+    
+    conn.<span class="py-function">write</span>(data)  <span class="comment"># Echo back</span>
+    conn.<span class="py-function">close</span>()
+    <span class="py-builtin">print</span>(<span class="py-string">"Connection closed"</span>)</code></pre>
+
+  <h3>Send JSON Data</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver, DataExchange
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+de = <span class="py-function">DataExchange</span>(driver)
+de.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
+
+<span class="comment"># Send structured data</span>
+de.<span class="py-function">send_json</span>({
+    <span class="py-string">"command"</span>: <span class="py-string">"status"</span>,
+    <span class="py-string">"timestamp"</span>: <span class="py-number">1234567890</span>,
+    <span class="py-string">"metadata"</span>: {
+        <span class="py-string">"version"</span>: <span class="py-string">"1.0"</span>
+    }
+})
+
+<span class="comment"># Receive response</span>
+response = de.<span class="py-function">receive</span>()
+<span class="py-builtin">print</span>(<span class="py-string">f"Response: {response}"</span>)
+
+de.<span class="py-function">close</span>()
+driver.<span class="py-function">close</span>()</code></pre>
+
+  <h3>Pub/Sub Events</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver, EventStream
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+es = <span class="py-function">EventStream</span>(driver)
+es.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
+
+<span class="comment"># Subscribe to all sensor topics</span>
+es.<span class="py-function">subscribe</span>(<span class="py-string">"sensor/**"</span>)
+
+<span class="comment"># Receive events</span>
+<span class="py-keyword">for</span> i <span class="py-keyword">in</span> <span class="py-builtin">range</span>(<span class="py-number">10</span>):
+    event = es.<span class="py-function">receive</span>(timeout=<span class="py-number">30.0</span>)
+    <span class="py-builtin">print</span>(<span class="py-string">f"Topic: {event['topic']}"</span>)
+    <span class="py-builtin">print</span>(<span class="py-string">f"Data: {event['data']}"</span>)
+
+es.<span class="py-function">close</span>()
+driver.<span class="py-function">close</span>()</code></pre>
+
+  <h3>File Transfer</h3>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver, DataExchange
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+de = <span class="py-function">DataExchange</span>(driver)
+de.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
+
+<span class="comment"># Send a file</span>
+de.<span class="py-function">send_file</span>(<span class="py-string">"/path/to/document.pdf"</span>)
+<span class="py-builtin">print</span>(<span class="py-string">"File sent"</span>)
+
+de.<span class="py-function">close</span>()
+driver.<span class="py-function">close</span>()</code></pre>
+
+  <h3>Context Managers</h3>
+  <p>All classes support context managers for automatic cleanup:</p>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver, DataExchange
+
+<span class="py-keyword">with</span> <span class="py-function">Driver</span>() <span class="py-keyword">as</span> driver:
+    driver.<span class="py-function">connect</span>()
+    
+    <span class="py-keyword">with</span> <span class="py-function">DataExchange</span>(driver) <span class="py-keyword">as</span> de:
+        de.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
+        de.<span class="py-function">send_text</span>(<span class="py-string">"Hello!"</span>)
+        response = de.<span class="py-function">receive</span>()
+        <span class="py-builtin">print</span>(response[<span class="py-string">'data'</span>])</code></pre>
+
+  <h2>Error Handling</h2>
+  <p>The SDK raises Python exceptions for errors:</p>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+
+driver = <span class="py-function">Driver</span>()
+
+<span class="py-keyword">try</span>:
+    driver.<span class="py-function">connect</span>()
+    conn = driver.<span class="py-function">pilot_connect</span>(<span class="py-string">"nonexistent-agent"</span>)
+<span class="py-keyword">except</span> <span class="py-builtin">RuntimeError</span> <span class="py-keyword">as</span> e:
+    <span class="py-builtin">print</span>(<span class="py-string">f"Error: {e}"</span>)
+    <span class="comment"># e.g., "Failed to connect: no route to host"</span>
+<span class="py-keyword">finally</span>:
+    driver.<span class="py-function">close</span>()</code></pre>
+
+  <p><strong>Common exceptions:</strong></p>
+  <ul>
+    <li><code>RuntimeError</code> — Connection failures, protocol errors</li>
+    <li><code>TimeoutError</code> — Read/accept timeouts</li>
+    <li><code>ValueError</code> — Invalid parameters</li>
+  </ul>
+
+  <h2>Type Hints</h2>
+  <p>The SDK includes comprehensive type annotations:</p>
+  <pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver, Connection
+<span class="py-keyword">from</span> typing <span class="py-keyword">import</span> Dict
+
+driver: Driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+conn: Connection = driver.<span class="py-function">pilot_connect</span>(<span class="py-string">"other-agent"</span>)
+info: Dict[<span class="py-builtin">str</span>, <span class="py-builtin">any</span>] = driver.<span class="py-function">info</span>()
+
+<span class="comment"># Type checkers (mypy, pyright) will validate usage</span></code></pre>
+
+  <h2>Testing</h2>
+  <p>The SDK includes a complete test suite with 100% code coverage. To run tests:</p>
+  <pre><code>git clone https://github.com/TeoSlayer/pilotprotocol.git
+cd pilotprotocol/sdk/python
+pip install -e .[dev]
+pytest</code></pre>
+
+  <h2>CLI Tools</h2>
+  <p>The package includes CLI wrappers for the Go binaries:</p>
+  <ul>
+    <li><code>pilotctl</code> — Main CLI tool (equivalent to the Go binary)</li>
+    <li><code>pilot-daemon</code> — Start the daemon</li>
+    <li><code>pilot-gateway</code> — Start the IP gateway</li>
+  </ul>
+  <p>These are standard Python console script entry points that execute the bundled binaries.</p>
+
+  <h2>Platform Support</h2>
+  <p>The SDK provides platform-specific wheels for:</p>
+  <ul>
+    <li><strong>Linux</strong> — x86_64 (manylinux)</li>
+    <li><strong>macOS</strong> — x86_64, ARM64 (Apple Silicon)</li>
+  </ul>
+  <p>Windows support is planned for future releases.</p>
+
+  <h2>Architecture</h2>
+  <p>The Python SDK uses <code>ctypes</code> to call Go functions exported via CGO:</p>
+  <ul>
+    <li><strong>FFI Layer</strong> — <code>ctypes</code> bindings to <code>libpilot.so/.dylib</code></li>
+    <li><strong>Memory Management</strong> — Automatic cleanup of Go-allocated strings</li>
+    <li><strong>Handle Pattern</strong> — Opaque handles for connections, listeners</li>
+    <li><strong>Error Handling</strong> — Go errors converted to Python exceptions</li>
+  </ul>
+
+  <h2>Contributing</h2>
+  <p>See the <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/sdk/python/CONTRIBUTING.md">Python SDK Contributing Guide</a> for development setup, testing, and packaging instructions.</p>
+
+  <h2>Examples Repository</h2>
+  <p>Complete working examples are available in the GitHub repository:</p>
+  <p><a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/examples/python_sdk"><code>examples/python_sdk/</code></a></p>
+  <p>Examples include:</p>
+  <ul>
+    <li><strong>basic_client.py</strong> — Simple connection and message exchange</li>
+    <li><strong>echo_server.py</strong> — Echo server implementation</li>
+    <li><strong>data_exchange.py</strong> — Typed data exchange usage</li>
+    <li><strong>pubsub.py</strong> — Event stream pub/sub patterns</li>
+    <li><strong>file_transfer.py</strong> — File sending and receiving</li>
+    <li><strong>context_managers.py</strong> — Using with statements for cleanup</li>
+  </ul>
+
+  <h2>Additional Resources</h2>
+  <ul>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol">GitHub Repository</a></li>
+    <li><a href="https://pypi.org/project/pilotprotocol/">PyPI Package</a></li>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/sdk/python/README.md">SDK README</a></li>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/sdk/python/CHANGELOG.md">Changelog</a></li>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol/issues">Issue Tracker</a></li>
+  </ul>
+
+</div>
+
+</body>
+</html>

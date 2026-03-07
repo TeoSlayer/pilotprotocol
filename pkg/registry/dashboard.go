@@ -119,6 +119,32 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
 	})
 
+	// Snapshot trigger endpoint (POST only, localhost only)
+	mux.HandleFunc("/api/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		// Check localhost
+		clientIP := r.Header.Get("X-Real-IP")
+		if clientIP == "" {
+			clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+		}
+		if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := s.TriggerSnapshot(); err != nil {
+			http.Error(w, fmt.Sprintf("snapshot failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ok",
+			"message": "snapshot saved successfully",
+		})
+	})
+
 	// localhostOnly rejects requests not originating from loopback.
 	// Checks X-Real-IP / X-Forwarded-For (set by nginx) to detect proxied public requests.
 	localhostOnly := func(next http.HandlerFunc) http.HandlerFunc {

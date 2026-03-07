@@ -78,6 +78,22 @@ td:first-child{font-family:'SF Mono',Menlo,monospace;color:var(--accent);font-si
 footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem}
 footer a{color:var(--muted)}
 footer a:hover{color:var(--fg)}
+
+/* Tabs */
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab{padding:10px 20px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:0.9rem;font-family:inherit;border-bottom:2px solid transparent;transition:all 0.2s}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* Python syntax highlighting */
+.py-keyword{color:#c678dd}
+.py-string{color:#98c379}
+.py-function{color:#61afef}
+.py-builtin{color:#e5c07b}
+.py-number{color:#d19a66}
+.py-operator{color:#56b6c2}
 </style>
 </head>
 <body>
@@ -186,21 +202,44 @@ footer a:hover{color:var(--fg)}
 
 <section id="install">
   <h2>Install</h2>
-  <div class="install-box">
-    <div class="cmd-row">
-      <code id="cmd-curl">curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh</code>
-      <button class="copy-btn" onclick="copyCmd('cmd-curl',this)">Copy</button>
-    </div>
-    <p>Detects your platform, downloads binaries, writes config, sets up a system service.</p>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(event, 'shell')">Shell</button>
+    <button class="tab" onclick="switchTab(event, 'python')">Python SDK</button>
+    <button class="tab" onclick="switchTab(event, 'clawhub')">ClawHub</button>
   </div>
-  <div class="install-box">
-    <div class="cmd-row">
-      <code id="cmd-claw">clawhub install pilotprotocol</code>
-      <button class="copy-btn" onclick="copyCmd('cmd-claw',this)">Copy</button>
+  
+  <div id="shell" class="tab-content active">
+    <div class="install-box">
+      <div class="cmd-row">
+        <code id="cmd-curl">curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh</code>
+        <button class="copy-btn" onclick="copyCmd('cmd-curl',this)">Copy</button>
+      </div>
+      <p>Detects your platform, downloads binaries, writes config, sets up a system service.</p>
     </div>
-    <p>For bots. Install the agent skills via ClawHub.</p>
+    <p style="font-size:0.85rem;color:var(--muted)">Set a hostname: <code style="color:var(--accent)">curl ... | PILOT_HOSTNAME=my-agent sh</code></p>
   </div>
-  <p style="font-size:0.85rem;color:var(--muted)">Set a hostname: <code style="color:var(--accent)">curl ... | PILOT_HOSTNAME=my-agent sh</code></p>
+  
+  <div id="python" class="tab-content">
+    <div class="install-box">
+      <div class="cmd-row">
+        <code id="cmd-pip">pip install pilotprotocol</code>
+        <button class="copy-btn" onclick="copyCmd('cmd-pip',this)">Copy</button>
+      </div>
+      <p>Installs the Python SDK with CLI tools and shared library. Requires Python 3.10+.</p>
+    </div>
+    <p style="font-size:0.85rem;color:var(--muted);margin-top:12px">After installation, CLI commands are available: <code style="color:var(--accent)">pilotctl</code>, <code style="color:var(--accent)">pilot-daemon</code>, <code style="color:var(--accent)">pilot-gateway</code></p>
+    <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">See the <a href="/docs/python-sdk.html">Python SDK Documentation</a> for usage and examples.</p>
+  </div>
+  
+  <div id="clawhub" class="tab-content">
+    <div class="install-box">
+      <div class="cmd-row">
+        <code id="cmd-claw">clawhub install pilotprotocol</code>
+        <button class="copy-btn" onclick="copyCmd('cmd-claw',this)">Copy</button>
+      </div>
+      <p>For bots. Install the agent skills via ClawHub.</p>
+    </div>
+  </div>
 </section>
 
 <section id="demo">
@@ -231,6 +270,12 @@ footer a:hover{color:var(--fg)}
 
 <section>
   <h2>Quick start</h2>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(event, 'cli')">CLI</button>
+    <button class="tab" onclick="switchTab(event, 'python-sdk')">Python SDK</button>
+  </div>
+  
+  <div id="cli" class="tab-content active">
 <pre><code><span class="comment"># Check status</span>
 <span class="cmd">pilotctl</span> info
 
@@ -249,6 +294,36 @@ footer a:hover{color:var(--fg)}
 
 <span class="comment"># Throughput benchmark</span>
 <span class="cmd">pilotctl</span> bench other-agent</code></pre>
+  </div>
+  
+  <div id="python-sdk" class="tab-content">
+<pre><code><span class="comment"># Connect to the daemon</span>
+<span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+
+driver = <span class="py-function">Driver</span>()
+driver.<span class="py-function">connect</span>()
+
+<span class="comment"># Get agent info</span>
+info = driver.<span class="py-function">info</span>()
+<span class="py-builtin">print</span>(<span class="py-string">f"Address: {info['address']}"</span>)
+<span class="py-builtin">print</span>(<span class="py-string">f"Hostname: {info['hostname']}"</span>)
+
+<span class="comment"># Connect to a peer and send a message</span>
+conn = driver.<span class="py-function">pilot_connect</span>(<span class="py-string">"other-agent"</span>, port=<span class="py-number">1000</span>)
+conn.<span class="py-function">write</span>(<span class="py-string">b"Hello from Python!"</span>)
+response = conn.<span class="py-function">read</span>()
+conn.<span class="py-function">close</span>()
+
+<span class="comment"># Use data exchange</span>
+<span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> DataExchange
+
+de = <span class="py-function">DataExchange</span>(driver)
+de.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
+de.<span class="py-function">send_json</span>({<span class="py-string">"message"</span>: <span class="py-string">"hello"</span>})
+data = de.<span class="py-function">receive</span>()
+de.<span class="py-function">close</span>()</code></pre>
+    <p style="font-size:0.85rem;color:var(--muted);margin-top:12px">See <a href="/docs/python-sdk.html">Python SDK Documentation</a> for more examples.</p>
+  </div>
 </section>
 
 </div>
@@ -265,6 +340,13 @@ function copyCmd(id,btn){
   navigator.clipboard.writeText(document.getElementById(id).textContent.trim());
   btn.textContent='Copied';
   setTimeout(()=>btn.textContent='Copy',1500);
+}
+function switchTab(e,tabId){
+  const section=e.target.closest('section');
+  section.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  section.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  e.target.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
 }
 function fmtNum(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 fetch('https://polo.pilotprotocol.network/api/stats').then(r=>r.json()).then(d=>{

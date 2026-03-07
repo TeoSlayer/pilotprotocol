@@ -1,0 +1,412 @@
+name: Build and Publish Python SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - test
+  
+  # Direct push trigger for testing on build branches
+  push:
+    branches:
+      - 'build/**'
+    paths:
+      - 'sdk/python/**'
+      - '.github/workflows/publish-python-sdk.yml'
+  
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+    branches:
+      - main
+      - 'build/**'
+
+permissions:
+  contents: write  # Needed for creating tags
+  id-token: write
+
+jobs:
+  # Check if tests passed (for workflow_run trigger)
+  check-tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run'
+    outputs:
+      tests-passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check test workflow result
+        id: check
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+            echo "✅ Tests passed - proceeding with publish"
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+            echo "❌ Tests failed - skipping publish"
+            exit 1
+          fi
+
+  # Determine whether this is a production or test deployment
+  setup:
+    runs-on: ubuntu-latest
+    needs: check-tests
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || 
+       github.event_name == 'push' ||
+       (github.event_name == 'workflow_run' && needs.check-tests.outputs.tests-passed == 'true'))
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+    steps:
+      - name: Determine environment
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Direct push trigger - always use test environment for build branches
+            echo "environment=test" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.workflow_run.head_branch }}" == build/* ]]; then
+            echo "environment=test" >> $GITHUB_OUTPUT
+          else
+            echo "environment=test" >> $GITHUB_OUTPUT
+          fi
+          echo "Branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Environment: $(cat $GITHUB_OUTPUT | grep environment | cut -d= -f2)"
+
+  # Build wheels for each platform
+  build-wheels:
+    needs: setup
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version calculation
+
+      - name: Generate version
+        id: version
+        shell: bash
+        run: |
+          cd sdk/python
+          
+          # Get current branch name
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BRANCH="${{ github.ref_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          echo "Branch: $BRANCH"
+          
+          # Get latest SDK tag based on environment
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            # Production: Use only production tags (sdk-v*.*.*)
+            LATEST_TAG=$(git describe --tags --match "sdk-v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "sdk-v0.1.0")
+          else
+            # Test/Dev: Use dev tags for this branch (sdk-dev-branchname-v*.*.*)
+            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
+            DEV_TAG_PATTERN="sdk-dev-${SAFE_BRANCH}-v[0-9]*.[0-9]*.[0-9]*"
+            LATEST_TAG=$(git describe --tags --match "$DEV_TAG_PATTERN" --abbrev=0 2>/dev/null || echo "sdk-dev-${SAFE_BRANCH}-v0.1.0")
+          fi
+          
+          # Extract version without prefix
+          BASE_VERSION=$(echo "$LATEST_TAG" | grep -oP '(?<=v)[0-9]+\.[0-9]+\.[0-9]+$')
+          
+          # Count commits since last tag (only in sdk/python directory)
+          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count -- . 2>/dev/null || echo "0")
+          
+          # Get short commit hash
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          
+          # Determine version based on environment
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            # Production: Use tag version or bump patch
+            if [ "$COMMITS_SINCE_TAG" = "0" ]; then
+              VERSION="$BASE_VERSION"
+            else
+              # Parse version and increment patch
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+              PATCH=$((PATCH + 1))
+              VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            fi
+          else
+            # Test/Dev: Use dev version with branch name and commit info
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
+            if [ "$COMMITS_SINCE_TAG" = "0" ]; then
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1+${SAFE_BRANCH}.${SHORT_SHA}"
+            else
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}+${SAFE_BRANCH}.${SHORT_SHA}"
+            fi
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION (SDK-specific)"
+          echo "Base version: $BASE_VERSION"
+          echo "Commits since tag: $COMMITS_SINCE_TAG"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          
+          # Update pyproject.toml with new version
+          sed -i.bak "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          rm pyproject.toml.bak
+          
+          echo "Updated pyproject.toml:"
+          grep "^version =" pyproject.toml
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build wheel (${{ matrix.platform }})
+        shell: bash
+        run: |
+          cd sdk/python
+          chmod +x scripts/build-binaries.sh scripts/build.sh
+          ./scripts/build.sh
+
+      - name: Verify wheel contents
+        shell: bash
+        run: |
+          cd sdk/python
+          python -m twine check dist/*
+          
+          # List wheel contents
+          unzip -l dist/*.whl | grep -E "bin/|entry_points"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: sdk/python/dist/*.whl
+          retention-days: 7
+
+      - name: Upload sdist artifact (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: sdk/python/dist/*.tar.gz
+          retention-days: 7
+
+  # Publish to PyPI or TestPyPI
+  publish:
+    needs: [setup, build-wheels]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Prepare distribution directory
+        run: |
+          mkdir -p dist
+          find dist-artifacts -name "*.whl" -exec cp {} dist/ \;
+          find dist-artifacts -name "*.tar.gz" -exec cp {} dist/ \;
+          ls -lh dist/
+      
+      - name: Extract version from wheel
+        id: extract-version
+        run: |
+          # Get version from first wheel filename
+          WHEEL_FILE=$(ls dist/*.whl | head -1)
+          VERSION=$(echo "$WHEEL_FILE" | grep -oP 'pilotprotocol-\K[0-9]+\.[0-9]+\.[0-9]+(\.(dev|post|rc|a|b)[0-9]+)?(\+[a-f0-9]+)?' || echo "0.1.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Verify all packages
+        run: python -m twine check dist/*
+
+      - name: Check if version exists on TestPyPI
+        if: needs.setup.outputs.environment == 'test'
+        id: check-testpypi
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if curl -s https://test.pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Version $VERSION already exists on TestPyPI"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✓ Version $VERSION does not exist on TestPyPI"
+          fi
+
+      - name: Check if version exists on PyPI
+        if: needs.setup.outputs.environment == 'production'
+        id: check-pypi
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if curl -s https://pypi.org/pypi/pilotprotocol/$VERSION/json | grep -q "\"version\": \"$VERSION\""; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Version $VERSION already exists on PyPI"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✓ Version $VERSION does not exist on PyPI"
+          fi
+
+      - name: Publish to TestPyPI
+        if: needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'false'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload --repository testpypi dist/* --verbose || {
+            echo "⚠️ Upload failed. This may be because:"
+            echo "1. Version already exists on TestPyPI (versions cannot be re-uploaded)"
+            echo "2. API token is not configured correctly"
+            echo "3. Package metadata issue"
+            exit 1
+          }
+      
+      - name: Create git tag for dev release
+        if: needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          
+          # Get branch name
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BRANCH="${{ github.ref_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
+          BASE_VERSION=$(echo "$VERSION" | grep -oP '^[0-9]+\.[0-9]+\.[0-9]+')
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create branch-specific dev tag
+          git tag -a "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" -m "Python SDK Dev Release v$VERSION (branch: $BRANCH)"
+          
+          # Push tag
+          git push origin "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" || echo "Tag already exists or push failed"
+          
+          echo "✓ Created branch-specific dev tag: sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}"
+
+      - name: Publish to PyPI
+        if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload dist/*
+      
+      - name: Create git tag for production release
+        if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create annotated tag with sdk- prefix to separate from project tags
+          git tag -a "sdk-v$VERSION" -m "Python SDK Release v$VERSION"
+          
+          # Push tag
+          git push origin "sdk-v$VERSION"
+          
+          echo "✓ Created and pushed SDK-specific git tag: sdk-v$VERSION"
+
+      - name: Skip publish - version exists
+        if: (needs.setup.outputs.environment == 'test' && steps.check-testpypi.outputs.exists == 'true') || (needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'true')
+        run: |
+          echo "⚠️ Skipping publish - version already exists"
+          echo "To publish a new version, update the version in sdk/python/pyproject.toml"
+
+      - name: Create summary
+        run: |
+          echo "## 🎉 Python SDK Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Packages:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh dist/ >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
+            echo "**Install:** \`pip install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+            echo "**PyPI:** https://pypi.org/project/pilotprotocol/" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Install:** \`pip install --index-url https://test.pypi.org/simple/ --no-deps pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+            echo "**TestPyPI:** https://test.pypi.org/project/pilotprotocol/" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Test installation on each platform
+  test-install:
+    needs: [setup, publish]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Wait for package availability
+        run: sleep 60
+
+      - name: Install from PyPI
+        if: needs.setup.outputs.environment == 'production'
+        run: |
+          pip install pilotprotocol
+          pilotctl --help
+          python -c "from pilotprotocol import Driver; print('✓ SDK installed')"
+
+      - name: Install from TestPyPI
+        if: needs.setup.outputs.environment == 'test'
+        run: |
+          pip install --index-url https://test.pypi.org/simple/ --no-deps pilotprotocol
+          pilotctl --help
+          python -c "from pilotprotocol import Driver; print('✓ SDK installed')"

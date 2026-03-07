@@ -1,0 +1,128 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'build/**'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Run unit tests
+        run: |
+          go test -parallel 4 -count=1 -v ./tests/...
+        timeout-minutes: 5
+      
+      - name: Generate coverage
+        run: |
+          mkdir -p coverage
+          cd tests && go test -parallel 4 -count=1 -coverprofile=../coverage/coverage.out -covermode=atomic -timeout 30s
+          cd ..
+          go tool cover -func=coverage/coverage.out | tail -1 | awk '{print "Total coverage: " $3}'
+      
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Validate test setup
+        run: |
+          cd tests/integration
+          chmod +x validate.sh
+          ./validate.sh
+      
+      - name: Run integration tests
+        run: |
+          cd tests/integration
+          make test
+        timeout-minutes: 10
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: tests/integration/results/
+          retention-days: 30
+      
+      - name: Display test summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f tests/integration/results/cli_results.txt ]; then
+            echo "### CLI Tests (21 tests)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -A 3 "Test Summary" tests/integration/results/cli_results.txt | sed 's/\x1b\[[0-9;]*m//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f tests/integration/results/sdk_results.txt ]; then
+            echo "### Python SDK Tests (34 tests)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -A 3 "Test Summary" tests/integration/results/sdk_results.txt | sed 's/\x1b\[[0-9;]*m//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Check for test failures
+        if: always()
+        run: |
+          if grep -q "Failed: [^0]" tests/integration/results/*.txt 2>/dev/null; then
+            echo "⚠️ Some tests failed"
+            exit 1
+          fi
+          echo "✅ All tests passed"
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            echo "## ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Unit Tests: ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "## ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Unit Tests: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration Tests: ✅ Passed (55 tests: 21 CLI + 34 SDK)" >> $GITHUB_STEP_SUMMARY

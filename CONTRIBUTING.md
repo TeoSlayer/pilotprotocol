@@ -25,6 +25,19 @@ go test -parallel 4 -count=1 ./tests/
 
 The `-parallel 4` flag is required. Unlimited parallelism exhausts ports and sockets, causing dial timeouts and flaky failures.
 
+#### Integration Tests
+
+Full integration tests against a real test network are available using Docker:
+
+```bash
+cd tests/integration
+make test                # Run all integration tests
+make test-cli            # Run CLI tests only
+make test-sdk            # Run Python SDK tests only
+```
+
+These tests validate the entire stack (Go binaries + Python SDK) against **agent-alpha**, a public demo agent running on the network. See [tests/integration/README.md](tests/integration/README.md) for details.
+
 ### Project Structure
 
 ```
@@ -58,11 +71,27 @@ examples/               # Example applications
   httpclient/           # HTTP client over Pilot
   secure/               # Secure connection example
   config/               # Config file example
+sdk/                    # Language SDKs
+  python/               # Python SDK (see sdk/python/CONTRIBUTING.md)
+  cgo/                  # CGO bindings
 tests/                  # Integration tests (39 test files, 202+ passing)
 docs/                   # Documentation
   SPEC.md               # Wire specification
   WHITEPAPER.pdf        # Protocol whitepaper (LaTeX source: WHITEPAPER.tex)
   SKILLS.md             # Agent skill definition
+```
+
+## Contributing to the Python SDK
+
+See the **[Python SDK Contributing Guide](sdk/python/CONTRIBUTING.md)**.
+
+Quick start for Python SDK development:
+```bash
+cd sdk/python
+python -m venv venv
+source venv/bin/activate
+pip install -e .[dev]
+make test
 ```
 
 ## How to Contribute
@@ -116,11 +145,13 @@ docs/                   # Documentation
 
 ## Areas for Contribution
 
+- **Python SDK**: Improve the Python SDK, add examples, enhance documentation (see [sdk/python/CONTRIBUTING.md](sdk/python/CONTRIBUTING.md))
 - **Nameserver** (port 53): DNS-equivalent name resolution is WIP and needs implementation
 - **Tests**: expanding coverage, especially for edge cases in transport and security
 - **Documentation**: improving examples, tutorials, architecture docs
 - **Performance**: profiling and optimizing the transport layer
 - **Platform support**: testing on different OS/architectures
+- **Language SDKs**: Create SDKs for other languages (JavaScript, Rust, Java, etc.)
 
 ## License
 
