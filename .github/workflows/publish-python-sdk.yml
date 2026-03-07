@@ -28,9 +28,8 @@ on:
       - 'build/**'
 
 permissions:
-  contents: read
-  id-token: write
   contents: write  # Needed for creating tags
+  id-token: write
 
 jobs:
   # Check if tests passed (for workflow_run trigger)
