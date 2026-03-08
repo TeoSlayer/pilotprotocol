@@ -75,11 +75,17 @@ jobs:
       - name: Check for SDK test failures
         if: always()
         run: |
-          if grep -q "Failed: [^0]" tests/integration/results/sdk_results.txt 2>/dev/null; then
-            echo "⚠️ SDK tests failed"
+          if [ -f tests/integration/results/sdk_results.txt ]; then
+            FAILED=$(grep "^Failed:" tests/integration/results/sdk_results.txt | awk '{print $2}')
+            if [ "$FAILED" != "0" ]; then
+              echo "⚠️ SDK tests failed: $FAILED test(s)"
+              exit 1
+            fi
+            echo "✅ All SDK tests passed"
+          else
+            echo "⚠️ SDK test results file not found"
             exit 1
           fi
-          echo "✅ All SDK tests passed"
 
   # Build wheels for each platform
   build-wheels:
