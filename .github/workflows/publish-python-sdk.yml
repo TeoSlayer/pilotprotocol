@@ -76,14 +76,19 @@ jobs:
         if: always()
         run: |
           if [ -f tests/integration/results/sdk_results.txt ]; then
-            FAILED=$(grep "^Failed:" tests/integration/results/sdk_results.txt | awk '{print $2}')
+            # Strip ANSI color codes and extract the failed count
+            FAILED=$(sed 's/\x1b\[[0-9;]*m//g' tests/integration/results/sdk_results.txt | grep "^Failed:" | awk '{print $2}')
+            if [ -z "$FAILED" ]; then
+              echo "Could not parse test results"
+              exit 1
+            fi
             if [ "$FAILED" != "0" ]; then
-              echo "⚠️ SDK tests failed: $FAILED test(s)"
+              echo "SDK tests failed: $FAILED test(s)"
               exit 1
             fi
             echo "✅ All SDK tests passed"
           else
-            echo "⚠️ SDK test results file not found"
+            echo "SDK test results file not found"
             exit 1
           fi
 
