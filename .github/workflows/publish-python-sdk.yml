@@ -368,13 +368,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          TAG_NAME="sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}"
+          
+          # Delete existing tag if it exists (dev tags are moving targets)
+          git tag -d "$TAG_NAME" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG_NAME" 2>/dev/null || true
+          
           # Create branch-specific dev tag
-          git tag -a "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" -m "Python SDK Dev Release v$VERSION (branch: $BRANCH)"
+          git tag -a "$TAG_NAME" -m "Python SDK Dev Release v$VERSION (branch: $BRANCH)"
           
           # Push tag
-          git push origin "sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}" || echo "Tag already exists or push failed"
+          git push origin "$TAG_NAME"
           
-          echo "✓ Created branch-specific dev tag: sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}"
+          echo "✓ Created branch-specific dev tag: $TAG_NAME"
 
       - name: Publish to PyPI
         if: needs.setup.outputs.environment == 'production' && steps.check-pypi.outputs.exists == 'false'
