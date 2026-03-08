@@ -20,7 +20,7 @@ import (
 // Keeps Go heap objects alive while C/Python holds a uint64 token.
 
 var handles struct {
-	sync.Mutex
+	sync.RWMutex
 	m    map[uint64]interface{}
 	next uint64
 }
@@ -40,9 +40,9 @@ func storeHandle(v interface{}) uint64 {
 }
 
 func loadHandle(id uint64) (interface{}, bool) {
-	handles.Lock()
+	handles.RLock()
 	v, ok := handles.m[id]
-	handles.Unlock()
+	handles.RUnlock()
 	return v, ok
 }
 

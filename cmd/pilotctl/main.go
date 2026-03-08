@@ -1028,7 +1028,7 @@ func cmdDaemonStart(args []string) {
 	encrypt := !flagBool(flags, "no-encrypt")
 	identityPath := flagString(flags, "identity", "")
 	if identityPath == "" {
-		identityPath = configDir() + "/identity.key"
+		identityPath = configDir() + "/identity.json"
 	}
 	owner := flagString(flags, "owner", "")
 	configFile := flagString(flags, "config", "")

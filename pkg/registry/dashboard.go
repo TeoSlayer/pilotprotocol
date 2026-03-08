@@ -121,11 +121,17 @@ func (s *Server) ServeDashboard(addr string) error {
 
 	// Snapshot trigger endpoint (POST only, localhost only)
 	mux.HandleFunc("/api/snapshot", func(w http.ResponseWriter, r *http.Request) {
-		// Check localhost
-		clientIP := r.Header.Get("X-Real-IP")
-		if clientIP == "" {
-			clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+		// Check localhost - only trust X-Real-IP if request is from a trusted proxy
+		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		clientIP := remoteIP
+
+		// Only trust X-Real-IP header if the request is already from localhost (trusted proxy)
+		if remoteIP == "127.0.0.1" || remoteIP == "::1" || remoteIP == "localhost" {
+			if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+				clientIP = realIP
+			}
 		}
+
 		if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
@@ -146,14 +152,20 @@ func (s *Server) ServeDashboard(addr string) error {
 	})
 
 	// localhostOnly rejects requests not originating from loopback.
-	// Checks X-Real-IP / X-Forwarded-For (set by nginx) to detect proxied public requests.
+	// Only trusts X-Real-IP header when the request is from a trusted proxy (localhost).
 	localhostOnly := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// If behind a reverse proxy, the real client IP is in X-Real-IP
-			clientIP := r.Header.Get("X-Real-IP")
-			if clientIP == "" {
-				clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
+			// Get the actual remote address
+			remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			clientIP := remoteIP
+
+			// Only trust X-Real-IP header if the request is already from localhost (trusted proxy)
+			if remoteIP == "127.0.0.1" || remoteIP == "::1" || remoteIP == "localhost" {
+				if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+					clientIP = realIP
+				}
 			}
+
 			if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return

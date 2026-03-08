@@ -470,9 +470,25 @@ with Driver() as d:
         "other-agent"
     )
     
-    # Send a message
-    with d.dial("other-agent:1000") as conn:
-        conn.write(b"hello")
+    # Send a file
+    d.send_file("other-agent",
+                "./data.json")
+    
+    # Send typed message
+    d.send_message("other-agent",
+        b'{"status":"ready"}',
+        msg_type="json")
+    
+    # Subscribe to events
+    for topic, data in d.subscribe_event(
+        "other-agent", "status", 
+        timeout=30
+    ):
+        print(f"{topic}: {data}")
+    
+    # Publish an event
+    d.publish_event("other-agent", 
+        "status", b"online")
     
     # Handshake & trust
     d.handshake(peer_id, "hello")

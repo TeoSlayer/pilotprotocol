@@ -2086,8 +2086,7 @@ func (s *Server) TriggerSnapshot() error {
 	if s.storePath == "" {
 		return nil // no persistence configured
 	}
-	s.flushSave()
-	return nil
+	return s.flushSave()
 }
 
 // snapshot is the JSON-serializable registry state.
@@ -2157,7 +2156,9 @@ func (s *Server) saveLoop() {
 			dirty = true
 		case <-ticker.C:
 			if dirty {
-				s.flushSave()
+				if err := s.flushSave(); err != nil {
+					slog.Error("periodic save failed", "err", err)
+				}
 				dirty = false
 			}
 		case <-s.done:
@@ -2168,7 +2169,9 @@ func (s *Server) saveLoop() {
 			default:
 			}
 			if dirty {
-				s.flushSave()
+				if err := s.flushSave(); err != nil {
+					slog.Error("final save failed", "err", err)
+				}
 			}
 			return
 		}
@@ -2176,7 +2179,7 @@ func (s *Server) saveLoop() {
 }
 
 // flushSave serializes the full registry state and writes it to disk.
-func (s *Server) flushSave() {
+func (s *Server) flushSave() error {
 	s.mu.RLock()
 	snap := snapshot{
 		NextNode: s.nextNode,
@@ -2272,13 +2275,14 @@ func (s *Server) flushSave() {
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("registry save marshal error", "err", err)
-		return
+		return fmt.Errorf("marshal snapshot: %w", err)
 	}
 
 	// Persist to disk atomically
 	if s.storePath != "" {
 		if err := fsutil.AtomicWrite(s.storePath, data); err != nil {
 			slog.Error("registry save error", "err", err)
+			return fmt.Errorf("write snapshot: %w", err)
 		}
 	}
 
@@ -2286,6 +2290,7 @@ func (s *Server) flushSave() {
 	s.replMgr.push(data)
 
 	slog.Debug("registry state saved", "nodes", nodeCount, "networks", netCount)
+	return nil
 }
 
 // load reads the registry state from disk.

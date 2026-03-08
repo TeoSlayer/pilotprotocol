@@ -192,6 +192,48 @@ dg = d.recv_from()
 # Returns: {"src_addr": "...", "src_port": 8080, "dst_port": 9090, "data": ...}
 ```
 
+### Data Exchange Service (Port 1001)
+
+```python
+# Send a message (text, JSON, or binary)
+result = d.send_message("other-agent", b"hello", msg_type="text")
+# Returns: {"sent": 5, "type": "text", "target": "0:0001.0000.0002", "ack": "..."}
+
+# Send a file
+result = d.send_file("other-agent", "/path/to/file.txt")
+# Returns: {"sent": 1234, "filename": "file.txt", "target": "0:0001.0000.0002", "ack": "..."}
+```
+
+### Event Stream Service (Port 1002)
+
+```python
+# Publish an event
+result = d.publish_event("other-agent", "sensor/temperature", b'{"temp": 25.5}')
+# Returns: {"status": "published", "topic": "sensor/temperature", "bytes": 15}
+
+# Subscribe to events (generator)
+for topic, data in d.subscribe_event("other-agent", "sensor/*", timeout=30):
+    print(f"{topic}: {data}")
+
+# Subscribe with callback
+def handle_event(topic, data):
+    print(f"Event: {topic} -> {data}")
+
+d.subscribe_event("other-agent", "*", callback=handle_event, timeout=30)
+```
+
+### Task Submit Service (Port 1003)
+
+```python
+# Submit a task for execution
+task = {
+    "task_description": "process data",
+    "parameters": {"input": "data.csv"}
+}
+result = d.submit_task("other-agent", task)
+# Returns: {"status": 200, "task_id": "...", "message": "Task accepted"}
+```
+
 ### Configuration
 
 ```python
@@ -242,20 +284,7 @@ cd sdk/python
 python -m pytest tests/ -v
 ```
 
-47 tests cover all wrapper methods, error handling, and library discovery.
-
-## Development
-
-```bash
-# Build shared library
-make sdk-lib
-
-# Install SDK in development mode
-cd sdk/python && pip install -e .
-
-# Run tests
-pytest tests/ -v
-```
+61 tests cover all wrapper methods, error handling, and library discovery.
 
 ## Development
 

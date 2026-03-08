@@ -13,7 +13,7 @@ if [ ! -f coverage.json ]; then
 fi
 
 # Extract coverage percentage
-coverage=$(/Users/alexgodo/web4/pilotprotocol/.venv/bin/python -c "import json; data=json.load(open('coverage.json')); print(int(data['totals']['percent_covered']))")
+coverage=$(python3 -c "import json; data=json.load(open('coverage.json')); print(int(data['totals']['percent_covered']))")
 
 echo "Coverage: ${coverage}%"
 
