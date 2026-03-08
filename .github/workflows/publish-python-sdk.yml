@@ -197,6 +197,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install build twine
+          # Install auditwheel for Linux to create manylinux wheels
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            pip install auditwheel patchelf
+          fi
 
       - name: Build wheel (${{ matrix.platform }})
         shell: bash
@@ -204,6 +208,16 @@ jobs:
           cd sdk/python
           chmod +x scripts/build-binaries.sh scripts/build.sh
           ./scripts/build.sh
+
+      - name: Convert to manylinux wheel (Linux only)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          cd sdk/python
+          # Repair the wheel to make it manylinux compatible
+          auditwheel repair dist/*.whl --plat manylinux_2_17_x86_64 -w dist/
+          # Remove the original linux_x86_64 wheel
+          rm -f dist/*-linux_x86_64.whl
 
       - name: Verify wheel contents
         shell: bash
