@@ -1,89 +1,89 @@
 name: Build and Publish Python SDK
 
 on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Deployment environment'
-        required: true
-        type: choice
-        options:
-          - production
-          - test
-  
-  # Direct push trigger for testing on build branches
   push:
     branches:
       - 'build/**'
+      - 'main'
     paths:
-      - 'sdk/python/**'
+      - 'sdk/**'
       - '.github/workflows/publish-python-sdk.yml'
-  
-  workflow_run:
-    workflows: ["Tests"]
-    types:
-      - completed
-    branches:
-      - main
-      - 'build/**'
 
 permissions:
   contents: write  # Needed for creating tags
   id-token: write
 
 jobs:
-  # Check if tests passed (for workflow_run trigger)
-  check-tests:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_run'
-    outputs:
-      tests-passed: ${{ steps.check.outputs.passed }}
-    steps:
-      - name: Check test workflow result
-        id: check
-        run: |
-          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
-            echo "passed=true" >> $GITHUB_OUTPUT
-            echo "✅ Tests passed - proceeding with publish"
-          else
-            echo "passed=false" >> $GITHUB_OUTPUT
-            echo "❌ Tests failed - skipping publish"
-            exit 1
-          fi
-
   # Determine whether this is a production or test deployment
   setup:
     runs-on: ubuntu-latest
-    needs: check-tests
-    if: |
-      always() &&
-      (github.event_name == 'workflow_dispatch' || 
-       github.event_name == 'push' ||
-       (github.event_name == 'workflow_run' && needs.check-tests.outputs.tests-passed == 'true'))
     outputs:
       environment: ${{ steps.determine-env.outputs.environment }}
     steps:
       - name: Determine environment
         id: determine-env
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            # Direct push trigger - always use test environment for build branches
-            echo "environment=test" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "environment=production" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.workflow_run.head_branch }}" == build/* ]]; then
-            echo "environment=test" >> $GITHUB_OUTPUT
+            echo "Deploying to production (main branch)"
           else
             echo "environment=test" >> $GITHUB_OUTPUT
+            echo "Deploying to test (build branch)"
           fi
-          echo "Branch: ${{ github.event.workflow_run.head_branch }}"
-          echo "Environment: $(cat $GITHUB_OUTPUT | grep environment | cut -d= -f2)"
+
+  # Run SDK integration tests before building
+  test-sdk:
+    needs: setup
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run SDK integration tests
+        run: |
+          cd tests/integration
+          make test-sdk
+        timeout-minutes: 10
+
+      - name: Upload SDK test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-test-results
+          path: tests/integration/results/sdk_results.txt
+          retention-days: 7
+
+      - name: Display SDK test summary
+        if: always()
+        run: |
+          echo "## SDK Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f tests/integration/results/sdk_results.txt ]; then
+            echo "### Python SDK Tests (34 tests)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -A 3 "Test Summary" tests/integration/results/sdk_results.txt | sed 's/\x1b\[[0-9;]*m//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ SDK test results not found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for SDK test failures
+        if: always()
+        run: |
+          if grep -q "Failed: [^0]" tests/integration/results/sdk_results.txt 2>/dev/null; then
+            echo "⚠️ SDK tests failed"
+            exit 1
+          fi
+          echo "✅ All SDK tests passed"
 
   # Build wheels for each platform
   build-wheels:
-    needs: setup
+    needs: [setup, test-sdk]
     strategy:
       matrix:
         include:
