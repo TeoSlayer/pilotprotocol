@@ -160,13 +160,13 @@ jobs:
               VERSION="${MAJOR}.${MINOR}.${PATCH}"
             fi
           else
-            # Test/Dev: Use dev version with branch name and commit info
+            # Test/Dev: Use dev version without local identifiers (PyPI doesn't allow them)
+            # Format: MAJOR.MINOR.PATCH.devN
             IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
             if [ "$COMMITS_SINCE_TAG" = "0" ]; then
-              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1+${SAFE_BRANCH}.${SHORT_SHA}"
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev1"
             else
-              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}+${SAFE_BRANCH}.${SHORT_SHA}"
+              VERSION="${MAJOR}.${MINOR}.${PATCH}.dev${COMMITS_SINCE_TAG}"
             fi
           fi
           
