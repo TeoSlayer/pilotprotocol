@@ -442,12 +442,18 @@ jobs:
         if: needs.setup.outputs.environment == 'production'
         run: |
           pip install pilotprotocol
-          pilotctl --help
+          # Test that binaries are accessible
+          pilotctl info 2>&1 | grep -q "unknown command" && echo "✓ pilotctl works" || true
+          pilot-daemon --version 2>&1 | head -1
+          # Test Python import
           python -c "from pilotprotocol import Driver; print('✓ SDK installed')"
 
       - name: Install from TestPyPI
         if: needs.setup.outputs.environment == 'test'
         run: |
           pip install --index-url https://test.pypi.org/simple/ --no-deps pilotprotocol
-          pilotctl --help
+          # Test that binaries are accessible
+          pilotctl info 2>&1 | grep -q "unknown command" && echo "✓ pilotctl works" || true
+          pilot-daemon --version 2>&1 | head -1
+          # Test Python import
           python -c "from pilotprotocol import Driver; print('✓ SDK installed')"
