@@ -139,8 +139,8 @@ jobs:
             LATEST_TAG=$(git describe --tags --match "$DEV_TAG_PATTERN" --abbrev=0 2>/dev/null || echo "sdk-dev-${SAFE_BRANCH}-v0.1.0")
           fi
           
-          # Extract version without prefix
-          BASE_VERSION=$(echo "$LATEST_TAG" | grep -oP '(?<=v)[0-9]+\.[0-9]+\.[0-9]+$')
+          # Extract version without prefix (compatible with both Linux and macOS)
+          BASE_VERSION=$(echo "$LATEST_TAG" | sed 's/.*v\([0-9]*\.[0-9]*\.[0-9]*\)$/\1/')
           
           # Count commits since last tag (only in sdk/python directory)
           COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count -- . 2>/dev/null || echo "0")
@@ -256,9 +256,9 @@ jobs:
       - name: Extract version from wheel
         id: extract-version
         run: |
-          # Get version from first wheel filename
+          # Get version from first wheel filename (compatible with both Linux and macOS)
           WHEEL_FILE=$(ls dist/*.whl | head -1)
-          VERSION=$(echo "$WHEEL_FILE" | grep -oP 'pilotprotocol-\K[0-9]+\.[0-9]+\.[0-9]+(\.(dev|post|rc|a|b)[0-9]+)?(\+[a-f0-9]+)?' || echo "0.1.0")
+          VERSION=$(echo "$WHEEL_FILE" | sed -n 's/.*pilotprotocol-\([0-9]\+\.[0-9]\+\.[0-9]\+\(\.[a-z0-9]\+\)\?\(+[a-z0-9]\+\)\?\).*/\1/p' || echo "0.1.0")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
 
@@ -330,7 +330,7 @@ jobs:
           fi
           
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
-          BASE_VERSION=$(echo "$VERSION" | grep -oP '^[0-9]+\.[0-9]+\.[0-9]+')
+          BASE_VERSION=$(echo "$VERSION" | sed 's/^\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
