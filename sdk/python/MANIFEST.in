@@ -1,0 +1,26 @@
+# Include documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+
+# Include all binaries in bin/ directory
+recursive-include pilotprotocol/bin *
+
+# Include type stubs if any
+recursive-include pilotprotocol *.pyi
+include pilotprotocol/py.typed
+
+# Exclude tests and coverage reports
+recursive-exclude tests *
+exclude .coverage
+exclude coverage.json
+recursive-exclude htmlcov *
+exclude .pytest_cache
+
+# Exclude development files
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude Makefile
+exclude PYPI_SUMMARY.md
+exclude CONTRIBUTING.md
+

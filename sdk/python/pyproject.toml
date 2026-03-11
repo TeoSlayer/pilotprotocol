@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pilotprotocol"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+pilotprotocol = [
+    "bin/*",
+    "py.typed"
+]
+
+[project]
+name = "pilotprotocol"
+version = "0.1.1"  # Auto-updated by CI workflow
+description = "Python SDK for Pilot Protocol - the network stack for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-or-later"}
+authors = [
+    {name = "Alexandru Godoroja", email = "alex@vulturelabs.com"}
+]
+maintainers = [
+    {name = "Alexandru Godoroja", email = "alex@vulturelabs.com"},
+    {name = "Teodor Calin", email = "teodor@vulturelabs.com"}
+]
+keywords = [
+    "pilot-protocol",
+    "networking",
+    "p2p",
+    "agent",
+    "ai",
+    "protocol",
+    "ctypes",
+    "udp",
+    "encryption"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking",
+    "Topic :: Internet",
+    "Typing :: Typed",
+]
+
+[project.scripts]
+pilotctl = "pilotprotocol.cli:run_pilotctl"
+pilot-daemon = "pilotprotocol.cli:run_daemon"
+pilot-gateway = "pilotprotocol.cli:run_gateway"
+
+[project.urls]
+Homepage = "https://pilotprotocol.network"
+Documentation = "https://pilotprotocol.network/docs/"
+Repository = "https://github.com/TeoSlayer/pilotprotocol"
+"Bug Tracker" = "https://github.com/TeoSlayer/pilotprotocol/issues"
+Changelog = "https://github.com/TeoSlayer/pilotprotocol/blob/main/sdk/python/CHANGELOG.md"
+"Live Dashboard" = "https://polo.pilotprotocol.network"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "coverage[toml]>=7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pilotprotocol",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=json",
+]
+
+[tool.coverage.run]
+source = ["pilotprotocol"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.json]
+output = "coverage.json"
+

@@ -1,0 +1,110 @@
+=========================================
+Pilot Protocol CLI Integration Tests
+Testing against: agent-alpha
+=========================================
+
+[2026-03-06 13:28:59] [1;33m[TEST][0m Starting daemon with hostname: test-agent-1772803739
+time=2026-03-06T13:28:59.832Z level=INFO msg="tunnel encryption enabled" scheme=X25519+AES-256-GCM
+time=2026-03-06T13:28:59.833Z level=INFO msg="tunnel listening" addr=[::]:34019
+time=2026-03-06T13:28:59.837Z level=INFO msg="saved identity" path=/root/.pilot/identity.key
+time=2026-03-06T13:29:00.159Z level=INFO msg="daemon registered" node_id=13696 addr=0:0000.0000.3580 endpoint=10.128.0.12:60397
+time=2026-03-06T13:29:00.316Z level=INFO msg="hostname set" hostname=test-agent-1772803739
+time=2026-03-06T13:29:00.316Z level=INFO msg="IPC listening" socket=/tmp/pilot.sock
+time=2026-03-06T13:29:00.316Z level=INFO msg="handshake service listening" port=444
+time=2026-03-06T13:29:00.316Z level=INFO msg="echo service listening" port=7
+time=2026-03-06T13:29:00.316Z level=INFO msg="dataexchange service listening" port=1001
+time=2026-03-06T13:29:00.316Z level=INFO msg="eventstream service listening" port=1002
+time=2026-03-06T13:29:00.316Z level=INFO msg="tasksubmit service listening" port=1003
+time=2026-03-06T13:29:00.316Z level=INFO msg="daemon running" node_id=13696 addr=0:0000.0000.3580
+[2026-03-06 13:29:00] [0;32m[PASS][0m Daemon started and registered (node 13696)
+[2026-03-06 13:29:00] [1;33m[TEST][0m Checking daemon status
+[2026-03-06 13:29:00] [0;32m[PASS][0m Daemon status check passed
+[2026-03-06 13:29:00] [1;33m[TEST][0m Getting agent info
+[2026-03-06 13:29:00] [0;32m[PASS][0m Agent info retrieved: 0:0000.0000.3580 (test-agent-1772803739)
+[2026-03-06 13:29:00] [1;33m[TEST][0m Finding agent-alpha
+[2026-03-06 13:29:01] [0;32m[PASS][0m Found agent-alpha: Hostname:  agent-alpha
+[2026-03-06 13:29:01] [1;33m[TEST][0m Pinging agent-alpha
+[2026-03-06 13:29:04] [0;32m[PASS][0m Successfully pinged agent-alpha
+[2026-03-06 13:29:04] [1;33m[TEST][0m Echo service test (port 7)
+[2026-03-06 13:29:05] [0;32m[PASS][0m Echo service works correctly
+[2026-03-06 13:29:05] [1;33m[TEST][0m Data Exchange: Sending text message
+{
+  "ack": "ACK TEXT 64 bytes",
+  "bytes": 64,
+  "target": "0:0000.0000.037D",
+  "type": "text"
+}
+[2026-03-06 13:29:05] [0;32m[PASS][0m Text message sent successfully
+[2026-03-06 13:29:05] [1;33m[TEST][0m Data Exchange: Sending JSON message
+{
+  "ack": "ACK JSON 81 bytes",
+  "bytes": 81,
+  "target": "0:0000.0000.037D",
+  "type": "json"
+}
+[2026-03-06 13:29:06] [0;32m[PASS][0m JSON message sent successfully
+[2026-03-06 13:29:06] [1;33m[TEST][0m Data Exchange: Sending test file
+{
+  "ack": "ACK FILE 240 bytes",
+  "bytes": 240,
+  "destination": "0:0000.0000.037D",
+  "filename": "test-file-1772803746.txt"
+}
+[2026-03-06 13:29:06] [0;32m[PASS][0m File sent successfully
+[2026-03-06 13:29:06] [1;33m[TEST][0m Event Stream: Publishing event
+{
+  "bytes": 21,
+  "target": "0:0000.0000.037D",
+  "topic": "test/integration"
+}
+[2026-03-06 13:29:07] [0;32m[PASS][0m Event published successfully
+[2026-03-06 13:29:07] [1;33m[TEST][0m Event Stream: Testing subscribe (quick test)
+[2026-03-06 13:29:10] [0;32m[PASS][0m Subscribe command works
+[2026-03-06 13:29:10] [1;33m[TEST][0m Task Submit: Sending task (port 1003)
+[2026-03-06 13:29:10] [0;32m[PASS][0m Task submit tested (alpha-agent may not accept tasks)
+[2026-03-06 13:29:10] [1;33m[TEST][0m Listing peers
+[2026-03-06 13:29:10] [0;32m[PASS][0m Peers listed successfully (count: 2)
+[2026-03-06 13:29:10] [1;33m[TEST][0m Listing active connections
+[2026-03-06 13:29:11] [0;32m[PASS][0m Connections listed successfully
+[2026-03-06 13:29:11] [1;33m[TEST][0m Checking inbox
+[2026-03-06 13:29:11] [0;32m[PASS][0m Inbox check successful
+[2026-03-06 13:29:11] [1;33m[TEST][0m Checking received files
+[2026-03-06 13:29:11] [0;32m[PASS][0m Received files check successful
+[2026-03-06 13:29:11] [1;33m[TEST][0m Testing hostname management
+hostname set: renamed-test-agent-1772803739
+hostname cleared
+hostname set: test-agent-1772803739
+[2026-03-06 13:29:11] [0;32m[PASS][0m Hostname management works
+[2026-03-06 13:29:11] [1;33m[TEST][0m Testing visibility settings
+{
+  "node_id": 13696,
+  "type": "set_visibility_ok",
+  "visibility": "public"
+}
+{
+  "node_id": 13696,
+  "type": "set_visibility_ok",
+  "visibility": "private"
+}
+[2026-03-06 13:29:12] [0;32m[PASS][0m Visibility toggle works
+[2026-03-06 13:29:12] [1;33m[TEST][0m Testing tag management
+tags set: #test #integration #docker
+tags cleared
+[2026-03-06 13:29:12] [0;32m[PASS][0m Tag management works
+[2026-03-06 13:29:12] [1;33m[TEST][0m Checking configuration
+[2026-03-06 13:29:12] [0;32m[PASS][0m Configuration retrieved successfully
+[2026-03-06 13:29:12] [1;33m[TEST][0m Deregistering from network
+{
+  "type": "deregister_ok"
+}
+[2026-03-06 13:29:12] [0;32m[PASS][0m Successfully deregistered from network
+
+=========================================
+Test Summary
+=========================================
+Passed: [0;32m21[0m
+Failed: [0;31m0[0m
+=========================================
+
+[1;33m[CLEANUP][0m Stopping daemon...
+[1;33m[CLEANUP][0m Daemon stopped.

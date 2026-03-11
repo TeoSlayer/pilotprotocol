@@ -120,13 +120,15 @@ func (env *TestEnv) AddDaemon(opts ...func(*daemon.Config)) *DaemonInfo {
 
 	idx := len(env.daemons)
 	sockPath := filepath.Join(env.tmpDir, fmt.Sprintf("daemon-%d.sock", idx))
+	identityPath := filepath.Join(env.tmpDir, fmt.Sprintf("identity-%d.json", idx))
 
 	cfg := daemon.Config{
 		RegistryAddr: env.RegistryAddr,
 		BeaconAddr:   env.BeaconAddr,
 		ListenAddr:   ":0",
 		SocketPath:   sockPath,
-		Public:       true, // tests default to public for free connectivity
+		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
+		Public:       true,         // tests default to public for free connectivity
 	}
 	for _, fn := range opts {
 		fn(&cfg)
@@ -154,13 +156,15 @@ func (env *TestEnv) AddDaemonOnly(opts ...func(*daemon.Config)) (*daemon.Daemon,
 
 	idx := len(env.daemons)
 	sockPath := filepath.Join(env.tmpDir, fmt.Sprintf("daemon-%d.sock", idx))
+	identityPath := filepath.Join(env.tmpDir, fmt.Sprintf("identity-%d.json", idx))
 
 	cfg := daemon.Config{
 		RegistryAddr: env.RegistryAddr,
 		BeaconAddr:   env.BeaconAddr,
 		ListenAddr:   ":0",
 		SocketPath:   sockPath,
-		Public:       true, // tests default to public for free connectivity
+		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
+		Public:       true,         // tests default to public for free connectivity
 	}
 	for _, fn := range opts {
 		fn(&cfg)

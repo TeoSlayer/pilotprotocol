@@ -2079,6 +2079,16 @@ func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}
 
 // --- Persistence ---
 
+// TriggerSnapshot manually triggers a snapshot save. This is useful for testing
+// and for ensuring data is persisted before shutdown. Returns an error if the
+// save fails, or nil if there's no storePath configured.
+func (s *Server) TriggerSnapshot() error {
+	if s.storePath == "" {
+		return nil // no persistence configured
+	}
+	return s.flushSave()
+}
+
 // snapshot is the JSON-serializable registry state.
 type snapshot struct {
 	NextNode           uint32                             `json:"next_node"`
@@ -2089,6 +2099,14 @@ type snapshot struct {
 	PubKeyIdx          map[string]uint32                  `json:"pub_key_idx,omitempty"`
 	HandshakeInbox     map[string][]*HandshakeRelayMsg    `json:"handshake_inbox,omitempty"`
 	HandshakeResponses map[string][]*HandshakeResponseMsg `json:"handshake_responses,omitempty"`
+	// Dashboard stats persistence (explicit counters for validation)
+	TotalRequests int64  `json:"total_requests,omitempty"`
+	TotalNodes    int    `json:"total_nodes,omitempty"`
+	OnlineNodes   int    `json:"online_nodes,omitempty"`
+	TrustLinks    int    `json:"trust_links,omitempty"`
+	UniqueTags    int    `json:"unique_tags,omitempty"`
+	TaskExecutors int    `json:"task_executors,omitempty"`
+	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
 }
 
 type snapshotNode struct {
@@ -2138,7 +2156,9 @@ func (s *Server) saveLoop() {
 			dirty = true
 		case <-ticker.C:
 			if dirty {
-				s.flushSave()
+				if err := s.flushSave(); err != nil {
+					slog.Error("periodic save failed", "err", err)
+				}
 				dirty = false
 			}
 		case <-s.done:
@@ -2149,7 +2169,9 @@ func (s *Server) saveLoop() {
 			default:
 			}
 			if dirty {
-				s.flushSave()
+				if err := s.flushSave(); err != nil {
+					slog.Error("final save failed", "err", err)
+				}
 			}
 			return
 		}
@@ -2157,7 +2179,7 @@ func (s *Server) saveLoop() {
 }
 
 // flushSave serializes the full registry state and writes it to disk.
-func (s *Server) flushSave() {
+func (s *Server) flushSave() error {
 	s.mu.RLock()
 	snap := snapshot{
 		NextNode: s.nextNode,
@@ -2219,6 +2241,33 @@ func (s *Server) flushSave() {
 			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
 		}
 	}
+	// Persist dashboard stats with current calculations
+	snap.TotalRequests = s.requestCount.Load()
+	snap.StartTime = s.startTime.Format(time.RFC3339)
+
+	// Calculate and persist all dashboard metrics
+	onlineThreshold := time.Now().Add(-staleNodeThreshold)
+	onlineCount := 0
+	taskExecCount := 0
+	tagSet := make(map[string]bool)
+	for _, node := range s.nodes {
+		if node.LastSeen.After(onlineThreshold) {
+			onlineCount++
+		}
+		if node.TaskExec {
+			taskExecCount++
+		}
+		for _, tag := range node.Tags {
+			tagSet[tag] = true
+		}
+	}
+
+	snap.TotalNodes = len(s.nodes)
+	snap.OnlineNodes = onlineCount
+	snap.TrustLinks = len(s.trustPairs)
+	snap.UniqueTags = len(tagSet)
+	snap.TaskExecutors = taskExecCount
+
 	nodeCount := len(s.nodes)
 	netCount := len(s.networks)
 	s.mu.RUnlock()
@@ -2226,13 +2275,14 @@ func (s *Server) flushSave() {
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("registry save marshal error", "err", err)
-		return
+		return fmt.Errorf("marshal snapshot: %w", err)
 	}
 
 	// Persist to disk atomically
 	if s.storePath != "" {
 		if err := fsutil.AtomicWrite(s.storePath, data); err != nil {
 			slog.Error("registry save error", "err", err)
+			return fmt.Errorf("write snapshot: %w", err)
 		}
 	}
 
@@ -2240,6 +2290,7 @@ func (s *Server) flushSave() {
 	s.replMgr.push(data)
 
 	slog.Debug("registry state saved", "nodes", nodeCount, "networks", netCount)
+	return nil
 }
 
 // load reads the registry state from disk.
@@ -2259,6 +2310,28 @@ func (s *Server) load() error {
 
 	s.nextNode = snap.NextNode
 	s.nextNet = snap.NextNet
+
+	// Restore dashboard stats
+	if snap.TotalRequests > 0 {
+		s.requestCount.Store(snap.TotalRequests)
+	}
+	if snap.StartTime != "" {
+		if startTime, err := time.Parse(time.RFC3339, snap.StartTime); err == nil {
+			s.startTime = startTime
+		}
+	}
+
+	// Log all restored dashboard stats for verification
+	if snap.TotalRequests > 0 || snap.StartTime != "" {
+		slog.Info("restored dashboard stats",
+			"total_requests", snap.TotalRequests,
+			"total_nodes", snap.TotalNodes,
+			"online_nodes", snap.OnlineNodes,
+			"trust_links", snap.TrustLinks,
+			"unique_tags", snap.UniqueTags,
+			"task_executors", snap.TaskExecutors,
+			"start_time", snap.StartTime)
+	}
 
 	for _, n := range snap.Nodes {
 		pubKey, err := base64.StdEncoding.DecodeString(n.PublicKey)

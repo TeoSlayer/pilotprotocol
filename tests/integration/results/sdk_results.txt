@@ -1,0 +1,78 @@
+[2026-03-06 13:29:12] [1;33m[TEST][0m Starting daemon with hostname: sdk-test-1772803752
+[2026-03-06 13:29:13] [0;32m[PASS][0m Daemon started and registered (PID: 275, node 13697)
+[2026-03-06 13:29:13] [0;32m[PASS][0m Daemon is registered on the global network
+[2026-03-06 13:29:13] [1;33m[TEST][0m Finding agent-alpha
+[2026-03-06 13:29:14] [0;32m[PASS][0m Found agent-alpha: Hostname:  agent-alpha
+
+==================================================
+Python SDK Integration Tests
+Testing against: agent-alpha
+==================================================
+
+[2026-03-06 13:29:14] [1;33m[TEST][0m Importing Python SDK
+[2026-03-06 13:29:14] [1;33m[TEST][0m Pre-loading /usr/local/lib/python3.12/site-packages/pilotprotocol/libpilot.so with RTLD_GLOBAL|RTLD_NODELETE
+[2026-03-06 13:29:14] [0;32m[PASS][0m Pre-loaded libpilot.so successfully
+[2026-03-06 13:29:14] [0;32m[PASS][0m Python SDK imported successfully (Driver, Conn, Listener, PilotError)
+[2026-03-06 13:29:14] [1;33m[TEST][0m Connecting to daemon via Driver()
+[2026-03-06 13:29:14] [0;32m[PASS][0m Driver connected to daemon
+[2026-03-06 13:29:14] [1;33m[TEST][0m Getting agent info via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Agent info retrieved: node_id=13697, address=0:0000.0000.3581, hostname=sdk-test-1772803752
+[2026-03-06 13:29:14] [1;33m[TEST][0m Testing Driver context manager
+[2026-03-06 13:29:14] [0;32m[PASS][0m Driver context manager works (auto-closes)
+[2026-03-06 13:29:14] [1;33m[TEST][0m Setting tags via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Tags set successfully: {'node_id': 13697, 'tags': ['sdk-test', 'python', 'integration'], 'type': 'set_tags_ok'}
+[2026-03-06 13:29:14] [1;33m[TEST][0m Getting trusted peers via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Trusted peers retrieved: {'trusted': []}
+[2026-03-06 13:29:14] [1;33m[TEST][0m Getting pending handshakes via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Pending handshakes retrieved: {'pending': []}
+[2026-03-06 13:29:14] [1;33m[TEST][0m Setting hostname to 'sdk-renamed-1772803754' via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Hostname set: {'hostname': 'sdk-renamed-1772803754', 'node_id': 13697, 'type': 'set_hostname_ok'}
+[2026-03-06 13:29:14] [1;33m[TEST][0m Setting visibility to public via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Visibility set: {'node_id': 13697, 'type': 'set_visibility_ok', 'visibility': 'public'}
+[2026-03-06 13:29:14] [1;33m[TEST][0m Testing PilotError on bad socket path
+[2026-03-06 13:29:14] [0;32m[PASS][0m PilotError raised correctly: connect to daemon: dial unix /tmp/nonexistent-pilot.sock: connect: no such file or directory
+[2026-03-06 13:29:14] [1;33m[TEST][0m Testing listen() on port 5000
+[2026-03-06 13:29:14] [0;32m[PASS][0m Listener created on port 5000
+[2026-03-06 13:29:14] [0;32m[PASS][0m Listener closed successfully
+[2026-03-06 13:29:14] [1;33m[TEST][0m Resolving agent-alpha hostname via SDK
+[2026-03-06 13:29:14] [0;32m[PASS][0m Resolved agent-alpha: 0:0000.0000.037D (node 893)
+[2026-03-06 13:29:14] [1;33m[TEST][0m Sending handshake to agent-alpha
+[2026-03-06 13:29:15] [0;32m[PASS][0m Handshake sent to node 893: {'node_id': 893, 'status': 'sent'}
+[2026-03-06 13:29:15] [1;33m[TEST][0m Dialing echo service on agent-alpha via SDK
+[2026-03-06 13:29:15] [0;32m[PASS][0m Wrote 19 bytes to echo service
+[2026-03-06 13:29:15] [0;32m[PASS][0m Echo response matches: b'SDK-echo-1772803755'
+[2026-03-06 13:29:15] [0;32m[PASS][0m Connection closed successfully
+[2026-03-06 13:29:15] [1;33m[TEST][0m Sending datagram to agent-alpha via SDK
+[2026-03-06 13:29:15] [0;32m[PASS][0m Datagram sent (23 bytes)
+[2026-03-06 13:29:15] [1;33m[TEST][0m Data exchange: sending text via raw Conn
+[2026-03-06 13:29:15] [0;32m[PASS][0m Text message sent via raw Conn (51 bytes)
+[2026-03-06 13:29:15] [1;33m[TEST][0m Data exchange: sending JSON via raw Conn
+[2026-03-06 13:29:15] [0;32m[PASS][0m JSON message sent via raw Conn (100 bytes)
+[2026-03-06 13:29:15] [1;33m[TEST][0m Data exchange: sending binary via raw Conn
+[2026-03-06 13:29:16] [0;32m[PASS][0m Binary data sent via raw Conn (49 bytes)
+[2026-03-06 13:29:16] [1;33m[TEST][0m Data exchange: sending file content via raw Conn
+[2026-03-06 13:29:16] [0;32m[PASS][0m File content sent via raw Conn (131 bytes)
+[2026-03-06 13:29:16] [1;33m[TEST][0m Testing Conn context manager
+[2026-03-06 13:29:16] [0;32m[PASS][0m Conn context manager works (auto-closes)
+[2026-03-06 13:29:16] [1;33m[TEST][0m High-level API: send_message() with text
+[2026-03-06 13:29:16] [0;32m[PASS][0m send_message() text succeeded with ACK: {'sent': 57, 'type': 'text', 'target': '0:0000.0000.037D', 'ack': 'ACK TEXT 57 bytes'}
+[2026-03-06 13:29:16] [1;33m[TEST][0m High-level API: send_message() with JSON
+[2026-03-06 13:29:17] [0;32m[PASS][0m send_message() JSON succeeded with ACK: {'sent': 108, 'type': 'json', 'target': '0:0000.0000.037D', 'ack': 'ACK JSON 108 bytes'}
+[2026-03-06 13:29:17] [1;33m[TEST][0m High-level API: send_file()
+[2026-03-06 13:29:17] [0;32m[PASS][0m send_file() succeeded with ACK: {'sent': 98, 'filename': 'tmpp0je6g79.txt', 'target': '0:0000.0000.037D', 'ack': 'ACK FILE 98 bytes'}
+[2026-03-06 13:29:17] [1;33m[TEST][0m High-level API: publish_event()
+[2026-03-06 13:29:18] [0;32m[PASS][0m publish_event() succeeded: {'status': 'published', 'topic': 'test/sdk/sensor', 'bytes': 84}
+[2026-03-06 13:29:18] [1;33m[TEST][0m High-level API: submit_task()
+[2026-03-06 13:29:18] [0;32m[PASS][0m submit_task() attempted (alpha may not accept tasks): dial: daemon: connection refused
+[2026-03-06 13:29:18] [1;33m[TEST][0m Closing driver
+[2026-03-06 13:29:18] [0;32m[PASS][0m Driver closed successfully
+[2026-03-06 13:29:18] [1;33m[TEST][0m Deregistering from network
+[2026-03-06 13:29:18] [0;32m[PASS][0m Successfully deregistered
+[2026-03-06 13:29:18] [1;33m[TEST][0m Stopping daemon...
+
+==================================================
+Test Summary
+==================================================
+Passed: [0;32m34[0m
+Failed: [0;31m0[0m
+==================================================

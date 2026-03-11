@@ -44,6 +44,24 @@ coverage-html: coverage
 clean:
 	rm -rf $(BINDIR) $(COVERDIR)
 
+# Build the C-shared library for the Python SDK (ctypes)
+LIBNAME_DARWIN := libpilot.dylib
+LIBNAME_LINUX  := libpilot.so
+LIBNAME_WIN    := libpilot.dll
+
+sdk-lib:
+	@mkdir -p $(BINDIR)
+	CGO_ENABLED=1 go build -buildmode=c-shared -o $(BINDIR)/$(LIBNAME_$(shell uname -s | sed 's/Darwin/DARWIN/;s/Linux/LINUX/')) ./sdk/cgo/
+	@echo "Built shared library in $(BINDIR)/"
+
+sdk-lib-linux:
+	@mkdir -p $(BINDIR)
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o $(BINDIR)/$(LIBNAME_LINUX) ./sdk/cgo/
+
+sdk-lib-darwin:
+	@mkdir -p $(BINDIR)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -buildmode=c-shared -o $(BINDIR)/$(LIBNAME_DARWIN) ./sdk/cgo/
+
 # Build for Linux (GCP deployment)
 build-linux:
 	@mkdir -p $(BINDIR)
