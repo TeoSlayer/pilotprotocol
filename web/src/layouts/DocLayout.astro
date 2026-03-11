@@ -1,0 +1,36 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Topbar from '../components/Topbar.astro';
+import DocSidebar from '../components/DocSidebar.astro';
+import DocFooter from '../components/DocFooter.astro';
+import PageNav from '../components/PageNav.astro';
+import '../styles/global.css';
+import '../styles/docs.css';
+
+interface Props {
+  title: string;
+  description: string;
+  activePage: string;
+  canonicalPath?: string;
+  prev?: { label: string; href: string };
+  next?: { label: string; href: string };
+}
+
+const { title, description, activePage, canonicalPath, prev, next } = Astro.props;
+const canonicalUrl = canonicalPath ? `https://pilotprotocol.network${canonicalPath}` : undefined;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+</head>
+<body>
+  <Topbar variant="docs" />
+  <DocSidebar activePage={activePage} />
+  <div class="content">
+    <slot />
+    <PageNav prev={prev} next={next} />
+  </div>
+  <DocFooter />
+</body>
+</html>

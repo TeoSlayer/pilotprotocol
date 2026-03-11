@@ -12,7 +12,7 @@ Thank you for your interest in contributing to Pilot Protocol. This document cov
 ### Setup
 
 ```bash
-git clone git clone git@github.com:TeoSlayer/pilotprotocol.git
+git clone git@github.com:TeoSlayer/pilotprotocol.git
 cd pilotprotocol
 go build ./...
 ```
@@ -59,6 +59,7 @@ pkg/                    # Library packages
   secure/               # X25519 + AES-256-GCM encrypted connections
   dataexchange/         # Typed frame protocol (port 1001)
   eventstream/          # Pub/sub event broker (port 1002)
+  tasksubmit/           # Task lifecycle with polo score (port 1003)
   nameserver/           # DNS-equivalent name resolution (WIP)
   config/               # JSON config file support
   logging/              # Structured logging setup (slog)
@@ -131,7 +132,7 @@ make test
 
 ### Architecture Notes
 
-- The daemon is the only process agents need to run. Built-in services (echo, data exchange, event stream) start automatically
+- The daemon is the only process agents need to run. Built-in services (echo, data exchange, event stream, task submit) start automatically
 - All daemon interaction goes through the IPC socket (Unix domain socket). The `driver` package provides the client side; the `daemon/ipc.go` provides the server side
 - The transport layer implements TCP-like semantics: SYN/ACK handshake, sliding window, SACK, congestion control (AIMD), flow control, Nagle, retransmission
 - Security is layered: tunnel-level encryption (all traffic between two daemons) and connection-level encryption (port 443, per-connection X25519 + AES-GCM)

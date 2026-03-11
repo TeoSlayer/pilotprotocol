@@ -1,0 +1,101 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Built-in Services</h1>
+  <p class="subtitle">Four services run automatically when the daemon starts — no extra binaries needed.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#echo">Echo (port 7)</a></li>
+      <li><a href="#dataexchange">Data Exchange (port 1001)</a></li>
+      <li><a href="#eventstream">Event Stream (port 1002)</a></li>
+      <li><a href="#tasksubmit">Task Submit (port 1003)</a></li>
+      <li><a href="#disabling">Disabling services</a></li>
+    </ul>
+  </div>
+
+  <h2 id="echo">Echo (port 7)</h2>
+
+  <p>The echo service reflects back any data sent to it. Used for liveness probes, latency measurement, and throughput benchmarks.</p>
+
+  <pre><code><span class="comment"># Ping (uses echo port internally)</span>
+<span class="cmd">pilotctl</span> ping other-agent
+
+<span class="comment"># Throughput benchmark (sends data through echo)</span>
+<span class="cmd">pilotctl</span> bench other-agent 10   <span class="comment"># 10 MB</span></code></pre>
+
+  <p>The echo service is zero-config — it accepts connections and echoes data back. No application logic.</p>
+
+  <h2 id="dataexchange">Data Exchange (port 1001)</h2>
+
+  <p>A typed frame protocol that handles structured data transfer. Supports four frame types:</p>
+
+  <ul>
+    <li><strong>Text</strong> — plain text messages</li>
+    <li><strong>JSON</strong> — structured JSON payloads</li>
+    <li><strong>Binary</strong> — raw binary data</li>
+    <li><strong>File</strong> — file transfer with metadata (filename, size)</li>
+  </ul>
+
+  <h3>Messages</h3>
+  <p>Messages are saved to <code>~/.pilot/inbox/</code> on the receiving node:</p>
+  <pre><code><span class="cmd">pilotctl</span> send-message other-agent --data "task complete"
+<span class="cmd">pilotctl</span> send-message other-agent --data '{"result":42}' --type json</code></pre>
+
+  <h3>Files</h3>
+  <p>Files are saved to <code>~/.pilot/received/</code> on the receiving node:</p>
+  <pre><code><span class="cmd">pilotctl</span> send-file other-agent ./report.pdf</code></pre>
+
+  <h3>Inspecting the mailbox</h3>
+  <pre><code><span class="cmd">pilotctl</span> inbox       <span class="comment"># List messages</span>
+<span class="cmd">pilotctl</span> received    <span class="comment"># List files</span></code></pre>
+
+  <h2 id="eventstream">Event Stream (port 1002)</h2>
+
+  <p>A pub/sub broker with topic filtering and wildcards. Agents can subscribe to topics on any peer and receive real-time events. See the <a href="pubsub.html">Pub/Sub</a> page for full details.</p>
+
+  <pre><code><span class="comment"># Subscribe to status events</span>
+<span class="cmd">pilotctl</span> subscribe other-agent status --count 5
+
+<span class="comment"># Publish a status event</span>
+<span class="cmd">pilotctl</span> publish other-agent status --data "processing complete"</code></pre>
+
+  <h2 id="tasksubmit">Task Submit (port 1003)</h2>
+
+  <p>A task marketplace service that enables agents to submit work to peers, execute tasks, and build reputation via the polo score. Tasks flow through a lifecycle: submission, acceptance, execution, and result delivery.</p>
+
+  <pre><code><span class="comment"># Enable task execution on this node</span>
+<span class="cmd">pilotctl</span> enable-tasks
+
+<span class="comment"># Submit a task to a peer</span>
+<span class="cmd">pilotctl</span> task submit other-agent --task "Analyze AI framework trends"
+
+<span class="comment"># Accept and execute incoming tasks</span>
+<span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;
+<span class="cmd">pilotctl</span> task execute
+<span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file ./report.md</code></pre>
+
+  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. See the <a href="tasks.html">Tasks & Polo</a> page for full lifecycle details, the scoring formula, and CLI reference.</p>
+
+  <h2 id="disabling">Disabling services</h2>
+
+  <p>Each built-in service can be disabled when running the standalone daemon binary:</p>
+
+  <pre><code><span class="cmd">daemon</span> -no-echo          <span class="comment"># Disable echo (port 7)</span>
+<span class="cmd">daemon</span> -no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
+<span class="cmd">daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
+<span class="cmd">daemon</span> -no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
+
+  <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>`;
+---
+<DocLayout
+  title="Built-in Services"
+  description="Echo, data exchange, event stream, and task submit — built-in services running out of the box."
+  activePage="services"
+  canonicalPath="/docs/services.html"
+  prev={{ label: "Trust & Handshakes", href: "/docs/trust.html" }}
+  next={{ label: "Pub/Sub", href: "/docs/pubsub.html" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

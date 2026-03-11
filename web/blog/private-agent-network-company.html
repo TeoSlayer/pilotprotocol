@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Build a Private Agent Network for Your Company</title>
+<meta name="description" content="Step-by-step guide to deploying a private Pilot Protocol network for enterprise agent communication: rendezvous setup, agent enrollment, trust policies, and monitoring.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/private-agent-network-company.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Building a Private Agent Network for Your Company">
+<meta property="og:description" content="Step-by-step guide to deploying a private Pilot Protocol network for enterprise agent communication: rendezvous setup, agent enrollment, trust policies, and monitoring.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/private-agent-network-company.html">
+<meta property="og:image" content="/blog/banners/private-agent-network-company.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Building a Private Agent Network for Your Company">
+<meta name="twitter:description" content="Deploy a private Pilot Protocol network for enterprise agent communication: rendezvous setup, enrollment, trust policies, and monitoring.">
+<meta name="twitter:image" content="/blog/banners/private-agent-network-company.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Article","headline":"Building a Private Agent Network for Your Company","description":"Step-by-step guide to deploying a private Pilot Protocol network for enterprise agent communication: rendezvous setup, agent enrollment, trust policies, and monitoring.","author":{"@type":"Person","name":"Pilot Protocol Team"},"datePublished": "2026-02-11","publisher":{"@type":"Organization","name":"Vulture Labs"}}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<div class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Building a Private Agent Network for Your Company</h1>
+  <div class="article-meta">
+    <span>February 11, 2026</span>
+    <span class="tag">enterprise</span>
+    <span class="tag">deployment</span>
+    <span class="tag">guide</span>
+  </div>
+
+  <p>Your company has agents. The ML team runs training coordinators. The data team has ETL pipelines. The platform team operates deployment bots. Product has customer-facing assistants. And right now, they communicate through... Redis pub/sub? REST webhooks? Shared databases? Slack? A Kafka topic someone set up two years ago that nobody fully understands?</p>
+
+  <p>There is no standard internal agent communication layer. Every team builds their own, using whatever transport happens to be available. The result is a fragmented mess: agents that cannot discover each other, no consistent identity model, no encryption between internal services, and no visibility into who is talking to whom.</p>
+
+  <p>The problem is not just fragmentation. It is visibility. When something goes wrong &mdash; an agent stops responding, a pipeline stalls, a task fails &mdash; nobody can answer basic questions. Which agents are online? Who is talking to whom? When did agent X last communicate? These are trivial questions in a proper network. They are unanswerable when agents communicate through five different ad-hoc transports.</p>
+
+  <p>Pilot Protocol solves this. Deploy one rendezvous server in your VPC. Give each agent a daemon. They get permanent addresses, encrypted tunnels, mutual trust, and a monitoring dashboard. This guide walks through the entire deployment, from empty VM to production-ready private agent network.</p>
+
+  <h2>Architecture Overview</h2>
+
+  <p>A private Pilot Protocol deployment has three components:</p>
+
+  <ol>
+    <li><strong>Rendezvous server</strong> &mdash; Central registry, beacon for NAT traversal, and HTTP dashboard. One instance per network (with optional <a href="/docs/configuration.html">hot-standby replication</a> for HA).</li>
+    <li><strong>Agent daemons</strong> &mdash; One per agent. Handles tunnel management, encryption, and IPC. Runs as a background process or systemd service.</li>
+    <li><strong>Gateway</strong> (optional) &mdash; Bridges legacy systems (Grafana, Jenkins, Prometheus) to the agent network by mapping Pilot addresses to local IPs.</li>
+  </ol>
+
+  <p>All communication between daemons is <a href="zero-dependency-encryption-x25519-aes-gcm.html">encrypted by default</a> using X25519 + AES-256-GCM. The rendezvous server stores agent registrations and facilitates discovery but never sees plaintext traffic between agents.</p>
+
+  <h2>Step 1: Deploy the Rendezvous Server</h2>
+
+  <p>The rendezvous server is a single binary. No database, no message queue, no external dependencies. It persists state to a JSON file and serves a built-in web dashboard.</p>
+
+  <h3>Provisioning</h3>
+
+  <p>Choose a VM in your VPC that is reachable by all agent machines. For most companies, a small instance is sufficient &mdash; the rendezvous server handles metadata, not data plane traffic. An <code>e2-small</code> (2 vCPU, 2 GB RAM) on GCP or a <code>t3.small</code> on AWS handles thousands of agents comfortably.</p>
+
+  <p>Open these ports in your VPC firewall:</p>
+
+  <table>
+    <tr><th>Port</th><th>Protocol</th><th>Purpose</th></tr>
+    <tr><td>9000</td><td>TCP</td><td>Registry (agent registration, lookups)</td></tr>
+    <tr><td>9001</td><td>UDP</td><td>Beacon (NAT traversal, hole-punching)</td></tr>
+    <tr><td>3000</td><td>TCP</td><td>Dashboard and HTTP API (restrict to internal)</td></tr>
+  </table>
+
+  <div class="callout">
+    <p><strong>Security note:</strong> Port 3000 (dashboard) should only be accessible from your internal network or VPN. It exposes agent topology, trust relationships, and network statistics. Do not expose it to the internet.</p>
+  </div>
+
+  <h3>Running the Rendezvous</h3>
+
+  <pre><code><span class="comment"># Download the latest release</span>
+<span class="cmd">wget https://github.com/TeoSlayer/pilotprotocol/releases/latest/download/rendezvous-linux-amd64</span>
+<span class="cmd">chmod +x rendezvous-linux-amd64</span>
+
+<span class="comment"># Create persistence directory</span>
+<span class="cmd">sudo mkdir -p /var/lib/pilot</span>
+<span class="cmd">sudo chown $(whoami) /var/lib/pilot</span>
+
+<span class="comment"># Start the rendezvous server</span>
+<span class="cmd">./rendezvous-linux-amd64 \
+  --registry-addr :9000 \
+  --beacon-addr :9001 \
+  --store /var/lib/pilot/registry.json \
+  --http :3000</span></code></pre>
+
+  <p>For production, run it as a systemd service:</p>
+
+  <pre><code><span class="comment"># /etc/systemd/system/pilot-rendezvous.service</span>
+[Unit]
+Description=Pilot Protocol Rendezvous Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pilot
+ExecStart=/opt/pilot/rendezvous \
+  --registry-addr :9000 \
+  --beacon-addr :9001 \
+  --store /var/lib/pilot/registry.json \
+  --http :3000
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+  <pre><code><span class="cmd">sudo systemctl enable pilot-rendezvous</span>
+<span class="cmd">sudo systemctl start pilot-rendezvous</span></code></pre>
+
+  <h3>Verify the Deployment</h3>
+
+  <pre><code><span class="comment"># Check the dashboard</span>
+<span class="cmd">curl http://localhost:3000/api/stats</span>
+{"total_agents":0,"total_networks":0,"online_agents":0,"connections_active":0}
+
+<span class="comment"># Verify registry port</span>
+<span class="cmd">nc -z localhost 9000 && echo "Registry: OK"</span>
+
+<span class="comment"># Verify beacon port</span>
+<span class="cmd">nc -zu localhost 9001 && echo "Beacon: OK"</span></code></pre>
+
+  <h2>Step 2: Enroll Your First Agents</h2>
+
+  <p>Each agent runs a Pilot daemon that connects to the rendezvous, registers itself, and maintains a persistent identity. The daemon is the agent's "network interface" &mdash; all communication goes through it.</p>
+
+  <h3>Daemon Setup</h3>
+
+  <pre><code><span class="comment"># On each agent machine</span>
+<span class="cmd">wget https://github.com/TeoSlayer/pilotprotocol/releases/latest/download/pilot-daemon-linux-amd64</span>
+<span class="cmd">chmod +x pilot-daemon-linux-amd64</span>
+
+<span class="comment"># Start with your rendezvous address</span>
+<span class="cmd">./pilot-daemon-linux-amd64 \
+  -registry 10.0.1.5:9000 \
+  -beacon 10.0.1.5:9001 \
+  -store /var/lib/pilot/identity.json</span></code></pre>
+
+  <p>On first run, the daemon generates an Ed25519 identity key pair, registers with the rendezvous, and receives a virtual address in the format <code>N:NNNN.HHHH.LLLL</code>. The identity is persisted to the store file, so the agent keeps the same address across restarts.</p>
+
+  <h3>Hostname Convention</h3>
+
+  <p>Pilot supports hostname registration, allowing agents to be discovered by name instead of address. We recommend a naming convention that maps to your org structure:</p>
+
+  <pre><code><span class="comment"># Pattern: team-agent-function</span>
+<span class="cmd">pilotctl set-hostname ml-team-trainer</span>
+<span class="cmd">pilotctl set-hostname ml-team-evaluator</span>
+<span class="cmd">pilotctl set-hostname data-team-etl</span>
+<span class="cmd">pilotctl set-hostname data-team-validator</span>
+<span class="cmd">pilotctl set-hostname platform-deployer</span>
+<span class="cmd">pilotctl set-hostname product-assistant-1</span></code></pre>
+
+  <p>Hostnames are unique within a network. They enable human-readable addressing:</p>
+
+  <pre><code><span class="comment"># Instead of connecting by address</span>
+<span class="cmd">pilotctl send 1:0001.A3F2.001B "start training job"</span>
+
+<span class="comment"># Connect by hostname</span>
+<span class="cmd">pilotctl send ml-team-trainer "start training job"</span></code></pre>
+
+  <h3>Network Organization</h3>
+
+  <p>Pilot supports multiple networks within a single rendezvous. Use networks to segment your agent fleet by team, environment, or function:</p>
+
+  <ul>
+    <li><strong><code>ml-prod</code></strong> &mdash; Production ML agents (trainer, evaluator, model server)</li>
+    <li><strong><code>ml-staging</code></strong> &mdash; Staging ML agents (isolated from prod)</li>
+    <li><strong><code>data-pipelines</code></strong> &mdash; ETL agents, data validators, quality checkers</li>
+    <li><strong><code>platform</code></strong> &mdash; Infrastructure agents (deployers, monitors, alerters)</li>
+    <li><strong><code>product</code></strong> &mdash; Customer-facing assistants</li>
+  </ul>
+
+  <p>Agents within the same network can discover each other. Cross-network communication requires explicit <a href="/docs/trust.html">trust establishment</a>.</p>
+
+  <h2>Step 3: Configure Trust Policies</h2>
+
+  <p>By default, Pilot agents are <a href="trust-model-agents-invisible-by-default.html">private and invisible</a>. They cannot be discovered by agents outside their network, and even agents within the same network must establish mutual trust before exchanging data. This is the opposite of most internal tools, where everything trusts everything by default.</p>
+
+  <h3>Same-Network Auto-Trust</h3>
+
+  <p>For teams that want frictionless internal communication, enable auto-trust within a network. All agents in the same network automatically trust each other:</p>
+
+  <pre><code><span class="comment"># On each daemon in the network</span>
+<span class="cmd">pilotctl set-visibility public</span></code></pre>
+
+  <p>Public agents within the same network can be discovered and connected to without a handshake. This is appropriate for agents operated by the same team in a trusted environment.</p>
+
+  <h3>Cross-Team Trust</h3>
+
+  <p>When the ML team's trainer agent needs to pull data from the data team's ETL agent, they are in different networks. This requires an explicit trust handshake:</p>
+
+  <pre><code><span class="comment"># On ml-team-trainer: request trust with data-team-etl</span>
+<span class="cmd">pilotctl trust request data-team-etl</span>
+
+<span class="comment"># On data-team-etl: approve the trust request</span>
+<span class="cmd">pilotctl trust approve ml-team-trainer</span></code></pre>
+
+  <p>The handshake is bilateral: both sides must approve. This maps naturally to organizational approval workflows. The data team can review which ML agents need access and approve or deny on a per-agent basis.</p>
+
+  <h3>Trust Policies by Org Chart</h3>
+
+  <p>We recommend mapping trust policies to your organizational structure:</p>
+
+  <table>
+    <tr><th>Relationship</th><th>Policy</th></tr>
+    <tr><td>Same team, same network</td><td>Auto-trust (public visibility)</td></tr>
+    <tr><td>Same team, different env</td><td>Manual trust (prod agents should not auto-trust staging)</td></tr>
+    <tr><td>Cross-team</td><td>Bilateral handshake with team lead approval</td></tr>
+    <tr><td>External partners</td><td>Bilateral handshake + time-limited trust</td></tr>
+  </table>
+
+  <h3>Trust Revocation</h3>
+
+  <p>Trust can be revoked instantly by either party:</p>
+
+  <pre><code><span class="comment"># Immediately revoke trust (takes effect on next connection attempt)</span>
+<span class="cmd">pilotctl trust revoke ml-team-trainer</span></code></pre>
+
+  <p>Revocation is immediate. Active connections are terminated, and the revoked agent can no longer initiate new connections. There is no grace period, no cache to expire, no TTL to wait out. This is critical for incident response: if an agent is compromised, you revoke its trust relationships in seconds, not minutes.</p>
+
+  <h2>Step 4: Bridge Legacy Systems with Gateway</h2>
+
+  <p>Not every system in your company will run a Pilot daemon. Grafana needs to scrape agent metrics. Jenkins needs to trigger agent tasks. Your internal wiki might link to agent status pages. The <a href="/docs/gateway.html">Pilot Gateway</a> bridges these legacy systems to the agent network.</p>
+
+  <h3>How Gateway Works</h3>
+
+  <p>The gateway runs on a machine that has both a Pilot daemon and access to your corporate network. It maps Pilot virtual addresses to local IP addresses and proxies traffic bidirectionally:</p>
+
+  <pre><code><span class="comment"># Start the gateway</span>
+<span class="cmd">sudo ./pilot-gateway \
+  -registry 10.0.1.5:9000 \
+  -beacon 10.0.1.5:9001</span></code></pre>
+
+  <p>The gateway automatically adds loopback aliases for each agent it proxies. On Linux, this uses <code>ip addr add</code>; on macOS, <code>ifconfig lo0 alias</code>. Each agent gets a unique local IP address.</p>
+
+  <h3>Grafana Integration</h3>
+
+  <p>Suppose <code>ml-team-trainer</code> exposes Prometheus metrics on Pilot port 80. Through the gateway, Grafana can scrape it as if it were a local HTTP server:</p>
+
+  <pre><code><span class="comment"># In grafana datasource configuration</span>
+<span class="comment"># The gateway maps ml-team-trainer to 127.0.0.2</span>
+url: http://127.0.0.2:80/metrics
+scrape_interval: 15s</code></pre>
+
+  <p>No changes to Grafana. No Pilot SDK needed. Standard HTTP, standard Prometheus format. The gateway handles the translation between the corporate network and the agent overlay.</p>
+
+  <h3>Jenkins Integration</h3>
+
+  <p>Jenkins can trigger agent tasks via HTTP through the gateway:</p>
+
+  <pre><code><span class="comment"># Jenkins build step: trigger agent task via gateway</span>
+<span class="cmd">curl -X POST http://127.0.0.3:80/tasks/submit \
+  -H "Content-Type: application/json" \
+  -d '{"task": "run-evaluation", "model": "v2.3"}'</span></code></pre>
+
+  <p>The agent receives this as a standard HTTP request on its Pilot port 80. It does not know or care that the request came through a gateway. This is the power of the gateway approach: existing tools work unchanged.</p>
+
+  <h3>Terraform and Ansible Integration</h3>
+
+  <p>Infrastructure-as-code tools can also use the gateway to interact with agents. A Terraform provider can call agent health endpoints through the gateway to verify deployments. Ansible playbooks can trigger agent reconfiguration through standard HTTP calls. Because the gateway exposes agents as regular IP addresses with standard ports, any tool that speaks HTTP can interact with the agent network.</p>
+
+  <p>The key insight is that the gateway is not a "Pilot SDK for legacy tools." It is a transparent bridge. Legacy tools do not know they are talking to agents on an overlay network. They think they are talking to local HTTP servers. This means zero integration effort on the legacy side.</p>
+
+  <h2>Step 5: Set Up Monitoring</h2>
+
+  <p>The rendezvous server includes a built-in monitoring dashboard accessible at the HTTP port (default 3000).</p>
+
+  <h3>Dashboard Features</h3>
+
+  <ul>
+    <li><strong>Fleet overview</strong> &mdash; Total agents, online count, network count</li>
+    <li><strong>Per-network breakdown</strong> &mdash; Agent count by network, health status</li>
+    <li><strong>Agent detail</strong> &mdash; Address, hostname, visibility, last keepalive, trust relationships</li>
+    <li><strong>Polo scores</strong> &mdash; Reputation metrics for agents with <a href="/docs/polo.html">task execution history</a></li>
+    <li><strong>Connection graph</strong> &mdash; Active connections between agents</li>
+  </ul>
+
+  <h3>Prometheus Metrics</h3>
+
+  <p>For integration with existing monitoring stacks, the rendezvous exposes Prometheus-compatible metrics:</p>
+
+  <pre><code><span class="comment"># Scrape rendezvous metrics</span>
+<span class="cmd">curl http://10.0.1.5:3000/metrics</span>
+
+<span class="comment"># Example metrics</span>
+pilot_agents_total{status="online"} 847
+pilot_agents_total{status="offline"} 23
+pilot_networks_total 12
+pilot_connections_active 156
+pilot_registry_lookups_total 45823
+pilot_beacon_holepunches_total 312</code></pre>
+
+  <p>Add the rendezvous as a Prometheus scrape target in your existing monitoring infrastructure. No special exporters needed.</p>
+
+  <h3>Alerting</h3>
+
+  <p>Recommended alert rules:</p>
+
+  <pre><code><span class="comment"># Alert if agent count drops more than 10% in 5 minutes</span>
+- alert: AgentFleetDrop
+  expr: |
+    (pilot_agents_total{status="online"} /
+     pilot_agents_total{status="online"} offset 5m) &lt; 0.9
+  for: 2m
+  labels:
+    severity: warning
+
+<span class="comment"># Alert if rendezvous is unreachable</span>
+- alert: RendezvousDown
+  expr: up{job="pilot-rendezvous"} == 0
+  for: 1m
+  labels:
+    severity: critical</code></pre>
+
+  <h2>Step 6: Security Checklist</h2>
+
+  <p>Before declaring your private agent network production-ready, verify every item on this checklist:</p>
+
+  <h3>Identity and Keys</h3>
+
+  <ul>
+    <li><strong>Identity persistence:</strong> Every daemon's <code>-store</code> path points to durable storage (not <code>/tmp</code>). If an agent loses its identity file, it gets a new address and loses all trust relationships.</li>
+    <li><strong>Key backup:</strong> Back up identity files. They contain Ed25519 private keys. Store backups encrypted (e.g., encrypted S3 bucket or Vault).</li>
+    <li><strong>Key rotation:</strong> Plan for identity rotation. Generate new identity, re-establish trust, then decommission old identity. No automated rotation yet &mdash; this is a manual process.</li>
+  </ul>
+
+  <h3>Trust Controls</h3>
+
+  <ul>
+    <li><strong>Default visibility:</strong> Verify all agents are private by default. Only set public visibility for agents within trusted same-team networks.</li>
+    <li><strong>Trust revocation tested:</strong> Actually test revoking trust and verify that connections are terminated. Do not assume it works &mdash; verify.</li>
+    <li><strong>Cross-network trust audited:</strong> Review all cross-network trust relationships quarterly. Remove any that are no longer needed.</li>
+  </ul>
+
+  <h3>Network Security</h3>
+
+  <ul>
+    <li><strong>Dashboard access restricted:</strong> Port 3000 accessible only from internal network or VPN. Not from the internet.</li>
+    <li><strong>IPC socket permissions:</strong> Daemon IPC sockets (<code>pilot.sock</code>) should have 0600 permissions. Only the daemon's user should be able to connect.</li>
+    <li><strong>Optional TLS for registry:</strong> For highly sensitive deployments, enable TLS on the registry TCP connection (port 9000). This protects agent registration metadata in transit. The <a href="/docs/configuration.html">configuration docs</a> cover TLS setup.</li>
+    <li><strong>Firewall rules:</strong> Only allow ports 9000 (TCP), 9001 (UDP), and inter-agent UDP ports between agent machines. Block all other traffic.</li>
+  </ul>
+
+  <h3>Operational</h3>
+
+  <ul>
+    <li><strong>Webhook logging:</strong> Enable <a href="/docs/webhooks.html">webhook notifications</a> for trust changes, agent registration, and deregistration events. Pipe to your SIEM for audit trails.</li>
+    <li><strong>Registry persistence:</strong> Verify the <code>--store</code> path is on durable storage with regular backups. A lost registry file means all agents must re-register.</li>
+    <li><strong>HA consideration:</strong> For production deployments, configure <a href="/docs/configuration.html">hot-standby replication</a>. A single rendezvous server is a single point of failure for discovery (but not for active connections &mdash; existing tunnels survive rendezvous downtime).</li>
+  </ul>
+
+  <h2>Real-World Use Cases</h2>
+
+  <p>To make this concrete, here are three deployment patterns we see companies adopt with their private agent networks.</p>
+
+  <h3>Use Case 1: ML Pipeline Coordination</h3>
+
+  <p>A machine learning team runs five agents: a data fetcher that pulls training data from various sources, a preprocessor that cleans and tokenizes, a trainer that runs the actual model training, an evaluator that benchmarks against test sets, and a model server that serves the latest checkpoint for inference.</p>
+
+  <p>All five agents live in the <code>ml-prod</code> network with public visibility (same-team auto-trust). The pipeline flows naturally: the data fetcher sends processed batches to the preprocessor via Pilot's <a href="/docs/services.html">data exchange service (port 1001)</a>, the preprocessor forwards to the trainer, and so on. Each handoff is encrypted end-to-end. No shared filesystem, no S3 bucket as intermediary, no message queue. Direct agent-to-agent streaming over encrypted tunnels.</p>
+
+  <p>When the evaluator determines a new model checkpoint beats the previous best, it notifies the model server via Pilot's <a href="/docs/pubsub.html">pub/sub service (port 1002)</a>. The model server pulls the checkpoint directly from the trainer using <a href="peer-to-peer-file-transfer-agents.html">file transfer</a>. The entire pipeline operates without any infrastructure beyond the agents themselves and the rendezvous server.</p>
+
+  <h3>Use Case 2: Cross-Team Data Access with Approval</h3>
+
+  <p>The analytics team needs access to the data team's ETL agent to pull transformed datasets. The data team operates in a separate network (<code>data-pipelines</code>) and keeps agents private by default. The cross-team access workflow:</p>
+
+  <ol>
+    <li>Analytics team lead requests trust: <code>pilotctl trust request data-team-etl</code></li>
+    <li>Data team lead receives notification via <a href="/docs/webhooks.html">webhook</a> (piped to Slack)</li>
+    <li>Data team lead reviews and approves: <code>pilotctl trust approve analytics-reporter</code></li>
+    <li>Analytics agent can now connect to data ETL agent and pull datasets</li>
+    <li>Trust relationship is logged, auditable, and revocable at any time</li>
+  </ol>
+
+  <p>This maps directly to how enterprise access requests already work (tickets, approvals, audit logs), but without the overhead of VPN configurations, firewall rule changes, or service account provisioning.</p>
+
+  <h3>Use Case 3: Hybrid Cloud Agent Communication</h3>
+
+  <p>A company runs inference agents on edge devices (retail stores, factory floors) that need to communicate with training agents in GCP. The edge devices are behind store-level NATs with no public IP addresses. Traditional approaches require VPN tunnels or reverse proxies at each location.</p>
+
+  <p>With Pilot, each edge device runs a daemon that connects to the rendezvous server. <a href="nat-traversal-ai-agents-deep-dive.html">NAT traversal</a> handles the rest: STUN discovers the NAT type, hole-punching establishes direct tunnels for cone NATs, and relay provides fallback for symmetric NATs. The cloud-based training agent and the edge inference agent communicate directly, encrypted, without any network infrastructure changes at the retail locations.</p>
+
+  <h2>Scaling Considerations</h2>
+
+  <p>A single rendezvous server handles thousands of agents. For larger deployments:</p>
+
+  <table>
+    <tr><th>Agent Count</th><th>Recommended Setup</th></tr>
+    <tr><td>1-500</td><td>Single rendezvous, e2-small or t3.small</td></tr>
+    <tr><td>500-5,000</td><td>Single rendezvous, e2-standard-4, hot-standby replica</td></tr>
+    <tr><td>5,000-50,000</td><td>Registry sharding (in development), multiple beacons</td></tr>
+  </table>
+
+  <p>For a detailed look at running large agent fleets, see <a href="ten-thousand-agents-three-vms.html">How We Run 10,000 Agents on 3 VMs</a>.</p>
+
+  <h2>Example: Complete Deployment Script</h2>
+
+  <p>Here is a complete script that provisions a private agent network from scratch on a fresh Ubuntu 22.04 VM:</p>
+
+  <pre><code><span class="comment">#!/bin/bash</span>
+<span class="comment"># deploy-pilot-network.sh</span>
+<span class="comment"># Run on your rendezvous VM</span>
+
+set -euo pipefail
+
+<span class="comment"># 1. Download binaries</span>
+RELEASE="https://github.com/TeoSlayer/pilotprotocol/releases/latest/download"
+wget -q "$RELEASE/rendezvous-linux-amd64" -O /opt/pilot/rendezvous
+wget -q "$RELEASE/pilot-daemon-linux-amd64" -O /opt/pilot/pilot-daemon
+wget -q "$RELEASE/pilotctl-linux-amd64" -O /opt/pilot/pilotctl
+chmod +x /opt/pilot/*
+
+<span class="comment"># 2. Create pilot user</span>
+useradd -r -m -s /bin/false pilot
+mkdir -p /var/lib/pilot
+chown pilot:pilot /var/lib/pilot
+
+<span class="comment"># 3. Install systemd service</span>
+cat > /etc/systemd/system/pilot-rendezvous.service &lt;&lt;'EOF'
+[Unit]
+Description=Pilot Protocol Rendezvous
+After=network-online.target
+
+[Service]
+Type=simple
+User=pilot
+ExecStart=/opt/pilot/rendezvous \
+  --registry-addr :9000 \
+  --beacon-addr :9001 \
+  --store /var/lib/pilot/registry.json \
+  --http :3000
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+<span class="comment"># 4. Start</span>
+systemctl daemon-reload
+systemctl enable pilot-rendezvous
+systemctl start pilot-rendezvous
+
+<span class="comment"># 5. Verify</span>
+sleep 2
+curl -s http://localhost:3000/api/stats
+echo ""
+echo "Rendezvous deployed. Dashboard at http://$(hostname -I | awk '{print $1}'):3000"</code></pre>
+
+  <p>Then on each agent machine, run the daemon setup and enroll:</p>
+
+  <pre><code><span class="comment"># On each agent machine</span>
+<span class="cmd">./pilot-daemon \
+  -registry RENDEZVOUS_IP:9000 \
+  -beacon RENDEZVOUS_IP:9001 \
+  -store /var/lib/pilot/identity.json &</span>
+
+<span class="comment"># Set hostname</span>
+<span class="cmd">./pilotctl set-hostname ml-team-trainer</span>
+
+<span class="comment"># Verify registration</span>
+<span class="cmd">./pilotctl status</span></code></pre>
+
+  <p>That is it. Your agents now have permanent virtual addresses, encrypted tunnels, mutual discovery, and a monitoring dashboard. No Redis. No Kafka. No service mesh sidecar. One binary per machine.</p>
+
+  <h2>Comparing to Alternatives</h2>
+
+  <p>Before deploying a private agent network, you might wonder how this compares to existing approaches. Here is a quick comparison:</p>
+
+  <p><strong>Service mesh (Istio, Linkerd):</strong> Service meshes are designed for microservices, not agents. They require a sidecar proxy per pod, a control plane, and Kubernetes. They provide mTLS and traffic management, but they do not provide NAT traversal, persistent agent identity, or bilateral trust. If your agents are all in Kubernetes, a service mesh works. If they are distributed across heterogeneous environments, it does not.</p>
+
+  <p><strong>VPN (WireGuard, Tailscale):</strong> VPNs solve the NAT traversal problem at the network layer. They give each machine a virtual IP. But they do not provide per-agent identity (an agent is identified by its machine, not by itself), trust management, or application-level services. A VPN plus a service registry plus a message broker plus an encryption library starts to resemble what Pilot provides out of the box.</p>
+
+  <p><strong>Message brokers (Kafka, RabbitMQ, Redis):</strong> Brokers excel at decoupled, asynchronous communication. But they are infrastructure that must be deployed, operated, and monitored. They do not provide direct peer-to-peer communication, NAT traversal, or agent identity. For a detailed comparison with NATS, see our <a href="pilot-vs-tcp-grpc-nats-comparison.html">protocol comparison article</a>.</p>
+
+  <p>Pilot Protocol is not a replacement for any of these. It is the networking layer that makes agent communication work across any environment, with built-in identity, encryption, and trust. Use it alongside your existing tools, not instead of them.</p>
+
+  <div class="cta">
+    <h3>Deploy Your Private Agent Network</h3>
+    <p>Open source, zero dependencies, single binary. Get started in 5 minutes.</p>
+    <a href="/docs/getting-started.html">Getting Started Guide</a>
+  </div>
+</div>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

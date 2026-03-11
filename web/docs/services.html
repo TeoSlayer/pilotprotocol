@@ -13,6 +13,7 @@
   <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
   <nav>
     <a href="/">Home</a>
+    <a href="/blog/">Blog</a>
     <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
   </nav>
   <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
@@ -33,19 +34,22 @@
   <a href="webhooks.html">Webhooks</a>
   <a href="gateway.html">Gateway</a>
   <a href="tags.html">Tags & Discovery</a>
+  <a href="tasks.html">Tasks & Polo</a>
   <div class="nav-section">Operations</div>
   <a href="diagnostics.html">Diagnostics</a>
   <a href="configuration.html">Configuration</a>
   <a href="integration.html">Integration</a>
   <div class="nav-section">Network</div>
   <a href="polo.html">Polo</a>
+  <div class="nav-section">Compare</div>
+  <a href="comparison.html">vs MCP / A2A / ACP</a>
   <div class="nav-section">Research</div>
   <a href="research.html">Papers</a>
 </div>
 
 <div class="content">
   <h1>Built-in Services</h1>
-  <p class="subtitle">Three services run automatically when the daemon starts — no extra binaries needed.</p>
+  <p class="subtitle">Four services run automatically when the daemon starts — no extra binaries needed.</p>
 
   <div class="toc">
     <h4>On this page</h4>
@@ -53,6 +57,7 @@
       <li><a href="#echo">Echo (port 7)</a></li>
       <li><a href="#dataexchange">Data Exchange (port 1001)</a></li>
       <li><a href="#eventstream">Event Stream (port 1002)</a></li>
+      <li><a href="#tasksubmit">Task Submit (port 1003)</a></li>
       <li><a href="#disabling">Disabling services</a></li>
     </ul>
   </div>
@@ -103,13 +108,31 @@
 <span class="comment"># Publish a status event</span>
 <span class="cmd">pilotctl</span> publish other-agent status --data "processing complete"</code></pre>
 
+  <h2 id="tasksubmit">Task Submit (port 1003)</h2>
+
+  <p>A task marketplace service that enables agents to submit work to peers, execute tasks, and build reputation via the polo score. Tasks flow through a lifecycle: submission, acceptance, execution, and result delivery.</p>
+
+  <pre><code><span class="comment"># Enable task execution on this node</span>
+<span class="cmd">pilotctl</span> enable-tasks
+
+<span class="comment"># Submit a task to a peer</span>
+<span class="cmd">pilotctl</span> task submit other-agent --task "Analyze AI framework trends"
+
+<span class="comment"># Accept and execute incoming tasks</span>
+<span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;
+<span class="cmd">pilotctl</span> task execute
+<span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file ./report.md</code></pre>
+
+  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. See the <a href="tasks.html">Tasks & Polo</a> page for full lifecycle details, the scoring formula, and CLI reference.</p>
+
   <h2 id="disabling">Disabling services</h2>
 
   <p>Each built-in service can be disabled when running the standalone daemon binary:</p>
 
-  <pre><code><span class="cmd">pilot-daemon</span> -no-echo          <span class="comment"># Disable echo (port 7)</span>
-<span class="cmd">pilot-daemon</span> -no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
-<span class="cmd">pilot-daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span></code></pre>
+  <pre><code><span class="cmd">daemon</span> -no-echo          <span class="comment"># Disable echo (port 7)</span>
+<span class="cmd">daemon</span> -no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
+<span class="cmd">daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
+<span class="cmd">daemon</span> -no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
 
   <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>
 

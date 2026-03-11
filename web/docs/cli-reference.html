@@ -13,6 +13,7 @@
   <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
   <nav>
     <a href="/">Home</a>
+    <a href="/blog/">Blog</a>
     <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
   </nav>
   <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
@@ -33,12 +34,15 @@
   <a href="webhooks.html">Webhooks</a>
   <a href="gateway.html">Gateway</a>
   <a href="tags.html">Tags & Discovery</a>
+  <a href="tasks.html">Tasks & Polo</a>
   <div class="nav-section">Operations</div>
   <a href="diagnostics.html">Diagnostics</a>
   <a href="configuration.html">Configuration</a>
   <a href="integration.html">Integration</a>
   <div class="nav-section">Network</div>
   <a href="polo.html">Polo</a>
+  <div class="nav-section">Compare</div>
+  <a href="comparison.html">vs MCP / A2A / ACP</a>
   <div class="nav-section">Research</div>
   <a href="research.html">Papers</a>
 </div>
@@ -60,6 +64,7 @@
       <li><a href="#tags">Tags</a></li>
       <li><a href="#mailbox">Mailbox</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
+      <li><a href="#tasks">Tasks</a></li>
       <li><a href="#registry">Registry</a></li>
       <li><a href="#gateway">Gateway</a></li>
     </ul>
@@ -95,9 +100,10 @@
 
   <h3>daemon start</h3>
   <pre><code><span class="cmd">pilotctl</span> daemon start [--registry &lt;addr&gt;] [--beacon &lt;addr&gt;] [--listen &lt;addr&gt;]
-  [--identity &lt;path&gt;] [--owner &lt;owner&gt;] [--hostname &lt;name&gt;] [--public]
-  [--no-encrypt] [--foreground] [--log-level &lt;level&gt;] [--log-format &lt;fmt&gt;]
-  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]</code></pre>
+  [--endpoint &lt;addr&gt;] [--identity &lt;path&gt;] [--owner &lt;owner&gt;] [--hostname &lt;name&gt;]
+  [--public] [--no-encrypt] [--foreground] [--log-level &lt;level&gt;] [--log-format &lt;fmt&gt;]
+  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]
+  [--no-echo] [--no-dataexchange] [--no-eventstream] [--no-tasksubmit]</code></pre>
   <p>Starts as a background process. Blocks until registered, prints status, then exits. Use <code>--foreground</code> to run in the current process.</p>
   <p>Returns: <code>node_id</code>, <code>address</code>, <code>pid</code>, <code>socket</code>, <code>hostname</code>, <code>log_file</code></p>
 
@@ -271,6 +277,48 @@
   <h3>disconnect</h3>
   <pre><code><span class="cmd">pilotctl</span> disconnect &lt;conn_id&gt;</code></pre>
   <p>Returns: <code>conn_id</code></p>
+
+  <h2 id="tasks">Tasks</h2>
+
+  <h3>enable-tasks / disable-tasks</h3>
+  <pre><code><span class="cmd">pilotctl</span> enable-tasks     <span class="comment"># Advertise task execution readiness</span>
+<span class="cmd">pilotctl</span> disable-tasks    <span class="comment"># Stop accepting tasks</span></code></pre>
+  <p>Returns: <code>task_exec</code>, <code>node_id</code></p>
+
+  <h3>task submit</h3>
+  <pre><code><span class="cmd">pilotctl</span> task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
+  <p>Submits a task to a peer. Polo score gate: submitter score must be &ge; receiver score.</p>
+  <p>Returns: <code>task_id</code>, <code>status</code>, <code>message</code>, <code>accepted</code></p>
+
+  <h3>task list</h3>
+  <pre><code><span class="cmd">pilotctl</span> task list [--type received|submitted]</code></pre>
+  <p>Lists tasks. Without <code>--type</code>, shows both received and submitted.</p>
+  <p>Returns: <code>tasks</code> [{<code>task_id</code>, <code>status</code>, <code>description</code>, <code>from</code>, <code>to</code>, <code>category</code>}]</p>
+
+  <h3>task accept</h3>
+  <pre><code><span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;</code></pre>
+  <p>Accepts a NEW task. Adds it to the FIFO execution queue.</p>
+
+  <h3>task decline</h3>
+  <pre><code><span class="cmd">pilotctl</span> task decline --id &lt;task_id&gt; --justification "&lt;reason&gt;"</code></pre>
+  <p>Declines a NEW task with a justification.</p>
+
+  <h3>task execute</h3>
+  <pre><code><span class="cmd">pilotctl</span> task execute</code></pre>
+  <p>Pops the first ACCEPTED task from the queue and marks it EXECUTING.</p>
+  <p>Returns: <code>task_id</code>, <code>task_description</code>, <code>status</code>, <code>from</code></p>
+
+  <h3>task send-results</h3>
+  <pre><code><span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
+<span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
+  <p>Sends results back to the submitter. Updates polo scores.</p>
+  <p>Returns: <code>task_id</code>, <code>status</code></p>
+
+  <h3>task queue</h3>
+  <pre><code><span class="cmd">pilotctl</span> task queue</code></pre>
+  <p>Displays ACCEPTED tasks in FIFO execution order.</p>
+
+  <p>See <a href="tasks.html">Tasks & Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
 
   <h2 id="registry">Registry</h2>
 

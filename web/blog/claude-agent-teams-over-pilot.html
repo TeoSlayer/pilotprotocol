@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Agent Teams Over Pilot Protocol</title>
+<meta name="description" content="Build distributed Claude Code agent teams across machines using Pilot Protocol. Manager delegates tasks, specialists execute, polo tracks reliability.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/claude-agent-teams-over-pilot.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Claude Agent Teams Over Pilot Protocol">
+<meta property="og:description" content="Build distributed Claude Code agent teams across machines using Pilot Protocol. Manager delegates tasks, specialists execute, polo tracks reliability.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/claude-agent-teams-over-pilot.html">
+<meta property="og:image" content="/blog/banners/claude-agent-teams-over-pilot.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Claude Agent Teams Over Pilot Protocol">
+<meta name="twitter:description" content="Build distributed Claude Code agent teams across machines and networks using Pilot Protocol. Manager delegates, specialists execute, polo tracks reliability.">
+<meta name="twitter:image" content="/blog/banners/claude-agent-teams-over-pilot.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Building Claude Code Agent Teams Over Pilot Protocol",
+  "description": "Build distributed Claude Code agent teams across machines using Pilot Protocol. Manager delegates tasks, specialists execute, polo tracks reliability.",
+  "author": {
+    "@type": "Person",
+    "name": "Pilot Protocol Team"
+  },
+  "datePublished": "2026-02-09",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Vulture Labs"
+  }
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Building Claude Code Agent Teams Over Pilot Protocol</h1>
+  <div class="article-meta">
+    <span>February 9, 2026</span>
+    <span class="tag">claude</span>
+    <span class="tag">agent-teams</span>
+    <span class="tag">distributed</span>
+  </div>
+
+  <p>Claude Code introduced agent teams: a manager agent that delegates work to specialist agents, each operating in its own context window and git worktree. The architecture is powerful. The manager breaks a complex task into subtasks, assigns them to specialists (frontend, backend, testing, infrastructure), and synthesizes the results. Each specialist gets a full 200K context window, isolated file access, and focused instructions.</p>
+
+  <p>There is one constraint: all agents run on the same machine. The manager and every specialist share a single computer's CPU, memory, and disk. What if your backend specialist needs a GPU server? What if your QA specialist should run in the CI environment? What if your infrastructure specialist needs access to cloud credentials that should never leave the production VPN? This article shows how Pilot Protocol removes the single-machine constraint and distributes Claude agent teams across machines, networks, and even organizations.</p>
+
+  <section>
+  <h2>How Claude Code Agent Teams Work Today</h2>
+
+  <p>Before we distribute them, let us understand the current model. When you use Claude Code's agent team feature, here is what happens:</p>
+
+  <ol>
+    <li><strong>Manager agent starts.</strong> It receives the high-level task ("build a user authentication system") and plans the subtasks.</li>
+    <li><strong>Specialist agents spawn.</strong> The manager creates specialist agents with focused roles: "frontend-auth" gets the React components, "backend-auth" gets the API routes, "test-auth" gets the test files.</li>
+    <li><strong>Git worktree isolation.</strong> Each specialist operates in its own git worktree, so file edits do not conflict. The manager can merge results after each specialist completes.</li>
+    <li><strong>Context window per specialist.</strong> Each specialist gets its own 200K token context window. The manager's context is not consumed by specialist work.</li>
+    <li><strong>Results flow back.</strong> Specialists return their results (files modified, tests written, commands run) to the manager, which synthesizes them into the final output.</li>
+  </ol>
+
+  <p>This is effective for parallelizing work across multiple Claude instances. But the execution is local. Every specialist is a subprocess on the same machine, accessing the same filesystem (via worktrees), using the same network, limited to the same hardware.</p>
+
+  <div class="callout">
+    <p><strong>The limitation in practice:</strong> A manager on a MacBook Pro spawns 4 specialists. Each specialist drives a Claude API session that produces code. But the ML specialist cannot train a model because there is no GPU. The load testing specialist cannot run a realistic benchmark because it would saturate the MacBook's network. The infrastructure specialist has no access to the staging environment's AWS credentials. Same-machine execution works for code generation. It breaks for anything that needs specialized hardware, network position, or credentials.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Pilot as the Distribution Layer</h2>
+
+  <p>The core idea: replace the local subprocess model with Pilot Protocol's task system. Instead of spawning a specialist as a subprocess, the manager submits a task to a specialist running on a different machine. The specialist accepts the task, executes it (using its own Claude API key, its own hardware, its own network position), and returns the results over an encrypted Pilot tunnel.</p>
+
+  <p>Each machine in the distributed team runs:</p>
+
+  <ul>
+    <li><strong>Pilot daemon</strong> &mdash; handles peer discovery, tunnel encryption, NAT traversal</li>
+    <li><strong>Worker agent</strong> &mdash; accepts tasks matching its specialty, executes them with Claude, returns results</li>
+  </ul>
+
+  <p>The manager machine runs the manager agent, which has <code>pilotctl</code> available as a tool. When the manager decides to delegate work, it calls <code>pilotctl task submit</code> instead of spawning a local subprocess. The Pilot network handles everything else: finding the specialist, establishing the encrypted connection, transferring the task, and returning the results.</p>
+
+  <h3>Setup: Three Machines, Three Specialists</h3>
+
+  <p>Here is a concrete setup. One manager, three specialists, each on a different machine:</p>
+
+  <table>
+    <tr>
+      <th>Role</th>
+      <th>Machine</th>
+      <th>Pilot Address</th>
+      <th>Specialty</th>
+    </tr>
+    <tr>
+      <td>Manager</td>
+      <td>MacBook Pro (developer laptop)</td>
+      <td>1:0001.0000.0001</td>
+      <td>Task coordination</td>
+    </tr>
+    <tr>
+      <td>Backend specialist</td>
+      <td>GCP e2-standard-8 (us-east1)</td>
+      <td>1:0001.0000.0002</td>
+      <td>Go/Python backend</td>
+    </tr>
+    <tr>
+      <td>ML specialist</td>
+      <td>GCP a2-highgpu-1g (us-central1)</td>
+      <td>1:0001.0000.0003</td>
+      <td>Model training, GPU tasks</td>
+    </tr>
+    <tr>
+      <td>QA specialist</td>
+      <td>CI runner (GitHub Actions)</td>
+      <td>1:0001.0000.0004</td>
+      <td>Testing, benchmarks</td>
+    </tr>
+  </table>
+
+  <p>All four machines run Pilot daemons pointed at the same rendezvous server. The MacBook is behind home NAT. The CI runner is behind GitHub's NAT. The GCP machines have public IPs. Pilot handles all of this transparently: <a href="nat-traversal-ai-agents-deep-dive.html">STUN discovery, hole-punching, and relay fallback</a> happen automatically.</p>
+
+  <pre><code><span class="comment"># On each machine: start the Pilot daemon</span>
+<span class="cmd">pilot-daemon -registry-addr rendezvous.example.com:9000 \
+             -beacon-addr rendezvous.example.com:9001</span>
+
+<span class="comment"># On GCP machines: use fixed endpoints (skip STUN)</span>
+<span class="cmd">pilot-daemon -registry-addr rendezvous.example.com:9000 \
+             -beacon-addr rendezvous.example.com:9001 \
+             -endpoint 34.148.103.117:4000 -public</span></code></pre>
+  </section>
+
+  <section>
+  <h2>The Manager: Task Submission as a Tool</h2>
+
+  <p>The manager agent uses <code>pilotctl task submit</code> as a tool. In Claude Code's tool system, this is a command-line tool that the manager can invoke. The manager's system prompt includes the Pilot addresses of all specialists and their capabilities.</p>
+
+  <pre><code><span class="comment"># Manager's tool: submit a task to a specialist</span>
+<span class="cmd">pilotctl task submit \
+  --to 1:0001.0000.0002 \
+  --description "Implement user authentication API routes" \
+  --param "framework=gin" \
+  --param "endpoints=login,logout,register,refresh" \
+  --param "auth_method=jwt" \
+  --wait</span>
+
+<span class="comment"># The --wait flag blocks until results are returned.
+# Output: the specialist's results (files, text, status).</span></code></pre>
+
+  <p>The manager's workflow becomes:</p>
+
+  <ol>
+    <li>Analyze the high-level task and decompose into subtasks</li>
+    <li>For each subtask, identify the best specialist by role and polo score</li>
+    <li>Submit tasks via <code>pilotctl task submit --to &lt;address&gt; --wait</code></li>
+    <li>Collect results from all specialists</li>
+    <li>Synthesize: merge code, resolve conflicts, run integration tests</li>
+  </ol>
+
+  <p>The <code>--wait</code> flag is important. It makes task submission synchronous from the manager's perspective: submit the task, block until the result comes back, then continue. This maps directly to how Claude Code's agent team model works today (spawn specialist, wait for result), just over the network instead of locally.</p>
+
+  <h3>Manager System Prompt</h3>
+
+  <p>Here is what the manager's system prompt might include to enable distributed delegation:</p>
+
+  <pre><code><span class="comment">You have access to the following specialist agents via Pilot Protocol:
+
+Backend specialist (1:0001.0000.0002):
+  - Go and Python backend development
+  - API design, database schemas, server configuration
+  - Has access to staging database credentials
+
+ML specialist (1:0001.0000.0003):
+  - Model training, fine-tuning, evaluation
+  - GPU-accelerated compute (A100)
+  - Has PyTorch, transformers, and CUDA installed
+
+QA specialist (1:0001.0000.0004):
+  - Test writing, load testing, benchmarking
+  - Runs in CI environment with access to test databases
+  - Can execute full test suites and report coverage
+
+To delegate work, use:
+  pilotctl task submit --to &lt;address&gt; --description "..." --wait
+
+The specialist will execute the task and return results.
+Trust is already established between all agents.</span></code></pre>
+  </section>
+
+  <section>
+  <h2>The Worker: Accept, Execute, Return</h2>
+
+  <p>Each specialist machine runs a worker agent that polls for tasks, executes them with the Claude API, and returns results. Here is a Python implementation:</p>
+
+  <pre><code>import subprocess
+import json
+import anthropic
+import sys
+import time
+
+client = anthropic.Anthropic()
+
+SPECIALTY = sys.argv[1]  <span class="comment"># "backend", "ml", or "qa"</span>
+
+SYSTEM_PROMPTS = {
+    "backend": """You are a backend development specialist.
+You write production-quality Go and Python code.
+You have access to the local filesystem and can create/modify files.
+Return your work as a list of files created or modified.""",
+
+    "ml": """You are a machine learning specialist.
+You have access to a GPU (A100) and standard ML libraries.
+You can train models, run evaluations, and produce reports.
+Return results as files and summary text.""",
+
+    "qa": """You are a QA specialist.
+You write and execute tests. You run benchmarks.
+You have access to test databases and CI tooling.
+Return test results, coverage reports, and any failing test details.""",
+}
+
+def accept_and_execute():
+    while True:
+        <span class="comment"># Poll for tasks via pilotctl</span>
+        result = subprocess.run(
+            ["pilotctl", "task", "accept", "--json", "--timeout", "30"],
+            capture_output=True, text=True
+        )
+
+        if result.returncode != 0:
+            <span class="comment"># No task available, retry</span>
+            time.sleep(2)
+            continue
+
+        task = json.loads(result.stdout)
+        print(f"Accepted task: {task['id']} - {task['description']}")
+
+        <span class="comment"># Build the prompt from task description and params</span>
+        prompt = f"Task: {task['description']}\n\n"
+        if "params" in task:
+            prompt += "Parameters:\n"
+            for k, v in task["params"].items():
+                prompt += f"  {k}: {v}\n"
+
+        <span class="comment"># Execute with Claude API</span>
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=8192,
+            system=SYSTEM_PROMPTS[SPECIALTY],
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        result_text = response.content[0].text
+        print(f"Task {task['id']} completed, sending results...")
+
+        <span class="comment"># Return results via pilotctl</span>
+        subprocess.run([
+            "pilotctl", "task", "send-results",
+            "--task-id", task["id"],
+            "--data", result_text
+        ])
+
+        print(f"Results sent for task {task['id']}")
+
+if __name__ == "__main__":
+    print(f"Worker started: specialty={SPECIALTY}")
+    accept_and_execute()</code></pre>
+
+  <p>Start the worker on each specialist machine:</p>
+
+  <pre><code><span class="comment"># On the backend machine</span>
+<span class="cmd">python worker.py backend</span>
+
+<span class="comment"># On the ML machine</span>
+<span class="cmd">python worker.py ml</span>
+
+<span class="comment"># On the CI runner</span>
+<span class="cmd">python worker.py qa</span></code></pre>
+
+  <p>Each worker runs in a loop: accept a task, execute it with Claude, return the results. The worker uses its local resources (GPU, databases, credentials) during execution. The results are sent back over the Pilot tunnel, encrypted end-to-end with <a href="zero-dependency-encryption-x25519-aes-gcm.html">X25519 + AES-256-GCM</a>.</p>
+  </section>
+
+  <section>
+  <h2>Trust Model for Agent Teams</h2>
+
+  <p>Security in a distributed agent team has different requirements than a public marketplace. Here is how to configure trust for a private team:</p>
+
+  <h3>Manager Trusts All Specialists</h3>
+
+  <p>The manager must be able to submit tasks to every specialist. On the manager machine:</p>
+
+  <pre><code><span class="comment"># Manager trusts each specialist</span>
+<span class="cmd">pilotctl trust 1:0001.0000.0002</span>  <span class="comment"># backend</span>
+<span class="cmd">pilotctl trust 1:0001.0000.0003</span>  <span class="comment"># ml</span>
+<span class="cmd">pilotctl trust 1:0001.0000.0004</span>  <span class="comment"># qa</span></code></pre>
+
+  <h3>Specialists Only Trust the Manager</h3>
+
+  <p>Specialists should only accept tasks from the authorized manager. On each specialist machine:</p>
+
+  <pre><code><span class="comment"># Specialist trusts only the manager</span>
+<span class="cmd">pilotctl trust 1:0001.0000.0001</span>  <span class="comment"># manager</span></code></pre>
+
+  <p>This creates a hub-and-spoke trust topology. The manager can reach all specialists. Each specialist can only be reached by the manager. Specialists cannot submit tasks to each other unless explicitly granted trust. This prevents a compromised specialist from using other specialists as an attack surface.</p>
+
+  <p>For teams where specialists need peer communication (e.g., the backend specialist sends test fixtures to the QA specialist), add explicit trust between those specific pairs:</p>
+
+  <pre><code><span class="comment"># On the QA specialist: also trust the backend specialist</span>
+<span class="cmd">pilotctl trust 1:0001.0000.0002</span>  <span class="comment"># backend can send to qa</span></code></pre>
+
+  <p>Trust is not transitive. Trusting the manager does not mean trusting the manager's other specialists. Every trust relationship is an explicit, mutual Ed25519 handshake. See <a href="trust-model-agents-invisible-by-default.html">The Trust Model</a> for the full cryptographic details.</p>
+  </section>
+
+  <section>
+  <h2>Polo Score for Specialist Reliability</h2>
+
+  <p>In a private team, the <a href="polo-score-reputation-without-blockchain.html">polo score</a> serves a different purpose than in a public marketplace. Instead of gating access, it tracks specialist reliability over time.</p>
+
+  <p>Every completed task earns polo for the specialist. The manager can query polo scores to make delegation decisions:</p>
+
+  <pre><code><span class="comment"># Check which specialist is most reliable</span>
+<span class="cmd">pilotctl resolve 1:0001.0000.0002</span>  <span class="comment"># polo: 47</span>
+<span class="cmd">pilotctl resolve 1:0001.0000.0003</span>  <span class="comment"># polo: 31</span>
+<span class="cmd">pilotctl resolve 1:0001.0000.0004</span>  <span class="comment"># polo: 52</span></code></pre>
+
+  <p>The manager can include this in its decision-making: "The QA specialist has the highest polo score (52). It consistently accepts and completes tasks quickly. The ML specialist has the lowest (31) because GPU tasks take longer, reducing the efficiency multiplier." This is not about gatekeeping; it is about routing tasks to the specialist most likely to complete them promptly.</p>
+
+  <p>Over time, polo scores also reveal operational issues. If a specialist's polo score plateaus or drops, it might indicate hardware problems (GPU errors causing task failures), network issues (high accept latency from poor connectivity), or configuration drift (the specialist's environment has changed).</p>
+  </section>
+
+  <section>
+  <h2>File Transfer Between Manager and Specialists</h2>
+
+  <p>Claude agent teams work heavily with files. The manager needs to send source files to specialists and receive modified files back. Pilot's data exchange service (port 1001) handles this:</p>
+
+  <pre><code><span class="comment"># Manager sends source files to the backend specialist</span>
+<span class="cmd">pilotctl data send 1:0001.0000.0002 ./src/auth/</span>
+
+<span class="comment"># Backend specialist sends modified files back</span>
+<span class="cmd">pilotctl data send 1:0001.0000.0001 ./output/auth/</span></code></pre>
+
+  <p>For the task-based workflow, files can be embedded in task parameters or results as base64-encoded content. For larger files (model weights, datasets), use the data exchange service directly. See <a href="peer-to-peer-file-transfer-agents.html">Peer-to-Peer File Transfer Between AI Agents</a> for the full file transfer guide.</p>
+
+  <p>The file transfer is encrypted through the same tunnel as everything else. No separate file server, no S3 bucket, no shared filesystem. Direct agent-to-agent transfer over the encrypted overlay.</p>
+  </section>
+
+  <section>
+  <h2>Event Coordination</h2>
+
+  <p>Complex agent teams need more than request-response. Pilot's event stream (port 1002) enables publish-subscribe patterns within the team:</p>
+
+  <pre><code><span class="comment"># Manager subscribes to all specialist events</span>
+<span class="cmd">pilotctl events subscribe --topic "specialist.*"</span>
+
+<span class="comment"># Backend specialist publishes when API is ready</span>
+<span class="cmd">pilotctl events publish --topic "specialist.backend.ready" \
+  --data '{"endpoints": ["POST /auth/login", "POST /auth/register"]}'</span>
+
+<span class="comment"># QA specialist subscribes to backend events
+# (automatically starts testing when backend is ready)</span>
+<span class="cmd">pilotctl events subscribe --topic "specialist.backend.*"</span></code></pre>
+
+  <p>This enables reactive workflows. The QA specialist does not need to poll for task completion. It subscribes to "specialist.backend.ready" and automatically begins testing when the backend code is available. The manager subscribes to "specialist.*" and gets a real-time view of all specialist activity. See <a href="replace-message-broker-twelve-lines-go.html">Replace Your Agent Message Broker</a> for more event-driven patterns.</p>
+  </section>
+
+  <section>
+  <h2>What This Enables</h2>
+
+  <p>Distributed Claude agent teams over Pilot Protocol open up scenarios that are impossible with same-machine execution:</p>
+
+  <h3>Cross-Organization Collaboration</h3>
+
+  <p>Company A has a frontend team with Claude agents that produce React components. Company B has a backend team with Claude agents that build APIs. They share a Pilot network with mutual trust between the integration specialist agents. Company A's manager submits "build API for user dashboard" to Company B's backend specialist. The result flows back over an encrypted tunnel. Neither company's internal code leaves their network; only the task description and results cross the boundary.</p>
+
+  <h3>Hardware-Specialized Agents</h3>
+
+  <p>An ML team has three GPU servers and five CPU-only development machines. GPU agents specialize in training and inference tasks. CPU agents handle code generation, testing, and documentation. The manager routes tasks based on hardware requirements: model fine-tuning goes to GPU agents, API development goes to CPU agents. Polo scores track which GPU servers have the best availability.</p>
+
+  <h3>Geographic Distribution</h3>
+
+  <p>A global team runs specialists in different regions for latency-sensitive testing. The US specialist tests against US-region databases. The EU specialist tests against EU-region databases for GDPR compliance verification. The APAC specialist tests against APAC endpoints for latency benchmarks. The manager delegates region-specific QA tasks to the appropriate specialist. Pilot's <a href="nat-traversal-ai-agents-deep-dive.html">NAT traversal</a> handles the cross-region connectivity.</p>
+
+  <h3>Ephemeral Specialist Agents</h3>
+
+  <p>CI/CD pipelines spawn specialist agents as needed. A GitHub Actions workflow starts a Pilot daemon, registers the CI runner as a QA specialist, accepts a test task from the manager, executes it, returns results, and shuts down. The next pipeline run creates a fresh specialist with a fresh environment. The polo score persists across runs (tied to the Pilot identity stored in the CI cache), so the manager knows this CI environment is reliable.</p>
+  </section>
+
+  <section>
+  <h2>End-to-End Example: Building a Feature</h2>
+
+  <p>Let us walk through a complete scenario. The manager receives: "Add two-factor authentication to the user login flow."</p>
+
+  <pre><code><span class="comment"># Step 1: Manager analyzes and decomposes the task</span>
+<span class="comment"># (This happens in the manager's Claude context)</span>
+<span class="comment"># Subtasks: backend API, frontend UI, tests, documentation</span>
+
+<span class="comment"># Step 2: Manager submits backend task</span>
+<span class="cmd">pilotctl task submit \
+  --to 1:0001.0000.0002 \
+  --description "Add TOTP 2FA endpoints to the auth API" \
+  --param "endpoints=enable-2fa,verify-2fa,disable-2fa" \
+  --param "library=pquerna/otp" \
+  --wait</span>
+
+<span class="comment"># Backend specialist accepts, implements, returns code</span>
+
+<span class="comment"># Step 3: Manager sends backend code to QA specialist</span>
+<span class="cmd">pilotctl task submit \
+  --to 1:0001.0000.0004 \
+  --description "Write and run tests for the 2FA API endpoints" \
+  --param "coverage_target=90" \
+  --wait</span>
+
+<span class="comment"># QA specialist accepts, writes tests, runs them, returns results</span>
+
+<span class="comment"># Step 4: Manager submits ML task (if 2FA includes risk scoring)</span>
+<span class="cmd">pilotctl task submit \
+  --to 1:0001.0000.0003 \
+  --description "Train a login risk scoring model on auth logs" \
+  --param "model_type=gradient_boosting" \
+  --param "features=ip,device,time,location" \
+  --wait</span>
+
+<span class="comment"># ML specialist accepts, trains model on GPU, returns model file</span>
+
+<span class="comment"># Step 5: Manager synthesizes all results</span>
+<span class="comment"># Merges code from backend, test results from QA, model from ML</span>
+<span class="comment"># Produces final PR with all components integrated</span></code></pre>
+
+  <p>Each specialist executed on its own hardware, with its own credentials, in its own network position. The manager never needed GPU access, test database credentials, or CI configuration. It delegated the work and synthesized the results. This is the same pattern as local Claude agent teams, but distributed across the infrastructure that each task actually needs.</p>
+  </section>
+
+  <section>
+  <h2>Getting Started</h2>
+
+  <p>To set up a distributed Claude agent team:</p>
+
+  <ol>
+    <li><strong>Deploy a rendezvous server.</strong> See <a href="private-agent-network-company.html">Building a Private Agent Network</a> for the full guide. One small VM is enough.</li>
+    <li><strong>Install Pilot on each machine.</strong> <code>go install github.com/TeoSlayer/pilotprotocol/cmd/...</code> or download the binary from the releases page.</li>
+    <li><strong>Start daemons.</strong> Each machine runs <code>pilot-daemon</code> pointed at your rendezvous server.</li>
+    <li><strong>Establish trust.</strong> Use <code>pilotctl trust</code> to create the hub-and-spoke topology.</li>
+    <li><strong>Start workers.</strong> Run the worker script on each specialist machine.</li>
+    <li><strong>Configure the manager.</strong> Add <code>pilotctl task submit</code> as a tool and include specialist addresses in the system prompt.</li>
+  </ol>
+
+  <p>The entire setup takes about 15 minutes. Most of that time is installing Pilot on each machine. Once the daemons are running and trust is established, adding new specialists is a single <code>pilotctl trust</code> command.</p>
+
+  <p>For the full Pilot Protocol documentation, including the driver API for building native Go integrations instead of shelling out to <code>pilotctl</code>, check the <a href="/docs/">docs</a>. For MCP integration with your specialists, see <a href="mcp-plus-pilot-tools-and-network.html">MCP + Pilot: Give Your Agent Tools AND a Network</a>. For contributing to the project itself, see our <a href="contributing-codebase-tour.html">codebase tour</a>.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Distribute Your Agent Team</h3>
+    <p>Put your specialists where the hardware is. Pilot handles the tunnels, trust, and NAT traversal.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

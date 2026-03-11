@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HTTP Services Over an Encrypted Agent Overlay</title>
+<meta name="description" content="Run standard Go HTTP servers over Pilot Protocol's encrypted overlay. Gateway exposes agent services as local IPs. Build a REST API mesh with automatic encryption and NAT traversal.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/http-services-over-encrypted-overlay.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="HTTP Services Over an Encrypted Agent Overlay">
+<meta property="og:description" content="Run standard Go HTTP servers over Pilot Protocol's encrypted overlay. Gateway exposes agent services as local IPs. Build a REST API mesh with automatic encryption and NAT traversal.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/http-services-over-encrypted-overlay.html">
+<meta property="og:image" content="/blog/banners/http-services-over-encrypted-overlay.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="HTTP Services Over an Encrypted Agent Overlay">
+<meta name="twitter:description" content="Run standard Go HTTP servers over Pilot Protocol's encrypted overlay. Gateway bridges agent services to local IPs.">
+<meta name="twitter:image" content="/blog/banners/http-services-over-encrypted-overlay.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Run HTTP Services Over an Encrypted Agent Overlay",
+  "description": "Run standard Go HTTP servers over Pilot Protocol's encrypted overlay. Gateway exposes agent services as local IPs. Build a REST API mesh with automatic encryption and NAT traversal.",
+  "author": {
+    "@type": "Person",
+    "name": "Pilot Protocol Team"
+  },
+  "datePublished": "2026-02-15",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Vulture Labs"
+  }
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Run HTTP Services Over an Encrypted Agent Overlay</h1>
+  <div class="article-meta">
+    <span>February 15, 2026</span>
+    <span class="tag">tutorial</span>
+    <span class="tag">http</span>
+    <span class="tag">gateway</span>
+  </div>
+
+  <p>Every HTTP library in every language works with TCP sockets. Pilot Protocol speaks UDP. You might assume these are incompatible. They are not. Pilot's driver implements <code>net.Conn</code>, which means Go's <code>net/http</code> server and client work over Pilot connections without modification. You write a normal HTTP handler, listen on a Pilot port, and the bytes travel over an encrypted UDP tunnel through NAT. Standard <code>curl</code> and <code>fetch()</code> calls work through the gateway.</p>
+
+  <p>This tutorial builds from a single HTTP endpoint to a three-service REST API mesh running entirely over the encrypted overlay. By the end, you will have agents exposing HTTP services that any standard client can consume, with <strong>zero TLS configuration</strong> on your part.</p>
+
+  <section>
+  <h2>A 15-Line HTTP Server on Pilot</h2>
+
+  <p>Here is a complete HTTP server that runs on Pilot port 80. Fifteen lines of application logic.</p>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+
+    <span class="comment">// Listen on Pilot port 80</span>
+    ln, err := d.Listen(80)
+    if err != nil {
+        panic(err)
+    }
+    defer ln.Close()
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]any{
+            "status":  "healthy",
+            "agent":   d.Address().String(),
+            "version": "1.0.0",
+        })
+    })
+
+    mux.HandleFunc("/api/echo", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        var body map[string]any
+        json.NewDecoder(r.Body).Decode(&body)
+        json.NewEncoder(w).Encode(body)
+    })
+
+    fmt.Printf("HTTP server listening on pilot port 80 (%s)\n", d.Address())
+    http.Serve(ln, mux)
+}</code></pre>
+
+  <p>The key line is <code>d.Listen(80)</code>. This returns a <code>net.Listener</code> that accepts connections on Pilot virtual port 80. The listener is backed by the Pilot daemon's connection infrastructure -- the same encrypted tunnel, the same NAT traversal, the same trust model. But to <code>http.Serve</code>, it looks like any other listener.</p>
+
+  <div class="callout">
+    <p><strong>Why port 80?</strong> Pilot's virtual port space is separate from the OS port space. Port 80 on Pilot does not conflict with port 80 on your machine. It is a convention: port 80 for HTTP, port 443 for secure HTTP, just like real TCP. See the <a href="/docs/">port assignment documentation</a> for the full list.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Accessing the Service from Another Agent</h2>
+
+  <p>Agent B wants to call Agent A's <code>/api/status</code> endpoint. It uses the driver to dial the connection and then wraps it in a standard HTTP client.</p>
+
+  <pre><code>package main
+
+import (
+    "bufio"
+    "fmt"
+    "io"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+
+    <span class="comment">// Dial Agent A's address on port 80</span>
+    conn, err := d.DialAddr("1:0001.0002.0003", 80)
+    if err != nil {
+        panic(err)
+    }
+    defer conn.Close()
+
+    <span class="comment">// Send a standard HTTP request over the Pilot connection</span>
+    req, _ := http.NewRequest("GET", "http://agent-a/api/status", nil)
+    req.Write(conn)
+
+    <span class="comment">// Read the standard HTTP response</span>
+    resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Printf("Status: %d\nBody: %s\n", resp.StatusCode, body)
+}</code></pre>
+
+  <p>The HTTP request and response travel over the encrypted Pilot tunnel. Agent B does not need Agent A's IP address, does not need to open firewall ports, and does not need TLS certificates. The Pilot address (<code>1:0001.0002.0003</code>) is the only identifier needed.</p>
+
+  <h3>Using net/http.Client Directly</h3>
+
+  <p>For a more ergonomic approach, you can create an <code>http.Transport</code> that dials through Pilot:</p>
+
+  <pre><code>package main
+
+import (
+    "fmt"
+    "io"
+    "net"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    d, _ := driver.Connect()
+
+    <span class="comment">// Custom transport that dials through Pilot</span>
+    transport := &http.Transport{
+        DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+            <span class="comment">// addr is "hostname:port" - resolve hostname via registry</span>
+            host, _, _ := net.SplitHostPort(addr)
+            resolved, err := d.Resolve(host)
+            if err != nil {
+                return nil, err
+            }
+            return d.DialAddr(resolved, 80)
+        },
+    }
+
+    client := &http.Client{Transport: transport}
+
+    <span class="comment">// Now use standard HTTP client methods</span>
+    resp, err := client.Get("http://agent-a/api/status")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Printf("%s\n", body)
+}</code></pre>
+
+  <p>With this transport, you can use <code>client.Get()</code>, <code>client.Post()</code>, and all the standard HTTP client methods. The hostname in the URL is resolved through the Pilot registry, and the connection goes through the encrypted tunnel. Existing code that accepts an <code>*http.Client</code> works without any changes.</p>
+  </section>
+
+  <section>
+  <h2>Gateway: Bridge to Standard HTTP Clients</h2>
+
+  <p>The Go driver approach works for agent-to-agent communication. But what about external tools -- <code>curl</code>, Postman, a Python <code>requests</code> call, or a browser? The Pilot gateway bridges the overlay network to your local machine.</p>
+
+  <h3>Starting the Gateway</h3>
+
+  <pre><code><span class="comment"># Map Agent A's address to a local IP and expose port 80</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0003</span>
+
+<span class="comment"># The gateway assigns a loopback alias (e.g., 10.4.0.1)</span>
+<span class="comment"># Output: Gateway active: 1:0001.0002.0003 -> 10.4.0.1:80</span></code></pre>
+
+  <p>The gateway does three things:</p>
+
+  <ol>
+    <li><strong>Adds a loopback alias:</strong> On macOS, <code>ifconfig lo0 alias 10.4.0.1</code>. On Linux, <code>ip addr add 10.4.0.1/32 dev lo</code>.</li>
+    <li><strong>Listens on the local IP:</strong> TCP port 80 on 10.4.0.1.</li>
+    <li><strong>Bridges to Pilot:</strong> Incoming TCP connections are forwarded over the encrypted Pilot tunnel to the agent's port 80. Responses come back the same way.</li>
+  </ol>
+
+  <p>Now any standard HTTP client works:</p>
+
+  <pre><code><span class="comment"># curl works</span>
+<span class="cmd">curl http://10.4.0.1/api/status</span>
+{"status":"healthy","agent":"1:0001.0002.0003","version":"1.0.0"}
+
+<span class="comment"># Python requests works</span>
+<span class="cmd">python3 -c "import requests; print(requests.get('http://10.4.0.1/api/status').json())"</span>
+
+<span class="comment"># Even browsers work (navigate to http://10.4.0.1/api/status)</span></code></pre>
+
+  <div class="callout">
+    <p><strong>No TLS needed on the client side.</strong> The gateway accepts plain HTTP on the local loopback. The traffic is encrypted at the Pilot tunnel layer (AES-256-GCM) before it leaves your machine. The client does not need certificates, and there is no certificate hostname mismatch to deal with.</p>
+  </div>
+
+  <h3>Multiple Agents, Multiple Local IPs</h3>
+
+  <p>You can map multiple agents simultaneously. Each gets its own local IP:</p>
+
+  <pre><code><span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0003</span>  <span class="comment"># -> 10.4.0.1</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0004</span>  <span class="comment"># -> 10.4.0.2</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0005</span>  <span class="comment"># -> 10.4.0.3</span>
+
+<span class="comment"># List active gateway mappings</span>
+<span class="cmd">pilotctl gateway list</span>
+ADDRESS              LOCAL IP      PORTS
+1:0001.0002.0003     10.4.0.1      80
+1:0001.0002.0004     10.4.0.2      80
+1:0001.0002.0005     10.4.0.3      80</code></pre>
+  </section>
+
+  <section>
+  <h2>Build a REST API Mesh</h2>
+
+  <p>Now for the real use case. Three agents running microservices: Users, Orders, and Inventory. Each exposes a REST API on Pilot port 80. The gateway makes them all accessible as local services.</p>
+
+  <h3>Agent 1: Users Service</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type User struct {
+    ID    string `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+var users = map[string]User{
+    "u1": {ID: "u1", Name: "Alice", Email: "alice@example.com"},
+    "u2": {ID: "u2", Name: "Bob", Email: "bob@example.com"},
+}
+
+func main() {
+    d, _ := driver.Connect()
+    ln, _ := d.Listen(80)
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
+        id := r.URL.Path[len("/api/users/"):]
+        w.Header().Set("Content-Type", "application/json")
+        if user, ok := users[id]; ok {
+            json.NewEncoder(w).Encode(user)
+        } else {
+            w.WriteHeader(404)
+            json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+        }
+    })
+
+    mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        all := make([]User, 0, len(users))
+        for _, u := range users {
+            all = append(all, u)
+        }
+        json.NewEncoder(w).Encode(all)
+    })
+
+    http.Serve(ln, mux)
+}</code></pre>
+
+  <h3>Agent 2: Orders Service</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type Order struct {
+    ID     string  `json:"id"`
+    UserID string  `json:"user_id"`
+    Item   string  `json:"item"`
+    Total  float64 `json:"total"`
+    Status string  `json:"status"`
+}
+
+var orders = []Order{
+    {ID: "o1", UserID: "u1", Item: "GPU Cluster Hours", Total: 250.00, Status: "completed"},
+    {ID: "o2", UserID: "u2", Item: "Dataset License", Total: 75.00, Status: "pending"},
+    {ID: "o3", UserID: "u1", Item: "Model Training Run", Total: 1200.00, Status: "active"},
+}
+
+func main() {
+    d, _ := driver.Connect()
+    ln, _ := d.Listen(80)
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("/api/orders", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        userID := r.URL.Query().Get("user_id")
+        if userID == "" {
+            json.NewEncoder(w).Encode(orders)
+            return
+        }
+        var filtered []Order
+        for _, o := range orders {
+            if o.UserID == userID {
+                filtered = append(filtered, o)
+            }
+        }
+        json.NewEncoder(w).Encode(filtered)
+    })
+
+    http.Serve(ln, mux)
+}</code></pre>
+
+  <h3>Agent 3: Inventory Service</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type InventoryItem struct {
+    SKU       string `json:"sku"`
+    Name      string `json:"name"`
+    Available int    `json:"available"`
+}
+
+var inventory = []InventoryItem{
+    {SKU: "gpu-a100", Name: "GPU Cluster Hours (A100)", Available: 48},
+    {SKU: "dataset-01", Name: "ImageNet License", Available: 999},
+    {SKU: "train-spot", Name: "Spot Training Instance", Available: 12},
+}
+
+func main() {
+    d, _ := driver.Connect()
+    ln, _ := d.Listen(80)
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("/api/inventory", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(inventory)
+    })
+
+    mux.HandleFunc("/api/inventory/check", func(w http.ResponseWriter, r *http.Request) {
+        sku := r.URL.Query().Get("sku")
+        w.Header().Set("Content-Type", "application/json")
+        for _, item := range inventory {
+            if item.SKU == sku {
+                json.NewEncoder(w).Encode(map[string]any{
+                    "sku":       item.SKU,
+                    "available": item.Available > 0,
+                    "count":     item.Available,
+                })
+                return
+            }
+        }
+        w.WriteHeader(404)
+        json.NewEncoder(w).Encode(map[string]string{"error": "sku not found"})
+    })
+
+    http.Serve(ln, mux)
+}</code></pre>
+
+  <h3>Accessing the Mesh via Gateway</h3>
+
+  <p>Start gateway mappings for all three agents:</p>
+
+  <pre><code><span class="comment"># Map each service to a local IP</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0001</span>  <span class="comment"># Users  -> 10.4.0.1</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0002</span>  <span class="comment"># Orders -> 10.4.0.2</span>
+<span class="cmd">pilotctl gateway start --ports 80 1:0001.0002.0003</span>  <span class="comment"># Inventory -> 10.4.0.3</span></code></pre>
+
+  <p>Now query the services with standard HTTP tools:</p>
+
+  <pre><code><span class="comment"># Get all users</span>
+<span class="cmd">curl http://10.4.0.1/api/users</span>
+[{"id":"u1","name":"Alice","email":"alice@example.com"},{"id":"u2","name":"Bob","email":"bob@example.com"}]
+
+<span class="comment"># Get orders for user u1</span>
+<span class="cmd">curl "http://10.4.0.2/api/orders?user_id=u1"</span>
+[{"id":"o1","user_id":"u1","item":"GPU Cluster Hours","total":250,"status":"completed"},{"id":"o3","user_id":"u1","item":"Model Training Run","total":1200,"status":"active"}]
+
+<span class="comment"># Check inventory for a SKU</span>
+<span class="cmd">curl "http://10.4.0.3/api/inventory/check?sku=gpu-a100"</span>
+{"sku":"gpu-a100","available":true,"count":48}</code></pre>
+
+  <p>These are standard HTTP requests to local IP addresses. The encryption, NAT traversal, and peer authentication all happen transparently at the Pilot tunnel layer. Your Python script, your JavaScript frontend, your Go microservice -- they all use their native HTTP clients unchanged.</p>
+
+  <h3>Service-to-Service Calls</h3>
+
+  <p>The services can also call each other. The Orders service can look up user details by dialing the Users service through Pilot:</p>
+
+  <pre><code><span class="comment">// Inside the Orders service: enrich order with user details</span>
+func enrichOrder(d *driver.Driver, order Order) map[string]any {
+    conn, _ := d.DialAddr("1:0001.0002.0001", 80) <span class="comment">// Users service</span>
+    defer conn.Close()
+
+    req, _ := http.NewRequest("GET",
+        fmt.Sprintf("http://users/api/users/%s", order.UserID), nil)
+    req.Write(conn)
+
+    resp, _ := http.ReadResponse(bufio.NewReader(conn), req)
+    defer resp.Body.Close()
+
+    var user User
+    json.NewDecoder(resp.Body).Decode(&user)
+
+    return map[string]any{
+        "order": order,
+        "user":  user,
+    }
+}</code></pre>
+
+  <p>The mesh works the same way whether all three agents are on the same machine, on different machines in the same datacenter, or on different continents behind different NATs. The code does not change.</p>
+  </section>
+
+  <section>
+  <h2>Port 443: Double Encryption</h2>
+
+  <p>Pilot port 80 uses the tunnel's AES-256-GCM encryption. Port 443 adds a second layer: a per-connection X25519 key exchange followed by AES-256-GCM encryption on the connection itself. This is <strong>double encryption</strong> -- the tunnel encrypts the outer packet, and the connection encrypts the inner payload.</p>
+
+  <h3>Why Double Encryption?</h3>
+
+  <p>The tunnel encryption key is shared across all connections between two daemons. If an attacker compromises the tunnel key, they can read all connections. Port 443's per-connection encryption means each connection has its own key derived from a fresh X25519 exchange. Compromising one connection does not affect others.</p>
+
+  <p>This is the same defense-in-depth approach as running TLS inside a VPN tunnel. It protects against key compromise at any single layer.</p>
+
+  <h3>Setting Up a Secure HTTP Service</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+
+    <span class="comment">// Listen on secure port 443</span>
+    <span class="comment">// The driver automatically performs X25519 key exchange</span>
+    <span class="comment">// for each incoming connection</span>
+    ln, err := d.ListenSecure(443)
+    if err != nil {
+        panic(err)
+    }
+    defer ln.Close()
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("/api/secrets", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "message": "This payload is double-encrypted",
+            "tunnel":  "AES-256-GCM (shared tunnel key)",
+            "conn":    "AES-256-GCM (per-connection X25519 key)",
+        })
+    })
+
+    fmt.Printf("Secure HTTP server on pilot port 443 (%s)\n", d.Address())
+    http.Serve(ln, mux)
+}</code></pre>
+
+  <p>The client side uses <code>DialSecure</code> instead of <code>DialAddr</code>:</p>
+
+  <pre><code><span class="comment">// Client: connect to secure port</span>
+conn, err := d.DialSecure("1:0001.0002.0003", 443)
+if err != nil {
+    panic(err)
+}
+defer conn.Close()
+
+<span class="comment">// Standard HTTP over the double-encrypted connection</span>
+req, _ := http.NewRequest("GET", "http://agent/api/secrets", nil)
+req.Write(conn)
+resp, _ := http.ReadResponse(bufio.NewReader(conn), req)</code></pre>
+
+  <p>The gateway also supports secure ports:</p>
+
+  <pre><code><span class="comment"># Gateway with secure port mapping</span>
+<span class="cmd">pilotctl gateway start --ports 443 --secure 1:0001.0002.0003</span>
+
+<span class="comment"># Access via curl (still plain HTTP on the local side)</span>
+<span class="cmd">curl http://10.4.0.1:443/api/secrets</span></code></pre>
+
+  <p>Note that the gateway terminates the Pilot encryption and serves plain HTTP locally. The double encryption protects the data in transit between agents. The local loopback segment is unencrypted, which is standard practice (your local loopback is trusted).</p>
+  </section>
+
+  <section>
+  <h2>Why This Matters</h2>
+
+  <p>The HTTP ecosystem is enormous. Decades of tools, libraries, frameworks, middleware, and monitoring solutions all speak HTTP. By making Pilot connections compatible with <code>net.Conn</code>, every one of these tools works over the encrypted overlay without modification.</p>
+
+  <ul>
+    <li><strong>Go:</strong> <code>net/http</code>, Gin, Chi, Echo -- all work. Pass the Pilot listener to your framework's <code>Serve</code> method.</li>
+    <li><strong>Gateway clients:</strong> Python <code>requests</code>, JavaScript <code>fetch</code>, Rust <code>reqwest</code>, Java <code>HttpClient</code> -- all work through the gateway. They see a local IP.</li>
+    <li><strong>Monitoring:</strong> Prometheus can scrape <code>http://10.4.0.1/metrics</code>. Grafana dashboards work unchanged.</li>
+    <li><strong>Load testing:</strong> <code>wrk</code>, <code>hey</code>, <code>k6</code> -- point them at the gateway IP.</li>
+  </ul>
+
+  <p>The encryption is automatic. The NAT traversal is automatic. The peer authentication is automatic. You write HTTP handlers and they just work, whether your agents are on the same LAN or on different continents behind symmetric NAT.</p>
+
+  <p>For the performance characteristics of HTTP over Pilot versus direct HTTP, see the <a href="benchmarking-http-vs-udp-overlay.html">benchmark comparison</a>. For event-driven alternatives to REST, see <a href="replace-message-broker-twelve-lines-go.html">the event stream tutorial</a>. For the full API reference, check the <a href="/docs/">documentation</a>.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Run HTTP Over Pilot</h3>
+    <p>Standard HTTP servers, encrypted transport, zero TLS configuration. Try it with your existing HTTP code.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

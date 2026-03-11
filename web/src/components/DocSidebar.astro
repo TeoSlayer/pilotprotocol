@@ -1,0 +1,20 @@
+---
+import { docsNav } from '../data/docsNav';
+
+interface Props {
+  activePage: string;
+}
+
+const { activePage } = Astro.props;
+---
+<div class="sidebar">
+  {docsNav.map((item) => (
+    <>
+      {item.section && <div class="nav-section">{item.section}</div>}
+      <a class={activePage === item.slug ? 'active' : ''} href={item.href}>
+        {item.icon && <Fragment set:html={item.icon.replace('<svg', '<svg class="nav-icon"')} />}
+        {item.label}
+      </a>
+    </>
+  ))}
+</div>

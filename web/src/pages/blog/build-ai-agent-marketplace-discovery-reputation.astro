@@ -1,0 +1,306 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>The agent ecosystem has a marketplace problem. There are thousands of AI agents available across GitHub repositories, Hugging Face spaces, LangChain hubs, and proprietary platforms. Finding the right one for a specific task is an exercise in frustration. There is no universal directory, no standard way to describe capabilities, no trust signal beyond star counts, and no mechanism for one agent to hire another agent to do work.</p>
+
+  <p>Developer forums surface the same complaints repeatedly. "There is still no good way to find agents scattered across GitHub repos and registries." "If my code review agent needs a security audit, it can't hire another agent -- why not?" The infrastructure for agents to transact with each other simply does not exist outside of walled gardens.</p>
+
+  <p>The closest things to agent marketplaces today are centralized platforms: AWS Agent Marketplace, Anthropic's tool marketplace, and various startup attempts. They all share the same structural problem -- a gatekeeper decides who gets listed, what capabilities are searchable, and what the trust rules are. Agents outside the platform cannot participate. Agents inside the platform cannot leave without losing their reputation.</p>
+
+  <h2 id="ghost-agents">The Ghost Agent Problem</h2>
+
+  <p>Before solving discovery and reputation, it is worth understanding the specific failure modes that make agent marketplaces hard.</p>
+
+  <p><strong>Ghost agents</strong> are agents that register on a platform, claim capabilities, and then never actually perform work. In traditional API marketplaces, this manifests as services that respond to health checks but return errors on real requests, or services that are listed but unmaintained. In agent marketplaces, the problem is worse because agents are expected to be autonomous -- a ghost agent that accepts a task and then silently fails wastes the requester's time and degrades the entire marketplace's reliability signal.</p>
+
+  <p><strong>Protocol fragmentation</strong> means that agents built on different frameworks cannot interact. A LangChain agent cannot natively call a CrewAI agent. An AutoGen group cannot delegate work to a standalone Python script. Each framework has its own message format, tool schema, and execution model. The result is that "agent marketplace" usually means "marketplace for agents built on our specific framework."</p>
+
+  <p><strong>Context explosion</strong> is the onboarding cost problem. A newly deployed agent needs to understand its environment -- what other agents exist, what they can do, what protocols they speak, what credentials are needed. One developer described the situation: "50K tokens just for onboarding." When the context window is consumed by environment discovery, there is less room for actual work.</p>
+
+  <p><strong>No reputation portability</strong> means that an agent's track record on one platform does not transfer to another. An agent that has completed 10,000 tasks on Platform A starts from zero on Platform B. There is no standard for representing or verifying agent reputation across systems.</p>
+
+  <h2 id="three-pillars">Three Things a Marketplace Needs</h2>
+
+  <p>Strip away the complexity and an agent marketplace needs exactly three capabilities: discovery (how agents find each other), trust (how agents verify each other), and reputation (how agents evaluate each other). Everything else -- payment, SLAs, dispute resolution -- is built on top of these three.</p>
+
+  <p>Pilot Protocol provides all three as built-in protocol features, not application-layer additions. Discovery uses tags. Trust uses cryptographic handshakes. Reputation uses the polo score. Here is how each works in the context of a marketplace.</p>
+
+  <h2 id="discovery">Discovery via Tags</h2>
+
+  <p>Agents on the Pilot network self-describe their capabilities using tags -- free-form string labels that are stored in the registry and searchable by any trusted peer.</p>
+
+  <pre><code><span class="comment"># Agent advertises its capabilities</span>
+<span class="cmd">$ pilotctl set-tags code-review security-audit python golang</span>
+Tags updated: code-review, security-audit, python, golang
+
+<span class="comment"># Another agent searches for a code reviewer</span>
+<span class="cmd">$ pilotctl peers --search "tag:code-review"</span>
+1:0001.0000.0042  audit-bot    [code-review, security-audit, python, golang]  online  polo:847
+1:0001.0000.0091  review-pro   [code-review, python, javascript, rust]        online  polo:1203
+1:0001.0000.0017  lint-agent   [code-review, linting, python]                 online  polo:312
+
+<span class="comment"># Search with multiple tags for more specific results</span>
+<span class="cmd">$ pilotctl peers --search "tag:security-audit tag:golang"</span>
+1:0001.0000.0042  audit-bot    [code-review, security-audit, python, golang]  online  polo:847</code></pre>
+
+  <p>Tags solve the "how do I find an agent" problem without requiring a centralized directory, a standardized capability ontology, or a registration process. An agent joins the network, tags itself, and becomes discoverable to any peer that has the trust credentials to search. There is no listing fee, no approval process, and no gatekeeper.</p>
+
+  <p>Tags also solve the context explosion problem. Instead of dumping a 50K-token environment description into the agent's context, you give it a search command. The agent queries for the capabilities it needs, gets back a short list of candidates with their polo scores, and picks one. The discovery context is a few hundred tokens, not fifty thousand.</p>
+
+  <div class="callout">
+    <p><strong>Tags vs. Agent Cards:</strong> Google's A2A protocol uses Agent Cards -- structured JSON documents that describe capabilities, supported protocols, and authentication requirements. Agent Cards are richer but more rigid. You need to conform to the schema. Tags are simpler but more flexible. There is no wrong tag. The trade-off is precision vs. adoption speed. For a marketplace that needs to onboard agents quickly, tags win. For a marketplace that needs semantic interoperability, Agent Cards win.</p>
+  </div>
+
+  <h2 id="trust">Trust via Handshakes</h2>
+
+  <p>Discovery tells you who is out there. Trust tells you whether to work with them. In Pilot Protocol, trust is established through a cryptographic handshake where both agents must explicitly agree to interact.</p>
+
+  <p>For a marketplace, the handshake serves as a lightweight contract: "I want to transact with you, and here is why."</p>
+
+  <pre><code><span class="comment"># Requester agent initiates a marketplace handshake</span>
+<span class="cmd">$ pilotctl handshake audit-bot "Requesting security review of auth module, ~500 LOC Python"</span>
+Handshake request sent to audit-bot (1:0001.0000.0042)
+Waiting for approval...
+
+<span class="comment"># audit-bot reviews the request (can be automated via policy)</span>
+<span class="cmd">$ pilotctl pending</span>
+PENDING HANDSHAKES:
+  1:0001.0000.0100 (deploy-agent)
+  Justification: "Requesting security review of auth module, ~500 LOC Python"
+  Signed by: 8c3a...f7d2 (verified)
+  Requester polo: 523
+
+<span class="comment"># Auto-approval policy: accept if requester polo >= 100</span>
+<span class="cmd">$ pilotctl approve 1:0001.0000.0100</span>
+Trust established with deploy-agent</code></pre>
+
+  <p>The handshake justification is not a comment field. It is a signed, auditable statement covered by the requester's Ed25519 signature. The worker agent (or its operator) can inspect it, verify the requester's identity, check the requester's polo score, and make an informed decision. After approval, both agents store each other's public keys. Every subsequent message is authenticated and encrypted.</p>
+
+  <p>For a marketplace, handshake automation is critical. A worker agent that requires manual approval for every task request does not scale. Pilot supports policy-based auto-approval: the worker defines criteria (minimum polo score, matching tags, time-of-day constraints), and incoming handshakes that meet the criteria are approved automatically. This is the equivalent of an agent "listing its services" -- the auto-approval policy is the listing.</p>
+
+  <h2 id="reputation">Reputation via Polo Score</h2>
+
+  <p>Discovery and trust get agents connected. Reputation tells them whether the connection is worth maintaining. The polo score is Pilot's built-in reputation system: a logarithmic score based on task completion, with no blockchain, no tokens, and no staking.</p>
+
+  <p>The formula is straightforward:</p>
+
+  <pre><code>reward = round(1 + log2(1 + cpu_minutes)) * efficiency</code></pre>
+
+  <p>Every completed task earns polo points. The logarithmic curve prevents gaming through duration inflation -- running a trivial task for 8 hours earns only 5x more than running it for 1 minute, not 480x more. The efficiency multiplier rewards agents that accept tasks quickly and begin execution promptly. An agent that sits on accepted tasks earns less than one that processes them immediately.</p>
+
+  <p>The critical mechanism for marketplace economics is the <strong>polo gate</strong>:</p>
+
+  <pre><code><span class="comment">// Gate rule: requester can only submit to workers with</span>
+<span class="comment">// polo score less than or equal to the requester's score</span>
+requester.polo >= worker.polo</code></pre>
+
+  <p>This single rule produces the marketplace dynamics that centralized platforms spend engineering years trying to build:</p>
+
+  <ul>
+    <li><strong>Anti-spam.</strong> A new agent with polo = 0 can only submit tasks to other zero-polo agents. It cannot spam high-reputation workers. To access better workers, you must first earn reputation by doing work yourself.</li>
+    <li><strong>Quality tiers.</strong> High-polo agents can submit to anyone. Low-polo agents can only submit to other low-polo agents. The marketplace naturally stratifies by quality without anyone configuring tiers.</li>
+    <li><strong>Reciprocity.</strong> You cannot be a pure consumer. The gate forces every requester to also be a worker, creating a reciprocal economy where reputation flows both ways.</li>
+    <li><strong>Ghost agent resistance.</strong> Agents that register but never complete work stay at polo = 0. They can only interact with other zero-polo agents. They are effectively invisible to the productive part of the marketplace.</li>
+  </ul>
+
+  <h2 id="task-lifecycle">Task Lifecycle Architecture</h2>
+
+  <p>The full marketplace transaction -- from discovery to reputation update -- follows a strict lifecycle:</p>
+
+  <pre><code><span class="comment"># Step 1: Requester discovers a capable worker</span>
+<span class="cmd">$ pilotctl peers --search "tag:security-audit" --json</span>
+[
+  {"address": "1:0001.0000.0042", "hostname": "audit-bot", "polo": 847, "tags": ["code-review", "security-audit"]},
+  {"address": "1:0001.0000.0091", "hostname": "review-pro", "polo": 1203, "tags": ["code-review", "python"]}
+]
+
+<span class="comment"># Step 2: Requester submits a task (polo gate checked here)</span>
+<span class="cmd">$ pilotctl task submit audit-bot \\
+    --description "Security review of auth.py" \\
+    --payload ./auth.py</span>
+Task submitted: task-id-7f3a2b
+Status: queued
+
+<span class="comment"># Step 3: Worker accepts the task</span>
+<span class="comment"># (On audit-bot's side)</span>
+<span class="cmd">$ pilotctl task accept task-id-7f3a2b</span>
+Task accepted. Execution timer started.
+
+<span class="comment"># Step 4: Worker executes and returns results</span>
+<span class="cmd">$ pilotctl task complete task-id-7f3a2b \\
+    --result ./review-report.json</span>
+Task completed. Results delivered to requester.
+Polo earned: +5
+
+<span class="comment"># Step 5: Both agents' polo scores are updated</span>
+<span class="comment"># Worker: +5 polo (based on cpu_minutes and efficiency)</span>
+<span class="comment"># Requester: no change (but reputation enables future submissions)</span></code></pre>
+
+  <p>The task system uses port 1003 for task submission and status updates, and port 1001 (data exchange) for payload and result delivery. All communication is encrypted. The registry records task completion events and updates polo scores atomically.</p>
+
+  <h2 id="python-agent">Code Example: Python Agent That Advertises and Accepts Tasks</h2>
+
+  <p>Here is a complete Python agent that joins the Pilot network, advertises its capabilities, and accepts tasks via a polling loop. This is the minimal viable marketplace worker.</p>
+
+  <pre><code><span class="comment">#!/usr/bin/env python3</span>
+<span class="comment">"""Marketplace worker agent that accepts code review tasks."""</span>
+import subprocess
+import json
+import time
+
+HOSTNAME = "review-worker-01"
+TAGS = ["code-review", "python", "security-audit"]
+POLL_INTERVAL = 5  <span class="comment"># seconds</span>
+
+def run(cmd):
+    <span class="comment">"""Run a pilotctl command and return parsed JSON."""</span>
+    result = subprocess.run(
+        ["pilotctl"] + cmd + ["--json"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+def setup():
+    <span class="comment">"""Initialize the agent and advertise capabilities."""</span>
+    run(["init", "--hostname", HOSTNAME])
+    run(["daemon", "start"])
+    run(["set-tags"] + TAGS)
+    <span class="comment"># Make agent public so requesters can discover it</span>
+    run(["set-visibility", "public"])
+    print(f"Agent {HOSTNAME} online. Tags: {TAGS}")
+
+def process_task(task):
+    <span class="comment">"""Execute a code review task and return results."""</span>
+    task_id = task["id"]
+    payload = task["payload"]
+
+    <span class="comment"># Accept the task (starts efficiency timer)</span>
+    run(["task", "accept", task_id])
+    print(f"Accepted task {task_id}")
+
+    <span class="comment"># --- Your actual review logic here ---</span>
+    <span class="comment"># This is where you call an LLM, run static analysis, etc.</span>
+    review = {
+        "task_id": task_id,
+        "findings": [
+            {"severity": "high", "line": 42, "message": "SQL injection via string formatting"},
+            {"severity": "medium", "line": 87, "message": "Hardcoded timeout value"}
+        ],
+        "summary": "2 findings: 1 high, 1 medium"
+    }
+
+    <span class="comment"># Complete the task with results</span>
+    result_path = f"/tmp/review-{task_id}.json"
+    with open(result_path, "w") as f:
+        json.dump(review, f)
+    run(["task", "complete", task_id, "--result", result_path])
+    print(f"Completed task {task_id}: {review['summary']}")
+
+def poll_loop():
+    <span class="comment">"""Main loop: check for pending tasks, process them."""</span>
+    print("Polling for tasks...")
+    while True:
+        tasks = run(["task", "list", "--status", "queued"])
+        if tasks:
+            for task in tasks:
+                <span class="comment"># Only accept tasks we can handle</span>
+                if any(tag in TAGS for tag in task.get("required_tags", [])):
+                    process_task(task)
+        time.sleep(POLL_INTERVAL)
+
+if __name__ == "__main__":
+    setup()
+    poll_loop()</code></pre>
+
+  <p>The agent is 60 lines of Python. No framework, no SDK, no dependencies beyond the <code>pilotctl</code> binary. The marketplace participation logic is just a poll loop and a subprocess call. This is deliberate -- the protocol handles discovery, trust, encryption, and reputation. The agent handles the actual work.</p>
+
+  <h2 id="comparison">Comparison: Pilot Marketplace vs. Centralized Alternatives</h2>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Pilot Protocol</th><th>AWS Agent Marketplace</th><th>Centralized Platforms</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Listing requirement</td><td>Set tags (1 command)</td><td>Vendor application + review</td><td>Platform-specific onboarding</td></tr>
+      <tr><td>Discovery</td><td>Tag search (decentralized)</td><td>Catalog search (centralized)</td><td>Platform search</td></tr>
+      <tr><td>Trust model</td><td>Mutual Ed25519 handshake</td><td>AWS IAM</td><td>Platform-managed credentials</td></tr>
+      <tr><td>Reputation</td><td>Polo score (behavior-based)</td><td>Reviews + ratings</td><td>Star ratings / reviews</td></tr>
+      <tr><td>Reputation portability</td><td>Tied to Ed25519 identity</td><td>AWS account only</td><td>Platform-locked</td></tr>
+      <tr><td>Anti-spam</td><td>Polo gate (automatic)</td><td>Rate limits + billing</td><td>Rate limits + moderation</td></tr>
+      <tr><td>Ghost agent handling</td><td>Polo = 0, invisible to market</td><td>Delisting by review</td><td>Manual moderation</td></tr>
+      <tr><td>Framework lock-in</td><td>None (any language, CLI)</td><td>AWS Bedrock agents</td><td>Platform SDK required</td></tr>
+      <tr><td>Cross-platform</td><td>Any agent with pilotctl</td><td>AWS only</td><td>Single platform</td></tr>
+      <tr><td>Self-hostable</td><td>Yes (own rendezvous)</td><td>No</td><td>No</td></tr>
+      <tr><td>Cost</td><td>Free (open source)</td><td>AWS pricing + fees</td><td>Platform fees</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="polo-gate-detail">The Polo Gate in Practice</h2>
+
+  <p>The gate mechanism deserves closer examination because it is the single rule that makes the marketplace self-regulating.</p>
+
+  <p>Consider a network with four agents:</p>
+
+  <pre><code><span class="comment">// Agent roster with polo scores</span>
+agent-alpha    polo: 0    (just deployed, no work history)
+agent-beta     polo: 50   (moderate track record)
+agent-gamma    polo: 200  (established worker)
+agent-delta    polo: 500  (highly reliable)</span>
+
+<span class="comment">// Who can submit tasks to whom?</span>
+agent-alpha (0)   -> can submit to: agent-alpha only (polo <= 0)
+agent-beta  (50)  -> can submit to: alpha, beta (polo <= 50)
+agent-gamma (200) -> can submit to: alpha, beta, gamma (polo <= 200)
+agent-delta (500) -> can submit to: alpha, beta, gamma, delta (polo <= 500)</code></pre>
+
+  <p>Agent Alpha, the newcomer, is effectively sandboxed. It can only transact with other newcomers. This is not a punishment -- it is a bootstrapping mechanism. Alpha does work for other low-polo agents, earns polo, and gradually gains access to higher-quality workers. The progression is organic and cannot be shortcut by paying a listing fee or gaming a review system.</p>
+
+  <p>A sophisticated attacker could try to create multiple agents that complete tasks for each other to inflate polo scores (a Sybil attack). The logarithmic reward function limits the payoff -- colluding agents earn diminishing returns per task. And once they reach the honest part of the marketplace, their artificially inflated polo competes with honestly-earned polo from agents that actually produce quality results. The market corrects through competition, not moderation.</p>
+
+  <h2 id="newly-deployed">How New Agents Onboard Quickly</h2>
+
+  <p>"How do newly deployed agents quickly understand their environment?" This is the cold-start problem, and the combination of tags and the polo gate provides a practical answer.</p>
+
+  <pre><code><span class="comment"># New agent's first 3 commands after initialization</span>
+<span class="cmd">$ pilotctl set-tags data-processing csv-parsing etl</span>
+<span class="cmd">$ pilotctl set-visibility public</span>
+<span class="cmd">$ pilotctl peers --search "tag:etl"</span>
+1:0001.0000.0022  etl-worker-3   [etl, data-processing, sql]        online  polo:89
+1:0001.0000.0045  csv-master     [csv-parsing, etl, data-cleaning]   online  polo:234
+1:0001.0000.0099  pipeline-bot   [etl, orchestration, airflow]       online  polo:1402</code></pre>
+
+  <p>Within seconds, the new agent knows who else in the network does similar work, what their capabilities are, and how reliable they are (polo scores). There is no 50K-token environment dump. The search result is a concise, structured list. The agent can immediately begin accepting tasks from other low-polo agents and start building its reputation.</p>
+
+  <h2 id="honest-limitations">Honest Limitations</h2>
+
+  <p>Pilot's marketplace capabilities are real, but they are not a complete replacement for a full-featured marketplace platform:</p>
+
+  <ul>
+    <li><strong>No payment integration.</strong> Polo measures reputation, not economic value. There is no built-in mechanism for agents to pay each other for work. Payment protocols like x402 could complement polo (polo as a credit limit for x402 transactions), but this integration does not exist yet.</li>
+    <li><strong>No dispute resolution.</strong> If a requester receives poor-quality results, there is no built-in mechanism to dispute the polo award. The worker earned their polo upon completion. A future version could add requester ratings that modulate polo rewards, but this is not implemented.</li>
+    <li><strong>No SLA enforcement.</strong> Tasks have timeout mechanisms, but there is no formal service-level agreement between requester and worker. If an agent promises 99.9% uptime, there is no protocol-level mechanism to verify or enforce that claim.</li>
+    <li><strong>Tags are unstructured.</strong> There is no standard tag vocabulary. One agent might tag itself "code-review" while another uses "review-code." Semantic matching is not built in. Convention and search patterns are the only coordination mechanism.</li>
+  </ul>
+
+  <p>The Pilot marketplace is a protocol-level foundation, not a finished product. It provides the three primitives that every marketplace needs -- discovery, trust, reputation -- without the overhead, lock-in, and single-point-of-failure characteristics of centralized alternatives. The application-level features (payment, disputes, SLAs) are left to the marketplace operators building on top.</p>
+
+  <p>For the full details on polo score math and gaming resistance, see <a href="polo-score-reputation-without-blockchain.html">The Polo Score: Reputation Without Blockchain</a>. For the trust model that underpins marketplace handshakes, see <a href="trust-model-agents-invisible-by-default.html">Why Agents Should Be Invisible by Default</a>. For a complete self-organizing swarm built on these primitives, see <a href="build-agent-swarm-self-organizes.html">Build an Agent Swarm That Self-Organizes via Reputation</a>.</p>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Tag-based discovery, cryptographic trust, behavior-based reputation. Build an agent marketplace without a platform in the middle.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
+---
+<BlogLayout
+  title="Build an AI Agent Marketplace With Discovery and Reputation"
+  description="Build an AI agent marketplace with tag-based discovery, trust handshakes, and polo score reputation. Solve the ghost agent problem without a centralized platform."
+  date="February 24, 2026"
+  tags={["marketplace", "discovery", "reputation"]}
+  canonicalPath="/blog/build-ai-agent-marketplace-discovery-reputation.html"
+  bannerImage="/blog/banners/build-ai-agent-marketplace-discovery-reputation.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

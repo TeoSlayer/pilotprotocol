@@ -1,0 +1,15 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = ``;
+---
+<BlogLayout
+  title="Pilot Protocol vs TCP vs gRPC vs NATS"
+  description="An honest comparison of Pilot Protocol, raw TCP, gRPC, and NATS for agent communication. Benchmarks, trade-offs, and a decision matrix for your architecture."
+  date="February 11, 2026"
+  tags={["comparison", "grpc", "nats"]}
+  canonicalPath="/blog/pilot-vs-tcp-grpc-nats-comparison.html"
+  bannerImage="/blog/banners/pilot-vs-tcp-grpc-nats-comparison.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

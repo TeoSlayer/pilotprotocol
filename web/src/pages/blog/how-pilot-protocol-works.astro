@@ -1,0 +1,343 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>Every modern agent framework makes the same assumption: your agent has a reachable HTTP endpoint. Google's A2A protocol publishes Agent Cards with URLs. Anthropic's MCP connects to servers over stdio or HTTP. LangChain agents call APIs. The entire ecosystem is built on the premise that agents can reach each other via IP addresses and domain names.</p>
+
+  <p>The problem is that most of them cannot.</p>
+
+  <p><strong>88% of networks involve NAT.</strong> An agent running on a developer's laptop, behind a corporate firewall, inside a Docker container, or on a mobile device has no publicly routable address. It cannot receive incoming connections. It cannot be listed in a service registry. It is invisible to every other agent in the world.</p>
+
+  <p>Pilot Protocol is the layer that fixes this. It is a <strong>UDP overlay network</strong> that gives every AI agent a permanent virtual address, encrypted tunnels through NAT, and a cryptographic trust model -- all in a single binary with zero dependencies.</p>
+
+  <p>This post walks through the full architecture: how addresses work, what packets look like on the wire, how NAT traversal happens across three tiers, how encryption is negotiated, how trust is established, and what services run on top of the network.</p>
+
+  <h2 id="problem">The Problem: Agents Behind NAT Cannot Talk</h2>
+
+  <p>Consider a simple scenario: you have two AI agents. Agent Alice is running on your laptop in San Francisco. Agent Bob is running on a colleague's workstation in Berlin. You want them to collaborate on a task -- Alice generates a plan, Bob executes it, and they coordinate results.</p>
+
+  <p>With HTTP, this is nearly impossible without infrastructure. Alice's laptop is behind a home router performing NAT. Bob's workstation is behind a corporate firewall. Neither has a public IP address. Neither can accept incoming connections.</p>
+
+  <p>The standard solutions all add operational overhead:</p>
+
+  <ul>
+    <li><strong>Cloud relay</strong> -- route everything through a centralized server. Works, but adds latency, cost, and a single point of failure.</li>
+    <li><strong>VPN</strong> -- tunnel both agents into a shared network. Requires infrastructure, configuration, and ongoing maintenance.</li>
+    <li><strong>Port forwarding</strong> -- manually configure routers on both sides. Fragile, requires access to network hardware, breaks when IPs change.</li>
+    <li><strong>ngrok/Cloudflare Tunnel</strong> -- expose local services through reverse proxies. Each agent needs its own tunnel configuration.</li>
+  </ul>
+
+  <p>All of these solutions treat agent communication as a deployment problem. Pilot Protocol treats it as a <strong>networking problem</strong> and solves it at the protocol layer.</p>
+
+  <h2 id="addressing">Addressing: 48-Bit Virtual Addresses</h2>
+
+  <p>Every agent on the Pilot Protocol network receives a <strong>48-bit virtual address</strong>. This address is permanent -- it does not change when the agent moves between networks, when its IP address changes, or when it reconnects after going offline.</p>
+
+  <p>The address is composed of two parts:</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Size</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Network ID</td><td>16 bits</td><td>Identifies which network the agent belongs to</td></tr>
+      <tr><td>Node ID</td><td>32 bits</td><td>Unique identifier assigned by the registry</td></tr>
+    </tbody>
+  </table>
+
+  <p>The text format uses colon-separated hex: <code>N:NNNN.HHHH.LLLL</code></p>
+
+  <p>For example, <code>0:0000.0000.0001</code> is node 1 on network 0 (the global backbone). The 16-bit network prefix supports up to 65,535 distinct networks, and within each network, the 32-bit node space supports over 4 billion agents.</p>
+
+  <h3>Why Not IP Addresses?</h3>
+
+  <p>IP addresses identify <strong>network interfaces</strong>, not agents. When an agent moves from Wi-Fi to cellular, its IP changes. When it restarts behind a different NAT, its port changes. When it migrates between cloud regions, everything changes.</p>
+
+  <p>Pilot addresses identify <strong>agents</strong>. An agent's address is derived from its registration with the network's rendezvous server. It persists across restarts, network changes, and migrations. Other agents can always reach it at the same address, regardless of where it physically runs.</p>
+
+  <p>Agents can also register <strong>hostnames</strong> -- human-readable names like <code>alice</code> or <code>data-processor</code>. The protocol's built-in nameserver resolves hostnames to addresses, so you can <code>pilotctl ping alice</code> instead of remembering hex addresses.</p>
+
+  <div class="callout">
+    <p><strong>Design choice:</strong> 48 bits was intentional. It is large enough for global-scale networks but small enough to fit in a fixed-size packet header without variable-length encoding. The 16-bit network prefix enables network isolation -- agents on different networks cannot see each other, even on the same physical infrastructure.</p>
+  </div>
+
+  <h2 id="packet">The Packet: 34-Byte Fixed Header</h2>
+
+  <p>Every Pilot Protocol packet carries a <strong>34-byte fixed header</strong>. No variable-length fields, no options, no extensions. This makes parsing trivial and fast -- a single struct read in Go.</p>
+
+  <table>
+    <thead>
+      <tr><th>Offset</th><th>Field</th><th>Size</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Version</td><td>1 byte</td><td>Protocol version (currently 1)</td></tr>
+      <tr><td>1</td><td>Flags</td><td>1 byte</td><td>SYN, ACK, FIN, RST, PSH, URG</td></tr>
+      <tr><td>2</td><td>Protocol</td><td>1 byte</td><td>Upper-layer protocol identifier</td></tr>
+      <tr><td>3</td><td>SrcAddr</td><td>6 bytes</td><td>Source virtual address (48-bit)</td></tr>
+      <tr><td>9</td><td>DstAddr</td><td>6 bytes</td><td>Destination virtual address (48-bit)</td></tr>
+      <tr><td>15</td><td>SrcPort</td><td>2 bytes</td><td>Source port number</td></tr>
+      <tr><td>17</td><td>DstPort</td><td>2 bytes</td><td>Destination port number</td></tr>
+      <tr><td>19</td><td>SeqNum</td><td>4 bytes</td><td>Sequence number for ordering</td></tr>
+      <tr><td>23</td><td>AckNum</td><td>4 bytes</td><td>Acknowledgment number</td></tr>
+      <tr><td>27</td><td>Window</td><td>2 bytes</td><td>Advertised receive window (flow control)</td></tr>
+      <tr><td>29</td><td>Length</td><td>2 bytes</td><td>Payload length in bytes</td></tr>
+      <tr><td>31</td><td>Checksum</td><td>4 bytes</td><td>CRC32 over header + payload</td></tr>
+    </tbody>
+  </table>
+
+  <p>Here is what a SYN packet looks like on the wire, sent from <code>0:0000.0000.0001</code> port 1000 to <code>0:0000.0000.0002</code> port 7 (echo service):</p>
+
+  <pre><code><span class="comment"># Pilot Protocol SYN packet (34 bytes, no payload)</span>
+<span class="comment"># Offset  Hex                                     ASCII</span>
+00000000  <span class="cmd">01</span> <span class="cmd">02</span> <span class="cmd">00</span>                                <span class="comment">  Version=1 Flags=SYN Proto=0</span>
+00000003  <span class="cmd">00 00 00 00 00 01</span>                        <span class="comment">  SrcAddr=0:0000.0000.0001</span>
+00000009  <span class="cmd">00 00 00 00 00 02</span>                        <span class="comment">  DstAddr=0:0000.0000.0002</span>
+0000000F  <span class="cmd">03 E8</span>                                    <span class="comment">  SrcPort=1000</span>
+00000011  <span class="cmd">00 07</span>                                    <span class="comment">  DstPort=7 (echo)</span>
+00000013  <span class="cmd">00 00 00 01</span>                              <span class="comment">  SeqNum=1</span>
+00000017  <span class="cmd">00 00 00 00</span>                              <span class="comment">  AckNum=0</span>
+0000001B  <span class="cmd">FF FF</span>                                    <span class="comment">  Window=65535</span>
+0000001D  <span class="cmd">00 00</span>                                    <span class="comment">  Length=0 (no payload)</span>
+0000001F  <span class="cmd">A3 B2 C1 D0</span>                              <span class="comment">  Checksum (CRC32)</span></code></pre>
+
+  <p>The fixed header design means that every Pilot node -- from a Raspberry Pi to a cloud VM -- can parse packets with the same code, at the same speed. There is no negotiation, no capability exchange, no handshake to determine header format.</p>
+
+  <h3>Connection Lifecycle</h3>
+
+  <p>Connections follow a TCP-like lifecycle: <strong>SYN, SYN-ACK, ACK</strong> for setup, data exchange with sequence numbers and acknowledgments, and <strong>FIN</strong> for graceful teardown. The transport layer provides:</p>
+
+  <ul>
+    <li><strong>Sliding window</strong> with configurable size for reliability</li>
+    <li><strong>Congestion control</strong> using AIMD (Additive Increase / Multiplicative Decrease)</li>
+    <li><strong>Flow control</strong> via the 2-byte Window field -- receivers advertise available buffer space</li>
+    <li><strong>Nagle algorithm</strong> to coalesce small writes into larger packets</li>
+    <li><strong>Auto segmentation</strong> for payloads larger than the MTU</li>
+    <li><strong>Zero-window probing</strong> to prevent deadlock when the receiver is full</li>
+    <li><strong>Keepalive probes</strong> every 30 seconds, with 120-second idle timeout</li>
+  </ul>
+
+  <p>This gives application-layer code a reliable, ordered byte stream -- identical to what <code>net.Conn</code> provides in Go. In fact, Pilot connections implement the <code>net.Conn</code> interface directly, which means standard Go HTTP servers and clients work unmodified over Pilot tunnels.</p>
+
+  <h2 id="nat">NAT Traversal: Three Tiers</h2>
+
+  <p>NAT traversal is the hardest part of any peer-to-peer system. Pilot Protocol solves it with a <strong>three-tier approach</strong> that handles every NAT type, from simple full-cone NATs to the most restrictive symmetric NATs.</p>
+
+  <p>The key component is the <strong>beacon</strong> -- a lightweight server that runs alongside the rendezvous registry on a public IP. The beacon serves three functions: STUN discovery, hole-punch coordination, and relay fallback.</p>
+
+  <h3>Tier 1: STUN Discovery</h3>
+
+  <p>When an agent starts, the first thing it does is discover its own public endpoint. It sends a STUN-like request to the beacon, which reflects back the source IP and port as seen from the public internet.</p>
+
+  <pre><code><span class="comment"># Agent sends UDP packet to beacon</span>
+<span class="cmd">Agent</span> --[UDP]--> <span class="cmd">Beacon (public IP)</span>
+
+<span class="comment"># Beacon reads source address from UDP header</span>
+<span class="comment"># and sends it back as the response payload</span>
+<span class="cmd">Beacon</span> --[UDP]--> <span class="cmd">Agent: "your public endpoint is 203.0.113.42:54321"</span></code></pre>
+
+  <p>The agent now knows its public IP:port mapping. It registers this endpoint with the rendezvous server. Other agents can look up this endpoint and attempt direct connections.</p>
+
+  <p>If the agent is behind a <strong>full-cone NAT</strong>, this endpoint is valid for all peers. Direct UDP packets to this address will be forwarded to the agent. STUN discovery is all that is needed.</p>
+
+  <div class="callout">
+    <p><strong>Implementation detail:</strong> STUN discovery uses a temporary UDP socket, which is closed before the tunnel binds the same port. This avoids a race condition where the STUN response and tunnel data compete for the same socket.</p>
+  </div>
+
+  <h3>Tier 2: Hole-Punching</h3>
+
+  <p>For <strong>restricted-cone</strong> and <strong>port-restricted cone NATs</strong>, the STUN-discovered endpoint only works if the agent has already sent a packet to the connecting peer. The NAT will drop incoming packets from unknown sources.</p>
+
+  <p>Pilot solves this with <strong>beacon-coordinated hole-punching</strong>:</p>
+
+  <ol>
+    <li>Agent A wants to connect to Agent B</li>
+    <li>Agent A sends a <code>MsgPunchRequest</code> to the beacon, naming Agent B as the target</li>
+    <li>The beacon sends a <code>MsgPunchCommand</code> to <strong>both</strong> agents simultaneously</li>
+    <li>Both agents send UDP packets to each other's STUN-discovered endpoints at the same time</li>
+    <li>The outgoing packets "punch holes" in both NATs, and the incoming packets now have matching entries</li>
+    <li>Direct communication is established</li>
+  </ol>
+
+  <p>The timing is critical -- both sides must send nearly simultaneously for the holes to overlap. The beacon coordinates this by sending the punch commands in the same event loop iteration.</p>
+
+  <h3>Tier 3: Relay Fallback</h3>
+
+  <p><strong>Symmetric NATs</strong> assign a different external port for every destination. The STUN-discovered endpoint is only valid for the beacon, not for other peers. Hole-punching fails because each side sees a different port.</p>
+
+  <p>For these cases, Pilot falls back to <strong>relay mode</strong>. The beacon acts as a packet relay, wrapping and forwarding traffic between agents:</p>
+
+  <pre><code><span class="comment"># MsgRelay format: [0x05][senderNodeID(4)][destNodeID(4)][payload...]</span>
+<span class="cmd">Agent A</span> --[relay]--> <span class="cmd">Beacon</span> --[relay]--> <span class="cmd">Agent B</span></code></pre>
+
+  <p>Relay mode is detected automatically. When an agent sends a <code>DialConnection</code>, it first attempts <strong>3 direct retries</strong>. If those fail, it automatically switches to relay mode and attempts <strong>3 relay retries</strong> through the beacon. The application layer never knows the difference -- it gets the same <code>net.Conn</code> interface either way.</p>
+
+  <p>The tradeoff is latency: relay adds one extra hop through the beacon. But it guarantees connectivity for agents behind the most restrictive NATs, including carriers that use CGNAT (Carrier-Grade NAT) for mobile networks.</p>
+
+  <h2 id="tunnel">The Tunnel Layer</h2>
+
+  <p>All Pilot packets travel inside <strong>tunnel frames</strong>. A tunnel frame wraps a Pilot packet with metadata for the UDP transport layer:</p>
+
+  <pre><code><span class="comment"># Tunnel frame format</span>
+<span class="cmd">50 49 4C 54</span>    <span class="comment"># Magic bytes: "PILT" (Pilot Tunnel)</span>
+<span class="cmd">XX XX</span>          <span class="comment"># Frame length (2 bytes)</span>
+<span class="cmd">[pilot packet]</span> <span class="comment"># 34-byte header + payload</span></code></pre>
+
+  <p>The magic bytes serve as a frame delimiter. When reading from a UDP socket, the tunnel layer scans for <code>0x50494C54</code> ("PILT") to identify valid frames and discard noise. This makes the protocol robust against packet corruption and injection attempts.</p>
+
+  <p>Each agent maintains a single UDP socket for all tunnel traffic. Multiplexing happens at the Pilot layer -- the virtual source and destination addresses in the packet header determine which connection a packet belongs to. This means an agent can maintain thousands of connections to different peers over a single UDP port.</p>
+
+  <h2 id="encryption">Encryption: X25519 + AES-256-GCM</h2>
+
+  <p>Pilot Protocol encrypts all traffic by default. There is no unencrypted mode for production use. The encryption system uses <strong>X25519 for key exchange</strong> and <strong>AES-256-GCM for packet encryption</strong>, implemented entirely with Go's standard library -- zero external dependencies.</p>
+
+  <h3>Key Exchange</h3>
+
+  <p>When two agents establish a tunnel, they perform an X25519 Diffie-Hellman key exchange:</p>
+
+  <ol>
+    <li>Each side generates an ephemeral X25519 key pair</li>
+    <li>Public keys are exchanged using <code>PILK</code> frames (magic bytes <code>0x50494C4B</code>)</li>
+    <li>Both sides compute the shared secret using their private key and the peer's public key</li>
+    <li>The shared secret is used to derive the AES-256-GCM encryption key</li>
+  </ol>
+
+  <pre><code><span class="comment"># Key exchange frame</span>
+<span class="cmd">50 49 4C 4B</span>    <span class="comment"># Magic bytes: "PILK" (Pilot Key exchange)</span>
+<span class="cmd">[32 bytes]</span>     <span class="comment"># X25519 public key</span></code></pre>
+
+  <h3>Packet Encryption</h3>
+
+  <p>Once the shared key is established, all subsequent tunnel frames use <code>PILS</code> framing (magic bytes <code>0x50494C53</code> -- "Pilot Secure") instead of plain <code>PILT</code>:</p>
+
+  <pre><code><span class="comment"># Encrypted frame</span>
+<span class="cmd">50 49 4C 53</span>    <span class="comment"># Magic bytes: "PILS" (Pilot Secure)</span>
+<span class="cmd">[12 bytes]</span>     <span class="comment"># Nonce (random prefix + counter)</span>
+<span class="cmd">[N bytes]</span>      <span class="comment"># AES-256-GCM ciphertext + 16-byte auth tag</span></code></pre>
+
+  <p>AES-256-GCM provides both <strong>confidentiality</strong> (encryption) and <strong>integrity</strong> (authentication). If a single bit is modified in transit, the GCM authentication tag will fail and the packet is discarded.</p>
+
+  <h3>Replay Prevention</h3>
+
+  <p>Each secure connection uses a <strong>random nonce prefix</strong> that is unique per peer pair. The nonce is constructed as: <code>[4-byte random prefix][8-byte counter]</code>. The random prefix ensures that even if two connections use the same counter value, they produce different nonces. The counter is incremented for every packet, preventing replay attacks.</p>
+
+  <h3>Authentication Frames</h3>
+
+  <p>The fourth magic byte variant is <code>PILA</code> (<code>0x50494C41</code> -- "Pilot Authentication"), used during the initial handshake to verify agent identity using Ed25519 signatures before the encrypted channel is established.</p>
+
+  <h2 id="trust">Trust Model: Invisible by Default</h2>
+
+  <p>Most agent frameworks treat discovery as a solved problem. A2A publishes Agent Cards to well-known URLs. MCP servers are configured by the client. The assumption is that agents <strong>want</strong> to be found.</p>
+
+  <p>Pilot Protocol takes the opposite approach: <strong>agents are invisible by default</strong>.</p>
+
+  <p>When a new agent joins the network, it is registered with the rendezvous server but marked as <strong>private</strong>. This means:</p>
+
+  <ul>
+    <li><strong>Lookup</strong> (finding an agent by hostname) only returns public agents</li>
+    <li><strong>Resolve</strong> (getting an agent's endpoint for connection) requires a mutual trust relationship</li>
+    <li><strong>Enumeration</strong> of the backbone network is blocked -- you cannot list all agents</li>
+  </ul>
+
+  <h3>The Handshake</h3>
+
+  <p>To establish trust, agents perform a <strong>mutual handshake</strong> using Ed25519 digital signatures:</p>
+
+  <ol>
+    <li>Agent A initiates a handshake to Agent B, including a <strong>justification</strong> message (why they want to connect)</li>
+    <li>The handshake request is signed with Agent A's Ed25519 private key</li>
+    <li>The request is relayed through the rendezvous server (since B might not be directly reachable yet)</li>
+    <li>Agent B receives the request, verifies the signature, and decides whether to approve</li>
+    <li>If approved, Agent B signs an approval response and sends it back</li>
+    <li>Both agents now have a mutual trust pair -- they can resolve each other's endpoints and establish tunnels</li>
+  </ol>
+
+  <pre><code><span class="comment"># Initiate a handshake</span>
+<span class="cmd">$ pilotctl handshake bob "I need access to your data processing service"</span>
+
+<span class="comment"># On Bob's side: approve the request</span>
+<span class="cmd">$ pilotctl approve 0:0000.0000.0003</span></code></pre>
+
+  <p>Agents can also configure <strong>auto-approval rules</strong> -- for example, automatically trusting any agent that provides a specific justification pattern, or auto-approving all agents on the same network.</p>
+
+  <h3>Revocation</h3>
+
+  <p>Trust can be revoked instantly with <code>pilotctl untrust</code>. This removes the trust pair, tears down any active tunnels, and notifies the peer. The revoked agent can no longer resolve the revoker's endpoint or establish new connections.</p>
+
+  <p>For a deeper exploration of the trust model, see <a href="trust-model-agents-invisible-by-default.html">Why Agents Should Be Invisible by Default</a>.</p>
+
+  <h2 id="services">What Runs on Top: Port-Based Services</h2>
+
+  <p>Like TCP/IP, Pilot Protocol uses <strong>port numbers</strong> to multiplex multiple services over a single agent address. Several well-known ports are defined:</p>
+
+  <table>
+    <thead>
+      <tr><th>Port</th><th>Service</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>7</td><td>Echo</td><td>Ping/pong for connectivity testing and latency measurement</td></tr>
+      <tr><td>53</td><td>DNS</td><td>Hostname resolution within the overlay network</td></tr>
+      <tr><td>80</td><td>HTTP</td><td>Standard HTTP services over Pilot tunnels</td></tr>
+      <tr><td>443</td><td>Secure</td><td>Encrypted services (X25519 + AES-GCM per connection)</td></tr>
+      <tr><td>1000</td><td>Stdio</td><td>Interactive terminal sessions between agents</td></tr>
+      <tr><td>1001</td><td>Data Exchange</td><td>Structured data and file transfer</td></tr>
+      <tr><td>1002</td><td>Event Stream</td><td>Pub/sub event distribution with topic routing</td></tr>
+      <tr><td>1003</td><td>Task Submit</td><td>Task delegation with capability matching</td></tr>
+    </tbody>
+  </table>
+
+  <p>The port system means agents can expose multiple services simultaneously. An agent might accept task submissions on port 1003, publish status updates on port 1002, and serve an HTTP API on port 80 -- all on the same virtual address.</p>
+
+  <h3>HTTP Over Pilot</h3>
+
+  <p>Because Pilot connections implement Go's <code>net.Conn</code> interface, standard HTTP servers work without modification:</p>
+
+  <pre><code><span class="comment">// Standard Go HTTP server running on a Pilot port</span>
+listener := pilot.Listen(daemon, 80)
+http.Serve(listener, myHandler)</code></pre>
+
+  <p>The <strong>gateway</strong> component bridges Pilot services to the local network. It assigns a loopback IP alias for each Pilot address and listens on common ports, proxying traffic between local HTTP clients and Pilot tunnels. This means existing tools -- curl, browsers, REST clients -- can interact with agents on the Pilot network without any modification. See the <a href="/docs/gateway.html">Gateway documentation</a> for details.</p>
+
+  <h3>Pub/Sub and Event Streams</h3>
+
+  <p>Port 1002 provides a built-in <strong>publish/subscribe</strong> system with topic routing and wildcard subscriptions. Agents can subscribe to event streams from trusted peers and publish events to subscribers without external message brokers. See <a href="/docs/pubsub.html">Pub/Sub documentation</a> for the full API.</p>
+
+  <h3>Task Submission</h3>
+
+  <p>Port 1003 implements a <strong>task submission</strong> protocol. Agents can advertise capabilities by setting a task-ready flag during registration. Other agents discover capable peers, submit tasks, and receive results -- all over encrypted Pilot tunnels. This is the foundation for building decentralized agent marketplaces without a central orchestrator.</p>
+
+  <h2 id="summary">Putting It All Together</h2>
+
+  <p>Here is the full flow when Agent Alice sends a message to Agent Bob:</p>
+
+  <ol>
+    <li><strong>Alice starts</strong> -- her daemon performs STUN discovery, registers with the rendezvous server, and gets virtual address <code>0:0000.0000.0003</code></li>
+    <li><strong>Trust</strong> -- Alice and Bob have already completed a mutual handshake (Ed25519 signed)</li>
+    <li><strong>Resolve</strong> -- Alice asks the rendezvous server for Bob's endpoint. Because they are trusted, the server returns Bob's public IP:port</li>
+    <li><strong>Tunnel</strong> -- Alice's daemon opens a UDP tunnel to Bob's endpoint. If NAT blocks direct connection, the beacon coordinates hole-punching or falls back to relay</li>
+    <li><strong>Encrypt</strong> -- X25519 key exchange produces a shared secret. All subsequent frames use AES-256-GCM with <code>PILS</code> framing</li>
+    <li><strong>Connect</strong> -- Alice opens a connection to Bob on port 1001 (Data Exchange). SYN/SYN-ACK/ACK over the encrypted tunnel</li>
+    <li><strong>Send</strong> -- The message is segmented if needed, transmitted with sequence numbers, acknowledged, and reassembled on Bob's side</li>
+    <li><strong>Receive</strong> -- Bob's application reads the message from the <code>net.Conn</code> interface, exactly as if it were a regular TCP connection</li>
+  </ol>
+
+  <p>All of this happens in milliseconds. The agent developer writes standard Go networking code. The Pilot daemon handles everything else: address resolution, NAT traversal, encryption, flow control, and reliable delivery.</p>
+
+  <div class="callout">
+    <p><strong>226 tests</strong> validate every layer of the stack, from packet serialization to end-to-end NAT traversal. The protocol is implemented in pure Go with zero external dependencies. See the <a href="/docs/concepts.html">Core Concepts documentation</a> for the complete technical reference.</p>
+  </div>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Set up a multi-agent network in under 5 minutes. One binary, zero dependencies.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
+---
+<BlogLayout
+  title="How Pilot Protocol Works - Architecture Deep Dive"
+  description="Deep dive into Pilot Protocol architecture: 48-bit virtual addresses, UDP overlay network, three-tier NAT traversal, X25519 encryption, and the agent trust model."
+  date="February 19, 2026"
+  tags={["architecture", "deep-dive", "networking"]}
+  canonicalPath="/blog/how-pilot-protocol-works.html"
+  bannerImage="/blog/banners/how-pilot-protocol-works.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

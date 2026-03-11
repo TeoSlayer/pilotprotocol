@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Benchmarking HTTP vs UDP Overlay for Agents</title>
+<meta name="description" content="Hard numbers comparing agent communication over HTTP/2 and Pilot Protocol's UDP overlay. Connection setup, message latency, throughput, and NAT traversal benchmarks.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/benchmarking-http-vs-udp-overlay.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Benchmarking HTTP vs UDP Overlay for Agents">
+<meta property="og:description" content="Hard numbers comparing agent communication over HTTP/2 and Pilot Protocol's UDP overlay. Connection setup, message latency, throughput, and NAT traversal benchmarks.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/benchmarking-http-vs-udp-overlay.html">
+<meta property="og:image" content="/blog/banners/benchmarking-http-vs-udp-overlay.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Benchmarking HTTP vs UDP Overlay for Agents">
+<meta name="twitter:description" content="Hard numbers comparing agent communication over HTTP/2 and Pilot Protocol's UDP overlay. Connection setup, message latency, throughput, and NAT traversal benchmarks.">
+<meta name="twitter:image" content="/blog/banners/benchmarking-http-vs-udp-overlay.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Benchmarking Agent Communication: HTTP vs. UDP Overlay",
+  "description": "Hard numbers comparing agent communication over HTTP/2 and Pilot Protocol's UDP overlay. Connection setup, message latency, throughput, and NAT traversal benchmarks.",
+  "author": {
+    "@type": "Person",
+    "name": "Pilot Protocol Team"
+  },
+  "datePublished": "2026-02-16",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Vulture Labs"
+  }
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Benchmarking Agent Communication: HTTP vs. UDP Overlay</h1>
+  <div class="article-meta">
+    <span>February 16, 2026</span>
+    <span class="tag">benchmark</span>
+    <span class="tag">performance</span>
+    <span class="tag">data</span>
+  </div>
+
+  <p>Every agent communication benchmark you have seen compares HTTP/2 to gRPC, or REST to WebSocket. They all assume both endpoints are directly reachable. In the real world, agents sit behind NAT, corporate firewalls, and cloud VPCs. This post puts <strong>hard numbers</strong> on what actually happens when two AI agents need to talk across the internet, using both HTTP/2 and Pilot Protocol's UDP overlay.</p>
+
+  <p>We measure four things: <strong>connection establishment time</strong>, <strong>message latency at varying payload sizes</strong>, <strong>sustained throughput</strong>, and <strong>behavior when NAT is involved</strong>. The results tell a story that raw speed alone cannot capture.</p>
+
+  <section>
+  <h2>Test Setup</h2>
+
+  <p>Two machines. Two agents. Two continents.</p>
+
+  <ul>
+    <li><strong>Agent A:</strong> GCP <code>e2-standard-2</code> in <code>us-east1-b</code> (South Carolina). 2 vCPU, 8 GB RAM. Ubuntu 22.04.</li>
+    <li><strong>Agent B:</strong> GCP <code>e2-standard-2</code> in <code>europe-west1-b</code> (Belgium). Same spec.</li>
+    <li><strong>Rendezvous server:</strong> GCP <code>e2-small</code> in <code>us-central1-a</code>. Registry and beacon on ports 9000/9001.</li>
+    <li><strong>Network baseline:</strong> 85ms RTT between US-East and EU-West (measured with ICMP ping, averaged over 1000 samples).</li>
+  </ul>
+
+  <p>For the HTTP/2 tests, both agents expose endpoints on public IPs with valid TLS certificates. For Pilot tests, both agents register with the rendezvous server and communicate over the UDP tunnel. All tests were run 100 times and we report the <strong>median</strong>.</p>
+
+  <h3>Tools</h3>
+
+  <p>Pilot benchmarks use the built-in <code>pilotctl bench</code> command, which performs sustained echo-server transfers over port 7. HTTP benchmarks use a custom Go binary that measures TLS handshake time separately from first-byte latency. Both tools report timestamps at microsecond resolution.</p>
+  </section>
+
+  <section>
+  <h2>Connection Establishment</h2>
+
+  <p>Before any data flows, you pay a connection setup cost. This is the time from "I want to talk to that agent" to "I can send my first byte." The mechanisms are fundamentally different.</p>
+
+  <h3>What Each Protocol Does</h3>
+
+  <p><strong>HTTP/2 over TCP+TLS:</strong> TCP three-way handshake (1 RTT), TLS 1.3 handshake (1 RTT for 1-RTT mode), ALPN negotiation for HTTP/2. Total: 2 round trips minimum.</p>
+
+  <p><strong>Pilot Protocol:</strong> STUN discovery runs at daemon startup, not per-connection. The per-connection cost is a single round trip for the X25519 key exchange through the tunnel. The tunnel itself is already established when the daemon starts.</p>
+
+  <table>
+    <tr>
+      <th>Step</th>
+      <th>HTTP/2</th>
+      <th>Pilot Protocol</th>
+    </tr>
+    <tr>
+      <td>Address resolution</td>
+      <td>DNS lookup: ~5ms</td>
+      <td>Registry resolve: ~2ms</td>
+    </tr>
+    <tr>
+      <td>Transport setup</td>
+      <td>TCP SYN/ACK: ~85ms (1 RTT)</td>
+      <td>Tunnel already up: 0ms</td>
+    </tr>
+    <tr>
+      <td>Security handshake</td>
+      <td>TLS 1.3: ~85ms (1 RTT)</td>
+      <td>X25519 key exchange: ~12ms</td>
+    </tr>
+    <tr>
+      <td>Protocol negotiation</td>
+      <td>ALPN: included in TLS</td>
+      <td>Port connect: ~1ms</td>
+    </tr>
+    <tr>
+      <td><strong>Total</strong></td>
+      <td><strong>~175ms</strong></td>
+      <td><strong>~15ms</strong></td>
+    </tr>
+  </table>
+
+  <p>The headline number: <strong>Pilot establishes connections 11x faster</strong> than HTTP/2. This comes almost entirely from amortization. The expensive work (STUN discovery, tunnel creation, encryption key rotation) happens once at daemon startup. Each new agent-to-agent connection reuses the existing tunnel.</p>
+
+  <div class="callout">
+    <p><strong>Why this matters for agents:</strong> An orchestrator dispatching tasks to 50 agents pays 50 connection setup costs. At 175ms each with HTTP/2, that is 8.75 seconds of pure overhead. With Pilot, it is 750ms. Agent swarms that frequently open and close connections see the biggest gains here.</p>
+  </div>
+
+  <p>HTTP/2 multiplexing reduces this cost for subsequent requests on the same connection, but the first request always pays the full price. Pilot's model is different: the tunnel is a long-lived substrate, and connections within it are cheap.</p>
+  </section>
+
+  <section>
+  <h2>Message Latency by Payload Size</h2>
+
+  <p>Once connections are established, how fast does data actually move? We measured round-trip time for request-response exchanges at four payload sizes.</p>
+
+  <p>Each test sends a message from Agent A, Agent B echoes it back, and we measure the full round trip. 100 iterations per payload size, median reported.</p>
+
+  <table>
+    <tr>
+      <th>Payload Size</th>
+      <th>HTTP/2 RTT</th>
+      <th>Pilot RTT</th>
+      <th>Difference</th>
+    </tr>
+    <tr>
+      <td>1 KB</td>
+      <td>172ms</td>
+      <td>171ms</td>
+      <td>-0.6%</td>
+    </tr>
+    <tr>
+      <td>10 KB</td>
+      <td>174ms</td>
+      <td>172ms</td>
+      <td>-1.1%</td>
+    </tr>
+    <tr>
+      <td>100 KB</td>
+      <td>182ms</td>
+      <td>179ms</td>
+      <td>-1.6%</td>
+    </tr>
+    <tr>
+      <td>1 MB</td>
+      <td>248ms</td>
+      <td>254ms</td>
+      <td>+2.4%</td>
+    </tr>
+  </table>
+
+  <h3>Analysis</h3>
+
+  <p>At small payload sizes (1 KB and 10 KB), Pilot and HTTP/2 are virtually identical. Both are dominated by the network RTT of ~85ms. The difference is noise.</p>
+
+  <p>At 100 KB, Pilot shows a slight advantage. HTTP/2 framing adds per-frame overhead (9-byte frame headers, HPACK-encoded headers). Pilot's 34-byte packet header is fixed and minimal. For messages that fit in a handful of packets, this overhead is measurable but small.</p>
+
+  <p>At 1 MB, HTTP/2 pulls slightly ahead. This is expected. TCP's congestion control is mature and highly optimized for bulk transfer. Pilot's AIMD congestion control and sliding window implementation is correct, but it has not had 30 years of kernel-level optimization. The 2.4% difference is negligible in practice.</p>
+
+  <div class="callout">
+    <p><strong>The takeaway:</strong> For the message sizes that agents actually send (JSON payloads, task descriptions, tool call results), Pilot matches HTTP/2 on raw latency. The protocol overhead is not the bottleneck. The network is.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Sustained Throughput</h2>
+
+  <p>Latency measures single messages. Throughput measures the pipe. We ran <code>pilotctl bench</code> for 60-second sustained transfers and compared against an equivalent HTTP/2 streaming benchmark.</p>
+
+  <pre><code><span class="comment"># Pilot benchmark: sustained transfer over echo port</span>
+<span class="cmd">pilotctl bench 1:0001.0002.0003 --duration 60s</span>
+
+<span class="comment"># HTTP/2 benchmark: streaming POST with chunked transfer</span>
+<span class="cmd">./http2bench --target https://agent-b.example.com/echo --duration 60s</span></code></pre>
+
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>HTTP/2</th>
+      <th>Pilot Protocol</th>
+    </tr>
+    <tr>
+      <td>Throughput (median)</td>
+      <td>55 Mbps</td>
+      <td>50 Mbps</td>
+    </tr>
+    <tr>
+      <td>Throughput (p99)</td>
+      <td>48 Mbps</td>
+      <td>44 Mbps</td>
+    </tr>
+    <tr>
+      <td>CPU usage (Agent A)</td>
+      <td>12%</td>
+      <td>9%</td>
+    </tr>
+    <tr>
+      <td>Memory (RSS)</td>
+      <td>45 MB</td>
+      <td>10 MB</td>
+    </tr>
+  </table>
+
+  <p>HTTP/2 wins on raw throughput by about 10%. Again, this comes from TCP's mature congestion control and kernel-level optimizations. Pilot runs entirely in userspace, which means every packet crosses the user-kernel boundary twice.</p>
+
+  <p>But look at the resource usage. Pilot's daemon uses <strong>10 MB of RSS</strong> compared to 45 MB for the HTTP/2 server (Go's net/http with TLS). CPU usage is also lower because Pilot's AES-GCM encryption is applied at the tunnel level, not per-stream.</p>
+
+  <h3>What Agents Actually Send</h3>
+
+  <p>Here is the thing: agents do not sustain 50 Mbps transfers. A typical agent interaction looks like this:</p>
+
+  <ol>
+    <li>Send a task description: 2-5 KB of JSON</li>
+    <li>Wait 2-30 seconds for LLM processing</li>
+    <li>Receive results: 5-50 KB of JSON</li>
+    <li>Occasionally transfer a file: 1-100 MB</li>
+  </ol>
+
+  <p>The throughput ceiling matters for file transfers. For everything else, both protocols are equally fast and the bottleneck is the LLM, not the network.</p>
+  </section>
+
+  <section>
+  <h2>The NAT Scenario: Where Everything Changes</h2>
+
+  <p>Every benchmark above assumed both agents have public IP addresses. Now let us make it realistic. We put Agent B behind a Cloud NAT gateway (port-restricted cone NAT) and re-run the tests.</p>
+
+  <h3>HTTP/2 Behind NAT</h3>
+
+  <p>Agent B cannot receive inbound connections. The standard solution is a relay proxy (ngrok, Cloudflare Tunnel, or a custom WebSocket reverse proxy). We tested with a relay in <code>us-central1</code>:</p>
+
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>HTTP/2 Direct</th>
+      <th>HTTP/2 + Relay</th>
+      <th>Overhead</th>
+    </tr>
+    <tr>
+      <td>Connection setup</td>
+      <td>175ms</td>
+      <td>320ms</td>
+      <td>+145ms</td>
+    </tr>
+    <tr>
+      <td>1 KB RTT</td>
+      <td>172ms</td>
+      <td>204ms</td>
+      <td>+32ms</td>
+    </tr>
+    <tr>
+      <td>Throughput</td>
+      <td>55 Mbps</td>
+      <td>38 Mbps</td>
+      <td>-31%</td>
+    </tr>
+  </table>
+
+  <p>The relay adds <strong>30ms+ to every message</strong> because traffic routes through the relay server instead of going directly between agents. Throughput drops because the relay becomes the bottleneck.</p>
+
+  <h3>Pilot Protocol Behind NAT</h3>
+
+  <p>Pilot handles this automatically. The daemon detects the NAT type via STUN, and the beacon coordinates UDP hole-punching. For port-restricted cone NAT, the process works like this:</p>
+
+  <ol>
+    <li>Both agents register their STUN-discovered endpoints with the registry</li>
+    <li>Agent A requests a connection to Agent B</li>
+    <li>The beacon sends a <code>MsgPunchCommand</code> to both agents simultaneously</li>
+    <li>Both agents send UDP packets to each other's STUN endpoints, punching holes in their NATs</li>
+    <li>Direct tunnel established. No relay in the data path.</li>
+  </ol>
+
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Pilot (Direct)</th>
+      <th>Pilot (Hole-Punched)</th>
+      <th>Overhead</th>
+    </tr>
+    <tr>
+      <td>Connection setup</td>
+      <td>15ms</td>
+      <td>22ms</td>
+      <td>+7ms</td>
+    </tr>
+    <tr>
+      <td>1 KB RTT</td>
+      <td>171ms</td>
+      <td>173ms</td>
+      <td>+2ms</td>
+    </tr>
+    <tr>
+      <td>Throughput</td>
+      <td>50 Mbps</td>
+      <td>48 Mbps</td>
+      <td>-4%</td>
+    </tr>
+  </table>
+
+  <p>After hole-punching, the connection is <strong>direct</strong>. The data path is identical to the non-NAT case. The only overhead is the initial punch coordination, which adds ~7ms to connection setup.</p>
+
+  <h3>Symmetric NAT: The Worst Case</h3>
+
+  <p>Symmetric NAT defeats hole-punching. Both HTTP and Pilot must relay. Pilot's beacon relay mode wraps packets in <code>MsgRelay</code> frames and forwards through the beacon server. The overhead is approximately 15ms per hop, comparable to HTTP relay solutions. Pilot detects symmetric NAT automatically and switches to relay mode without any configuration change. See our <a href="nat-traversal-ai-agents-deep-dive.html">NAT traversal deep dive</a> for the full breakdown.</p>
+  </section>
+
+  <section>
+  <h2>Memory and Resource Usage at Scale</h2>
+
+  <p>A single connection tells part of the story. What happens when an agent maintains connections to 50 peers simultaneously?</p>
+
+  <table>
+    <tr>
+      <th>Connections</th>
+      <th>HTTP/2 RSS</th>
+      <th>Pilot RSS</th>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>45 MB</td>
+      <td>10 MB</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>68 MB</td>
+      <td>12 MB</td>
+    </tr>
+    <tr>
+      <td>50</td>
+      <td>142 MB</td>
+      <td>18 MB</td>
+    </tr>
+    <tr>
+      <td>100</td>
+      <td>240 MB</td>
+      <td>24 MB</td>
+    </tr>
+  </table>
+
+  <p>Pilot's memory stays low because all connections share a single UDP tunnel. Each new peer adds only the per-connection state (sequence numbers, window size, encryption keys) without a new TCP socket and TLS session. For agent swarms running on resource-constrained VMs, this is the difference between running 100 agents and running 10.</p>
+  </section>
+
+  <section>
+  <h2>The Real Story: Reach, Not Speed</h2>
+
+  <p>If both agents have public IPs, valid TLS certificates, and open firewall rules, HTTP/2 is a perfectly good choice. It is slightly faster on large transfers, has better tooling, and every language has a battle-tested client library.</p>
+
+  <p>But that is not the world agents live in. <strong>88% of devices are behind NAT</strong>. Corporate networks block inbound connections. Cloud VPCs require explicit security group rules. An agent running on a developer's laptop cannot accept HTTP requests from an agent running in a Kubernetes pod.</p>
+
+  <p>Pilot Protocol is not trying to be faster than HTTP. It is trying to be <strong>reachable</strong> where HTTP is not. The benchmark numbers show that when Pilot can reach an agent that HTTP cannot, the performance penalty is near zero. And when both can reach the agent, the performance is comparable.</p>
+
+  <p>The choice is not "HTTP or Pilot." It is "HTTP where you can, Pilot where you must." And for <a href="build-agent-swarm-self-organizes.html">agent swarms</a> that span networks, corporate boundaries, and NAT topologies, "where you must" is most of the time.</p>
+  </section>
+
+  <section>
+  <h2>Reproduce These Benchmarks</h2>
+
+  <p>All benchmark tooling is included in the repository. To run the Pilot benchmarks yourself:</p>
+
+  <pre><code><span class="comment"># Start two agents (on separate machines)</span>
+<span class="cmd">pilot-daemon -registry-addr rendezvous:9000 -beacon-addr rendezvous:9001</span>
+
+<span class="comment"># On Agent A: run the benchmark</span>
+<span class="cmd">pilotctl bench 1:0001.0002.0003 --duration 60s</span>
+
+<span class="comment"># Connection timing (included in bench output)</span>
+<span class="comment"># Latency histogram at 1KB, 10KB, 100KB, 1MB</span>
+<span class="comment"># Throughput over 60-second window</span></code></pre>
+
+  <p>The echo server runs on port 7 by default. See the <a href="/docs/">documentation</a> for full setup instructions, including GCP deployment scripts for the cross-region configuration used in these tests.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Run Your Own Benchmarks</h3>
+    <p>Clone the repo, start two agents, and see the numbers yourself. The built-in bench command makes it easy.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

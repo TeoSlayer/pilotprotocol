@@ -1,0 +1,324 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>Your company has an AI research agent. A partner company has a data analysis agent. You want them to collaborate on a report -- the research agent gathers sources, the data agent runs statistical analysis, and the results come back. Simple in concept. In practice, you face a hard question: what infrastructure do both companies connect to?</p>
+
+  <p>Today, the answer is usually "build a shared API." Company A exposes REST endpoints. Company B calls them. Both sides manage API keys, rate limits, firewall rules, and a shared contract that breaks every time either side ships a new version. This is the B2B integration pattern from 2010, and applying it to autonomous agents makes every problem worse. Agents call APIs on their own schedule, generate unpredictable request patterns, and can chain calls in ways no human anticipated when writing the API contract.</p>
+
+  <p>Meanwhile, the AI industry has produced at least four competing standards for agent communication -- and the fragmentation itself has become the problem.</p>
+
+  <section>
+  <h2>The Protocol Fragmentation Problem</h2>
+
+  <p>As of early 2026, there are four major proposals for how AI agents should communicate. Each addresses a different slice of the problem. None of them address all of it.</p>
+
+  <table>
+    <tr>
+      <th>Protocol</th>
+      <th>Creator</th>
+      <th>Focus</th>
+      <th>Transport</th>
+      <th>Trust Model</th>
+    </tr>
+    <tr>
+      <td>A2A</td>
+      <td>Google</td>
+      <td>Agent-to-agent task delegation</td>
+      <td>HTTP + JSON-RPC</td>
+      <td>Agent Cards (public)</td>
+    </tr>
+    <tr>
+      <td>MCP</td>
+      <td>Anthropic</td>
+      <td>Agent-to-tool access</td>
+      <td>stdio / HTTP SSE</td>
+      <td>Server-defined</td>
+    </tr>
+    <tr>
+      <td>ACP</td>
+      <td>BeeAI (IBM)</td>
+      <td>Agent orchestration</td>
+      <td>HTTP REST</td>
+      <td>Platform-managed</td>
+    </tr>
+    <tr>
+      <td>ANP</td>
+      <td>ANP Working Group</td>
+      <td>Open agent networking</td>
+      <td>HTTP + DID</td>
+      <td>Decentralized IDs</td>
+    </tr>
+  </table>
+
+  <p>An industry observer put it bluntly: "20 standards for the same need essentially results in no standards." Each protocol optimizes for its creator's use case. A2A assumes agents have HTTP endpoints. MCP assumes agents access tools through a local server. ACP assumes a centralized orchestrator. ANP assumes decentralized identity infrastructure. None of them solve the fundamental transport problem: how do two agents that sit behind NAT, on different networks, owned by different companies, establish a secure connection?</p>
+
+  <p>This is not a standards problem. It is an infrastructure problem. And it is the reason cross-company agent collaboration has not happened at scale despite years of hype.</p>
+  </section>
+
+  <section>
+  <h2>Transport vs Application: Why You Need Both Layers</h2>
+
+  <p>The confusion in the agent protocol space comes from conflating two distinct layers:</p>
+
+  <ul>
+    <li><strong>Application layer:</strong> What messages do agents exchange? What is the format of a task request? How do agents describe their capabilities? This is what A2A, MCP, and ACP define.</li>
+    <li><strong>Transport layer:</strong> How do agents find each other? How do they establish connections through NAT? How is the connection encrypted? How are peers authenticated? This is what none of those protocols define.</li>
+  </ul>
+
+  <p>A2A says "send a JSON-RPC message to the agent's HTTP endpoint." It does not say how to reach that endpoint through a firewall. MCP says "connect to the tool server via stdio or SSE." It does not say what happens when the tool server is on a different network. The application-layer protocols assume transport is solved. For agents within a single organization's infrastructure, this assumption holds. For agents across organizations, it breaks immediately.</p>
+
+  <p>The question people keep asking -- "How is this better than MCP?" -- misses the point. A transport layer is not competing with an application protocol. It is the foundation that application protocols run on top of. HTTP is not "better than" REST. HTTP carries REST. Pilot is not "better than" A2A. Pilot carries A2A.</p>
+
+  <div class="callout">
+    <p><strong>The analogy:</strong> TCP/IP does not define what applications do with network connections. It defines how two machines establish a reliable connection across arbitrary network topology. Pilot does the same thing for agents: virtual addresses, encrypted tunnels, NAT traversal, and peer discovery. What you send over the tunnel -- A2A messages, MCP tool calls, raw JSON, protocol buffers -- is your choice.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Pilot as the Transport Layer</h2>
+
+  <p>Pilot Protocol gives every agent a <strong>48-bit virtual address</strong> in the format <code>N:NNNN.HHHH.LLLL</code> -- 16 bits for the network, 32 bits for the node. This address is independent of the agent's physical location. An agent can move from AWS to GCP, from a data center to a laptop, and its Pilot address stays the same.</p>
+
+  <p>Agents find each other through a <strong>registry</strong> -- a lightweight rendezvous server that maps virtual addresses to current physical endpoints. The registry does not relay traffic. It simply tells Agent A where Agent B is right now, and the two agents establish a direct UDP tunnel between them. If both are behind NAT, the protocol's three-tier traversal handles it automatically: STUN discovery, UDP hole-punching, and relay through a beacon if hole-punching fails.</p>
+
+  <p>Every agent generates an <strong>Ed25519 identity key pair</strong> at first startup. This key pair is the agent's permanent identity. Trust is established through a mutual handshake protocol:</p>
+
+  <pre><code><span class="comment"># Agent A initiates trust with Agent B</span>
+<span class="cmd">pilotctl trust request 1:0001.0000.0042 --justification "Research collaboration with PartnerCo"</span>
+
+<span class="comment"># Agent B reviews and approves (or rejects)</span>
+<span class="cmd">pilotctl trust list-pending</span>
+<span class="cmd">pilotctl trust approve 1:0001.0000.0017</span>
+
+<span class="comment"># Both agents can now communicate</span>
+<span class="cmd">pilotctl send-message 1:0001.0000.0042 "Ready for task delegation"</span></code></pre>
+
+  <p>This is fundamentally different from API key exchange. Both sides must explicitly approve the connection. Either side can revoke trust instantly. The justification field creates an audit trail. And the trust relationship is cryptographic -- it is not a shared secret that can be leaked, but a signature chain that proves both parties consented.</p>
+  </section>
+
+  <section>
+  <h2>Cross-Org Trust Model: Scoped Handshakes, No Shared Infrastructure</h2>
+
+  <p>The critical property for cross-company collaboration is that <strong>neither company needs to deploy shared infrastructure</strong>. Each company runs its own agents. The agents connect through a public rendezvous server (or each company runs its own, and they federate). Trust is established agent-to-agent, not organization-to-organization.</p>
+
+  <p>This scoping is deliberate. When Company A's research agent trusts Company B's data agent, that trust relationship exists only between those two agents. It does not grant Company B's other agents any access. It does not grant Company A's other agents any access to Company B's network. Each trust relationship is a scoped, bilateral agreement between two specific identities.</p>
+
+  <h3>What a trust handshake includes</h3>
+
+  <ul>
+    <li><strong>Requester's Ed25519 public key:</strong> Proves identity cryptographically</li>
+    <li><strong>Justification text:</strong> Human-readable reason for the trust request (audit trail)</li>
+    <li><strong>Requester's tags:</strong> Capability descriptors the other side can inspect</li>
+    <li><strong>Ed25519 signature:</strong> Proves the request was not tampered with</li>
+  </ul>
+
+  <p>The approver verifies the signature, reviews the justification, and decides whether to accept. Once accepted, both sides store each other's public key. All subsequent communication is encrypted end-to-end with X25519 key exchange and AES-256-GCM.</p>
+
+  <h3>Revocation</h3>
+
+  <p>Trust revocation is instant and unilateral:</p>
+
+  <pre><code><span class="comment"># Revoke trust from a specific agent</span>
+<span class="cmd">pilotctl trust revoke 1:0001.0000.0042</span>
+
+<span class="comment"># The revoked agent can no longer:</span>
+<span class="comment"># - Resolve your address (you become invisible)</span>
+<span class="comment"># - Open connections to your ports</span>
+<span class="comment"># - Send you events or messages</span></code></pre>
+
+  <p>Because agents are <strong>private by default</strong>, revoking trust makes your agent invisible to the revoked peer. They cannot even discover that your agent exists on the network. This is the opposite of the A2A Agent Card model, where agents advertise their capabilities publicly. In Pilot, agents are dark until they choose to be seen, and only to peers they explicitly trust.</p>
+  </section>
+
+  <section>
+  <h2>Example: Company A's Research Agent Talks to Company B's Data Agent</h2>
+
+  <p>Here is a concrete walkthrough. Company A builds AI research agents. Company B provides financial data analysis. They want to collaborate: A's research agent sends a query, B's data agent runs the analysis and returns results.</p>
+
+  <h3>Setup (one time per agent)</h3>
+
+  <pre><code><span class="comment"># Company A: install and start research agent</span>
+<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl set-hostname research-agent-a</span>
+<span class="cmd">pilotctl tags set role=research,domain=finance</span>
+
+<span class="comment"># Company B: install and start data agent</span>
+<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl set-hostname data-agent-b</span>
+<span class="cmd">pilotctl tags set role=analysis,domain=finance,accepts=queries</span></code></pre>
+
+  <h3>Establish trust</h3>
+
+  <pre><code><span class="comment"># Company A's agent requests trust with Company B's agent</span>
+<span class="cmd">pilotctl trust request 1:0001.0000.0042 \\
+  --justification "Q1 financial research collaboration per MSA dated 2026-01-15"</span>
+
+<span class="comment"># Company B's agent reviews and approves</span>
+<span class="cmd">pilotctl trust list-pending --json</span>
+<span class="comment"># {"address":"1:0001.0000.0017","justification":"Q1 financial research collaboration..."}</span>
+<span class="cmd">pilotctl trust approve 1:0001.0000.0017</span></code></pre>
+
+  <h3>Collaborate</h3>
+
+  <pre><code><span class="comment"># Company A: submit a task to Company B's agent</span>
+<span class="cmd">pilotctl task submit 1:0001.0000.0042 \\
+  --description "Analyze Q1 revenue trends for NASDAQ tech sector" \\
+  --payload '{"sectors":["tech"],"exchange":"NASDAQ","period":"Q1-2026"}'</span>
+
+<span class="comment"># Company B's agent processes the task and returns results</span>
+<span class="comment"># Company A receives the result over the encrypted tunnel</span>
+<span class="cmd">pilotctl task status &lt;task-id&gt; --json</span></code></pre>
+
+  <h3>Go integration for programmatic use</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    <span class="comment">// Submit task to partner's data agent</span>
+    task := map[string]any{
+        "description": "Analyze Q1 revenue trends for NASDAQ tech sector",
+        "payload": map[string]any{
+            "sectors":  []string{"tech"},
+            "exchange": "NASDAQ",
+            "period":   "Q1-2026",
+        },
+    }
+
+    result, err := d.SubmitTask("1:0001.0000.0042", task)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    <span class="comment">// Result arrived over encrypted tunnel</span>
+    <span class="comment">// No shared API, no API keys, no firewall rules</span>
+    var analysis map[string]any
+    json.Unmarshal(result, &analysis)
+    fmt.Printf("Analysis: %v\\n", analysis)
+}</code></pre>
+
+  <p>At no point did either company deploy shared infrastructure. No shared API gateway. No shared message queue. No shared database. No shared cloud account. Each company runs its own agents on its own infrastructure. The agents connect peer-to-peer through encrypted tunnels, with trust established by mutual cryptographic handshake.</p>
+  </section>
+
+  <section>
+  <h2>Security Properties</h2>
+
+  <p>Cross-company communication demands stronger security properties than internal communication. Here is what Pilot provides at the transport layer:</p>
+
+  <h3>End-to-end encryption</h3>
+
+  <p>Every connection between trusted agents is encrypted with <strong>X25519 key exchange + AES-256-GCM</strong>. The encryption happens at the tunnel level, between the two agent daemons. The registry, beacon, and any relay infrastructure see only encrypted payloads. Even if the rendezvous infrastructure is compromised, the attacker cannot read the traffic between agents.</p>
+
+  <p>Each connection uses a <strong>random nonce prefix</strong>, preventing nonce reuse across sessions. The key exchange happens during the secure handshake (port 443), and the resulting symmetric key is used for all subsequent communication on that connection.</p>
+
+  <h3>Trust revocation</h3>
+
+  <p>Either party can revoke trust at any time, with immediate effect. The revoked agent cannot reconnect, cannot resolve the revoker's address, and cannot discover the revoker on the network. This is instant and unilateral -- no waiting for certificate expiration, no CRL distribution delay, no need to coordinate with the other party.</p>
+
+  <h3>Audit trails</h3>
+
+  <p>Pilot uses structured logging via Go's <code>slog</code> package. Every trust operation, connection establishment, and data exchange is logged with structured fields. Combined with the webhook event system, organizations can pipe agent activity into their existing SIEM infrastructure:</p>
+
+  <pre><code><span class="comment"># Forward all agent events to your monitoring system</span>
+<span class="cmd">pilotctl set-webhook http://localhost:9090/siem-ingest</span>
+
+<span class="comment"># Events include: trust.request, trust.approve, trust.revoke,</span>
+<span class="comment"># connection.open, connection.close, task.submit, task.complete</span></code></pre>
+
+  <h3>No prompt injection surface</h3>
+
+  <p>One critique of application-layer agent protocols is that they create prompt injection attack surfaces. When Agent A sends a natural language message to Agent B, and Agent B feeds it into an LLM, the message itself can contain prompt injection payloads. Pilot does not solve this -- it is a transport-layer protocol, not an application-layer protocol. But by separating transport from application semantics, Pilot allows organizations to implement their own sanitization and validation logic at the application layer without the transport layer interfering.</p>
+  </section>
+
+  <section>
+  <h2>The Pilot + A2A + MCP Stack: How They Complement</h2>
+
+  <p>The three protocols are not competing alternatives. They operate at different layers and serve different purposes:</p>
+
+  <ul>
+    <li><strong>Pilot Protocol (transport):</strong> Addresses, tunnels, encryption, NAT traversal, trust. How agents connect.</li>
+    <li><strong>A2A (agent-to-agent semantics):</strong> Task delegation, capability advertisement, status updates. What agents say to each other.</li>
+    <li><strong>MCP (agent-to-tool access):</strong> Tool discovery, invocation, result formatting. How agents use tools.</li>
+  </ul>
+
+  <p>In a full stack deployment:</p>
+
+  <ol>
+    <li>An agent discovers a peer through Pilot's registry and tag system</li>
+    <li>It establishes a trust handshake (Pilot layer)</li>
+    <li>It fetches the peer's A2A Agent Card over the Pilot tunnel (A2A over Pilot)</li>
+    <li>It delegates a task using A2A's JSON-RPC format, sent over the encrypted tunnel</li>
+    <li>The receiving agent uses MCP to access local tools needed for the task</li>
+    <li>The result travels back over the Pilot tunnel</li>
+  </ol>
+
+  <p>Pilot solves the problems that A2A and MCP do not address: peer discovery behind NAT, encrypted transport without TLS certificate management, and cryptographic trust establishment without a shared identity provider. A2A and MCP solve the problems that Pilot does not address: standardized task semantics and tool access patterns.</p>
+
+  <pre><code><span class="comment">                  Application Layer</span>
+  +-----------+     +-----------+     +-----------+
+  |    A2A    |     |    MCP    |     |  Custom   |
+  |  (tasks)  |     |  (tools)  |     |  (yours)  |
+  +-----------+     +-----------+     +-----------+
+        |                 |                 |
+  +---------------------------------------------------+
+  |              Pilot Protocol (transport)            |
+  |  Addresses | Tunnels | Encryption | NAT | Trust   |
+  +---------------------------------------------------+
+        |                 |                 |
+  +---------------------------------------------------+
+  |                 UDP / Internet                     |
+  +---------------------------------------------------+</code></pre>
+
+  <p>This layered architecture means you are not locked into any single application protocol. You can use A2A for agent-to-agent task delegation, MCP for tool access, and your own custom protocol for domain-specific communication -- all over the same Pilot tunnels, with the same trust model and encryption.</p>
+  </section>
+
+  <section>
+  <h2>Getting Started</h2>
+
+  <p>Cross-company agent collaboration starts with two commands on each side:</p>
+
+  <pre><code><span class="comment"># Both companies install and join the same network</span>
+<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join 1</span>
+
+<span class="comment"># Establish trust (one-time, mutual)</span>
+<span class="cmd">pilotctl trust request &lt;partner-address&gt; --justification "Collaboration purpose"</span>
+
+<span class="comment"># Start communicating</span>
+<span class="cmd">pilotctl send-message &lt;partner-address&gt; "Ready to collaborate"</span></code></pre>
+
+  <p>No shared infrastructure to deploy. No API contracts to negotiate. No firewall rules to configure. No VPN to provision. Two agents, two trust handshakes, and a direct encrypted tunnel between them. That is the cross-company collaboration model that the agent ecosystem needs.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Connect agents across organizations with zero shared infrastructure. Mutual trust, E2E encryption, NAT traversal included.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
+---
+<BlogLayout
+  title="Cross-Company Agent Collaboration Without Shared Infra"
+  description="Enable B2B agent collaboration without shared infrastructure. Pilot Protocol provides the transport layer for cross-company agent communication with scoped trust and E2E encryption."
+  date="February 20, 2026"
+  tags={["B2B", "interoperability", "trust"]}
+  canonicalPath="/blog/cross-company-agent-collaboration-without-shared-infrastructure.html"
+  bannerImage="/blog/banners/cross-company-agent-collaboration-without-shared-infrastructure.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

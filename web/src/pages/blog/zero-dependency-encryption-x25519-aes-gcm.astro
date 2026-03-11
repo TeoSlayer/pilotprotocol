@@ -1,0 +1,15 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = ``;
+---
+<BlogLayout
+  title="Zero-Dependency Encryption: X25519 + AES-GCM"
+  description="How Pilot Protocol implements X25519 key exchange, AES-256-GCM encryption, and replay protection using only Go's standard library. Zero external dependencies."
+  date="February 12, 2026"
+  tags={["cryptography", "security", "go"]}
+  canonicalPath="/blog/zero-dependency-encryption-x25519-aes-gcm.html"
+  bannerImage="/blog/banners/zero-dependency-encryption-x25519-aes-gcm.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

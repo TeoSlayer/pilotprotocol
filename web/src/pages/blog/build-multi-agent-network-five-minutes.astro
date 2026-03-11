@@ -1,0 +1,195 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>This tutorial takes you from zero to a working multi-agent network. Two agents, on different machines (or the same machine), communicating over encrypted tunnels with a mutual trust relationship. The whole thing takes about 5 minutes.</p>
+
+  <p>By the end, you will have two agents that can send messages, transfer files, ping each other, and publish/subscribe to event streams -- all over Pilot Protocol's encrypted UDP overlay.</p>
+
+  <h2 id="prerequisites">Prerequisites</h2>
+
+  <p>You need <strong>Go 1.21 or later</strong> installed. That is the only dependency. Pilot Protocol is a single binary with zero external libraries.</p>
+
+  <p>You will also need access to a rendezvous server. The public rendezvous server at <code>pilotprotocol.network:9000</code> is available for testing. For production, you can <a href="/docs/configuration.html">run your own</a>.</p>
+
+  <h2 id="install">Step 1: Install pilotctl</h2>
+
+  <p>Install the CLI tool with a single command:</p>
+
+  <pre><code><span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span></code></pre>
+
+  <p>This installs <code>pilotctl</code> to your <code>$GOPATH/bin</code>. Make sure that directory is in your <code>$PATH</code>.</p>
+
+  <p>Verify the installation:</p>
+
+  <pre><code><span class="cmd">$ pilotctl version</span>
+pilotctl v0.5.0</code></pre>
+
+  <div class="callout">
+    <p><strong>Alternative:</strong> You can also clone the repository and build from source with <code>go build ./cmd/pilotctl</code>. See the <a href="/docs/getting-started.html">Getting Started guide</a> for details.</p>
+  </div>
+
+  <h2 id="start">Step 2: Start Two Agents</h2>
+
+  <p>Each agent needs its own identity. The <code>init</code> command generates a cryptographic identity (Ed25519 key pair) and stores it locally.</p>
+
+  <h3>Agent Alice (Terminal 1)</h3>
+
+  <pre><code><span class="comment"># Initialize identity</span>
+<span class="cmd">$ pilotctl init</span>
+Identity created: ~/.pilot/identity.json
+
+<span class="comment"># Start the daemon and register as "alice"</span>
+<span class="cmd">$ pilotctl daemon start --hostname alice --public</span>
+Daemon started
+Registered as alice (0:0000.0000.0003)
+STUN discovered endpoint: 203.0.113.42:4000
+Tunnel listening on :4000</code></pre>
+
+  <h3>Agent Bob (Terminal 2)</h3>
+
+  <pre><code><span class="comment"># On a different machine (or different directory)</span>
+<span class="cmd">$ pilotctl init</span>
+Identity created: ~/.pilot/identity.json
+
+<span class="comment"># Start the daemon and register as "bob"</span>
+<span class="cmd">$ pilotctl daemon start --hostname bob --public</span>
+Daemon started
+Registered as bob (0:0000.0000.0004)
+STUN discovered endpoint: 198.51.100.17:4000
+Tunnel listening on :4000</code></pre>
+
+  <p>Both agents are now running. The <code>--public</code> flag makes them discoverable by hostname. Without it, agents are private and can only be found by trusted peers.</p>
+
+  <div class="callout">
+    <p><strong>Same machine?</strong> If you are running both agents on one machine for testing, use different directories for identity storage: <code>PILOT_HOME=~/.pilot-alice pilotctl init</code> and <code>PILOT_HOME=~/.pilot-bob pilotctl init</code>. Each daemon also needs a different tunnel port: <code>--port 4000</code> and <code>--port 4001</code>.</p>
+  </div>
+
+  <h2 id="discover">Step 3: Discover and Establish Trust</h2>
+
+  <p>Alice can find Bob by hostname because he registered as public:</p>
+
+  <pre><code><span class="comment"># From Alice's terminal</span>
+<span class="cmd">$ pilotctl find bob</span>
+bob  0:0000.0000.0004  public  198.51.100.17:4000</code></pre>
+
+  <p>Now Alice initiates a trust handshake. The justification message tells Bob why Alice wants to connect:</p>
+
+  <pre><code><span class="comment"># Alice requests trust</span>
+<span class="cmd">$ pilotctl handshake bob "Collaborating on the Q1 data analysis project"</span>
+Handshake request sent to bob (0:0000.0000.0004)
+Waiting for approval...</code></pre>
+
+  <p>On Bob's side, the handshake request appears. Bob reviews it and approves:</p>
+
+  <pre><code><span class="comment"># Bob sees the pending request</span>
+<span class="cmd">$ pilotctl pending</span>
+PENDING HANDSHAKES:
+  0:0000.0000.0003 (alice) — "Collaborating on the Q1 data analysis project"
+
+<span class="comment"># Bob approves</span>
+<span class="cmd">$ pilotctl approve 0:0000.0000.0003</span>
+Trust established with alice (0:0000.0000.0003)</code></pre>
+
+  <p>Done. Alice and Bob now have a <strong>mutual trust relationship</strong>, signed with Ed25519 keys. An encrypted tunnel is established automatically.</p>
+
+  <h2 id="communicate">Step 4: Communicate</h2>
+
+  <p>With trust established, Alice and Bob can use the full set of communication primitives.</p>
+
+  <h3>Ping</h3>
+
+  <p>Test connectivity and measure latency:</p>
+
+  <pre><code><span class="cmd">$ pilotctl ping bob</span>
+PING bob (0:0000.0000.0004) via echo port 7
+Reply from 0:0000.0000.0004: seq=1 time=23.4ms
+Reply from 0:0000.0000.0004: seq=2 time=21.8ms
+Reply from 0:0000.0000.0004: seq=3 time=22.1ms</code></pre>
+
+  <h3>Send a Message</h3>
+
+  <p>Send structured text data through the Data Exchange service on port 1001:</p>
+
+  <pre><code><span class="comment"># Alice sends a message to Bob</span>
+<span class="cmd">$ pilotctl send bob "Analysis complete. 47 anomalies detected in dataset-7."</span>
+Message sent to bob (0:0000.0000.0004)
+
+<span class="comment"># Bob receives it</span>
+<span class="cmd">$ pilotctl recv</span>
+From: alice (0:0000.0000.0003)
+  "Analysis complete. 47 anomalies detected in dataset-7."</code></pre>
+
+  <h3>Transfer a File</h3>
+
+  <p>Send files directly between agents -- no S3, no cloud storage, no intermediary:</p>
+
+  <pre><code><span class="comment"># Alice sends a file to Bob</span>
+<span class="cmd">$ pilotctl send-file bob ./report.pdf</span>
+Sending report.pdf (2.4 MB) to bob...
+Transfer complete: 2.4 MB in 1.2s (2.0 MB/s)
+
+<span class="comment"># Bob receives files into the current directory</span>
+<span class="cmd">$ ls report.pdf</span>
+report.pdf</code></pre>
+
+  <h3>Publish/Subscribe Events</h3>
+
+  <p>Set up real-time event streams using the built-in pub/sub on port 1002:</p>
+
+  <pre><code><span class="comment"># Bob subscribes to events from Alice on topic "status"</span>
+<span class="cmd">$ pilotctl subscribe alice "status"</span>
+Subscribed to alice/status
+Listening...
+
+<span class="comment"># Alice publishes events</span>
+<span class="cmd">$ pilotctl publish "status" "processing batch 1/10"</span>
+<span class="cmd">$ pilotctl publish "status" "processing batch 2/10"</span>
+
+<span class="comment"># Bob sees them in real time</span>
+[alice/status] processing batch 1/10
+[alice/status] processing batch 2/10</code></pre>
+
+  <h2 id="explained">What Just Happened</h2>
+
+  <p>Behind those simple CLI commands, a surprising amount happened:</p>
+
+  <ol>
+    <li><strong>Identity generation</strong> -- <code>pilotctl init</code> generated an Ed25519 key pair and stored it in <code>~/.pilot/identity.json</code>. This key pair is the agent's permanent cryptographic identity.</li>
+    <li><strong>STUN discovery</strong> -- when the daemon started, it sent a UDP packet to the beacon server and learned its own public IP:port mapping. This is how other agents can reach it through NAT.</li>
+    <li><strong>Registration</strong> -- the daemon connected to the rendezvous server over TCP and registered its hostname, public key, and STUN-discovered endpoint.</li>
+    <li><strong>Handshake</strong> -- Alice's handshake request was signed with her Ed25519 private key and relayed through the rendezvous server to Bob. Bob verified the signature, approved, and signed his response. Both sides now store the peer's public key.</li>
+    <li><strong>Tunnel establishment</strong> -- with trust established, Alice's daemon resolved Bob's endpoint from the rendezvous server, attempted direct UDP connection (using hole-punching if needed), and performed X25519 key exchange to set up AES-256-GCM encryption.</li>
+    <li><strong>Communication</strong> -- every message, file, and ping traveled over the encrypted tunnel as Pilot Protocol packets with the 34-byte header, CRC32 checksums, sequence numbers, and acknowledgments.</li>
+  </ol>
+
+  <p>All of this happened without configuring firewalls, opening ports, setting up TLS certificates, or deploying cloud infrastructure. The agents found each other, established trust, traversed NAT, and communicated -- all through the protocol.</p>
+
+  <h2 id="next">Next Steps</h2>
+
+  <p>Now that you have a working network, explore further:</p>
+
+  <ul>
+    <li><a href="how-pilot-protocol-works.html"><strong>How Pilot Protocol Works</strong></a> -- understand the full architecture: packet format, NAT traversal tiers, encryption, and trust model</li>
+    <li><a href="trust-model-agents-invisible-by-default.html"><strong>The Trust Model</strong></a> -- learn why agents are invisible by default and how the handshake system works in depth</li>
+    <li><a href="why-ai-agents-need-network-stack.html"><strong>Why Agents Need a Network Stack</strong></a> -- the motivation behind Pilot Protocol and why HTTP is not enough for agent communication</li>
+    <li><a href="/docs/cli-reference.html"><strong>CLI Reference</strong></a> -- complete documentation for every <code>pilotctl</code> command</li>
+    <li><a href="/docs/services.html"><strong>Built-in Services</strong></a> -- port-based services including Echo, Data Exchange, Event Stream, and Task Submit</li>
+    <li><a href="/docs/integration.html"><strong>Integration Guide</strong></a> -- embed Pilot Protocol in your Go applications</li>
+  </ul>
+
+  <div class="cta">
+    <h3>Explore the Full Documentation</h3>
+    <p>CLI reference, Go API, configuration, deployment guides, and more.</p>
+    <a href="/docs/">Read the Docs</a>
+  </div>`;
+---
+<BlogLayout
+  title="Build a Multi-Agent Network in 5 Minutes"
+  description="Step-by-step tutorial to set up a multi-agent network with pilotctl. Install, start agents, establish trust, send messages, and transfer files in under 5 minutes."
+  date="February 18, 2026"
+  tags={["tutorial", "quickstart", "getting-started"]}
+  canonicalPath="/blog/build-multi-agent-network-five-minutes.html"
+  bannerImage="/blog/banners/build-multi-agent-network-five-minutes.png"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

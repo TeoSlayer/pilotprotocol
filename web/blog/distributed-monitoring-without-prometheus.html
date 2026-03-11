@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distributed Monitoring Without Prometheus or Grafana</title>
+<meta name="description" content="Lightweight distributed monitoring using Pilot Protocol event streams. No Prometheus, no Grafana, no exporters. One binary per node, metrics over encrypted pub/sub.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/distributed-monitoring-without-prometheus.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Distributed Monitoring Without Prometheus or Grafana">
+<meta property="og:description" content="Lightweight distributed monitoring using Pilot Protocol event streams. No Prometheus, no Grafana, no exporters. One binary per node, metrics over encrypted pub/sub.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/distributed-monitoring-without-prometheus.html">
+<meta property="og:image" content="/blog/banners/distributed-monitoring-without-prometheus.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Distributed Monitoring Without Prometheus or Grafana">
+<meta name="twitter:description" content="Lightweight distributed monitoring using Pilot Protocol event streams. No Prometheus, no Grafana, no exporters. One binary per node, metrics over encrypted pub/sub.">
+<meta name="twitter:image" content="/blog/banners/distributed-monitoring-without-prometheus.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Distributed Monitoring Without Prometheus or Grafana",
+  "description": "Lightweight distributed monitoring using Pilot Protocol event streams. No Prometheus, no Grafana, no exporters. One binary per node, metrics over encrypted pub/sub.",
+  "author": {"@type": "Organization", "name": "Vulture Labs"},
+  "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
+  "datePublished": "2026-02-24",
+  "mainEntityOfPage": "https://pilotprotocol.network/blog/distributed-monitoring-without-prometheus.html"
+}
+</script>
+</head>
+<body>
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Distributed Monitoring Without Prometheus or Grafana</h1>
+  <div class="article-meta">
+    <span>February 24, 2026</span>
+    <span class="tag">monitoring</span>
+    <span class="tag">operations</span>
+    <span class="tag">event-stream</span>
+  </div>
+
+  <p>You want to monitor 15 servers. You need CPU, memory, disk, and uptime. You want alerts when something breaks. You want a dashboard showing what is up and what is down. How hard should this be?</p>
+
+  <p>In the current monitoring ecosystem, the standard answer is: install Prometheus on a central server, deploy node_exporter on every target, configure scrape intervals, set up alertmanager, install Grafana, configure data sources, build dashboards, manage retention policies, and maintain all of it. That is six components, each with its own configuration format, update cycle, and failure mode. For 15 servers.</p>
+
+  <p>The frustration is real. "I am tired of special snowflakey prone to breaking hand rolled solutions," wrote one sysadmin searching for alternatives. Another asked simply: "Recommendations for simple performance monitoring infrastructure -- an API to report/store measurements and a web-based dashboard to view data with history." A third pointed out that even supposedly simple tools have gaps: "Uptime Kuma cannot SSH into a server, it only checks if the SSH daemon is up."</p>
+
+  <p>The problem is not that Prometheus is bad. Prometheus is excellent at what it does. The problem is that the standard monitoring stack has accumulated so much complexity that setting it up correctly is itself a significant engineering project. And once it is running, scaling it introduces yet another layer: "Scaling Prometheus isn't straightforward -- federation, remote-write, Thanos, Cortex." Each scaling solution adds components, configuration, and operational burden.</p>
+
+  <h2 id="what-people-want">What People Actually Want</h2>
+
+  <p>Read enough monitoring threads and a clear pattern emerges. People are not asking for a better Prometheus. They are asking for something fundamentally simpler:</p>
+
+  <ul>
+    <li><strong>"Install one thing, get a dashboard."</strong> The number one request is reduction in component count. One binary to install, one thing to configure, one place to look. Not six services that need to be orchestrated.</li>
+    <li><strong>Real service checks, not just port scans.</strong> Knowing that port 22 is open does not tell you whether SSH actually works. Knowing that port 5432 is open does not tell you whether the database can execute a query. People want health checks that exercise the actual service.</li>
+    <li><strong>Works across networks without VPNs.</strong> Servers are not always on the same LAN. They are in different data centers, different cloud providers, different continents. The monitoring system should reach them without setting up VPN tunnels or opening firewall ports.</li>
+    <li><strong>Encrypted by default.</strong> Metrics contain operational intelligence -- CPU patterns, disk usage trends, service topologies. Sending this in cleartext across networks is a security leak. It should be encrypted without configuring TLS certificates.</li>
+    <li><strong>Alerting without a separate system.</strong> The metrics collection system and the alerting system should be the same thing. Having metrics in Prometheus but alerts in Alertmanager with a separate routing configuration is unnecessary complexity for small deployments.</li>
+  </ul>
+
+  <h2 id="pilot-approach">Agent-Based Monitoring Over Pilot</h2>
+
+  <p>Pilot Protocol's event stream (port 1002) provides a pub/sub system that works over encrypted tunnels, across NATs, with built-in node discovery. These are exactly the properties a monitoring system needs. The approach: each node runs a lightweight monitoring agent that publishes metrics to topics, and a central aggregator subscribes to all metric topics.</p>
+
+  <p>The result is not a monitoring product. It is a monitoring pattern that uses existing Pilot primitives. The trade-off: you get simplicity and cross-network operation at the cost of building your own storage and visualization. For many small-to-medium deployments, this trade-off is correct.</p>
+
+  <pre><code><span class="comment"># Architecture overview:</span>
+<span class="comment">#</span>
+<span class="comment"># [Server 1] pilotctl publish "metrics/cpu"    ──┐</span>
+<span class="comment"># [Server 2] pilotctl publish "metrics/cpu"    ──┤</span>
+<span class="comment"># [Server 3] pilotctl publish "metrics/cpu"    ──┼──> [Aggregator] pilotctl subscribe "metrics/*"</span>
+<span class="comment"># [Server 1] pilotctl publish "metrics/disk"   ──┤</span>
+<span class="comment"># [Server 2] pilotctl publish "metrics/memory" ──┘</span>
+<span class="comment">#</span>
+<span class="comment"># All connections: encrypted, NAT-traversing, authenticated</span></code></pre>
+
+  <h2 id="shell-agent">The Monitoring Agent: A Shell Script</h2>
+
+  <p>The monitoring agent on each node is a shell script. Not a Go program, not a Python application, not a compiled binary. A shell script that reads system metrics and publishes them to Pilot topics. This is intentional -- if the monitoring agent itself is complex enough to have bugs, you have defeated the purpose.</p>
+
+  <pre><code><span class="comment">#!/bin/bash</span>
+<span class="comment"># monitor-agent.sh -- publish system metrics to Pilot event stream</span>
+<span class="comment"># Run this on every server you want to monitor</span>
+
+INTERVAL=30  <span class="comment"># seconds between metric publications</span>
+HOSTNAME=$(hostname)
+
+while true; do
+  <span class="comment"># CPU usage (1-minute load average, normalized to core count)</span>
+  CORES=$(nproc)
+  LOAD=$(awk '{print $1}' /proc/loadavg)
+  CPU_PCT=$(awk "BEGIN {printf \"%.1f\", ($LOAD / $CORES) * 100}")
+
+  <span class="comment"># Memory usage</span>
+  MEM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+  MEM_AVAIL=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+  MEM_USED=$((MEM_TOTAL - MEM_AVAIL))
+  MEM_PCT=$(awk "BEGIN {printf \"%.1f\", ($MEM_USED / $MEM_TOTAL) * 100}")
+
+  <span class="comment"># Disk usage (root partition)</span>
+  DISK_PCT=$(df / | awk 'NR==2 {gsub(/%/,""); print $5}')
+
+  <span class="comment"># Uptime in seconds</span>
+  UPTIME=$(awk '{print int($1)}' /proc/uptime)
+
+  <span class="comment"># Publish each metric to its topic</span>
+  pilotctl publish "metrics/cpu/$HOSTNAME" \
+    --data "{\"host\":\"$HOSTNAME\",\"cpu_pct\":$CPU_PCT,\"load\":$LOAD,\"cores\":$CORES,\"ts\":$(date +%s)}"
+
+  pilotctl publish "metrics/memory/$HOSTNAME" \
+    --data "{\"host\":\"$HOSTNAME\",\"mem_pct\":$MEM_PCT,\"mem_used_kb\":$MEM_USED,\"mem_total_kb\":$MEM_TOTAL,\"ts\":$(date +%s)}"
+
+  pilotctl publish "metrics/disk/$HOSTNAME" \
+    --data "{\"host\":\"$HOSTNAME\",\"disk_pct\":$DISK_PCT,\"ts\":$(date +%s)}"
+
+  pilotctl publish "metrics/uptime/$HOSTNAME" \
+    --data "{\"host\":\"$HOSTNAME\",\"uptime_sec\":$UPTIME,\"ts\":$(date +%s)}"
+
+  sleep $INTERVAL
+done</code></pre>
+
+  <p>This script is 30 lines. It reads four metrics from <code>/proc</code> and <code>df</code>, formats them as JSON, and publishes them to hierarchical topics. The Pilot daemon handles encryption, authentication, and delivery. The script does not know or care where the aggregator is, what network it is on, or whether there is a NAT in the way.</p>
+
+  <p>To deploy it on a new server, you install <code>pilotctl</code>, start the daemon, establish trust with the aggregator, and run the script. Total setup time: under two minutes.</p>
+
+  <pre><code><span class="comment"># Deploy monitoring on a new server</span>
+<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ pilotctl init --hostname web-server-04</span>
+<span class="cmd">$ pilotctl daemon start --registry rendezvous.internal:9000 --beacon rendezvous.internal:9001</span>
+<span class="cmd">$ pilotctl set-tags monitoring server web</span>
+
+<span class="comment"># Establish trust with the aggregator</span>
+<span class="cmd">$ pilotctl handshake metrics-aggregator "Monitoring agent for web-server-04"</span>
+
+<span class="comment"># Start publishing metrics</span>
+<span class="cmd">$ nohup bash monitor-agent.sh &</span></code></pre>
+
+  <h2 id="aggregator">The Aggregator: Collecting and Alerting</h2>
+
+  <p>The aggregator is a single node that subscribes to all metric topics and processes the incoming data. Here is a Python implementation that collects metrics, checks thresholds, and publishes alerts.</p>
+
+  <pre><code><span class="comment">#!/usr/bin/env python3</span>
+<span class="comment">"""Metrics aggregator: subscribe to all metrics, alert on thresholds."""</span>
+import subprocess
+import json
+import sys
+import threading
+from datetime import datetime
+
+<span class="comment"># Alert thresholds</span>
+THRESHOLDS = {
+    "cpu_pct": 90.0,
+    "mem_pct": 85.0,
+    "disk_pct": 90.0,
+}
+
+<span class="comment"># Track latest metrics per host</span>
+latest = {}
+
+def subscribe_metrics():
+    <span class="comment">"""Subscribe to all metric topics using wildcard."""</span>
+    proc = subprocess.Popen(
+        ["pilotctl", "subscribe", "metrics/*"],
+        stdout=subprocess.PIPE, text=True
+    )
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            <span class="comment"># Parse topic and payload</span>
+            topic, payload = line.split("] ", 1)
+            topic = topic.lstrip("[")
+            data = json.loads(payload)
+            host = data.get("host", "unknown")
+
+            <span class="comment"># Store latest metric</span>
+            if host not in latest:
+                latest[host] = {}
+            latest[host][topic] = data
+            latest[host]["last_seen"] = datetime.now().isoformat()
+
+            <span class="comment"># Check thresholds</span>
+            check_alerts(host, data)
+
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Parse error: {e}", file=sys.stderr)
+
+def check_alerts(host, data):
+    <span class="comment">"""Check metric values against thresholds and publish alerts."""</span>
+    for metric, threshold in THRESHOLDS.items():
+        if metric in data and data[metric] > threshold:
+            alert = {
+                "host": host,
+                "metric": metric,
+                "value": data[metric],
+                "threshold": threshold,
+                "severity": "critical" if data[metric] > threshold + 5 else "warning",
+                "ts": data.get("ts", 0)
+            }
+            <span class="comment"># Publish alert to dedicated topic</span>
+            subprocess.run([
+                "pilotctl", "publish", f"alerts/{metric}/{host}",
+                "--data", json.dumps(alert)
+            ])
+            print(f"ALERT [{alert['severity']}] {host}: {metric}={data[metric]} (threshold: {threshold})")
+
+def print_status():
+    <span class="comment">"""Periodically print fleet status summary."""</span>
+    import time
+    while True:
+        time.sleep(60)
+        print(f"\n--- Fleet Status ({datetime.now().isoformat()}) ---")
+        for host, metrics in sorted(latest.items()):
+            last = metrics.get("last_seen", "never")
+            cpu = "?"
+            mem = "?"
+            disk = "?"
+            for topic, data in metrics.items():
+                if "cpu" in topic:
+                    cpu = f"{data.get('cpu_pct', '?')}%"
+                if "memory" in topic:
+                    mem = f"{data.get('mem_pct', '?')}%"
+                if "disk" in topic:
+                    disk = f"{data.get('disk_pct', '?')}%"
+            print(f"  {host:20s}  cpu:{cpu:>6s}  mem:{mem:>6s}  disk:{disk:>6s}  seen:{last}")
+        print("---")
+
+if __name__ == "__main__":
+    <span class="comment"># Run status printer in background thread</span>
+    threading.Thread(target=print_status, daemon=True).start()
+    <span class="comment"># Block on subscription stream</span>
+    subscribe_metrics()</code></pre>
+
+  <p>The aggregator subscribes to <code>metrics/*</code> (wildcard) and receives every metric from every host. It maintains an in-memory map of the latest values, checks thresholds on every update, and publishes alerts to <code>alerts/*</code> topics. Any interested party -- a Slack bot, an email script, a pager integration -- can subscribe to <code>alerts/*</code> and receive notifications.</p>
+
+  <pre><code><span class="comment"># Subscribe to all alerts (from any monitoring consumer)</span>
+<span class="cmd">$ pilotctl subscribe "alerts/*"</span>
+[alerts/cpu/web-server-02] {"host":"web-server-02","metric":"cpu_pct","value":94.2,"threshold":90.0,"severity":"warning","ts":1709136000}
+[alerts/disk/db-server-01] {"host":"db-server-01","metric":"disk_pct","value":97.1,"threshold":90.0,"severity":"critical","ts":1709136030}</code></pre>
+
+  <h2 id="service-checks">Real Service Checks, Not Port Scans</h2>
+
+  <p>The monitoring agent can do more than read <code>/proc</code>. Because it runs on the target server with full local access, it can execute actual service checks -- something that external monitoring tools cannot do without SSH access or dedicated agents.</p>
+
+  <pre><code><span class="comment"># Add service checks to the monitoring agent</span>
+
+<span class="comment"># Check if PostgreSQL can execute a query</span>
+PG_OK=$(psql -U monitor -d mydb -c "SELECT 1" 2>&1 && echo "ok" || echo "fail")
+pilotctl publish "health/postgres/$HOSTNAME" \
+  --data "{\"host\":\"$HOSTNAME\",\"service\":\"postgres\",\"status\":\"$PG_OK\",\"ts\":$(date +%s)}"
+
+<span class="comment"># Check if the web application returns 200</span>
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health)
+pilotctl publish "health/webapp/$HOSTNAME" \
+  --data "{\"host\":\"$HOSTNAME\",\"service\":\"webapp\",\"http_code\":$HTTP_CODE,\"ts\":$(date +%s)}"
+
+<span class="comment"># Check if a process is running</span>
+WORKERS=$(pgrep -c worker-process || echo 0)
+pilotctl publish "health/workers/$HOSTNAME" \
+  --data "{\"host\":\"$HOSTNAME\",\"service\":\"workers\",\"count\":$WORKERS,\"ts\":$(date +%s)}"
+
+<span class="comment"># Check disk I/O latency</span>
+IO_LATENCY=$(ioping -c 3 -q / 2>&1 | awk '/avg/ {print $4}')
+pilotctl publish "metrics/io_latency/$HOSTNAME" \
+  --data "{\"host\":\"$HOSTNAME\",\"io_latency_us\":\"$IO_LATENCY\",\"ts\":$(date +%s)}"</code></pre>
+
+  <p>This is the advantage of agent-based monitoring over pull-based monitoring. The agent runs locally, so it can check anything the server can check. PostgreSQL query execution, HTTP response codes, process counts, disk I/O latency -- all of these require local access that an external scraper does not have. Uptime Kuma can tell you port 5432 is open. The monitoring agent can tell you the database is responding to queries in 3ms.</p>
+
+  <h2 id="dashboard">The Built-In Dashboard</h2>
+
+  <p>The Polo dashboard at <a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a> already provides a fleet overview. Every node registered with the rendezvous server appears with its hostname, address, tags, online status, and polo score. For basic monitoring -- "which of my servers are up?" -- the dashboard works without any additional setup.</p>
+
+  <p>Tag your servers by role, and the dashboard becomes a filtered view of your infrastructure:</p>
+
+  <pre><code><span class="comment"># Tag servers by role for dashboard filtering</span>
+<span class="cmd">$ pilotctl set-tags web-server production us-east</span>
+<span class="cmd">$ pilotctl set-tags db-server production us-east postgres</span>
+<span class="cmd">$ pilotctl set-tags cache-server production us-east redis</span>
+
+<span class="comment"># View all production servers</span>
+<span class="cmd">$ pilotctl peers --search "tag:production"</span>
+1:0001.0000.0001  web-server-01    [web-server, production, us-east]          online
+1:0001.0000.0002  web-server-02    [web-server, production, us-east]          online
+1:0001.0000.0003  db-server-01     [db-server, production, us-east, postgres] online
+1:0001.0000.0004  cache-server-01  [cache-server, production, us-east, redis] OFFLINE</code></pre>
+
+  <p>The "OFFLINE" status is detected automatically. The Pilot daemon sends keepalive probes every 30 seconds, with an idle timeout of 120 seconds. If a node stops responding, the registry marks it offline. No configuration needed. No separate health check system.</p>
+
+  <h2 id="cross-network">Cross-Network Monitoring Without VPNs</h2>
+
+  <p>This is where Pilot's architecture provides a genuine advantage over traditional monitoring stacks. Consider this scenario: you have servers in AWS us-east, a few in a Hetzner data center, and a couple under your desk at the office. With Prometheus, you need each environment to be reachable from the Prometheus server -- which means VPN tunnels, port forwarding, or running multiple Prometheus instances with federation.</p>
+
+  <p>With Pilot, every server runs the same daemon and connects to the same rendezvous server. NAT traversal is automatic. The monitoring agent on the office server publishes metrics to the same topics as the monitoring agent on the AWS server. The aggregator subscribes once and receives everything.</p>
+
+  <pre><code><span class="comment"># Server in AWS (public IP)</span>
+<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+
+<span class="comment"># Server in Hetzner (different data center)</span>
+<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+
+<span class="comment"># Server under desk (behind office NAT)</span>
+<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+
+<span class="comment"># All three publish to the same topics.</span>
+<span class="comment"># The aggregator (anywhere) subscribes and receives from all three.</span>
+<span class="comment"># No VPN. No port forwarding. No firewall rules.</span></code></pre>
+
+  <p>The office server behind NAT connects through STUN discovery and, if necessary, beacon relay. The aggregator sees metrics from all three environments in a single subscription stream. The encryption is end-to-end -- the rendezvous server and beacon never see the metric data in cleartext.</p>
+
+  <h2 id="comparison">Comparison: Pilot + Scripts vs. The Alternatives</h2>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Pilot + Scripts</th><th>Prometheus + Grafana</th><th>Netdata</th><th>Uptime Kuma</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Components to install</td><td>1 (pilotctl + script)</td><td>4-6 (Prometheus, exporters, Grafana, Alertmanager)</td><td>1 (agent)</td><td>1 (server)</td></tr>
+      <tr><td>Local service checks</td><td>Yes (agent runs locally)</td><td>Via custom exporters</td><td>Yes (plugin system)</td><td>No (external probes only)</td></tr>
+      <tr><td>Cross-network</td><td>Yes (NAT traversal built-in)</td><td>Requires VPN/federation</td><td>Requires Netdata Cloud</td><td>Requires VPN/public access</td></tr>
+      <tr><td>Encryption</td><td>Mandatory (X25519 + AES-GCM)</td><td>Optional (TLS config)</td><td>TLS (Cloud uses HTTPS)</td><td>Optional (reverse proxy)</td></tr>
+      <tr><td>Time-series storage</td><td>None (bring your own)</td><td>Built-in (TSDB)</td><td>Built-in (custom DB)</td><td>SQLite</td></tr>
+      <tr><td>Built-in alerting</td><td>Via pub/sub topics</td><td>Alertmanager (separate)</td><td>Built-in</td><td>Built-in</td></tr>
+      <tr><td>Dashboard</td><td>Polo dashboard (basic)</td><td>Grafana (full-featured)</td><td>Built-in (excellent)</td><td>Built-in (status page)</td></tr>
+      <tr><td>Query language</td><td>None</td><td>PromQL</td><td>Custom</td><td>None</td></tr>
+      <tr><td>Scaling</td><td>Add more subscribers</td><td>Federation/Thanos/Cortex</td><td>Netdata Cloud</td><td>Single instance</td></tr>
+      <tr><td>Memory per node</td><td>~10MB (daemon)</td><td>~50-100MB (exporter + Prometheus)</td><td>~100-200MB</td><td>N/A (server only)</td></tr>
+      <tr><td>Setup time</td><td>~5 minutes</td><td>~2-4 hours</td><td>~15 minutes</td><td>~10 minutes</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="storage">Adding Storage: Pipe to SQLite or InfluxDB</h2>
+
+  <p>The obvious gap in the Pilot monitoring pattern is storage. Prometheus has a built-in time-series database. Netdata has its own storage engine. Pilot has nothing -- the event stream is ephemeral. Once a metric is published and consumed, it is gone.</p>
+
+  <p>For historical data, you pipe the aggregator output to a storage backend. The simplest option is SQLite:</p>
+
+  <pre><code><span class="comment">#!/usr/bin/env python3</span>
+<span class="comment">"""Pipe Pilot metrics into SQLite for historical queries."""</span>
+import subprocess
+import json
+import sqlite3
+
+DB_PATH = "/var/lib/monitoring/metrics.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metrics (
+            ts INTEGER,
+            host TEXT,
+            metric TEXT,
+            value REAL,
+            raw TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ts ON metrics(ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_host ON metrics(host)")
+    conn.commit()
+    return conn
+
+def main():
+    conn = init_db()
+    proc = subprocess.Popen(
+        ["pilotctl", "subscribe", "metrics/*"],
+        stdout=subprocess.PIPE, text=True
+    )
+    batch = []
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            topic, payload = line.split("] ", 1)
+            data = json.loads(payload)
+            host = data.get("host", "unknown")
+            ts = data.get("ts", 0)
+
+            <span class="comment"># Extract numeric metrics</span>
+            for key, val in data.items():
+                if isinstance(val, (int, float)) and key not in ("ts",):
+                    batch.append((ts, host, key, val, payload))
+
+            <span class="comment"># Write in batches of 100</span>
+            if len(batch) >= 100:
+                conn.executemany(
+                    "INSERT INTO metrics VALUES (?,?,?,?,?)", batch
+                )
+                conn.commit()
+                batch = []
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+main()</code></pre>
+
+  <p>For larger deployments, replace SQLite with InfluxDB, TimescaleDB, or any time-series database. The integration point is the same: subscribe to <code>metrics/*</code>, parse the JSON, insert into the database. The Pilot layer handles collection, encryption, and delivery. The storage layer handles retention, indexing, and queries.</p>
+
+  <div class="callout">
+    <p><strong>This is the trade-off:</strong> Prometheus gives you collection, storage, querying, and alerting in one system. Pilot gives you collection, encryption, and cross-network delivery, and you bring your own storage. If you need PromQL, histograms, and recording rules, use Prometheus. If you need encrypted monitoring across NATs with minimal setup, this pattern works.</p>
+  </div>
+
+  <h2 id="alerting-patterns">Alerting Patterns</h2>
+
+  <p>Because alerts are published to Pilot topics, any consumer can subscribe and route them. Here are three common patterns:</p>
+
+  <pre><code><span class="comment"># Pattern 1: Slack webhook on critical alerts</span>
+pilotctl subscribe "alerts/*" | while read -r line; do
+  SEVERITY=$(echo "$line" | jq -r '.severity // empty' 2>/dev/null)
+  if [ "$SEVERITY" = "critical" ]; then
+    curl -s -X POST "$SLACK_WEBHOOK" \
+      -H 'Content-Type: application/json' \
+      -d "{\"text\": \"CRITICAL: $line\"}"
+  fi
+done
+
+<span class="comment"># Pattern 2: Email on any alert</span>
+pilotctl subscribe "alerts/*" | while read -r line; do
+  echo "$line" | mail -s "Monitoring Alert" ops@company.com
+done
+
+<span class="comment"># Pattern 3: PagerDuty integration for critical only</span>
+pilotctl subscribe "alerts/*" | while read -r line; do
+  SEVERITY=$(echo "$line" | jq -r '.severity // empty' 2>/dev/null)
+  if [ "$SEVERITY" = "critical" ]; then
+    curl -s -X POST "https://events.pagerduty.com/v2/enqueue" \
+      -H 'Content-Type: application/json' \
+      -d "{\"routing_key\": \"$PD_KEY\", \"event_action\": \"trigger\", \"payload\": {\"summary\": \"$line\", \"severity\": \"critical\", \"source\": \"pilot-monitoring\"}}"
+  fi
+done</code></pre>
+
+  <p>Each pattern is a shell one-liner piped from a Pilot subscription. There is no alerting rule language to learn, no routing tree to configure, no notification template system. The alert is a JSON message on a topic. What you do with it is up to you.</p>
+
+  <h2 id="honest-limitations">Honest Limitations</h2>
+
+  <p>This approach is not a replacement for Prometheus. It is an alternative for a specific set of requirements. Here are the things it cannot do:</p>
+
+  <ul>
+    <li><strong>No time-series storage.</strong> Metrics are ephemeral events. Without a storage backend (SQLite, InfluxDB, etc.), there is no history, no trending, and no anomaly detection. You must build or integrate storage yourself.</li>
+    <li><strong>No query language.</strong> Prometheus has PromQL. Grafana has its query builders. This pattern has raw JSON payloads. For ad-hoc analysis ("what was the 95th percentile CPU last Tuesday?"), you need a database with a query language behind it.</li>
+    <li><strong>No pre-built dashboards.</strong> The Polo dashboard shows node status, but it does not render CPU graphs, memory trends, or disk usage charts. Visualization requires either building a custom frontend or piping data into Grafana (which brings back the dependency you were trying to avoid).</li>
+    <li><strong>No ecosystem of exporters.</strong> Prometheus has hundreds of exporters for every database, message queue, web server, and cloud service. With Pilot, you write your own metric collection in shell scripts. This is simpler but less comprehensive.</li>
+    <li><strong>No high-availability for the aggregator.</strong> If the aggregator goes down, metrics are lost during the outage. There is no built-in buffering or replay. You could run multiple aggregators subscribing to the same topics, but deduplication is your responsibility.</li>
+  </ul>
+
+  <p>The right question is not "is this better than Prometheus?" It is "do I need everything Prometheus provides?" If you have 15 servers, need basic metrics and alerts, and want it working in 5 minutes instead of 4 hours, this pattern delivers. If you have 1,500 servers, need PromQL, and have a dedicated observability team, use Prometheus.</p>
+
+  <p>For a deeper look at the event stream that powers this pattern, see <a href="replace-message-broker-twelve-lines-go.html">Replace Your Agent Message Broker with 12 Lines of Go</a>. For the NAT traversal that makes cross-network monitoring work, see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal: A Deep Dive</a>. For the operational story behind scaling the Pilot network itself, see <a href="ten-thousand-agents-three-vms.html">How We Run 10,000 Agents on 3 VMs</a>.</p>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Encrypted pub/sub monitoring across any network. One binary per node, shell scripts for metrics, built-in NAT traversal. No Prometheus, no Grafana, no VPN.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+</body>
+</html>

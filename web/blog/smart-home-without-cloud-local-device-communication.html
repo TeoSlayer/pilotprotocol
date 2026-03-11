@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Home Without Cloud: Local-First Device Communication</title>
+<meta name="description" content="Build a cloud-free smart home with local-first device communication. No accounts, no subscriptions, no cloud shutdowns. Permanent virtual addresses for every device.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/smart-home-without-cloud-local-device-communication.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Smart Home Without Cloud: Local-First Device Communication">
+<meta property="og:description" content="Build a cloud-free smart home with local-first device communication. No accounts, no subscriptions, no cloud shutdowns. Permanent virtual addresses for every device.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/smart-home-without-cloud-local-device-communication.html">
+<meta property="og:image" content="/blog/banners/smart-home-without-cloud-local-device-communication.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Smart Home Without Cloud: Local-First Device Communication">
+<meta name="twitter:description" content="Build a cloud-free smart home with local-first device communication. No accounts, no subscriptions, no cloud shutdowns. Permanent virtual addresses for every device.">
+<meta name="twitter:image" content="/blog/banners/smart-home-without-cloud-local-device-communication.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Smart Home Without Cloud: Local-First Device Communication",
+  "description": "Build a cloud-free smart home with local-first device communication. No accounts, no subscriptions, no cloud shutdowns. Permanent virtual addresses for every device.",
+  "author": {"@type": "Organization", "name": "Vulture Labs"},
+  "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
+  "datePublished": "2026-02-25",
+  "mainEntityOfPage": "https://pilotprotocol.network/blog/smart-home-without-cloud-local-device-communication.html"
+}
+</script>
+</head>
+<body>
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Smart Home Without Cloud: Local-First Device Communication</h1>
+  <div class="article-meta">
+    <span>February 25, 2026</span>
+    <span class="tag">smart-home</span>
+    <span class="tag">local-first</span>
+    <span class="tag">IoT</span>
+  </div>
+
+  <p>In January 2026, Belkin shut down the Wemo cloud service. Overnight, every Wemo smart plug, light switch, and motion sensor lost remote access and scheduled automations. Users who had spent hundreds of dollars on Wemo devices woke up to apps that could not connect. Some devices stopped working entirely. The community response was predictable: "Why does a light switch in my house need permission from a server in California?"</p>
+
+  <p>Belkin is not the first. Insteon collapsed in April 2022 with no warning. The company went dark, its cloud servers went offline, and millions of devices became unresponsive. There was no migration path. There was no transition period. One day the system worked, and the next day it did not. Google shut down its Cloud IoT Core service in August 2023, forcing every industrial and consumer IoT project built on it to find a new backend within 12 months.</p>
+
+  <p>The pattern is always the same: a company decides a cloud service is no longer profitable, and the hardware that depends on it becomes electronic waste. The device in your house works fine. The motor spins, the relay clicks, the sensor reads temperature. But the software that coordinates it lives on someone else's server, and when that server disappears, so does the coordination.</p>
+
+  <h2 id="cloud-graveyard">The Cloud Graveyard</h2>
+
+  <p>These are not obscure startups. These are major brands that sold millions of devices with an implicit promise: buy the hardware, and it will keep working.</p>
+
+  <ul>
+    <li><strong>Insteon (April 2022)</strong> -- The company ceased operations without notice. The CEO disappeared. The cloud servers went offline. Hub-dependent devices stopped responding to commands. Users with hundreds of Insteon switches and sensors had to physically rewire their homes or reverse-engineer the local protocol. A community group eventually acquired the intellectual property and began rebuilding, but the damage was done.</li>
+    <li><strong>Google Cloud IoT Core (August 2023)</strong> -- Google deprecated its IoT device management platform with a 12-month sunset timeline. Every project that used IoT Core for device provisioning, telemetry, and command delivery had to migrate to a different service. Google recommended third-party alternatives. The message was clear: Google does not consider IoT device management a core business.</li>
+    <li><strong>Belkin Wemo (January 2026)</strong> -- Belkin ended cloud support for the Wemo product line. Scheduled automations stopped. Remote access stopped. The local control that some Wemo devices supported continued to work for users who knew how to find it, but the app that most people used became non-functional. Four years of product development, gone.</li>
+  </ul>
+
+  <p>Each of these failures shares a root cause: the devices never talked to each other directly. They talked to a cloud service, and the cloud service coordinated everything. When the cloud disappeared, so did the coordination. The hardware was always capable of local communication. The architecture just never allowed it.</p>
+
+  <h2 id="matter-broken-promise">Matter's Broken Promise</h2>
+
+  <p>"Matter is local-first." This is the marketing message from the Connectivity Standards Alliance, backed by Apple, Google, Amazon, and Samsung. Matter devices communicate over Thread (a low-power mesh network) or Wi-Fi, using local protocols that do not require cloud connectivity for basic operation. On paper, this is exactly what the smart home community has been asking for.</p>
+
+  <p>In practice, the commissioning process tells a different story. When a Home Assistant user tries to add a Matter device, the system contacts Google's servers to complete the commissioning flow. A user on the Home Assistant forums described the experience: "If Matter is a supposedly local protocol, why does Home Assistant contact Google to add devices?" Another wrote: "Why does HA try to phone Google to get the OK to add a light bulb?"</p>
+
+  <p>The answer is that Matter uses a Distributed Compliance Ledger (DCL) -- a blockchain-based registry of certified devices -- and commissioning requires attestation that the device is genuine. In practice, this means the commissioning controller (your phone or hub) needs to verify the device's Device Attestation Certificate against a root of trust, which is managed by the CSA and distributed through infrastructure that includes cloud endpoints.</p>
+
+  <p>The result is a "local" protocol that requires internet access during setup. Once commissioned, the device operates locally. But the 30-minute registration process -- logging into manufacturer websites, creating accounts, linking ecosystems -- is exactly the experience that users were trying to escape. One commenter captured the frustration precisely: "30 minutes logging into somebody else's website, registering the product on their website, just to turn on a light."</p>
+
+  <div class="callout">
+    <p><strong>The distinction matters:</strong> Local operation after setup is not the same as local-first. A local-first system never requires cloud connectivity at any point in its lifecycle. Not during setup. Not during updates. Not during normal operation. If any step in the chain depends on an external server, you have a single point of failure you do not control.</p>
+  </div>
+
+  <h2 id="what-local-first-means">What Local-First Actually Means</h2>
+
+  <p>Local-first is not a feature. It is an architecture constraint. A local-first smart home system must satisfy four properties:</p>
+
+  <ul>
+    <li><strong>No account required.</strong> You should not need to create an account on anyone's website to use hardware you own. The device works because it is plugged in, not because a database entry exists in a company's cloud.</li>
+    <li><strong>No cloud dependency.</strong> Every function -- setup, operation, automation, remote access -- works without internet connectivity. The internet can enhance the experience (firmware updates, voice assistant integration), but the core functionality must not depend on it.</li>
+    <li><strong>No subscription.</strong> The device you bought should work indefinitely. If the manufacturer goes bankrupt, gets acquired, or decides to pivot to a different market, your hardware continues to function. There is no recurring payment that, if missed, degrades your system.</li>
+    <li><strong>Permanent addressing.</strong> Every device needs a stable identity that survives reboots, firmware updates, network changes, and hardware replacements. When you refer to "the kitchen light," that reference should resolve to the same device today, tomorrow, and five years from now, without a DNS lookup to someone else's server.</li>
+  </ul>
+
+  <p>These are not aspirational goals. They are engineering requirements. If any of them is violated, you have a system that can be bricked by someone else's business decision.</p>
+
+  <h2 id="pilot-approach">The Pilot Protocol Approach</h2>
+
+  <p>Pilot Protocol is an overlay network originally designed for AI agent communication. It provides virtual addresses, encrypted tunnels, NAT traversal, and a trust model -- all over UDP, with zero cloud dependencies. The same properties that make it useful for agents make it applicable to local-first IoT.</p>
+
+  <p>The key architectural difference: Pilot's rendezvous server is self-hosted. You run it on a Raspberry Pi, a NAS, or any always-on device in your home. There is no external service to depend on, no account to create, and no subscription to maintain.</p>
+
+  <pre><code><span class="comment"># Start the rendezvous server on a Raspberry Pi (home hub)</span>
+<span class="cmd">$ pilot-rendezvous -registry-addr :9000 -beacon-addr :9001</span>
+Registry listening on :9000
+Beacon listening on :9001
+
+<span class="comment"># Initialize a device agent (e.g., a temperature sensor)</span>
+<span class="cmd">$ pilotctl init --hostname kitchen-temp</span>
+Identity created: ~/.pilot/identity.key
+Virtual address: 1:0001.0000.0001
+
+<span class="comment"># Start the daemon, pointing to the local rendezvous</span>
+<span class="cmd">$ pilotctl daemon start --registry 192.168.1.10:9000 --beacon 192.168.1.10:9001</span>
+Connected to registry at 192.168.1.10:9000
+Agent online: kitchen-temp (1:0001.0000.0001)</code></pre>
+
+  <p>The device now has a permanent 48-bit virtual address (<code>1:0001.0000.0001</code>) and an Ed25519 cryptographic identity. That address and identity persist across reboots, firmware updates, and network changes. The address is not tied to an IP, a MAC address, or a DHCP lease. It is a logical identifier that the rendezvous server maps to the device's current physical location on the network.</p>
+
+  <h2 id="architecture">Architecture: Home Hub Plus Lightweight Daemons</h2>
+
+  <p>The architecture for a Pilot-based smart home is straightforward. One device runs the rendezvous server (registry + beacon). Every other device runs a lightweight Pilot daemon.</p>
+
+  <pre><code><span class="comment"># Home network layout:</span>
+<span class="comment">#</span>
+<span class="comment"># Raspberry Pi (hub)      -- pilot-rendezvous on :9000/:9001</span>
+<span class="comment"># Kitchen temp sensor     -- pilotctl daemon, addr 1:0001.0000.0001</span>
+<span class="comment"># Living room light       -- pilotctl daemon, addr 1:0001.0000.0002</span>
+<span class="comment"># Thermostat controller   -- pilotctl daemon, addr 1:0001.0000.0003</span>
+<span class="comment"># Door lock               -- pilotctl daemon, addr 1:0001.0000.0004</span>
+<span class="comment"># Automation engine       -- pilotctl daemon, addr 1:0001.0000.0005</span>
+<span class="comment">#</span>
+<span class="comment"># All communication is local. Nothing leaves the LAN.</span></code></pre>
+
+  <p>The automation engine is just another agent on the network. It establishes trust with each device through the handshake protocol, subscribes to sensor events, and sends commands to actuators. Here is what the event flow looks like:</p>
+
+  <pre><code><span class="comment"># Temperature sensor publishes readings via event stream (port 1002)</span>
+<span class="cmd">$ pilotctl publish "sensors/temperature/kitchen" --data '{"value": 72.4, "unit": "F"}'</span>
+
+<span class="comment"># Automation engine subscribes to all sensor topics</span>
+<span class="cmd">$ pilotctl subscribe "sensors/*"</span>
+[sensors/temperature/kitchen] {"value": 72.4, "unit": "F"}
+[sensors/temperature/kitchen] {"value": 73.1, "unit": "F"}
+[sensors/humidity/bathroom]   {"value": 65, "unit": "%"}
+
+<span class="comment"># Automation engine sends a command to the thermostat</span>
+<span class="cmd">$ pilotctl send-message thermostat-ctrl '{"action": "set_temp", "target": 70}'</span>
+Message delivered (encrypted, 52 bytes)</code></pre>
+
+  <p>The event stream uses Pilot's built-in pub/sub on port 1002. Topics are hierarchical strings with wildcard support. The automation engine subscribes to <code>sensors/*</code> and receives events from every sensor type. When a threshold is crossed, it sends a command via the data exchange port (1001). All communication is encrypted end-to-end with X25519 + AES-256-GCM.</p>
+
+  <p>The Pilot daemon runs at approximately 10MB RSS idle. On a Raspberry Pi 4 with 4GB RAM, you could run the rendezvous server and 300+ device daemons simultaneously. For a typical home with 20-50 smart devices, resource usage is negligible.</p>
+
+  <h2 id="comparison">Comparison: Pilot vs. Zigbee vs. Matter/Thread vs. MQTT</h2>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Pilot Protocol</th><th>Zigbee</th><th>Matter/Thread</th><th>MQTT Broker</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Cloud required</td><td>No (self-hosted rendezvous)</td><td>No (coordinator)</td><td>Commissioning only</td><td>No (self-hosted broker)</td></tr>
+      <tr><td>Account required</td><td>No</td><td>No</td><td>Yes (manufacturer)</td><td>No</td></tr>
+      <tr><td>Encryption</td><td>X25519 + AES-256-GCM (mandatory)</td><td>AES-128-CCM</td><td>AES-128-CCM</td><td>TLS (optional)</td></tr>
+      <tr><td>NAT traversal</td><td>Built-in (STUN + hole-punch + relay)</td><td>N/A (local mesh)</td><td>N/A (local mesh)</td><td>Requires VPN or port forwarding</td></tr>
+      <tr><td>Remote access</td><td>Yes (tunnels through NAT)</td><td>Requires cloud bridge</td><td>Requires cloud bridge</td><td>Requires port forwarding</td></tr>
+      <tr><td>Device identity</td><td>Ed25519 key pair</td><td>64-bit IEEE address</td><td>Device Attestation Certificate</td><td>Username/password</td></tr>
+      <tr><td>Transport</td><td>UDP overlay (IP network)</td><td>IEEE 802.15.4 (radio)</td><td>Thread (radio) or Wi-Fi</td><td>TCP (IP network)</td></tr>
+      <tr><td>Pub/sub</td><td>Built-in (port 1002)</td><td>Group commands</td><td>Group commands</td><td>Core feature</td></tr>
+      <tr><td>Trust model</td><td>Mutual handshake + revocation</td><td>Network key</td><td>Certificate-based</td><td>ACL lists</td></tr>
+      <tr><td>Survives vendor shutdown</td><td>Yes (fully self-hosted)</td><td>Yes (local coordinator)</td><td>Partially (commissioning may break)</td><td>Yes (self-hosted broker)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="remote-access">Remote Access Without Cloud</h2>
+
+  <p>The most common reason people accept cloud dependency is remote access. "I want to check my thermostat from work." "I want to lock the front door from my phone." Fair requirements. But cloud is not the only way to satisfy them.</p>
+
+  <p>Pilot Protocol includes built-in NAT traversal that works in three stages: STUN discovery determines your NAT type, UDP hole-punching establishes direct connections through compatible NATs, and beacon relay handles the rest. This means your phone, running a Pilot daemon, can connect to your home devices from anywhere without opening ports on your router, without a VPN, and without a cloud relay service.</p>
+
+  <pre><code><span class="comment"># From your phone (connected to mobile data, behind carrier NAT)</span>
+<span class="cmd">$ pilotctl send-message door-lock '{"action": "lock"}'</span>
+Message delivered (encrypted, relay via beacon, 145ms RTT)
+
+<span class="comment"># Check thermostat status</span>
+<span class="cmd">$ pilotctl send-message thermostat-ctrl '{"action": "get_status"}' --wait-reply</span>
+{"current_temp": 70.2, "target_temp": 70, "mode": "auto", "state": "idle"}</code></pre>
+
+  <p>The connection is end-to-end encrypted. If the traffic is relayed through the beacon (because your carrier NAT is symmetric), the beacon sees only encrypted bytes. It cannot read the commands or the responses. Your home automation data never touches a third-party server in cleartext.</p>
+
+  <p>For this to work from outside your home network, the beacon needs to be reachable from the internet. You have two options: run the beacon on a small cloud VM (a $5/month VPS is more than sufficient) or use a publicly reachable machine as a relay point. The beacon is stateless -- it does not store data, it does not require authentication from relayed parties, and it does not decrypt traffic. It is a dumb packet forwarder.</p>
+
+  <div class="callout">
+    <p><strong>Key distinction:</strong> A beacon relay is not a cloud dependency. It does not store state, it does not require accounts, and it can be replaced by any other beacon at any time. If your beacon VM goes offline, local communication continues uninterrupted. Only remote access is affected, and it resumes the moment you point to a different beacon. This is fundamentally different from a cloud service that owns your device graph.</p>
+  </div>
+
+  <h2 id="device-setup">Device Setup: No Accounts, No Registration</h2>
+
+  <p>Here is the complete setup flow for adding a new device to a Pilot-based smart home. Compare this to the typical Matter onboarding experience.</p>
+
+  <pre><code><span class="comment"># On the new device (e.g., a smart plug running Linux)</span>
+<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ pilotctl init --hostname office-plug</span>
+<span class="cmd">$ pilotctl daemon start --registry 192.168.1.10:9000 --beacon 192.168.1.10:9001</span>
+Agent online: office-plug (1:0001.0000.0006)
+
+<span class="comment"># On the automation engine -- establish trust</span>
+<span class="cmd">$ pilotctl handshake office-plug "Home automation control"</span>
+Handshake request sent. Waiting for approval...
+
+<span class="comment"># On the new device -- approve (can be auto-approved via policy)</span>
+<span class="cmd">$ pilotctl approve 1:0001.0000.0005</span>
+Trust established with home-automation
+
+<span class="comment"># Tag the device for discovery</span>
+<span class="cmd">$ pilotctl set-tags smart-plug office power-control</span>
+Tags updated: smart-plug, office, power-control
+
+<span class="comment"># The automation engine can now discover it by capability</span>
+<span class="cmd">$ pilotctl peers --search "tag:smart-plug"</span>
+1:0001.0000.0006  office-plug  [smart-plug, office, power-control]  online</code></pre>
+
+  <p>Total time: under two minutes. No accounts created. No websites visited. No manufacturer registration. No cloud service contacted. The device has a permanent address, a cryptographic identity, and an encrypted connection to the automation engine. If the manufacturer goes bankrupt tomorrow, nothing changes.</p>
+
+  <h2 id="tags-discovery">Capability Discovery With Tags</h2>
+
+  <p>In a traditional smart home, device discovery relies on protocol-specific mechanisms: Zigbee device interviews, Matter commissioning, mDNS broadcasting. Each protocol has its own discovery format, and devices from different protocols cannot discover each other without a bridge.</p>
+
+  <p>Pilot uses a simpler approach: tags. Every device tags itself with human-readable capability descriptors. The automation engine queries tags to find devices by function rather than by protocol or manufacturer.</p>
+
+  <pre><code><span class="comment"># Tag devices by function and location</span>
+<span class="cmd">$ pilotctl set-tags temperature-sensor kitchen sensors</span>
+<span class="cmd">$ pilotctl set-tags smart-light living-room lights dimmable</span>
+<span class="cmd">$ pilotctl set-tags door-lock front-door security locks</span>
+
+<span class="comment"># Find all lights in the house</span>
+<span class="cmd">$ pilotctl peers --search "tag:lights"</span>
+1:0001.0000.0002  living-room-light  [lights, living-room, dimmable]  online
+1:0001.0000.0007  bedroom-light      [lights, bedroom, dimmable]     online
+1:0001.0000.0008  kitchen-light      [lights, kitchen]               online
+
+<span class="comment"># Find all security devices</span>
+<span class="cmd">$ pilotctl peers --search "tag:security"</span>
+1:0001.0000.0004  door-lock    [security, locks, front-door]    online
+1:0001.0000.0009  camera-yard  [security, cameras, backyard]    online</code></pre>
+
+  <p>Tags are stored in the local registry. They require no schema, no ontology, and no central authority defining what "light" means. The convention is up to you. This is less structured than a formal device model, but it is also less brittle. When a new device type appears that did not exist when the standard was written, you just invent a tag.</p>
+
+  <h2 id="limitations">Honest Limitations</h2>
+
+  <p>Pilot Protocol is not a device protocol. It needs to be said clearly because the comparison table above might suggest it is a drop-in replacement for Zigbee or Thread. It is not. Here are the real limitations:</p>
+
+  <ul>
+    <li><strong>No radio support.</strong> Pilot runs over IP networks (Wi-Fi or Ethernet). It cannot talk to Zigbee radios, Z-Wave chips, or Thread border routers directly. Devices need to be IP-capable. For battery-powered sensors that use Zigbee or Thread for power efficiency, you still need a Zigbee coordinator or Thread border router. Pilot can coordinate the coordinators, but it does not replace the radio layer.</li>
+    <li><strong>No device drivers.</strong> Pilot does not know how to dim a light or read a temperature sensor. It provides the communication channel. The application logic that translates "set brightness to 50%" into the correct GPIO command lives in the device firmware, not in Pilot.</li>
+    <li><strong>No out-of-the-box UI.</strong> There is no phone app with a nice dashboard showing your rooms and devices. The Polo dashboard (<a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a>) shows node status, but it is designed for agent fleet management, not home automation. A consumer-friendly UI would need to be built on top.</li>
+    <li><strong>Go runtime required.</strong> The Pilot daemon is written in Go and compiles to a single binary. This works on Raspberry Pi, Intel NUCs, and any Linux SBC. It does not run on microcontrollers (ESP32, Arduino) without significant porting effort. For microcontroller-based devices, you would need a bridge device running the Pilot daemon that translates between the microcontroller's native protocol and the Pilot network.</li>
+    <li><strong>No ecosystem integrations.</strong> There are no Home Assistant plugins, no Alexa skills, no Google Home actions. Pilot is a communication layer, not a home automation platform. Integration with existing platforms would require custom development.</li>
+  </ul>
+
+  <p>Pilot's value proposition for smart home is narrow but specific: it is the coordination layer that does not depend on anyone else's infrastructure. If you are building a custom home automation system from IP-capable devices and you want it to survive any vendor's business decisions, Pilot provides the addressing, encryption, discovery, and remote access. The device control, automation logic, and user interface are your responsibility.</p>
+
+  <h2 id="what-happens-next">When the Next Cloud Shuts Down</h2>
+
+  <p>It will happen again. A company will decide that maintaining a cloud service for smart home devices is not worth the cost. The devices will stop working. Users will be angry. Forum posts will be written. And then it will happen again.</p>
+
+  <p>The only defense is architectural. If your devices talk to each other through infrastructure you own and operate, no business decision by anyone else can break your home. The hub in your closet does not care about quarterly earnings calls. The rendezvous server on your Raspberry Pi does not have a subscription model. The virtual addresses assigned to your devices are permanent because the registry that stores them is a JSON file on your own hardware.</p>
+
+  <p>This is not a new idea. The internet itself was designed to be decentralized and resilient. Somewhere along the way, convenience centralized everything. The path back is not through better cloud services. It is through architecture that does not need them.</p>
+
+  <p>For a deeper look at Pilot's NAT traversal (critical for remote access), see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal: A Deep Dive</a>. For the encryption that protects your device communication, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Encryption</a>. For a quickstart guide to running your first Pilot network, see <a href="build-multi-agent-network-five-minutes.html">Build a Multi-Agent Network in 5 Minutes</a>.</p>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Self-hosted rendezvous, permanent virtual addresses, encrypted communication, zero cloud dependencies. Build a smart home that outlives every vendor.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+</body>
+</html>

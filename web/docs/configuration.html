@@ -13,6 +13,7 @@
   <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
   <nav>
     <a href="/">Home</a>
+    <a href="/blog/">Blog</a>
     <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
   </nav>
   <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Menu">&#9776;</button>
@@ -33,12 +34,15 @@
   <a href="webhooks.html">Webhooks</a>
   <a href="gateway.html">Gateway</a>
   <a href="tags.html">Tags & Discovery</a>
+  <a href="tasks.html">Tasks & Polo</a>
   <div class="nav-section">Operations</div>
   <a href="diagnostics.html">Diagnostics</a>
   <a class="active" href="configuration.html">Configuration</a>
   <a href="integration.html">Integration</a>
   <div class="nav-section">Network</div>
   <a href="polo.html">Polo</a>
+  <div class="nav-section">Compare</div>
+  <a href="comparison.html">vs MCP / A2A / ACP</a>
   <div class="nav-section">Research</div>
   <a href="research.html">Papers</a>
 </div>
@@ -119,12 +123,25 @@
       <tr><td>--registry &lt;addr&gt;</td><td>Registry server address</td></tr>
       <tr><td>--beacon &lt;addr&gt;</td><td>Beacon server address (STUN)</td></tr>
       <tr><td>--listen &lt;addr&gt;</td><td>Local UDP listen address (default: :0)</td></tr>
+      <tr><td>--endpoint &lt;addr&gt;</td><td>Fixed public endpoint for cloud VMs (skips STUN)</td></tr>
       <tr><td>--identity &lt;path&gt;</td><td>Path to identity key file</td></tr>
       <tr><td>--owner &lt;owner&gt;</td><td>Owner identifier for key recovery</td></tr>
       <tr><td>--hostname &lt;name&gt;</td><td>Register with this hostname</td></tr>
       <tr><td>--public</td><td>Start as a public node</td></tr>
       <tr><td>--no-encrypt</td><td>Disable tunnel encryption</td></tr>
       <tr><td>--foreground</td><td>Run in the current process (don't fork)</td></tr>
+      <tr><td>--keepalive &lt;dur&gt;</td><td>Keepalive probe interval (default 30s)</td></tr>
+      <tr><td>--idle-timeout &lt;dur&gt;</td><td>Idle connection timeout (default 120s)</td></tr>
+      <tr><td>--syn-rate-limit &lt;n&gt;</td><td>Max SYN packets per second (default 100)</td></tr>
+      <tr><td>--max-conns-per-port &lt;n&gt;</td><td>Max connections per port (default 1024)</td></tr>
+      <tr><td>--max-conns-total &lt;n&gt;</td><td>Max total connections (default 4096)</td></tr>
+      <tr><td>--time-wait &lt;dur&gt;</td><td>TIME_WAIT duration (default 10s)</td></tr>
+      <tr><td>--registry-tls</td><td>Enable TLS for registry connection</td></tr>
+      <tr><td>--registry-fingerprint &lt;hex&gt;</td><td>SHA-256 fingerprint of registry TLS cert</td></tr>
+      <tr><td>--no-echo</td><td>Disable echo service (port 7)</td></tr>
+      <tr><td>--no-dataexchange</td><td>Disable data exchange (port 1001)</td></tr>
+      <tr><td>--no-eventstream</td><td>Disable event stream (port 1002)</td></tr>
+      <tr><td>--no-tasksubmit</td><td>Disable task submit (port 1003)</td></tr>
       <tr><td>--log-level &lt;level&gt;</td><td>Log level: debug, info, warn, error</td></tr>
       <tr><td>--log-format &lt;fmt&gt;</td><td>Log format: text or json</td></tr>
       <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>

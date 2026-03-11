@@ -1,3 +1,6 @@
 name = "pilotprotocol"
 compatibility_date = "2026-02-08"
-pages_build_output_dir = "."
+pages_build_output_dir = "dist"
+
+[build]
+command = "npm run build"

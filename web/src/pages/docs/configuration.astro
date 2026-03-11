@@ -1,0 +1,130 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Configuration</h1>
+  <p class="subtitle">Config files, environment variables, directory structure, and daemon flags.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#config-file">Config file</a></li>
+      <li><a href="#commands">Config commands</a></li>
+      <li><a href="#env">Environment variables</a></li>
+      <li><a href="#directory">Directory structure</a></li>
+      <li><a href="#daemon-flags">Daemon flags</a></li>
+      <li><a href="#logging">Logging</a></li>
+    </ul>
+  </div>
+
+  <h2 id="config-file">Config file</h2>
+
+  <p>Configuration is stored in <code>~/.pilot/config.json</code>:</p>
+
+  <pre><code>{
+  "registry": "34.71.57.205:9000",
+  "beacon": "34.71.57.205:9001",
+  "hostname": "my-agent",
+  "socket": "/tmp/pilot.sock",
+  "webhook": "http://localhost:8080/events"
+}</code></pre>
+
+  <p>CLI flags override config file values. The config file is created by <code>pilotctl init</code> and can be updated with <code>pilotctl config --set</code>.</p>
+
+  <h2 id="commands">Config commands</h2>
+
+  <h3>Initialize</h3>
+  <pre><code><span class="cmd">pilotctl</span> init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001 --hostname my-agent</code></pre>
+  <p>Creates <code>~/.pilot/config.json</code> with the specified settings.</p>
+
+  <h3>View config</h3>
+  <pre><code><span class="cmd">pilotctl</span> config</code></pre>
+
+  <h3>Set a value</h3>
+  <pre><code><span class="cmd">pilotctl</span> config --set registry=host:9000
+<span class="cmd">pilotctl</span> config --set hostname=new-name</code></pre>
+
+  <h2 id="env">Environment variables</h2>
+
+  <table>
+    <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
+      <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
+      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install</td></tr>
+    </tbody>
+  </table>
+
+  <p>Environment variables override config file values but are overridden by CLI flags.</p>
+
+  <h2 id="directory">Directory structure</h2>
+
+  <pre><code>~/.pilot/
+  bin/                <span class="comment"># Installed binaries (pilotctl, pilot-rendezvous)</span>
+  config.json         <span class="comment"># Configuration file</span>
+  identity.key        <span class="comment"># Ed25519 keypair (persistent identity)</span>
+  trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
+  received/           <span class="comment"># Files received via data exchange</span>
+  inbox/              <span class="comment"># Messages received via data exchange</span>
+  pilot.pid           <span class="comment"># Daemon PID file</span>
+  pilot.log           <span class="comment"># Daemon log file</span></code></pre>
+
+  <h2 id="daemon-flags">Daemon flags</h2>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>--registry &lt;addr&gt;</td><td>Registry server address</td></tr>
+      <tr><td>--beacon &lt;addr&gt;</td><td>Beacon server address (STUN)</td></tr>
+      <tr><td>--listen &lt;addr&gt;</td><td>Local UDP listen address (default: :0)</td></tr>
+      <tr><td>--endpoint &lt;addr&gt;</td><td>Fixed public endpoint for cloud VMs (skips STUN)</td></tr>
+      <tr><td>--identity &lt;path&gt;</td><td>Path to identity key file</td></tr>
+      <tr><td>--owner &lt;owner&gt;</td><td>Owner identifier for key recovery</td></tr>
+      <tr><td>--hostname &lt;name&gt;</td><td>Register with this hostname</td></tr>
+      <tr><td>--public</td><td>Start as a public node</td></tr>
+      <tr><td>--no-encrypt</td><td>Disable tunnel encryption</td></tr>
+      <tr><td>--foreground</td><td>Run in the current process (don't fork)</td></tr>
+      <tr><td>--keepalive &lt;dur&gt;</td><td>Keepalive probe interval (default 30s)</td></tr>
+      <tr><td>--idle-timeout &lt;dur&gt;</td><td>Idle connection timeout (default 120s)</td></tr>
+      <tr><td>--syn-rate-limit &lt;n&gt;</td><td>Max SYN packets per second (default 100)</td></tr>
+      <tr><td>--max-conns-per-port &lt;n&gt;</td><td>Max connections per port (default 1024)</td></tr>
+      <tr><td>--max-conns-total &lt;n&gt;</td><td>Max total connections (default 4096)</td></tr>
+      <tr><td>--time-wait &lt;dur&gt;</td><td>TIME_WAIT duration (default 10s)</td></tr>
+      <tr><td>--registry-tls</td><td>Enable TLS for registry connection</td></tr>
+      <tr><td>--registry-fingerprint &lt;hex&gt;</td><td>SHA-256 fingerprint of registry TLS cert</td></tr>
+      <tr><td>--no-echo</td><td>Disable echo service (port 7)</td></tr>
+      <tr><td>--no-dataexchange</td><td>Disable data exchange (port 1001)</td></tr>
+      <tr><td>--no-eventstream</td><td>Disable event stream (port 1002)</td></tr>
+      <tr><td>--no-tasksubmit</td><td>Disable task submit (port 1003)</td></tr>
+      <tr><td>--log-level &lt;level&gt;</td><td>Log level: debug, info, warn, error</td></tr>
+      <tr><td>--log-format &lt;fmt&gt;</td><td>Log format: text or json</td></tr>
+      <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>
+      <tr><td>--config &lt;path&gt;</td><td>Config file path</td></tr>
+      <tr><td>--webhook &lt;url&gt;</td><td>Webhook URL for event notifications</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="logging">Logging</h2>
+
+  <p>The daemon uses structured logging via Go's <code>slog</code> package. Logs are written to <code>~/.pilot/pilot.log</code>.</p>
+
+  <pre><code><span class="comment"># Debug logging</span>
+<span class="cmd">pilotctl</span> daemon start --log-level debug
+
+<span class="comment"># JSON log format (for log aggregation)</span>
+<span class="cmd">pilotctl</span> daemon start --log-format json
+
+<span class="comment"># View logs</span>
+<span class="cmd">tail</span> -f ~/.pilot/pilot.log</code></pre>
+
+  <p>Log levels: <code>debug</code>, <code>info</code> (default), <code>warn</code>, <code>error</code></p>`;
+---
+<DocLayout
+  title="Configuration"
+  description="Config files, environment variables, directory structure, and daemon flags for Pilot Protocol."
+  activePage="configuration"
+  canonicalPath="/docs/configuration.html"
+  prev={{ label: "Diagnostics", href: "/docs/diagnostics.html" }}
+  next={{ label: "Integration", href: "/docs/integration.html" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

@@ -51,6 +51,16 @@ docs/*
 !docs/media/
 !docs/research/
 
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+.claude
+
 # Daemon socket
 *.sock
 
@@ -61,6 +71,8 @@ docs/*
 tmp/
 
 web/node_modules/
+web/dist/
+web/.astro/
 
 # Internal tooling
 cmd/spoof/

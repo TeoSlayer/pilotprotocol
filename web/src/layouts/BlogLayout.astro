@@ -1,0 +1,51 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import IslandNavbar from '../components/IslandNavbar.astro';
+import BlogShader from '../components/BlogShader.astro';
+import BlogFooter from '../components/BlogFooter.astro';
+import '../styles/global.css';
+import '../styles/blog.css';
+
+interface Props {
+  title: string;
+  description: string;
+  date: string;
+  tags: string[];
+  canonicalPath?: string;
+  bannerImage?: string;
+}
+
+const { title, description, date, tags, canonicalPath, bannerImage } = Astro.props;
+const canonicalUrl = canonicalPath ? `https://pilotprotocol.network${canonicalPath}` : undefined;
+const ogImage = bannerImage || 'https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} ogImage={ogImage} ogType="article" />
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": title,
+    "description": description,
+    "author": {"@type": "Organization", "name": "Vulture Labs"},
+    "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
+    "datePublished": date,
+    "mainEntityOfPage": canonicalUrl
+  })}></script>
+</head>
+<body>
+  <BlogShader />
+  <IslandNavbar active="blog" />
+  <article class="article">
+    <a class="back" href="/blog/">&larr; Back to Blog</a>
+    <h1>{title}</h1>
+    <div class="article-meta">
+      <span>{date}</span>
+      {tags.map((tag) => <span class="tag">{tag}</span>)}
+    </div>
+    <slot />
+  </article>
+  <BlogFooter />
+</body>
+</html>

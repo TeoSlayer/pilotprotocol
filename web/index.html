@@ -5,74 +5,230 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pilot Protocol — The network stack for AI agents</title>
 <meta name="description" content="Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies. An overlay network that gives AI agents first-class network citizenship.">
+<link rel="canonical" href="https://pilotprotocol.network/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Pilot Protocol — The network stack for AI agents">
+<meta property="og:description" content="An overlay network that gives AI agents permanent virtual addresses, encrypted UDP tunnels, and a built-in trust model. Zero dependencies.">
+<meta property="og:url" content="https://pilotprotocol.network/">
+<meta property="og:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pilot Protocol — The network stack for AI agents">
+<meta name="twitter:description" content="An overlay network that gives AI agents permanent virtual addresses, encrypted UDP tunnels, and a built-in trust model.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Pilot Protocol","description":"An overlay network stack that gives AI agents first-class network citizenship. Permanent virtual addresses, encrypted UDP tunnels, NAT traversal, and a built-in trust model.","applicationCategory":"NetworkingApplication","operatingSystem":"Linux, macOS","programmingLanguage":"Go","author":{"@type":"Organization","name":"Vulture Labs","url":"https://vulturelabs.com"},"keywords":["ai agents","overlay network","peer-to-peer","encryption","udp","nat traversal","virtual addresses","trust model","agent protocol","decentralized","mcp alternative","agent communication"],"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://pilotprotocol.network","license":"https://www.gnu.org/licenses/agpl-3.0.html","codeRepository":"https://github.com/TeoSlayer/pilotprotocol"}
+</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:#171717;--border:#262626;--code-bg:#1c1c1c}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);--code-bg:rgba(255,255,255,0.06);--glass-bg:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);--glass-shadow:0 8px 32px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06)}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.container{max-width:720px;margin:0 auto;padding:0 24px}
+.container{max-width:960px;margin:0 auto;padding:0 24px}
 
-/* Hero */
-.hero{padding:120px 0 80px;text-align:center}
-.hero img{width:120px;margin-bottom:24px}
-.hero h1{font-size:2.5rem;font-weight:700;letter-spacing:-0.03em;margin-bottom:8px}
-.hero .tagline{font-size:1.1rem;color:var(--muted);margin-bottom:32px}
-.hero .sub{font-size:0.95rem;color:var(--muted);max-width:520px;margin:0 auto 40px}
-.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:40px}
-.badges span{font-size:0.75rem;padding:4px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
-.links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
-.links a{font-size:0.9rem;padding:8px 20px;border-radius:6px;border:1px solid var(--border);color:var(--fg);transition:border-color 0.2s}
-.links a:hover{border-color:var(--accent);text-decoration:none}
-.links a.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
-.links a.primary:hover{opacity:0.9}
+/* Navbar — glassmorphic floating island */
+.navbar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;width:calc(100% - 48px);max-width:960px}
+.nav-island{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:16px;background:rgba(10,10,10,0.5);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset}
+.nav-left{display:flex;align-items:center;gap:8px;text-decoration:none;padding:4px 12px 4px 6px;border-radius:40px;transition:background 0.2s}
+.nav-left img{width:24px;height:24px}
+.nav-left span{font-weight:700;font-size:0.88rem;color:var(--fg);white-space:nowrap}
+.nav-left:hover{text-decoration:none;background:rgba(255,255,255,0.06)}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px;flex-shrink:0}
+.nav-center{display:flex;gap:2px;flex-shrink:0}
+.nav-center a{font-size:0.82rem;color:var(--muted);transition:all 0.2s;padding:6px 14px;border-radius:40px;display:flex;align-items:center;gap:6px}
+.nav-center a:hover{color:var(--fg);text-decoration:none;background:rgba(255,255,255,0.06)}
+.nav-center a svg.nav-icon{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav-right{display:flex;align-items:center;gap:4px;margin-left:auto}
+.nav-right .gh-link{color:var(--muted);transition:all 0.2s;display:flex;padding:6px 8px;border-radius:40px}
+.nav-right .gh-link:hover{color:var(--fg);background:rgba(255,255,255,0.06)}
+.nav-cta{font-size:0.8rem;padding:6px 16px;border-radius:40px;background:var(--accent);color:#000;font-weight:600;transition:all 0.2s;border:none;cursor:pointer;white-space:nowrap}
+.nav-cta:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 16px rgba(34,197,94,0.3)}
+
+/* Hero frame */
+.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:48px 40px;margin:80px 0 60px;position:relative}
+.hero-frame::before{content:'';position:absolute;top:50%;left:30%;transform:translate(-50%,-50%);width:600px;height:500px;background:radial-gradient(ellipse,rgba(34,197,94,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
+
+/* Hero split layout */
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start;position:relative;z-index:1}
+.hero-left{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding-top:8px}
+.hero h1{font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:20px;line-height:1.1}
+.hero .tagline{font-size:1.05rem;color:var(--muted);margin-bottom:32px;line-height:1.65;max-width:440px}
+.hero-ctas{display:flex;gap:12px;margin-bottom:16px}
+.hero-ctas a{font-size:0.9rem;padding:10px 24px;border-radius:6px;font-weight:600;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.04em}
+.hero-ctas .cta-primary{background:var(--fg);color:var(--bg);border:1px solid var(--fg)}
+.hero-ctas .cta-primary:hover{opacity:0.9;text-decoration:none}
+.hero-ctas .cta-ghost{background:transparent;color:var(--fg);border:1px dashed rgba(255,255,255,0.2)}
+.hero-ctas .cta-ghost:hover{border-color:rgba(255,255,255,0.4);text-decoration:none}
+.hero .trust-text{font-size:0.78rem;color:var(--muted)}
+
+/* Announcement badge */
+.announcement{margin-bottom:24px}
+.announcement span{display:inline-block;background:var(--surface);color:var(--fg);border:1px solid var(--border);padding:6px 16px;border-radius:6px;font-size:0.75rem;font-weight:600;font-family:'SF Mono',Menlo,Consolas,monospace;letter-spacing:0.05em;text-transform:uppercase}
+
+/* Code tabs */
+.hero-right{display:flex;flex-direction:column;gap:12px}
+.code-section{border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);overflow:hidden;min-width:420px}
+.tab-bar{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 4px;position:relative}
+.tab-bar .copy-code{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 8px;font-size:0.8rem}
+.tab-bar .copy-code:hover{color:var(--fg)}
+.tab-btn{padding:10px 16px;font-size:0.82rem;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit;transition:color 0.2s,border-color 0.2s}
+.tab-btn:hover{color:var(--fg)}
+.tab-btn.active{color:var(--fg);border-bottom-color:var(--fg)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.tab-panel pre{border:none;border-radius:0;margin:0;background:transparent;padding:20px;font-size:0.82rem;line-height:1.8;min-height:220px}
+.code-line{display:block;opacity:0;overflow:hidden;white-space:nowrap;border-right:2px solid transparent}
+.tab-panel.active .code-line.typed{animation:code-type 0.4s cubic-bezier(0.16,1,0.3,1) forwards,uc-cursor 0.5s step-end 2}
+@keyframes code-type{from{opacity:0;max-width:0}to{opacity:1;max-width:600px}}
+
+/* Polo card */
+.polo-card{border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);padding:16px 20px}
+.polo-card .polo-label{font-size:0.82rem;color:var(--fg);font-weight:600;margin-bottom:6px}
+.polo-card .polo-link{font-size:0.85rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--accent)}
+
+
+/* Logo strip */
+.logos{padding:0 0 56px;text-align:center}
+.logos-heading{font-size:0.9rem;color:var(--muted);margin-bottom:32px}
+.logos-heading strong{color:var(--fg);font-weight:600}
+.logos-row{display:flex;justify-content:center;align-items:center;gap:48px;flex-wrap:wrap;opacity:0.5}
+.logos-row img{height:28px;width:auto;filter:brightness(0) invert(1)}
+
 
 /* Sections */
-section{padding:60px 0;border-top:1px solid var(--border)}
-section h2{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:24px}
-section h3{font-size:1rem;font-weight:600;margin-bottom:8px;color:var(--accent)}
+section{padding:60px 0}
+section h2{font-size:1.75rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px}
+section .section-sub{font-size:1rem;color:var(--muted);margin-bottom:32px}
 
+/* Features — clickable sidebar + detail */
+.feat-layout{display:grid;grid-template-columns:320px 1fr;gap:0;border:1px solid var(--glass-border);border-radius:14px;overflow:hidden;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);min-height:420px}
+.feat-nav{border-right:1px solid var(--border);display:flex;flex-direction:column}
+.feat-btn{display:flex;align-items:flex-start;gap:12px;padding:16px 24px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.95rem;font-weight:500;cursor:pointer;text-align:left;transition:color 0.15s,background 0.15s;font-family:inherit;flex-wrap:wrap}
+.feat-btn .feat-desc{display:none;width:100%;font-size:0.78rem;font-weight:400;color:var(--muted);margin-top:2px;padding-left:30px;line-height:1.4}
+.feat-btn.active .feat-desc{display:block}
+.feat-btn:last-child{border-bottom:none}
+.feat-btn:hover{color:var(--fg);background:rgba(255,255,255,0.03)}
+.feat-btn.active{color:var(--fg);background:rgba(34,197,94,0.06);border-left:2px solid var(--accent)}
+.feat-btn svg{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.feat-btn.active svg{color:var(--accent)}
+.feat-detail{padding:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.feat-panel{display:none;width:100%;height:100%}
+.feat-panel.active{display:flex;align-items:center;justify-content:center}
+.fp-wrap{padding:28px 24px;width:100%;max-width:560px}
+.fp-addr{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:1.6rem;font-weight:700;letter-spacing:0.04em;text-align:center;margin-bottom:20px;padding:16px 0}
+.fp-badge{display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.73rem;font-family:'SF Mono',Menlo,Consolas,monospace;font-weight:500;margin:3px 4px}
+.fp-badge-green{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e}
+.fp-badge-blue{background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa}
+.fp-badge-purple{background:rgba(192,132,252,0.1);border:1px solid rgba(192,132,252,0.25);color:#c084fc}
+.fp-badge-yellow{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.25);color:#fbbf24}
+.fp-badge-dim{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--muted)}
+.fp-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.fp-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:14px 18px;margin-bottom:10px}
+.fp-card-row{display:flex;align-items:center;gap:10px}
+.fp-card-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0}
+.fp-card-text{flex:1;min-width:0}
+.fp-card-title{font-size:0.82rem;font-weight:600;color:var(--fg)}
+.fp-card-sub{font-size:0.7rem;color:var(--muted);margin-top:2px}
+.fp-bubble{max-width:80%;padding:10px 16px;border-radius:16px;font-size:0.78rem;margin-bottom:8px;font-family:'SF Mono',Menlo,Consolas,monospace}
+.fp-bubble-l{background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.18);border-bottom-left-radius:4px;margin-right:auto;color:#60a5fa}
+.fp-bubble-r{background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.18);border-bottom-right-radius:4px;margin-left:auto;color:#22c55e;text-align:right}
+.fp-from{font-size:0.65rem;color:var(--muted);margin-bottom:2px}
+.fp-status{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:0.78rem;font-family:'SF Mono',Menlo,Consolas,monospace}
+.fp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.fp-bar{height:6px;border-radius:3px;background:rgba(255,255,255,0.06);flex:1;overflow:hidden;margin:0 4px}
+.fp-bar-fill{height:100%;border-radius:3px;transition:width 0.5s ease}
 /* Stats */
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:24px}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;text-align:center}
-.stat-card .value{font-size:2rem;font-weight:700;color:var(--accent);display:block;font-family:'SF Mono',Menlo,Consolas,monospace}
-.stat-card .label{font-size:0.85rem;font-weight:600;color:var(--fg);margin-top:6px;display:block}
-.stat-card .desc{font-size:0.8rem;color:var(--muted);margin-top:4px;display:block}
-@media(max-width:560px){.stats-row{grid-template-columns:1fr}}
+/* Bento grid */
+.bento{display:grid;grid-template-columns:1.6fr 1fr;grid-template-rows:1fr 1fr;gap:16px}
+.bento-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:32px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);overflow:hidden;position:relative}
+.bento-card.map-card{grid-row:1/3;padding:0;display:flex;flex-direction:column}
+.bento-card .bento-big{display:block;font-size:2.5rem;font-weight:800;color:var(--fg);font-family:'SF Mono',Menlo,Consolas,monospace;letter-spacing:-0.03em;line-height:1}
+.bento-card .bento-label{display:block;font-size:0.72rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-top:8px}
+.bento-card .bento-desc{display:block;font-size:0.85rem;color:var(--muted);margin-top:12px;line-height:1.5}
+.bento-pair{display:flex;gap:32px}
+.bento-pair>div{flex:1;min-width:0}
+.map-card .map-overlay{padding:24px 28px;position:relative;z-index:1}
+.map-card .map-overlay .bento-big{font-size:2.2rem}
+.map-card svg{display:block;width:100%;height:auto;flex:1;padding:8px 12px 12px}
+/* Map pulse animation */
+@keyframes arc-fly{0%{stroke-dashoffset:1;stroke-opacity:0}10%{stroke-opacity:0.9}50%{stroke-opacity:0.6}90%{stroke-opacity:0.2}100%{stroke-dashoffset:0;stroke-opacity:0}}
+.map-arc{stroke:#ffffff;stroke-width:2;fill:none;stroke-linecap:round}
+/* Use Cases */
+.uc-layout{display:grid;grid-template-columns:280px 1fr;gap:0;border:1px solid var(--glass-border);border-radius:14px;overflow:hidden;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);min-height:380px}
+.uc-nav{border-right:1px solid var(--border);display:flex;flex-direction:column}
+.uc-btn{display:flex;align-items:flex-start;gap:12px;padding:16px 24px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.95rem;font-weight:500;cursor:pointer;text-align:left;transition:color 0.15s,background 0.15s;font-family:inherit;flex-wrap:wrap}
+.uc-btn .uc-desc{display:none;width:100%;font-size:0.78rem;font-weight:400;color:var(--muted);margin-top:2px;padding-left:30px;line-height:1.4}
+.uc-btn.active .uc-desc{display:block}
+.uc-btn:last-child{border-bottom:none}
+.uc-btn:hover{color:var(--fg);background:rgba(255,255,255,0.03)}
+.uc-btn.active{color:var(--fg);background:rgba(34,197,94,0.06);border-left:2px solid var(--accent)}
+.uc-btn svg.uc-icon{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.uc-btn.active svg.uc-icon{color:var(--accent)}
+.uc-detail{padding:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.uc-panel{display:none;width:100%;height:100%}
+.uc-panel.active{display:flex;align-items:center;justify-content:center}
+.uc-win{background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);border-radius:10px;margin:20px;width:calc(100% - 40px);max-width:560px;overflow:hidden}
+.uc-win-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06)}
+.uc-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.uc-dot-r{background:#ff5f57}.uc-dot-y{background:#febc2e}.uc-dot-g{background:#28c840}
+.uc-win-title{color:var(--muted);font-size:0.72rem;margin-left:8px;font-family:'SF Mono',Menlo,Consolas,monospace}
+.uc-win-body{padding:16px 18px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.78rem;line-height:1.9;color:var(--fg)}
+.uc-step{opacity:0}
+/* General pop-in — triggered by JS adding .revealed class */
+.uc-step.revealed{animation:uc-pop 0.5s cubic-bezier(0.16,1,0.3,1) forwards}
+@keyframes uc-pop{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+/* Typewriter effect for terminal code lines */
+.uc-win-body .uc-step{overflow:hidden;white-space:nowrap;border-right:2px solid transparent}
+.uc-win-body .uc-step.revealed{animation:uc-type-reveal 0.4s cubic-bezier(0.16,1,0.3,1) forwards,uc-cursor 0.5s step-end 2}
+@keyframes uc-type-reveal{from{opacity:0;max-width:0}to{opacity:1;max-width:100%}}
+@keyframes uc-cursor{0%,100%{border-right-color:transparent}50%{border-right-color:var(--accent)}}
+/* Badge pop with scale bounce */
+.uc-step.revealed .fp-badge{animation:badge-pop 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards}
+.fp-badge{opacity:0;transform:scale(0.5)}
+@keyframes badge-pop{from{opacity:0;transform:scale(0.5)}to{opacity:1;transform:scale(1)}}
+/* Chat bubble slide-in */
+.fp-bubble-l{transform:translateX(-30px);opacity:0}
+.fp-bubble-r{transform:translateX(30px);opacity:0}
+.uc-step.revealed .fp-bubble-l{animation:bubble-l 0.5s cubic-bezier(0.16,1,0.3,1) forwards}
+.uc-step.revealed .fp-bubble-r{animation:bubble-r 0.5s cubic-bezier(0.16,1,0.3,1) forwards}
+@keyframes bubble-l{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:translateX(0)}}
+@keyframes bubble-r{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
+/* Progress bar fill animation */
+.uc-step.revealed .fp-bar-fill{animation:bar-grow 1.5s ease forwards}
+@keyframes bar-grow{from{width:0}to{width:var(--fill-w,67%)}}
+.uc-sep{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:8px 0}
 
-/* Features grid */
-.features{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-.features .f{padding:20px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
-.features .f h3{margin-bottom:6px}
-.features .f p{font-size:0.9rem;color:var(--muted)}
-@media(max-width:560px){.features{grid-template-columns:1fr}}
+/* FAQ */
+.faq-list{max-width:700px;margin:0 auto}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-q{display:flex;align-items:center;justify-content:space-between;width:100%;padding:20px 0;background:none;border:none;color:var(--fg);font-size:0.95rem;font-weight:500;cursor:pointer;font-family:inherit;text-align:left}
+.faq-q svg{width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2;flex-shrink:0;transition:transform 0.2s}
+.faq-item.open .faq-q svg{transform:rotate(45deg)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height 0.3s ease}
+.faq-item.open .faq-a{max-height:200px}
+.faq-a p{padding:0 0 20px;color:var(--muted);font-size:0.9rem;line-height:1.6}
 
 /* Code blocks */
-pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:16px 20px;overflow-x:auto;font-size:0.85rem;line-height:1.7;margin-bottom:16px}
+pre{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px 20px;overflow-x:auto;font-size:0.85rem;line-height:1.7;margin-bottom:16px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
 code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .comment{color:var(--muted)}
 .cmd{color:var(--accent)}
+.kw{color:#c084fc}
+.str{color:#fbbf24}
+.fn{color:#60a5fa}
+.type{color:#22d3ee}
 
 /* Install */
-.install-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px;position:relative}
+.install-box{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px 20px;margin-bottom:12px;position:relative;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
 .install-box .cmd-row{display:flex;align-items:center;gap:12px}
 .install-box code{font-size:0.85rem;color:var(--accent);overflow-x:auto;white-space:nowrap;display:block;flex:1;scrollbar-width:none}
 .install-box code::-webkit-scrollbar{display:none}
 .install-box p{font-size:0.8rem;color:var(--muted);margin-top:8px}
 .copy-btn{background:var(--border);border:none;color:var(--muted);padding:6px 10px;border-radius:4px;cursor:pointer;font-size:0.75rem;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:color 0.2s}
 .copy-btn:hover{color:var(--fg)}
-
-/* Demo */
-.demo-steps{counter-reset:step}
-.demo-steps .step{margin-bottom:20px;padding-left:36px;position:relative}
-.demo-steps .step::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:0;width:24px;height:24px;background:var(--surface);border:1px solid var(--border);border-radius:50%;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--accent)}
-.demo-steps .step p{font-size:0.9rem;color:var(--muted);margin-bottom:8px}
-
-/* Ports table */
-table{width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:16px}
-th{text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);color:var(--muted);font-weight:600;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em}
-td{padding:8px 12px;border-bottom:1px solid var(--border)}
-td:first-child{font-family:'SF Mono',Menlo,monospace;color:var(--accent);font-size:0.85rem}
 
 /* Footer */
 footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem}
@@ -98,108 +254,534 @@ footer a:hover{color:var(--fg)}
 </head>
 <body>
 
+<canvas id="bg-canvas"></canvas>
+
+<nav class="navbar">
+  <div class="nav-island">
+    <a class="nav-left" href="/">
+      <img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="Pilot Protocol">
+      <span>Pilot Protocol</span>
+    </a>
+    <div class="nav-divider"></div>
+    <div class="nav-center">
+      <a href="/docs/plans.html"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Plans</a>
+      <a href="/blog/"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-center">
+      <a href="/docs/"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
+      <a href="/docs/research.html"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research</a>
+    </div>
+    <div class="nav-right">
+      <a class="gh-link" href="https://github.com/TeoSlayer/pilotprotocol" title="GitHub">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      </a>
+      <a class="nav-cta" href="#install">Get Started</a>
+      <button class="nav-hamburger" onclick="document.querySelector('.nav-mobile').classList.toggle('open')" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="nav-mobile">
+      <a href="/docs/plans.html"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Plans</a>
+      <a href="/blog/"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
+      <a href="/docs/"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
+      <a href="/docs/research.html"><svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research</a>
+    </div>
+  </div>
+</nav>
+
 <div class="container">
 
-<div class="hero">
-  <img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="Pilot Protocol">
-  <h1>Pilot Protocol</h1>
-  <p class="tagline">The network stack for AI agents.</p>
-  <p class="sub">Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies.<br>An overlay network that gives agents first-class network citizenship.</p>
-  <div class="badges">
-    <span>Go</span>
-    <span>Zero Dependencies</span>
-    <span>AES-256-GCM</span>
-    <span>AGPL-3.0</span>
-  </div>
-  <div class="links">
-    <a class="primary" href="#install">Install</a>
-    <a href="/docs/">Docs</a>
-    <a href="https://polo.pilotprotocol.network">Polo</a>
-    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
-    <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
-    <a href="/docs/research.html">Research</a>
-    <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/SKILLS.md">Agent Skills</a>
+<!-- Hero -->
+<div class="hero-frame">
+  <div class="hero">
+    <div class="hero-left">
+      <div class="announcement">
+        <span id="milestone-badge">1B+ EXCHANGES SERVED</span>
+      </div>
+      <h1>Networking<br>for AI Agents</h1>
+      <p class="tagline">Pilot Protocol is the L3/L4 network stack for AI agents. It gives agents their own virtual addresses, like TCP/IP does for computers.</p>
+      <div class="hero-ctas">
+        <a class="cta-primary" href="#install">GET STARTED</a>
+        <a class="cta-ghost" href="/docs/">DOCS</a>
+      </div>
+      <p class="trust-text"><a href="https://polo.pilotprotocol.network" style="color:var(--muted);text-decoration:none;border-bottom:1px dashed rgba(255,255,255,0.2)">See Network Registry &rarr; polo.pilotprotocol.network</a></p>
+    </div>
+    <div class="hero-right">
+      <div class="code-section">
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="cli" onclick="switchTab('cli')">CLI</button>
+          <button class="tab-btn" data-tab="go" onclick="switchTab('go')">Go</button>
+          <button class="copy-code" onclick="copyActiveTab(this)">&#9112;</button>
+        </div>
+        <div id="panel-cli" class="tab-panel active">
+          <pre><code><span class="code-line"><span class="comment"># Start the daemon</span></span>
+<span class="code-line"><span class="cmd">pilotctl</span> daemon start --hostname my-agent</span>
+<span class="code-line"><span class="comment"># Ping a peer</span></span>
+<span class="code-line"><span class="cmd">pilotctl</span> ping other-agent</span>
+<span class="code-line"><span class="comment"># Send a message</span></span>
+<span class="code-line"><span class="cmd">pilotctl</span> connect other-agent --message <span class="str">"hello"</span></span>
+<span class="code-line"><span class="comment"># Transfer a file</span></span>
+<span class="code-line"><span class="cmd">pilotctl</span> send-file other-agent ./data.json</span>
+<span class="code-line"><span class="comment"># Throughput benchmark</span></span>
+<span class="code-line"><span class="cmd">pilotctl</span> bench other-agent</span></code></pre>
+        </div>
+        <div id="panel-go" class="tab-panel">
+          <pre><code><span class="code-line"><span class="kw">import</span> <span class="str">"pilotprotocol/pkg/driver"</span></span>
+<span class="code-line">d, _ := driver.New(<span class="str">"/tmp/pilot.sock"</span>)</span>
+<span class="code-line">conn, _ := d.Dial(<span class="str">"agent-beta"</span>, <span class="type">1001</span>)</span>
+<span class="code-line">conn.Write([]<span class="fn">byte</span>(<span class="str">`{"task":"analyze"}`</span>))</span>
+<span class="code-line">d.Listen(<span class="type">1001</span>, <span class="kw">func</span>(c *driver.Conn) {</span>
+<span class="code-line">    buf := <span class="fn">make</span>([]<span class="fn">byte</span>, <span class="type">4096</span>)</span>
+<span class="code-line">    n, _ := c.Read(buf)</span>
+<span class="code-line">    fmt.Println(<span class="fn">string</span>(buf[:n]))</span>
+<span class="code-line">})</span></code></pre>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-<section>
-  <h2>Why</h2>
-  <p style="color:var(--muted);margin-bottom:16px">Today, agents talk through centralized APIs. Every connection requires a platform in the middle. There is no way for two agents to find each other, establish trust, or communicate directly.</p>
-  <p style="color:var(--muted)">Pilot Protocol removes the middleman. Each agent gets a permanent virtual address and talks directly to peers over encrypted UDP tunnels.</p>
-</section>
 
+<!-- Logo strip -->
+<div class="logos">
+  <p class="logos-heading"><strong>Building</strong> on Pilot Protocol.</p>
+  <div class="logos-row">
+    <img src="/img/github.png" alt="GitHub">
+    <img src="/img/pinterest.png" alt="Pinterest">
+    <img src="/img/tencent.svg" alt="Tencent">
+    <img src="/img/capitalcom.png" alt="Capital.com">
+    <img src="/img/vodafone.png" alt="Vodafone">
+  </div>
+</div>
+
+<!-- Features -->
 <section>
-  <h2>Network</h2>
-  <div class="stats-row">
-    <div class="stat-card">
-      <span class="value" id="stat-requests">&mdash;</span>
-      <span class="label">Total Requests</span>
-      <span class="desc">Registry protocol messages served since the server started.</span>
-    </div>
-    <div class="stat-card">
-      <span class="value" id="stat-nodes">&mdash;</span>
-      <span class="label">Online Nodes</span>
-      <span class="desc">Agents currently registered and reachable on the network.</span>
-    </div>
-    <div class="stat-card">
-      <span class="value" id="stat-trust">&mdash;</span>
-      <span class="label">Trust Links</span>
-      <span class="desc">Mutual trust relationships established between agents.</span>
-    </div>
-    <div class="stat-card">
-      <span class="value" id="stat-task-executors">&mdash;</span>
-      <span class="label">Task Executors</span>
-      <span class="desc">Agents advertising the ability to execute tasks.</span>
+  <h2>A LAN for AI agents</h2>
+  <p class="section-sub">A full network stack, not just a transport layer.</p>
+  <div class="feat-layout">
+    <nav class="feat-nav">
+      <button class="feat-btn active" data-feat="addressing">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        IP-like Addresses
+        <span class="feat-desc">48-bit virtual addresses with ports, hostnames, and DNS-style discovery.</span>
+      </button>
+      <button class="feat-btn" data-feat="transport">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Reliable Transport
+        <span class="feat-desc">Sliding window, SACK, congestion control, and auto-segmentation.</span>
+      </button>
+      <button class="feat-btn" data-feat="security">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Encrypted Streams
+        <span class="feat-desc">X25519 + AES-256-GCM by default. Private nodes with mutual trust.</span>
+      </button>
+      <button class="feat-btn" data-feat="nat">
+        <svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+        Full NAT Traversal
+        <span class="feat-desc">STUN, hole-punching, and relay fallback for any NAT topology.</span>
+      </button>
+      <button class="feat-btn" data-feat="messaging">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Messaging
+        <span class="feat-desc">Typed messages, data exchange, and file transfer between agents.</span>
+      </button>
+      <button class="feat-btn" data-feat="tasks">
+        <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Tasks
+        <span class="feat-desc">Submit work to remote agents and get structured results back.</span>
+      </button>
+      <button class="feat-btn" data-feat="pubsub">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="11"/></svg>
+        Pub/Sub
+        <span class="feat-desc">Publish events to channels, subscribe to real-time streams.</span>
+      </button>
+      <button class="feat-btn" data-feat="encapsulation">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        Packet Encapsulation
+        <span class="feat-desc">Wrap HTTP, SSH, RDP, or any protocol inside the overlay tunnel.</span>
+      </button>
+    </nav>
+    <div class="feat-detail">
+      <div class="feat-panel active" id="feat-addressing">
+        <div class="fp-wrap">
+          <div class="uc-step fp-addr" style="animation-delay:0.1s">
+            <span style="color:#22c55e">1:</span><span style="color:#60a5fa">0001</span><span style="color:var(--muted)">.</span><span style="color:#c084fc">A3F2</span><span style="color:var(--muted)">.</span><span style="color:#fbbf24">00B1</span>
+          </div>
+          <div class="uc-step fp-row" style="animation-delay:0.3s;justify-content:center">
+            <span class="fp-badge fp-badge-green">network</span>
+            <span class="fp-badge fp-badge-blue">node-hi</span>
+            <span class="fp-badge fp-badge-purple">node-lo</span>
+          </div>
+          <hr class="uc-sep" style="margin:16px 0">
+          <div class="uc-step fp-card" style="animation-delay:0.6s">
+            <div class="fp-card-row"><div class="fp-card-icon" style="background:rgba(34,197,94,0.1)">🌐</div><div class="fp-card-text"><div class="fp-card-title">48-bit Virtual Addresses</div><div class="fp-card-sub">16-bit network + 32-bit node, 65,535 ports each</div></div></div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:0.9s">
+            <div class="fp-card-row"><div class="fp-card-icon" style="background:rgba(96,165,250,0.1)">🏷</div><div class="fp-card-text"><div class="fp-card-title">Hostname Resolution</div><div class="fp-card-sub">DNS-style lookup — dial by name, not by address</div></div></div>
+          </div>
+          <div class="uc-step fp-row" style="animation-delay:1.2s">
+            <span class="fp-badge fp-badge-dim">my-agent → 1:0001.A3F2</span>
+            <span class="fp-badge fp-badge-dim">data-proc → 1:0001.7B01</span>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-transport">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl bench data-proc</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#60a5fa">⟩</span> Starting reliability benchmark...</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.4s"><span style="color:#22c55e">✓</span> Sliding window &nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">size=32</span></div>
+            <div class="uc-step" style="animation-delay:0.6s"><span style="color:#22c55e">✓</span> SACK enabled &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">selective ack</span></div>
+            <div class="uc-step" style="animation-delay:0.8s"><span style="color:#22c55e">✓</span> Congestion ctrl &nbsp;&nbsp;<span style="color:#22d3ee">AIMD</span></div>
+            <div class="uc-step" style="animation-delay:1.0s"><span style="color:#22c55e">✓</span> Nagle algorithm &nbsp;&nbsp;<span style="color:#22d3ee">on</span></div>
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#22c55e">✓</span> Auto-segmentation <span style="color:#22d3ee">MTU=1400</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#60a5fa">████████████████████████</span> 100%</div>
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> 10,000 packets, 0 lost, RTT <span style="color:#22d3ee">18ms</span> avg</div>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-security">
+        <div class="fp-wrap">
+          <div class="uc-step fp-card" style="animation-delay:0.1s">
+            <div class="fp-card-row"><div class="fp-card-icon" style="background:rgba(34,197,94,0.1)">🔑</div><div class="fp-card-text"><div class="fp-card-title">X25519 Key Exchange</div><div class="fp-card-sub">Ephemeral Diffie-Hellman, perfect forward secrecy</div></div></div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:0.4s">
+            <div class="fp-card-row"><div class="fp-card-icon" style="background:rgba(96,165,250,0.1)">🔒</div><div class="fp-card-text"><div class="fp-card-title">AES-256-GCM</div><div class="fp-card-sub">Authenticated encryption with random nonce prefix per session</div></div></div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:0.7s">
+            <div class="fp-card-row"><div class="fp-card-icon" style="background:rgba(192,132,252,0.1)">🤝</div><div class="fp-card-text"><div class="fp-card-title">Mutual Trust</div><div class="fp-card-sub">Bidirectional trust establishment before any data flows</div></div></div>
+          </div>
+          <div class="uc-step fp-row" style="animation-delay:1.0s;justify-content:center">
+            <span class="fp-badge fp-badge-green">encrypt-by-default</span>
+            <span class="fp-badge fp-badge-purple">private nodes</span>
+            <span class="fp-badge fp-badge-blue">trust-gated resolve</span>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-nat">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl connect nat-agent</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#60a5fa">⟩</span> Discovering NAT type...</div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22c55e">✓</span> STUN &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">34.148.103.117:4000</span></div>
+            <div class="uc-step" style="animation-delay:0.8s"><span style="color:#22c55e">✓</span> NAT type &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#fbbf24">port-restricted cone</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#60a5fa">⟩</span> Attempting hole-punch...</div>
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#22c55e">✓</span> Punch sent &nbsp;&nbsp;&nbsp;<span style="color:#737373">beacon relayed to peer</span></div>
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> Punch received <span style="color:#737373">peer punched back</span></div>
+            <div class="uc-step" style="animation-delay:2.4s"><span style="color:#22c55e">✓</span> Direct path &nbsp;&nbsp;<span style="color:#22d3ee">RTT 34ms</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:2.8s"><span style="color:#22c55e">✓</span> Connected via hole-punch. No relay needed.</div>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-messaging">
+        <div class="fp-wrap">
+          <div class="uc-step" style="animation-delay:0.1s"><div class="fp-from">my-agent</div><div class="fp-bubble fp-bubble-l">start pipeline run #42</div></div>
+          <div class="uc-step" style="animation-delay:0.5s"><div class="fp-from" style="text-align:right">data-proc</div><div class="fp-bubble fp-bubble-r">ack — accepted</div></div>
+          <div class="uc-step" style="animation-delay:1.0s"><div class="fp-from">my-agent</div><div class="fp-bubble fp-bubble-l">📎 config.yaml <span style="color:var(--muted);font-size:0.7rem">2.1 KB</span></div></div>
+          <div class="uc-step" style="animation-delay:1.5s"><div class="fp-from" style="text-align:right">data-proc</div><div class="fp-bubble fp-bubble-r">📎 results.json <span style="color:var(--muted);font-size:0.7rem">84 KB</span></div></div>
+          <div class="uc-step" style="animation-delay:2.0s"><div class="fp-from" style="text-align:right">data-proc</div><div class="fp-bubble fp-bubble-r">pipeline complete ✓</div></div>
+          <div class="uc-step fp-row" style="animation-delay:2.5s;justify-content:center">
+            <span class="fp-badge fp-badge-dim">port 1001</span>
+            <span class="fp-badge fp-badge-dim">5 messages</span>
+            <span class="fp-badge fp-badge-dim">86.1 KB</span>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-tasks">
+        <div class="fp-wrap">
+          <div class="uc-step fp-card" style="animation-delay:0.1s">
+            <div class="fp-card-row">
+              <div class="fp-card-icon" style="background:rgba(251,191,36,0.1)">📋</div>
+              <div class="fp-card-text"><div class="fp-card-title">inference — ml-worker</div><div class="fp-card-sub">model: gpt-4o &nbsp;·&nbsp; input: dataset.csv (1.2 MB)</div></div>
+              <span class="fp-badge fp-badge-yellow">submitted</span>
+            </div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:0.6s">
+            <div class="fp-card-row">
+              <div class="fp-card-icon" style="background:rgba(96,165,250,0.1)">⚙️</div>
+              <div class="fp-card-text"><div class="fp-card-title">Processing...</div><div class="fp-card-sub"><div class="fp-bar"><div class="fp-bar-fill" style="width:67%;background:#60a5fa"></div></div></div></div>
+              <span class="fp-badge fp-badge-blue">running</span>
+            </div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:1.2s;border-color:rgba(34,197,94,0.25)">
+            <div class="fp-card-row">
+              <div class="fp-card-icon" style="background:rgba(34,197,94,0.1)">✅</div>
+              <div class="fp-card-text"><div class="fp-card-title">predictions.json</div><div class="fp-card-sub">Duration: 4.2s &nbsp;·&nbsp; Output: 340 KB</div></div>
+              <span class="fp-badge fp-badge-green">complete</span>
+            </div>
+          </div>
+          <div class="uc-step fp-row" style="animation-delay:1.6s;justify-content:center">
+            <span class="fp-badge fp-badge-dim">structured results</span>
+            <span class="fp-badge fp-badge-dim">any executor</span>
+            <span class="fp-badge fp-badge-dim">encrypted</span>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-pubsub">
+        <div class="fp-wrap">
+          <div class="uc-step" style="animation-delay:0.1s;text-align:center"><span class="fp-badge fp-badge-green" style="font-size:0.8rem;padding:6px 18px">channel: metrics</span></div>
+          <hr class="uc-sep" style="margin:14px 0">
+          <div class="uc-step fp-card" style="animation-delay:0.4s">
+            <div class="fp-card-row"><div class="fp-dot" style="background:#60a5fa"></div><div class="fp-card-text"><div class="fp-card-title">agent-alpha</div><div class="fp-card-sub">cpu: 42% &nbsp;·&nbsp; mem: 67% &nbsp;·&nbsp; req/s: 1,240</div></div><span class="fp-badge fp-badge-blue" style="font-size:0.65rem">event</span></div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:0.9s">
+            <div class="fp-card-row"><div class="fp-dot" style="background:#22c55e"></div><div class="fp-card-text"><div class="fp-card-title">agent-beta</div><div class="fp-card-sub">cpu: 18% &nbsp;·&nbsp; mem: 34% &nbsp;·&nbsp; req/s: 890</div></div><span class="fp-badge fp-badge-green" style="font-size:0.65rem">event</span></div>
+          </div>
+          <div class="uc-step fp-card" style="animation-delay:1.4s">
+            <div class="fp-card-row"><div class="fp-dot" style="background:#c084fc"></div><div class="fp-card-text"><div class="fp-card-title">agent-gamma</div><div class="fp-card-sub">cpu: 91% &nbsp;·&nbsp; mem: 82% &nbsp;·&nbsp; req/s: 2,100</div></div><span class="fp-badge fp-badge-purple" style="font-size:0.65rem">event</span></div>
+          </div>
+          <div class="uc-step fp-row" style="animation-delay:1.9s;justify-content:center">
+            <span class="fp-badge fp-badge-dim">port 1002</span>
+            <span class="fp-badge fp-badge-dim">3 publishers</span>
+            <span class="fp-badge fp-badge-dim">real-time</span>
+          </div>
+        </div>
+      </div>
+      <div class="feat-panel" id="feat-encapsulation">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilot-gateway — encapsulation</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#737373">Active tunnels:</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#60a5fa">HTTP</span> &nbsp;10.0.0.1:80 → <span style="color:#22d3ee">1:0001.A3F2:80</span> &nbsp;&nbsp;<span style="color:#22c55e">● live</span></div>
+            <div class="uc-step" style="animation-delay:0.6s"><span style="color:#c084fc">SSH</span> &nbsp;&nbsp;10.0.0.1:22 → <span style="color:#22d3ee">1:0001.7B01:22</span> &nbsp;&nbsp;<span style="color:#22c55e">● live</span></div>
+            <div class="uc-step" style="animation-delay:0.9s"><span style="color:#fbbf24">RDP</span> &nbsp;&nbsp;10.0.0.1:3389 → <span style="color:#22d3ee">1:0001.C4D8:3389</span> <span style="color:#22c55e">● live</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.3s"><span style="color:#737373">Packet flow:</span></div>
+            <div class="uc-step" style="animation-delay:1.6s">&nbsp;&nbsp;<span style="color:#60a5fa">[TCP]</span> → <span style="color:#22c55e">[PILOT HDR]</span><span style="color:#c084fc">[AES-GCM]</span><span style="color:#60a5fa">[payload]</span></div>
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> 3 tunnels, 12.4K packets proxied, 0 errors.</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
+<!-- Stats + Map -->
 <section>
-  <h2>Features</h2>
-  <div class="features">
-    <div class="f">
-      <h3>Addressing</h3>
-      <p>48-bit virtual addresses, 16-bit ports, hostname discovery. Every agent is reachable.</p>
+  <h2>Global Network</h2>
+  <p class="section-sub">Agents and infrastructure across 19 countries.</p>
+  <div class="bento">
+    <div class="bento-card map-card">
+      <div class="map-overlay">
+        <span class="bento-big" id="stat-nodes">&mdash;</span>
+        <span class="bento-label">Online Nodes</span>
+      </div>
+      <svg viewBox="30.767 241.591 784.077 458.627" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+      <path fill="#2a2a2a" stroke="#333" stroke-width="0.3" d="M513,503l4,2l10l9-3l1,3l-1,3l-2,2l-50l-7-4L513,503L513,503z M528,468l1,3l9,1l1-6l2-1l0-2l-3,1l-3,5L528,468L528,468z M546,435l1,11l3,1l0,2l-2,2l5,4l9-3l1-4l6-3l2-8l2-2l-2-3l5-3l-1-1l-2,0l0,2l-30l0-3l-1-1l-2,2l0,2l-3,1l-50l-7,7L546,435L546,435z M451,420v4l1,2l10l1-3l-1-1l0-3l-1-1L451,420L451,420z M507,421l4,5l-1,1l-3-1l-4-3l0-2L507,421L507,421z M437,547l3,11l0,3l-4,5l-1,8l17,0l5,2l4-1l-3-3l0-9l50v-4l-40l-1-9l-2,0l-1-1l-1,0l-1,3h-5l-1-1l0-2l-1-2L437,547L437,547z M430,403l-1,1l0,1l20h2l2,2l4-1l3-2l1-1l0-2l-3-2l-4,0l0,2l-4,2L430,403L430,403z M509,419l-1,1l4,5l10l2,2l1-4l3,0l0-1l-4-4l-1,2L509,419L509,419z M443,411l0,1l6,6l2-3l0-1l-2-2L443,411L443,411z M616,458l-1,2l3,6l0,4l1,1l3,0l2-2l1,1l0,3l1-1l0-3l-10l-1-3l-20l-1-2l1-2l0-1h-4L616,458L616,458z M414,392l-1,1l6,4l0,0l0-1l1-1l-1-1h-1l-1-1L414,392L414,392z M404,493l30l5,7l-5,4l-3-1l-5,0l-1,3l-4,0l-1-1l1-4L404,493L404,493z M457,414l0,4l1,3l5,0l2-2l2-1l-1-3l1-1l-1-1l-2,0l-1,1l-6,0L457,414L457,414z M479,538l40l-1,3l-1,1h-1l-1-2L479,538L479,538z M412,515h2l0-5l2-3l0-6l-20l-4,3l2,3L412,515L412,515z M239,561l7-3l2,0l2,7l11,4l2,6l4,1l2,5l-1,4l-7,1l-3,7l-60l-20l-3,3l-20l-6-13l2-2l1-9l-1-5L239,561L239,561z M228,466l-3-1l-1-3l10l1,2l1,1L228,466L228,466z M226,461l-10l0-2l-1-1l1-1l2,1l1,1L226,461L226,461z M455,595l2,1l0,5l2,0l4-4l5,1l1-4l7-6l-8-9l0-2l-10l-2,2l-6,0l-1,8l-2,1L455,595L455,595z M456,383l1,2l-1,2l0,1l0,2l3-2l3,0l2,1h6l2-4l1-2v-1l-4-5l-3-1l-30l-2,1l0,2l-3,4L456,383L456,383z M438,547l90l2,3l0,2l1,1h4l1-2h2l1,1l20l1,9l4,0v1l12,5l1,1h2l0-4l-4-2l0-3l2-4l40l-4-12l0-5l6-9l0-1l-10l0-2l-10l-1-1l-18-1l-3,3l-5-3l-2,1l-1,11l-3,3l-1,2l0,3l-6,5l-2-1l0,1L438,547L438,547z M443,519l4,4l2-2l3,0l1-2l2-2l5,4l3-3l12,1l-11-11l1-1l0-2l-2-1h-4l-6,6l0,2l-50l0,1l-30l-3,5L443,519L443,519z M439,527l0,1l4,0l0,11l-40l-2-2l-2,1l0,0l1,0l0,2l-2,2l1,1l3-2h1l0,1l2,1l5-4l0-3l1-3l3-3l1-8l-2,0l-3,4L439,527L439,527z M424,403l-4,4l0,0l20l1,2l2-1l2,1l10l2-3l-10l-20l-1-2L424,403L424,403z M388,522l4-3l5-1l5,1l-2-4l-1-2l1-7l-4,0l-2-2l-4,0l-2,0l0,4l-1,0l-1,2l3,4L388,522L388,522z M260,682l-3,3l0,4l-5-3l-6-8l-2-3l2-3l0-4l-3-1l-2-2l0-2l3-1l1-12l-4-2l-3-64l1-1l6,13l2,0l1,2l-2,3l-3,15l4,12l-2,9l6,26l1,15l5,5L260,682L260,682z M428,519l3,3l0,4l150l1-1l-4-5l-1-2l3-5l-2-3l-2-1v-2l2-1l0-5l-10l0,3l-6,12l-4,0l-3,2L428,519L428,519z M234,498l-20l-12,10l-1,3l-2,0l1,8l-4,10l4,4l6,0l4,6l6,0l0,4h2l2-8l-2-3l1-5l40l-1-12l-10-3l-2-6L234,498L234,498z M203,503l1,2l1,1l-1,4l-3-2l-4-4v-2L203,503L203,503z M206,470v1l5,0l2-1l0,1l5,1l4,4l-1,1l0,1l3,1l3-2l2-2l-2-1l-11-7l-40L206,470L206,470z M485,438l1,1l-3,3l-20l-1-1l0-2l20L485,438L485,438z M437,399h3h1l2,1l4-3l-4-3l-4-2l-2,0l-3,2L437,399L437,399z M427,370l-4,4l0,3l2,4l30l0-3l2-2l0-2l-1-3L427,370L427,370z M432,376l-1,0l-1,1l0,2l1,1l-1,1l0,1h2l1-1l-10l0-1l1-1l0-1L432,376z M242,482l-5-3l-3-1l-1,6l10l1,1l1-1l3-1l3,1L242,482L242,482z M425,436l-4-1l-15,3l-3,2l2,10l-6,0l-4,6l-8,2l0,4l28,21l5,0l16-12l-2-2l-30l-2-3V454l-1-1l0-3l-3-3l0-3l1-1l-1-4L425,436L425,436z M214,529l-4,3l0,4l-1,1l3,2l-1,1l0,3l5,1l7-8l0-3l-30L214,529L214,529z M184,531l-1,2l-1,1l1,1l2-1l1-1l-1-2L184,531L184,531z M463,363l-50l-3,2l0,1l2,2l6,1L463,363L463,363z M466,449l2,0l4,1l2,0l3-2h1l2,1h3l10l2,5l1,2l0,2l-1,1l-1-1l-2-5l-20l0,2l1,3l8,10l0,4l-2,3l-220L466,449L466,449z M496,494l0-5l3-4l1,1l2,6l8,6l-1,2l-6-5L496,494L496,494z M403,416h-11l-2-1l-1,0l-1,3l0,3l4,0l1,2l-2,10l0,2l3,2l3,0l7-2l3-4l0-4l6-5l0-2l-50L403,416L403,416z M490,509l6-14l6,0l6,5l0,4h4l0,2l7,4l4,0l-8,9l-11,3h-3l-5-4l-2-1l-4-6l-2,0l0-3L490,509L490,509z M453,340l2,1l1,2l-1,1l-6,6l-1,3l1,5l4,3l6-3l5-1l4-7l-3-8l-3-7l0-5l-20l0-3l-3-4l-3,2l-1,5l-3-2l-4-1l-1,1l2,1l30l2,4L453,340L453,340z M283,677l-1,2l-2,2l0,1l4-1l2-2L283,677L283,677z M435,527l0,2l-50l-3,6l7,8l2-1l0-2l-1-1v-1l3-2l2,2l3,0l0-9l-40l0-2L435,527L435,527z M495,416l3,4l4,2l20l4-1l1-1l-11-4L495,416L495,416z M399,513l1,2l3,4l10l4-2l0-12l-3-1l-4,0L399,513L399,513z M293,282l-1,2l2,2l-1,2l3,4l4-1l50l6,6l4,10l-3,6l4-1l2,1l0,3l-5,0l3,3l4,1l-8,10l-1,6l2,5l-1,3l2,7l4,4l10l3-1l0,4l2,2l30l2-9l7-9l11-4l7-8l3,1h6l5-5l6-3l1-4l-4-4l-4-1l-2-5l4-3l7,4l2-3l-4-2l8-11l-1-5l-40l1-4l5-2l10-8l-3-3l-11,1l-6,6l3-7l-4-1l-2,4l-3-3l-8,1l2-4l140l-4-5l-15-3l-6,1l0,3l-6-2l0-2l-4,1l-1,2l5,2l-5,4l-4-4l-5-1l-1,4h-5l-2-4l-8-1l-4,2l0,3l-5-1l-3,1l0,3v2l-6,1l-3-2l-2,3l3,3l6-1l0,2l-4,2L293,282L293,282z M311,319l1,2l-1,3h-1l-2-2l0-2L311,319L311,319z M370,313l4,1l0,3l-4-2l-1-1L370,313L370,313z M367,497l0,1l60l0-1l0-1l-2,1L367,497L367,497z M370,505l3,4l3-3l40l3,4l2,2l1-2l10l0-4l-2-5l-5,1l-6-1l0,2L370,505L370,505z M453,427l0,1l4,2l2,1l-1,1l-2,0l0,1l1,2l2,1l1,0l0-3l2-2l-4-5l1-2l10l2,1l1-1l0-2l4,1l1-3l-2,1l-60l-4,2L453,427L453,427z M462,438l1,0l1,1h2l1-1l0,1l-1,1l-4,0l-1-1l-10L462,438L462,438z M183,491l5,4l5-6l-1-1l-20v-4l-1-1l-4,1l2,4L183,491L183,491z M261,511l6,6l-2,3l0,2l3,3l0,3l-6,2l-3-5l1-6l-1-4L261,511L261,511z M194,489l80l2,3l-10l-3,0l-4,3l-2,4l-1-1l0-4l-2-2L194,489L194,489z M443,408l-3,3h-3l0,2l1,0l1-1l1,1l1,3l6,3l1-1l-6-6l1-1l60l1-2l-4,0L443,408L443,408z M232,477l3,0l0,4l0,2l-30l-1,1l-10l0-2l40l0-2l-2-1L232,477L232,477z M640,514l0,2l6,10h2l12,20l5,0l2-7l-4-2l-1-4L640,514L640,514z M697,541l2,2l-1,4v1h3l1-9l1,0l2,8l2,0l2-4l-2-5l-1-2l4-3l-1-1l-4,2h-1l-2-3l1-1l3-2l5,1l10l4-3l-1-1l-3,3h-2l-3-2l-2,0l-3,4l-2,7L697,541L697,541z M719,525l-2,4l3,3h1l1-2l1-1l-1-1l-2-1L719,525L719,525z M724,538l-3,1l-1,1l1,1l2-1l1-1l2,2l1-1l-2-2L724,538L724,538z M666,549l-2,2l1,1l8,2l4,1l2,2l4,0l2,2l20l2-2l-3-1l-3-2l-7-2L666,549L666,549z M699,557l-1,1l4,1l3-2l-2-1l-3,1l-1-1L699,557L699,557z M712,558l-4,4l0,1l20l2-2l4-1l-1-1L712,558L712,558z M734,532l-4,0l-2,2l1,2l4,1v1l-2,2l1,4l1,0l1-4h2l1,4l9,8l0,6l3,3l10l0-21l-5-4l-5,3l-2,1l-3-2l0-6L734,532L734,532z M691,520l-2,8l-11,4l-3-4l-2,0l3,11l4,0l6,2v2l30l4-5v-4l2-4l2,0l-3-6l0-4L691,520L691,520z M395,383l-1,5l-7,3h-2l-2-1v-1l3-2l-1-2l0-3l3,0l1-3l0,3l2,2L395,383L395,383z M595,510l4-2l2-9l0-10l13-15v-3l3-1l0-4l-3-6l2-3l4,3l5,0v2l-1,2l0,1l3,0l1,3h1l2-3l1-9l3-2l0-3l-1-2l-20l-8,5l0,3l-60l-2-2l-1,0l0,3l-12-1l-7-3l0-4l-5-3l0-6l-3-4l-8,1l1,3l4,3l-7,14l-4,0l-1,2l4,4l0,4l-40l0,2l40l0,2l-3,1l2,3l3,1l2-2l1-3l1-1l1,1l0,3l-1,2l0,3L595,510L595,510z M503,434l-1,7l-6,5l0,2l5,0l9,7l50l0-2l2-2l2,1l00l-5-6l-20l-3-4l1-3l10l0-1l-4-4L503,434L503,434z M507,428l-1,1l0,2l1,2l5,5l-1,2h-1l0,2l3,3l2,0l5,7l3,0l2,2l0,3l8,5h3l2-2l20l1,3l9,1l0-3l3-1l0-1l-2-3l-5-4l3-3l0-1l-4-1l-1-12l0-3l-10-4l-4,1l-2,3l-20l-1,1l-50l-6-4l-2-2l-1,0l-2,2L507,428L507,428z M366,341l-2-1l-2,1l-2,2l0,1l3,0l0,2l-1,1l0,1l3,0v3l4,1l2,1l2,0l4-2l3-4l0-3l-2-2l-2-1l-1,1l-1,1l-10l-1-1l-2,0l-2,2l-1,2l-1-1l0-2l1-1L366,341L366,341z M489,447l-2,7l0,1h3l4-3l0-1l-2-2l3-2l0-2l-1,0l-2,2L489,447L489,447z M565,411l0,2l0,1l8,3l-7,3l-1-1l-1,1l0,1l1,0l5,0l2-1l3-4l4,1l5-6l-12-2l-2,4l-2-2L565,411L565,411z M655,498l4,4l7-5l1-8l-3,2l-2-1l-20l-1-1l-1,0l-2,3l0,1l2,1l0,3L655,498L655,498z M688,407l2,1l0,6l3,0l3-3l-1-1l0-4l3-3l-1-3l1-1l1-3l-2-1l-1,1l-2,5l-30l-3,4L688,407L688,407z M696,410l5,4l1,4l0,2l-3,3l-2,0l-3-6l-1-3l1-1l0-1l-1-1L696,410L696,410z M513,402l4-2l40l0,6h-2l-2,3l2,4l3,2l0,2l10l1-1l2,0l1,2h2v-2l-2-4l-1-4l4-2l6,1l4,4l8-1l5,7l5,0l2-2l20l0-3l30l2,2l2-4l13,2l2-3l-4-5l5-11l4,0l3-7l-5-1l-3-3l-9,1l-11-11l-4,3l-12-5l-15,7l0,5l3,4l-7,4l-90l-2-3l-70l-6,4l0,6L513,402L513,402z M651,466l-2,1l-2,5l3,4l0,4l0,0l5-2l6,7l0,5l1,1l3-3l0-2l-10-10l0-1l1-1l-1-2l-4-1L651,466L651,466z M603,505l0,2l0,2l-1,0l1,4l2,1l3-2l-1-4l0-1l-3-3L603,505L603,505z M471,607l3-2l1,0l2,2l0,2l-3,1v1l-30l-1-2L471,607L471,607z M452,375l-2,0l0,2l3,0l1,1l0,2l1,1l30l3-4l0-2l-6-1L452,375z M463,370l-6-1l-1,3l-2,1l-1-1l-1-2l-1,1l-1,3v2l20l5,0l6,1l2-1l0-3L463,370L463,370z M430,454l10l0-3h1l3-5l7,2l2,3l7,3l3-1l0-1l-2-1l0-1l2-2h5l2,2l4,1l1,32l-30l-18-9l-2,1l-7-2l-2-3l-30l-1-3L430,454L430,454z M403,440h-10l-2,4l-5,2l-4,10l-7,4l-10,17l100l0-5h3v-7h9l0-9l8-2l4-6l50L403,440L403,440z M465,401l3,4l0,2l1,0l2-4l-3-3L467,400L465,401L465,401z M527,561l-2,4l-3,6l-6,0l-2,3l0,8l-3,4l0,7l3,3l30l3-3l-1-4l8-14l-2-2l2-3l2,1l1-1l-2-7l-1-3L527,561L527,561z M378,495l3-2l150l-3-24l40l19,14l3,0l-1,8l-12,1l-9,7l-2,5l-6,0l-2-5l-5,0l0-2L378,495L378,495z M646,502l-2-4l2-2l-2-3l-20l0-5l-2-4l-1,1l-2,3l-2,0l-1-1l0-3l-1-3l-6-6l1-1l0-4l2-4l1-9l3-2l0-3l2,1l3,4l-2,5l1,4l4,1l1,4l5,1l-1,2l-6,2l-1,4l5,6l0,3l-1,1l0,1l3,5l0,5L646,502L646,502z M597,386l5-7l6,3l4,1l5-5l-3-3l2-3l7,2l2,4l4,0l2-2l50l1,2l8,0l5-5l7,1l0,7l3,1l4-2l4,2l0,1l-3,0l-3,6l-2,0l-9,11l-9,4l-5,0l-5-3l-6,3l-6-2l-2-4l-11-1l-6-9l-30L597,386L597,386z M365,478l2,2l0,11l3-2l20l3,1l3,4l3-2l140l-4-24l40l-7-5l0,4l-9,0l0,7l-30l0,5L365,478L365,478z M488,567l3,3l0,4l1,2l4-4l0-5l-2-1l-2-9l-30l1,6L488,567L488,567z M134,434l4,13l-2,1l0,3l4,3v5l5,4l-2-13l-3-8l1-6l2,0l1,2l-1,5l11,22v8l9,11l10,5l4-2l6,5l3-3l-2-4l5-2l2,1l2-2h2l4-8l-2-2l-8,2l-2,6L182,480l-6-2l-3-8l2-10l-4-2l-2-10l-2-1l-3,3l-3-2l-1-7l-13-1l-7-5L134,434L134,434z M648,512l2,4l0,5l2,4l5,3l1-1l10l0-2l-2-4l-3-6l0,1l-30l-2-3L648,512L648,512z M676,527l3,3l10-3l2-8l40l4-3l-5-4l-1-2l-3,5l1,3l-2,2l-3-1l-7,5l0,3L676,527L676,527z M483,596l2,2l5-3l1-5v-8l9-7l2,0l5-5l-1-11l-14,2l1,3l2,2l1,6l-5,5l-1-3l0-3l-3-3l-7,3l6,3l0,9l-4,6L483,596L483,596z M444,604l3,0l2,2l4,0l1-11v-8l3-1l1-8l70l2-2l-40l-5,1l-6-2h-16l0,5l5,8l-1,4l0,2L444,604L444,604z M413,500l20l2-3l3-1l4,2l8,0l6-2l2-2l0-2l4-4l1-9l-3-6l-7-2l-16,12l-20l-1,9l-8,1L413,500L413,500z M414,515l3,0l4,5l2,1l2-1l20l1-3l3-2l30l6-12l0-3l-3-2l-6,3l-80l-4-2l-3,1l-1,2l0,7l-2,3L414,515L414,515z M203,492l2,0l0,4l-2,6l-6-1l-1-3l2-4l3-3L203,492L203,492z M461,327l2-1l0-1l-1-1l0-2h1v-1l-4-1l-6,1l-1,3l-10l-1-2l-3,0l0,3l-1,1l-1-2l-6,5l1,1l-2,1l-5,11l-2,1l0,1l2,1l0,2l-30l-1-1l-2,2l-1,1l0,2l-1,1l-3,1l-1,4l1,7l1,3l1,1l30l4-4l2-3l0,4l3-5l0-13l2-1l1-7l7-10l3-1l1-2l5,1l2,1l1-4l4-2L461,327L461,327z M437,286l-1-1l-3,2h-6l-1,3l3,3l10l2-3l2,1l-1,2l-1,4l1,2l3-5l4-5l-2-1L437,286L437,286z M439,280l-3,2l2,2h3l1,2l3,2l4-2l3-2l-1-2l-3-2l-2,2l-1-2l-1,0l-1,3l-2-2l0-1L439,280L439,280z M445,290l-2,2l-2,1l1,1l2,1l3-1l1-2l-1-2L445,290L445,290z M595,449l0,4l7,3l11,1l0-3l-7-2l-6-4L595,449L595,449z M804,656l1,10l-1,5l-5,3l0,4v4l1,2l13-11v-2h-3l-4-15L804,656L804,656z M795,678l2,5l-7,6l-1,3l-5,1l-8,7l-7-3l-1-2l13-6L795,678L795,678z M532,482l6-4l1-5l-1-1l1-6l1-1l1,2l8,4v2l-9,14l-4,0L532,482L532,482z M206,507l-1,4l4,1l3,1l0-3l3-1l2,1l1,2l10l1-3l-3-1l-2-1l-2,2l-3,1l-3-1L206,507L206,507z M210,541l-2,2l0,3l15,27l15,10l2-4l1-9l-1-5l-4-7l-2,1l-1,1l-5-6l1-7l6-4l0-3l-60l-3-5l-2-1l0,3l-7,9l-6-1L210,541L210,541z M752,540l0,21l30l4-5l3,0l2,2l1,6l7,4l2-1v-2l-6-5l-3-6l2-1l-2-3l-30l-1-4l-8-6L752,540L752,540z M778,546l-1,0l-1,2l-2,1l-5,1l0,2l50l3-2l0-3L778,546L778,546z M776,541l-1,1l4,4l1,2l10l0-2l-1-1L776,541L776,541z M697,496l-1,1l0,2l-4,5l0,1l20l5-6L697,496L697,496z M704,494l0,4l2,2l1,3l2,0l1-2l-1-1l0-5L704,494L704,494z M709,493l2,2l1,2h1l0-3l-2-1L709,493L709,493z M713,500l0,2l-3,2l-2,0l-3,3l0,1l2-1l2-1l1,4l2,2l10l1-1l-2-2l1-1l1,1l1-1l-1-2l0-4L713,500L713,500z M699,475l-2,2l0,5l3,7l1,1l1-1l3,0l0,2l2,0l1-1l-1-2l-1-1l-30l-2-3l2-3l0-2l-1-3L699,475L699,475z M554,455l2,3l0,2l-3,1l0,3h3l1-1h7l6,5l1-2h4l0-3l-4-4l1-2l50l6-13l-3-3l-1-5l8-1l-5-7l-3-1l-1,1l-1,0l-5,3l2,3l-2,2l-2,8l-6,4l-1,4L554,455L554,455z M267,584l2,2l0,4l50l4,5l0,5l-3,4L270,605l0-2l2-4l-5-3h-4l-3-4l2-7L267,584L267,584z M527,463l0,3l1,1l10l0-4l-1-1L527,463L527,463z M452,407l-2,1h-1l-1,2l2,2l0,2l-1,1l3,3l3-1l0-5L452,407L452,407z M722,302l2,5l3,1l3-5l-2-3l1-3h5l-1,2l0,8l-7,16l1,4l0,6l12,18l2,1l0-14l2-2l-3-6l2-2l-5-6l-3,0l-1-11l7-2l0-3l3-1l2,2l2-10l4-7l3-2l3,0v-3l-5-1l-6-5l3-4l-3-6l2-2l3,4l7,2l7,1l1-3l-4-4l4-6l-9-3l-2,5l-3-4l-17-6l-16,3l-2,1v1l3,2l0,4l-6-3l-14,5l-2-5h-10l-4,5l-15-4l-14,3l-2,4l2,1l0,3l-14,2l1,4l-13-2l3-6l-13-1l1,6l-4,2l-3-3l-14,2l-5,5l0,3l-3,0l0-4l11-10v-7l-7-2l-9,3l-4-4h-2l-2,4l2,2l-12,7l-11,8l-7,9v4l7,3l-3,3l-7-3l-3,3l-5-5l-1,2l5,16l1,0l3-2l2,1v3l-3-1l-2,2l1,3l-1,7l-7,1l0-2l4-2l1-7l-4-6l-2-10l-7-1l-1,4l1,2l-3,2l1,7l4,2l1,5l-4-3l-11-2l-1,4l-8,3l-1-2l-11,6l0,4l-4,1l1-3v-3l-4-2l-3,1l2,5l2,3v2l-3-1l-1-1l-3,4l2,3l-70l2,3l-1,1h-4l-3-2l-1-5l-5-2v-2l10,2l5,0l2-3l-2-4l-14-5l-5,1l-2,1l1,3l2,0l0,5l6,15l-5,7l0,2l2,2l-2,1l-1,0l0,6l2,3l0,3l2,0l4,1l4,5l0,1l-1,2l30l3,1l4,6l10,1l0,7l-3,3l1,1l-3,4l-1,3l2,3l6,2l3-2l17,6l1-2l-3-3v-4l-2-1l0-4l3-4l-6-5l0-6l7-4l8,0l1,2l8,0l6-3l-3-3l1-6l15-7l12,5l4-4l12,11l9-1l3,3l8,1l5-7l7,3l4,1l4-3l-3-2l3-4l8,3l2,4l3,0l2-2l60l1,2l7,0l5-5l9,1l3-1l1-5l-3-6l3-2h9l8,10l11,6h3l0-3l4-2l0,14l-3,0v4l2,2l0,3l1,1l1-2l1,0l1,1l4-1l4-11l0-14l-5-11l-6-8l-3,0v2l-7-3l3-6l2-16l10-3l5-3h5l-1,2l1,2l5-5l3,0l0-3l-4-1l3-10L722,302L722,302z M777,272l-2,1l0,2l1,1l2-1l2,1l1,0l0-4L777,272L777,272z M489,273l1,1l-1,2v3l-2,1h-2l-1-2l0-2l1-1h2L489,273L489,273z M494,271v2l1,1l20l2-2v-1h-2l-1,0l-1-1L494,271L494,271z M503,271l1,2l2,0l1-1l-1-2l-20L503,271L503,271z M511,268l-20l-1,2l1,1l0,2l2-1l0-2L511,268L511,268z M520,284l0,2l-3,3l-7,2l-6,10l-1,3l6,2l1-4l2-6l5-2l4-3l3-1h1v-4L520,284L520,284z M501,306l4,0l1,5l3,4l-1,2h-2l-2-2l-40l-2-2v-2l3-1L501,306L501,306z M564,255l-2-1h-2l0,1l-2,1l-2,1l0,2l4,0L564,255L564,255z M568,255l-1,2l-20l-3,2l-1,3h2l1-2l3,2l3-1l2-2l-1-3l-1-2L568,255L568,255z M573,257l1,4l2,4l2-3l3-1v-2l-2-2L573,257L573,257z M654,250l2,2l2-1l0-3l-3-2l-2,1l-5,0v2l-6,0v4l7,5l2-1l0-4l4-1l-1-2l-2-2L654,250L654,250z M661,248l2,3l6-1l2-2l0-2l-2-1l-2,1l-4,1L661,248L661,248z M660,259l-3-1l-2,2l-1,3l40l3-2L660,259L660,259z M738,242l-3-1l-3,1l-1,2l2,2l5-2l1-1L738,242L738,242z M705,345l0,5l7,10l2,9l4,8l2,1l1-1l1-2l-6-7l0-3l1-1l0-2l-12-17L705,345L705,345z M520,458l6,8l2,2l1,4l9,1l1,1l-1,5l-6,4l-9,3l-5,5l-6-3l-3,3l-5-8l-3-2l-1-2v-4l-12-14l0-3h3l4-4l0-2l-1-1l2-2l5,0l9,7l50l0,1L520,458L520,458z M784,550l1,3l2,2l1-1l0-2l-2-3L784,550L784,550z M466,505l-3-2l-2-5l0-4l3-3l0,0l0-10l2,0l0-6l22,0l3-3l7,11l-4,4v7l-5,10l-1,2l-4-5l-3,3l-3,1l-10-1l-4,2L466,505z M443,405l-2,1l-4,1l1,2l3,0l3-2L443,405L443,405z M444,401l1,1l0,1l70l5-2l0-2l-1,0l-1-1l-10l-2,1l-3-1L444,401L444,401z M372,499l-60l0,0l1,3l1-2l7,1l10l3,0l0-2l-3-4l-3-5l-2-1l-2,0l0,0l-3,2l-1,1l0,1l1,1l40l3-1l0,1l0,2L372,499z M527,502l4-1l1,1l0,3l-3,10l-19,20l-2-2l0-9l3-3l6-2l9-9l2-2l1-3L527,502L527,502z M268,517l2,2l3-2l2,0l0,1l-1,2l0,5l-5,2l0-3l-3-3l0-2L268,517L268,517z M489,508l-2,1l1,4h3l3,5l-3,0l-1,1l0,2l-80l-1-1l-60l-11-11l1-1l5-1l10,1l3-1l2-3L489,508z M488,437l0,2l2,1l0,6l20l2-2l10l6-4l1-6l-11,1l-1,3L488,437L488,437z M483,597l-2,0l-1,3l2,2h2l2-2L483,597L483,597z M441,495l0-3l4-4l1-10l-3-5l2-1l18,10l0,9l-3,3v5l2,4h-4l-6,6l0,2l-50l0,1l-30l-2-3l-1-1l0-1l2-1v-6l-20l-3-2L441,495L441,495L441,495z M646,473l3,4v4l1,0l4-2l1,0l5,6l0,4l-20l-2-1l-1,0l-2,3l0,2l2,1l0,2l-1,1l-4-3v-2l-20l-1,1l0,11l3,5l5,4l0,1l-20l-2-3h-2l-3-2l-1-2l1-2l0-2l1-2l0-6l-3-5l0-1l1-1l0-4l-4-6l1-3L646,473L646,473z M560,422l4-4h1l0,1l-2,1v1l1,1l5,0l2-1l1,0l1,2l3,0l2,3l0,1l-1,0l-1-1l-10l-2,0l0,2l-20l0-3l-2-2l-3,2l0,1l-2,1h-1l0-5L560,422L560,422z M528,419l-1,2h-4v3l4,3l-1,3v2l2,0l2-3l5-1l10,4l0,3l6,1l6-7l-1-2l-4-1l-12-8l-1-3h-5l-2,4h-2L528,419L528,419z M426,436l5-2l2,1l0,1l-1,1l0,2l1,0v3l-1,1l0,1l3,1l-3,4l-10l0,3l-1,0l-1-1l0-3l-3-3l0-3l2-1L426,436L426,436z M473,422l-2-1l-1-1l-2,1l0,0l-1,4l20l2-1l3,1l-2,2L466,425l-2,2v1l1,1v1l-1,1l1,1l2-1l2,2l0,1l-1,1l1,1l4,1l3-1v-2l2,0l4,2l4-1l2-2l1,0v2h2l1-3l12-1l5-1l-1-2l0-2l1-1l-4-3l0-3h-2l-3-2l0,0l-2,2l-70l-4-3l-4,0l-5,3L473,422z M259,503l-1,1l-1,0v1l2,2l1-1l0-1l0-1L259,503L259,503z M492,560l14-2l-3-7l0-6l1-3l-14-9l-5,1l-2,1l0,3l-1,4l-1,1l-2,0l3,9l5,3l4,0L492,560z M461,389l-3,1l1,3l-2,5l0,2l1,1l7,0l2-2l2,1l3,4l-2,4l3,1l3-4l2,0l2,1l-2,2l2,3h2l1-2l20l0-2l-5-1l0-2h4l5-4l2-2l0-6l-9-1l-4-5l-3-1l-3,0l-1,4l-7,0l-2-1L461,389L461,389z M480,532l3,2l2-1l4-1l1,0l0-2l3-5l-2-4l-7,0l0,2l1,1l0,2L480,532L480,532z M559,428l3,0v-5l-3-1l4-5h2l2,2l5-2l-6-2l0-1l-1,0l-1,3l-60l-5-7l-8,1l-4-4l-5-1l-4,2l2,8l0,3l2,0l2-4l5,0l1,3l11,8l4,1L559,428L559,428z M232,504l0,2l3,1l1-4l3-3l3,3l7,2l6-1l4,5l3,2l-3,5l1,4l-2,2l-2,2l-4-2l-1,1v3l3,1l-2,2l-2,2l-30l-3-3l-1-12l-10-3l-2-5L232,504L232,504z M659,502l1,2l0,2l3,0l3-4l3-1l2-4l-1-7l-3-4l-3-3l-4-7l3-5l-4-5l-40l-3,2l1,4l4,1l1,3l-1,1l0,1l10,10l0,3l-1,9L659,502L659,502z M509,489l1,4v4l3,3l21-9l0-2l-3-6l-8,3l-5,5l-6-3L509,489L509,489z M533,498l2,2l2-2l10l-1-1l-2,1L533,498L533,498z M460,572l3,4l4,0l2,1l4,0l4-5l11-5l1-4l-1-6l-6-3l-4,0l-2,4l0,2l4,2l0,5l-4,0l-1-2l-10-4l0,3l-5,0L460,572L460,572z M469,578l8,9l6,2l4-6l0-8l-6-3l-2,1l-4,6l-50L469,578L469,578z"/>
+      <g fill="#22c55e" fill-opacity="0.8" stroke="#166534" stroke-width="0.3" filter="url(#glow)">
+        <path d="M143.6,376.0l-0.9,3.5l-3.0-2.0h-1.5l-0.9,3.7l-10.6,23.6l2.8,20.6l3.4,1.7l0.6,5.6h7.1l6.9,5.2l13.6,1.3l1.5,6.9l2.2,1.5l3.0-3.0l2.4,1.1l2.2,10.0l3.7,2.4l3.0-5.6l9.3-6.7l6.0,2.8l5.2,0.4l0.2-3.2l10.8,0.2l2.2,2.4l0.4,5.4l-1.3,3.0l1.5,5.2h3.2l3.2-5.0l-1.3-2.4l-1.3-5.2l1.9-5.9l8.8-7.6l6.7-2.0l-0.9-6.3l9.3-10.0l9.3-1.5l-1.5-5.2l9.0-5.2v-6.9l-0.9-0.4l-3.2,1.1l-0.4,4.3l-10.7,0.1l-8.4,5.6l-13.2,4.3l-2.1-2.6l6.0-9.1l-3.0-2.8l-2.0-3.8l-4.2-3.4l-4.5-0.4l-8.6-5.9L143.6,376.0L143.6,376.0z M74.8,285.2l3.0,5.6l1.9-0.4v-1.9L74.8,285.2L74.8,285.2z M57.9,334.4l-0.1,2.6l1.9-0.4v-1.2L57.9,334.4L57.9,334.4z M55.1,335.6l-3.7,1.9l0.6,2.0l1.4-1.2l2.9-1.3L55.1,335.6L55.1,335.6z M39.5,338.0l-2.6-0.6l-0.4,1.2l0.3,2.2L39.5,338.0L39.5,338.0z M34.1,337.9l-2.4-1.0l-0.9,1.6l1.6,1.6L34.1,337.9L34.1,337.9z M95.5,277.9l-7.3,1.7l1.5,8.2l7.9,2.2l0.4,1.7l-11.7,3.7l-6.6,11.0l2.3,11.6l3.8,2.6l3.0-2.8l0.9,1.7l-3.6,4.3l-14.1,6.4l-9.0,2.2l-0.2,3.2l20.7-6.0l8.5-2.4l7.9-9.7l8.7-5.8l-4.5,7.5l4.9,0.6l8.3-3.7l1.5,6.0l5.8,1.3l6.0,5.8l0.4,4.3l-0.9,1.1l1.1,4.1h1.5l0.2-6.9h1.7l0.4,17.0l4.3-3.7l-3.0-17.6h-4.5l-4.9-6.2l24.1-40.8l-23.9-18.7l-26.7,5.2l-1.1,8.2l5.8,3.4l-2.1,5.6L95.5,277.9L95.5,277.9z"><title>United States</title></path>
+        <path d="M151.8,281.2l1.7,2.6l0.9,3.5l4.3,1.1l3.0-3.2l2.6,1.3l7.3,0.6l5.2-2.2l0.9,7.2h3.0v-3.0l3.0,0.2l7.5,8.9l5.0,3.0l-2.6,4.1l1.1,1.1l9.7,2.0l0.2,4.3l2.6,0.4l0.6-6.5l4.1-1.1l3.0,4.6l6.5,3.0l3.2,0.6l2.2-2.6l0.2-4.1l3.9-2.4l1.3,3.5l-3.4,6.1l0.4,3.0l1.9-3.0l3.9-3.5l0.2-4.6l-2.2-3.5l0.6-2.8l5.2-2.6l2.4,1.7l0.4,15.2l3.7-3.2l2.2,1.3l-3.0,5.2l3.9,0.9l5.6-8.7l4.7,5.0l-1.9,8.9l-4.7,2.6l-4.5-2.2l-8.2,1.7l0.9,2.8l-2.2,3.5l-6.7,1.5l-7.5,5.9l-6.7,8.9l-0.9,2.8l4.5,1.7l1.7,4.3l6.2,6.3l9.9,4.3l-2.2,10.0l-0.2,2.8l2.6,1.7l3.4-4.6l0.4-8.7l5.4-0.2l2.6-5.0l0.4-7.6l6.9-13.4l8.6,3.0l4.5,6.3l-1.9,6.3l3.4,2.0l8.4-5.6l2.4,15.4l7.8,9.3l0.2,4.8l-8.6,2.2l-4.1,4.3l-8.6-2.0l-4.3-0.2l-7.5,5.9l4.5-1.1l5.6-1.1l1.1,1.3l-1.5,4.8l0.2,4.3l2.6,1.7l2.6-0.6l1.3-2.0h1.7l-2.8,5.2l-5.4,0.2l-2.4,3.5h-3.0l-0.9-2.6l4.3-4.3l-5.2,1.7l-0.2-7.4l-1.5-0.9l-4.5,2.0l-0.4,3.7h-10.3l-8.8,6.1l-11.8,3.9l-1.3-1.7l6.0-8.9l-3.4-3.3l-2.2-4.1l-4.4-3.3l-4.7-0.4l-8.4-5.9l-61.1-10.0l-1.0-4.1l-5.6-5.2v-4.3l0.9-3.9l-0.4-2.2l-2.2-2.2l-0.4-3.5l5.6-3.9l-3.4-18.7l-4.7-0.2l-4.3-5.6L151.8,281.2L151.8,281.2z M130.7,350.1l-1.5,2.8l0.5,2.0l1.0,0.6l-0.2,0.8l-1.0,0.3l0.3,3.0l1.1,1.1l0.9-1.0l-1.1-2.9l0.7-2.3l1.6-2.2l-1.2-2.0L130.7,350.1L130.7,350.1z M135.5,367.0l-1.3,0.5l2.4,2.8l0.6,3.3l2.4,2.6l2.1-0.4v-3.4l-2.5-1.6L135.5,367.0L135.5,367.0z M268.1,295.8l-1.5,1.5l1.3,2.1l6.3,0.8l-4.0-4.3L268.1,295.8L268.1,295.8z M191.1,270.1l0.2,3.5l-6.9,7.1l1.7,5.8l5.0-1.3l2.9-4.3l7.3-2.7l5.9-0.4l-4.6-5.0l-2.3,1.7l-1.7-0.6l-1.0-2.1l-2.1-2.1L191.1,270.1L191.1,270.1z M200.1,259.9l-1.5,2.7l7.5,2.7l2.7-4.1l1.1,2.7h1.9l3.6-4.1l-4.4-1.2l-1.7-1.3l-2.3,2.3L200.1,259.9L200.1,259.9z M213.1,265.3l-5.9,2.5v1.9l7.7,2.9l-1.7,1.9l1.1,2.5l4.8-2.1h4.0l1.9,3.1l3.3-3.3l-0.8-3.1l-2.7,1.0l-0.4-3.9l1.3-2.3h-1.3l-2.1,1.3l-1.0,0.8l0.6,2.7l-1.5,1.2l-2.3-0.2l-0.6-3.5L213.1,265.3L213.1,265.3z M221.0,259.3l-0.6,1.9l3.6,1.7l2.7-1.5l-0.2-1.2L221.0,259.3L221.0,259.3z M223.9,256.0l-2.7,1.0l0.2,1.4l5.9-0.4l-0.2-1.3L223.9,256.0L223.9,256.0z M236.7,259.3l-0.4,1.3l-1.0,1.3v1.9l3.6-0.6l3.8,3.3h1.3v-3.3l-3.8-4.3L236.7,259.3L236.7,259.3z M246.5,263.2l1.5,1.7l-1.3,2.3l1.0,2.5l4.2-2.3v-1.7l-2.5-2.9L246.5,263.2L246.5,263.2z M252.1,258.8l0.2,3.1h5.2l1.3,1.2l-0.2,1.3l-4.6,0.6l3.3,4.4l4.4,0.8l6.1-2.7l-8.8-13.3l-2.7,1.7l0.2,2.3l-3.1-1.2L252.1,258.8L252.1,258.8z M207.4,280.6l-7.3,1.9l-4.2,3.7l0.4,4.1l7.7,2.3l-1.7,3.9l-5.6-3.5l-1.5,2.9l3.6,2.5l-0.2,4.1l5.6,1.5l6.7-0.4l1.1-2.1l5.0,5.6l3.4-1.2l0.6-3.9l2.5,1.7l0.4-3.9l-3.1-1.9l0.2-12.2l-2.7-2.1l-2.9,3.9L207.4,280.6L207.4,280.6z M230.8,289.1l-2.5-1.2l-1.3,1.7l2.7,4.3l0.2,4.1l5.7-3.5v-5.0l2.1-2.1l-2.1-1.5h-3.4L230.8,289.1L230.8,289.1z M243.0,287.3l-4.0,3.3l1.0,4.1h2.5l1.1-2.1l1.7,1.7l1.7-0.2l4.6-3.9L243.0,287.3L243.0,287.3z M242.7,281.0l-1.0,1.9l4.2,1.5l1.1-1.7L242.7,281.0L242.7,281.0z M240.2,273.6l-4.2,0.6l-2.5,2.3l4.6,0.2l-1.3,3.5l1.0,1.5l1.3-0.2l3.3-5.2L240.2,273.6L240.2,273.6z M247.5,272.3l-2.3,0.8l0.4,3.1l3.8,2.5l0.2,1.9l-1.1,1.2l0.6,3.9l14.8,4.8l4.0,1.3l4.0-3.5l-4.8-3.9l-4.4,1.2l-6.1-0.6l-2.3-2.3l-0.6-6.4l-3.8-1.9L247.5,272.3L247.5,272.3z M259.5,292.4l-4.2-0.4l-5.0,1.9l-2.7,3.7l0.8,10.0l8.2,0.4l7.9,3.9l5.6,6.4l4.2-0.2l-1.1,6.0l-3.8,6.4l-4.2,1.9l-3.1-0.6l-1.5-1.3l-2.3,3.1l1.0,3.1l3.3,0.2l4.0-1.9l3.4,8.9l8.6,5.6l5.9-7.5l-5.0-8.1l2.9-3.3l4.0,6.8l7.3-6.4l-1.3-2.9l-5.0,1.5l-3.4-9.5l3.3-5.4l-6.5-6.9l-3.6,2.5l-3.4-7.5l-7.3,1.0l-1.9-9.1l-5.9,4.1l-0.6,5.0h-3.3l0.4-4.4L259.5,292.4L259.5,292.4z M262.0,274.0v1.7l-4.2,1.0l1.1,1.9l4.8,1.9l5.4,0.6l3.8,2.7l3.8-2.1l-2.7-2.7h3.4l2.1-2.3l5.2-0.8v-1.2l-2.9-1.9l0.4-2.1l8.0,1.3l11.9-4.6l-4.4-1.3l1.1-1.5h9.2l1.5-1.5l-18.6-6.6l-4.4-1.5l-4.8,3.5l-5.4-4.4l-2.9-0.2l-0.6,3.7l-3.6-3.3l-4.2,1.3l0.8,2.1l6.3,1.4l-0.4,3.1l3.4,2.1l8.4-2.1l0.2,2.9l-6.9,3.3l-4.2-3.3l-3.8,0.4l3.8,5.4l-1.9,1.0l-2.9-2.5l-2.1,1.3l1.9,3.7h3.3l-0.8,3.5l-2.7-0.4l-3.4-3.7L262.0,274.0L262.0,274.0z M244.9,327.2l-3.7,4.6l-0.2,5.1l3.2-1.8h3.9l2.7,2.5l2.5-2.1L244.9,327.2L244.9,327.2z M289.5,387.0l-9.1,8.7l0.9,2.1l11.2,4.1l1.6-2.8l-0.9-4.6l-3.7,0.5l-2.1-2.3l3.4-3.4L289.5,387.0L289.5,387.0z"><title>Canada</title></path>
+        <path d="M286.6,618.5l5.4-10.4l0.2-8.7l10.1-6.5h5.6l4.4-7.5l0.8-14.4l-1.8-3.9l10.7-9.8l0.4-10.8l-14.5-7.1l-17.5-5.5l-8.3-0.8l2.2-4.7l-0.6-7.1l-1.8-0.6l-2.7,5.3l-1.4,1.8l-3.6-1.6l-12.1,4.3l-4.0-5.1l0.6-5.3l-3.8,3.9l-4.2-2.3l-0.4,0.6l0.0,1.8l3.6,1.9l-5.4,5.7l-3.4-0.0l-3.5-3.5l-3.9,0.1l-0.5,4.2l2.3,2.7l-2.7,8.5l-3.1,0.2l-5.0,3.1l-1.2,6.1l4.3,4.6l0.8-0.9l3.0-0.8l2.6,4.3l7.4-3.2l2.9,0.2l2.0,7.0l10.5,3.3l1.8,5.6l4.5,0.5l2.1,5.3l-1.4,4.7l1.9,2.5l-0.3,3.7l5.0-0.5l4.6,5.8l-0.4,4.1l2.7,2.3l-6.6,9.9L286.6,618.5L286.6,618.5z"><title>Brazil</title></path>
+        <path d="M279.1,600.6l1.7,1.6l-6.4,9.5l-2.2,2.5l0.8,10.8l4.9,6.0l-4.1,7.2l-3.1,1.4h-3.6l1.0,5.6l-5.6,1.9l1.3,4.7l-3.4,10.7l4.1,3.4l-2.2,5.5l-3.8,6.0l2.0,4.2l-4.9,0.8l-4.0-5.0l-0.7-15.4l-6.3-26.2l1.9-9.2l-4.0-11.7l2.7-15.2l2.5-2.9l-0.6-2.2l3.2-2.9l7.1,0.5l3.9,4.2l4.6,0.1l4.7,2.9l-1.4,3.2l0.3,3.2l6.6-0.3L279.1,600.6L279.1,600.6z M264.7,687.6l0.2,5.0l3.8-0.3l3.2-2.1l-5.5-1.1L264.7,687.6L264.7,687.6z"><title>Argentina</title></path>
+        <path d="M400.6,368.0l-1.6,2.4l0.6,1.0h3.6v1.6l-1.0,1.3l0.6,3.4l2.1,4.0l1.6,3.7l2.5,1.0l1.1,1.9l-0.2,1.8l-1.6,1.0l-0.2,0.8l1.1,0.6l-1.0,1.3l-2.2,1.0l-4.3-0.5l-6.7,3.0l-2.2-1.1l6.3-3.7l-0.8-0.5l-3.3-0.3l2.1-3.0l0.3-2.6l2.7-0.3l-0.5-5.0l-3.2-0.2l-0.9-1.1l0.2-3.7l-1.9,0.2l1.9-6.4l3.5-2.6L400.6,368.0L400.6,368.0z M394.0,378.7l-2.9,0.3l-0.2,2.6l1.9,1.3l2.1-0.5l0.8-1.4L394.0,378.7L394.0,378.7z"><title>United Kingdom</title></path>
+        <path d="M413.0,393.6l-1.9,0.5l-3.8,4.2l-1.1,0.1l-1.5-1.1l-1.0,0.2l-0.8,2.4l-5.6,0.2l0.2,1.2l3.8,2.5l4.4,3.5l-0.1,4.2l-2.4,4.2l5.1,2.5l5.2,0.2l1.6-1.9l3.3,0.1l0.9,0.8l3.3-0.2l1.7-2.2l-2.1-2.5l-0.2-1.6l0.5-1.8l-1.1-1.5l-1.8,0.5l-0.2-1.4l4.1-4.5v-2.7l-2.3-0.8l-1.4-1.0L413.0,393.6L413.0,393.6z M276.2,517.3l5.1,3.2l-2.6,5.3l-1.0,1.2l-2.8-1.6l0.1-5.7L276.2,517.3L276.2,517.3z M540.0,586.9l-2.0,0.1l-0.1,1.7l1.3,0.3l2.0-0.9L540.0,586.9L540.0,586.9z M516.9,562.7l0.7,1.5h1.1l0.5-1.9L516.9,562.7L516.9,562.7z M258.8,489.8l-0.9,0.8l0.7,1.4l1.3-0.4L258.8,489.8L258.8,489.8z M428.0,418.0l-1.7,1.7l-0.2,1.5l1.4,0.8l0.5-0.1l0.3-2.2L428.0,418.0L428.0,418.0z M254.1,484.1l-1.3,0.5l0.5,1.1l1.5-1.0l-0.3-0.3L254.1,484.1L254.1,484.1z"><title>France</title></path>
+        <path d="M387.5,421.7l-0.5,7.5l-1.5,1.4l0.2,0.8l1.1,1.8l-0.7,2.2l1.1,0.4l2.7-0.3l-0.2-2.2l1.8-10.0l-0.4-1.4L387.5,421.7L387.5,421.7z M367.8,443.5l-0.9,1.2l0.9,1.2l1.4-0.7L367.8,443.5L367.8,443.5z M337.1,426.7l-1.2,1.2l2.1,1.2l0.2-1.6L337.1,426.7L337.1,426.7z M343.4,426.0l-1.4,0.9l1.2,0.9l1.9-0.5L343.4,426.0L343.4,426.0z M344.4,429.3l-0.7,1.9l0.9,1.2l1.2-0.9L344.4,429.3L344.4,429.3z M350.0,433.1l-0.5,1.2l0.7,0.7l1.9-1.2L350.0,433.1L350.0,433.1z"><title>Portugal</title></path>
+        <path d="M421.3,384.6l-3.9,1.9l0.8,0.8l0.1,1.9l-0.8-0.2l-0.9-1.4l-2.2,3.5l3.4,0.7l1.3,1.3l0.7,0.0l0.4-3.0l2.1-0.9L421.3,384.6L421.3,384.6z"><title>Netherlands</title></path>
+        <path d="M422.3,384.2l3.1-0.5v-2.2l2.6-0.4l1.4,1.4l1.5,0.2l2.3-1.0l2.1,0.6l1.8,1.6l0.3,6.0l1.8,2.4l-2.4,0.3l-4.0,2.5l0.3,0.8l3.6,3.4l-0.3,1.7l-3.3,1.7l-3.1,0.1l-0.8,1.6h-1.6l-0.8-1.7l-2.7-0.7l-0.1-2.8l-1.4-0.8l0.1-1.9l-0.4-1.3l-2.0-1.8l0.4-2.9l2.2-1.0L422.3,384.2L422.3,384.2z"><title>Germany</title></path>
+        <path d="M445.2,329.5l1.7,1.6h3.2l1.7,3.4l0.5,5.7l-4.3,3.0v3.0l-3.0,4.2l-1.7,0.2l-2.4,4.0l0.2,3.8l4.1,3.0l-0.3,1.8l-1.6,2.4l-2.4,2.1l0.2,6.9l-3.6,1.3l-1.3,2.7h-1.7l-0.9-4.8l-4.0-6.1l3.3-5.5l0.2-13.5l2.2-1.2l0.5-7.7l6.4-9.2L445.2,329.5L445.2,329.5z M445.9,368.9l-1.8,1.4l0.9,2.1l1.6-1.6L445.9,368.9L445.9,368.9z"><title>Sweden</title></path>
+        <path d="M423.2,409.4l-0.5,1.4l0.1,1.5l2.1,2.4l3.2-0.1l7.2,8.3l4.5,1.3l2.6,2.5l0.6,5.7l1.4-0.8l1.2-3.1l-0.3-2.2l2.1-0.2l0.3-1.3l-5.9-2.8l-5.6-5.5l-2.2-3.3l-0.5-3.1l2.9-0.7l-0.7-2.1l-1.8-1.5l-1.5-0.1l-2.1,0.6l-2.0,2.8l-1.2,0.8l-1.9-1.1L423.2,409.4L423.2,409.4z M440.7,431.9l-1.3-0.7l-4.3,0.7l0.1,1.2l3.8,1.9l0.6,0.6l1.0,0.1L440.7,431.9L440.7,431.9z M427.8,423.6l-2.3,1.2l0.3,4.5l1.8,0.3l1.4-1.3v-4.2L427.8,423.6L427.8,423.6z"><title>Italy</title></path>
+        <path d="M457.1,390.2l0.7,1.3l0.2,1.4l-0.6,1.4l-1.4,2.7l-1.2,0.5l-1.5-0.7l-0.9,0.0l-2.2,0.8l-2.5-0.7l-4.1-2.9l-4.0-2.1l-1.6-2.4l-0.3-5.8l3.1-2.7l4.1-1.4l1.3-0.1l0.3,1.0l1.7,0.7l4.8,0.1l1.5-0.0l2.4,3.7l-0.6,1.5l0.3,1.8L457.1,390.2L457.1,390.2z"><title>Poland</title></path>
+        <path d="M444.4,403.0l-1.0,1.6l0.1,2.4l1.6,0.8l4.9,0.1l6.9-5.8l0.0-1.3l-0.7-0.4l-5.0,2.2L444.4,403.0L444.4,403.0z"><title>Hungary</title></path>
+        <path d="M457.7,401.3l-0.2,1.3l-5.0,4.2l4.2,6.1l2.7,1.9h4.8l1.6-1.3l2.1-0.3l1.6,1.0l2.8-3.2l-0.5-1.6l-2.9-0.7l-2.0-0.1l0.1-2.7l-2.6-4.1L457.7,401.3L457.7,401.3z"><title>Romania</title></path>
+        <path d="M594.5,386.1l-3.0,7.5l-4.1-0.2l-4.3,9.5l3.7,4.7l-7.6,10.5l-3.9-0.7l-2.6,3.3l0.6,2.0l3.0,0.2l1.5,3.5l3.0,0.7l9.3,12.0v6.1l4.6,2.8l5.0-0.9l6.3,3.7l7.6,2.2l3.7-0.4l4.1-0.4l8.7-5.7l2.8,0.4l1.1,2.6l2.4,0.7l3.3,4.8l-2.2,4.8l1.3,3.3l3.7,1.3l0.6,3.9l4.3,0.4l0.6-2.0l6.3-3.3l3.9,0.2l4.6,5.0l3.0-1.3l2.0,0.2l0.9,2.4l1.5,0.2l2.2-3.1l8.7-3.3l7.8-9.4l2.6-9.0l-0.2-5.9l-3.3-0.7l2.0-2.2l-0.4-3.5l-8.3-8.3v-4.2l2.4-3.1l2.4-1.1l0.2-2.4h-6.1l-1.1,3.3l-2.8-0.7l-3.5-3.7l2.2-5.7l3.0-3.3l2.8,0.2l-0.4,5.0l1.5,1.3l3.7-3.7l1.3-0.2l-0.4-2.8l3.5-4.2l2.6,0.2l1.5-4.8l1.8-0.9l0.2-3l-1.7-1.8l-0.1-4.7l3.3-0.2l-0.2-12.2l-2.3,1.4L694.3,377l-3.9-0.0l-11.3-6.4l-8.2-9.8l-8.3-0.1l-2.1,1.8l2.7,6.1l-0.9,5.8l-3.3,1.4l-1.9-0.1l-0.1,5.7l2.0,0.4l3.5-1.5l4.6,2.2v2.2l-3.3,0.2l-2.6,5.7l-2.4,0.2l-8.5,11.2l-8.9,3.9l-6.1,0.4l-4.1-2.8l-5.9,3.1l-6.3-2.0l-1.5-4.2l-10.6-0.7l-5.6-9.2h-2.4l-1.9-4.3L594.5,386.1z M671.8,472.7l-2.1,0.6l-1.5,1.8l1.2,2.4l1.8,0.2l2.1-1.8l0.5-2.4L671.8,472.7L671.8,472.7z"><title>China</title></path>
+        <path d="M709.3,426.2l-1.4,1.4l0.6,2.0l1.2,0.1l0.8,4.3l1.0,1.1l1.7-1.6l0.2-4.8l-2-2.1L709.3,426.2L709.3,426.2z M716.7,422.2l-2.7,2.2l-0.6,2.7l1.8,1.2l2.6-2.8l0.4-3.1L716.7,422.2z M713.6,418.0l-4.2,4.8v2.3l2.6-0.3l4.1-3.6l2.7-0.5l0.7,0.8l0.0,2.4l0.7,1.2h1.3l1.8-2.2l0.7-2.8l3.6-0.1l3.5-4.2l-1.8-6.9l-0.8-3.7l1.8-1.5l-4.1-6.2l-0.9-0.7l-1.9,0.7l-0.5,2.6v2.1l1.0,1.2l0.3,5.5l-2.6,3.2l-1.5-0.9l-1.2,2.6l-0.3,2.4l0.9,1.4l-0.6,1.1l-1.9-1.6h-1.3l-1.2,0.7L713.6,418.0L713.6,418.0z M720.7,380.4l-1.3,1.2l0.7,2.5l1.2,1.2l-0.1,3.8l-1.5,0.6l-1.2,2.6l3.4,4.7l2.2-0.8l0.4-1.2l-2.4-2.2l1.5-1.9l1.6,0.2l3.4,2.3l0.4-2.6l1.6-3.0l2.3-2.3l-2.5-1.1l-0.9-1.8l-1.2,0.8l-1.1,1.3l-2.3-0.5l-2.4-1.6L720.7,380.4L720.7,380.4z M733.2,377.8l-2.3,3.2l0.2,1.6l1.2-0.5l2.7-3.4L733.2,377.8L733.2,377.8z M736.3,373.1l-0.8,2.2l0.1,1.5l1.4-0.9l1.3-2.7v-1.0L736.3,373.1L736.3,373.1z"><title>Japan</title></path>
+        <path d="M491.1,521.4l2.3,4.5l-2.8,5.8l-0.4,1.8l13.8,8.5l4.3-6.7l-2.2-1.8l-0.0-8.8l2.7-3.0l-4.3,1.4l-3.3,0.0l-5.1-4.3l-1.6-0.7l-3.0,0.3l-0.5,0.9L491.1,521.4L491.1,521.4z"><title>Kenya</title></path>
+        <path d="M476.7,588.0l-6.8,6.3l-1.6,3.9l-5.4-0.7l-4.5,4.0l-3.0-0.3l0.2-5.5l-1.1-0.4l-0.7,11.3l-5.3-0.1l-1.6-1.9l-2.3-0.0l2.1,6.1l3.8,3.6l-2.7,3.2l1.8,4.0l4.1,1.6l3.2-2.8l9.3,0.1l0.7-0.8l4.1-0.7l14.0-13.9l-0.1-4.4l-1.5,1.9h-2.2l-2.7-2.3l1.4-3.4l2.4-0.5l-0.2-7.1L476.7,588.0L476.7,588.0z M473.5,604.0l1.3-0.1l2.1,2.3l-0.1,2.7l-2.5,1.3l-0.2,0.9l-3.8,0.0l-1.2-2.9l1.1-2.1L473.5,604.0L473.5,604.0z"><title>South Africa</title></path>
+        <path d="M673.0,609.1l-0.3,21.9l-3.4,2.5l-0.3,2.2l4.6,3.1l11.3-2.2h5.8l2.1-3.1l12.9-2.5l9.2,2.8l-0.6,3.7l1.2,3.7l7.1-1.2l0.3,1.9l-4.6,3.4l1.5,1.2l3.4-1.2l-0.9,10.2l6.4,4.9l3.7-1.2l1.8,1.9l10.7-1.5l10.1-16.4l3.7-0.9l7.4-13.6l1.8-11.7l-4.6-5.9l1.8-1.2l-3.7-11.4l-4.0-2.8l0.6-15.4l-3.7-2.8l-0.9-8.7h-1.8l-6.1,20.4l-3.4,0.3l-7.7-7.7l4.3-11.4l-8.0-1.5l-8.9,2.5l-2.5,7.1l-4.0,0.9l-0.3-4.9l-16.3,9.9l0.3,3.7l-2.5,3.4h-6.1l-13.2,5.6L673.0,609.1L673.0,609.1z M728.8,668.1l-1.5,6.2l0.3,4.3l4.6-0.3l5.2-8.0L728.8,668.1L728.8,668.1z"><title>Australia</title></path>
+      </g>
+      <g id="map-arcs" opacity="0.7"></g>
+    </svg>
     </div>
-    <div class="f">
-      <h3>Transport</h3>
-      <p>Reliable streams with sliding window, SACK, congestion control, flow control, Nagle coalescing.</p>
+    <div class="bento-card">
+      <span class="bento-big" id="stat-requests">&mdash;</span>
+      <span class="bento-label">Total Requests</span>
+      <span class="bento-desc">Registry protocol messages served across the network.</span>
     </div>
-    <div class="f">
-      <h3>Security</h3>
-      <p>Encrypt-by-default. X25519 + AES-256-GCM. Ed25519 identities. Private by default. Mutual trust handshake.</p>
-    </div>
-    <div class="f">
-      <h3>NAT Traversal</h3>
-      <p>STUN discovery, hole-punching, relay fallback. Works behind any NAT, including Cloud NAT.</p>
-    </div>
-    <div class="f">
-      <h3>Built-in Services</h3>
-      <p>Echo, data exchange, event stream. Pub/sub, file transfer, typed messages out of the box.</p>
-    </div>
-    <div class="f">
-      <h3>Gateway</h3>
-      <p>Bridge IP traffic to the overlay. Use curl, browsers, any TCP tool to reach agents.</p>
+    <div class="bento-card">
+      <div class="bento-pair">
+        <div>
+          <span class="bento-big" id="stat-trust">&mdash;</span>
+          <span class="bento-label">Trust Links</span>
+        </div>
+        <div>
+          <span class="bento-big" id="stat-task-executors">&mdash;</span>
+          <span class="bento-label">Task Executors</span>
+        </div>
+      </div>
+      <span class="bento-desc">Mutual trust relationships and agents accepting work.</span>
     </div>
   </div>
 </section>
 
+<!-- Use Cases -->
 <section>
-  <h2>Ports</h2>
-  <table>
-    <thead><tr><th>Port</th><th>Service</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td>7</td><td>Echo</td><td>Liveness probes, latency, benchmarks</td></tr>
-      <tr><td>80</td><td>HTTP</td><td>Web endpoints (use with gateway)</td></tr>
-      <tr><td>443</td><td>Secure</td><td>End-to-end encrypted channel</td></tr>
-      <tr><td>444</td><td>Handshake</td><td>Trust negotiation protocol</td></tr>
-      <tr><td>1000</td><td>Stdio</td><td>Text streams between agents</td></tr>
-      <tr><td>1001</td><td>Data Exchange</td><td>Typed frames (text, JSON, binary, file)</td></tr>
-      <tr><td>1002</td><td>Event Stream</td><td>Pub/sub with topic filtering</td></tr>
-    </tbody>
-  </table>
+  <h2>Use Cases</h2>
+  <p class="section-sub">What agents build on Pilot Protocol.</p>
+  <div class="uc-layout">
+    <div class="uc-nav">
+      <button class="uc-btn active" data-uc="comms">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Agent Communication
+        <span class="uc-desc">Direct peer-to-peer messaging, data exchange, and file transfer between agents.</span>
+      </button>
+      <button class="uc-btn" data-uc="fleets">
+        <svg class="uc-icon" viewBox="0 0 24 24"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="5" x2="17" y2="5"/><line x1="5" y1="7" x2="5" y2="17"/><line x1="19" y1="7" x2="19" y2="17"/><line x1="7" y1="19" x2="17" y2="19"/></svg>
+        Autonomous Agent Fleets
+        <span class="uc-desc">Coordinate distributed agents that discover, trust, and communicate independently.</span>
+      </button>
+      <button class="uc-btn" data-uc="tools">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        Tool &amp; API Sharing
+        <span class="uc-desc">Expose agent capabilities as services on virtual ports, discoverable by hostname.</span>
+      </button>
+      <button class="uc-btn" data-uc="pipelines">
+        <svg class="uc-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Secure Data Pipelines
+        <span class="uc-desc">Stream data between agents with end-to-end encryption and flow control.</span>
+      </button>
+      <button class="uc-btn" data-uc="crosscloud">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        Cross-Cloud Deployment
+        <span class="uc-desc">Connect agents across AWS, GCP, and Azure without VPNs or firewall rules.</span>
+      </button>
+      <button class="uc-btn" data-uc="bridge">
+        <svg class="uc-icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><line x1="12" y1="7" x2="12" y2="17"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+        Legacy Protocol Bridge
+        <span class="uc-desc">Wrap HTTP, gRPC, or SSH inside the overlay for seamless integration.</span>
+      </button>
+      <button class="uc-btn" data-uc="openclaw">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Inter-OpenClaw
+        <span class="uc-desc">Direct peer-to-peer communication between OpenClaw instances — no HTTP, no broker.</span>
+      </button>
+    </div>
+    <div class="uc-detail">
+      <div class="uc-panel active" id="uc-comms">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">agent-a → agent-b</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">●</span> Connected to <span style="color:#60a5fa">agent-b</span> on port <span style="color:#22d3ee">1001</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.4s"><span style="color:#737373">→</span> MSG  <span style="color:#fbbf24">{"task":"analyze","file":"report.csv"}</span></div>
+            <div class="uc-step" style="animation-delay:0.8s"><span style="color:#737373">←</span> ACK  <span style="color:#22c55e">received</span></div>
+            <div class="uc-step" style="animation-delay:1.3s"><span style="color:#737373">←</span> DATA <span style="color:#fbbf24">{"result":"complete","rows":1842}</span></div>
+            <div class="uc-step" style="animation-delay:1.7s"><span style="color:#737373">→</span> ACK  <span style="color:#22c55e">received</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:2.2s"><span style="color:#22c55e">✓</span> Session closed. 4 messages, 0 errors.</div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-fleets">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl fleet status</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">●</span> agent-alpha &nbsp;&nbsp;<span style="color:#737373">us-east-1</span> &nbsp;&nbsp;<span style="color:#22c55e">online</span></div>
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#22c55e">●</span> agent-beta &nbsp;&nbsp;&nbsp;<span style="color:#737373">eu-west-1</span> &nbsp;&nbsp;<span style="color:#22c55e">online</span></div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22c55e">●</span> agent-gamma &nbsp;&nbsp;<span style="color:#737373">ap-south-1</span> &nbsp;<span style="color:#22c55e">online</span></div>
+            <div class="uc-step" style="animation-delay:0.7s"><span style="color:#737373">○</span> agent-delta &nbsp;&nbsp;<span style="color:#737373">us-west-2</span> &nbsp;&nbsp;<span style="color:#737373">offline</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#60a5fa">⟩</span> Dispatching task to 3 agents...</div>
+            <div class="uc-step" style="animation-delay:1.8s"><span style="color:#22c55e">✓</span> agent-alpha &nbsp;<span style="color:#737373">completed</span> &nbsp;<span style="color:#22d3ee">2.1s</span></div>
+            <div class="uc-step" style="animation-delay:2.2s"><span style="color:#22c55e">✓</span> agent-beta &nbsp;&nbsp;<span style="color:#737373">completed</span> &nbsp;<span style="color:#22d3ee">2.4s</span></div>
+            <div class="uc-step" style="animation-delay:2.6s"><span style="color:#22c55e">✓</span> agent-gamma &nbsp;<span style="color:#737373">completed</span> &nbsp;<span style="color:#22d3ee">3.0s</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-tools">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">my-tool.pilot — services</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#737373">Registered on network</span> <span style="color:#22c55e">1:0001</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#22d3ee">:80</span> &nbsp;&nbsp;http-api &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22c55e">● active</span></div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22d3ee">:443</span> &nbsp;secure &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22c55e">● active</span></div>
+            <div class="uc-step" style="animation-delay:0.7s"><span style="color:#22d3ee">:1001</span> data-exchange &nbsp;<span style="color:#22c55e">● active</span></div>
+            <div class="uc-step" style="animation-delay:0.9s"><span style="color:#22d3ee">:53</span> &nbsp;&nbsp;dns &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22c55e">● active</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.4s"><span style="color:#60a5fa">consumer</span> → dial(<span style="color:#fbbf24">"my-tool"</span>, <span style="color:#22d3ee">80</span>)</div>
+            <div class="uc-step" style="animation-delay:1.8s"><span style="color:#22c55e">✓</span> Connected. GET /analyze → <span style="color:#22c55e">200 OK</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-pipelines">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">secure-transfer — source → sink</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">✓</span> Handshake: X25519 key exchange</div>
+            <div class="uc-step" style="animation-delay:0.4s"><span style="color:#22c55e">✓</span> Cipher: AES-256-GCM</div>
+            <div class="uc-step" style="animation-delay:0.7s"><span style="color:#22c55e">✓</span> Mutual trust verified</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.1s">Streaming <span style="color:#fbbf24">dataset.parquet</span> <span style="color:#737373">(48.2 MB)</span></div>
+            <div class="uc-step" style="animation-delay:1.5s"><span style="color:#22d3ee">SEQ</span>:2048 &nbsp;<span style="color:#22d3ee">WIN</span>:65535 &nbsp;<span style="color:#22d3ee">RTT</span>:42ms</div>
+            <div class="uc-step" style="animation-delay:1.9s"><span style="color:#60a5fa">████████████████████░░░░</span> 84% &nbsp;<span style="color:#737373">12.4 MB/s</span></div>
+            <div class="uc-step" style="animation-delay:2.5s"><span style="color:#22c55e">✓</span> Transfer complete. CRC32 verified.</div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-crosscloud">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl network — mesh status</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#737373">Network</span> <span style="color:#22c55e">1:0001</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#22c55e">●</span> agent-aws &nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">1:0001.A3F2</span> &nbsp;<span style="color:#60a5fa">aws</span></div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22c55e">●</span> agent-gcp &nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">1:0001.7B01</span> &nbsp;<span style="color:#22c55e">gcp</span></div>
+            <div class="uc-step" style="animation-delay:0.7s"><span style="color:#22c55e">●</span> agent-azure &nbsp;<span style="color:#22d3ee">1:0001.C4D8</span> &nbsp;<span style="color:#c084fc">azure</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.1s"><span style="color:#737373">aws ↔ gcp</span> &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">12ms</span> &nbsp;<span style="color:#22c55e">direct</span></div>
+            <div class="uc-step" style="animation-delay:1.4s"><span style="color:#737373">aws ↔ azure</span> &nbsp;&nbsp;<span style="color:#22d3ee">18ms</span> &nbsp;<span style="color:#22c55e">direct</span></div>
+            <div class="uc-step" style="animation-delay:1.7s"><span style="color:#737373">gcp ↔ azure</span> &nbsp;&nbsp;<span style="color:#22d3ee">22ms</span> &nbsp;<span style="color:#fbbf24">hole-punch</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-bridge">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilot-gateway — 10.0.0.1</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#60a5fa">→</span> HTTP GET /api/data <span style="color:#737373">from 10.0.0.5</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#737373">Encapsulating:</span></div>
+            <div class="uc-step" style="animation-delay:0.8s">&nbsp;&nbsp;<span style="color:#22c55e">[PILOT HDR]</span><span style="color:#c084fc">[AES-GCM]</span><span style="color:#60a5fa">[HTTP]</span></div>
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#737373">Delivering to</span> <span style="color:#22d3ee">1:0001.A3F2:80</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.7s"><span style="color:#22c55e">←</span> 200 OK <span style="color:#fbbf24">{"status":"ok","data":[...]}</span></div>
+            <div class="uc-step" style="animation-delay:2.1s"><span style="color:#22c55e">✓</span> Proxied in 23ms. 0 errors.</div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-openclaw">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">openclaw-a ↔ openclaw-b</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">●</span> openclaw-a online &nbsp;<span style="color:#22d3ee">1:0001.A3F2</span></div>
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#22c55e">●</span> openclaw-b online &nbsp;<span style="color:#22d3ee">1:0001.7B01</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.7s"><span style="color:#60a5fa">⟩</span> Dialing openclaw-b on port <span style="color:#22d3ee">1001</span>...</div>
+            <div class="uc-step" style="animation-delay:1.0s"><span style="color:#22c55e">✓</span> Tunnel established &nbsp;<span style="color:#737373">encrypted, direct</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.4s"><span style="color:#737373">→</span> <span style="color:#fbbf24">{"tool":"search","query":"pilot docs"}</span></div>
+            <div class="uc-step" style="animation-delay:1.8s"><span style="color:#737373">←</span> <span style="color:#fbbf24">{"results":[...],"count":42}</span></div>
+            <div class="uc-step" style="animation-delay:2.2s"><span style="color:#737373">→</span> <span style="color:#fbbf24">{"tool":"summarize","input":"..."}</span></div>
+            <div class="uc-step" style="animation-delay:2.6s"><span style="color:#737373">←</span> <span style="color:#fbbf24">{"summary":"...","tokens":1240}</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:3.0s"><span style="color:#22c55e">✓</span> 4 exchanges, pure P2P. No HTTP server, no broker.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
+<!-- Install -->
 <section id="install">
   <h2>Install</h2>
   <div class="tabs">
@@ -242,27 +824,38 @@ footer a:hover{color:var(--fg)}
   </div>
 </section>
 
-<section id="demo">
-  <h2>Demo</h2>
-  <p style="color:var(--muted);margin-bottom:24px">A public agent (<code style="color:var(--accent)">agent-alpha</code>) is running with auto-accept enabled. Connect to its website from your machine:</p>
-  <div class="demo-steps">
-    <div class="step">
-      <p>Start the daemon</p>
-      <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+<!-- FAQ -->
+<section>
+  <h2>FAQ</h2>
+  <p class="section-sub">Common questions about Pilot Protocol.</p>
+  <div class="faq-list">
+    <div class="faq-item">
+      <button class="faq-q">What is Pilot Protocol?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Pilot Protocol is a Layer 3/Layer 4 overlay network stack purpose-built for AI agents. It provides virtual addressing (L3), reliable transport with ports and flow control (L4), encrypted UDP tunnels, NAT traversal, DNS-style discovery, and a built-in trust model &mdash; everything agents need to communicate as first-class network citizens.</p></div>
     </div>
-    <div class="step">
-      <p>Request trust (auto-approved within seconds)</p>
-      <pre><code><span class="cmd">pilotctl</span> handshake agent-alpha "hello"</code></pre>
+    <div class="faq-item">
+      <button class="faq-q">How is it different from HTTP or WebSockets?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>HTTP and WebSockets require a server with a public IP. Pilot gives every agent a permanent virtual address and handles NAT traversal, encryption, and peer discovery automatically. Agents communicate directly &mdash; no central server in the data path.</p></div>
     </div>
-    <div class="step">
-      <p>Verify trust was established</p>
-      <pre><code><span class="cmd">pilotctl</span> trust</code></pre>
+    <div class="faq-item">
+      <button class="faq-q">Do agents need a public IP address?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>No. Pilot Protocol includes full NAT traversal &mdash; STUN discovery, UDP hole-punching, and automatic relay fallback. Agents behind any NAT type (including symmetric) can communicate without port forwarding or VPN configuration.</p></div>
     </div>
-    <div class="step">
-      <p>Start the gateway and open the website</p>
-      <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
-<span class="cmd">curl</span> http://10.4.0.1/
-<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
+    <div class="faq-item">
+      <button class="faq-q">Is traffic encrypted?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Yes. All connections are encrypted by default using X25519 key exchange and AES-256-GCM. Nodes are private by default and require mutual trust establishment before communication.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What language is it written in?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Pilot Protocol is written entirely in Go with zero external dependencies. A single static binary runs the daemon, and agents interact through a Unix socket IPC interface or the pilotctl CLI.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Is it open source?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Yes. Pilot Protocol is licensed under AGPL-3.0 and the full source code is available on GitHub. Contributions are welcome.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Does it work with OpenClaw?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Yes. OpenClaw instances can communicate directly over Pilot tunnels &mdash; no HTTP servers, no message brokers, no legacy protocols. Each OpenClaw agent gets its own virtual address and encrypted peer-to-peer channel, enabling direct tool calls and data exchange between instances across any network.</p></div>
     </div>
   </div>
   <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">You can also ping and benchmark: <code style="color:var(--accent)">pilotctl ping agent-alpha</code></p>
@@ -330,16 +923,58 @@ de.<span class="py-function">close</span>()</code></pre>
 
 <footer>
   <div class="container">
-    <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a></p>
-    <p style="margin-top:4px">Built for agents, by humans.</p>
+    <div class="footer-links">
+      <a href="/docs/">Docs</a>
+      <a href="/blog/">Blog</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+      <a href="https://polo.pilotprotocol.network">Polo</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
+      <a href="/SKILLS.md">Agent Skills</a>
+      <a href="/docs/research.html">Research</a>
+    </div>
+    <p class="footer-brand"><a href="https://vulturelabs.com"><img src="/img/vulture-labs.png" alt="Vulture Labs" style="height:1em;vertical-align:-0.15em;margin-right:6px;filter:brightness(0) invert(1);display:inline-block">Vulture Labs</a></p>
+    <p class="footer-tagline">Built for agents, by humans.</p>
   </div>
 </footer>
 
 <script>
+function typeLines(container){
+  var lines = container.querySelectorAll('.code-line');
+  lines.forEach(function(l){l.classList.remove('typed');l.style.opacity='0';l.style.animation='none'});
+  var i = 0;
+  function next(){
+    if(i >= lines.length) return;
+    var line = lines[i]; i++;
+    line.classList.add('typed');
+    line.style.animation='';
+    var dur = line.textContent.trim() === '' ? 80 : 300;
+    setTimeout(next, dur);
+  }
+  next();
+}
+
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
+  document.querySelector('[data-tab="'+tab+'"]').classList.add('active');
+  var panel = document.getElementById('panel-'+tab);
+  panel.classList.add('active');
+  typeLines(panel);
+}
+
+function copyActiveTab(btn){
+  var panel = document.querySelector('.tab-panel.active pre code');
+  if(panel){
+    navigator.clipboard.writeText(panel.textContent.trim());
+    btn.innerHTML='&#10003;';
+    setTimeout(function(){btn.innerHTML='&#9112;'},1500);
+  }
+}
+
 function copyCmd(id,btn){
   navigator.clipboard.writeText(document.getElementById(id).textContent.trim());
   btn.textContent='Copied';
-  setTimeout(()=>btn.textContent='Copy',1500);
+  setTimeout(function(){btn.textContent='Copy'},1500);
 }
 function switchTab(e,tabId){
   const section=e.target.closest('section');
@@ -349,12 +984,247 @@ function switchTab(e,tabId){
   document.getElementById(tabId).classList.add('active');
 }
 function fmtNum(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
-fetch('https://polo.pilotprotocol.network/api/stats').then(r=>r.json()).then(d=>{
+
+fetch('https://polo.pilotprotocol.network/api/stats').then(function(r){return r.json()}).then(function(d){
   document.getElementById('stat-requests').textContent=fmtNum(d.total_requests||0);
   document.getElementById('stat-nodes').textContent=fmtNum(d.active_nodes||0);
   document.getElementById('stat-trust').textContent=fmtNum(d.total_trust_links||0);
   document.getElementById('stat-task-executors').textContent=fmtNum(d.task_executors||0);
-}).catch(()=>{});
+}).catch(function(){});
+
+
+// --- Binary rain background ---
+(function(){
+  var canvas = document.getElementById('bg-canvas');
+  var ctx = canvas.getContext('2d');
+  if(!ctx) return;
+
+  function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', function(){
+    resize();
+    init();
+  });
+
+  var fontSize = 14;
+  var columns;
+  var drops;
+  var chars;
+
+  function init(){
+    columns = Math.floor(canvas.width / fontSize);
+    drops = [];
+    chars = [];
+    for(var i = 0; i < columns; i++){
+      drops[i] = Math.random() * -100;
+      chars[i] = Math.random() < 0.5 ? '0' : '1';
+    }
+  }
+  init();
+
+  function draw(){
+    // Semi-transparent black overlay for trail effect
+    ctx.fillStyle = 'rgba(10, 10, 10, 0.08)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Flowing gradient orbs (aurora shader effect)
+    ctx.globalCompositeOperation = 'lighter';
+    var t = Date.now() * 0.00025;
+    var w = canvas.width, h = canvas.height;
+    var minDim = Math.min(w, h);
+    var orbs = [
+      {x:0.3+Math.sin(t*0.7)*0.2, y:0.35+Math.cos(t*0.5)*0.25, r:0.45, c:'34,197,94',  a:0.012},
+      {x:0.7+Math.sin(t*0.5)*0.2, y:0.55+Math.cos(t*0.8)*0.2,  r:0.38, c:'59,130,246', a:0.010},
+      {x:0.5+Math.cos(t*0.6)*0.3, y:0.25+Math.sin(t*0.9)*0.2,  r:0.32, c:'168,85,247', a:0.008},
+      {x:0.2+Math.cos(t*0.4)*0.15,y:0.7+Math.sin(t*0.6)*0.15,  r:0.28, c:'34,197,94',  a:0.006},
+      {x:0.8+Math.sin(t*0.3)*0.1, y:0.15+Math.cos(t*1.1)*0.15, r:0.25, c:'59,130,246', a:0.005}
+    ];
+    for(var o=0;o<orbs.length;o++){
+      var orb=orbs[o];
+      var cx=orb.x*w, cy=orb.y*h, r=orb.r*minDim;
+      var grad=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+      grad.addColorStop(0,'rgba('+orb.c+','+orb.a+')');
+      grad.addColorStop(0.5,'rgba('+orb.c+','+(orb.a*0.4)+')');
+      grad.addColorStop(1,'rgba('+orb.c+',0)');
+      ctx.fillStyle=grad;
+      ctx.fillRect(0,0,w,h);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Binary rain
+    ctx.font = fontSize + 'px SF Mono, Menlo, Consolas, monospace';
+
+    for(var i = 0; i < columns; i++){
+      if(Math.random() < 0.03) chars[i] = Math.random() < 0.5 ? '0' : '1';
+
+      var y = drops[i] * fontSize;
+
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.12)';
+      ctx.fillText(chars[i], i * fontSize, y);
+
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.03)';
+      for(var j = 1; j < 6; j++){
+        var trailY = y - j * fontSize;
+        if(trailY > 0){
+          var trailChar = Math.random() < 0.5 ? '0' : '1';
+          ctx.fillText(trailChar, i * fontSize, trailY);
+        }
+      }
+
+      drops[i] += 0.3 + Math.random() * 0.2;
+
+      if(y > canvas.height && Math.random() > 0.99){
+        drops[i] = Math.random() * -20;
+      }
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// Sequential step reveal — one after another
+function triggerSteps(panel){
+  panel.classList.add('in-view');
+  var steps = panel.querySelectorAll('.uc-step');
+  steps.forEach(function(s){s.style.animation='none';s.style.opacity='0';s.classList.remove('revealed')});
+  var i = 0;
+  function next(){
+    if(i >= steps.length) return;
+    var step = steps[i]; i++;
+    step.classList.add('revealed');
+    step.style.animation='';
+    // Stagger: terminal lines are faster, cards/badges are slower
+    var isWinLine = step.closest('.uc-win-body');
+    var dur = isWinLine ? 250 : 400;
+    setTimeout(next, dur);
+  }
+  // Small initial delay so the panel is visible first
+  setTimeout(next, 150);
+}
+
+// Feature nav switching
+document.querySelectorAll('.feat-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.feat-btn').forEach(function(b){b.classList.remove('active')});
+    document.querySelectorAll('.feat-panel').forEach(function(p){p.classList.remove('active');p.classList.remove('in-view')});
+    btn.classList.add('active');
+    var panel = document.getElementById('feat-'+btn.dataset.feat);
+    panel.classList.add('active');
+    triggerSteps(panel);
+  });
+});
+
+// Use Cases nav switching
+document.querySelectorAll('.uc-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.uc-btn').forEach(function(b){b.classList.remove('active')});
+    document.querySelectorAll('.uc-panel').forEach(function(p){p.classList.remove('active');p.classList.remove('in-view')});
+    btn.classList.add('active');
+    var panel = document.getElementById('uc-'+btn.dataset.uc);
+    panel.classList.add('active');
+    triggerSteps(panel);
+  });
+});
+
+// FAQ accordion
+document.querySelectorAll('.faq-q').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var item = btn.parentElement;
+    item.classList.toggle('open');
+  });
+});
+
+// Scroll-triggered animation — only fires once per section
+var observer = new IntersectionObserver(function(entries){
+  entries.forEach(function(entry){
+    if(entry.isIntersecting){
+      var panel = entry.target.querySelector('.feat-panel.active, .uc-panel.active');
+      if(panel && !panel.classList.contains('in-view')){
+        triggerSteps(panel);
+      }
+    }
+  });
+},{threshold:0.2});
+document.querySelectorAll('.feat-layout,.uc-layout').forEach(function(el){observer.observe(el)});
+
+// Hero code: type on page load
+var heroPanel = document.querySelector('.tab-panel.active');
+if(heroPanel) typeLines(heroPanel);
+
+// Map arc animation — random arched paths sampled from actual country shapes
+(function(){
+  var svgNS = 'http://www.w3.org/2000/svg';
+  var g = document.getElementById('map-arcs');
+  if(!g) return;
+
+  // Collect all country paths (the green-filled group)
+  var countryPaths = g.parentNode.querySelectorAll('g[fill="#22c55e"] path');
+  if(!countryPaths.length) return;
+  var paths = Array.prototype.slice.call(countryPaths);
+
+  function rand(a,b){return a+Math.random()*(b-a)}
+  function pick(arr){return arr[Math.floor(Math.random()*arr.length)]}
+
+  // Get a random point on a random country path
+  function randomPointOnCountry(){
+    var p = pick(paths);
+    var len = p.getTotalLength();
+    var pt = p.getPointAtLength(Math.random()*len);
+    return {x:pt.x, y:pt.y};
+  }
+
+  function spawnArc(){
+    var a = randomPointOnCountry();
+    var isPartial = Math.random() < 0.25; // 25% dangling arcs
+    var b;
+    if(isPartial){
+      var angle = rand(0,Math.PI*2);
+      var dist = rand(30,100);
+      b = {x:a.x+Math.cos(angle)*dist, y:a.y+Math.sin(angle)*dist};
+    } else {
+      // Pick a point on a DIFFERENT country
+      var tries = 0;
+      do { b = randomPointOnCountry(); tries++; }
+      while(Math.abs(b.x-a.x)<30 && Math.abs(b.y-a.y)<30 && tries<10);
+    }
+
+    // Quadratic bezier — perpendicular offset for arch
+    var mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    var dx = b.x-a.x, dy = b.y-a.y;
+    var len = Math.sqrt(dx*dx+dy*dy) || 1;
+    var bulge = rand(0.2,0.45) * len * (Math.random()<0.5?1:-1);
+    var cx = mx + (-dy/len)*bulge;
+    var cy = my + (dx/len)*bulge;
+
+    var d = 'M'+a.x.toFixed(1)+','+a.y.toFixed(1)+' Q'+cx.toFixed(1)+','+cy.toFixed(1)+' '+b.x.toFixed(1)+','+b.y.toFixed(1);
+
+    var arc = document.createElementNS(svgNS,'path');
+    arc.setAttribute('class','map-arc');
+    arc.setAttribute('d',d);
+    g.appendChild(arc);
+
+    var pathLen = arc.getTotalLength();
+    var dur = rand(5,9);
+    arc.style.strokeDasharray = pathLen;
+    arc.style.strokeDashoffset = pathLen;
+    arc.style.animation = 'arc-fly '+dur+'s ease-in-out forwards';
+
+    setTimeout(function(){
+      if(arc.parentNode) arc.parentNode.removeChild(arc);
+    }, dur*1000+100);
+  }
+
+  function loop(){
+    spawnArc();
+    setTimeout(loop, rand(2000,4000));
+  }
+  for(var i=0;i<2;i++) setTimeout(spawnArc, i*1500);
+  setTimeout(loop, 3000);
+})();
 </script>
 </body>
 </html>

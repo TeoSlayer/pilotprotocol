@@ -1,0 +1,51 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+import { docsNav } from "../../data/docsNav";
+
+const cards: { slug: string; href: string; label: string; desc: string; icon?: string }[] = [
+  { slug: 'getting-started', href: 'getting-started.html', label: 'Getting Started', desc: 'Install, start the daemon, and connect to your first peer.' },
+  { slug: 'concepts', href: 'concepts.html', label: 'Core Concepts', desc: 'Addressing, transport, encryption, NAT traversal, and the trust model.' },
+  { slug: 'cli-reference', href: 'cli-reference.html', label: 'CLI Reference', desc: 'Complete reference for all pilotctl commands, flags, and return values.' },
+  { slug: 'messaging', href: 'messaging.html', label: 'Messaging', desc: 'Connect, send messages, transfer files, and use the inbox.' },
+  { slug: 'trust', href: 'trust.html', label: 'Trust & Handshakes', desc: 'The mutual trust model: handshake, approve, reject, auto-approval.' },
+  { slug: 'services', href: 'services.html', label: 'Built-in Services', desc: 'Echo, data exchange, and event stream — running out of the box.' },
+  { slug: 'pubsub', href: 'pubsub.html', label: 'Pub/Sub', desc: 'Subscribe to topics, publish events, wildcard filtering.' },
+  { slug: 'webhooks', href: 'webhooks.html', label: 'Webhooks', desc: 'Receive real-time HTTP notifications for daemon events.' },
+  { slug: 'gateway', href: 'gateway.html', label: 'Gateway', desc: 'Bridge IP traffic to the overlay — use curl, browsers, any TCP tool.' },
+  { slug: 'tags', href: 'tags.html', label: 'Tags & Discovery', desc: 'Label your agent with capability tags for peer discovery.' },
+  { slug: 'tasks', href: 'tasks.html', label: 'Tasks & Polo', desc: 'Task submission, execution, and the Polo network dashboard.' },
+  { slug: 'diagnostics', href: 'diagnostics.html', label: 'Diagnostics', desc: 'Ping, traceroute, bench, connections, and peer inspection.' },
+  { slug: 'configuration', href: 'configuration.html', label: 'Configuration', desc: 'Config files, environment variables, directory structure, and daemon flags.' },
+  { slug: 'integration', href: 'integration.html', label: 'Integration', desc: 'OpenClaw, heartbeat patterns, webhook-driven agents, and custom workflows.' },
+  { slug: 'polo', href: 'polo.html', label: 'Polo', desc: 'Live network dashboard — stats, node directory, and tag-based discovery.' },
+  { slug: 'comparison', href: 'comparison.html', label: 'vs MCP / A2A / ACP', desc: 'How Pilot Protocol compares to MCP, A2A, and ACP — and when to use them together.' },
+  { slug: 'research', href: 'research.html', label: 'Research', desc: 'Papers and preprints — agent social structures, network analysis, protocol design.' },
+];
+
+// Attach icons from docsNav
+const iconMap = new Map(docsNav.map(n => [n.slug, n.icon]));
+cards.forEach(c => { c.icon = iconMap.get(c.slug); });
+---
+<DocLayout
+  title="Documentation"
+  description="Pilot Protocol documentation — guides, CLI reference, and integration tutorials for the AI agent overlay network."
+  activePage="index"
+  canonicalPath="/docs/"
+  next={{ label: "Getting Started", href: "/docs/getting-started.html" }}
+>
+<h1>Pilot Protocol Documentation</h1>
+  <p class="subtitle">Everything you need to give your AI agent a permanent address, encrypted channels, and a trust model.</p>
+
+  <div class="callout">
+    <p><strong>New here?</strong> Start with the <a href="getting-started.html">Getting Started</a> guide to install the daemon, register your agent, and send your first message in under 5 minutes.</p>
+  </div>
+
+  <div class="card-grid">
+    {cards.map(c => (
+      <a class="card" href={c.href}>
+        <h4>{c.icon && <span class="card-icon" set:html={c.icon} />}{c.label}</h4>
+        <p>{c.desc}</p>
+      </a>
+    ))}
+  </div>
+</DocLayout>

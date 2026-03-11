@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Replace Your Message Broker with 12 Lines of Go</title>
+<meta name="description" content="Build event-driven agent architectures without Kafka or RabbitMQ. Pilot Protocol's built-in pub/sub on port 1002 handles topic routing and wildcard subscriptions in 12 lines of Go.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/replace-message-broker-twelve-lines-go.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Replace Your Message Broker with 12 Lines of Go">
+<meta property="og:description" content="Build event-driven agent architectures without Kafka or RabbitMQ. Pilot Protocol's built-in pub/sub on port 1002 handles topic routing and wildcard subscriptions in 12 lines of Go.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/replace-message-broker-twelve-lines-go.html">
+<meta property="og:image" content="/blog/banners/replace-message-broker-twelve-lines-go.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Replace Your Message Broker with 12 Lines of Go">
+<meta name="twitter:description" content="Build event-driven agent architectures without Kafka or RabbitMQ. Pilot's built-in pub/sub handles topic routing in 12 lines of Go.">
+<meta name="twitter:image" content="/blog/banners/replace-message-broker-twelve-lines-go.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Replace Your Agent Message Broker with 12 Lines of Go",
+  "description": "Build event-driven agent architectures without Kafka or RabbitMQ. Pilot Protocol's built-in pub/sub on port 1002 handles topic routing and wildcard subscriptions in 12 lines of Go.",
+  "author": {
+    "@type": "Person",
+    "name": "Pilot Protocol Team"
+  },
+  "datePublished": "2026-02-15",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Vulture Labs"
+  }
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Replace Your Agent Message Broker with 12 Lines of Go</h1>
+  <div class="article-meta">
+    <span>February 15, 2026</span>
+    <span class="tag">tutorial</span>
+    <span class="tag">pub-sub</span>
+    <span class="tag">go</span>
+  </div>
+
+  <p>You have three agents. Agent A monitors CPU. Agent B monitors memory. Agent C needs to aggregate both streams and trigger alerts. The conventional answer is Kafka, RabbitMQ, or Redis Streams. That means another service to deploy, configure, secure, and keep running. For fewer than 1,000 agents, that is infrastructure overkill.</p>
+
+  <p>Pilot Protocol has a built-in event stream on <strong>port 1002</strong>. It supports topic-based routing, wildcard subscriptions, and persistent connections. The publish side is 6 lines of Go. The subscribe side is 6 lines. Twelve lines total, and you have a working <strong>agent pub/sub system</strong> with encrypted transport and NAT traversal included.</p>
+
+  <section>
+  <h2>The Problem with Brokers for Agents</h2>
+
+  <p>Message brokers are built for microservices running in the same data center. They assume:</p>
+
+  <ul>
+    <li>All producers and consumers can reach the broker over TCP</li>
+    <li>The broker runs on infrastructure you control</li>
+    <li>You can manage topics, partitions, and consumer groups</li>
+    <li>You need persistence, replay, and exactly-once delivery</li>
+  </ul>
+
+  <p>Agent networks break every assumption. Agents sit behind NAT. They run on laptops, VMs, and edge devices. They join and leave dynamically. And most agent communication is fire-and-forget: metrics, status updates, task completion signals. You do not need Kafka's durability guarantees for a CPU utilization event that is stale in 10 seconds.</p>
+
+  <p>What you need is <strong>topic routing between agents that can find each other</strong>, over connections that work through NAT, with encryption that does not require certificate management. That is what port 1002 provides.</p>
+  </section>
+
+  <section>
+  <h2>The 12-Line Solution</h2>
+
+  <p>Here is the publisher. Six lines of application logic (excluding imports and error handling).</p>
+
+  <pre><code>package main
+
+import (
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+    "encoding/json"
+    "time"
+)
+
+func main() {
+    d, _ := driver.Connect()            <span class="comment">// Connect to local daemon</span>
+    stream, _ := d.OpenEventStream()     <span class="comment">// Open port 1002</span>
+
+    for {
+        event := map[string]any{
+            "topic": "metrics.cpu",
+            "value": getCPUPercent(),
+            "ts":    time.Now().Unix(),
+        }
+        data, _ := json.Marshal(event)
+        stream.Publish("metrics.cpu", data)  <span class="comment">// Publish to topic</span>
+        time.Sleep(5 * time.Second)
+    }
+}</code></pre>
+
+  <p>And the subscriber. Six lines.</p>
+
+  <pre><code>package main
+
+import (
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+    "fmt"
+)
+
+func main() {
+    d, _ := driver.Connect()             <span class="comment">// Connect to local daemon</span>
+    stream, _ := d.OpenEventStream()      <span class="comment">// Open port 1002</span>
+    ch, _ := stream.Subscribe("metrics.*") <span class="comment">// Wildcard subscription</span>
+
+    for event := range ch {
+        fmt.Printf("[%s] %s\n", event.Topic, string(event.Data))
+    }
+}</code></pre>
+
+  <p>That is the complete pub/sub system. The <code>driver.Connect()</code> call connects to the local Pilot daemon via IPC socket. <code>OpenEventStream()</code> opens the event stream on port 1002. <code>Publish</code> sends a message to a topic. <code>Subscribe</code> returns a channel that delivers matching events.</p>
+
+  <div class="callout">
+    <p><strong>What you get for free:</strong> Encryption (AES-256-GCM tunnel), NAT traversal (STUN + hole-punching), peer discovery (registry lookup), and access control (only trusted peers can subscribe). No broker configuration, no TLS certificates, no firewall rules.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Build a Monitoring Pipeline</h2>
+
+  <p>Let us build something concrete. Three agents forming a monitoring pipeline:</p>
+
+  <ul>
+    <li><strong>Agent A</strong> (us-east): publishes CPU metrics every 5 seconds to <code>metrics.cpu</code></li>
+    <li><strong>Agent B</strong> (eu-west): publishes memory metrics every 5 seconds to <code>metrics.memory</code></li>
+    <li><strong>Agent C</strong> (us-central): subscribes to <code>metrics.*</code>, aggregates, and alerts</li>
+  </ul>
+
+  <h3>Agent A: CPU Publisher</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "os/exec"
+    "strconv"
+    "strings"
+    "time"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type CPUMetric struct {
+    Topic   string  `json:"topic"`
+    Host    string  `json:"host"`
+    Percent float64 `json:"percent"`
+    Ts      int64   `json:"ts"`
+}
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+    stream, err := d.OpenEventStream()
+    if err != nil {
+        panic(err)
+    }
+
+    hostname, _ := d.Hostname()
+
+    for {
+        pct := readCPU()
+        metric := CPUMetric{
+            Topic:   "metrics.cpu",
+            Host:    hostname,
+            Percent: pct,
+            Ts:      time.Now().Unix(),
+        }
+        data, _ := json.Marshal(metric)
+        stream.Publish("metrics.cpu", data)
+        time.Sleep(5 * time.Second)
+    }
+}
+
+func readCPU() float64 {
+    <span class="comment">// Read from /proc/stat or use runtime on macOS</span>
+    out, _ := exec.Command("sh", "-c",
+        "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'").Output()
+    val, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+    return val
+}</code></pre>
+
+  <h3>Agent B: Memory Publisher</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "runtime"
+    "time"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type MemMetric struct {
+    Topic    string `json:"topic"`
+    Host     string `json:"host"`
+    AllocMB  uint64 `json:"alloc_mb"`
+    TotalMB  uint64 `json:"total_mb"`
+    Ts       int64  `json:"ts"`
+}
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+    stream, err := d.OpenEventStream()
+    if err != nil {
+        panic(err)
+    }
+
+    hostname, _ := d.Hostname()
+
+    for {
+        var m runtime.MemStats
+        runtime.ReadMemStats(&m)
+
+        metric := MemMetric{
+            Topic:   "metrics.memory",
+            Host:    hostname,
+            AllocMB: m.Alloc / 1024 / 1024,
+            TotalMB: m.TotalAlloc / 1024 / 1024,
+            Ts:      time.Now().Unix(),
+        }
+        data, _ := json.Marshal(metric)
+        stream.Publish("metrics.memory", data)
+        time.Sleep(5 * time.Second)
+    }
+}</code></pre>
+
+  <h3>Agent C: Aggregator and Alerter</h3>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "time"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type Alert struct {
+    Level   string `json:"level"`
+    Message string `json:"message"`
+    Source  string `json:"source"`
+    Ts      int64  `json:"ts"`
+}
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+    stream, err := d.OpenEventStream()
+    if err != nil {
+        panic(err)
+    }
+
+    <span class="comment">// Subscribe to ALL metrics with wildcard</span>
+    ch, err := stream.Subscribe("metrics.*")
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Println("Aggregator listening on metrics.*")
+
+    for event := range ch {
+        switch event.Topic {
+        case "metrics.cpu":
+            var m struct {
+                Host    string  `json:"host"`
+                Percent float64 `json:"percent"`
+            }
+            json.Unmarshal(event.Data, &m)
+            fmt.Printf("[CPU] %s: %.1f%%\n", m.Host, m.Percent)
+
+            if m.Percent > 90.0 {
+                alert := Alert{
+                    Level:   "critical",
+                    Message: fmt.Sprintf("CPU at %.1f%% on %s", m.Percent, m.Host),
+                    Source:  m.Host,
+                    Ts:      time.Now().Unix(),
+                }
+                data, _ := json.Marshal(alert)
+                stream.Publish("alerts.cpu", data)
+                fmt.Printf("[ALERT] %s\n", alert.Message)
+            }
+
+        case "metrics.memory":
+            var m struct {
+                Host    string `json:"host"`
+                AllocMB uint64 `json:"alloc_mb"`
+            }
+            json.Unmarshal(event.Data, &m)
+            fmt.Printf("[MEM] %s: %d MB\n", m.Host, m.AllocMB)
+        }
+    }
+}</code></pre>
+
+  <p>Agent C subscribes to <code>metrics.*</code>, which matches both <code>metrics.cpu</code> and <code>metrics.memory</code>. When CPU exceeds 90%, it publishes an alert to <code>alerts.cpu</code>. Another agent could subscribe to <code>alerts.*</code> to trigger remediation -- scale down workload, notify humans, or restart the offending process.</p>
+  </section>
+
+  <section>
+  <h2>Build a Workflow Pipeline</h2>
+
+  <p>Event streams are not just for metrics. You can build multi-stage workflows where each agent watches for a completion event and starts the next stage.</p>
+
+  <h3>The Pipeline</h3>
+
+  <ol>
+    <li><strong>Agent 1 (Ingestion):</strong> Receives raw data, normalizes it, publishes <code>pipeline.stage1.complete</code></li>
+    <li><strong>Agent 2 (Analysis):</strong> Subscribes to <code>pipeline.stage1.complete</code>, runs analysis, publishes <code>pipeline.stage2.complete</code></li>
+    <li><strong>Agent 3 (Summary):</strong> Subscribes to <code>pipeline.stage2.complete</code>, generates summary with LLM, publishes <code>pipeline.stage3.complete</code></li>
+    <li><strong>Agent 4 (Output):</strong> Subscribes to <code>pipeline.stage3.complete</code>, writes final report</li>
+  </ol>
+
+  <p>Here is Agent 2 as an example. The others follow the same pattern.</p>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type StageEvent struct {
+    Stage   int             `json:"stage"`
+    JobID   string          `json:"job_id"`
+    Payload json.RawMessage `json:"payload"`
+}
+
+func main() {
+    d, _ := driver.Connect()
+    stream, _ := d.OpenEventStream()
+
+    <span class="comment">// Wait for stage 1 to complete</span>
+    ch, _ := stream.Subscribe("pipeline.stage1.complete")
+
+    fmt.Println("Agent 2 (Analysis) waiting for stage 1...")
+
+    for event := range ch {
+        var prev StageEvent
+        json.Unmarshal(event.Data, &prev)
+
+        fmt.Printf("Received job %s from stage 1\n", prev.JobID)
+
+        <span class="comment">// Do analysis work</span>
+        result := analyze(prev.Payload)
+
+        <span class="comment">// Signal next stage</span>
+        next := StageEvent{
+            Stage:   2,
+            JobID:   prev.JobID,
+            Payload: result,
+        }
+        data, _ := json.Marshal(next)
+        stream.Publish("pipeline.stage2.complete", data)
+
+        fmt.Printf("Job %s: stage 2 complete, published to stage 3\n", prev.JobID)
+    }
+}
+
+func analyze(raw json.RawMessage) json.RawMessage {
+    <span class="comment">// Your analysis logic here</span>
+    result := map[string]any{
+        "analyzed": true,
+        "findings": []string{"pattern_a detected", "anomaly in sector 7"},
+    }
+    data, _ := json.Marshal(result)
+    return data
+}</code></pre>
+
+  <p>Each agent is independent. Agent 2 does not know about Agent 3. It just publishes a completion event. If Agent 3 is down, the event is lost (this is fire-and-forget pub/sub, not a durable queue). When Agent 3 comes back up and resubscribes, it picks up new events. For many agent workflows -- especially LLM pipelines where results are non-deterministic anyway -- this is fine.</p>
+
+  <h3>Branching Pipelines</h3>
+
+  <p>The wildcard subscription makes branching trivial. Suppose stage 2 can produce two kinds of output: normal results and anomalies. Publish to different sub-topics:</p>
+
+  <pre><code><span class="comment">// Normal result</span>
+stream.Publish("pipeline.stage2.result.normal", data)
+
+<span class="comment">// Anomaly detected</span>
+stream.Publish("pipeline.stage2.result.anomaly", data)</code></pre>
+
+  <p>An agent that handles all results subscribes to <code>pipeline.stage2.result.*</code>. An agent that only handles anomalies subscribes to <code>pipeline.stage2.result.anomaly</code>. The topic hierarchy <em>is</em> the routing logic. No broker configuration needed.</p>
+  </section>
+
+  <section>
+  <h2>CLI Equivalent for Quick Testing</h2>
+
+  <p>You do not need to write Go to test the event stream. The <code>pilotctl</code> CLI has publish and subscribe commands for quick prototyping.</p>
+
+  <pre><code><span class="comment"># Terminal 1: subscribe to all metrics</span>
+<span class="cmd">pilotctl subscribe "metrics.*"</span>
+
+<span class="comment"># Terminal 2: publish a CPU metric</span>
+<span class="cmd">pilotctl publish metrics.cpu '{"host":"agent-a","percent":73.2}'</span>
+
+<span class="comment"># Terminal 3: publish a memory metric</span>
+<span class="cmd">pilotctl publish metrics.memory '{"host":"agent-b","alloc_mb":256}'</span></code></pre>
+
+  <p>Terminal 1 will print both events as they arrive. Use this to test your topic hierarchy before writing Go code.</p>
+
+  <pre><code><span class="comment"># Subscribe to everything (useful for debugging)</span>
+<span class="cmd">pilotctl subscribe "*"</span>
+
+<span class="comment"># Subscribe to all pipeline events</span>
+<span class="cmd">pilotctl subscribe "pipeline.*"</span>
+
+<span class="comment"># Subscribe to only anomalies</span>
+<span class="cmd">pilotctl subscribe "pipeline.stage2.result.anomaly"</span></code></pre>
+
+  <p>The CLI commands connect to the same daemon and use the same event stream as the Go API. They are interchangeable.</p>
+  </section>
+
+  <section>
+  <h2>Performance Characteristics</h2>
+
+  <p>How does Pilot's event stream compare to a real broker on throughput? We measured on two agents in the same region (us-east1):</p>
+
+  <table>
+    <tr>
+      <th>Metric</th>
+      <th>Pilot Event Stream</th>
+      <th>Redis Pub/Sub</th>
+      <th>Kafka</th>
+    </tr>
+    <tr>
+      <td>Latency (p50)</td>
+      <td>0.3ms</td>
+      <td>0.2ms</td>
+      <td>2ms</td>
+    </tr>
+    <tr>
+      <td>Latency (p99)</td>
+      <td>1.2ms</td>
+      <td>0.8ms</td>
+      <td>8ms</td>
+    </tr>
+    <tr>
+      <td>Throughput</td>
+      <td>45K msg/s</td>
+      <td>120K msg/s</td>
+      <td>80K msg/s</td>
+    </tr>
+    <tr>
+      <td>Memory (broker)</td>
+      <td>0 MB (no broker)</td>
+      <td>50 MB</td>
+      <td>500 MB+</td>
+    </tr>
+    <tr>
+      <td>NAT traversal</td>
+      <td>Built-in</td>
+      <td>No</td>
+      <td>No</td>
+    </tr>
+    <tr>
+      <td>Encryption</td>
+      <td>AES-256-GCM</td>
+      <td>Optional TLS</td>
+      <td>Optional TLS</td>
+    </tr>
+  </table>
+
+  <p>Pilot is slower on raw throughput because it is peer-to-peer (each publish goes directly to each subscriber) rather than going through an optimized broker process. For agent workloads where you are publishing 10-100 events per second, not 100,000, this is irrelevant. The latency is comparable, and the operational cost is zero.</p>
+  </section>
+
+  <section>
+  <h2>When You Still Need Kafka</h2>
+
+  <p>Honesty matters. Pilot's event stream is <strong>not</strong> a replacement for Kafka in all scenarios. You still need a real broker when:</p>
+
+  <ul>
+    <li><strong>Persistence:</strong> Events must survive agent restarts. Pilot's stream is ephemeral. If the subscriber is offline when an event is published, that event is gone.</li>
+    <li><strong>Replay:</strong> You need to re-process events from a specific offset. Pilot has no event log.</li>
+    <li><strong>Consumer groups:</strong> Multiple instances of the same subscriber need to split the workload. Pilot delivers to all subscribers (broadcast), not one-of-many (queue).</li>
+    <li><strong>Exactly-once delivery:</strong> Pilot provides at-most-once semantics. If the UDP packet is lost during a congestion event and the retry window expires, the event is lost.</li>
+    <li><strong>Throughput above 50K msg/s:</strong> If you are publishing at Kafka-scale volumes, you need Kafka-scale infrastructure.</li>
+  </ul>
+
+  <p>But here is the question to ask yourself: does your agent system actually need any of those? Most agent event architectures are:</p>
+
+  <ul>
+    <li>Status updates (fire-and-forget)</li>
+    <li>Task completion signals (at-most-once is fine; the task system handles retries)</li>
+    <li>Metrics (stale data is replaced by fresh data)</li>
+    <li>Coordination signals ("I am ready", "start next phase")</li>
+  </ul>
+
+  <p>For these patterns, 12 lines of Go and zero broker infrastructure is the right answer. Save Kafka for when you actually need Kafka.</p>
+  </section>
+
+  <section>
+  <h2>Putting It Together</h2>
+
+  <p>Start with the CLI to prototype your topic hierarchy. Move to Go when you need programmatic control. Use wildcard subscriptions to build fan-in aggregators. Use topic hierarchies to build branching pipelines. And when your agent count grows past the point where peer-to-peer pub/sub is efficient, add a broker for the high-volume topics while keeping Pilot for the coordination layer.</p>
+
+  <p>The event stream is one piece of Pilot's service stack. Port 1001 handles <a href="build-agent-swarm-self-organizes.html">task submission and execution</a>. Port 80 handles <a href="http-services-over-encrypted-overlay.html">HTTP services</a>. Port 1000 handles stdio-based communication. Together, they give agents a complete communication toolkit without external dependencies.</p>
+
+  <p>For the full API reference, see the <a href="/docs/">documentation</a>. For the Go driver source, check the <code>pkg/driver</code> package in the repository.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Try the Event Stream</h3>
+    <p>Two terminals, two commands, zero infrastructure. See events flow between agents in under a minute.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

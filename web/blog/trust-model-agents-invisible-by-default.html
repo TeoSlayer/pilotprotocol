@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pilot Protocol Trust Model: Agents Invisible by Default</title>
+<meta name="description" content="Why AI agents should be invisible by default. Ed25519 mutual handshakes, private agent discovery, instant trust revocation, and the security model behind Pilot Protocol.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/trust-model-agents-invisible-by-default.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Pilot Protocol Trust Model: Agents Invisible by Default">
+<meta property="og:description" content="Why AI agents should be invisible by default. Ed25519 mutual handshakes, private agent discovery, instant trust revocation, and the security model.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/trust-model-agents-invisible-by-default.html">
+<meta property="og:image" content="/blog/banners/trust-model-agents-invisible-by-default.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pilot Protocol Trust Model: Agents Invisible by Default">
+<meta name="twitter:description" content="Why AI agents should be invisible by default. Ed25519 handshakes, private discovery, instant revocation.">
+<meta name="twitter:image" content="/blog/banners/trust-model-agents-invisible-by-default.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Pilot Protocol Trust Model: Agents Invisible by Default",
+  "description": "Why AI agents should be invisible by default. Ed25519 mutual handshakes, private agent discovery, instant trust revocation, and the security model behind Pilot Protocol.",
+  "author": {
+    "@type": "Organization",
+    "name": "Vulture Labs"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Vulture Labs",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"
+    }
+  },
+  "datePublished": "2026-02-17",
+  "mainEntityOfPage": "https://pilotprotocol.network/blog/trust-model-agents-invisible-by-default.html"
+}
+</script>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+
+  <h1>The Pilot Protocol Trust Model: Why Agents Should Be Invisible by Default</h1>
+  <div class="article-meta">
+    <span>February 17, 2026</span>
+    <span class="tag">security</span>
+    <span class="tag">trust</span>
+    <span class="tag">privacy</span>
+  </div>
+
+  <p>When Google released the A2A (Agent-to-Agent) protocol, they introduced a concept called <strong>Agent Cards</strong>. An Agent Card is a JSON document published at a well-known URL (<code>/.well-known/agent.json</code>) that advertises an agent's capabilities, supported protocols, and endpoint. Any agent that knows the URL can fetch the card and start a conversation.</p>
+
+  <p>This is the default in agent frameworks: agents are <strong>discoverable</strong>. They announce themselves. They welcome connections. The assumption is that open communication is the norm and access control is layered on top.</p>
+
+  <p>Pilot Protocol takes the opposite position: <strong>agents should be invisible by default</strong>. A new agent on the network cannot be found, cannot be connected to, and cannot be enumerated. Visibility is not the default state -- it is a privilege granted explicitly through a cryptographic handshake.</p>
+
+  <p>This post explains why, how the trust model works technically, what it enables, and what it costs.</p>
+
+  <h2 id="a2a-default">The A2A Default: Open by Design</h2>
+
+  <p>A2A Agent Cards are designed for open ecosystems. The specification envisions agents publishing their capabilities publicly, like web services publishing API documentation. A client agent discovers a server agent by fetching its Agent Card, learning what tasks it supports, and sending task requests over HTTP.</p>
+
+  <p>This model works well for certain scenarios:</p>
+
+  <ul>
+    <li><strong>Public services</strong> -- an agent that provides weather data or document translation has no reason to hide</li>
+    <li><strong>Internal platforms</strong> -- within a company's network, where network-level security provides a trust boundary</li>
+    <li><strong>Marketplace agents</strong> -- agents that compete for tasks and want maximum visibility</li>
+  </ul>
+
+  <p>But most production agent deployments are not public services. They are <strong>private agents</strong> operating on sensitive data, executing privileged operations, and communicating across organizational boundaries. For these agents, being discoverable is a liability, not a feature.</p>
+
+  <p>Consider what an open-by-default model exposes:</p>
+
+  <ul>
+    <li><strong>Capability enumeration</strong> -- an attacker can discover exactly what an agent does by reading its Agent Card</li>
+    <li><strong>Endpoint exposure</strong> -- the agent's URL is public, making it a target for denial-of-service, injection, and prompt manipulation attacks</li>
+    <li><strong>Network mapping</strong> -- by crawling Agent Cards, an attacker can map the entire agent topology of an organization</li>
+    <li><strong>Version fingerprinting</strong> -- Agent Cards include protocol versions and capabilities, enabling targeted exploits</li>
+  </ul>
+
+  <p>These are not theoretical concerns. In the human web, the equivalent problem -- exposed API endpoints with inadequate access control -- is consistently among the <strong>OWASP Top 10</strong> vulnerabilities. The agent web is making the same mistakes, faster.</p>
+
+  <h2 id="private-default">Private by Default: How It Works</h2>
+
+  <p>In Pilot Protocol, every new agent is registered as <strong>private</strong>. This is not a flag the agent has to remember to set -- it is the default state. The agent must explicitly opt into visibility with the <code>--public</code> flag.</p>
+
+  <p>The privacy model operates at three levels:</p>
+
+  <h3>Lookup</h3>
+
+  <p><strong>Lookup</strong> is the operation of finding an agent by hostname. When you run <code>pilotctl find alice</code>, the rendezvous server checks whether "alice" is registered as public. If she is private, the server returns nothing -- not an error, not a "permission denied," just no result. The requesting agent cannot distinguish between a private agent and a nonexistent one.</p>
+
+  <pre><code><span class="comment"># Alice is private — lookup returns nothing</span>
+<span class="cmd">$ pilotctl find alice</span>
+No agents found matching "alice"
+
+<span class="comment"># Alice is public — lookup succeeds</span>
+<span class="cmd">$ pilotctl find alice</span>
+alice  0:0000.0000.0003  public  203.0.113.42:4000</code></pre>
+
+  <h3>Resolve</h3>
+
+  <p><strong>Resolve</strong> is the operation of getting an agent's network endpoint (IP:port) so you can establish a tunnel. This is the critical operation -- without the endpoint, you cannot connect. Resolve requires a <strong>mutual trust relationship</strong>. The rendezvous server will only return an agent's endpoint to a peer that the agent has explicitly trusted.</p>
+
+  <p>Even if you know an agent's virtual address, you cannot resolve its endpoint without trust. The address alone is useless -- it is a virtual identifier, not a network location.</p>
+
+  <h3>Enumeration</h3>
+
+  <p><strong>Backbone enumeration</strong> -- listing all agents on the network -- is blocked entirely. There is no command and no API to retrieve a list of all registered agents. An agent can only see agents it has already discovered through lookup (public agents) or through an established trust relationship.</p>
+
+  <p>This means an attacker who compromises one agent cannot use it to map the rest of the network. The compromised agent only knows about the peers it was explicitly trusted with.</p>
+
+  <div class="callout">
+    <p><strong>Design principle:</strong> The amount of information an agent can learn about the network is proportional to the amount of trust it has been granted. Zero trust means zero visibility. This is the opposite of "scan and discover" models where any agent on the network can see everything.</p>
+  </div>
+
+  <h2 id="handshake">The Handshake: Cryptographic Trust Establishment</h2>
+
+  <p>Trust in Pilot Protocol is established through a <strong>mutual handshake</strong> ceremony. This is not an HTTP OAuth flow or a certificate signing request. It is a peer-to-peer cryptographic protocol built on Ed25519 digital signatures.</p>
+
+  <h3>Step 1: Identity</h3>
+
+  <p>Every agent generates an <strong>Ed25519 key pair</strong> during initialization (<code>pilotctl init</code>). The private key stays on the agent's machine in <code>~/.pilot/identity.json</code>. The public key is registered with the rendezvous server alongside the agent's virtual address and hostname.</p>
+
+  <p>Ed25519 was chosen for several reasons:</p>
+
+  <ul>
+    <li><strong>Deterministic signatures</strong> -- no random nonce that could leak the private key if the RNG is weak</li>
+    <li><strong>Fast verification</strong> -- the rendezvous server and peers can verify signatures with minimal CPU overhead</li>
+    <li><strong>Small keys</strong> -- 32-byte public keys, 64-byte signatures. They fit in packet headers without overhead</li>
+    <li><strong>Standard library support</strong> -- Go's <code>crypto/ed25519</code> package, no external dependencies</li>
+  </ul>
+
+  <h3>Step 2: Handshake Request</h3>
+
+  <p>Agent A initiates a handshake to Agent B. The request includes:</p>
+
+  <ul>
+    <li>Agent A's <strong>virtual address</strong> and <strong>public key</strong></li>
+    <li>A <strong>justification</strong> message explaining why A wants to connect</li>
+    <li>An <strong>Ed25519 signature</strong> over the entire request, proving A controls the claimed identity</li>
+  </ul>
+
+  <pre><code><span class="cmd">$ pilotctl handshake bob "Need access to Q1 analytics data for the board report"</span>
+Handshake request sent to bob (0:0000.0000.0004)
+Waiting for approval...</code></pre>
+
+  <p>The justification field is not just a comment -- it is a signed, auditable statement of intent. When Agent B reviews pending handshake requests, they can see exactly why each agent wants to connect, verified by the requester's cryptographic signature.</p>
+
+  <h3>Step 3: Relay via Registry</h3>
+
+  <p>The handshake request is relayed through the rendezvous server. This is necessary because Agent B might be private -- Agent A does not know B's endpoint and cannot send a direct UDP packet. The rendezvous server acts as a mailbox, holding the request until B retrieves it.</p>
+
+  <p>This relay mechanism means handshakes work even when both agents are behind NAT and have never communicated before. The rendezvous server never sees the agents' private keys -- it only forwards signed messages.</p>
+
+  <h3>Step 4: Approval</h3>
+
+  <p>Agent B reviews the request and decides whether to approve. This can be manual (an operator reviews and approves via CLI) or automatic (auto-approval rules based on the justification pattern, the requester's network, or other criteria).</p>
+
+  <pre><code><span class="comment"># Review pending handshakes</span>
+<span class="cmd">$ pilotctl pending</span>
+PENDING HANDSHAKES:
+  0:0000.0000.0003 (alice) — "Need access to Q1 analytics data for the board report"
+
+<span class="comment"># Approve</span>
+<span class="cmd">$ pilotctl approve 0:0000.0000.0003</span>
+Trust established with alice (0:0000.0000.0003)</code></pre>
+
+  <p>If approved, Agent B signs an approval response and sends it back through the rendezvous server. Both agents now store the peer's public key locally. The trust relationship is <strong>mutual</strong> -- both sides explicitly agreed.</p>
+
+  <h3>Auto-Approval</h3>
+
+  <p>For use cases where manual approval is impractical (large fleets, automated deployment), agents can configure auto-approval rules. For example:</p>
+
+  <ul>
+    <li>Auto-approve any agent on the same network (same 16-bit network ID)</li>
+    <li>Auto-approve agents whose justification matches a specific pattern</li>
+    <li>Auto-approve when both sides request a handshake simultaneously (mutual interest signal)</li>
+  </ul>
+
+  <p>The mutual-request auto-approval is particularly useful: if Alice sends a handshake to Bob, and Bob has already sent a handshake to Alice, both requests are automatically approved. The mutual initiation serves as proof that both sides want the connection.</p>
+
+  <h2 id="revocation">Revocation Is Instant</h2>
+
+  <p>Trust revocation is as important as trust establishment. In many systems, revoking access is slow, incomplete, or requires waiting for token expiration. In Pilot Protocol, revocation is <strong>immediate and complete</strong>.</p>
+
+  <pre><code><span class="cmd">$ pilotctl untrust 0:0000.0000.0004</span>
+Trust revoked for bob (0:0000.0000.0004)
+Active tunnel torn down
+Peer notified</code></pre>
+
+  <p>When an agent runs <code>pilotctl untrust</code>, three things happen atomically:</p>
+
+  <ol>
+    <li><strong>Trust pair removed</strong> -- the peer's public key is deleted from local storage. The agent will no longer accept connections from this peer.</li>
+    <li><strong>Active tunnel torn down</strong> -- if there is an active encrypted tunnel to the peer, it is closed immediately. All in-flight connections are terminated.</li>
+    <li><strong>Peer notified</strong> -- the revoked peer receives a notification that the trust relationship has been terminated. It can clean up its own state and stop attempting reconnection.</li>
+  </ol>
+
+  <p>There is no expiration window, no token refresh delay, no cache invalidation propagation. The instant the command runs, the peer is locked out. The next packet it sends will be rejected.</p>
+
+  <p>Compare this to revoking an API key in a typical system: the key might be cached in multiple services, the revocation might take minutes to propagate, and there is often no way to know if all instances of the key have been invalidated. In Pilot Protocol, the trust relationship is a point-to-point cryptographic pair. Revocation is local, instant, and verifiable.</p>
+
+  <h2 id="enables">What This Enables</h2>
+
+  <p>A private-by-default trust model is not just a security feature. It enables architectural patterns that are impossible with open-by-default models.</p>
+
+  <h3>Cross-Company Collaboration</h3>
+
+  <p>Two companies want their AI agents to collaborate on a joint project. With an open model, they would need to expose agents to each other's networks, configure mutual API access, and manage shared credentials. With Pilot Protocol, the workflow is:</p>
+
+  <ol>
+    <li>Company A's agent sends a handshake to Company B's agent with a justification: "Joint analysis for Project Atlas"</li>
+    <li>Company B's security team reviews and approves the specific agent-to-agent relationship</li>
+    <li>The agents can now communicate over encrypted tunnels, but neither can discover any other agents in the other company's network</li>
+    <li>When the project ends, either side runs <code>pilotctl untrust</code> and the relationship is severed instantly</li>
+  </ol>
+
+  <p>No VPN peering. No shared credentials. No exposed endpoints. The trust is scoped to exactly the agents that need it, for exactly as long as they need it.</p>
+
+  <h3>Regulatory Compliance</h3>
+
+  <p>Regulations like GDPR, HIPAA, and SOC 2 require organizations to demonstrate access control, audit trails, and data flow boundaries. Pilot Protocol's trust model provides these natively:</p>
+
+  <ul>
+    <li><strong>Access control</strong> -- only mutually trusted agents can communicate. Trust relationships are cryptographically verifiable.</li>
+    <li><strong>Audit trail</strong> -- every handshake includes a signed justification. Who requested access, why, and when is all recorded.</li>
+    <li><strong>Data boundaries</strong> -- agents can only see peers they have been explicitly trusted with. There is no risk of accidental data exposure to agents in other parts of the organization.</li>
+    <li><strong>Instant revocation</strong> -- access can be terminated immediately, with proof that it was terminated.</li>
+  </ul>
+
+  <h3>Compromise Containment</h3>
+
+  <p>When an agent is compromised in an open network, the attacker can use it to discover and connect to every other agent. The blast radius is the entire network.</p>
+
+  <p>In Pilot Protocol, a compromised agent can only see the peers it was trusted with. It cannot enumerate the network, discover new agents, or establish connections to agents outside its trust set. The blast radius is limited to the compromised agent's trust relationships -- typically a small subset of the total network.</p>
+
+  <p>If the compromise is detected, revoking trust from the compromised agent immediately severs all its connections. The attacker loses access to every peer simultaneously. There is no race condition between detection and containment.</p>
+
+  <h2 id="tradeoffs">Trade-Offs: Discovery Is Harder</h2>
+
+  <p>The private-by-default model has an obvious cost: <strong>discovery is harder</strong>. Two agents that have never communicated cannot find each other unless at least one of them is public or an out-of-band introduction happens.</p>
+
+  <p>This is intentional.</p>
+
+  <p>In a private-by-default network, agents are introduced to each other the way humans are introduced -- through a trusted intermediary, a shared context, or an explicit request. This is slower than automatic discovery, but it is far more secure.</p>
+
+  <p>For ecosystems that need open discovery, the recommended pattern is a <strong>separate discovery layer</strong>:</p>
+
+  <ul>
+    <li>Publish Agent Cards (A2A style) on a separate web service</li>
+    <li>The Agent Card includes the agent's Pilot virtual address instead of an HTTP URL</li>
+    <li>Interested agents initiate a handshake to the discovered address</li>
+    <li>The agent behind the address approves or rejects based on its policies</li>
+  </ul>
+
+  <p>This separates the discovery mechanism from the communication mechanism. Discovery can be as open or as restricted as the use case requires. But the communication channel is always authenticated, encrypted, and trust-gated.</p>
+
+  <p>Agents can also use the <code>--public</code> flag to opt into discoverability for specific use cases. A data-processing agent that wants to accept tasks from anyone can register as public. A financial analysis agent that should only communicate with approved partners remains private. The choice is per-agent, not per-network.</p>
+
+  <div class="callout">
+    <p><strong>The asymmetry is deliberate:</strong> making an agent visible is a one-flag operation (<code>--public</code>). Making it invisible is the default that requires no action. The protocol nudges toward privacy because the consequences of accidental exposure are worse than the cost of intentional introduction.</p>
+  </div>
+
+  <h2 id="comparison">Comparison: Trust Models Across Protocols</h2>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>A2A</th><th>MCP</th><th>Pilot Protocol</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Default visibility</td><td>Public (Agent Cards)</td><td>Configured by client</td><td>Private (invisible)</td></tr>
+      <tr><td>Identity</td><td>URL-based</td><td>Server identity</td><td>Ed25519 key pair</td></tr>
+      <tr><td>Authentication</td><td>HTTP auth (various)</td><td>OAuth / API key</td><td>Ed25519 signatures</td></tr>
+      <tr><td>Trust establishment</td><td>Fetch Agent Card</td><td>Client configuration</td><td>Mutual handshake</td></tr>
+      <tr><td>Revocation</td><td>HTTP 401/403</td><td>Token expiry</td><td>Instant (untrust)</td></tr>
+      <tr><td>Enumeration</td><td>Crawlable</td><td>N/A (point-to-point)</td><td>Blocked</td></tr>
+      <tr><td>Blast radius</td><td>Full network</td><td>Connected servers</td><td>Trust set only</td></tr>
+    </tbody>
+  </table>
+
+  <p>No protocol is universally better -- each makes different trade-offs. A2A optimizes for open ecosystems and interoperability. MCP optimizes for tool access patterns. Pilot Protocol optimizes for <strong>security in adversarial environments</strong> where agents handle sensitive data, cross organizational boundaries, and operate autonomously.</p>
+
+  <p>For detailed technical documentation on configuring trust policies, auto-approval rules, and visibility settings, see the <a href="/docs/trust.html">Trust & Handshakes documentation</a>.</p>
+
+  <div class="cta">
+    <h3>Build Secure Agent Networks</h3>
+    <p>Private by default. Mutual handshakes. Instant revocation. Try Pilot Protocol.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; <a href="/">Home</a> &middot; <a href="/docs/">Docs</a> &middot; <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a></p>
+</div>
+
+</body>
+</html>

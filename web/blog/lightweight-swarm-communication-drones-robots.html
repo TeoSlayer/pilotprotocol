@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lightweight Swarm Communication for Drones and Robots</title>
+<meta name="description" content="Replace DDS/ROS2 multicast storms with single-socket UDP communication for drone and robot swarms. 10MB per daemon, no multicast, tag-based discovery.">
+<link rel="canonical" href="https://pilotprotocol.network/blog/lightweight-swarm-communication-drones-robots.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Lightweight Swarm Communication for Drones and Robots">
+<meta property="og:description" content="Replace DDS/ROS2 multicast storms with single-socket UDP communication for drone and robot swarms. 10MB per daemon, no multicast, tag-based discovery.">
+<meta property="og:url" content="https://pilotprotocol.network/blog/lightweight-swarm-communication-drones-robots.html">
+<meta property="og:image" content="/blog/banners/lightweight-swarm-communication-drones-robots.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Lightweight Swarm Communication for Drones and Robots">
+<meta name="twitter:description" content="Replace DDS/ROS2 multicast storms with single-socket UDP communication for drone and robot swarms. 10MB per daemon, no multicast, tag-based discovery.">
+<meta name="twitter:image" content="/blog/banners/lightweight-swarm-communication-drones-robots.png">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Lightweight Swarm Communication for Drones and Robots",
+  "description": "Replace DDS/ROS2 multicast storms with single-socket UDP communication for drone and robot swarms. 10MB per daemon, no multicast, tag-based discovery.",
+  "author": {"@type": "Organization", "name": "Vulture Labs"},
+  "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
+  "datePublished": "2026-02-25",
+  "mainEntityOfPage": "https://pilotprotocol.network/blog/lightweight-swarm-communication-drones-robots.html"
+}
+</script>
+</head>
+<body>
+<div class="topbar">
+  <a class="logo" href="/"><img src="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" alt="">Pilot Protocol</a>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/docs/">Docs</a>
+    <a href="/blog/">Blog</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+  </nav>
+</div>
+
+<article class="article">
+  <a class="back" href="/blog/">&larr; Back to Blog</a>
+  <h1>Lightweight Swarm Communication for Drones and Robots</h1>
+  <div class="article-meta">
+    <span>February 25, 2026</span>
+    <span class="tag">robotics</span>
+    <span class="tag">swarm</span>
+    <span class="tag">edge</span>
+  </div>
+
+  <p>"The network grinds to a halt 90% of the time when I add a second robot." This complaint from a ROS2 user captures a problem that robotics teams encounter repeatedly. DDS, the middleware underneath ROS2, uses multicast for peer discovery. On WiFi networks -- where most mobile robots and drones actually operate -- multicast is unreliable, generates broadcast storms, and consumes bandwidth that the robots need for telemetry and coordination. The result: adding more robots to the swarm makes communication worse, not better.</p>
+
+  <p>The question robotics teams keep asking is straightforward: what affordable, stable system provides communication between multiple robots without the overhead of ROS2/DDS? This article examines why the DDS multicast model breaks for swarms, what lightweight alternatives exist, and how a single-socket UDP overlay with tag-based discovery can coordinate robot swarms on constrained hardware.</p>
+
+  <section>
+  <h2>The DDS/ROS2 Multicast Problem</h2>
+
+  <p>ROS2 uses DDS (Data Distribution Service) as its communication middleware. DDS was designed for military and industrial systems where participants are on the same wired LAN with reliable multicast support. It works well in that environment. The problems start when you move to WiFi, cellular, or mixed networks -- which is where most modern robot swarms actually operate.</p>
+
+  <p><strong>Discovery storms.</strong> DDS uses SPDP (Simple Participant Discovery Protocol) to find other participants on the network. Each participant periodically multicasts its presence. With 10 robots, that is 10 discovery messages every few seconds, each broadcast to all network participants. On WiFi, multicast frames are transmitted at the lowest data rate (often 1 Mbps on 802.11b/g compatibility mode), consuming disproportionate airtime. With 50 robots, the discovery traffic alone can saturate the WiFi channel.</p>
+
+  <p><strong>50% latency overhead.</strong> Benchmarks consistently show that ROS2 adds approximately 50% latency overhead compared to raw DDS. The ROS2 middleware layer -- type support, serialization, executor callbacks -- adds measurable delay to every message. For a swarm doing position updates at 10 Hz, this means the position data each robot receives is 50% staler than it needs to be.</p>
+
+  <p><strong>WiFi multicast is fundamentally broken.</strong> WiFi access points handle multicast by converting it to broadcast, which is transmitted without acknowledgment or retransmission. If a robot misses a multicast frame due to interference (common in outdoor environments with 2.4 GHz congestion), the message is silently lost. DDS has reliability mechanisms, but they depend on the transport layer delivering the multicast in the first place. On WiFi, this assumption fails routinely.</p>
+
+  <p><strong>Memory and CPU overhead.</strong> A ROS2 node with DDS middleware typically consumes 50-100 MB of RSS depending on the number of topics and participants. On a Raspberry Pi 4 with 4 GB of RAM running a navigation stack, vision processing, and motor control, the communication middleware alone uses 2-5% of available memory. On a Jetson Nano with 2 GB, it is 5-10%. Every megabyte matters when you are running neural networks on edge hardware.</p>
+  </section>
+
+  <section>
+  <h2>Why Swarms Need Something Lighter Than ROS2</h2>
+
+  <p>Robot swarms have specific communication requirements that differ from single-robot ROS2 systems:</p>
+
+  <ul>
+    <li><strong>Many-to-many messaging.</strong> Every robot needs to share its state (position, battery, task status) with every other robot. This is not point-to-point; it is a broadcast pattern. But it needs to work on WiFi, where real broadcast is unreliable.</li>
+    <li><strong>Heterogeneous networks.</strong> Drones on cellular, ground robots on WiFi, the ground station on ethernet. The communication system must bridge these networks without requiring all participants to be on the same LAN.</li>
+    <li><strong>Constrained hardware.</strong> Swarm robots are cost-optimized. They run on Raspberry Pi, Jetson Nano, ESP32, or similarly constrained platforms. The communication stack cannot consume 100 MB of RAM or a full CPU core.</li>
+    <li><strong>Dynamic membership.</strong> Robots join when powered on, leave when battery dies, and may rejoin later. The system must handle this without manual reconfiguration.</li>
+    <li><strong>Field deployment.</strong> Swarms operate in warehouses, agricultural fields, disaster zones, and construction sites. There is no IT department to configure routers, open ports, or manage certificates.</li>
+  </ul>
+
+  <p>ROS2/DDS was not designed for these constraints. It was designed for fixed installations with wired networks and powerful compute nodes. Using it for swarms works in the lab (where the WiFi is clean and the robot count is small) but fails in the field.</p>
+  </section>
+
+  <section>
+  <h2>Pilot's Approach: Single Socket, No Multicast, Tag Discovery</h2>
+
+  <p>Pilot Protocol takes a fundamentally different approach to the problems DDS struggles with.</p>
+
+  <p><strong>Single UDP socket.</strong> Each Pilot daemon uses one UDP socket for all communication. There is no multicast, no broadcast, no SPDP discovery traffic. All messages are unicast -- sent directly from one peer to another. On WiFi, unicast frames are transmitted at the highest negotiated data rate with acknowledgment and retransmission. This means every Pilot message gets the reliability that WiFi provides for unicast, which multicast discards.</p>
+
+  <p><strong>Tag-based discovery.</strong> Instead of multicast discovery, robots register with a lightweight registry server and tag themselves with capabilities. Other robots query the registry to discover peers. The registry is a single process that can run on the ground station, a cloud VM, or one of the robots themselves. Discovery traffic is unicast TCP to the registry, not multicast on the WiFi channel.</p>
+
+  <pre><code><span class="comment"># Each drone tags itself on startup</span>
+<span class="cmd">pilotctl set-tags swarm-member drone quadcopter survey-team-alpha</span>
+
+<span class="comment"># Ground station discovers all drones</span>
+<span class="cmd">pilotctl find-by-tag drone --json</span>
+
+<span class="comment"># Or find specific capabilities</span>
+<span class="cmd">pilotctl find-by-tag drone thermal-camera --json</span></code></pre>
+
+  <p><strong>10 MB RSS per daemon.</strong> The Pilot daemon is a single Go binary with no external dependencies. It uses 10 MB of RSS at idle, which is 5-10x less than a ROS2 node with DDS middleware. On a Raspberry Pi 4, this is 0.25% of available memory. On a Jetson Nano, it is 0.5%. The remaining resources are available for the robot's actual workload: navigation, perception, and control.</p>
+
+  <pre><code><span class="comment"># Memory comparison on Raspberry Pi 4 (4GB)</span>
+<span class="comment"># ROS2 Humble + FastDDS:  ~80MB RSS  (2.0% of RAM)</span>
+<span class="comment"># ROS2 Humble + CycloneDDS: ~60MB RSS (1.5% of RAM)</span>
+<span class="comment"># Pilot daemon:            ~10MB RSS  (0.25% of RAM)</span></code></pre>
+  </section>
+
+  <section>
+  <h2>Architecture: Drone Swarm Coordinating via Event Stream</h2>
+
+  <p>Here is a concrete architecture for a swarm of 10 survey drones coordinated by a ground station. Each drone publishes telemetry (position, battery, status) to the event stream. The ground station subscribes to all telemetry, computes the survey plan, and publishes waypoints back to individual drones.</p>
+
+  <p>Components:</p>
+
+  <ul>
+    <li><strong>10 drones</strong> -- each runs Pilot daemon + flight controller + camera</li>
+    <li><strong>1 ground station</strong> -- runs Pilot daemon + mission planner + telemetry display</li>
+    <li><strong>1 registry/beacon</strong> -- runs on ground station or cloud VM (lightweight, ~15 MB RSS)</li>
+  </ul>
+
+  <p>Communication flow:</p>
+
+  <ol>
+    <li>Each drone publishes telemetry to <code>swarm.telemetry.drone-N</code> every 100ms.</li>
+    <li>Ground station subscribes to <code>swarm.telemetry.*</code> -- receives all drone telemetry.</li>
+    <li>Ground station publishes waypoints to <code>swarm.command.drone-N</code> for each drone.</li>
+    <li>Each drone subscribes to <code>swarm.command.drone-N</code> (its own command channel).</li>
+    <li>Drones publish events to <code>swarm.events.*</code> (low battery, obstacle detected, survey complete).</li>
+  </ol>
+
+  <pre><code><span class="comment"># Drone startup sequence</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join --network 1</span>
+<span class="cmd">pilotctl set-tags swarm-member drone drone-07 survey-team-alpha</span>
+
+<span class="comment"># Ground station startup</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join --network 1</span>
+<span class="cmd">pilotctl set-tags ground-station survey-team-alpha</span>
+<span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
+<span class="cmd">pilotctl subscribe "swarm.events.*"</span></code></pre>
+  </section>
+
+  <section>
+  <h2>Code Example: Telemetry Publishing and Subscribing</h2>
+
+  <p>Here is a Go program that runs on each drone, publishing GPS telemetry at 10 Hz over the Pilot event stream.</p>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os"
+    "time"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type Telemetry struct {
+    DroneID   string  `json:"drone_id"`
+    Lat       float64 `json:"lat"`
+    Lon       float64 `json:"lon"`
+    AltM      float64 `json:"alt_m"`
+    SpeedMps  float64 `json:"speed_mps"`
+    HeadingDeg float64 `json:"heading_deg"`
+    BatteryPct int     `json:"battery_pct"`
+    State     string  `json:"state"`      <span class="comment">// "idle", "flying", "returning", "landed"</span>
+    Ts        int64   `json:"ts"`
+}
+
+func main() {
+    droneID := os.Getenv("DRONE_ID") <span class="comment">// e.g., "drone-07"</span>
+    if droneID == "" {
+        droneID = "drone-01"
+    }
+
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+    stream, err := d.OpenEventStream()
+    if err != nil {
+        panic(err)
+    }
+
+    topic := fmt.Sprintf("swarm.telemetry.%s", droneID)
+
+    <span class="comment">// Also subscribe to commands addressed to this drone</span>
+    cmdTopic := fmt.Sprintf("swarm.command.%s", droneID)
+    cmdCh, _ := stream.Subscribe(cmdTopic)
+
+    <span class="comment">// Handle incoming commands in background</span>
+    go func() {
+        for event := range cmdCh {
+            var cmd struct {
+                Action string    `json:"action"`
+                WaypointLat float64 `json:"waypoint_lat,omitempty"`
+                WaypointLon float64 `json:"waypoint_lon,omitempty"`
+                WaypointAlt float64 `json:"waypoint_alt,omitempty"`
+            }
+            json.Unmarshal(event.Data, &cmd)
+            fmt.Printf("[CMD] %s: %+v\n", cmd.Action, cmd)
+            <span class="comment">// Send command to flight controller...</span>
+        }
+    }()
+
+    <span class="comment">// Publish telemetry at 10 Hz</span>
+    ticker := time.NewTicker(100 * time.Millisecond)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        telem := Telemetry{
+            DroneID:    droneID,
+            Lat:        readGPSLat(),
+            Lon:        readGPSLon(),
+            AltM:       readAltimeter(),
+            SpeedMps:   readAirspeed(),
+            HeadingDeg: readCompass(),
+            BatteryPct: readBattery(),
+            State:      getFlightState(),
+            Ts:         time.Now().UnixMilli(),
+        }
+        data, _ := json.Marshal(telem)
+        stream.Publish(topic, data)
+    }
+}
+
+<span class="comment">// Hardware interface stubs -- replace with actual sensor reads</span>
+func readGPSLat() float64    { return 37.7749 }
+func readGPSLon() float64    { return -122.4194 }
+func readAltimeter() float64 { return 50.0 }
+func readAirspeed() float64  { return 5.2 }
+func readCompass() float64   { return 270.0 }
+func readBattery() int       { return 85 }
+func getFlightState() string { return "flying" }</code></pre>
+
+  <p>And the ground station subscriber that aggregates telemetry from all drones and sends waypoint commands:</p>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+type Telemetry struct {
+    DroneID    string  `json:"drone_id"`
+    Lat        float64 `json:"lat"`
+    Lon        float64 `json:"lon"`
+    AltM       float64 `json:"alt_m"`
+    BatteryPct int     `json:"battery_pct"`
+    State      string  `json:"state"`
+    Ts         int64   `json:"ts"`
+}
+
+type Waypoint struct {
+    Action      string  `json:"action"`
+    WaypointLat float64 `json:"waypoint_lat"`
+    WaypointLon float64 `json:"waypoint_lon"`
+    WaypointAlt float64 `json:"waypoint_alt"`
+}
+
+func main() {
+    d, err := driver.Connect()
+    if err != nil {
+        panic(err)
+    }
+    stream, err := d.OpenEventStream()
+    if err != nil {
+        panic(err)
+    }
+
+    <span class="comment">// Subscribe to ALL drone telemetry</span>
+    telemCh, _ := stream.Subscribe("swarm.telemetry.*")
+
+    <span class="comment">// Subscribe to swarm events (low battery, obstacles, etc.)</span>
+    eventCh, _ := stream.Subscribe("swarm.events.*")
+
+    <span class="comment">// Handle events in background</span>
+    go func() {
+        for event := range eventCh {
+            fmt.Printf("[EVENT] %s: %s\n", event.Topic, string(event.Data))
+        }
+    }()
+
+    <span class="comment">// Process telemetry</span>
+    droneState := make(map[string]Telemetry)
+
+    for event := range telemCh {
+        var telem Telemetry
+        json.Unmarshal(event.Data, &telem)
+        droneState[telem.DroneID] = telem
+
+        <span class="comment">// Check for low battery and send return-to-home command</span>
+        if telem.BatteryPct < 20 && telem.State == "flying" {
+            fmt.Printf("[ALERT] %s battery at %d%%, sending RTH\n",
+                telem.DroneID, telem.BatteryPct)
+
+            cmd := Waypoint{
+                Action:      "return-to-home",
+                WaypointLat: 37.7749,  <span class="comment">// Home base coordinates</span>
+                WaypointLon: -122.4194,
+                WaypointAlt: 30.0,
+            }
+            data, _ := json.Marshal(cmd)
+            cmdTopic := fmt.Sprintf("swarm.command.%s", telem.DroneID)
+            stream.Publish(cmdTopic, data)
+        }
+
+        <span class="comment">// Display swarm status every 100 updates</span>
+        if len(droneState) > 0 {
+            fmt.Printf("[SWARM] %d drones active\n", len(droneState))
+        }
+    }
+}</code></pre>
+  </section>
+
+  <section>
+  <h2>NAT Traversal for Field Deployment</h2>
+
+  <p>Field deployments introduce a network topology that lab setups do not have. Drones connect via cellular (4G/5G), ground robots via WiFi, and the ground station via a wired connection or a different WiFi network. These networks assign private IPs behind NAT, and the participants cannot directly reach each other.</p>
+
+  <p>Pilot handles this transparently with its three-stage NAT traversal:</p>
+
+  <ol>
+    <li><strong>STUN discovery.</strong> Each drone discovers its public IP and NAT type by querying the beacon server over UDP. This takes ~50ms.</li>
+    <li><strong>Hole-punching.</strong> For restricted-cone and port-restricted-cone NAT (the most common types on consumer and carrier networks), the beacon coordinates a simultaneous hole-punch. Both peers send a UDP packet to each other's public endpoint at the same time, creating a NAT mapping that allows bidirectional traffic.</li>
+    <li><strong>Relay fallback.</strong> For symmetric NAT (common on enterprise networks and some cellular carriers), where hole-punching cannot work, the beacon relays traffic. This adds ~10ms of latency (one extra hop) but guarantees connectivity.</li>
+  </ol>
+
+  <pre><code><span class="comment"># Drone on cellular (behind carrier-grade NAT)</span>
+<span class="cmd">pilotctl daemon start --beacon beacon.example.com:9001</span>
+<span class="comment"># NAT type is detected automatically</span>
+<span class="comment"># Hole-punch or relay is selected automatically</span>
+<span class="comment"># No configuration needed on the drone</span>
+
+<span class="comment"># Ground station on WiFi (behind home router NAT)</span>
+<span class="cmd">pilotctl daemon start --beacon beacon.example.com:9001</span>
+<span class="comment"># Same: automatic NAT traversal</span>
+
+<span class="comment"># Both can now communicate regardless of NAT type</span>
+<span class="cmd">pilotctl ping 1:0001.0002.0001</span>  <span class="comment"># Ground station pings drone</span></code></pre>
+
+  <p>This is critical for field deployment. You do not ask a farmer to configure port forwarding on the cellular modem attached to a survey drone. You do not ask a search-and-rescue team to set up a VPN before deploying robots in a disaster zone. The communication just works because NAT traversal is built into the protocol, not bolted on as a configuration step.</p>
+  </section>
+
+  <section>
+  <h2>Comparison: Pilot vs ROS2/DDS vs MAVLink vs Zenoh</h2>
+
+  <table>
+    <tr>
+      <th>Property</th>
+      <th>ROS2/DDS</th>
+      <th>MAVLink</th>
+      <th>Zenoh</th>
+      <th>Pilot</th>
+    </tr>
+    <tr>
+      <td>Discovery</td>
+      <td>Multicast SPDP</td>
+      <td>Heartbeat</td>
+      <td>Scouting (multicast)</td>
+      <td>Registry (unicast)</td>
+    </tr>
+    <tr>
+      <td>Transport</td>
+      <td>UDP multicast + unicast</td>
+      <td>Serial / UDP</td>
+      <td>UDP / TCP / QUIC</td>
+      <td>UDP unicast</td>
+    </tr>
+    <tr>
+      <td>WiFi compatibility</td>
+      <td>Poor (multicast issues)</td>
+      <td>Good (unicast)</td>
+      <td>Mixed (multicast scout)</td>
+      <td>Good (unicast only)</td>
+    </tr>
+    <tr>
+      <td>NAT traversal</td>
+      <td>No</td>
+      <td>No</td>
+      <td>Router-based</td>
+      <td>STUN + hole-punch + relay</td>
+    </tr>
+    <tr>
+      <td>Encryption</td>
+      <td>DDS Security (complex)</td>
+      <td>MAVLink 2 signing</td>
+      <td>TLS / QUIC</td>
+      <td>AES-256-GCM (built-in)</td>
+    </tr>
+    <tr>
+      <td>Memory (daemon)</td>
+      <td>60-100 MB</td>
+      <td>~1 MB (library)</td>
+      <td>~20 MB</td>
+      <td>~10 MB</td>
+    </tr>
+    <tr>
+      <td>QoS/Reliability</td>
+      <td>Full DDS QoS</td>
+      <td>None (best-effort)</td>
+      <td>Reliability levels</td>
+      <td>Congestion control, flow control</td>
+    </tr>
+    <tr>
+      <td>Pub/Sub</td>
+      <td>Yes (DDS topics)</td>
+      <td>No (point-to-point)</td>
+      <td>Yes</td>
+      <td>Yes (event stream)</td>
+    </tr>
+    <tr>
+      <td>Ecosystem</td>
+      <td>Massive (ROS packages)</td>
+      <td>Autopilot-focused</td>
+      <td>Growing</td>
+      <td>Agent-focused</td>
+    </tr>
+    <tr>
+      <td>Target use case</td>
+      <td>General robotics</td>
+      <td>UAV telemetry/command</td>
+      <td>IoT / Edge / Robotics</td>
+      <td>Agent networks / Swarms</td>
+    </tr>
+  </table>
+
+  <p><strong>ROS2/DDS</strong> has the largest ecosystem. If you need MoveIt for manipulation, Nav2 for navigation, or integration with hundreds of sensor drivers, ROS2 is the pragmatic choice despite its communication overhead. The communication layer is the price you pay for the ecosystem.</p>
+
+  <p><strong>MAVLink</strong> is purpose-built for drone autopilots. It is extremely lightweight (~1 MB) and well-suited for telemetry and command between a ground station and drones using standard autopilot firmware (ArduPilot, PX4). But it is point-to-point and has no pub/sub, no encryption, and no NAT traversal. For swarm coordination beyond basic telemetry, you need something on top of MAVLink.</p>
+
+  <p><strong>Zenoh</strong> is the closest competitor for this use case. It has low overhead (~20 MB), supports pub/sub, and has a router-based approach to bridging networks. Its scouting mechanism still uses multicast by default (though it can be configured for unicast), and its NAT traversal relies on Zenoh routers rather than built-in hole-punching. For constrained environments, Zenoh is a strong option.</p>
+
+  <p><strong>Pilot</strong> occupies the niche of zero-configuration swarm communication. No multicast, built-in NAT traversal, 10 MB footprint, and encrypted by default. It trades the rich QoS model of DDS for simplicity and the massive ecosystem of ROS2 for lightweight deployment.</p>
+  </section>
+
+  <section>
+  <h2>Limitations: Not Real-Time, Not Safety-Critical</h2>
+
+  <p>Honesty about limitations matters more than feature lists. Pilot is not suitable for everything in robotics:</p>
+
+  <ul>
+    <li><strong>No hard real-time guarantees.</strong> Pilot uses UDP with congestion control and flow control, but it does not provide deterministic latency. For safety-critical control loops -- motor commands, emergency stops, collision avoidance at 100+ Hz -- you need a real-time transport like EtherCAT, ROS2 with real-time Linux, or direct serial communication. Pilot is for coordination (telemetry, task assignment, swarm planning), not for actuator control.</li>
+    <li><strong>No QoS profiles.</strong> DDS provides configurable QoS: reliable vs best-effort, transient-local vs volatile, deadline constraints, liveliness assertions. Pilot's event stream is best-effort pub/sub. If a message is lost during congestion, it is gone. For telemetry at 10 Hz (where the next update replaces the previous one), this is acceptable. For critical commands, use the data exchange port (1001) which provides reliable delivery.</li>
+    <li><strong>Registry dependency.</strong> Unlike DDS's decentralized multicast discovery, Pilot requires a registry server for peer discovery. If the registry goes down, new robots cannot discover peers (existing connections continue working). For field deployments, run the registry on the ground station with a static backup address on one of the robots.</li>
+    <li><strong>No ROS2 integration.</strong> Pilot does not provide a ROS2 transport plugin. If your robot stack depends on ROS2 packages (Nav2, MoveIt, sensor drivers), you cannot replace DDS with Pilot. You can, however, run Pilot alongside ROS2 for swarm-level coordination while keeping ROS2 for intra-robot communication.</li>
+    <li><strong>Not for control frequencies above ~50 Hz.</strong> The event stream is designed for coordination messages, not high-frequency control loops. At 10-50 Hz (telemetry, status updates, waypoints), Pilot performs well. At 100+ Hz (servo commands, IMU fusion), use a dedicated real-time transport.</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>The practical architecture:</strong> Use ROS2 for intra-robot communication (sensors, actuators, navigation). Use Pilot for inter-robot communication (swarm telemetry, task assignment, coordination). Each layer does what it is good at.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2>Getting Started with a Robot Swarm</h2>
+
+  <p>Set up a 3-robot swarm with a ground station:</p>
+
+  <pre><code><span class="comment"># On the ground station (also runs the registry)</span>
+<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl set-tags ground-station swarm-controller</span>
+<span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
+
+<span class="comment"># On each robot (Raspberry Pi / Jetson Nano)</span>
+<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">pilotctl daemon start --beacon ground-station.local:9001</span>
+<span class="cmd">pilotctl join --network 1</span>
+<span class="cmd">pilotctl set-tags swarm-member robot ground-unit</span>
+
+<span class="comment"># Verify connectivity</span>
+<span class="cmd">pilotctl find-by-tag swarm-member --json</span>
+<span class="cmd">pilotctl ping 1:0001.0001.0001</span>
+
+<span class="comment"># Start publishing telemetry</span>
+<span class="cmd">pilotctl publish swarm.telemetry.robot-01 '{"lat":37.77,"lon":-122.42,"battery":95}'</span></code></pre>
+
+  <p>The entire communication stack -- daemon, registry client, NAT traversal, encryption -- is a single binary with zero external dependencies. Cross-compile it for ARM (Raspberry Pi) or ARM64 (Jetson) with one command:</p>
+
+  <pre><code><span class="cmd">GOOS=linux GOARCH=arm64 go build -o pilotctl ./cmd/pilotctl</span>
+<span class="comment"># Copy the binary to the robot</span>
+<span class="cmd">scp pilotctl robot@192.168.1.42:/usr/local/bin/</span></code></pre>
+
+  <p>No ROS2 installation. No DDS configuration. No multicast tuning. A single 15 MB binary that runs on any Linux ARM device and provides encrypted, NAT-traversing swarm communication out of the box.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>10 MB daemon, single UDP socket, no multicast storms. Coordinate robot swarms on constrained hardware with zero-configuration networking.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>
+</article>
+
+<div class="blog-footer">
+  <p><a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a> &middot; Built for agents, by humans.</p>
+</div>
+</body>
+</html>

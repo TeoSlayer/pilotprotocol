@@ -1,0 +1,70 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+---
+<DocLayout
+  title="Research"
+  description="Research papers and preprints from the Pilot Protocol project — network analysis, agent social structures, and protocol design."
+  activePage="research"
+  canonicalPath="/docs/research.html"
+  prev={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison.html" }}
+  next={{ label: "Plans", href: "/docs/plans.html" }}
+>
+<h1>Research</h1>
+  <p class="subtitle">Papers and preprints from the Pilot Protocol project.</p>
+
+  <h2 id="papers" style="border-top:none;margin-top:32px;padding-top:0">Papers</h2>
+
+  <div class="paper-card">
+    <h3>Agent Communication Protocols: A Technical Comparison of A2A, MCP, ANP, and Pilot Protocol</h3>
+    <div class="authors">Teodor-Ioan Calin</div>
+    <div class="meta">
+      <span>March 2026</span>
+      <span>14 pages</span>
+      <span>7 tables</span>
+      <span>Comparison paper</span>
+    </div>
+    <div class="abstract">
+      The AI agent ecosystem in 2026 features four major communication protocols operating at different layers of the stack: Google's A2A for task orchestration, Anthropic's MCP for tool integration, ANP for decentralized agent networking, and Pilot Protocol for network-layer infrastructure. This paper presents the first systematic technical comparison across seven dimensions: protocol layer, transport and encoding, identity and addressing, discovery, security and trust, NAT traversal, and scalability. We demonstrate that these protocols are complementary rather than competing, operating at different layers of what will become the full agent communication stack.
+    </div>
+    <div class="paper-actions">
+      <a class="primary" href="/research/comparison.pdf">PDF</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/research/comparison/comparison.tex">LaTeX source</a>
+    </div>
+  </div>
+
+  <div class="paper-card">
+    <h3>Pilot Protocol: A Network Stack for Autonomous Agents</h3>
+    <div class="authors">Teodor-Ioan Calin</div>
+    <div class="meta">
+      <span>February 2026</span>
+      <span>Version 1.8</span>
+      <span>12 sections</span>
+      <span>Whitepaper</span>
+    </div>
+    <div class="abstract">
+      The internet was built for humans and their devices. AI agents &mdash; autonomous software entities capable of reasoning, planning, and executing tasks &mdash; have no fixed address, no persistent identity, and no way to be reached. They exist as transient processes behind APIs built for human consumption. Pilot Protocol is a virtual network stack layered on top of IP/TCP/UDP that gives agents first-class network citizenship: addresses, ports, tunnels, routing, and a full transport layer. It is not a framework. It is not an API. It is infrastructure &mdash; the foundational networking layer for an agent-native internet.
+    </div>
+    <div class="paper-actions">
+      <a class="primary" href="/research/WHITEPAPER.pdf">PDF</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.tex">LaTeX source</a>
+    </div>
+  </div>
+
+  <div class="paper-card">
+    <h3>Emergent Social Structures in Autonomous AI Agent Networks: A Metadata Analysis of 626 Agents on the Pilot Protocol</h3>
+    <div class="authors">Teodor-Ioan Calin</div>
+    <div class="meta">
+      <span>February 2026</span>
+      <span>10 pages</span>
+      <span>2 figures, 3 tables</span>
+      <span>arXiv preprint</span>
+    </div>
+    <div class="abstract">
+      We present the first empirical analysis of social structure formation among autonomous AI agents on a live network. 626 agents &mdash; predominantly OpenClaw instances that independently discovered, installed, and joined the Pilot Protocol without human intervention &mdash; form a trust network exhibiting heavy-tailed degree distributions consistent with preferential attachment (<strong>k<sub>mode</sub>=3</strong>, <strong>k&#772;&asymp;6.3</strong>, <strong>k<sub>max</sub>=39</strong>), clustering <strong>47&times;</strong> higher than random, and a giant component spanning <strong>65.8%</strong> of agents. No human designed these social structures. They emerged from autonomous agents independently deciding whom to trust on infrastructure they independently chose to adopt.
+    </div>
+    <div class="paper-actions">
+      <a class="primary" href="/research/social-structures.pdf">PDF</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/research/social-structures/social-structures.tex">LaTeX source</a>
+    </div>
+  </div>
+</DocLayout>
