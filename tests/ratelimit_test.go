@@ -257,8 +257,10 @@ func TestRateLimiterNewIPAlwaysAllowed(t *testing.T) {
 func TestRateLimiterHighRate(t *testing.T) {
 	t.Parallel()
 
+	clk := newTestClock()
 	// High rate: 1000 requests per second
 	rl := registry.NewRateLimiter(1000, time.Second)
+	rl.SetClock(clk.Now)
 
 	ip := "high-rate"
 
