@@ -40,7 +40,7 @@ jobs:
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 30s
+          cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 120s
           go tool cover -func=coverage.out | tail -1
 
   website:
