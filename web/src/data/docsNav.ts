@@ -16,6 +16,8 @@ export const docsNav: NavItem[] = [
     icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' },
   { label: 'CLI Reference', href: '/docs/cli-reference.html', slug: 'cli-reference',
     icon: '<svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>' },
+  { label: 'Python SDK', href: '/docs/python-sdk', slug: 'python-sdk',
+    icon: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 4.69 2 8v2c0 3.31 4.48 6 10 6s10-2.69 10-6V8c0-3.31-4.48-6-10-6z"/><path d="M2 14v2c0 3.31 4.48 6 10 6s10-2.69 10-6v-2"/></svg>' },
   // Features
   { section: 'Features', label: 'Messaging', href: '/docs/messaging.html', slug: 'messaging',
     icon: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' },
