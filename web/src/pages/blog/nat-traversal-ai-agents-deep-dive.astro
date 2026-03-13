@@ -1,15 +1,353 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = ``;
+const bodyContent = `<p>NAT is the single biggest obstacle to peer-to-peer communication on the modern internet. An estimated <strong>88% of networked devices</strong> sit behind some form of Network Address Translation. They can make outbound connections, but they cannot receive inbound ones. For AI agents that need to collaborate, coordinate, and exchange data in real time, this is not an inconvenience -- it is a showstopper.</p>
+
+  <p>Pilot Protocol solves this with a layered NAT traversal strategy that handles every NAT type automatically. The agent developer never writes traversal code, never configures port forwarding, and never sets up a VPN. This article goes deep into the mechanics: what NAT does to UDP packets, how the four NAT types differ, how STUN discovery works, how beacon-coordinated hole-punching opens paths through restrictive NATs, and how relay fallback guarantees connectivity even behind symmetric NATs and carrier-grade NAT (CGNAT).</p>
+
+  <p>If you want the high-level overview first, see <a href="connect-ai-agents-behind-nat-without-vpn">Connect AI Agents Behind NAT -- Without a VPN</a>. This post is the deep dive.</p>
+
+  <h2 id="why-nat-blocks-agents">Why NAT Blocks Agent-to-Agent Communication</h2>
+
+  <p><a href="https://datatracker.ietf.org/doc/html/rfc3022" target="_blank" rel="noopener">RFC 3022</a> introduced Network Address Translation in 2001 as a stopgap for IPv4 address exhaustion. A NAT device maps multiple private addresses (192.168.x.x, 10.x.x.x) to a single public IP, rewriting packet headers on the fly. Outbound traffic works because the NAT records each mapping and routes responses back to the correct internal host.</p>
+
+  <p>Inbound traffic is the problem. When Agent A behind NAT-1 wants to send a UDP packet to Agent B behind NAT-2, it addresses the packet to NAT-2's public IP. NAT-2 receives the packet, looks up its mapping table for a matching entry, finds none -- because Agent B never sent a packet to Agent A's NAT -- and drops it silently. The packet vanishes without a trace.</p>
+
+  <p>This is not a bug. This is the entire point of NAT: unsolicited inbound traffic is rejected. It is an accidental firewall, and it blocks every peer-to-peer protocol that does not account for it.</p>
+
+  <pre><code><span class="comment"># What happens when two agents behind NAT try to talk directly</span>
+
+Agent A (192.168.1.50)        NAT-1 (203.0.113.10)        NAT-2 (198.51.100.20)        Agent B (10.0.0.42)
+       |                            |                            |                            |
+       |--- UDP to 198.51.100.20 -->|--- UDP to 198.51.100.20 -->|                            |
+       |                            |                            |--- DROP (no mapping) ---X  |
+       |                            |                            |                            |
+       |                            |                            |<-- UDP to 203.0.113.10 ----|
+       |                            |--- DROP (no mapping) ---X  |                            |
+       |                            |                            |                            |
+<span class="comment"># Both packets are dropped. Neither NAT has a mapping for the other.</span></code></pre>
+
+  <p>For AI agents, this means that two agents running on developer laptops, inside Docker containers, on edge devices, or behind corporate firewalls cannot communicate directly. Every agent-to-agent framework that assumes reachable endpoints -- Google's A2A, HTTP-based MCP servers, REST APIs -- fails silently when NAT is involved.</p>
+
+  <h2 id="four-nat-types">The Four NAT Types: From Friendly to Hostile</h2>
+
+  <p>Not all NATs behave the same way. <a href="https://datatracker.ietf.org/doc/html/rfc3489" target="_blank" rel="noopener">RFC 3489</a> classifies NAT behavior into four types based on how they create and enforce address/port mappings. Understanding these types is essential because each one requires a different traversal strategy.</p>
+
+  <h3>Full Cone NAT</h3>
+
+  <p>The friendliest NAT type. Once an internal host sends a packet to any external address, the NAT creates a mapping and allows <strong>any external host</strong> to send packets back through that mapping.</p>
+
+  <pre><code><span class="comment"># Full Cone NAT behavior</span>
+Internal 192.168.1.50:4000  --->  NAT maps to  203.0.113.10:54321
+
+<span class="comment"># ANY external host can now send to 203.0.113.10:54321</span>
+<span class="comment"># and it will be forwarded to 192.168.1.50:4000</span>
+External 198.51.100.5:9999  --->  203.0.113.10:54321  --->  192.168.1.50:4000  ✓
+External 10.20.30.40:7777   --->  203.0.113.10:54321  --->  192.168.1.50:4000  ✓</code></pre>
+
+  <p><strong>Traversal strategy:</strong> STUN discovery is sufficient. Learn the public endpoint, register it, and accept direct connections from any peer. No hole-punching needed.</p>
+
+  <h3>Restricted Cone NAT</h3>
+
+  <p>The NAT only forwards inbound packets from IP addresses that the internal host has previously sent packets to. The port does not matter -- any port from a known IP is allowed.</p>
+
+  <pre><code><span class="comment"># Restricted Cone NAT behavior</span>
+Internal sends to 198.51.100.5:9000
+NAT maps to 203.0.113.10:54321
+
+<span class="comment"># Only 198.51.100.5 can send back (any port)</span>
+198.51.100.5:9000  --->  203.0.113.10:54321  ✓  (same IP, same port)
+198.51.100.5:8888  --->  203.0.113.10:54321  ✓  (same IP, different port)
+10.20.30.40:9000   --->  203.0.113.10:54321  ✗  (different IP -- DROPPED)</code></pre>
+
+  <p><strong>Traversal strategy:</strong> Hole-punching. Both agents must send a packet to each other first, so each NAT adds the other's IP to its allowed list. The beacon coordinates the simultaneous send.</p>
+
+  <h3>Port-Restricted Cone NAT</h3>
+
+  <p>The strictest cone variant. The NAT only forwards packets from the <strong>exact IP:port combination</strong> that the internal host sent to. This is the most common NAT type in enterprise and residential environments.</p>
+
+  <pre><code><span class="comment"># Port-Restricted Cone NAT behavior</span>
+Internal sends to 198.51.100.5:9000
+NAT maps to 203.0.113.10:54321
+
+<span class="comment"># Only 198.51.100.5:9000 can send back</span>
+198.51.100.5:9000  --->  203.0.113.10:54321  ✓  (exact match)
+198.51.100.5:8888  --->  203.0.113.10:54321  ✗  (wrong port -- DROPPED)
+10.20.30.40:9000   --->  203.0.113.10:54321  ✗  (wrong IP -- DROPPED)</code></pre>
+
+  <p><strong>Traversal strategy:</strong> Hole-punching, same as Restricted Cone. The agents must send to each other's exact public endpoint. The beacon coordinates timing so the holes overlap.</p>
+
+  <h3>Symmetric NAT</h3>
+
+  <p>The most hostile type. The NAT creates a <strong>different external port for each destination</strong>. The port discovered via STUN (talking to the beacon) is not the same port assigned when talking to a peer. Hole-punching fails because neither side knows the other's actual port.</p>
+
+  <pre><code><span class="comment"># Symmetric NAT behavior</span>
+Internal sends to beacon   198.51.100.1:9001  --->  NAT maps to 203.0.113.10:<span class="cmd">54321</span>
+Internal sends to peer     10.20.30.40:4000   --->  NAT maps to 203.0.113.10:<span class="cmd">54322</span>  (DIFFERENT port!)
+
+<span class="comment"># Peer tries STUN-discovered port 54321 -- FAILS</span>
+10.20.30.40:4000  --->  203.0.113.10:54321  ✗  (wrong mapping)
+
+<span class="comment"># The correct port is 54322, but the peer has no way to know this</span></code></pre>
+
+  <p><strong>Traversal strategy:</strong> Relay through the beacon. Direct connection and hole-punching are both impossible because the port is unpredictable. The beacon forwards encrypted packets between the two agents.</p>
+
+  <h3>NAT Type Comparison</h3>
+
+  <table>
+    <thead>
+      <tr><th>NAT Type</th><th>Mapping Rule</th><th>Inbound Filter</th><th>Traversal Strategy</th><th>Prevalence</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Full Cone</td><td>Same port for all destinations</td><td>Any source allowed</td><td>Direct (STUN only)</td><td>~15%</td></tr>
+      <tr><td>Restricted Cone</td><td>Same port for all destinations</td><td>Known IPs only</td><td>Hole-punching</td><td>~25%</td></tr>
+      <tr><td>Port-Restricted Cone</td><td>Same port for all destinations</td><td>Known IP:port only</td><td>Hole-punching</td><td>~35%</td></tr>
+      <tr><td>Symmetric</td><td>Different port per destination</td><td>Exact destination only</td><td>Relay</td><td>~25%</td></tr>
+    </tbody>
+  </table>
+
+  <p>The practical takeaway: approximately <strong>75% of NAT configurations</strong> allow direct peer-to-peer connections through STUN discovery and hole-punching. The remaining 25% (symmetric NATs, including most carrier-grade NATs) require relay. A complete solution must handle all four types without manual configuration.</p>
+
+  <h2 id="stun-discovery">STUN Discovery: Learning Your Public Endpoint</h2>
+
+  <p>The first step in NAT traversal is self-discovery. An agent behind NAT does not know its own public IP address or the external port assigned by the NAT. <a href="https://datatracker.ietf.org/doc/html/rfc5389" target="_blank" rel="noopener">STUN (Session Traversal Utilities for NAT, RFC 5389)</a> solves this by reflecting the observed source address back to the sender.</p>
+
+  <p>In Pilot Protocol, the <strong>beacon</strong> server provides the STUN function. When a daemon starts, it sends a STUN-like UDP probe to the beacon on a temporary socket. The beacon reads the source IP and port from the UDP header -- which is the NAT-mapped public endpoint -- and sends it back as the response payload.</p>
+
+  <pre><code><span class="comment"># STUN discovery sequence</span>
+
+Agent (192.168.1.50:4000)    NAT (203.0.113.10)    Beacon (35.193.106.76:9001)
+       |                           |                          |
+       |--- STUN request -------->|--- STUN request -------->|
+       |   (src: 192.168.1.50:4000)   (src: 203.0.113.10:54321)
+       |                           |                          |
+       |                           |<--- STUN response -------|
+       |<--- STUN response -------|   "your endpoint is       |
+       |   "203.0.113.10:54321"    |    203.0.113.10:54321"   |
+       |                           |                          |
+
+<span class="comment"># Agent now knows: public IP = 203.0.113.10, public port = 54321</span></code></pre>
+
+  <div class="callout">
+    <p><strong>Implementation detail:</strong> STUN discovery uses a temporary UDP socket that is closed before the tunnel binds the same port. This is critical -- if both the STUN response listener and the tunnel read loop compete for the same socket, a race condition causes dropped packets. The sequence is: open temporary socket, send STUN probe, receive response, close socket, then start the tunnel on the same port.</p>
+  </div>
+
+  <p>After STUN discovery, the daemon registers its public endpoint with the rendezvous server. Other agents can now look up this endpoint and attempt connections.</p>
+
+  <pre><code><span class="comment"># What the daemon logs during startup</span>
+<span class="cmd">$ pilotctl daemon start</span>
+STUN: discovered public endpoint 203.0.113.10:54321
+NAT type: port_restricted_cone
+Registered with rendezvous server at 35.193.106.76:9000
+Virtual address: 1:0001.0000.0005
+Hostname: data-processor</code></pre>
+
+  <p>For agents running on cloud VMs with stable public IPs, STUN discovery is unnecessary. The <code>--endpoint</code> flag lets operators specify the public endpoint directly, skipping STUN entirely:</p>
+
+  <pre><code><span class="comment"># Cloud VM with known public IP -- skip STUN</span>
+<span class="cmd">$ pilotctl daemon start --endpoint 34.148.103.117:4000 --public</span>
+Registered with fixed endpoint (STUN skipped)</code></pre>
+
+  <h2 id="hole-punching">UDP Hole-Punching: Coordinated NAT Piercing</h2>
+
+  <p>For Restricted Cone and Port-Restricted Cone NATs, STUN discovery reveals the public endpoint but does not make it reachable. The NAT drops inbound packets from unknown sources. Hole-punching solves this by making both NATs think the other agent is a known source.</p>
+
+  <p>The technique is simple in concept: both agents send a UDP packet to each other at the same time. Each outbound packet creates a mapping in the sender's NAT that allows the other agent's packets through. The trick is timing -- both sides must send before either NAT's mapping expires.</p>
+
+  <p>Pilot Protocol's beacon coordinates this timing with two message types:</p>
+
+  <ul>
+    <li><strong>MsgPunchRequest (0x03)</strong> -- sent by the initiating agent to the beacon, naming the target agent by node ID</li>
+    <li><strong>MsgPunchCommand (0x04)</strong> -- sent by the beacon to both agents simultaneously, containing each other's public endpoint</li>
+  </ul>
+
+  <pre><code><span class="comment"># Hole-punch coordination via beacon</span>
+
+Agent A                      Beacon                      Agent B
+(port_restricted)                                    (restricted_cone)
+   |                           |                           |
+   |-- MsgPunchRequest(B) ---->|                           |
+   |                           |-- MsgPunchCommand(A) ---->|
+   |<-- MsgPunchCommand(B) ----|                           |
+   |                           |                           |
+   |                        [~same instant]                |
+   |==== UDP to B's endpoint =============================>|  creates mapping on A's NAT
+   |<============================= UDP to A's endpoint ====|  creates mapping on B's NAT
+   |                           |                           |
+   |<============== direct traffic ========================>|
+   |                     (NATs have mappings,               |
+   |                      beacon not involved)              |
+
+<span class="comment"># After hole-punch succeeds, traffic is purely peer-to-peer.</span>
+<span class="comment"># The beacon is no longer in the data path.</span></code></pre>
+
+  <p>The beacon sends both MsgPunchCommand messages in the same event loop iteration to minimize timing skew. In practice, the two UDP packets arrive at each NAT within a few milliseconds of each other. Both NATs create mappings, and subsequent packets from either side pass through the newly opened holes.</p>
+
+  <p>After hole-punching succeeds, the connection is <strong>indistinguishable from a direct connection</strong>. Latency is peer-to-peer with no relay overhead. Throughput is limited only by the underlying network. The beacon is completely out of the loop.</p>
+
+  <h3>Why Timing Matters</h3>
+
+  <p>NAT mappings have a timeout, typically 30-120 seconds for UDP. The hole-punch works because both outbound packets create mappings before either mapping expires. If one side sends significantly before the other, its packet arrives at the remote NAT before the remote NAT has a mapping for it, and gets dropped. The beacon's coordinated send keeps the timing window tight.</p>
+
+  <p>Pilot retries the hole-punch if the first attempt fails. Transient timing issues, network jitter, or NAT table delays can cause the first attempt to miss. The retry logic is built into the DialConnection function -- the agent developer never sees it.</p>
+
+  <h2 id="relay-fallback">Relay Fallback: Guaranteed Connectivity for Symmetric NAT</h2>
+
+  <p>Symmetric NATs defeat hole-punching because the external port changes with each destination. When Agent A sends a STUN probe to the beacon, the NAT assigns port 54321. When Agent A sends a hole-punch packet to Agent B, the NAT assigns port 54322. Agent B is aiming for port 54321. The packets miss each other.</p>
+
+  <p>There is no algorithmic solution to this. Port prediction techniques exist but are unreliable and vendor-specific. The only guaranteed approach is <strong>relay</strong>: route traffic through a third party that both agents can reach.</p>
+
+  <p>In Pilot Protocol, the beacon doubles as a relay server. When hole-punching fails, the daemon automatically switches to relay mode using the <code>MsgRelay</code> message format:</p>
+
+  <pre><code><span class="comment"># MsgRelay wire format</span>
+Byte 0:      <span class="cmd">0x05</span>           <span class="comment"># Message type: MsgRelay</span>
+Bytes 1-4:   <span class="cmd">senderNodeID</span>   <span class="comment"># 4-byte node ID of the sender</span>
+Bytes 5-8:   <span class="cmd">destNodeID</span>     <span class="comment"># 4-byte node ID of the destination</span>
+Bytes 9+:    <span class="cmd">payload</span>        <span class="comment"># Encrypted tunnel frame (PILS)</span>
+
+<span class="comment"># The beacon reads destNodeID, looks up the destination's</span>
+<span class="comment"># UDP address, and forwards the payload.</span></code></pre>
+
+  <p>A critical security property: the relay payload is <strong>encrypted end-to-end</strong>. The tunnel between Agent A and Agent B uses X25519 key exchange and AES-256-GCM encryption. The beacon sees only the MsgRelay header (sender and destination node IDs) and opaque encrypted bytes. It cannot read, modify, or forge the content. A compromised beacon is a denial-of-service risk, not a confidentiality risk.</p>
+
+  <p>For details on the encryption layer, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Encryption: X25519 + AES-GCM</a>.</p>
+
+  <h2 id="auto-detection">Automatic NAT Detection and Strategy Selection</h2>
+
+  <p>Pilot's DialConnection function implements the complete traversal logic as a state machine. No configuration is needed. The daemon detects the NAT type during STUN discovery and selects the appropriate strategy automatically.</p>
+
+  <pre><code><span class="comment"># DialConnection retry logic (simplified)</span>
+
+1. Look up target's endpoint from rendezvous server
+2. Attempt direct UDP connection (3 retries, 2s timeout each)
+   - If target is behind Full Cone NAT: succeeds immediately
+   - If direct fails: continue to step 3
+3. Request hole-punch via beacon (MsgPunchRequest)
+   - Beacon sends MsgPunchCommand to both sides
+   - Both sides send simultaneous UDP packets
+   - If hole-punch succeeds: use direct path
+   - If hole-punch fails (symmetric NAT): continue to step 4
+4. Fall back to relay mode (3 retries, 3s timeout each)
+   - All traffic wrapped in MsgRelay through beacon
+   - Guaranteed to work if both agents can reach the beacon
+
+<span class="comment"># Total: up to 9 attempts across three tiers</span>
+<span class="comment"># Typical connection time: 50ms (direct) to 900ms (relay after failed punch)</span></code></pre>
+
+  <p>The application layer receives a standard <code>net.Conn</code> interface regardless of which tier succeeded. The connection object supports Read, Write, Close, SetDeadline, and all other methods. Standard Go HTTP servers, gRPC clients, and any protocol built on <code>net.Conn</code> work transparently over any traversal tier.</p>
+
+  <h3>NAT Type Detection</h3>
+
+  <p>During STUN discovery, the daemon can infer the NAT type by comparing the STUN-reported endpoint with the local socket address and by performing additional probes. The daemon does not need to classify the NAT type precisely -- it only needs to know whether direct connection, hole-punching, or relay is required for each peer. The three-tier fallback ensures that even if detection is imperfect, the connection eventually succeeds.</p>
+
+  <h2 id="cli-walkthrough">CLI Walkthrough: Connecting Through NAT</h2>
+
+  <p>Here is the complete sequence for connecting two agents behind different NAT types on different networks.</p>
+
+  <pre><code><span class="comment"># Agent A: behind Port-Restricted Cone NAT on a home network</span>
+<span class="cmd">$ pilotctl init --hostname research-agent</span>
+<span class="cmd">$ pilotctl daemon start</span>
+STUN: discovered public endpoint 73.162.88.14:4000
+NAT type: port_restricted_cone
+Registered as research-agent (1:0001.0000.000A)
+
+<span class="comment"># Agent B: behind Symmetric NAT on a corporate network</span>
+<span class="cmd">$ pilotctl init --hostname data-warehouse</span>
+<span class="cmd">$ pilotctl daemon start</span>
+STUN: discovered public endpoint 91.203.45.67:32761
+NAT type: symmetric
+Registered as data-warehouse (1:0001.0000.000B)
+
+<span class="comment"># Establish mutual trust (required before connection)</span>
+<span class="comment"># On Agent A:</span>
+<span class="cmd">$ pilotctl handshake data-warehouse "Need access to training dataset"</span>
+Handshake sent, waiting for approval...
+
+<span class="comment"># On Agent B:</span>
+<span class="cmd">$ pilotctl approve 1:0001.0000.000A</span>
+Trust established with research-agent
+
+<span class="comment"># On Agent A: connect to Agent B</span>
+<span class="cmd">$ pilotctl ping data-warehouse --count 4</span>
+Trying direct connection... failed (3 attempts)
+Trying hole-punch... failed (remote is symmetric NAT)
+Falling back to relay through beacon...
+PING data-warehouse (1:0001.0000.000B) via relay:
+  Reply: 47ms (relayed, encrypted)
+  Reply: 45ms
+  Reply: 46ms
+  Reply: 44ms
+4 packets, 0% loss, avg 45.5ms</code></pre>
+
+  <p>Agent B is behind symmetric NAT, so direct connection and hole-punching both fail. The daemon automatically falls back to relay. The developer's command is simply <code>pilotctl ping data-warehouse</code> -- the nine retry attempts and strategy switches happen transparently inside DialConnection.</p>
+
+  <p>Now consider a scenario where both agents are behind cone NATs:</p>
+
+  <pre><code><span class="comment"># Both agents behind Port-Restricted Cone NATs</span>
+<span class="cmd">$ pilotctl ping research-partner --count 4</span>
+Trying direct connection... failed (3 attempts)
+Trying hole-punch... success!
+PING research-partner (1:0001.0000.000C):
+  Reply: 23ms (hole-punched, encrypted)
+  Reply: 22ms
+  Reply: 22ms
+  Reply: 23ms
+4 packets, 0% loss, avg 22.5ms
+
+<span class="comment"># After hole-punch: pure peer-to-peer, no relay overhead</span></code></pre>
+
+  <p>Hole-punching succeeded because both NATs are cone-type. After the initial coordinated punch (~600ms setup), traffic flows directly between the two agents at peer-to-peer latency. The beacon is no longer in the data path.</p>
+
+  <h2 id="performance-by-tier">Performance Characteristics by Tier</h2>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>Direct (Full Cone)</th><th>Hole-Punched</th><th>Relayed</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Setup time</td><td>~50ms</td><td>~600ms</td><td>~100ms (after direct/punch fail)</td></tr>
+      <tr><td>Steady-state latency</td><td>Peer-to-peer RTT</td><td>Peer-to-peer RTT</td><td>+15-25ms per hop</td></tr>
+      <tr><td>Throughput</td><td>Full link speed</td><td>Full link speed</td><td>~50% (beacon bottleneck)</td></tr>
+      <tr><td>Beacon involvement</td><td>Registration only</td><td>Punch coordination only</td><td>Every packet</td></tr>
+      <tr><td>NAT types covered</td><td>Full Cone (~15%)</td><td>Restricted + Port-Restricted (~60%)</td><td>Symmetric (~25%)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The key insight: <strong>hole-punched connections have identical steady-state performance to direct connections</strong>. The 600ms setup cost is paid once. After the hole is established, the beacon is not involved and traffic flows at full peer-to-peer speed. This means 75% of NAT scenarios achieve optimal performance.</p>
+
+  <p>Relay adds latency because every packet takes two hops (sender to beacon, beacon to receiver). Throughput is roughly halved because the beacon processes traffic for both directions. For most agent workloads -- task delegation, status updates, model parameter exchange, coordination messages -- this overhead is negligible. For bulk data transfer behind symmetric NATs, consider staging the data on a publicly reachable agent first. For a practical guide to deploying agents across multiple cloud providers with this NAT traversal, see <a href="/blog/connect-agents-across-aws-gcp-azure-without-vpn">Connect Agents Across AWS, GCP, and Azure Without a VPN</a>.</p>
+
+  <h2 id="edge-cases">Edge Cases and Failure Modes</h2>
+
+  <h3>Carrier-Grade NAT (CGNAT)</h3>
+
+  <p>Mobile carriers and some ISPs use CGNAT, which places an additional layer of NAT between the subscriber and the public internet. CGNAT is typically symmetric, meaning relay is the only option. Pilot handles this automatically -- the same three-tier fallback covers CGNAT without any special configuration. This is particularly relevant for <a href="/blog/lightweight-swarm-communication-drones-robots">drone and robot swarms</a> deployed on mobile networks where CGNAT is the norm.</p>
+
+  <h3>Firewall Rules and UDP Blocking</h3>
+
+  <p>Some corporate firewalls block all outbound UDP traffic. In these environments, the daemon cannot reach the beacon at all, and NAT traversal is impossible. Pilot does not attempt to tunnel over TCP or HTTP in these cases -- if UDP is blocked, the agent cannot join the overlay network. This is a deliberate design choice: adding TCP fallback would increase complexity and attack surface for a rare edge case.</p>
+
+  <h3>Key Desync After Multiple Restarts</h3>
+
+  <p>When agents restart multiple times in rapid succession, the X25519 encryption keys can desync between peers. The symptom is "encrypted packet but no key" errors in the daemon log. A clean restart of all involved services with fresh registry resolution fixes this. The daemon detects desync and logs a clear error message so operators know what happened.</p>
+
+  <div class="callout">
+    <p><strong>Design principle:</strong> Pilot's NAT traversal is optimistic -- it tries the fastest path first and falls back only when necessary. The three-tier approach means every NAT type is handled automatically. The agent developer writes <code>pilotctl connect peer-name</code> and gets a working, encrypted connection regardless of what NATs lie between the two agents. For the protocol architecture that makes this possible, see <a href="how-pilot-protocol-works">How Pilot Protocol Works</a>.</p>
+  </div>
+
+  <div class="cta">
+    <h3>Try Pilot Protocol</h3>
+    <p>Automatic NAT traversal for AI agents. STUN discovery, UDP hole-punching, and relay fallback -- all handled by the daemon. One binary, zero dependencies, works behind any NAT.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
 ---
 <BlogLayout
   title="NAT Traversal for AI Agents: A Deep Dive"
-  description="STUN discovery, UDP hole punching, relay fallback, and beacon gossip. The definitive reference on making AI agents reachable through any NAT type."
+  description="How Pilot Protocol gets agents talking behind any NAT: STUN discovery, UDP hole-punching, and automatic relay fallback."
   date="February 13, 2026"
   tags={["deep-dive", "nat", "networking"]}
-  canonicalPath="/blog/nat-traversal-ai-agents-deep-dive.html"
-  bannerImage="/blog/banners/nat-traversal-ai-agents-deep-dive.png"
+  canonicalPath="/blog/nat-traversal-ai-agents-deep-dive"
+  bannerImage="/blog/banners/nat-traversal-ai-agents-deep-dive.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

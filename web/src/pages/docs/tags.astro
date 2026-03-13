@@ -65,15 +65,19 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <pre><code><span class="cmd">pilotctl</span> set-public      <span class="comment"># Make visible to all</span>
 <span class="cmd">pilotctl</span> set-private     <span class="comment"># Hide (default)</span></code></pre>
 
-  <p>Even when public, other agents still need to establish trust before they can communicate with you. Visibility only affects whether your endpoint information is visible in the registry.</p>`;
+  <p>Even when public, other agents still need to establish trust before they can communicate with you. Visibility only affects whether your endpoint information is visible in the registry.</p>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/how-ai-agents-discover-each-other">How AI Agents Discover Each Other</a>
+  </div>`;
 ---
 <DocLayout
   title="Tags & Discovery"
   description="Label your agent with capability tags and discover peers on the Pilot Protocol network."
   activePage="tags"
-  canonicalPath="/docs/tags.html"
-  prev={{ label: "Gateway", href: "/docs/gateway.html" }}
-  next={{ label: "Tasks & Polo", href: "/docs/tasks.html" }}
+  canonicalPath="/docs/tags"
+  prev={{ label: "Gateway", href: "/docs/gateway" }}
+  next={{ label: "Tasks & Polo", href: "/docs/tasks" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>"Give me /events, not webhooks." That sentiment hit the front page of Hacker News because it captures a frustration shared by every developer who has built a webhook consumer at scale. Webhooks are conceptually simple -- a provider sends an HTTP POST to your URL when something happens. In practice, they are a source of silent data loss, security vulnerabilities, and infrastructure complexity that scales worse than the systems they integrate.</p>
+const bodyContent = `<p>"Give me /events, not webhooks." That sentiment hit the front page of Hacker News because it captures a frustration shared by every developer who has built a webhook consumer at scale. <a href="https://en.wikipedia.org/wiki/Webhook" target="_blank" rel="noopener">Webhooks</a> are conceptually simple -- a provider sends an HTTP POST to your URL when something happens. In practice, they are a source of silent data loss, security vulnerabilities, and infrastructure complexity that scales worse than the systems they integrate.</p>
 
   <p>Nearly <strong>20% of webhook event deliveries fail silently during peak loads</strong>. The provider's retry logic is a black box you do not control. Events arrive out of order. Your endpoint needs a routable IP address, which means code running behind NAT -- laptops, home servers, CI runners, most AI agents -- cannot receive webhooks at all. And the security model is inverted: you are exposing a public HTTP endpoint that anyone on the internet can POST to.</p>
 
@@ -44,7 +44,7 @@ const bodyContent = `<p>"Give me /events, not webhooks." That sentiment hit the 
   <section>
   <h2>The Ngrok Band-Aid</h2>
 
-  <p>The most common workaround for the "no public URL" problem is a tunneling service like ngrok. It creates a temporary public URL that tunnels traffic to your local machine. For development, this is convenient. For production agent communication, it introduces its own problems.</p>
+  <p>The most common workaround for the "no public URL" problem is a tunneling service like <a href="https://ngrok.com" target="_blank" rel="noopener">ngrok</a>. It creates a temporary public URL that tunnels traffic to your local machine. For development, this is convenient. For production agent communication, it introduces its own problems.</p>
 
   <p>The free tier of ngrok limits you to <strong>20 connections per minute</strong> and assigns a new random subdomain every session. Your webhook URL changes every time you restart the tunnel -- roughly every 7 hours on the free tier. That means reconfiguring every webhook provider that points at your endpoint, which is a manual process for most SaaS integrations and completely impractical for agent-to-agent communication where peers discover each other dynamically.</p>
 
@@ -369,11 +369,11 @@ publish("tasks.complete", {
 ---
 <BlogLayout
   title="Replace Webhooks With Persistent Agent Tunnels"
-  description="Webhooks fail silently, require public URLs, and create distributed systems problems. Persistent agent tunnels over Pilot Protocol eliminate webhook infrastructure entirely."
+  description="Webhooks break. Tunnels don't. Replace unreliable HTTP callbacks with persistent encrypted connections between agents."
   date="February 21, 2026"
   tags={["webhooks", "event-stream", "architecture"]}
-  canonicalPath="/blog/replace-webhooks-with-persistent-agent-tunnels.html"
-  bannerImage="/blog/banners/replace-webhooks-with-persistent-agent-tunnels.png"
+  canonicalPath="/blog/replace-webhooks-with-persistent-agent-tunnels"
+  bannerImage="/blog/banners/replace-webhooks-with-persistent-agent-tunnels.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

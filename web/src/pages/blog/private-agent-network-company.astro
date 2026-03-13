@@ -1,15 +1,365 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = ``;
+const bodyContent = `<p>Your company is deploying AI agents. They process customer data, access internal APIs, and coordinate decisions across departments. The question every CISO asks: <strong>where does the data go?</strong></p>
+
+  <p>With cloud-hosted agent platforms, the answer is uncomfortable. Agent communication routes through third-party infrastructure -- vendor servers, managed message brokers, cloud relay services. Even with TLS, the relay operator can see metadata: which agents are talking, how often, and how much data is flowing. For regulated industries -- healthcare, finance, defense, legal -- this is a compliance problem. For any company that takes data sovereignty seriously, it is a strategic risk.</p>
+
+  <p>Pilot Protocol solves this by running <strong>entirely on your infrastructure</strong>. The rendezvous server, the beacon, and every agent daemon run on machines you control. No data leaves your network. No third party sees your traffic. This post walks through a complete enterprise deployment, from architecture to production hardening.</p>
+
+  <section>
+  <h2 id="why-private">Why Your Agent Network Should Be Private</h2>
+
+  <p>There are three reasons companies deploy private agent networks instead of using public infrastructure.</p>
+
+  <h3>Data Sovereignty</h3>
+
+  <p>When agents exchange data through a centralized broker or cloud relay, that data transits infrastructure you do not own. Even if the data is encrypted in transit, the routing metadata -- who talks to whom, when, and how often -- is visible to the infrastructure operator. Under <a href="https://gdpr.eu" target="_blank" rel="noopener">GDPR</a>, this metadata can constitute personal data processing. Under HIPAA, agent communication carrying PHI must be on covered infrastructure with a BAA in place.</p>
+
+  <p>A private Pilot Protocol network eliminates this concern. The rendezvous server runs on your hardware. The beacon runs on your hardware. Encrypted tunnels are established directly between your agents. No intermediate system -- not even the rendezvous server -- sees the payload data.</p>
+
+  <h3>Zero Cloud Dependency</h3>
+
+  <p>Cloud-hosted agent platforms create vendor lock-in. If the platform has an outage, your agents stop communicating. If the vendor changes pricing, you pay or migrate. If the vendor shuts down, you start from scratch. For a detailed analysis of these risks, see <a href="/blog/run-agent-network-without-cloud-dependency">Run an Agent Network Without Cloud Dependency</a>.</p>
+
+  <p>A self-hosted Pilot network has no external dependencies. The entire stack -- registry, beacon, daemon, CLI -- is a single Go binary. No package managers, no runtime dependencies, no license servers, no phone-home telemetry.</p>
+
+  <h3>Compliance and Audit</h3>
+
+  <p>When auditors ask "how do your agents communicate and who can access the communication channel," a private deployment gives a simple answer: all communication occurs over encrypted P2P tunnels within your network, managed by infrastructure you control, logged by systems you own. There is no third-party data processor to assess, no subprocessor chain to document, no cross-border data transfer to justify.</p>
+  </section>
+
+  <section>
+  <h2 id="architecture">Architecture Overview</h2>
+
+  <p>A private Pilot Protocol deployment consists of three components:</p>
+
+  <ul>
+    <li><strong>Rendezvous server</strong> -- runs the registry (port 9000) and beacon (port 9001) on a machine with a static internal IP. This is the only component that must be reachable by all agents.</li>
+    <li><strong>Agent daemon</strong> -- runs on each machine that hosts an agent. Handles tunnel management, encryption, NAT traversal, and connection multiplexing.</li>
+    <li><strong>CLI (pilotctl)</strong> -- the management tool. Used to create networks, join agents, configure trust, and monitor the deployment.</li>
+  </ul>
+
+  <p>Here is how these components connect in a typical enterprise deployment:</p>
+
+  <pre><code><span class="comment"># Private network architecture</span>
+<span class="comment">#</span>
+<span class="comment">#   +---------------------+</span>
+<span class="comment">#   |  Rendezvous Server  |</span>
+<span class="comment">#   |  (registry :9000)   |</span>
+<span class="comment">#   |  (beacon   :9001)   |</span>
+<span class="comment">#   |  10.0.1.10          |</span>
+<span class="comment">#   +----------+----------+</span>
+<span class="comment">#              |</span>
+<span class="comment">#     +--------+--------+</span>
+<span class="comment">#     |        |        |</span>
+<span class="comment">#  +--+--+  +--+--+  +--+--+</span>
+<span class="comment">#  |Agent|  |Agent|  |Agent|</span>
+<span class="comment">#  | A   |  | B   |  | C   |</span>
+<span class="comment">#  |10.0 |  |10.0 |  |10.0 |</span>
+<span class="comment">#  |.1.20|  |.1.30|  |.2.40|</span>
+<span class="comment">#  +-----+  +-----+  +-----+</span>
+<span class="comment">#</span>
+<span class="comment"># Agents connect to registry over TCP :9000</span>
+<span class="comment"># Agents tunnel to each other over UDP</span>
+<span class="comment"># Beacon :9001 coordinates hole-punch if subnets differ</span></code></pre>
+
+  <p>The rendezvous server is lightweight -- it stores agent registrations in memory and persists them to a JSON file on disk. It does not process or inspect agent traffic. Once two agents have resolved each other's endpoints through the registry, all subsequent data flows directly between them over encrypted UDP tunnels.</p>
+  </section>
+
+  <section>
+  <h2 id="step-1">Step 1: Deploy the Rendezvous Server</h2>
+
+  <p>The rendezvous server runs the registry and beacon as a single process. Choose a machine with a static IP that all agents can reach. This can be a dedicated VM, a bare-metal server, or even a container -- the process uses minimal resources (under 20 MB RSS).</p>
+
+  <pre><code><span class="comment"># Download the latest release</span>
+<span class="cmd">wget https://github.com/TeoSlayer/pilotprotocol/releases/latest/download/pilot-rendezvous-linux-amd64</span>
+<span class="cmd">chmod +x pilot-rendezvous-linux-amd64</span>
+
+<span class="comment"># Start the rendezvous server</span>
+<span class="comment"># Registry listens on :9000, beacon on :9001</span>
+<span class="cmd">./pilot-rendezvous-linux-amd64 -registry-addr :9000 -beacon-addr :9001</span></code></pre>
+
+  <p>For production, run the rendezvous server as a systemd service:</p>
+
+  <pre><code><span class="comment"># /etc/systemd/system/pilot-rendezvous.service</span>
+[Unit]
+Description=Pilot Protocol Rendezvous Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pilot-rendezvous -registry-addr :9000 -beacon-addr :9001
+Restart=always
+RestartSec=5
+User=pilot
+Group=pilot
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+  <pre><code><span class="cmd">sudo systemctl enable pilot-rendezvous</span>
+<span class="cmd">sudo systemctl start pilot-rendezvous</span></code></pre>
+
+  <p>The registry persists state to <code>/var/lib/pilot/registry.json</code> by default. On restart, it reloads all agent registrations from this file. Configure your backup system to include this path.</p>
+
+  <div class="callout">
+    <p><strong>Firewall rules:</strong> The rendezvous server needs TCP port 9000 (registry) and UDP port 9001 (beacon) open to all agent machines. No other inbound ports are required. The server does not need internet access -- it runs entirely within your network.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="step-2">Step 2: Start Agent Daemons</h2>
+
+  <p>On each machine that will run an agent, deploy the Pilot daemon. The daemon handles tunnel management, encryption, and communication with the rendezvous server.</p>
+
+  <pre><code><span class="comment"># Download the daemon and CLI</span>
+<span class="cmd">wget https://github.com/TeoSlayer/pilotprotocol/releases/latest/download/pilot-daemon-linux-amd64</span>
+<span class="cmd">wget https://github.com/TeoSlayer/pilotprotocol/releases/latest/download/pilotctl-linux-amd64</span>
+<span class="cmd">chmod +x pilot-daemon-linux-amd64 pilotctl-linux-amd64</span>
+
+<span class="comment"># Start the daemon, pointing to your private rendezvous server</span>
+<span class="cmd">./pilot-daemon-linux-amd64 -registry 10.0.1.10:9000 -beacon 10.0.1.10:9001</span></code></pre>
+
+  <p>The daemon generates a cryptographic identity (Ed25519 keypair) on first run and stores it at <code>~/.pilot/identity.json</code>. This identity is permanent -- it persists across restarts and is used for all trust operations. Back up this file; losing it means the agent gets a new identity and must re-establish all trust relationships.</p>
+
+  <p>For machines on the same subnet as the rendezvous server, the daemon will register its local IP as the endpoint. For machines on different subnets, the daemon uses STUN discovery through the beacon to determine its reachable endpoint. The beacon coordinates hole-punching for cross-subnet communication automatically.</p>
+  </section>
+
+  <section>
+  <h2 id="step-3">Step 3: Create a Private Network</h2>
+
+  <p>Pilot Protocol supports multiple isolated networks on the same infrastructure. Each network gets a 16-bit network ID, and agents on different networks cannot see or communicate with each other.</p>
+
+  <pre><code><span class="comment"># Create a private network for your organization</span>
+<span class="cmd">pilotctl create-network "corp-net"</span>
+
+<span class="comment"># Output:</span>
+<span class="comment"># Network created: corp-net (ID: 1)</span>
+<span class="comment"># Network address prefix: 1:XXXX.XXXX.XXXX</span></code></pre>
+
+  <p>The network name is a human-readable label. Internally, the registry assigns a 16-bit network ID. All agents that join this network receive addresses with this network prefix, isolating them from agents on other networks (including the default backbone network 0).</p>
+  </section>
+
+  <section>
+  <h2 id="step-4">Step 4: Join Agents and Set Visibility</h2>
+
+  <p>With the network created, join each agent and configure its visibility.</p>
+
+  <pre><code><span class="comment"># On Agent A: join the corp-net network</span>
+<span class="cmd">pilotctl join-network "corp-net"</span>
+
+<span class="comment"># Register a human-readable hostname</span>
+<span class="cmd">pilotctl set-hostname "data-processor"</span>
+
+<span class="comment"># Set visibility to private (this is the default)</span>
+<span class="cmd">pilotctl set-visibility private</span>
+
+<span class="comment"># Verify registration</span>
+<span class="cmd">pilotctl status</span>
+<span class="comment"># Address: 1:0001.0000.0001</span>
+<span class="comment"># Hostname: data-processor</span>
+<span class="comment"># Network: corp-net (1)</span>
+<span class="comment"># Visibility: private</span>
+<span class="comment"># Trusted peers: 0</span></code></pre>
+
+  <p>Repeat this on each agent machine, choosing a descriptive hostname for each:</p>
+
+  <pre><code><span class="comment"># On Agent B</span>
+<span class="cmd">pilotctl join-network "corp-net"</span>
+<span class="cmd">pilotctl set-hostname "model-runner"</span>
+
+<span class="comment"># On Agent C</span>
+<span class="cmd">pilotctl join-network "corp-net"</span>
+<span class="cmd">pilotctl set-hostname "orchestrator"</span></code></pre>
+
+  <p>With visibility set to private, these agents are registered with the rendezvous server but <strong>invisible to each other</strong>. No agent can resolve another agent's endpoint until a trust relationship is established. This is the foundation of Pilot's <a href="/blog/trust-model-agents-invisible-by-default">invisible-by-default trust model</a>.</p>
+  </section>
+
+  <section>
+  <h2 id="step-5">Step 5: Establish Trust Between Agents</h2>
+
+  <p>Private agents must explicitly trust each other before they can communicate. This is done through a cryptographic handshake signed with each agent's Ed25519 keypair.</p>
+
+  <pre><code><span class="comment"># On the orchestrator: initiate trust with data-processor</span>
+<span class="cmd">pilotctl handshake data-processor "Orchestrator needs to submit tasks"</span>
+
+<span class="comment"># On data-processor: approve the handshake</span>
+<span class="cmd">pilotctl approve orchestrator</span>
+
+<span class="comment"># Repeat for each required trust relationship</span>
+<span class="cmd">pilotctl handshake model-runner "Orchestrator needs to delegate inference"</span>
+
+<span class="comment"># On model-runner: approve</span>
+<span class="cmd">pilotctl approve orchestrator</span></code></pre>
+
+  <p>After mutual approval, both agents can resolve each other's endpoints and establish encrypted tunnels. The trust state is persisted to disk and survives daemon restarts.</p>
+
+  <h3>Enterprise Trust Policies</h3>
+
+  <p>For larger deployments, managing individual handshakes becomes impractical. Pilot supports trust policies that automate approval based on rules:</p>
+
+  <pre><code><span class="comment"># Auto-approve all agents on the same network</span>
+<span class="cmd">pilotctl trust-policy auto-approve --same-network</span>
+
+<span class="comment"># Auto-approve agents with a specific justification pattern</span>
+<span class="cmd">pilotctl trust-policy auto-approve --justification "department:engineering"</span></code></pre>
+
+  <p>Trust policies let you balance security with operational convenience. In a department-level deployment, you might auto-approve within the department and require manual approval for cross-department trust. For a deeper exploration of trust architecture, see <a href="/blog/secure-ai-agent-communication-zero-trust">Secure Agent Communication with Zero Trust</a>.</p>
+  </section>
+
+  <section>
+  <h2 id="step-6">Step 6: Bridge to Legacy Systems</h2>
+
+  <p>Not every system in your organization will run a Pilot agent. Legacy services -- REST APIs, databases, monitoring systems -- still use traditional TCP/IP. The Pilot <strong>gateway</strong> bridges the two worlds.</p>
+
+  <p>The gateway assigns a loopback IP alias for each Pilot address and listens on standard ports, proxying traffic between local TCP clients and Pilot tunnels.</p>
+
+  <pre><code><span class="comment"># Start the gateway on the orchestrator machine</span>
+<span class="cmd">pilotctl gateway start</span>
+
+<span class="comment"># The gateway maps Pilot addresses to local IPs:</span>
+<span class="comment"># 1:0001.0000.0001 (data-processor)  → 127.0.0.2</span>
+<span class="comment"># 1:0001.0000.0002 (model-runner)    → 127.0.0.3</span>
+
+<span class="comment"># Now legacy tools can reach Pilot agents via local IPs</span>
+<span class="cmd">curl http://127.0.0.2:80/api/status</span>
+<span class="comment"># Routes through Pilot tunnel to data-processor, port 80</span></code></pre>
+
+  <p>This means existing monitoring tools (Prometheus, Grafana), CI/CD pipelines, and management scripts can interact with Pilot agents without any modification. The gateway handles the translation transparently.</p>
+
+  <div class="callout">
+    <p><strong>Port mapping:</strong> The gateway listens on the same port numbers that the remote Pilot agent exposes. If <code>data-processor</code> runs an HTTP service on port 80, the gateway listens on <code>127.0.0.2:80</code>. On Linux, ports below 1024 require root. The gateway automatically adds loopback aliases using <code>ip addr add</code> on Linux or <code>ifconfig lo0 alias</code> on macOS.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="security">Security Hardening</h2>
+
+  <p>A private deployment provides network-level isolation, but production hardening requires additional measures.</p>
+
+  <h3>TLS for Registry Connections</h3>
+
+  <p>Agent-to-registry communication uses TCP. In a private network, this traffic stays within your infrastructure, but you should still encrypt it. Pilot supports TLS with certificate pinning for registry connections:</p>
+
+  <pre><code><span class="comment"># Generate a TLS certificate for the rendezvous server</span>
+<span class="cmd">openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \\
+  -keyout registry-key.pem -out registry-cert.pem -days 365 -nodes \\
+  -subj "/CN=pilot-rendezvous"</span>
+
+<span class="comment"># Start rendezvous with TLS</span>
+<span class="cmd">./pilot-rendezvous -registry-addr :9000 -beacon-addr :9001 \\
+  -tls-cert registry-cert.pem -tls-key registry-key.pem</span>
+
+<span class="comment"># On agents: pin the registry certificate</span>
+<span class="cmd">./pilot-daemon -registry 10.0.1.10:9000 -beacon 10.0.1.10:9001 \\
+  -registry-cert registry-cert.pem</span></code></pre>
+
+  <p>Certificate pinning means agents will refuse to connect to a registry that presents a different certificate. This prevents man-in-the-middle attacks even if an attacker compromises your DNS or ARP tables.</p>
+
+  <h3>IPC Socket Permissions</h3>
+
+  <p>The daemon exposes a Unix domain socket at <code>/tmp/pilot.sock</code> for CLI communication. In a multi-user environment, restrict access to this socket:</p>
+
+  <pre><code><span class="comment"># Set socket permissions to owner-only</span>
+<span class="cmd">chmod 600 /tmp/pilot.sock</span>
+
+<span class="comment"># Run the daemon as a dedicated user</span>
+<span class="cmd">sudo useradd -r -s /usr/sbin/nologin pilot</span>
+<span class="cmd">sudo -u pilot ./pilot-daemon -registry 10.0.1.10:9000 -beacon 10.0.1.10:9001</span></code></pre>
+
+  <h3>Per-Port Accept Rules</h3>
+
+  <p>By default, a Pilot agent accepts connections on all ports it has listeners for. In a hardened deployment, you can restrict which ports accept connections from which peers:</p>
+
+  <pre><code><span class="comment"># Only allow the orchestrator to submit tasks on port 1003</span>
+<span class="cmd">pilotctl port-policy 1003 --allow orchestrator</span>
+
+<span class="comment"># Allow any trusted peer to connect to the echo port</span>
+<span class="cmd">pilotctl port-policy 7 --allow-trusted</span>
+
+<span class="comment"># Block all connections on port 1000 (stdio)</span>
+<span class="cmd">pilotctl port-policy 1000 --deny-all</span></code></pre>
+
+  <p>Per-port accept rules provide defense in depth. Even if an attacker compromises one agent and establishes trust, they can only access the specific ports that the target agent permits.</p>
+
+  <h3>Structured Logging and Audit Trail</h3>
+
+  <p>The daemon uses Go's <a href="https://pkg.go.dev/log/slog" target="_blank" rel="noopener">slog</a> package for structured JSON logging. Every connection, trust change, and error is logged with machine-parseable fields:</p>
+
+  <pre><code><span class="comment"># Sample log output (JSON lines)</span>
+{"time":"2026-02-11T14:23:01Z","level":"INFO","msg":"tunnel established","peer":"1:0001.0000.0002","nat":"direct"}
+{"time":"2026-02-11T14:23:01Z","level":"INFO","msg":"handshake approved","peer":"orchestrator","addr":"1:0001.0000.0003"}
+{"time":"2026-02-11T14:23:05Z","level":"INFO","msg":"connection opened","src":"1:0001.0000.0003","dst":"1:0001.0000.0001","port":1001}</code></pre>
+
+  <p>Ship these logs to your SIEM (Splunk, Elastic, Datadog) for audit trail compliance. The structured format makes it straightforward to create alerts on trust changes, failed connections, and unusual traffic patterns.</p>
+  </section>
+
+  <section>
+  <h2 id="high-availability">High Availability</h2>
+
+  <p>The rendezvous server is a single point of coordination (not a single point of failure for data -- agent-to-agent tunnels continue working if the registry goes down temporarily). For production deployments that require HA, Pilot supports hot-standby replication.</p>
+
+  <pre><code><span class="comment"># Primary rendezvous server</span>
+<span class="cmd">./pilot-rendezvous -registry-addr :9000 -beacon-addr :9001 \\
+  -replicate-to standby.internal:9000</span>
+
+<span class="comment"># Standby rendezvous server</span>
+<span class="cmd">./pilot-rendezvous -registry-addr :9000 -beacon-addr :9001 \\
+  -standby -primary primary.internal:9000</span></code></pre>
+
+  <p>The primary pushes registration snapshots to the standby every 15 seconds via heartbeat. If the primary fails, a manual failover promotes the standby. Existing agent tunnels continue functioning during the failover window -- only new registrations and resolves are affected.</p>
+  </section>
+
+  <section>
+  <h2 id="production-checklist">Production Deployment Checklist</h2>
+
+  <p>Before going live, verify each item:</p>
+
+  <ul>
+    <li><strong>Rendezvous server:</strong> Running as systemd service, TLS enabled, persistence directory backed up</li>
+    <li><strong>Firewall rules:</strong> TCP 9000 and UDP 9001 open from all agent subnets to rendezvous server</li>
+    <li><strong>Agent daemons:</strong> Running as systemd services, identity files backed up, pointing to private registry</li>
+    <li><strong>Network isolation:</strong> Agents joined to private network, visibility set to private</li>
+    <li><strong>Trust policies:</strong> Handshakes completed or auto-approve rules configured</li>
+    <li><strong>IPC security:</strong> Daemon running as dedicated user, socket permissions restricted</li>
+    <li><strong>Per-port rules:</strong> Sensitive ports restricted to specific peers</li>
+    <li><strong>Logging:</strong> Structured logs shipping to SIEM, alerts configured for trust changes</li>
+    <li><strong>HA:</strong> Standby rendezvous server configured and tested</li>
+    <li><strong>Gateway:</strong> Configured for any legacy system integration needed</li>
+  </ul>
+  </section>
+
+  <section>
+  <h2 id="summary">What You Get</h2>
+
+  <p>A private Pilot Protocol deployment gives your organization:</p>
+
+  <ul>
+    <li><strong>Complete data sovereignty</strong> -- no traffic leaves your infrastructure, no third party processes your data</li>
+    <li><strong>End-to-end encryption</strong> -- X25519 + AES-256-GCM between every pair of agents, with the rendezvous server never seeing payload data</li>
+    <li><strong>Cryptographic identity</strong> -- every agent has an Ed25519 keypair, trust is explicit and auditable</li>
+    <li><strong>Zero cloud dependency</strong> -- the entire stack runs on your machines with zero external calls</li>
+    <li><strong>Minimal footprint</strong> -- the rendezvous server uses under 20 MB RSS, each daemon under 10 MB</li>
+    <li><strong>Legacy compatibility</strong> -- the gateway bridges Pilot agents to existing HTTP/TCP systems without modification</li>
+  </ul>
+
+  <p>Your agents communicate freely within your network. Nothing leaves your control. And when the deployment grows from 3 agents to 300, the only thing that changes is the number of daemons you run.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Deploy Your Private Network</h3>
+    <p>Download the binaries, start the rendezvous server, and have your first private agent network running in under 10 minutes.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
 ---
 <BlogLayout
   title="Build a Private Agent Network for Your Company"
-  description="Step-by-step guide to deploying a private Pilot Protocol network for enterprise agent communication: rendezvous setup, agent enrollment, trust policies, and monitoring."
+  description="Deploy a private Pilot Protocol network inside your organization. No data leaves your infrastructure."
   date="February 11, 2026"
   tags={["enterprise", "deployment", "guide"]}
-  canonicalPath="/blog/private-agent-network-company.html"
-  bannerImage="/blog/banners/private-agent-network-company.png"
+  canonicalPath="/blog/private-agent-network-company"
+  bannerImage="/blog/banners/private-agent-network-company.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

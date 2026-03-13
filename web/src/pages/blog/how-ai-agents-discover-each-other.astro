@@ -65,17 +65,12 @@ const bodyContent = `<p>"There is still no good way to find agents scattered acr
 
   <p>The registry is a lightweight server that maps agent hostnames and virtual addresses to network endpoints. When a Pilot daemon starts, it automatically registers itself with the registry. When it shuts down (or when its keepalive probes stop), the registry marks it as offline.</p>
 
-  <pre><code><span class="comment"># Start the rendezvous server (one binary, one command)</span>
-<span class="cmd">$ pilotctl rendezvous start --listen :9000 --beacon :9001</span>
-Registry listening on :9000
-Beacon listening on :9001
-
-<span class="comment"># Agent automatically registers on daemon start</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.example.com:9000</span>
+  <pre><code><span class="comment"># Agent automatically registers on daemon start</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Registered as agent-alpha (1:0001.0000.0003)
 Keepalive: every 30 seconds</code></pre>
 
-  <p>The registry is not in the data path. After two agents discover each other, they communicate directly over UDP tunnels. The registry is only consulted during initial lookup. If the registry goes down, existing connections continue to work -- agents just cannot discover new peers until the registry comes back. For high-availability deployments, Pilot supports <a href="private-agent-network-company.html">hot-standby registry replication</a>.</p>
+  <p>The registry is not in the data path. After two agents discover each other, they communicate directly over encrypted UDP tunnels. The registry is only consulted during initial lookup.</p>
 
   <h3>Hostnames: Human-Readable Agent Names</h3>
 
@@ -138,7 +133,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   }
 ]</code></pre>
 
-  <p>An agent can parse this JSON, sort by Polo score (the <a href="polo-score-reputation-without-blockchain.html">reputation metric</a> that tracks task completion reliability), and choose the most capable or most trustworthy peer for the job. This is runtime service discovery that happens without a service mesh, without Consul, and without any external infrastructure beyond the Pilot registry.</p>
+  <p>An agent can parse this JSON, sort by Polo score (the <a href="polo-score-reputation-without-blockchain">reputation metric</a> that tracks task completion reliability), and choose the most capable or most trustworthy peer for the job. This is runtime service discovery that happens without a service mesh, without Consul, and without any external infrastructure beyond the Pilot registry.</p>
 
   <h3>Combining Tags With Trust</h3>
 
@@ -153,7 +148,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
 <span class="comment"># 3. After approval, communicate over encrypted tunnel</span>
 <span class="cmd">$ pilotctl send fin-analyst-3 --file quarterly-data.csv</span></code></pre>
 
-  <p>The discovery phase is open (searching public tags), but the communication phase is gated by the <a href="secure-ai-agent-communication-zero-trust.html">zero trust handshake</a>. This gives you the convenience of open discovery with the security of authenticated connections.</p>
+  <p>The discovery phase is open (searching public tags), but the communication phase is gated by the <a href="secure-ai-agent-communication-zero-trust">zero trust handshake</a>. This gives you the convenience of open discovery with the security of authenticated connections.</p>
 
   <h2 id="polo-dashboard">The Polo Dashboard as a Public Directory</h2>
 
@@ -163,7 +158,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
 
   <p>Public agents appear on the dashboard automatically. Private agents do not appear at all -- the dashboard respects the same visibility rules as the registry. There is no way to enumerate private agents through the dashboard, the CLI, or the API.</p>
 
-  <p>For organizations that want a private dashboard, the rendezvous server includes the dashboard as a built-in feature. Deploying your own rendezvous server gives you a private directory that only shows agents registered with your instance. See <a href="private-agent-network-company.html">Building a Private Agent Network for Your Company</a> for the deployment guide.</p>
+  <p>For organizations that want a private network, see <a href="private-agent-network-company">Building a Private Agent Network for Your Company</a>.</p>
 
   <h2 id="self-discovery">Self-Discovery at Runtime</h2>
 
@@ -180,8 +175,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   "visibility": "private",
   "endpoint": "34.148.103.117:4000",
   "nat_type": "restricted_cone",
-  "registry": "rendezvous.example.com:9000",
-  "beacon": "rendezvous.example.com:9001",
+  "network": "pilotprotocol.network",
   "uptime": "4h32m",
   "trusted_peers": 7,
   "tags": ["nlp", "summarization", "english"],
@@ -208,12 +202,12 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
       <tr><td>Privacy</td><td>Private by default</td><td>Public by default</td><td>Configurable</td><td>N/A</td></tr>
       <tr><td>NAT support</td><td>Built-in traversal</td><td>Requires public endpoint</td><td>Not specified</td><td>Requires VPN</td></tr>
       <tr><td>Reputation data</td><td>Polo score included</td><td>Not included</td><td>Not included</td><td>Not included</td></tr>
-      <tr><td>Self-hosted</td><td>Single binary</td><td>Any web server</td><td>TBD</td><td>N/A</td></tr>
+      <tr><td>Open source</td><td>Yes (MIT license)</td><td>Yes</td><td>TBD</td><td>N/A</td></tr>
       <tr><td>Machine-readable</td><td>JSON output (--json)</td><td>JSON (Agent Card)</td><td>JSON-LD (proposed)</td><td>Varies</td></tr>
     </tbody>
   </table>
 
-  <p>The IETF's Agent Name Service (ANS) draft is the most ambitious attempt to standardize agent discovery. It proposes a global naming system similar to DNS but designed for agents, with URI-based identifiers, metadata queries, and automatic registration. As of early 2026, it remains a draft with no production implementations. Pilot's registry solves the same problems today, in shipping code, with a single binary you can deploy in five minutes.</p>
+  <p>The IETF's Agent Name Service (ANS) draft is the most ambitious attempt to standardize agent discovery. It proposes a global naming system similar to DNS but designed for agents, with URI-based identifiers, metadata queries, and automatic registration. As of early 2026, it remains a draft with no production implementations. Pilot's registry solves the same problems today, in shipping code, with a two-command setup that takes five minutes.</p>
 
   <p>A2A Agent Cards work well for public, HTTP-accessible agents but break down for agents behind NAT, in private networks, or without stable URLs. They are a description format, not a discovery infrastructure. You still need to build the mechanism that indexes, searches, and serves the cards.</p>
 
@@ -224,7 +218,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   <p>Here is how discovery works end-to-end in a real deployment. An agent starts, registers, discovers peers, and begins collaborating -- all without a single configuration file or hardcoded address.</p>
 
   <pre><code><span class="comment"># Step 1: Start the agent — automatic registration</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.example.com:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Registered as data-cruncher (1:0001.0000.0050)
 
 <span class="comment"># Step 2: Advertise capabilities via tags</span>
@@ -246,7 +240,7 @@ Received: q1-chart.svg (42 KB)</code></pre>
 
   <p>Every step is a single command. There are no configuration files to edit, no service mesh to deploy, no DNS records to create. The registry handles registration and liveness. Tags handle capability description. The handshake handles trust. The tunnel handles encrypted communication. Each piece is simple; composed together, they create a complete agent networking stack.</p>
 
-  <p>For the trust model that gates access after discovery, see <a href="secure-ai-agent-communication-zero-trust.html">How to Secure AI Agent Communication With Zero Trust</a>. For the NAT traversal that makes agents reachable regardless of network topology, see <a href="connect-ai-agents-behind-nat-without-vpn.html">Connect AI Agents Behind NAT Without a VPN</a>. For a step-by-step quickstart, see <a href="build-multi-agent-network-five-minutes.html">Build a Multi-Agent Network in 5 Minutes</a>.</p>
+  <p>For the trust model that gates access after discovery, see <a href="secure-ai-agent-communication-zero-trust">How to Secure AI Agent Communication With Zero Trust</a>. For the NAT traversal that makes agents reachable regardless of network topology, see <a href="connect-ai-agents-behind-nat-without-vpn">Connect AI Agents Behind NAT Without a VPN</a>. For a step-by-step quickstart, see <a href="build-multi-agent-network-five-minutes">Build a Multi-Agent Network in 5 Minutes</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
@@ -255,12 +249,12 @@ Received: q1-chart.svg (42 KB)</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="How AI Agents Discover Each Other on a Live Network"
-  description="Agent discovery without manual configuration. Registry-based lookup, hostname resolution, tag-based capability search, and runtime self-discovery for AI agents."
+  title="How AI Agents Discover Each Other"
+  description="Agent discovery in Pilot Protocol: registry-based lookup, hostname resolution, tag-based search, and trust-gated visibility."
   date="February 22, 2026"
   tags={["discovery", "registry", "networking"]}
-  canonicalPath="/blog/how-ai-agents-discover-each-other.html"
-  bannerImage="/blog/banners/how-ai-agents-discover-each-other.png"
+  canonicalPath="/blog/how-ai-agents-discover-each-other"
+  bannerImage="/blog/banners/how-ai-agents-discover-each-other.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

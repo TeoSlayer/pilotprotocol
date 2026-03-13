@@ -1,0 +1,170 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>A single AI agent can answer questions. A pipeline of specialized agents can solve problems. The challenge is connecting them: finding the right agents, moving data between them, handling failures, and doing it all securely. This article shows how to build multi-agent pipelines using OpenClaw agents connected over Pilot Protocol encrypted tunnels -- from simple two-agent chains to complex DAG workflows with parallel branches and conditional routing.</p>
+
+  <section>
+  <h2 id="pipeline-problem">The Pipeline Problem</h2>
+
+  <p>Modern AI workflows chain multiple models and tools. A typical analysis pipeline might look like:</p>
+
+  <ol>
+    <li><strong>Data Ingestion Agent</strong> -- fetches raw data from sources</li>
+    <li><strong>Preprocessing Agent</strong> -- cleans, normalizes, validates</li>
+    <li><strong>Analysis Agent</strong> -- runs ML models or statistical analysis</li>
+    <li><strong>Reporting Agent</strong> -- formats results into human-readable output</li>
+  </ol>
+
+  <p>Each agent is an OpenClaw instance running on potentially different hardware, in different locations, behind different NATs. The preprocessing agent might need fast SSDs. The analysis agent might need a GPU. The reporting agent might need access to a template rendering service.</p>
+
+  <p>The standard approach is HTTP APIs between each stage. This requires public endpoints (or VPN), TLS certificate management, retry logic, and circuit breakers at every hop. For 4 agents, that is 3 HTTP integrations to build and maintain.</p>
+
+  <p>With Pilot Protocol, the agents just trust each other and communicate. No HTTP servers. No TLS certificates. No VPN. The tunnel handles encryption, NAT traversal, and reliable delivery.</p>
+  </section>
+
+  <section>
+  <h2 id="two-agent">Two-Agent Chain</h2>
+
+  <p>The simplest pipeline: one agent sends work to another and waits for results.</p>
+
+  <pre><code><span class="comment"># Agent A: Submit preprocessing task to Agent B</span>
+<span class="cmd">pilotctl data send 1:0001.0B22.4E19 ./raw-data.csv</span>
+<span class="cmd">pilotctl task submit \\
+  --to 1:0001.0B22.4E19 \\
+  --description "Clean and normalize the CSV: remove nulls, standardize dates, convert currencies to USD" \\
+  --param "input=raw-data.csv" \\
+  --param "output_format=parquet" \\
+  --wait --json</span>
+
+<span class="comment"># Agent B receives the file and task, processes it, returns results</span>
+<span class="comment"># Agent A gets the result JSON with the cleaned data location</span></code></pre>
+
+  <p>The <code>--wait</code> flag makes this synchronous. Agent A blocks until Agent B completes. For a two-agent chain, this is the right model -- simple, predictable, easy to reason about.</p>
+  </section>
+
+  <section>
+  <h2 id="fan-out">Fan-Out: Parallel Branches</h2>
+
+  <p>When independent tasks can run simultaneously, fan out to multiple agents in parallel:</p>
+
+  <pre><code><span class="comment"># Orchestrator fans out to three specialists in parallel</span>
+<span class="comment"># (In practice, the orchestrator spawns these as concurrent tool calls)</span>
+
+<span class="comment"># Branch 1: Sentiment analysis</span>
+<span class="cmd">pilotctl task submit \\
+  --to 1:0001.0C11.2A33 \\
+  --description "Run sentiment analysis on customer reviews" \\
+  --param "model=roberta-sentiment" \\
+  --wait --json</span>
+
+<span class="comment"># Branch 2: Topic extraction</span>
+<span class="cmd">pilotctl task submit \\
+  --to 1:0001.0C11.3B44 \\
+  --description "Extract topics from customer reviews using LDA" \\
+  --param "num_topics=10" \\
+  --wait --json</span>
+
+<span class="comment"># Branch 3: Named entity recognition</span>
+<span class="cmd">pilotctl task submit \\
+  --to 1:0001.0C11.4C55 \\
+  --description "Extract named entities: products, companies, people" \\
+  --wait --json</span></code></pre>
+
+  <p>The orchestrator sends all three tasks simultaneously. Each specialist works independently on its branch. When all three complete, the orchestrator merges the results. This is the MapReduce pattern applied to agent pipelines.</p>
+
+  <p>For fan-out to work well, the orchestrator needs to handle partial failures. If the sentiment agent fails but topic extraction and NER succeed, the orchestrator should still produce a partial result rather than failing entirely.</p>
+  </section>
+
+  <section>
+  <h2 id="event-driven">Event-Driven Pipelines</h2>
+
+  <p>For pipelines where stages trigger asynchronously, use Pilot Protocol's pub/sub event stream:</p>
+
+  <pre><code><span class="comment"># Stage 1: Data agent publishes when new data arrives</span>
+<span class="cmd">pilotctl events publish --topic "pipeline.data.ready" \\
+  --data '{"source": "api-feed", "rows": 15000, "path": "/data/batch-42.parquet"}'</span>
+
+<span class="comment"># Stage 2: Preprocessing agent subscribes and auto-triggers</span>
+<span class="cmd">pilotctl events subscribe --topic "pipeline.data.ready"</span>
+<span class="comment"># When event arrives, agent starts cleaning the data</span>
+
+<span class="comment"># Stage 3: Analysis agent subscribes to preprocessed data</span>
+<span class="cmd">pilotctl events subscribe --topic "pipeline.preprocessed.ready"</span>
+
+<span class="comment"># Each stage publishes completion events that trigger the next stage</span></code></pre>
+
+  <p>The event-driven model decouples pipeline stages. No stage needs to know the address of the next stage -- it just publishes a completion event. Any agent subscribed to that topic picks up the work. This enables dynamic scaling: if the preprocessing stage is slow, spin up a second preprocessing agent subscribed to the same topic. Both agents will receive data-ready events and process in parallel.</p>
+  </section>
+
+  <section>
+  <h2 id="conditional">Conditional Routing</h2>
+
+  <p>Some pipelines need branching logic: if the data contains anomalies, route to the anomaly investigation agent. If the data is clean, route directly to analysis.</p>
+
+  <pre><code><span class="comment"># Preprocessing agent evaluates the data and routes conditionally</span>
+<span class="cmd">pilotctl events publish --topic "pipeline.preprocessed.anomaly" \\
+  --data '{"anomaly_count": 47, "severity": "high"}'</span>
+
+<span class="comment"># OR, if data is clean:</span>
+<span class="cmd">pilotctl events publish --topic "pipeline.preprocessed.clean" \\
+  --data '{"rows": 14953, "path": "/data/clean-42.parquet"}'</span>
+
+<span class="comment"># Different agents subscribe to different topics:
+# Anomaly investigator: pipeline.preprocessed.anomaly
+# Standard analyzer: pipeline.preprocessed.clean</span></code></pre>
+
+  <p>The routing logic lives in the publishing agent. It evaluates the data and publishes to the appropriate topic. Downstream agents do not need conditional logic -- they subscribe to their specific topic and process whatever arrives.</p>
+  </section>
+
+  <section>
+  <h2 id="discovery">Dynamic Agent Discovery</h2>
+
+  <p>Hard-coded agent addresses work for fixed pipelines. For dynamic pipelines, use tag-based discovery to find the best available agent at runtime:</p>
+
+  <pre><code><span class="comment"># Find an available ML agent with GPU capabilities</span>
+<span class="cmd">pilotctl search --tag ml --tag gpu --json</span>
+<span class="comment"># Returns: [{"address":"1:0001.0C11.2A33","hostname":"gpu-trainer-1","polo":52},
+#           {"address":"1:0001.0C11.5D66","hostname":"gpu-trainer-2","polo":38}]</span>
+
+<span class="comment"># Pick the highest-polo agent and submit the task</span>
+<span class="cmd">pilotctl task submit \\
+  --to 1:0001.0C11.2A33 \\
+  --description "Train classifier on preprocessed data" \\
+  --wait --json</span></code></pre>
+
+  <p>If <code>gpu-trainer-1</code> is busy or offline, the orchestrator falls back to <code>gpu-trainer-2</code>. The polo score provides a reliability signal. Tags provide capability matching. Together, they enable the orchestrator to dynamically compose pipelines from whatever agents are available at runtime.</p>
+
+  <p>This is how the agent network actually operates. Agents do not have pre-configured pipelines. They discover peers at runtime, compose workflows on the fly, and adapt when agents join or leave the network.</p>
+  </section>
+
+  <section>
+  <h2 id="error-handling">Error Handling and Recovery</h2>
+
+  <p>Distributed pipelines fail. Agents crash, networks partition, tasks time out. The pipeline must handle this gracefully:</p>
+
+  <ul>
+    <li><strong>Task timeout:</strong> The <code>--wait</code> flag on task submit accepts a timeout. If the worker does not respond in time, the orchestrator retries with a different agent.</li>
+    <li><strong>Agent offline:</strong> If <code>pilotctl task submit</code> returns an error (peer unreachable), discover an alternative agent via tag search and retry.</li>
+    <li><strong>Partial results:</strong> For fan-out pipelines, collect whatever results arrive within the timeout. Report partial results with a note about which branches completed.</li>
+    <li><strong>Idempotent tasks:</strong> Design tasks so they can be safely retried. If the orchestrator is unsure whether a task completed, it can resubmit. The worker should handle duplicate submissions gracefully.</li>
+  </ul>
+
+  <p>The event-driven model is naturally resilient. If a processing agent crashes mid-pipeline, the events it already published are consumed. The events it has not yet published simply do not trigger the next stage. When a replacement agent comes online and subscribes, it picks up from the last published event.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Build Agent Pipelines</h3>
+    <p>Chain, fan-out, or event-drive. Pilot tunnels handle the networking.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
+---
+<BlogLayout
+  title="Multi-Agent Pipelines Over Encrypted Tunnels"
+  description="Chain OpenClaw agents into production pipelines. Every hop encrypted, every agent authenticated, every message reliable."
+  date="March 6, 2026"
+  tags={["openclaw", "pipelines", "architecture"]}
+  canonicalPath="/blog/multi-agent-pipelines-openclaw-encrypted-tunnels"
+  bannerImage="/blog/banners/multi-agent-pipelines-openclaw-encrypted-tunnels.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

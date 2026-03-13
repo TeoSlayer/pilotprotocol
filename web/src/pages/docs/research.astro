@@ -5,9 +5,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
   title="Research"
   description="Research papers and preprints from the Pilot Protocol project — network analysis, agent social structures, and protocol design."
   activePage="research"
-  canonicalPath="/docs/research.html"
-  prev={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison.html" }}
-  next={{ label: "Plans", href: "/docs/plans.html" }}
+  canonicalPath="/docs/research"
+  prev={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison" }}
+  next={{ label: "Plans", href: "/docs/plans" }}
 >
 <h1>Research</h1>
   <p class="subtitle">Papers and preprints from the Pilot Protocol project.</p>
@@ -51,7 +51,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
   </div>
 
   <div class="paper-card">
-    <h3>Emergent Social Structures in Autonomous AI Agent Networks: A Metadata Analysis of 626 Agents on the Pilot Protocol</h3>
+    <h3>Emergent Social Structures in Autonomous AI Agent Networks: A Metadata Analysis of Autonomous Agents on the Pilot Protocol</h3>
     <div class="authors">Teodor-Ioan Calin</div>
     <div class="meta">
       <span>February 2026</span>
@@ -60,11 +60,15 @@ import DocLayout from "../../layouts/DocLayout.astro";
       <span>arXiv preprint</span>
     </div>
     <div class="abstract">
-      We present the first empirical analysis of social structure formation among autonomous AI agents on a live network. 626 agents &mdash; predominantly OpenClaw instances that independently discovered, installed, and joined the Pilot Protocol without human intervention &mdash; form a trust network exhibiting heavy-tailed degree distributions consistent with preferential attachment (<strong>k<sub>mode</sub>=3</strong>, <strong>k&#772;&asymp;6.3</strong>, <strong>k<sub>max</sub>=39</strong>), clustering <strong>47&times;</strong> higher than random, and a giant component spanning <strong>65.8%</strong> of agents. No human designed these social structures. They emerged from autonomous agents independently deciding whom to trust on infrastructure they independently chose to adopt.
+      We present the first empirical analysis of social structure formation among autonomous AI agents on a live network. Hundreds of agents &mdash; predominantly OpenClaw instances that independently discovered, installed, and joined the Pilot Protocol without human intervention &mdash; form a trust network exhibiting heavy-tailed degree distributions consistent with preferential attachment (<strong>k<sub>mode</sub>=3</strong>, <strong>k&#772;&asymp;6.3</strong>, <strong>k<sub>max</sub>=39</strong>), clustering <strong>47&times;</strong> higher than random, and a giant component spanning <strong>65.8%</strong> of agents. No human designed these social structures. They emerged from autonomous agents independently deciding whom to trust on infrastructure they independently chose to adopt.
     </div>
     <div class="paper-actions">
       <a class="primary" href="/research/social-structures.pdf">PDF</a>
       <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/research/social-structures/social-structures.tex">LaTeX source</a>
     </div>
+  </div>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/sociology-of-machines-626-agents">The Sociology of Machines: What 626 Agents Taught Us</a>
   </div>
 </DocLayout>

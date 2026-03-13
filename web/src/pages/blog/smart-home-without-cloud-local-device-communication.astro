@@ -50,32 +50,26 @@ const bodyContent = `<p>In January 2026, Belkin shut down the Wemo cloud service
 
   <p>Pilot Protocol is an overlay network originally designed for AI agent communication. It provides virtual addresses, encrypted tunnels, NAT traversal, and a trust model -- all over UDP, with zero cloud dependencies. The same properties that make it useful for agents make it applicable to local-first IoT.</p>
 
-  <p>The key architectural difference: Pilot's rendezvous server is self-hosted. You run it on a Raspberry Pi, a NAS, or any always-on device in your home. There is no external service to depend on, no account to create, and no subscription to maintain.</p>
+  <p>The key difference: Pilot runs entirely on your local network. There is no external service to depend on, no account to create, and no subscription to maintain.</p>
 
-  <pre><code><span class="comment"># Start the rendezvous server on a Raspberry Pi (home hub)</span>
-<span class="cmd">$ pilot-rendezvous -registry-addr :9000 -beacon-addr :9001</span>
-Registry listening on :9000
-Beacon listening on :9001
-
-<span class="comment"># Initialize a device agent (e.g., a temperature sensor)</span>
+  <pre><code><span class="comment"># Initialize a device agent (e.g., a temperature sensor)</span>
 <span class="cmd">$ pilotctl init --hostname kitchen-temp</span>
 Identity created: ~/.pilot/identity.key
 Virtual address: 1:0001.0000.0001
 
-<span class="comment"># Start the daemon, pointing to the local rendezvous</span>
-<span class="cmd">$ pilotctl daemon start --registry 192.168.1.10:9000 --beacon 192.168.1.10:9001</span>
-Connected to registry at 192.168.1.10:9000
+<span class="comment"># Start the daemon</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Agent online: kitchen-temp (1:0001.0000.0001)</code></pre>
 
-  <p>The device now has a permanent 48-bit virtual address (<code>1:0001.0000.0001</code>) and an Ed25519 cryptographic identity. That address and identity persist across reboots, firmware updates, and network changes. The address is not tied to an IP, a MAC address, or a DHCP lease. It is a logical identifier that the rendezvous server maps to the device's current physical location on the network.</p>
+  <p>The device now has a permanent 48-bit virtual address (<code>1:0001.0000.0001</code>) and an Ed25519 cryptographic identity. That address and identity persist across reboots, firmware updates, and network changes. The address is not tied to an IP, a MAC address, or a DHCP lease. It is a logical identifier that maps to the device's current physical location on the network.</p>
 
-  <h2 id="architecture">Architecture: Home Hub Plus Lightweight Daemons</h2>
+  <h2 id="architecture">Architecture: Lightweight Daemons</h2>
 
-  <p>The architecture for a Pilot-based smart home is straightforward. One device runs the rendezvous server (registry + beacon). Every other device runs a lightweight Pilot daemon.</p>
+  <p>The architecture for a Pilot-based smart home is straightforward. Every device runs a lightweight Pilot daemon that handles discovery, encryption, and communication.</p>
 
   <pre><code><span class="comment"># Home network layout:</span>
 <span class="comment">#</span>
-<span class="comment"># Raspberry Pi (hub)      -- pilot-rendezvous on :9000/:9001</span>
+<span class="comment"># Raspberry Pi (hub)      -- runs the local network</span>
 <span class="comment"># Kitchen temp sensor     -- pilotctl daemon, addr 1:0001.0000.0001</span>
 <span class="comment"># Living room light       -- pilotctl daemon, addr 1:0001.0000.0002</span>
 <span class="comment"># Thermostat controller   -- pilotctl daemon, addr 1:0001.0000.0003</span>
@@ -101,7 +95,7 @@ Message delivered (encrypted, 52 bytes)</code></pre>
 
   <p>The event stream uses Pilot's built-in pub/sub on port 1002. Topics are hierarchical strings with wildcard support. The automation engine subscribes to <code>sensors/*</code> and receives events from every sensor type. When a threshold is crossed, it sends a command via the data exchange port (1001). All communication is encrypted end-to-end with X25519 + AES-256-GCM.</p>
 
-  <p>The Pilot daemon runs at approximately 10MB RSS idle. On a Raspberry Pi 4 with 4GB RAM, you could run the rendezvous server and 300+ device daemons simultaneously. For a typical home with 20-50 smart devices, resource usage is negligible.</p>
+  <p>The Pilot daemon runs at approximately 10MB RSS idle. On a Raspberry Pi 4 with 4GB RAM, you could run 300+ device daemons simultaneously. For a typical home with 20-50 smart devices, resource usage is negligible.</p>
 
   <h2 id="comparison">Comparison: Pilot vs. Zigbee vs. Matter/Thread vs. MQTT</h2>
 
@@ -110,7 +104,7 @@ Message delivered (encrypted, 52 bytes)</code></pre>
       <tr><th>Property</th><th>Pilot Protocol</th><th>Zigbee</th><th>Matter/Thread</th><th>MQTT Broker</th></tr>
     </thead>
     <tbody>
-      <tr><td>Cloud required</td><td>No (self-hosted rendezvous)</td><td>No (coordinator)</td><td>Commissioning only</td><td>No (self-hosted broker)</td></tr>
+      <tr><td>Cloud required</td><td>No</td><td>No (coordinator)</td><td>Commissioning only</td><td>No (self-hosted broker)</td></tr>
       <tr><td>Account required</td><td>No</td><td>No</td><td>Yes (manufacturer)</td><td>No</td></tr>
       <tr><td>Encryption</td><td>X25519 + AES-256-GCM (mandatory)</td><td>AES-128-CCM</td><td>AES-128-CCM</td><td>TLS (optional)</td></tr>
       <tr><td>NAT traversal</td><td>Built-in (STUN + hole-punch + relay)</td><td>N/A (local mesh)</td><td>N/A (local mesh)</td><td>Requires VPN or port forwarding</td></tr>
@@ -119,7 +113,7 @@ Message delivered (encrypted, 52 bytes)</code></pre>
       <tr><td>Transport</td><td>UDP overlay (IP network)</td><td>IEEE 802.15.4 (radio)</td><td>Thread (radio) or Wi-Fi</td><td>TCP (IP network)</td></tr>
       <tr><td>Pub/sub</td><td>Built-in (port 1002)</td><td>Group commands</td><td>Group commands</td><td>Core feature</td></tr>
       <tr><td>Trust model</td><td>Mutual handshake + revocation</td><td>Network key</td><td>Certificate-based</td><td>ACL lists</td></tr>
-      <tr><td>Survives vendor shutdown</td><td>Yes (fully self-hosted)</td><td>Yes (local coordinator)</td><td>Partially (commissioning may break)</td><td>Yes (self-hosted broker)</td></tr>
+      <tr><td>Survives vendor shutdown</td><td>Yes (fully local)</td><td>Yes (local coordinator)</td><td>Partially (commissioning may break)</td><td>Yes (self-hosted broker)</td></tr>
     </tbody>
   </table>
 
@@ -152,7 +146,7 @@ Message delivered (encrypted, relay via beacon, 145ms RTT)
   <pre><code><span class="comment"># On the new device (e.g., a smart plug running Linux)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname office-plug</span>
-<span class="cmd">$ pilotctl daemon start --registry 192.168.1.10:9000 --beacon 192.168.1.10:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Agent online: office-plug (1:0001.0000.0006)
 
 <span class="comment"># On the automation engine -- establish trust</span>
@@ -215,25 +209,25 @@ Tags updated: smart-plug, office, power-control
 
   <p>It will happen again. A company will decide that maintaining a cloud service for smart home devices is not worth the cost. The devices will stop working. Users will be angry. Forum posts will be written. And then it will happen again.</p>
 
-  <p>The only defense is architectural. If your devices talk to each other through infrastructure you own and operate, no business decision by anyone else can break your home. The hub in your closet does not care about quarterly earnings calls. The rendezvous server on your Raspberry Pi does not have a subscription model. The virtual addresses assigned to your devices are permanent because the registry that stores them is a JSON file on your own hardware.</p>
+  <p>The only defense is architectural. If your devices talk to each other through infrastructure you own and operate, no business decision by anyone else can break your home. The hub in your closet does not care about quarterly earnings calls. The virtual addresses assigned to your devices are permanent. There is no subscription model. There is no service that can be discontinued.</p>
 
   <p>This is not a new idea. The internet itself was designed to be decentralized and resilient. Somewhere along the way, convenience centralized everything. The path back is not through better cloud services. It is through architecture that does not need them.</p>
 
-  <p>For a deeper look at Pilot's NAT traversal (critical for remote access), see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal: A Deep Dive</a>. For the encryption that protects your device communication, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Encryption</a>. For a quickstart guide to running your first Pilot network, see <a href="build-multi-agent-network-five-minutes.html">Build a Multi-Agent Network in 5 Minutes</a>.</p>
+  <p>For a deeper look at Pilot's NAT traversal (critical for remote access), see <a href="nat-traversal-ai-agents-deep-dive">NAT Traversal: A Deep Dive</a>. For the encryption that protects your device communication, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Encryption</a>. For a quickstart guide to running your first Pilot network, see <a href="build-multi-agent-network-five-minutes">Build a Multi-Agent Network in 5 Minutes</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>Self-hosted rendezvous, permanent virtual addresses, encrypted communication, zero cloud dependencies. Build a smart home that outlives every vendor.</p>
+    <p>Permanent virtual addresses, encrypted communication, zero cloud dependencies. Build a smart home that outlives every vendor.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---
 <BlogLayout
-  title="Smart Home Without Cloud: Local-First Device Communication"
-  description="Build a cloud-free smart home with local-first device communication. No accounts, no subscriptions, no cloud shutdowns. Permanent virtual addresses for every device."
+  title="Smart Home Without Cloud: Local Device Communication"
+  description="Keep your smart home private. Pilot Protocol connects devices locally with encrypted P2P — no cloud account needed."
   date="February 25, 2026"
   tags={["smart-home", "local-first", "IoT"]}
-  canonicalPath="/blog/smart-home-without-cloud-local-device-communication.html"
-  bannerImage="/blog/banners/smart-home-without-cloud-local-device-communication.png"
+  canonicalPath="/blog/smart-home-without-cloud-local-device-communication"
+  bannerImage="/blog/banners/smart-home-without-cloud-local-device-communication.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

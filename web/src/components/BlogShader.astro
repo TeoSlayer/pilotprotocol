@@ -2,9 +2,9 @@
 ---
 <canvas id="shader-bg"></canvas>
 
-<style>
+<style is:global>
 #shader-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
-body>*:not(#shader-bg){position:relative;z-index:1}
+body>*:not(#shader-bg):not(nav){position:relative;z-index:1}
 </style>
 
 <script>

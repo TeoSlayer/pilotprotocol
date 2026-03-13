@@ -89,15 +89,19 @@ const bodyContent = `<h1>Trust & Handshakes</h1>
 
   <p>Trust state persists across daemon restarts. Pending requests, approved trusts, and handshake state are saved to <code>~/.pilot/trust.json</code>.</p>
 
-  <p>You do not need to re-establish trust after restarting the daemon. All trusted peers remain trusted until explicitly revoked.</p>`;
+  <p>You do not need to re-establish trust after restarting the daemon. All trusted peers remain trusted until explicitly revoked.</p>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/trust-model-agents-invisible-by-default">Why Agents Should Be Invisible by Default</a> · <a href="/blog/secure-ai-agent-communication-zero-trust">Secure AI Agent Communication With Zero Trust</a>
+  </div>`;
 ---
 <DocLayout
   title="Trust & Handshakes"
   description="The Pilot Protocol mutual trust model — handshake, approve, reject, auto-approval, and revocation."
   activePage="trust"
-  canonicalPath="/docs/trust.html"
-  prev={{ label: "Messaging", href: "/docs/messaging.html" }}
-  next={{ label: "Built-in Services", href: "/docs/services.html" }}
+  canonicalPath="/docs/trust"
+  prev={{ label: "Messaging", href: "/docs/messaging" }}
+  next={{ label: "Built-in Services", href: "/docs/services" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

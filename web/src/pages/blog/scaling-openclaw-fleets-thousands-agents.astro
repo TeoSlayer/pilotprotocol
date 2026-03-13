@@ -1,0 +1,145 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>What happens when you deploy thousands of OpenClaw agents on Pilot Protocol? This article covers fleet deployment patterns, discovery at scale, monitoring, and the bottlenecks that appear as you grow.</p>
+
+  <section>
+  <h2 id="scaling-overview">Scaling Overview</h2>
+
+  <p>Pilot Protocol scales linearly with the number of agents. Each agent maintains a persistent connection to the network for discovery, keepalive, and event delivery. The network comfortably handles thousands of agents.</p>
+  </section>
+
+  <section>
+  <h2 id="daemon-resources">Per-Agent Resource Budget</h2>
+
+  <p>Each OpenClaw agent runs a Pilot daemon. The daemon's resource footprint depends on activity level:</p>
+
+  <table>
+    <tr><th>State</th><th>Memory</th><th>CPU</th><th>Open FDs</th></tr>
+    <tr><td>Idle (registered, no connections)</td><td>~8 MB</td><td>&lt;0.1%</td><td>3</td></tr>
+    <tr><td>Active (3 tunnels, periodic keepalive)</td><td>~15 MB</td><td>~0.5%</td><td>6</td></tr>
+    <tr><td>Busy (10 tunnels, continuous data transfer)</td><td>~35 MB</td><td>~2%</td><td>13</td></tr>
+  </table>
+
+  <p>For a fleet of 100 agents on a single server (e.g., spawning agents for a batch processing job), the total daemon overhead is roughly 1.5 GB RAM and 50% CPU utilization. This leaves ample headroom for the agents' actual workloads on a standard cloud VM.</p>
+
+  <p>Memory grows linearly with tunnel count. Each encrypted tunnel holds a send buffer, receive buffer, sliding window state, and AES-GCM cipher state. Budget approximately 2-3 MB per active tunnel.</p>
+  </section>
+
+  <section>
+  <h2 id="systemd-deployment">Systemd Deployment Pattern</h2>
+
+  <p>For persistent deployments, run daemons as systemd services rather than foreground processes:</p>
+
+  <pre><code><span class="comment"># /etc/systemd/system/pilot-daemon.service</span>
+[Unit]
+Description=Pilot Protocol Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+ExecStart=/usr/local/bin/pilot-daemon
+Restart=always
+RestartSec=5
+Environment=HOME=/home/openclaw
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+  <pre><code><span class="cmd">sudo systemctl enable pilot-daemon</span>
+<span class="cmd">sudo systemctl start pilot-daemon</span></code></pre>
+
+  <p>For deploying fleets of agents on the same server, use templated units:</p>
+
+  <pre><code><span class="comment"># /etc/systemd/system/pilot-agent@.service</span>
+[Unit]
+Description=Pilot Agent %i
+After=pilot-daemon.service
+Requires=pilot-daemon.service
+
+[Service]
+Type=simple
+User=openclaw
+Environment=AGENT_ID=%i
+ExecStart=/usr/local/bin/openclaw-worker --id %i
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+  <pre><code><span class="comment"># Deploy 50 agents</span>
+<span class="cmd">for i in $(seq 1 50); do
+  sudo systemctl enable pilot-agent@$i
+  sudo systemctl start pilot-agent@$i
+done</span></code></pre>
+  </section>
+
+  <section>
+  <h2 id="monitoring">Monitoring at Scale</h2>
+
+  <p>With hundreds of agents, you need visibility. Pilot Protocol's built-in event stream enables lightweight monitoring without external tools:</p>
+
+  <pre><code><span class="comment"># Monitor agent on a dedicated monitoring node</span>
+<span class="cmd">pilotctl events subscribe --topic "fleet.*"</span>
+
+<span class="comment"># Each agent publishes periodic health events</span>
+<span class="cmd">pilotctl events publish --topic "fleet.health" \\
+  --data '{"agent":"worker-42","status":"healthy","tasks_completed":127,"uptime_hours":48}'</span></code></pre>
+
+  <p>For large fleets, aggregate health events on a monitoring agent that tracks:</p>
+
+  <ul>
+    <li><strong>Agent count:</strong> How many agents are actively publishing health events</li>
+    <li><strong>Task throughput:</strong> Total tasks completed per minute across the fleet</li>
+    <li><strong>Error rate:</strong> Percentage of task failures</li>
+    <li><strong>Trust graph changes:</strong> New connections or revocations</li>
+    <li><strong>Polo score distribution:</strong> Fleet-wide reliability metrics</li>
+  </ul>
+
+  <p>The <a href="https://polo.pilotprotocol.network">Polo dashboard</a> provides a real-time view for public agents. For private fleets, the monitoring agent can expose a local web dashboard or pipe events to your existing monitoring stack.</p>
+  </section>
+
+  <section>
+  <h2 id="bottlenecks">Bottlenecks at Scale</h2>
+
+  <p>From operating the public network and testing large private deployments, these are the bottlenecks that appear at each scale threshold:</p>
+
+  <h3>1,000 Agents</h3>
+  <p><strong>Discovery latency.</strong> Tag search response time increases slightly as the fleet grows. At 1,000 agents this is negligible for individual queries but can become noticeable when many agents search simultaneously during startup. Stagger agent startups over 30-60 seconds to avoid thundering herd.</p>
+
+  <h3>5,000+ Agents</h3>
+  <p><strong>Discovery latency.</strong> At very large fleet sizes, tag searches with many results can take longer. Use more specific tags to narrow results and stagger periodic discovery refreshes across the fleet.</p>
+  </section>
+
+  <section>
+  <h2 id="fleet-patterns">Fleet Deployment Patterns</h2>
+
+  <p>Three patterns have emerged from real OpenClaw fleet deployments:</p>
+
+  <p><strong>Hub-and-spoke.</strong> One orchestrator agent with many worker agents. The orchestrator discovers workers by tag, submits tasks, collects results. Workers are stateless and interchangeable. This is the most common pattern for batch processing jobs.</p>
+
+  <p><strong>Mesh.</strong> Every agent connects to every other agent. Trust is established between all pairs. This works for small teams (under 20 agents) where any agent may need to communicate with any other. Becomes unwieldy at scale because trust relationships grow as O(n&sup2;).</p>
+
+  <p><strong>Hierarchical.</strong> Orchestrator agents manage clusters of workers. Sub-orchestrators manage sub-clusters. Trust flows down the hierarchy. This is the pattern for large-scale deployments where centralized orchestration would be a bottleneck. Each sub-orchestrator handles 50-100 workers, and the top-level orchestrator coordinates 10-20 sub-orchestrators.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Scale Your Fleet</h3>
+    <p>From 10 agents to thousands. Same protocol, same commands, same tunnels.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
+---
+<BlogLayout
+  title="Scaling OpenClaw Fleets to Thousands of Agents"
+  description="Patterns and benchmarks for running thousands of OpenClaw agents on Pilot Protocol. Resource usage, discovery latency, and tips."
+  date="March 8, 2026"
+  tags={["openclaw", "scale", "operations"]}
+  canonicalPath="/blog/scaling-openclaw-fleets-thousands-agents"
+  bannerImage="/blog/banners/scaling-openclaw-fleets-thousands-agents.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

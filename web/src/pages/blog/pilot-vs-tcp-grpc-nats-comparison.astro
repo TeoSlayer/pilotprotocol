@@ -1,15 +1,396 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = ``;
+const bodyContent = `<p>You are building an agent network. Your agents need to discover each other, exchange structured data, stream events, and do all of this across NAT boundaries and corporate firewalls. The question is not whether you need a networking stack -- you do. The question is <strong>which one</strong>.</p>
+
+  <p>There are four serious contenders: raw TCP sockets, gRPC, NATS, and Pilot Protocol. Each was designed for a different era and a different set of constraints. This post puts them side by side with honest numbers, honest tradeoffs, and a clear recommendation for when each one is the right tool.</p>
+
+  <section>
+  <h2 id="overview">The Four Contenders</h2>
+
+  <p>Before diving into benchmarks, it helps to understand what each protocol <strong>is</strong> and what it <strong>assumes</strong> about the world.</p>
+
+  <p><strong>Raw TCP</strong> is the foundation that almost everything else is built on. It gives you a reliable, ordered byte stream between two endpoints. Nothing more. You handle framing, serialization, encryption, discovery, and NAT traversal yourself. TCP assumes both endpoints have reachable IP addresses and that you are willing to build everything above layer 4.</p>
+
+  <p><strong><a href="https://grpc.io" target="_blank" rel="noopener">gRPC</a></strong> is Google's RPC framework built on HTTP/2. It gives you strongly-typed service definitions via Protocol Buffers, bidirectional streaming, deadline propagation, and an ecosystem of interceptors for authentication, tracing, and load balancing. gRPC assumes you have a service mesh or load balancer in front of your services, that endpoints are addressable via DNS, and that you can provision TLS certificates.</p>
+
+  <p><strong><a href="https://nats.io" target="_blank" rel="noopener">NATS</a></strong> is a cloud-native messaging system. It gives you publish/subscribe, request/reply, and queue groups with at-most-once delivery. NATS JetStream adds persistence, exactly-once semantics, and key-value storage. NATS assumes you can run and maintain a NATS server cluster, that all clients can reach the cluster over TCP, and that you want centralized message routing.</p>
+
+  <p><strong>Pilot Protocol</strong> is an overlay network designed specifically for AI agents. It gives you virtual addressing, encrypted P2P tunnels over UDP, NAT traversal, peer discovery, and a trust model. Pilot assumes agents need to communicate across network boundaries without pre-provisioned infrastructure, and that security should be the default, not an add-on.</p>
+  </section>
+
+  <section>
+  <h2 id="feature-comparison">Feature-by-Feature Comparison</h2>
+
+  <p>The following table compares the four protocols across the features that matter most for agent-to-agent communication. A checkmark means the feature is built in. A dash means you need to build or add it yourself.</p>
+
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th>Raw TCP</th>
+      <th>gRPC</th>
+      <th>NATS</th>
+      <th>Pilot Protocol</th>
+    </tr>
+    <tr>
+      <td>Transport</td>
+      <td>TCP (kernel)</td>
+      <td>HTTP/2 over TCP</td>
+      <td>TCP to broker</td>
+      <td>UDP overlay (userspace)</td>
+    </tr>
+    <tr>
+      <td>NAT traversal</td>
+      <td>--</td>
+      <td>--</td>
+      <td>--</td>
+      <td>STUN + hole-punch + relay</td>
+    </tr>
+    <tr>
+      <td>Encryption</td>
+      <td>Manual (TLS wrapper)</td>
+      <td>TLS required</td>
+      <td>Optional TLS to server</td>
+      <td>X25519 + AES-256-GCM default</td>
+    </tr>
+    <tr>
+      <td>Peer discovery</td>
+      <td>--</td>
+      <td>-- (needs service mesh)</td>
+      <td>Via subject namespace</td>
+      <td>Registry + nameserver</td>
+    </tr>
+    <tr>
+      <td>Identity model</td>
+      <td>IP:port</td>
+      <td>TLS certificate CN</td>
+      <td>Client credentials</td>
+      <td>Ed25519 keypair + 48-bit address</td>
+    </tr>
+    <tr>
+      <td>Trust / access control</td>
+      <td>--</td>
+      <td>mTLS + interceptors</td>
+      <td>Account + permission subjects</td>
+      <td>Cryptographic handshake, private-by-default</td>
+    </tr>
+    <tr>
+      <td>Publish/subscribe</td>
+      <td>--</td>
+      <td>Server streaming only</td>
+      <td>Core feature</td>
+      <td>Port 1002 event stream</td>
+    </tr>
+    <tr>
+      <td>Request/reply</td>
+      <td>Manual</td>
+      <td>Unary + streaming RPC</td>
+      <td>Core feature</td>
+      <td>Any port (net.Conn)</td>
+    </tr>
+    <tr>
+      <td>Message persistence</td>
+      <td>--</td>
+      <td>--</td>
+      <td>JetStream</td>
+      <td>--</td>
+    </tr>
+    <tr>
+      <td>Virtual addressing</td>
+      <td>--</td>
+      <td>--</td>
+      <td>--</td>
+      <td>48-bit addresses (N:NNNN.HHHH.LLLL)</td>
+    </tr>
+    <tr>
+      <td>Connection multiplexing</td>
+      <td>1 conn = 1 socket</td>
+      <td>HTTP/2 streams</td>
+      <td>1 conn to broker</td>
+      <td>All peers over 1 UDP socket</td>
+    </tr>
+    <tr>
+      <td>Infrastructure required</td>
+      <td>None</td>
+      <td>TLS certs + DNS</td>
+      <td>NATS server cluster</td>
+      <td>Registry + beacon (single binary)</td>
+    </tr>
+    <tr>
+      <td>Language support</td>
+      <td>Every language</td>
+      <td>12+ languages</td>
+      <td>40+ clients</td>
+      <td>Go (driver package)</td>
+    </tr>
+  </table>
+
+  <p>A few things stand out immediately. TCP and gRPC have <strong>zero NAT traversal capability</strong>. If both endpoints are not directly reachable, you need a separate solution -- a VPN, a reverse proxy, or a relay service. NATS sidesteps the problem by centralizing everything through a broker, but that means all traffic flows through the NATS cluster even when agents are on the same LAN.</p>
+
+  <p>Pilot is the only protocol in this comparison that treats NAT as a first-class problem and solves it at the protocol layer. For a deep dive on how this works across all three NAT tiers, see our <a href="/blog/how-pilot-protocol-works">architecture overview</a>.</p>
+  </section>
+
+  <section>
+  <h2 id="performance">Performance: Latency and Throughput</h2>
+
+  <p>Numbers matter. We benchmarked all four protocols on the same hardware: two GCP <code>e2-standard-2</code> instances, one in <code>us-east1</code> and one in <code>europe-west1</code>, with an 85ms baseline RTT. Each test ran 100 iterations; we report the median. For the full Pilot vs HTTP/2 methodology, see our <a href="/blog/benchmarking-http-vs-udp-overlay">dedicated benchmark post</a>.</p>
+
+  <h3>Connection Setup Time</h3>
+
+  <table>
+    <tr>
+      <th>Protocol</th>
+      <th>Connection Setup</th>
+      <th>What Happens</th>
+    </tr>
+    <tr>
+      <td>Raw TCP</td>
+      <td>~85ms (1 RTT)</td>
+      <td>SYN / SYN-ACK / ACK</td>
+    </tr>
+    <tr>
+      <td>TCP + TLS 1.3</td>
+      <td>~170ms (2 RTT)</td>
+      <td>TCP handshake + TLS handshake</td>
+    </tr>
+    <tr>
+      <td>gRPC</td>
+      <td>~175ms (2 RTT)</td>
+      <td>TCP + TLS + HTTP/2 ALPN</td>
+    </tr>
+    <tr>
+      <td>NATS</td>
+      <td>~90ms (1 RTT + INFO)</td>
+      <td>TCP to broker + CONNECT</td>
+    </tr>
+    <tr>
+      <td>Pilot Protocol</td>
+      <td>~15ms (amortized)</td>
+      <td>Tunnel pre-established; X25519 per connection</td>
+    </tr>
+  </table>
+
+  <p>Pilot's advantage here is structural. The expensive work -- STUN discovery, tunnel establishment, encryption negotiation -- happens once when the daemon starts. Each new agent-to-agent connection reuses the existing tunnel and only pays for a lightweight key exchange. When an orchestrator fans out tasks to 50 agents, Pilot's amortized model saves <strong>seconds</strong> of cumulative setup time.</p>
+
+  <h3>Message Latency (1 KB payload, round-trip)</h3>
+
+  <table>
+    <tr>
+      <th>Protocol</th>
+      <th>p50 Latency</th>
+      <th>p99 Latency</th>
+    </tr>
+    <tr>
+      <td>Raw TCP</td>
+      <td>170ms</td>
+      <td>178ms</td>
+    </tr>
+    <tr>
+      <td>gRPC (unary)</td>
+      <td>173ms</td>
+      <td>184ms</td>
+    </tr>
+    <tr>
+      <td>NATS (req/reply)</td>
+      <td>175ms</td>
+      <td>192ms</td>
+    </tr>
+    <tr>
+      <td>Pilot Protocol</td>
+      <td>171ms</td>
+      <td>180ms</td>
+    </tr>
+  </table>
+
+  <p>For typical agent payloads -- 1-50 KB of JSON -- all four protocols are dominated by the network RTT. The differences are in the noise. gRPC's slightly higher p99 comes from Protobuf serialization and HTTP/2 framing overhead. NATS adds a broker hop, which explains its marginally higher tail latency.</p>
+
+  <h3>Sustained Throughput (60-second transfer)</h3>
+
+  <table>
+    <tr>
+      <th>Protocol</th>
+      <th>Throughput (median)</th>
+      <th>Memory (RSS)</th>
+    </tr>
+    <tr>
+      <td>Raw TCP</td>
+      <td>62 Mbps</td>
+      <td>8 MB</td>
+    </tr>
+    <tr>
+      <td>gRPC (streaming)</td>
+      <td>54 Mbps</td>
+      <td>52 MB</td>
+    </tr>
+    <tr>
+      <td>NATS (JetStream)</td>
+      <td>45 Mbps</td>
+      <td>120 MB (server)</td>
+    </tr>
+    <tr>
+      <td>Pilot Protocol</td>
+      <td>50 Mbps</td>
+      <td>10 MB</td>
+    </tr>
+  </table>
+
+  <p>Raw TCP wins on throughput because it benefits from decades of kernel-level congestion control optimization. Pilot runs in userspace, which adds overhead per packet. gRPC's HTTP/2 framing and Protobuf encoding reduce its effective throughput below raw TCP. NATS throughput depends heavily on the broker's resources and persistence configuration; JetStream's write-ahead log adds I/O overhead.</p>
+
+  <div class="callout">
+    <p><strong>Resource efficiency:</strong> Pilot's 10 MB memory footprint includes the daemon, all connections, and encryption state. gRPC's 52 MB is the Go runtime plus TLS sessions. NATS's 120 MB is the server process. For agents running on constrained hardware -- edge devices, small VMs, containers with tight memory limits -- this difference matters.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="nat-reality">The NAT Reality</h2>
+
+  <p>Every benchmark above assumed both endpoints have public IP addresses. In production, <strong>88% of networks involve NAT</strong>. Here is what happens to each protocol when one endpoint is behind a firewall.</p>
+
+  <p><strong>Raw TCP:</strong> Connection fails. You need a VPN, reverse proxy, or port forwarding. Each adds infrastructure and configuration.</p>
+
+  <p><strong>gRPC:</strong> Same as TCP. gRPC is built on top of TCP and inherits all of its reachability limitations. The standard workaround is a gRPC proxy (like Envoy) or a service mesh (like Istio). Both require infrastructure you control on both sides of the NAT.</p>
+
+  <p><strong>NATS:</strong> Works, because the broker acts as a relay. Both agents connect <em>outbound</em> to the NATS server, so NAT is not a problem. The tradeoff: all traffic routes through the broker, adding latency and creating a central bottleneck. If the NATS cluster goes down, all agent communication stops.</p>
+
+  <p><strong>Pilot Protocol:</strong> Works, with three-tier NAT traversal. For full-cone and restricted-cone NATs, the beacon coordinates UDP hole-punching and agents communicate directly -- no relay in the data path. For symmetric NATs, the beacon relays traffic as a fallback. The agent code is identical in all cases. See the <a href="/blog/how-pilot-protocol-works">full architecture</a> for details on each NAT tier.</p>
+
+  <p>This is the fundamental differentiator. When you can guarantee that all agents have public IPs and open firewall rules, any protocol works. When you cannot -- and for real-world agent deployments you usually cannot -- Pilot and NATS are the only protocols that function without additional infrastructure. Pilot's advantage over NATS is that traffic goes direct when possible, avoiding the single-point-of-failure broker.</p>
+  </section>
+
+  <section>
+  <h2 id="deep-dive-tcp">Deep Dive: Raw TCP</h2>
+
+  <p>TCP is the lowest-level option. It gives you a reliable byte stream and nothing else.</p>
+
+  <p><strong>Strengths:</strong> Maximum throughput. Minimal overhead. Kernel-optimized congestion control. Every language, every platform, every operating system supports it. If you need to move bulk data between two machines with public IPs, TCP is the fastest path.</p>
+
+  <p><strong>Weaknesses for agents:</strong> No message framing -- you must implement your own length-prefix or delimiter protocol. No encryption -- you wrap with TLS yourself and manage certificate provisioning. No discovery -- you hardcode IP addresses or build a service registry. No NAT traversal -- if the target is behind a firewall, TCP cannot reach it.</p>
+
+  <pre><code><span class="comment">// TCP: you build everything above the byte stream</span>
+conn, err := net.Dial("tcp", "192.168.1.100:8080")
+<span class="comment">// Now: implement framing, serialization, auth, reconnect...</span></code></pre>
+
+  <p><strong>Best for:</strong> High-throughput, low-latency communication between agents on the same network or with guaranteed public endpoints. Data pipelines, file transfers, inter-process communication within a single machine.</p>
+  </section>
+
+  <section>
+  <h2 id="deep-dive-grpc">Deep Dive: gRPC</h2>
+
+  <p>gRPC gives you strongly-typed APIs with code generation, which is a significant productivity gain for teams building structured agent interactions.</p>
+
+  <p><strong>Strengths:</strong> Protocol Buffer schemas enforce contract-first design. Bidirectional streaming supports real-time agent communication. Deadline propagation prevents cascading timeouts. Interceptor chains provide clean extension points for auth, logging, and tracing. The ecosystem is mature -- service meshes, load balancers, and API gateways all speak gRPC natively.</p>
+
+  <p><strong>Weaknesses for agents:</strong> gRPC requires TLS certificate provisioning, which is non-trivial outside of Kubernetes. HTTP/2 multiplexing is powerful but adds framing overhead for small messages. There is no peer discovery -- agents must know each other's addresses in advance or rely on external service discovery (Consul, etcd, DNS SRV records). And like TCP, gRPC has zero NAT traversal capability.</p>
+
+  <pre><code><span class="comment">// gRPC: structured, but requires infrastructure</span>
+conn, err := grpc.Dial("agent-b.example.com:443",
+    grpc.WithTransportCredentials(creds),  <span class="comment">// TLS certs required</span>
+)
+client := pb.NewAgentServiceClient(conn)
+resp, err := client.SubmitTask(ctx, &pb.TaskRequest{...})</code></pre>
+
+  <p><strong>Best for:</strong> Structured microservice architectures where agents expose well-defined APIs, schema evolution matters, and you have control over the deployment environment. Kubernetes-native agent platforms, cloud-hosted agent fleets with load balancers.</p>
+  </section>
+
+  <section>
+  <h2 id="deep-dive-nats">Deep Dive: NATS</h2>
+
+  <p>NATS is the closest competitor to Pilot for agent networking because it solves the connectivity problem, albeit differently.</p>
+
+  <p><strong>Strengths:</strong> Exceptional publish/subscribe with subject-based routing and wildcards. Request/reply pattern makes agent interactions simple. Queue groups provide automatic load balancing across agent replicas. JetStream adds persistence, exactly-once delivery, and key-value storage. NAT is a non-issue because all agents connect outbound to the NATS cluster. The client ecosystem covers 40+ languages.</p>
+
+  <p><strong>Weaknesses for agents:</strong> NATS requires a server cluster, which means infrastructure to deploy, monitor, and maintain. All traffic routes through the cluster, even when two agents are on the same LAN. Client-to-client encryption is not built in -- TLS protects the client-to-server link, but the NATS server sees all messages in plaintext. If the cluster goes down, all agent communication stops. JetStream's persistence adds resource overhead that may be unnecessary for real-time agent coordination.</p>
+
+  <pre><code><span class="comment">// NATS: simple, but centralized</span>
+nc, err := nats.Connect("nats://broker.example.com:4222")
+nc.Publish("tasks.agent-b", taskPayload)
+<span class="comment">// All traffic routes through the broker</span>
+<span class="comment">// Broker sees plaintext messages</span></code></pre>
+
+  <p><strong>Best for:</strong> High-volume event-driven architectures where agents produce and consume streams of events. Monitoring, telemetry, fan-out notifications. Systems where message persistence and replay are required. For a comparison of Pilot's built-in pub/sub versus NATS for agent workloads, see <a href="/blog/replace-message-broker-twelve-lines-go">Replace Your Message Broker with 12 Lines of Go</a>.</p>
+  </section>
+
+  <section>
+  <h2 id="deep-dive-pilot">Deep Dive: Pilot Protocol</h2>
+
+  <p>Pilot Protocol was designed from the ground up for the specific problem of AI agents communicating across arbitrary network topologies.</p>
+
+  <p><strong>Strengths:</strong> Built-in NAT traversal with three tiers (STUN, hole-punch, relay). End-to-end encryption between agents by default -- the rendezvous server never sees plaintext. Virtual 48-bit addresses that persist across network changes. Cryptographic trust model where agents are invisible by default. Single UDP socket for all peer connections keeps memory under 25 MB even at 100 concurrent peers. Zero external dependencies -- one Go binary for the daemon, one for the CLI.</p>
+
+  <p><strong>Weaknesses:</strong> Userspace transport means lower raw throughput than kernel TCP -- approximately 10% less on sustained transfers. The driver package is Go-only, so agents in Python or JavaScript need to shell out to <code>pilotctl</code> or use the IPC socket. No HTTP/2 multiplexing -- connections are byte streams, not structured RPC calls. No durable message log -- if an agent is offline when a message is sent, the message is lost (unlike NATS JetStream). The ecosystem is young compared to gRPC and NATS.</p>
+
+  <pre><code><span class="comment">// Pilot: P2P, encrypted, NAT-aware</span>
+conn, err := driver.Dial(daemon, "0:0000.0000.0003", 1001)
+<span class="comment">// NAT traversal handled automatically</span>
+<span class="comment">// End-to-end encrypted (X25519 + AES-256-GCM)</span>
+<span class="comment">// conn implements net.Conn -- use standard Go I/O</span>
+conn.Write(taskPayload)</code></pre>
+
+  <p><strong>Best for:</strong> Distributed agent networks where agents run on heterogeneous infrastructure -- laptops, VMs, edge devices, behind corporate firewalls. Scenarios where data sovereignty matters and you cannot route traffic through a centralized broker. Private agent swarms where trust must be established cryptographically, not assumed.</p>
+  </section>
+
+  <section>
+  <h2 id="when-to-use">When to Use What</h2>
+
+  <p>There is no single best protocol. The right choice depends on your constraints.</p>
+
+  <p><strong>Use raw TCP when</strong> you need maximum throughput between agents on the same network, you control both endpoints, and you are comfortable building your own framing, encryption, and reconnection logic. Common in high-frequency trading, game servers, and data pipeline internals.</p>
+
+  <p><strong>Use gRPC when</strong> your agents expose structured APIs with well-defined schemas, you run in a cloud environment with load balancers and TLS certificate automation, and you need the ecosystem of interceptors, tracing, and code generation. Common in Kubernetes-based agent platforms and enterprise microservice architectures.</p>
+
+  <p><strong>Use NATS when</strong> your agents communicate primarily via publish/subscribe patterns, you need message persistence and replay, you can run and maintain a NATS cluster, and NAT is handled at the infrastructure level (all agents are in the same VPC or can reach the NATS cluster). Common in event-driven systems, telemetry pipelines, and fan-out notification architectures.</p>
+
+  <p><strong>Use Pilot Protocol when</strong> your agents are distributed across multiple networks, sit behind NAT or firewalls, need end-to-end encryption without a centralized decryption point, and must establish trust without pre-shared credentials. Common in cross-organization agent collaboration, edge computing, privacy-sensitive deployments, and any scenario where agents cannot assume network reachability.</p>
+
+  <div class="callout">
+    <p><strong>Not mutually exclusive:</strong> Pilot Protocol's HTTP port (80) and gateway component mean you can run gRPC services <em>over</em> Pilot tunnels. Use Pilot for the connectivity and NAT traversal layer, and gRPC for the API structure. The gateway maps Pilot addresses to local IPs, so existing gRPC clients can connect without modification.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="honest-limitations">Honest Limitations of Pilot Protocol</h2>
+
+  <p>We built Pilot Protocol and we know where it falls short. Being honest about limitations builds more trust than hiding them.</p>
+
+  <ul>
+    <li><strong>Raw throughput:</strong> Pilot achieves approximately 50 Mbps sustained, compared to 62 Mbps for raw TCP. The 20% gap is the cost of userspace transport. For bulk data transfer between agents on the same LAN, TCP is faster.</li>
+    <li><strong>Language support:</strong> The driver package (<code>pkg/driver</code>) is Go-only. Other languages can interact via the <code>pilotctl</code> CLI or the IPC Unix socket, but native client libraries for Python, JavaScript, and Rust do not exist yet.</li>
+    <li><strong>No HTTP/2 multiplexing:</strong> gRPC's ability to multiplex many RPC calls over a single HTTP/2 connection is genuinely useful for structured APIs. Pilot connections are raw byte streams -- you implement your own framing or use HTTP/1.1 over port 80.</li>
+    <li><strong>No durable message log:</strong> NATS JetStream lets consumers replay missed messages. Pilot's event stream on port 1002 is fire-and-forget. If the subscriber is offline, the event is lost.</li>
+    <li><strong>Ecosystem maturity:</strong> gRPC has thousands of production deployments and a massive community. NATS powers messaging at companies like Synadia and Mastercard. Pilot Protocol is newer and smaller.</li>
+  </ul>
+
+  <p>These limitations are real. They matter for certain use cases. The question is whether they matter for <em>your</em> use case. If your agents are behind NAT, need end-to-end encryption, and must establish trust without pre-shared infrastructure, the features Pilot provides outweigh the features it lacks.</p>
+  </section>
+
+  <section>
+  <h2 id="summary">Summary</h2>
+
+  <p>The networking landscape for AI agents is not one-size-fits-all. Each protocol excels in its niche:</p>
+
+  <ul>
+    <li><strong>TCP</strong> gives you raw speed and total control at the cost of building everything yourself.</li>
+    <li><strong>gRPC</strong> gives you structured APIs and ecosystem maturity at the cost of infrastructure requirements.</li>
+    <li><strong>NATS</strong> gives you powerful pub/sub and message persistence at the cost of running a centralized broker.</li>
+    <li><strong>Pilot Protocol</strong> gives you P2P connectivity, encryption, and NAT traversal at the cost of lower raw throughput and a younger ecosystem.</li>
+  </ul>
+
+  <p>For agent networks that span organizational boundaries, cross NAT barriers, and require cryptographic trust -- the use case Pilot was designed for -- no other protocol in this comparison provides a complete solution without additional infrastructure.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Try the Comparison Yourself</h3>
+    <p>Set up two Pilot agents and run the built-in benchmarks. Compare against your current stack and see where the numbers land for your workload.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
 ---
 <BlogLayout
   title="Pilot Protocol vs TCP vs gRPC vs NATS"
-  description="An honest comparison of Pilot Protocol, raw TCP, gRPC, and NATS for agent communication. Benchmarks, trade-offs, and a decision matrix for your architecture."
+  description="Technical comparison: when to use Pilot Protocol over traditional networking. Latency, features, and use case fit."
   date="February 11, 2026"
   tags={["comparison", "grpc", "nats"]}
-  canonicalPath="/blog/pilot-vs-tcp-grpc-nats-comparison.html"
-  bannerImage="/blog/banners/pilot-vs-tcp-grpc-nats-comparison.png"
+  canonicalPath="/blog/pilot-vs-tcp-grpc-nats-comparison"
+  bannerImage="/blog/banners/pilot-vs-tcp-grpc-nats-comparison.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

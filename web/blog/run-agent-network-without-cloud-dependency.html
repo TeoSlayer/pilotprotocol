@@ -10,12 +10,12 @@
 <meta property="og:title" content="Run Your Agent Network Without Cloud Dependency">
 <meta property="og:description" content="Self-host your agent network with no cloud accounts. One binary, five minutes, zero third-party dependencies. Your devices keep working when the cloud shuts down.">
 <meta property="og:url" content="https://pilotprotocol.network/blog/run-agent-network-without-cloud-dependency.html">
-<meta property="og:image" content="/blog/banners/run-agent-network-without-cloud-dependency.png">
+<meta property="og:image" content="/blog/banners/run-agent-network-without-cloud-dependency.webp">
 <meta property="og:site_name" content="Pilot Protocol">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Run Your Agent Network Without Cloud Dependency">
 <meta name="twitter:description" content="Self-host your agent network with no cloud accounts. One binary, five minutes, zero third-party dependencies. Your devices keep working when the cloud shuts down.">
-<meta name="twitter:image" content="/blog/banners/run-agent-network-without-cloud-dependency.png">
+<meta name="twitter:image" content="/blog/banners/run-agent-network-without-cloud-dependency.webp">
 <meta name="theme-color" content="#22c55e">
 <link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
 <link rel="stylesheet" href="style.css">
@@ -153,11 +153,10 @@ sensor-1  1:0001.0000.0001  public  192.168.1.50:4000</code></pre>
       <tr><td>10 agents</td><td>~20 MB</td><td>Negligible</td><td>~1 KB/s</td></tr>
       <tr><td>100 agents</td><td>~35 MB</td><td>&lt;1% single core</td><td>~10 KB/s</td></tr>
       <tr><td>1,000 agents</td><td>~80 MB</td><td>~5% single core</td><td>~100 KB/s</td></tr>
-      <tr><td>10,000 agents</td><td>~400 MB</td><td>~1 core</td><td>~1 MB/s</td></tr>
     </tbody>
   </table>
 
-  <p>For production deployments exceeding 1,000 agents, Pilot supports <strong>hot-standby replication</strong>: a secondary rendezvous server receives push-based snapshots from the primary and can take over if the primary fails. See <a href="ten-thousand-agents-three-vms.html">How We Run 10,000 Agents on 3 VMs</a> for the operational details.</p>
+  <p>For production deployments exceeding 1,000 agents, Pilot supports <strong>hot-standby replication</strong>: a secondary rendezvous server receives push-based snapshots from the primary and can take over if the primary fails.</p>
 
   <h2 id="enrollment">Agent Enrollment Without Third-Party Accounts</h2>
 

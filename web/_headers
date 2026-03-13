@@ -21,3 +21,6 @@
 
 /sitemap.xml
   Cache-Control: public, max-age=86400
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable

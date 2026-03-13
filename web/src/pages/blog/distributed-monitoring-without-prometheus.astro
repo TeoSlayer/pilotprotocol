@@ -89,7 +89,7 @@ done</code></pre>
   <pre><code><span class="comment"># Deploy monitoring on a new server</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname web-server-04</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.internal:9000 --beacon rendezvous.internal:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 <span class="cmd">$ pilotctl set-tags monitoring server web</span>
 
 <span class="comment"># Establish trust with the aggregator</span>
@@ -232,7 +232,7 @@ pilotctl publish "metrics/io_latency/$HOSTNAME" \\
 
   <h2 id="dashboard">The Built-In Dashboard</h2>
 
-  <p>The Polo dashboard at <a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a> already provides a fleet overview. Every node registered with the rendezvous server appears with its hostname, address, tags, online status, and polo score. For basic monitoring -- "which of my servers are up?" -- the dashboard works without any additional setup.</p>
+  <p>The Polo dashboard at <a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a> already provides a fleet overview. Every node registered on the network appears with its hostname, address, tags, online status, and polo score. For basic monitoring -- "which of my servers are up?" -- the dashboard works without any additional setup.</p>
 
   <p>Tag your servers by role, and the dashboard becomes a filtered view of your infrastructure:</p>
 
@@ -254,22 +254,22 @@ pilotctl publish "metrics/io_latency/$HOSTNAME" \\
 
   <p>This is where Pilot's architecture provides a genuine advantage over traditional monitoring stacks. Consider this scenario: you have servers in AWS us-east, a few in a Hetzner data center, and a couple under your desk at the office. With Prometheus, you need each environment to be reachable from the Prometheus server -- which means VPN tunnels, port forwarding, or running multiple Prometheus instances with federation.</p>
 
-  <p>With Pilot, every server runs the same daemon and connects to the same rendezvous server. NAT traversal is automatic. The monitoring agent on the office server publishes metrics to the same topics as the monitoring agent on the AWS server. The aggregator subscribes once and receives everything.</p>
+  <p>With Pilot, every server runs the same daemon and connects to the same network. NAT traversal is automatic. The monitoring agent on the office server publishes metrics to the same topics as the monitoring agent on the AWS server. The aggregator subscribes once and receives everything.</p>
 
   <pre><code><span class="comment"># Server in AWS (public IP)</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 
 <span class="comment"># Server in Hetzner (different data center)</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 
 <span class="comment"># Server under desk (behind office NAT)</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.mycompany.com:9000 --beacon rendezvous.mycompany.com:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 
 <span class="comment"># All three publish to the same topics.</span>
 <span class="comment"># The aggregator (anywhere) subscribes and receives from all three.</span>
 <span class="comment"># No VPN. No port forwarding. No firewall rules.</span></code></pre>
 
-  <p>The office server behind NAT connects through STUN discovery and, if necessary, beacon relay. The aggregator sees metrics from all three environments in a single subscription stream. The encryption is end-to-end -- the rendezvous server and beacon never see the metric data in cleartext.</p>
+  <p>The office server behind NAT connects through STUN discovery and, if necessary, beacon relay. The aggregator sees metrics from all three environments in a single subscription stream. The encryption is end-to-end -- the network infrastructure never sees the metric data in cleartext.</p>
 
   <h2 id="comparison">Comparison: Pilot + Scripts vs. The Alternatives</h2>
 
@@ -407,7 +407,7 @@ done</code></pre>
 
   <p>The right question is not "is this better than Prometheus?" It is "do I need everything Prometheus provides?" If you have 15 servers, need basic metrics and alerts, and want it working in 5 minutes instead of 4 hours, this pattern delivers. If you have 1,500 servers, need PromQL, and have a dedicated observability team, use Prometheus.</p>
 
-  <p>For a deeper look at the event stream that powers this pattern, see <a href="replace-message-broker-twelve-lines-go.html">Replace Your Agent Message Broker with 12 Lines of Go</a>. For the NAT traversal that makes cross-network monitoring work, see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal: A Deep Dive</a>. For the operational story behind scaling the Pilot network itself, see <a href="ten-thousand-agents-three-vms.html">How We Run 10,000 Agents on 3 VMs</a>.</p>
+  <p>For a deeper look at the event stream that powers this pattern, see <a href="replace-message-broker-twelve-lines-go">Replace Your Agent Message Broker with 12 Lines of Go</a>. For the NAT traversal that makes cross-network monitoring work, see <a href="nat-traversal-ai-agents-deep-dive">NAT Traversal: A Deep Dive</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
@@ -416,12 +416,12 @@ done</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="Distributed Monitoring Without Prometheus or Grafana"
-  description="Lightweight distributed monitoring using Pilot Protocol event streams. No Prometheus, no Grafana, no exporters. One binary per node, metrics over encrypted pub/sub."
+  title="Distributed Monitoring Without Prometheus"
+  description="Each agent monitors its peers directly. No central Prometheus server, no scrape configs — just agent-to-agent health checks."
   date="February 24, 2026"
   tags={["monitoring", "operations", "event-stream"]}
-  canonicalPath="/blog/distributed-monitoring-without-prometheus.html"
-  bannerImage="/blog/banners/distributed-monitoring-without-prometheus.png"
+  canonicalPath="/blog/distributed-monitoring-without-prometheus"
+  bannerImage="/blog/banners/distributed-monitoring-without-prometheus.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>The standard RAG architecture puts all your documents in one vector database. Every agent queries the same store. Every document is copied into the same embedding space. This creates three problems that get worse as you scale: <strong>privacy violations</strong> (sensitive documents are centralized and accessible to any query), <strong>single point of failure</strong> (if the vector database goes down, every agent loses retrieval capability), and <strong>access control gaps</strong> (vector databases were not built to enforce per-document, per-user permissions).</p>
+const bodyContent = `<p>The standard <a href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation" target="_blank" rel="noopener">RAG</a> architecture puts all your documents in one <a href="https://en.wikipedia.org/wiki/Vector_database" target="_blank" rel="noopener">vector database</a>. Every agent queries the same store. Every document is copied into the same embedding space. This creates three problems that get worse as you scale: <strong>privacy violations</strong> (sensitive documents are centralized and accessible to any query), <strong>single point of failure</strong> (if the vector database goes down, every agent loses retrieval capability), and <strong>access control gaps</strong> (vector databases were not built to enforce per-document, per-user permissions).</p>
 
   <p>The coordination nightmare is real. Teams report constantly debugging where things break down in their RAG pipelines. Every time the retriever output format changes, downstream agents break. And vector databases contain copies of private data that lack the access controls of the source systems they were copied from.</p>
 
@@ -14,7 +14,7 @@ const bodyContent = `<p>The standard RAG architecture puts all your documents in
 
   <p><strong>Privacy by violation.</strong> When you ingest documents from multiple departments into a single vector store, you create a copy of every document that exists outside the access controls of the source system. An HR performance review, a legal contract, and a public marketing document all become equal vectors in the same index. The retrieval query has no concept of "this user should not see HR documents." You can add metadata filters, but these are application-level patches on a fundamentally flat data store. One misconfigured filter exposes sensitive data.</p>
 
-  <p><strong>Single point of failure.</strong> Every agent depends on the vector database. If Pinecone has an outage, or your self-hosted Qdrant instance runs out of disk, or the embedding model endpoint throttles, the entire system stops retrieving. You can add replicas and load balancers, but the architectural fragility remains: one component serves all queries for all domains.</p>
+  <p><strong>Single point of failure.</strong> Every agent depends on the vector database. If <a href="https://www.pinecone.io" target="_blank" rel="noopener">Pinecone</a> has an outage, or your self-hosted Qdrant instance runs out of disk, or the embedding model endpoint throttles, the entire system stops retrieving. You can add replicas and load balancers, but the architectural fragility remains: one component serves all queries for all domains.</p>
 
   <p><strong>Coordination overhead.</strong> As the document corpus grows, so does the challenge of keeping the index fresh. Different data sources update at different frequencies. The engineering wiki changes daily. Legal contracts change monthly. Employee records change quarterly. Synchronizing all of these into one index requires ETL pipelines, change detection, re-embedding, and index rebuilds. Each pipeline is a potential failure point, and debugging "why did the RAG return stale data" means tracing through multiple ingestion paths.</p>
 
@@ -43,7 +43,7 @@ const bodyContent = `<p>The standard RAG architecture puts all your documents in
 
   <p>The system has two types of agents:</p>
 
-  <p><strong>Retriever agents</strong> own a knowledge domain. Each runs a local vector store (FAISS, ChromaDB, or any embedding-based index) over its documents. It accepts queries, retrieves relevant chunks, and returns them. It does not generate answers -- it only retrieves.</p>
+  <p><strong>Retriever agents</strong> own a knowledge domain. Each runs a local vector store (FAISS, <a href="https://www.trychroma.com" target="_blank" rel="noopener">ChromaDB</a>, or any embedding-based index) over its documents. It accepts queries, retrieves relevant chunks, and returns them. It does not generate answers -- it only retrieves.</p>
 
   <p><strong>The synthesis agent</strong> (orchestrator) receives user queries, determines which retriever agents to query based on the topic, fans out the query, collects results, and feeds them into an LLM to generate the final answer.</p>
 
@@ -402,11 +402,11 @@ print(f"\\nAnswer:\\n{answer}")</code></pre>
 ---
 <BlogLayout
   title="Distributed RAG Without a Central Knowledge Base"
-  description="Build a distributed RAG pipeline where each agent owns its domain knowledge. No centralized vector database, trust-gated access, and privacy-preserving retrieval."
+  description="Each agent owns its own knowledge. Query peers directly for context instead of centralizing everything into one vector store."
   date="February 27, 2026"
   tags={["RAG", "multi-agent", "privacy"]}
-  canonicalPath="/blog/distributed-rag-without-central-knowledge-base.html"
-  bannerImage="/blog/banners/distributed-rag-without-central-knowledge-base.png"
+  canonicalPath="/blog/distributed-rag-without-central-knowledge-base"
+  bannerImage="/blog/banners/distributed-rag-without-central-knowledge-base.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

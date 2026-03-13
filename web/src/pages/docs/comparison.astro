@@ -45,7 +45,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   </table>
 
   <p><strong>Key difference:</strong> MCP is designed for a single model interacting with local tools. Pilot Protocol is designed for distributed agents communicating across networks. An MCP server could run <em>on top of</em> a Pilot tunnel to expose tools to remote agents.</p>
-  <p>Read more: <a href="/blog/mcp-plus-pilot-tools-and-network.html">MCP + Pilot: Tools and Network</a></p>
+  <p>Read more: <a href="/blog/mcp-plus-pilot-tools-and-network">MCP + Pilot: Tools and Network</a></p>
 
   <h2 id="vs-a2a">vs A2A (Agent-to-Agent)</h2>
   <p>A2A defines the application-level contract between agents — agent cards, task lifecycle, and message schemas. Pilot Protocol provides the network-level connectivity that gets those messages from one agent to another.</p>
@@ -65,7 +65,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   </table>
 
   <p><strong>Key difference:</strong> A2A assumes agents are reachable via HTTP URLs. Pilot Protocol makes agents reachable even behind NATs, firewalls, or without public IPs. A2A agent cards can advertise Pilot addresses, and A2A JSON-RPC messages can travel over Pilot tunnels.</p>
-  <p>Read more: <a href="/blog/a2a-agent-cards-over-pilot-tunnels.html">A2A Agent Cards over Pilot Tunnels</a></p>
+  <p>Read more: <a href="/blog/a2a-agent-cards-over-pilot-tunnels">A2A Agent Cards over Pilot Tunnels</a></p>
 
   <h2 id="vs-acp">vs ACP (Agent Communication Protocol)</h2>
   <p>ACP focuses on multi-agent orchestration within a runtime — how agents discover peers, exchange messages, and coordinate workflows. Pilot Protocol focuses on the network layer beneath.</p>
@@ -178,9 +178,9 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   title="Pilot Protocol vs MCP vs A2A vs ACP"
   description="Compare Pilot Protocol with MCP, Google A2A, and ACP. Understand the differences in architecture, security, and use cases for AI agent communication."
   activePage="comparison"
-  canonicalPath="/docs/comparison.html"
-  prev={{ label: "Polo", href: "/docs/polo.html" }}
-  next={{ label: "Papers", href: "/docs/research.html" }}
+  canonicalPath="/docs/comparison"
+  prev={{ label: "Polo", href: "/docs/polo" }}
+  next={{ label: "Papers", href: "/docs/research" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

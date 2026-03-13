@@ -13,11 +13,11 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
   <ul>
     <li><strong>Agent A:</strong> GCP <code>e2-standard-2</code> in <code>us-east1-b</code> (South Carolina). 2 vCPU, 8 GB RAM. Ubuntu 22.04.</li>
     <li><strong>Agent B:</strong> GCP <code>e2-standard-2</code> in <code>europe-west1-b</code> (Belgium). Same spec.</li>
-    <li><strong>Rendezvous server:</strong> GCP <code>e2-small</code> in <code>us-central1-a</code>. Registry and beacon on ports 9000/9001.</li>
+    <li><strong>Network:</strong> pilotprotocol.network (default public network).</li>
     <li><strong>Network baseline:</strong> 85ms RTT between US-East and EU-West (measured with ICMP ping, averaged over 1000 samples).</li>
   </ul>
 
-  <p>For the HTTP/2 tests, both agents expose endpoints on public IPs with valid TLS certificates. For Pilot tests, both agents register with the rendezvous server and communicate over the UDP tunnel. All tests were run 100 times and we report the <strong>median</strong>.</p>
+  <p>For the HTTP/2 tests, both agents expose endpoints on public IPs with valid TLS certificates. For Pilot tests, both agents register on the network and communicate over the UDP tunnel. All tests were run 100 times and we report the <strong>median</strong>.</p>
 
   <h3>Tools</h3>
 
@@ -74,7 +74,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
     <p><strong>Why this matters for agents:</strong> An orchestrator dispatching tasks to 50 agents pays 50 connection setup costs. At 175ms each with HTTP/2, that is 8.75 seconds of pure overhead. With Pilot, it is 750ms. Agent swarms that frequently open and close connections see the biggest gains here.</p>
   </div>
 
-  <p>HTTP/2 multiplexing reduces this cost for subsequent requests on the same connection, but the first request always pays the full price. Pilot's model is different: the tunnel is a long-lived substrate, and connections within it are cheap.</p>
+  <p>HTTP/2 multiplexing reduces this cost for subsequent requests on the same connection, but the first request always pays the full price. Pilot's model is different: the tunnel is a long-lived substrate, and connections within it are cheap. For a deeper analysis of why persistent connections outperform request-response patterns for agent workloads, see <a href="/blog/move-beyond-rest-persistent-connections-for-agents">Move Beyond REST: Persistent Connections for Agents</a>.</p>
   </section>
 
   <section>
@@ -268,7 +268,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
 
   <h3>Symmetric NAT: The Worst Case</h3>
 
-  <p>Symmetric NAT defeats hole-punching. Both HTTP and Pilot must relay. Pilot's beacon relay mode wraps packets in <code>MsgRelay</code> frames and forwards through the beacon server. The overhead is approximately 15ms per hop, comparable to HTTP relay solutions. Pilot detects symmetric NAT automatically and switches to relay mode without any configuration change. See our <a href="nat-traversal-ai-agents-deep-dive.html">NAT traversal deep dive</a> for the full breakdown.</p>
+  <p>Symmetric NAT defeats hole-punching. Both HTTP and Pilot must relay. Pilot's beacon relay mode wraps packets in <code>MsgRelay</code> frames and forwards through the beacon server. The overhead is approximately 15ms per hop, comparable to HTTP relay solutions. Pilot detects symmetric NAT automatically and switches to relay mode without any configuration change. See our <a href="nat-traversal-ai-agents-deep-dive">NAT traversal deep dive</a> for the full breakdown.</p>
   </section>
 
   <section>
@@ -316,7 +316,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
 
   <p>Pilot Protocol is not trying to be faster than HTTP. It is trying to be <strong>reachable</strong> where HTTP is not. The benchmark numbers show that when Pilot can reach an agent that HTTP cannot, the performance penalty is near zero. And when both can reach the agent, the performance is comparable.</p>
 
-  <p>The choice is not "HTTP or Pilot." It is "HTTP where you can, Pilot where you must." And for <a href="build-agent-swarm-self-organizes.html">agent swarms</a> that span networks, corporate boundaries, and NAT topologies, "where you must" is most of the time.</p>
+  <p>The choice is not "HTTP or Pilot." It is "HTTP where you can, Pilot where you must." And for <a href="build-agent-swarm-self-organizes">agent swarms</a> that span networks, corporate boundaries, and NAT topologies, "where you must" is most of the time. If you are currently using webhooks for event-driven agent communication, the persistent tunnel model eliminates the silent failures and public URL requirements entirely -- see <a href="/blog/replace-webhooks-with-persistent-agent-tunnels">Replace Webhooks With Persistent Agent Tunnels</a>.</p>
   </section>
 
   <section>
@@ -325,7 +325,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
   <p>All benchmark tooling is included in the repository. To run the Pilot benchmarks yourself:</p>
 
   <pre><code><span class="comment"># Start two agents (on separate machines)</span>
-<span class="cmd">pilot-daemon -registry-addr rendezvous:9000 -beacon-addr rendezvous:9001</span>
+<span class="cmd">pilot-daemon</span>
 
 <span class="comment"># On Agent A: run the benchmark</span>
 <span class="cmd">pilotctl bench 1:0001.0002.0003 --duration 60s</span>
@@ -344,12 +344,12 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
   </div>`;
 ---
 <BlogLayout
-  title="Benchmarking HTTP vs UDP Overlay for Agents"
-  description="Hard numbers comparing agent communication over HTTP/2 and Pilot Protocol's UDP overlay. Connection setup, message latency, throughput, and NAT traversal benchmarks."
+  title="Benchmarking HTTP vs UDP Overlay for Agent Communication"
+  description="Performance comparison: latency, throughput, and connection overhead between traditional HTTP and Pilot Protocol's UDP overlay."
   date="February 16, 2026"
   tags={["benchmark", "performance", "data"]}
-  canonicalPath="/blog/benchmarking-http-vs-udp-overlay.html"
-  bannerImage="/blog/banners/benchmarking-http-vs-udp-overlay.png"
+  canonicalPath="/blog/benchmarking-http-vs-udp-overlay"
+  bannerImage="/blog/banners/benchmarking-http-vs-udp-overlay.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

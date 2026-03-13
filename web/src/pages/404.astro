@@ -1,0 +1,29 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import IslandNavbar from '../components/IslandNavbar.astro';
+import BlogFooter from '../components/BlogFooter.astro';
+import '../styles/global.css';
+import '../styles/blog.css';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title="Page Not Found — Pilot Protocol" description="The page you're looking for doesn't exist or has been moved." />
+</head>
+<body>
+  <IslandNavbar />
+  <div style="min-height:60vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:120px 24px 80px;">
+    <div>
+      <p style="font-size:5rem;font-weight:800;color:var(--accent);line-height:1;margin-bottom:16px;">404</p>
+      <h1 style="font-size:1.5rem;font-weight:600;margin-bottom:12px;">Page Not Found</h1>
+      <p style="color:var(--muted);max-width:420px;margin:0 auto 32px;">The page you're looking for doesn't exist or has been moved. Try one of the links below.</p>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="padding:10px 24px;border-radius:40px;background:var(--accent);color:#000;font-weight:600;font-size:0.88rem;">Home</a>
+        <a href="/docs/" style="padding:10px 24px;border-radius:40px;background:var(--surface);border:1px solid var(--border);color:var(--fg);font-size:0.88rem;">Docs</a>
+        <a href="/blog/" style="padding:10px 24px;border-radius:40px;background:var(--surface);border:1px solid var(--border);color:var(--fg);font-size:0.88rem;">Blog</a>
+      </div>
+    </div>
+  </div>
+  <BlogFooter />
+</body>
+</html>

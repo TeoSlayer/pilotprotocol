@@ -194,15 +194,19 @@ HTTPServer(("", 8080), Handler).serve_forever()</code></pre>
 <span class="comment"># Re-enable</span>
 <span class="cmd">pilotctl</span> set-webhook http://localhost:8080/events</code></pre>
 
-  <p>The webhook URL is persisted to <code>~/.pilot/config.json</code>, so it survives daemon restarts.</p>`;
+  <p>The webhook URL is persisted to <code>~/.pilot/config.json</code>, so it survives daemon restarts.</p>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/replace-webhooks-with-persistent-agent-tunnels">Replace Webhooks With Persistent Agent Tunnels</a>
+  </div>`;
 ---
 <DocLayout
   title="Webhooks"
   description="Receive real-time HTTP notifications for Pilot Protocol daemon events."
   activePage="webhooks"
-  canonicalPath="/docs/webhooks.html"
-  prev={{ label: "Pub/Sub", href: "/docs/pubsub.html" }}
-  next={{ label: "Gateway", href: "/docs/gateway.html" }}
+  canonicalPath="/docs/webhooks"
+  prev={{ label: "Pub/Sub", href: "/docs/pubsub" }}
+  next={{ label: "Gateway", href: "/docs/gateway" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

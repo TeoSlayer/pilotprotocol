@@ -10,7 +10,6 @@ const posts = [
   { file: 'pilot-vs-tcp-grpc-nats-comparison', title: 'Pilot Protocol vs. Raw TCP vs. gRPC vs. NATS', category: 'Comparison', date: 'February 11, 2026' },
   { file: 'private-agent-network-company', title: 'Building a Private Agent Network for Your Company', category: 'Guide', date: 'February 11, 2026' },
   { file: 'zero-dependency-encryption-x25519-aes-gcm', title: 'Zero-Dependency Agent Encryption: X25519 + AES-256-GCM', category: 'Cryptography', date: 'February 12, 2026' },
-  { file: 'ten-thousand-agents-three-vms', title: 'How We Run 10,000 Agents on 3 VMs', category: 'Operations', date: 'February 12, 2026' },
   { file: 'a2a-agent-cards-over-pilot-tunnels', title: 'Building A2A Agent Cards Over Pilot Protocol Tunnels', category: 'Integration', date: 'February 13, 2026' },
   { file: 'nat-traversal-ai-agents-deep-dive', title: 'NAT Traversal for AI Agents: A Deep Dive', category: 'Deep Dive', date: 'February 13, 2026' },
   { file: 'decentralized-task-marketplace-agents', title: 'Build a Decentralized Task Marketplace for AI Agents', category: 'Tutorial', date: 'February 14, 2026' },
@@ -40,6 +39,19 @@ const posts = [
   { file: 'distributed-rag-without-central-knowledge-base', title: 'Distributed RAG Without a Central Knowledge Base', category: 'AI/ML', date: 'February 27, 2026' },
   { file: 'chain-ai-models-across-machines', title: 'Chain AI Models Across Machines With Persistent Tunnels', category: 'AI/ML', date: 'February 28, 2026' },
   { file: 'federated-learning-p2p-communication', title: 'P2P Communication for Federated Learning Nodes', category: 'AI/ML', date: 'February 28, 2026' },
+  { file: 'build-openclaw-agent-self-organizes-pilot', title: 'Build an OpenClaw Agent That Self-Organizes Into Pilot', category: 'Tutorial', date: 'March 1, 2026' },
+  { file: 'building-custom-pilot-skills-openclaw', title: 'Building Custom Pilot Skills for OpenClaw', category: 'Development', date: 'March 1, 2026' },
+  { file: 'clawhub-to-live-network-openclaw-discovery', title: 'From ClawHub to Live Network: OpenClaw Discovery', category: 'Tutorial', date: 'March 2, 2026' },
+  { file: 'emergent-trust-networks-agents-choose-peers', title: 'Emergent Trust Networks: Agents Choose Peers', category: 'Networks', date: 'March 2, 2026' },
+  { file: 'how-626-agents-autonomously-adopted-pilot', title: 'How 626 Agents Autonomously Adopted Pilot Protocol', category: 'Case Study', date: 'March 3, 2026' },
+  { file: 'multi-agent-pipelines-openclaw-encrypted-tunnels', title: 'Multi-Agent Pipelines With OpenClaw and Encrypted Tunnels', category: 'Tutorial', date: 'March 3, 2026' },
+  { file: 'openclaw-agents-behind-nat-zero-config', title: 'OpenClaw Agents Behind NAT: Zero Config', category: 'Networking', date: 'March 4, 2026' },
+  { file: 'openclaw-meets-pilot-agent-networking-one-command', title: 'OpenClaw Meets Pilot: Agent Networking in One Command', category: 'Integration', date: 'March 4, 2026' },
+  { file: 'openclaw-task-delegation-polo-reputation', title: 'OpenClaw Task Delegation with Polo Reputation', category: 'Tutorial', date: 'March 5, 2026' },
+  { file: 'preferential-attachment-ai-networks-trust-graph', title: 'Preferential Attachment in AI Networks: The Trust Graph', category: 'Research', date: 'March 5, 2026' },
+  { file: 'scaling-openclaw-fleets-thousands-agents', title: 'Scaling OpenClaw Fleets to Thousands of Agents', category: 'Operations', date: 'March 6, 2026' },
+  { file: 'sociology-of-machines-626-agents', title: 'Sociology of Machines: 626 Agents', category: 'Research', date: 'March 6, 2026' },
+  { file: 'why-autonomous-agents-need-private-discovery', title: 'Why Autonomous Agents Need Private Discovery', category: 'Security', date: 'March 7, 2026' },
 ];
 
 const logoBase64 = fs.readFileSync(path.join(__dirname, '../../docs/media/pilot.png')).toString('base64');

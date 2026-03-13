@@ -3,7 +3,7 @@ import BlogLayout from '../../layouts/BlogLayout.astro';
 
 const bodyContent = `<p>"We are building Multi-Agent Systems like it's 1995 -- where is the authentication layer?" This question, posted on a developer forum in late 2025, captures the state of agent security precisely. The frameworks ship fast and the demos look impressive, but underneath the surface there is no identity, no authentication, and no access control between agents.</p>
 
-  <p>The numbers back it up. Security researchers at Columbia University found that <strong>CrewAI exfiltrated data in 65% of tested scenarios</strong>. The same study showed that <strong>Magentic-One executed malicious code 97% of the time</strong> when a compromised agent was introduced to the group. These are not edge cases. These are the default outcomes when agent frameworks trust every participant without verification.</p>
+  <p>The numbers back it up. Security researchers at Columbia University found that <strong><a href="https://www.crewai.com" target="_blank" rel="noopener">CrewAI</a> exfiltrated data in 65% of tested scenarios</strong>. The same study showed that <strong>Magentic-One executed malicious code 97% of the time</strong> when a compromised agent was introduced to the group. These are not edge cases. These are the default outcomes when agent frameworks trust every participant without verification.</p>
 
   <p>The problem is not that these frameworks lack security features. It is that they were never designed around a trust model. They assume agents are cooperative, endpoints are safe, and the network is private. In production, none of those assumptions hold.</p>
 
@@ -17,7 +17,7 @@ const bodyContent = `<p>"We are building Multi-Agent Systems like it's 1995 -- w
 
   <p>When Agent A sends a request to Agent B, how does Agent B know it is really Agent A? In most frameworks, the answer is: it does not. The request contains a token that proves the caller has <em>a</em> credential, not that the caller <em>is</em> who it claims to be. Any agent that obtains the token can impersonate any other agent.</p>
 
-  <p>Google's A2A protocol introduced Agent Cards -- JSON documents published at <code>/.well-known/agent.json</code> -- that describe an agent's capabilities and endpoint. A2A supports but does not enforce Agent Card signing. An unsigned Agent Card can be spoofed by anyone who controls the DNS or the hosting infrastructure. The specification explicitly leaves identity verification as an implementation detail.</p>
+  <p>Google's <a href="https://google.github.io/A2A" target="_blank" rel="noopener">A2A protocol</a> introduced <a href="https://google.github.io/A2A/#/documentation/agent_card" target="_blank" rel="noopener">Agent Cards</a> -- JSON documents published at <code>/.well-known/agent.json</code> -- that describe an agent's capabilities and endpoint. A2A supports but does not enforce Agent Card signing. An unsigned Agent Card can be spoofed by anyone who controls the DNS or the hosting infrastructure. The specification explicitly leaves identity verification as an implementation detail.</p>
 
   <h3>No Least Privilege</h3>
 
@@ -115,9 +115,9 @@ Encrypted tunnel active</code></pre>
 
   <h3>Encryption: X25519 + AES-256-GCM Per Connection</h3>
 
-  <p>Once trust is established, the agents perform an X25519 Diffie-Hellman key exchange to derive a shared secret, then use AES-256-GCM for per-packet encryption. This is not optional -- every packet is encrypted, even on local networks, even between agents on the same machine.</p>
+  <p>Once trust is established, the agents perform an <a href="https://datatracker.ietf.org/doc/html/rfc7748" target="_blank" rel="noopener">X25519</a> Diffie-Hellman key exchange to derive a shared secret, then use <a href="https://datatracker.ietf.org/doc/html/rfc5288" target="_blank" rel="noopener">AES-256-GCM</a> for per-packet encryption. This is not optional -- every packet is encrypted, even on local networks, even between agents on the same machine.</p>
 
-  <p>The encryption is <strong>end-to-end</strong>. If the connection is relayed through a beacon (because both agents are behind NAT), the beacon sees only encrypted bytes. It forwards opaque payloads without any ability to read, modify, or replay them. For a detailed breakdown of the cryptographic implementation, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Agent Encryption</a>.</p>
+  <p>The encryption is <strong>end-to-end</strong>. If the connection is relayed through a beacon (because both agents are behind NAT), the beacon sees only encrypted bytes. It forwards opaque payloads without any ability to read, modify, or replay them. For a detailed breakdown of the cryptographic implementation, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Agent Encryption</a>.</p>
 
   <h2 id="comparison">Comparison: Security Models Across Protocols</h2>
 
@@ -213,18 +213,18 @@ Peer notified</code></pre>
 
   <ul>
     <li><strong>Prompt injection defense</strong> -- Pilot encrypts and authenticates the transport, but it does not inspect message content. A trusted agent can still send a malicious prompt. Content-level guardrails are a separate concern.</li>
-    <li><strong>Tool authorization</strong> -- Pilot controls which agents can talk to each other, not what actions they can perform once connected. If Agent A is trusted to talk to Agent B, Pilot does not restrict which API calls A makes. Use MCP or similar tool-level authorization for this. See <a href="mcp-plus-pilot-tools-and-network.html">MCP + Pilot</a> for how the two protocols complement each other.</li>
+    <li><strong>Tool authorization</strong> -- Pilot controls which agents can talk to each other, not what actions they can perform once connected. If Agent A is trusted to talk to Agent B, Pilot does not restrict which API calls A makes. Use MCP or similar tool-level authorization for this. See <a href="mcp-plus-pilot-tools-and-network">MCP + Pilot</a> for how the two protocols complement each other.</li>
     <li><strong>Data classification</strong> -- Pilot does not understand the sensitivity of the data flowing through its tunnels. If an agent should only receive redacted data, that logic lives in the application, not the protocol.</li>
-    <li><strong>Audit logging</strong> -- Pilot logs trust events (handshakes, approvals, revocations) locally. If you need centralized audit logging for compliance, you will need to aggregate these logs into your SIEM.</li>
+    <li><strong>Audit logging</strong> -- Pilot logs trust events (handshakes, approvals, revocations) locally. If you need centralized audit logging for compliance, you will need to aggregate these logs into your SIEM. For healthcare environments that require end-to-end compliance, see <a href="/blog/hipaa-compliant-agent-communication">HIPAA-Compliant Agent Communication for Healthcare AI</a>.</li>
   </ul>
 
-  <p>The right architecture is layered: Pilot Protocol for transport-level zero trust, MCP or equivalent for tool-level authorization, and application-level guardrails for content safety. Each layer handles the security domain it understands best.</p>
+  <p>The right architecture is layered: Pilot Protocol for transport-level zero trust, MCP or equivalent for tool-level authorization, and application-level guardrails for content safety. Each layer handles the security domain it understands best. When agents need to collaborate across organizational boundaries, this zero trust model becomes the foundation for <a href="/blog/cross-company-agent-collaboration-without-shared-infrastructure">cross-company agent collaboration without shared infrastructure</a> -- scoped trust handshakes replace the fragile shared-credential model.</p>
 
   <div class="callout">
     <p><strong>Defense in depth:</strong> Pilot Protocol is the network security layer. It ensures that the agent talking to you is real, that nobody is eavesdropping, and that you can cut off any agent instantly. What happens after the authenticated connection is established is your application's responsibility.</p>
   </div>
 
-  <p>For a deeper look at Pilot's trust model and visibility controls, see <a href="trust-model-agents-invisible-by-default.html">Why Agents Should Be Invisible by Default</a>. For the cryptographic details behind the encryption layer, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Agent Encryption</a>. For a complete quickstart guide, see <a href="build-multi-agent-network-five-minutes.html">Build a Multi-Agent Network in 5 Minutes</a>.</p>
+  <p>For a deeper look at Pilot's trust model and visibility controls, see <a href="trust-model-agents-invisible-by-default">Why Agents Should Be Invisible by Default</a>. For the cryptographic details behind the encryption layer, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Agent Encryption</a>. For a complete quickstart guide, see <a href="build-multi-agent-network-five-minutes">Build a Multi-Agent Network in 5 Minutes</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
@@ -233,12 +233,12 @@ Peer notified</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="How to Secure AI Agent Communication With Zero Trust"
-  description="Zero trust for AI agents: Ed25519 identity, private-by-default discovery, mutual handshakes, and instant revocation. Stop trusting by default."
+  title="Secure AI Agent Communication: Zero Trust"
+  description="Why every agent connection should be encrypted and mutually authenticated. Zero trust networking for AI agents."
   date="February 23, 2026"
   tags={["security", "zero-trust", "identity"]}
-  canonicalPath="/blog/secure-ai-agent-communication-zero-trust.html"
-  bannerImage="/blog/banners/secure-ai-agent-communication-zero-trust.png"
+  canonicalPath="/blog/secure-ai-agent-communication-zero-trust"
+  bannerImage="/blog/banners/secure-ai-agent-communication-zero-trust.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

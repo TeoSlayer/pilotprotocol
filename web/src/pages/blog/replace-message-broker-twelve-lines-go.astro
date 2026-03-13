@@ -1,9 +1,9 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>You have three agents. Agent A monitors CPU. Agent B monitors memory. Agent C needs to aggregate both streams and trigger alerts. The conventional answer is Kafka, RabbitMQ, or Redis Streams. That means another service to deploy, configure, secure, and keep running. For fewer than 1,000 agents, that is infrastructure overkill.</p>
+const bodyContent = `<p>You have three agents. Agent A monitors CPU. Agent B monitors memory. Agent C needs to aggregate both streams and trigger alerts. The conventional answer is <a href="https://kafka.apache.org" target="_blank" rel="noopener">Kafka</a>, <a href="https://www.rabbitmq.com" target="_blank" rel="noopener">RabbitMQ</a>, or <a href="https://redis.io" target="_blank" rel="noopener">Redis</a> Streams. That means another service to deploy, configure, secure, and keep running. For fewer than 1,000 agents, that is infrastructure overkill.</p>
 
-  <p>Pilot Protocol has a built-in event stream on <strong>port 1002</strong>. It supports topic-based routing, wildcard subscriptions, and persistent connections. The publish side is 6 lines of Go. The subscribe side is 6 lines. Twelve lines total, and you have a working <strong>agent pub/sub system</strong> with encrypted transport and NAT traversal included.</p>
+  <p>Pilot Protocol has a built-in event stream on <strong>port 1002</strong>. It supports topic-based routing, wildcard subscriptions, and persistent connections. The publish side is 6 lines of Go. The subscribe side is 6 lines. Twelve lines total, and you have a working <strong>agent pub/sub system</strong> in <a href="https://go.dev" target="_blank" rel="noopener">Go</a> with encrypted transport and NAT traversal included.</p>
 
   <section>
   <h2>The Problem with Brokers for Agents</h2>
@@ -463,7 +463,7 @@ stream.Publish("pipeline.stage2.result.anomaly", data)</code></pre>
 
   <p>Start with the CLI to prototype your topic hierarchy. Move to Go when you need programmatic control. Use wildcard subscriptions to build fan-in aggregators. Use topic hierarchies to build branching pipelines. And when your agent count grows past the point where peer-to-peer pub/sub is efficient, add a broker for the high-volume topics while keeping Pilot for the coordination layer.</p>
 
-  <p>The event stream is one piece of Pilot's service stack. Port 1001 handles <a href="build-agent-swarm-self-organizes.html">task submission and execution</a>. Port 80 handles <a href="http-services-over-encrypted-overlay.html">HTTP services</a>. Port 1000 handles stdio-based communication. Together, they give agents a complete communication toolkit without external dependencies.</p>
+  <p>The event stream is one piece of Pilot's service stack. Port 1001 handles <a href="build-agent-swarm-self-organizes">task submission and execution</a>. Port 80 handles <a href="http-services-over-encrypted-overlay">HTTP services</a>. Port 1000 handles stdio-based communication. Together, they give agents a complete communication toolkit without external dependencies.</p>
 
   <p>For the full API reference, see the <a href="/docs/">documentation</a>. For the Go driver source, check the <code>pkg/driver</code> package in the repository.</p>
   </section>
@@ -475,12 +475,12 @@ stream.Publish("pipeline.stage2.result.anomaly", data)</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="Replace Your Message Broker with 12 Lines of Go"
-  description="Build event-driven agent architectures without Kafka or RabbitMQ. Pilot Protocol's built-in pub/sub on port 1002 handles topic routing and wildcard subscriptions in 12 lines of Go."
+  title="Replace Your Message Broker in 12 Lines of Go"
+  description="Why AI agents don't need RabbitMQ or Kafka. Direct P2P pub/sub over Pilot Protocol in 12 lines of Go."
   date="February 15, 2026"
   tags={["tutorial", "pub-sub", "go"]}
-  canonicalPath="/blog/replace-message-broker-twelve-lines-go.html"
-  bannerImage="/blog/banners/replace-message-broker-twelve-lines-go.png"
+  canonicalPath="/blog/replace-message-broker-twelve-lines-go"
+  bannerImage="/blog/banners/replace-message-broker-twelve-lines-go.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

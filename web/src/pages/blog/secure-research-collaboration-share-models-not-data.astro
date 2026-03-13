@@ -37,18 +37,16 @@ const bodyContent = `<p>A medical researcher at University A has a model that de
 
   <p>Pilot Protocol does not do federated learning. It does not do differential privacy. It does not do secure aggregation. What it does is solve the connectivity problem that blocks every other approach: how do two machines at different institutions establish an encrypted, authenticated, NAT-traversing connection without involving either institution's IT department in a months-long VPN approval process?</p>
 
-  <p>Each lab runs a Pilot daemon. The daemons connect to a shared rendezvous server (which can be self-hosted on neutral infrastructure). The protocol handles NAT traversal, encryption, and authentication. The researchers exchange model weights, gradient updates, or evaluation results through encrypted tunnels. No data touches third-party servers. No VPN configuration required.</p>
+  <p>Each lab runs a Pilot daemon. The protocol handles NAT traversal, encryption, and authentication. The researchers exchange model weights, gradient updates, or evaluation results through encrypted tunnels. No data touches third-party servers. No VPN configuration required.</p>
 
   <pre><code><span class="comment"># Lab A (University Hospital, behind institutional NAT)</span>
 <span class="cmd">$ pilotctl init --hostname lab-a-trainer</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.research-consortium.org:9000 \\
-    --beacon rendezvous.research-consortium.org:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Agent online: lab-a-trainer (1:0001.0000.0010)
 
 <span class="comment"># Lab B (Research Institute, different network)</span>
 <span class="cmd">$ pilotctl init --hostname lab-b-trainer</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.research-consortium.org:9000 \\
-    --beacon rendezvous.research-consortium.org:9001</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Agent online: lab-b-trainer (1:0001.0000.0020)
 
 <span class="comment"># Establish trust (cryptographic handshake = collaboration agreement)</span>
@@ -167,21 +165,11 @@ Peer notified
 <span class="comment"># Lab B can no longer send or receive any data</span>
 <span class="comment"># The revocation is effective immediately</span></code></pre>
 
-  <h2 id="self-hosted">Self-Hosted Rendezvous: No Data on Third-Party Servers</h2>
+  <h2 id="data-isolation">No Data on Third-Party Servers</h2>
 
-  <p>A critical property for regulated research: no data touches infrastructure that is not controlled by the collaborating institutions. The Pilot rendezvous server can be hosted by either institution or by a neutral third party (a research consortium, a federal computing facility, a university's shared research computing service).</p>
+  <p>A critical property for regulated research: no research data touches infrastructure outside the collaborating institutions. The Pilot network only handles address resolution and NAT traversal signaling -- it never sees the contents of the data exchange. Model weights, gradients, evaluation results -- all of these are encrypted end-to-end between the lab nodes.</p>
 
-  <pre><code><span class="comment"># Option 1: Host rendezvous at one institution</span>
-<span class="cmd">$ pilot-rendezvous -registry-addr :9000 -beacon-addr :9001</span>
-
-<span class="comment"># Option 2: Host on neutral research infrastructure</span>
-<span class="comment"># (e.g., XSEDE/ACCESS allocation, institutional research computing)</span>
-<span class="cmd">$ ssh research-cluster.xsede.org</span>
-<span class="cmd">$ pilot-rendezvous -registry-addr :9000 -beacon-addr :9001</span></code></pre>
-
-  <p>The rendezvous server stores only metadata: virtual addresses, hostnames, public keys, and online status. It never sees the contents of the data exchange. Model weights, gradients, evaluation results -- all of these are encrypted end-to-end between the lab nodes. Even if the rendezvous server is compromised, the attacker learns that Lab A and Lab B are communicating, but not what they are exchanging.</p>
-
-  <p>For maximum isolation, each collaboration can run its own rendezvous server. A multi-site cancer study runs one rendezvous. A separate genomics collaboration runs another. The networks are completely independent. Agents on one network cannot discover, enumerate, or connect to agents on the other.</p>
+  <p>Separate research collaborations use separate networks. A multi-site cancer study operates on one network. A separate genomics collaboration operates on another. The networks are completely independent. Agents on one network cannot discover, enumerate, or connect to agents on the other.</p>
 
   <h2 id="compliance">Compliance Properties</h2>
 
@@ -191,9 +179,9 @@ Peer notified
     <li><strong>End-to-end encryption.</strong> All data in transit is encrypted with X25519 key exchange and AES-256-GCM. The encryption is mandatory -- there is no way to disable it. This satisfies the "encryption in transit" requirement found in HIPAA Security Rule Section 164.312(e)(1) and GDPR Article 32(1)(a).</li>
     <li><strong>Mutual authentication.</strong> Both parties verify identity using Ed25519 signatures before any data flows. The authentication is per-agent, not per-network. This provides stronger access control than IP-based allowlisting or VPN group membership.</li>
     <li><strong>Audit trail.</strong> Every trust event (handshake request, approval, revocation) is logged locally with timestamps and cryptographic signatures. The justification field in each handshake creates a purpose-limited record of why the connection was established.</li>
-    <li><strong>Data minimization.</strong> The rendezvous server stores only connection metadata. No research data, model weights, or training parameters are stored on shared infrastructure. The data exchange is purely peer-to-peer.</li>
+    <li><strong>Data minimization.</strong> The network stores only connection metadata. No research data, model weights, or training parameters are stored on shared infrastructure. The data exchange is purely peer-to-peer.</li>
     <li><strong>Trust revocation.</strong> Access can be terminated instantly, without waiting for credential expiration or administrative processing. This supports the "right to withdraw" (GDPR Article 7(3)) and incident response timelines (HIPAA Breach Notification Rule).</li>
-    <li><strong>No third-party data processing.</strong> When the rendezvous server is self-hosted, no data processor outside the collaborating institutions handles any data. This simplifies GDPR Data Processing Agreement (DPA) requirements because there is no third-party processor to contract with.</li>
+    <li><strong>No third-party data processing.</strong> No data processor outside the collaborating institutions handles any data. The network handles only connection metadata. This simplifies GDPR Data Processing Agreement (DPA) requirements because there is no third-party processor to contract with.</li>
   </ul>
 
   <div class="callout">
@@ -224,7 +212,7 @@ Peer notified
 
   <h2 id="multi-institution">Scaling to Multiple Institutions</h2>
 
-  <p>Research consortia often involve more than two institutions. A multi-site clinical trial might have 10 hospitals contributing data. A genomics consortium might have 20 labs. The trust model scales naturally: each pair of institutions performs a handshake. The rendezvous server supports thousands of agents on minimal infrastructure (3 VMs handle 10,000 agents).</p>
+  <p>Research consortia often involve more than two institutions. A multi-site clinical trial might have 10 hospitals contributing data. A genomics consortium might have 20 labs. The trust model scales naturally: each pair of institutions performs a handshake. The network supports thousands of agents.</p>
 
   <pre><code><span class="comment"># 5-institution research consortium</span>
 <span class="comment"># Each institution runs a Pilot node tagged by role</span>
@@ -260,7 +248,7 @@ Peer notified
 
   <p>A distributed research lab needs three things that traditional VPN-based infrastructure provides poorly: cross-network connectivity for researchers working from different institutions and locations, encrypted data exchange that satisfies compliance requirements, and a trust model that maps to research collaboration agreements rather than network perimeters.</p>
 
-  <p>Pilot provides all three. Researchers at different institutions join a shared Pilot network. The rendezvous server is hosted on research infrastructure. Each researcher's node gets a permanent virtual address that works regardless of their physical location -- at the university lab, at home, or at a conference. Trust relationships define who can communicate with whom, independently of network topology.</p>
+  <p>Pilot provides all three. Researchers at different institutions join a shared Pilot network. Each researcher's node gets a permanent virtual address that works regardless of their physical location -- at the university lab, at home, or at a conference. Trust relationships define who can communicate with whom, independently of network topology.</p>
 
   <p>The event stream (port 1002) adds coordination: researchers publish experimental results, training status, and coordination messages to shared topics. This replaces the Slack channels and email threads that currently coordinate most distributed research -- with the added benefit that the messages are encrypted and the participants are cryptographically authenticated.</p>
 
@@ -273,26 +261,26 @@ Peer notified
     <li><strong>Pilot does not inspect content.</strong> The protocol encrypts and delivers data. It does not understand what the data is. If a researcher accidentally sends raw patient data instead of model weights, Pilot delivers it faithfully. Content classification and data loss prevention are application-layer concerns.</li>
     <li><strong>No differential privacy.</strong> Pilot does not add noise to model updates, clip gradients, or implement any privacy-enhancing computation. If you need differential privacy guarantees, use a framework like PySyft or Opacus. Pilot provides the encrypted transport that the privacy framework communicates over.</li>
     <li><strong>No formal data lineage.</strong> Pilot logs trust events and file transfers, but it does not provide a complete data lineage graph. You cannot query "which institutions' data contributed to this model" from Pilot logs alone. Data provenance tracking is an application-layer responsibility.</li>
-    <li><strong>Single rendezvous point.</strong> While Pilot supports hot-standby replication for the registry, the rendezvous server is still a centralized component. If it goes offline, new connections cannot be established (existing tunnels continue to work). For research collaborations that run for months, plan for rendezvous availability.</li>
+    <li><strong>Network availability.</strong> If the network goes offline, new connections cannot be established (existing tunnels continue to work). For research collaborations that run for months, the network provides high availability by design.</li>
   </ul>
 
   <p>The honest pitch: Pilot makes it possible for two machines at two institutions to establish an encrypted connection in two minutes instead of two months. What flows over that connection -- model weights, gradients, evaluation metrics, or coordination messages -- is up to the researchers and their compliance teams.</p>
 
-  <p>For the encryption details behind these transfers, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Encryption: X25519 + AES-256-GCM</a>. For the NAT traversal that connects machines behind institutional firewalls, see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal: A Deep Dive</a>. For the file transfer protocol used for weight exchange, see <a href="peer-to-peer-file-transfer-agents.html">Peer-to-Peer File Transfer Between AI Agents</a>.</p>
+  <p>For the encryption details behind these transfers, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Encryption: X25519 + AES-256-GCM</a>. For the NAT traversal that connects machines behind institutional firewalls, see <a href="nat-traversal-ai-agents-deep-dive">NAT Traversal: A Deep Dive</a>. For the file transfer protocol used for weight exchange, see <a href="peer-to-peer-file-transfer-agents">Peer-to-Peer File Transfer Between AI Agents</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>Encrypted, authenticated, NAT-traversing connections between research institutions. Self-hosted rendezvous, trust-gated file exchange, zero cloud dependencies. Connect in minutes, not months.</p>
+    <p>Encrypted, authenticated, NAT-traversing connections between research institutions. Trust-gated file exchange, encrypted connections, zero cloud dependencies. Connect in minutes, not months.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---
 <BlogLayout
   title="Secure Research Collaboration: Share Models, Not Data"
-  description="Cross-institutional ML collaboration without sharing raw data. Pilot Protocol provides encrypted transport, trust-gated file exchange, and self-hosted infrastructure for HIPAA/GDPR compliance."
+  description="Collaborate on AI research without sharing raw data. Exchange model weights and gradients over encrypted Pilot tunnels."
   date="February 23, 2026"
   tags={["research", "privacy", "federated-learning"]}
-  canonicalPath="/blog/secure-research-collaboration-share-models-not-data.html"
-  bannerImage="/blog/banners/secure-research-collaboration-share-models-not-data.png"
+  canonicalPath="/blog/secure-research-collaboration-share-models-not-data"
+  bannerImage="/blog/banners/secure-research-collaboration-share-models-not-data.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

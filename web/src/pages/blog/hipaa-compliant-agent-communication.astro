@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>A hospital deploys an AI agent to summarize patient records. The agent needs to send those summaries to a specialist's AI assistant for review. The communication crosses a network boundary. The summaries contain Protected Health Information (PHI). And the moment that PHI leaves the hospital's infrastructure, the hospital is responsible for ensuring HIPAA compliance at every point in the data path.</p>
+const bodyContent = `<p>A hospital deploys an AI agent to summarize patient records. The agent needs to send those summaries to a specialist's AI assistant for review. The communication crosses a network boundary. The summaries contain Protected Health Information (PHI). And the moment that PHI leaves the hospital's infrastructure, the hospital is responsible for ensuring <a href="https://www.hhs.gov/hipaa/index.html" target="_blank" rel="noopener">HIPAA</a> compliance at every point in the data path.</p>
 
   <p>This is where most healthcare AI projects stall. Not because the AI models cannot do the work, but because the networking infrastructure between agents was never designed for regulated data. Cloud API calls send PHI to third-party servers. Webhook integrations expose PHI to message queues and logging systems you do not control. Even "encrypted" connections often terminate TLS at a load balancer, leaving data in plaintext on the provider's internal network.</p>
 
@@ -45,7 +45,7 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   <section>
   <h2>The Pilot Approach: No Data Touches Third-Party Infrastructure</h2>
 
-  <p>Pilot Protocol is a peer-to-peer overlay network. Agents connect directly to each other through encrypted UDP tunnels. There is no central server that relays application data. The rendezvous infrastructure (registry and beacon) handles peer discovery and NAT traversal signaling, but <strong>application data never passes through the rendezvous servers</strong>.</p>
+  <p>Pilot Protocol is a peer-to-peer overlay network. Agents connect directly to each other through encrypted UDP tunnels. There is no central server that relays application data. The network infrastructure handles peer discovery and NAT traversal signaling, but <strong>application data never passes through the network infrastructure</strong>.</p>
 
   <p>This architecture eliminates an entire category of compliance risk. When Agent A sends a patient summary to Agent B, the data travels through a direct encrypted tunnel between the two agents. No cloud API sees the data. No third-party relay sees the data. No intermediary log captures the data. The only systems that handle ePHI are the two agent endpoints, both of which are on infrastructure you control.</p>
 
@@ -72,8 +72,8 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   <p>Pilot's encryption is not optional. When two agents establish trust, all subsequent communication is encrypted by default using port 443 (the secure port). The encryption stack uses:</p>
 
   <ul>
-    <li><strong>X25519 key exchange:</strong> Elliptic-curve Diffie-Hellman for session key establishment. Each connection generates a fresh ephemeral key pair, providing forward secrecy -- compromising one session key does not compromise past or future sessions.</li>
-    <li><strong>AES-256-GCM:</strong> Authenticated encryption for all tunnel traffic. GCM provides both confidentiality (data cannot be read) and integrity (data cannot be modified without detection).</li>
+    <li><strong><a href="https://datatracker.ietf.org/doc/html/rfc7748" target="_blank" rel="noopener">X25519</a> key exchange:</strong> Elliptic-curve Diffie-Hellman for session key establishment. Each connection generates a fresh ephemeral key pair, providing forward secrecy -- compromising one session key does not compromise past or future sessions.</li>
+    <li><strong><a href="https://datatracker.ietf.org/doc/html/rfc5288" target="_blank" rel="noopener">AES-256-GCM</a>:</strong> Authenticated encryption for all tunnel traffic. GCM provides both confidentiality (data cannot be read) and integrity (data cannot be modified without detection).</li>
     <li><strong>Random nonce prefix per connection:</strong> Each secure connection generates a random nonce prefix, preventing nonce reuse across sessions. This is a defense-in-depth measure against nonce-misuse attacks.</li>
     <li><strong>Ed25519 identity signing:</strong> Trust handshakes are signed with the agent's permanent Ed25519 key, ensuring that the peer you establish a session with is the peer you intended to trust.</li>
   </ul>
@@ -166,42 +166,34 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   </section>
 
   <section>
-  <h2>Architecture: Self-Hosted Rendezvous + Encrypted Tunnels + Trust-Gated Access</h2>
+  <h2>Architecture: Encrypted Tunnels + Trust-Gated Access</h2>
 
-  <p>For maximum compliance, healthcare organizations can self-host the entire Pilot infrastructure. The rendezvous server (registry + beacon) is a single Go binary that runs on your own hardware:</p>
+  <p>Pilot Protocol keeps PHI off third-party servers by design. All data flows through direct encrypted tunnels between agents -- point-to-point connections. The network infrastructure only handles address resolution and NAT traversal signaling, never application data.</p>
 
-  <pre><code><span class="comment"># Deploy your own rendezvous server (inside your network)</span>
-<span class="cmd">pilotctl rendezvous start \\
-  --registry-addr 10.0.1.100:9000 \\
-  --beacon-addr 10.0.1.100:9001 \\
-  --persist /var/lib/pilot/registry.json</span>
+  <pre><code><span class="comment"># Start agent daemons on each machine handling PHI</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl join 1</span></code></pre>
 
-<span class="comment"># Agents connect to YOUR rendezvous, not a public one</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry 10.0.1.100:9000 \\
-  --beacon 10.0.1.100:9001</span></code></pre>
-
-  <p>In this deployment, the entire infrastructure is on-premises:</p>
+  <p>In this deployment:</p>
 
   <ul>
-    <li><strong>Rendezvous server:</strong> Runs on your hardware, stores only address mappings (no PHI)</li>
     <li><strong>Agent daemons:</strong> Run on your hardware, handle PHI processing</li>
     <li><strong>Tunnels:</strong> Direct UDP connections between your machines, encrypted end-to-end</li>
     <li><strong>Logs:</strong> Stored on your hardware, exported to your SIEM</li>
   </ul>
 
-  <p>No data leaves your infrastructure. No third-party service has access to any data, encrypted or otherwise. The registry stores agent addresses and public keys -- metadata that does not constitute PHI. The beacon handles NAT traversal signaling -- also not PHI. All PHI flows through direct encrypted tunnels between agents, which are point-to-point connections on your network.</p>
+  <p>No PHI leaves your infrastructure through the network layer. All PHI flows through direct encrypted tunnels between agents. The network only sees agent addresses and public keys -- metadata that does not constitute PHI.</p>
 
   <h3>Multi-site deployment</h3>
 
   <p>For healthcare organizations with multiple sites (a hospital network with clinics, a research consortium with partner institutions), Pilot's NAT traversal enables cross-site agent communication without VPN infrastructure:</p>
 
   <pre><code><span class="comment"># Site A: Hospital (behind corporate NAT)</span>
-<span class="cmd">pilotctl daemon start --registry rendezvous.internal:9000</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Site B: Clinic (behind different NAT)</span>
-<span class="cmd">pilotctl daemon start --registry rendezvous.internal:9000</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Agents at Site A and Site B can communicate directly</span>
@@ -244,16 +236,8 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
 
   <p>The minimum viable setup for HIPAA-compliant agent communication:</p>
 
-  <pre><code><span class="comment"># 1. Deploy self-hosted rendezvous (on your infrastructure)</span>
-<span class="cmd">pilotctl rendezvous start \\
-  --registry-addr 0.0.0.0:9000 \\
-  --beacon-addr 0.0.0.0:9001 \\
-  --persist /var/lib/pilot/registry.json</span>
-
-<span class="comment"># 2. Start agent daemons (on each machine handling PHI)</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry your-rendezvous.internal:9000 \\
-  --beacon your-rendezvous.internal:9001</span>
+  <pre><code><span class="comment"># 1. Start agent daemons (on each machine handling PHI)</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># 3. Establish trust with BAA reference</span>
@@ -271,17 +255,17 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>End-to-end encrypted agent communication with no third-party data exposure. Self-hosted, auditable, trust-gated.</p>
+    <p>End-to-end encrypted agent communication with no third-party data exposure. Auditable, trust-gated, no third-party data exposure.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---
 <BlogLayout
-  title="HIPAA-Compliant Agent Communication for Healthcare AI"
-  description="Build HIPAA-compliant AI agent networks with end-to-end encryption, trust-gated access control, and no third-party data exposure. Architecture guide for healthcare AI networking."
+  title="HIPAA-Compliant Agent Communication"
+  description="End-to-end encrypted, no data at rest on third-party servers, full audit trail. Agent networking that meets HIPAA requirements."
   date="February 20, 2026"
   tags={["healthcare", "HIPAA", "security"]}
-  canonicalPath="/blog/hipaa-compliant-agent-communication.html"
-  bannerImage="/blog/banners/hipaa-compliant-agent-communication.png"
+  canonicalPath="/blog/hipaa-compliant-agent-communication"
+  bannerImage="/blog/banners/hipaa-compliant-agent-communication.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

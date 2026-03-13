@@ -3,7 +3,7 @@ import BlogLayout from '../../layouts/BlogLayout.astro';
 
 const bodyContent = `<p>Most multi-agent systems have an orchestrator. One central process decides who does what. That works until the orchestrator goes down, gets overloaded, or becomes the trust bottleneck. In this tutorial, we build something different: <strong>10 agents that discover each other, establish trust, submit and execute tasks, and self-organize based on reputation</strong>. No orchestrator. No central scheduler. The swarm figures it out.</p>
 
-  <p>By the end, you will have a working Python codebase that spawns agents, lets them find peers via Pilot Protocol's registry, exchange tasks through the built-in task lifecycle, and watch as the <a href="polo-score-reputation-without-blockchain.html">polo score</a> naturally causes the best-performing agents to attract the most work.</p>
+  <p>By the end, you will have a working Python codebase that spawns agents, lets them find peers via Pilot Protocol's registry, exchange tasks through the built-in task lifecycle, and watch as the <a href="polo-score-reputation-without-blockchain">polo score</a> naturally causes the best-performing agents to attract the most work.</p>
 
   <section>
   <h2>What We Are Building</h2>
@@ -27,7 +27,7 @@ const bodyContent = `<p>Most multi-agent systems have an orchestrator. One centr
   <ul>
     <li>Python 3.10+</li>
     <li>Pilot Protocol installed (<code>go install github.com/TeoSlayer/pilotprotocol/cmd/...</code>)</li>
-    <li>A running rendezvous server (or use the public one for testing)</li>
+    <li>A Pilot network (the default at pilotprotocol.network is available for all users)</li>
     <li>An OpenAI API key (or any LLM API) for task execution</li>
   </ul>
   </section>
@@ -69,8 +69,6 @@ class SwarmAgent:
         """Start the Pilot daemon for this agent."""
         subprocess.Popen([
             "pilot-daemon",
-            "-registry-addr", self.registry_addr,
-            "-beacon-addr", self.registry_addr.replace(":9000", ":9001"),
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)  <span class="comment"># Wait for daemon startup + STUN</span>
 
@@ -117,7 +115,7 @@ class SwarmAgent:
 
   <h3>Establishing Trust</h3>
 
-  <p>Discovery is not the same as trust. By default, agents are <a href="trust-model-agents-invisible-by-default.html">invisible</a>. Before an agent can send tasks to a peer, they must complete a mutual Ed25519 handshake.</p>
+  <p>Discovery is not the same as trust. By default, agents are <a href="trust-model-agents-invisible-by-default">invisible</a>. Before an agent can send tasks to a peer, they must complete a mutual Ed25519 handshake.</p>
 
   <pre><code>    def establish_trust(self):
         """Initiate handshake with all discovered peers."""
@@ -425,7 +423,7 @@ if __name__ == "__main__":
   <section>
   <h2>Monitoring the Swarm</h2>
 
-  <p>You can watch the self-organization happen in real time by polling the registry for polo scores.</p>
+  <p>You can watch the self-organization happen in real time by polling the registry for polo scores. For a more robust monitoring setup that works across NAT boundaries without a centralized Prometheus stack, see <a href="/blog/distributed-monitoring-without-prometheus">Distributed Monitoring Without Prometheus or Grafana</a>.</p>
 
   <pre><code>def monitor_swarm(registry_addr):
     """Print polo score leaderboard every 30 seconds."""
@@ -476,7 +474,7 @@ swarm-general-9           general      9.0      8</code></pre>
 
   <h3>Memory: 10 MB Per Daemon</h3>
 
-  <p>Each Pilot daemon uses approximately <strong>10 MB of RSS</strong>. On a 16 GB VM, you can run 200+ daemons comfortably. The registry handles 100 concurrent agents without measurable latency increase. The <a href="benchmarking-http-vs-udp-overlay.html">benchmark data</a> confirms the per-connection memory stays flat.</p>
+  <p>Each Pilot daemon uses approximately <strong>10 MB of RSS</strong>. On a 16 GB VM, you can run 200+ daemons comfortably. The registry handles 100 concurrent agents without measurable latency increase. The <a href="benchmarking-http-vs-udp-overlay">benchmark data</a> confirms the per-connection memory stays flat.</p>
 
   <pre><code><span class="comment"># Memory usage across 100 daemons on a single VM</span>
 <span class="cmd">ps aux | grep pilot-daemon | awk '{sum += $6} END {print sum/1024 "MB"}'</span>
@@ -592,8 +590,6 @@ class SwarmAgent:
     def start(self):
         subprocess.Popen([
             "pilot-daemon",
-            "-registry-addr", REGISTRY_ADDR,
-            "-beacon-addr", REGISTRY_ADDR.replace(":9000", ":9001"),
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
         self.pilotctl("set-hostname", self.hostname)
@@ -701,7 +697,7 @@ if __name__ == "__main__":
 
   <p>The swarm self-organizes because the incentive structure is correct. Agents that do good work earn reputation. Reputation earns more work. More work earns more reputation. Bad actors see their efficiency multiplier decay, their score stagnate, and their task flow dry up. The system is self-correcting.</p>
 
-  <p>For a deeper look at the polo score design and its gaming resistance properties, read <a href="polo-score-reputation-without-blockchain.html">The Polo Score: Designing a Reputation System Without Blockchain</a>. For the network fundamentals, see <a href="how-pilot-protocol-works.html">How Pilot Protocol Works</a>.</p>
+  <p>For a deeper look at the polo score design and its gaming resistance properties, read <a href="polo-score-reputation-without-blockchain">The Polo Score: Designing a Reputation System Without Blockchain</a>. To extend this pattern into a full marketplace with capability advertising and economic incentives, see <a href="/blog/build-ai-agent-marketplace-discovery-reputation">Build an AI Agent Marketplace With Discovery and Reputation</a>. For the network fundamentals, see <a href="how-pilot-protocol-works">How Pilot Protocol Works</a>.</p>
   </section>
 
   <div class="cta">
@@ -712,11 +708,11 @@ if __name__ == "__main__":
 ---
 <BlogLayout
   title="Build an Agent Swarm That Self-Organizes"
-  description="Tutorial: build a 10-agent swarm that discovers peers, establishes trust, delegates tasks, executes with LLMs, and self-organizes via reputation. No orchestrator needed."
+  description="How to create a group of AI agents that autonomously discover peers, establish trust, and coordinate without central orchestration."
   date="February 16, 2026"
   tags={["tutorial", "swarm", "polo-score"]}
-  canonicalPath="/blog/build-agent-swarm-self-organizes.html"
-  bannerImage="/blog/banners/build-agent-swarm-self-organizes.png"
+  canonicalPath="/blog/build-agent-swarm-self-organizes"
+  bannerImage="/blog/banners/build-agent-swarm-self-organizes.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

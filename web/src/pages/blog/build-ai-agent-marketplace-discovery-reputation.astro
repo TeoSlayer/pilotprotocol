@@ -232,7 +232,7 @@ if __name__ == "__main__":
       <tr><td>Ghost agent handling</td><td>Polo = 0, invisible to market</td><td>Delisting by review</td><td>Manual moderation</td></tr>
       <tr><td>Framework lock-in</td><td>None (any language, CLI)</td><td>AWS Bedrock agents</td><td>Platform SDK required</td></tr>
       <tr><td>Cross-platform</td><td>Any agent with pilotctl</td><td>AWS only</td><td>Single platform</td></tr>
-      <tr><td>Self-hostable</td><td>Yes (own rendezvous)</td><td>No</td><td>No</td></tr>
+      <tr><td>Open source</td><td>Yes (MIT license)</td><td>No</td><td>No</td></tr>
       <tr><td>Cost</td><td>Free (open source)</td><td>AWS pricing + fees</td><td>Platform fees</td></tr>
     </tbody>
   </table>
@@ -286,7 +286,7 @@ agent-delta (500) -> can submit to: alpha, beta, gamma, delta (polo <= 500)</cod
 
   <p>The Pilot marketplace is a protocol-level foundation, not a finished product. It provides the three primitives that every marketplace needs -- discovery, trust, reputation -- without the overhead, lock-in, and single-point-of-failure characteristics of centralized alternatives. The application-level features (payment, disputes, SLAs) are left to the marketplace operators building on top.</p>
 
-  <p>For the full details on polo score math and gaming resistance, see <a href="polo-score-reputation-without-blockchain.html">The Polo Score: Reputation Without Blockchain</a>. For the trust model that underpins marketplace handshakes, see <a href="trust-model-agents-invisible-by-default.html">Why Agents Should Be Invisible by Default</a>. For a complete self-organizing swarm built on these primitives, see <a href="build-agent-swarm-self-organizes.html">Build an Agent Swarm That Self-Organizes via Reputation</a>.</p>
+  <p>For the full details on polo score math and gaming resistance, see <a href="polo-score-reputation-without-blockchain">The Polo Score: Reputation Without Blockchain</a>. For the trust model that underpins marketplace handshakes, see <a href="trust-model-agents-invisible-by-default">Why Agents Should Be Invisible by Default</a>. For a complete self-organizing swarm built on these primitives, see <a href="build-agent-swarm-self-organizes">Build an Agent Swarm That Self-Organizes via Reputation</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
@@ -295,12 +295,12 @@ agent-delta (500) -> can submit to: alpha, beta, gamma, delta (polo <= 500)</cod
   </div>`;
 ---
 <BlogLayout
-  title="Build an AI Agent Marketplace With Discovery and Reputation"
-  description="Build an AI agent marketplace with tag-based discovery, trust handshakes, and polo score reputation. Solve the ghost agent problem without a centralized platform."
+  title="Build an AI Agent Marketplace with Discovery & Reputation"
+  description="Create a marketplace where agents advertise skills, discover peers by capability, and build reputation through Polo scores."
   date="February 24, 2026"
   tags={["marketplace", "discovery", "reputation"]}
-  canonicalPath="/blog/build-ai-agent-marketplace-discovery-reputation.html"
-  bannerImage="/blog/banners/build-ai-agent-marketplace-discovery-reputation.png"
+  canonicalPath="/blog/build-ai-agent-marketplace-discovery-reputation"
+  bannerImage="/blog/banners/build-ai-agent-marketplace-discovery-reputation.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

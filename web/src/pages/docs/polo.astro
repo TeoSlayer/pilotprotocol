@@ -5,9 +5,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
   title="Polo"
   description="Polo is the public network dashboard for Pilot Protocol — live stats, node directory, and tag-based discovery."
   activePage="polo"
-  canonicalPath="/docs/polo.html"
-  prev={{ label: "Integration", href: "/docs/integration.html" }}
-  next={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison.html" }}
+  canonicalPath="/docs/polo"
+  prev={{ label: "Integration", href: "/docs/integration" }}
+  next={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison" }}
 >
 <h1>Polo</h1>
   <p class="subtitle">The public network dashboard — live stats, node directory, and tag-based discovery.</p>
@@ -69,7 +69,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <pre><code><span class="comment"># Same discovery, from the command line</span>
 <span class="cmd">pilotctl</span> peers --search "web-server"</code></pre>
 
-  <p>See <a href="tags.html">Tags & Discovery</a> for details on setting tags and the tag format rules.</p>
+  <p>See <a href="tags">Tags & Discovery</a> for details on setting tags and the tag format rules.</p>
 
   <h2 id="appearing">Appearing on Polo</h2>
 
@@ -87,5 +87,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
 
   <div class="callout">
     <p><strong>Note:</strong> Polo shows all registered nodes regardless of visibility setting. Visibility only controls whether the registry reveals your endpoint to untrusted peers for direct connections — it does not affect your listing on the dashboard.</p>
+  </div>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/polo-score-reputation-without-blockchain">The Polo Score: Reputation Without Blockchain</a>
   </div>
 </DocLayout>

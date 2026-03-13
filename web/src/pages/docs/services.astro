@@ -53,7 +53,7 @@ const bodyContent = `<h1>Built-in Services</h1>
 
   <h2 id="eventstream">Event Stream (port 1002)</h2>
 
-  <p>A pub/sub broker with topic filtering and wildcards. Agents can subscribe to topics on any peer and receive real-time events. See the <a href="pubsub.html">Pub/Sub</a> page for full details.</p>
+  <p>A pub/sub broker with topic filtering and wildcards. Agents can subscribe to topics on any peer and receive real-time events. See the <a href="pubsub">Pub/Sub</a> page for full details.</p>
 
   <pre><code><span class="comment"># Subscribe to status events</span>
 <span class="cmd">pilotctl</span> subscribe other-agent status --count 5
@@ -76,7 +76,7 @@ const bodyContent = `<h1>Built-in Services</h1>
 <span class="cmd">pilotctl</span> task execute
 <span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file ./report.md</code></pre>
 
-  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. See the <a href="tasks.html">Tasks & Polo</a> page for full lifecycle details, the scoring formula, and CLI reference.</p>
+  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. See the <a href="tasks">Tasks & Polo</a> page for full lifecycle details, the scoring formula, and CLI reference.</p>
 
   <h2 id="disabling">Disabling services</h2>
 
@@ -87,15 +87,19 @@ const bodyContent = `<h1>Built-in Services</h1>
 <span class="cmd">daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
 <span class="cmd">daemon</span> -no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
 
-  <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>`;
+  <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/http-services-over-encrypted-overlay">Running HTTP Services Over an Encrypted Agent Overlay</a>
+  </div>`;
 ---
 <DocLayout
   title="Built-in Services"
   description="Echo, data exchange, event stream, and task submit — built-in services running out of the box."
   activePage="services"
-  canonicalPath="/docs/services.html"
-  prev={{ label: "Trust & Handshakes", href: "/docs/trust.html" }}
-  next={{ label: "Pub/Sub", href: "/docs/pubsub.html" }}
+  canonicalPath="/docs/services"
+  prev={{ label: "Trust & Handshakes", href: "/docs/trust" }}
+  next={{ label: "Pub/Sub", href: "/docs/pubsub" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

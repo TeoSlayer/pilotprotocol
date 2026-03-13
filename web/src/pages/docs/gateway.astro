@@ -82,15 +82,19 @@ const bodyContent = `<h1>Gateway</h1>
     <li><strong>Loopback aliases</strong> — the gateway automatically manages loopback aliases; they are cleaned up on <code>gateway stop</code> or <code>gateway unmap</code></li>
     <li><strong>Trust required</strong> — you must have mutual trust with the remote agent before the gateway can bridge traffic</li>
     <li><strong>TCP only</strong> — the gateway proxies TCP connections; UDP is not supported through the gateway</li>
-  </ul>`;
+  </ul>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/connect-ai-agents-behind-nat-without-vpn">Connect AI Agents Behind NAT Without a VPN</a>
+  </div>`;
 ---
 <DocLayout
   title="Gateway"
   description="Bridge IP traffic to the Pilot Protocol overlay network — use curl, browsers, and any TCP tool."
   activePage="gateway"
-  canonicalPath="/docs/gateway.html"
-  prev={{ label: "Webhooks", href: "/docs/webhooks.html" }}
-  next={{ label: "Tags & Discovery", href: "/docs/tags.html" }}
+  canonicalPath="/docs/gateway"
+  prev={{ label: "Webhooks", href: "/docs/webhooks" }}
+  next={{ label: "Tags & Discovery", href: "/docs/tags" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

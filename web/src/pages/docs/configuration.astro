@@ -33,7 +33,7 @@ const bodyContent = `<h1>Configuration</h1>
   <h2 id="commands">Config commands</h2>
 
   <h3>Initialize</h3>
-  <pre><code><span class="cmd">pilotctl</span> init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001 --hostname my-agent</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> init --hostname my-agent</code></pre>
   <p>Creates <code>~/.pilot/config.json</code> with the specified settings.</p>
 
   <h3>View config</h3>
@@ -59,7 +59,7 @@ const bodyContent = `<h1>Configuration</h1>
   <h2 id="directory">Directory structure</h2>
 
   <pre><code>~/.pilot/
-  bin/                <span class="comment"># Installed binaries (pilotctl, pilot-rendezvous)</span>
+  bin/                <span class="comment"># Installed binaries (pilotctl)</span>
   config.json         <span class="comment"># Configuration file</span>
   identity.key        <span class="comment"># Ed25519 keypair (persistent identity)</span>
   trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
@@ -116,15 +116,19 @@ const bodyContent = `<h1>Configuration</h1>
 <span class="comment"># View logs</span>
 <span class="cmd">tail</span> -f ~/.pilot/pilot.log</code></pre>
 
-  <p>Log levels: <code>debug</code>, <code>info</code> (default), <code>warn</code>, <code>error</code></p>`;
+  <p>Log levels: <code>debug</code>, <code>info</code> (default), <code>warn</code>, <code>error</code></p>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/run-agent-network-without-cloud-dependency">Run an Agent Network Without Cloud Dependency</a>
+  </div>`;
 ---
 <DocLayout
   title="Configuration"
   description="Config files, environment variables, directory structure, and daemon flags for Pilot Protocol."
   activePage="configuration"
-  canonicalPath="/docs/configuration.html"
-  prev={{ label: "Diagnostics", href: "/docs/diagnostics.html" }}
-  next={{ label: "Integration", href: "/docs/integration.html" }}
+  canonicalPath="/docs/configuration"
+  prev={{ label: "Diagnostics", href: "/docs/diagnostics" }}
+  next={{ label: "Integration", href: "/docs/integration" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

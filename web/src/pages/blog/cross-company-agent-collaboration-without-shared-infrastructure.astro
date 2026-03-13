@@ -79,7 +79,7 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
 
   <p>Pilot Protocol gives every agent a <strong>48-bit virtual address</strong> in the format <code>N:NNNN.HHHH.LLLL</code> -- 16 bits for the network, 32 bits for the node. This address is independent of the agent's physical location. An agent can move from AWS to GCP, from a data center to a laptop, and its Pilot address stays the same.</p>
 
-  <p>Agents find each other through a <strong>registry</strong> -- a lightweight rendezvous server that maps virtual addresses to current physical endpoints. The registry does not relay traffic. It simply tells Agent A where Agent B is right now, and the two agents establish a direct UDP tunnel between them. If both are behind NAT, the protocol's three-tier traversal handles it automatically: STUN discovery, UDP hole-punching, and relay through a beacon if hole-punching fails.</p>
+  <p>Agents find each other through a <strong>registry</strong> -- a lightweight registry that maps virtual addresses to current physical endpoints. The registry does not relay traffic. It simply tells Agent A where Agent B is right now, and the two agents establish a direct UDP tunnel between them. If both are behind NAT, the protocol's three-tier traversal handles it automatically: STUN discovery, UDP hole-punching, and relay through a beacon if hole-punching fails.</p>
 
   <p>Every agent generates an <strong>Ed25519 identity key pair</strong> at first startup. This key pair is the agent's permanent identity. Trust is established through a mutual handshake protocol:</p>
 
@@ -99,7 +99,7 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
   <section>
   <h2>Cross-Org Trust Model: Scoped Handshakes, No Shared Infrastructure</h2>
 
-  <p>The critical property for cross-company collaboration is that <strong>neither company needs to deploy shared infrastructure</strong>. Each company runs its own agents. The agents connect through a public rendezvous server (or each company runs its own, and they federate). Trust is established agent-to-agent, not organization-to-organization.</p>
+  <p>The critical property for cross-company collaboration is that <strong>neither company needs to deploy shared infrastructure</strong>. Each company runs its own agents. The agents connect through the Pilot network. Trust is established agent-to-agent, not organization-to-organization.</p>
 
   <p>This scoping is deliberate. When Company A's research agent trusts Company B's data agent, that trust relationship exists only between those two agents. It does not grant Company B's other agents any access. It does not grant Company A's other agents any access to Company B's network. Each trust relationship is a scoped, bilateral agreement between two specific identities.</p>
 
@@ -313,12 +313,12 @@ func main() {
   </div>`;
 ---
 <BlogLayout
-  title="Cross-Company Agent Collaboration Without Shared Infra"
-  description="Enable B2B agent collaboration without shared infrastructure. Pilot Protocol provides the transport layer for cross-company agent communication with scoped trust and E2E encryption."
+  title="Cross-Company Agent Collaboration Without Shared Infrastructure"
+  description="Connect agents across organizations without shared servers, VPNs, or cloud accounts. Trust-based P2P networking."
   date="February 20, 2026"
   tags={["B2B", "interoperability", "trust"]}
-  canonicalPath="/blog/cross-company-agent-collaboration-without-shared-infrastructure.html"
-  bannerImage="/blog/banners/cross-company-agent-collaboration-without-shared-infrastructure.png"
+  canonicalPath="/blog/cross-company-agent-collaboration-without-shared-infrastructure"
+  bannerImage="/blog/banners/cross-company-agent-collaboration-without-shared-infrastructure.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

@@ -188,15 +188,19 @@ for (const msg of inbox.messages || []) {
 
   <div class="callout">
     <p><strong>Tip:</strong> Combine webhooks + heartbeat for the best of both worlds. Webhooks give you real-time event notification, while the heartbeat catches anything that happened during downtime (messages in inbox, pending handshakes, daemon restarts).</p>
+  </div>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/mcp-plus-pilot-tools-and-network">MCP + Pilot: Tools and Network in One Stack</a>
   </div>`;
 ---
 <DocLayout
   title="Integration"
   description="Integrate Pilot Protocol with OpenClaw, heartbeat patterns, webhook-driven agents, and custom workflows."
   activePage="integration"
-  canonicalPath="/docs/integration.html"
-  prev={{ label: "Configuration", href: "/docs/configuration.html" }}
-  next={{ label: "Polo", href: "/docs/polo.html" }}
+  canonicalPath="/docs/integration"
+  prev={{ label: "Configuration", href: "/docs/configuration" }}
+  next={{ label: "Polo", href: "/docs/polo" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

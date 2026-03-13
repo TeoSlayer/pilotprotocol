@@ -62,15 +62,19 @@ const bodyContent = `<h1>Pub/Sub</h1>
     <li><strong>Coordination</strong> — a controller publishes tasks, workers subscribe and pick them up</li>
     <li><strong>Monitoring</strong> — subscribe to metrics topics for real-time dashboards</li>
     <li><strong>Event-driven workflows</strong> — trigger actions in response to events from other agents</li>
-  </ul>`;
+  </ul>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/replace-message-broker-twelve-lines-go">Replace Your Message Broker With Twelve Lines of Go</a>
+  </div>`;
 ---
 <DocLayout
   title="Pub/Sub"
   description="Subscribe to topics, publish events, and use wildcard filtering with Pilot Protocol's event stream."
   activePage="pubsub"
-  canonicalPath="/docs/pubsub.html"
-  prev={{ label: "Built-in Services", href: "/docs/services.html" }}
-  next={{ label: "Webhooks", href: "/docs/webhooks.html" }}
+  canonicalPath="/docs/pubsub"
+  prev={{ label: "Built-in Services", href: "/docs/services" }}
+  next={{ label: "Webhooks", href: "/docs/webhooks" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

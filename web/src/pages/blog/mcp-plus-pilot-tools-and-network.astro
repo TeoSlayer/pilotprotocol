@@ -1,16 +1,16 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>The Model Context Protocol (MCP) gives agents tools: database queries, API calls, file access, web search. Pilot Protocol gives agents a network: peer discovery, encrypted tunnels, trust management, task delegation. Neither replaces the other. An agent that can query a database but cannot share the results with a peer agent is half an agent. An agent that can reach peers but cannot access tools is the other half. This article shows you how to build the complete picture.</p>
+const bodyContent = `<p>The <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol (MCP)</a> gives agents tools: database queries, API calls, file access, web search. Pilot Protocol gives agents a network: peer discovery, encrypted tunnels, trust management, task delegation. Neither replaces the other. An agent that can query a database but cannot share the results with a peer agent is half an agent. An agent that can reach peers but cannot access tools is the other half. This article shows you how to build the complete picture.</p>
 
-  <p>MCP has crossed 97 million monthly SDK downloads. Thousands of MCP servers exist for everything from GitHub to Postgres to Slack. What none of them provide is peer communication. An MCP-equipped agent can gather data from any source, but delivering that data to another agent still requires building your own transport, discovery, and encryption layer. That is exactly what Pilot provides.</p>
+  <p>MCP has crossed 97 million monthly SDK downloads. Thousands of <a href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noopener">MCP servers</a> exist for everything from GitHub to Postgres to Slack. What none of them provide is peer communication. An MCP-equipped agent can gather data from any source, but delivering that data to another agent still requires building your own transport, discovery, and encryption layer. That is exactly what Pilot provides.</p>
 
   <section>
   <h2>The Two Halves of Agent Infrastructure</h2>
 
   <p>Think of agent infrastructure as two orthogonal capabilities:</p>
 
-  <p><strong>Vertical: Tools (MCP).</strong> An agent reaches down into systems. It queries databases, calls APIs, reads files, executes code. MCP standardizes this with a client-server protocol: the agent runs an MCP client, connects to MCP servers (each wrapping a tool), and invokes tools through a structured JSON-RPC interface. The agent talks to systems.</p>
+  <p><strong>Vertical: Tools (MCP).</strong> An agent reaches down into systems. It queries databases, calls APIs, reads files, executes code. MCP standardizes this with a client-server protocol: the agent runs an MCP client, connects to MCP servers (each wrapping a tool), and invokes tools through a structured <a href="https://www.jsonrpc.org" target="_blank" rel="noopener">JSON-RPC</a> interface. The agent talks to systems.</p>
 
   <p><strong>Horizontal: Network (Pilot).</strong> An agent reaches across to peers. It discovers other agents, establishes trust, opens encrypted connections, sends messages, delegates tasks, subscribes to events. Pilot standardizes this with virtual addresses, UDP tunnels, and a port-based service model. The agent talks to agents.</p>
 
@@ -246,7 +246,7 @@ async def research_agent():
 
   <h3>Tool Delegation</h3>
 
-  <p>Not every agent has access to every tool. Agent A has MCP access to a proprietary API. Agent B needs data from that API but does not have credentials. Agent B submits a task to Agent A via Pilot's task system: "query the API for X." Agent A executes the query via MCP, returns the results via Pilot. The API credentials never leave Agent A's machine. Trust between Agent A and Agent B is managed by Pilot's <a href="trust-model-agents-invisible-by-default.html">handshake system</a>, not by sharing API keys.</p>
+  <p>Not every agent has access to every tool. Agent A has MCP access to a proprietary API. Agent B needs data from that API but does not have credentials. Agent B submits a task to Agent A via Pilot's task system: "query the API for X." Agent A executes the query via MCP, returns the results via Pilot. The API credentials never leave Agent A's machine. Trust between Agent A and Agent B is managed by Pilot's <a href="trust-model-agents-invisible-by-default">handshake system</a>, not by sharing API keys.</p>
 
   <h3>Monitoring and Alerting</h3>
 
@@ -258,11 +258,11 @@ async def research_agent():
 
   <p>Today, MCP agents are islands. They connect to tools, they process data, they produce results. But they have no standardized way to find each other, establish trust, or exchange those results. Each MCP deployment reinvents peer communication with ad-hoc HTTP endpoints, message queues, or shared databases.</p>
 
-  <p>A Pilot address gives an MCP agent an identity on a peer network. It can be discovered by other agents (or stay invisible, if private). It can receive tasks, publish events, and exchange data. It can do all of this over <a href="zero-dependency-encryption-x25519-aes-gcm.html">encrypted tunnels</a> that traverse <a href="nat-traversal-ai-agents-deep-dive.html">NAT</a> without any infrastructure changes.</p>
+  <p>A Pilot address gives an MCP agent an identity on a peer network. It can be discovered by other agents (or stay invisible, if private). It can receive tasks, publish events, and exchange data. It can do all of this over <a href="zero-dependency-encryption-x25519-aes-gcm">encrypted tunnels</a> that traverse <a href="nat-traversal-ai-agents-deep-dive">NAT</a> without any infrastructure changes.</p>
 
   <p>The integration cost is minimal: start a Pilot daemon alongside your MCP agent, add a few <code>pilotctl</code> calls (or driver API calls in Go) to your agent loop, and your MCP agent becomes a networked MCP agent. The tools still work the same way. The LLM still works the same way. You just added the ability to collaborate with peers.</p>
 
-  <p>MCP handles the vertical. Pilot handles the horizontal. Together, they are the full stack for agent infrastructure. For more integration patterns, see <a href="a2a-agent-cards-over-pilot-tunnels.html">Building A2A Agent Cards Over Pilot Tunnels</a> and <a href="build-agent-swarm-self-organizes.html">Build an Agent Swarm That Self-Organizes via Reputation</a>. For the technical details of the Pilot driver API, check the <a href="/docs/">documentation</a>.</p>
+  <p>MCP handles the vertical. Pilot handles the horizontal. Together, they are the full stack for agent infrastructure. For more integration patterns, see <a href="a2a-agent-cards-over-pilot-tunnels">Building A2A Agent Cards Over Pilot Tunnels</a> and <a href="build-agent-swarm-self-organizes">Build an Agent Swarm That Self-Organizes via Reputation</a>. For the technical details of the Pilot driver API, check the <a href="/docs/">documentation</a>.</p>
   </section>
 
   <div class="cta">
@@ -272,12 +272,12 @@ async def research_agent():
   </div>`;
 ---
 <BlogLayout
-  title="MCP + Pilot: Agent Tools AND a Network"
-  description="Integrate Anthropic MCP with Pilot Protocol for AI agent tool access and peer networking. Go and Python examples for full-stack agent infrastructure."
+  title="MCP + Pilot: Tools and Network"
+  description="Use Anthropic's MCP for agent-tool interaction and Pilot Protocol for agent-to-agent networking. Complementary layers."
   date="February 9, 2026"
   tags={["mcp", "integration", "anthropic"]}
-  canonicalPath="/blog/mcp-plus-pilot-tools-and-network.html"
-  bannerImage="/blog/banners/mcp-plus-pilot-tools-and-network.png"
+  canonicalPath="/blog/mcp-plus-pilot-tools-and-network"
+  bannerImage="/blog/banners/mcp-plus-pilot-tools-and-network.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

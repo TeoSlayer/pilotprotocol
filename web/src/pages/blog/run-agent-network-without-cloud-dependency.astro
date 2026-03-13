@@ -31,7 +31,7 @@ const bodyContent = `<p>"What happens to my devices if the cloud service shuts d
 
   <p>Cloud-dependent devices send all of their data to the vendor's servers. Every sensor reading, every camera frame, every voice command, every usage pattern flows through infrastructure you do not control. The vendor's privacy policy governs your data, not your own policies. If the vendor is acquired, if they change their terms of service, or if they receive a legal request from a jurisdiction you have never heard of, your data is exposed.</p>
 
-  <p>For businesses operating under GDPR, HIPAA, or industry-specific regulations, cloud dependency creates a compliance burden. You need to audit the vendor's data handling practices, sign data processing agreements, and monitor their compliance continuously. Self-hosting eliminates this entire category of risk.</p>
+  <p>For businesses operating under GDPR, HIPAA, or industry-specific regulations, cloud dependency creates a compliance burden. You need to audit the vendor's data handling practices, sign data processing agreements, and monitor their compliance continuously. Peer-to-peer communication eliminates this entire category of risk.</p>
 
   <h3>The Account Tax</h3>
 
@@ -43,70 +43,36 @@ const bodyContent = `<p>"What happens to my devices if the cloud service shuts d
     <p><strong>The fundamental question:</strong> Why does Home Assistant need to contact Google to add a Matter device? Why does your thermostat need the vendor's cloud to talk to your temperature sensor in the next room? Cloud dependency exists because it is convenient for the vendor, not because it is necessary for the user.</p>
   </div>
 
-  <h2 id="self-hosting">Self-Hosting a Pilot Rendezvous Server</h2>
+  <h2 id="getting-started">Getting Started With Pilot Protocol</h2>
 
-  <p>Pilot Protocol's rendezvous server is the only piece of infrastructure you need to run an agent network. It handles agent registration, hostname resolution, NAT traversal coordination, and trust relay. It is a single Go binary with no external dependencies -- no database, no message queue, no container runtime.</p>
+  <p>Pilot Protocol is a peer-to-peer overlay network. Agents communicate directly through encrypted UDP tunnels. The network handles discovery, NAT traversal, and trust -- but application data flows directly between agents, never through a central server.</p>
 
-  <p>Here is how to set it up. This takes approximately five minutes.</p>
+  <p>Here is how to get started. This takes approximately five minutes.</p>
 
   <h3>Step 1: Install</h3>
 
-  <pre><code><span class="comment"># Install pilotctl (requires Go 1.21+)</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span></code></pre>
+  <pre><code><span class="comment"># Install Pilot Protocol</span>
+<span class="cmd">$ curl -sSL https://install.pilotprotocol.network | sh</span></code></pre>
 
-  <p>That is the entire install. One command. No Docker, no Kubernetes, no Terraform. The binary is statically linked and runs on Linux, macOS, and Windows.</p>
+  <p>That is the entire install. One command. No Docker, no Kubernetes, no Terraform. The binary runs on Linux, macOS, and Windows.</p>
 
-  <h3>Step 2: Start the Rendezvous Server</h3>
+  <h3>Step 2: Connect Agents</h3>
 
-  <pre><code><span class="comment"># Start the rendezvous server with registry and beacon</span>
-<span class="cmd">$ pilotctl rendezvous start --listen :9000 --beacon :9001</span>
-Registry listening on :9000 (TCP)
-Beacon listening on :9001 (UDP)
-Persistence: /var/lib/pilot/registry.json
-
-<span class="comment"># For production, run as a systemd service</span>
-<span class="cmd">$ sudo systemctl enable pilot-rendezvous</span>
-<span class="cmd">$ sudo systemctl start pilot-rendezvous</span></code></pre>
-
-  <p>The registry listens on TCP port 9000 for agent registrations, lookups, and handshake relay. The beacon listens on UDP port 9001 for STUN discovery and hole-punch coordination. Both run in the same process.</p>
-
-  <p>The rendezvous server persists its state to a JSON file (<code>/var/lib/pilot/registry.json</code>) using atomic writes. If the server restarts, it reloads the previous state and agents reconnect automatically. There is no database to configure, no schema migration to run, and no backup process more complex than copying a single file.</p>
-
-  <h3>Step 3: Connect Agents</h3>
-
-  <pre><code><span class="comment"># Agent 1: point at your rendezvous server</span>
+  <pre><code><span class="comment"># Agent 1: install and start</span>
 <span class="cmd">$ pilotctl init --hostname sensor-1</span>
-<span class="cmd">$ pilotctl daemon start --registry your-server.local:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Registered as sensor-1 (1:0001.0000.0001)
 
-<span class="comment"># Agent 2: same rendezvous, same network</span>
+<span class="comment"># Agent 2: same network</span>
 <span class="cmd">$ pilotctl init --hostname controller</span>
-<span class="cmd">$ pilotctl daemon start --registry your-server.local:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Registered as controller (1:0001.0000.0002)
 
 <span class="comment"># Agents can now discover and connect to each other</span>
 <span class="cmd">$ pilotctl find sensor-1</span>
 sensor-1  1:0001.0000.0001  public  192.168.1.50:4000</code></pre>
 
-  <p>No accounts. No API keys. No terms of service. No third-party cloud. The rendezvous server runs on your hardware, your agents register with it, and all communication stays on your network.</p>
-
-  <h3>Hardware Requirements</h3>
-
-  <p>The rendezvous server is lightweight. For a fleet of up to 1,000 agents, a Raspberry Pi 4 is more than sufficient. For larger deployments, any modern server or VM works. Here are the measured resource requirements:</p>
-
-  <table>
-    <thead>
-      <tr><th>Fleet Size</th><th>RAM</th><th>CPU</th><th>Bandwidth</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>10 agents</td><td>~20 MB</td><td>Negligible</td><td>~1 KB/s</td></tr>
-      <tr><td>100 agents</td><td>~35 MB</td><td>&lt;1% single core</td><td>~10 KB/s</td></tr>
-      <tr><td>1,000 agents</td><td>~80 MB</td><td>~5% single core</td><td>~100 KB/s</td></tr>
-      <tr><td>10,000 agents</td><td>~400 MB</td><td>~1 core</td><td>~1 MB/s</td></tr>
-    </tbody>
-  </table>
-
-  <p>For production deployments exceeding 1,000 agents, Pilot supports <strong>hot-standby replication</strong>: a secondary rendezvous server receives push-based snapshots from the primary and can take over if the primary fails. See <a href="ten-thousand-agents-three-vms.html">How We Run 10,000 Agents on 3 VMs</a> for the operational details.</p>
+  <p>No accounts. No API keys. No terms of service. Agents register on the network, discover each other, and communicate directly through encrypted tunnels.</p>
 
   <h2 id="enrollment">Agent Enrollment Without Third-Party Accounts</h2>
 
@@ -118,10 +84,10 @@ Identity created: ~/.pilot/identity.key
 Public key: 7a2c...f819 (Ed25519)
 Virtual address: 1:0001.0000.0005
 
-<span class="cmd">$ pilotctl daemon start --registry your-server.local:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 Registered as new-sensor (1:0001.0000.0005)</code></pre>
 
-  <p>The agent generates its own Ed25519 key pair locally. No certificate authority, no credential server, no enrollment API. The private key never leaves the device. The public key is registered with the rendezvous server alongside the agent's virtual address.</p>
+  <p>The agent generates its own Ed25519 key pair locally. No certificate authority, no credential server, no enrollment API. The private key never leaves the device. The public key is registered on the network alongside the agent's virtual address.</p>
 
   <p>Authentication is cryptographic: the agent proves its identity by signing messages with its private key. Other agents verify the signature with the registered public key. There is no password to rotate, no token to refresh, and no OAuth flow to debug.</p>
 
@@ -130,31 +96,31 @@ Registered as new-sensor (1:0001.0000.0005)</code></pre>
   <pre><code><span class="comment"># Provision 50 sensors from a deployment script</span>
 for i in $(seq 1 50); do
   ssh sensor-$i "pilotctl init --hostname sensor-$i && \\
-    pilotctl daemon start --registry rendezvous.local:9000"
+    pilotctl daemon start"
 done</code></pre>
 
   <p>Each sensor gets its own cryptographic identity, its own virtual address, and its own hostname. No shared credentials, no master key, no single secret that compromises the entire fleet if leaked.</p>
 
-  <h2 id="resilience">What Happens When the Rendezvous Goes Down</h2>
+  <h2 id="resilience">What Happens When the Network Has an Outage</h2>
 
-  <p>This is the question that exposes the critical difference between cloud-dependent and self-hosted architectures: what breaks when the central server is unavailable?</p>
+  <p>This is the question that exposes the critical difference between cloud-dependent and peer-to-peer architectures: what breaks when the discovery service is unavailable?</p>
 
   <p>In a cloud-dependent system, the answer is "everything." Devices cannot authenticate, cannot discover peers, cannot send commands, and cannot receive updates. The entire deployment is dead.</p>
 
   <p>In Pilot Protocol, the answer is "new discovery stops, but everything else keeps working."</p>
 
   <ul>
-    <li><strong>Active connections continue</strong> -- agents that have already discovered each other and established tunnels continue communicating. The tunnel is a direct UDP connection between agents. The rendezvous server is not in the data path.</li>
-    <li><strong>Trusted relationships persist</strong> -- trust state is stored locally on each agent in <code>~/.pilot/</code>. It does not depend on the rendezvous server. If the server goes down, agents can still communicate with all of their previously trusted peers.</li>
-    <li><strong>New discovery fails</strong> -- agents cannot look up new peers by hostname because the registry is unavailable. This is the only thing that breaks.</li>
-    <li><strong>NAT traversal degrades</strong> -- STUN discovery and hole-punch coordination require the beacon, which runs on the rendezvous server. New connections behind NAT may not be established. Existing hole-punched connections continue working because the NAT mappings are maintained by keepalive probes.</li>
-    <li><strong>Recovery is automatic</strong> -- when the rendezvous server comes back, agents reconnect and re-register automatically. No manual intervention required.</li>
+    <li><strong>Active connections continue</strong> -- agents that have already discovered each other and established tunnels continue communicating. The tunnel is a direct UDP connection between agents. The network is not in the data path.</li>
+    <li><strong>Trusted relationships persist</strong> -- trust state is stored locally on each agent in <code>~/.pilot/</code>. It does not depend on the network. If discovery is down, agents can still communicate with all of their previously trusted peers.</li>
+    <li><strong>New discovery fails</strong> -- agents cannot look up new peers by hostname. This is the only thing that breaks.</li>
+    <li><strong>NAT traversal degrades</strong> -- new connections behind NAT may not be established until the network recovers. Existing connections continue working because the NAT mappings are maintained by keepalive probes.</li>
+    <li><strong>Recovery is automatic</strong> -- when the network recovers, agents reconnect and re-register automatically. No manual intervention required.</li>
   </ul>
 
   <p>Compare this to what happened when Insteon's cloud went down: devices could not execute local automation rules, could not be controlled via the app, and could not even be reset to work with a different platform. The cloud was not just the discovery layer -- it was the control plane, the data plane, and the authentication layer, all in one.</p>
 
   <div class="callout">
-    <p><strong>Design principle:</strong> The rendezvous server is the phonebook, not the phone network. If the phonebook is unavailable, you cannot look up new numbers, but you can still call anyone whose number you already have. This is a fundamentally more resilient architecture than routing all traffic through a central service.</p>
+    <p><strong>Design principle:</strong> The discovery layer is the phonebook, not the phone network. If the phonebook is unavailable, you cannot look up new numbers, but you can still call anyone whose number you already have. This is a fundamentally more resilient architecture than routing all traffic through a central service.</p>
   </div>
 
   <h2 id="comparison">Comparison: Pilot vs. MQTT Broker vs. Cloud IoT Platforms</h2>
@@ -164,8 +130,8 @@ done</code></pre>
       <tr><th>Property</th><th>Pilot Protocol</th><th>MQTT Broker</th><th>Cloud IoT (AWS/GCP/Azure)</th></tr>
     </thead>
     <tbody>
-      <tr><td>Self-hostable</td><td>Yes (single binary)</td><td>Yes (Mosquitto, etc.)</td><td>No</td></tr>
-      <tr><td>Cloud account required</td><td>No</td><td>No (self-hosted)</td><td>Yes</td></tr>
+      <tr><td>Open source</td><td>Yes (MIT license)</td><td>Yes (Mosquitto, etc.)</td><td>No</td></tr>
+      <tr><td>Cloud account required</td><td>No</td><td>No</td><td>Yes</td></tr>
       <tr><td>Central server in data path</td><td>No (discovery only)</td><td>Yes (all messages)</td><td>Yes (all messages)</td></tr>
       <tr><td>P2P communication</td><td>Yes (after discovery)</td><td>No (always via broker)</td><td>No (always via cloud)</td></tr>
       <tr><td>NAT traversal</td><td>Automatic (STUN/punch/relay)</td><td>Not supported</td><td>Not supported</td></tr>
@@ -173,25 +139,19 @@ done</code></pre>
       <tr><td>Survives server outage</td><td>Yes (existing connections continue)</td><td>No (all messages stop)</td><td>No (all messages stop)</td></tr>
       <tr><td>Per-device identity</td><td>Ed25519 key pair (auto-generated)</td><td>Username/password or certificate</td><td>Cloud-managed certificate</td></tr>
       <tr><td>Vendor lock-in</td><td>None (open source, MIT license)</td><td>Low (MQTT is a standard)</td><td>High (proprietary SDKs)</td></tr>
-      <tr><td>Monthly cost at 1K devices</td><td>$0 (self-hosted)</td><td>$0 (self-hosted)</td><td>$50-500/month</td></tr>
+      <tr><td>Monthly cost at 1K devices</td><td>$0 (open source)</td><td>$0 (open source)</td><td>$50-500/month</td></tr>
     </tbody>
   </table>
 
-  <p>MQTT is the closest alternative for self-hosted deployments. Mosquitto is excellent, battle-tested, and widely used. But MQTT brokers are always in the data path -- every message flows through the broker, making it a bottleneck and a single point of failure. Pilot's rendezvous server is only in the discovery path; actual communication is peer-to-peer.</p>
+  <p>MQTT is a strong alternative for IoT deployments. Mosquitto is excellent, battle-tested, and widely used. But MQTT brokers are always in the data path -- every message flows through the broker, making it a bottleneck and a single point of failure. Pilot's network handles only discovery; actual communication is peer-to-peer.</p>
 
-  <p>MQTT also does not provide NAT traversal. If your devices are behind different NATs, you need a publicly reachable broker (which reintroduces cloud dependency) or a VPN (which reintroduces configuration complexity). Pilot's automatic NAT traversal works behind any NAT type without additional infrastructure. For the technical details, see <a href="connect-ai-agents-behind-nat-without-vpn.html">Connect AI Agents Behind NAT Without a VPN</a>.</p>
+  <p>MQTT also does not provide NAT traversal. If your devices are behind different NATs, you need a publicly reachable broker (which reintroduces cloud dependency) or a VPN (which reintroduces configuration complexity). Pilot's automatic NAT traversal works behind any NAT type without additional infrastructure. For the technical details, see <a href="connect-ai-agents-behind-nat-without-vpn">Connect AI Agents Behind NAT Without a VPN</a>.</p>
 
-  <h2 id="migration">Migration Guide: Cloud-Dependent to Self-Hosted</h2>
+  <h2 id="migration">Migration Guide: Cloud-Dependent to Cloud-Independent</h2>
 
-  <p>If you are currently running devices on a cloud IoT platform and want to migrate to a self-hosted Pilot network, here is the process.</p>
+  <p>If you are currently running devices on a cloud IoT platform and want to migrate to Pilot Protocol, here is the process.</p>
 
-  <h3>Step 1: Deploy Your Rendezvous Server</h3>
-
-  <p>Choose a machine with a stable IP address. This can be a cloud VM (the irony is intentional -- using a $5/month VM to run your own infrastructure is different from depending on a vendor's managed service), a Raspberry Pi, or any server on your network.</p>
-
-  <pre><code><span class="cmd">$ pilotctl rendezvous start --listen :9000 --beacon :9001</span></code></pre>
-
-  <h3>Step 2: Install Pilot on Each Device</h3>
+  <h3>Step 1: Install Pilot on Each Device</h3>
 
   <p>Pilot compiles to a static binary for Linux (amd64, arm64, arm), macOS, and Windows. For embedded devices, cross-compile from your development machine:</p>
 
@@ -199,11 +159,11 @@ done</code></pre>
 <span class="cmd">$ GOOS=linux GOARCH=arm64 go build -o pilotctl ./cmd/pilotctl</span>
 <span class="cmd">$ scp pilotctl sensor-device:/usr/local/bin/</span></code></pre>
 
-  <h3>Step 3: Initialize and Connect Each Device</h3>
+  <h3>Step 2: Initialize and Connect Each Device</h3>
 
   <pre><code><span class="comment"># On each device</span>
 <span class="cmd">$ pilotctl init --hostname device-name</span>
-<span class="cmd">$ pilotctl daemon start --registry your-server:9000</span></code></pre>
+<span class="cmd">$ pilotctl daemon start</span></code></pre>
 
   <h3>Step 4: Establish Trust Between Devices</h3>
 
@@ -220,33 +180,31 @@ done</code></pre>
 
   <h3>Step 5: Decommission the Cloud Service</h3>
 
-  <p>Once all devices are communicating over Pilot, disable the cloud service. Your devices are now self-hosted. The rendezvous server runs on your hardware, the communication is peer-to-peer, and there is no monthly bill, no vendor dependency, and no risk of service shutdown.</p>
-
-  <p>If the rendezvous server is on your local network and your devices need to communicate across the internet, ensure the rendezvous server has a publicly reachable IP (or use a cheap cloud VM for just the rendezvous). The rendezvous server is stateless enough that a $5/month VM is sufficient for thousands of devices.</p>
+  <p>Once all devices are communicating over Pilot, disable the cloud service. Your devices are now independent. The communication is peer-to-peer, encrypted end-to-end, and there is no vendor dependency and no risk of service shutdown.</p>
 
   <h2 id="ownership">The Ownership Principle</h2>
 
   <p>The devices you buy should work for as long as the hardware functions. Not for as long as the vendor stays in business. Not for as long as the vendor's cloud service runs. Not for as long as the vendor's terms of service allow.</p>
 
-  <p>Self-hosting your agent network with Pilot Protocol means you own the infrastructure. The software is open source (MIT license). The binary is self-contained. The state is a JSON file you can back up with <code>cp</code>. There is no vendor that can shut down your deployment by shutting down their servers.</p>
+  <p>Running your agent network on Pilot Protocol means you own your data and your connections. The software is open source (MIT license). The communication is peer-to-peer. There is no vendor that can shut down your deployment by shutting down their servers.</p>
 
   <p>Insteon's customers learned this lesson the hard way. Wemo's customers are learning it now. The next cloud shutdown -- and there will be a next one -- does not have to affect you.</p>
 
-  <p>For a complete deployment guide with high availability, monitoring, and fleet management, see <a href="private-agent-network-company.html">Building a Private Agent Network for Your Company</a>. For the security model that protects your self-hosted network, see <a href="secure-ai-agent-communication-zero-trust.html">How to Secure AI Agent Communication With Zero Trust</a>. For a step-by-step quickstart, see <a href="build-multi-agent-network-five-minutes.html">Build a Multi-Agent Network in 5 Minutes</a>.</p>
+  <p>For a complete deployment guide with trust policies and fleet management, see <a href="private-agent-network-company">Building a Private Agent Network for Your Company</a>. For the security model, see <a href="secure-ai-agent-communication-zero-trust">How to Secure AI Agent Communication With Zero Trust</a>. For a step-by-step quickstart, see <a href="build-multi-agent-network-five-minutes">Build a Multi-Agent Network in 5 Minutes</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>One binary, five minutes, zero cloud dependency. Self-host your agent network and own your infrastructure. No accounts, no vendor lock-in, no service shutdowns.</p>
+    <p>One binary, five minutes, zero cloud dependency. Own your agent network. No accounts, no vendor lock-in, no service shutdowns.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---
 <BlogLayout
-  title="Run Your Agent Network Without Cloud Dependency"
-  description="Self-host your agent network with no cloud accounts. One binary, five minutes, zero third-party dependencies. Your devices keep working when the cloud shuts down."
+  title="Run an Agent Network Without Cloud Dependency"
+  description="Deploy a cloud-independent agent network. No AWS, no SaaS dependency — just Pilot Protocol."
   date="February 21, 2026"
-  tags={["self-hosted", "IoT", "independence"]}
-  canonicalPath="/blog/run-agent-network-without-cloud-dependency.html"
-  bannerImage="/blog/banners/run-agent-network-without-cloud-dependency.png"
+  tags={["independence", "IoT", "architecture"]}
+  canonicalPath="/blog/run-agent-network-without-cloud-dependency"
+  bannerImage="/blog/banners/run-agent-network-without-cloud-dependency.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

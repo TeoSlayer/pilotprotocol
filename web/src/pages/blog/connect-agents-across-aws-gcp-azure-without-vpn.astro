@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents on GCP. A partner organization uses Azure. You need them to communicate. The traditional answer is VPN: set up site-to-site tunnels between each cloud provider, configure routing tables, manage firewall rules, and hope the whole thing does not fall over when someone changes a security group.</p>
+const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" target="_blank" rel="noopener">AWS</a>. Your team in Europe runs agents on <a href="https://cloud.google.com" target="_blank" rel="noopener">GCP</a>. A partner organization uses <a href="https://azure.microsoft.com" target="_blank" rel="noopener">Azure</a>. You need them to communicate. The traditional answer is VPN: set up site-to-site tunnels between each cloud provider, configure routing tables, manage firewall rules, and hope the whole thing does not fall over when someone changes a security group.</p>
 
   <p>Multi-cloud networking is a hard problem. It is hard because each cloud provider designed its networking for a single-provider world. AWS VPCs, GCP VPC networks, and Azure VNets are all incompatible. Connecting them requires either cloud-provider interconnect products (AWS Transit Gateway, GCP Cloud Interconnect, Azure ExpressRoute) or VPN tunnels between gateways. Both options are expensive, complex, and scale poorly.</p>
 
@@ -85,52 +85,25 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
 
   <p>Here is a complete walkthrough. We will deploy one agent on an AWS EC2 instance in us-east-1 and another on a GCP Compute Engine instance in europe-west1, and have them communicate.</p>
 
-  <h3>Step 1: Deploy rendezvous server</h3>
-
-  <p>The rendezvous server can run on any cloud (or on-premises). It handles address resolution and NAT traversal signaling. For this example, we will run it on the GCP instance, but it could run anywhere.</p>
-
-  <pre><code><span class="comment"># On GCP instance (or any machine with a public IP)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-
-<span class="comment"># Start rendezvous with registry on port 9000, beacon on port 9001</span>
-<span class="cmd">pilotctl rendezvous start \\
-  --registry-addr 0.0.0.0:9000 \\
-  --beacon-addr 0.0.0.0:9001 \\
-  --persist /var/lib/pilot/registry.json</span></code></pre>
-
-  <div class="callout">
-    <p><strong>Firewall rules:</strong> Open TCP port 9000 (registry) and UDP port 9001 (beacon) on the rendezvous server. Open UDP port 4000 on each agent VM (tunnel port). These are the only firewall rules needed -- three ports total, regardless of how many agents you deploy.</p>
-  </div>
-
-  <h3>Step 2: Start agent on AWS</h3>
+  <h3>Step 1: Start agent on AWS</h3>
 
   <pre><code><span class="comment"># On AWS EC2 instance (us-east-1)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
 
-<span class="comment"># Start daemon pointing at rendezvous</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry &lt;rendezvous-ip&gt;:9000 \\
-  --beacon &lt;rendezvous-ip&gt;:9001 \\
-  --endpoint &lt;aws-public-ip&gt;:4000</span>
-
-<span class="comment"># Join network and set identity</span>
+<span class="comment"># Start daemon and set identity</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname research-aws</span>
 <span class="cmd">pilotctl set-visibility public</span>
 <span class="cmd">pilotctl tags set cloud=aws,region=us-east-1,role=research</span></code></pre>
 
-  <h3>Step 3: Start agent on GCP</h3>
+  <h3>Step 2: Start agent on GCP</h3>
 
   <pre><code><span class="comment"># On GCP Compute Engine instance (europe-west1)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
 
-<span class="comment"># Start daemon</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry &lt;rendezvous-ip&gt;:9000 \\
-  --beacon &lt;rendezvous-ip&gt;:9001 \\
-  --endpoint &lt;gcp-public-ip&gt;:4000</span>
-
-<span class="comment"># Join same network</span>
+<span class="comment"># Start daemon and set identity</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname analysis-gcp</span>
 <span class="cmd">pilotctl set-visibility public</span>
@@ -207,16 +180,12 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
   <p>Cloud NAT services (AWS NAT Gateway, GCP Cloud NAT, Azure NAT Gateway) typically implement Port-Restricted Cone or Symmetric NAT. Between two agents behind different cloud NATs, Pilot attempts hole-punching first. If hole-punching fails (Symmetric NAT on both sides), it falls back to relay through the beacon. The fallback is automatic -- your application code does not change.</p>
 
   <pre><code><span class="comment"># Agent behind AWS NAT Gateway (no public IP)</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry &lt;rendezvous-ip&gt;:9000 \\
-  --beacon &lt;rendezvous-ip&gt;:9001</span>
-<span class="comment"># No --endpoint flag: STUN discovery handles it</span>
+<span class="cmd">pilotctl daemon start</span>
+<span class="comment"># STUN discovery handles NAT automatically</span>
 
 <span class="comment"># Agent behind GCP Cloud NAT (no public IP)</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry &lt;rendezvous-ip&gt;:9000 \\
-  --beacon &lt;rendezvous-ip&gt;:9001</span>
-<span class="comment"># Same: STUN discovery, automatic hole-punching or relay</span></code></pre>
+<span class="cmd">pilotctl daemon start</span>
+<span class="comment"># Same: automatic hole-punching or relay</span></code></pre>
   </section>
 
   <section>
@@ -319,7 +288,7 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
     </tr>
     <tr>
       <td>Control plane</td>
-      <td>Self-hosted registry</td>
+      <td>Managed network</td>
       <td>Tailscale coordination (cloud)</td>
       <td>ZeroTier Central (cloud)</td>
       <td>Self-managed</td>
@@ -333,7 +302,7 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
     </tr>
     <tr>
       <td>Self-hostable</td>
-      <td>Yes (fully)</td>
+      <td>Yes</td>
       <td>Partial (Headscale)</td>
       <td>Partial (self-hosted controller)</td>
       <td>Yes</td>
@@ -383,12 +352,6 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
       <td>$0 (relay via Tailscale cloud)</td>
     </tr>
     <tr>
-      <td>Rendezvous server</td>
-      <td>1 small VM (~$5/mo)</td>
-      <td>N/A</td>
-      <td>N/A (Tailscale coordination)</td>
-    </tr>
-    <tr>
       <td>Data transfer</td>
       <td>Cloud egress only</td>
       <td>Cloud egress + VPN processing</td>
@@ -410,7 +373,7 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
 
   <p>For 3 clouds with site-to-site VPN, you are paying approximately $108/month in VPN gateway hours alone, before data transfer. For 5 clouds, it is $360/month (10 tunnels). For 10 sites, it is $1,620/month (45 tunnels). And each tunnel requires configuration, monitoring, and maintenance.</p>
 
-  <p>Pilot requires one rendezvous server (a small VM, ~$5/month) regardless of how many agents or clouds you connect. Adding a new cloud means installing Pilot on the new agent and running <code>pilotctl join</code>. No VPN configuration, no firewall rules beyond port 4000 UDP, no cloud-specific networking setup.</p>
+  <p>Pilot requires no VPN configuration, no firewall rules beyond port 4000 UDP, and no cloud-specific networking setup. Adding a new cloud means installing Pilot on the new agent and running <code>pilotctl join</code>.</p>
   </section>
 
   <section>
@@ -420,16 +383,14 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
 
   <ol>
     <li>Installs <code>pilotctl</code></li>
-    <li>Starts the daemon pointing at the rendezvous server</li>
+    <li>Starts the daemon</li>
     <li>Joins the network</li>
     <li>Establishes trust with the specific peers it needs to communicate with</li>
   </ol>
 
   <pre><code><span class="comment"># Add a new agent on Azure (or any cloud, or on-premises, or a laptop)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start \\
-  --registry &lt;rendezvous-ip&gt;:9000 \\
-  --beacon &lt;rendezvous-ip&gt;:9001</span>
+<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname new-agent-azure</span>
 <span class="cmd">pilotctl tags set cloud=azure,region=eastus2,role=customer-support</span>
@@ -441,7 +402,7 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
 <span class="comment"># Establish trust with specific agents (not entire networks)</span>
 <span class="cmd">pilotctl trust request 1:0001.0000.0017 --justification "Cross-cloud task delegation"</span></code></pre>
 
-  <p>There are no VPN tunnels to add. No routing tables to update. No firewall rules to modify. No cloud-specific configuration. The agent connects to the rendezvous server, discovers peers, and establishes direct encrypted tunnels. Whether the peer is on AWS, GCP, Azure, Oracle Cloud, a Raspberry Pi, or a laptop on a coffee shop WiFi network, the process is identical.</p>
+  <p>There are no VPN tunnels to add. No routing tables to update. No firewall rules to modify. No cloud-specific configuration. The agent joins the network, discovers peers, and establishes direct encrypted tunnels. Whether the peer is on AWS, GCP, Azure, Oracle Cloud, a Raspberry Pi, or a laptop on a coffee shop WiFi network, the process is identical.</p>
 
   <p>This is what "cloud-agnostic" actually means for agent networking. Not "works on multiple clouds with per-cloud configuration" but "works on any network with the same two commands."</p>
   </section>
@@ -451,13 +412,9 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
 
   <p>Deploy agents across any combination of clouds in under 10 minutes:</p>
 
-  <pre><code><span class="comment"># 1. Deploy rendezvous (any machine with a public IP)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl rendezvous start --registry-addr 0.0.0.0:9000 --beacon-addr 0.0.0.0:9001</span>
-
-<span class="comment"># 2. On each agent (any cloud, any location)</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --registry &lt;rendezvous-ip&gt;:9000 --beacon &lt;rendezvous-ip&gt;:9001</span>
+  <pre><code><span class="comment"># 1. Install on each agent (any cloud, any location)</span>
+<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># 3. Agents discover each other and communicate</span>
@@ -475,12 +432,12 @@ const bodyContent = `<p>You have agents on AWS. Your team in Europe runs agents 
   </div>`;
 ---
 <BlogLayout
-  title="Connect Agents Across AWS, GCP, and Azure Without a VPN"
-  description="Deploy AI agents across AWS, GCP, and Azure without VPN tunnels or cloud peering. Pilot Protocol provides virtual addresses, NAT traversal, and encrypted tunnels across any cloud."
+  title="Connect Agents Across AWS, GCP & Azure — Without VPN"
+  description="One overlay network across all clouds. Pilot Protocol connects agents regardless of provider, region, or VPC."
   date="February 19, 2026"
   tags={["multi-cloud", "networking", "deployment"]}
-  canonicalPath="/blog/connect-agents-across-aws-gcp-azure-without-vpn.html"
-  bannerImage="/blog/banners/connect-agents-across-aws-gcp-azure-without-vpn.png"
+  canonicalPath="/blog/connect-agents-across-aws-gcp-azure-without-vpn"
+  bannerImage="/blog/banners/connect-agents-across-aws-gcp-azure-without-vpn.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

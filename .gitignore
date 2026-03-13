@@ -9,7 +9,15 @@ build/
 
 # Cross-compiled Linux binaries (root level artifacts)
 *-linux
+
+# Root-level Go build outputs
+/daemon
+/registry
+/beacon
+/rendezvous
 /pilotctl
+/nameserver
+/gateway
 
 # caches
 __pycache__
@@ -60,6 +68,7 @@ docs/*
 *.synctex.gz
 
 .claude
+AGENTS.md
 
 # Daemon socket
 *.sock
@@ -70,9 +79,16 @@ docs/*
 # Temporary
 tmp/
 
+# Node / Astro (root-level Vite cache + web subdir)
+.astro/
+node_modules/
 web/node_modules/
 web/dist/
 web/.astro/
+web/.wrangler/
 
 # Internal tooling
 cmd/spoof/
+
+# Blog messaging (internal)
+web/MESSAGING.md

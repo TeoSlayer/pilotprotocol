@@ -288,13 +288,13 @@ func main() {
   </ol>
 
   <pre><code><span class="comment"># Drone on cellular (behind carrier-grade NAT)</span>
-<span class="cmd">pilotctl daemon start --beacon beacon.example.com:9001</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="comment"># NAT type is detected automatically</span>
 <span class="comment"># Hole-punch or relay is selected automatically</span>
 <span class="comment"># No configuration needed on the drone</span>
 
 <span class="comment"># Ground station on WiFi (behind home router NAT)</span>
-<span class="cmd">pilotctl daemon start --beacon beacon.example.com:9001</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="comment"># Same: automatic NAT traversal</span>
 
 <span class="comment"># Both can now communicate regardless of NAT type</span>
@@ -403,7 +403,7 @@ func main() {
   <ul>
     <li><strong>No hard real-time guarantees.</strong> Pilot uses UDP with congestion control and flow control, but it does not provide deterministic latency. For safety-critical control loops -- motor commands, emergency stops, collision avoidance at 100+ Hz -- you need a real-time transport like EtherCAT, ROS2 with real-time Linux, or direct serial communication. Pilot is for coordination (telemetry, task assignment, swarm planning), not for actuator control.</li>
     <li><strong>No QoS profiles.</strong> DDS provides configurable QoS: reliable vs best-effort, transient-local vs volatile, deadline constraints, liveliness assertions. Pilot's event stream is best-effort pub/sub. If a message is lost during congestion, it is gone. For telemetry at 10 Hz (where the next update replaces the previous one), this is acceptable. For critical commands, use the data exchange port (1001) which provides reliable delivery.</li>
-    <li><strong>Registry dependency.</strong> Unlike DDS's decentralized multicast discovery, Pilot requires a registry server for peer discovery. If the registry goes down, new robots cannot discover peers (existing connections continue working). For field deployments, run the registry on the ground station with a static backup address on one of the robots.</li>
+    <li><strong>Registry dependency.</strong> Unlike DDS's decentralized multicast discovery, Pilot uses a registry for peer discovery. If the network is temporarily unreachable, new robots cannot discover peers, but existing connections continue working.</li>
     <li><strong>No ROS2 integration.</strong> Pilot does not provide a ROS2 transport plugin. If your robot stack depends on ROS2 packages (Nav2, MoveIt, sensor drivers), you cannot replace DDS with Pilot. You can, however, run Pilot alongside ROS2 for swarm-level coordination while keeping ROS2 for intra-robot communication.</li>
     <li><strong>Not for control frequencies above ~50 Hz.</strong> The event stream is designed for coordination messages, not high-frequency control loops. At 10-50 Hz (telemetry, status updates, waypoints), Pilot performs well. At 100+ Hz (servo commands, IMU fusion), use a dedicated real-time transport.</li>
   </ul>
@@ -426,7 +426,7 @@ func main() {
 
 <span class="comment"># On each robot (Raspberry Pi / Jetson Nano)</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --beacon ground-station.local:9001</span>
+<span class="cmd">pilotctl daemon start</span>
 <span class="cmd">pilotctl join --network 1</span>
 <span class="cmd">pilotctl set-tags swarm-member robot ground-unit</span>
 
@@ -453,12 +453,12 @@ func main() {
   </div>`;
 ---
 <BlogLayout
-  title="Lightweight Swarm Communication for Drones and Robots"
-  description="Replace DDS/ROS2 multicast storms with single-socket UDP communication for drone and robot swarms. 10MB per daemon, no multicast, tag-based discovery."
+  title="Lightweight Swarm Communication for Drones & Robots"
+  description="Pilot Protocol's tiny footprint makes it ideal for drone swarms and robot fleets. P2P coordination without cloud roundtrips."
   date="February 25, 2026"
   tags={["robotics", "swarm", "edge"]}
-  canonicalPath="/blog/lightweight-swarm-communication-drones-robots.html"
-  bannerImage="/blog/banners/lightweight-swarm-communication-drones-robots.png"
+  canonicalPath="/blog/lightweight-swarm-communication-drones-robots"
+  bannerImage="/blog/banners/lightweight-swarm-communication-drones-robots.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

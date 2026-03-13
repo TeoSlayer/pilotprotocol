@@ -7,7 +7,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 
   <p><strong>88% of networks involve NAT.</strong> An agent running on a developer's laptop, behind a corporate firewall, inside a Docker container, or on a mobile device has no publicly routable address. It cannot receive incoming connections. It cannot be listed in a service registry. It is invisible to every other agent in the world.</p>
 
-  <p>Pilot Protocol is the layer that fixes this. It is a <strong>UDP overlay network</strong> that gives every AI agent a permanent virtual address, encrypted tunnels through NAT, and a cryptographic trust model -- all in a single binary with zero dependencies.</p>
+  <p>Pilot Protocol is the layer that fixes this. It is a <strong><a href="https://datatracker.ietf.org/doc/html/rfc768" target="_blank" rel="noopener">UDP</a> overlay network</strong> that gives every AI agent a permanent virtual address, encrypted tunnels through NAT, and a cryptographic trust model -- all in a single binary with zero dependencies.</p>
 
   <p>This post walks through the full architecture: how addresses work, what packets look like on the wire, how NAT traversal happens across three tiers, how encryption is negotiated, how trust is established, and what services run on top of the network.</p>
 
@@ -62,7 +62,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 
   <h2 id="packet">The Packet: 34-Byte Fixed Header</h2>
 
-  <p>Every Pilot Protocol packet carries a <strong>34-byte fixed header</strong>. No variable-length fields, no options, no extensions. This makes parsing trivial and fast -- a single struct read in Go.</p>
+  <p>Every Pilot Protocol packet carries a <strong>34-byte fixed header</strong>. No variable-length fields, no options, no extensions. This makes parsing trivial and fast -- a single struct read in <a href="https://go.dev" target="_blank" rel="noopener">Go</a>.</p>
 
   <table>
     <thead>
@@ -80,7 +80,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
       <tr><td>23</td><td>AckNum</td><td>4 bytes</td><td>Acknowledgment number</td></tr>
       <tr><td>27</td><td>Window</td><td>2 bytes</td><td>Advertised receive window (flow control)</td></tr>
       <tr><td>29</td><td>Length</td><td>2 bytes</td><td>Payload length in bytes</td></tr>
-      <tr><td>31</td><td>Checksum</td><td>4 bytes</td><td>CRC32 over header + payload</td></tr>
+      <tr><td>31</td><td>Checksum</td><td>4 bytes</td><td><a href="https://en.wikipedia.org/wiki/Cyclic_redundancy_check" target="_blank" rel="noopener">CRC32</a> over header + payload</td></tr>
     </tbody>
   </table>
 
@@ -115,13 +115,13 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
     <li><strong>Keepalive probes</strong> every 30 seconds, with 120-second idle timeout</li>
   </ul>
 
-  <p>This gives application-layer code a reliable, ordered byte stream -- identical to what <code>net.Conn</code> provides in Go. In fact, Pilot connections implement the <code>net.Conn</code> interface directly, which means standard Go HTTP servers and clients work unmodified over Pilot tunnels.</p>
+  <p>This gives application-layer code a reliable, ordered byte stream -- identical to what <code>net.Conn</code> provides in Go. In fact, Pilot connections implement the <code>net.Conn</code> interface directly, which means standard Go HTTP servers and clients work unmodified over Pilot tunnels. This transport layer is what makes it practical to <a href="/blog/chain-ai-models-across-machines">chain AI models across machines with persistent tunnels</a>, eliminating the per-request connection overhead that plagues HTTP-based pipelines.</p>
 
   <h2 id="nat">NAT Traversal: Three Tiers</h2>
 
   <p>NAT traversal is the hardest part of any peer-to-peer system. Pilot Protocol solves it with a <strong>three-tier approach</strong> that handles every NAT type, from simple full-cone NATs to the most restrictive symmetric NATs.</p>
 
-  <p>The key component is the <strong>beacon</strong> -- a lightweight server that runs alongside the rendezvous registry on a public IP. The beacon serves three functions: STUN discovery, hole-punch coordination, and relay fallback.</p>
+  <p>The key component is the <strong>beacon</strong> -- a lightweight server that runs alongside the rendezvous registry on a public IP. The beacon serves three functions: <a href="https://datatracker.ietf.org/doc/html/rfc5389" target="_blank" rel="noopener">STUN</a> discovery, hole-punch coordination, and relay fallback.</p>
 
   <h3>Tier 1: STUN Discovery</h3>
 
@@ -187,7 +187,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 
   <h2 id="encryption">Encryption: X25519 + AES-256-GCM</h2>
 
-  <p>Pilot Protocol encrypts all traffic by default. There is no unencrypted mode for production use. The encryption system uses <strong>X25519 for key exchange</strong> and <strong>AES-256-GCM for packet encryption</strong>, implemented entirely with Go's standard library -- zero external dependencies.</p>
+  <p>Pilot Protocol encrypts all traffic by default. There is no unencrypted mode for production use. The encryption system uses <strong><a href="https://datatracker.ietf.org/doc/html/rfc7748" target="_blank" rel="noopener">X25519</a> for key exchange</strong> and <strong><a href="https://datatracker.ietf.org/doc/html/rfc5288" target="_blank" rel="noopener">AES-256-GCM</a> for packet encryption</strong>, implemented entirely with Go's standard library -- zero external dependencies.</p>
 
   <h3>Key Exchange</h3>
 
@@ -262,7 +262,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 
   <p>Trust can be revoked instantly with <code>pilotctl untrust</code>. This removes the trust pair, tears down any active tunnels, and notifies the peer. The revoked agent can no longer resolve the revoker's endpoint or establish new connections.</p>
 
-  <p>For a deeper exploration of the trust model, see <a href="trust-model-agents-invisible-by-default.html">Why Agents Should Be Invisible by Default</a>.</p>
+  <p>For a deeper exploration of the trust model, see <a href="trust-model-agents-invisible-by-default">Why Agents Should Be Invisible by Default</a>.</p>
 
   <h2 id="services">What Runs on Top: Port-Based Services</h2>
 
@@ -294,11 +294,11 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 listener := pilot.Listen(daemon, 80)
 http.Serve(listener, myHandler)</code></pre>
 
-  <p>The <strong>gateway</strong> component bridges Pilot services to the local network. It assigns a loopback IP alias for each Pilot address and listens on common ports, proxying traffic between local HTTP clients and Pilot tunnels. This means existing tools -- curl, browsers, REST clients -- can interact with agents on the Pilot network without any modification. See the <a href="/docs/gateway.html">Gateway documentation</a> for details.</p>
+  <p>The <strong>gateway</strong> component bridges Pilot services to the local network. It assigns a loopback IP alias for each Pilot address and listens on common ports, proxying traffic between local HTTP clients and Pilot tunnels. This means existing tools -- curl, browsers, REST clients -- can interact with agents on the Pilot network without any modification. See the <a href="/docs/gateway">Gateway documentation</a> for details.</p>
 
   <h3>Pub/Sub and Event Streams</h3>
 
-  <p>Port 1002 provides a built-in <strong>publish/subscribe</strong> system with topic routing and wildcard subscriptions. Agents can subscribe to event streams from trusted peers and publish events to subscribers without external message brokers. See <a href="/docs/pubsub.html">Pub/Sub documentation</a> for the full API.</p>
+  <p>Port 1002 provides a built-in <strong>publish/subscribe</strong> system with topic routing and wildcard subscriptions. Agents can subscribe to event streams from trusted peers and publish events to subscribers without external message brokers. This pub/sub layer enables use cases like <a href="/blog/federated-learning-p2p-communication">peer-to-peer gradient exchange for federated learning</a> and <a href="/blog/distributed-rag-without-central-knowledge-base">distributed RAG pipelines where each agent owns its own corpus</a>. See <a href="/docs/pubsub">Pub/Sub documentation</a> for the full API.</p>
 
   <h3>Task Submission</h3>
 
@@ -322,7 +322,7 @@ http.Serve(listener, myHandler)</code></pre>
   <p>All of this happens in milliseconds. The agent developer writes standard Go networking code. The Pilot daemon handles everything else: address resolution, NAT traversal, encryption, flow control, and reliable delivery.</p>
 
   <div class="callout">
-    <p><strong>226 tests</strong> validate every layer of the stack, from packet serialization to end-to-end NAT traversal. The protocol is implemented in pure Go with zero external dependencies. See the <a href="/docs/concepts.html">Core Concepts documentation</a> for the complete technical reference.</p>
+    <p><strong>226 tests</strong> validate every layer of the stack, from packet serialization to end-to-end NAT traversal. The protocol is implemented in pure Go with zero external dependencies. See the <a href="/docs/concepts">Core Concepts documentation</a> for the complete technical reference.</p>
   </div>
 
   <div class="cta">
@@ -332,12 +332,12 @@ http.Serve(listener, myHandler)</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="How Pilot Protocol Works - Architecture Deep Dive"
-  description="Deep dive into Pilot Protocol architecture: 48-bit virtual addresses, UDP overlay network, three-tier NAT traversal, X25519 encryption, and the agent trust model."
+  title="How Pilot Protocol Works — Under the Hood"
+  description="A technical deep dive into Pilot Protocol's overlay network: addressing, encryption, NAT traversal, and reliable transport."
   date="February 19, 2026"
   tags={["architecture", "deep-dive", "networking"]}
-  canonicalPath="/blog/how-pilot-protocol-works.html"
-  bannerImage="/blog/banners/how-pilot-protocol-works.png"
+  canonicalPath="/blog/how-pilot-protocol-works"
+  bannerImage="/blog/banners/how-pilot-protocol-works.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

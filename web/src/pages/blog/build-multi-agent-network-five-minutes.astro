@@ -7,9 +7,9 @@ const bodyContent = `<p>This tutorial takes you from zero to a working multi-age
 
   <h2 id="prerequisites">Prerequisites</h2>
 
-  <p>You need <strong>Go 1.21 or later</strong> installed. That is the only dependency. Pilot Protocol is a single binary with zero external libraries.</p>
+  <p>You need <strong><a href="https://go.dev" target="_blank" rel="noopener">Go</a> 1.21 or later</strong> installed. That is the only dependency. Pilot Protocol is a single binary with zero external libraries.</p>
 
-  <p>You will also need access to a rendezvous server. The public rendezvous server at <code>pilotprotocol.network:9000</code> is available for testing. For production, you can <a href="/docs/configuration.html">run your own</a>.</p>
+  <p>You will also need a Pilot network. The default network at <code>pilotprotocol.network</code> is available for all users.</p>
 
   <h2 id="install">Step 1: Install pilotctl</h2>
 
@@ -25,7 +25,7 @@ const bodyContent = `<p>This tutorial takes you from zero to a working multi-age
 pilotctl v0.5.0</code></pre>
 
   <div class="callout">
-    <p><strong>Alternative:</strong> You can also clone the repository and build from source with <code>go build ./cmd/pilotctl</code>. See the <a href="/docs/getting-started.html">Getting Started guide</a> for details.</p>
+    <p><strong>Alternative:</strong> You can also clone the repository and build from source with <code>go build ./cmd/pilotctl</code>. See the <a href="/docs/getting-started">Getting Started guide</a> for details.</p>
   </div>
 
   <h2 id="start">Step 2: Start Two Agents</h2>
@@ -154,27 +154,27 @@ Listening...
   <p>Behind those simple CLI commands, a surprising amount happened:</p>
 
   <ol>
-    <li><strong>Identity generation</strong> -- <code>pilotctl init</code> generated an Ed25519 key pair and stored it in <code>~/.pilot/identity.json</code>. This key pair is the agent's permanent cryptographic identity.</li>
+    <li><strong>Identity generation</strong> -- <code>pilotctl init</code> generated an <a href="https://datatracker.ietf.org/doc/html/rfc8032" target="_blank" rel="noopener">Ed25519</a> key pair and stored it in <code>~/.pilot/identity.json</code>. This key pair is the agent's permanent cryptographic identity.</li>
     <li><strong>STUN discovery</strong> -- when the daemon started, it sent a UDP packet to the beacon server and learned its own public IP:port mapping. This is how other agents can reach it through NAT.</li>
-    <li><strong>Registration</strong> -- the daemon connected to the rendezvous server over TCP and registered its hostname, public key, and STUN-discovered endpoint.</li>
-    <li><strong>Handshake</strong> -- Alice's handshake request was signed with her Ed25519 private key and relayed through the rendezvous server to Bob. Bob verified the signature, approved, and signed his response. Both sides now store the peer's public key.</li>
-    <li><strong>Tunnel establishment</strong> -- with trust established, Alice's daemon resolved Bob's endpoint from the rendezvous server, attempted direct UDP connection (using hole-punching if needed), and performed X25519 key exchange to set up AES-256-GCM encryption.</li>
+    <li><strong>Registration</strong> -- the daemon connected to the network and registered its hostname, public key, and STUN-discovered endpoint.</li>
+    <li><strong>Handshake</strong> -- Alice's handshake request was signed with her Ed25519 private key and relayed through the network to Bob. Bob verified the signature, approved, and signed his response. Both sides now store the peer's public key.</li>
+    <li><strong>Tunnel establishment</strong> -- with trust established, Alice's daemon resolved Bob's endpoint from the network, attempted direct UDP connection (using hole-punching if needed), and performed X25519 key exchange to set up AES-256-GCM encryption.</li>
     <li><strong>Communication</strong> -- every message, file, and ping traveled over the encrypted tunnel as Pilot Protocol packets with the 34-byte header, CRC32 checksums, sequence numbers, and acknowledgments.</li>
   </ol>
 
-  <p>All of this happened without configuring firewalls, opening ports, setting up TLS certificates, or deploying cloud infrastructure. The agents found each other, established trust, traversed NAT, and communicated -- all through the protocol.</p>
+  <p>All of this happened without configuring firewalls, opening ports, setting up TLS certificates, or deploying cloud infrastructure. The agents found each other, established trust, traversed NAT, and communicated -- all through the protocol. If you want to take this further, you can <a href="/blog/build-agent-swarm-self-organizes">build a self-organizing agent swarm with reputation-based routing</a>, <a href="/blog/replace-message-broker-twelve-lines-go">replace your message broker with 12 lines of Go</a>, or <a href="/blog/http-services-over-encrypted-overlay">run standard HTTP services over the encrypted overlay</a>.</p>
 
   <h2 id="next">Next Steps</h2>
 
   <p>Now that you have a working network, explore further:</p>
 
   <ul>
-    <li><a href="how-pilot-protocol-works.html"><strong>How Pilot Protocol Works</strong></a> -- understand the full architecture: packet format, NAT traversal tiers, encryption, and trust model</li>
-    <li><a href="trust-model-agents-invisible-by-default.html"><strong>The Trust Model</strong></a> -- learn why agents are invisible by default and how the handshake system works in depth</li>
-    <li><a href="why-ai-agents-need-network-stack.html"><strong>Why Agents Need a Network Stack</strong></a> -- the motivation behind Pilot Protocol and why HTTP is not enough for agent communication</li>
-    <li><a href="/docs/cli-reference.html"><strong>CLI Reference</strong></a> -- complete documentation for every <code>pilotctl</code> command</li>
-    <li><a href="/docs/services.html"><strong>Built-in Services</strong></a> -- port-based services including Echo, Data Exchange, Event Stream, and Task Submit</li>
-    <li><a href="/docs/integration.html"><strong>Integration Guide</strong></a> -- embed Pilot Protocol in your Go applications</li>
+    <li><a href="how-pilot-protocol-works"><strong>How Pilot Protocol Works</strong></a> -- understand the full architecture: packet format, NAT traversal tiers, encryption, and trust model</li>
+    <li><a href="trust-model-agents-invisible-by-default"><strong>The Trust Model</strong></a> -- learn why agents are invisible by default and how the handshake system works in depth</li>
+    <li><a href="why-ai-agents-need-network-stack"><strong>Why Agents Need a Network Stack</strong></a> -- the motivation behind Pilot Protocol and why HTTP is not enough for agent communication</li>
+    <li><a href="/docs/cli-reference"><strong>CLI Reference</strong></a> -- complete documentation for every <code>pilotctl</code> command</li>
+    <li><a href="/docs/services"><strong>Built-in Services</strong></a> -- port-based services including Echo, Data Exchange, Event Stream, and Task Submit</li>
+    <li><a href="/docs/integration"><strong>Integration Guide</strong></a> -- embed Pilot Protocol in your Go applications</li>
   </ul>
 
   <div class="cta">
@@ -185,11 +185,11 @@ Listening...
 ---
 <BlogLayout
   title="Build a Multi-Agent Network in 5 Minutes"
-  description="Step-by-step tutorial to set up a multi-agent network with pilotctl. Install, start agents, establish trust, send messages, and transfer files in under 5 minutes."
+  description="Step-by-step tutorial: install Pilot Protocol, register agents, establish trust, and send your first encrypted message."
   date="February 18, 2026"
   tags={["tutorial", "quickstart", "getting-started"]}
-  canonicalPath="/blog/build-multi-agent-network-five-minutes.html"
-  bannerImage="/blog/banners/build-multi-agent-network-five-minutes.png"
+  canonicalPath="/blog/build-multi-agent-network-five-minutes"
+  bannerImage="/blog/banners/build-multi-agent-network-five-minutes.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

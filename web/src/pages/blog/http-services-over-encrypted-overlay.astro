@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>Every HTTP library in every language works with TCP sockets. Pilot Protocol speaks UDP. You might assume these are incompatible. They are not. Pilot's driver implements <code>net.Conn</code>, which means Go's <code>net/http</code> server and client work over Pilot connections without modification. You write a normal HTTP handler, listen on a Pilot port, and the bytes travel over an encrypted UDP tunnel through NAT. Standard <code>curl</code> and <code>fetch()</code> calls work through the gateway.</p>
+const bodyContent = `<p>Every HTTP library in every language works with TCP sockets. Pilot Protocol speaks UDP. You might assume these are incompatible. They are not. Pilot's driver implements <code>net.Conn</code>, which means Go's <a href="https://pkg.go.dev/net/http" target="_blank" rel="noopener"><code>net/http</code></a> server and client work over Pilot connections without modification. You write a normal HTTP handler, listen on a Pilot port, and the bytes travel over an encrypted UDP tunnel through NAT. Standard <code>curl</code> and <code>fetch()</code> calls work through the gateway.</p>
 
   <p>This tutorial builds from a single HTTP endpoint to a three-service REST API mesh running entirely over the encrypted overlay. By the end, you will have agents exposing HTTP services that any standard client can consume, with <strong>zero TLS configuration</strong> on your part.</p>
 
@@ -423,7 +423,7 @@ func enrichOrder(d *driver.Driver, order Order) map[string]any {
   <section>
   <h2>Port 443: Double Encryption</h2>
 
-  <p>Pilot port 80 uses the tunnel's AES-256-GCM encryption. Port 443 adds a second layer: a per-connection X25519 key exchange followed by AES-256-GCM encryption on the connection itself. This is <strong>double encryption</strong> -- the tunnel encrypts the outer packet, and the connection encrypts the inner payload.</p>
+  <p>Pilot port 80 uses the tunnel's AES-256-GCM encryption. Port 443 adds a second layer: a per-connection <a href="https://datatracker.ietf.org/doc/html/rfc7748" target="_blank" rel="noopener">X25519</a> key exchange followed by <a href="https://datatracker.ietf.org/doc/html/rfc5288" target="_blank" rel="noopener">AES-256-GCM</a> encryption on the connection itself. This is <strong>double encryption</strong> -- the tunnel encrypts the outer packet, and the connection encrypts the inner payload.</p>
 
   <h3>Why Double Encryption?</h3>
 
@@ -512,7 +512,7 @@ resp, _ := http.ReadResponse(bufio.NewReader(conn), req)</code></pre>
 
   <p>The encryption is automatic. The NAT traversal is automatic. The peer authentication is automatic. You write HTTP handlers and they just work, whether your agents are on the same LAN or on different continents behind symmetric NAT.</p>
 
-  <p>For the performance characteristics of HTTP over Pilot versus direct HTTP, see the <a href="benchmarking-http-vs-udp-overlay.html">benchmark comparison</a>. For event-driven alternatives to REST, see <a href="replace-message-broker-twelve-lines-go.html">the event stream tutorial</a>. For the full API reference, check the <a href="/docs/">documentation</a>.</p>
+  <p>For the performance characteristics of HTTP over Pilot versus direct HTTP, see the <a href="benchmarking-http-vs-udp-overlay">benchmark comparison</a>. For event-driven alternatives to REST, see <a href="replace-message-broker-twelve-lines-go">the event stream tutorial</a>. For the full API reference, check the <a href="/docs/">documentation</a>.</p>
   </section>
 
   <div class="cta">
@@ -522,12 +522,12 @@ resp, _ := http.ReadResponse(bufio.NewReader(conn), req)</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="HTTP Services Over an Encrypted Agent Overlay"
-  description="Run standard Go HTTP servers over Pilot Protocol's encrypted overlay. Gateway exposes agent services as local IPs. Build a REST API mesh with automatic encryption and NAT traversal."
+  title="HTTP Services Over Encrypted Overlay"
+  description="Run standard HTTP services over Pilot Protocol's encrypted overlay. Access any agent's API through the gateway."
   date="February 15, 2026"
   tags={["tutorial", "http", "gateway"]}
-  canonicalPath="/blog/http-services-over-encrypted-overlay.html"
-  bannerImage="/blog/banners/http-services-over-encrypted-overlay.png"
+  canonicalPath="/blog/http-services-over-encrypted-overlay"
+  bannerImage="/blog/banners/http-services-over-encrypted-overlay.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

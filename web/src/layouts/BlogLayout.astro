@@ -3,6 +3,7 @@ import BaseHead from '../components/BaseHead.astro';
 import IslandNavbar from '../components/IslandNavbar.astro';
 import BlogShader from '../components/BlogShader.astro';
 import BlogFooter from '../components/BlogFooter.astro';
+import { blogPosts } from '../data/blogPosts';
 import '../styles/global.css';
 import '../styles/blog.css';
 
@@ -16,8 +17,32 @@ interface Props {
 }
 
 const { title, description, date, tags, canonicalPath, bannerImage } = Astro.props;
-const canonicalUrl = canonicalPath ? `https://pilotprotocol.network${canonicalPath}` : undefined;
-const ogImage = bannerImage || 'https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png';
+const cleanPath = canonicalPath ? canonicalPath.replace(/\.html$/, '') : undefined;
+const canonicalUrl = cleanPath ? `https://pilotprotocol.network${cleanPath}` : undefined;
+const ogImage = bannerImage
+  ? `https://pilotprotocol.network${bannerImage}`
+  : 'https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png';
+
+// Derive current slug from URL
+const pathParts = Astro.url.pathname.replace(/\/$/, '').split('/');
+const currentSlug = pathParts[pathParts.length - 1].replace('.html', '');
+const currentIndex = blogPosts.findIndex(p => p.slug === currentSlug);
+
+// Prev/Next navigation
+const prevPost = currentIndex > 0 ? blogPosts[currentIndex - 1] : null;
+const nextPost = currentIndex < blogPosts.length - 1 ? blogPosts[currentIndex + 1] : null;
+
+// Related posts: find posts sharing tags, exclude current, take up to 3
+const currentTags = new Set(tags.map(t => t.toLowerCase()));
+const related = blogPosts
+  .filter(p => p.slug !== currentSlug)
+  .map(p => ({
+    ...p,
+    shared: p.tags.filter(t => currentTags.has(t.toLowerCase())).length,
+  }))
+  .filter(r => r.shared > 0)
+  .sort((a, b) => b.shared - a.shared)
+  .slice(0, 3);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -28,24 +53,180 @@ const ogImage = bannerImage || 'https://raw.githubusercontent.com/TeoSlayer/pilo
     "@type": "Article",
     "headline": title,
     "description": description,
+    "image": ogImage,
     "author": {"@type": "Organization", "name": "Vulture Labs"},
     "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
     "datePublished": date,
+    "dateModified": date,
     "mainEntityOfPage": canonicalUrl
+  })}></script>
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://pilotprotocol.network/"},
+      {"@type": "ListItem", "position": 2, "name": "Blog", "item": "https://pilotprotocol.network/blog/"},
+      {"@type": "ListItem", "position": 3, "name": title, "item": canonicalUrl}
+    ]
   })}></script>
 </head>
 <body>
+  <div class="progress-bar" id="progress-bar"></div>
   <BlogShader />
   <IslandNavbar active="blog" />
-  <article class="article">
-    <a class="back" href="/blog/">&larr; Back to Blog</a>
-    <h1>{title}</h1>
-    <div class="article-meta">
-      <span>{date}</span>
-      {tags.map((tag) => <span class="tag">{tag}</span>)}
-    </div>
-    <slot />
-  </article>
+  <div class="article-layout">
+    <article class="article">
+      <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/blog/">Blog</a> <span class="sep">/</span> <span>{title}</span></nav>
+      {bannerImage && <img class="article-banner" src={bannerImage} alt={title} loading="lazy" />}
+      <h1>{title}</h1>
+      <div class="article-meta">
+        <span>{date}</span>
+        <span class="reading-time" id="reading-time"></span>
+        {tags.map((tag) => <span class="tag">{tag}</span>)}
+      </div>
+      <slot />
+    </article>
+    <aside class="article-toc" id="article-toc">
+      <nav>
+        <p class="toc-title">On this page</p>
+        <ul id="toc-list"></ul>
+      </nav>
+    </aside>
+  </div>
+
+  {related.length > 0 && (
+    <section class="related-posts">
+      <div class="related-inner">
+        <h2>Related Posts</h2>
+        <div class="related-grid">
+          {related.map(post => (
+            <a class="related-card" href={`/blog/${post.slug}`}>
+              <img src={`/blog/${post.banner}`} alt="" loading="lazy" />
+              <div class="related-body">
+                <h3>{post.title}</h3>
+                <span class="related-meta">{post.date} &middot; {post.category}</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  {(prevPost || nextPost) && (
+    <nav class="blog-nav">
+      <div class="blog-nav-inner">
+        {prevPost ? (
+          <a class="blog-nav-link blog-nav-prev" href={`/blog/${prevPost.slug}`}>
+            <span class="blog-nav-label">&larr; Previous</span>
+            <span class="blog-nav-title">{prevPost.title}</span>
+          </a>
+        ) : <div />}
+        {nextPost ? (
+          <a class="blog-nav-link blog-nav-next" href={`/blog/${nextPost.slug}`}>
+            <span class="blog-nav-label">Next &rarr;</span>
+            <span class="blog-nav-title">{nextPost.title}</span>
+          </a>
+        ) : <div />}
+      </div>
+    </nav>
+  )}
+
   <BlogFooter />
+
+  <button class="scroll-top" id="scroll-top" aria-label="Scroll to top">
+    <svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
+
+<script>
+// Progress bar + scroll-to-top
+(function() {
+  var bar = document.getElementById('progress-bar');
+  var scrollBtn = document.getElementById('scroll-top');
+  window.addEventListener('scroll', function() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var pct = h > 0 ? (window.scrollY / h) * 100 : 0;
+    if (bar) bar.style.width = pct + '%';
+    if (scrollBtn) {
+      if (window.scrollY > 400) scrollBtn.classList.add('visible');
+      else scrollBtn.classList.remove('visible');
+    }
+  });
+  if (scrollBtn) scrollBtn.addEventListener('click', function() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+
+// Reading time
+(function() {
+  var el = document.getElementById('reading-time');
+  var article = document.querySelector('.article');
+  if (!el || !article) return;
+  var text = article.innerText || article.textContent || '';
+  var words = text.trim().split(/\s+/).length;
+  var mins = Math.ceil(words / 200);
+  el.textContent = mins + ' min read';
+})();
+
+// Table of contents
+(function() {
+  var list = document.getElementById('toc-list');
+  var toc = document.getElementById('article-toc');
+  if (!list || !toc) return;
+  var headings = document.querySelectorAll('.article h2[id]');
+  if (headings.length === 0) { toc.style.display = 'none'; return; }
+  headings.forEach(function(h) {
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    list.appendChild(li);
+  });
+  // Highlight current section
+  var tocLinks = list.querySelectorAll('a');
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        tocLinks.forEach(function(a) { a.classList.remove('active'); });
+        var active = list.querySelector('a[href="#' + entry.target.id + '"]');
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+  headings.forEach(function(h) { observer.observe(h); });
+})();
+
+// Copy buttons on code blocks
+(function() {
+  document.querySelectorAll('.article pre').forEach(function(pre) {
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function() {
+      var code = pre.querySelector('code');
+      var text = code ? code.textContent : pre.textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+      });
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+})();
+
+// Scroll reveal
+(function() {
+  var els = document.querySelectorAll('.article h2, .article blockquote, .article .callout, .related-card, .blog-nav-link');
+  if (!els.length) return;
+  var obs = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); }
+    });
+  }, { threshold: 0.1 });
+  els.forEach(function(el) { el.classList.add('reveal'); obs.observe(el); });
+})();
+</script>
 </body>
 </html>

@@ -18,16 +18,44 @@ interface Props {
 
 const { title, description, activePage, canonicalPath, prev, next } = Astro.props;
 const canonicalUrl = canonicalPath ? `https://pilotprotocol.network${canonicalPath}` : undefined;
+
+const breadcrumbItems = [
+  { name: "Home", url: "https://pilotprotocol.network/" },
+  { name: "Docs", url: "https://pilotprotocol.network/docs/" },
+];
+if (activePage !== 'index') {
+  breadcrumbItems.push({ name: title, url: canonicalUrl || "" });
+}
 ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": title,
+    "description": description,
+    "url": canonicalUrl,
+    "isPartOf": { "@type": "WebSite", "name": "Pilot Protocol", "url": "https://pilotprotocol.network/" },
+    "publisher": { "@type": "Organization", "name": "Vulture Labs" }
+  })}></script>
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": breadcrumbItems.map((item, i) => ({
+      "@type": "ListItem",
+      "position": i + 1,
+      "name": item.name,
+      "item": item.url
+    }))
+  })}></script>
 </head>
 <body>
   <Topbar variant="docs" />
   <DocSidebar activePage={activePage} />
   <div class="content">
+    {activePage !== 'index' && <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/docs/">Docs</a> <span class="sep">/</span> <span>{title}</span></nav>}
     <slot />
     <PageNav prev={prev} next={next} />
   </div>

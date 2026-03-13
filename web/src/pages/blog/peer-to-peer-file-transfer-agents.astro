@@ -1,15 +1,376 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = ``;
+const bodyContent = `<p>When AI agents need to share files -- model weights, training datasets, research reports, generated artifacts -- the default approach is cloud storage. Agent A uploads to S3 or GCS, sends the URL to Agent B, Agent B downloads. This works. It is also slow, expensive, and introduces compliance risks that many organizations cannot accept.</p>
+
+  <p>The upload-download pattern means every file transfer makes two trips: once from the sender to the cloud, once from the cloud to the receiver. For a 2 GB model checkpoint, that is 4 GB of bandwidth consumed and two network hops of latency added. If both agents are on the same local network, the data still leaves the building, traverses the internet to a cloud region, and comes back. If the data is subject to <a href="https://en.wikipedia.org/wiki/Peer-to-peer_file_sharing" target="_blank" rel="noopener">data residency requirements</a>, routing it through a third-party cloud service may violate compliance policies.</p>
+
+  <p>Pilot Protocol enables direct peer-to-peer file transfer between agents. The sender streams the file over an encrypted tunnel to the receiver. No cloud intermediary. No temporary storage. No third-party access to the data. The file travels the shortest network path between the two agents, encrypted end-to-end with AES-256-GCM, traversing NAT automatically. This article walks through the implementation.</p>
+
+  <section>
+  <h2 id="architecture">How It Works</h2>
+
+  <p>File transfer over Pilot uses port 1001 (data exchange), the same port used for structured data transfer between agents. The transfer is a streaming operation: the sender reads the file in chunks, writes each chunk to the Pilot connection, and the receiver reassembles them on the other end. Pilot's transport layer handles the complexity.</p>
+
+  <ol>
+    <li><strong>Connection establishment.</strong> The sender opens a connection to the receiver's Pilot address on port 1001. The Pilot daemon handles NAT traversal -- using direct connection, hole-punching, or relay depending on the network topology. The tunnel is encrypted with X25519 key exchange and AES-256-GCM.</li>
+    <li><strong>Metadata exchange.</strong> The sender transmits a header containing the filename, total size, checksum, and any custom metadata (e.g., model architecture, dataset schema, content type). The receiver validates the metadata and confirms readiness.</li>
+    <li><strong>Chunked transfer.</strong> The sender reads the file in chunks and writes them to the connection. Pilot's auto segmentation splits each chunk into MTU-sized packets at the transport layer. The receiver reads chunks and writes them to disk.</li>
+    <li><strong>Verification.</strong> After the final chunk, the receiver computes a checksum of the reassembled file and compares it against the sender's declared checksum. A match confirms integrity.</li>
+  </ol>
+
+  <p>The critical point is that the application code does not manage packets, retransmission, or flow control. Pilot's transport layer -- with its sliding window, AIMD congestion control, and advertised receive window -- handles all of this transparently. The application sees a reliable byte stream, just like TCP, but over encrypted UDP tunnels that traverse NAT.</p>
+
+  <div class="callout">
+    <p><strong>Why port 1001?</strong> Pilot's port model assigns specific purposes to port numbers. Port 1001 is reserved for data exchange -- structured data transfer between agents. File transfer is the most common data exchange pattern, but the same port handles any binary payload: serialized model states, database snapshots, compressed archives.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="sender-implementation">Building the File Sender</h2>
+
+  <p>Here is a complete Go implementation of a file sender that transfers a file to a remote agent over Pilot:</p>
+
+  <pre><code>package main
+
+import (
+    "crypto/sha256"
+    "encoding/binary"
+    "encoding/hex"
+    "fmt"
+    "io"
+    "log"
+    "os"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+const chunkSize = 64 * 1024 <span class="comment">// 64 KB chunks</span>
+
+<span class="comment">// FileHeader is sent before the file data</span>
+type FileHeader struct {
+    Filename string
+    Size     int64
+    Checksum string <span class="comment">// SHA-256 hex</span>
+}
+
+func main() {
+    if len(os.Args) != 3 {
+        fmt.Fprintf(os.Stderr, "usage: filesend &lt;pilot-address&gt; &lt;filepath&gt;\\n")
+        os.Exit(1)
+    }
+
+    targetAddr := os.Args[1] <span class="comment">// e.g., "1:0000.0042.00A1"</span>
+    filePath := os.Args[2]
+
+    <span class="comment">// Open the file and compute checksum</span>
+    f, err := os.Open(filePath)
+    if err != nil {
+        log.Fatalf("open file: %v", err)
+    }
+    defer f.Close()
+
+    stat, _ := f.Stat()
+    checksum := computeSHA256(filePath)
+
+    <span class="comment">// Connect to Pilot daemon</span>
+    drv, err := driver.Connect("/tmp/pilot.sock")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer drv.Close()
+
+    <span class="comment">// Open a connection to the receiver on port 1001 (data exchange)</span>
+    conn, err := drv.Dial(targetAddr, 1001)
+    if err != nil {
+        log.Fatalf("dial %s:1001: %v", targetAddr, err)
+    }
+    defer conn.Close()
+
+    <span class="comment">// Send the file header</span>
+    header := FileHeader{
+        Filename: stat.Name(),
+        Size:     stat.Size(),
+        Checksum: checksum,
+    }
+
+    <span class="comment">// Write header length + header JSON</span>
+    headerBytes, _ := json.Marshal(header)
+    binary.Write(conn, binary.BigEndian, uint32(len(headerBytes)))
+    conn.Write(headerBytes)
+
+    <span class="comment">// Read confirmation from receiver</span>
+    var ack byte
+    conn.Read([]byte{ack})
+    if ack != 0x01 {
+        log.Fatal("receiver rejected transfer")
+    }
+
+    <span class="comment">// Stream the file in chunks</span>
+    buf := make([]byte, chunkSize)
+    var sent int64
+
+    for {
+        n, err := f.Read(buf)
+        if n > 0 {
+            _, writeErr := conn.Write(buf[:n])
+            if writeErr != nil {
+                log.Fatalf("write error at offset %d: %v", sent, writeErr)
+            }
+            sent += int64(n)
+
+            <span class="comment">// Log progress every 10 MB</span>
+            if sent%(10*1024*1024) < int64(chunkSize) {
+                pct := float64(sent) / float64(stat.Size()) * 100
+                log.Printf("sent %d / %d bytes (%.1f%%)", sent, stat.Size(), pct)
+            }
+        }
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            log.Fatalf("read error: %v", err)
+        }
+    }
+
+    <span class="comment">// Wait for receiver's checksum confirmation</span>
+    conn.Read([]byte{ack})
+    if ack == 0x01 {
+        log.Printf("Transfer complete: %s (%d bytes, checksum verified)", stat.Name(), sent)
+    } else {
+        log.Printf("Transfer complete but checksum mismatch")
+    }
+}
+
+func computeSHA256(path string) string {
+    f, _ := os.Open(path)
+    defer f.Close()
+    h := sha256.New()
+    io.Copy(h, f)
+    return hex.EncodeToString(h.Sum(nil))
+}</code></pre>
+
+  <p>The sender opens a file, computes its SHA-256 checksum, connects to the receiver over Pilot, sends a header with metadata, and streams the file in 64 KB chunks. Pilot's transport layer handles packetization, retransmission, and flow control beneath the <code>conn.Write()</code> call. The sender's code is not aware that the data is being split into MTU-sized UDP packets, reordered by sequence number, and delivered through an encrypted tunnel.</p>
+  </section>
+
+  <section>
+  <h2 id="receiver-implementation">Building the File Receiver</h2>
+
+  <p>The receiver listens on port 1001 for incoming file transfers:</p>
+
+  <pre><code>package main
+
+import (
+    "crypto/sha256"
+    "encoding/binary"
+    "encoding/hex"
+    "encoding/json"
+    "io"
+    "log"
+    "os"
+    "path/filepath"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    outputDir := "./received"
+    os.MkdirAll(outputDir, 0755)
+
+    <span class="comment">// Connect to Pilot daemon</span>
+    drv, err := driver.Connect("/tmp/pilot.sock")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer drv.Close()
+
+    <span class="comment">// Listen for incoming connections on port 1001</span>
+    listener, err := drv.Listen(1001)
+    if err != nil {
+        log.Fatalf("listen 1001: %v", err)
+    }
+    defer listener.Close()
+
+    log.Println("File receiver listening on port 1001")
+
+    for {
+        conn, err := listener.Accept()
+        if err != nil {
+            log.Printf("accept error: %v", err)
+            continue
+        }
+        go receiveFile(conn, outputDir)
+    }
+}
+
+func receiveFile(conn io.ReadWriteCloser, outputDir string) {
+    defer conn.Close()
+
+    <span class="comment">// Read header length</span>
+    var headerLen uint32
+    binary.Read(conn, binary.BigEndian, &headerLen)
+
+    <span class="comment">// Read header JSON</span>
+    headerBytes := make([]byte, headerLen)
+    io.ReadFull(conn, headerBytes)
+
+    var header FileHeader
+    json.Unmarshal(headerBytes, &header)
+
+    log.Printf("Incoming file: %s (%d bytes, checksum %s)",
+        header.Filename, header.Size, header.Checksum[:16]+"...")
+
+    <span class="comment">// Create output file</span>
+    outPath := filepath.Join(outputDir, header.Filename)
+    f, err := os.Create(outPath)
+    if err != nil {
+        conn.Write([]byte{0x00}) <span class="comment">// reject</span>
+        log.Printf("create file error: %v", err)
+        return
+    }
+    defer f.Close()
+
+    <span class="comment">// Send acceptance</span>
+    conn.Write([]byte{0x01})
+
+    <span class="comment">// Receive file data</span>
+    h := sha256.New()
+    received, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(conn, header.Size))
+    if err != nil {
+        log.Printf("receive error at offset %d: %v", received, err)
+        return
+    }
+
+    <span class="comment">// Verify checksum</span>
+    computed := hex.EncodeToString(h.Sum(nil))
+    if computed == header.Checksum {
+        conn.Write([]byte{0x01}) <span class="comment">// checksum OK</span>
+        log.Printf("Received %s: %d bytes, checksum verified", header.Filename, received)
+    } else {
+        conn.Write([]byte{0x00}) <span class="comment">// checksum mismatch</span>
+        log.Printf("Checksum mismatch for %s: expected %s, got %s",
+            header.Filename, header.Checksum[:16], computed[:16])
+        os.Remove(outPath) <span class="comment">// clean up corrupted file</span>
+    }
+}</code></pre>
+
+  <p>The receiver listens on port 1001, accepts incoming connections from any trusted peer, reads the file header, and streams the data to disk while computing a running SHA-256 checksum. The <code>io.Copy</code> with <code>io.LimitReader</code> ensures the receiver reads exactly the declared number of bytes, preventing a malicious sender from writing more data than expected.</p>
+  </section>
+
+  <section>
+  <h2 id="transport-mechanics">Transport Mechanics</h2>
+
+  <p>Beneath the simple <code>Read</code>/<code>Write</code> API, Pilot's transport layer performs several operations that make file transfer reliable over unreliable networks:</p>
+
+  <p><strong>Auto segmentation.</strong> When the sender writes a 64 KB chunk, Pilot's transport layer splits it into MTU-sized segments (typically 1200-1400 bytes for UDP). Each segment gets a sequence number in the 34-byte packet header. The receiver reassembles segments in order, handling reordering and duplicates. The application never sees individual packets.</p>
+
+  <p><strong>Sliding window.</strong> Pilot maintains a send window that limits how many unacknowledged segments can be in flight. This prevents the sender from flooding the network. The window size adapts dynamically using AIMD (Additive Increase, Multiplicative Decrease) congestion control -- the same algorithm family that TCP uses, tuned for UDP overlay characteristics.</p>
+
+  <p><strong>Flow control.</strong> The receiver advertises its available buffer space in every acknowledgment packet (the 2-byte Window field in the packet header). If the receiver's buffer fills up -- because disk I/O is slow or the receiver is processing other connections -- the sender pauses until the receiver signals it has space. This prevents the receiver from being overwhelmed regardless of how fast the sender can produce data.</p>
+
+  <p><strong>Encryption.</strong> Every segment is encrypted with AES-256-GCM before transmission. The encryption key is established during the initial X25519 key exchange when the tunnel is created. There is no option to disable encryption -- it is always on. A random nonce prefix per connection prevents nonce reuse across sessions.</p>
+
+  <p>These mechanisms work together to make file transfer over Pilot as reliable as TCP while maintaining the NAT traversal properties of UDP. The sender and receiver code does not need to implement any of this -- it is handled by the Pilot daemon and driver library.</p>
+  </section>
+
+  <section>
+  <h2 id="comparison">Cloud Storage vs. Direct Transfer</h2>
+
+  <p>The trade-offs between using cloud storage (S3, GCS, Azure Blob) and direct Pilot transfer are significant across multiple dimensions:</p>
+
+  <table>
+    <thead>
+      <tr><th>Dimension</th><th>Cloud Storage (S3/GCS)</th><th>Pilot Direct Transfer</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Latency</td><td>2 hops (upload + download)</td><td>1 hop (direct P2P)</td></tr>
+      <tr><td>Bandwidth cost</td><td>Egress fees both directions</td><td>Zero (no intermediary)</td></tr>
+      <tr><td>Storage cost</td><td>Per-GB-month for temporary files</td><td>Zero (no intermediate storage)</td></tr>
+      <tr><td>Data residency</td><td>Data stored in cloud region</td><td>Data stays on sender/receiver only</td></tr>
+      <tr><td>Encryption</td><td>TLS in transit, optional at rest</td><td>AES-256-GCM end-to-end, always on</td></tr>
+      <tr><td>Third-party access</td><td>Cloud provider can access data</td><td>No third party sees the data</td></tr>
+      <tr><td>Setup</td><td>IAM roles, bucket policies, SDKs</td><td>Pilot daemon + driver connect</td></tr>
+      <tr><td>NAT traversal</td><td>Handled by cloud (public endpoints)</td><td>Handled by Pilot (STUN/punch/relay)</td></tr>
+      <tr><td>Resumability</td><td>Multipart upload/download</td><td>Reconnect and continue from offset</td></tr>
+      <tr><td>Max file size</td><td>5 TB (S3 limit)</td><td>Unlimited (streaming)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The most compelling advantage of direct transfer is data privacy. When Agent A sends model weights directly to Agent B over a Pilot tunnel, no third party ever holds the data. There is no S3 bucket to misconfigure, no IAM policy to audit, no cloud provider with potential access. For organizations subject to HIPAA, GDPR, or data sovereignty requirements, this is not a nice-to-have -- it is a compliance requirement.</p>
+
+  <p>The cost advantage is also significant at scale. AWS charges \$0.09/GB for S3 egress. Transferring a 10 GB model checkpoint costs \$0.90 for the upload egress and \$0.90 for the download egress, totaling \$1.80 per transfer. An agent that shares model checkpoints 100 times a month pays \$180 in cloud egress fees alone. Direct transfer over Pilot costs zero in cloud fees -- the agents use their existing network connections.</p>
+  </section>
+
+  <section>
+  <h2 id="resumability">Resumable Transfers</h2>
+
+  <p>Network interruptions are inevitable, especially for large file transfers. A 50 GB dataset transfer that fails at 90% should not restart from zero. Pilot's connection tracking enables resumable transfers by maintaining state about the last successfully received offset.</p>
+
+  <p>The implementation pattern is straightforward: the receiver tracks how many bytes it has written to disk. If the connection drops and the sender reconnects, the receiver sends the last received offset in its acceptance message, and the sender seeks to that position in the file before resuming:</p>
+
+  <pre><code><span class="comment">// Receiver: include resume offset in acceptance</span>
+type AcceptMessage struct {
+    OK          bool  \`json:"ok"\`
+    ResumeAt    int64 \`json:"resume_at"\` <span class="comment">// 0 for new transfer</span>
+}
+
+<span class="comment">// Sender: seek to resume offset before streaming</span>
+func sendWithResume(conn io.ReadWriteCloser, f *os.File, resumeAt int64) error {
+    if resumeAt > 0 {
+        log.Printf("Resuming transfer from offset %d", resumeAt)
+        f.Seek(resumeAt, io.SeekStart)
+    }
+
+    buf := make([]byte, chunkSize)
+    offset := resumeAt
+
+    for {
+        n, err := f.Read(buf)
+        if n > 0 {
+            conn.Write(buf[:n])
+            offset += int64(n)
+        }
+        if err == io.EOF {
+            return nil
+        }
+        if err != nil {
+            return fmt.Errorf("read at offset %d: %w", offset, err)
+        }
+    }
+}</code></pre>
+
+  <p>The receiver stores the resume offset in a temporary metadata file alongside the partially received data. If the agent restarts entirely, it can detect the partial file, read the metadata, and request a resume from the sender. This makes large transfers resilient to transient network issues, daemon restarts, and even machine reboots.</p>
+  </section>
+
+  <section>
+  <h2 id="use-cases">Use Cases</h2>
+
+  <p>Direct file transfer between agents unlocks several patterns that are impractical or expensive with cloud storage intermediaries:</p>
+
+  <p><strong>Model weight distribution.</strong> A training agent produces a new model checkpoint and distributes it to inference agents across multiple regions. Each inference agent receives the weights directly, without the checkpoint ever landing in a shared bucket. This is faster (one hop instead of two) and more secure (no shared storage to compromise).</p>
+
+  <p><strong>Dataset collaboration.</strong> Two research agents working on related problems share preprocessed datasets directly. For more on this pattern, see <a href="/blog/secure-research-collaboration-share-models-not-data">Secure Research Collaboration: Share Models, Not Data</a>. The key benefit is that data residency is maintained -- the dataset only exists on the two agents' machines, never in transit storage.</p>
+
+  <p><strong>Report delivery.</strong> An analysis agent generates a PDF report and delivers it to a coordinator agent. The report may contain sensitive financial data that should not traverse cloud storage. Direct delivery ensures the report goes from producer to consumer with no intermediate copies.</p>
+
+  <p><strong>Configuration sync.</strong> Agents in a fleet share configuration files, prompt templates, or tool definitions. Instead of polling a central config server, agents push updates directly to peers. This eliminates the central config server as a single point of failure and reduces sync latency.</p>
+
+  <p>For the underlying NAT traversal mechanics that make direct connections possible even when both agents are behind firewalls, see <a href="/blog/nat-traversal-ai-agents-deep-dive">NAT Traversal for AI Agents: A Deep Dive</a>. For the encryption layer that protects file data in transit, check the <a href="/docs/">documentation</a> on Pilot's security model.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Transfer Files Without the Cloud</h3>
+    <p>Send files directly between agents -- encrypted, NAT-traversing, no intermediary. Install Pilot and start transferring in minutes.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
 ---
 <BlogLayout
-  title="P2P File Transfer Between AI Agents"
-  description="Direct peer-to-peer file transfer between AI agents over encrypted tunnels. Send model weights, datasets, and reports without S3 or cloud storage intermediaries."
+  title="Peer-to-Peer File Transfer Between Agents"
+  description="Transfer files directly between agents without cloud storage. Encrypted, resumable, and works behind NAT."
   date="February 14, 2026"
   tags={["tutorial", "file-transfer", "p2p"]}
-  canonicalPath="/blog/peer-to-peer-file-transfer-agents.html"
-  bannerImage="/blog/banners/peer-to-peer-file-transfer-agents.png"
+  canonicalPath="/blog/peer-to-peer-file-transfer-agents"
+  bannerImage="/blog/banners/peer-to-peer-file-transfer-agents.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

@@ -11,7 +11,7 @@ const bodyContent = `<p>"How do IoT devices behind NAT communicate peer-to-peer?
 
   <h2 id="why-nat-breaks">Why NAT Breaks Everything</h2>
 
-  <p>Network Address Translation was introduced as a temporary fix for IPv4 address exhaustion in the 1990s. Thirty years later, it is more prevalent than ever and has become the single largest obstacle to peer-to-peer communication.</p>
+  <p><a href="https://datatracker.ietf.org/doc/html/rfc3022" target="_blank" rel="noopener">Network Address Translation</a> was introduced as a temporary fix for IPv4 address exhaustion in the 1990s. Thirty years later, it is more prevalent than ever and has become the single largest obstacle to peer-to-peer communication.</p>
 
   <p>A NAT device assigns private IP addresses to devices on a local network (192.168.x.x, 10.x.x.x) and translates them to a single public IP address for outgoing traffic. This works perfectly for client-server communication: the device behind NAT initiates a connection, the NAT creates a mapping, and responses flow back through the mapping.</p>
 
@@ -41,9 +41,9 @@ const bodyContent = `<p>"How do IoT devices behind NAT communicate peer-to-peer?
 
   <h3>VPNs: Powerful but Complex</h3>
 
-  <p>WireGuard, Tailscale, and ZeroTier can connect devices behind NAT. They work well. They also require installing and configuring software on every device, managing key distribution, maintaining a coordination server, and debugging when connections drop. For a fleet of 50 IoT sensors, a VPN is viable. For a fleet of 10,000 ephemeral AI agents that spin up and down dynamically, the operational overhead is prohibitive.</p>
+  <p><a href="https://www.wireguard.com" target="_blank" rel="noopener">WireGuard</a>, <a href="https://tailscale.com" target="_blank" rel="noopener">Tailscale</a>, and ZeroTier can connect devices behind NAT. They work well. They also require installing and configuring software on every device, managing key distribution, maintaining a coordination server, and debugging when connections drop. For a fleet of 50 IoT sensors, a VPN is viable. For a fleet of 10,000 ephemeral AI agents that spin up and down dynamically, the operational overhead is prohibitive.</p>
 
-  <p>VPNs also create a flat network -- every device on the VPN can reach every other device. This is a security liability when you want fine-grained access control between agents. Pilot Protocol's trust model allows per-agent-pair authorization, which a VPN does not provide. See <a href="secure-ai-agent-communication-zero-trust.html">How to Secure AI Agent Communication With Zero Trust</a> for details.</p>
+  <p>VPNs also create a flat network -- every device on the VPN can reach every other device. This is a security liability when you want fine-grained access control between agents. Pilot Protocol's trust model allows per-agent-pair authorization, which a VPN does not provide. See <a href="secure-ai-agent-communication-zero-trust">How to Secure AI Agent Communication With Zero Trust</a> for details.</p>
 
   <h3>DDS and Multicast: LAN Only</h3>
 
@@ -71,7 +71,7 @@ const bodyContent = `<p>"How do IoT devices behind NAT communicate peer-to-peer?
 
   <h3>Tier 1: STUN Discovery and Direct Connection</h3>
 
-  <p>When a Pilot daemon starts, it discovers its own public endpoint using STUN (Session Traversal Utilities for NAT). The daemon sends a UDP packet to the beacon server, and the beacon replies with the source address it observed -- which is the agent's public NAT-mapped endpoint.</p>
+  <p>When a Pilot daemon starts, it discovers its own public endpoint using <a href="https://datatracker.ietf.org/doc/html/rfc5389" target="_blank" rel="noopener">STUN</a> (Session Traversal Utilities for NAT). The daemon sends a UDP packet to the beacon server, and the beacon replies with the source address it observed -- which is the agent's public NAT-mapped endpoint.</p>
 
   <pre><code><span class="comment"># Daemon startup: STUN discovery happens automatically</span>
 <span class="cmd">$ pilotctl daemon start</span>
@@ -187,15 +187,15 @@ Registered with fixed endpoint (STUN skipped)</code></pre>
 
   <h3>Federated Learning Nodes</h3>
 
-  <p>Federated learning requires model updates to flow between training nodes without centralizing the data. When those nodes are on university networks, home labs, and corporate campuses -- all behind different NATs -- the communication layer is the hardest part. Pilot provides authenticated, encrypted peer-to-peer connections between any two nodes, regardless of their NAT type. The trust model ensures that only authorized nodes participate in the training federation.</p>
+  <p>Federated learning requires model updates to flow between training nodes without centralizing the data. When those nodes are on university networks, home labs, and corporate campuses -- all behind different NATs -- the communication layer is the hardest part. Pilot provides authenticated, encrypted peer-to-peer connections between any two nodes, regardless of their NAT type. The trust model ensures that only authorized nodes participate in the training federation. For healthcare and research environments, the same NAT traversal combined with trust-gated access enables <a href="/blog/hipaa-compliant-agent-communication">HIPAA-compliant agent communication</a> without exposing endpoints to the public internet.</p>
 
   <h3>CI/CD Runners and Dev Containers</h3>
 
-  <p>Self-hosted CI/CD runners behind corporate firewalls cannot accept inbound connections. Cloud-based orchestrators cannot push jobs to them. Pilot flips this: the runner registers with the Pilot registry on startup, and the orchestrator connects through the automatic NAT traversal. No firewall rules to modify, no VPN to maintain, no IT ticket to file.</p>
+  <p>Self-hosted CI/CD runners behind corporate firewalls cannot accept inbound connections. Cloud-based orchestrators cannot push jobs to them. Pilot flips this: the runner registers on the Pilot network on startup, and the orchestrator connects through the automatic NAT traversal. No firewall rules to modify, no VPN to maintain, no IT ticket to file.</p>
 
   <h3>Multi-Agent AI Deployments</h3>
 
-  <p>When your AI agents run on a mix of cloud VMs, office workstations, and edge devices, the network topology is inherently heterogeneous. Some agents have public IPs, some are behind residential NAT, some are behind corporate firewalls. Pilot's three-tier traversal unifies all of these into a single overlay network where every agent can reach every other agent through its virtual address.</p>
+  <p>When your AI agents run on a mix of cloud VMs, office workstations, and edge devices, the network topology is inherently heterogeneous. Some agents have public IPs, some are behind residential NAT, some are behind corporate firewalls. Pilot's three-tier traversal unifies all of these into a single overlay network where every agent can reach every other agent through its virtual address. For a practical guide to connecting agents across AWS, GCP, and Azure without VPN configuration, see <a href="/blog/connect-agents-across-aws-gcp-azure-without-vpn">Connect Agents Across AWS, GCP, and Azure Without a VPN</a>.</p>
 
   <h2 id="cli-example">CLI Example: Two Agents Behind Different NATs</h2>
 
@@ -204,14 +204,14 @@ Registered with fixed endpoint (STUN skipped)</code></pre>
   <pre><code><span class="comment"># Home network 1 (Port-Restricted Cone NAT)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-1</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.example.com:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 STUN: public endpoint 73.162.88.14:4000 (port_restricted_cone)
 Registered as home-agent-1 (1:0001.0000.0008)
 
 <span class="comment"># Home network 2 (Restricted Cone NAT)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-2 --public</span>
-<span class="cmd">$ pilotctl daemon start --registry rendezvous.example.com:9000</span>
+<span class="cmd">$ pilotctl daemon start</span>
 STUN: public endpoint 98.45.211.33:4000 (restricted_cone)
 Registered as home-agent-2 (1:0001.0000.0009)
 
@@ -234,9 +234,9 @@ PING home-agent-2 (1:0001.0000.0009):
 
 <span class="comment"># Direct peer-to-peer — no relay, no VPN, no port forwarding</span></code></pre>
 
-  <p>Both agents are behind NAT on different home networks. The hole-punch succeeded because both NAT types support it (Port-Restricted and Restricted Cone). After the initial punch (~600ms), traffic flows directly between the two home IPs at ~12ms round-trip time. No cloud relay, no VPN tunnel, no router configuration. The only infrastructure is the rendezvous server that coordinated the initial discovery and hole-punch.</p>
+  <p>Both agents are behind NAT on different home networks. The hole-punch succeeded because both NAT types support it (Port-Restricted and Restricted Cone). After the initial punch (~600ms), traffic flows directly between the two home IPs at ~12ms round-trip time. No cloud relay, no VPN tunnel, no router configuration. The only infrastructure needed was the initial discovery and hole-punch coordination, handled by the network.</p>
 
-  <p>For a deeper technical treatment of the NAT traversal protocol, including wire formats, beacon gossip, and cross-beacon relay, see <a href="nat-traversal-ai-agents-deep-dive.html">NAT Traversal for AI Agents: A Deep Dive</a>. For the encryption that protects all traffic regardless of traversal tier, see <a href="zero-dependency-encryption-x25519-aes-gcm.html">Zero-Dependency Agent Encryption</a>. For the trust model that determines which agents can connect, see <a href="secure-ai-agent-communication-zero-trust.html">How to Secure AI Agent Communication With Zero Trust</a>.</p>
+  <p>For a deeper technical treatment of the NAT traversal protocol, including wire formats, beacon gossip, and cross-beacon relay, see <a href="nat-traversal-ai-agents-deep-dive">NAT Traversal for AI Agents: A Deep Dive</a>. For the encryption that protects all traffic regardless of traversal tier, see <a href="zero-dependency-encryption-x25519-aes-gcm">Zero-Dependency Agent Encryption</a>. For the trust model that determines which agents can connect, see <a href="secure-ai-agent-communication-zero-trust">How to Secure AI Agent Communication With Zero Trust</a>.</p>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
@@ -245,12 +245,12 @@ PING home-agent-2 (1:0001.0000.0009):
   </div>`;
 ---
 <BlogLayout
-  title="Connect AI Agents Behind NAT Without a VPN"
-  description="NAT traversal for AI agents and IoT devices. STUN, hole-punching, and relay fallback connect peers behind firewalls without VPN configuration."
+  title="Connect AI Agents Behind NAT — Without a VPN"
+  description="No VPN, no port forwarding, no public IP. Pilot Protocol connects agents behind any NAT automatically."
   date="February 22, 2026"
   tags={["NAT", "networking", "P2P"]}
-  canonicalPath="/blog/connect-ai-agents-behind-nat-without-vpn.html"
-  bannerImage="/blog/banners/connect-ai-agents-behind-nat-without-vpn.png"
+  canonicalPath="/blog/connect-ai-agents-behind-nat-without-vpn"
+  bannerImage="/blog/banners/connect-ai-agents-behind-nat-without-vpn.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

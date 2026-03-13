@@ -5,9 +5,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
   title="Core Concepts"
   description="Addressing, transport, encryption, NAT traversal, and the trust model in Pilot Protocol."
   activePage="concepts"
-  canonicalPath="/docs/concepts.html"
-  prev={{ label: "Getting Started", href: "/docs/getting-started.html" }}
-  next={{ label: "CLI Reference", href: "/docs/cli-reference.html" }}
+  canonicalPath="/docs/concepts"
+  prev={{ label: "Getting Started", href: "/docs/getting-started" }}
+  next={{ label: "CLI Reference", href: "/docs/cli-reference" }}
 >
 <h1>Core Concepts</h1>
   <p class="subtitle">How Pilot Protocol addresses, transports, encrypts, traverses NATs, and establishes trust.</p>
@@ -128,4 +128,8 @@ import DocLayout from "../../layouts/DocLayout.astro";
       <tr><td>1002</td><td>Event Stream</td><td>Pub/sub broker with topic filtering and wildcards</td></tr>
     </tbody>
   </table>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/how-pilot-protocol-works">How Pilot Protocol Works — Under the Hood</a>
+  </div>
 </DocLayout>

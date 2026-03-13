@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>Communication overhead dominates federated learning. Researchers consistently measure it at <strong>58 to 93 percent of total training latency</strong>, depending on model size, network topology, and the number of participating clients. The actual gradient computation -- the part that uses the GPU -- is often the minority of wall-clock time. The rest is spent serializing tensors, pushing them through gRPC streams, waiting for the aggregation server, and pulling the updated global model back down.</p>
+const bodyContent = `<p>Communication overhead dominates <a href="https://en.wikipedia.org/wiki/Federated_learning" target="_blank" rel="noopener">federated learning</a>. Researchers consistently measure it at <strong>58 to 93 percent of total training latency</strong>, depending on model size, network topology, and the number of participating clients. The actual gradient computation -- the part that uses the GPU -- is often the minority of wall-clock time. The rest is spent serializing tensors, pushing them through gRPC streams, waiting for the aggregation server, and pulling the updated global model back down.</p>
 
   <p>This article explains why the standard FL communication stack (gRPC to a central parameter server) creates bottlenecks that get worse as you scale, and how a peer-to-peer overlay network can eliminate the central server, traverse NAT boundaries, and encrypt gradient exchange without the infrastructure overhead.</p>
 
@@ -20,7 +20,7 @@ const bodyContent = `<p>Communication overhead dominates federated learning. Res
   <section>
   <h2>Why gRPC Falls Short</h2>
 
-  <p>gRPC is the default transport for federated learning frameworks like Flower, PySyft, and TensorFlow Federated. It works well in controlled environments (all nodes in the same data center, no NAT, pre-configured TLS), but it breaks down in realistic FL deployments.</p>
+  <p>gRPC is the default transport for federated learning frameworks like <a href="https://flower.ai" target="_blank" rel="noopener">Flower</a>, PySyft, and TensorFlow Federated. It works well in controlled environments (all nodes in the same data center, no NAT, pre-configured TLS), but it breaks down in realistic FL deployments.</p>
 
   <p><strong>The 2 GB message size limit.</strong> gRPC defaults to a maximum message size of 4 MB, and even when you increase it, the practical ceiling is roughly 2 GB due to protobuf serialization constraints. A 7B parameter model in FP16 is 14 GB. You have to manually chunk, stream, reassemble, and handle partial failures. This is doable, but it is custom plumbing that every FL framework reimplements slightly differently.</p>
 
@@ -57,7 +57,7 @@ const bodyContent = `<p>Communication overhead dominates federated learning. Res
   <p>Each FL node consists of three components:</p>
 
   <ol>
-    <li><strong>Training process</strong> -- PyTorch, TensorFlow, or JAX. Computes local gradients on private data.</li>
+    <li><strong>Training process</strong> -- <a href="https://pytorch.org" target="_blank" rel="noopener">PyTorch</a>, <a href="https://www.tensorflow.org" target="_blank" rel="noopener">TensorFlow</a>, or JAX. Computes local gradients on private data.</li>
     <li><strong>Pilot daemon</strong> -- handles networking, runs in the background, uses 10 MB of memory.</li>
     <li><strong>FL coordinator script</strong> -- orchestrates the round: exports gradients, sends them to peers, receives peer gradients, aggregates, and updates the local model.</li>
   </ol>
@@ -347,12 +347,12 @@ func exchangeGradients(peerAddr string, gradFile string) error {
   </div>`;
 ---
 <BlogLayout
-  title="P2P Communication for Federated Learning Nodes"
-  description="Solve federated learning communication bottlenecks with peer-to-peer gradient exchange. NAT traversal, encrypted transport, and no gRPC 2GB limit."
+  title="Federated Learning Over P2P Communication"
+  description="Use Pilot Protocol for federated learning: direct model exchange between training nodes without a central parameter server."
   date="February 28, 2026"
   tags={["federated-learning", "peer-to-peer", "machine-learning"]}
-  canonicalPath="/blog/federated-learning-p2p-communication.html"
-  bannerImage="/blog/banners/federated-learning-p2p-communication.png"
+  canonicalPath="/blog/federated-learning-p2p-communication"
+  bannerImage="/blog/banners/federated-learning-p2p-communication.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

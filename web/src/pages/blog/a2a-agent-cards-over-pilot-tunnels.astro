@@ -1,15 +1,281 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = ``;
+const bodyContent = `<p>Google's <a href="https://google.github.io/A2A" target="_blank" rel="noopener">Agent-to-Agent (A2A) protocol</a> is the first serious attempt at standardizing how AI agents communicate at the application layer. It defines Agent Cards for capability advertisement, a task lifecycle with streaming support, and <a href="https://www.jsonrpc.org" target="_blank" rel="noopener">JSON-RPC 2.0</a> as the wire format. It answers the question: what do agents say to each other?</p>
+
+  <p>What it does not answer is: how do they reach each other?</p>
+
+  <p>A2A assumes HTTP. Agent Cards are served at <code>/.well-known/agent.json</code>. Task requests are POST payloads. Streaming uses Server-Sent Events. This works when both agents have publicly routable URLs. It breaks when either agent is behind NAT, inside a container, on a laptop, or anywhere without a stable domain name. And that describes the vast majority of real agent deployments.</p>
+
+  <p>Pilot Protocol solves exactly this gap. It provides the network layer -- virtual addressing, NAT traversal, encrypted tunnels, peer discovery, and trust management -- that A2A's application layer needs but does not provide. This article walks through the integration: A2A for semantics, Pilot for transport.</p>
+
+  <section>
+  <h2 id="two-layers">Two Layers, One Stack</h2>
+
+  <p>The A2A and Pilot protocols operate at different layers of the stack, which is precisely why they compose so well:</p>
+
+  <table>
+    <thead>
+      <tr><th>Concern</th><th>A2A</th><th>Pilot</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Capability advertisement</td><td>Agent Cards (JSON)</td><td>Registry (capability flags + metadata)</td></tr>
+      <tr><td>Task lifecycle</td><td>send/get/cancel task (JSON-RPC)</td><td>Port 1001 task submission</td></tr>
+      <tr><td>Wire format</td><td>JSON-RPC 2.0</td><td>34-byte binary header + payload</td></tr>
+      <tr><td>Transport</td><td>HTTP/HTTPS</td><td>UDP overlay with sliding window</td></tr>
+      <tr><td>Discovery</td><td>Well-known URL or directory</td><td>Registry resolve + trust handshake</td></tr>
+      <tr><td>Security</td><td>TLS + auth headers</td><td>X25519 + AES-256-GCM, encrypt-by-default</td></tr>
+      <tr><td>NAT traversal</td><td>Not addressed</td><td>STUN, hole-punch, relay (3-tier)</td></tr>
+      <tr><td>Trust model</td><td>OAuth / API keys</td><td>Private-by-default, trust-gated resolve</td></tr>
+    </tbody>
+  </table>
+
+  <p>A2A handles what agents say. Pilot handles how they reach each other. When you run A2A over Pilot, you get the rich application semantics of Agent Cards and JSON-RPC tasks, delivered over encrypted tunnels that traverse NAT, with discovery that does not require DNS or public URLs.</p>
+
+  <div class="callout">
+    <p><strong>The key insight:</strong> A2A defines the language of agent collaboration. Pilot provides the phone system. You need both to have a conversation.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="agent-cards-registry">Agent Cards Meet the Pilot Registry</h2>
+
+  <p>An A2A Agent Card is a JSON document that describes what an agent can do. It lists the agent's name, description, supported skills, input/output content types, and the URL where tasks can be submitted. Here is a minimal Agent Card:</p>
+
+  <pre><code>{
+  "name": "ResearchAgent",
+  "description": "Summarizes academic papers on any topic",
+  "url": "https://research-agent.example.com",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "summarize-papers",
+      "name": "Paper Summarization",
+      "description": "Find and summarize papers on a given topic",
+      "tags": ["research", "nlp", "summarization"],
+      "examples": ["Summarize recent papers on transformer attention"]
+    }
+  ],
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain", "text/markdown"]
+}</code></pre>
+
+  <p>The problem is the <code>url</code> field. In standard A2A, this must be a publicly reachable HTTPS endpoint. If your agent runs on a laptop behind a home router, there is no URL to put there.</p>
+
+  <p>With Pilot, the <code>url</code> becomes a Pilot address. Instead of <code>https://research-agent.example.com</code>, the agent is reachable at its 48-bit virtual address, say <code>1:0000.0042.00A1</code>, on port 80 (Pilot's HTTP port). The Agent Card is served by a lightweight HTTP server running over the Pilot tunnel. Any peer that can resolve the agent's address can fetch the card and submit tasks.</p>
+
+  <p>Pilot's registry already stores capability metadata for every registered agent. When an agent joins the network with task-ready capabilities, that information is available to any trusted peer via the registry. The A2A Agent Card adds richer semantic detail -- skill descriptions, examples, content types -- on top of Pilot's structural capability flags. The two systems reinforce each other: Pilot tells you which agents exist and can accept tasks; the Agent Card tells you what those tasks should look like.</p>
+  </section>
+
+  <section>
+  <h2 id="serving-cards">Serving Agent Cards Over Pilot HTTP</h2>
+
+  <p>Pilot provides an HTTP port (port 80) that tunnels standard HTTP traffic over the encrypted overlay. Running an A2A-compliant HTTP server on this port is straightforward. Here is a Go implementation that serves an Agent Card and handles A2A JSON-RPC task requests:</p>
+
+  <pre><code>package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+<span class="comment">// AgentCard represents an A2A Agent Card</span>
+type AgentCard struct {
+    Name         string       \`json:"name"\`
+    Description  string       \`json:"description"\`
+    URL          string       \`json:"url"\`
+    Version      string       \`json:"version"\`
+    Capabilities Capabilities \`json:"capabilities"\`
+    Skills       []Skill      \`json:"skills"\`
+}
+
+type Capabilities struct {
+    Streaming         bool \`json:"streaming"\`
+    PushNotifications bool \`json:"pushNotifications"\`
+}
+
+type Skill struct {
+    ID          string   \`json:"id"\`
+    Name        string   \`json:"name"\`
+    Description string   \`json:"description"\`
+    Tags        []string \`json:"tags"\`
+}
+
+func main() {
+    <span class="comment">// Connect to the local Pilot daemon</span>
+    drv, err := driver.Connect("/tmp/pilot.sock")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer drv.Close()
+
+    <span class="comment">// Get our Pilot address for the Agent Card URL</span>
+    info, _ := drv.Info()
+    pilotAddr := info.Address <span class="comment">// e.g., "1:0000.0042.00A1"</span>
+
+    card := AgentCard{
+        Name:        "ResearchAgent",
+        Description: "Summarizes academic papers on any topic",
+        URL:         fmt.Sprintf("pilot://%s:80", pilotAddr),
+        Version:     "1.0.0",
+        Capabilities: Capabilities{
+            Streaming:         true,
+            PushNotifications: false,
+        },
+        Skills: []Skill{{
+            ID:          "summarize-papers",
+            Name:        "Paper Summarization",
+            Description: "Find and summarize papers on a given topic",
+            Tags:        []string{"research", "nlp", "summarization"},
+        }},
+    }
+
+    <span class="comment">// Serve the Agent Card at the A2A well-known path</span>
+    http.HandleFunc("/.well-known/agent.json", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(card)
+    })
+
+    <span class="comment">// Handle A2A JSON-RPC task submissions</span>
+    http.HandleFunc("/a2a", func(w http.ResponseWriter, r *http.Request) {
+        var req struct {
+            JSONRPC string          \`json:"jsonrpc"\`
+            Method  string          \`json:"method"\`
+            ID      int             \`json:"id"\`
+            Params  json.RawMessage \`json:"params"\`
+        }
+        json.NewDecoder(r.Body).Decode(&req)
+
+        switch req.Method {
+        case "tasks/send":
+            <span class="comment">// Process the A2A task...</span>
+            log.Printf("Received A2A task from peer")
+            result := processTask(req.Params)
+            respondJSON(w, req.ID, result)
+        case "tasks/get":
+            <span class="comment">// Return task status...</span>
+            respondJSON(w, req.ID, map[string]string{"status": "completed"})
+        }
+    })
+
+    <span class="comment">// Listen on Pilot's HTTP port (80)</span>
+    log.Printf("A2A agent serving at pilot://%s:80", pilotAddr)
+    drv.ListenAndServeHTTP(80, http.DefaultServeMux)
+}</code></pre>
+
+  <p>Any peer agent on the Pilot network can now fetch this agent's capabilities by requesting <code>/.well-known/agent.json</code> over a Pilot HTTP connection. The entire exchange -- the Agent Card fetch, the task submission, the result delivery -- travels over Pilot's encrypted UDP tunnel. No public IP required. No DNS. No TLS certificate management. The encryption is handled by Pilot's X25519 + AES-256-GCM layer, which is negotiated automatically during the tunnel handshake.</p>
+  </section>
+
+  <section>
+  <h2 id="trust-gated">Trust-Gated Agent Cards</h2>
+
+  <p>Standard A2A Agent Cards are public. Anyone who knows the URL can fetch the card and see the agent's capabilities. This is fine for agents that want to be discovered, but many agents should not be publicly visible. A medical research agent, a financial analysis agent, or a proprietary data processing agent should only reveal its capabilities to trusted peers.</p>
+
+  <p>Pilot's <a href="/blog/trust-model-agents-invisible-by-default">trust model</a> makes Agent Cards private by default. Here is how the layers interact:</p>
+
+  <ol>
+    <li><strong>Address resolution is trust-gated.</strong> An agent's Pilot address can only be resolved by peers who have completed a trust handshake. An untrusted agent cannot even discover that your agent exists, let alone fetch its Agent Card.</li>
+    <li><strong>Connection establishment requires mutual trust.</strong> Even if a peer knows your address, it cannot open a connection unless the trust handshake succeeds. The handshake is signed with Ed25519 keys and verified by both sides.</li>
+    <li><strong>The Agent Card is served over the trusted connection.</strong> By the time a peer fetches <code>/.well-known/agent.json</code>, both agents have already authenticated each other. The card's contents are revealed only to verified peers.</li>
+  </ol>
+
+  <p>This creates a layered privacy model that standard A2A cannot provide. You control who sees your capabilities, not just who can submit tasks. An agent can be fully A2A-compliant in its application behavior while being completely invisible on the network to untrusted parties.</p>
+
+  <div class="callout">
+    <p><strong>Privacy gradient:</strong> Public agents serve their Agent Card to anyone who resolves their address. Private agents require a trust handshake before the card is visible. Semi-private agents can serve a redacted card (name and description only) to untrusted peers and the full card (with skills and examples) to trusted ones.</p>
+  </div>
+  </section>
+
+  <section>
+  <h2 id="comparison">A2A Over Internet vs. A2A Over Pilot</h2>
+
+  <p>The difference between running A2A on raw internet infrastructure versus running it over Pilot tunnels is significant across every dimension that matters for production agent deployments:</p>
+
+  <table>
+    <thead>
+      <tr><th>Dimension</th><th>A2A over Internet</th><th>A2A over Pilot</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Reachability</td><td>Requires public IP or reverse proxy</td><td>Works behind any NAT (STUN/hole-punch/relay)</td></tr>
+      <tr><td>Encryption</td><td>TLS certificates (Let's Encrypt, renewal)</td><td>X25519 + AES-256-GCM, automatic, no certs</td></tr>
+      <tr><td>Discovery</td><td>DNS + well-known URL</td><td>Registry resolve (no DNS needed)</td></tr>
+      <tr><td>Privacy</td><td>Agent Card visible to anyone with URL</td><td>Agent Card visible only to trusted peers</td></tr>
+      <tr><td>Identity</td><td>Domain name (requires purchase, DNS setup)</td><td>48-bit virtual address (generated at boot)</td></tr>
+      <tr><td>Authentication</td><td>OAuth, API keys, custom headers</td><td>Ed25519 handshake, signed by identity key</td></tr>
+      <tr><td>Mobility</td><td>IP/domain changes break clients</td><td>Virtual address is permanent across networks</td></tr>
+      <tr><td>Infrastructure</td><td>Load balancers, CDN, reverse proxy</td><td>Single binary daemon, zero dependencies</td></tr>
+    </tbody>
+  </table>
+
+  <p>The most significant difference is reachability. A2A over the internet requires every agent to have a stable, publicly accessible URL. This limits A2A to cloud-deployed agents with proper domain configuration. A2A over Pilot works for any agent, anywhere -- laptops, edge devices, containers, corporate networks, mobile devices. The Pilot daemon handles NAT traversal transparently, using the same <a href="/blog/nat-traversal-ai-agents-deep-dive">three-tier approach</a> (direct, hole-punch, relay) that makes Pilot work across the full spectrum of network topologies.</p>
+  </section>
+
+  <section>
+  <h2 id="task-lifecycle">A2A Task Lifecycle Over Pilot</h2>
+
+  <p>A2A defines a structured task lifecycle: a client sends a task, the server processes it (potentially streaming intermediate results), and returns the final output. Over Pilot, this lifecycle maps cleanly to the transport layer:</p>
+
+  <ol>
+    <li><strong>Discovery.</strong> The client agent resolves the server agent's Pilot address through the registry, optionally filtering by capability tags that match A2A skill IDs.</li>
+    <li><strong>Connection.</strong> The client opens a Pilot connection to the server on port 80. The tunnel is established through NAT, encryption is negotiated, and the trust handshake completes.</li>
+    <li><strong>Card fetch.</strong> The client sends an HTTP GET to <code>/.well-known/agent.json</code> to verify the server's capabilities before submitting work.</li>
+    <li><strong>Task submission.</strong> The client POSTs a JSON-RPC <code>tasks/send</code> request. Pilot's flow control and congestion management ensure reliable delivery even for large payloads.</li>
+    <li><strong>Streaming.</strong> If the task supports streaming, the server sends Server-Sent Events over the same HTTP connection. Pilot's sliding window transport guarantees ordered delivery of every event.</li>
+    <li><strong>Completion.</strong> The server returns the final task result. The polo score is updated based on execution performance.</li>
+  </ol>
+
+  <p>Every step happens over the same encrypted Pilot tunnel. There is no separate TLS negotiation, no certificate rotation, no load balancer configuration. The A2A application logic does not need to know it is running over Pilot -- it sees a standard HTTP connection with request/response semantics. The Pilot driver handles the translation between HTTP and the overlay transport.</p>
+  </section>
+
+  <section>
+  <h2 id="discovery-pattern">The Discovery Pattern</h2>
+
+  <p>One of the most powerful patterns that emerges from combining A2A and Pilot is multi-layer discovery. A client agent looking for a specific capability can search at both layers:</p>
+
+  <pre><code><span class="comment">// Step 1: Query Pilot registry for task-ready agents</span>
+<span class="cmd">pilotctl resolve --capability task-ready --network 1</span>
+
+<span class="comment">// Returns: list of Pilot addresses with capability metadata</span>
+<span class="comment">// 1:0000.0042.00A1  capabilities=[task-ready] polo=47</span>
+<span class="comment">// 1:0000.0042.00B3  capabilities=[task-ready] polo=12</span>
+<span class="comment">// 1:0000.0042.00C7  capabilities=[task-ready] polo=89</span>
+
+<span class="comment">// Step 2: Fetch Agent Cards from candidates</span>
+<span class="comment">// Filter by A2A skill tags for "summarization"</span>
+<span class="cmd">pilotctl http GET 1:0000.0042.00A1:80 /.well-known/agent.json</span>
+<span class="cmd">pilotctl http GET 1:0000.0042.00C7:80 /.well-known/agent.json</span>
+
+<span class="comment">// Step 3: Select best match by skills + polo score</span>
+<span class="comment">// Agent C7 has summarize-papers skill AND polo=89</span>
+<span class="comment">// Submit task to C7</span>
+<span class="cmd">pilotctl http POST 1:0000.0042.00C7:80 /a2a --data '{"jsonrpc":"2.0","method":"tasks/send",...}'</span></code></pre>
+
+  <p>Pilot's registry narrows the search to task-ready agents in the network. A2A's Agent Cards provide the semantic filter -- which of those agents can actually do the specific work needed. The polo score provides the quality signal -- among agents with the right skills, which one has the best track record. This three-layer filtering (network presence, semantic capability, behavioral reputation) produces better matches than any single discovery mechanism alone.</p>
+
+  <p>For more on how Pilot's network layer provides the foundation for this kind of integration, see <a href="/blog/how-pilot-protocol-works">How Pilot Protocol Works</a>. For the complementary pattern using MCP for tool access alongside Pilot networking, see <a href="/blog/mcp-plus-pilot-tools-and-network">MCP + Pilot: Tools and Network</a>. And for a deeper look at why agents need a dedicated network layer in the first place, see <a href="/blog/why-ai-agents-need-network-stack">Why AI Agents Need Their Own Network Stack</a>.</p>
+  </section>
+
+  <div class="cta">
+    <h3>Run A2A Over Encrypted Tunnels</h3>
+    <p>Give your A2A agents a network that handles NAT, encryption, and trust. Start with the Pilot daemon and serve Agent Cards in minutes.</p>
+    <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  </div>`;
 ---
 <BlogLayout
-  title="A2A Agent Cards Over Pilot Protocol Tunnels"
-  description="Run Google A2A protocol over Pilot encrypted tunnels. NAT traversal for A2A agents, trust-gated Agent Cards, and the A2A-for-semantics Pilot-for-transport pattern."
+  title="A2A Agent Cards Over Pilot Tunnels"
+  description="Run Google's A2A protocol over Pilot Protocol's encrypted tunnels. Application-layer interop meets network-layer infrastructure."
   date="February 13, 2026"
   tags={["integration", "a2a", "google"]}
-  canonicalPath="/blog/a2a-agent-cards-over-pilot-tunnels.html"
-  bannerImage="/blog/banners/a2a-agent-cards-over-pilot-tunnels.png"
+  canonicalPath="/blog/a2a-agent-cards-over-pilot-tunnels"
+  bannerImage="/blog/banners/a2a-agent-cards-over-pilot-tunnels.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

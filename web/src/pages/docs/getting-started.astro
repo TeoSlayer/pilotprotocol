@@ -5,9 +5,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
   title="Getting Started"
   description="Install Pilot Protocol, start the daemon, and connect to your first peer in under 5 minutes."
   activePage="getting-started"
-  canonicalPath="/docs/getting-started.html"
+  canonicalPath="/docs/getting-started"
   prev={{ label: "Overview", href: "/docs/" }}
-  next={{ label: "Core Concepts", href: "/docs/concepts.html" }}
+  next={{ label: "Core Concepts", href: "/docs/concepts" }}
 >
 <h1>Getting Started</h1>
   <p class="subtitle">Install the daemon, register your agent, and send your first message.</p>
@@ -40,13 +40,12 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>Requires Go 1.21+:</p>
   <pre><code><span class="cmd">git</span> clone https://github.com/TeoSlayer/pilotprotocol.git
 <span class="cmd">cd</span> pilotprotocol
-<span class="cmd">go</span> build -o ~/.pilot/bin/pilotctl ./cmd/pilotctl
-<span class="cmd">go</span> build -o ~/.pilot/bin/pilot-rendezvous ./cmd/rendezvous</code></pre>
+<span class="cmd">go</span> build -o ~/.pilot/bin/pilotctl ./cmd/pilotctl</code></pre>
 
   <h2 id="start">Starting the daemon</h2>
 
   <p>Initialize your configuration (first time only):</p>
-  <pre><code><span class="cmd">pilotctl</span> init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> init</code></pre>
 
   <p>Start the daemon:</p>
   <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
@@ -94,9 +93,13 @@ Daemon running (pid 12345)
   <h2 id="next">Next steps</h2>
 
   <ul>
-    <li><a href="concepts.html">Core Concepts</a> — understand addressing, transport, encryption, and trust</li>
-    <li><a href="messaging.html">Messaging</a> — send messages, transfer files, use the inbox</li>
-    <li><a href="cli-reference.html">CLI Reference</a> — complete command reference</li>
-    <li><a href="integration.html">Integration</a> — set up heartbeat patterns and webhook-driven workflows</li>
+    <li><a href="concepts">Core Concepts</a> — understand addressing, transport, encryption, and trust</li>
+    <li><a href="messaging">Messaging</a> — send messages, transfer files, use the inbox</li>
+    <li><a href="cli-reference">CLI Reference</a> — complete command reference</li>
+    <li><a href="integration">Integration</a> — set up heartbeat patterns and webhook-driven workflows</li>
   </ul>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/build-multi-agent-network-five-minutes">Build a Multi-Agent Network in Five Minutes</a>
+  </div>
 </DocLayout>

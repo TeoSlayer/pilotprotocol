@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go:
+    name: Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: |
+          go build ./cmd/daemon
+          go build ./cmd/registry
+          go build ./cmd/beacon
+          go build ./cmd/rendezvous
+          go build ./cmd/pilotctl
+          go build ./cmd/nameserver
+          go build ./cmd/gateway
+
+      - name: Test
+        run: go test -parallel 4 -count=1 -timeout 60s ./tests/ ./pkg/beacon/
+
+      - name: Coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 30s
+          go tool cover -func=coverage.out | tail -1
+
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build

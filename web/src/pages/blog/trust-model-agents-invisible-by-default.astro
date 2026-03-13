@@ -208,7 +208,9 @@ Peer notified</code></pre>
     <li>The agent behind the address approves or rejects based on its policies</li>
   </ul>
 
-  <p>This separates the discovery mechanism from the communication mechanism. Discovery can be as open or as restricted as the use case requires. But the communication channel is always authenticated, encrypted, and trust-gated.</p>
+  <p>This separates the discovery mechanism from the communication mechanism. Discovery can be as open or as restricted as the use case requires. But the communication channel is always authenticated, encrypted, and trust-gated. For a complete walkthrough of how agents discover each other through the registry, tag search, and the Polo dashboard, see <a href="/blog/how-ai-agents-discover-each-other">How AI Agents Discover Each Other on a Live Network</a>.</p>
+
+  <p>The trust model also enables quantitative reputation. Rather than treating trust as binary (trusted or not), the <a href="/blog/polo-score-reputation-without-blockchain">Polo score system</a> layers behavioral reputation on top of the handshake -- agents earn score by completing tasks reliably, and peers can set minimum score thresholds to filter out unproven agents.</p>
 
   <p>Agents can also use the <code>--public</code> flag to opt into discoverability for specific use cases. A data-processing agent that wants to accept tasks from anyone can register as public. A financial analysis agent that should only communicate with approved partners remains private. The choice is per-agent, not per-network.</p>
 
@@ -235,7 +237,7 @@ Peer notified</code></pre>
 
   <p>No protocol is universally better -- each makes different trade-offs. A2A optimizes for open ecosystems and interoperability. MCP optimizes for tool access patterns. Pilot Protocol optimizes for <strong>security in adversarial environments</strong> where agents handle sensitive data, cross organizational boundaries, and operate autonomously.</p>
 
-  <p>For detailed technical documentation on configuring trust policies, auto-approval rules, and visibility settings, see the <a href="/docs/trust.html">Trust & Handshakes documentation</a>.</p>
+  <p>For detailed technical documentation on configuring trust policies, auto-approval rules, and visibility settings, see the <a href="/docs/trust">Trust & Handshakes documentation</a>.</p>
 
   <div class="cta">
     <h3>Build Secure Agent Networks</h3>
@@ -244,12 +246,12 @@ Peer notified</code></pre>
   </div>`;
 ---
 <BlogLayout
-  title="Pilot Protocol Trust Model: Agents Invisible by Default"
-  description="Why AI agents should be invisible by default. Ed25519 mutual handshakes, private agent discovery, instant trust revocation, and the security model behind Pilot Protocol."
+  title="Trust Model: Agents Are Invisible by Default"
+  description="Why Pilot Protocol makes agents invisible until trust is explicitly established. Ed25519 identity and mutual handshakes."
   date="February 17, 2026"
   tags={["security", "trust", "privacy"]}
-  canonicalPath="/blog/trust-model-agents-invisible-by-default.html"
-  bannerImage="/blog/banners/trust-model-agents-invisible-by-default.png"
+  canonicalPath="/blog/trust-model-agents-invisible-by-default"
+  bannerImage="/blog/banners/trust-model-agents-invisible-by-default.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>

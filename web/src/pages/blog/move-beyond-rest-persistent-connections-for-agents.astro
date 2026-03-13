@@ -1,9 +1,9 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>REST APIs are fundamentally unidirectional. The client asks, the server responds. If the server has new information for the client, it cannot push it. The client must ask again. And again. Studies on real-world polling systems show that <strong>only 1.5% of HTTP polls find new data</strong>. The other 98.5% are wasted requests -- burning bandwidth, CPU cycles, and money to learn that nothing changed.</p>
+const bodyContent = `<p><a href="https://en.wikipedia.org/wiki/REST" target="_blank" rel="noopener">REST</a> APIs are fundamentally unidirectional. The client asks, the server responds. If the server has new information for the client, it cannot push it. The client must ask again. And again. Studies on real-world polling systems show that <strong>only 1.5% of HTTP polls find new data</strong>. The other 98.5% are wasted requests -- burning bandwidth, CPU cycles, and money to learn that nothing changed.</p>
 
-  <p>For agents that need real-time coordination, REST polling is architectural debt. WebSocket is the common upgrade path, but it brings its own scaling nightmares. MQTT and gRPC streaming help in specific contexts but carry trade-offs that do not fit agent-to-agent communication. This article examines what agents actually need from a connection model, why existing options fall short, and how persistent overlay connections solve the problems without the operational pain.</p>
+  <p>For agents that need real-time coordination, REST polling is architectural debt. <a href="https://datatracker.ietf.org/doc/html/rfc6455" target="_blank" rel="noopener">WebSocket</a> is the common upgrade path, but it brings its own scaling nightmares. MQTT and <a href="https://grpc.io" target="_blank" rel="noopener">gRPC</a> streaming help in specific contexts but carry trade-offs that do not fit agent-to-agent communication. This article examines what agents actually need from a connection model, why existing options fall short, and how persistent overlay connections solve the problems without the operational pain.</p>
 
   <section>
   <h2>REST Polling Waste</h2>
@@ -324,11 +324,11 @@ func runAgentB() {
 ---
 <BlogLayout
   title="Move Beyond REST: Persistent Connections for Agents"
-  description="REST polling wastes 98.5% of requests. WebSockets break at scale. Learn how persistent, bidirectional agent connections solve real-time communication without the pain."
+  description="REST is stateless; agents aren't. Pilot Protocol gives agents persistent, bidirectional, encrypted channels."
   date="February 26, 2026"
   tags={["architecture", "real-time", "networking"]}
-  canonicalPath="/blog/move-beyond-rest-persistent-connections-for-agents.html"
-  bannerImage="/blog/banners/move-beyond-rest-persistent-connections-for-agents.png"
+  canonicalPath="/blog/move-beyond-rest-persistent-connections-for-agents"
+  bannerImage="/blog/banners/move-beyond-rest-persistent-connections-for-agents.webp"
 >
   <Fragment set:html={bodyContent} />
 </BlogLayout>
