@@ -1,0 +1,146 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p><span style="display:inline-block;padding:4px 14px;border-radius:6px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.85rem;font-weight:600">v0.1.1</span></p>
+
+<h2 id="why-python">Why a Python SDK</h2>
+
+<p>Pilot Protocol is written in Go — a single static binary, zero external dependencies. That's a strength for deployment but a friction point for the Python ecosystem. AI/ML engineers, data scientists, and agent framework developers overwhelmingly work in Python. Asking them to shell out to <code>pilotctl</code> and parse CLI output is not a real integration.</p>
+
+<p>The Python SDK gives you a native <code>Driver</code> class with context managers, type hints, and Pythonic error handling. Under the hood it calls the same Go code through a <code>ctypes</code> FFI layer — same guarantees, no re-implementation.</p>
+
+<pre><code>pip install pilotprotocol</code></pre>
+
+<p>One command installs the SDK, the CLI tools (<code>pilotctl</code>, <code>pilot-daemon</code>, <code>pilot-gateway</code>), and platform-specific native binaries. Python 3.10+, Linux and macOS.</p>
+
+<h2 id="hello-world">Hello World in 8 Lines</h2>
+
+<p>Start the daemon, then:</p>
+
+<pre><code>from pilotprotocol import Driver
+
+with Driver() as d:
+    info = d.info()
+    print(f"I am {info['hostname']} at {info['address']}")
+
+    with d.dial("other-agent:1000") as conn:
+        conn.write(b"Hello from Python!")
+        print(conn.read(4096))</code></pre>
+
+<p>The <code>Driver</code> connects to the daemon's Unix socket at <code>/tmp/pilot.sock</code>. The <code>with</code> statement handles cleanup. <code>dial()</code> returns a <code>Conn</code> that supports <code>read()</code>, <code>write()</code>, and <code>close()</code> — exactly what you'd expect from a socket.</p>
+
+<h2 id="high-level-api">High-Level API: Services Without Boilerplate</h2>
+
+<p>The SDK wraps Pilot's <a href="/docs/services">built-in services</a> so you don't have to deal with port numbers or wire formats:</p>
+
+<pre><code>with Driver() as d:
+    # Data exchange (port 1001)
+    d.send_message("peer", b"status update", "text")
+    d.send_file("peer", "/models/weights.bin")
+
+    # Pub/sub events (port 1002)
+    d.publish_event("peer", "metrics/gpu", b"87.3")
+    d.subscribe_event("peer", "metrics/**", lambda topic, data: print(f"{topic}: {data}"))
+
+    # Task submission (port 1003)
+    d.submit_task("worker", {"command": "inference", "params": {"model": "llama-3"}})</code></pre>
+
+<p>Each method handles connection setup, framing, and acknowledgment. You send bytes and get dicts back.</p>
+
+<h2 id="low-level-streams">Low-Level Streams: Build Your Own Protocol</h2>
+
+<p>For custom protocols, use <code>dial()</code> and <code>listen()</code> directly:</p>
+
+<pre><code>from pilotprotocol import Driver
+
+# Server side
+with Driver() as d:
+    with d.listen(5000) as listener:
+        while True:
+            conn = listener.accept()
+            data = conn.read(4096)
+            conn.write(data)  # Echo
+            conn.close()</code></pre>
+
+<p>This gives you raw bidirectional streams over Pilot's encrypted tunnels. Every connection gets <a href="/blog/zero-dependency-encryption-x25519-aes-gcm">X25519 + AES-256-GCM encryption</a> automatically — no TLS configuration, no certificate management.</p>
+
+<h2 id="architecture">Architecture: ctypes FFI to Go</h2>
+
+<p>The SDK doesn't re-implement any protocol logic. It calls into a shared library (<code>libpilot.so</code> / <code>libpilot.dylib</code>) built from the same Go source code that powers the CLI:</p>
+
+<pre><code>┌─────────────┐    ctypes/FFI    ┌──────────────┐    Unix socket    ┌────────┐
+│  Python SDK │ ───────────────► │  libpilot.so │ ─────────────────► │ Daemon │
+│  (client.py)│                  │  (Go c-shared)│                   │        │
+└─────────────┘                  └──────────────┘                    └────────┘</code></pre>
+
+<p>This means:</p>
+<ul>
+  <li><strong>Single source of truth</strong> — the SDK uses the exact same packet handling, encryption, and transport code as <code>pilotctl</code></li>
+  <li><strong>No drift</strong> — when the Go code gets a bug fix, the Python SDK gets it too (after a wheel rebuild)</li>
+  <li><strong>Memory safety</strong> — Go's GC manages allocations; the SDK handles cleanup of Go-allocated strings via <code>ctypes</code></li>
+  <li><strong>Opaque handles</strong> — connections and listeners are represented as integer handles, avoiding cross-language pointer issues</li>
+</ul>
+
+<h2 id="error-handling">Error Handling</h2>
+
+<p>Go errors become Python exceptions:</p>
+
+<pre><code>from pilotprotocol import Driver, PilotError
+
+with Driver() as d:
+    try:
+        conn = d.dial("nonexistent:1000")
+    except PilotError as e:
+        print(f"Failed: {e}")  # "no route to host"</code></pre>
+
+<p>The SDK raises <code>PilotError</code> for protocol-level failures (unreachable peers, trust failures, timeouts), <code>FileNotFoundError</code> when the native library isn't found, and <code>ValueError</code> for invalid parameters. Standard Python exception hierarchy — catch what you need.</p>
+
+<h2 id="type-hints">Full Type Hints</h2>
+
+<p>Every method, parameter, and return value is annotated. Works with mypy, pyright, and IDE autocomplete out of the box:</p>
+
+<pre><code>from pilotprotocol import Driver, Conn
+from typing import Dict, Any
+
+with Driver() as d:
+    conn: Conn = d.dial("other-agent:1000")
+    info: Dict[str, Any] = d.info()</code></pre>
+
+<h2 id="agent-frameworks">Use With Agent Frameworks</h2>
+
+<p>The SDK is designed to integrate with existing Python agent frameworks. A few patterns:</p>
+
+<p><strong>With LangChain / LangGraph:</strong> Use the SDK as a tool — agents can send messages, transfer files, or delegate tasks to peers on the Pilot network as part of their tool chain.</p>
+
+<p><strong>With <a href="/blog/openclaw-meets-pilot-agent-networking-one-command">OpenClaw</a>:</strong> The SDK powers the Pilot skill on ClawHub. OpenClaw agents use it to discover peers, establish trust, and form <a href="/blog/multi-agent-pipelines-openclaw-encrypted-tunnels">multi-agent pipelines</a>.</p>
+
+<p><strong>With FastAPI / Flask:</strong> Run a local HTTP server that proxies to Pilot peers. Or use the <a href="/docs/gateway">gateway</a> to expose Pilot services as local IPs and hit them with standard HTTP clients.</p>
+
+<h2 id="getting-started">Getting Started</h2>
+
+<ol>
+  <li>Install: <code>pip install pilotprotocol</code></li>
+  <li>Start the daemon: <code>pilot-daemon start --hostname my-agent</code></li>
+  <li>Write Python code using the <code>Driver</code> class</li>
+  <li>See the <a href="/docs/python-sdk">full API reference</a> for all methods and types</li>
+</ol>
+
+<p>Working examples are in the <a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/examples/python_sdk">examples/python_sdk</a> directory on GitHub.</p>
+
+<div class="cta">
+  <h3>Try the Python SDK</h3>
+  <p>Native Python bindings for Pilot Protocol. <code>pip install pilotprotocol</code> — context managers, type hints, and the same Go crypto under the hood.</p>
+  <a href="https://pypi.org/project/pilotprotocol/">View on PyPI</a>
+</div>`;
+---
+<BlogLayout
+  title="Announcing the Pilot Protocol Python SDK"
+  description="Native Python bindings for Pilot Protocol. pip install, context managers, type hints, and the same Go crypto under the hood."
+  date="March 13, 2026"
+  tags={["python", "sdk"]}
+  canonicalPath="/blog/python-sdk-pilot-protocol"
+  bannerImage="/blog/banners/python-sdk-pilot-protocol.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

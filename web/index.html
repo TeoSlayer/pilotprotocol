@@ -24,10 +24,12 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);--code-bg:rgba(255,255,255,0.06);--glass-bg:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);--glass-shadow:0 8px 32px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06)}
+html,body{overflow-x:hidden}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
+#bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.container{max-width:960px;margin:0 auto;padding:0 24px}
+.container{max-width:960px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
 
 /* Navbar — glassmorphic floating island */
 .navbar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;width:calc(100% - 48px);max-width:960px}
@@ -37,7 +39,7 @@ a:hover{text-decoration:underline}
 .nav-left span{font-weight:700;font-size:0.88rem;color:var(--fg);white-space:nowrap}
 .nav-left:hover{text-decoration:none;background:rgba(255,255,255,0.06)}
 .nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px;flex-shrink:0}
-.nav-center{display:flex;gap:2px;flex-shrink:0}
+.nav-center{display:flex;gap:6px;flex-shrink:0}
 .nav-center a{font-size:0.82rem;color:var(--muted);transition:all 0.2s;padding:6px 14px;border-radius:40px;display:flex;align-items:center;gap:6px}
 .nav-center a:hover{color:var(--fg);text-decoration:none;background:rgba(255,255,255,0.06)}
 .nav-center a svg.nav-icon{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
@@ -45,7 +47,39 @@ a:hover{text-decoration:underline}
 .nav-right .gh-link{color:var(--muted);transition:all 0.2s;display:flex;padding:6px 8px;border-radius:40px}
 .nav-right .gh-link:hover{color:var(--fg);background:rgba(255,255,255,0.06)}
 .nav-cta{font-size:0.8rem;padding:6px 16px;border-radius:40px;background:var(--accent);color:#000;font-weight:600;transition:all 0.2s;border:none;cursor:pointer;white-space:nowrap}
+.nav-cta{text-decoration:none;display:inline-block}
 .nav-cta:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 16px rgba(34,197,94,0.3)}
+
+/* Hamburger */
+.nav-hamburger{display:none;background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 8px;border-radius:40px;transition:all 0.2s;line-height:1}
+.nav-hamburger:hover{color:var(--fg);background:rgba(255,255,255,0.06)}
+.nav-hamburger svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Mobile dropdown */
+.nav-mobile{display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;background:rgba(10,10,10,0.85);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
+.nav-mobile.open{display:flex;flex-direction:column;gap:2px}
+.nav-mobile a{font-size:0.85rem;color:var(--muted);padding:10px 16px;border-radius:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s}
+.nav-mobile a:hover{color:var(--fg);background:rgba(255,255,255,0.06);text-decoration:none}
+.nav-mobile a svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+
+/* Responsive — tablet */
+@media(max-width:768px){
+  .nav-center a svg.nav-icon{display:none}
+  .nav-mobile a svg{display:none}
+}
+
+/* Responsive — phone */
+@media(max-width:640px){
+  .navbar{top:8px;left:8px;right:8px;transform:none;max-width:none;width:auto}
+  .nav-island{width:100%;max-width:100%;position:relative;overflow:visible}
+  .nav-center{display:none}
+  .nav-divider{display:none}
+  .nav-hamburger{display:block}
+  .nav-right{margin-left:auto;flex-shrink:0}
+  .nav-cta{padding:5px 12px;font-size:0.78rem}
+  .nav-left{min-width:0;overflow:hidden}
+  .nav-left span{font-size:0.82rem;overflow:hidden;text-overflow:ellipsis}
+}
 
 /* Hero frame */
 .hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:48px 40px;margin:80px 0 60px;position:relative}
@@ -212,7 +246,8 @@ section .section-sub{font-size:1rem;color:var(--muted);margin-bottom:32px}
 .faq-a p{padding:0 0 20px;color:var(--muted);font-size:0.9rem;line-height:1.6}
 
 /* Code blocks */
-pre{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px 20px;overflow-x:auto;font-size:0.85rem;line-height:1.7;margin-bottom:16px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+pre{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px 20px;overflow-x:auto;font-size:0.85rem;line-height:1.7;margin-bottom:16px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);max-width:100%}
+pre code{display:block;overflow-x:auto}
 code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .comment{color:var(--muted)}
 .cmd{color:var(--accent)}
@@ -231,9 +266,11 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .copy-btn:hover{color:var(--fg)}
 
 /* Footer */
-footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem}
+footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem;position:relative;z-index:1}
 footer a{color:var(--muted)}
 footer a:hover{color:var(--fg)}
+.footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 28px;margin-bottom:20px}
+.footer-links a{font-size:0.85rem}
 
 /* Tabs */
 .tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border)}
@@ -250,6 +287,85 @@ footer a:hover{color:var(--fg)}
 .py-builtin{color:#e5c07b}
 .py-number{color:#d19a66}
 .py-operator{color:#56b6c2}
+
+/* ── Mobile ────────────────────────────────────── */
+@media(max-width:768px){
+  .container{padding:0 16px}
+
+  /* Hero: stack vertically, terminal below text */
+  .hero-frame{padding:24px 16px;margin:68px 0 40px}
+  .hero{grid-template-columns:1fr;gap:24px}
+  .hero h1{font-size:1.8rem}
+  .hero .tagline{font-size:0.92rem;margin-bottom:20px}
+  .hero-ctas{flex-wrap:wrap}
+  .hero-ctas a{font-size:0.82rem;padding:9px 18px}
+  .code-section{min-width:0}
+  .tab-bar{padding-right:40px}
+  .tab-bar .copy-code{right:4px;padding:4px 6px;font-size:0.7rem}
+  .tab-panel pre{font-size:0.75rem;padding:14px;min-height:0}
+  .code-line{white-space:pre-wrap;word-break:break-all;max-width:none}
+  .tab-panel.active .code-line.typed{animation:mobile-fade 0.3s ease forwards}
+  @keyframes mobile-fade{from{opacity:0}to{opacity:1}}
+
+  /* Polo card */
+  .polo-card .polo-link{font-size:0.78rem;word-break:break-all}
+
+  /* Logos */
+  .logos-row{gap:24px}
+  .logos-row img{height:22px}
+
+  /* Sections */
+  section{padding:40px 0}
+  section h2{font-size:1.4rem}
+
+  /* Features: stack sidebar above detail */
+  .feat-layout{grid-template-columns:1fr;min-height:auto}
+  .feat-nav{border-right:none;border-bottom:1px solid var(--border)}
+  .feat-btn{padding:12px 16px;font-size:0.88rem}
+  .feat-btn .feat-desc{padding-left:30px;font-size:0.75rem}
+  .fp-wrap{padding:20px 16px}
+  .fp-addr{font-size:1.1rem}
+  .fp-badge{font-size:0.68rem;padding:4px 10px}
+  .fp-card{padding:12px 14px}
+  .fp-bubble{max-width:90%;font-size:0.72rem;padding:8px 12px}
+
+  /* Bento: single column */
+  .bento{grid-template-columns:1fr;grid-template-rows:auto}
+  .bento-card{padding:24px}
+  .bento-card.map-card{grid-row:auto}
+  .bento-card .bento-big{font-size:1.8rem}
+  .bento-pair{flex-direction:column;gap:20px}
+
+  /* Use cases: stack sidebar above detail */
+  .uc-layout{grid-template-columns:1fr;min-height:auto}
+  .uc-nav{border-right:none;border-bottom:1px solid var(--border)}
+  .uc-btn{padding:12px 16px;font-size:0.88rem}
+  .uc-btn .uc-desc{padding-left:30px;font-size:0.75rem}
+  .uc-win{margin:12px;width:calc(100% - 24px)}
+  .uc-win-body{font-size:0.72rem;padding:12px 14px}
+  .uc-win-body .uc-step{white-space:pre-wrap;word-break:break-all;max-width:none}
+  .uc-win-body .uc-step.revealed{animation:mobile-fade 0.3s ease forwards}
+
+  /* FAQ */
+  .faq-q{font-size:0.88rem;padding:16px 0}
+  .faq-a p{font-size:0.84rem}
+
+  /* Install */
+  .install-box code{font-size:0.78rem}
+
+  /* Tabs */
+  .tabs{gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{padding:8px 14px;font-size:0.82rem;white-space:nowrap}
+}
+
+@media(max-width:480px){
+  .hero h1{font-size:1.5rem}
+  .hero-frame{padding:20px 12px;margin:60px 0 32px}
+  .bento-card .bento-big{font-size:1.5rem}
+  .map-card .map-overlay .bento-big{font-size:1.5rem}
+  .map-card .map-overlay{padding:16px}
+}
 </style>
 </head>
 <body>
@@ -865,9 +981,10 @@ footer a:hover{color:var(--fg)}
   <h2>Quick start</h2>
   <div class="tabs">
     <button class="tab active" onclick="switchTab(event, 'cli')">CLI</button>
+    <button class="tab" onclick="switchTab(event, 'go-sdk')">Go</button>
     <button class="tab" onclick="switchTab(event, 'python-sdk')">Python SDK</button>
   </div>
-  
+
   <div id="cli" class="tab-content active">
 <pre><code><span class="comment"># Check status</span>
 <span class="cmd">pilotctl</span> info
@@ -888,34 +1005,68 @@ footer a:hover{color:var(--fg)}
 <span class="comment"># Throughput benchmark</span>
 <span class="cmd">pilotctl</span> bench other-agent</code></pre>
   </div>
-  
+
+  <div id="go-sdk" class="tab-content">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"fmt"</span>
+    <span class="str">"log"</span>
+
+    <span class="str">"github.com/TeoSlayer/pilotprotocol/pkg/driver"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="comment">// Connect to the local daemon</span>
+    d, err := driver.<span class="fn">Connect</span>(<span class="str">"/tmp/pilot.sock"</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> d.<span class="fn">Close</span>()
+
+    <span class="comment">// Resolve a hostname to a protocol address</span>
+    peer, _ := d.<span class="fn">ResolveHostname</span>(<span class="str">"other-agent"</span>)
+    addr := peer[<span class="str">"address"</span>].(<span class="kw">string</span>)
+
+    <span class="comment">// Dial the peer on port 1000</span>
+    conn, err := d.<span class="fn">Dial</span>(addr + <span class="str">":1000"</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> conn.<span class="fn">Close</span>()
+
+    <span class="comment">// Send and receive</span>
+    conn.<span class="fn">Write</span>([]<span class="kw">byte</span>(<span class="str">"hello from Go!"</span>))
+    buf := <span class="fn">make</span>([]<span class="kw">byte</span>, <span class="type">4096</span>)
+    n, _ := conn.<span class="fn">Read</span>(buf)
+    fmt.<span class="fn">Println</span>(<span class="fn">string</span>(buf[:n]))
+}</code></pre>
+    <p style="font-size:0.85rem;color:var(--muted);margin-top:12px">See <a href="/docs/integration.html">Integration Guide</a> for listeners, data exchange, and event streams.</p>
+  </div>
+
   <div id="python-sdk" class="tab-content">
-<pre><code><span class="comment"># Connect to the daemon</span>
-<span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
+<pre><code><span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> Driver
 
-driver = <span class="py-function">Driver</span>()
-driver.<span class="py-function">connect</span>()
+<span class="py-keyword">with</span> <span class="py-function">Driver</span>() <span class="py-keyword">as</span> d:
+    <span class="comment"># Get agent info</span>
+    info = d.<span class="py-function">info</span>()
+    <span class="py-builtin">print</span>(<span class="py-string">f"Address: {info['address']}"</span>)
 
-<span class="comment"># Get agent info</span>
-info = driver.<span class="py-function">info</span>()
-<span class="py-builtin">print</span>(<span class="py-string">f"Address: {info['address']}"</span>)
-<span class="py-builtin">print</span>(<span class="py-string">f"Hostname: {info['hostname']}"</span>)
+    <span class="comment"># Resolve hostname → protocol address</span>
+    peer = d.<span class="py-function">resolve_hostname</span>(<span class="py-string">"other-agent"</span>)
+    addr = peer[<span class="py-string">"address"</span>]
 
-<span class="comment"># Connect to a peer and send a message</span>
-conn = driver.<span class="py-function">pilot_connect</span>(<span class="py-string">"other-agent"</span>, port=<span class="py-number">1000</span>)
-conn.<span class="py-function">write</span>(<span class="py-string">b"Hello from Python!"</span>)
-response = conn.<span class="py-function">read</span>()
-conn.<span class="py-function">close</span>()
+    <span class="comment"># Dial and send a message</span>
+    <span class="py-keyword">with</span> d.<span class="py-function">dial</span>(<span class="py-string">f"</span>{addr}<span class="py-string">:1000"</span>) <span class="py-keyword">as</span> conn:
+        conn.<span class="py-function">write</span>(<span class="py-string">b"Hello from Python!"</span>)
+        response = conn.<span class="py-function">read</span>()
 
-<span class="comment"># Use data exchange</span>
-<span class="py-keyword">from</span> pilotprotocol <span class="py-keyword">import</span> DataExchange
+    <span class="comment"># High-level: data exchange (resolves hostname)</span>
+    d.<span class="py-function">send_message</span>(<span class="py-string">"other-agent"</span>, <span class="py-string">b'{"task": "analyze"}'</span>, <span class="py-string">"json"</span>)
 
-de = <span class="py-function">DataExchange</span>(driver)
-de.<span class="py-function">connect</span>(<span class="py-string">"other-agent"</span>)
-de.<span class="py-function">send_json</span>({<span class="py-string">"message"</span>: <span class="py-string">"hello"</span>})
-data = de.<span class="py-function">receive</span>()
-de.<span class="py-function">close</span>()</code></pre>
-    <p style="font-size:0.85rem;color:var(--muted);margin-top:12px">See <a href="/docs/python-sdk.html">Python SDK Documentation</a> for more examples.</p>
+    <span class="comment"># Transfer a file</span>
+    d.<span class="py-function">send_file</span>(<span class="py-string">"other-agent"</span>, <span class="py-string">"./data.json"</span>)</code></pre>
+    <p style="font-size:0.85rem;color:var(--muted);margin-top:12px">See <a href="/docs/python-sdk">Python SDK Documentation</a> for more examples.</p>
   </div>
 </section>
 

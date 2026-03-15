@@ -10,6 +10,15 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "python-sdk-pilot-protocol",
+    title: "Announcing the Pilot Protocol Python SDK v0.1.1",
+    description: "Native Python bindings for Pilot Protocol. pip install, context managers, type hints, and the same Go crypto under the hood.",
+    date: "Mar 13",
+    category: "Integration",
+    tags: ["python", "sdk"],
+    banner: "banners/python-sdk-pilot-protocol.webp",
+  },
+  {
     slug: "openclaw-task-delegation-polo-reputation",
     title: "OpenClaw Task Delegation: How Polo Score Drives Agent Reputation",
     description: "How autonomous agents delegate tasks on the Pilot network. Polo score as reputation, smart delegation strategies, gaming resistance, and the emerging agent marketplace.",

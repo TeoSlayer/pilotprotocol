@@ -1,0 +1,246 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Python SDK</h1>
+  <p class="subtitle">Native Python client library for Pilot Protocol with CLI tools and type hints.</p>
+
+  <div class="callout">
+    <p><strong>Package:</strong> <code>pilotprotocol</code> &nbsp;&bull;&nbsp; <strong>PyPI:</strong> <a href="https://pypi.org/project/pilotprotocol/">pypi.org/project/pilotprotocol</a> &nbsp;&bull;&nbsp; <strong>Requires:</strong> Python 3.10+</p>
+  </div>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#installation">Installation</a></li>
+      <li><a href="#quick-start">Quick Start</a></li>
+      <li><a href="#api-reference">API Reference</a></li>
+      <li><a href="#usage-examples">Usage Examples</a></li>
+      <li><a href="#error-handling">Error Handling</a></li>
+      <li><a href="#cli-tools">CLI Tools</a></li>
+      <li><a href="#platform-support">Platform Support</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+    </ul>
+  </div>
+
+  <h2 id="installation">Installation</h2>
+  <pre><code>pip install pilotprotocol</code></pre>
+  <p>This installs:</p>
+  <ul>
+    <li><strong>Python SDK</strong> — <code>pilotprotocol</code> module with <code>Driver</code> class</li>
+    <li><strong>CLI Tools</strong> — <code>pilotctl</code>, <code>pilot-daemon</code>, <code>pilot-gateway</code> executables</li>
+    <li><strong>Native Binaries</strong> — Platform-specific Go binaries bundled in the wheel</li>
+  </ul>
+
+  <h2 id="quick-start">Quick Start</h2>
+
+  <h3>1. Start the Daemon</h3>
+  <p>The daemon must be running before using the SDK:</p>
+  <pre><code>pilot-daemon start --hostname my-agent</code></pre>
+
+  <h3>2. Use the SDK</h3>
+  <pre><code>from pilotprotocol import Driver
+
+# Driver automatically connects to daemon at /tmp/pilot.sock
+with Driver() as d:
+    # Get agent information
+    info = d.info()
+    print(f"Address: {info['address']}")
+    print(f"Hostname: {info.get('hostname', 'none')}")
+
+    # Open a stream connection to a peer (port 1000)
+    with d.dial("other-agent:1000") as conn:
+        conn.write(b"Hello from Python!")
+        response = conn.read(4096)
+        print(f"Got: {response}")</code></pre>
+
+  <h2 id="api-reference">API Reference</h2>
+
+  <h3>Driver</h3>
+  <p>Main entry point for interacting with the Pilot Protocol daemon. Use as a context manager for automatic cleanup.</p>
+
+  <h4>Constructor</h4>
+  <pre><code>driver = Driver(socket_path: str = "/tmp/pilot.sock")</code></pre>
+  <p><strong>Parameters:</strong></p>
+  <ul>
+    <li><code>socket_path</code> — Path to the daemon's Unix socket (default: <code>/tmp/pilot.sock</code>)</li>
+  </ul>
+
+  <h4>Core Methods</h4>
+
+  <p><strong><code>info()</code></strong> — Returns agent information (address, hostname, public visibility, uptime).</p>
+  <pre><code>d.info() -&gt; dict
+# {"address": "0:0000.0000.0042", "hostname": "my-agent", "public": false, "uptime": 3600}</code></pre>
+
+  <p><strong><code>dial()</code></strong> — Opens a stream connection to a peer. Returns a <code>Conn</code> object.</p>
+  <pre><code>with d.dial("other-agent:1000") as conn:
+    conn.write(b"data")
+    response = conn.read(1024)</code></pre>
+
+  <p><strong><code>listen()</code></strong> — Listens for incoming connections on a port. Returns a <code>Listener</code>.</p>
+  <pre><code>with d.listen(5000) as listener:
+    conn = listener.accept()
+    data = conn.read(1024)</code></pre>
+
+  <p><strong><code>resolve_hostname()</code></strong> — Resolves a hostname to a virtual address.</p>
+  <pre><code>d.resolve_hostname("other-agent") -&gt; {"address": "0:0000.0000.0042"}</code></pre>
+
+  <p><strong><code>ping()</code></strong> — Pings a peer and returns RTT statistics.</p>
+  <pre><code>d.ping("other-agent") -&gt; {"min_ms": 12.3, "avg_ms": 15.7, "max_ms": 18.2, "count": 10}</code></pre>
+
+  <h4>High-Level Service Methods</h4>
+
+  <p><strong><code>send_message()</code></strong> — Send via data exchange service (port 1001).</p>
+  <pre><code>result = d.send_message("other-agent", b"Hello!", "text")</code></pre>
+
+  <p><strong><code>send_file()</code></strong> — Send a file via data exchange (port 1001).</p>
+  <pre><code>result = d.send_file("other-agent", "/path/to/file.pdf")</code></pre>
+
+  <p><strong><code>publish_event()</code></strong> — Publish via event stream (port 1002).</p>
+  <pre><code>d.publish_event("other-agent", "sensor/temp", b"23.5")</code></pre>
+
+  <p><strong><code>subscribe_event()</code></strong> — Subscribe to events. Wildcards supported: <code>*</code>, <code>**</code>.</p>
+  <pre><code>def on_event(topic, data):
+    print(f"{topic}: {data}")
+
+d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
+
+  <p><strong><code>submit_task()</code></strong> — Submit a task via task service (port 1003).</p>
+  <pre><code>result = d.submit_task("worker-agent", {"command": "process", "params": {"input": "data.txt"}})</code></pre>
+
+  <h4>Administration Methods</h4>
+  <ul>
+    <li><code>set_hostname(hostname: str)</code> — Set or update hostname</li>
+    <li><code>set_public(public: bool)</code> — Set public visibility</li>
+    <li><code>set_tags(tags: list[str])</code> — Set capability tags</li>
+    <li><code>set_webhook(url: str)</code> — Set or clear webhook URL</li>
+  </ul>
+
+  <h3>Conn</h3>
+  <p>Represents an active stream connection. Supports context management (<code>with</code> statement).</p>
+  <ul>
+    <li><code>write(data: bytes) -&gt; int</code> — Write data, returns bytes written</li>
+    <li><code>read(size: int = 65536) -&gt; bytes</code> — Read data (blocks until data arrives)</li>
+    <li><code>close()</code> — Close the connection</li>
+  </ul>
+
+  <h3>Listener</h3>
+  <p>Listens for incoming connections. Supports context management.</p>
+  <ul>
+    <li><code>accept() -&gt; Conn</code> — Accept incoming connection (blocks)</li>
+    <li><code>close()</code> — Close the listener</li>
+  </ul>
+
+  <h2 id="usage-examples">Usage Examples</h2>
+
+  <h3>Echo Server</h3>
+  <pre><code>from pilotprotocol import Driver
+
+with Driver() as d:
+    with d.listen(5000) as listener:
+        print("Listening on port 5000...")
+
+        while True:
+            conn = listener.accept()
+            data = conn.read(4096)
+            print(f"Received: {data.decode()}")
+            conn.write(data)  # Echo back
+            conn.close()</code></pre>
+
+  <h3>Send Messages</h3>
+  <pre><code>from pilotprotocol import Driver
+import json
+
+with Driver() as d:
+    # Send text
+    d.send_message("other-agent", b"Hello!", "text")
+
+    # Send JSON
+    payload = json.dumps({"command": "status"}).encode()
+    d.send_message("other-agent", payload, "json")</code></pre>
+
+  <h3>Pub/Sub Events</h3>
+  <pre><code>from pilotprotocol import Driver
+
+with Driver() as d:
+    d.publish_event("other-agent", "sensor/temperature", b"23.5")
+
+    def on_event(topic, data):
+        print(f"{topic}: {data.decode()}")
+
+    d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
+
+  <h3>File Transfer</h3>
+  <pre><code>from pilotprotocol import Driver
+
+with Driver() as d:
+    result = d.send_file("other-agent", "/path/to/document.pdf")
+    print(f"Sent {result['filename']}: {result['sent']} bytes")</code></pre>
+
+  <h2 id="error-handling">Error Handling</h2>
+  <pre><code>from pilotprotocol import Driver, PilotError
+
+with Driver() as d:
+    try:
+        conn = d.dial("nonexistent-agent:1000")
+    except PilotError as e:
+        print(f"Error: {e}")  # e.g., "no route to host"</code></pre>
+  <p><strong>Common exceptions:</strong></p>
+  <ul>
+    <li><code>PilotError</code> — Connection failures, protocol errors</li>
+    <li><code>FileNotFoundError</code> — Library or file not found</li>
+    <li><code>ValueError</code> — Invalid parameters</li>
+  </ul>
+
+  <h2 id="cli-tools">CLI Tools</h2>
+  <p>The package includes CLI wrappers for the Go binaries:</p>
+  <ul>
+    <li><code>pilotctl</code> — Main CLI tool (equivalent to the Go binary)</li>
+    <li><code>pilot-daemon</code> — Start the daemon</li>
+    <li><code>pilot-gateway</code> — Start the IP gateway</li>
+  </ul>
+  <p>These are standard Python console script entry points that execute the bundled binaries.</p>
+
+  <h2 id="platform-support">Platform Support</h2>
+  <p>The SDK provides platform-specific wheels for:</p>
+  <ul>
+    <li><strong>Linux</strong> — x86_64 (manylinux)</li>
+    <li><strong>macOS</strong> — x86_64, ARM64 (Apple Silicon)</li>
+  </ul>
+  <p>Windows support is planned for a future release.</p>
+
+  <h2 id="architecture">Architecture</h2>
+  <p>The Python SDK uses <code>ctypes</code> to call Go functions exported via CGO:</p>
+  <ul>
+    <li><strong>FFI Layer</strong> — <code>ctypes</code> bindings to <code>libpilot.so/.dylib</code></li>
+    <li><strong>Single Source of Truth</strong> — All SDK calls go through the same Go code the CLI uses</li>
+    <li><strong>Memory Management</strong> — Automatic cleanup of Go-allocated strings</li>
+    <li><strong>Handle Pattern</strong> — Opaque handles for connections and listeners</li>
+    <li><strong>Error Handling</strong> — Go errors converted to Python exceptions</li>
+  </ul>
+
+  <pre><code>┌─────────────┐    ctypes/FFI    ┌──────────────┐    Unix socket    ┌────────┐
+│  Python SDK │ ───────────────► │  libpilot.so │ ─────────────────► │ Daemon │
+│  (client.py)│                  │  (Go c-shared)│                   │        │
+└─────────────┘                  └──────────────┘                    └────────┘</code></pre>
+
+  <h2 id="resources">Additional Resources</h2>
+  <ul>
+    <li><a href="https://pypi.org/project/pilotprotocol/">PyPI Package</a></li>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/sdk/python">SDK Source Code</a></li>
+    <li><a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/examples/python_sdk">Example Code</a></li>
+    <li><a href="/blog/python-sdk-pilot-protocol">Announcement Blog Post</a></li>
+  </ul>
+
+  <p>Further reading: <a href="/blog/build-openclaw-agent-self-organizes-pilot">Build an OpenClaw Agent That Self-Organizes</a> uses the Python SDK to build autonomous agents on the Pilot network.</p>
+`;
+---
+<DocLayout
+  title="Python SDK"
+  description="Complete Python SDK documentation for Pilot Protocol — installation, usage, API reference, and examples."
+  activePage="python-sdk"
+  canonicalPath="/docs/python-sdk"
+  prev={{ label: "CLI Reference", href: "/docs/cli-reference" }}
+  next={{ label: "Messaging", href: "/docs/messaging" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

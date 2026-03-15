@@ -146,8 +146,12 @@ pre:hover .copy-btn{opacity:1}
 }
 @media(max-width:768px){
   .article{padding:80px 0 40px}
-  .article-layout{padding:0 20px}
+  .article-layout{padding:0 20px;overflow-x:hidden}
+  .article pre{max-width:calc(100vw - 40px);overflow-x:auto}
+  .article pre code{display:block;overflow-x:auto}
+  .article h1{font-size:1.5rem}
   .blog-list{padding:80px 20px 40px}
+  .blog-list h1{font-size:1.5rem}
   .related-grid{grid-template-columns:1fr}
   .blog-nav-inner{flex-direction:column}
   .blog-nav-next{text-align:left}
