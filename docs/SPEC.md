@@ -335,3 +335,105 @@ Byte  4-7:  0x00000001   (sender node ID=1)
 Byte  8-19: [12-byte nonce]
 Byte 20+:   [ciphertext + 16-byte GCM tag]
 ```
+
+---
+
+## 8. Version Negotiation
+
+### 8.1 Version Field
+
+The 4-bit Version field in the packet header identifies the protocol version. The current version is `1`.
+
+### 8.2 SYN Version Handshake
+
+The initiator includes its protocol version in the SYN packet's Version field. The responder checks the version and:
+
+- If the version is supported, echoes the same version in the SYN-ACK.
+- If the version is unsupported, sends RST with no payload.
+
+Both sides MUST use the same version for the duration of a connection. There is no version downgrade negotiation — if the versions do not match, the connection is refused.
+
+### 8.3 Non-SYN Packets
+
+For non-SYN packets (data, ACK, FIN), the receiver checks the Version field. If the version does not match the connection's established version, the packet is silently discarded. Implementations SHOULD log discarded packets at debug level.
+
+### 8.4 Future Versions
+
+Future protocol versions MAY extend the header format. Implementations MUST NOT assume a fixed header size based on the version field — they should use the version to determine the header layout. Version `0` is reserved and MUST NOT be used.
+
+---
+
+## 9. Path MTU Considerations
+
+### 9.1 Maximum Segment Size
+
+The default MSS is 4,096 bytes. This is the maximum payload per Pilot Protocol packet before automatic segmentation splits a write into multiple segments.
+
+### 9.2 Encapsulation Overhead
+
+The total overhead per encrypted tunnel packet is:
+
+| Component | Size |
+|-----------|------|
+| PILS magic | 4 bytes |
+| Sender Node ID | 4 bytes |
+| GCM nonce | 12 bytes |
+| Pilot header | 34 bytes |
+| GCM auth tag | 16 bytes |
+| **Total overhead** | **70 bytes** |
+
+For plaintext tunnel packets (PILT), the overhead is 4 bytes (magic) + 34 bytes (header) = 38 bytes.
+
+### 9.3 Effective Payload
+
+Given a typical Internet path MTU of 1,500 bytes (Ethernet) and 8 bytes UDP header + 20 bytes IP header:
+
+- Available for Pilot: 1,500 - 28 = 1,472 bytes
+- Encrypted payload capacity: 1,472 - 70 = 1,402 bytes
+- Plaintext payload capacity: 1,472 - 38 = 1,434 bytes
+
+The default MSS of 4,096 bytes exceeds the typical single-packet capacity. This means most full-MSS segments will be fragmented at the IP layer into 3 IP fragments. This is acceptable on most modern networks but may cause issues on paths with PMTU < 1,500 bytes or where IP fragmentation is blocked.
+
+### 9.4 Recommendations
+
+- For Internet-facing deployments, an MSS of 1,400 bytes avoids IP fragmentation on virtually all paths.
+- For local or datacenter deployments, the default 4,096 MSS is safe (typical jumbo frame MTU is 9,000 bytes).
+- Implementations SHOULD provide a configurable MSS option.
+- Implementations SHOULD NOT set the DF (Don't Fragment) bit on UDP datagrams, allowing IP-layer fragmentation as a fallback.
+
+---
+
+## 10. Nonce Management
+
+### 10.1 Tunnel Encryption Nonces
+
+AES-256-GCM requires a unique 96-bit (12-byte) nonce for every encryption operation under the same key. Nonce reuse under the same key is catastrophic — it allows plaintext recovery and forgery.
+
+### 10.2 Nonce Construction
+
+Each tunnel session generates a nonce as follows:
+
+```
+[4-byte random prefix][8-byte monotonic counter]
+```
+
+- **Random prefix**: 4 bytes generated from a cryptographically secure random source (`crypto/rand`) when the tunnel session is established. This prefix is unique per session with overwhelming probability.
+- **Monotonic counter**: 8-byte unsigned integer, starting at 0, incremented by 1 for each packet encrypted. The counter MUST NOT be reset within a session.
+
+### 10.3 Session Lifecycle
+
+A new tunnel session is established when:
+
+1. Two daemons perform an X25519 key exchange (PILK or PILA frame).
+2. Both sides derive a fresh AES-256-GCM key from the ECDH shared secret.
+3. Both sides generate a new random nonce prefix.
+
+A new key exchange produces a new key and new nonce prefix. Old nonces cannot collide with new nonces because the key is different.
+
+### 10.4 Counter Exhaustion
+
+The 8-byte counter supports 2^64 packets per session. At 1 million packets per second, a single session would last over 584,000 years before counter exhaustion. Implementations MUST close the tunnel and re-key if the counter reaches 2^64 - 1. In practice, this condition is unreachable.
+
+### 10.5 Application-Layer Nonces (Port 443)
+
+The secure channel on port 443 uses a separate nonce scheme: a monotonically increasing 8-byte counter zero-padded to 12 bytes. Each secure connection has an independent counter starting at 0. Since each connection performs its own X25519 key exchange, nonce uniqueness is guaranteed per-key.
