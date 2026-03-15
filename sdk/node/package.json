@@ -1,0 +1,81 @@
+{
+  "name": "pilotprotocol",
+  "version": "0.1.0",
+  "description": "Node.js SDK for Pilot Protocol — the network stack for AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "pilotctl": "bin-stubs/pilotctl.js",
+    "pilot-daemon": "bin-stubs/pilot-daemon.js",
+    "pilot-gateway": "bin-stubs/pilot-gateway.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "clean": "rm -rf dist/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "pilot-protocol",
+    "networking",
+    "p2p",
+    "agent",
+    "ai",
+    "protocol",
+    "overlay",
+    "udp",
+    "encryption",
+    "ffi"
+  ],
+  "license": "AGPL-3.0-or-later",
+  "author": {
+    "name": "Alexandru Godoroja",
+    "email": "alex@vulturelabs.com"
+  },
+  "contributors": [
+    {
+      "name": "Teodor Calin",
+      "email": "teodor@vulturelabs.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TeoSlayer/pilotprotocol",
+    "directory": "sdk/node"
+  },
+  "homepage": "https://pilotprotocol.network",
+  "bugs": {
+    "url": "https://github.com/TeoSlayer/pilotprotocol/issues"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "dist/",
+    "bin/",
+    "bin-stubs/"
+  ]
+}
