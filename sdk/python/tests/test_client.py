@@ -47,6 +47,25 @@ def _json_ok(data: dict) -> bytes:
     return json.dumps(data).encode()
 
 
+def _mock_handle_err(handle: int = 0, err: bytes | None = None):
+    """Create a mock HandleErr-like object compatible with c_void_p fields.
+
+    ctypes c_void_p fields reject bytes values directly, so we use
+    SimpleNamespace for mocks that need non-null err pointers.
+    """
+    return types.SimpleNamespace(handle=handle, err=err)
+
+
+def _mock_read_result(n: int = 0, data: bytes | None = None, err: bytes | None = None):
+    """Create a mock ReadResult-like object."""
+    return types.SimpleNamespace(n=n, data=data, err=err)
+
+
+def _mock_write_result(n: int = 0, err: bytes | None = None):
+    """Create a mock WriteResult-like object."""
+    return types.SimpleNamespace(n=n, err=err)
+
+
 class FakeLib:
     """Mimics the ctypes.CDLL object with controllable return values."""
 
@@ -131,7 +150,7 @@ class FakeLib:
         return None
 
     def PilotConnRead(self, ch, buf_size):
-        return _ReadResult(n=5, data=b"hello", err=None)
+        return _mock_read_result(n=5, data=b"hello", err=None)
 
     def PilotConnWrite(self, ch, data, data_len):
         return _WriteResult(n=data_len, err=None)
@@ -198,7 +217,7 @@ class TestDriverLifecycle:
         assert d._h == 1
 
     def test_connect_error(self, fake_lib):
-        fake_lib._connect_result = _HandleErr(handle=0, err=_json_err("no daemon"))
+        fake_lib._connect_result = _mock_handle_err(handle=0, err=_json_err("no daemon"))
         with pytest.raises(PilotError, match="no daemon"):
             client_mod.Driver()
 
@@ -320,10 +339,7 @@ class TestDriverDial:
         assert conn._h == 10
 
     def test_dial_error(self, fake_lib):
-        fake_lib.PilotDial = lambda self, h, addr: _HandleErr(handle=0, err=_json_err("unreachable"))
-        # Rebind as method
-        orig = fake_lib.PilotDial
-        fake_lib.PilotDial = lambda h, addr: _HandleErr(handle=0, err=_json_err("unreachable"))
+        fake_lib.PilotDial = lambda h, addr: _mock_handle_err(handle=0, err=_json_err("unreachable"))
         d = client_mod.Driver()
         with pytest.raises(PilotError, match="unreachable"):
             d.dial("bad:addr")
@@ -337,7 +353,7 @@ class TestDriverListen:
         assert ln._h == 20
 
     def test_listen_error(self, fake_lib):
-        fake_lib.PilotListen = lambda h, port: _HandleErr(handle=0, err=_json_err("port in use"))
+        fake_lib.PilotListen = lambda h, port: _mock_handle_err(handle=0, err=_json_err("port in use"))
         d = client_mod.Driver()
         with pytest.raises(PilotError, match="port in use"):
             d.listen(8080)
@@ -524,7 +540,7 @@ class TestConnErrorPaths:
 
     def test_read_error_from_go(self, fake_lib):
         """Test Conn.read when Go returns an error."""
-        fake_lib.PilotConnRead = lambda h, size: _ReadResult(
+        fake_lib.PilotConnRead = lambda h, size: _mock_read_result(
             data=None, n=0, err=_json_err("connection reset")
         )
         
@@ -534,7 +550,7 @@ class TestConnErrorPaths:
 
     def test_read_empty_response(self, fake_lib):
         """Test Conn.read when Go returns 0 bytes."""
-        fake_lib.PilotConnRead = lambda h, size: _ReadResult(
+        fake_lib.PilotConnRead = lambda h, size: _mock_read_result(
             data=None, n=0, err=None
         )
         
@@ -544,7 +560,7 @@ class TestConnErrorPaths:
 
     def test_write_error_from_go(self, fake_lib):
         """Test Conn.write when Go returns an error."""
-        fake_lib.PilotConnWrite = lambda h, buf, size: _WriteResult(
+        fake_lib.PilotConnWrite = lambda h, buf, size: _mock_write_result(
             n=0, err=_json_err("broken pipe")
         )
         
@@ -582,7 +598,7 @@ class TestListenerErrorPaths:
 
     def test_accept_error_from_go(self, fake_lib):
         """Test Listener.accept when Go returns an error."""
-        fake_lib.PilotListenerAccept = lambda h: _HandleErr(
+        fake_lib.PilotListenerAccept = lambda h: _mock_handle_err(
             handle=0, err=_json_err("listener closed")
         )
         

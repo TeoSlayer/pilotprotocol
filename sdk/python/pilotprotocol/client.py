@@ -308,6 +308,10 @@ class Conn:
         """Read up to *size* bytes. Blocks until data arrives."""
         if self._closed:
             raise PilotError("connection closed")
+        if size <= 0:
+            return b""
+        if size > 16 * 1024 * 1024:
+            size = 16 * 1024 * 1024  # cap at 16MB
         lib = _get_lib()
         res = lib.PilotConnRead(self._h, size)
         if res.err:

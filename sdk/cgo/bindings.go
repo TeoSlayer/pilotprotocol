@@ -385,7 +385,15 @@ func PilotConnRead(ch C.uint64_t, bufSize C.int) (C.int, *C.char, *C.char) {
 	if !ok {
 		return 0, nil, errJSON(fmt.Errorf("handle is not a Conn"))
 	}
-	buf := make([]byte, int(bufSize))
+	sz := int(bufSize)
+	if sz <= 0 {
+		return 0, nil, errJSON(fmt.Errorf("invalid read size: %d", sz))
+	}
+	const maxReadSize = 16 * 1024 * 1024 // 16MB
+	if sz > maxReadSize {
+		sz = maxReadSize
+	}
+	buf := make([]byte, sz)
 	n, err := r.Read(buf)
 	if err != nil {
 		return 0, nil, errJSON(err)
