@@ -342,6 +342,9 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		NagleCh:      make(chan struct{}, 1),
 	}
 	pm.nextConnID++
+	if pm.nextConnID == 0 {
+		pm.nextConnID = 1 // wrap around, skip 0 (reserved)
+	}
 	pm.connections[conn.ID] = conn
 	return conn
 }

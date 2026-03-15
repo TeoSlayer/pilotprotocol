@@ -254,10 +254,12 @@ func (s *Server) RunStandby(primaryAddr string) {
 			slog.Warn("standby session ended", "err", err)
 		}
 
+		reconnTimer := time.NewTimer(3 * time.Second)
 		select {
 		case <-s.done:
+			reconnTimer.Stop()
 			return
-		case <-time.After(3 * time.Second):
+		case <-reconnTimer.C:
 			slog.Info("standby reconnecting to primary", "addr", primaryAddr)
 		}
 	}

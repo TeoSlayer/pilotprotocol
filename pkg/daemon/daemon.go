@@ -1202,12 +1202,15 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 		conn.NagleMu.Unlock()
 
 		// Data in flight — wait for ACK or timeout
+		nagleTimer := time.NewTimer(NagleTimeout)
 		select {
 		case <-conn.NagleCh:
+			nagleTimer.Stop()
 			// All data ACKed — flush now
-		case <-time.After(NagleTimeout):
+		case <-nagleTimer.C:
 			// Timeout — flush regardless
 		case <-conn.RetxStop:
+			nagleTimer.Stop()
 			return protocol.ErrConnClosed
 		}
 
@@ -1256,6 +1259,8 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 	probeInterval := ZeroWinProbeInitial
 
 	// Wait for effective window to have space
+	probeTimer := time.NewTimer(probeInterval)
+	defer probeTimer.Stop()
 	for {
 		conn.RetxMu.Lock()
 		avail := conn.WindowAvailable()
@@ -1268,9 +1273,16 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		select {
 		case <-conn.WindowCh:
 			probeInterval = ZeroWinProbeInitial
+			if !probeTimer.Stop() {
+				select {
+				case <-probeTimer.C:
+				default:
+				}
+			}
+			probeTimer.Reset(probeInterval)
 		case <-conn.RetxStop:
 			return protocol.ErrConnClosed
-		case <-time.After(probeInterval):
+		case <-probeTimer.C:
 			// Send zero-window probe (empty ACK) to trigger window update
 			conn.Mu.Lock()
 			probeSeq := conn.SendSeq
@@ -1294,6 +1306,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 			if probeInterval > ZeroWinProbeMax {
 				probeInterval = ZeroWinProbeMax
 			}
+			probeTimer.Reset(probeInterval)
 		}
 	}
 

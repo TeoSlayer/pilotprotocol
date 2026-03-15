@@ -59,6 +59,8 @@ const (
 	handshakeReapInterval = 5 * time.Minute        // how often to reap stale replay entries
 	handshakeRecvTimeout  = 10 * time.Second       // time to wait for handshake message
 	handshakeCloseDelay   = 500 * time.Millisecond // delay before closing after send to let data flush
+	maxReplaySetEntries   = 8192                   // cap replay set to prevent unbounded growth between reaps
+	maxPendingHandshakes  = 256                    // cap pending (unapproved) handshake requests
 )
 
 // HandshakeManager handles the trust handshake protocol on port 444.
@@ -301,6 +303,11 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 		slog.Warn("handshake replay detected", "peer_node_id", msg.NodeID)
 		return
 	}
+	if len(hm.replaySet) >= maxReplaySetEntries {
+		hm.replayMu.Unlock()
+		slog.Warn("handshake replay set full, rejecting", "peer_node_id", msg.NodeID)
+		return
+	}
 	hm.replaySet[msgHash] = now
 	hm.replayMu.Unlock()
 
@@ -413,7 +420,11 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		return
 	}
 
-	// Store as pending
+	// Store as pending (cap to prevent unbounded growth from spam)
+	if _, exists := hm.pending[peerNodeID]; !exists && len(hm.pending) >= maxPendingHandshakes {
+		slog.Warn("pending handshake queue full, rejecting", "peer_node_id", peerNodeID)
+		return
+	}
 	hm.pending[peerNodeID] = &PendingHandshake{
 		NodeID:        peerNodeID,
 		PublicKey:     msg.PublicKey,
