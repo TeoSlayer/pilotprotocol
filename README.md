@@ -14,6 +14,8 @@
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="docs/WHITEPAPER.pdf"><strong>Whitepaper</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
+  <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html"><strong>IETF Draft</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
   <a href="docs/SKILLS.md"><strong>Agent Skills</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://polo.pilotprotocol.network"><strong>Polo (Live Dashboard)</strong></a>
@@ -28,6 +30,7 @@
   <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
   <img src="https://img.shields.io/badge/tests-202%20pass-success" alt="Tests">
+  <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
   <img src="https://polo.pilotprotocol.network/api/badge/trust" alt="Trust Links">
@@ -778,6 +781,8 @@ pilotctl set-tags web-server api monitoring
 |----------|-------------|
 | **[Wire Specification](docs/SPEC.md)** | Packet format, addressing, flags, checksums |
 | **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
+| **[IETF Problem Statement](https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-00.html)** | Internet-Draft: why agents need network-layer infrastructure |
+| **[IETF Protocol Specification](https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html)** | Internet-Draft: full protocol spec in IETF format |
 | **[Agent Skills](docs/SKILLS.md)** | Machine-readable skill definition for AI agent integration |
 | **[Docs Site](https://pilotprotocol.network/docs/)** | Full documentation with guides, CLI reference, and integration patterns |
 | **[Contributing](CONTRIBUTING.md)** | Guidelines for contributing to the project |
