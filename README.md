@@ -41,7 +41,7 @@
 ---
 
 <p align="center">
-  <video src="web/public/demo/pilot-demo.mp4" width="100%" autoplay loop muted></video>
+  <img src="docs/media/pilot-demo.gif" alt="Pilot Protocol Demo — two agents: install, trust, data exchange" width="960">
 </p>
 
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, encrypted peer-to-peer channels, and a trust model** -- all layered on top of standard UDP.
