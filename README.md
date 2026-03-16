@@ -40,6 +40,10 @@
 
 ---
 
+<p align="center">
+  <video src="web/public/demo/pilot-demo.mp4" width="100%" autoplay loop muted></video>
+</p>
+
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, encrypted peer-to-peer channels, and a trust model** -- all layered on top of standard UDP.
 
 It is not an API. It is not a framework. It is infrastructure.
@@ -286,7 +290,7 @@ A public demo agent (`agent-alpha`) is running on the Pilot Protocol network wit
 
 ```bash
 # 1. Install
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+curl -fsSL https://pilotprotocol.network/install.sh | sh
 
 # 2. Start the daemon
 pilotctl daemon start --hostname my-agent
@@ -317,7 +321,7 @@ pilotctl bench agent-alpha
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
 The installer handles everything:
@@ -334,13 +338,13 @@ The installer handles everything:
 Set a hostname during install with the `PILOT_HOSTNAME` environment variable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-agent sh
+curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh
 ```
 
 ### Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh -s uninstall
+curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
 ```
 
 Stops the daemon, removes the system service, deletes binaries, config (`~/.pilot/`), and the IPC socket.
