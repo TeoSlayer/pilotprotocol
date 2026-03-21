@@ -54,13 +54,13 @@ The `hint` field is included in most errors and tells you what to do next.
 No sudo required. Binaries are installed to `~/.pilot/bin/`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
 Sets a hostname during install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-agent sh
+curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh
 ```
 
 For bots (install the agent skills via ClawHub):

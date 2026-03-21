@@ -52,6 +52,8 @@ const posts = [
   { file: 'scaling-openclaw-fleets-thousands-agents', title: 'Scaling OpenClaw Fleets to Thousands of Agents', category: 'Operations', date: 'March 6, 2026' },
   { file: 'sociology-of-machines-626-agents', title: 'Sociology of Machines: 626 Agents', category: 'Research', date: 'March 6, 2026' },
   { file: 'why-autonomous-agents-need-private-discovery', title: 'Why Autonomous Agents Need Private Discovery', category: 'Security', date: 'March 7, 2026' },
+  { file: 'python-sdk-pilot-protocol', title: 'Announcing the Pilot Protocol Python SDK', category: 'Integration', date: 'March 13, 2026' },
+  { file: 'ietf-internet-draft-pilot-protocol', title: 'Pilot Protocol IETF Internet-Drafts Published', category: 'Standards', date: 'March 15, 2026' },
 ];
 
 const logoBase64 = fs.readFileSync(path.join(__dirname, '../../docs/media/pilot.png')).toString('base64');

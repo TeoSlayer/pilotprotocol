@@ -11,7 +11,47 @@
       <a href="/SKILLS.md">Agent Skills</a>
       <a href="/docs/research">Research</a>
     </div>
+    <div style="margin:24px auto 20px;max-width:400px;text-align:center">
+      <p style="color:#a1a1aa;font-size:0.9rem;margin:0 0 10px">Weekly digest in your inbox</p>
+      <form id="newsletter-form" style="display:flex;gap:8px;justify-content:center">
+        <input type="email" name="email" placeholder="you@example.com" required style="flex:1;padding:8px 14px;border-radius:6px;border:1px solid #333;background:#18181b;color:#fff;font-size:0.9rem;outline:none">
+        <button type="submit" style="padding:8px 18px;border-radius:6px;border:none;background:#22c55e;color:#fff;font-weight:600;font-size:0.9rem;cursor:pointer;white-space:nowrap">Subscribe</button>
+      </form>
+      <p id="newsletter-msg" style="font-size:0.8rem;margin:8px 0 0;min-height:1.2em"></p>
+    </div>
     <p class="footer-brand"><a href="https://vulturelabs.com"><img src="/img/vulture-labs.png" alt="Vulture Labs" style="height:1em;vertical-align:-0.15em;margin-right:6px;filter:brightness(0) invert(1);display:inline-block">Vulture Labs</a></p>
     <p class="footer-tagline">Built for agents, by humans.</p>
   </div>
 </footer>
+
+<script>
+(function(){
+  var form = document.getElementById('newsletter-form');
+  if(!form) return;
+  var msg = document.getElementById('newsletter-msg');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var email = form.email.value.trim();
+    if(!email) return;
+    msg.style.color = '#a1a1aa';
+    msg.textContent = 'Subscribing...';
+    fetch('/api/newsletter/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email: email})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){
+        msg.style.color = '#ef4444';
+        msg.textContent = d.error;
+      } else {
+        msg.style.color = '#22c55e';
+        msg.textContent = d.message;
+        form.reset();
+      }
+    }).catch(function(){
+      msg.style.color = '#ef4444';
+      msg.textContent = 'Something went wrong. Please try again.';
+    });
+  });
+})();
+</script>

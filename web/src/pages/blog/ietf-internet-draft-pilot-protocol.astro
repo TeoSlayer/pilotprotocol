@@ -1,0 +1,111 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p><span style="display:inline-block;padding:4px 14px;border-radius:6px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);color:#3b82f6;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.85rem;font-weight:600">draft-teodor-pilot-protocol-00</span></p>
+
+<h2 id="what-we-submitted">What We Submitted</h2>
+
+<p>We submitted two Internet-Drafts to the IETF (Internet Engineering Task Force) — the organization that standardizes protocols like TCP, HTTP, TLS, and QUIC. Both are now live on the IETF Datatracker:</p>
+
+<ul>
+  <li><strong><a href="https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-00.html">Problem Statement</a></strong> — why agents need network-layer infrastructure (Informational)</li>
+  <li><strong><a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html">Protocol Specification</a></strong> — full wire spec in IETF format (Experimental)</li>
+</ul>
+
+<p>This is an individual submission to the independent stream. It does not (yet) carry IETF consensus — it is a formal public statement that this problem exists and here is one solution.</p>
+
+<h2 id="why-ietf">Why the IETF</h2>
+
+<p>The IETF has seen a surge of AI agent protocol drafts in 2025-2026. Over a dozen have been filed — <a href="https://datatracker.ietf.org/doc/draft-rosenberg-aiproto-framework/">rosenberg-aiproto-framework</a>, <a href="https://datatracker.ietf.org/doc/draft-zyyhl-agent-networks-framework/">zyyhl-agent-networks-framework</a>, <a href="https://datatracker.ietf.org/doc/draft-narvaneni-agent-uri/">narvaneni-agent-uri</a>, and others. Every single one operates at the application layer over HTTP.</p>
+
+<p>Nobody is addressing the network and transport layer for agents. That is the exact space Pilot Protocol occupies. We are the only protocol that gives agents virtual addresses, encrypted UDP tunnels, NAT traversal, port-based services, and a bilateral trust model — below the application layer, where MCP and A2A operate.</p>
+
+<p>The positioning is simple: A2A defines <em>what</em> agents say to each other. Pilot defines <em>how they reach each other</em>.</p>
+
+<h2 id="problem-statement">The Problem Statement</h2>
+
+<p>Modeled after <a href="https://www.rfc-editor.org/rfc/rfc7364">RFC 7364</a> (the NVO3 Problem Statement that led to VXLAN and GENEVE), our problem statement identifies five gaps:</p>
+
+<ol>
+  <li><strong>Agent identity is coupled to infrastructure.</strong> Agents are identified by URLs and DNS names — tied to servers, not to the agent itself. When an agent migrates, its identity breaks.</li>
+  <li><strong>No P2P communication without web infrastructure.</strong> MCP and A2A require HTTP endpoints. 88% of real-world networks involve NAT. Agents behind firewalls simply cannot participate.</li>
+  <li><strong>No agent-native trust model.</strong> TLS trusts CAs. SSH trusts on first use (with a human verifying). Neither fits autonomous entities that need bilateral consent.</li>
+  <li><strong>No lightweight transport for agent streams.</strong> TCP and QUIC are designed for web traffic patterns. Agents need long-lived streams, port-based service multiplexing, and low connection overhead.</li>
+  <li><strong>Privacy gaps in discovery.</strong> A2A Agent Cards are designed to be publicly discoverable. For agents, the default should be invisible.</li>
+</ol>
+
+<p>The document defines 11 formal requirements (REQ-1 through REQ-11) and analyzes gaps in seven existing approaches: MCP, A2A, WebRTC, QUIC, libp2p, WireGuard, and LISP.</p>
+
+<h2 id="protocol-spec">The Protocol Specification</h2>
+
+<p>The protocol spec is a 45-page document that converts our <a href="/docs/spec">wire specification</a> and <a href="/docs/whitepaper">whitepaper</a> into IETF format. It covers:</p>
+
+<ul>
+  <li><strong>Addressing</strong> — 48-bit virtual addresses (16-bit network + 32-bit node), text representation, special addresses</li>
+  <li><strong>Packet format</strong> — 34-byte fixed header with ASCII art diagrams, field definitions, protocol types, flag definitions</li>
+  <li><strong>Tunnel encapsulation</strong> — four frame types (PILT plaintext, PILS encrypted, PILK key exchange, PILA authenticated key exchange)</li>
+  <li><strong>Session layer</strong> — connection state machine, three-way handshake, reliable delivery with sliding window, SACK, congestion control (AIMD per RFC 5681/6298/6928), flow control, Nagle's algorithm</li>
+  <li><strong>NAT traversal</strong> — STUN-based discovery, hole punching, transparent relay fallback</li>
+  <li><strong>Security</strong> — Ed25519 identities, X25519 + AES-256-GCM tunnel encryption, authenticated key exchange, bilateral trust handshake, privacy-by-default discovery</li>
+  <li><strong>Nonce management</strong> — random prefix + monotonic counter construction, session lifecycle, counter exhaustion analysis</li>
+  <li><strong>Version negotiation</strong> — SYN version handshake, unknown version handling, future extensibility</li>
+  <li><strong>Path MTU considerations</strong> — encapsulation overhead calculation, effective payload analysis, MSS recommendations</li>
+  <li><strong>IANA considerations</strong> — requested registries for tunnel magic values, protocol types, and well-known ports</li>
+  <li><strong>Implementation status</strong> — Go reference implementation (226+ tests, 5 GCP regions), Python SDK on PyPI</li>
+</ul>
+
+<h2 id="what-this-means">What This Means</h2>
+
+<p>Filing an Internet-Draft does not make Pilot an IETF standard. The path from I-D to RFC is long — it requires external reviews, IESG conflict review, and typically multiple revisions over months to years.</p>
+
+<p>What it does:</p>
+
+<ul>
+  <li><strong>Public record.</strong> The problem and the solution are now on the IETF Datatracker, permanently, with a formal document name that can be cited by other drafts and papers.</li>
+  <li><strong>Visibility.</strong> Anyone working on AI agent protocols at the IETF will find these documents. The problem statement frames why a network-layer solution is needed — which no one else has articulated.</li>
+  <li><strong>Credibility.</strong> "We submitted an IETF Internet-Draft" is a different conversation than "we built a thing." The IETF process demands rigor — proper references, security considerations, IANA registrations.</li>
+  <li><strong>Foundation.</strong> If this gains traction, it could lead to a BoF (Birds of a Feather) session at an IETF meeting, potentially a working group, and eventually an RFC.</li>
+</ul>
+
+<h2 id="spec-improvements">Spec Improvements</h2>
+
+<p>Preparing the IETF drafts revealed three gaps in our specification that we've now addressed:</p>
+
+<ul>
+  <li><strong>Version negotiation</strong> — how nodes handle version mismatches in SYN packets, what to do with unknown versions, future extensibility rules</li>
+  <li><strong>Path MTU considerations</strong> — encapsulation overhead calculation (70 bytes for encrypted frames), effective payload per MTU, MSS recommendations for different deployment environments</li>
+  <li><strong>Nonce management</strong> — formal documentation of the random-prefix + monotonic-counter nonce construction, session lifecycle, and counter exhaustion bounds (2^64 packets per session)</li>
+</ul>
+
+<p>These sections are now part of the <a href="/docs/spec">wire specification</a> (Sections 8, 9, and 10).</p>
+
+<h2 id="review">Review and Feedback</h2>
+
+<p>We welcome technical review of both drafts. If you have expertise in overlay networking, agent communication protocols, or IETF process, we'd appreciate your feedback:</p>
+
+<ul>
+  <li>Email: <a href="mailto:teodor@vulturelabs.com">teodor@vulturelabs.com</a></li>
+  <li>Subject line: <code>draft-teodor-pilot-protocol review</code> or <code>draft-teodor-pilot-problem-statement review</code></li>
+</ul>
+
+<p>We're particularly interested in feedback on the security considerations, the relationship to QUIC, and whether the problem statement adequately motivates the need for a network-layer solution.</p>
+
+<div class="cta">
+  <h3>Read the Drafts</h3>
+  <p>Both Internet-Drafts are live on the IETF archive. The protocol spec is the definitive reference for Pilot Protocol in standards-track format.</p>
+  <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html">Protocol Specification</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-00.html">Problem Statement</a>
+</div>`;
+---
+<BlogLayout
+  title="Pilot Protocol IETF Internet-Drafts Published"
+  description="We submitted two Internet-Drafts to the IETF: a problem statement for agent network-layer infrastructure and the full Pilot Protocol specification. Both are live on the Datatracker."
+  date="March 15, 2026"
+  tags={["ietf", "standards"]}
+  canonicalPath="/blog/ietf-internet-draft-pilot-protocol"
+  bannerImage="/blog/banners/ietf-internet-draft-pilot-protocol.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

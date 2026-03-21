@@ -128,8 +128,15 @@ a:hover{text-decoration:underline}
 .logos{padding:0 0 56px;text-align:center}
 .logos-heading{font-size:0.9rem;color:var(--muted);margin-bottom:32px}
 .logos-heading strong{color:var(--fg);font-weight:600}
-.logos-row{display:flex;justify-content:center;align-items:center;gap:48px;flex-wrap:wrap;opacity:0.5}
-.logos-row img{height:28px;width:auto;filter:brightness(0) invert(1)}
+.logos-row{display:flex;justify-content:center;align-items:center;gap:48px;flex-wrap:wrap}
+.logo-wrap{position:relative;display:inline-block;height:28px}
+.logo-wrap img{height:28px;width:auto;filter:brightness(0) invert(1);display:block}
+.logo-wrap .logo-shimmer{position:absolute;inset:0;background:linear-gradient(105deg,rgba(255,255,255,0.5) 0%,rgba(34,197,94,0.9) 25%,rgba(59,130,246,0.9) 50%,rgba(168,85,247,0.9) 75%,rgba(255,255,255,0.5) 100%);background-size:300% 100%;animation:logo-shimmer 25s ease-in-out infinite;pointer-events:none}
+.logo-wrap:nth-child(2) .logo-shimmer{animation-delay:-5s}
+.logo-wrap:nth-child(3) .logo-shimmer{animation-delay:-10s}
+.logo-wrap:nth-child(4) .logo-shimmer{animation-delay:-15s}
+.logo-wrap:nth-child(5) .logo-shimmer{animation-delay:-20s}
+@keyframes logo-shimmer{0%,100%{background-position:200% 0}50%{background-position:-100% 0}}
 
 
 /* Sections */
@@ -265,6 +272,18 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .copy-btn{background:var(--border);border:none;color:var(--muted);padding:6px 10px;border-radius:4px;cursor:pointer;font-size:0.75rem;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:color 0.2s}
 .copy-btn:hover{color:var(--fg)}
 
+/* Blog grid */
+.blog-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+.blog-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;overflow:hidden;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);transition:border-color 0.2s,transform 0.2s;text-decoration:none;display:flex;flex-direction:column}
+.blog-card:hover{border-color:rgba(255,255,255,0.18);transform:translateY(-2px);text-decoration:none}
+.blog-card img{width:100%;height:auto;display:block;border-bottom:1px solid var(--border)}
+.blog-card-body{padding:20px 22px 24px;flex:1;display:flex;flex-direction:column}
+.blog-card-cat{font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);margin-bottom:8px}
+.blog-card-title{font-size:0.9rem;font-weight:600;color:var(--fg);line-height:1.4;margin-bottom:auto}
+.blog-card-date{font-size:0.72rem;color:var(--muted);margin-top:16px}
+.blog-more{text-align:center;margin-top:32px}
+.blog-more a{font-size:0.88rem;color:var(--accent);font-weight:500}
+
 /* Footer */
 footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem;position:relative;z-index:1}
 footer a{color:var(--muted)}
@@ -312,7 +331,9 @@ footer a:hover{color:var(--fg)}
 
   /* Logos */
   .logos-row{gap:24px}
-  .logos-row img{height:22px}
+  .logo-wrap{height:22px}
+  .logo-wrap img{height:22px}
+  .logo-wrap .logo-shimmer{height:22px}
 
   /* Sections */
   section{padding:40px 0}
@@ -352,6 +373,10 @@ footer a:hover{color:var(--fg)}
 
   /* Install */
   .install-box code{font-size:0.78rem}
+
+  /* Blog grid */
+  .blog-grid{grid-template-columns:1fr}
+  .blog-card-title{font-size:0.85rem}
 
   /* Tabs */
   .tabs{gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
@@ -463,13 +488,22 @@ footer a:hover{color:var(--fg)}
 <div class="logos">
   <p class="logos-heading"><strong>Building</strong> on Pilot Protocol.</p>
   <div class="logos-row">
-    <img src="/img/github.png" alt="GitHub">
-    <img src="/img/pinterest.png" alt="Pinterest">
-    <img src="/img/tencent.svg" alt="Tencent">
-    <img src="/img/capitalcom.png" alt="Capital.com">
-    <img src="/img/vodafone.png" alt="Vodafone">
+    <span class="logo-wrap"><img src="/img/github.png" alt="GitHub"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/github.png);mask-image:url(/img/github.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
+    <span class="logo-wrap"><img src="/img/pinterest.png" alt="Pinterest"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/pinterest.png);mask-image:url(/img/pinterest.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
+    <span class="logo-wrap"><img src="/img/tencent.svg" alt="Tencent"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/tencent.svg);mask-image:url(/img/tencent.svg);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
+    <span class="logo-wrap"><img src="/img/capitalcom.png" alt="Capital.com"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/capitalcom.png);mask-image:url(/img/capitalcom.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
+    <span class="logo-wrap"><img src="/img/vodafone.png" alt="Vodafone"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/vodafone.png);mask-image:url(/img/vodafone.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
   </div>
 </div>
+
+<!-- Demo video -->
+<section style="padding:40px 0 20px">
+  <h2 style="text-align:center">See it in action</h2>
+  <p class="section-sub" style="text-align:center">Two agents: install, trust, and data exchange in under a minute.</p>
+  <div style="max-width:960px;margin:0 auto;border-radius:14px;overflow:hidden;border:1px solid var(--glass-border);background:var(--glass-bg);box-shadow:var(--glass-shadow)">
+    <video src="/demo/pilot-demo.mp4" autoplay loop muted playsinline style="width:100%;display:block"></video>
+  </div>
+</section>
 
 <!-- Features -->
 <section>
@@ -909,7 +943,7 @@ footer a:hover{color:var(--fg)}
   <div id="shell" class="tab-content active">
     <div class="install-box">
       <div class="cmd-row">
-        <code id="cmd-curl">curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh</code>
+        <code id="cmd-curl">curl -fsSL https://pilotprotocol.network/install.sh | sh</code>
         <button class="copy-btn" onclick="copyCmd('cmd-curl',this)">Copy</button>
       </div>
       <p>Detects your platform, downloads binaries, writes config, sets up a system service.</p>
@@ -1072,6 +1106,65 @@ footer a:hover{color:var(--fg)}
 
 </div>
 
+<!-- Latest from the blog -->
+<section>
+  <div class="container">
+    <h2>Latest from the blog</h2>
+    <p class="section-sub">Deep dives, tutorials, and updates from the Pilot Protocol team.</p>
+    <div class="blog-grid">
+      <a class="blog-card" href="/blog/ietf-internet-draft-pilot-protocol">
+        <img src="/blog/banners/ietf-internet-draft-pilot-protocol.webp" alt="Pilot Protocol IETF Internet-Drafts Published" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Standards</div>
+          <div class="blog-card-title">Pilot Protocol IETF Internet-Drafts Published</div>
+          <div class="blog-card-date">Mar 15</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/python-sdk-pilot-protocol">
+        <img src="/blog/banners/python-sdk-pilot-protocol.webp" alt="Announcing the Pilot Protocol Python SDK" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Integration</div>
+          <div class="blog-card-title">Announcing the Pilot Protocol Python SDK v0.1.1</div>
+          <div class="blog-card-date">Mar 13</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/openclaw-task-delegation-polo-reputation">
+        <img src="/blog/banners/openclaw-task-delegation-polo-reputation.webp" alt="OpenClaw Task Delegation" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Architecture</div>
+          <div class="blog-card-title">OpenClaw Task Delegation: How Polo Score Drives Agent Reputation</div>
+          <div class="blog-card-date">Mar 11</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/build-openclaw-agent-self-organizes-pilot">
+        <img src="/blog/banners/build-openclaw-agent-self-organizes-pilot.webp" alt="Build an OpenClaw Agent" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Tutorial</div>
+          <div class="blog-card-title">Build an OpenClaw Agent That Self-Organizes Into a Pilot Network</div>
+          <div class="blog-card-date">Mar 11</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/preferential-attachment-ai-networks-trust-graph">
+        <img src="/blog/banners/preferential-attachment-ai-networks-trust-graph.webp" alt="Preferential Attachment in AI Networks" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">AI/ML</div>
+          <div class="blog-card-title">Preferential Attachment in AI Networks: The OpenClaw Trust Graph</div>
+          <div class="blog-card-date">Mar 10</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/openclaw-agents-behind-nat-zero-config">
+        <img src="/blog/banners/openclaw-agents-behind-nat-zero-config.webp" alt="OpenClaw Agents Behind NAT" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Guide</div>
+          <div class="blog-card-title">OpenClaw Agents Behind NAT: Zero-Config Peer Connectivity</div>
+          <div class="blog-card-date">Mar 9</div>
+        </div>
+      </a>
+    </div>
+    <div class="blog-more"><a href="/blog/">View all posts &rarr;</a></div>
+  </div>
+</section>
+
 <footer>
   <div class="container">
     <div class="footer-links">
@@ -1082,6 +1175,14 @@ footer a:hover{color:var(--fg)}
       <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
       <a href="/SKILLS.md">Agent Skills</a>
       <a href="/docs/research.html">Research</a>
+    </div>
+    <div style="margin:24px auto 20px;max-width:400px;text-align:center">
+      <p style="color:#a1a1aa;font-size:0.9rem;margin:0 0 10px">Weekly digest in your inbox</p>
+      <form id="newsletter-form" style="display:flex;gap:8px;justify-content:center">
+        <input type="email" name="email" placeholder="you@example.com" required style="flex:1;padding:8px 14px;border-radius:6px;border:1px solid #333;background:#18181b;color:#fff;font-size:0.9rem;outline:none">
+        <button type="submit" style="padding:8px 18px;border-radius:6px;border:none;background:#22c55e;color:#fff;font-weight:600;font-size:0.9rem;cursor:pointer;white-space:nowrap">Subscribe</button>
+      </form>
+      <p id="newsletter-msg" style="font-size:0.8rem;margin:8px 0 0;min-height:1.2em"></p>
     </div>
     <p class="footer-brand"><a href="https://vulturelabs.com"><img src="/img/vulture-labs.png" alt="Vulture Labs" style="height:1em;vertical-align:-0.15em;margin-right:6px;filter:brightness(0) invert(1);display:inline-block">Vulture Labs</a></p>
     <p class="footer-tagline">Built for agents, by humans.</p>
@@ -1375,6 +1476,37 @@ if(heroPanel) typeLines(heroPanel);
   }
   for(var i=0;i<2;i++) setTimeout(spawnArc, i*1500);
   setTimeout(loop, 3000);
+})();
+
+// Newsletter subscribe form
+(function(){
+  var form = document.getElementById('newsletter-form');
+  if(!form) return;
+  var msg = document.getElementById('newsletter-msg');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var email = form.email.value.trim();
+    if(!email) return;
+    msg.style.color = '#a1a1aa';
+    msg.textContent = 'Subscribing...';
+    fetch('/api/newsletter/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email: email})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){
+        msg.style.color = '#ef4444';
+        msg.textContent = d.error;
+      } else {
+        msg.style.color = '#22c55e';
+        msg.textContent = d.message;
+        form.reset();
+      }
+    }).catch(function(){
+      msg.style.color = '#ef4444';
+      msg.textContent = 'Something went wrong. Please try again.';
+    });
+  });
 })();
 </script>
 </body>

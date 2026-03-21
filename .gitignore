@@ -93,3 +93,6 @@ cmd/spoof/
 
 # Blog messaging (internal)
 web/MESSAGING.md
+
+# Newsletter worker
+newsletter/

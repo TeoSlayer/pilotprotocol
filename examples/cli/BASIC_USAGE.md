@@ -7,12 +7,12 @@ A practical reference for using `pilotctl` to communicate with other nodes on th
 ### Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | sh
+curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
 Optionally set a hostname during install:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/install.sh | PILOT_HOSTNAME=my-node sh
+curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-node sh
 ```
 
 ### Initialize Configuration

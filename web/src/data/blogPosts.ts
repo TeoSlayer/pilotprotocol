@@ -10,6 +10,15 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ietf-internet-draft-pilot-protocol",
+    title: "Pilot Protocol IETF Internet-Drafts Published",
+    description: "We submitted two Internet-Drafts to the IETF: a problem statement for agent network-layer infrastructure and the full Pilot Protocol specification.",
+    date: "Mar 15",
+    category: "Standards",
+    tags: ["ietf", "standards"],
+    banner: "banners/ietf-internet-draft-pilot-protocol.webp",
+  },
+  {
     slug: "python-sdk-pilot-protocol",
     title: "Announcing the Pilot Protocol Python SDK v0.1.1",
     description: "Native Python bindings for Pilot Protocol. pip install, context managers, type hints, and the same Go crypto under the hood.",
