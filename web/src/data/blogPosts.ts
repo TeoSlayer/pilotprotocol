@@ -10,6 +10,24 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "enterprise-identity-integration-pilot-protocol",
+    title: "Enterprise Identity Integration: Entra ID, SPIFFE, OPA, and Beyond",
+    description: "How Pilot Protocol will integrate with enterprise identity providers (Entra ID, Okta, GCP IAM), policy engines (OPA, Vault), and compliance tools (Splunk, OpenTelemetry).",
+    date: "Mar 21",
+    category: "Enterprise",
+    tags: ["enterprise", "identity", "integration"],
+    banner: "banners/enterprise-identity-integration-pilot-protocol.webp",
+  },
+  {
+    slug: "enterprise-private-networks-roadmap",
+    title: "Enterprise Private Networks: The Roadmap",
+    description: "Pilot Protocol is closing the gap between connectivity tool and enterprise infrastructure. SYN-level trust enforcement, tag-based policies, cascading revocation, and OIDC/SPIFFE identity integration.",
+    date: "Mar 21",
+    category: "Security",
+    tags: ["enterprise", "security", "roadmap"],
+    banner: "banners/enterprise-private-networks-roadmap.webp",
+  },
+  {
     slug: "ietf-internet-draft-pilot-protocol",
     title: "Pilot Protocol IETF Internet-Drafts Published",
     description: "We submitted two Internet-Drafts to the IETF: a problem statement for agent network-layer infrastructure and the full Pilot Protocol specification.",

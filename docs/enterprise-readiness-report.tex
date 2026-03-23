@@ -1,0 +1,554 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{tabularx}
+
+% --- Colors ---
+\definecolor{codeblue}{HTML}{2563EB}
+\definecolor{codegray}{HTML}{6B7280}
+\definecolor{codegreen}{HTML}{059669}
+\definecolor{codebg}{HTML}{F8FAFC}
+\definecolor{linkblue}{HTML}{1D4ED8}
+\definecolor{warnred}{HTML}{DC2626}
+\definecolor{okgreen}{HTML}{16A34A}
+
+% --- Hyperref ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=linkblue,
+    urlcolor=linkblue,
+    citecolor=linkblue,
+    pdftitle={Enterprise Readiness Report: Pilot Protocol},
+    pdfauthor={Calin Teodor},
+}
+
+% --- Code listing style ---
+\lstdefinestyle{pilot}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codeblue}\bfseries,
+    commentstyle=\color{codegray}\itshape,
+    stringstyle=\color{codegreen},
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{codegray!30},
+    xleftmargin=1em,
+    xrightmargin=1em,
+    aboveskip=1em,
+    belowskip=1em,
+    showstringspaces=false,
+}
+\lstset{style=pilot}
+
+% --- Section styling ---
+\titleformat{\section}{\Large\bfseries}{{\thesection}.}{0.5em}{}
+\titleformat{\subsection}{\large\bfseries}{{\thesubsection}}{0.5em}{}
+
+% --- Header/Footer ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textit{Pilot Protocol}}
+\fancyhead[R]{\small\textit{Enterprise Readiness Report}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ============================================================
+\begin{document}
+
+% --- Title ---
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+
+{\Huge\bfseries Enterprise Readiness Report\\[0.3em]}
+{\LARGE Pilot Protocol\\[0.5em]}
+{\large Workload Identity, Policy, Revocation, Audit,\\and Dark-by-Default Reachability\\[2em]}
+
+{\large March 2026\\[3em]}
+
+{\Large Calin Teodor\\[0.5em]}
+{\large Vulture Labs\\[0.3em]}
+{\small \url{https://vulturelabs.com}\\[1em]}
+
+\vfill
+
+{\large\textit{An assessment of enterprise infrastructure alignment\\and the roadmap to close remaining gaps.}}
+
+\vspace{2cm}
+\end{titlepage}
+
+% --- Abstract ---
+\begin{abstract}
+``Solves connectivity'' is only part of the enterprise problem. The harder bar is whether the connectivity layer also aligns with workload identity, policy, revocation, audit, and dark-by-default reachability---instead of just making peer connectivity easier. This report audits Pilot Protocol's current capabilities against these six enterprise dimensions, identifies the gaps, maps to emerging industry standards (SPIFFE/SPIRE, ONUG AOMC, CSA ATF/AICM), and presents a five-phase implementation roadmap. The goal: Pilot Protocol should interoperate with existing identity models rather than becoming a parallel trust island.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Executive Summary}
+
+Pilot Protocol gives AI agents first-class network citizenship: virtual addresses, encrypted UDP tunnels, NAT traversal, port-based services, and a bilateral trust model. The reference implementation has been validated across five geographic regions with 683~tests.
+
+But connectivity alone does not meet the enterprise bar. An enterprise connectivity layer must also provide:
+
+\begin{enumerate}
+    \item \textbf{Workload identity} that integrates with existing infrastructure (OIDC, SPIFFE, x509)---not a parallel identity system.
+    \item \textbf{Policy enforcement} that controls who can reach whom, on which ports, based on identity attributes.
+    \item \textbf{Revocation} that cascades instantly when a node is compromised---not just bilateral untrust.
+    \item \textbf{Audit} that is persistent, machine-parseable, and queryable---not fire-and-forget webhooks.
+    \item \textbf{Dark-by-default reachability} that is enforced at every layer, including the data plane---not just the control plane.
+    \item \textbf{Interoperability} with enterprise identity providers---OIDC issuers, SPIFFE trust domains, x509 CAs.
+\end{enumerate}
+
+This report finds that Pilot Protocol has strong foundations in several dimensions (Ed25519 identity, private-by-default discovery, bilateral trust, webhook events) but has critical gaps in others (SYN-level trust enforcement, external identity integration, cascading revocation, policy engine).
+
+The five-phase roadmap addresses each gap incrementally. Each phase is independently shippable and delivers measurable enterprise value.
+
+% ============================================================
+\section{Current Capabilities Audit}
+
+This section inventories what Pilot Protocol provides today across all six enterprise dimensions.
+
+\subsection{Identity}
+
+\textbf{Ed25519 keypair per node.} Every node receives an Ed25519 keypair from the registry at registration. The private key serves as the node's identity token. Identities can be persisted to disk (\texttt{-identity}) for address and key continuity across restarts.
+
+\textbf{Signed mutations.} All registry write operations routed through the daemon (set-hostname, set-visibility, deregister) are signed with the node's Ed25519 private key. The registry verifies signatures before applying mutations, preventing spoofed requests.
+
+\textbf{Key rotation.} The \texttt{rotate\_key} command supports two authentication paths: signature-based (proving possession of the current key) and owner-based (matching an email identifier). After rotation, the registry issues a fresh keypair while preserving the node's ID and network memberships.
+
+\textbf{TLS cert pinning.} The registry client supports TLS with certificate pinning (\texttt{DialTLSPinned}), preventing man-in-the-middle attacks on the control plane.
+
+\textbf{Owner binding.} Nodes can be bound to an owner identifier (typically an email) via the \texttt{-owner} flag. This enables key recovery and re-registration after deregistration.
+
+\textbf{Authenticated key exchange.} When a daemon has a persisted Ed25519 identity, the tunnel key exchange is upgraded from anonymous (\texttt{PILK}) to authenticated (\texttt{PILA}). The signature proves the X25519 ephemeral key belongs to the claimed identity, preventing man-in-the-middle substitution.
+
+\subsection{Trust}
+
+\textbf{Bilateral handshake protocol.} Port~444 provides an application-level trust handshake with three message types: request (with justification), accept, and reject (with reason). Trust requires mutual consent.
+
+\textbf{Three auto-approval paths.} (1)~Mutual: if both nodes independently request a handshake, trust is auto-approved. (2)~Network: if two nodes share a non-backbone network, trust is auto-approved. (3)~Manual: queued for operator approval.
+
+\textbf{Trust persistence.} Approved peer relationships are persisted to disk and survive daemon restarts without re-negotiation.
+
+\textbf{Trust revocation.} The \texttt{untrust} command revokes a trust pair bilaterally. The revocation is propagated to the peer and the registry. The associated tunnel is torn down.
+
+\subsection{Privacy and Dark-by-Default}
+
+\textbf{Private by default.} All nodes are private at registration. A node's physical IP:port is never exposed unless the node has explicitly opted into public visibility.
+
+\textbf{Resolve gating.} To discover a private node's endpoint via \texttt{resolve}, the requester must satisfy one of three conditions: the target is public, the requester and target share a mutual trust pair, or both belong to a common non-backbone network.
+
+\textbf{Backbone enumeration blocked.} Listing nodes on network~0 (the global backbone) is rejected by the registry. With 4~billion possible node IDs, individual nodes are addressed by ID, not discovered by enumeration.
+
+\textbf{Handshake relay.} Private nodes are reachable for trust negotiation through the registry's inbox relay. No IP address is exposed until both parties have consented.
+
+\subsection{Audit and Observability}
+
+\textbf{Webhook system.} The daemon supports 20+ webhook event types: connect, disconnect, handshake request/accept/reject, trust established/revoked, datagram sent/received, connection state changes, and more. Events are delivered via HTTP POST with JSON payloads.
+
+\textbf{Structured logging.} All components use Go's \texttt{log/slog} for structured, leveled logging. JSON format is available for production log aggregation.
+
+\textbf{Per-connection statistics.} Each connection tracks bytes/segments sent/received, retransmissions, fast retransmits, SACK blocks, duplicate ACKs, congestion window, in-flight data, SRTT, RTTVAR, and recovery status.
+
+\subsection{Rate Limiting and Connection Control}
+
+\textbf{Two-tier SYN rate limiting.} A global SYN rate limiter and per-source SYN rate limiter prevent SYN flood attacks.
+
+\textbf{Connection limits.} Per-port connection limits and global connection limits prevent resource exhaustion.
+
+\textbf{Handshake replay protection.} SYN deduplication ensures retransmitted SYN packets reuse existing connections rather than creating duplicates.
+
+\textbf{Registry rate limiting.} Per-connection sliding window rate limits with automatic cleanup of stale entries.
+
+\subsection{Encryption}
+
+\textbf{Tunnel-layer encryption.} Enabled by default. X25519 ECDH key exchange with AES-256-GCM authenticated encryption. All packets between peers are encrypted regardless of virtual port.
+
+\textbf{Application-layer encryption.} Port~443 provides end-to-end X25519 + AES-256-GCM encrypted channels for applications requiring an additional encryption layer.
+
+\textbf{Zero external dependencies.} All cryptography uses Go's standard library (\texttt{crypto/ecdh}, \texttt{crypto/aes}, \texttt{crypto/cipher}, \texttt{crypto/ed25519}).
+
+% ============================================================
+\section{Enterprise Gap Analysis}
+
+This section identifies what is missing in each dimension and assesses severity.
+
+\subsection{Identity Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+No external identity (OIDC, SPIFFE, x509) & High & Creates parallel trust island \\
+No identity expiry or forced rotation & Medium & Compromised keys live forever \\
+No workload attestation & Medium & Cannot verify \emph{what} a process is \\
+No trust domain concept & Medium & No federation boundary \\
+Owner field is unverified & Low & Email is informational only \\
+\bottomrule
+\end{tabular}
+\caption{Identity gaps.}
+\end{table}
+
+\textbf{Verdict.} The self-contained Ed25519 identity system is cryptographically solid. But enterprises will not deploy a second identity system. The absence of OIDC/SPIFFE integration means every Pilot deployment is a parallel trust island disconnected from the organization's IAM infrastructure.
+
+\subsection{Policy Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+No tag-based access rules & High & Tags exist but are purely informational \\
+No per-port ACLs tied to identity & High & No ``who can reach whom on which ports'' \\
+No policy engine or rule evaluation & High & No declarative access control \\
+No data-plane policy enforcement & Critical & Resolve gating bypassed if endpoint known \\
+\bottomrule
+\end{tabular}
+\caption{Policy gaps.}
+\end{table}
+
+\textbf{Verdict.} The resolve layer is effective dark-by-default gating. But once a node knows an endpoint (by any means), there is no policy enforcement at the data plane. Tags exist (up to 10 per node) but are not used for access decisions. The gap between ``visibility control'' and ``access control'' is significant.
+
+\subsection{Revocation Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+No network-wide ban/revoke & High & Admin cannot revoke a compromised node \\
+No cascading revocation & High & Revocation does not propagate to all peers \\
+No block list & Medium & Cannot permanently deny a specific node \\
+Network departure does not cascade & Medium & Leaving a network does not revoke trust \\
+No CRL/OCSP-like mechanism & Medium & No certificate revocation infrastructure \\
+\bottomrule
+\end{tabular}
+\caption{Revocation gaps.}
+\end{table}
+
+\textbf{Verdict.} Revocation is purely bilateral. When a node is compromised, the only option is for each individual peer to manually untrust it. An administrator cannot revoke a node from all relationships at once. This is inadequate for any deployment with more than a handful of nodes.
+
+\subsection{Audit Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+Audit is fire-and-forget HTTP POST & Medium & Events lost on delivery failure \\
+No persistent audit log & Medium & No historical query capability \\
+Queue overflow drops events silently & Medium & Gaps in audit trail undetectable \\
+No registry-side audit events & Medium & Admin operations not tracked \\
+\bottomrule
+\end{tabular}
+\caption{Audit gaps.}
+\end{table}
+
+\textbf{Verdict.} The webhook foundation is comprehensive (20+ event types with timestamps, node IDs, and ports). The gaps are in reliability and persistence. Silent event drops, no delivery retry, and no registry-side audit trail make the current system unsuitable for compliance environments.
+
+\subsection{Dark-by-Default Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+\textbf{SYN handler has no trust check} & \textbf{Critical} & Open door if endpoint is known \\
+\texttt{resolve\_hostname} leaks existence & High & Confirms node exists without auth \\
+No ongoing authorization & Medium & Trust checked once, never re-validated \\
+\bottomrule
+\end{tabular}
+\caption{Dark-by-default gaps. The SYN handler gap is the most critical security finding.}
+\end{table}
+
+\textbf{Verdict.} The resolve layer provides strong dark-by-default gating at the control plane. But the daemon's SYN handler accepts connections from any source that knows the endpoint. If an attacker obtains an endpoint address by any means (network sniffing, leaked config, prior trust), they can connect without trust verification. This is the most critical security gap in the current implementation.
+
+\subsection{Interoperability Gaps}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Gap} & \textbf{Severity} & \textbf{Impact} \\
+\midrule
+No OIDC token validation & High & Cannot use enterprise SSO \\
+No SPIFFE SVID acceptance & High & Cannot use SPIRE infrastructure \\
+No trust domain federation & Medium & No cross-org trust boundaries \\
+No external identity mapping & Medium & Audit trail disconnected from IAM \\
+\bottomrule
+\end{tabular}
+\caption{Interoperability gaps.}
+\end{table}
+
+\textbf{Verdict.} Currently a full parallel trust island. Zero integration with enterprise identity infrastructure. Enterprises must choose between Pilot's identity system and their existing IAM---they cannot use both.
+
+% ============================================================
+\section{Standards Landscape}
+
+This section maps Pilot Protocol's position to emerging standards and frameworks for agent security and identity.
+
+\subsection{SPIFFE/SPIRE}
+
+The Secure Production Identity Framework for Everyone (SPIFFE) defines a standard for workload identity in dynamic environments. SPIRE (the SPIFFE Runtime Environment) is the reference implementation.
+
+\textbf{Core concepts:}
+\begin{itemize}
+    \item \textbf{SPIFFE ID.} A URI identifying a workload: \texttt{spiffe://trust-domain/path}. Platform-agnostic and infrastructure-independent.
+    \item \textbf{SVID.} A SPIFFE Verifiable Identity Document---either an x509 certificate or a JWT carrying the SPIFFE ID as the subject. Short-lived and automatically rotated.
+    \item \textbf{Trust domain.} An administrative boundary. Workloads within the same trust domain share a root CA. Federation links trust domains across organizations.
+    \item \textbf{Workload API.} A local Unix socket that workloads call to fetch their own SVID. No secrets management required---the SPIRE agent handles attestation and certificate delivery.
+\end{itemize}
+
+\textbf{Relevance to Pilot.} SPIFFE solves the ``what is this process?'' problem that Pilot's Ed25519 identity does not address. A Pilot node proves it holds a private key, but cannot prove it is authorized to act as a specific workload. SPIFFE SVIDs provide this attestation. Accepting JWT-SVIDs as proof for network join operations would make Pilot a SPIFFE-aware workload rather than a parallel identity system.
+
+\subsection{ONUG AOMC}
+
+The Open Networking User Group (ONUG) published the Autonomous Operations and Management Controls (AOMC) framework defining six mandatory controls for securing autonomous AI agent operations in enterprise environments.
+
+\textbf{The six AOMC controls:}
+\begin{enumerate}
+    \item \textbf{Authentication and Authorization.} Verify agent identity before granting access.
+    \item \textbf{Access Management.} Enforce least-privilege access to resources and other agents.
+    \item \textbf{Traffic Inspection and Control.} Monitor and filter agent-to-agent communication.
+    \item \textbf{Communication Security.} Encrypt data in transit between agents.
+    \item \textbf{Audit and Compliance.} Log all agent actions for forensic analysis.
+    \item \textbf{Lifecycle Management.} Control agent provisioning, rotation, and decommissioning.
+\end{enumerate}
+
+\textbf{Relevance to Pilot.} Pilot currently satisfies controls 1 (partial---Ed25519 auth, no external identity), 4 (full---AES-256-GCM tunnel encryption), and 6 (partial---registration/deregistration, key rotation). Controls 2, 3, and 5 have significant gaps.
+
+\subsection{CSA ATF/AICM}
+
+The Cloud Security Alliance (CSA) Agent Trust Framework (ATF) and Agentic Identity and Context Model (AICM) define trust requirements for autonomous AI agents.
+
+\textbf{Key ATF elements:}
+\begin{itemize}
+    \item \textbf{Progressive autonomy.} Agents should earn expanded permissions through demonstrated trustworthy behavior.
+    \item \textbf{Identity binding.} Agent identity should be cryptographically bound to the deploying organization.
+    \item \textbf{Context propagation.} Trust decisions should consider the full context: who deployed the agent, what task it is performing, and what permissions it needs.
+    \item \textbf{Revocation and quarantine.} Compromised agents should be immediately isolated from the network.
+\end{itemize}
+
+\textbf{Relevance to Pilot.} Pilot's polo score (reputation system) aligns with progressive autonomy. The bilateral trust handshake (with justification) provides context for trust decisions. But identity binding to the deploying organization is missing (no OIDC/SPIFFE), and revocation does not cascade.
+
+\subsection{Zero-Trust Patterns}
+
+Modern overlay networks (OpenZiti, Tailscale, WireGuard) implement zero-trust patterns that provide useful comparison points.
+
+\textbf{OpenZiti.} Dark-by-default: all services are invisible until a policy explicitly allows access. Identity is x509-based with automatic rotation. Policies are declarative (``service A is accessible by identity B on port C''). The closest model to what Pilot should become.
+
+\textbf{Tailscale.} Identity is OIDC-based (Google, Microsoft, GitHub, Okta). ACLs are declarative JSON defining which users/groups can reach which services. MagicDNS provides name resolution. The reference for enterprise-friendly identity integration.
+
+\textbf{WireGuard.} Lightweight encrypted tunnels with pre-shared public keys. No identity layer, no policy engine, no discovery. Demonstrates that minimal protocol + external tooling can achieve enterprise deployment.
+
+\textbf{Comparison.} Pilot Protocol's architecture is most similar to OpenZiti (overlay with virtual addresses, dark-by-default, identity-based access). The key difference is that OpenZiti has a mature policy engine and CA-based identity, while Pilot has stronger NAT traversal and agent-native semantics (ports, trust handshakes, reputation).
+
+% ============================================================
+\section{Implementation Roadmap}
+
+The roadmap is structured in five phases. Each phase is independently shippable and delivers measurable enterprise value.
+
+\begin{center}
+\texttt{Phase 1 $\rightarrow$ Phase 2 $\rightarrow$ Phase 3 $\rightarrow$ Phase 4 $\rightarrow$ Phase 5}
+\end{center}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Phase} & \textbf{Name} & \textbf{Delivers} \\
+\midrule
+1 & Activate \& Harden & Network create/join/leave via CLI. SYN-level trust enforcement. Hostname privacy fix. \\
+2 & Auto-Join \& Audit & Daemon auto-joins networks at startup. Registry audit events. Webhook reliability. \\
+3 & Org + Policy + Revoke & Organization control plane. Tag-based access policies. Cascading admin revocation. Block list. \\
+4 & CA Enrollment & CA-signed certificates as join proof. Per-network revocation lists. Identity expiry. \\
+5 & External Identity & OIDC token validation. SPIFFE SVID acceptance. Identity mapping. Not a trust island. \\
+\bottomrule
+\end{tabular}
+\caption{Five-phase implementation roadmap.}
+\label{tab:roadmap}
+\end{table}
+
+\subsection{Phase 1: Activate Network Primitives + Harden Dark-by-Default}
+
+\textbf{Objective.} Unblock existing WIP network code. Fix the critical SYN trust gap. Fix the hostname information leak.
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item \textbf{Registry: enable network operations.} Remove WIP guards from \texttt{create\_network}, \texttt{join\_network}, and \texttt{leave\_network} handlers.
+    \item \textbf{Rendezvous: admin token flag.} Add \texttt{-admin-token} flag to the rendezvous binary.
+    \item \textbf{Daemon: enable broadcast.} Remove WIP guard from the broadcast datagram path.
+    \item \textbf{Daemon: SYN trust gate (critical).} After rate limiting and before connection limits, add a trust check to the SYN handler. Incoming connections from untrusted sources (no trust pair, no shared network) are rejected with RST and a webhook event.
+    \item \textbf{Registry: hostname privacy.} Add requester signature verification to \texttt{resolve\_hostname}. Private nodes require trust or shared network before confirming existence.
+    \item \textbf{IPC + Driver + CLI: network commands.} Full stack for create, join, leave, list networks, and list nodes.
+    \item \textbf{Tests.} Unskip 20 WIP-gated test sites. Add \texttt{TestSYNTrustGate}.
+\end{itemize}
+
+\textbf{Enterprise value.} Token-gated and invite-gated networks. Same-network auto-trust. SYN-level dark-by-default enforcement. Closes the most critical security gap.
+
+\subsection{Phase 2: Daemon Auto-Join + Audit Improvements}
+
+\textbf{Objective.} Agents auto-join networks at startup via configuration. Audit events gain structure and reliability.
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item \textbf{Daemon config: network enrollment.} Add \texttt{networks} array and \texttt{admin\_token} to daemon config. On startup, the daemon auto-joins configured networks.
+    \item \textbf{Registry audit events.} Structured log entries for administrative operations: network created, network joined, node registered/deregistered, trust reported/revoked, visibility/hostname changed. Machine-parseable JSON for SIEM integration.
+    \item \textbf{Webhook reliability.} Log dropped events on queue overflow. Add monotonic \texttt{event\_id} for gap detection. Retry failed POSTs once with 1s backoff.
+    \item \textbf{CLI flags.} \texttt{-{}-admin-token} and \texttt{-{}-networks} for daemon and pilotctl.
+\end{itemize}
+
+\textbf{Enterprise value.} Deploy agent swarms with identical configs. Machine-parseable audit trail for SIEM. Reliable webhook delivery with gap detection.
+
+\subsection{Phase 3: Organization Control Plane + Policy + Cascading Revocation}
+
+\textbf{Objective.} Enterprise fleet management. Tag-based policy. Admin-initiated cascading revocation.
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item \textbf{Organization data model.} Orgs with admin tokens, member lists, and associated networks. Single \texttt{org\_enroll} joins all org networks.
+    \item \textbf{Network access policies.} Tag-based access rules: ``nodes with tag \texttt{frontend} can reach nodes with tag \texttt{api} on ports 80, 443.'' Policies are attached to networks and evaluated at resolve time and SYN time. Default-deny when policies exist.
+    \item \textbf{Cascading revocation.} \texttt{org\_revoke} removes a node from the org, all org networks, revokes all trust pairs, and pushes revocation to all online peers. Affected peers tear down tunnels immediately.
+    \item \textbf{Block list.} Persistent node block list in the handshake manager. Blocked nodes are rejected at SYN time before trust checks.
+    \item \textbf{Network departure cascade.} Leaving a network revokes trust pairs that were established via that network.
+    \item \textbf{Full stack wiring.} Registry, client, IPC, driver, and CLI for all org and policy operations.
+\end{itemize}
+
+\textbf{Enterprise value.} Organization-level fleet management. Declarative access policies. Instant cascading revocation on compromise. Permanent block capability.
+
+\subsection{Phase 4: CA-Based Enrollment + Hardened Trust}
+
+\textbf{Objective.} Cryptographic enrollment without shared secrets. Revocation lists. Identity expiry.
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item \textbf{New join rule: ``ca''.} Networks can require a CA-signed certificate as proof of authorization. The registry verifies the signature against the network's CA public key.
+    \item \textbf{CA tooling.} Generate CA keypairs, sign node public keys, verify certificates. All Ed25519-based, using Go's standard library.
+    \item \textbf{Per-network revocation lists.} Certificate fingerprints can be revoked. The registry checks the revocation list during join validation.
+    \item \textbf{Identity expiry.} Optional expiry timestamps on node identities. The registry rejects re-registration after expiry, forcing key rotation.
+    \item \textbf{CLI.} \texttt{pilotctl ca generate}, \texttt{pilotctl ca sign}, \texttt{pilotctl network create -{}-join-rule ca}.
+\end{itemize}
+
+\textbf{Enterprise value.} Cryptographic proof of authorization with no shared secrets. Offline certificate signing. Per-network revocation lists. Forced key rotation via expiry.
+
+\subsection{Phase 5: External Identity Integration (OIDC / SPIFFE)}
+
+\textbf{Objective.} Accept enterprise identity as proof for network membership. Stop being a parallel trust island.
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item \textbf{New join rule: ``oidc''.} Networks can require a valid OIDC JWT from a configured issuer (Google, Azure, Okta, GitHub). The registry validates the JWT signature via JWKS, checks issuer/audience/expiry, and optionally matches claim values.
+    \item \textbf{New join rule: ``spiffe''.} Networks can require a valid JWT-SVID from a configured trust domain. The registry validates against the trust bundle and matches SPIFFE ID patterns.
+    \item \textbf{Daemon SPIFFE Workload API integration.} If a SPIFFE Workload API socket is available (\texttt{SPIFFE\_ENDPOINT\_SOCKET}), the daemon can automatically fetch JWT-SVIDs and use them for network join operations.
+    \item \textbf{Identity mapping.} \texttt{NodeInfo} gains \texttt{external\_id} and \texttt{external\_issuer} fields, linking Pilot's 48-bit address to the enterprise identity. Audit logs reference both.
+    \item \textbf{CLI and config.} \texttt{pilotctl network create -{}-join-rule oidc -{}-oidc-issuer ...} and daemon config with \texttt{oidc\_token\_path} or \texttt{spiffe\_auto}.
+\end{itemize}
+
+\textbf{Enterprise value.} Agents prove identity via existing enterprise infrastructure. No parallel trust island. No shared secrets to distribute. Audit trail links Pilot addresses to enterprise identities. Enterprises adopt Pilot without deploying a second identity system.
+
+% ============================================================
+\section{Standards Alignment Matrix}
+
+The following matrix maps ONUG AOMC controls and CSA ATF elements to Pilot Protocol capabilities---both current and planned.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}p{3.5cm}p{3.5cm}p{3.5cm}l@{}}
+\toprule
+\textbf{Standard / Control} & \textbf{Current State} & \textbf{Planned (Phase)} & \textbf{Status} \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{ONUG AOMC Controls}} \\
+\midrule
+1. Authentication \& Authorization & Ed25519 identity, signed mutations, TLS pinning & OIDC/SPIFFE auth (P5), CA enrollment (P4) & Partial \\
+2. Access Management & Visibility: public/private, resolve gating & Tag-based policies (P3), per-port ACLs (P3) & Gap \\
+3. Traffic Inspection & Rate limiting, connection limits & Policy enforcement at SYN (P3), audit events (P2) & Gap \\
+4. Communication Security & X25519+AES-256-GCM tunnel, E2E on port 443 & --- & Full \\
+5. Audit \& Compliance & 20+ webhook events, structured logging & Persistent audit (P2), registry events (P2), external ID (P5) & Partial \\
+6. Lifecycle Management & Registration, deregistration, key rotation & Identity expiry (P4), cascading revocation (P3), org management (P3) & Partial \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{CSA ATF Elements}} \\
+\midrule
+Progressive Autonomy & Polo score (reputation system) & --- & Aligned \\
+Identity Binding & Ed25519 to node, owner field & OIDC/SPIFFE binding (P5), CA binding (P4) & Partial \\
+Context Propagation & Handshake justification, tags & Tag-based policies (P3), external identity context (P5) & Partial \\
+Revocation \& Quarantine & Bilateral untrust with tunnel teardown & Cascading revocation (P3), block list (P3), cert revocation (P4) & Gap \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{SPIFFE/SPIRE Integration}} \\
+\midrule
+SPIFFE ID as identity & Not supported & JWT-SVID join rule (P5) & Gap \\
+Trust domain federation & Not supported & Trust domain in network config (P5) & Gap \\
+Workload API integration & Not supported & Auto-fetch SVIDs from SPIRE agent (P5) & Gap \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Zero-Trust Patterns}} \\
+\midrule
+Dark-by-default & Private-by-default, resolve gating, backbone blocked & SYN trust gate (P1), hostname privacy (P1) & Mostly \\
+Least-privilege access & Network membership as trust boundary & Tag-based per-port policies (P3) & Partial \\
+Continuous verification & Trust checked at handshake time & Policy re-evaluation (P3) & Gap \\
+\bottomrule
+\end{tabular}
+\normalsize
+\caption{Standards alignment matrix: current capabilities vs. planned phases.}
+\label{tab:alignment}
+\end{table}
+
+\textbf{Summary.} After all five phases:
+\begin{itemize}
+    \item All six ONUG AOMC controls: \textcolor{okgreen}{Full}
+    \item All four CSA ATF elements: \textcolor{okgreen}{Full}
+    \item SPIFFE/SPIRE integration: \textcolor{okgreen}{Full}
+    \item Zero-trust alignment: \textcolor{okgreen}{Full}
+\end{itemize}
+
+% ============================================================
+\section{Strategic Positioning}
+
+After all five phases, Pilot Protocol can be positioned as:
+
+\begin{quote}
+\textit{A connectivity substrate beneath MCP and A2A that understands your existing identity infrastructure. Agents with valid OIDC tokens or SPIFFE SVIDs auto-join the right networks. Tag-based policies control who can reach whom. Admin revocation cascades instantly to all peers. The whole thing works across NAT and cloud boundaries without VPN infrastructure.}
+\end{quote}
+
+\textbf{A2A defines what agents say to each other. MCP defines what tools agents can use. Pilot defines how agents reach each other}---and with enterprise identity integration, it does so within the organization's existing trust boundaries, not in a parallel island.
+
+The competitive landscape:
+\begin{itemize}
+    \item \textbf{vs. Tailscale/WireGuard.} Pilot is agent-native (ports, trust handshakes, reputation, service discovery), not device-native. Pilot has bilateral trust, not admin-controlled ACLs. Both should support OIDC.
+    \item \textbf{vs. OpenZiti.} Similar architecture (overlay, dark-by-default, identity-based access). OpenZiti has a mature policy engine; Pilot has stronger NAT traversal and agent-native semantics. Phase~3 closes the policy gap.
+    \item \textbf{vs. libp2p.} Pilot provides structured overlay semantics (addresses, ports, networks) rather than a general-purpose P2P toolkit. Pilot is simpler to deploy (single binary, zero dependencies).
+    \item \textbf{vs. NATS/Kafka.} Message brokers, not connectivity substrates. Pilot provides the transport layer that message brokers can run on top of.
+\end{itemize}
+
+The key insight: enterprises do not need another connectivity tool. They need a connectivity layer that respects their existing identity, policy, and compliance infrastructure. The five-phase roadmap transforms Pilot from a capable connectivity tool into an enterprise-grade infrastructure component.
+
+\vspace{2em}
+\noindent\rule{\textwidth}{0.4pt}
+
+\smallskip
+\noindent\textit{Pilot Protocol is developed by Calin Teodor at \href{https://vulturelabs.com}{Vulture Labs}. The reference implementation is available at the project repository.}
+
+\end{document}

@@ -22,7 +22,7 @@
   <url><loc>https://pilotprotocol.network/docs/tasks</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://pilotprotocol.network/docs/comparison</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/llms.txt</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://pilotprotocol.network/blog/</loc><lastmod>2026-03-13</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://pilotprotocol.network/blog/</loc><lastmod>2026-03-21</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://pilotprotocol.network/blog/how-pilot-protocol-works</loc><lastmod>2026-02-19</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/blog/build-multi-agent-network-five-minutes</loc><lastmod>2026-02-18</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/blog/why-ai-agents-need-network-stack</loc><lastmod>2026-02-17</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
@@ -73,4 +73,7 @@
   <url><loc>https://pilotprotocol.network/blog/private-agent-network-company</loc><lastmod>2026-02-20</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/blog/zero-dependency-encryption-x25519-aes-gcm</loc><lastmod>2026-02-13</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/docs/plans</loc><lastmod>2026-03-13</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pilotprotocol.network/blog/ietf-internet-draft-pilot-protocol</loc><lastmod>2026-03-15</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pilotprotocol.network/blog/enterprise-private-networks-roadmap</loc><lastmod>2026-03-21</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pilotprotocol.network/blog/enterprise-identity-integration-pilot-protocol</loc><lastmod>2026-03-21</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
 </urlset>

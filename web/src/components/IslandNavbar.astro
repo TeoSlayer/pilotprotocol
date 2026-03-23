@@ -1,6 +1,6 @@
 ---
 interface Props {
-  active?: 'plans' | 'blog' | 'docs' | 'research' | 'home';
+  active?: 'plans' | 'blog' | 'docs' | 'research' | 'playground' | 'home';
 }
 
 const { active } = Astro.props;
@@ -78,6 +78,9 @@ const { active } = Astro.props;
       <a href="/docs/research" class={active === 'research' ? 'active' : ''}>
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research
       </a>
+      <a href="/playground" class={active === 'playground' ? 'active' : ''}>
+        <svg class="nav-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Playground
+      </a>
     </div>
     <div class="nav-right">
       <a class="gh-link" href="https://github.com/TeoSlayer/pilotprotocol" title="GitHub">
@@ -93,6 +96,7 @@ const { active } = Astro.props;
       <a href="/blog/"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
       <a href="/docs/"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
       <a href="/docs/research"><svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research</a>
+      <a href="/playground"><svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Playground</a>
     </div>
   </div>
 </nav>

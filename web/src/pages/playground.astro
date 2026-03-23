@@ -1,0 +1,1048 @@
+---
+// Interactive Terminal Playground — self-contained page
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playground — Pilot Protocol</title>
+<meta name="description" content="Interactive terminal playground — experience the full Pilot Protocol lifecycle: install, start, trust, and exchange data between agents.">
+<meta name="theme-color" content="#22c55e">
+<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<style is:inline>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;
+  --surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);
+  --code-bg:rgba(255,255,255,0.06);
+  --glass-bg:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);
+  --glass-shadow:0 8px 32px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06);
+  --term-green:#22c55e;--term-yellow:#fbbf24;--term-blue:#60a5fa;--term-red:#ef4444;
+  --term-purple:#c084fc;--term-cyan:#22d3ee;
+}
+html,body{overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh}
+
+/* Page layout */
+.page{max-width:1200px;margin:0 auto;padding:24px 24px 48px}
+.page-header{text-align:center;margin-bottom:32px}
+.page-header h1{font-size:1.8rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:8px}
+.page-header p{color:var(--muted);font-size:0.92rem;max-width:560px;margin:0 auto}
+.back-link{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:0.82rem;margin-bottom:20px;transition:color 0.2s}
+.back-link:hover{color:var(--fg);text-decoration:none}
+
+/* Phase progress bar */
+.progress-bar{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:28px;padding:12px 16px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.phase{display:flex;align-items:center;gap:8px;padding:6px 16px;border-radius:8px;font-size:0.78rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--muted);transition:all 0.3s;cursor:default;white-space:nowrap}
+.phase .phase-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;background:var(--surface);border:1px solid var(--border);transition:all 0.3s;flex-shrink:0}
+.phase.active{color:var(--fg)}
+.phase.active .phase-num{background:var(--accent);color:#000;border-color:var(--accent);box-shadow:0 0 12px rgba(34,197,94,0.3)}
+.phase.done{color:var(--accent)}
+.phase.done .phase-num{background:var(--accent);color:#000;border-color:var(--accent)}
+.phase-connector{width:32px;height:1px;background:var(--border);transition:background 0.3s;flex-shrink:0}
+.phase-connector.done{background:var(--accent)}
+
+/* Terminal grid */
+.terminals{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+
+/* Terminal window */
+.terminal{background:rgba(0,0,0,0.6);border:1px solid var(--glass-border);border-radius:12px;overflow:hidden;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);display:flex;flex-direction:column}
+
+/* macOS chrome */
+.term-chrome{display:flex;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.04);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0}
+.term-dots{display:flex;gap:6px}
+.term-dots span{width:10px;height:10px;border-radius:50%}
+.term-dots span:nth-child(1){background:#ff5f57}
+.term-dots span:nth-child(2){background:#febc2e}
+.term-dots span:nth-child(3){background:#28c840}
+.term-title{flex:1;text-align:center;font-size:0.72rem;color:var(--muted);font-family:'SF Mono',Menlo,Consolas,monospace}
+.term-badge{font-size:0.65rem;padding:2px 8px;border-radius:4px;font-family:'SF Mono',Menlo,Consolas,monospace;font-weight:600}
+.term-badge.agent-a{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:var(--term-green)}
+.term-badge.agent-b{background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:var(--term-blue)}
+
+/* Terminal body */
+.term-body{padding:12px 14px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.78rem;line-height:1.65;min-height:380px;max-height:380px;overflow-y:auto;flex:1;scroll-behavior:smooth}
+.term-body::-webkit-scrollbar{width:6px}
+.term-body::-webkit-scrollbar-track{background:transparent}
+.term-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+
+/* Terminal output lines */
+.term-line{white-space:pre-wrap;word-break:break-all}
+.term-line .prompt{color:var(--term-green)}
+.term-line .cmd{color:var(--fg)}
+.term-line.output{color:var(--muted)}
+.term-line.success{color:var(--term-green)}
+.term-line.error{color:var(--term-red)}
+.term-line.info{color:var(--term-blue)}
+.term-line.warn{color:var(--term-yellow)}
+.term-line.purple{color:var(--term-purple)}
+.term-line.cyan{color:var(--term-cyan)}
+.term-line.highlight{color:var(--fg)}
+.term-line.dim{color:rgba(255,255,255,0.35)}
+
+/* Input line */
+.term-input-line{display:flex;align-items:center;white-space:nowrap}
+.term-input-line .prompt{color:var(--term-green);flex-shrink:0}
+.term-input{background:none;border:none;color:var(--fg);font-family:inherit;font-size:inherit;outline:none;flex:1;caret-color:var(--term-green);min-width:0}
+.term-input::placeholder{color:rgba(255,255,255,0.2)}
+
+/* Tab completion ghost */
+.tab-ghost{color:rgba(255,255,255,0.2);pointer-events:none}
+
+/* Hint bar */
+.hint-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:10px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);font-size:0.8rem;margin-bottom:16px}
+.hint-bar .hint-icon{color:var(--term-yellow);font-size:1rem;flex-shrink:0}
+.hint-bar .hint-text{color:var(--muted)}
+.hint-bar .hint-cmd{color:var(--accent);font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.76rem;background:rgba(34,197,94,0.08);padding:3px 8px;border-radius:4px;border:1px solid rgba(34,197,94,0.15);cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.hint-bar .hint-cmd:hover{background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.3)}
+.hint-bar kbd{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.7rem;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:var(--muted)}
+
+/* Completion overlay */
+.completion-overlay{display:none;position:absolute;background:rgba(20,20,20,0.95);border:1px solid var(--glass-border);border-radius:6px;padding:4px 0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.75rem;backdrop-filter:blur(12px);z-index:10;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+.completion-overlay.show{display:block}
+.completion-item{padding:4px 12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.completion-item.selected{background:rgba(34,197,94,0.12);color:var(--accent)}
+.completion-item:hover{background:rgba(255,255,255,0.06)}
+
+/* Celebration */
+.celebration{display:none;position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1000}
+.celebration.active{display:block}
+.confetti{position:absolute;width:8px;height:8px;border-radius:2px;animation:confettiFall linear forwards}
+@keyframes confettiFall{
+  0%{transform:translateY(-10vh) rotate(0deg);opacity:1}
+  100%{transform:translateY(110vh) rotate(720deg);opacity:0}
+}
+
+/* Complete banner */
+.complete-banner{display:none;text-align:center;padding:32px;background:var(--glass-bg);border:1px solid rgba(34,197,94,0.2);border-radius:12px;backdrop-filter:blur(20px)}
+.complete-banner.show{display:block;animation:fadeInUp 0.5s ease}
+.complete-banner h2{font-size:1.3rem;margin-bottom:8px;color:var(--accent)}
+.complete-banner p{color:var(--muted);font-size:0.88rem;margin-bottom:16px}
+.complete-banner .cta{display:inline-flex;gap:12px}
+.complete-banner .cta a{font-size:0.82rem;padding:8px 20px;border-radius:6px;font-weight:600;transition:all 0.2s}
+.complete-banner .cta .primary{background:var(--accent);color:#000}
+.complete-banner .cta .primary:hover{opacity:0.9;text-decoration:none}
+.complete-banner .cta .secondary{background:transparent;color:var(--fg);border:1px solid var(--border)}
+.complete-banner .cta .secondary:hover{border-color:var(--accent);text-decoration:none}
+
+@keyframes fadeInUp{
+  from{opacity:0;transform:translateY(12px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+/* Reset button */
+.reset-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:6px;font-size:0.76rem;font-family:'SF Mono',Menlo,Consolas,monospace;background:transparent;color:var(--muted);border:1px solid var(--border);cursor:pointer;transition:all 0.2s;position:absolute;top:24px;right:24px}
+.reset-btn:hover{color:var(--fg);border-color:rgba(255,255,255,0.2)}
+
+/* Responsive */
+@media(max-width:768px){
+  .terminals{grid-template-columns:1fr}
+  .progress-bar{flex-wrap:wrap;gap:4px}
+  .phase{padding:4px 10px;font-size:0.7rem}
+  .phase-connector{width:16px}
+  .term-body{min-height:280px;max-height:280px}
+  .page-header h1{font-size:1.4rem}
+  .hint-bar{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<div class="page" style="position:relative">
+  <button class="reset-btn" id="resetBtn" title="Reset playground">&#8634; Reset</button>
+
+  <a href="/" class="back-link">&larr; Back to Pilot Protocol</a>
+
+  <div class="page-header">
+    <h1>Interactive Playground</h1>
+    <p>Experience the full Pilot Protocol lifecycle. Type commands in Agent A's terminal and watch agents communicate in real time.</p>
+  </div>
+
+  <!-- Phase progress -->
+  <div class="progress-bar" id="progressBar">
+    <div class="phase active" data-phase="0"><span class="phase-num">1</span>Install</div>
+    <div class="phase-connector" data-conn="0"></div>
+    <div class="phase" data-phase="1"><span class="phase-num">2</span>Start</div>
+    <div class="phase-connector" data-conn="1"></div>
+    <div class="phase" data-phase="2"><span class="phase-num">3</span>Trust</div>
+    <div class="phase-connector" data-conn="2"></div>
+    <div class="phase" data-phase="3"><span class="phase-num">4</span>Exchange</div>
+    <div class="phase-connector" data-conn="3"></div>
+    <div class="phase" data-phase="4"><span class="phase-num">&#10003;</span>Complete</div>
+  </div>
+
+  <!-- Hint bar -->
+  <div class="hint-bar" id="hintBar">
+    <span class="hint-icon">&#128161;</span>
+    <span class="hint-text" id="hintText">Install Pilot Protocol to get started:</span>
+    <span class="hint-cmd" id="hintCmd"></span>
+    <span style="margin-left:auto;display:flex;gap:8px;flex-shrink:0">
+      <kbd>Tab</kbd><span style="color:var(--muted);font-size:0.72rem">complete</span>
+      <kbd>&#8593;</kbd><span style="color:var(--muted);font-size:0.72rem">history</span>
+    </span>
+  </div>
+
+  <!-- Terminals -->
+  <div class="terminals">
+    <!-- Agent A -->
+    <div class="terminal" id="termA">
+      <div class="term-chrome">
+        <div class="term-dots"><span></span><span></span><span></span></div>
+        <div class="term-title">Terminal &mdash; agent-a</div>
+        <span class="term-badge agent-a">agent-a</span>
+      </div>
+      <div class="term-body" id="termABody">
+        <div id="termAOutput"></div>
+        <div class="term-input-line" id="termAInputLine">
+          <span class="prompt" id="termAPrompt">~ $ </span>
+          <input class="term-input" id="termAInput" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="type a command...">
+          <span class="tab-ghost" id="tabGhost"></span>
+        </div>
+      </div>
+      <div class="completion-overlay" id="completionOverlay"></div>
+    </div>
+
+    <!-- Agent B -->
+    <div class="terminal" id="termB">
+      <div class="term-chrome">
+        <div class="term-dots"><span></span><span></span><span></span></div>
+        <div class="term-title">Terminal &mdash; agent-b</div>
+        <span class="term-badge agent-b">agent-b</span>
+      </div>
+      <div class="term-body" id="termBBody">
+        <div id="termBOutput"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Complete banner -->
+  <div class="complete-banner" id="completeBanner">
+    <h2>Playground Complete</h2>
+    <p>You've experienced the full Pilot Protocol lifecycle &mdash; install, identity, trust, and data exchange between two agents.</p>
+    <div class="cta">
+      <a href="/docs/getting-started" class="primary">Read the Docs</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol" class="secondary">View on GitHub</a>
+    </div>
+  </div>
+</div>
+
+<!-- Confetti canvas -->
+<div class="celebration" id="celebration"></div>
+
+<script is:inline>
+(function() {
+  'use strict';
+
+  // ── State ──
+  var currentPhase = 0;
+  var cmdHistory = [];
+  var historyIdx = -1;
+  var completionIdx = -1;
+  var inputDisabled = false;
+
+  // Simulated addresses (backbone network 0, as per real CLI)
+  var ADDR_A = '0:0000.0000.0001';
+  var ADDR_B = '0:0000.0000.0002';
+  var NODE_A = 1;
+  var NODE_B = 2;
+  var HOME = '/Users/you';
+
+  // ── Elements ──
+  var termAOutput = document.getElementById('termAOutput');
+  var termBOutput = document.getElementById('termBOutput');
+  var termABody = document.getElementById('termABody');
+  var termBBody = document.getElementById('termBBody');
+  var termAInput = document.getElementById('termAInput');
+  var termAInputLine = document.getElementById('termAInputLine');
+  var termAPrompt = document.getElementById('termAPrompt');
+  var tabGhost = document.getElementById('tabGhost');
+  var hintText = document.getElementById('hintText');
+  var hintCmd = document.getElementById('hintCmd');
+  var completionOverlay = document.getElementById('completionOverlay');
+
+  // ── Phase definitions ──
+  var phases = [
+    { hint: 'Install Pilot Protocol to get started:', cmd: 'curl -fsSL https://pilotprotocol.network/install.sh | sh' },
+    { hint: 'Start the daemon with a hostname:', cmd: 'pilotctl daemon start --hostname agent-a' },
+    { hint: 'Initiate a trust handshake with agent-b:', cmd: 'pilotctl handshake agent-b "collaboration request"' },
+    { hint: 'Test the connection \u2014 try ping, send, or bench:', cmd: 'pilotctl ping agent-b' },
+    { hint: 'All phases complete!', cmd: '' },
+  ];
+
+  // ── Known commands for tab completion (matching real CLI) ──
+  var knownCommands = [
+    'curl -fsSL https://pilotprotocol.network/install.sh | sh',
+    'pilotctl daemon start --hostname agent-a',
+    'pilotctl daemon status',
+    'pilotctl info',
+    'pilotctl handshake agent-b "collaboration request"',
+    'pilotctl approve ',
+    'pilotctl trust',
+    'pilotctl pending',
+    'pilotctl ping agent-b',
+    'pilotctl send agent-b 1001 --data "hello from agent-a"',
+    'pilotctl bench agent-b',
+    'pilotctl peers',
+    'pilotctl connections',
+    'pilotctl context',
+    'clear',
+  ];
+
+  // Track phase 3 sub-commands completed
+  var phase3Done = { ping: false, send: false, bench: false };
+
+  // ── Output helpers ──
+  function appendLine(target, text, cls) {
+    var div = document.createElement('div');
+    div.className = 'term-line' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    target.appendChild(div);
+  }
+
+  function appendCmd(target, prompt, cmd) {
+    var div = document.createElement('div');
+    div.className = 'term-line';
+    var ps = document.createElement('span');
+    ps.className = 'prompt';
+    ps.textContent = prompt;
+    var cs = document.createElement('span');
+    cs.className = 'cmd';
+    cs.textContent = cmd;
+    div.appendChild(ps);
+    div.appendChild(cs);
+    target.appendChild(div);
+  }
+
+  function scrollDown(body) {
+    requestAnimationFrame(function() { body.scrollTop = body.scrollHeight; });
+  }
+
+  function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+  async function typeInTermB(text, prompt) {
+    prompt = prompt || 'agent-b:~ $ ';
+    appendCmd(termBOutput, prompt, '');
+    var lastLine = termBOutput.lastElementChild.querySelector('.cmd');
+    for (var i = 0; i < text.length; i++) {
+      lastLine.textContent += text[i];
+      scrollDown(termBBody);
+      await sleep(25 + Math.random() * 30);
+    }
+    await sleep(200);
+  }
+
+  // Helper: check if daemon is required but not started
+  function requireDaemon() {
+    if (currentPhase < 2) {
+      appendLine(termAOutput, 'error: daemon is not running', 'error');
+      appendLine(termAOutput, '  start with: pilotctl daemon start', 'dim');
+      scrollDown(termABody);
+      return false;
+    }
+    return true;
+  }
+
+  // Helper: check if trust is required but not established
+  function requireTrust() {
+    if (currentPhase < 3) {
+      appendLine(termAOutput, 'error: cannot resolve "agent-b" \u2014 is the hostname correct and is there mutual trust? (see: pilotctl handshake)', 'error');
+      scrollDown(termABody);
+      return false;
+    }
+    return true;
+  }
+
+  // ── Phase management ──
+  function setPhase(p) {
+    currentPhase = p;
+    document.querySelectorAll('.phase').forEach(function(el, i) {
+      el.classList.remove('active', 'done');
+      if (i < p) el.classList.add('done');
+      else if (i === p) el.classList.add('active');
+    });
+    document.querySelectorAll('.phase-connector').forEach(function(el, i) {
+      el.classList.toggle('done', i < p);
+    });
+    if (phases[p]) {
+      hintText.textContent = phases[p].hint;
+      hintCmd.textContent = phases[p].cmd;
+      hintCmd.style.display = phases[p].cmd ? '' : 'none';
+    }
+    if (p >= 1) {
+      termAPrompt.textContent = 'agent-a:~ $ ';
+    }
+  }
+
+  // ── Command processing ──
+  async function processCommand(raw) {
+    var cmd = raw.trim();
+    if (!cmd) return;
+
+    cmdHistory.push(cmd);
+    historyIdx = cmdHistory.length;
+
+    appendCmd(termAOutput, termAPrompt.textContent, cmd);
+    termAInput.value = '';
+    tabGhost.textContent = '';
+    scrollDown(termABody);
+
+    // clear
+    if (cmd === 'clear') {
+      termAOutput.innerHTML = '';
+      return;
+    }
+
+    // context (the real help/discovery command)
+    if (cmd === 'pilotctl context' || cmd === 'pilotctl --help' || cmd === 'pilotctl help') {
+      appendLine(termAOutput, 'pilotctl \u2014 Pilot Protocol CLI (v0.9.2)', 'highlight');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Lifecycle:', 'output');
+      appendLine(termAOutput, '  daemon start     Start the daemon as a background process', 'output');
+      appendLine(termAOutput, '  daemon stop      Stop the running daemon', 'output');
+      appendLine(termAOutput, '  daemon status    Check if daemon is running and responsive', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Trust:', 'output');
+      appendLine(termAOutput, '  handshake        Initiate trust with a peer', 'output');
+      appendLine(termAOutput, '  approve          Approve a pending handshake request', 'output');
+      appendLine(termAOutput, '  reject           Reject a pending handshake request', 'output');
+      appendLine(termAOutput, '  pending          List pending handshake requests', 'output');
+      appendLine(termAOutput, '  trust            List trusted peers', 'output');
+      appendLine(termAOutput, '  untrust          Revoke trust with a peer', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Communication:', 'output');
+      appendLine(termAOutput, '  ping             Ping a peer node', 'output');
+      appendLine(termAOutput, '  send             Send data to a port', 'output');
+      appendLine(termAOutput, '  connect          Open a stream connection', 'output');
+      appendLine(termAOutput, '  bench            Benchmark echo throughput', 'output');
+      appendLine(termAOutput, '  send-file        Send a file to a peer', 'output');
+      appendLine(termAOutput, '  send-message     Send a message to a peer', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Status:', 'output');
+      appendLine(termAOutput, '  info             Show daemon status and statistics', 'output');
+      appendLine(termAOutput, '  peers            List connected peers', 'output');
+      appendLine(termAOutput, '  connections      List active connections', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Discovery:', 'output');
+      appendLine(termAOutput, '  find             Discover a node by hostname', 'output');
+      appendLine(termAOutput, '  set-hostname     Set hostname for this node', 'output');
+      appendLine(termAOutput, '  set-tags         Set capability tags', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Use --json before any command for machine-readable output.', 'dim');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      return;
+    }
+
+    inputDisabled = true;
+
+    // ── Phase 0: Install (matches real install.sh output) ──
+    if (cmd.indexOf('curl') >= 0 && cmd.indexOf('install.sh') >= 0) {
+      await sleep(300);
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, '  Pilot Protocol', 'highlight');
+      appendLine(termAOutput, '  The network stack for AI agents.', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, '  Platform:   darwin/arm64', 'output');
+      appendLine(termAOutput, '  Registry:   34.71.57.205:9000', 'output');
+      appendLine(termAOutput, '  Beacon:     34.71.57.205:9001', 'output');
+      appendLine(termAOutput, '');
+      await sleep(500);
+      appendLine(termAOutput, 'Downloading v0.9.2...', 'output');
+      await sleep(800);
+      appendLine(termAOutput, 'Installing binaries...', 'output');
+      await sleep(300);
+      appendLine(termAOutput, '  Symlinked to /usr/local/bin', 'output');
+      appendLine(termAOutput, 'Config written to ' + HOME + '/.pilot/config.json', 'output');
+      await sleep(300);
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Installed:', 'success');
+      appendLine(termAOutput, '  pilot-daemon   ' + HOME + '/.pilot/bin/pilot-daemon', 'output');
+      appendLine(termAOutput, '  pilotctl        ' + HOME + '/.pilot/bin/pilotctl', 'output');
+      appendLine(termAOutput, '  pilot-gateway   ' + HOME + '/.pilot/bin/pilot-gateway', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Config: ' + HOME + '/.pilot/config.json', 'output');
+      appendLine(termAOutput, '  Registry: 34.71.57.205:9000', 'output');
+      appendLine(termAOutput, '  Beacon:   34.71.57.205:9001', 'output');
+      appendLine(termAOutput, '  Socket:   /tmp/pilot.sock', 'output');
+      appendLine(termAOutput, '  Identity: ' + HOME + '/.pilot/identity.json', 'output');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, 'Get started:', 'highlight');
+      appendLine(termAOutput, '');
+      appendLine(termAOutput, '  pilotctl daemon start --hostname my-agent', 'output');
+      appendLine(termAOutput, '  pilotctl info', 'output');
+      appendLine(termAOutput, '  pilotctl ping <other-agent>', 'output');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      // Agent B installs too
+      await sleep(500);
+      await typeInTermB('curl -fsSL https://pilotprotocol.network/install.sh | sh');
+      appendLine(termBOutput, '');
+      appendLine(termBOutput, '  Pilot Protocol', 'highlight');
+      appendLine(termBOutput, '  The network stack for AI agents.', 'output');
+      await sleep(400);
+      appendLine(termBOutput, '');
+      appendLine(termBOutput, 'Installed:', 'success');
+      appendLine(termBOutput, '  pilot-daemon   ~/.pilot/bin/pilot-daemon', 'output');
+      appendLine(termBOutput, '  pilotctl        ~/.pilot/bin/pilotctl', 'output');
+      appendLine(termBOutput, '  pilot-gateway   ~/.pilot/bin/pilot-gateway', 'output');
+      appendLine(termBOutput, '', '');
+      scrollDown(termBBody);
+
+      if (currentPhase === 0) setPhase(1);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Phase 1: Daemon start (matches real output) ──
+    if (cmd.indexOf('pilotctl daemon start') === 0) {
+      if (currentPhase < 1) {
+        appendLine(termAOutput, '-bash: pilotctl: command not found', 'error');
+        scrollDown(termABody);
+        inputDisabled = false;
+        return;
+      }
+      appendLine(termAOutput, 'starting daemon (pid 4821)...', 'dim');
+      await sleep(600);
+      appendLine(termAOutput, 'Daemon running (pid 4821)', 'success');
+      appendLine(termAOutput, '  Address:  ' + ADDR_A, 'output');
+      appendLine(termAOutput, '  Hostname: agent-a', 'output');
+      appendLine(termAOutput, '  Socket:   /tmp/pilot.sock', 'output');
+      appendLine(termAOutput, '  Logs:     ' + HOME + '/.pilot/pilot.log', 'output');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      // Agent B starts its daemon
+      await sleep(600);
+      await typeInTermB('pilotctl daemon start --hostname agent-b');
+      appendLine(termBOutput, 'starting daemon (pid 5102)...', 'dim');
+      await sleep(400);
+      appendLine(termBOutput, 'Daemon running (pid 5102)', 'success');
+      appendLine(termBOutput, '  Address:  ' + ADDR_B, 'output');
+      appendLine(termBOutput, '  Hostname: agent-b', 'output');
+      appendLine(termBOutput, '  Socket:   /tmp/pilot.sock', 'output');
+      appendLine(termBOutput, '  Logs:     ~/.pilot/pilot.log', 'output');
+      appendLine(termBOutput, '', '');
+      scrollDown(termBBody);
+
+      if (currentPhase === 1) setPhase(2);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Daemon status (real command) ──
+    if (cmd === 'pilotctl daemon status') {
+      if (currentPhase < 2) {
+        appendLine(termAOutput, 'Daemon: stopped', 'output');
+        appendLine(termAOutput, '  start with: pilotctl daemon start', 'dim');
+        scrollDown(termABody);
+        inputDisabled = false;
+        return;
+      }
+      await sleep(200);
+      appendLine(termAOutput, 'Daemon: running (pid 4821)', 'success');
+      appendLine(termAOutput, '  Node ID:     ' + NODE_A, 'output');
+      appendLine(termAOutput, '  Address:     ' + ADDR_A, 'output');
+      appendLine(termAOutput, '  Hostname:    agent-a', 'output');
+      appendLine(termAOutput, '  Uptime:      00:03:42', 'output');
+      appendLine(termAOutput, '  Peers:       ' + (currentPhase >= 3 ? '1' : '0'), 'output');
+      appendLine(termAOutput, '  Connections: ' + (currentPhase >= 3 ? '1' : '0'), 'output');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Phase 2: Handshake (matches real output) ──
+    if (cmd.indexOf('pilotctl handshake') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(200);
+      // Real CLI prints hostname resolution to stderr
+      appendLine(termAOutput, 'resolved "agent-b" \u2192 node ' + NODE_B, 'dim');
+      await sleep(300);
+      appendLine(termAOutput, 'handshake request sent to node ' + NODE_B, 'info');
+      appendLine(termAOutput, '  next: node ' + NODE_B + ' must approve \u2014 or send a handshake back for auto-approval', 'output');
+      appendLine(termAOutput, '  check: pilotctl trust', 'dim');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      // Agent B receives pending handshake
+      await sleep(800);
+      appendLine(termBOutput, '', '');
+      await typeInTermB('pilotctl pending');
+      await sleep(200);
+      appendLine(termBOutput, 'NODE ID     JUSTIFICATION                             RECEIVED', 'highlight');
+      appendLine(termBOutput, '1           collaboration request                     2025-07-15 14:31:55', 'output');
+      appendLine(termBOutput, '', '');
+      scrollDown(termBBody);
+
+      // Agent B approves via approve command (the real way)
+      await sleep(400);
+      await typeInTermB('pilotctl approve 1');
+      await sleep(300);
+      appendLine(termBOutput, 'trust established with node ' + NODE_A, 'success');
+      appendLine(termBOutput, '  try: pilotctl ping ' + NODE_A, 'dim');
+      appendLine(termBOutput, '', '');
+      scrollDown(termBBody);
+
+      // Agent A gets mutual trust notification
+      await sleep(400);
+      appendLine(termAOutput, '  \u2713 mutual trust established with node ' + NODE_B, 'success');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      if (currentPhase === 2) setPhase(3);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Approve ──
+    if (cmd.indexOf('pilotctl approve') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      var approveArgs = cmd.split(/\s+/);
+      var approveNodeId = approveArgs.length > 2 ? approveArgs[2] : '?';
+      await sleep(200);
+      appendLine(termAOutput, 'trust established with node ' + approveNodeId, 'success');
+      appendLine(termAOutput, '  try: pilotctl ping ' + approveNodeId, 'dim');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Info (the real status command) ──
+    if (cmd === 'pilotctl info') {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(250);
+      var nPeers = currentPhase >= 3 ? 1 : 0;
+      var nConns = currentPhase >= 3 ? 1 : 0;
+      appendLine(termAOutput, 'Pilot Protocol Daemon', 'highlight');
+      appendLine(termAOutput, '  Node ID:     ' + NODE_A, 'output');
+      appendLine(termAOutput, '  Address:     ' + ADDR_A, 'output');
+      appendLine(termAOutput, '  Hostname:    agent-a', 'output');
+      appendLine(termAOutput, '  Uptime:      00:03:42', 'output');
+      appendLine(termAOutput, '  Connections: ' + nConns, 'output');
+      appendLine(termAOutput, '  Ports:       3', 'output');
+      appendLine(termAOutput, '  Peers:       ' + nPeers, 'output');
+      appendLine(termAOutput, '  Encryption:  enabled (X25519 + AES-256-GCM), ' + nPeers + '/' + nPeers + ' peers encrypted, ' + nPeers + ' authenticated', 'output');
+      appendLine(termAOutput, '  Identity:    persistent (Ed25519 a4f2c8d19e3b7a01...)', 'output');
+      appendLine(termAOutput, '  Traffic:     ' + (nConns ? '4.2 KB' : '0 B') + ' sent / ' + (nConns ? '4.2 KB' : '0 B') + ' recv', 'output');
+      appendLine(termAOutput, '  Packets:     ' + (nConns ? '12' : '0') + ' sent / ' + (nConns ? '12' : '0') + ' recv', 'output');
+      if (nConns > 0) {
+        appendLine(termAOutput, '');
+        appendLine(termAOutput, 'Active connections: ' + nConns, 'output');
+        appendLine(termAOutput, '  ID    LOCAL   REMOTE ADDR             RPORT   STATE       CWND      FLIGHT    SRTT', 'output');
+        appendLine(termAOutput, '  1     7       ' + ADDR_B + '   7       ESTAB       16.0 KB   0 B       12ms', 'output');
+      }
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Trust list (exact format from source) ──
+    if (cmd === 'pilotctl trust') {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(200);
+      if (currentPhase < 3) {
+        appendLine(termAOutput, 'no trusted peers', 'output');
+        appendLine(termAOutput, '  establish trust: pilotctl handshake <node_id|hostname> "reason"', 'dim');
+      } else {
+        appendLine(termAOutput, 'NODE ID     MUTUAL      NETWORK     APPROVED AT', 'highlight');
+        appendLine(termAOutput, '2           yes         0           2025-07-15 14:32:08', 'output');
+      }
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Pending (exact format from source) ──
+    if (cmd === 'pilotctl pending') {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(200);
+      appendLine(termAOutput, 'no pending handshake requests', 'output');
+      appendLine(termAOutput, '  requests appear here when another node sends: pilotctl handshake <your-node-id>', 'dim');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Peers (exact format from source) ──
+    if (cmd.indexOf('pilotctl peers') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(200);
+      if (currentPhase < 3) {
+        appendLine(termAOutput, 'no peers connected', 'output');
+        appendLine(termAOutput, '  peers appear when you communicate with other nodes', 'dim');
+      } else {
+        appendLine(termAOutput, 'NODE ID     ENDPOINT                        ENCRYPTED             AUTH', 'highlight');
+        appendLine(termAOutput, '2           192.168.1.42:4000               yes (AES-256-GCM)     yes (Ed25519)', 'output');
+      }
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Connections (exact format from source) ──
+    if (cmd === 'pilotctl connections') {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      await sleep(200);
+      if (currentPhase < 3) {
+        appendLine(termAOutput, 'no active connections', 'output');
+        appendLine(termAOutput, '  connect to a peer: pilotctl connect <address|hostname> --message "hello"', 'dim');
+      } else {
+        appendLine(termAOutput, 'Active connections: 1', 'highlight');
+        appendLine(termAOutput, '');
+        appendLine(termAOutput, 'ID    LOCAL   REMOTE ADDR             RPORT   STATE       CWND      FLIGHT    SRTT     UNACK   OOO    PEERWIN  RCVWIN', 'output');
+        appendLine(termAOutput, '1     7       ' + ADDR_B + '   7       ESTAB       16.0 KB   0 B       12ms     0       0      64.0 KB  64.0 KB', 'output');
+        appendLine(termAOutput, '      tx: 4.2 KB (8 segs)  rx: 4.2 KB (8 segs)  retx: 0  fast-retx: 0  sack: 0/0  dup-ack: 0', 'dim');
+      }
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Phase 3: Ping (exact format: resolves hostname, shows address) ──
+    if (cmd.indexOf('pilotctl ping') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      if (!requireTrust()) { inputDisabled = false; return; }
+      // Real CLI: parseAddrOrHostname prints resolution to stderr
+      appendLine(termAOutput, 'resolved "agent-b" \u2192 ' + ADDR_B, 'dim');
+      await sleep(200);
+      appendLine(termAOutput, 'PING ' + ADDR_B, 'info');
+      scrollDown(termABody);
+      var pings = [
+        { seq: 0, bytes: 6, time: '14.231ms' },
+        { seq: 1, bytes: 6, time: '12.847ms' },
+        { seq: 2, bytes: 6, time: '13.102ms' },
+        { seq: 3, bytes: 6, time: '11.956ms' },
+      ];
+      for (var pi = 0; pi < pings.length; pi++) {
+        await sleep(800 + Math.random() * 400);
+        appendLine(termAOutput, 'seq=' + pings[pi].seq + ' bytes=' + pings[pi].bytes + ' time=' + pings[pi].time, 'output');
+        scrollDown(termABody);
+      }
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      appendLine(termBOutput, '  \u2190 echo reply to ' + ADDR_A + ' (4 pings)', 'dim');
+      scrollDown(termBBody);
+
+      phase3Done.ping = true;
+      checkPhase3Complete();
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Phase 3: Send (exact syntax: pilotctl send <addr> <port> --data <msg>) ──
+    if (cmd.indexOf('pilotctl send') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      if (!requireTrust()) { inputDisabled = false; return; }
+      var dataMatch = cmd.match(/--data\s+"([^"]+)"/);
+      var data = dataMatch ? dataMatch[1] : 'hello';
+      // Real CLI: hostname resolution
+      appendLine(termAOutput, 'resolved "agent-b" \u2192 ' + ADDR_B, 'dim');
+      await sleep(300);
+      // Real CLI: send just prints the response, or "sent N bytes (no response)" to stderr
+      // Echo port echoes back, so we simulate a response for data exchange port
+      appendLine(termAOutput, data, 'output');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      // Agent B shows received data
+      await sleep(400);
+      appendLine(termBOutput, '  \u2190 recv from ' + ADDR_A + ' port 1001: "' + data + '" (' + data.length + ' bytes)', 'dim');
+      scrollDown(termBBody);
+
+      phase3Done.send = true;
+      checkPhase3Complete();
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Phase 3: Bench (exact format from source) ──
+    if (cmd.indexOf('pilotctl bench') === 0) {
+      if (!requireDaemon()) { inputDisabled = false; return; }
+      if (!requireTrust()) { inputDisabled = false; return; }
+      // Real CLI: hostname resolution
+      appendLine(termAOutput, 'resolved "agent-b" \u2192 ' + ADDR_B, 'dim');
+      await sleep(200);
+      appendLine(termAOutput, 'BENCH ' + ADDR_B + ' \u2014 sending 1.0 MB via echo port', 'info');
+      scrollDown(termABody);
+      await sleep(1200);
+
+      appendLine(termAOutput, '  Sent:     1.0 MB in 82ms (12.2 MB/s)', 'output');
+      await sleep(600);
+      appendLine(termAOutput, '  Echoed:   1.0 MB in 168ms (5.9 MB/s round-trip)', 'success');
+      appendLine(termAOutput, '', '');
+      scrollDown(termABody);
+
+      appendLine(termBOutput, '  \u2190 echo: 1.0 MB round-trip from ' + ADDR_A, 'dim');
+      scrollDown(termBBody);
+
+      phase3Done.bench = true;
+      checkPhase3Complete();
+      inputDisabled = false;
+      return;
+    }
+
+    // ── Unknown command ──
+    if (cmd.indexOf('pilotctl') === 0) {
+      var sub = cmd.split(/\s+/).slice(1).join(' ');
+      appendLine(termAOutput, 'error: unknown command "' + sub + '"', 'error');
+      appendLine(termAOutput, '  run "pilotctl context" for available commands', 'dim');
+    } else if (currentPhase < 1) {
+      appendLine(termAOutput, '-bash: ' + cmd.split(/\s+/)[0] + ': command not found', 'error');
+    } else {
+      appendLine(termAOutput, '-bash: ' + cmd.split(/\s+/)[0] + ': command not found', 'error');
+    }
+    appendLine(termAOutput, '', '');
+    scrollDown(termABody);
+    inputDisabled = false;
+  }
+
+  function checkPhase3Complete() {
+    var done = [phase3Done.ping, phase3Done.send, phase3Done.bench].filter(Boolean).length;
+    if (done >= 2 && currentPhase === 3) {
+      setPhase(4);
+      showComplete();
+    }
+    if (currentPhase === 3) {
+      if (!phase3Done.ping) {
+        hintCmd.textContent = 'pilotctl ping agent-b';
+        hintText.textContent = 'Test the connection \u2014 try ping:';
+      } else if (!phase3Done.send) {
+        hintCmd.textContent = 'pilotctl send agent-b 1001 --data "hello from agent-a"';
+        hintText.textContent = 'Send data to agent-b:';
+      } else if (!phase3Done.bench) {
+        hintCmd.textContent = 'pilotctl bench agent-b';
+        hintText.textContent = 'Benchmark throughput:';
+      }
+    }
+  }
+
+  async function showComplete() {
+    await sleep(600);
+
+    appendLine(termAOutput, '', '');
+    appendLine(termAOutput, '  \u2500\u2500\u2500 session complete \u2500\u2500\u2500', 'success');
+    appendLine(termAOutput, '  You\'ve built a secure agent-to-agent link.', 'success');
+    appendLine(termAOutput, '', '');
+    scrollDown(termABody);
+
+    appendLine(termBOutput, '', '');
+    appendLine(termBOutput, '  \u2500\u2500\u2500 session complete \u2500\u2500\u2500', 'info');
+    appendLine(termBOutput, '  Peer session with agent-a established.', 'info');
+    appendLine(termBOutput, '', '');
+    scrollDown(termBBody);
+
+    document.getElementById('completeBanner').classList.add('show');
+    launchConfetti();
+  }
+
+  // ── Tab completion ──
+  function getCompletions(partial) {
+    if (!partial) return [];
+    var lower = partial.toLowerCase();
+    return knownCommands.filter(function(c) { return c.toLowerCase().indexOf(lower) === 0 && c !== partial; });
+  }
+
+  function updateTabGhost() {
+    var val = termAInput.value;
+    var completions = getCompletions(val);
+    if (completions.length > 0 && val.length > 0) {
+      tabGhost.textContent = completions[0].slice(val.length);
+    } else {
+      tabGhost.textContent = '';
+    }
+  }
+
+  function showCompletionMenu(completions) {
+    if (completions.length === 0) {
+      completionOverlay.classList.remove('show');
+      return;
+    }
+    completionOverlay.innerHTML = '';
+    completions.slice(0, 6).forEach(function(c, i) {
+      var item = document.createElement('div');
+      item.className = 'completion-item' + (i === completionIdx ? ' selected' : '');
+      item.textContent = c;
+      item.onclick = function() {
+        termAInput.value = c;
+        completionOverlay.classList.remove('show');
+        tabGhost.textContent = '';
+        termAInput.focus();
+      };
+      completionOverlay.appendChild(item);
+    });
+    var rect = termAInputLine.getBoundingClientRect();
+    var termRect = document.getElementById('termA').getBoundingClientRect();
+    completionOverlay.style.left = (rect.left - termRect.left) + 'px';
+    completionOverlay.style.bottom = (termRect.bottom - rect.top + 4) + 'px';
+    completionOverlay.classList.add('show');
+  }
+
+  // ── Input handling ──
+  termAInput.addEventListener('keydown', function(e) {
+    if (inputDisabled && e.key !== 'c') {
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      var val = this.value;
+      var completions = getCompletions(val);
+      if (completions.length === 1) {
+        this.value = completions[0];
+        tabGhost.textContent = '';
+        completionOverlay.classList.remove('show');
+      } else if (completions.length > 1) {
+        completionIdx = (completionIdx + 1) % completions.length;
+        this.value = completions[completionIdx];
+        showCompletionMenu(completions);
+        tabGhost.textContent = '';
+      }
+      return;
+    }
+
+    if (e.key !== 'Tab') {
+      completionIdx = -1;
+      completionOverlay.classList.remove('show');
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      processCommand(this.value);
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (cmdHistory.length > 0) {
+        historyIdx = Math.max(0, historyIdx - 1);
+        this.value = cmdHistory[historyIdx];
+        tabGhost.textContent = '';
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIdx < cmdHistory.length - 1) {
+        historyIdx++;
+        this.value = cmdHistory[historyIdx];
+      } else {
+        historyIdx = cmdHistory.length;
+        this.value = '';
+      }
+      tabGhost.textContent = '';
+      return;
+    }
+
+    if (e.key === 'c' && e.ctrlKey) {
+      e.preventDefault();
+      appendCmd(termAOutput, termAPrompt.textContent, this.value + '^C');
+      this.value = '';
+      tabGhost.textContent = '';
+      inputDisabled = false;
+      scrollDown(termABody);
+      return;
+    }
+
+    if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault();
+      termAOutput.innerHTML = '';
+      return;
+    }
+  });
+
+  termAInput.addEventListener('input', function() {
+    updateTabGhost();
+  });
+
+  // ── Hint click ──
+  hintCmd.addEventListener('click', function() {
+    var cmd = hintCmd.textContent;
+    if (cmd) {
+      termAInput.value = cmd;
+      tabGhost.textContent = '';
+      termAInput.focus();
+    }
+  });
+
+  // Click terminal to focus
+  document.getElementById('termA').addEventListener('click', function() {
+    termAInput.focus();
+  });
+
+  // Reset button
+  document.getElementById('resetBtn').addEventListener('click', function() {
+    termAOutput.innerHTML = '';
+    termBOutput.innerHTML = '';
+    termAInput.value = '';
+    tabGhost.textContent = '';
+    cmdHistory.length = 0;
+    historyIdx = -1;
+    inputDisabled = false;
+    phase3Done.ping = false;
+    phase3Done.send = false;
+    phase3Done.bench = false;
+    completionOverlay.classList.remove('show');
+    document.getElementById('completeBanner').classList.remove('show');
+    setPhase(0);
+    termAPrompt.textContent = '~ $ ';
+
+    appendLine(termAOutput, '  Welcome to the Pilot Protocol Playground', 'highlight');
+    appendLine(termAOutput, '  Type commands below or click the hint to get started.', 'dim');
+    appendLine(termAOutput, '', '');
+    scrollDown(termABody);
+
+    appendLine(termBOutput, '  agent-b is waiting for instructions...', 'dim');
+    appendLine(termBOutput, '', '');
+    scrollDown(termBBody);
+
+    termAInput.focus();
+  });
+
+  // ── Confetti ──
+  function launchConfetti() {
+    var cel = document.getElementById('celebration');
+    cel.classList.add('active');
+    var colors = ['#22c55e', '#3b82f6', '#fbbf24', '#c084fc', '#ef4444', '#22d3ee', '#e5e5e5'];
+    for (var i = 0; i < 80; i++) {
+      var c = document.createElement('div');
+      c.className = 'confetti';
+      c.style.left = Math.random() * 100 + '%';
+      c.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+      c.style.width = (4 + Math.random() * 6) + 'px';
+      c.style.height = (4 + Math.random() * 6) + 'px';
+      c.style.animationDuration = (2 + Math.random() * 3) + 's';
+      c.style.animationDelay = (Math.random() * 1.5) + 's';
+      c.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+      cel.appendChild(c);
+    }
+    setTimeout(function() {
+      cel.classList.remove('active');
+      cel.innerHTML = '';
+    }, 5000);
+  }
+
+  // ── Init ──
+  setPhase(0);
+  appendLine(termAOutput, '  Welcome to the Pilot Protocol Playground', 'highlight');
+  appendLine(termAOutput, '  Type commands below or click the hint to get started.', 'dim');
+  appendLine(termAOutput, '', '');
+  appendLine(termBOutput, '  agent-b is waiting for instructions...', 'dim');
+  appendLine(termBOutput, '', '');
+
+  termAInput.focus();
+})();
+</script>
+</body>
+</html>

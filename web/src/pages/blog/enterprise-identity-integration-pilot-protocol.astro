@@ -1,0 +1,248 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>The previous post outlined our <a href="/blog/enterprise-private-networks-roadmap">five-phase enterprise roadmap</a> — closing the gap between connectivity tool and enterprise infrastructure. The response was immediate: <em>which identity providers? Which policy engines? Which compliance tools?</em></p>
+
+<p>This post answers those questions. The design principle is simple: enterprises already have answers to "who is this?", "are they allowed?", "what did they do?", and "are they still trusted?" Pilot should consume those answers, not reinvent them.</p>
+
+<h2 id="the-principle">The Principle: Consume, Don't Reinvent</h2>
+
+<p>Every enterprise already runs identity infrastructure. They have spent years deploying it, writing policies for it, training staff on it, and passing audits against it. When a new connectivity layer arrives and says "here's our identity system, use it instead" — that is a non-starter.</p>
+
+<p>The right approach: Pilot accepts proof from enterprise systems as authorization for network operations. An OIDC token from Entra ID is proof. A SPIFFE SVID is proof. A certificate from your internal CA is proof. A Kerberos ticket is proof. Pilot does not care <em>which</em> system issued the proof. It cares that the proof is cryptographically valid and matches the network's requirements.</p>
+
+<p>This is how TLS works. A web server does not care whether your certificate came from Let's Encrypt, DigiCert, or your company's internal CA. It verifies the chain. Pilot should work the same way for agent identity.</p>
+
+<h2 id="identity-providers">Identity Providers</h2>
+
+<h3>Microsoft Entra ID (Azure AD)</h3>
+
+<p>Every Microsoft shop runs Entra ID. It is the identity backbone for Microsoft 365, Azure, and increasingly for non-Microsoft workloads. For Pilot, Entra ID integration means:</p>
+
+<ul>
+  <li><strong>OIDC join rule.</strong> A Pilot network configured with Entra ID as the OIDC issuer. Agents present a JWT from Entra ID to join. The registry validates the signature via Entra's JWKS endpoint, checks the tenant ID, and optionally matches group claims.</li>
+  <li><strong>Group-to-network mapping.</strong> Entra ID security groups map to Pilot networks. An agent in the <code>backend-services</code> group auto-joins the backend network. Group membership changes in Entra propagate to Pilot network membership.</li>
+  <li><strong>Conditional Access.</strong> Entra's Conditional Access policies can gate token issuance. Only agents on compliant devices, from approved locations, with MFA-verified operators get tokens. Pilot inherits these controls without implementing them.</li>
+  <li><strong>Managed Identity.</strong> Agents running on Azure VMs or AKS pods use Azure Managed Identity — no credentials to manage. The Azure platform provides the OIDC token automatically.</li>
+</ul>
+
+<h3>Google Workspace &amp; GCP</h3>
+
+<p>Google Cloud's Workload Identity Federation allows workloads to exchange credentials from external identity providers for short-lived Google credentials. For Pilot:</p>
+
+<ul>
+  <li><strong>Domain-restricted join rules.</strong> Only agents with tokens from <code>@acme.com</code> Google Workspace accounts can join a network.</li>
+  <li><strong>GKE Workload Identity.</strong> Agents in GKE pods get OIDC tokens from the cluster's issuer. The pod's Kubernetes service account becomes the agent's identity. No secrets in environment variables.</li>
+  <li><strong>Service account keys → OIDC tokens.</strong> GCP service accounts can generate OIDC tokens programmatically. Existing GCP automation translates directly to Pilot network authorization.</li>
+</ul>
+
+<h3>Okta / Auth0 / OneLogin</h3>
+
+<p>The same OIDC pattern applies to any compliant identity provider. What makes these interesting beyond basic OIDC:</p>
+
+<ul>
+  <li><strong>Okta FastPass.</strong> Device-bound, phishing-resistant authentication. Agents on FastPass-enrolled devices get stronger identity assertions.</li>
+  <li><strong>Auth0 Actions.</strong> Custom logic during token issuance. An Auth0 Action could inject Pilot-specific claims (allowed networks, port restrictions, tag assignments) into the token before the agent presents it.</li>
+  <li><strong>SCIM provisioning.</strong> When HR offboards an employee in Okta, SCIM can trigger deprovisioning of that employee's agents from all Pilot networks. No manual revocation — the identity lifecycle drives the network lifecycle.</li>
+</ul>
+
+<h3>Active Directory / LDAP</h3>
+
+<p>On-premises enterprises that have not fully migrated to cloud identity still run Active Directory. Integration here is less elegant than OIDC but equally necessary:</p>
+
+<ul>
+  <li><strong>AD group membership.</strong> Map AD security groups to Pilot networks. Agent service accounts inherit network access from their group memberships.</li>
+  <li><strong>Kerberos-to-token bridge.</strong> An on-prem gateway service that validates Kerberos tickets and issues short-lived Pilot join tokens. The agent authenticates to AD normally; the bridge translates to Pilot authorization.</li>
+  <li><strong>LDAP bind verification.</strong> For simpler deployments, the registry could verify agent credentials directly against an LDAP directory. Less elegant, but pragmatic for enterprises that are years away from OIDC migration.</li>
+</ul>
+
+<h3>Cloud IAM (AWS / GCP / Azure)</h3>
+
+<p>Agents running on cloud infrastructure already have workload identity:</p>
+
+<ul>
+  <li><strong>AWS IAM Roles.</strong> EC2 instance roles, ECS task roles, Lambda execution roles. AWS STS can issue OIDC-compatible tokens. An agent on an EC2 instance with role <code>agent-backend</code> gets a token that proves it — Pilot verifies via AWS's OIDC federation endpoint.</li>
+  <li><strong>GCP Workload Identity.</strong> GKE pods and Compute Engine VMs get OIDC tokens from Google's metadata service. Zero credential management.</li>
+  <li><strong>Azure Managed Identity.</strong> System-assigned or user-assigned identities on VMs, App Services, and AKS pods. The Azure platform handles token rotation.</li>
+</ul>
+
+<p>The pattern: the cloud provider is just another OIDC issuer. Pilot's OIDC join rule already handles this — it is a matter of configuring the right issuer URL and audience.</p>
+
+<h2 id="policy-engines">Policy Engines</h2>
+
+<h3>Open Policy Agent (OPA)</h3>
+
+<p>OPA is becoming the lingua franca for authorization policy in cloud-native infrastructure. Kubernetes admission controllers, Envoy proxies, Terraform plans, CI/CD pipelines — they all evaluate Rego policies. Pilot should speak the same language.</p>
+
+<p>Instead of hardcoded tag-matching rules, imagine Pilot evaluating Rego policies at SYN time:</p>
+
+<pre><code>package pilot.access
+
+default allow = false
+
+# Backend services can reach databases on port 5432
+allow {
+    input.src.tags[_] == "backend"
+    input.dst.tags[_] == "database"
+    input.dst_port == 5432
+}
+
+# Frontend can reach API on HTTP ports
+allow {
+    input.src.tags[_] == "frontend"
+    input.dst.tags[_] == "api"
+    input.dst_port in {80, 443}
+}
+
+# Monitoring can reach anything on the metrics port
+allow {
+    input.src.tags[_] == "monitoring"
+    input.dst_port == 9090
+}</code></pre>
+
+<p>Enterprises that already write OPA policies for their Kubernetes clusters would use the exact same policy language for Pilot access control. One policy framework, two enforcement points.</p>
+
+<h3>HashiCorp Vault</h3>
+
+<p>Vault solves two problems that Pilot's enterprise roadmap needs:</p>
+
+<ul>
+  <li><strong>PKI engine for CA-based enrollment.</strong> Instead of manually managing CA keys, Vault's PKI secrets engine issues certificates on demand. An agent requests a certificate from Vault, Vault validates the agent's identity (via AppRole, Kubernetes auth, or cloud IAM), and issues a short-lived cert. The agent presents the cert to join a CA-gated Pilot network. Certificate rotation is automatic.</li>
+  <li><strong>Dynamic secrets for join tokens.</strong> Vault can generate single-use, time-limited Pilot join tokens. Instead of a static token shared across a fleet, each agent gets a unique token from Vault that expires after first use. Leaked tokens are worthless.</li>
+</ul>
+
+<h2 id="audit-compliance">Audit &amp; Compliance</h2>
+
+<h3>SIEM Integration</h3>
+
+<p>Phase 2 of the roadmap adds structured audit events at the registry level. But "structured JSON logs" is only the first step. Enterprises need those events flowing into their existing security monitoring:</p>
+
+<ul>
+  <li><strong>Splunk.</strong> HTTP Event Collector (HEC) endpoint. The registry ships audit events directly to Splunk with source type, index, and correlation fields. Security analysts see Pilot events alongside firewall logs, endpoint alerts, and authentication events in the same dashboard.</li>
+  <li><strong>Microsoft Sentinel.</strong> Azure Monitor ingestion. Pilot audit events appear in Log Analytics workspaces and trigger Sentinel analytics rules. A compromised agent triggers the same incident workflow as a compromised user account.</li>
+  <li><strong>Elastic / Datadog.</strong> Standard log shipping via Filebeat, Fluentd, or Datadog Agent. Pilot's JSON log format maps directly to ECS (Elastic Common Schema) or Datadog's log facets.</li>
+</ul>
+
+<h3>OpenTelemetry</h3>
+
+<p>Audit logs answer "what happened." Traces answer "how did it flow." OpenTelemetry integration means:</p>
+
+<ul>
+  <li><strong>Distributed traces across tunnels.</strong> A request enters Agent A, crosses a Pilot tunnel, hits Agent B, which calls Agent C. One trace ID, three spans, visible in Jaeger or Tempo. The Pilot tunnel hop appears as a span with attributes: source address, destination address, port, encryption status, RTT.</li>
+  <li><strong>Metrics export.</strong> Connection counts, bytes transferred, retransmission rates, SYN reject counts — exported as OTel metrics to Prometheus, Datadog, or CloudWatch. Standard dashboards, standard alerting.</li>
+</ul>
+
+<h3>Compliance Evidence</h3>
+
+<p>SOC 2, ISO 27001, HIPAA, and FedRAMP audits require evidence that access controls exist and are enforced. Pilot should generate:</p>
+
+<ul>
+  <li><strong>Immutable audit logs.</strong> Append-only log with cryptographic checksums (hash chain). Tampering is detectable. Auditors verify the chain rather than trusting the log source.</li>
+  <li><strong>Access control evidence reports.</strong> Exportable reports: which nodes accessed which networks, when, with what identity, under what policy. Maps directly to SOC 2 CC6.1 (logical access) and CC6.3 (access revocation).</li>
+  <li><strong>Encryption evidence.</strong> Proof that all data-in-transit was encrypted: cipher suite, key exchange method, certificate chain. Maps to HIPAA technical safeguards and ISO 27001 A.10.</li>
+</ul>
+
+<h2 id="certificate-infrastructure">Certificate Infrastructure</h2>
+
+<h3>Enterprise PKI</h3>
+
+<p>Large organizations run internal Certificate Authorities — Microsoft AD Certificate Services (AD CS), EJBCA, Venafi, or Smallstep. Pilot's CA-based join rule (Phase 4) should accept certificates from these existing CAs:</p>
+
+<ul>
+  <li><strong>Trust chain validation.</strong> The network's trust bundle contains the enterprise CA root. Any certificate chained to that root is accepted. The enterprise CA team issues certs through their existing processes — no Pilot-specific tooling needed.</li>
+  <li><strong>Certificate templates.</strong> AD CS uses templates to define certificate properties. A "Pilot Agent" template with the right Extended Key Usage and Subject Alternative Name fields integrates with existing certificate lifecycle management.</li>
+</ul>
+
+<h3>ACME (Automated Certificate Management)</h3>
+
+<p>The Let's Encrypt model for Pilot: automated certificate issuance with proof of authorization.</p>
+
+<ul>
+  <li><strong>Challenge-response enrollment.</strong> An agent proves it controls a Pilot address by responding to a challenge from the CA. The CA issues a certificate bound to that address. Renewal is automatic.</li>
+  <li><strong>Short-lived certificates.</strong> Certificates valid for hours, not months. If a certificate is compromised, it expires before an attacker can use it. Aligns with zero-trust principles — no long-lived secrets.</li>
+</ul>
+
+<h2 id="device-context">Device &amp; Workload Context</h2>
+
+<h3>Device Trust Signals</h3>
+
+<p>Identity answers "who is this?" Device trust answers "should we trust the machine it's running on?" Enterprise endpoint management tools provide these signals:</p>
+
+<ul>
+  <li><strong>CrowdStrike / SentinelOne.</strong> Is the machine's endpoint protection active and reporting clean? A compromised host should not run trusted agents.</li>
+  <li><strong>Jamf / Intune / Workspace ONE.</strong> Is the device MDM-enrolled, disk-encrypted, OS-patched, and policy-compliant? Non-compliant devices get restricted network access.</li>
+  <li><strong>Conditional join rules.</strong> Combine identity and device signals: "agents with a valid Entra ID token AND running on an Intune-compliant device can join the production network. All others get the staging network."</li>
+</ul>
+
+<h3>Kubernetes-Native Identity</h3>
+
+<p>For containerized agents, the Kubernetes cluster provides identity without any external system:</p>
+
+<ul>
+  <li><strong>Projected service account tokens.</strong> Kubernetes 1.20+ projects OIDC-compatible tokens for service accounts. The cluster's issuer URL is the OIDC issuer. The service account name is the identity. No secrets, no sidecars, no init containers.</li>
+  <li><strong>Namespace isolation.</strong> Kubernetes namespaces map to Pilot networks. Agents in the <code>production</code> namespace auto-join the production network. Agents in <code>staging</code> get a different network. The mapping is declarative — change the namespace, change the network.</li>
+</ul>
+
+<h3>SPIFFE Federation Across Organizations</h3>
+
+<p>The most interesting cross-org scenario: two companies federate their SPIFFE trust domains. Company A's SPIRE infrastructure and Company B's SPIRE infrastructure exchange trust bundles. Now:</p>
+
+<ul>
+  <li>An agent at Company A with SPIFFE ID <code>spiffe://a.com/agents/data-pipeline</code> can join a shared Pilot network.</li>
+  <li>An agent at Company B with SPIFFE ID <code>spiffe://b.com/agents/data-consumer</code> can join the same network.</li>
+  <li>Neither company shares secrets with the other. Each uses their own SPIRE infrastructure. The federation is cryptographic, not administrative.</li>
+</ul>
+
+<p>This is how B2B agent collaboration should work — not by sharing API keys or VPN credentials, but by federating existing identity infrastructure.</p>
+
+<h2 id="priority">What We're Building First</h2>
+
+<p>The full list above is the vision. Here is the priority order based on enterprise demand:</p>
+
+<ol>
+  <li><strong>OIDC (Phase 5)</strong> — covers Entra ID, Google, Okta, Auth0, AWS/GCP/Azure IAM, and any compliant provider. One implementation, broad reach.</li>
+  <li><strong>SPIFFE (Phase 5)</strong> — covers Kubernetes-native identity, SPIRE deployments, and cross-org federation. The most sophisticated integration.</li>
+  <li><strong>OPA policy evaluation</strong> — the policy lingua franca. Enterprises already write Rego. Pilot should evaluate it.</li>
+  <li><strong>Vault PKI</strong> — dynamic certificate issuance for CA-based join rules. Eliminates static secrets.</li>
+  <li><strong>SIEM forwarding</strong> — structured event shipping to Splunk/Sentinel/Elastic. Not just logs — native integration.</li>
+  <li><strong>SCIM lifecycle</strong> — automated deprovisioning when identity is revoked upstream. Closes the revocation loop.</li>
+  <li><strong>Device trust signals</strong> — conditional join rules based on endpoint compliance. Later priority, high value for regulated industries.</li>
+</ol>
+
+<p>Items 1-2 are in the <a href="/blog/enterprise-private-networks-roadmap">Phase 5 roadmap</a>. Items 3-7 represent a Phase 6+ expansion that builds on the same foundation.</p>
+
+<h2 id="the-pattern">The Pattern</h2>
+
+<p>Every integration follows the same pattern:</p>
+
+<ol>
+  <li><strong>Enterprise system issues proof</strong> (token, certificate, ticket, device attestation).</li>
+  <li><strong>Agent presents proof</strong> to join a Pilot network.</li>
+  <li><strong>Registry validates proof</strong> against the network's configured trust anchor (JWKS, CA root, trust bundle).</li>
+  <li><strong>Agent joins</strong> with its enterprise identity mapped to its Pilot address.</li>
+  <li><strong>Audit trail</strong> links the Pilot address to the enterprise identity.</li>
+</ol>
+
+<p>The proof format changes. The validation logic changes. The pattern does not. This is why OIDC comes first — it is the most universal proof format, and it covers the widest range of enterprise identity providers with a single implementation.</p>
+
+<div class="cta">
+  <h3>Enterprise Readiness Report</h3>
+  <p>Full gap analysis, standards alignment matrix, and the five-phase roadmap. Available as a PDF.</p>
+  <a href="/enterprise-readiness-report.pdf">Download PDF</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/blog/enterprise-private-networks-roadmap">Enterprise Roadmap</a>
+</div>`;
+---
+<BlogLayout
+  title="Enterprise Identity Integration: Entra ID, SPIFFE, OPA, and Beyond"
+  description="How Pilot Protocol will integrate with enterprise identity providers (Entra ID, Okta, GCP IAM), policy engines (OPA, Vault), and compliance tools (Splunk, OpenTelemetry) — consuming existing infrastructure instead of replacing it."
+  date="March 21, 2026"
+  tags={["enterprise", "identity", "integration"]}
+  canonicalPath="/blog/enterprise-identity-integration-pilot-protocol"
+  bannerImage="/blog/banners/enterprise-identity-integration-pilot-protocol.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

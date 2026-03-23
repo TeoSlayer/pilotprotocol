@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Plans — Pilot Protocol</title>
-<meta name="description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Pro, and Enterprise tiers for Pilot Protocol.">
+<meta name="description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Private Network, and Enterprise tiers for Pilot Protocol.">
 <link rel="canonical" href="https://pilotprotocol.network/docs/plans">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Plans — Pilot Protocol">
-<meta property="og:description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Pro, and Enterprise tiers for Pilot Protocol.">
+<meta property="og:description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Private Network, and Enterprise tiers for Pilot Protocol.">
 <meta property="og:url" content="https://pilotprotocol.network/docs/plans">
 <meta property="og:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
 <meta property="og:site_name" content="Pilot Protocol">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Plans — Pilot Protocol">
-<meta name="twitter:description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Pro, and Enterprise tiers.">
+<meta name="twitter:description" content="The backbone is free. Private networks are where you pay. Compare Backbone, Private Network, and Enterprise tiers.">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
 <meta name="theme-color" content="#22c55e">
 <link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
@@ -79,7 +79,8 @@ a:hover{text-decoration:underline}
 
 .tier-badge{display:inline-block;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding:4px 14px;border-radius:20px;margin-bottom:16px;width:fit-content;backdrop-filter:blur(8px)}
 .tier-badge-free{background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e}
-.tier-badge-pro{background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3);color:#60a5fa}
+.tier-badge-pn{background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3);color:#60a5fa}
+.tier-badge-pn-long{font-size:0.62rem}
 .tier-badge-ent{background:rgba(192,132,252,0.15);border:1px solid rgba(192,132,252,0.3);color:#c084fc}
 .tier h3{font-size:1.35rem;font-weight:700;margin-bottom:8px}
 .tier .tier-price{font-size:2.2rem;font-weight:800;font-family:'SF Mono',Menlo,Consolas,monospace;margin-bottom:4px;letter-spacing:-0.02em}
@@ -219,6 +220,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     <div class="nav-center">
       <a href="/docs/"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
       <a href="/docs/research"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research</a>
+      <a href="/playground"><svg class="nav-icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Playground</a>
     </div>
     <div class="nav-right">
       <a class="gh-link" href="https://github.com/TeoSlayer/pilotprotocol" title="GitHub">
@@ -234,6 +236,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
       <a href="/blog/"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
       <a href="/docs/"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
       <a href="/docs/research"><svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Research</a>
+      <a href="/playground"><svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Playground</a>
     </div>
   </div>
 </nav>
@@ -252,7 +255,6 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
 
   <!-- Backbone -->
   <div class="tier featured reveal delay-1">
-    <span class="tier-popular">Most Popular</span>
     <span class="tier-badge tier-badge-free">Free</span>
     <h3>Backbone</h3>
     <div class="tier-price">$0</div>
@@ -269,18 +271,20 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     <a class="tier-cta tier-cta-primary" href="/docs/getting-started">Get Started</a>
   </div>
 
-  <!-- Pro -->
+  <!-- Private Network -->
   <div class="tier reveal delay-2">
-    <span class="tier-badge tier-badge-pro">Pro</span>
-    <h3>Pro</h3>
+    <span class="tier-badge tier-badge-pn tier-badge-pn-long">Private Network</span>
+    <h3>Private Network</h3>
     <div class="tier-price">&mdash;</div>
     <div class="tier-price-sub">Coming soon</div>
-    <p class="tier-desc">Private networks for agent swarms, power users, and small teams.</p>
+    <p class="tier-desc">Private networks for agent swarms, teams, and organizations that need isolation.</p>
     <ul>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Backbone</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Scoped registry (network-only visibility)</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Isolated address space (dedicated network ID)</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Private discovery</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Token-gated &amp; invite-only network join</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SYN-level trust enforcement</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Network-scoped discovery</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Auto-join networks on daemon startup</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Managed rendezvous infrastructure</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Email support</li>
     </ul>
@@ -293,14 +297,17 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     <h3>Enterprise</h3>
     <div class="tier-price">&mdash;</div>
     <div class="tier-price-sub">Coming soon</div>
-    <p class="tier-desc">Dedicated isolated deployments for companies and regulated industries.</p>
+    <p class="tier-desc">Full enterprise stack: identity federation, policy engine, cascading revocation, and compliance.</p>
     <ul>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Pro</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Virtual departments (multiple networks per org)</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Custom registry + beacon infrastructure</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SLA guarantees</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Audit logging + compliance</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SSO / identity federation</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Private Network</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Organization control plane (multi-network orgs)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Tag-based access policies (per-port ACLs)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Cascading admin revocation + block list</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>CA-based enrollment (certificate join rule)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>OIDC + SPIFFE identity integration</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Audit logging + SIEM integration</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Dedicated registry + beacon infrastructure</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Identity expiry + forced key rotation</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Priority support + SLA</li>
     </ul>
     <a class="tier-cta tier-cta-ghost" href="mailto:founders@vulturelabs.com">Contact Us</a>
@@ -324,7 +331,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
         <tr>
           <th>Feature</th>
           <th>Backbone (Free)</th>
-          <th>Pro</th>
+          <th>Private Network</th>
           <th>Enterprise</th>
         </tr>
       </thead>
@@ -336,8 +343,13 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
         <tr><td>Address space</td><td>Shared</td><td>Dedicated network ID</td><td>Custom</td></tr>
         <tr><td>NAT traversal</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td></tr>
         <tr><td>E2E encryption</td><td class="highlight">Yes</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
-        <tr><td>Discovery scope</td><td>Trust-gated</td><td>Network-only</td><td>Org-only</td></tr>
-        <tr><td>Agents</td><td>Unlimited</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td>SYN trust enforcement</td><td>&mdash;</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
+        <tr><td>Network join rules</td><td>&mdash;</td><td>Token + invite</td><td>Token + invite + CA + OIDC + SPIFFE</td></tr>
+        <tr><td>Access policies</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Tag-based per-port ACLs</td></tr>
+        <tr><td>Identity integration</td><td>Ed25519</td><td>Ed25519</td><td>Ed25519 + OIDC + SPIFFE</td></tr>
+        <tr><td>Revocation</td><td>Bilateral</td><td>Bilateral</td><td class="highlight">Cascading admin revocation</td></tr>
+        <tr><td>Audit</td><td>Webhooks</td><td>Webhooks</td><td class="highlight">SIEM integration + audit log</td></tr>
+        <tr><td>Org management</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Multi-network orgs</td></tr>
         <tr><td>Rendezvous infra</td><td>Community</td><td>Managed</td><td>Dedicated</td></tr>
         <tr><td>Support</td><td>Community</td><td>Email</td><td>Priority + SLA</td></tr>
         <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td>Coming soon</td><td>Coming soon</td></tr>
@@ -364,8 +376,12 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
       <div class="faq-a"><p>Only if explicitly bridged. Private means private. Agents in a private network are not discoverable or reachable from the backbone by default.</p></div>
     </div>
     <div class="faq-item">
-      <button class="faq-q">Do I need Pro or Enterprise for encryption?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <button class="faq-q">Do I need Private Network or Enterprise for encryption?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
       <div class="faq-a"><p>No. End-to-end encryption (X25519 + AES-256-GCM) is built into every tier, including the free backbone. Encryption is a protocol feature, not a paid add-on.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What is the difference between Private Network and Enterprise?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Private Network gives you isolated address spaces with token-gated joins and SYN-level trust enforcement. Enterprise adds organization management, tag-based access policies, cascading revocation, CA-based enrollment, OIDC/SPIFFE identity integration, and SIEM-grade audit logging.</p></div>
     </div>
     <div class="faq-item">
       <button class="faq-q">What happens to my agents if I stop paying?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -373,7 +389,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     </div>
     <div class="faq-item">
       <button class="faq-q">Can I self-host a private network?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-      <div class="faq-a"><p>Yes. The protocol is AGPL-3.0 open source &mdash; you can run your own registry, beacon, and DNS. Pro and Enterprise offer <strong>managed infrastructure</strong> so you don&rsquo;t have to operate it yourself.</p></div>
+      <div class="faq-a"><p>Yes. The protocol is AGPL-3.0 open source &mdash; you can run your own registry, beacon, and DNS. Private Network and Enterprise offer <strong>managed infrastructure</strong> so you don&rsquo;t have to operate it yourself.</p></div>
     </div>
   </div>
 </section>

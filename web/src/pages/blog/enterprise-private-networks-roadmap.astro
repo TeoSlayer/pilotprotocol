@@ -1,0 +1,107 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>A question came up recently that cut through the usual "cool project" feedback and hit the actual enterprise bar:</p>
+
+<blockquote>
+<p><em>"Solves connectivity" is only part of the enterprise problem. The harder bar is: does the connectivity layer also align with <strong>workload identity</strong>, <strong>policy</strong>, <strong>revocation</strong>, <strong>audit</strong>, and <strong>dark-by-default reachability</strong>, instead of just making peer connectivity easier? How would Pilot interoperate with existing identity models rather than becoming a <strong>parallel trust island</strong>?</em></p>
+</blockquote>
+
+<p>This is the gap between a networking project and enterprise-grade infrastructure. Here is how we are closing it.</p>
+
+<h2 id="what-we-have">What We Already Have</h2>
+
+<p>Pilot Protocol is not starting from zero on enterprise requirements. The current implementation includes:</p>
+
+<ul>
+  <li><strong>Identity:</strong> Ed25519 keypair per node, signed registry mutations, key rotation with old-key authentication, TLS cert pinning, authenticated tunnel key exchange (PILA frames).</li>
+  <li><strong>Trust:</strong> Bilateral handshake protocol (port 444) with justification strings, three auto-approval paths (mutual, network-based, manual), trust persistence across restarts.</li>
+  <li><strong>Privacy:</strong> Private-by-default nodes, resolve gating (trust or shared network required), backbone enumeration blocked, handshake relay through registry (no IP exposed until both sides consent).</li>
+  <li><strong>Audit:</strong> 20+ webhook event types (connect, disconnect, handshake, trust, datagram), structured logging with slog, per-connection statistics.</li>
+  <li><strong>Encryption:</strong> X25519 + AES-256-GCM tunnel encryption (enabled by default), application-layer encryption on port 443. Zero external dependencies.</li>
+  <li><strong>Rate limiting:</strong> Two-tier SYN rate limiting, per-port and global connection limits, handshake replay protection.</li>
+</ul>
+
+<p>This is a solid foundation. But it is not enough.</p>
+
+<h2 id="the-gaps">The Gaps That Matter</h2>
+
+<p>We conducted a thorough audit across six enterprise dimensions. Three findings stand out:</p>
+
+<h3>Critical: The SYN Handler Trust Gap</h3>
+
+<p>The resolve layer enforces dark-by-default at the control plane&mdash;you cannot discover a private node's endpoint without trust or shared network membership. But the daemon's SYN handler accepts connections from <em>any</em> source that knows the endpoint. If an attacker obtains an endpoint by any means (sniffing, leaked config, prior trust that was revoked), they can connect without authorization.</p>
+
+<p>This is the most critical security gap. Phase 1 fixes it with a trust gate at SYN time: incoming connections from untrusted sources (no trust pair, no shared network) are rejected with RST.</p>
+
+<h3>High: Parallel Trust Island</h3>
+
+<p>Every Pilot deployment today is a self-contained identity system. Nodes prove they hold an Ed25519 private key, but cannot prove they are authorized by an enterprise identity provider. There is no OIDC token validation, no SPIFFE SVID acceptance, no trust domain federation. Enterprises will not deploy a second identity system.</p>
+
+<h3>High: Revocation Does Not Cascade</h3>
+
+<p>Revoking trust is purely bilateral. When a node is compromised, each individual peer must manually untrust it. There is no admin-initiated mass revocation. There is no block list. This is inadequate for deployments with more than a handful of nodes.</p>
+
+<h2 id="the-roadmap">The Roadmap: Five Phases</h2>
+
+<p>Each phase is independently shippable and valuable. You do not need to wait for Phase 5 to benefit from Phase 1.</p>
+
+<h3>Phase 1: Activate &amp; Harden</h3>
+
+<p>Enable the existing WIP network primitives (create, join, leave networks via CLI). Fix the critical SYN trust gap by adding trust verification to the daemon's connection handler. Fix the hostname resolve information leak. This phase delivers token-gated and invite-gated networks, same-network auto-trust, and SYN-level dark-by-default enforcement.</p>
+
+<h3>Phase 2: Auto-Join &amp; Audit</h3>
+
+<p>Agents auto-join configured networks at startup&mdash;deploy an entire swarm with the same config file. The registry gains structured audit events (network created, node registered, trust revoked) in machine-parseable JSON for SIEM integration. Webhook delivery becomes reliable with retry logic and monotonic event IDs for gap detection.</p>
+
+<h3>Phase 3: Organization + Policy + Cascading Revocation</h3>
+
+<p>The enterprise fleet management phase. Organizations group networks and members under a single admin. Tag-based access policies control who can reach whom on which ports: <em>"nodes tagged <code>frontend</code> can reach nodes tagged <code>api</code> on ports 80 and 443."</em> Policies are evaluated at both resolve time and SYN time. Admin revocation cascades instantly&mdash;<code>org revoke</code> removes a node from all networks, revokes all trust pairs, and pushes revocation to every online peer.</p>
+
+<h3>Phase 4: CA-Based Enrollment</h3>
+
+<p>Replace shared tokens with cryptographic proof. Networks can require a CA-signed certificate to join. Certificate signing happens offline&mdash;the CA never touches the network. Per-network revocation lists. Identity expiry forces key rotation.</p>
+
+<h3>Phase 5: External Identity (OIDC + SPIFFE)</h3>
+
+<p>The phase that ends the parallel trust island. Networks can require a valid OIDC JWT from a configured issuer (Google, Azure, Okta, GitHub). Or a valid SPIFFE JWT-SVID from a configured trust domain. The daemon can optionally integrate with the local SPIFFE Workload API to auto-fetch SVIDs. Audit logs link Pilot's 48-bit addresses to enterprise identities. No shared secrets to distribute. Enterprises adopt Pilot without deploying a second identity system.</p>
+
+<h2 id="standards">Standards Alignment</h2>
+
+<p>We mapped the roadmap against three emerging standards for agent security:</p>
+
+<ul>
+  <li><strong>ONUG AOMC</strong> (Autonomous Operations and Management Controls): Six mandatory controls for agent security. After all phases, Pilot satisfies all six&mdash;authentication, access management, traffic control, communication security, audit, and lifecycle management.</li>
+  <li><strong>CSA ATF/AICM</strong> (Agent Trust Framework / Agentic Identity and Context Model): Progressive autonomy (aligned via polo score), identity binding (Phase 4-5), context propagation (Phase 3), revocation and quarantine (Phase 3).</li>
+  <li><strong>SPIFFE/SPIRE</strong>: Full integration in Phase 5&mdash;JWT-SVID acceptance, trust domain federation, Workload API integration.</li>
+</ul>
+
+<h2 id="positioning">Where This Sits</h2>
+
+<p>A2A defines <em>what</em> agents say to each other. MCP defines <em>what tools</em> agents can use. Pilot defines <em>how agents reach each other</em>.</p>
+
+<p>After all five phases, that becomes: how agents reach each other <em>within the organization's existing trust boundaries</em>. Not in a parallel island. Not with a second set of credentials. With the OIDC tokens and SPIFFE SVIDs they already have.</p>
+
+<p>The full technical assessment&mdash;including gap analysis tables, standards alignment matrix, and competitive positioning&mdash;is available in the <a href="/enterprise-readiness-report.pdf">Enterprise Readiness Report</a> (PDF).</p>
+
+<div class="cta">
+  <h3>Enterprise Readiness Report</h3>
+  <p>Full audit of Pilot Protocol against six enterprise dimensions: workload identity, policy, revocation, audit, dark-by-default reachability, and interoperability with existing identity models.</p>
+  <a href="/enterprise-readiness-report.pdf">Download PDF</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/docs/spec">Wire Specification</a>
+</div>`;
+---
+<BlogLayout
+  title="Enterprise Private Networks: The Roadmap"
+  description="Pilot Protocol is closing the gap between connectivity tool and enterprise infrastructure. SYN-level trust enforcement, tag-based policies, cascading revocation, and OIDC/SPIFFE identity integration."
+  date="March 21, 2026"
+  tags={["enterprise", "security", "roadmap"]}
+  canonicalPath="/blog/enterprise-private-networks-roadmap"
+  bannerImage="/blog/banners/enterprise-private-networks-roadmap.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

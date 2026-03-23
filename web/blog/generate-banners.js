@@ -54,6 +54,8 @@ const posts = [
   { file: 'why-autonomous-agents-need-private-discovery', title: 'Why Autonomous Agents Need Private Discovery', category: 'Security', date: 'March 7, 2026' },
   { file: 'python-sdk-pilot-protocol', title: 'Announcing the Pilot Protocol Python SDK', category: 'Integration', date: 'March 13, 2026' },
   { file: 'ietf-internet-draft-pilot-protocol', title: 'Pilot Protocol IETF Internet-Drafts Published', category: 'Standards', date: 'March 15, 2026' },
+  { file: 'enterprise-private-networks-roadmap', title: 'Enterprise Private Networks: The Roadmap', category: 'Security', date: 'March 21, 2026' },
+  { file: 'enterprise-identity-integration-pilot-protocol', title: 'Enterprise Identity Integration: Entra ID, SPIFFE, OPA, and Beyond', category: 'Enterprise', date: 'March 21, 2026' },
 ];
 
 const logoBase64 = fs.readFileSync(path.join(__dirname, '../../docs/media/pilot.png')).toString('base64');
