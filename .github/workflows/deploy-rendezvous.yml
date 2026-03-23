@@ -2,7 +2,7 @@ name: Deploy Rendezvous Server
 
 on:
   push:
-    branches: [release]
+    branches: [deploy/rendezvous]
   workflow_dispatch:
     inputs:
       rollback:
