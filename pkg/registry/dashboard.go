@@ -231,10 +231,6 @@ tr:last-child td{border-bottom:none}
 .sort-select{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;color:#c9d1d9;font-family:inherit;font-size:13px;cursor:pointer;outline:none}
 .sort-select:focus{border-color:#58a6ff}
 .task-badge{display:inline-block;background:#1a3a2a;border:1px solid:#3fb950;border-radius:12px;padding:2px 10px;font-size:11px;color:#3fb950;white-space:nowrap}
-.polo-score{font-weight:600;color:#f59e0b}
-.polo-high{color:#3fb950}
-.polo-medium{color:#58a6ff}
-.polo-low{color:#8b949e}
 .filter-row{display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .filter-row .tag-filter{margin-bottom:0;flex:1;min-width:200px}
 .filter-row label{font-size:13px;color:#8b949e;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:4px}
@@ -314,16 +310,14 @@ footer a:hover{color:#58a6ff}
     <label><input type="checkbox" id="online-filter"> Online only</label>
     <select id="sort-select" class="sort-select">
       <option value="address">Sort by Address</option>
-      <option value="polo_desc">Sort by POLO Score (High-Low)</option>
-      <option value="polo_asc">Sort by POLO Score (Low-High)</option>
       <option value="trust_desc">Sort by Trust Links (High-Low)</option>
       <option value="online">Sort by Status (Online first)</option>
     </select>
   </div>
   <table>
-    <thead><tr><th>Address</th><th>Status</th><th>POLO Score</th><th>Trust</th><th>Tags</th><th>Tasks</th></tr></thead>
+    <thead><tr><th>Address</th><th>Status</th><th>Trust</th><th>Tags</th><th>Tasks</th></tr></thead>
     <tbody id="nodes-body">
-      <tr><td colspan="6" class="empty">Loading...</td></tr>
+      <tr><td colspan="5" class="empty">Loading...</td></tr>
     </tbody>
   </table>
   <div class="pagination" id="pagination"></div>
@@ -354,18 +348,11 @@ function getFiltered(){
   if(onlineOnly){result=result.filter(function(n){return n.online})}
   
   // Apply sorting
-  if(sortBy==='polo_desc'){result.sort(function(a,b){return (b.polo_score||0)-(a.polo_score||0)})}
-  else if(sortBy==='polo_asc'){result.sort(function(a,b){return (a.polo_score||0)-(b.polo_score||0)})}
-  else if(sortBy==='trust_desc'){result.sort(function(a,b){return (b.trust_links||0)-(a.trust_links||0)})}
+  if(sortBy==='trust_desc'){result.sort(function(a,b){return (b.trust_links||0)-(a.trust_links||0)})}
   else if(sortBy==='online'){result.sort(function(a,b){return b.online-a.online})}
   else{result.sort(function(a,b){return a.address.localeCompare(b.address)})}
   
   return result;
-}
-function getPoloClass(score){
-  if(score>=50)return 'polo-high';
-  if(score>=0)return 'polo-medium';
-  return 'polo-low';
 }
 function renderNodes(){
   var tb=document.getElementById('nodes-body');
@@ -382,17 +369,14 @@ function renderNodes(){
       var td2=document.createElement('td');
       var dot=document.createElement('span');dot.style.cssText='display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:'+(n.online?'#3fb950':'#484f58');
       td2.appendChild(dot);td2.appendChild(document.createTextNode(n.online?'Online':'Offline'));td2.style.color=n.online?'#3fb950':'#484f58';
-      var td3=document.createElement('td');
-      var score=n.polo_score||0;
-      td3.textContent=score;td3.className='polo-score '+getPoloClass(score);
-      var td4=document.createElement('td');td4.textContent=n.trust_links||0;td4.style.color=n.trust_links?'#58a6ff':'#484f58';
+      var td3=document.createElement('td');td3.textContent=n.trust_links||0;td3.style.color=n.trust_links?'#58a6ff':'#484f58';
+      var td4=document.createElement('td');
+      if(n.tags&&n.tags.length){n.tags.forEach(function(t){var s=document.createElement('span');s.className='tag';s.textContent='#'+t;td4.appendChild(s)})}else{td4.textContent='\u2014'}
       var td5=document.createElement('td');
-      if(n.tags&&n.tags.length){n.tags.forEach(function(t){var s=document.createElement('span');s.className='tag';s.textContent='#'+t;td5.appendChild(s)})}else{td5.textContent='\u2014'}
-      var td6=document.createElement('td');
-      if(n.task_exec){var b=document.createElement('span');b.className='task-badge';b.textContent='executor';td6.appendChild(b)}else{td6.textContent='\u2014'}
-      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tr.appendChild(td6);tb.appendChild(tr);
+      if(n.task_exec){var b=document.createElement('span');b.className='task-badge';b.textContent='executor';td5.appendChild(b)}else{td5.textContent='\u2014'}
+      tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tb.appendChild(tr);
     });
-  }else{tb.innerHTML='<tr><td colspan="6" class="empty">No nodes'+(document.getElementById('tag-filter').value||document.getElementById('task-filter').checked||document.getElementById('online-filter').checked?' matching filter':' registered')+'</td></tr>'}
+  }else{tb.innerHTML='<tr><td colspan="5" class="empty">No nodes'+(document.getElementById('tag-filter').value||document.getElementById('task-filter').checked||document.getElementById('online-filter').checked?' matching filter':' registered')+'</td></tr>'}
   var pg=document.getElementById('pagination');
   if(filtered.length<=pageSize){pg.innerHTML='';return}
   pg.innerHTML='';

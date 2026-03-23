@@ -197,6 +197,9 @@ func (s *Server) snapshotJSON() []byte {
 			Public:    n.Public,
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
+			Tags:      n.Tags,
+			PoloScore: n.PoloScore,
+			TaskExec:  n.TaskExec,
 		}
 	}
 

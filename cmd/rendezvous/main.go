@@ -14,6 +14,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
+var version = "dev"
+
 // rendezvous runs both registry and beacon in one process — deploy this to GCP.
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
@@ -39,7 +41,7 @@ func main() {
 
 	logging.Setup(*logLevel, *logFormat)
 
-	slog.Info("starting rendezvous server")
+	slog.Info("starting rendezvous server", "version", version)
 
 	// Start beacon
 	b := beacon.New()

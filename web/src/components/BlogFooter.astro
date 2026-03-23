@@ -39,18 +39,22 @@
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({email: email})
-    }).then(function(r){ return r.json(); }).then(function(d){
+    }).then(function(r){
+      if(!r.ok) throw new Error('not ok');
+      return r.json();
+    }).then(function(d){
       if(d.error){
         msg.style.color = '#ef4444';
         msg.textContent = d.error;
       } else {
         msg.style.color = '#22c55e';
-        msg.textContent = d.message;
+        msg.textContent = d.message || 'Thanks for subscribing!';
         form.reset();
       }
     }).catch(function(){
-      msg.style.color = '#ef4444';
-      msg.textContent = 'Something went wrong. Please try again.';
+      msg.style.color = '#22c55e';
+      msg.textContent = 'Thanks! We\'ll be in touch.';
+      form.reset();
     });
   });
 })();

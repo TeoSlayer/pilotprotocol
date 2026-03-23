@@ -66,7 +66,7 @@ const filterCategories = ['All', ...categories];
             data-title={post.title.toLowerCase()}
             data-description={post.description.toLowerCase()}
           >
-            <img src={post.banner} alt="" loading={i < 3 ? 'eager' : 'lazy'} />
+            <img src={post.banner} alt={post.title} loading={i < 3 ? 'eager' : 'lazy'} />
             <div class="card-body">
               <h3>{post.title}</h3>
               <p>{post.description}</p>

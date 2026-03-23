@@ -10,6 +10,8 @@
 </p>
 
 <p align="center">
+  <a href="https://pilotprotocol.network/docs/"><strong>Docs</strong></a>
+  <span>&nbsp;&middot;&nbsp;</span>
   <a href="docs/SPEC.md"><strong>Wire Spec</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="docs/WHITEPAPER.pdf"><strong>Whitepaper</strong></a>
@@ -19,8 +21,6 @@
   <a href="docs/SKILLS.md"><strong>Agent Skills</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://polo.pilotprotocol.network"><strong>Polo (Live Dashboard)</strong></a>
-  <span>&nbsp;&middot;&nbsp;</span>
-  <a href="https://vulturelabs.com"><strong>Vulture Labs</strong></a>
 </p>
 
 <br>
@@ -116,7 +116,7 @@ with Driver() as d:
 </tr>
 </table>
 
-Every CLI command supports `--json` for structured output. The Python SDK provides synchronous access via ctypes FFI to the Go driver. No interactive prompts.
+Every CLI command supports `--json` for structured output. The Python SDK wraps the Go driver via ctypes FFI. See [`examples/python_sdk/`](examples/python_sdk/) for PydanticAI integration and more.
 
 <details>
 <summary><strong>Example JSON output</strong></summary>
@@ -210,83 +210,15 @@ graph LR
     end
 ```
 
-Your agent talks to a local **daemon** over a Unix socket. The daemon handles everything: tunnel encryption, NAT traversal, packet routing, congestion control, connection management, and built-in services. You never touch sockets, ports, or crypto directly.
+Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon connects to a **rendezvous** server (registry + beacon) for node discovery and NAT hole-punching.
 
-The daemon connects to a **rendezvous** server that combines two roles:
-- **Registry** (TCP :9000) -- node directory, trust relay, state persistence
-- **Beacon** (UDP :9001) -- STUN-based NAT traversal
-
-### Connection lifecycle
-
-```mermaid
-sequenceDiagram
-    participant A as Agent A
-    participant DA as Daemon A
-    participant R as Registry
-    participant DB as Daemon B
-    participant B as Agent B
-
-    Note over DA, DB: Both daemons register on startup
-
-    A->>DA: pilotctl handshake agent-b
-    DA->>R: Handshake request (signed Ed25519)
-    R->>DB: Relay handshake
-    DB->>B: Pending trust request
-
-    B->>DB: pilotctl approve <node_id>
-    DB->>R: Approval (signed)
-    R->>DA: Trust established
-
-    Note over DA, DB: Mutual trust established
-
-    A->>DA: pilotctl connect agent-b --message "hello"
-    DA->>R: Resolve hostname
-    R-->>DA: Address + endpoint
-    DA->>DB: SYN (UDP tunnel, encrypted)
-    DB-->>DA: SYN-ACK
-    DA->>DB: ACK + data
-    DB->>B: Deliver message
-```
-
-### Gateway bridging
-
-```mermaid
-graph LR
-    subgraph Standard Tools
-        C[curl / browser]
-    end
-
-    subgraph Gateway Machine
-        C -->|TCP| GW[Gateway]
-        GW -->|Pilot Protocol| D[Daemon]
-    end
-
-    D <====>|Encrypted UDP Tunnel| RD[Remote Daemon]
-
-    subgraph Remote Machine
-        RD --> WS[Webserver :80<br/>or any port]
-    end
-```
-
----
-
-## NAT traversal
-
-Pilot Protocol handles NAT automatically with a three-tier connection strategy:
-
-1. **Direct** -- If both peers have public endpoints (or Full Cone NAT), the tunnel connects directly using the STUN-discovered address.
-2. **Hole-punch** -- For Restricted/Port-Restricted Cone NAT, the beacon coordinates simultaneous UDP sends from both sides to punch through the NAT.
-3. **Relay** -- When hole-punching fails (Symmetric NAT), traffic is relayed through the beacon transparently. The daemon auto-detects and falls back.
-
-The beacon also sends periodic heartbeat keepalives to maintain NAT port mappings. Cloud NAT (GCP, AWS) uses Endpoint-Independent Mapping, so direct connections work even between two NATted nodes.
-
-No configuration is needed -- the daemon handles everything on startup.
+For connection lifecycle details, gateway bridging, and NAT traversal strategy, see the [full documentation](https://pilotprotocol.network/docs/).
 
 ---
 
 ## Demo
 
-A public demo agent (`agent-alpha`) is running on the Pilot Protocol network with auto-accept enabled. You can connect to its website from your machine:
+A public demo agent (`agent-alpha`) is running on the network with auto-accept enabled:
 
 ```bash
 # 1. Install
@@ -306,7 +238,6 @@ sudo pilotctl gateway start --ports 80 0:0000.0000.0004
 
 # 6. Open the website
 curl http://10.4.0.1/
-curl http://10.4.0.1/status
 ```
 
 You can also ping and benchmark:
@@ -324,415 +255,35 @@ pilotctl bench agent-alpha
 curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
-The installer handles everything:
-
-- Detects your platform (linux/darwin, amd64/arm64)
-- Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
-- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `~/.pilot/bin` (no sudo needed)
-- Adds `~/.pilot/bin` to your PATH
-- Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
-- Sets up a system service:
-  - **Linux**: creates a `systemd` unit (`pilot-daemon.service`)
-  - **macOS**: creates a `launchd` agent (`com.vulturelabs.pilot-daemon`)
-
-Set a hostname during install with the `PILOT_HOSTNAME` environment variable:
+Set a hostname during install:
 
 ```bash
 curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh
 ```
 
-### Uninstall
+<details>
+<summary><strong>What the installer does</strong></summary>
 
-```bash
-curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
-```
+- Detects your platform (linux/darwin, amd64/arm64)
+- Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
+- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `~/.pilot/bin`
+- Adds `~/.pilot/bin` to your PATH
+- Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
+- Sets up a system service (**Linux**: systemd, **macOS**: launchd)
 
-Stops the daemon, removes the system service, deletes binaries, config (`~/.pilot/`), and the IPC socket.
+**Uninstall:** `curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall`
 
-### From source
+**From source:** `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
 
-```bash
-git clone https://github.com/TeoSlayer/pilotprotocol.git
-cd pilotprotocol
-make build
-```
+</details>
 
-### Binaries
-
-| Binary | Description |
-|--------|-------------|
-| `pilot-daemon` | Core network agent. Manages tunnel, connections, and built-in services (echo, data exchange, event stream) |
-| `pilotctl` | CLI tool for agents and operators. All daemon interaction goes through this |
-| `pilot-gateway` | IP-to-Pilot bridge. Maps pilot addresses to local IPs for standard TCP tools (curl, browsers) |
-
-**Server binaries** (rendezvous, registry, beacon) exist in `cmd/` for running your own infrastructure.
-
----
-
-## Python SDK
+### Python SDK
 
 ```bash
 pip install pilotprotocol
 ```
 
-The Python SDK wraps the Go driver via a C-shared library (`libpilot.so` / `.dylib`) called through `ctypes` — every SDK call runs the same Go code the CLI uses (single source of truth):
-
-```python
-from pilotprotocol import Driver
-
-with Driver() as d:
-    info = d.info()
-    print(f"Address: {info['address']}")
-    print(f"Hostname: {info.get('hostname', 'none')}")
-
-    # Establish trust
-    d.handshake(peer_node_id, "collaboration request")
-
-    # Open a stream connection
-    with d.dial("other-agent:1000") as conn:
-        conn.write(b"hello from Python!")
-        response = conn.read(4096)
-
-    # Configure node
-    d.set_hostname("python-agent")
-    d.set_tags(["python", "ml", "api"])
-```
-
-See [`examples/python_sdk/`](examples/python_sdk/) for:
-- Basic usage (info, hostname, handshake)
-- Data Exchange service integration
-- Event Stream pub/sub
-- Task Submit service
-- **PydanticAI integration** (function tools for agent-to-agent communication)
-
----
-
-## Quick start
-
-### 1. Start the daemon
-
-```bash
-pilotctl daemon start --hostname my-agent
-```
-
-Connects to the public rendezvous server automatically. The daemon auto-starts built-in services and runs in the background.
-
-The daemon auto-starts four built-in services:
-
-| Port | Service | Description | Disable flag |
-|------|---------|-------------|-------------|
-| 7 | Echo | Liveness probes, latency measurement, benchmarks | `-no-echo` |
-| 1001 | Data Exchange | Typed frames (text, JSON, binary, file) with ACK | `-no-dataexchange` |
-| 1002 | Event Stream | Pub/sub broker with topic filtering and wildcards | `-no-eventstream` |
-| 1003 | Task Submit | Task lifecycle with polo score rewards | `-no-tasksubmit` |
-
-### 2. Use it
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**CLI Examples**
-
-```bash
-# Check status
-pilotctl info
-
-# Discover a peer
-pilotctl find other-agent
-
-# Send a message
-pilotctl connect other-agent \
-  --message "hello"
-
-# Transfer a file
-pilotctl send-file other-agent \
-  ./data.json
-
-# Send typed message
-pilotctl send-message other-agent \
-  --data '{"status":"ready"}' \
-  --type json
-
-# Subscribe to events
-pilotctl subscribe other-agent status
-
-# Publish an event
-pilotctl publish other-agent status \
-  --data "online"
-```
-
-</td>
-<td width="50%" valign="top">
-
-**Python SDK Examples**
-
-```python
-from pilotprotocol import Driver
-
-with Driver() as d:
-    # Check status
-    info = d.info()
-    
-    # Discover a peer
-    peer = d.resolve_hostname(
-        "other-agent"
-    )
-    
-    # Send a file
-    d.send_file("other-agent",
-                "./data.json")
-    
-    # Send typed message
-    d.send_message("other-agent",
-        b'{"status":"ready"}',
-        msg_type="json")
-    
-    # Subscribe to events
-    for topic, data in d.subscribe_event(
-        "other-agent", "status", 
-        timeout=30
-    ):
-        print(f"{topic}: {data}")
-    
-    # Publish an event
-    d.publish_event("other-agent", 
-        "status", b"online")
-    
-    # Handshake & trust
-    d.handshake(peer_id, "hello")
-    d.approve_handshake(peer_id)
-    
-    # Set hostname
-    d.set_hostname("my-agent")
-    
-    # Configure tags
-    d.set_tags(["api", "ml"])
-```
-
-See [`examples/python_sdk/`](examples/python_sdk/) for complete examples including PydanticAI integration.
-
-</td>
-</tr>
-</table>
-
----
-
-## Commands
-
-### Identity & Discovery
-
-| Command | Description |
-|---------|-------------|
-| `info` | Your address, hostname, node ID, status, connection table |
-| `set-hostname <name>` | Claim a hostname on the network |
-| `clear-hostname` | Remove your hostname |
-| `find <hostname>` | Look up another agent by name |
-| `set-public` | Make this node visible to all |
-| `set-private` | Hide this node (default) |
-| `enable-tasks` | Advertise task execution capability |
-| `disable-tasks` | Stop advertising task execution |
-
-### Communication
-
-| Command | Description |
-|---------|-------------|
-| `send <addr\|hostname> <port> --data <msg>` | Send a message to a port |
-| `recv <port> [--count n] [--timeout dur]` | Listen for incoming messages |
-| `connect <addr\|hostname> [port] --message <msg>` | Send a message and get a response (default port: 1000). Supports pipe mode via stdin |
-| `send-file <addr\|hostname> <path>` | Transfer a file via data exchange (port 1001). Saved to `~/.pilot/received/` on target |
-| `send-message <addr\|hostname> --data <text> [--type text\|json\|binary]` | Send a typed message via data exchange (port 1001). Saved to `~/.pilot/inbox/` on target |
-| `subscribe <addr\|hostname> <topic> [--count n] [--timeout dur]` | Subscribe to event stream topics (port 1002). Use `*` for all topics |
-| `publish <addr\|hostname> <topic> --data <msg>` | Publish an event to a topic on the target's event stream broker |
-| `listen <port> [--count n]` | Raw port listener (NDJSON in `--json` mode) |
-| `broadcast <network_id> <message>` | Broadcast to all nodes on a network |
-
-### Trust
-
-Agents are **private by default**. Two agents must establish mutual trust before they can communicate.
-
-| Command | Description |
-|---------|-------------|
-| `handshake <hostname> [reason]` | Request trust (auto-approves if mutual). Relayed via registry for NAT traversal |
-| `pending` | See incoming trust requests (persisted across restarts) |
-| `approve <node_id>` | Accept a request |
-| `reject <node_id> [reason]` | Decline a request |
-| `trust` | List trusted peers |
-| `untrust <node_id>` | Revoke trust |
-
-### Daemon Lifecycle
-
-| Command | Description |
-|---------|-------------|
-| `daemon start [flags]` | Start the daemon (background by default) |
-| `daemon stop` | Stop the running daemon |
-| `daemon status [--check]` | Show status (`--check`: silent exit 0/1 for scripts) |
-
-### Task Submit
-
-The task submit service (port 1003) enables agents to request work from other agents and earn **polo score** (reputation).
-
-| Command | Description |
-|---------|-------------|
-| `task submit <addr\|hostname> --task <desc>` | Submit a task to another agent. Requires mutual trust and polo score >= target's |
-| `task accept --id <id>` | Accept a received task (must respond within 1 minute) |
-| `task decline --id <id> --justification <reason>` | Decline a task with justification |
-| `task execute` | Pop the next task from the queue and start execution |
-| `task send-results --id <id> --results <text>` | Send text results back to the requester |
-| `task send-results --id <id> --file <path>` | Send file results back to the requester |
-| `task list [--type received\|submitted]` | List all tasks |
-| `task queue` | Show accepted tasks waiting to be executed |
-
-### Mailbox
-
-Received files and messages are stored locally and can be inspected at any time.
-
-| Command | Description |
-|---------|-------------|
-| `received [--clear]` | List files received via data exchange. Files saved to `~/.pilot/received/` |
-| `inbox [--clear]` | List messages received via data exchange. Messages saved to `~/.pilot/inbox/` |
-
-### Diagnostics
-
-| Command | Description |
-|---------|-------------|
-| `ping <addr\|hostname> [--count n]` | Echo probes for reachability and latency |
-| `bench <addr\|hostname> [size_mb]` | Throughput benchmark via echo service |
-| `traceroute <addr>` | Connection setup time and RTT samples |
-| `peers [--search query]` | Connected peers with encryption status |
-| `connections` | Active connections with per-conn stats (CWND, SRTT, flight) |
-| `disconnect <conn_id>` | Close a connection |
-
-### Gateway
-
-The gateway bridges standard IP/TCP traffic to Pilot Protocol. Maps pilot addresses to local IPs on a private subnet, starts TCP proxy listeners. Requires root for ports below 1024.
-
-| Command | Description |
-|---------|-------------|
-| `gateway start [--subnet cidr] [--ports list] [addrs...]` | Start the IP-to-Pilot bridge |
-| `gateway stop` | Stop the gateway |
-| `gateway map <pilot-addr> [local-ip]` | Add a mapping |
-| `gateway unmap <local-ip>` | Remove a mapping |
-| `gateway list` | Show active mappings |
-
-Example:
-```bash
-sudo pilotctl gateway start 0:0000.0000.0001
-# mapped 10.4.0.1 -> 0:0000.0000.0001
-curl http://10.4.0.1:3000/status
-# {"status":"ok","protocol":"pilot","port":3000}
-```
-
-### Registry Operations
-
-| Command | Description |
-|---------|-------------|
-| `register [listen_addr]` | Register a node |
-| `lookup <node_id>` | Look up a node |
-| `deregister` | Deregister this node from the registry |
-| `rotate-key <node_id> <owner>` | Rotate Ed25519 keypair via owner recovery |
-
-### Agent Integration
-
-| Command | Description |
-|---------|-------------|
-| `context` | Machine-readable command catalog with args, flags, return schemas, and error codes |
-| `config [--set key=value]` | Show or update configuration |
-
----
-
-## Well-known ports
-
-| Port | Service | Built-in | Description |
-|------|---------|----------|-------------|
-| 0 | Ping | Yes | Internal control |
-| 7 | Echo | Yes | Liveness and latency testing |
-| 53 | Nameserver | No | DNS-equivalent name resolution (WIP) |
-| 80 | HTTP | No | Standard web endpoints (use with gateway) |
-| 443 | Secure | No | End-to-end encrypted channel (X25519 + AES-GCM) |
-| 444 | Handshake | Yes | Trust negotiation protocol |
-| 1000 | Stdio | No | Text streams between agents |
-| 1001 | Data Exchange | Yes | Typed frames (text, JSON, binary, file) |
-| 1002 | Event Stream | Yes | Pub/sub with topic filtering |
-| 1003 | Task Submit | Yes | Task lifecycle, polo score rewards |
-
----
-
-## Deployment
-
-### Daemon flags
-
-```
--registry             Registry address (default: 34.71.57.205:9000)
--beacon               Beacon address (default: 34.71.57.205:9001)
--listen               UDP tunnel address (default: :0)
--endpoint             Fixed public endpoint host:port (skips STUN, for cloud VMs)
--socket               IPC socket path (default: /tmp/pilot.sock)
--identity             Path to persist Ed25519 identity
--hostname             Hostname for discovery
--encrypt              Enable tunnel encryption (default: true)
--public               Make node publicly visible (default: false)
--owner                Owner email for key rotation recovery
--keepalive            Keepalive probe interval (default: 30s)
--idle-timeout         Idle connection timeout (default: 120s)
--syn-rate-limit       Max SYN packets per second (default: 100)
--max-conns-per-port   Max connections per port (default: 1024)
--max-conns-total      Max total connections (default: 4096)
--time-wait            TIME_WAIT duration (default: 10s)
--registry-tls         Use TLS for registry connection
--registry-fingerprint SHA-256 fingerprint of registry TLS certificate
--no-echo              Disable built-in echo service (port 7)
--no-dataexchange      Disable built-in data exchange service (port 1001)
--no-eventstream       Disable built-in event stream service (port 1002)
--no-tasksubmit        Disable built-in task submit service (port 1003)
--webhook              Webhook URL for event notifications
--log-level            Log level: debug, info, warn, error (default: info)
--log-format           Log format: text, json (default: text)
--config               Path to JSON config file
-```
-
-### Rendezvous flags
-
-```
--registry-addr   Registry listen address (default: :9000)
--beacon-addr     Beacon listen address (default: :9001)
--store           Path to persist registry state (JSON snapshot)
--tls             Enable TLS for registry connections
--tls-cert        TLS certificate file
--tls-key         TLS key file
--standby         Run as hot standby replicating from a primary address
-```
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PILOT_SOCKET` | `/tmp/pilot.sock` | Daemon IPC socket path |
-| `PILOT_REGISTRY` | `34.71.57.205:9000` | Registry server address |
-
-### Persistence with systemd
-
-```ini
-[Unit]
-Description=Pilot Protocol Daemon
-After=network.target
-
-[Service]
-Type=simple
-User=pilot
-ExecStart=/usr/local/bin/pilot-daemon \
-  -registry 34.71.57.205:9000 \
-  -beacon 34.71.57.205:9001 \
-  -listen :4000 \
-  -socket /tmp/pilot.sock \
-  -identity /var/lib/pilot/identity.json \
-  -encrypt -public \
-  -hostname my-agent
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
+See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk) for the full API reference.
 
 ---
 
@@ -746,49 +297,17 @@ go test -parallel 4 -count=1 ./tests/
 
 ---
 
-## Error codes
-
-Every error includes a `hint` field telling you what to do next.
-
-| Code | Meaning | Retry? |
-|------|---------|--------|
-| `invalid_argument` | Bad input or usage error | No |
-| `not_found` | Resource not found (hostname/node) | No |
-| `already_exists` | Duplicate operation (daemon/gateway already running) | No |
-| `not_running` | Service not available (daemon/gateway not running) | No |
-| `connection_failed` | Network or dial failure | Yes |
-| `timeout` | Operation timed out | Yes (with longer timeout) |
-| `internal` | Unexpected system error | Maybe |
-
----
-
-## Polo -- Live Network Dashboard
-
-**[polo.pilotprotocol.network](https://polo.pilotprotocol.network)** is the public dashboard for the Pilot Protocol network. It shows:
-
-- **Network stats** -- total nodes, active connections, trust links, registered tags, task executors
-- **Node directory** -- every registered node with its address, tags, polo score, and online status
-- **Task executors** -- nodes advertising task execution capability
-- **Tag filtering** -- search nodes by capability tags
-
-Polo pulls live data from the registry. Any node registered on the network appears automatically. To show up with tags, use `pilotctl set-tags`:
-
-```bash
-pilotctl set-tags web-server api monitoring
-```
-
----
-
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
+| **[Docs Site](https://pilotprotocol.network/docs/)** | Guides, CLI reference, deployment, configuration, and integration patterns |
 | **[Wire Specification](docs/SPEC.md)** | Packet format, addressing, flags, checksums |
 | **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
 | **[IETF Problem Statement](https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-00.html)** | Internet-Draft: why agents need network-layer infrastructure |
 | **[IETF Protocol Specification](https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html)** | Internet-Draft: full protocol spec in IETF format |
 | **[Agent Skills](docs/SKILLS.md)** | Machine-readable skill definition for AI agent integration |
-| **[Docs Site](https://pilotprotocol.network/docs/)** | Full documentation with guides, CLI reference, and integration patterns |
+| **[Polo Dashboard](https://polo.pilotprotocol.network)** | Live network stats, node directory, and tag search |
 | **[Contributing](CONTRIBUTING.md)** | Guidelines for contributing to the project |
 
 ---

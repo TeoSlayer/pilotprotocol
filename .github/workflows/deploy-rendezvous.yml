@@ -1,0 +1,199 @@
+name: Deploy Rendezvous Server
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      rollback:
+        description: 'Roll back to previous binary'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-rendezvous
+  cancel-in-progress: false
+
+env:
+  VM_NAME: pilot-rendezvous
+  VM_ZONE: us-central1-a
+  VM_USER: calinteodor
+  VM_IP: 34.71.57.205
+  BINARY_NAME: pilot-rendezvous
+  INSTALL_DIR: /usr/local/bin
+  DEPLOY_SCRIPT: scripts/deploy-rendezvous.sh
+
+jobs:
+  test:
+    name: Test
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rollback) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./cmd/rendezvous
+
+      - name: Test
+        run: go test -parallel 4 -count=1 -timeout 60s ./tests/ ./pkg/beacon/
+
+  build-and-deploy:
+    name: Build & Deploy
+    needs: test
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rollback) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Determine version
+        id: version
+        run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+
+      - name: Build linux/amd64 binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
+            -o ${{ env.BINARY_NAME }} \
+            ./cmd/rendezvous/
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vulture-vision-cloud
+
+      - name: Upload binary to VM
+        run: |
+          gcloud compute scp \
+            ${{ env.BINARY_NAME }} \
+            ${{ env.VM_USER }}@${{ env.VM_NAME }}:~/${{ env.BINARY_NAME }}-staged \
+            --zone=${{ env.VM_ZONE }} \
+            --tunnel-through-iap
+
+      - name: Upload deploy script to VM
+        run: |
+          gcloud compute scp \
+            ${{ env.DEPLOY_SCRIPT }} \
+            ${{ env.VM_USER }}@${{ env.VM_NAME }}:~/deploy-rendezvous.sh \
+            --zone=${{ env.VM_ZONE }} \
+            --tunnel-through-iap
+
+      - name: Run deploy script
+        run: |
+          gcloud compute ssh ${{ env.VM_USER }}@${{ env.VM_NAME }} \
+            --zone=${{ env.VM_ZONE }} \
+            --tunnel-through-iap \
+            --command="chmod +x ~/deploy-rendezvous.sh && ~/deploy-rendezvous.sh deploy"
+
+      - name: External health check
+        run: |
+          echo "Waiting 5s for service to stabilize..."
+          sleep 5
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${{ env.VM_IP }}:3000/api/stats")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::External health check failed: HTTP $HTTP_CODE"
+            exit 1
+          fi
+          STATS=$(curl -s "http://${{ env.VM_IP }}:3000/api/stats")
+          echo "Dashboard stats: $STATS"
+          echo "External health check passed"
+
+      - name: Cleanup staged files
+        if: always()
+        run: |
+          gcloud compute ssh ${{ env.VM_USER }}@${{ env.VM_NAME }} \
+            --zone=${{ env.VM_ZONE }} \
+            --tunnel-through-iap \
+            --command="rm -f ~/${{ env.BINARY_NAME }}-staged ~/deploy-rendezvous.sh" \
+            || true
+
+  rollback:
+    name: Rollback
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vulture-vision-cloud
+
+      - name: Rollback to previous binary
+        run: |
+          gcloud compute ssh ${{ env.VM_USER }}@${{ env.VM_NAME }} \
+            --zone=${{ env.VM_ZONE }} \
+            --tunnel-through-iap \
+            --command="
+              set -e
+              PREV=${{ env.INSTALL_DIR }}/${{ env.BINARY_NAME }}.prev
+              CURRENT=${{ env.INSTALL_DIR }}/${{ env.BINARY_NAME }}
+              if [ ! -f \"\$PREV\" ]; then
+                echo 'No previous binary found for rollback'
+                exit 1
+              fi
+              echo 'Stopping service...'
+              sudo systemctl stop ${{ env.BINARY_NAME }}
+              sleep 1
+              echo 'Restoring previous binary...'
+              sudo cp \"\$PREV\" \"\$CURRENT\"
+              echo 'Starting service...'
+              sudo systemctl start ${{ env.BINARY_NAME }}
+              sleep 3
+              if systemctl is-active --quiet ${{ env.BINARY_NAME }}; then
+                echo 'Rollback successful — service is active'
+              else
+                echo 'Rollback FAILED — service did not start'
+                sudo journalctl -u ${{ env.BINARY_NAME }} --no-pager -n 20
+                exit 1
+              fi
+            "
+
+      - name: External health check after rollback
+        run: |
+          sleep 5
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${{ env.VM_IP }}:3000/api/stats")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Post-rollback health check failed: HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Rollback verified — dashboard responding"
+
+  notify:
+    name: Summary
+    if: always()
+    needs: [test, build-and-deploy, rollback]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary
+        run: |
+          echo "## Deploy Rendezvous Server" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Test | ${{ needs.test.result || 'skipped' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build & Deploy | ${{ needs.build-and-deploy.result || 'skipped' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Rollback | ${{ needs.rollback.result || 'skipped' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Triggered by:** ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Ref:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"

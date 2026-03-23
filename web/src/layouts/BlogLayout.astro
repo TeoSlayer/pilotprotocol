@@ -101,7 +101,7 @@ const related = blogPosts
         <div class="related-grid">
           {related.map(post => (
             <a class="related-card" href={`/blog/${post.slug}`}>
-              <img src={`/blog/${post.banner}`} alt="" loading="lazy" />
+              <img src={`/blog/${post.banner}`} alt={post.title} loading="lazy" />
               <div class="related-body">
                 <h3>{post.title}</h3>
                 <span class="related-meta">{post.date} &middot; {post.category}</span>

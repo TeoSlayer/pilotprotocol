@@ -7,7 +7,7 @@ export async function GET() {
       <link>${site}/blog/${post.slug}</link>
       <guid isPermaLink="true">${site}/blog/${post.slug}</guid>
       <description><![CDATA[${post.description}]]></description>
-      <pubDate>${new Date(post.date + ', 2026').toUTCString()}</pubDate>
+      <pubDate>${new Date(post.date + ', ' + (post.year || new Date().getFullYear())).toUTCString()}</pubDate>
       <category>${post.category}</category>
     </item>`).join('\n');
 

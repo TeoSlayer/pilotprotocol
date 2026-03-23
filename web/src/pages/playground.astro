@@ -1,5 +1,6 @@
 ---
 // Interactive Terminal Playground — self-contained page
+import IslandNavbar from '../components/IslandNavbar.astro';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -8,7 +9,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Playground — Pilot Protocol</title>
 <meta name="description" content="Interactive terminal playground — experience the full Pilot Protocol lifecycle: install, start, trust, and exchange data between agents.">
+<link rel="canonical" href="https://pilotprotocol.network/playground">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Playground — Pilot Protocol">
+<meta property="og:description" content="Interactive terminal playground — experience the full Pilot Protocol lifecycle: install, start, trust, and exchange data between agents.">
+<meta property="og:url" content="https://pilotprotocol.network/playground">
+<meta property="og:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
+<meta property="og:site_name" content="Pilot Protocol">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Playground — Pilot Protocol">
+<meta name="twitter:description" content="Interactive terminal playground — experience the full Pilot Protocol lifecycle: install, start, trust, and exchange data between agents.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png">
 <meta name="theme-color" content="#22c55e">
+<link rel="preconnect" href="https://raw.githubusercontent.com">
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
 <link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
 <style is:inline>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -149,10 +163,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </head>
 <body>
 
-<div class="page" style="position:relative">
-  <button class="reset-btn" id="resetBtn" title="Reset playground">&#8634; Reset</button>
+<IslandNavbar active="playground" />
 
-  <a href="/" class="back-link">&larr; Back to Pilot Protocol</a>
+<div class="page" style="position:relative;padding-top:72px">
+  <button class="reset-btn" id="resetBtn" title="Reset playground">&#8634; Reset</button>
 
   <div class="page-header">
     <h1>Interactive Playground</h1>
