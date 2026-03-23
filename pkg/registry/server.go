@@ -696,11 +696,11 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		}
 		return s.handleRegister(msg, remoteAddr)
 	case "create_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleCreateNetwork(msg)
 	case "join_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleJoinNetwork(msg)
 	case "leave_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleLeaveNetwork(msg)
 	case "lookup":
 		return s.handleLookup(msg)
 	case "resolve":
@@ -725,6 +725,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleReportTrust(msg)
 	case "revoke_trust":
 		return s.handleRevokeTrust(msg)
+	case "check_trust":
+		return s.handleCheckTrust(msg)
 	case "request_handshake":
 		return s.handleRequestHandshake(msg)
 	case "poll_handshakes":
@@ -1488,6 +1490,44 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 	}, nil
 }
 
+// handleCheckTrust checks if a trust pair exists between two nodes OR if they share a non-backbone network.
+func (s *Server) handleCheckTrust(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeA := jsonUint32(msg, "node_id")
+	nodeB := jsonUint32(msg, "peer_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	trusted := s.trustPairs[trustPairKey(nodeA, nodeB)]
+
+	// Also check shared non-backbone network
+	if !trusted {
+		nA, okA := s.nodes[nodeA]
+		nB, okB := s.nodes[nodeB]
+		if okA && okB {
+			for _, aNet := range nA.Networks {
+				if aNet == 0 {
+					continue
+				}
+				for _, bNet := range nB.Networks {
+					if aNet == bNet {
+						trusted = true
+						break
+					}
+				}
+				if trusted {
+					break
+				}
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"type":    "check_trust_ok",
+		"trusted": trusted,
+	}, nil
+}
+
 func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	public, _ := msg["public"].(bool)
@@ -1846,6 +1886,46 @@ func (s *Server) handleResolveHostname(msg map[string]interface{}) (map[string]i
 	node, ok := s.nodes[nodeID]
 	if !ok {
 		return nil, fmt.Errorf("hostname %q maps to missing node %d", hostname, nodeID)
+	}
+
+	// Privacy check: private nodes require trust or shared network
+	if !node.Public {
+		requesterID := jsonUint32(msg, "requester_id")
+		allowed := false
+
+		// Self-resolve always allowed
+		if requesterID == nodeID {
+			allowed = true
+		}
+
+		// Check trust pair
+		if !allowed && s.trustPairs[trustPairKey(requesterID, nodeID)] {
+			allowed = true
+		}
+
+		// Check shared non-backbone network
+		if !allowed {
+			if requester, rOk := s.nodes[requesterID]; rOk {
+				for _, rNet := range requester.Networks {
+					if rNet == 0 {
+						continue
+					}
+					for _, tNet := range node.Networks {
+						if rNet == tNet {
+							allowed = true
+							break
+						}
+					}
+					if allowed {
+						break
+					}
+				}
+			}
+		}
+
+		if !allowed {
+			return nil, fmt.Errorf("resolve denied: hostname %q belongs to a private node", hostname)
+		}
 	}
 
 	return map[string]interface{}{

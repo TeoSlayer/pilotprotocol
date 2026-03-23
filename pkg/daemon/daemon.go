@@ -547,6 +547,14 @@ func (d *Daemon) Identity() *crypto.Identity { return d.identity }
 // TaskQueue returns the daemon's task queue.
 func (d *Daemon) TaskQueue() *TaskQueue { return d.taskQueue }
 
+// AddTunnelPeer registers a peer's address in the tunnel manager (for testing/manual setup).
+func (d *Daemon) AddTunnelPeer(nodeID uint32, addr *net.UDPAddr) {
+	d.tunnels.AddPeer(nodeID, addr)
+}
+
+// TunnelAddr returns the local UDP address of the tunnel listener.
+func (d *Daemon) TunnelAddr() net.Addr { return d.tunnels.LocalAddr() }
+
 func (d *Daemon) Addr() protocol.Addr {
 	d.addrMu.RLock()
 	defer d.addrMu.RUnlock()
@@ -726,6 +734,26 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			slog.Warn("max total connections reached, rejecting SYN", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.sendRST(pkt)
 			return
+		}
+
+		// Trust gate: private nodes only accept SYN from trusted or same-network peers
+		if !d.config.Public {
+			srcNode := pkt.Src.Node
+			trusted := d.handshakes.IsTrusted(srcNode)
+			if !trusted && d.regConn != nil {
+				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
+				trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
+			}
+			if !trusted {
+				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
+				d.webhook.Emit("syn.rejected", map[string]interface{}{
+					"src_node_id": srcNode,
+					"src_addr":    pkt.Src.String(),
+					"dst_port":    pkt.DstPort,
+				})
+				d.sendRST(pkt)
+				return
+			}
 		}
 
 		conn := d.ports.NewConnection(pkt.DstPort, pkt.Src, pkt.SrcPort)
@@ -1520,7 +1548,7 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	srcPort := d.ports.AllocEphemeralPort()
 
 	if dstAddr.IsBroadcast() {
-		return fmt.Errorf("broadcast is not available — custom networks are WIP")
+		return d.broadcastDatagram(dstAddr.Network, srcPort, dstPort, data)
 	}
 
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
@@ -1541,7 +1569,12 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 }
 
 // broadcastDatagram sends a datagram to all members of a network.
+// Only network members are allowed to broadcast. Backbone (network 0) is blocked.
 func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data []byte) error {
+	if netID == 0 {
+		return fmt.Errorf("broadcast on backbone network is not permitted")
+	}
+
 	resp, err := d.regConn.ListNodes(netID)
 	if err != nil {
 		return fmt.Errorf("list nodes for broadcast: %w", err)
@@ -1550,6 +1583,22 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 	nodesRaw, ok := resp["nodes"].([]interface{})
 	if !ok {
 		return nil // no nodes
+	}
+
+	// Verify sender is a member of the network
+	isMember := false
+	for _, n := range nodesRaw {
+		nodeMap, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if nid, ok := nodeMap["node_id"].(float64); ok && uint32(nid) == d.NodeID() {
+			isMember = true
+			break
+		}
+	}
+	if !isMember {
+		return fmt.Errorf("broadcast denied: node %d is not a member of network %d", d.NodeID(), netID)
 	}
 
 	for _, n := range nodesRaw {

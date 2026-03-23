@@ -450,6 +450,30 @@ func (c *Client) ResolveHostname(hostname string) (map[string]interface{}, error
 	})
 }
 
+// ResolveHostnameAs resolves a hostname with a requester_id for privacy checks.
+// Private nodes require the requester to have a trust pair or shared network.
+func (c *Client) ResolveHostnameAs(requesterID uint32, hostname string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":         "resolve_hostname",
+		"hostname":     hostname,
+		"requester_id": requesterID,
+	})
+}
+
+// CheckTrust checks if a trust pair or shared network exists between two nodes.
+func (c *Client) CheckTrust(nodeA, nodeB uint32) (bool, error) {
+	resp, err := c.Send(map[string]interface{}{
+		"type":    "check_trust",
+		"node_id": nodeA,
+		"peer_id": nodeB,
+	})
+	if err != nil {
+		return false, err
+	}
+	trusted, _ := resp["trusted"].(bool)
+	return trusted, nil
+}
+
 // UpdatePoloScore adjusts the polo score of a node by the given delta.
 // Delta can be positive (increase polo score) or negative (decrease polo score).
 func (c *Client) UpdatePoloScore(nodeID uint32, delta int) (map[string]interface{}, error) {

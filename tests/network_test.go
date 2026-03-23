@@ -16,7 +16,7 @@ func startTestRegistryWithAdmin(t *testing.T) (*registry.Client, *registry.Serve
 }
 
 func TestNetworkNameValidation(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -58,7 +58,7 @@ func TestNetworkNameValidation(t *testing.T) {
 }
 
 func TestNetworkLeave(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -111,7 +111,7 @@ func TestNetworkLeave(t *testing.T) {
 }
 
 func TestNetworkLeaveAndRejoin(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -163,7 +163,7 @@ func TestNetworkLeaveBackboneForbidden(t *testing.T) {
 }
 
 func TestNetworkLeaveNotMember(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -186,7 +186,7 @@ func TestNetworkLeaveNotMember(t *testing.T) {
 }
 
 func TestNetworkIDOverflowGuard(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, reg, cleanup := startTestRegistry(t)
 	defer cleanup()
@@ -210,7 +210,7 @@ func TestNetworkIDOverflowGuard(t *testing.T) {
 }
 
 func TestNetworkTokenJoinRule(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -252,7 +252,7 @@ func TestNetworkTokenJoinRule(t *testing.T) {
 }
 
 func TestNetworkInviteJoinRule(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -294,7 +294,7 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 }
 
 func TestNetworkDuplicateName(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -315,7 +315,7 @@ func TestNetworkDuplicateName(t *testing.T) {
 }
 
 func TestNetworkAlreadyMember(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -374,7 +374,7 @@ func TestHostnameRegistrationWarning(t *testing.T) {
 }
 
 func TestListNetworks(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
@@ -414,7 +414,7 @@ func TestListNetworks(t *testing.T) {
 }
 
 func TestListNodes(t *testing.T) {
-	t.Skip("custom networks are WIP")
+
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()

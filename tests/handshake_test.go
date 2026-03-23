@@ -259,7 +259,6 @@ func TestHandshakePendingApproveReject(t *testing.T) {
 }
 
 func TestHandshakeNetworkTrust(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	// Two nodes on the same non-backbone network should auto-approve handshakes
 
