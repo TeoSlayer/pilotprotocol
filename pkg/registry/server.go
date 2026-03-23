@@ -2503,6 +2503,7 @@ type DashboardNode struct {
 	Online     bool     `json:"online"`
 	TrustLinks int      `json:"trust_links"`
 	TaskExec   bool     `json:"task_exec"`
+	PoloScore  int      `json:"polo_score"`
 }
 
 // DashboardNetwork is a public-safe view of a network for the dashboard.
@@ -2595,6 +2596,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 			Online:     online,
 			TrustLinks: trustCount[node.ID],
 			TaskExec:   node.TaskExec,
+			PoloScore:  node.PoloScore,
 		})
 	}
 
