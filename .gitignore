@@ -94,5 +94,18 @@ cmd/spoof/
 # Blog messaging (internal)
 web/MESSAGING.md
 
+# Stale pre-compiled HTML (Astro generates these at build time)
+web/blog/*.html
+web/blog/style.css
+web/docs/*.html
+web/docs/style.css
+
+# Banner source copies (single source of truth: web/public/blog/banners/)
+web/blog/banners/
+
+# Duplicate assets (source of truth: web/public/)
+web/img/
+web/research/
+
 # Newsletter worker
 newsletter/
