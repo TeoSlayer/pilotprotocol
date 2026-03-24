@@ -128,7 +128,8 @@ func (env *TestEnv) AddDaemon(opts ...func(*daemon.Config)) *DaemonInfo {
 		ListenAddr:   ":0",
 		SocketPath:   sockPath,
 		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
-		Public:       true,         // tests default to public for free connectivity
+		Email:        fmt.Sprintf("test-%d@pilot.local", idx),
+		Public:       true, // tests default to public for free connectivity
 	}
 	for _, fn := range opts {
 		fn(&cfg)
@@ -164,7 +165,8 @@ func (env *TestEnv) AddDaemonOnly(opts ...func(*daemon.Config)) (*daemon.Daemon,
 		ListenAddr:   ":0",
 		SocketPath:   sockPath,
 		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
-		Public:       true,         // tests default to public for free connectivity
+		Email:        fmt.Sprintf("test-%d@pilot.local", idx),
+		Public:       true, // tests default to public for free connectivity
 	}
 	for _, fn := range opts {
 		fn(&cfg)

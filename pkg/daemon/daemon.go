@@ -10,7 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
@@ -29,7 +31,8 @@ type Config struct {
 	RegistryTLS         bool   // use TLS for registry connection
 	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning
 	IdentityPath        string // path to persist Ed25519 identity (empty = no persistence)
-	Owner               string // owner identifier (email) for key rotation recovery
+	Email               string // email address for account identification and key recovery
+	Owner               string // deprecated: use Email instead
 
 	Endpoint string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
 	Public   bool   // make this node's endpoint publicly discoverable
@@ -250,6 +253,35 @@ func (d *Daemon) reapPerSrcSYN() {
 }
 
 func (d *Daemon) Start() error {
+	// 0. Resolve email: flag > owner (deprecated) > account file
+	email := d.config.Email
+	if email == "" && d.config.Owner != "" {
+		email = d.config.Owner
+	}
+	if email == "" && d.config.IdentityPath != "" {
+		acctPath := account.PathFromIdentity(d.config.IdentityPath)
+		if acct, err := account.Load(acctPath); err == nil && acct != nil {
+			email = acct.Email
+			slog.Info("loaded email from account file", "path", acctPath)
+		}
+	}
+	if email == "" {
+		return fmt.Errorf("email address required: use -email you@example.com")
+	}
+	if err := validate.Email(email); err != nil {
+		return fmt.Errorf("invalid email: %w", err)
+	}
+	d.config.Email = email
+	d.config.Owner = email // keep Owner in sync for registry and DaemonInfo
+
+	// Persist email to account file (if identity path is set)
+	if d.config.IdentityPath != "" {
+		acctPath := account.PathFromIdentity(d.config.IdentityPath)
+		if err := account.Save(acctPath, &account.Account{Email: email}); err != nil {
+			slog.Warn("failed to save account file", "error", err)
+		}
+	}
+
 	// 1. Discover our public endpoint via beacon using a temporary UDP socket.
 	// If -endpoint is set, skip STUN and use the fixed address (for cloud VMs).
 	var registrationAddr string
