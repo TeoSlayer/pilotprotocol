@@ -309,6 +309,52 @@ func TestNameserverMultipleClients(t *testing.T) {
 	t.Logf("both clients resolved correctly: B=%s, C=%s", addrB, addrC)
 }
 
+// TestNameserverReapExpired verifies that expired records are reaped.
+func TestNameserverReapExpired(t *testing.T) {
+	t.Parallel()
+
+	store := nameserver.NewRecordStore()
+	defer store.Close()
+
+	// Set TTL to zero so all records are immediately expired
+	store.SetTTL(0)
+
+	// Register A, N, and S records
+	store.RegisterA("reap-a", protocol.AddrZero)
+	store.RegisterN("reap-n", 42)
+	store.RegisterS("reap-s", protocol.AddrZero, 1, 7)
+
+	// Verify records exist before reap
+	_, err := store.LookupA("reap-a")
+	if err != nil {
+		t.Fatalf("LookupA before reap: %v", err)
+	}
+
+	// Force reap — all records should be removed (TTL=0)
+	time.Sleep(time.Millisecond) // ensure time.Now() > CreatedAt
+	store.Reap()
+
+	// Verify A record is gone
+	_, err = store.LookupA("reap-a")
+	if err == nil {
+		t.Error("expected A record to be reaped")
+	}
+
+	// Verify N record is gone
+	_, err = store.LookupN("reap-n")
+	if err == nil {
+		t.Error("expected N record to be reaped")
+	}
+
+	// Verify S record is gone
+	entries := store.LookupS(1, 7)
+	if len(entries) > 0 {
+		t.Error("expected S record to be reaped")
+	}
+
+	t.Log("all expired records reaped successfully")
+}
+
 var _ = protocol.AddrZero // keep protocol import
 var _ = os.Remove         // keep os import
 var _ = filepath.Join     // keep filepath import

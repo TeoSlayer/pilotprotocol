@@ -199,13 +199,6 @@ func (tm *TunnelManager) SetPeerVerifyFunc(fn func(uint32) (ed25519.PublicKey, e
 	tm.mu.Unlock()
 }
 
-// SetPeerPubKey caches a peer's Ed25519 public key for authentication.
-func (tm *TunnelManager) SetPeerPubKey(nodeID uint32, pubKey ed25519.PublicKey) {
-	tm.mu.Lock()
-	tm.peerPubKeys[nodeID] = pubKey
-	tm.mu.Unlock()
-}
-
 // SetBeaconAddr configures the beacon address for NAT hole-punching and relay.
 func (tm *TunnelManager) SetBeaconAddr(addr string) error {
 	a, err := net.ResolveUDPAddr("udp", addr)
@@ -767,42 +760,6 @@ func (tm *TunnelManager) buildKeyExchangeFrame() []byte {
 	binary.BigEndian.PutUint32(frame[4:8], tm.loadNodeID())
 	copy(frame[8:40], tm.pubKey)
 	return frame
-}
-
-// sendKeyExchangeAuto sends an authenticated key exchange if identity is available,
-// otherwise falls back to unauthenticated. Uses addr-based direct send (for backward compat).
-func (tm *TunnelManager) sendKeyExchangeAuto(addr *net.UDPAddr) {
-	tm.mu.RLock()
-	hasIdentity := tm.identity != nil
-	tm.mu.RUnlock()
-	if hasIdentity {
-		tm.sendAuthKeyExchange(addr)
-	} else {
-		tm.sendKeyExchange(addr)
-	}
-}
-
-// sendAuthKeyExchange sends our X25519 public key + Ed25519 signature to a peer (direct).
-func (tm *TunnelManager) sendAuthKeyExchange(addr *net.UDPAddr) {
-	frame := tm.buildAuthKeyExchangeFrame()
-	if frame == nil {
-		tm.sendKeyExchange(addr)
-		return
-	}
-	if _, err := tm.conn.WriteToUDP(frame, addr); err != nil {
-		slog.Error("send auth key exchange failed", "addr", addr, "error", err)
-	}
-}
-
-// sendKeyExchange sends our public key to a peer (unauthenticated, direct).
-func (tm *TunnelManager) sendKeyExchange(addr *net.UDPAddr) {
-	frame := tm.buildKeyExchangeFrame()
-	if frame == nil {
-		return
-	}
-	if _, err := tm.conn.WriteToUDP(frame, addr); err != nil {
-		slog.Error("send key exchange failed", "addr", addr, "error", err)
-	}
 }
 
 // flushPending sends any queued packets for a peer now that encryption is ready.

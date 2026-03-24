@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -1532,4 +1533,125 @@ func TestTaskResultsEndToEnd(t *testing.T) {
 	if string(data) != "Task completed successfully" {
 		t.Errorf("expected result text, got %q", string(data))
 	}
+}
+
+// TestTaskSubmitServerStandalone tests the standalone tasksubmit.Server.
+func TestTaskSubmitServerStandalone(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	// Daemon A with built-in task submit DISABLED — we'll use the standalone server
+	a := env.AddDaemon(func(c *daemon.Config) { c.DisableTaskSubmit = true })
+	b := env.AddDaemon()
+
+	// Start standalone tasksubmit.Server on daemon A
+	accepted := make(chan *tasksubmit.SubmitRequest, 1)
+	srv := tasksubmit.NewServer(a.Driver, func(conn net.Conn, req *tasksubmit.SubmitRequest) bool {
+		accepted <- req
+		return true
+	})
+	go srv.ListenAndServe()
+	time.Sleep(100 * time.Millisecond) // wait for listen
+
+	// B submits a task to A via the tasksubmit client
+	client, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask("standalone test task", a.Daemon.Addr().String())
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusAccepted {
+		t.Errorf("expected accepted, got status %d", resp.Status)
+	}
+	t.Logf("response: status=%d message=%q", resp.Status, resp.Message)
+
+	// Verify handler received the request
+	select {
+	case req := <-accepted:
+		if req.TaskDescription != "standalone test task" {
+			t.Errorf("expected description, got %q", req.TaskDescription)
+		}
+		t.Logf("handler received: %q", req.TaskDescription)
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not receive request")
+	}
+}
+
+// TestCalculateTimeStagedEdgeCases tests empty/invalid inputs for CalculateTimeStaged.
+func TestCalculateTimeStagedEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "calc-staged-empty"}
+	tf.CalculateTimeStaged()
+	if tf.ExecuteStartedAt != "" {
+		t.Errorf("expected empty ExecuteStartedAt for empty StagedAt, got %q", tf.ExecuteStartedAt)
+	}
+	if tf.TimeStagedMs != 0 {
+		t.Errorf("expected zero TimeStagedMs for empty StagedAt, got %d", tf.TimeStagedMs)
+	}
+
+	// Invalid StagedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "calc-staged-invalid", StagedAt: "not-a-date"}
+	tf2.CalculateTimeStaged()
+	if tf2.ExecuteStartedAt != "" {
+		t.Error("expected empty ExecuteStartedAt for invalid StagedAt")
+	}
+}
+
+// TestCalculateTimeCpuEdgeCases tests empty/invalid inputs for CalculateTimeCpu.
+func TestCalculateTimeCpuEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty ExecuteStartedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "calc-cpu-empty"}
+	tf.CalculateTimeCpu()
+	if tf.CompletedAt != "" {
+		t.Errorf("expected empty CompletedAt for empty ExecuteStartedAt, got %q", tf.CompletedAt)
+	}
+	if tf.TimeCpuMs != 0 {
+		t.Errorf("expected zero TimeCpuMs for empty ExecuteStartedAt, got %d", tf.TimeCpuMs)
+	}
+
+	// Invalid ExecuteStartedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "calc-cpu-invalid", ExecuteStartedAt: "garbage"}
+	tf2.CalculateTimeCpu()
+	if tf2.CompletedAt != "" {
+		t.Error("expected empty CompletedAt for invalid ExecuteStartedAt")
+	}
+}
+
+// TestTaskSubmitServerReject tests the standalone server rejection path.
+func TestTaskSubmitServerReject(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	a := env.AddDaemon(func(c *daemon.Config) { c.DisableTaskSubmit = true })
+	b := env.AddDaemon()
+
+	// Server that always rejects
+	srv := tasksubmit.NewServer(a.Driver, func(conn net.Conn, req *tasksubmit.SubmitRequest) bool {
+		return false
+	})
+	go srv.ListenAndServe()
+	time.Sleep(100 * time.Millisecond)
+
+	client, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask("reject me", a.Daemon.Addr().String())
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusRejected {
+		t.Errorf("expected rejected (status %d), got %d", tasksubmit.StatusRejected, resp.Status)
+	}
+	t.Logf("rejection response: status=%d message=%q", resp.Status, resp.Message)
 }

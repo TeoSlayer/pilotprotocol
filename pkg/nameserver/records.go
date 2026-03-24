@@ -143,6 +143,18 @@ func (rs *RecordStore) reapExpired() {
 	}
 }
 
+// SetTTL overrides the default record TTL.
+func (rs *RecordStore) SetTTL(d time.Duration) {
+	rs.mu.Lock()
+	rs.ttl = d
+	rs.mu.Unlock()
+}
+
+// Reap forces an immediate removal of expired records.
+func (rs *RecordStore) Reap() {
+	rs.reapExpired()
+}
+
 // SetStorePath enables persistence to the given file path and loads existing data.
 func (rs *RecordStore) SetStorePath(path string) {
 	rs.mu.Lock()

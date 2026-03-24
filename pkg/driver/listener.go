@@ -72,12 +72,6 @@ func (l *Listener) Close() error {
 	return nil
 }
 
-// closeFull closes the listener and unregisters the accept channel.
-func (l *Listener) closeFull() {
-	l.Close()
-	l.ipc.unregisterAcceptCh(l.port)
-}
-
 func (l *Listener) Addr() net.Addr {
 	return pilotAddr(protocol.SocketAddr{Port: l.port})
 }
