@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
@@ -1378,5 +1379,157 @@ func TestTaskResultMessageTimeMetadata(t *testing.T) {
 	}
 	if _, ok := decoded["time_cpu_ms"]; !ok {
 		t.Error("time_cpu_ms should be in JSON")
+	}
+}
+
+// TestTaskStatusUpdateEndToEnd tests the full status update flow over the protocol.
+// B sends a TypeStatusUpdate frame to A (the submitter), which triggers handleTaskStatusUpdate.
+func TestTaskStatusUpdateEndToEnd(t *testing.T) {
+	env := NewTestEnv(t)
+	a := env.AddDaemon()
+	b := env.AddDaemon()
+
+	// Establish mutual trust
+	if _, err := a.Driver.Handshake(b.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake a→b: %v", err)
+	}
+	if _, err := b.Driver.Handshake(a.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake b→a: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// A submits task to B
+	client, err := tasksubmit.Dial(a.Driver, b.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	resp, err := client.SubmitTask("Status update test task", b.Daemon.Addr().String())
+	client.Close()
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusAccepted {
+		t.Fatalf("expected accepted, got %d: %s", resp.Status, resp.Message)
+	}
+	taskID := resp.TaskID
+
+	// Manually create the submitter-side task file (simulates what pilotctl does)
+	tf := tasksubmit.NewTaskFile(taskID, "Status update test task",
+		a.Daemon.Addr().String(), b.Daemon.Addr().String())
+	if err := daemon.SaveTaskFile(tf, true); err != nil {
+		t.Fatalf("save submitter task file: %v", err)
+	}
+	defer removeTaskFile(taskID, true)
+	defer removeTaskFile(taskID, false)
+
+	// B sends status update to A (new connection to A's port 1003)
+	updateClient, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial for status update: %v", err)
+	}
+	if err := updateClient.SendStatusUpdate(taskID, tasksubmit.TaskStatusExecuting, "Starting execution"); err != nil {
+		t.Fatalf("send status update: %v", err)
+	}
+	updateClient.Close()
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify submitter's task file was updated
+	loaded, err := daemon.LoadSubmittedTaskFile(taskID)
+	if err != nil {
+		t.Fatalf("load submitted: %v", err)
+	}
+	if loaded.Status != tasksubmit.TaskStatusExecuting {
+		t.Errorf("expected EXECUTING, got %q", loaded.Status)
+	}
+	if loaded.StatusJustification != "Starting execution" {
+		t.Errorf("expected justification, got %q", loaded.StatusJustification)
+	}
+}
+
+// TestTaskResultsEndToEnd tests the full results flow over the protocol.
+// B sends TypeSendResults frame to A, which triggers handleTaskResults.
+func TestTaskResultsEndToEnd(t *testing.T) {
+	env := NewTestEnv(t)
+	a := env.AddDaemon()
+	b := env.AddDaemon()
+
+	// Establish mutual trust
+	if _, err := a.Driver.Handshake(b.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake a→b: %v", err)
+	}
+	if _, err := b.Driver.Handshake(a.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake b→a: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// A submits task to B
+	client, err := tasksubmit.Dial(a.Driver, b.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	resp, err := client.SubmitTask("Results test task", b.Daemon.Addr().String())
+	client.Close()
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	taskID := resp.TaskID
+
+	// Create submitter-side task file with valid pilot addresses
+	tf := tasksubmit.NewTaskFile(taskID, "Results test task",
+		a.Daemon.Addr().String(), b.Daemon.Addr().String())
+	if err := daemon.SaveTaskFile(tf, true); err != nil {
+		t.Fatalf("save submitter task file: %v", err)
+	}
+	defer removeTaskFile(taskID, true)
+	defer removeTaskFile(taskID, false)
+
+	// Clean up result files after test
+	defer func() {
+		home, _ := os.UserHomeDir()
+		os.Remove(home + "/.pilot/tasks/results/" + taskID + "_result.txt")
+	}()
+
+	// B sends results to A
+	resultsClient, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial for results: %v", err)
+	}
+	msg := &tasksubmit.TaskResultMessage{
+		TaskID:      taskID,
+		ResultType:  "text",
+		ResultText:  "Task completed successfully",
+		CompletedAt: time.Now().UTC().Format(time.RFC3339),
+		TimeIdleMs:  1000,
+		TimeStagedMs: 2000,
+		TimeCpuMs:   5000,
+	}
+	if err := resultsClient.SendResults(msg); err != nil {
+		t.Fatalf("send results: %v", err)
+	}
+	resultsClient.Close()
+
+	// Wait for processing
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify submitter's task file was updated to COMPLETED
+	loaded, err := daemon.LoadSubmittedTaskFile(taskID)
+	if err != nil {
+		t.Fatalf("load submitted: %v", err)
+	}
+	if loaded.Status != tasksubmit.TaskStatusCompleted {
+		t.Errorf("expected COMPLETED, got %q", loaded.Status)
+	}
+
+	// Verify result file was saved
+	home, _ := os.UserHomeDir()
+	resultFile := home + "/.pilot/tasks/results/" + taskID + "_result.txt"
+	data, err := os.ReadFile(resultFile)
+	if err != nil {
+		t.Fatalf("read result file: %v", err)
+	}
+	if string(data) != "Task completed successfully" {
+		t.Errorf("expected result text, got %q", string(data))
 	}
 }
