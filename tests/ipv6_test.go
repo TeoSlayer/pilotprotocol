@@ -58,6 +58,7 @@ func TestIPv6EndToEnd(t *testing.T) {
 			BeaconAddr:   beaconAddr,
 			ListenAddr:   "[::1]:0",
 			SocketPath:   sockPath,
+			Email:        fmt.Sprintf("test-%d@pilot.local", idx),
 			Public:       true,
 		})
 		if err := d.Start(); err != nil {

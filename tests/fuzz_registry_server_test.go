@@ -640,7 +640,7 @@ func TestRegistryClientSetHostname(t *testing.T) {
 		t.Fatalf("expected set_hostname_ok, got %v", hnResp["type"])
 	}
 
-	resolveResp, err := c.ResolveHostname("myagent")
+	resolveResp, err := c.ResolveHostnameAs(nodeID, "myagent")
 	if err != nil {
 		t.Fatalf("ResolveHostname: %v", err)
 	}

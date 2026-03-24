@@ -11,7 +11,6 @@ import (
 // TestAdminTokenRequired verifies that with an admin token configured,
 // create_network requires the correct token.
 func TestAdminTokenRequired(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -54,7 +53,6 @@ func TestAdminTokenRequired(t *testing.T) {
 // TestAdminTokenJoinLeaveGated verifies that join_network and leave_network
 // also require admin token.
 func TestAdminTokenJoinLeaveGated(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	env := NewTestEnv(t)
 

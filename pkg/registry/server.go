@@ -103,6 +103,9 @@ type Server struct {
 	// Prometheus metrics
 	metrics *registryMetrics
 
+	// Clock (overridable for testing)
+	now func() time.Time
+
 	// Shutdown
 	done chan struct{}
 }
@@ -329,6 +332,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		done:               make(chan struct{}),
 		saveCh:             make(chan struct{}, 1),
 		saveDone:           make(chan struct{}),
+		now:                time.Now,
 	}
 
 	go s.saveLoop()
@@ -382,6 +386,19 @@ func (s *Server) SetAdminToken(token string) {
 	s.mu.Lock()
 	s.adminToken = token
 	s.mu.Unlock()
+}
+
+// SetClock overrides the time source for testing.
+func (s *Server) SetClock(fn func() time.Time) {
+	s.mu.Lock()
+	s.now = fn
+	s.mu.Unlock()
+}
+
+// Reap triggers stale node and beacon cleanup (for testing).
+func (s *Server) Reap() {
+	s.reapStaleNodes()
+	s.reapStaleBeacons()
 }
 
 // SetReplicationToken sets the token required for subscribe_replication (H4 fix).
@@ -520,7 +537,7 @@ func (s *Server) reapLoop() {
 }
 
 func (s *Server) reapStaleNodes() {
-	threshold := time.Now().Add(-staleNodeThreshold)
+	threshold := s.now().Add(-staleNodeThreshold)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -554,7 +571,7 @@ func (s *Server) reapStaleNodes() {
 }
 
 func (s *Server) reapStaleBeacons() {
-	now := time.Now()
+	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, b := range s.beacons {
@@ -696,11 +713,11 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		}
 		return s.handleRegister(msg, remoteAddr)
 	case "create_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleCreateNetwork(msg)
 	case "join_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleJoinNetwork(msg)
 	case "leave_network":
-		return nil, fmt.Errorf("custom networks are WIP — only backbone (network 0) is available")
+		return s.handleLeaveNetwork(msg)
 	case "lookup":
 		return s.handleLookup(msg)
 	case "resolve":
@@ -725,6 +742,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleReportTrust(msg)
 	case "revoke_trust":
 		return s.handleRevokeTrust(msg)
+	case "check_trust":
+		return s.handleCheckTrust(msg)
 	case "request_handshake":
 		return s.handleRequestHandshake(msg)
 	case "poll_handshakes":
@@ -1488,6 +1507,44 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 	}, nil
 }
 
+// handleCheckTrust checks if a trust pair exists between two nodes OR if they share a non-backbone network.
+func (s *Server) handleCheckTrust(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeA := jsonUint32(msg, "node_id")
+	nodeB := jsonUint32(msg, "peer_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	trusted := s.trustPairs[trustPairKey(nodeA, nodeB)]
+
+	// Also check shared non-backbone network
+	if !trusted {
+		nA, okA := s.nodes[nodeA]
+		nB, okB := s.nodes[nodeB]
+		if okA && okB {
+			for _, aNet := range nA.Networks {
+				if aNet == 0 {
+					continue
+				}
+				for _, bNet := range nB.Networks {
+					if aNet == bNet {
+						trusted = true
+						break
+					}
+				}
+				if trusted {
+					break
+				}
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"type":    "check_trust_ok",
+		"trusted": trusted,
+	}, nil
+}
+
 func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	public, _ := msg["public"].(bool)
@@ -1848,6 +1905,46 @@ func (s *Server) handleResolveHostname(msg map[string]interface{}) (map[string]i
 		return nil, fmt.Errorf("hostname %q maps to missing node %d", hostname, nodeID)
 	}
 
+	// Privacy check: private nodes require trust or shared network
+	if !node.Public {
+		requesterID := jsonUint32(msg, "requester_id")
+		allowed := false
+
+		// Self-resolve always allowed
+		if requesterID == nodeID {
+			allowed = true
+		}
+
+		// Check trust pair
+		if !allowed && s.trustPairs[trustPairKey(requesterID, nodeID)] {
+			allowed = true
+		}
+
+		// Check shared non-backbone network
+		if !allowed {
+			if requester, rOk := s.nodes[requesterID]; rOk {
+				for _, rNet := range requester.Networks {
+					if rNet == 0 {
+						continue
+					}
+					for _, tNet := range node.Networks {
+						if rNet == tNet {
+							allowed = true
+							break
+						}
+					}
+					if allowed {
+						break
+					}
+				}
+			}
+		}
+
+		if !allowed {
+			return nil, fmt.Errorf("resolve denied: hostname %q belongs to a private node", hostname)
+		}
+	}
+
 	return map[string]interface{}{
 		"type":     "resolve_hostname_ok",
 		"node_id":  node.ID,
@@ -1873,7 +1970,7 @@ func (s *Server) handleBeaconRegister(msg map[string]interface{}) (map[string]in
 	s.beacons[beaconID] = &beaconEntry{
 		ID:       beaconID,
 		Addr:     addr,
-		LastSeen: time.Now(),
+		LastSeen: s.now(),
 	}
 	s.mu.Unlock()
 
@@ -1890,7 +1987,7 @@ func (s *Server) handleBeaconList() (map[string]interface{}, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	now := time.Now()
+	now := s.now()
 	beacons := make([]map[string]interface{}, 0, len(s.beacons))
 	for _, b := range s.beacons {
 		if now.Sub(b.LastSeen) > beaconTTL {

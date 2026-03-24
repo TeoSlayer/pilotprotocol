@@ -1113,36 +1113,3 @@ func (d *Daemon) handleTaskResults(adapter *connAdapter, conn *Connection, frame
 	}
 }
 
-// updatePoloScores updates polo scores for task processing.
-func (d *Daemon) updatePoloScores(receiverNode, submitterNode uint32) {
-	if d.regConn == nil {
-		slog.Warn("tasksubmit: cannot update polo score, no registry connection")
-		return
-	}
-
-	// Receiver gets +1 polo score
-	if _, err := d.regConn.UpdatePoloScore(receiverNode, 1); err != nil {
-		slog.Warn("tasksubmit: failed to update receiver polo score",
-			"node_id", receiverNode,
-			"error", err,
-		)
-	} else {
-		slog.Info("tasksubmit: polo score updated",
-			"node_id", receiverNode,
-			"delta", 1,
-		)
-	}
-
-	// Submitter gets -1 polo score
-	if _, err := d.regConn.UpdatePoloScore(submitterNode, -1); err != nil {
-		slog.Warn("tasksubmit: failed to update submitter polo score",
-			"node_id", submitterNode,
-			"error", err,
-		)
-	} else {
-		slog.Info("tasksubmit: polo score updated",
-			"node_id", submitterNode,
-			"delta", -1,
-		)
-	}
-}

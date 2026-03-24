@@ -10,7 +10,6 @@ import (
 )
 
 func TestBroadcast(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	env := NewTestEnv(t)
 

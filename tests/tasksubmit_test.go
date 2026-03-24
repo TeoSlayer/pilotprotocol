@@ -1,12 +1,16 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
@@ -1378,5 +1382,598 @@ func TestTaskResultMessageTimeMetadata(t *testing.T) {
 	}
 	if _, ok := decoded["time_cpu_ms"]; !ok {
 		t.Error("time_cpu_ms should be in JSON")
+	}
+}
+
+// TestTaskStatusUpdateEndToEnd tests the full status update flow over the protocol.
+// B sends a TypeStatusUpdate frame to A (the submitter), which triggers handleTaskStatusUpdate.
+func TestTaskStatusUpdateEndToEnd(t *testing.T) {
+	env := NewTestEnv(t)
+	a := env.AddDaemon()
+	b := env.AddDaemon()
+
+	// Establish mutual trust
+	if _, err := a.Driver.Handshake(b.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake a→b: %v", err)
+	}
+	if _, err := b.Driver.Handshake(a.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake b→a: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// A submits task to B
+	client, err := tasksubmit.Dial(a.Driver, b.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	resp, err := client.SubmitTask("Status update test task", b.Daemon.Addr().String())
+	client.Close()
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusAccepted {
+		t.Fatalf("expected accepted, got %d: %s", resp.Status, resp.Message)
+	}
+	taskID := resp.TaskID
+
+	// Manually create the submitter-side task file (simulates what pilotctl does)
+	tf := tasksubmit.NewTaskFile(taskID, "Status update test task",
+		a.Daemon.Addr().String(), b.Daemon.Addr().String())
+	if err := daemon.SaveTaskFile(tf, true); err != nil {
+		t.Fatalf("save submitter task file: %v", err)
+	}
+	defer removeTaskFile(taskID, true)
+	defer removeTaskFile(taskID, false)
+
+	// B sends status update to A (new connection to A's port 1003)
+	updateClient, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial for status update: %v", err)
+	}
+	if err := updateClient.SendStatusUpdate(taskID, tasksubmit.TaskStatusExecuting, "Starting execution"); err != nil {
+		t.Fatalf("send status update: %v", err)
+	}
+	updateClient.Close()
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify submitter's task file was updated
+	loaded, err := daemon.LoadSubmittedTaskFile(taskID)
+	if err != nil {
+		t.Fatalf("load submitted: %v", err)
+	}
+	if loaded.Status != tasksubmit.TaskStatusExecuting {
+		t.Errorf("expected EXECUTING, got %q", loaded.Status)
+	}
+	if loaded.StatusJustification != "Starting execution" {
+		t.Errorf("expected justification, got %q", loaded.StatusJustification)
+	}
+}
+
+// TestTaskResultsEndToEnd tests the full results flow over the protocol.
+// B sends TypeSendResults frame to A, which triggers handleTaskResults.
+func TestTaskResultsEndToEnd(t *testing.T) {
+	env := NewTestEnv(t)
+	a := env.AddDaemon()
+	b := env.AddDaemon()
+
+	// Establish mutual trust
+	if _, err := a.Driver.Handshake(b.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake a→b: %v", err)
+	}
+	if _, err := b.Driver.Handshake(a.Daemon.NodeID(), "test"); err != nil {
+		t.Fatalf("handshake b→a: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// A submits task to B
+	client, err := tasksubmit.Dial(a.Driver, b.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	resp, err := client.SubmitTask("Results test task", b.Daemon.Addr().String())
+	client.Close()
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	taskID := resp.TaskID
+
+	// Create submitter-side task file with valid pilot addresses
+	tf := tasksubmit.NewTaskFile(taskID, "Results test task",
+		a.Daemon.Addr().String(), b.Daemon.Addr().String())
+	if err := daemon.SaveTaskFile(tf, true); err != nil {
+		t.Fatalf("save submitter task file: %v", err)
+	}
+	defer removeTaskFile(taskID, true)
+	defer removeTaskFile(taskID, false)
+
+	// Clean up result files after test
+	defer func() {
+		home, _ := os.UserHomeDir()
+		os.Remove(home + "/.pilot/tasks/results/" + taskID + "_result.txt")
+	}()
+
+	// B sends results to A
+	resultsClient, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial for results: %v", err)
+	}
+	msg := &tasksubmit.TaskResultMessage{
+		TaskID:      taskID,
+		ResultType:  "text",
+		ResultText:  "Task completed successfully",
+		CompletedAt: time.Now().UTC().Format(time.RFC3339),
+		TimeIdleMs:  1000,
+		TimeStagedMs: 2000,
+		TimeCpuMs:   5000,
+	}
+	if err := resultsClient.SendResults(msg); err != nil {
+		t.Fatalf("send results: %v", err)
+	}
+	resultsClient.Close()
+
+	// Wait for processing
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify submitter's task file was updated to COMPLETED
+	loaded, err := daemon.LoadSubmittedTaskFile(taskID)
+	if err != nil {
+		t.Fatalf("load submitted: %v", err)
+	}
+	if loaded.Status != tasksubmit.TaskStatusCompleted {
+		t.Errorf("expected COMPLETED, got %q", loaded.Status)
+	}
+
+	// Verify result file was saved
+	home, _ := os.UserHomeDir()
+	resultFile := home + "/.pilot/tasks/results/" + taskID + "_result.txt"
+	data, err := os.ReadFile(resultFile)
+	if err != nil {
+		t.Fatalf("read result file: %v", err)
+	}
+	if string(data) != "Task completed successfully" {
+		t.Errorf("expected result text, got %q", string(data))
+	}
+}
+
+// TestTaskSubmitServerStandalone tests the standalone tasksubmit.Server.
+func TestTaskSubmitServerStandalone(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	// Daemon A with built-in task submit DISABLED — we'll use the standalone server
+	a := env.AddDaemon(func(c *daemon.Config) { c.DisableTaskSubmit = true })
+	b := env.AddDaemon()
+
+	// Start standalone tasksubmit.Server on daemon A
+	accepted := make(chan *tasksubmit.SubmitRequest, 1)
+	srv := tasksubmit.NewServer(a.Driver, func(conn net.Conn, req *tasksubmit.SubmitRequest) bool {
+		accepted <- req
+		return true
+	})
+	go srv.ListenAndServe()
+	time.Sleep(100 * time.Millisecond) // wait for listen
+
+	// B submits a task to A via the tasksubmit client
+	client, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask("standalone test task", a.Daemon.Addr().String())
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusAccepted {
+		t.Errorf("expected accepted, got status %d", resp.Status)
+	}
+	t.Logf("response: status=%d message=%q", resp.Status, resp.Message)
+
+	// Verify handler received the request
+	select {
+	case req := <-accepted:
+		if req.TaskDescription != "standalone test task" {
+			t.Errorf("expected description, got %q", req.TaskDescription)
+		}
+		t.Logf("handler received: %q", req.TaskDescription)
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not receive request")
+	}
+}
+
+// TestCalculateTimeStagedEdgeCases tests empty/invalid inputs for CalculateTimeStaged.
+func TestCalculateTimeStagedEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "calc-staged-empty"}
+	tf.CalculateTimeStaged()
+	if tf.ExecuteStartedAt != "" {
+		t.Errorf("expected empty ExecuteStartedAt for empty StagedAt, got %q", tf.ExecuteStartedAt)
+	}
+	if tf.TimeStagedMs != 0 {
+		t.Errorf("expected zero TimeStagedMs for empty StagedAt, got %d", tf.TimeStagedMs)
+	}
+
+	// Invalid StagedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "calc-staged-invalid", StagedAt: "not-a-date"}
+	tf2.CalculateTimeStaged()
+	if tf2.ExecuteStartedAt != "" {
+		t.Error("expected empty ExecuteStartedAt for invalid StagedAt")
+	}
+}
+
+// TestCalculateTimeCpuEdgeCases tests empty/invalid inputs for CalculateTimeCpu.
+func TestCalculateTimeCpuEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty ExecuteStartedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "calc-cpu-empty"}
+	tf.CalculateTimeCpu()
+	if tf.CompletedAt != "" {
+		t.Errorf("expected empty CompletedAt for empty ExecuteStartedAt, got %q", tf.CompletedAt)
+	}
+	if tf.TimeCpuMs != 0 {
+		t.Errorf("expected zero TimeCpuMs for empty ExecuteStartedAt, got %d", tf.TimeCpuMs)
+	}
+
+	// Invalid ExecuteStartedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "calc-cpu-invalid", ExecuteStartedAt: "garbage"}
+	tf2.CalculateTimeCpu()
+	if tf2.CompletedAt != "" {
+		t.Error("expected empty CompletedAt for invalid ExecuteStartedAt")
+	}
+}
+
+// TestTaskSubmitServerReject tests the standalone server rejection path.
+func TestTaskSubmitServerReject(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	a := env.AddDaemon(func(c *daemon.Config) { c.DisableTaskSubmit = true })
+	b := env.AddDaemon()
+
+	// Server that always rejects
+	srv := tasksubmit.NewServer(a.Driver, func(conn net.Conn, req *tasksubmit.SubmitRequest) bool {
+		return false
+	})
+	go srv.ListenAndServe()
+	time.Sleep(100 * time.Millisecond)
+
+	client, err := tasksubmit.Dial(b.Driver, a.Daemon.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SubmitTask("reject me", a.Daemon.Addr().String())
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if resp.Status != tasksubmit.StatusRejected {
+		t.Errorf("expected rejected (status %d), got %d", tasksubmit.StatusRejected, resp.Status)
+	}
+	t.Logf("rejection response: status=%d message=%q", resp.Status, resp.Message)
+}
+
+// TestUnmarshalTypeMismatch tests all unmarshal functions reject wrong frame types.
+func TestUnmarshalTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	// Create a valid submit frame
+	submitFrame := &tasksubmit.Frame{Type: tasksubmit.TypeSubmit, Payload: []byte(`{"task_id":"t1"}`)}
+	resultFrame := &tasksubmit.Frame{Type: tasksubmit.TypeResult, Payload: []byte(`{"status":"ok"}`)}
+	statusFrame := &tasksubmit.Frame{Type: tasksubmit.TypeStatusUpdate, Payload: []byte(`{"task_id":"t1"}`)}
+	resultsFrame := &tasksubmit.Frame{Type: tasksubmit.TypeSendResults, Payload: []byte(`{"task_id":"t1"}`)}
+
+	// UnmarshalSubmitRequest expects TypeSubmit — give it TypeResult
+	_, err := tasksubmit.UnmarshalSubmitRequest(resultFrame)
+	if err == nil {
+		t.Error("UnmarshalSubmitRequest should reject non-TypeSubmit frame")
+	}
+
+	// UnmarshalTaskResult expects TypeResult — give it TypeSubmit
+	_, err = tasksubmit.UnmarshalTaskResult(submitFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskResult should reject non-TypeResult frame")
+	}
+
+	// UnmarshalTaskStatusUpdate expects TypeStatusUpdate — give it TypeResult
+	_, err = tasksubmit.UnmarshalTaskStatusUpdate(resultFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskStatusUpdate should reject non-TypeStatusUpdate frame")
+	}
+
+	// UnmarshalTaskResultMessage expects TypeSendResults — give it TypeSubmit
+	_, err = tasksubmit.UnmarshalTaskResultMessage(submitFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskResultMessage should reject non-TypeSendResults frame")
+	}
+
+	// Verify correct types DO work
+	_, err = tasksubmit.UnmarshalTaskStatusUpdate(statusFrame)
+	if err != nil {
+		t.Errorf("UnmarshalTaskStatusUpdate should accept TypeStatusUpdate: %v", err)
+	}
+
+	_, err = tasksubmit.UnmarshalTaskResultMessage(resultsFrame)
+	if err != nil {
+		t.Errorf("UnmarshalTaskResultMessage should accept TypeSendResults: %v", err)
+	}
+}
+
+// TestFrameReadWriteRoundTrip tests WriteFrame/ReadFrame with actual bytes buffers.
+func TestFrameReadWriteRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ftype   uint32
+		payload []byte
+	}{
+		{"empty payload", tasksubmit.TypeSubmit, []byte{}},
+		{"small payload", tasksubmit.TypeResult, []byte(`{"status":"ok"}`)},
+		{"status update", tasksubmit.TypeStatusUpdate, []byte(`{"task_id":"abc","status":"EXECUTING"}`)},
+		{"send results", tasksubmit.TypeSendResults, []byte(`{"task_id":"abc","result_type":"text"}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			frame := &tasksubmit.Frame{Type: tt.ftype, Payload: tt.payload}
+			if err := tasksubmit.WriteFrame(&buf, frame); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			got, err := tasksubmit.ReadFrame(&buf)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+
+			if got.Type != tt.ftype {
+				t.Errorf("type: got %d, want %d", got.Type, tt.ftype)
+			}
+			if !bytes.Equal(got.Payload, tt.payload) {
+				t.Errorf("payload mismatch: got %q, want %q", got.Payload, tt.payload)
+			}
+		})
+	}
+}
+
+// TestFrameReadOversized tests ReadFrame rejects frames > 16MB.
+func TestFrameReadOversized(t *testing.T) {
+	t.Parallel()
+
+	// Craft a header claiming 32MB payload
+	var buf bytes.Buffer
+	var hdr [8]byte
+	binary.BigEndian.PutUint32(hdr[0:4], tasksubmit.TypeSubmit)
+	binary.BigEndian.PutUint32(hdr[4:8], 1<<25) // 32MB
+	buf.Write(hdr[:])
+
+	_, err := tasksubmit.ReadFrame(&buf)
+	if err == nil {
+		t.Error("ReadFrame should reject frames > 16MB")
+	}
+}
+
+// TestTaskStatusUpdateMarshalRoundTrip tests full round-trip of status update frames.
+func TestTaskStatusUpdateMarshalRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	update := &tasksubmit.TaskStatusUpdate{
+		TaskID:        "test-task-123",
+		Status:        tasksubmit.TaskStatusExecuting,
+		Justification: "Starting execution now",
+	}
+
+	frame, err := tasksubmit.MarshalTaskStatusUpdate(update)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if frame.Type != tasksubmit.TypeStatusUpdate {
+		t.Errorf("expected type %d, got %d", tasksubmit.TypeStatusUpdate, frame.Type)
+	}
+
+	parsed, err := tasksubmit.UnmarshalTaskStatusUpdate(frame)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.TaskID != update.TaskID {
+		t.Errorf("task_id: got %q, want %q", parsed.TaskID, update.TaskID)
+	}
+	if parsed.Status != update.Status {
+		t.Errorf("status: got %q, want %q", parsed.Status, update.Status)
+	}
+	if parsed.Justification != update.Justification {
+		t.Errorf("justification: got %q, want %q", parsed.Justification, update.Justification)
+	}
+}
+
+// TestTaskResultMessageMarshalRoundTrip tests full round-trip of result message frames.
+func TestTaskResultMessageMarshalRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	msg := &tasksubmit.TaskResultMessage{
+		TaskID:       "result-msg-test",
+		ResultType:   "text",
+		ResultText:   "Here are the results",
+		CompletedAt:  time.Now().UTC().Format(time.RFC3339),
+		TimeIdleMs:   1500,
+		TimeStagedMs: 3000,
+		TimeCpuMs:    60000,
+	}
+
+	frame, err := tasksubmit.MarshalTaskResultMessage(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if frame.Type != tasksubmit.TypeSendResults {
+		t.Errorf("expected type %d, got %d", tasksubmit.TypeSendResults, frame.Type)
+	}
+
+	parsed, err := tasksubmit.UnmarshalTaskResultMessage(frame)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.TaskID != msg.TaskID {
+		t.Errorf("task_id: got %q, want %q", parsed.TaskID, msg.TaskID)
+	}
+	if parsed.ResultType != msg.ResultType {
+		t.Errorf("result_type: got %q, want %q", parsed.ResultType, msg.ResultType)
+	}
+	if parsed.ResultText != msg.ResultText {
+		t.Errorf("result_text: got %q, want %q", parsed.ResultText, msg.ResultText)
+	}
+	if parsed.TimeCpuMs != msg.TimeCpuMs {
+		t.Errorf("time_cpu_ms: got %d, want %d", parsed.TimeCpuMs, msg.TimeCpuMs)
+	}
+}
+
+// TestTypeNameComplete tests all TypeName values including STATUS_UPDATE and SEND_RESULTS.
+func TestTypeNameComplete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typ  uint32
+		name string
+	}{
+		{tasksubmit.TypeSubmit, "SUBMIT"},
+		{tasksubmit.TypeResult, "RESULT"},
+		{tasksubmit.TypeStatusUpdate, "STATUS_UPDATE"},
+		{tasksubmit.TypeSendResults, "SEND_RESULTS"},
+		{0, "UNKNOWN(0)"},
+		{999, "UNKNOWN(999)"},
+	}
+
+	for _, tt := range tests {
+		name := tasksubmit.TypeName(tt.typ)
+		if name != tt.name {
+			t.Errorf("TypeName(%d) = %q, want %q", tt.typ, name, tt.name)
+		}
+	}
+}
+
+// TestTimeSinceCreationEdgeCases tests error paths for TimeSinceCreation.
+func TestTimeSinceCreationEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty CreatedAt
+	tf := &tasksubmit.TaskFile{TaskID: "tsc-empty"}
+	_, err := tf.TimeSinceCreation()
+	if err == nil {
+		t.Error("expected error for empty CreatedAt")
+	}
+
+	// Invalid CreatedAt
+	tf2 := &tasksubmit.TaskFile{TaskID: "tsc-invalid", CreatedAt: "not-a-date"}
+	_, err = tf2.TimeSinceCreation()
+	if err == nil {
+		t.Error("expected error for invalid CreatedAt")
+	}
+
+	// Valid CreatedAt
+	tf3 := &tasksubmit.TaskFile{
+		TaskID:    "tsc-valid",
+		CreatedAt: time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339),
+	}
+	dur, err := tf3.TimeSinceCreation()
+	if err != nil {
+		t.Fatalf("TimeSinceCreation: %v", err)
+	}
+	if dur < 9*time.Second || dur > 12*time.Second {
+		t.Errorf("expected ~10s, got %v", dur)
+	}
+}
+
+// TestTimeSinceStagedEdgeCases tests error paths for TimeSinceStaged.
+func TestTimeSinceStagedEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt
+	tf := &tasksubmit.TaskFile{TaskID: "tss-empty"}
+	_, err := tf.TimeSinceStaged()
+	if err == nil {
+		t.Error("expected error for empty StagedAt")
+	}
+
+	// Invalid StagedAt
+	tf2 := &tasksubmit.TaskFile{TaskID: "tss-invalid", StagedAt: "garbage"}
+	_, err = tf2.TimeSinceStaged()
+	if err == nil {
+		t.Error("expected error for invalid StagedAt")
+	}
+
+	// Valid StagedAt
+	tf3 := &tasksubmit.TaskFile{
+		TaskID:   "tss-valid",
+		StagedAt: time.Now().UTC().Add(-5 * time.Second).Format(time.RFC3339),
+	}
+	dur, err := tf3.TimeSinceStaged()
+	if err != nil {
+		t.Fatalf("TimeSinceStaged: %v", err)
+	}
+	if dur < 4*time.Second || dur > 7*time.Second {
+		t.Errorf("expected ~5s, got %v", dur)
+	}
+}
+
+// TestCalculateTimeIdleEdgeCases tests empty/invalid inputs for CalculateTimeIdle.
+func TestCalculateTimeIdleEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty CreatedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "idle-empty"}
+	tf.CalculateTimeIdle()
+	if tf.AcceptedAt != "" {
+		t.Errorf("expected empty AcceptedAt for empty CreatedAt, got %q", tf.AcceptedAt)
+	}
+
+	// Invalid CreatedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "idle-invalid", CreatedAt: "not-valid"}
+	tf2.CalculateTimeIdle()
+	if tf2.AcceptedAt != "" {
+		t.Error("expected empty AcceptedAt for invalid CreatedAt")
+	}
+}
+
+// TestIsExpiredForAcceptEdgeCases tests edge cases of the accept expiry logic.
+func TestIsExpiredForAcceptEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Invalid CreatedAt — should NOT be expired (parse error)
+	tf := &tasksubmit.TaskFile{
+		TaskID:    "exp-invalid",
+		Status:    tasksubmit.TaskStatusNew,
+		CreatedAt: "bad-date",
+	}
+	if tf.IsExpiredForAccept() {
+		t.Error("invalid CreatedAt should not count as expired")
+	}
+}
+
+// TestIsExpiredInQueueEdgeCases tests edge cases of the queue expiry logic.
+func TestIsExpiredInQueueEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt — should NOT be expired
+	tf := &tasksubmit.TaskFile{
+		TaskID: "q-empty",
+		Status: tasksubmit.TaskStatusAccepted,
+	}
+	if tf.IsExpiredInQueue() {
+		t.Error("empty StagedAt should not count as expired")
+	}
+
+	// Invalid StagedAt — should NOT be expired
+	tf2 := &tasksubmit.TaskFile{
+		TaskID:   "q-invalid",
+		Status:   tasksubmit.TaskStatusAccepted,
+		StagedAt: "not-a-date",
+	}
+	if tf2.IsExpiredInQueue() {
+		t.Error("invalid StagedAt should not count as expired")
 	}
 }

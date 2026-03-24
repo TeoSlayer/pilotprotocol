@@ -24,7 +24,8 @@ func main() {
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
 	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate")
 	identityPath := flag.String("identity", "", "path to persist Ed25519 identity (enables stable identity across restarts)")
-	owner := flag.String("owner", "", "owner identifier (email) for key rotation recovery")
+	email := flag.String("email", "", "email address for account identification and key recovery")
+	owner := flag.String("owner", "", "(deprecated: use -email) owner identifier for key rotation recovery")
 	keepalive := flag.Duration("keepalive", 0, "keepalive probe interval (default 30s)")
 	idleTimeout := flag.Duration("idle-timeout", 0, "idle connection timeout (default 120s)")
 	synRate := flag.Int("syn-rate-limit", 0, "max SYN packets per second (default 100)")
@@ -62,6 +63,7 @@ func main() {
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,
 		IdentityPath:          *identityPath,
+		Email:                 *email,
 		Owner:                 *owner,
 		KeepaliveInterval:     *keepalive,
 		IdleTimeout:           *idleTimeout,

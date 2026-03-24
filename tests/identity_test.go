@@ -293,10 +293,10 @@ func TestOwnerBasedReRegistration(t *testing.T) {
 	identityDir := t.TempDir()
 	identityPath := filepath.Join(identityDir, "identity.json")
 
-	// Start daemon with identity + owner
+	// Start daemon with identity + email
 	d1, sockPath := env.AddDaemonOnly(func(c *daemon.Config) {
 		c.IdentityPath = identityPath
-		c.Owner = "agent@example.com"
+		c.Email = "agent@example.com"
 	})
 
 	drv1, err := driver.Connect(sockPath)
@@ -319,14 +319,14 @@ func TestOwnerBasedReRegistration(t *testing.T) {
 	// DELETE the identity file — simulates losing the private key
 	os.Remove(identityPath)
 
-	// Start daemon again with same owner but no identity file — create manually to avoid adding to env list
+	// Start daemon again with same email but no identity file — create manually to avoid adding to env list
 	d2 := daemon.New(daemon.Config{
 		RegistryAddr: env.RegistryAddr,
 		BeaconAddr:   env.BeaconAddr,
 		ListenAddr:   ":0",
 		SocketPath:   sockPath,
 		IdentityPath: identityPath,
-		Owner:        "agent@example.com",
+		Email:        "agent@example.com",
 	})
 	if err := d2.Start(); err != nil {
 		t.Fatalf("daemon restart: %v", err)
