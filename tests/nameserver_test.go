@@ -35,6 +35,7 @@ func TestNameserver(t *testing.T) {
 	ns := nameserver.New(a.Driver, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
+	defer ns.Close()
 
 	// Pre-register some records directly
 	ns.Store().RegisterA("agent-alpha", a.Daemon.Addr())
@@ -114,6 +115,7 @@ func TestNameserverSRecord(t *testing.T) {
 	ns := nameserver.New(a.Driver, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
+	defer ns.Close()
 
 	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
 
@@ -157,6 +159,7 @@ func TestNameserverRegisterN(t *testing.T) {
 	ns := nameserver.New(a.Driver, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
+	defer ns.Close()
 
 	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
 
@@ -188,6 +191,7 @@ func TestNameserverOverwriteA(t *testing.T) {
 	ns := nameserver.New(a.Driver, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
+	defer ns.Close()
 
 	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
 
@@ -228,6 +232,7 @@ func TestNameserverPersistence(t *testing.T) {
 	ns1 := nameserver.New(a.Driver, storePath)
 	go ns1.ListenAndServe()
 	waitNSReady(t, ns1)
+	defer ns1.Close()
 
 	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
 
@@ -280,6 +285,7 @@ func TestNameserverMultipleClients(t *testing.T) {
 	ns := nameserver.New(a.Driver, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
+	defer ns.Close()
 
 	// Pre-register
 	ns.Store().RegisterA("target", a.Daemon.Addr())
