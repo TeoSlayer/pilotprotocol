@@ -103,6 +103,9 @@ type Server struct {
 	// Prometheus metrics
 	metrics *registryMetrics
 
+	// Clock (overridable for testing)
+	now func() time.Time
+
 	// Shutdown
 	done chan struct{}
 }
@@ -329,6 +332,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		done:               make(chan struct{}),
 		saveCh:             make(chan struct{}, 1),
 		saveDone:           make(chan struct{}),
+		now:                time.Now,
 	}
 
 	go s.saveLoop()
@@ -382,6 +386,19 @@ func (s *Server) SetAdminToken(token string) {
 	s.mu.Lock()
 	s.adminToken = token
 	s.mu.Unlock()
+}
+
+// SetClock overrides the time source for testing.
+func (s *Server) SetClock(fn func() time.Time) {
+	s.mu.Lock()
+	s.now = fn
+	s.mu.Unlock()
+}
+
+// Reap triggers stale node and beacon cleanup (for testing).
+func (s *Server) Reap() {
+	s.reapStaleNodes()
+	s.reapStaleBeacons()
 }
 
 // SetReplicationToken sets the token required for subscribe_replication (H4 fix).
@@ -520,7 +537,7 @@ func (s *Server) reapLoop() {
 }
 
 func (s *Server) reapStaleNodes() {
-	threshold := time.Now().Add(-staleNodeThreshold)
+	threshold := s.now().Add(-staleNodeThreshold)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -554,7 +571,7 @@ func (s *Server) reapStaleNodes() {
 }
 
 func (s *Server) reapStaleBeacons() {
-	now := time.Now()
+	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, b := range s.beacons {
@@ -1953,7 +1970,7 @@ func (s *Server) handleBeaconRegister(msg map[string]interface{}) (map[string]in
 	s.beacons[beaconID] = &beaconEntry{
 		ID:       beaconID,
 		Addr:     addr,
-		LastSeen: time.Now(),
+		LastSeen: s.now(),
 	}
 	s.mu.Unlock()
 
@@ -1970,7 +1987,7 @@ func (s *Server) handleBeaconList() (map[string]interface{}, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	now := time.Now()
+	now := s.now()
 	beacons := make([]map[string]interface{}, 0, len(s.beacons))
 	for _, b := range s.beacons {
 		if now.Sub(b.LastSeen) > beaconTTL {

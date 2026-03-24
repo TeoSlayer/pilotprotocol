@@ -130,6 +130,16 @@ func (c *ipcClient) readLoop() {
 				}
 				c.recvMu.Unlock()
 			}
+			// Also dispatch to sendAndWait handlers (for Driver.Disconnect)
+			c.mu.Lock()
+			if chs, ok := c.handlers[cmd]; ok && len(chs) > 0 {
+				ch := chs[0]
+				c.handlers[cmd] = chs[1:]
+				c.mu.Unlock()
+				ch <- append([]byte(nil), payload...)
+			} else {
+				c.mu.Unlock()
+			}
 		case cmdRecvFrom:
 			// Datagram: [6-byte src_addr][2-byte src_port][2-byte dst_port][data]
 			if len(payload) >= protocol.AddrSize+4 {

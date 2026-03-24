@@ -20,7 +20,6 @@ func waitNSReady(t *testing.T, ns interface{ Ready() <-chan struct{} }) {
 }
 
 func TestNameserver(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -105,7 +104,7 @@ func TestNameserver(t *testing.T) {
 
 // TestNameserverSRecord verifies S record (service) registration and lookup.
 func TestNameserverSRecord(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
+
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -148,7 +147,7 @@ func TestNameserverSRecord(t *testing.T) {
 
 // TestNameserverRegisterN verifies N record registration and lookup via client.
 func TestNameserverRegisterN(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
+
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -179,7 +178,7 @@ func TestNameserverRegisterN(t *testing.T) {
 
 // TestNameserverOverwriteA verifies that re-registering an A record updates the address.
 func TestNameserverOverwriteA(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
+
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -216,7 +215,7 @@ func TestNameserverOverwriteA(t *testing.T) {
 
 // TestNameserverPersistence verifies records survive nameserver restart.
 func TestNameserverPersistence(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
+
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -270,7 +269,7 @@ func TestNameserverPersistence(t *testing.T) {
 
 // TestNameserverMultipleClients verifies multiple clients can query simultaneously.
 func TestNameserverMultipleClients(t *testing.T) {
-	t.Skip("WIP: nameserver disabled, using hostname-based discovery instead")
+
 	t.Parallel()
 	env := NewTestEnv(t)
 
