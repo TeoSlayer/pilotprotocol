@@ -76,15 +76,6 @@ func (c *Client) SendResults(msg *TaskResultMessage) error {
 	return WriteFrame(c.conn, frame)
 }
 
-// RecvResult reads a task result from the connection.
-func (c *Client) RecvResult() (*TaskResult, error) {
-	frame, err := ReadFrame(c.conn)
-	if err != nil {
-		return nil, err
-	}
-	return UnmarshalTaskResult(frame)
-}
-
 // Close closes the connection.
 func (c *Client) Close() error {
 	return c.conn.Close()

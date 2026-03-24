@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -562,6 +563,196 @@ func TestHandshakeRejectReason(t *testing.T) {
 		t.Errorf("expected empty pending after reject, got %d", len(pendingList))
 	}
 	t.Log("reject with reason succeeded, pending cleared")
+}
+
+// TestHandshakeTrustLoadVerify tests that loadTrust correctly populates trust state from file.
+func TestHandshakeTrustLoadVerify(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	identityDir := t.TempDir()
+	identityPath := filepath.Join(identityDir, "identity.json")
+	trustPath := filepath.Join(identityDir, "trust.json")
+
+	infoA := env.AddDaemon(func(c *daemon.Config) {
+		c.Encrypt = true
+		c.IdentityPath = identityPath
+	})
+	infoB := env.AddDaemon(func(c *daemon.Config) {
+		c.Encrypt = true
+		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+	})
+
+	drvA := infoA.Driver
+	drvB := infoB.Driver
+
+	// Establish mutual trust
+	drvA.Handshake(infoB.Daemon.NodeID(), "persist-load")
+
+	deadline := time.After(5 * time.Second)
+	for {
+		pending, _ := drvB.PendingHandshakes()
+		if pl, _ := pending["pending"].([]interface{}); len(pl) > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for handshake")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	drvB.Handshake(infoA.Daemon.NodeID(), "persist-load-back")
+
+	// Wait for mutual trust
+	deadline = time.After(5 * time.Second)
+	for {
+		trustA, _ := drvA.TrustedPeers()
+		trustedA, _ := trustA["trusted"].([]interface{})
+		if len(trustedA) > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for trust")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Verify trust file was created and contains correct data
+	data, err := os.ReadFile(trustPath)
+	if err != nil {
+		t.Fatalf("read trust file: %v", err)
+	}
+
+	var snap struct {
+		Trusted []struct {
+			NodeID     uint32 `json:"node_id"`
+			PublicKey  string `json:"public_key"`
+			ApprovedAt string `json:"approved_at"`
+			Mutual     bool   `json:"mutual"`
+		} `json:"trusted"`
+		Pending []struct {
+			NodeID uint32 `json:"node_id"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatalf("unmarshal trust file: %v", err)
+	}
+
+	if len(snap.Trusted) == 0 {
+		t.Fatal("trust file should have at least one trusted peer")
+	}
+
+	// Verify B's node ID is in the trusted list
+	foundB := false
+	for _, entry := range snap.Trusted {
+		if entry.NodeID == infoB.Daemon.NodeID() {
+			foundB = true
+			if entry.PublicKey == "" {
+				t.Error("trusted entry should have a public key")
+			}
+			if entry.ApprovedAt == "" {
+				t.Error("trusted entry should have approved_at timestamp")
+			}
+			t.Logf("trust entry: node=%d mutual=%v approved=%s", entry.NodeID, entry.Mutual, entry.ApprovedAt)
+		}
+	}
+	if !foundB {
+		t.Errorf("B (node %d) not found in trust file", infoB.Daemon.NodeID())
+	}
+
+	// Verify the saved data can be parsed back as valid timestamps
+	for _, entry := range snap.Trusted {
+		if _, err := time.Parse(time.RFC3339, entry.ApprovedAt); err != nil {
+			t.Errorf("invalid approved_at timestamp %q: %v", entry.ApprovedAt, err)
+		}
+	}
+
+	t.Logf("trust file verified: %d trusted, %d pending", len(snap.Trusted), len(snap.Pending))
+}
+
+// TestHandshakeTrustLoadFromDisk tests that a daemon loads trust records from a pre-existing trust.json.
+func TestHandshakeTrustLoadFromDisk(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+
+	identityDir := t.TempDir()
+	identityPath := filepath.Join(identityDir, "identity.json")
+	trustPath := filepath.Join(identityDir, "trust.json")
+
+	// Write a trust.json file before creating the daemon
+	trustJSON := `{
+  "trusted": [
+    {
+      "node_id": 99999,
+      "public_key": "dGVzdC1wdWJrZXk=",
+      "approved_at": "2025-01-01T00:00:00Z",
+      "mutual": true
+    }
+  ],
+  "pending": [
+    {
+      "node_id": 88888,
+      "public_key": "cGVuZGluZy1rZXk=",
+      "justification": "test pending",
+      "received_at": "2025-01-02T00:00:00Z"
+    }
+  ]
+}`
+	if err := os.WriteFile(trustPath, []byte(trustJSON), 0600); err != nil {
+		t.Fatalf("write trust.json: %v", err)
+	}
+
+	// Create daemon — loadTrust should populate from the file
+	info := env.AddDaemon(func(c *daemon.Config) {
+		c.Encrypt = true
+		c.IdentityPath = identityPath
+	})
+
+	// Verify trusted peers were loaded
+	trust, err := info.Driver.TrustedPeers()
+	if err != nil {
+		t.Fatalf("TrustedPeers: %v", err)
+	}
+
+	trustedList, _ := trust["trusted"].([]interface{})
+	found99999 := false
+	for _, tp := range trustedList {
+		rec := tp.(map[string]interface{})
+		if uint32(rec["node_id"].(float64)) == 99999 {
+			found99999 = true
+			if m, ok := rec["mutual"].(bool); !ok || !m {
+				t.Errorf("expected mutual=true for loaded trust record")
+			}
+		}
+	}
+	if !found99999 {
+		t.Errorf("node 99999 not found in loaded trust records (got %d trusted)", len(trustedList))
+	}
+
+	// Verify pending handshakes were loaded
+	pending, err := info.Driver.PendingHandshakes()
+	if err != nil {
+		t.Fatalf("PendingHandshakes: %v", err)
+	}
+
+	pendingList, _ := pending["pending"].([]interface{})
+	found88888 := false
+	for _, p := range pendingList {
+		req := p.(map[string]interface{})
+		if uint32(req["node_id"].(float64)) == 88888 {
+			found88888 = true
+			if j, ok := req["justification"].(string); !ok || j != "test pending" {
+				t.Errorf("expected justification 'test pending', got %q", j)
+			}
+		}
+	}
+	if !found88888 {
+		t.Errorf("node 88888 not found in loaded pending handshakes (got %d pending)", len(pendingList))
+	}
+
+	t.Logf("loaded from disk: %d trusted, %d pending", len(trustedList), len(pendingList))
 }
 
 var _ = driver.Connect // keep driver import

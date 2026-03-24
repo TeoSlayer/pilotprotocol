@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -1654,4 +1656,324 @@ func TestTaskSubmitServerReject(t *testing.T) {
 		t.Errorf("expected rejected (status %d), got %d", tasksubmit.StatusRejected, resp.Status)
 	}
 	t.Logf("rejection response: status=%d message=%q", resp.Status, resp.Message)
+}
+
+// TestUnmarshalTypeMismatch tests all unmarshal functions reject wrong frame types.
+func TestUnmarshalTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	// Create a valid submit frame
+	submitFrame := &tasksubmit.Frame{Type: tasksubmit.TypeSubmit, Payload: []byte(`{"task_id":"t1"}`)}
+	resultFrame := &tasksubmit.Frame{Type: tasksubmit.TypeResult, Payload: []byte(`{"status":"ok"}`)}
+	statusFrame := &tasksubmit.Frame{Type: tasksubmit.TypeStatusUpdate, Payload: []byte(`{"task_id":"t1"}`)}
+	resultsFrame := &tasksubmit.Frame{Type: tasksubmit.TypeSendResults, Payload: []byte(`{"task_id":"t1"}`)}
+
+	// UnmarshalSubmitRequest expects TypeSubmit — give it TypeResult
+	_, err := tasksubmit.UnmarshalSubmitRequest(resultFrame)
+	if err == nil {
+		t.Error("UnmarshalSubmitRequest should reject non-TypeSubmit frame")
+	}
+
+	// UnmarshalTaskResult expects TypeResult — give it TypeSubmit
+	_, err = tasksubmit.UnmarshalTaskResult(submitFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskResult should reject non-TypeResult frame")
+	}
+
+	// UnmarshalTaskStatusUpdate expects TypeStatusUpdate — give it TypeResult
+	_, err = tasksubmit.UnmarshalTaskStatusUpdate(resultFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskStatusUpdate should reject non-TypeStatusUpdate frame")
+	}
+
+	// UnmarshalTaskResultMessage expects TypeSendResults — give it TypeSubmit
+	_, err = tasksubmit.UnmarshalTaskResultMessage(submitFrame)
+	if err == nil {
+		t.Error("UnmarshalTaskResultMessage should reject non-TypeSendResults frame")
+	}
+
+	// Verify correct types DO work
+	_, err = tasksubmit.UnmarshalTaskStatusUpdate(statusFrame)
+	if err != nil {
+		t.Errorf("UnmarshalTaskStatusUpdate should accept TypeStatusUpdate: %v", err)
+	}
+
+	_, err = tasksubmit.UnmarshalTaskResultMessage(resultsFrame)
+	if err != nil {
+		t.Errorf("UnmarshalTaskResultMessage should accept TypeSendResults: %v", err)
+	}
+}
+
+// TestFrameReadWriteRoundTrip tests WriteFrame/ReadFrame with actual bytes buffers.
+func TestFrameReadWriteRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ftype   uint32
+		payload []byte
+	}{
+		{"empty payload", tasksubmit.TypeSubmit, []byte{}},
+		{"small payload", tasksubmit.TypeResult, []byte(`{"status":"ok"}`)},
+		{"status update", tasksubmit.TypeStatusUpdate, []byte(`{"task_id":"abc","status":"EXECUTING"}`)},
+		{"send results", tasksubmit.TypeSendResults, []byte(`{"task_id":"abc","result_type":"text"}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			frame := &tasksubmit.Frame{Type: tt.ftype, Payload: tt.payload}
+			if err := tasksubmit.WriteFrame(&buf, frame); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			got, err := tasksubmit.ReadFrame(&buf)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+
+			if got.Type != tt.ftype {
+				t.Errorf("type: got %d, want %d", got.Type, tt.ftype)
+			}
+			if !bytes.Equal(got.Payload, tt.payload) {
+				t.Errorf("payload mismatch: got %q, want %q", got.Payload, tt.payload)
+			}
+		})
+	}
+}
+
+// TestFrameReadOversized tests ReadFrame rejects frames > 16MB.
+func TestFrameReadOversized(t *testing.T) {
+	t.Parallel()
+
+	// Craft a header claiming 32MB payload
+	var buf bytes.Buffer
+	var hdr [8]byte
+	binary.BigEndian.PutUint32(hdr[0:4], tasksubmit.TypeSubmit)
+	binary.BigEndian.PutUint32(hdr[4:8], 1<<25) // 32MB
+	buf.Write(hdr[:])
+
+	_, err := tasksubmit.ReadFrame(&buf)
+	if err == nil {
+		t.Error("ReadFrame should reject frames > 16MB")
+	}
+}
+
+// TestTaskStatusUpdateMarshalRoundTrip tests full round-trip of status update frames.
+func TestTaskStatusUpdateMarshalRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	update := &tasksubmit.TaskStatusUpdate{
+		TaskID:        "test-task-123",
+		Status:        tasksubmit.TaskStatusExecuting,
+		Justification: "Starting execution now",
+	}
+
+	frame, err := tasksubmit.MarshalTaskStatusUpdate(update)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if frame.Type != tasksubmit.TypeStatusUpdate {
+		t.Errorf("expected type %d, got %d", tasksubmit.TypeStatusUpdate, frame.Type)
+	}
+
+	parsed, err := tasksubmit.UnmarshalTaskStatusUpdate(frame)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.TaskID != update.TaskID {
+		t.Errorf("task_id: got %q, want %q", parsed.TaskID, update.TaskID)
+	}
+	if parsed.Status != update.Status {
+		t.Errorf("status: got %q, want %q", parsed.Status, update.Status)
+	}
+	if parsed.Justification != update.Justification {
+		t.Errorf("justification: got %q, want %q", parsed.Justification, update.Justification)
+	}
+}
+
+// TestTaskResultMessageMarshalRoundTrip tests full round-trip of result message frames.
+func TestTaskResultMessageMarshalRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	msg := &tasksubmit.TaskResultMessage{
+		TaskID:       "result-msg-test",
+		ResultType:   "text",
+		ResultText:   "Here are the results",
+		CompletedAt:  time.Now().UTC().Format(time.RFC3339),
+		TimeIdleMs:   1500,
+		TimeStagedMs: 3000,
+		TimeCpuMs:    60000,
+	}
+
+	frame, err := tasksubmit.MarshalTaskResultMessage(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if frame.Type != tasksubmit.TypeSendResults {
+		t.Errorf("expected type %d, got %d", tasksubmit.TypeSendResults, frame.Type)
+	}
+
+	parsed, err := tasksubmit.UnmarshalTaskResultMessage(frame)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.TaskID != msg.TaskID {
+		t.Errorf("task_id: got %q, want %q", parsed.TaskID, msg.TaskID)
+	}
+	if parsed.ResultType != msg.ResultType {
+		t.Errorf("result_type: got %q, want %q", parsed.ResultType, msg.ResultType)
+	}
+	if parsed.ResultText != msg.ResultText {
+		t.Errorf("result_text: got %q, want %q", parsed.ResultText, msg.ResultText)
+	}
+	if parsed.TimeCpuMs != msg.TimeCpuMs {
+		t.Errorf("time_cpu_ms: got %d, want %d", parsed.TimeCpuMs, msg.TimeCpuMs)
+	}
+}
+
+// TestTypeNameComplete tests all TypeName values including STATUS_UPDATE and SEND_RESULTS.
+func TestTypeNameComplete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		typ  uint32
+		name string
+	}{
+		{tasksubmit.TypeSubmit, "SUBMIT"},
+		{tasksubmit.TypeResult, "RESULT"},
+		{tasksubmit.TypeStatusUpdate, "STATUS_UPDATE"},
+		{tasksubmit.TypeSendResults, "SEND_RESULTS"},
+		{0, "UNKNOWN(0)"},
+		{999, "UNKNOWN(999)"},
+	}
+
+	for _, tt := range tests {
+		name := tasksubmit.TypeName(tt.typ)
+		if name != tt.name {
+			t.Errorf("TypeName(%d) = %q, want %q", tt.typ, name, tt.name)
+		}
+	}
+}
+
+// TestTimeSinceCreationEdgeCases tests error paths for TimeSinceCreation.
+func TestTimeSinceCreationEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty CreatedAt
+	tf := &tasksubmit.TaskFile{TaskID: "tsc-empty"}
+	_, err := tf.TimeSinceCreation()
+	if err == nil {
+		t.Error("expected error for empty CreatedAt")
+	}
+
+	// Invalid CreatedAt
+	tf2 := &tasksubmit.TaskFile{TaskID: "tsc-invalid", CreatedAt: "not-a-date"}
+	_, err = tf2.TimeSinceCreation()
+	if err == nil {
+		t.Error("expected error for invalid CreatedAt")
+	}
+
+	// Valid CreatedAt
+	tf3 := &tasksubmit.TaskFile{
+		TaskID:    "tsc-valid",
+		CreatedAt: time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339),
+	}
+	dur, err := tf3.TimeSinceCreation()
+	if err != nil {
+		t.Fatalf("TimeSinceCreation: %v", err)
+	}
+	if dur < 9*time.Second || dur > 12*time.Second {
+		t.Errorf("expected ~10s, got %v", dur)
+	}
+}
+
+// TestTimeSinceStagedEdgeCases tests error paths for TimeSinceStaged.
+func TestTimeSinceStagedEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt
+	tf := &tasksubmit.TaskFile{TaskID: "tss-empty"}
+	_, err := tf.TimeSinceStaged()
+	if err == nil {
+		t.Error("expected error for empty StagedAt")
+	}
+
+	// Invalid StagedAt
+	tf2 := &tasksubmit.TaskFile{TaskID: "tss-invalid", StagedAt: "garbage"}
+	_, err = tf2.TimeSinceStaged()
+	if err == nil {
+		t.Error("expected error for invalid StagedAt")
+	}
+
+	// Valid StagedAt
+	tf3 := &tasksubmit.TaskFile{
+		TaskID:   "tss-valid",
+		StagedAt: time.Now().UTC().Add(-5 * time.Second).Format(time.RFC3339),
+	}
+	dur, err := tf3.TimeSinceStaged()
+	if err != nil {
+		t.Fatalf("TimeSinceStaged: %v", err)
+	}
+	if dur < 4*time.Second || dur > 7*time.Second {
+		t.Errorf("expected ~5s, got %v", dur)
+	}
+}
+
+// TestCalculateTimeIdleEdgeCases tests empty/invalid inputs for CalculateTimeIdle.
+func TestCalculateTimeIdleEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty CreatedAt — should be a no-op
+	tf := &tasksubmit.TaskFile{TaskID: "idle-empty"}
+	tf.CalculateTimeIdle()
+	if tf.AcceptedAt != "" {
+		t.Errorf("expected empty AcceptedAt for empty CreatedAt, got %q", tf.AcceptedAt)
+	}
+
+	// Invalid CreatedAt — should be a no-op
+	tf2 := &tasksubmit.TaskFile{TaskID: "idle-invalid", CreatedAt: "not-valid"}
+	tf2.CalculateTimeIdle()
+	if tf2.AcceptedAt != "" {
+		t.Error("expected empty AcceptedAt for invalid CreatedAt")
+	}
+}
+
+// TestIsExpiredForAcceptEdgeCases tests edge cases of the accept expiry logic.
+func TestIsExpiredForAcceptEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Invalid CreatedAt — should NOT be expired (parse error)
+	tf := &tasksubmit.TaskFile{
+		TaskID:    "exp-invalid",
+		Status:    tasksubmit.TaskStatusNew,
+		CreatedAt: "bad-date",
+	}
+	if tf.IsExpiredForAccept() {
+		t.Error("invalid CreatedAt should not count as expired")
+	}
+}
+
+// TestIsExpiredInQueueEdgeCases tests edge cases of the queue expiry logic.
+func TestIsExpiredInQueueEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Empty StagedAt — should NOT be expired
+	tf := &tasksubmit.TaskFile{
+		TaskID: "q-empty",
+		Status: tasksubmit.TaskStatusAccepted,
+	}
+	if tf.IsExpiredInQueue() {
+		t.Error("empty StagedAt should not count as expired")
+	}
+
+	// Invalid StagedAt — should NOT be expired
+	tf2 := &tasksubmit.TaskFile{
+		TaskID:   "q-invalid",
+		Status:   tasksubmit.TaskStatusAccepted,
+		StagedAt: "not-a-date",
+	}
+	if tf2.IsExpiredInQueue() {
+		t.Error("invalid StagedAt should not count as expired")
+	}
 }

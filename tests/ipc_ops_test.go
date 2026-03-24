@@ -2,7 +2,9 @@ package tests
 
 import (
 	"testing"
+	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
@@ -174,6 +176,36 @@ func TestSetWebhookViaIPC(t *testing.T) {
 	}
 }
 
+// TestResolveHostnameViaIPC verifies the driver → IPC → daemon → registry round-trip
+// for ResolveHostname.
+func TestResolveHostnameViaIPC(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Set a hostname first
+	_, err := di.Driver.SetHostname("resolve-test-agent")
+	if err != nil {
+		t.Fatalf("set hostname: %v", err)
+	}
+
+	// Resolve it via driver IPC
+	result, err := di.Driver.ResolveHostname("resolve-test-agent")
+	if err != nil {
+		t.Fatalf("resolve hostname: %v", err)
+	}
+	if result["address"] == nil {
+		t.Fatal("expected address in resolve result")
+	}
+	t.Logf("resolved: %v", result)
+
+	// Resolve non-existent hostname — should fail
+	_, err = di.Driver.ResolveHostname("nonexistent-host")
+	if err == nil {
+		t.Fatal("expected error for non-existent hostname")
+	}
+}
+
 // TestDisconnectViaIPC verifies the driver → IPC round-trip for Disconnect.
 // Disconnect always returns OK (even for non-existent IDs), so we verify
 // the round-trip completes without error.
@@ -186,5 +218,151 @@ func TestDisconnectViaIPC(t *testing.T) {
 	err := di.Driver.Disconnect(999)
 	if err != nil {
 		t.Fatalf("disconnect: %v", err)
+	}
+}
+
+// TestSetTagsTooManyViaIPC verifies the daemon rejects >3 tags.
+func TestSetTagsTooManyViaIPC(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Attempt to set 4 tags — should fail
+	_, err := di.Driver.SetTags([]string{"a", "b", "c", "d"})
+	if err == nil {
+		t.Fatal("expected error for >3 tags, got nil")
+	}
+
+	// Verify 3 tags works
+	result, err := di.Driver.SetTags([]string{"x", "y", "z"})
+	if err != nil {
+		t.Fatalf("set 3 tags: %v", err)
+	}
+	if result["type"] != "set_tags_ok" {
+		t.Fatalf("expected set_tags_ok, got %v", result["type"])
+	}
+
+	// Clear tags
+	result, err = di.Driver.SetTags([]string{})
+	if err != nil {
+		t.Fatalf("clear tags: %v", err)
+	}
+	if result["type"] != "set_tags_ok" {
+		t.Fatalf("expected set_tags_ok, got %v", result["type"])
+	}
+}
+
+// TestRegistryClientBeaconAndNetwork tests registry client operations
+// to cover beacon_list, list_networks, and beacon_register handlers.
+func TestRegistryClientBeaconAndNetwork(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	_ = env.AddDaemon()
+
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial registry: %v", err)
+	}
+	defer rc.Close()
+
+	// List networks
+	result, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	if result["type"] != "list_networks_ok" {
+		t.Fatalf("expected list_networks_ok, got %v", result["type"])
+	}
+
+	// Beacon register
+	result, err = rc.Send(map[string]interface{}{
+		"type":      "beacon_register",
+		"beacon_id": uint32(42),
+		"addr":      "127.0.0.1:9001",
+	})
+	if err != nil {
+		t.Fatalf("beacon register: %v", err)
+	}
+	if result["type"] != "beacon_register_ok" {
+		t.Fatalf("expected beacon_register_ok, got %v", result["type"])
+	}
+
+	// Beacon list
+	result, err = rc.Send(map[string]interface{}{"type": "beacon_list"})
+	if err != nil {
+		t.Fatalf("beacon list: %v", err)
+	}
+	if result["type"] != "beacon_list_ok" {
+		t.Fatalf("expected beacon_list_ok, got %v", result["type"])
+	}
+	beacons, ok := result["beacons"].([]interface{})
+	if !ok || len(beacons) < 1 {
+		t.Fatalf("expected at least 1 beacon, got %v", result["beacons"])
+	}
+}
+
+// TestDaemonCustomConfig creates a daemon with custom config values to
+// exercise the "config set" branches in config helper methods.
+func TestDaemonCustomConfig(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon(func(c *daemon.Config) {
+		c.KeepaliveInterval = 60 * time.Second
+		c.IdleTimeout = 180 * time.Second
+		c.SYNRateLimit = 50
+		c.MaxConnectionsPerPort = 512
+		c.MaxTotalConnections = 2048
+		c.TimeWaitDuration = 5 * time.Second
+		c.DisableEcho = true
+	})
+
+	// Verify daemon runs with custom config
+	info, err := di.Driver.Info()
+	if err != nil {
+		t.Fatalf("info: %v", err)
+	}
+	if info["address"] == nil {
+		t.Fatal("expected address in info")
+	}
+
+	// Echo should be disabled — connect to port 7 should fail or timeout
+	// We just verify the daemon is running with the custom config
+	t.Logf("daemon with custom config: addr=%v", info["address"])
+}
+
+// TestIPCOpsAfterDeregister verifies IPC commands return errors after deregistration.
+func TestIPCOpsAfterDeregister(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Deregister first
+	_, err := di.Driver.Deregister()
+	if err != nil {
+		t.Fatalf("deregister: %v", err)
+	}
+
+	// SetHostname should fail (node no longer registered)
+	_, err = di.Driver.SetHostname("should-fail")
+	if err == nil {
+		t.Fatal("expected error for SetHostname after deregister")
+	}
+
+	// SetVisibility should fail
+	_, err = di.Driver.SetVisibility(false)
+	if err == nil {
+		t.Fatal("expected error for SetVisibility after deregister")
+	}
+
+	// SetTags should fail
+	_, err = di.Driver.SetTags([]string{"fail"})
+	if err == nil {
+		t.Fatal("expected error for SetTags after deregister")
+	}
+
+	// SetTaskExec should fail
+	_, err = di.Driver.SetTaskExec(true)
+	if err == nil {
+		t.Fatal("expected error for SetTaskExec after deregister")
 	}
 }
