@@ -741,6 +741,26 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return
 		}
 
+		// Trust gate: private nodes only accept SYN from trusted or same-network peers.
+		// Runs before rate limiting so untrusted sources cannot waste rate-limit tokens.
+		if !d.config.Public {
+			srcNode := pkt.Src.Node
+			trusted := d.handshakes.IsTrusted(srcNode)
+			if !trusted && d.regConn != nil {
+				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
+				trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
+			}
+			if !trusted {
+				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
+				d.webhook.Emit("syn.rejected", map[string]interface{}{
+					"src_node_id": srcNode,
+					"src_addr":    pkt.Src.String(),
+					"dst_port":    pkt.DstPort,
+				})
+				return // silent drop — no RST to avoid leaking node existence
+			}
+		}
+
 		// SYN rate limiting
 		if !d.allowSYN() {
 			slog.Warn("SYN rate limit exceeded", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
@@ -766,26 +786,6 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			slog.Warn("max total connections reached, rejecting SYN", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.sendRST(pkt)
 			return
-		}
-
-		// Trust gate: private nodes only accept SYN from trusted or same-network peers
-		if !d.config.Public {
-			srcNode := pkt.Src.Node
-			trusted := d.handshakes.IsTrusted(srcNode)
-			if !trusted && d.regConn != nil {
-				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
-				trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
-			}
-			if !trusted {
-				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
-				d.webhook.Emit("syn.rejected", map[string]interface{}{
-					"src_node_id": srcNode,
-					"src_addr":    pkt.Src.String(),
-					"dst_port":    pkt.DstPort,
-				})
-				d.sendRST(pkt)
-				return
-			}
 		}
 
 		conn := d.ports.NewConnection(pkt.DstPort, pkt.Src, pkt.SrcPort)
@@ -1056,13 +1056,33 @@ func (d *Daemon) sendDelayedACK(conn *Connection) {
 }
 
 func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
-	if len(pkt.Payload) > 0 {
-		d.webhook.Emit("data.datagram", map[string]interface{}{
-			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
-			"dst_port": pkt.DstPort, "size": len(pkt.Payload),
-		})
-		d.ipc.DeliverDatagram(pkt.Src, pkt.SrcPort, pkt.DstPort, pkt.Payload)
+	if len(pkt.Payload) == 0 {
+		return
 	}
+
+	// Trust gate: private nodes only accept datagrams from trusted or same-network peers
+	if !d.config.Public {
+		srcNode := pkt.Src.Node
+		trusted := d.handshakes.IsTrusted(srcNode)
+		if !trusted && d.regConn != nil {
+			trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
+		}
+		if !trusted {
+			slog.Warn("datagram rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
+			d.webhook.Emit("datagram.rejected", map[string]interface{}{
+				"src_node_id": srcNode,
+				"src_addr":    pkt.Src.String(),
+				"dst_port":    pkt.DstPort,
+			})
+			return
+		}
+	}
+
+	d.webhook.Emit("data.datagram", map[string]interface{}{
+		"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+		"dst_port": pkt.DstPort, "size": len(pkt.Payload),
+	})
+	d.ipc.DeliverDatagram(pkt.Src, pkt.SrcPort, pkt.DstPort, pkt.Payload)
 }
 
 func (d *Daemon) handleControlPacket(pkt *protocol.Packet) {

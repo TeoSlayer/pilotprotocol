@@ -1941,7 +1941,7 @@ func (s *Server) handleResolveHostname(msg map[string]interface{}) (map[string]i
 		}
 
 		if !allowed {
-			return nil, fmt.Errorf("resolve denied: hostname %q belongs to a private node", hostname)
+			return nil, fmt.Errorf("hostname %q not found", hostname) // same error as non-existent to prevent enumeration
 		}
 	}
 
