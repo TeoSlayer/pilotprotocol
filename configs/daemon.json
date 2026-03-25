@@ -5,7 +5,7 @@
   "socket": "/tmp/pilot.sock",
   "encrypt": true,
   "identity": "/var/lib/pilot/identity.json",
-  "owner": "",
+  "email": "",
   "log-level": "info",
   "log-format": "text"
 }

@@ -74,7 +74,7 @@ const bodyContent = `<p>"How do IoT devices behind NAT communicate peer-to-peer?
   <p>When a Pilot daemon starts, it discovers its own public endpoint using <a href="https://datatracker.ietf.org/doc/html/rfc5389" target="_blank" rel="noopener">STUN</a> (Session Traversal Utilities for NAT). The daemon sends a UDP packet to the beacon server, and the beacon replies with the source address it observed -- which is the agent's public NAT-mapped endpoint.</p>
 
   <pre><code><span class="comment"># Daemon startup: STUN discovery happens automatically</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email agent@example.com</span>
 STUN: discovered public endpoint 34.148.103.117:4000
 NAT type: restricted_cone
 Registered with registry</code></pre>
@@ -133,12 +133,12 @@ Agent A ──→ Beacon ──→ Agent B
   <p>The three-tier approach is automatic. The daemon tries all tiers in sequence without any input from the agent developer or operator. Here is what happens when two agents behind different NATs connect:</p>
 
   <pre><code><span class="comment"># Agent A (behind Port-Restricted NAT)</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email agent-a@example.com</span>
 STUN: public endpoint 73.162.88.14:4000
 NAT type: port_restricted_cone
 
 <span class="comment"># Agent B (behind Symmetric NAT)</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email agent-b@example.com</span>
 STUN: public endpoint 91.203.45.67:32761
 NAT type: symmetric
 
@@ -155,7 +155,7 @@ Message delivered</code></pre>
   <p>For cloud VMs with stable public IPs, the <code>--endpoint</code> flag skips STUN entirely:</p>
 
   <pre><code><span class="comment"># Cloud VM with known public IP -- skip STUN</span>
-<span class="cmd">$ pilotctl daemon start --endpoint 34.148.103.117:4000 --public</span>
+<span class="cmd">$ pilotctl daemon start --email agent@example.com --endpoint 34.148.103.117:4000 --public</span>
 Registered with fixed endpoint (STUN skipped)</code></pre>
 
   <h2 id="performance">Performance by Tier</h2>
@@ -204,14 +204,14 @@ Registered with fixed endpoint (STUN skipped)</code></pre>
   <pre><code><span class="comment"># Home network 1 (Port-Restricted Cone NAT)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-1</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email home-agent-1@example.com</span>
 STUN: public endpoint 73.162.88.14:4000 (port_restricted_cone)
 Registered as home-agent-1 (1:0001.0000.0008)
 
 <span class="comment"># Home network 2 (Restricted Cone NAT)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-2 --public</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email home-agent-2@example.com</span>
 STUN: public endpoint 98.45.211.33:4000 (restricted_cone)
 Registered as home-agent-2 (1:0001.0000.0009)
 

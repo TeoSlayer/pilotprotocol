@@ -48,6 +48,8 @@ export const docsNav: NavItem[] = [
   // Compare
   { section: 'Compare', label: 'vs MCP / A2A / ACP', href: '/docs/comparison', slug: 'comparison',
     icon: '<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' },
+  { label: 'vs Tailscale / ZeroTier / Nebula', href: '/docs/comparison-networking', slug: 'comparison-networking',
+    icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/><line x1="5" y1="16" x2="19" y2="16"/></svg>' },
   // Research
   { section: 'Research', label: 'Papers', href: '/docs/research', slug: 'research',
     icon: '<svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>' },

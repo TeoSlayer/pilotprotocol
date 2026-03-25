@@ -159,10 +159,10 @@ func TestKeyRotationViaSignature(t *testing.T) {
 	identityDir := t.TempDir()
 	identityPath := filepath.Join(identityDir, "identity.json")
 
-	// Start daemon with identity + owner
+	// Start daemon with identity + email
 	d, sockPath := env.AddDaemonOnly(func(c *daemon.Config) {
 		c.IdentityPath = identityPath
-		c.Owner = "test@example.com"
+		c.Email = "test@example.com"
 	})
 
 	// Get original info
@@ -237,10 +237,10 @@ func TestKeyRotationRequiresSignature(t *testing.T) {
 	identityDir := t.TempDir()
 	identityPath := filepath.Join(identityDir, "identity.json")
 
-	// Start daemon with identity + owner
+	// Start daemon with identity + email
 	d1, _ := env.AddDaemonOnly(func(c *daemon.Config) {
 		c.IdentityPath = identityPath
-		c.Owner = "recovery@example.com"
+		c.Email = "recovery@example.com"
 	})
 
 	// Get node ID via registry lookup

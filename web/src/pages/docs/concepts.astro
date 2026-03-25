@@ -83,7 +83,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
     <li><strong>Random nonce prefix</strong> — each secure connection uses a unique nonce prefix to prevent replay</li>
   </ul>
 
-  <p>Every node has a persistent <strong>Ed25519 identity keypair</strong> stored at <code>~/.pilot/identity.key</code>. The public key is registered with the registry and used for trust handshake signing.</p>
+  <p>Every node has a persistent <strong>Ed25519 identity keypair</strong> stored at <code>~/.pilot/identity.json</code>. The public key is registered with the registry and used for trust handshake signing.</p>
 
   <h2 id="nat">NAT Traversal</h2>
 
@@ -119,13 +119,17 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <table>
     <thead><tr><th>Port</th><th>Service</th><th>Description</th></tr></thead>
     <tbody>
+      <tr><td>0</td><td>Ping</td><td>Internal liveness checks between peers</td></tr>
+      <tr><td>1</td><td>Control</td><td>Internal control plane messages</td></tr>
       <tr><td>7</td><td>Echo</td><td>Liveness probes, latency measurement, throughput benchmarks</td></tr>
+      <tr><td>53</td><td>Nameserver</td><td>DNS-style hostname resolution</td></tr>
       <tr><td>80</td><td>HTTP</td><td>Web endpoints (use with the gateway)</td></tr>
       <tr><td>443</td><td>Secure</td><td>End-to-end encrypted channel (X25519 + AES-256-GCM)</td></tr>
       <tr><td>444</td><td>Handshake</td><td>Trust negotiation protocol</td></tr>
       <tr><td>1000</td><td>Stdio</td><td>Text streams between agents (default for <code>connect</code>)</td></tr>
       <tr><td>1001</td><td>Data Exchange</td><td>Typed frames: text, JSON, binary, file transfer</td></tr>
       <tr><td>1002</td><td>Event Stream</td><td>Pub/sub broker with topic filtering and wildcards</td></tr>
+      <tr><td>1003</td><td>Task Submit</td><td>Task delegation and marketplace</td></tr>
     </tbody>
   </table>
 

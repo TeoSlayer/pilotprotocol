@@ -338,14 +338,14 @@ Bootstrap:
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
-  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--webhook <url>]
+  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--email <addr>] [--webhook <url>]
   pilotctl daemon stop
   pilotctl daemon status
 
 Registry commands:
   pilotctl register [listen_addr]
   pilotctl lookup <node_id>
-  pilotctl rotate-key <node_id> <owner>
+  pilotctl rotate-key <node_id> <email>
   pilotctl set-public
   pilotctl set-private
   pilotctl deregister
@@ -710,7 +710,7 @@ func cmdContext() {
 				"returns":     "current configuration as JSON",
 			},
 			"daemon start": map[string]interface{}{
-				"args":        []string{"[--config <path>]", "[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--owner <owner>]", "[--hostname <name>]", "[--log-level <level>]", "[--log-format <fmt>]", "[--public]", "[--foreground]", "[--no-encrypt]", "[--socket <path>]", "[--webhook <url>]"},
+				"args":        []string{"[--config <path>]", "[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--email <addr>]", "[--hostname <name>]", "[--log-level <level>]", "[--log-format <fmt>]", "[--public]", "[--foreground]", "[--no-encrypt]", "[--socket <path>]", "[--webhook <url>]"},
 				"description": "Start the daemon as a background process. Blocks until registered, then prints status and exits",
 				"returns":     "node_id, address, pid, socket, hostname, log_file",
 			},
@@ -890,8 +890,8 @@ func cmdContext() {
 				"returns":     "network_id, message",
 			},
 			"rotate-key": map[string]interface{}{
-				"args":        []string{"<node_id>", "<owner>"},
-				"description": "Rotate keypair via owner recovery",
+				"args":        []string{"<node_id>", "<email>"},
+				"description": "Rotate keypair via email recovery",
 				"returns":     "node_id, new public_key",
 			},
 			"set-public": map[string]interface{}{
@@ -1030,7 +1030,16 @@ func cmdDaemonStart(args []string) {
 	if identityPath == "" {
 		identityPath = configDir() + "/identity.json"
 	}
+	email := flagString(flags, "email", "")
 	owner := flagString(flags, "owner", "")
+	if email == "" && owner != "" {
+		email = owner // backward compat: -owner as fallback for -email
+	}
+	if email == "" {
+		if e, ok := cfg["email"].(string); ok {
+			email = e
+		}
+	}
 	configFile := flagString(flags, "config", "")
 	logLevel := flagString(flags, "log-level", "info")
 	logFormat := flagString(flags, "log-format", "text")
@@ -1045,7 +1054,7 @@ func cmdDaemonStart(args []string) {
 	// If --foreground, run in-process
 	if flagBool(flags, "foreground") {
 		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-			socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public, webhookURL)
+			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL)
 		return
 	}
 
@@ -1074,8 +1083,8 @@ func cmdDaemonStart(args []string) {
 	if !encrypt {
 		daemonArgs = append(daemonArgs, "--no-encrypt")
 	}
-	if owner != "" {
-		daemonArgs = append(daemonArgs, "--owner", owner)
+	if email != "" {
+		daemonArgs = append(daemonArgs, "--email", email)
 	}
 	if hostname != "" {
 		daemonArgs = append(daemonArgs, "--hostname", hostname)
@@ -1315,7 +1324,11 @@ func runDaemonInternal(args []string) {
 	listenAddr := flagString(flags, "listen", ":0")
 	socketPath := flagString(flags, "socket", defaultSocket)
 	identityPath := flagString(flags, "identity", "")
+	email := flagString(flags, "email", "")
 	owner := flagString(flags, "owner", "")
+	if email == "" && owner != "" {
+		email = owner
+	}
 	hostname := flagString(flags, "hostname", "")
 	logLevel := flagString(flags, "log-level", "info")
 	logFormat := flagString(flags, "log-format", "text")
@@ -1325,11 +1338,11 @@ func runDaemonInternal(args []string) {
 	webhookURL := flagString(flags, "webhook", "")
 
 	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-		socketPath, encrypt, identityPath, owner, hostname, logLevel, logFormat, public, webhookURL)
+		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL)
 }
 
 func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-	socketPath string, encrypt bool, identityPath, owner, hostname,
+	socketPath string, encrypt bool, identityPath, email, hostname,
 	logLevel, logFormat string, public bool, webhookURL string) {
 
 	if configFile != "" {
@@ -1360,7 +1373,7 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		SocketPath:   socketPath,
 		Encrypt:      encrypt,
 		IdentityPath: identityPath,
-		Owner:        owner,
+		Email:        email,
 		Public:       public,
 		Hostname:     hostname,
 		WebhookURL:   webhookURL,
@@ -1660,13 +1673,13 @@ func cmdLookup(args []string) {
 
 func cmdRotateKey(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl rotate-key <node_id> <owner>")
+		fatalCode("invalid_argument", "usage: pilotctl rotate-key <node_id> <email>")
 	}
 	nodeID := parseNodeID(args[0])
-	owner := args[1]
+	email := args[1]
 	rc := connectRegistry()
 	defer rc.Close()
-	resp, err := rc.RotateKey(nodeID, "", owner)
+	resp, err := rc.RotateKey(nodeID, "", email)
 	if err != nil {
 		fatalCode("connection_failed", "rotate-key: %v", err)
 	}
@@ -3407,8 +3420,8 @@ func cmdInfo() {
 	} else {
 		fmt.Printf("  Identity:    ephemeral (not persisted)\n")
 	}
-	if owner, ok := info["owner"].(string); ok && owner != "" {
-		fmt.Printf("  Owner:       %s\n", owner)
+	if email, ok := info["email"].(string); ok && email != "" {
+		fmt.Printf("  Email:       %s\n", email)
 	}
 	fmt.Printf("  Traffic:     %s sent / %s recv\n", formatBytes(bytesSent), formatBytes(bytesRecv))
 	fmt.Printf("  Packets:     %d sent / %d recv\n", pktsSent, pktsRecv)

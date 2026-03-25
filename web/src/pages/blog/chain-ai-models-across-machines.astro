@@ -322,7 +322,7 @@ func callModel(client *http.Client, agentAddr, path string, payload any) (string
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 
 <span class="comment"># Step 2: Start daemons and join the same network</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email model-service@example.com</span>
 <span class="cmd">pilotctl join --network 1</span>
 
 <span class="comment"># Step 3: Tag each model agent</span>

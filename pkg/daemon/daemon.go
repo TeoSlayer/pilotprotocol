@@ -607,7 +607,7 @@ type DaemonInfo struct {
 	Encrypt            bool
 	Identity           bool   // true if identity is persisted
 	PublicKey          string // base64 Ed25519 public key (empty if no identity)
-	Owner              string // owner identifier for key rotation recovery
+	Email              string // email address for account identification and key recovery
 	BytesSent          uint64
 	BytesRecv          uint64
 	PktsSent           uint64
@@ -668,7 +668,7 @@ func (d *Daemon) Info() *DaemonInfo {
 		Encrypt:            d.config.Encrypt,
 		Identity:           hasIdentity,
 		PublicKey:          pubKeyStr,
-		Owner:              d.config.Owner,
+		Email:              d.config.Email,
 		BytesSent:          atomic.LoadUint64(&d.tunnels.BytesSent),
 		BytesRecv:          atomic.LoadUint64(&d.tunnels.BytesRecv),
 		PktsSent:           atomic.LoadUint64(&d.tunnels.PktsSent),

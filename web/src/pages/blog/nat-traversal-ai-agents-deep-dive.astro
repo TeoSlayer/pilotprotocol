@@ -135,7 +135,7 @@ Agent (192.168.1.50:4000)    NAT (203.0.113.10)    Beacon (35.193.106.76:9001)
   <p>After STUN discovery, the daemon registers its public endpoint with the rendezvous server. Other agents can now look up this endpoint and attempt connections.</p>
 
   <pre><code><span class="comment"># What the daemon logs during startup</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email agent@example.com</span>
 STUN: discovered public endpoint 203.0.113.10:54321
 NAT type: port_restricted_cone
 Registered with rendezvous server at 35.193.106.76:9000
@@ -145,7 +145,7 @@ Hostname: data-processor</code></pre>
   <p>For agents running on cloud VMs with stable public IPs, STUN discovery is unnecessary. The <code>--endpoint</code> flag lets operators specify the public endpoint directly, skipping STUN entirely:</p>
 
   <pre><code><span class="comment"># Cloud VM with known public IP -- skip STUN</span>
-<span class="cmd">$ pilotctl daemon start --endpoint 34.148.103.117:4000 --public</span>
+<span class="cmd">$ pilotctl daemon start --email agent@example.com --endpoint 34.148.103.117:4000 --public</span>
 Registered with fixed endpoint (STUN skipped)</code></pre>
 
   <h2 id="hole-punching">UDP Hole-Punching: Coordinated NAT Piercing</h2>
@@ -246,14 +246,14 @@ Bytes 9+:    <span class="cmd">payload</span>        <span class="comment"># Enc
 
   <pre><code><span class="comment"># Agent A: behind Port-Restricted Cone NAT on a home network</span>
 <span class="cmd">$ pilotctl init --hostname research-agent</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email research@example.com</span>
 STUN: discovered public endpoint 73.162.88.14:4000
 NAT type: port_restricted_cone
 Registered as research-agent (1:0001.0000.000A)
 
 <span class="comment"># Agent B: behind Symmetric NAT on a corporate network</span>
 <span class="cmd">$ pilotctl init --hostname data-warehouse</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email warehouse@example.com</span>
 STUN: discovered public endpoint 91.203.45.67:32761
 NAT type: symmetric
 Registered as data-warehouse (1:0001.0000.000B)

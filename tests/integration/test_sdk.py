@@ -70,6 +70,7 @@ def start_daemon():
             "pilot-daemon",
             "--hostname", TEST_HOSTNAME,
             "--identity", "/root/.pilot/identity-sdk.key",
+            "--email", "sdk-test@integration.test",
             "--log-level", log_level,
         ],
         stdout=subprocess.PIPE,

@@ -111,7 +111,7 @@ Returns: current configuration as JSON
 
 ```bash
 pilotctl daemon start [--registry <addr>] [--beacon <addr>] [--listen <addr>] \
-  [--identity <path>] [--owner <owner>] [--hostname <name>] [--public] \
+  [--identity <path>] [--email <addr>] [--hostname <name>] [--public] \
   [--no-encrypt] [--foreground] [--log-level <level>] [--log-format <fmt>] \
   [--socket <path>] [--config <path>] [--webhook <url>]
 ```
@@ -154,7 +154,7 @@ Returns: `running`, `responsive`, `pid`, `pid_file`, `socket`, `node_id`, `addre
 pilotctl info
 ```
 
-Returns: `node_id`, `address`, `hostname`, `uptime_secs`, `connections`, `ports`, `peers`, `encrypt`, `bytes_sent`, `bytes_recv`, identity status, owner, per-connection stats, peer list with encryption status.
+Returns: `node_id`, `address`, `hostname`, `uptime_secs`, `connections`, `ports`, `peers`, `encrypt`, `bytes_sent`, `bytes_recv`, identity status, email, per-connection stats, peer list with encryption status.
 
 ### Set your hostname
 
@@ -908,7 +908,7 @@ Returns: `peers` [{`node_id`, `endpoint`, `encrypted`, `authenticated`}], `total
 
 ```bash
 pilotctl init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001
-pilotctl daemon start --hostname my-agent
+pilotctl daemon start --hostname my-agent --email user@example.com
 pilotctl enable-tasks   # Advertise task execution capability
 pilotctl info
 ```

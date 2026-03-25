@@ -118,10 +118,10 @@ func TestDaemonLoadsEmailFromAccount(t *testing.T) {
 	}
 	defer d2.Stop()
 
-	// Verify the daemon has the correct owner (email)
+	// Verify the daemon has the correct email
 	info := d2.Info()
-	if info.Owner != "user@example.com" {
-		t.Errorf("Owner = %q, want %q", info.Owner, "user@example.com")
+	if info.Email != "user@example.com" {
+		t.Errorf("Email = %q, want %q", info.Email, "user@example.com")
 	}
 }
 
@@ -232,7 +232,7 @@ func TestDaemonOwnerFlagBackcompat(t *testing.T) {
 	defer d.Stop()
 
 	info := d.Info()
-	if info.Owner != "compat@example.com" {
-		t.Errorf("Owner = %q, want %q", info.Owner, "compat@example.com")
+	if info.Email != "compat@example.com" {
+		t.Errorf("Email = %q, want %q", info.Email, "compat@example.com")
 	}
 }

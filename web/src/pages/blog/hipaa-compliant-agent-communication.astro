@@ -171,7 +171,7 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   <p>Pilot Protocol keeps PHI off third-party servers by design. All data flows through direct encrypted tunnels between agents -- point-to-point connections. The network infrastructure only handles address resolution and NAT traversal signaling, never application data.</p>
 
   <pre><code><span class="comment"># Start agent daemons on each machine handling PHI</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email clinician@hospital.example.com</span>
 <span class="cmd">pilotctl join 1</span></code></pre>
 
   <p>In this deployment:</p>
@@ -189,11 +189,11 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   <p>For healthcare organizations with multiple sites (a hospital network with clinics, a research consortium with partner institutions), Pilot's NAT traversal enables cross-site agent communication without VPN infrastructure:</p>
 
   <pre><code><span class="comment"># Site A: Hospital (behind corporate NAT)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@hospital-a.example.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Site B: Clinic (behind different NAT)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@clinic-b.example.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Agents at Site A and Site B can communicate directly</span>
@@ -237,7 +237,7 @@ const bodyContent = `<p>A hospital deploys an AI agent to summarize patient reco
   <p>The minimum viable setup for HIPAA-compliant agent communication:</p>
 
   <pre><code><span class="comment"># 1. Start agent daemons (on each machine handling PHI)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@hospital.example.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># 3. Establish trust with BAA reference</span>

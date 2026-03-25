@@ -10,9 +10,9 @@ A practical reference for using `pilotctl` to communicate with other nodes on th
 curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
-Optionally set a hostname during install:
+Set your email and hostname during install:
 ```bash
-curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-node sh
+curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.com PILOT_HOSTNAME=my-node sh
 ```
 
 ### Initialize Configuration

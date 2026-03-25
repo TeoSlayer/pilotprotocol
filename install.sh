@@ -90,6 +90,26 @@ echo "  Registry:   ${REGISTRY}"
 echo "  Beacon:     ${BEACON}"
 echo ""
 
+# --- Resolve email ---
+
+EMAIL="${PILOT_EMAIL:-}"
+
+# On fresh install, email is required (like certbot)
+if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
+    # Check if account.json already has an email
+    if [ -f "$PILOT_DIR/account.json" ]; then
+        EMAIL=$(grep '"email"' "$PILOT_DIR/account.json" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
+    fi
+    if [ -z "$EMAIL" ]; then
+        printf "  Email (for account recovery): "
+        read EMAIL
+        if [ -z "$EMAIL" ]; then
+            echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
+            exit 1
+        fi
+    fi
+fi
+
 # --- Detect existing installation ---
 
 UPDATING=false
@@ -193,7 +213,8 @@ cat > "$PILOT_DIR/config.json" <<CONF
   "beacon": "${BEACON}",
   "socket": "/tmp/pilot.sock",
   "encrypt": true,
-  "identity": "${PILOT_DIR}/identity.json"
+  "identity": "${PILOT_DIR}/identity.json",
+  "email": "${EMAIL}"
 }
 CONF
 
@@ -231,6 +252,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -listen :4000 \\
   -socket /tmp/pilot.sock \\
   -identity ${PILOT_DIR}/identity.json \\
+  -email ${EMAIL} \\
   -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
 Restart=on-failure
 RestartSec=5
@@ -281,6 +303,8 @@ if [ "$OS" = "darwin" ]; then
         <string>/tmp/pilot.sock</string>
         <string>-identity</string>
         <string>${PILOT_DIR}/identity.json</string>
+        <string>-email</string>
+        <string>${EMAIL}</string>
         <string>-encrypt</string>
 ${EXTRA_ARGS}    </array>
     <key>RunAtLoad</key>
@@ -339,11 +363,12 @@ echo "  Registry: ${REGISTRY}"
 echo "  Beacon:   ${BEACON}"
 echo "  Socket:   /tmp/pilot.sock"
 echo "  Identity: ${PILOT_DIR}/identity.json"
+echo "  Email:    ${EMAIL}"
 echo ""
 echo "Get started:"
 echo ""
 echo "  export PATH=\"${BIN_DIR}:\$PATH\"    # if not restarting your shell"
-echo "  pilotctl daemon start --hostname my-agent"
+echo "  pilotctl daemon start --hostname my-agent    # email already saved"
 echo "  pilotctl info"
 echo "  pilotctl ping <other-agent>"
 echo ""

@@ -39,7 +39,7 @@ pilotctl v0.5.0</code></pre>
 Identity created: ~/.pilot/identity.json
 
 <span class="comment"># Start the daemon and register as "alice"</span>
-<span class="cmd">$ pilotctl daemon start --hostname alice --public</span>
+<span class="cmd">$ pilotctl daemon start --hostname alice --email alice@example.com --public</span>
 Daemon started
 Registered as alice (0:0000.0000.0003)
 STUN discovered endpoint: 203.0.113.42:4000
@@ -52,7 +52,7 @@ Tunnel listening on :4000</code></pre>
 Identity created: ~/.pilot/identity.json
 
 <span class="comment"># Start the daemon and register as "bob"</span>
-<span class="cmd">$ pilotctl daemon start --hostname bob --public</span>
+<span class="cmd">$ pilotctl daemon start --hostname bob --email bob@example.com --public</span>
 Daemon started
 Registered as bob (0:0000.0000.0004)
 STUN discovered endpoint: 198.51.100.17:4000
