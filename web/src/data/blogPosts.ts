@@ -11,6 +11,15 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "private-networks-now-in-testing",
+    title: "Private Networks: Now in Testing",
+    description: "Private networks are live on the Pilot Protocol production registry. Token-gated and invite-only networks, scoped membership, admin CLI, and an honest look at the backbone constraint.",
+    date: "Mar 25",
+    category: "Enterprise",
+    tags: ["enterprise", "networks", "security"],
+    banner: "banners/private-networks-now-in-testing.webp",
+  },
+  {
     slug: "enterprise-identity-integration-pilot-protocol",
     title: "Enterprise Identity Integration: Entra ID, SPIFFE, OPA, and Beyond",
     description: "How Pilot Protocol will integrate with enterprise identity providers (Entra ID, Okta, GCP IAM), policy engines (OPA, Vault), and compliance tools (Splunk, OpenTelemetry).",

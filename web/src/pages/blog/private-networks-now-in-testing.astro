@@ -1,0 +1,118 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>Private networks have been the most requested enterprise feature since Pilot Protocol launched. Today, they are live on our production registry and entering the testing phase. This post covers what works now, what is coming next, and an honest look at the architectural constraints we are working through.</p>
+
+<h2 id="what-shipped">What Shipped</h2>
+
+<p>The registry now supports the full network lifecycle. An admin with a token can create isolated networks, add and remove members, list network membership, and delete networks entirely. These operations are gated by a cryptographic admin token &mdash; no token, no mutation.</p>
+
+<p>Here is what a session looks like from the admin CLI:</p>
+
+<pre><code><span class="comment"># Create a private network</span>
+pilot-admin -registry host:9000 -token $TOKEN create-network \\
+  -name research-lab -join-rule token -token join-secret -node 685
+
+<span class="comment"># Add a second agent</span>
+pilot-admin -registry host:9000 -token $TOKEN add-node \\
+  -network 1 -node 686 -token join-secret
+
+<span class="comment"># List members</span>
+pilot-admin -registry host:9000 list-members -network 1
+NODE ID  ADDRESS           HOSTNAME  REAL ADDR
+685      1:0001.0000.02AD            34.71.57.205:4000
+686      1:0001.0000.02AE            35.209.71.94:4000
+
+<span class="comment"># Remove a node</span>
+pilot-admin -registry host:9000 -token $TOKEN remove-node \\
+  -network 1 -node 686
+
+<span class="comment"># Delete the network entirely</span>
+pilot-admin -registry host:9000 -token $TOKEN delete-network \\
+  -network 1</code></pre>
+
+<p>All operations persist to disk immediately. Deleting a network cleans up member references &mdash; no orphaned state.</p>
+
+<h2 id="join-rules">Three Join Rules</h2>
+
+<p>Networks support three access control models:</p>
+
+<ul>
+  <li><strong>Open</strong> &mdash; any registered node can join. Good for dev/test environments.</li>
+  <li><strong>Token</strong> &mdash; joining requires a shared secret. The token is set at network creation time. Suitable for team-level isolation where you can distribute a token out of band.</li>
+  <li><strong>Invite</strong> &mdash; an existing member must vouch for the new node. The strongest access control: membership spreads only through the trust graph.</li>
+</ul>
+
+<h2 id="what-private-means">What "Private Network" Actually Means</h2>
+
+<p>When two nodes share a non-backbone network, the system treats them as implicitly trusted. This has three concrete effects:</p>
+
+<ol>
+  <li><strong>Auto-trust at resolve time.</strong> A private node that would normally be invisible becomes resolvable to any node in the same network. No handshake ceremony required.</li>
+  <li><strong>SYN acceptance.</strong> Incoming connections from same-network peers bypass the trust gate. The daemon checks shared network membership and allows the connection.</li>
+  <li><strong>Scoped listing.</strong> <code>list-members</code> returns only nodes in that network. No backbone enumeration. An attacker with no network membership sees nothing.</li>
+</ol>
+
+<p>The result: agents inside a private network can discover and connect to each other. Agents outside it cannot see that the network or its members exist.</p>
+
+<h2 id="backbone">The Backbone Constraint</h2>
+
+<p>Here is the honest part. Today, every node is automatically enrolled in the backbone (network 0) at registration time, and nodes cannot leave backbone. This is an architectural constraint, not a policy choice.</p>
+
+<p>The backbone provides three things that private networks currently depend on:</p>
+
+<ul>
+  <li><strong>Address allocation.</strong> A node&rsquo;s 32-bit node ID is assigned at registration, and the backbone address (<code>0:0000.XXXX.XXXX</code>) is the canonical identifier used for tunnel setup, lookup, and routing.</li>
+  <li><strong>Tunnel establishment.</strong> When node A wants to reach node B, the tunnel layer resolves B&rsquo;s endpoint via the backbone registry. NAT traversal, hole punching, and relay all operate on backbone-level identities.</li>
+  <li><strong>Global reachability.</strong> Even within a private network, the actual UDP tunnel is established using backbone addressing. The private network provides <em>authorization</em> (who can connect), but the backbone provides <em>connectivity</em> (how to reach them).</li>
+</ul>
+
+<p>This means a node cannot exist <em>only</em> on a private network today. It always has a backbone presence. For many use cases this is fine &mdash; the node is private-by-default and invisible to anyone without trust or shared network membership. But for use cases where you want zero backbone footprint (a node that the registry itself only associates with a specific network), that requires deeper architectural work.</p>
+
+<h2 id="whats-next">What Is Coming</h2>
+
+<p>Private networks are the foundation. Here is what we are building on top of them:</p>
+
+<h3>Network-Scoped Registration (Phase 2)</h3>
+
+<p>Agents specify a target network at startup. The daemon auto-joins configured networks after registration, so deploying a fleet to a private network is a single config change &mdash; no manual <code>add-node</code> commands.</p>
+
+<h3>Backbone-Optional Nodes (Phase 3)</h3>
+
+<p>The long-term goal is supporting nodes that exist exclusively within a private network, with no backbone presence. This requires changes to address allocation (network-scoped IDs), tunnel setup (resolve within network context), and the registration flow. It is architecturally tractable but not trivial.</p>
+
+<h3>Self-Service Network Creation</h3>
+
+<p>Today, network creation requires the admin token. We are designing a self-service interface where authenticated nodes can create and manage their own networks, subject to quotas and policy. The admin token path remains for infrastructure operators; the self-service path is for application-level teams.</p>
+
+<h3>Policy Engine (Phase 3)</h3>
+
+<p>Tag-based access policies that control which nodes can reach which ports: <em>&ldquo;nodes tagged <code>frontend</code> can reach nodes tagged <code>api</code> on ports 80 and 443.&rdquo;</em> Policies evaluated at both resolve time and SYN time. Combined with private networks, this gives you full microsegmentation without a service mesh.</p>
+
+<h2 id="try-it">Current Status</h2>
+
+<p>Private networks are live on the production registry as of March 2026. The admin CLI runs on the registry host. We are testing network lifecycle operations under load and validating that trust semantics (auto-trust, SYN gating, resolve privacy) work correctly across all NAT configurations.</p>
+
+<p>If you are interested in testing private networks for your agent deployment, the protocol is open source and the admin tooling is available to anyone running their own rendezvous server.</p>
+
+<div class="cta">
+  <h3>Get Started</h3>
+  <p>Deploy your own rendezvous server with private network support. Zero external dependencies, single binary, runs anywhere.</p>
+  <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/SPEC.md">Wire Specification</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/blog/enterprise-private-networks-roadmap">Full Enterprise Roadmap</a>
+</div>`;
+---
+<BlogLayout
+  title="Private Networks: Now in Testing"
+  description="Private networks are live on the Pilot Protocol production registry. Token-gated and invite-only networks, scoped membership, admin CLI, and an honest look at the backbone constraint."
+  date="March 25, 2026"
+  tags={["enterprise", "networks", "security"]}
+  canonicalPath="/blog/private-networks-now-in-testing"
+  bannerImage="/blog/banners/private-networks-now-in-testing.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>
