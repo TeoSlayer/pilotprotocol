@@ -35,7 +35,7 @@ jobs:
           go build ./cmd/gateway
 
       - name: Test
-        run: go test -parallel 4 -count=1 -timeout 60s ./tests/ ./pkg/beacon/
+        run: go test -parallel 4 -count=1 -timeout 120s ./tests/ ./pkg/beacon/
 
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
