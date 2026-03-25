@@ -718,6 +718,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleJoinNetwork(msg)
 	case "leave_network":
 		return s.handleLeaveNetwork(msg)
+	case "delete_network":
+		return s.handleDeleteNetwork(msg)
 	case "lookup":
 		return s.handleLookup(msg)
 	case "resolve":
@@ -1323,6 +1325,50 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 
 	return map[string]interface{}{
 		"type":       "leave_network_ok",
+		"network_id": netID,
+	}, nil
+}
+
+func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+
+	netID := jsonUint16(msg, "network_id")
+
+	// Cannot delete backbone
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot delete the backbone network")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Remove network from all member nodes
+	for _, memberID := range network.Members {
+		if node, ok := s.nodes[memberID]; ok {
+			for i, n := range node.Networks {
+				if n == netID {
+					node.Networks = append(node.Networks[:i], node.Networks[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+
+	name := network.Name
+	delete(s.networks, netID)
+	s.save()
+
+	slog.Info("deleted network", "network_id", netID, "name", name)
+
+	return map[string]interface{}{
+		"type":       "delete_network_ok",
 		"network_id": netID,
 	}, nil
 }
@@ -1941,7 +1987,7 @@ func (s *Server) handleResolveHostname(msg map[string]interface{}) (map[string]i
 		}
 
 		if !allowed {
-			return nil, fmt.Errorf("resolve denied: hostname %q belongs to a private node", hostname)
+			return nil, fmt.Errorf("hostname %q not found", hostname) // same error as non-existent to prevent enumeration
 		}
 	}
 
@@ -2028,9 +2074,36 @@ func (s *Server) handleListNetworks() (map[string]interface{}, error) {
 func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interface{}, error) {
 	netID := jsonUint16(msg, "network_id")
 
-	// Backbone (network 0) node listing is restricted to prevent enumeration
+	// Backbone (network 0) node listing is restricted to prevent enumeration.
+	// Admin token bypasses this restriction.
 	if netID == 0 {
-		return nil, fmt.Errorf("listing backbone nodes is not permitted (use lookup with a specific node_id)")
+		if err := s.requireAdminToken(msg); err != nil {
+			return nil, fmt.Errorf("listing backbone nodes is not permitted (use lookup with a specific node_id)")
+		}
+		// Admin-authenticated: list all registered nodes
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		nodes := make([]map[string]interface{}, 0, len(s.nodes))
+		for _, node := range s.nodes {
+			entry := map[string]interface{}{
+				"node_id": node.ID,
+				"address": protocol.Addr{Network: 0, Node: node.ID}.String(),
+			}
+			if node.Hostname != "" {
+				entry["hostname"] = node.Hostname
+			}
+			if node.TaskExec {
+				entry["task_exec"] = true
+			}
+			if node.Public {
+				entry["real_addr"] = node.RealAddr
+			}
+			nodes = append(nodes, entry)
+		}
+		return map[string]interface{}{
+			"type":  "list_nodes_ok",
+			"nodes": nodes,
+		}, nil
 	}
 
 	s.mu.RLock()

@@ -29,6 +29,7 @@ func main() {
 	httpAddr := flag.String("http", "", "HTTP dashboard listen address (e.g. :3000)")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
+	adminToken := flag.String("admin-token", "", "admin token for network creation (empty = creation disabled)")
 	flag.Parse()
 
 	if *configPath != "" {
@@ -53,6 +54,9 @@ func main() {
 
 	// Start registry
 	r := registry.NewWithStore(*beaconAddr, *storePath)
+	if *adminToken != "" {
+		r.SetAdminToken(*adminToken)
+	}
 	if *enableTLS {
 		if err := r.SetTLS(*tlsCert, *tlsKey); err != nil {
 			log.Fatalf("TLS setup: %v", err)

@@ -16,7 +16,6 @@ import (
 // 3. Verify standby has the same data
 // 4. Verify standby rejects writes
 func TestRegistryReplication(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	tmpDir, err := os.MkdirTemp("/tmp", "w4-repl-")
 	if err != nil {

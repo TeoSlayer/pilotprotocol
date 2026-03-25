@@ -11,7 +11,6 @@ import (
 )
 
 func TestRegistryPersistence(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	tmpDir, err := os.MkdirTemp("/tmp", "w4-persist-")
 	if err != nil {

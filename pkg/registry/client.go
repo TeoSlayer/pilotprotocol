@@ -310,17 +310,32 @@ func (c *Client) LeaveNetwork(nodeID uint32, networkID uint16, adminToken string
 	return c.Send(msg)
 }
 
+func (c *Client) DeleteNetwork(networkID uint16, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":       "delete_network",
+		"network_id": networkID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
 func (c *Client) ListNetworks() (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
 		"type": "list_networks",
 	})
 }
 
-func (c *Client) ListNodes(networkID uint16) (map[string]interface{}, error) {
-	return c.Send(map[string]interface{}{
+func (c *Client) ListNodes(networkID uint16, adminToken ...string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
 		"type":       "list_nodes",
 		"network_id": networkID,
-	})
+	}
+	if len(adminToken) > 0 && adminToken[0] != "" {
+		msg["admin_token"] = adminToken[0]
+	}
+	return c.Send(msg)
 }
 
 func (c *Client) Deregister(nodeID uint32) (map[string]interface{}, error) {

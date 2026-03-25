@@ -724,11 +724,69 @@ func TestRegistryClientNetworkCreateNoToken(t *testing.T) {
 }
 
 func TestRegistryClientNetworkCreateWithToken(t *testing.T) {
-	t.Skip("custom networks are WIP")
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	resp, err := c.CreateNetwork(nodeID, "tokennet", "open", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("CreateNetwork with token: %v", err)
+	}
+	netID, ok := resp["network_id"].(float64)
+	if !ok || netID < 1 {
+		t.Fatalf("expected valid network_id, got %v", resp["network_id"])
+	}
+	t.Logf("created network %d", int(netID))
 }
 
 func TestRegistryClientNetworkJoinLeave(t *testing.T) {
-	t.Skip("custom networks are WIP")
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c1, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial c1: %v", err)
+	}
+	defer c1.Close()
+	c2, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial c2: %v", err)
+	}
+	defer c2.Close()
+
+	nodeID1 := regTestNodeWithKey(t, c1, "127.0.0.1:4001")
+	nodeID2 := regTestNodeWithKey(t, c2, "127.0.0.1:4002")
+
+	// Create network with node1
+	resp, err := c1.CreateNetwork(nodeID1, "joinleave", "open", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Node2 joins
+	_, err = c2.JoinNetwork(nodeID2, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("JoinNetwork: %v", err)
+	}
+
+	// Node2 leaves
+	_, err = c2.LeaveNetwork(nodeID2, netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("LeaveNetwork: %v", err)
+	}
+	t.Logf("node %d joined and left network %d", nodeID2, netID)
 }
 
 func TestRegistryClientListNetworks(t *testing.T) {

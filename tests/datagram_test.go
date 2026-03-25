@@ -57,7 +57,6 @@ func TestUnicastDatagram(t *testing.T) {
 
 // TestBroadcastExcludesSender verifies the broadcaster does not receive its own broadcast.
 func TestBroadcastExcludesSender(t *testing.T) {
-	t.Skip("custom networks are WIP")
 	t.Parallel()
 	env := NewTestEnv(t)
 
