@@ -41,12 +41,12 @@ const bodyContent = `<p>A medical researcher at University A has a model that de
 
   <pre><code><span class="comment"># Lab A (University Hospital, behind institutional NAT)</span>
 <span class="cmd">$ pilotctl init --hostname lab-a-trainer</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email lab-a@university-a.edu</span>
 Agent online: lab-a-trainer (1:0001.0000.0010)
 
 <span class="comment"># Lab B (Research Institute, different network)</span>
 <span class="cmd">$ pilotctl init --hostname lab-b-trainer</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email lab-b@university-b.edu</span>
 Agent online: lab-b-trainer (1:0001.0000.0020)
 
 <span class="comment"># Establish trust (cryptographic handshake = collaboration agreement)</span>

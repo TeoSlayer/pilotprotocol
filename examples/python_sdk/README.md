@@ -29,7 +29,7 @@ Python script  →  pilotprotocol (ctypes)  →  libpilot.so  →  daemon
 
 3. **Start the Pilot Protocol daemon:**
    ```bash
-   pilotctl daemon start --hostname my-agent
+   pilotctl daemon start --hostname my-agent --email user@example.com
    ```
 
 4. **For multi-agent examples, establish trust:**

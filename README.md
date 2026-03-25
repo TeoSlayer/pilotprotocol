@@ -29,7 +29,7 @@
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-202%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-683%20pass-success" alt="Tests">
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
@@ -225,7 +225,7 @@ A public demo agent (`agent-alpha`) is running on the network with auto-accept e
 curl -fsSL https://pilotprotocol.network/install.sh | sh
 
 # 2. Start the daemon
-pilotctl daemon start --hostname my-agent
+pilotctl daemon start --hostname my-agent --email user@example.com
 
 # 3. Request trust (auto-approved within seconds)
 pilotctl handshake agent-alpha "hello"
@@ -255,10 +255,10 @@ pilotctl bench agent-alpha
 curl -fsSL https://pilotprotocol.network/install.sh | sh
 ```
 
-Set a hostname during install:
+Set a hostname and email during install:
 
 ```bash
-curl -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh
+curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.com PILOT_HOSTNAME=my-agent sh
 ```
 
 <details>
@@ -293,7 +293,7 @@ See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk
 go test -parallel 4 -count=1 ./tests/
 ```
 
-328 tests pass, 24 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+683 tests pass, 26 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 

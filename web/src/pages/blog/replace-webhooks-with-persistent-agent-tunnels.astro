@@ -349,7 +349,7 @@ publish("tasks.complete", {
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 
 <span class="comment"># Step 2: Start daemon and join network</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@example.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Step 3: Bridge existing webhooks</span>

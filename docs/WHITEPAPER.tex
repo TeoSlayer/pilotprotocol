@@ -244,7 +244,7 @@ The Registry is the central authority---analogous to ICANN and DHCP combined. It
     \item \textbf{Heartbeats.} Nodes ping the Registry periodically to confirm liveness.
 \end{itemize}
 
-\textbf{Persistence.} The Registry supports atomic JSON snapshots (\texttt{-store path/to/registry.json}). Every state mutation---node registration, network creation, network join, deregistration, stale-node reaping---triggers a save. The snapshot captures all nodes, networks, membership lists, public keys, owner bindings, trust pairs, and ID counters. On restart, the Registry loads the snapshot and resumes operation with all state intact. Writes use a temporary file with \texttt{os.Rename} for crash safety---the store file is never partially written.
+\textbf{Persistence.} The Registry supports atomic JSON snapshots (\texttt{-store path/to/registry.json}). Every state mutation---node registration, network creation, network join, deregistration, stale-node reaping---triggers a save. The snapshot captures all nodes, networks, membership lists, public keys, email bindings, trust pairs, and ID counters. On restart, the Registry loads the snapshot and resumes operation with all state intact. Writes use a temporary file with \texttt{os.Rename} for crash safety---the store file is never partially written.
 
 \textbf{TLS.} The Registry supports TLS transport (\texttt{-tls-cert}, \texttt{-tls-key}). When configured, all control-plane traffic---registrations, lookups, heartbeats---is encrypted in transit.
 
@@ -274,7 +274,7 @@ On startup, the Daemon:
 \begin{enumerate}
     \item Discovers its public endpoint via the Beacon
     \item Loads persisted Ed25519 identity (if configured)
-    \item Registers with the Registry, receiving a virtual address (or reclaiming an existing one via identity or owner)
+    \item Registers with the Registry, receiving a virtual address (or reclaiming an existing one via identity or email)
     \item Generates an ephemeral X25519 keypair for tunnel encryption (enabled by default)
     \item Opens a Unix domain socket (mode 0600) for local drivers to connect
     \item Starts the trust handshake service on port~444 (if identity available)
@@ -456,18 +456,18 @@ pilotctl register
 pilotctl lookup 3
 pilotctl deregister
 
-# Key rotation via signature or owner recovery
+# Key rotation via signature or email recovery
 pilotctl rotate-key 3 agent-a@pilot
 \end{lstlisting}
 
-The \texttt{info} command provides a comprehensive view of daemon state, including identity status (ephemeral vs.\ persistent Ed25519), owner binding, encryption mode, authenticated peer count, and per-connection statistics (bytes, segments, retransmissions, SACK blocks, duplicate ACKs, congestion window, in-flight data, SRTT, RTTVAR, and recovery status). The \texttt{peers} command shows each peer's real endpoint, whether the tunnel is encrypted, and whether the key exchange was authenticated with Ed25519 signatures.
+The \texttt{info} command provides a comprehensive view of daemon state, including identity status (ephemeral vs.\ persistent Ed25519), email binding, encryption mode, authenticated peer count, and per-connection statistics (bytes, segments, retransmissions, SACK blocks, duplicate ACKs, congestion window, in-flight data, SRTT, RTTVAR, and recovery status). The \texttt{peers} command shows each peer's real endpoint, whether the tunnel is encrypted, and whether the key exchange was authenticated with Ed25519 signatures.
 
 % ============================================================
 \section{Security Model}
 
 \textbf{Identity.} Each node receives an Ed25519 keypair from the Registry upon registration. The private key is the node's identity token. The Registry holds all public keys and can verify identity. Identities can be persisted to disk (\texttt{-identity path/to/identity.json}) so that a node retains its keypair and virtual address across daemon restarts. On restart, the daemon re-registers with the stored public key and the registry recognizes the node, preserving its address and network memberships.
 
-\textbf{Owner binding and key rotation.} Nodes can be bound to an owner identifier (typically an email) via the \texttt{-owner} flag. This enables key rotation recovery: if a node's private key is compromised or lost, the owner can request a new keypair from the registry. Key rotation supports two authentication paths: (1)~signature-based, where the node signs a challenge (\texttt{rotate:<node\_id>}) with its current Ed25519 private key, proving possession; or (2)~owner-based, where the owner identifier is matched against the registry's records. After rotation, the registry issues a fresh Ed25519 keypair while preserving the node's ID and network memberships. Owner binding also enables reclaiming a deregistered node's identity---re-registering with the same owner email recovers the original node~ID.
+\textbf{Email binding and key rotation.} Nodes can be bound to an email address via the \texttt{-email} flag. This enables key rotation recovery: if a node's private key is compromised or lost, the email holder can request a new keypair from the registry. Key rotation supports two authentication paths: (1)~signature-based, where the node signs a challenge (\texttt{rotate:<node\_id>}) with its current Ed25519 private key, proving possession; or (2)~email-based, where the email address is matched against the registry's records. After rotation, the registry issues a fresh Ed25519 keypair while preserving the node's ID and network memberships. Email binding also enables reclaiming a deregistered node's identity---re-registering with the same email recovers the original node~ID.
 
 \textbf{Trust boundaries.} Network membership is the trust boundary. Joining a network requires satisfying its rules (open enrollment, token verification, or member invitation). Once inside a network, communication is unrestricted. This is a deliberate design choice: complex per-connection ACLs are replaced by simple group membership.
 
@@ -779,8 +779,8 @@ Segmentation + large writes & Local & Pass (64\,KB seg, 8--32\,KB writes) \\
 Nagle coalescing & Local & Pass (100 writes in 4\,ms) \\
 Tunnel encryption + backward compat & Local & Pass (PILK/PILS/plaintext) \\
 Authenticated key exchange & Local & Pass (Ed25519 signed) \\
-Identity persistence + key rotation & Local & Pass (save/reload, sig/owner rotate) \\
-Owner re-registration & Local & Pass (reclaim ID after deregister) \\
+Identity persistence + key rotation & Local & Pass (save/reload, sig/email rotate) \\
+Email re-registration & Local & Pass (reclaim ID after deregister) \\
 \midrule
 Handshake mutual auto-approve & Local & Pass (both request $\rightarrow$ auto) \\
 Handshake approve/reject & Local & Pass (pending $\rightarrow$ approve/reject) \\

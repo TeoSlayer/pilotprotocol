@@ -85,12 +85,12 @@ const bodyContent = `<p>"The network grinds to a halt 90% of the time when I add
   </ol>
 
   <pre><code><span class="comment"># Drone startup sequence</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email drone-07@swarm.example.com</span>
 <span class="cmd">pilotctl join --network 1</span>
 <span class="cmd">pilotctl set-tags swarm-member drone drone-07 survey-team-alpha</span>
 
 <span class="comment"># Ground station startup</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
 <span class="cmd">pilotctl join --network 1</span>
 <span class="cmd">pilotctl set-tags ground-station survey-team-alpha</span>
 <span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
@@ -288,13 +288,13 @@ func main() {
   </ol>
 
   <pre><code><span class="comment"># Drone on cellular (behind carrier-grade NAT)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email drone@swarm.example.com</span>
 <span class="comment"># NAT type is detected automatically</span>
 <span class="comment"># Hole-punch or relay is selected automatically</span>
 <span class="comment"># No configuration needed on the drone</span>
 
 <span class="comment"># Ground station on WiFi (behind home router NAT)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
 <span class="comment"># Same: automatic NAT traversal</span>
 
 <span class="comment"># Both can now communicate regardless of NAT type</span>
@@ -420,13 +420,13 @@ func main() {
 
   <pre><code><span class="comment"># On the ground station (also runs the registry)</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
 <span class="cmd">pilotctl set-tags ground-station swarm-controller</span>
 <span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
 
 <span class="comment"># On each robot (Raspberry Pi / Jetson Nano)</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email robot@swarm.example.com</span>
 <span class="cmd">pilotctl join --network 1</span>
 <span class="cmd">pilotctl set-tags swarm-member robot ground-unit</span>
 

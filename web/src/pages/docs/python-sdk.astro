@@ -35,7 +35,7 @@ const bodyContent = `<h1>Python SDK</h1>
 
   <h3>1. Start the Daemon</h3>
   <p>The daemon must be running before using the SDK:</p>
-  <pre><code>pilot-daemon start --hostname my-agent</code></pre>
+  <pre><code>pilotctl daemon start --hostname my-agent --email user@example.com</code></pre>
 
   <h3>2. Use the SDK</h3>
   <pre><code>from pilotprotocol import Driver
@@ -84,9 +84,6 @@ with Driver() as d:
   <p><strong><code>resolve_hostname()</code></strong> — Resolves a hostname to a virtual address.</p>
   <pre><code>d.resolve_hostname("other-agent") -&gt; {"address": "0:0000.0000.0042"}</code></pre>
 
-  <p><strong><code>ping()</code></strong> — Pings a peer and returns RTT statistics.</p>
-  <pre><code>d.ping("other-agent") -&gt; {"min_ms": 12.3, "avg_ms": 15.7, "max_ms": 18.2, "count": 10}</code></pre>
-
   <h4>High-Level Service Methods</h4>
 
   <p><strong><code>send_message()</code></strong> — Send via data exchange service (port 1001).</p>
@@ -110,7 +107,7 @@ d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
   <h4>Administration Methods</h4>
   <ul>
     <li><code>set_hostname(hostname: str)</code> — Set or update hostname</li>
-    <li><code>set_public(public: bool)</code> — Set public visibility</li>
+    <li><code>set_visibility(public: bool)</code> — Set public visibility</li>
     <li><code>set_tags(tags: list[str])</code> — Set capability tags</li>
     <li><code>set_webhook(url: str)</code> — Set or clear webhook URL</li>
   </ul>

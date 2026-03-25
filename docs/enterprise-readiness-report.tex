@@ -132,11 +132,11 @@ This section inventories what Pilot Protocol provides today across all six enter
 
 \textbf{Signed mutations.} All registry write operations routed through the daemon (set-hostname, set-visibility, deregister) are signed with the node's Ed25519 private key. The registry verifies signatures before applying mutations, preventing spoofed requests.
 
-\textbf{Key rotation.} The \texttt{rotate\_key} command supports two authentication paths: signature-based (proving possession of the current key) and owner-based (matching an email identifier). After rotation, the registry issues a fresh keypair while preserving the node's ID and network memberships.
+\textbf{Key rotation.} The \texttt{rotate\_key} command supports two authentication paths: signature-based (proving possession of the current key) and email-based (matching the registered email address). After rotation, the registry issues a fresh keypair while preserving the node's ID and network memberships.
 
 \textbf{TLS cert pinning.} The registry client supports TLS with certificate pinning (\texttt{DialTLSPinned}), preventing man-in-the-middle attacks on the control plane.
 
-\textbf{Owner binding.} Nodes can be bound to an owner identifier (typically an email) via the \texttt{-owner} flag. This enables key recovery and re-registration after deregistration.
+\textbf{Email binding.} Nodes can be bound to an email address via the \texttt{-email} flag. This enables key recovery and re-registration after deregistration.
 
 \textbf{Authenticated key exchange.} When a daemon has a persisted Ed25519 identity, the tunnel key exchange is upgraded from anonymous (\texttt{PILK}) to authenticated (\texttt{PILA}). The signature proves the X25519 ephemeral key belongs to the claimed identity, preventing man-in-the-middle substitution.
 
@@ -203,7 +203,7 @@ No external identity (OIDC, SPIFFE, x509) & High & Creates parallel trust island
 No identity expiry or forced rotation & Medium & Compromised keys live forever \\
 No workload attestation & Medium & Cannot verify \emph{what} a process is \\
 No trust domain concept & Medium & No federation boundary \\
-Owner field is unverified & Low & Email is informational only \\
+Email field is unverified & Low & Email is informational only \\
 \bottomrule
 \end{tabular}
 \caption{Identity gaps.}
@@ -494,7 +494,7 @@ The following matrix maps ONUG AOMC controls and CSA ATF elements to Pilot Proto
 \multicolumn{4}{@{}l}{\textbf{CSA ATF Elements}} \\
 \midrule
 Progressive Autonomy & Polo score (reputation system) & --- & Aligned \\
-Identity Binding & Ed25519 to node, owner field & OIDC/SPIFFE binding (P5), CA binding (P4) & Partial \\
+Identity Binding & Ed25519 to node, email field & OIDC/SPIFFE binding (P5), CA binding (P4) & Partial \\
 Context Propagation & Handshake justification, tags & Tag-based policies (P3), external identity context (P5) & Partial \\
 Revocation \& Quarantine & Bilateral untrust with tunnel teardown & Cascading revocation (P3), block list (P3), cert revocation (P4) & Gap \\
 \midrule

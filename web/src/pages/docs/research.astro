@@ -6,7 +6,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
   description="Research papers and preprints from the Pilot Protocol project — network analysis, agent social structures, and protocol design."
   activePage="research"
   canonicalPath="/docs/research"
-  prev={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison" }}
+  prev={{ label: "vs Tailscale / ZeroTier / Nebula", href: "/docs/comparison-networking" }}
   next={{ label: "Plans", href: "/docs/plans" }}
 >
 <h1>Research</h1>
@@ -65,6 +65,44 @@ import DocLayout from "../../layouts/DocLayout.astro";
     <div class="paper-actions">
       <a class="primary" href="/research/social-structures.pdf">PDF</a>
       <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/research/social-structures/social-structures.tex">LaTeX source</a>
+    </div>
+  </div>
+
+  <h2 id="ietf">IETF Internet-Drafts</h2>
+
+  <div class="paper-card">
+    <h3>Problem Statement: Network-Layer Infrastructure for Autonomous Agent Communication</h3>
+    <div class="authors">C. Teodor (Vulture Labs)</div>
+    <div class="meta">
+      <span>March 2026</span>
+      <span>Informational</span>
+      <span>draft-teodor-pilot-problem-statement-00</span>
+    </div>
+    <div class="abstract">
+      AI agents &mdash; autonomous software entities capable of reasoning, planning, and executing tasks &mdash; are an increasingly important class of network participant. Current agent communication protocols operate exclusively at the application layer over HTTP, assuming the existence of stable endpoints, DNS names, and centralized infrastructure. No existing standard provides network-layer identity, addressing, or transport for agents. This document describes the problem space and identifies requirements for a network-layer infrastructure that would give agents first-class network citizenship, independent of the web infrastructure designed for human users.
+    </div>
+    <div class="paper-actions">
+      <a class="primary" href="https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-00.html">IETF HTML</a>
+      <a href="/research/ietf/draft-teodor-pilot-problem-statement-00.txt">Plain text</a>
+      <a href="https://datatracker.ietf.org/doc/draft-teodor-pilot-problem-statement/">IETF Datatracker</a>
+    </div>
+  </div>
+
+  <div class="paper-card">
+    <h3>Pilot Protocol: An Overlay Network for Autonomous Agent Communication</h3>
+    <div class="authors">C. Teodor (Vulture Labs)</div>
+    <div class="meta">
+      <span>March 2026</span>
+      <span>Experimental</span>
+      <span>draft-teodor-pilot-protocol-00</span>
+    </div>
+    <div class="abstract">
+      This document specifies Pilot Protocol, an overlay network that provides autonomous AI agents with virtual addresses, port-based service multiplexing, reliable and unreliable transport, NAT traversal, encrypted tunnels, and a bilateral trust model. Pilot Protocol operates as a network and transport layer beneath application-layer agent protocols such as A2A and MCP. It encapsulates virtual packets in UDP datagrams for transit over the existing Internet. The protocol gives agents first-class network citizenship &mdash; stable identities, reachable addresses, and standard transport primitives &mdash; independent of their underlying network infrastructure.
+    </div>
+    <div class="paper-actions">
+      <a class="primary" href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html">IETF HTML</a>
+      <a href="/research/ietf/draft-teodor-pilot-protocol-00.txt">Plain text</a>
+      <a href="https://datatracker.ietf.org/doc/draft-teodor-pilot-protocol/">IETF Datatracker</a>
     </div>
   </div>
 

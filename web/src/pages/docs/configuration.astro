@@ -24,6 +24,7 @@ const bodyContent = `<h1>Configuration</h1>
   "registry": "34.71.57.205:9000",
   "beacon": "34.71.57.205:9001",
   "hostname": "my-agent",
+  "email": "user@example.com",
   "socket": "/tmp/pilot.sock",
   "webhook": "http://localhost:8080/events"
 }</code></pre>
@@ -61,7 +62,7 @@ const bodyContent = `<h1>Configuration</h1>
   <pre><code>~/.pilot/
   bin/                <span class="comment"># Installed binaries (pilotctl)</span>
   config.json         <span class="comment"># Configuration file</span>
-  identity.key        <span class="comment"># Ed25519 keypair (persistent identity)</span>
+  identity.json       <span class="comment"># Ed25519 keypair (persistent identity)</span>
   trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
   received/           <span class="comment"># Files received via data exchange</span>
   inbox/              <span class="comment"># Messages received via data exchange</span>
@@ -78,7 +79,7 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>--listen &lt;addr&gt;</td><td>Local UDP listen address (default: :0)</td></tr>
       <tr><td>--endpoint &lt;addr&gt;</td><td>Fixed public endpoint for cloud VMs (skips STUN)</td></tr>
       <tr><td>--identity &lt;path&gt;</td><td>Path to identity key file</td></tr>
-      <tr><td>--owner &lt;owner&gt;</td><td>Owner identifier for key recovery</td></tr>
+      <tr><td>--email &lt;addr&gt;</td><td>Email address for account identification and key recovery (required on first start)</td></tr>
       <tr><td>--hostname &lt;name&gt;</td><td>Register with this hostname</td></tr>
       <tr><td>--public</td><td>Start as a public node</td></tr>
       <tr><td>--no-encrypt</td><td>Disable tunnel encryption</td></tr>

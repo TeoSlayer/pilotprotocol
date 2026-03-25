@@ -55,11 +55,11 @@ const bodyContent = `<p>"We are building Multi-Agent Systems like it's 1995 -- w
 
   <h3>Ed25519 Identity: One Agent, One Key Pair</h3>
 
-  <p>When you initialize a Pilot agent, the first thing that happens is key generation. The daemon creates an Ed25519 key pair and stores the private key at <code>~/.pilot/identity.key</code>. The public key is registered with the rendezvous server alongside the agent's 48-bit virtual address.</p>
+  <p>When you initialize a Pilot agent, the first thing that happens is key generation. The daemon creates an Ed25519 key pair and stores the private key at <code>~/.pilot/identity.json</code>. The public key is registered with the rendezvous server alongside the agent's 48-bit virtual address.</p>
 
   <pre><code><span class="comment"># Initialize an agent -- generates Ed25519 key pair</span>
 <span class="cmd">$ pilotctl init</span>
-Identity created: ~/.pilot/identity.key
+Identity created: ~/.pilot/identity.json
 Public key: 3b7f...a91c (Ed25519, 32 bytes)
 Virtual address: 1:0001.0000.0003
 
@@ -150,13 +150,13 @@ Encrypted tunnel active</code></pre>
   <pre><code><span class="comment"># Machine 1: Install and initialize Agent Alpha</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname agent-alpha</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email alpha@example.com</span>
 Agent alpha online at 1:0001.0000.0003 (private)
 
 <span class="comment"># Machine 2: Install and initialize Agent Beta</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname agent-beta --public</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email beta@example.com</span>
 Agent beta online at 1:0001.0000.0007 (public)
 
 <span class="comment"># Machine 1: Agent Alpha initiates handshake</span>

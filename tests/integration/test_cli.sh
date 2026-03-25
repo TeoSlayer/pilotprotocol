@@ -73,6 +73,7 @@ LOG_LEVEL="${PILOT_LOG_LEVEL:-info}"
 pilot-daemon \
     --hostname "$TEST_HOSTNAME" \
     --identity /root/.pilot/identity.json \
+    --email "cli-test@integration.test" \
     --log-level "$LOG_LEVEL" > "$DAEMON_LOG" 2>&1 &
 DAEMON_PID=$!
 

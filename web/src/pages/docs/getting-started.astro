@@ -48,7 +48,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <pre><code><span class="cmd">pilotctl</span> init</code></pre>
 
   <p>Start the daemon:</p>
-  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent --email user@example.com</code></pre>
 
   <p>The daemon starts as a background process. It registers with the registry, discovers its public endpoint via the STUN beacon, and prints its status:</p>
   <pre><code><span class="comment"># Output:</span>

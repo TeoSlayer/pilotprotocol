@@ -88,10 +88,10 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <h3>Step 1: Start agent on AWS</h3>
 
   <pre><code><span class="comment"># On AWS EC2 instance (us-east-1)</span>
-<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
+<span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
 
 <span class="comment"># Start daemon and set identity</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email research@company.com</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname research-aws</span>
 <span class="cmd">pilotctl set-visibility public</span>
@@ -100,10 +100,10 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <h3>Step 2: Start agent on GCP</h3>
 
   <pre><code><span class="comment"># On GCP Compute Engine instance (europe-west1)</span>
-<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
+<span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
 
 <span class="comment"># Start daemon and set identity</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email analysis@company.com</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname analysis-gcp</span>
 <span class="cmd">pilotctl set-visibility public</span>
@@ -180,11 +180,11 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <p>Cloud NAT services (AWS NAT Gateway, GCP Cloud NAT, Azure NAT Gateway) typically implement Port-Restricted Cone or Symmetric NAT. Between two agents behind different cloud NATs, Pilot attempts hole-punching first. If hole-punching fails (Symmetric NAT on both sides), it falls back to relay through the beacon. The fallback is automatic -- your application code does not change.</p>
 
   <pre><code><span class="comment"># Agent behind AWS NAT Gateway (no public IP)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@company.com</span>
 <span class="comment"># STUN discovery handles NAT automatically</span>
 
 <span class="comment"># Agent behind GCP Cloud NAT (no public IP)</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@company.com</span>
 <span class="comment"># Same: automatic hole-punching or relay</span></code></pre>
   </section>
 
@@ -389,8 +389,8 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   </ol>
 
   <pre><code><span class="comment"># Add a new agent on Azure (or any cloud, or on-premises, or a laptop)</span>
-<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">pilotctl daemon start --email agent@company.com</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname new-agent-azure</span>
 <span class="cmd">pilotctl tags set cloud=azure,region=eastus2,role=customer-support</span>
@@ -413,8 +413,8 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <p>Deploy agents across any combination of clouds in under 10 minutes:</p>
 
   <pre><code><span class="comment"># 1. Install on each agent (any cloud, any location)</span>
-<span class="cmd">curl -sSL https://install.pilotprotocol.network | sh</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">pilotctl daemon start --email agent@company.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># 3. Agents discover each other and communicate</span>

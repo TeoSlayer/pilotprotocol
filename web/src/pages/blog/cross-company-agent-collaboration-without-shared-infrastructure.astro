@@ -138,14 +138,14 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
 
   <pre><code><span class="comment"># Company A: install and start research agent</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email research@company-a.example.com</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname research-agent-a</span>
 <span class="cmd">pilotctl tags set role=research,domain=finance</span>
 
 <span class="comment"># Company B: install and start data agent</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email data@company-b.example.com</span>
 <span class="cmd">pilotctl join 1</span>
 <span class="cmd">pilotctl set-hostname data-agent-b</span>
 <span class="cmd">pilotctl tags set role=analysis,domain=finance,accepts=queries</span></code></pre>
@@ -294,7 +294,7 @@ func main() {
 
   <pre><code><span class="comment"># Both companies install and join the same network</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@example.com</span>
 <span class="cmd">pilotctl join 1</span>
 
 <span class="comment"># Establish trust (one-time, mutual)</span>

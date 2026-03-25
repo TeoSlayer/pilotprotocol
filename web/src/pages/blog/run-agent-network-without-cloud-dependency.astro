@@ -52,7 +52,7 @@ const bodyContent = `<p>"What happens to my devices if the cloud service shuts d
   <h3>Step 1: Install</h3>
 
   <pre><code><span class="comment"># Install Pilot Protocol</span>
-<span class="cmd">$ curl -sSL https://install.pilotprotocol.network | sh</span></code></pre>
+<span class="cmd">$ curl -sSL https://pilotprotocol.network/install.sh | sh</span></code></pre>
 
   <p>That is the entire install. One command. No Docker, no Kubernetes, no Terraform. The binary runs on Linux, macOS, and Windows.</p>
 
@@ -60,12 +60,12 @@ const bodyContent = `<p>"What happens to my devices if the cloud service shuts d
 
   <pre><code><span class="comment"># Agent 1: install and start</span>
 <span class="cmd">$ pilotctl init --hostname sensor-1</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email sensor-1@example.com</span>
 Registered as sensor-1 (1:0001.0000.0001)
 
 <span class="comment"># Agent 2: same network</span>
 <span class="cmd">$ pilotctl init --hostname controller</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email controller@example.com</span>
 Registered as controller (1:0001.0000.0002)
 
 <span class="comment"># Agents can now discover and connect to each other</span>
@@ -80,11 +80,11 @@ sensor-1  1:0001.0000.0001  public  192.168.1.50:4000</code></pre>
 
   <pre><code><span class="comment"># New agent enrollment -- no accounts, no credentials to manage</span>
 <span class="cmd">$ pilotctl init --hostname new-sensor</span>
-Identity created: ~/.pilot/identity.key
+Identity created: ~/.pilot/identity.json
 Public key: 7a2c...f819 (Ed25519)
 Virtual address: 1:0001.0000.0005
 
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email new-sensor@example.com</span>
 Registered as new-sensor (1:0001.0000.0005)</code></pre>
 
   <p>The agent generates its own Ed25519 key pair locally. No certificate authority, no credential server, no enrollment API. The private key never leaves the device. The public key is registered on the network alongside the agent's virtual address.</p>
@@ -96,7 +96,7 @@ Registered as new-sensor (1:0001.0000.0005)</code></pre>
   <pre><code><span class="comment"># Provision 50 sensors from a deployment script</span>
 for i in $(seq 1 50); do
   ssh sensor-$i "pilotctl init --hostname sensor-$i && \\
-    pilotctl daemon start"
+    pilotctl daemon start --email sensor-\\$i@example.com"
 done</code></pre>
 
   <p>Each sensor gets its own cryptographic identity, its own virtual address, and its own hostname. No shared credentials, no master key, no single secret that compromises the entire fleet if leaked.</p>
@@ -163,7 +163,7 @@ done</code></pre>
 
   <pre><code><span class="comment"># On each device</span>
 <span class="cmd">$ pilotctl init --hostname device-name</span>
-<span class="cmd">$ pilotctl daemon start</span></code></pre>
+<span class="cmd">$ pilotctl daemon start --email device@example.com</span></code></pre>
 
   <h3>Step 4: Establish Trust Between Devices</h3>
 

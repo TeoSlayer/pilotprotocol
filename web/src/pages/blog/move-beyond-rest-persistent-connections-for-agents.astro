@@ -296,7 +296,7 @@ func runAgentB() {
 
   <pre><code><span class="comment"># Step 1: Install Pilot on your agents</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start</span>
+<span class="cmd">pilotctl daemon start --email agent@example.com</span>
 
 <span class="comment"># Step 2: Keep your existing REST API running</span>
 <span class="comment"># Agents continue to serve HTTP on their public endpoints</span>

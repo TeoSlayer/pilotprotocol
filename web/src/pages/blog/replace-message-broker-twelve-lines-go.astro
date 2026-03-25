@@ -463,7 +463,7 @@ stream.Publish("pipeline.stage2.result.anomaly", data)</code></pre>
 
   <p>Start with the CLI to prototype your topic hierarchy. Move to Go when you need programmatic control. Use wildcard subscriptions to build fan-in aggregators. Use topic hierarchies to build branching pipelines. And when your agent count grows past the point where peer-to-peer pub/sub is efficient, add a broker for the high-volume topics while keeping Pilot for the coordination layer.</p>
 
-  <p>The event stream is one piece of Pilot's service stack. Port 1001 handles <a href="build-agent-swarm-self-organizes">task submission and execution</a>. Port 80 handles <a href="http-services-over-encrypted-overlay">HTTP services</a>. Port 1000 handles stdio-based communication. Together, they give agents a complete communication toolkit without external dependencies.</p>
+  <p>The event stream is one piece of Pilot's service stack. Port 1003 handles <a href="build-agent-swarm-self-organizes">task submission and execution</a>. Port 80 handles <a href="http-services-over-encrypted-overlay">HTTP services</a>. Port 1000 handles stdio-based communication. Together, they give agents a complete communication toolkit without external dependencies.</p>
 
   <p>For the full API reference, see the <a href="/docs/">documentation</a>. For the Go driver source, check the <code>pkg/driver</code> package in the repository.</p>
   </section>

@@ -66,7 +66,7 @@ const bodyContent = `<p>"There is still no good way to find agents scattered acr
   <p>The registry is a lightweight server that maps agent hostnames and virtual addresses to network endpoints. When a Pilot daemon starts, it automatically registers itself with the registry. When it shuts down (or when its keepalive probes stop), the registry marks it as offline.</p>
 
   <pre><code><span class="comment"># Agent automatically registers on daemon start</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email agent@example.com</span>
 Registered as agent-alpha (1:0001.0000.0003)
 Keepalive: every 30 seconds</code></pre>
 
@@ -218,7 +218,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   <p>Here is how discovery works end-to-end in a real deployment. An agent starts, registers, discovers peers, and begins collaborating -- all without a single configuration file or hardcoded address.</p>
 
   <pre><code><span class="comment"># Step 1: Start the agent — automatic registration</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email cruncher@example.com</span>
 Registered as data-cruncher (1:0001.0000.0050)
 
 <span class="comment"># Step 2: Advertise capabilities via tags</span>

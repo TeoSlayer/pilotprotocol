@@ -400,7 +400,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 		"encrypt":             info.Encrypt,
 		"identity":            info.Identity,
 		"public_key":          info.PublicKey,
-		"owner":               info.Owner,
+		"email":               info.Email,
 		"bytes_sent":          info.BytesSent,
 		"bytes_recv":          info.BytesRecv,
 		"pkts_sent":           info.PktsSent,

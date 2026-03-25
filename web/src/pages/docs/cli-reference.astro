@@ -40,7 +40,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h2 id="bootstrap">Bootstrap</h2>
 
   <h3>init</h3>
-  <pre><code><span class="cmd">pilotctl</span> init --registry &lt;addr&gt; --beacon &lt;addr&gt; [--hostname &lt;name&gt;] [--socket &lt;path&gt;]</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> init [--registry &lt;addr&gt;] [--beacon &lt;addr&gt;] [--hostname &lt;name&gt;] [--socket &lt;path&gt;]</code></pre>
   <p>Creates <code>~/.pilot/config.json</code> with registry, beacon, socket, and hostname settings.</p>
   <p>Returns: <code>config_path</code>, <code>registry</code>, <code>beacon</code>, <code>socket</code>, <code>hostname</code></p>
 
@@ -53,16 +53,15 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3>daemon start</h3>
   <pre><code><span class="cmd">pilotctl</span> daemon start [--registry &lt;addr&gt;] [--beacon &lt;addr&gt;] [--listen &lt;addr&gt;]
-  [--endpoint &lt;addr&gt;] [--identity &lt;path&gt;] [--owner &lt;owner&gt;] [--hostname &lt;name&gt;]
+  [--identity &lt;path&gt;] [--email &lt;addr&gt;] [--hostname &lt;name&gt;]
   [--public] [--no-encrypt] [--foreground] [--log-level &lt;level&gt;] [--log-format &lt;fmt&gt;]
-  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]
-  [--no-echo] [--no-dataexchange] [--no-eventstream] [--no-tasksubmit]</code></pre>
+  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]</code></pre>
   <p>Starts as a background process. Blocks until registered, prints status, then exits. Use <code>--foreground</code> to run in the current process.</p>
   <p>Returns: <code>node_id</code>, <code>address</code>, <code>pid</code>, <code>socket</code>, <code>hostname</code>, <code>log_file</code></p>
 
   <h3>daemon stop</h3>
   <pre><code><span class="cmd">pilotctl</span> daemon stop</code></pre>
-  <p>Returns: <code>pid</code>, <code>forced</code> (bool)</p>
+  <p>Returns: <code>pid</code>. Includes <code>forced</code> (bool) if the daemon required SIGKILL.</p>
 
   <h3>daemon status</h3>
   <pre><code><span class="cmd">pilotctl</span> daemon status [--check]</code></pre>
@@ -82,7 +81,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3>clear-hostname</h3>
   <pre><code><span class="cmd">pilotctl</span> clear-hostname</code></pre>
-  <p>Returns: <code>hostname</code>, <code>node_id</code></p>
+  <p>Returns: <code>hostname</code></p>
 
   <h3>find</h3>
   <pre><code><span class="cmd">pilotctl</span> find &lt;hostname&gt;</code></pre>
@@ -145,7 +144,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h2 id="trust">Trust management</h2>
 
   <h3>handshake</h3>
-  <pre><code><span class="cmd">pilotctl</span> handshake &lt;node_id|hostname&gt; "reason for connecting"</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> handshake &lt;node_id|address|hostname&gt; [justification]</code></pre>
   <p>Returns: <code>status</code>, <code>node_id</code></p>
 
   <h3>pending</h3>
@@ -158,7 +157,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>status</code>, <code>node_id</code></p>
 
   <h3>reject</h3>
-  <pre><code><span class="cmd">pilotctl</span> reject &lt;node_id&gt; "reason"</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> reject &lt;node_id&gt; [reason]</code></pre>
   <p>Returns: <code>status</code>, <code>node_id</code></p>
 
   <h3>trust</h3>
@@ -241,20 +240,22 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h3>task submit</h3>
   <pre><code><span class="cmd">pilotctl</span> task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
   <p>Submits a task to a peer. Polo score gate: submitter score must be &ge; receiver score.</p>
-  <p>Returns: <code>task_id</code>, <code>status</code>, <code>message</code>, <code>accepted</code></p>
+  <p>Returns: <code>target</code>, <code>task_id</code>, <code>task</code>, <code>status</code>, <code>message</code>, <code>accepted</code></p>
 
   <h3>task list</h3>
   <pre><code><span class="cmd">pilotctl</span> task list [--type received|submitted]</code></pre>
   <p>Lists tasks. Without <code>--type</code>, shows both received and submitted.</p>
-  <p>Returns: <code>tasks</code> [{<code>task_id</code>, <code>status</code>, <code>description</code>, <code>from</code>, <code>to</code>, <code>category</code>}]</p>
+  <p>Returns: <code>tasks</code> [{<code>task_id</code>, <code>status</code>, <code>description</code>, <code>from</code>, <code>to</code>, <code>created_at</code>, <code>category</code>}]</p>
 
   <h3>task accept</h3>
   <pre><code><span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;</code></pre>
   <p>Accepts a NEW task. Adds it to the FIFO execution queue.</p>
+  <p>Returns: <code>task_id</code>, <code>status</code>, <code>message</code></p>
 
   <h3>task decline</h3>
   <pre><code><span class="cmd">pilotctl</span> task decline --id &lt;task_id&gt; --justification "&lt;reason&gt;"</code></pre>
   <p>Declines a NEW task with a justification.</p>
+  <p>Returns: <code>task_id</code>, <code>status</code>, <code>justification</code>, <code>message</code></p>
 
   <h3>task execute</h3>
   <pre><code><span class="cmd">pilotctl</span> task execute</code></pre>
@@ -265,11 +266,12 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
 <span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
   <p>Sends results back to the submitter. Updates polo scores.</p>
-  <p>Returns: <code>task_id</code>, <code>status</code></p>
+  <p>Returns: <code>task_id</code>, <code>status</code>, <code>sent_to</code>, <code>sent_type</code></p>
 
   <h3>task queue</h3>
   <pre><code><span class="cmd">pilotctl</span> task queue</code></pre>
   <p>Displays ACCEPTED tasks in FIFO execution order.</p>
+  <p>Returns: <code>queue</code> [{<code>task_id</code>, <code>description</code>, <code>from</code>, <code>created_at</code>}], <code>count</code></p>
 
   <p>See <a href="tasks">Tasks & Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
 
@@ -288,7 +290,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Routes through daemon (signed). Returns: <code>status</code></p>
 
   <h3>rotate-key</h3>
-  <pre><code><span class="cmd">pilotctl</span> rotate-key &lt;node_id&gt; &lt;owner&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> rotate-key &lt;node_id&gt; &lt;email&gt;</code></pre>
   <p>Returns: <code>node_id</code>, new <code>public_key</code></p>
 
   <h2 id="gateway">Gateway</h2>
@@ -320,7 +322,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   activePage="cli-reference"
   canonicalPath="/docs/cli-reference"
   prev={{ label: "Core Concepts", href: "/docs/concepts" }}
-  next={{ label: "Messaging", href: "/docs/messaging" }}
+  next={{ label: "Python SDK", href: "/docs/python-sdk" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

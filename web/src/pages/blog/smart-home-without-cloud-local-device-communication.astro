@@ -54,11 +54,11 @@ const bodyContent = `<p>In January 2026, Belkin shut down the Wemo cloud service
 
   <pre><code><span class="comment"># Initialize a device agent (e.g., a temperature sensor)</span>
 <span class="cmd">$ pilotctl init --hostname kitchen-temp</span>
-Identity created: ~/.pilot/identity.key
+Identity created: ~/.pilot/identity.json
 Virtual address: 1:0001.0000.0001
 
 <span class="comment"># Start the daemon</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email admin@home.local</span>
 Agent online: kitchen-temp (1:0001.0000.0001)</code></pre>
 
   <p>The device now has a permanent 48-bit virtual address (<code>1:0001.0000.0001</code>) and an Ed25519 cryptographic identity. That address and identity persist across reboots, firmware updates, and network changes. The address is not tied to an IP, a MAC address, or a DHCP lease. It is a logical identifier that maps to the device's current physical location on the network.</p>
@@ -146,7 +146,7 @@ Message delivered (encrypted, relay via beacon, 145ms RTT)
   <pre><code><span class="comment"># On the new device (e.g., a smart plug running Linux)</span>
 <span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
 <span class="cmd">$ pilotctl init --hostname office-plug</span>
-<span class="cmd">$ pilotctl daemon start</span>
+<span class="cmd">$ pilotctl daemon start --email admin@home.local</span>
 Agent online: office-plug (1:0001.0000.0006)
 
 <span class="comment"># On the automation engine -- establish trust</span>

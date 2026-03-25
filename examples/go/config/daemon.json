@@ -6,7 +6,7 @@
   "encrypt": true,
   "registry-tls": false,
   "identity": "/var/lib/pilot/identity.json",
-  "owner": "",
+  "email": "",
   "keepalive": "30s",
   "idle-timeout": "120s",
   "syn-rate-limit": 100,

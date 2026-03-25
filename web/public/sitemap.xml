@@ -18,9 +18,12 @@
   <url><loc>https://pilotprotocol.network/docs/configuration</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://pilotprotocol.network/docs/integration</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://pilotprotocol.network/docs/polo</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://pilotprotocol.network/docs/research</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://pilotprotocol.network/docs/research</loc><lastmod>2026-03-23</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://pilotprotocol.network/research/ietf/draft-teodor-pilot-problem-statement-00.html</loc><lastmod>2026-03-14</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://pilotprotocol.network/research/ietf/draft-teodor-pilot-protocol-00.html</loc><lastmod>2026-03-14</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://pilotprotocol.network/docs/tasks</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://pilotprotocol.network/docs/comparison</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pilotprotocol.network/docs/comparison-networking</loc><lastmod>2026-03-23</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pilotprotocol.network/llms.txt</loc><lastmod>2026-02-28</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://pilotprotocol.network/blog/</loc><lastmod>2026-03-21</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://pilotprotocol.network/blog/how-pilot-protocol-works</loc><lastmod>2026-02-19</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
