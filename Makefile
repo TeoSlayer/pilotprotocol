@@ -20,6 +20,7 @@ build:
 	go build -o $(BINDIR)/pilotctl ./cmd/pilotctl
 	go build -o $(BINDIR)/nameserver ./cmd/nameserver
 	go build -o $(BINDIR)/gateway ./cmd/gateway
+	@test -d cmd/pilot-admin && go build -o $(BINDIR)/pilot-admin ./cmd/pilot-admin || true
 	go build -o $(BINDIR)/webserver ./examples/go/webserver
 	go build -o $(BINDIR)/client ./examples/go/client
 	go build -o $(BINDIR)/echo ./examples/go/echo
@@ -70,6 +71,7 @@ build-linux:
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/pilotctl-linux ./cmd/pilotctl
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/nameserver-linux ./cmd/nameserver
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/gateway-linux ./cmd/gateway
+	@test -d cmd/pilot-admin && GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/pilot-admin-linux ./cmd/pilot-admin || true
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/echo-linux ./examples/go/echo
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/client-linux ./examples/go/client
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/webserver-linux ./examples/go/webserver

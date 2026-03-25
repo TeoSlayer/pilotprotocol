@@ -90,6 +90,8 @@ web/.wrangler/
 
 # Internal tooling
 cmd/spoof/
+cmd/pilot-admin/
+tests/admin_cli_test.go
 
 # Blog messaging (internal)
 web/MESSAGING.md
