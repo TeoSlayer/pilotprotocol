@@ -2,7 +2,6 @@ package tests
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -53,13 +52,13 @@ func TestSYNFromTrustedNodeAccepted(t *testing.T) {
 	server := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Public = false
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 		cfg.KeepaliveInterval = 500 * time.Millisecond // fast relay polling
 	})
 	client := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Public = false
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 		cfg.KeepaliveInterval = 500 * time.Millisecond // fast relay polling
 	})
 

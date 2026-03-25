@@ -3,7 +3,6 @@ package tests
 import (
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -286,7 +285,7 @@ func TestCmdRotateKey(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	rc, err := registry.Dial(env.RegistryAddr)
@@ -330,7 +329,7 @@ func TestCmdRotateKeyBadSignature(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	rc, err := registry.Dial(env.RegistryAddr)
@@ -515,15 +514,15 @@ func TestCmdHandshakePendingApproveReject(t *testing.T) {
 
 	a := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	b := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	c := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	// B sends handshake to A
@@ -630,11 +629,11 @@ func TestCmdUntrust(t *testing.T) {
 
 	a := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	b := env.AddDaemon(func(cfg *daemon.Config) {
 		cfg.Encrypt = true
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	// Mutual handshake: both sides request
@@ -692,10 +691,10 @@ func TestCmdHandshakeRelayUnsigned(t *testing.T) {
 	env := NewTestEnv(t)
 
 	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	b := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	rc, err := registry.Dial(env.RegistryAddr)
@@ -724,10 +723,10 @@ func TestCmdHandshakeRelaySignedOK(t *testing.T) {
 	env := NewTestEnv(t)
 
 	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	b := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	rc, err := registry.Dial(env.RegistryAddr)
@@ -764,10 +763,10 @@ func TestCmdRespondHandshakeUnsigned(t *testing.T) {
 	env := NewTestEnv(t)
 
 	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 	b := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
+
 	})
 
 	rc, err := registry.Dial(env.RegistryAddr)
@@ -835,10 +834,7 @@ func TestCmdIdentityConsistency(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	idPath := filepath.Join(t.TempDir(), "identity.json")
-	a := env.AddDaemon(func(cfg *daemon.Config) {
-		cfg.IdentityPath = idPath
-	})
+	a := env.AddDaemon()
 
 	identity := a.Daemon.Identity()
 	if identity == nil {

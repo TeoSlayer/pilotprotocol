@@ -312,11 +312,9 @@ func TestEncryptedLargeTransfer(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	drvA := infoA.Driver

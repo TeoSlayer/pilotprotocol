@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -415,12 +414,10 @@ func TestWebhook_HandshakeMutualAutoApprove(t *testing.T) {
 	// Webhook on B to catch received + pending (B receives A's initial request)
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorA.URL()
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorB.URL()
 	})
 
@@ -511,11 +508,9 @@ func TestWebhook_HandshakePendingAndApprove(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorB.URL()
 	})
 
@@ -583,11 +578,9 @@ func TestWebhook_HandshakeReject(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorB.URL()
 	})
 
@@ -646,12 +639,10 @@ func TestWebhook_TrustRevoke(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorA.URL()
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 		c.WebhookURL = collectorB.URL()
 	})
 

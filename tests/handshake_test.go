@@ -20,11 +20,9 @@ func TestHandshakeMutualAutoApprove(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -132,15 +130,12 @@ func TestHandshakePendingApproveReject(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoC := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -267,11 +262,9 @@ func TestHandshakeNetworkTrust(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -368,11 +361,9 @@ func TestHandshakeRevokeTrust(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -449,7 +440,6 @@ func TestHandshakeTrustPersistence(t *testing.T) {
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -503,11 +493,9 @@ func TestHandshakeRejectReason(t *testing.T) {
 
 	infoA := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	daemonA := infoA.Daemon
@@ -580,7 +568,6 @@ func TestHandshakeTrustLoadVerify(t *testing.T) {
 	})
 	infoB := env.AddDaemon(func(c *daemon.Config) {
 		c.Encrypt = true
-		c.IdentityPath = filepath.Join(t.TempDir(), "identity.json")
 	})
 
 	drvA := infoA.Driver
