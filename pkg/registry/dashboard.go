@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"time"
 )
 
 // ServeDashboard starts an HTTP server serving the dashboard UI and stats API.
@@ -27,6 +28,41 @@ func (s *Server) ServeDashboard(addr string) error {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		stats := s.GetDashboardStats()
 		_ = json.NewEncoder(w).Encode(stats)
+	})
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.RLock()
+		nodeCount := len(s.nodes)
+		startTime := s.startTime
+		s.mu.RUnlock()
+
+		now := time.Now()
+		onlineThreshold := now.Add(-staleNodeThreshold)
+		s.mu.RLock()
+		online := 0
+		for _, node := range s.nodes {
+			if node.LastSeen.After(onlineThreshold) {
+				online++
+			}
+		}
+		s.mu.RUnlock()
+
+		healthy := nodeCount >= 0 // registry is healthy if running
+		status := http.StatusOK
+		statusStr := "ok"
+		if !healthy {
+			status = http.StatusServiceUnavailable
+			statusStr = "unhealthy"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":         statusStr,
+			"version":        "1.0",
+			"uptime_seconds": int64(now.Sub(startTime).Seconds()),
+			"nodes_online":   online,
+		})
 	})
 
 	serveBadge := func(w http.ResponseWriter, label, value, color string) {

@@ -95,6 +95,12 @@ func Unmarshal(data []byte) (*Packet, error) {
 		return nil, ErrChecksumMismatch
 	}
 
+	// Validate protocol version.
+	wireVersion := (data[0] >> 4) & 0x0F
+	if wireVersion != Version {
+		return nil, fmt.Errorf("unsupported protocol version %d (expected %d)", wireVersion, Version)
+	}
+
 	p := &Packet{
 		Version:  (data[0] >> 4) & 0x0F,
 		Flags:    data[0] & 0x0F,

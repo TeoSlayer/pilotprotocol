@@ -142,6 +142,11 @@ func (d *Driver) Info() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdInfo}, cmdInfoOK, "info")
 }
 
+// Health returns a lightweight health check from the daemon.
+func (d *Driver) Health() (map[string]interface{}, error) {
+	return d.jsonRPC([]byte{cmdHealth}, cmdHealthOK, "health")
+}
+
 // Handshake sends a trust handshake request to a remote node.
 func (d *Driver) Handshake(nodeID uint32, justification string) (map[string]interface{}, error) {
 	msg := make([]byte, 1+1+4+len(justification))

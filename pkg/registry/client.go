@@ -274,7 +274,7 @@ func (c *Client) SetVisibility(nodeID uint32, public bool) (map[string]interface
 	return c.Send(msg)
 }
 
-func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken string) (map[string]interface{}, error) {
+func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken string, networkAdminToken ...string) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":      "create_network",
 		"node_id":   nodeID,
@@ -284,6 +284,9 @@ func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken 
 	}
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
+	}
+	if len(networkAdminToken) > 0 && networkAdminToken[0] != "" {
+		msg["network_admin_token"] = networkAdminToken[0]
 	}
 	return c.Send(msg)
 }
@@ -318,7 +321,7 @@ func (c *Client) LeaveNetwork(nodeID uint32, networkID uint16, adminToken string
 	return c.Send(msg)
 }
 
-func (c *Client) DeleteNetwork(networkID uint16, adminToken string) (map[string]interface{}, error) {
+func (c *Client) DeleteNetwork(networkID uint16, adminToken string, nodeID ...uint32) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":       "delete_network",
 		"network_id": networkID,
@@ -326,10 +329,13 @@ func (c *Client) DeleteNetwork(networkID uint16, adminToken string) (map[string]
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
 	}
+	if len(nodeID) > 0 && nodeID[0] != 0 {
+		msg["node_id"] = nodeID[0]
+	}
 	return c.Send(msg)
 }
 
-func (c *Client) RenameNetwork(networkID uint16, name, adminToken string) (map[string]interface{}, error) {
+func (c *Client) RenameNetwork(networkID uint16, name, adminToken string, nodeID ...uint32) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":       "rename_network",
 		"network_id": networkID,
@@ -337,6 +343,9 @@ func (c *Client) RenameNetwork(networkID uint16, name, adminToken string) (map[s
 	}
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
+	}
+	if len(nodeID) > 0 && nodeID[0] != 0 {
+		msg["node_id"] = nodeID[0]
 	}
 	return c.Send(msg)
 }
@@ -584,4 +593,99 @@ func (c *Client) RespondInvite(nodeID uint32, networkID uint16, accept bool) (ma
 		msg["signature"] = sig
 	}
 	return c.Send(msg)
+}
+
+// PromoteMember promotes a network member to admin. Only the owner can promote.
+func (c *Client) PromoteMember(networkID uint16, nodeID, targetNodeID uint32, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":           "promote_member",
+		"network_id":     networkID,
+		"node_id":        nodeID,
+		"target_node_id": targetNodeID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// DemoteMember demotes an admin to member. Only the owner can demote.
+func (c *Client) DemoteMember(networkID uint16, nodeID, targetNodeID uint32, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":           "demote_member",
+		"network_id":     networkID,
+		"node_id":        nodeID,
+		"target_node_id": targetNodeID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// KickMember removes a member from a network. Requires owner or admin role.
+func (c *Client) KickMember(networkID uint16, nodeID, targetNodeID uint32, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":           "kick_member",
+		"network_id":     networkID,
+		"node_id":        nodeID,
+		"target_node_id": targetNodeID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// GetMemberRole returns the RBAC role of a node in a network.
+func (c *Client) GetMemberRole(networkID uint16, targetNodeID uint32) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":           "get_member_role",
+		"network_id":     networkID,
+		"target_node_id": targetNodeID,
+	})
+}
+
+// SetNetworkPolicy sets or updates a network's policy. Requires owner/admin role or admin token.
+func (c *Client) SetNetworkPolicy(networkID uint16, policy map[string]interface{}, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":       "set_network_policy",
+		"network_id": networkID,
+	}
+	for k, v := range policy {
+		msg[k] = v
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// GetNetworkPolicy returns the policy for a given network.
+func (c *Client) GetNetworkPolicy(networkID uint16) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":       "get_network_policy",
+		"network_id": networkID,
+	})
+}
+
+// SetKeyExpiry sets the key expiry time for a node. Requires signature.
+func (c *Client) SetKeyExpiry(nodeID uint32, expiresAt time.Time) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":       "set_key_expiry",
+		"node_id":    nodeID,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}
+	if sig := c.sign(fmt.Sprintf("set_key_expiry:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
+}
+
+// GetKeyInfo returns key lifecycle metadata for a node.
+func (c *Client) GetKeyInfo(nodeID uint32) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":    "get_key_info",
+		"node_id": nodeID,
+	})
 }

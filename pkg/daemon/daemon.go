@@ -90,6 +90,16 @@ const (
 	ZeroWinProbeMax     = 30 * time.Second       // max zero-window probe backoff
 )
 
+// EndpointCacheTTL is how long a cached endpoint is considered fresh.
+// After this, the entry is stale but still usable as a fallback.
+const EndpointCacheTTL = 5 * time.Minute
+
+// endpointEntry caches a resolved endpoint for a peer node.
+type endpointEntry struct {
+	addr      string    // "host:port"
+	cachedAt  time.Time // when the entry was stored
+}
+
 type Daemon struct {
 	config     Config
 	addrMu     sync.RWMutex // protects nodeID and addr (H6 fix)
@@ -106,6 +116,10 @@ type Daemon struct {
 	startTime  time.Time
 	stopCh     chan struct{} // closed on Stop() to signal goroutines
 	lanAddrs   []string     // LAN addresses for same-network peer detection
+
+	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
+	epCacheMu sync.RWMutex
+	epCache   map[uint32]*endpointEntry
 
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
@@ -177,6 +191,7 @@ func New(cfg Config) *Daemon {
 		synTokens:   cfg.synRateLimit(),
 		synLastFill: time.Now(),
 		perSrcSYN:   make(map[uint32]*srcSYNBucket),
+		epCache:     make(map[uint32]*endpointEntry),
 	}
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	d.handshakes = NewHandshakeManager(d)
@@ -744,12 +759,15 @@ type DaemonInfo struct {
 	Identity           bool   // true if identity is persisted
 	PublicKey          string // base64 Ed25519 public key (empty if no identity)
 	Email              string // email address for account identification and key recovery
-	BytesSent          uint64
-	BytesRecv          uint64
-	PktsSent           uint64
-	PktsRecv           uint64
-	PeerList           []PeerInfo
-	ConnList           []ConnectionInfo
+	BytesSent             uint64
+	BytesRecv             uint64
+	PktsSent              uint64
+	PktsRecv              uint64
+	EncryptOK             uint64
+	EncryptFail           uint64
+	HandshakePendingCount int
+	PeerList              []PeerInfo
+	ConnList              []ConnectionInfo
 }
 
 // Info returns current daemon status.
@@ -805,12 +823,15 @@ func (d *Daemon) Info() *DaemonInfo {
 		Identity:           hasIdentity,
 		PublicKey:          pubKeyStr,
 		Email:              d.config.Email,
-		BytesSent:          atomic.LoadUint64(&d.tunnels.BytesSent),
-		BytesRecv:          atomic.LoadUint64(&d.tunnels.BytesRecv),
-		PktsSent:           atomic.LoadUint64(&d.tunnels.PktsSent),
-		PktsRecv:           atomic.LoadUint64(&d.tunnels.PktsRecv),
-		PeerList:           peerList,
-		ConnList:           d.ports.ConnectionList(),
+		BytesSent:             atomic.LoadUint64(&d.tunnels.BytesSent),
+		BytesRecv:             atomic.LoadUint64(&d.tunnels.BytesRecv),
+		PktsSent:              atomic.LoadUint64(&d.tunnels.PktsSent),
+		PktsRecv:              atomic.LoadUint64(&d.tunnels.PktsRecv),
+		EncryptOK:             atomic.LoadUint64(&d.tunnels.EncryptOK),
+		EncryptFail:           atomic.LoadUint64(&d.tunnels.EncryptFail),
+		HandshakePendingCount: d.handshakes.PendingCount(),
+		PeerList:              peerList,
+		ConnList:              d.ports.ConnectionList(),
 	}
 }
 
@@ -1822,8 +1843,45 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 	return nil
 }
 
+// cacheEndpoint stores a resolved endpoint in the cache.
+func (d *Daemon) cacheEndpoint(nodeID uint32, addr string) {
+	d.epCacheMu.Lock()
+	d.epCache[nodeID] = &endpointEntry{addr: addr, cachedAt: time.Now()}
+	d.epCacheMu.Unlock()
+}
+
+// cachedEndpoint returns a previously cached endpoint, or empty string if none.
+// The second return value is true if the entry exists (even if stale).
+func (d *Daemon) cachedEndpoint(nodeID uint32) (string, bool) {
+	d.epCacheMu.RLock()
+	e, ok := d.epCache[nodeID]
+	d.epCacheMu.RUnlock()
+	if !ok {
+		return "", false
+	}
+	return e.addr, true
+}
+
+// isEndpointStale returns true if the cached entry is older than EndpointCacheTTL.
+// Stale entries are still usable as fallback, but a fresh resolve is preferred.
+func (d *Daemon) isEndpointStale(nodeID uint32) bool {
+	d.epCacheMu.RLock()
+	e, ok := d.epCache[nodeID]
+	d.epCacheMu.RUnlock()
+	if !ok {
+		return true
+	}
+	return time.Since(e.cachedAt) > EndpointCacheTTL
+}
+
+// CachedEndpoint returns a previously cached endpoint for a peer (exported for testing).
+func (d *Daemon) CachedEndpoint(nodeID uint32) (string, bool) {
+	return d.cachedEndpoint(nodeID)
+}
+
 // ensureTunnel makes sure we have a route to the given node.
 // Requests beacon hole-punching for NAT traversal when beacon is configured.
+// Uses an endpoint cache as fallback when the registry is unreachable.
 func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	if d.tunnels.HasPeer(nodeID) {
 		return nil
@@ -1832,6 +1890,18 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	// Resolve the node's real address from registry (requires our node ID)
 	resp, err := d.regConn.Resolve(nodeID, d.NodeID())
 	if err != nil {
+		// Registry unreachable — fall back to cached endpoint
+		if cached, ok := d.cachedEndpoint(nodeID); ok {
+			stale := d.isEndpointStale(nodeID)
+			slog.Warn("registry resolve failed, using cached endpoint",
+				"node_id", nodeID, "cached_addr", cached, "stale", stale, "error", err)
+			udpAddr, udpErr := net.ResolveUDPAddr("udp", cached)
+			if udpErr != nil {
+				return fmt.Errorf("resolve cached %s: %w", cached, udpErr)
+			}
+			d.tunnels.AddPeer(nodeID, udpAddr)
+			return nil
+		}
 		return fmt.Errorf("resolve node %d: %w", nodeID, err)
 	}
 
@@ -1848,6 +1918,9 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 			slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
 		}
 	}
+
+	// Cache the resolved endpoint for fallback
+	d.cacheEndpoint(nodeID, targetAddr)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", targetAddr)
 	if err != nil {

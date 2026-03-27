@@ -395,6 +395,7 @@ Mailbox:
 
 Diagnostic commands:
   pilotctl info
+  pilotctl health
   pilotctl peers [--search <query>]
   pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]
   pilotctl traceroute <address> [--timeout <dur>]
@@ -623,6 +624,8 @@ func main() {
 	// Diagnostics
 	case "info":
 		cmdInfo()
+	case "health":
+		cmdHealth()
 	case "peers":
 		cmdPeers(cmdArgs)
 	case "ping":
@@ -3534,6 +3537,37 @@ func cmdInfo() {
 			)
 		}
 	}
+}
+
+func cmdHealth() {
+	d := connectDriver()
+	defer d.Close()
+
+	health, err := d.Health()
+	if err != nil {
+		fatalCode("connection_failed", "health: %v", err)
+	}
+
+	if jsonOutput {
+		output(health)
+		return
+	}
+
+	uptime := int64(0)
+	if v, ok := health["uptime_seconds"].(float64); ok {
+		uptime = int64(v)
+	}
+	hours := uptime / 3600
+	mins := (uptime % 3600) / 60
+	secs := uptime % 60
+
+	fmt.Printf("Daemon Health\n")
+	fmt.Printf("  Status:      %s\n", health["status"])
+	fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
+	fmt.Printf("  Connections: %d\n", int(health["connections"].(float64)))
+	fmt.Printf("  Peers:       %d\n", int(health["peers"].(float64)))
+	fmt.Printf("  Bytes Sent:  %s\n", formatBytes(uint64(health["bytes_sent"].(float64))))
+	fmt.Printf("  Bytes Recv:  %s\n", formatBytes(uint64(health["bytes_recv"].(float64))))
 }
 
 func cmdPeers(args []string) {

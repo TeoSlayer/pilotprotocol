@@ -325,14 +325,30 @@ func TestInviteInboxClearedAfterPoll(t *testing.T) {
 		t.Fatalf("first poll: expected 1 invite, got %d", len(invites))
 	}
 
-	// Second poll should return empty inbox (cleared)
+	// Second poll should still return the same invite (poll doesn't consume)
 	pollResp2, err := rc.PollInvites(targetID)
 	if err != nil {
 		t.Fatalf("second poll: %v", err)
 	}
 	invites2, _ := pollResp2["invites"].([]interface{})
-	if len(invites2) != 0 {
-		t.Fatalf("second poll: expected empty inbox, got %d invites", len(invites2))
+	if len(invites2) != 1 {
+		t.Fatalf("second poll: expected 1 invite (poll doesn't consume), got %d", len(invites2))
+	}
+
+	// Accept the invite — this consumes it
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Third poll should return empty inbox (consumed by respond)
+	pollResp3, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("third poll: %v", err)
+	}
+	invites3, _ := pollResp3["invites"].([]interface{})
+	if len(invites3) != 0 {
+		t.Fatalf("third poll: expected empty inbox after respond, got %d invites", len(invites3))
 	}
 }
 

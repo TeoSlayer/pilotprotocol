@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,6 +55,48 @@ func (s *Server) requireAdminToken(msg map[string]interface{}) error {
 		return fmt.Errorf("invalid admin token")
 	}
 	return nil
+}
+
+// requireNetworkRole checks if the message sender has one of the allowed roles
+// in the specified network. It also accepts the global admin token or the
+// per-network admin token as an override. Caller must NOT hold s.mu.
+func (s *Server) requireNetworkRole(msg map[string]interface{}, netID uint16, allowedRoles ...Role) error {
+	// Global admin token always authorizes
+	if s.requireAdminToken(msg) == nil {
+		return nil
+	}
+
+	// Per-network admin token check
+	token, _ := msg["admin_token"].(string)
+	s.mu.RLock()
+	network, ok := s.networks[netID]
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+	if network.AdminToken != "" && token != "" {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(network.AdminToken)) == 1 {
+			return nil
+		}
+	}
+
+	// RBAC role check: look up the requesting node's role
+	nodeID := jsonUint32(msg, "node_id")
+	if nodeID == 0 {
+		return fmt.Errorf("rbac: node_id required for role-based authorization")
+	}
+	s.mu.RLock()
+	role, hasRole := network.MemberRoles[nodeID]
+	s.mu.RUnlock()
+	if !hasRole {
+		return fmt.Errorf("rbac: node %d has no role in network %d", nodeID, netID)
+	}
+	for _, allowed := range allowedRoles {
+		if role == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("rbac: node %d has role %q, requires one of %v", nodeID, role, allowedRoles)
 }
 
 // audit emits a structured audit log entry for registry mutations.
@@ -98,7 +142,12 @@ type Server struct {
 	inviteInbox map[uint32][]*NetworkInvite
 
 	// Rate limiting
-	rateLimiter *RateLimiter
+	rateLimiter   *RateLimiter
+	opRateLimiter *OperationRateLimiter
+
+	// Connection tracking
+	connCount      atomic.Int64
+	maxConnections int64
 
 	// Replication
 	replMgr    *replicationManager
@@ -131,6 +180,13 @@ const beaconTTL = 60 * time.Second
 
 // staleNodeThreshold is how long since last heartbeat before a node is stale/offline.
 const staleNodeThreshold = 3 * time.Minute // 3 missed heartbeats (60s heartbeat interval)
+
+// defaultMaxConnections is the maximum concurrent connections the server will accept.
+const defaultMaxConnections int64 = 10000
+
+// maxMessageSize is the maximum allowed wire message size (64KB).
+// Messages exceeding this limit cause the connection to be closed.
+const maxMessageSize = 64 * 1024
 
 // RateLimiter tracks per-IP registration attempts using a token bucket.
 type RateLimiter struct {
@@ -219,6 +275,65 @@ func (rl *RateLimiter) HasBucket(ip string) bool {
 	return ok
 }
 
+// OperationRateLimiter provides per-operation rate limiting using separate
+// token buckets for each operation category. Each category has its own rate.
+type OperationRateLimiter struct {
+	mu         sync.Mutex
+	categories map[string]*RateLimiter
+}
+
+// NewOperationRateLimiter creates a rate limiter with per-operation categories.
+func NewOperationRateLimiter() *OperationRateLimiter {
+	return &OperationRateLimiter{
+		categories: make(map[string]*RateLimiter),
+	}
+}
+
+// AddCategory registers a rate limit for an operation category.
+func (orl *OperationRateLimiter) AddCategory(name string, rate int, window time.Duration) {
+	orl.mu.Lock()
+	defer orl.mu.Unlock()
+	orl.categories[name] = NewRateLimiter(rate, window)
+}
+
+// Allow checks if a request from the given IP is allowed for the given category.
+// Returns true if the category is not registered (no limit configured).
+func (orl *OperationRateLimiter) Allow(category, ip string) bool {
+	orl.mu.Lock()
+	rl, ok := orl.categories[category]
+	orl.mu.Unlock()
+	if !ok {
+		return true // no rate limit for this category
+	}
+	return rl.Allow(ip)
+}
+
+// SetClock overrides the time source for all categories (for testing).
+func (orl *OperationRateLimiter) SetClock(fn func() time.Time) {
+	orl.mu.Lock()
+	defer orl.mu.Unlock()
+	for _, rl := range orl.categories {
+		rl.SetClock(fn)
+	}
+}
+
+// Cleanup removes stale buckets from all categories.
+func (orl *OperationRateLimiter) Cleanup() {
+	orl.mu.Lock()
+	defer orl.mu.Unlock()
+	for _, rl := range orl.categories {
+		rl.Cleanup()
+	}
+}
+
+// KeyInfo tracks key lifecycle metadata for compliance and trust decisions.
+type KeyInfo struct {
+	CreatedAt   time.Time `json:"created_at"`
+	RotatedAt   time.Time `json:"rotated_at,omitempty"`  // zero if never rotated
+	RotateCount int       `json:"rotate_count"`
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`  // zero = no expiry
+}
+
 type NodeInfo struct {
 	ID        uint32
 	Owner     string // email or identifier (for key rotation)
@@ -232,15 +347,35 @@ type NodeInfo struct {
 	PoloScore int      // polo score for reputation system (default: 0)
 	TaskExec  bool     // if true, node advertises task execution capability
 	LANAddrs  []string // LAN addresses for same-network peer detection
+	KeyMeta   KeyInfo  // key lifecycle metadata
+}
+
+// Role represents a member's permission level within a network.
+type Role string
+
+const (
+	RoleOwner  Role = "owner"  // created the network, full control
+	RoleAdmin  Role = "admin"  // can invite, remove members, change settings
+	RoleMember Role = "member" // can communicate, cannot manage
+)
+
+// NetworkPolicy defines constraints and metadata for a network.
+type NetworkPolicy struct {
+	MaxMembers   int      `json:"max_members"`    // 0 = unlimited
+	AllowedPorts []uint16 `json:"allowed_ports"`  // empty = all ports allowed
+	Description  string   `json:"description"`    // human-readable network description
 }
 
 type NetworkInfo struct {
-	ID       uint16
-	Name     string
-	JoinRule string
-	Token    string // for token-gated networks
-	Members  []uint32
-	Created  time.Time
+	ID          uint16
+	Name        string
+	JoinRule    string
+	Token       string            // for token-gated networks
+	Members     []uint32
+	MemberRoles map[uint32]Role   // per-member RBAC roles
+	AdminToken  string            // per-network admin token (optional)
+	Policy      NetworkPolicy     // network policy (membership limits, port restrictions)
+	Created     time.Time
 }
 
 // HandshakeRelayMsg is a handshake request stored in the registry's relay inbox.
@@ -345,8 +480,9 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		inviteInbox:        make(map[uint32][]*NetworkInvite),
-		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
-		beacons:            make(map[uint32]*beaconEntry),
+		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		maxConnections: defaultMaxConnections,
+		beacons:        make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
 		metrics:            newRegistryMetrics(),
 		readyCh:            make(chan struct{}),
@@ -355,6 +491,12 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		saveDone:           make(chan struct{}),
 		now:                time.Now,
 	}
+
+	// Per-operation rate limits
+	s.opRateLimiter = NewOperationRateLimiter()
+	s.opRateLimiter.AddCategory("resolve", 100, time.Minute)
+	s.opRateLimiter.AddCategory("query", 500, time.Minute) // lookup, resolve_hostname, list_nodes
+	s.opRateLimiter.AddCategory("heartbeat", 50, time.Minute)
 
 	go s.saveLoop()
 
@@ -414,6 +556,23 @@ func (s *Server) SetClock(fn func() time.Time) {
 	s.mu.Lock()
 	s.now = fn
 	s.mu.Unlock()
+}
+
+// SetMaxConnections overrides the default connection limit (for testing).
+func (s *Server) SetMaxConnections(max int64) {
+	s.mu.Lock()
+	s.maxConnections = max
+	s.mu.Unlock()
+}
+
+// ConnCount returns the current number of active connections (for testing).
+func (s *Server) ConnCount() int64 {
+	return s.connCount.Load()
+}
+
+// SetOperationRateLimiterClock overrides the time source for per-operation rate limits (for testing).
+func (s *Server) SetOperationRateLimiterClock(fn func() time.Time) {
+	s.opRateLimiter.SetClock(fn)
 }
 
 // Reap triggers stale node and beacon cleanup (for testing).
@@ -500,6 +659,14 @@ func (s *Server) ListenAndServe(addr string) error {
 			continue
 		}
 		consecutiveErrors = 0
+
+		// Connection count limit
+		if s.connCount.Load() >= s.maxConnections {
+			slog.Warn("connection limit reached, rejecting", "remote", conn.RemoteAddr(), "limit", s.maxConnections)
+			conn.Close()
+			continue
+		}
+		s.connCount.Add(1)
 		go s.handleConn(conn)
 	}
 }
@@ -551,6 +718,7 @@ func (s *Server) reapLoop() {
 			s.reapStaleNodes()
 			s.reapStaleBeacons()
 			s.rateLimiter.Cleanup()
+			s.opRateLimiter.Cleanup()
 		case <-s.done:
 			return
 		}
@@ -629,7 +797,10 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		conn.Close()
+		s.connCount.Add(-1)
+	}()
 
 	// Shrink socket buffers for agent connections — heartbeat/lookup messages
 	// are tiny (~100-200 bytes). Default kernel buffers (~128KB) are 600x oversized.
@@ -676,10 +847,14 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		resp, err := s.handleMessage(msg, conn.RemoteAddr().String())
 		if err != nil {
+			errMsg := "request failed"
+			if strings.Contains(err.Error(), "rate limited") {
+				errMsg = err.Error()
+			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
 			resp = map[string]interface{}{
 				"type":  "error",
-				"error": "request failed",
+				"error": errMsg,
 			}
 		}
 
@@ -717,10 +892,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		}
 	}
 
+	// Per-operation rate limiting by source IP
+	host, _, _ := net.SplitHostPort(remoteAddr)
+
 	switch msgType {
 	case "register":
 		// Rate limit registrations by source IP (exempt known-key re-registrations)
-		host, _, _ := net.SplitHostPort(remoteAddr)
 		if !s.rateLimiter.Allow(host) {
 			pubKeyB64, _ := msg["public_key"].(string)
 			s.mu.RLock()
@@ -743,12 +920,21 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "rename_network":
 		return s.handleRenameNetwork(msg)
 	case "lookup":
+		if !s.opRateLimiter.Allow("query", host) {
+			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
+		}
 		return s.handleLookup(msg)
 	case "resolve":
+		if !s.opRateLimiter.Allow("resolve", host) {
+			return nil, fmt.Errorf("rate limited: too many resolves from %s", host)
+		}
 		return s.handleResolve(msg)
 	case "list_networks":
 		return s.handleListNetworks()
 	case "list_nodes":
+		if !s.opRateLimiter.Allow("query", host) {
+			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
+		}
 		return s.handleListNodes(msg)
 	case "rotate_key":
 		return s.handleRotateKey(msg)
@@ -775,6 +961,9 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "respond_handshake":
 		return s.handleRespondHandshake(msg)
 	case "heartbeat":
+		if !s.opRateLimiter.Allow("heartbeat", host) {
+			return nil, fmt.Errorf("rate limited: too many heartbeats from %s", host)
+		}
 		return s.handleHeartbeat(msg)
 	case "punch":
 		return s.handlePunch(msg)
@@ -785,6 +974,9 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "set_task_exec":
 		return s.handleSetTaskExec(msg)
 	case "resolve_hostname":
+		if !s.opRateLimiter.Allow("query", host) {
+			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
+		}
 		return s.handleResolveHostname(msg)
 	case "beacon_register":
 		return s.handleBeaconRegister(msg)
@@ -796,6 +988,22 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handlePollInvites(msg)
 	case "respond_invite":
 		return s.handleRespondInvite(msg)
+	case "kick_member":
+		return s.handleKickMember(msg)
+	case "promote_member":
+		return s.handlePromoteMember(msg)
+	case "demote_member":
+		return s.handleDemoteMember(msg)
+	case "get_member_role":
+		return s.handleGetMemberRole(msg)
+	case "set_network_policy":
+		return s.handleSetNetworkPolicy(msg)
+	case "get_network_policy":
+		return s.handleGetNetworkPolicy(msg)
+	case "set_key_expiry":
+		return s.handleSetKeyExpiry(msg)
+	case "get_key_info":
+		return s.handleGetKeyInfo(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -826,6 +1034,16 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	owner, _ := msg["owner"].(string)
 	hostname, _ := msg["hostname"].(string)
 
+	// Warn if client reports a newer protocol version than the server supports.
+	if clientVer, ok := msg["protocol_version"]; ok {
+		if cv, ok := clientVer.(float64); ok && int(cv) > int(protocol.Version) {
+			slog.Warn("client protocol version newer than server",
+				"client_version", int(cv),
+				"server_version", protocol.Version,
+				"remote", remoteAddr)
+		}
+	}
+
 	// Extract LAN addresses for same-network peer detection
 	var lanAddrs []string
 	if rawAddrs, ok := msg["lan_addrs"].([]interface{}); ok {
@@ -853,6 +1071,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 			s.metrics.registrations.Inc()
 			resp["hostname_error"] = err.Error()
 			resp["observed_addr"] = listenAddr
+			resp["protocol_version"] = int(protocol.Version)
 			return resp, nil
 		}
 	}
@@ -863,6 +1082,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	if err == nil {
 		s.metrics.registrations.Inc()
 		resp["observed_addr"] = listenAddr
+		resp["protocol_version"] = int(protocol.Version)
 	}
 	return resp, err
 }
@@ -911,6 +1131,8 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 
 	node.PublicKey = newPubKey
 	node.LastSeen = time.Now()
+	node.KeyMeta.RotatedAt = time.Now()
+	node.KeyMeta.RotateCount++
 	s.pubKeyIdx[newPubKeyB64] = nodeID
 	s.save()
 
@@ -924,6 +1146,90 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 		"address":    addr.String(),
 		"public_key": newPubKeyB64,
 	}, nil
+}
+
+// handleSetKeyExpiry sets the key expiry time for a node.
+// Only the node itself can set its own key expiry (signature-verified).
+func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	// Parse expires_at as RFC3339 string
+	expiresAtStr, _ := msg["expires_at"].(string)
+	if expiresAtStr == "" {
+		return nil, fmt.Errorf("set_key_expiry requires expires_at field (RFC3339)")
+	}
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid expires_at: %w", err)
+	}
+
+	// Reject if expiry is in the past
+	if expiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("expires_at must be in the future")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	// Verify signature: only the node itself can set its own expiry
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_key_expiry:%d", nodeID)); err != nil {
+		return nil, err
+	}
+
+	node.KeyMeta.ExpiresAt = expiresAt
+	s.save()
+
+	slog.Debug("set key expiry", "node_id", nodeID, "expires_at", expiresAt)
+	s.audit("key.expiry_set", "node_id", nodeID, "expires_at", expiresAt)
+
+	return map[string]interface{}{
+		"type":       "set_key_expiry_ok",
+		"node_id":    nodeID,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}, nil
+}
+
+// handleGetKeyInfo returns key lifecycle metadata for a node.
+// Any authenticated caller can query (public information for trust decisions).
+func (s *Server) handleGetKeyInfo(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	resp := map[string]interface{}{
+		"type":         "get_key_info_ok",
+		"node_id":      nodeID,
+		"created_at":   node.KeyMeta.CreatedAt.Format(time.RFC3339),
+		"rotate_count": node.KeyMeta.RotateCount,
+	}
+	if !node.KeyMeta.RotatedAt.IsZero() {
+		resp["rotated_at"] = node.KeyMeta.RotatedAt.Format(time.RFC3339)
+	}
+	if !node.KeyMeta.ExpiresAt.IsZero() {
+		resp["expires_at"] = node.KeyMeta.ExpiresAt.Format(time.RFC3339)
+	}
+
+	// Calculate key_age_days: if rotated, use RotatedAt; otherwise use CreatedAt
+	keyStart := node.KeyMeta.CreatedAt
+	if !node.KeyMeta.RotatedAt.IsZero() {
+		keyStart = node.KeyMeta.RotatedAt
+	}
+	if !keyStart.IsZero() {
+		resp["key_age_days"] = int(time.Since(keyStart).Hours() / 24)
+	}
+
+	return resp, nil
 }
 
 // handleUpdatePoloScore adjusts the polo score of a node by a delta value.
@@ -1087,6 +1393,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			Networks:  networks,
 			LastSeen:  time.Now(),
 			LANAddrs:  lanAddrs,
+			KeyMeta:   KeyInfo{CreatedAt: time.Now()},
 		}
 		s.nodes[nodeID] = node
 		if owner != "" {
@@ -1155,6 +1462,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				Networks:  []uint16{0},
 				LastSeen:  time.Now(),
 				LANAddrs:  lanAddrs,
+				KeyMeta:   KeyInfo{CreatedAt: time.Now()},
 			}
 			s.nodes[existingID] = node
 			s.networks[0].Members = append(s.networks[0].Members, existingID)
@@ -1191,6 +1499,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 		Networks:  []uint16{0},
 		LastSeen:  time.Now(),
 		LANAddrs:  lanAddrs,
+		KeyMeta:   KeyInfo{CreatedAt: time.Now()},
 	}
 	s.nodes[nodeID] = node
 	s.networks[0].Members = append(s.networks[0].Members, nodeID)
@@ -1219,6 +1528,7 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 	name, _ := msg["name"].(string)
 	joinRule, _ := msg["join_rule"].(string)
 	token, _ := msg["token"].(string)
+	networkAdminToken, _ := msg["network_admin_token"].(string)
 
 	if err := validateNetworkName(name); err != nil {
 		return nil, err
@@ -1250,12 +1560,14 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 	s.nextNet++
 
 	net := &NetworkInfo{
-		ID:       netID,
-		Name:     name,
-		JoinRule: joinRule,
-		Token:    token,
-		Members:  []uint32{nodeID},
-		Created:  time.Now(),
+		ID:          netID,
+		Name:        name,
+		JoinRule:    joinRule,
+		Token:       token,
+		Members:     []uint32{nodeID},
+		MemberRoles: map[uint32]Role{nodeID: RoleOwner},
+		AdminToken:  networkAdminToken,
+		Created:     time.Now(),
 	}
 	s.networks[netID] = net
 
@@ -1320,6 +1632,11 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 		return nil, fmt.Errorf("unknown join rule: %s", network.JoinRule)
 	}
 
+	// Check membership limit
+	if network.Policy.MaxMembers > 0 && len(network.Members) >= network.Policy.MaxMembers {
+		return nil, fmt.Errorf("network membership limit reached")
+	}
+
 	// Check if already a member
 	for _, n := range node.Networks {
 		if n == netID {
@@ -1328,6 +1645,10 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	}
 
 	network.Members = append(network.Members, nodeID)
+	if network.MemberRoles == nil {
+		network.MemberRoles = make(map[uint32]Role)
+	}
+	network.MemberRoles[nodeID] = RoleMember
 	node.Networks = append(node.Networks, netID)
 	s.save()
 
@@ -1393,13 +1714,14 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("node %d is not a member of network %d", nodeID, netID)
 	}
 
-	// Remove node from network's member list
+	// Remove node from network's member list and RBAC role
 	for i, m := range network.Members {
 		if m == nodeID {
 			network.Members = append(network.Members[:i], network.Members[i+1:]...)
 			break
 		}
 	}
+	delete(network.MemberRoles, nodeID)
 	s.save()
 
 	slog.Info("node left network", "node_id", nodeID, "network_id", netID, "name", network.Name)
@@ -1412,11 +1734,12 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 }
 
 func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
-	if err := s.requireAdminToken(msg); err != nil {
+	netID := jsonUint16(msg, "network_id")
+
+	// RBAC: only owner or global/per-network admin token
+	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
 		return nil, err
 	}
-
-	netID := jsonUint16(msg, "network_id")
 
 	// Cannot delete backbone
 	if netID == 0 {
@@ -1457,11 +1780,12 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 }
 
 func (s *Server) handleRenameNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
-	if err := s.requireAdminToken(msg); err != nil {
+	netID := jsonUint16(msg, "network_id")
+
+	// RBAC: owner or admin role, or global/per-network admin token
+	if err := s.requireNetworkRole(msg, netID, RoleOwner, RoleAdmin); err != nil {
 		return nil, err
 	}
-
-	netID := jsonUint16(msg, "network_id")
 	name, _ := msg["name"].(string)
 
 	if err := validateNetworkName(name); err != nil {
@@ -1613,6 +1937,16 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 	if len(node.LANAddrs) > 0 {
 		resp["lan_addrs"] = node.LANAddrs
 	}
+
+	// Key freshness for trust decisions: days since key was created/rotated
+	keyStart := node.KeyMeta.CreatedAt
+	if !node.KeyMeta.RotatedAt.IsZero() {
+		keyStart = node.KeyMeta.RotatedAt
+	}
+	if !keyStart.IsZero() {
+		resp["key_age_days"] = int(time.Since(keyStart).Hours() / 24)
+	}
+
 	return resp, nil
 }
 
@@ -1981,6 +2315,19 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 	// Admin token holders can bootstrap invite-only networks (invite without being a member)
 	isAdmin := s.requireAdminToken(msg) == nil
 
+	// Per-network admin token check
+	if !isAdmin {
+		token, _ := msg["admin_token"].(string)
+		s.mu.RLock()
+		net, netOK := s.networks[netID]
+		s.mu.RUnlock()
+		if netOK && net.AdminToken != "" && token != "" {
+			if subtle.ConstantTimeCompare([]byte(token), []byte(net.AdminToken)) == 1 {
+				isAdmin = true
+			}
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1992,7 +2339,7 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 		return nil, fmt.Errorf("network %d is not invite-only (rule: %s)", netID, network.JoinRule)
 	}
 
-	// Admin can invite without being a member (bootstrap); members must be verified
+	// RBAC: admin token holders bypass membership check; otherwise require owner/admin role
 	if !isAdmin {
 		inviterIsMember := false
 		for _, m := range network.Members {
@@ -2003,6 +2350,11 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 		}
 		if !inviterIsMember {
 			return nil, fmt.Errorf("inviter %d is not a member of network %d", inviterID, netID)
+		}
+		// RBAC: members with "member" role cannot invite — only owner/admin
+		inviterRole := network.MemberRoles[inviterID]
+		if inviterRole != RoleOwner && inviterRole != RoleAdmin {
+			return nil, fmt.Errorf("rbac: inviter %d has role %q, requires owner or admin", inviterID, inviterRole)
 		}
 	}
 
@@ -2053,7 +2405,8 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 	}, nil
 }
 
-// handlePollInvites returns and clears a node's invite inbox.
+// handlePollInvites returns a node's pending invites (without consuming them).
+// Invites are consumed by handleRespondInvite when the node accepts or rejects.
 func (s *Server) handlePollInvites(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 
@@ -2071,7 +2424,6 @@ func (s *Server) handlePollInvites(msg map[string]interface{}) (map[string]inter
 	}
 
 	inbox := s.inviteInbox[nodeID]
-	delete(s.inviteInbox, nodeID)
 
 	invites := make([]map[string]interface{}, len(inbox))
 	for i, inv := range inbox {
@@ -2108,10 +2460,40 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		return nil, err
 	}
 
+	// Verify a pending invite actually exists for this node+network
+	inviteFound := false
+	for _, inv := range s.inviteInbox[nodeID] {
+		if inv.NetworkID == netID {
+			inviteFound = true
+			break
+		}
+	}
+	if !inviteFound {
+		return nil, fmt.Errorf("no pending invite for node %d to network %d", nodeID, netID)
+	}
+
+	// Remove the consumed invite from the inbox
+	remaining := make([]*NetworkInvite, 0, len(s.inviteInbox[nodeID]))
+	for _, inv := range s.inviteInbox[nodeID] {
+		if inv.NetworkID != netID {
+			remaining = append(remaining, inv)
+		}
+	}
+	if len(remaining) == 0 {
+		delete(s.inviteInbox, nodeID)
+	} else {
+		s.inviteInbox[nodeID] = remaining
+	}
+
 	if accept {
 		network, ok := s.networks[netID]
 		if !ok {
 			return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+		}
+
+		// Check membership limit
+		if network.Policy.MaxMembers > 0 && len(network.Members) >= network.Policy.MaxMembers {
+			return nil, fmt.Errorf("network membership limit reached")
 		}
 
 		// Check not already a member
@@ -2122,6 +2504,10 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		}
 
 		network.Members = append(network.Members, nodeID)
+		if network.MemberRoles == nil {
+			network.MemberRoles = make(map[uint32]Role)
+		}
+		network.MemberRoles[nodeID] = RoleMember
 		node.Networks = append(node.Networks, netID)
 		s.save()
 
@@ -2135,6 +2521,274 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		"type":       "respond_invite_ok",
 		"accepted":   accept,
 		"network_id": netID,
+	}, nil
+}
+
+// handleKickMember removes a member from a network. Requires owner or admin role
+// (or global/per-network admin token). Cannot kick the owner.
+func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	targetNodeID := jsonUint32(msg, "target_node_id")
+
+	// Cannot kick from backbone
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot kick from the backbone network")
+	}
+
+	// RBAC: owner or admin role required
+	if err := s.requireNetworkRole(msg, netID, RoleOwner, RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Cannot kick the owner
+	if network.MemberRoles[targetNodeID] == RoleOwner {
+		return nil, fmt.Errorf("cannot kick the network owner")
+	}
+
+	// Verify target is a member
+	found := false
+	for i, m := range network.Members {
+		if m == targetNodeID {
+			network.Members = append(network.Members[:i], network.Members[i+1:]...)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
+	}
+
+	delete(network.MemberRoles, targetNodeID)
+
+	// Remove network from target node's list
+	if node, ok := s.nodes[targetNodeID]; ok {
+		for i, n := range node.Networks {
+			if n == netID {
+				node.Networks = append(node.Networks[:i], node.Networks[i+1:]...)
+				break
+			}
+		}
+	}
+	s.save()
+
+	slog.Info("member kicked from network", "target_node_id", targetNodeID, "network_id", netID)
+	s.audit("member.kicked", "target_node_id", targetNodeID, "network_id", netID)
+
+	return map[string]interface{}{
+		"type":           "kick_member_ok",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+	}, nil
+}
+
+// handlePromoteMember promotes a member to admin. Only the owner can promote.
+func (s *Server) handlePromoteMember(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	targetNodeID := jsonUint32(msg, "target_node_id")
+
+	// RBAC: only owner can promote
+	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	currentRole, hasRole := network.MemberRoles[targetNodeID]
+	if !hasRole {
+		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
+	}
+	if currentRole == RoleOwner {
+		return nil, fmt.Errorf("cannot promote the owner")
+	}
+	if currentRole == RoleAdmin {
+		return nil, fmt.Errorf("node %d is already an admin", targetNodeID)
+	}
+
+	network.MemberRoles[targetNodeID] = RoleAdmin
+	s.save()
+
+	slog.Info("member promoted to admin", "target_node_id", targetNodeID, "network_id", netID)
+	s.audit("member.promoted", "target_node_id", targetNodeID, "network_id", netID, "new_role", "admin")
+
+	return map[string]interface{}{
+		"type":           "promote_member_ok",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+		"role":           string(RoleAdmin),
+	}, nil
+}
+
+// handleDemoteMember demotes an admin to member. Only the owner can demote.
+func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	targetNodeID := jsonUint32(msg, "target_node_id")
+
+	// RBAC: only owner can demote
+	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	currentRole, hasRole := network.MemberRoles[targetNodeID]
+	if !hasRole {
+		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
+	}
+	if currentRole == RoleOwner {
+		return nil, fmt.Errorf("cannot demote the owner")
+	}
+	if currentRole == RoleMember {
+		return nil, fmt.Errorf("node %d is already a member", targetNodeID)
+	}
+
+	network.MemberRoles[targetNodeID] = RoleMember
+	s.save()
+
+	slog.Info("admin demoted to member", "target_node_id", targetNodeID, "network_id", netID)
+	s.audit("member.demoted", "target_node_id", targetNodeID, "network_id", netID, "new_role", "member")
+
+	return map[string]interface{}{
+		"type":           "demote_member_ok",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+		"role":           string(RoleMember),
+	}, nil
+}
+
+// handleGetMemberRole returns the RBAC role of a node in a network.
+func (s *Server) handleGetMemberRole(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	targetNodeID := jsonUint32(msg, "target_node_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	role, hasRole := network.MemberRoles[targetNodeID]
+	if !hasRole {
+		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
+	}
+
+	return map[string]interface{}{
+		"type":           "get_member_role_ok",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+		"role":           string(role),
+	}, nil
+}
+
+// handleSetNetworkPolicy sets or updates a network's policy.
+// Requires owner or admin role (or global/per-network admin token).
+func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+
+	if err := s.requireNetworkRole(msg, netID, RoleOwner, RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Merge policy fields: only update fields present in the message (preserve unset fields)
+	policy := network.Policy
+
+	if v, ok := msg["max_members"].(float64); ok {
+		if v < 0 {
+			return nil, fmt.Errorf("max_members must be >= 0")
+		}
+		policy.MaxMembers = int(v)
+	}
+
+	if v, ok := msg["allowed_ports"].([]interface{}); ok {
+		policy.AllowedPorts = nil
+		for _, p := range v {
+			port, ok := p.(float64)
+			if !ok || port < 1 || port > 65535 {
+				return nil, fmt.Errorf("allowed_ports must contain valid port numbers (1-65535)")
+			}
+			policy.AllowedPorts = append(policy.AllowedPorts, uint16(port))
+		}
+	}
+
+	if v, ok := msg["description"].(string); ok {
+		policy.Description = v
+	}
+
+	network.Policy = policy
+	s.save()
+
+	slog.Info("network policy updated", "network_id", netID, "max_members", policy.MaxMembers,
+		"allowed_ports", policy.AllowedPorts, "description", policy.Description)
+	s.audit("network.policy_changed", "network_id", netID,
+		"max_members", policy.MaxMembers, "allowed_ports_count", len(policy.AllowedPorts),
+		"description", policy.Description)
+
+	return map[string]interface{}{
+		"type":          "set_network_policy_ok",
+		"network_id":    netID,
+		"max_members":   policy.MaxMembers,
+		"allowed_ports": policy.AllowedPorts,
+		"description":   policy.Description,
+	}, nil
+}
+
+// handleGetNetworkPolicy returns the policy for a given network.
+// Any member of the network can query the policy.
+func (s *Server) handleGetNetworkPolicy(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Convert AllowedPorts to []interface{} for JSON
+	var ports []interface{}
+	for _, p := range network.Policy.AllowedPorts {
+		ports = append(ports, float64(p))
+	}
+	if ports == nil {
+		ports = []interface{}{}
+	}
+
+	return map[string]interface{}{
+		"type":          "get_network_policy_ok",
+		"network_id":    netID,
+		"max_members":   network.Policy.MaxMembers,
+		"allowed_ports": ports,
+		"description":   network.Policy.Description,
 	}, nil
 }
 
@@ -2521,10 +3175,17 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 
 	node.LastSeen = time.Now()
 
-	return map[string]interface{}{
+	resp := map[string]interface{}{
 		"type": "heartbeat_ok",
 		"time": time.Now().Unix(),
-	}, nil
+	}
+
+	// Key expiry warning: if key expires within 24 hours, warn the daemon
+	if !node.KeyMeta.ExpiresAt.IsZero() && node.KeyMeta.ExpiresAt.Before(time.Now().Add(24*time.Hour)) {
+		resp["key_expiry_warning"] = true
+	}
+
+	return resp, nil
 }
 
 func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}, error) {
@@ -2581,6 +3242,7 @@ func (s *Server) TriggerSnapshot() error {
 
 // snapshot is the JSON-serializable registry state.
 type snapshot struct {
+	Version            int                                `json:"version"`
 	NextNode           uint32                             `json:"next_node"`
 	NextNet            uint16                             `json:"next_net"`
 	Nodes              map[string]*snapshotNode           `json:"nodes"`
@@ -2598,30 +3260,39 @@ type snapshot struct {
 	UniqueTags    int    `json:"unique_tags,omitempty"`
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
+	// Integrity: SHA256 hex digest of all fields except Checksum
+	Checksum string `json:"checksum,omitempty"`
 }
 
 type snapshotNode struct {
-	ID        uint32   `json:"id"`
-	Owner     string   `json:"owner,omitempty"`
-	PublicKey string   `json:"public_key"`
-	RealAddr  string   `json:"real_addr,omitempty"`
-	Networks  []uint16 `json:"networks"`
-	Public    bool     `json:"public,omitempty"`
-	LastSeen  string   `json:"last_seen,omitempty"`
-	Hostname  string   `json:"hostname,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
-	PoloScore int      `json:"polo_score,omitempty"`
-	TaskExec  bool     `json:"task_exec,omitempty"`
-	LANAddrs  []string `json:"lan_addrs,omitempty"`
+	ID          uint32   `json:"id"`
+	Owner       string   `json:"owner,omitempty"`
+	PublicKey   string   `json:"public_key"`
+	RealAddr    string   `json:"real_addr,omitempty"`
+	Networks    []uint16 `json:"networks"`
+	Public      bool     `json:"public,omitempty"`
+	LastSeen    string   `json:"last_seen,omitempty"`
+	Hostname    string   `json:"hostname,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	PoloScore   int      `json:"polo_score,omitempty"`
+	TaskExec    bool     `json:"task_exec,omitempty"`
+	LANAddrs    []string `json:"lan_addrs,omitempty"`
+	KeyCreated  string   `json:"key_created,omitempty"`
+	KeyRotated  string   `json:"key_rotated,omitempty"`
+	KeyRotCount int      `json:"key_rot_count,omitempty"`
+	KeyExpires  string   `json:"key_expires,omitempty"`
 }
 
 type snapshotNet struct {
-	ID       uint16   `json:"id"`
-	Name     string   `json:"name"`
-	JoinRule string   `json:"join_rule"`
-	Token    string   `json:"token,omitempty"`
-	Members  []uint32 `json:"members"`
-	Created  string   `json:"created"`
+	ID          uint16            `json:"id"`
+	Name        string            `json:"name"`
+	JoinRule    string            `json:"join_rule"`
+	Token       string            `json:"token,omitempty"`
+	Members     []uint32          `json:"members"`
+	MemberRoles map[string]string `json:"member_roles,omitempty"` // nodeID -> role
+	AdminToken  string            `json:"admin_token,omitempty"`  // per-network admin token
+	Policy      *NetworkPolicy    `json:"policy,omitempty"`       // network policy
+	Created     string            `json:"created"`
 }
 
 // save signals that state has changed and should be persisted.
@@ -2674,6 +3345,7 @@ func (s *Server) saveLoop() {
 func (s *Server) flushSave() error {
 	s.mu.RLock()
 	snap := snapshot{
+		Version:  1,
 		NextNode: s.nextNode,
 		NextNet:  s.nextNet,
 		Nodes:    make(map[string]*snapshotNode, len(s.nodes)),
@@ -2681,7 +3353,7 @@ func (s *Server) flushSave() error {
 	}
 
 	for id, n := range s.nodes {
-		snap.Nodes[fmt.Sprintf("%d", id)] = &snapshotNode{
+		sn := &snapshotNode{
 			ID:        n.ID,
 			Owner:     n.Owner,
 			PublicKey: base64.StdEncoding.EncodeToString(n.PublicKey),
@@ -2695,17 +3367,43 @@ func (s *Server) flushSave() error {
 			TaskExec:  n.TaskExec,
 			LANAddrs:  n.LANAddrs,
 		}
+		if !n.KeyMeta.CreatedAt.IsZero() {
+			sn.KeyCreated = n.KeyMeta.CreatedAt.Format(time.RFC3339)
+		}
+		if !n.KeyMeta.RotatedAt.IsZero() {
+			sn.KeyRotated = n.KeyMeta.RotatedAt.Format(time.RFC3339)
+		}
+		if n.KeyMeta.RotateCount > 0 {
+			sn.KeyRotCount = n.KeyMeta.RotateCount
+		}
+		if !n.KeyMeta.ExpiresAt.IsZero() {
+			sn.KeyExpires = n.KeyMeta.ExpiresAt.Format(time.RFC3339)
+		}
+		snap.Nodes[fmt.Sprintf("%d", id)] = sn
 	}
 
 	for id, n := range s.networks {
-		snap.Networks[fmt.Sprintf("%d", id)] = &snapshotNet{
-			ID:       n.ID,
-			Name:     n.Name,
-			JoinRule: n.JoinRule,
-			Token:    n.Token,
-			Members:  n.Members,
-			Created:  n.Created.Format(time.RFC3339),
+		sn := &snapshotNet{
+			ID:         n.ID,
+			Name:       n.Name,
+			JoinRule:   n.JoinRule,
+			Token:      n.Token,
+			Members:    n.Members,
+			AdminToken: n.AdminToken,
+			Created:    n.Created.Format(time.RFC3339),
 		}
+		if len(n.MemberRoles) > 0 {
+			sn.MemberRoles = make(map[string]string, len(n.MemberRoles))
+			for nodeID, role := range n.MemberRoles {
+				sn.MemberRoles[fmt.Sprintf("%d", nodeID)] = string(role)
+			}
+		}
+		// Persist policy if any field is set
+		if n.Policy.MaxMembers != 0 || len(n.Policy.AllowedPorts) > 0 || n.Policy.Description != "" {
+			pol := n.Policy // copy
+			sn.Policy = &pol
+		}
+		snap.Networks[fmt.Sprintf("%d", id)] = sn
 	}
 
 	// Persist pubKeyIdx (survives reap cycles so re-registering nodes reclaim their ID)
@@ -2771,10 +3469,20 @@ func (s *Server) flushSave() error {
 	netCount := len(s.networks)
 	s.mu.RUnlock()
 
-	data, err := json.Marshal(snap)
+	// Compute checksum: marshal without Checksum, hash, then set Checksum and remarshal
+	snap.Checksum = ""
+	preData, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("registry save marshal error", "err", err)
 		return fmt.Errorf("marshal snapshot: %w", err)
+	}
+	hash := sha256.Sum256(preData)
+	snap.Checksum = hex.EncodeToString(hash[:])
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Error("registry save marshal error", "err", err)
+		return fmt.Errorf("marshal snapshot with checksum: %w", err)
 	}
 
 	// Persist to disk atomically
@@ -2802,6 +3510,29 @@ func (s *Server) load() error {
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
+	}
+
+	// Check snapshot version — legacy snapshots have version 0 (field absent).
+	if snap.Version == 0 {
+		slog.Info("migrating legacy snapshot (version 0) to current format")
+	}
+
+	// Verify snapshot checksum if present
+	if snap.Checksum != "" {
+		savedChecksum := snap.Checksum
+		snap.Checksum = ""
+		verifyData, verifyErr := json.Marshal(snap)
+		if verifyErr == nil {
+			hash := sha256.Sum256(verifyData)
+			computed := hex.EncodeToString(hash[:])
+			if computed != savedChecksum {
+				slog.Warn("snapshot checksum mismatch — data may be corrupted",
+					"expected", savedChecksum, "computed", computed)
+			} else {
+				slog.Info("snapshot checksum verified")
+			}
+		}
+		snap.Checksum = savedChecksum // restore for completeness
 	}
 
 	s.mu.Lock()
@@ -2858,6 +3589,23 @@ func (s *Server) load() error {
 			TaskExec:  n.TaskExec,
 			LANAddrs:  n.LANAddrs,
 		}
+		// Restore key lifecycle metadata
+		if n.KeyCreated != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyCreated); err == nil {
+				node.KeyMeta.CreatedAt = t
+			}
+		}
+		if n.KeyRotated != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyRotated); err == nil {
+				node.KeyMeta.RotatedAt = t
+			}
+		}
+		node.KeyMeta.RotateCount = n.KeyRotCount
+		if n.KeyExpires != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyExpires); err == nil {
+				node.KeyMeta.ExpiresAt = t
+			}
+		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
 		if n.Owner != "" {
@@ -2871,12 +3619,35 @@ func (s *Server) load() error {
 	for _, n := range snap.Networks {
 		created, _ := time.Parse(time.RFC3339, n.Created)
 		net := &NetworkInfo{
-			ID:       n.ID,
-			Name:     n.Name,
-			JoinRule: n.JoinRule,
-			Token:    n.Token,
-			Members:  n.Members,
-			Created:  created,
+			ID:          n.ID,
+			Name:        n.Name,
+			JoinRule:    n.JoinRule,
+			Token:       n.Token,
+			Members:     n.Members,
+			MemberRoles: make(map[uint32]Role),
+			AdminToken:  n.AdminToken,
+			Created:     created,
+		}
+		if n.Policy != nil {
+			net.Policy = *n.Policy
+		}
+		for nodeIDStr, roleStr := range n.MemberRoles {
+			var nodeID uint32
+			if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil {
+				net.MemberRoles[nodeID] = Role(roleStr)
+			}
+		}
+		// Backfill roles for legacy snapshots: members without roles get RoleMember,
+		// and the first member (creator) gets RoleOwner if no owner exists.
+		if len(n.MemberRoles) == 0 && len(net.Members) > 0 && net.ID != 0 {
+			for i, m := range net.Members {
+				if i == 0 {
+					net.MemberRoles[m] = RoleOwner
+				} else {
+					net.MemberRoles[m] = RoleMember
+				}
+			}
+			slog.Info("backfilled RBAC roles for legacy network", "network_id", net.ID, "name", net.Name, "members", len(net.Members))
 		}
 		s.networks[n.ID] = net
 	}
@@ -2945,8 +3716,8 @@ func readMessage(r io.Reader) (map[string]interface{}, error) {
 		return nil, err
 	}
 	length := binary.BigEndian.Uint32(lenBuf[:])
-	if length > 1<<20 { // 1MB max
-		return nil, fmt.Errorf("message too large: %d bytes", length)
+	if length > maxMessageSize { // 64KB max
+		return nil, fmt.Errorf("message too large: %d bytes (max %d)", length, maxMessageSize)
 	}
 
 	body := make([]byte, length)

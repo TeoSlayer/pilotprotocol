@@ -812,6 +812,13 @@ func (hm *HandshakeManager) PendingRequests() []PendingHandshake {
 	return list
 }
 
+// PendingCount returns the number of pending handshake requests.
+func (hm *HandshakeManager) PendingCount() int {
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+	return len(hm.pending)
+}
+
 // sendAcceptLocked sends an accept message (caller must hold hm.mu).
 func (hm *HandshakeManager) sendAcceptLocked(peerNodeID uint32) {
 	hm.goRPC(func() {

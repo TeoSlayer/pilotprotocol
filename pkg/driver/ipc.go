@@ -44,6 +44,8 @@ const (
 	cmdSetTaskExecOK     byte = 0x1E
 	cmdNetwork           byte = 0x1F
 	cmdNetworkOK         byte = 0x20
+	cmdHealth            byte = 0x21
+	cmdHealthOK          byte = 0x22
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)

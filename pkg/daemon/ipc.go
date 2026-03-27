@@ -48,6 +48,8 @@ const (
 	CmdSetTaskExecOK     byte = 0x1E
 	CmdNetwork           byte = 0x1F
 	CmdNetworkOK         byte = 0x20
+	CmdHealth            byte = 0x21
+	CmdHealthOK          byte = 0x22
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -223,6 +225,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleSetTaskExec(conn, payload)
 		case CmdNetwork:
 			s.handleNetwork(conn, payload)
+		case CmdHealth:
+			s.handleHealth(conn)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -418,10 +422,13 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 		"email":               info.Email,
 		"bytes_sent":          info.BytesSent,
 		"bytes_recv":          info.BytesRecv,
-		"pkts_sent":           info.PktsSent,
-		"pkts_recv":           info.PktsRecv,
-		"peer_list":           peers,
-		"conn_list":           conns,
+		"pkts_sent":                    info.PktsSent,
+		"pkts_recv":                    info.PktsRecv,
+		"tunnel_encryption_success":    info.EncryptOK,
+		"tunnel_encryption_failure":    info.EncryptFail,
+		"handshake_pending_count":      info.HandshakePendingCount,
+		"peer_list":                    peers,
+		"conn_list":                    conns,
 	})
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("info marshal: %v", err))
@@ -432,6 +439,28 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 	copy(resp[1:], data)
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC info reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleHealth(conn *ipcConn) {
+	info := s.daemon.Info()
+	data, err := json.Marshal(map[string]interface{}{
+		"status":         "ok",
+		"uptime_seconds": int64(info.Uptime.Seconds()),
+		"connections":    info.Connections,
+		"peers":          info.Peers,
+		"bytes_sent":     info.BytesSent,
+		"bytes_recv":     info.BytesRecv,
+	})
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("health marshal: %v", err))
+		return
+	}
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdHealthOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC health reply failed", "err", err)
 	}
 }
 

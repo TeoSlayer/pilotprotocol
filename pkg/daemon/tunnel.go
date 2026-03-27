@@ -120,10 +120,12 @@ type TunnelManager struct {
 	webhook *WebhookClient
 
 	// Metrics
-	BytesSent uint64
-	BytesRecv uint64
-	PktsSent  uint64
-	PktsRecv  uint64
+	BytesSent         uint64
+	BytesRecv         uint64
+	PktsSent          uint64
+	PktsRecv          uint64
+	EncryptOK         uint64
+	EncryptFail       uint64
 }
 
 type IncomingPacket struct {
@@ -633,6 +635,7 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 
 	plaintext, err := pc.aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
+		atomic.AddUint64(&tm.EncryptFail, 1)
 		slog.Error("tunnel decrypt error", "peer_node_id", peerNodeID, "error", err)
 		// Undo the nonce record on decrypt failure — it was not a valid packet
 		pc.replayMu.Lock()
@@ -800,6 +803,7 @@ func (tm *TunnelManager) encryptFrame(pc *peerCrypto, plaintext []byte) []byte {
 	binary.BigEndian.PutUint64(nonce[pc.aead.NonceSize()-8:], counter)
 
 	ciphertext := pc.aead.Seal(nil, nonce, plaintext, nil)
+	atomic.AddUint64(&tm.EncryptOK, 1)
 
 	frame := make([]byte, 4+4+len(nonce)+len(ciphertext))
 	copy(frame[0:4], protocol.TunnelMagicSecure[:])

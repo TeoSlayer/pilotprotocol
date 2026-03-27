@@ -112,6 +112,13 @@ func FuzzPacketRoundTrip(f *testing.F) {
 		}
 
 		got, err := protocol.Unmarshal(data)
+		if pkt.Version != protocol.Version {
+			// Non-current versions must be rejected.
+			if err == nil {
+				t.Fatalf("expected version error for version %d", pkt.Version)
+			}
+			return
+		}
 		if err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
@@ -241,15 +248,12 @@ func TestUnmarshalPayloadLengthMax(t *testing.T) {
 
 func TestUnmarshalAllZero(t *testing.T) {
 	buf := make([]byte, 34)
-	// all zeros — checksum of all zeros should match if we compute it
+	// all zeros — version 0 is not supported, must be rejected.
 	binary.BigEndian.PutUint32(buf[30:34], protocol.Checksum(buf))
 
-	pkt, err := protocol.Unmarshal(buf)
-	if err != nil {
-		t.Fatalf("Unmarshal all-zero: %v", err)
-	}
-	if pkt.Version != 0 || pkt.Flags != 0 || pkt.Protocol != 0 {
-		t.Fatal("expected zero header fields")
+	_, err := protocol.Unmarshal(buf)
+	if err == nil {
+		t.Fatal("expected version error for all-zero packet (version 0)")
 	}
 }
 
@@ -352,12 +356,12 @@ func TestPacketVersionNot1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	got, err := protocol.Unmarshal(data)
-	if err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	_, err = protocol.Unmarshal(data)
+	if err == nil {
+		t.Fatal("expected error for unsupported version, got nil")
 	}
-	if got.Version != 2 {
-		t.Fatalf("expected version 2, got %d", got.Version)
+	if !strings.Contains(err.Error(), "unsupported protocol version") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -590,12 +594,27 @@ func TestVersionFlagsPacking(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Marshal: %v", err)
 			}
-			got, err := protocol.Unmarshal(data)
-			if err != nil {
-				t.Fatalf("Unmarshal: %v", err)
+			// Verify wire encoding: version in upper nibble, flags in lower nibble.
+			if data[0]>>4 != v {
+				t.Fatalf("wire version nibble: got %d, want %d", data[0]>>4, v)
 			}
-			if got.Version != v || got.Flags != fl {
-				t.Fatalf("v=%d fl=%d -> v=%d fl=%d", v, fl, got.Version, got.Flags)
+			if data[0]&0x0F != fl {
+				t.Fatalf("wire flags nibble: got %d, want %d", data[0]&0x0F, fl)
+			}
+			// Only the current version round-trips through Unmarshal.
+			if v == protocol.Version {
+				got, err := protocol.Unmarshal(data)
+				if err != nil {
+					t.Fatalf("Unmarshal v=%d fl=%d: %v", v, fl, err)
+				}
+				if got.Version != v || got.Flags != fl {
+					t.Fatalf("v=%d fl=%d -> v=%d fl=%d", v, fl, got.Version, got.Flags)
+				}
+			} else {
+				_, err := protocol.Unmarshal(data)
+				if err == nil {
+					t.Fatalf("expected version error for v=%d fl=%d", v, fl)
+				}
 			}
 		}
 	}
