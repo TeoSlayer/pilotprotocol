@@ -49,7 +49,7 @@ func TestPoloScoreDefault(t *testing.T) {
 	}
 	pubKeyB64 := crypto.EncodePublicKey(id.PublicKey)
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestPoloScoreUpdate(t *testing.T) {
 	}
 	pubKeyB64 := crypto.EncodePublicKey(id.PublicKey)
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestPoloScoreSet(t *testing.T) {
 	}
 	pubKeyB64 := crypto.EncodePublicKey(id.PublicKey)
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestPoloScoreGet(t *testing.T) {
 	}
 	pubKeyB64 := crypto.EncodePublicKey(id.PublicKey)
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestPoloScorePersistence(t *testing.T) {
 		t.Fatalf("dial registry 1: %v", err)
 	}
 
-	resp, err := rc1.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc1.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestPoloScoreEdgeCases(t *testing.T) {
 	}
 	pubKeyB64 := crypto.EncodePublicKey(id.PublicKey)
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}

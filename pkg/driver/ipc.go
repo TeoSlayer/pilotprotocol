@@ -42,6 +42,19 @@ const (
 	cmdSetWebhookOK      byte = 0x1C
 	cmdSetTaskExec       byte = 0x1D
 	cmdSetTaskExecOK     byte = 0x1E
+	cmdNetwork           byte = 0x1F
+	cmdNetworkOK         byte = 0x20
+)
+
+// Network sub-commands (must match daemon SubNetwork* constants)
+const (
+	subNetworkList          byte = 0x01
+	subNetworkJoin          byte = 0x02
+	subNetworkLeave         byte = 0x03
+	subNetworkMembers       byte = 0x04
+	subNetworkInvite        byte = 0x05
+	subNetworkPollInvites   byte = 0x06
+	subNetworkRespondInvite byte = 0x07
 )
 
 // Datagram represents a received unreliable datagram.

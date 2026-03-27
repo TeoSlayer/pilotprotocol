@@ -46,6 +46,19 @@ const (
 	CmdSetWebhookOK      byte = 0x1C
 	CmdSetTaskExec       byte = 0x1D
 	CmdSetTaskExecOK     byte = 0x1E
+	CmdNetwork           byte = 0x1F
+	CmdNetworkOK         byte = 0x20
+)
+
+// Network sub-commands (second byte of CmdNetwork payload)
+const (
+	SubNetworkList          byte = 0x01
+	SubNetworkJoin          byte = 0x02
+	SubNetworkLeave         byte = 0x03
+	SubNetworkMembers       byte = 0x04
+	SubNetworkInvite        byte = 0x05
+	SubNetworkPollInvites   byte = 0x06
+	SubNetworkRespondInvite byte = 0x07
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -208,6 +221,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleSetWebhook(conn, payload)
 		case CmdSetTaskExec:
 			s.handleSetTaskExec(conn, payload)
+		case CmdNetwork:
+			s.handleNetwork(conn, payload)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -718,6 +733,136 @@ func (s *IPCServer) ipcWriteHandshakeOK(conn *ipcConn, data []byte) {
 	copy(resp[1:], data)
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC handshake reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) ipcWriteNetworkOK(conn *ipcConn, data []byte) {
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdNetworkOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC network reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
+	if len(payload) < 1 {
+		s.sendError(conn, "network: missing sub-command")
+		return
+	}
+	sub := payload[0]
+	rest := payload[1:]
+
+	switch sub {
+	case SubNetworkList:
+		result, err := s.daemon.regConn.ListNetworks()
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network list: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkJoin:
+		// [2-byte networkID][token...]
+		if len(rest) < 2 {
+			s.sendError(conn, "network join: missing network_id")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		token := ""
+		if len(rest) > 2 {
+			token = string(rest[2:])
+		}
+		result, err := s.daemon.regConn.JoinNetwork(
+			s.daemon.NodeID(), netID, token, 0, s.daemon.config.AdminToken,
+		)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network join: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkLeave:
+		// [2-byte networkID]
+		if len(rest) < 2 {
+			s.sendError(conn, "network leave: missing network_id")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		result, err := s.daemon.regConn.LeaveNetwork(
+			s.daemon.NodeID(), netID, s.daemon.config.AdminToken,
+		)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network leave: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkMembers:
+		// [2-byte networkID]
+		if len(rest) < 2 {
+			s.sendError(conn, "network members: missing network_id")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		result, err := s.daemon.regConn.ListNodes(netID, s.daemon.config.AdminToken)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network members: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkInvite:
+		// [2-byte networkID][4-byte targetNodeID]
+		if len(rest) < 6 {
+			s.sendError(conn, "network invite: missing network_id or target_node_id")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		targetID := binary.BigEndian.Uint32(rest[2:6])
+		result, err := s.daemon.regConn.InviteToNetwork(
+			netID, s.daemon.NodeID(), targetID, s.daemon.config.AdminToken,
+		)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network invite: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkPollInvites:
+		result, err := s.daemon.regConn.PollInvites(s.daemon.NodeID())
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network poll-invites: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	case SubNetworkRespondInvite:
+		// [2-byte networkID][1-byte accept]
+		if len(rest) < 3 {
+			s.sendError(conn, "network respond-invite: missing network_id or accept flag")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		accept := rest[2] == 1
+		result, err := s.daemon.regConn.RespondInvite(
+			s.daemon.NodeID(), netID, accept,
+		)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("network respond-invite: %v", err))
+			return
+		}
+		data, _ := json.Marshal(result)
+		s.ipcWriteNetworkOK(conn, data)
+
+	default:
+		s.sendError(conn, fmt.Sprintf("network: unknown sub-command 0x%02X", sub))
 	}
 }
 

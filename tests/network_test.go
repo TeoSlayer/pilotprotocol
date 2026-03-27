@@ -258,8 +258,8 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 	defer cleanup()
 
 	nodeA, _ := registerTestNode(t, rc)
-	nodeB, _ := registerTestNode(t, rc)
-	nodeC, _ := registerTestNode(t, rc)
+	nodeB, idB := registerTestNode(t, rc)
+	nodeC, idC := registerTestNode(t, rc)
 
 	// Create invite-only network
 	resp, err := rc.CreateNetwork(nodeA, "invite-net", "invite", "", TestAdminToken)
@@ -268,28 +268,52 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 	}
 	netID := uint16(resp["network_id"].(float64))
 
-	// B tries to join without inviter — should fail
+	// Direct join is blocked for invite-only networks
 	_, err = rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken)
 	if err == nil {
-		t.Fatal("expected error without inviter, got nil")
+		t.Fatal("expected error for direct join on invite-only network, got nil")
 	}
 
-	// B tries with non-member inviter — should fail
-	_, err = rc.JoinNetwork(nodeB, netID, "", nodeC, TestAdminToken)
+	// Non-member (C) cannot invite B via signature (no admin token)
+	setClientSigner(rc, idC)
+	_, err = rc.InviteToNetwork(netID, nodeC, nodeB, "")
 	if err == nil {
 		t.Fatal("expected error with non-member inviter, got nil")
 	}
+	rc.SetSigner(nil)
 
-	// B joins with A as inviter — should succeed
-	_, err = rc.JoinNetwork(nodeB, netID, "", nodeA, TestAdminToken)
+	// A (member) invites B via new consent flow
+	_, err = rc.InviteToNetwork(netID, nodeA, nodeB, TestAdminToken)
 	if err != nil {
-		t.Fatalf("join with valid inviter: %v", err)
+		t.Fatalf("invite B: %v", err)
 	}
 
-	// Now B can invite C
-	_, err = rc.JoinNetwork(nodeC, netID, "", nodeB, TestAdminToken)
+	// B polls and accepts
+	setClientSigner(rc, idB)
+	_, err = rc.PollInvites(nodeB)
 	if err != nil {
-		t.Fatalf("join with B as inviter: %v", err)
+		t.Fatalf("B poll invites: %v", err)
+	}
+	_, err = rc.RespondInvite(nodeB, netID, true)
+	if err != nil {
+		t.Fatalf("B accept invite: %v", err)
+	}
+
+	// Now B (member) can invite C
+	_, err = rc.InviteToNetwork(netID, nodeB, nodeC, TestAdminToken)
+	if err != nil {
+		t.Fatalf("B invite C: %v", err)
+	}
+
+	// C polls and accepts
+	setClientSigner(rc, idC)
+	_, err = rc.PollInvites(nodeC)
+	if err != nil {
+		t.Fatalf("C poll invites: %v", err)
+	}
+	_, err = rc.RespondInvite(nodeC, netID, true)
+	if err != nil {
+		t.Fatalf("C accept invite: %v", err)
 	}
 }
 

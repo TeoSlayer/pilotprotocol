@@ -1,0 +1,129 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Error Codes</h1>
+  <p class="subtitle">Reference for protocol, registry, IPC, and transport errors.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#protocol">Protocol errors</a></li>
+      <li><a href="#registry">Registry errors</a></li>
+      <li><a href="#transport">Transport errors</a></li>
+      <li><a href="#ipc">IPC errors</a></li>
+      <li><a href="#network">Network errors</a></li>
+      <li><a href="#trust">Trust errors</a></li>
+      <li><a href="#cli">CLI errors</a></li>
+    </ul>
+  </div>
+
+  <h2 id="protocol">Protocol errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>invalid checksum</code></td><td>Packet CRC32 does not match. Data corrupted in transit.</td><td>Usually transient. If persistent, check for MTU issues or middlebox interference.</td></tr>
+      <tr><td><code>packet too short</code></td><td>Received data is smaller than the 34-byte header.</td><td>Likely a truncated packet. Check network path for fragmentation.</td></tr>
+      <tr><td><code>invalid magic bytes</code></td><td>Tunnel frame does not start with <code>0x50494C54</code> (&ldquo;PILT&rdquo;).</td><td>Non-Pilot traffic on the tunnel port. Check firewall rules.</td></tr>
+      <tr><td><code>encrypted packet but no key</code></td><td>Received an encrypted packet from a peer with no established key.</td><td>Keys may have desynchronized after restarts. Restart both peers or re-establish trust.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="registry">Registry errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>network creation is disabled</code></td><td>Registry has network creation turned off.</td><td>Enable network creation in registry configuration.</td></tr>
+      <tr><td><code>network name required</code></td><td>Empty name passed to create-network.</td><td>Provide a network name.</td></tr>
+      <tr><td><code>network name too long</code></td><td>Name exceeds 63 characters.</td><td>Shorten the network name to 63 characters or fewer.</td></tr>
+      <tr><td><code>network name must be lowercase alphanumeric with hyphens</code></td><td>Name contains invalid characters.</td><td>Use only lowercase letters, digits, and hyphens. Must start and end with alphanumeric.</td></tr>
+      <tr><td><code>network name is reserved</code></td><td>Attempted to use a reserved name (e.g., <code>backbone</code>).</td><td>Choose a different network name.</td></tr>
+      <tr><td><code>network already exists</code></td><td>A network with this name already exists.</td><td>Use a unique name or join the existing network.</td></tr>
+      <tr><td><code>network ID space exhausted</code></td><td>All 65,535 network IDs are allocated.</td><td>Delete unused networks to free IDs.</td></tr>
+      <tr><td><code>network not found</code></td><td>The specified network ID does not exist.</td><td>Verify the network ID with <code>pilotctl network list</code>.</td></tr>
+      <tr><td><code>node already registered</code></td><td>This node is already registered in the backbone.</td><td>Use <code>pilotctl deregister</code> first, or check for stale identity at <code>~/.pilot/identity.json</code>.</td></tr>
+      <tr><td><code>email required</code></td><td>Registration requires an email address.</td><td>Pass <code>--email</code> flag to the daemon or set it in <code>config.json</code>.</td></tr>
+      <tr><td><code>invalid admin token</code></td><td>The admin token does not match the registry&rsquo;s configured token.</td><td>Check the admin token in your configuration.</td></tr>
+      <tr><td><code>hostname already taken</code></td><td>Another node has already registered this hostname.</td><td>Choose a different hostname.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="transport">Transport errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>connection refused</code></td><td>Target node rejected the connection (untrusted and not in a shared network).</td><td>Establish trust with <code>pilotctl handshake</code> or add both agents to the same network.</td></tr>
+      <tr><td><code>connection timed out</code></td><td>No response from the target within the timeout period.</td><td>Check that the target is online, reachable, and has a tunnel to this node. Try <code>pilotctl ping</code>.</td></tr>
+      <tr><td><code>idle timeout</code></td><td>Connection closed after 120 seconds of inactivity.</td><td>Send data or keepalive probes to keep the connection alive.</td></tr>
+      <tr><td><code>send buffer full</code></td><td>Flow control window is zero; the receiver is not consuming data.</td><td>Wait for the receiver to process pending data, or check for a stuck receiver.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="ipc">IPC errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>daemon is not running</code></td><td>Cannot connect to the IPC socket at <code>/tmp/pilot.sock</code>.</td><td>Start the daemon: <code>pilotctl daemon start</code></td></tr>
+      <tr><td><code>network: missing sub-command</code></td><td>The network IPC command had no sub-command byte.</td><td>Use a valid subcommand: list, join, leave, members, invite.</td></tr>
+      <tr><td><code>network join: missing network_id</code></td><td>Join command did not include a network ID.</td><td>Provide a valid 16-bit network ID.</td></tr>
+      <tr><td><code>topic too long</code></td><td>Pub/sub topic name exceeds the maximum length.</td><td>Shorten the topic name.</td></tr>
+      <tr><td><code>payload too large</code></td><td>Event stream payload exceeds the maximum size.</td><td>Reduce the payload size or split into multiple messages.</td></tr>
+      <tr><td><code>frame too large</code></td><td>Data exchange frame exceeds the maximum size.</td><td>Reduce the frame size.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="network">Network errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>invalid token for network</code></td><td>The join token does not match the network&rsquo;s configured token.</td><td>Verify the token with the network admin or check the console.</td></tr>
+      <tr><td><code>invite-only networks require invite flow</code></td><td>Tried to join an invite-only network with a token.</td><td>Ask the admin to invite you from the console, then use <code>pilotctl network accept</code>.</td></tr>
+      <tr><td><code>node already in network</code></td><td>The agent is already a member.</td><td>No action needed &mdash; the agent is already joined.</td></tr>
+      <tr><td><code>cannot leave the backbone network</code></td><td>Attempted to leave network 0 (the backbone).</td><td>The backbone cannot be left. Use <code>pilotctl deregister</code> to fully unregister.</td></tr>
+      <tr><td><code>node is not a member of network</code></td><td>Tried to remove a node that is not in the network.</td><td>Verify network membership with <code>pilotctl network members</code>.</td></tr>
+      <tr><td><code>cannot delete the backbone network</code></td><td>Attempted to delete network 0.</td><td>The backbone is permanent and cannot be deleted.</td></tr>
+      <tr><td><code>free networks are limited to 3 agents</code></td><td>Free-tier network has reached the 3-agent limit.</td><td>Upgrade to Pro from the console, or remove an existing agent first.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="trust">Trust errors</h2>
+
+  <table>
+    <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>handshake already pending</code></td><td>A handshake request to this peer is already in progress.</td><td>Wait for the peer to approve or reject, or check with <code>pilotctl pending</code>.</td></tr>
+      <tr><td><code>already trusted</code></td><td>Mutual trust already exists with this peer.</td><td>No action needed.</td></tr>
+      <tr><td><code>cannot resolve hostname</code></td><td>The hostname does not resolve to any registered agent.</td><td>Verify the hostname is correct and the target agent is registered.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="cli">CLI errors</h2>
+
+  <table>
+    <thead><tr><th>Code</th><th>Meaning</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td><code>not_running</code></td><td>Daemon is not running or socket is unreachable.</td><td>Start the daemon: <code>pilotctl daemon start</code></td></tr>
+      <tr><td><code>connection_failed</code></td><td>Cannot reach the registry or a peer.</td><td>Check network connectivity and registry address. Try <code>PILOT_REGISTRY=host:port</code>.</td></tr>
+      <tr><td><code>invalid_argument</code></td><td>A CLI argument is missing or malformed.</td><td>Check command syntax with <code>pilotctl</code> (no args) for usage.</td></tr>
+      <tr><td><code>not_found</code></td><td>The requested resource (peer, hostname, connection) was not found.</td><td>Verify the identifier exists and is reachable.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Need help?</strong> See <a href="troubleshooting">Troubleshooting</a> for step-by-step diagnostic procedures, or check <a href="diagnostics">Diagnostics</a> for built-in debugging tools.
+  </div>`;
+---
+<DocLayout
+  title="Error Codes"
+  description="Reference for Pilot Protocol error codes: protocol, registry, transport, IPC, network, trust, and CLI errors with resolution steps."
+  activePage="error-codes"
+  canonicalPath="/docs/error-codes"
+  prev={{ label: "Console Guide", href: "/docs/console-guide" }}
+  next={{ label: "Troubleshooting", href: "/docs/troubleshooting" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

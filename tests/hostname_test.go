@@ -37,7 +37,7 @@ func startTestRegistry(t *testing.T) (*registry.Client, *registry.Server, func()
 func registerTestNode(t *testing.T, rc *registry.Client) (uint32, *crypto.Identity) {
 	t.Helper()
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestHostnamePersistence(t *testing.T) {
 	}
 
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc1.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc1.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}

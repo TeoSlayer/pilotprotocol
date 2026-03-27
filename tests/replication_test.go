@@ -48,14 +48,14 @@ func TestRegistryReplication(t *testing.T) {
 	defer rc.Close()
 
 	id1, _ := crypto.GenerateIdentity()
-	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id1.PublicKey), "")
+	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id1.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 1: %v", err)
 	}
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	id2, _ := crypto.GenerateIdentity()
-	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "")
+	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 2: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestRegistryReplication(t *testing.T) {
 
 	// Writes should be rejected on standby
 	idS, _ := crypto.GenerateIdentity()
-	_, err = sc.RegisterWithKey("", crypto.EncodePublicKey(idS.PublicKey), "")
+	_, err = sc.RegisterWithKey("", crypto.EncodePublicKey(idS.PublicKey), "", nil)
 	if err == nil {
 		t.Error("standby accepted a write (register) — should have been rejected")
 	} else {
@@ -144,7 +144,7 @@ func TestRegistryReplication(t *testing.T) {
 
 	// Register a new node on primary and verify it replicates
 	id3, _ := crypto.GenerateIdentity()
-	resp3, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id3.PublicKey), "")
+	resp3, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id3.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 3 on primary: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestRegistryStandbyPromotion(t *testing.T) {
 	}
 
 	idP, _ := crypto.GenerateIdentity()
-	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(idP.PublicKey), "")
+	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(idP.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestRegistryStandbyPromotion(t *testing.T) {
 
 	// Verify writes now work (no longer standby)
 	idProm, _ := crypto.GenerateIdentity()
-	resp2, err := pc.RegisterWithKey("", crypto.EncodePublicKey(idProm.PublicKey), "")
+	resp2, err := pc.RegisterWithKey("", crypto.EncodePublicKey(idProm.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("promoted register should work: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestFailoverUnderLoad(t *testing.T) {
 	nodeIDs := make([]uint32, 3)
 	for i := 0; i < 3; i++ {
 		id, _ := crypto.GenerateIdentity()
-		resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+		resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 		if err != nil {
 			t.Fatalf("register node %d: %v", i+1, err)
 		}
@@ -430,7 +430,7 @@ func TestFailoverUnderLoad(t *testing.T) {
 
 	// Step 8: Register a new node on the promoted registry
 	id4, _ := crypto.GenerateIdentity()
-	resp4, err := pc.RegisterWithKey("", crypto.EncodePublicKey(id4.PublicKey), "")
+	resp4, err := pc.RegisterWithKey("", crypto.EncodePublicKey(id4.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register on promoted: %v", err)
 	}

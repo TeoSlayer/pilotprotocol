@@ -53,7 +53,7 @@ func regTestNodeWithKey(t *testing.T, c *registry.Client, listenAddr string) uin
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
-	resp, err := c.RegisterWithKey(listenAddr, crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := c.RegisterWithKey(listenAddr, crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("RegisterWithKey: %v", err)
 	}
@@ -221,13 +221,13 @@ func TestRegistryServerDashboardStatsNetworks(t *testing.T) {
 	}
 	found := false
 	for _, n := range stats.Networks {
-		if n.Name == "backbone" {
+		if n.ID == 0 {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("backbone network not found in dashboard stats")
+		t.Fatal("backbone network (ID=0) not found in dashboard stats")
 	}
 }
 
@@ -486,7 +486,7 @@ func TestRegistryClientRegisterWithKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
-	resp, err := c.RegisterWithKey("127.0.0.1:4000", crypto.EncodePublicKey(id.PublicKey), "testowner@example.com")
+	resp, err := c.RegisterWithKey("127.0.0.1:4000", crypto.EncodePublicKey(id.PublicKey), "testowner@example.com", nil)
 	if err != nil {
 		t.Fatalf("RegisterWithKey: %v", err)
 	}
@@ -994,14 +994,13 @@ func TestRegistryDashboardEdgeJSON(t *testing.T) {
 func TestRegistryDashboardNetworkJSON(t *testing.T) {
 	n := registry.DashboardNetwork{
 		ID:            1,
-		Name:          "testnet",
 		Members:       5,
 		OnlineMembers: 3,
 	}
 	data, _ := json.Marshal(n)
 	var decoded registry.DashboardNetwork
 	json.Unmarshal(data, &decoded)
-	if decoded.ID != 1 || decoded.Name != "testnet" || decoded.Members != 5 || decoded.OnlineMembers != 3 {
+	if decoded.ID != 1 || decoded.Members != 5 || decoded.OnlineMembers != 3 {
 		t.Fatal("network JSON round-trip failed")
 	}
 }

@@ -39,7 +39,7 @@ func TestRegistryPersistence(t *testing.T) {
 
 	// Register two nodes
 	id1, _ := crypto.GenerateIdentity()
-	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id1.PublicKey), "")
+	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id1.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 1: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestRegistryPersistence(t *testing.T) {
 	t.Logf("registered node %d", nodeID1)
 
 	id2, _ := crypto.GenerateIdentity()
-	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "")
+	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 2: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestRegistryPersistence(t *testing.T) {
 
 	// Register a new node — should get ID 3 (counters preserved)
 	id3, _ := crypto.GenerateIdentity()
-	resp3, err := rc2.RegisterWithKey("", crypto.EncodePublicKey(id3.PublicKey), "")
+	resp3, err := rc2.RegisterWithKey("", crypto.EncodePublicKey(id3.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 3: %v", err)
 	}

@@ -7,7 +7,7 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
 
   <p><strong>88% of networks involve NAT.</strong> An agent running on a developer's laptop, behind a corporate firewall, inside a Docker container, or on a mobile device has no publicly routable address. It cannot receive incoming connections. It cannot be listed in a service registry. It is invisible to every other agent in the world.</p>
 
-  <p>Pilot Protocol is the layer that fixes this. It is a <strong><a href="https://datatracker.ietf.org/doc/html/rfc768" target="_blank" rel="noopener">UDP</a> overlay network</strong> that gives every AI agent a permanent virtual address, encrypted tunnels through NAT, and a cryptographic trust model -- all in a single binary with zero dependencies.</p>
+  <p>Pilot Protocol is the layer that fixes this. It is a <strong><a href="https://datatracker.ietf.org/doc/html/rfc768" target="_blank" rel="noopener">UDP</a> overlay network</strong> that gives every AI agent a permanent virtual address, encrypted tunnels through NAT, and a cryptographic trust model -- all in a single binary with no external dependencies.</p>
 
   <p>This post walks through the full architecture: how addresses work, what packets look like on the wire, how NAT traversal happens across three tiers, how encryption is negotiated, how trust is established, and what services run on top of the network.</p>
 
@@ -327,7 +327,7 @@ http.Serve(listener, myHandler)</code></pre>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>Set up a multi-agent network in under 5 minutes. One binary, zero dependencies.</p>
+    <p>Set up a multi-agent network in under 5 minutes. One binary, no external dependencies.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---

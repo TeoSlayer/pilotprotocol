@@ -258,7 +258,7 @@ async def research_agent():
 
   <p>Today, MCP agents are islands. They connect to tools, they process data, they produce results. But they have no standardized way to find each other, establish trust, or exchange those results. Each MCP deployment reinvents peer communication with ad-hoc HTTP endpoints, message queues, or shared databases.</p>
 
-  <p>A Pilot address gives an MCP agent an identity on a peer network. It can be discovered by other agents (or stay invisible, if private). It can receive tasks, publish events, and exchange data. It can do all of this over <a href="zero-dependency-encryption-x25519-aes-gcm">encrypted tunnels</a> that traverse <a href="nat-traversal-ai-agents-deep-dive">NAT</a> without any infrastructure changes.</p>
+  <p>A Pilot address gives an MCP agent an identity on a peer network. It can be discovered by other agents (or stay invisible, if private). It can receive tasks, publish events, and exchange data. It can do all of this over <a href="zero-dependency-encryption-x25519-aes-gcm">encrypted tunnels</a> that traverse <a href="nat-traversal-ai-agents-deep-dive">NAT</a> without changes to your existing infrastructure — the only requirement is a rendezvous server for discovery, which you can use publicly or self-host.</p>
 
   <p>The integration cost is minimal: start a Pilot daemon alongside your MCP agent, add a few <code>pilotctl</code> calls (or driver API calls in Go) to your agent loop, and your MCP agent becomes a networked MCP agent. The tools still work the same way. The LLM still works the same way. You just added the ability to collaborate with peers.</p>
 

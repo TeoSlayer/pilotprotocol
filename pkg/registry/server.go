@@ -55,6 +55,12 @@ func (s *Server) requireAdminToken(msg map[string]interface{}) error {
 	return nil
 }
 
+// audit emits a structured audit log entry for registry mutations.
+// When log-format=json, these are filterable via jq 'select(.msg=="audit")'.
+func (s *Server) audit(action string, attrs ...any) {
+	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
+}
+
 type Server struct {
 	mu           sync.RWMutex
 	nodes        map[uint32]*NodeInfo
@@ -87,6 +93,9 @@ type Server struct {
 	handshakeInbox map[uint32][]*HandshakeRelayMsg
 	// Handshake response inbox: requester nodeID -> approval/rejection responses
 	handshakeResponses map[uint32][]*HandshakeResponseMsg
+
+	// Network invite inbox: target nodeID -> pending invites
+	inviteInbox map[uint32][]*NetworkInvite
 
 	// Rate limiting
 	rateLimiter *RateLimiter
@@ -222,6 +231,7 @@ type NodeInfo struct {
 	Tags      []string // capability tags (e.g., "webserver", "assistant")
 	PoloScore int      // polo score for reputation system (default: 0)
 	TaskExec  bool     // if true, node advertises task execution capability
+	LANAddrs  []string // LAN addresses for same-network peer detection
 }
 
 type NetworkInfo struct {
@@ -249,6 +259,16 @@ type HandshakeResponseMsg struct {
 
 // maxHandshakeInbox limits the number of pending handshake requests per node.
 const maxHandshakeInbox = 100
+
+// NetworkInvite is a pending network invitation stored in the registry's invite inbox.
+type NetworkInvite struct {
+	NetworkID uint16    `json:"network_id"`
+	InviterID uint32    `json:"inviter_id"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// maxInviteInbox limits the number of pending invites per node.
+const maxInviteInbox = 100
 
 // hostnameRegex validates hostname format: lowercase alphanumeric + hyphens, 1-63 chars.
 var hostnameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -324,6 +344,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		trustPairs:         make(map[string]bool),
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
+		inviteInbox:        make(map[uint32][]*NetworkInvite),
 		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
 		beacons:            make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
@@ -545,14 +566,13 @@ func (s *Server) reapStaleNodes() {
 	for id, node := range s.nodes {
 		if node.LastSeen.Before(threshold) {
 			slog.Info("registry reaping stale node", "node_id", id, "last_seen_ago", time.Since(node.LastSeen).Round(time.Second))
-			// Remove from all networks
-			for _, netID := range node.Networks {
-				if net, ok := s.networks[netID]; ok {
-					for i, m := range net.Members {
-						if m == id {
-							net.Members = append(net.Members[:i], net.Members[i+1:]...)
-							break
-						}
+			// Remove from backbone (network 0) only. Keep non-backbone network
+			// memberships in the member lists so re-registration can restore them.
+			if net, ok := s.networks[0]; ok {
+				for i, m := range net.Members {
+					if m == id {
+						net.Members = append(net.Members[:i], net.Members[i+1:]...)
+						break
 					}
 				}
 			}
@@ -690,7 +710,7 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	s.mu.RUnlock()
 	if isStandby {
 		switch msgType {
-		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "resolve_hostname", "beacon_list":
+		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "poll_invites", "resolve_hostname", "beacon_list":
 			// reads are allowed on standby
 		default:
 			return nil, fmt.Errorf("standby mode: write operations not accepted (use primary)")
@@ -720,6 +740,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleLeaveNetwork(msg)
 	case "delete_network":
 		return s.handleDeleteNetwork(msg)
+	case "rename_network":
+		return s.handleRenameNetwork(msg)
 	case "lookup":
 		return s.handleLookup(msg)
 	case "resolve":
@@ -768,6 +790,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleBeaconRegister(msg)
 	case "beacon_list":
 		return s.handleBeaconList()
+	case "invite_to_network":
+		return s.handleInviteToNetwork(msg)
+	case "poll_invites":
+		return s.handlePollInvites(msg)
+	case "respond_invite":
+		return s.handleRespondInvite(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -798,6 +826,16 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	owner, _ := msg["owner"].(string)
 	hostname, _ := msg["hostname"].(string)
 
+	// Extract LAN addresses for same-network peer detection
+	var lanAddrs []string
+	if rawAddrs, ok := msg["lan_addrs"].([]interface{}); ok {
+		for _, raw := range rawAddrs {
+			if addr, ok := raw.(string); ok && addr != "" {
+				lanAddrs = append(lanAddrs, addr)
+			}
+		}
+	}
+
 	// Registration requires a client-generated public key
 	pubKeyB64, ok := msg["public_key"].(string)
 	if !ok || pubKeyB64 == "" {
@@ -808,21 +846,23 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	if hostname != "" {
 		if err := validateHostname(hostname); err != nil {
 			// Register without hostname, return warning
-			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "")
+			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "", lanAddrs)
 			if regErr != nil {
 				return resp, regErr
 			}
 			s.metrics.registrations.Inc()
 			resp["hostname_error"] = err.Error()
+			resp["observed_addr"] = listenAddr
 			return resp, nil
 		}
 	}
 
 	// M3 fix: pass hostname into handleReRegister so registration + hostname
 	// are set atomically under a single lock acquisition.
-	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname)
+	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname, lanAddrs)
 	if err == nil {
 		s.metrics.registrations.Inc()
+		resp["observed_addr"] = listenAddr
 	}
 	return resp, err
 }
@@ -876,6 +916,7 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 
 	addr := protocol.Addr{Network: 0, Node: nodeID}
 	slog.Debug("rotated key", "node_id", nodeID, "addr", addr)
+	s.audit("key.rotated", "node_id", nodeID)
 
 	return map[string]interface{}{
 		"type":       "rotate_key_ok",
@@ -989,7 +1030,7 @@ func (s *Server) setNodeHostname(node *NodeInfo, hostname string, resp map[strin
 // handleReRegister handles a node presenting an existing public key.
 // Returns the same node_id if the key is known, or assigns a new one.
 // M3 fix: hostname is set atomically under the same lock as registration.
-func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string) (map[string]interface{}, error) {
+func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string, lanAddrs []string) (map[string]interface{}, error) {
 	pubKey, err := crypto.DecodePublicKey(pubKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid public key: %w", err)
@@ -1004,6 +1045,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			// Node is still alive — update endpoint, reset heartbeat
 			node.RealAddr = listenAddr
 			node.LastSeen = time.Now()
+			node.LANAddrs = lanAddrs
 			if owner != "" && node.Owner == "" {
 				node.Owner = owner
 				s.ownerIdx[owner] = nodeID
@@ -1023,20 +1065,44 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 			return resp, nil
 		}
 
-		// Node was deregistered/reaped but key is known — recreate with same ID
+		// Node was deregistered/reaped but key is known — recreate with same ID.
+		// Restore network memberships by scanning which networks still list this node.
+		networks := []uint16{0}
+		for netID, net := range s.networks {
+			if netID == 0 {
+				continue
+			}
+			for _, m := range net.Members {
+				if m == nodeID {
+					networks = append(networks, netID)
+					break
+				}
+			}
+		}
 		node := &NodeInfo{
 			ID:        nodeID,
 			Owner:     owner,
 			PublicKey: pubKey,
 			RealAddr:  listenAddr,
-			Networks:  []uint16{0},
+			Networks:  networks,
 			LastSeen:  time.Now(),
+			LANAddrs:  lanAddrs,
 		}
 		s.nodes[nodeID] = node
 		if owner != "" {
 			s.ownerIdx[owner] = nodeID
 		}
-		s.networks[0].Members = append(s.networks[0].Members, nodeID)
+		// Only add to backbone members if not already present
+		inBackbone := false
+		for _, m := range s.networks[0].Members {
+			if m == nodeID {
+				inBackbone = true
+				break
+			}
+		}
+		if !inBackbone {
+			s.networks[0].Members = append(s.networks[0].Members, nodeID)
+		}
 
 		addr := protocol.Addr{Network: 0, Node: nodeID}
 		resp := map[string]interface{}{
@@ -1062,6 +1128,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 				existingNode.PublicKey = pubKey
 				existingNode.RealAddr = listenAddr
 				existingNode.LastSeen = time.Now()
+				existingNode.LANAddrs = lanAddrs
 				s.pubKeyIdx[pubKeyB64] = existingID
 
 				addr := protocol.Addr{Network: 0, Node: existingID}
@@ -1087,6 +1154,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 				RealAddr:  listenAddr,
 				Networks:  []uint16{0},
 				LastSeen:  time.Now(),
+				LANAddrs:  lanAddrs,
 			}
 			s.nodes[existingID] = node
 			s.networks[0].Members = append(s.networks[0].Members, existingID)
@@ -1122,6 +1190,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 		RealAddr:  listenAddr,
 		Networks:  []uint16{0},
 		LastSeen:  time.Now(),
+		LANAddrs:  lanAddrs,
 	}
 	s.nodes[nodeID] = node
 	s.networks[0].Members = append(s.networks[0].Members, nodeID)
@@ -1137,6 +1206,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string)
 	s.setNodeHostname(node, hostname, resp)
 	s.save()
 	slog.Info("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "new_node", "owner_hash", hashOwner(owner))
+	s.audit("node.registered", "node_id", nodeID, "mode", "new_node")
 	return resp, nil
 }
 
@@ -1194,6 +1264,7 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 	s.save()
 
 	slog.Info("created network", "network_id", netID, "name", name, "creator", nodeID, "rule", joinRule)
+	s.audit("network.created", "network_id", netID, "name", name, "join_rule", joinRule, "creator_node_id", nodeID)
 
 	return map[string]interface{}{
 		"type":       "create_network_ok",
@@ -1203,19 +1274,29 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 }
 
 func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
-	if err := s.requireAdminToken(msg); err != nil {
-		return nil, err
-	}
-
 	nodeID := jsonUint32(msg, "node_id")
 	netID := jsonUint16(msg, "network_id")
 	token, _ := msg["token"].(string)
-	inviterID := jsonUint32(msg, "inviter_id")
+
+	// Auth: signature (daemon) or admin token (console)
+	s.mu.RLock()
+	node, ok := s.nodes[nodeID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("node %d not registered", nodeID)
+	}
+	sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("join_network:%d:%d", nodeID, netID))
+	if sigErr != nil {
+		if err := s.requireAdminToken(msg); err != nil {
+			return nil, sigErr
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	node, ok := s.nodes[nodeID]
+	// Re-check node under write lock
+	node, ok = s.nodes[nodeID]
 	if !ok {
 		return nil, fmt.Errorf("node %d not registered", nodeID)
 	}
@@ -1234,19 +1315,7 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 			return nil, fmt.Errorf("invalid token for network %d", netID)
 		}
 	case "invite":
-		if inviterID == 0 {
-			return nil, fmt.Errorf("invite required for network %d", netID)
-		}
-		found := false
-		for _, m := range network.Members {
-			if m == inviterID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("inviter %d is not a member of network %d", inviterID, netID)
-		}
+		return nil, fmt.Errorf("invite-only networks require invite_to_network + respond_invite flow")
 	default:
 		return nil, fmt.Errorf("unknown join rule: %s", network.JoinRule)
 	}
@@ -1265,6 +1334,7 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	addr := protocol.Addr{Network: netID, Node: nodeID}
 
 	slog.Info("node joined network", "node_id", nodeID, "network_id", netID, "name", network.Name)
+	s.audit("network.joined", "node_id", nodeID, "network_id", netID)
 
 	return map[string]interface{}{
 		"type":       "join_network_ok",
@@ -1274,10 +1344,6 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 }
 
 func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
-	if err := s.requireAdminToken(msg); err != nil {
-		return nil, err
-	}
-
 	nodeID := jsonUint32(msg, "node_id")
 	netID := jsonUint16(msg, "network_id")
 
@@ -1286,10 +1352,25 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("cannot leave the backbone network")
 	}
 
+	// Auth: signature (daemon) or admin token (console)
+	s.mu.RLock()
+	node, ok := s.nodes[nodeID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("node %d not registered", nodeID)
+	}
+	sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("leave_network:%d:%d", nodeID, netID))
+	if sigErr != nil {
+		if err := s.requireAdminToken(msg); err != nil {
+			return nil, sigErr
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	node, ok := s.nodes[nodeID]
+	// Re-check node under write lock
+	node, ok = s.nodes[nodeID]
 	if !ok {
 		return nil, fmt.Errorf("node %d not registered", nodeID)
 	}
@@ -1322,6 +1403,7 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 	s.save()
 
 	slog.Info("node left network", "node_id", nodeID, "network_id", netID, "name", network.Name)
+	s.audit("network.left", "node_id", nodeID, "network_id", netID)
 
 	return map[string]interface{}{
 		"type":       "leave_network_ok",
@@ -1366,10 +1448,52 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 	s.save()
 
 	slog.Info("deleted network", "network_id", netID, "name", name)
+	s.audit("network.deleted", "network_id", netID, "name", network.Name)
 
 	return map[string]interface{}{
 		"type":       "delete_network_ok",
 		"network_id": netID,
+	}, nil
+}
+
+func (s *Server) handleRenameNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+
+	netID := jsonUint16(msg, "network_id")
+	name, _ := msg["name"].(string)
+
+	if err := validateNetworkName(name); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Check for duplicate name
+	for _, n := range s.networks {
+		if n.ID != netID && n.Name == name {
+			return nil, fmt.Errorf("network %q already exists", name)
+		}
+	}
+
+	oldName := network.Name
+	network.Name = name
+	s.save()
+
+	slog.Info("renamed network", "network_id", netID, "name", name)
+	s.audit("network.renamed", "network_id", netID, "old_name", oldName, "new_name", name)
+
+	return map[string]interface{}{
+		"type":       "rename_network_ok",
+		"network_id": netID,
+		"name":       name,
 	}, nil
 }
 
@@ -1481,11 +1605,15 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 		}
 	}
 
-	return map[string]interface{}{
+	resp := map[string]interface{}{
 		"type":      "resolve_ok",
 		"node_id":   node.ID,
 		"real_addr": node.RealAddr,
-	}, nil
+	}
+	if len(node.LANAddrs) > 0 {
+		resp["lan_addrs"] = node.LANAddrs
+	}
+	return resp, nil
 }
 
 func (s *Server) handleReportTrust(msg map[string]interface{}) (map[string]interface{}, error) {
@@ -1515,6 +1643,7 @@ func (s *Server) handleReportTrust(msg map[string]interface{}) (map[string]inter
 	s.metrics.trustReports.Inc()
 
 	slog.Info("trust pair registered", "node_a", nodeA, "node_b", nodeB)
+	s.audit("trust.created", "node_a", nodeA, "node_b", nodeB)
 
 	return map[string]interface{}{
 		"type": "report_trust_ok",
@@ -1547,6 +1676,7 @@ func (s *Server) handleRevokeTrust(msg map[string]interface{}) (map[string]inter
 	s.metrics.trustRevocations.Inc()
 
 	slog.Info("trust pair revoked", "node_a", nodeA, "node_b", nodeB)
+	s.audit("trust.revoked", "node_a", nodeA, "node_b", nodeB)
 
 	return map[string]interface{}{
 		"type": "revoke_trust_ok",
@@ -1616,6 +1746,7 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		visibility = "public"
 	}
 	slog.Info("node visibility changed", "node_id", nodeID, "visibility", visibility)
+	s.audit("visibility.changed", "node_id", nodeID, "public", public)
 
 	return map[string]interface{}{
 		"type":       "set_visibility_ok",
@@ -1645,6 +1776,7 @@ func (s *Server) handleSetTaskExec(msg map[string]interface{}) (map[string]inter
 	s.save()
 
 	slog.Info("node task_exec changed", "node_id", nodeID, "task_exec", enabled)
+	s.audit("task_exec.changed", "node_id", nodeID, "enabled", enabled)
 
 	return map[string]interface{}{
 		"type":      "set_task_exec_ok",
@@ -1710,6 +1842,7 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 	s.metrics.handshakeRequests.Inc()
 
 	slog.Info("handshake request relayed", "from", fromNodeID, "to", toNodeID)
+	s.audit("handshake.relayed", "from_node_id", fromNodeID, "to_node_id", toNodeID)
 
 	return map[string]interface{}{
 		"type":   "request_handshake_ok",
@@ -1808,6 +1941,7 @@ func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]
 	} else {
 		slog.Info("handshake rejected via relay", "node", nodeID, "peer", peerID)
 	}
+	s.audit("handshake.responded", "node_id", nodeID, "peer_id", peerID, "accept", accept)
 
 	// Store response in requester's response inbox so they learn about the approval
 	s.handshakeResponses[peerID] = append(s.handshakeResponses[peerID], &HandshakeResponseMsg{
@@ -1820,6 +1954,187 @@ func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]
 		"type":    "respond_handshake_ok",
 		"accept":  accept,
 		"peer_id": peerID,
+	}, nil
+}
+
+// handleInviteToNetwork stores an invite for a target node to join an invite-only network.
+// Does NOT add the node to the network — the target must accept via respond_invite.
+func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	inviterID := jsonUint32(msg, "inviter_id")
+	targetNodeID := jsonUint32(msg, "target_node_id")
+
+	// Auth check BEFORE write lock (requireAdminToken takes its own RLock)
+	s.mu.RLock()
+	inviterNode, ok := s.nodes[inviterID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("inviter node %d: %w", inviterID, protocol.ErrNodeNotFound)
+	}
+	sigErr := s.verifyNodeSignature(inviterNode, msg, fmt.Sprintf("invite:%d:%d:%d", inviterID, netID, targetNodeID))
+	if sigErr != nil {
+		// Fall back to admin token (console server uses admin token)
+		if err := s.requireAdminToken(msg); err != nil {
+			return nil, sigErr // return the signature error, more informative
+		}
+	}
+	// Admin token holders can bootstrap invite-only networks (invite without being a member)
+	isAdmin := s.requireAdminToken(msg) == nil
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+	if network.JoinRule != "invite" {
+		return nil, fmt.Errorf("network %d is not invite-only (rule: %s)", netID, network.JoinRule)
+	}
+
+	// Admin can invite without being a member (bootstrap); members must be verified
+	if !isAdmin {
+		inviterIsMember := false
+		for _, m := range network.Members {
+			if m == inviterID {
+				inviterIsMember = true
+				break
+			}
+		}
+		if !inviterIsMember {
+			return nil, fmt.Errorf("inviter %d is not a member of network %d", inviterID, netID)
+		}
+	}
+
+	// Verify target node exists
+	if _, ok := s.nodes[targetNodeID]; !ok {
+		return nil, fmt.Errorf("target node %d: %w", targetNodeID, protocol.ErrNodeNotFound)
+	}
+
+	// Check target is not already a member
+	targetNode := s.nodes[targetNodeID]
+	for _, n := range targetNode.Networks {
+		if n == netID {
+			return nil, fmt.Errorf("node %d is already a member of network %d", targetNodeID, netID)
+		}
+	}
+
+	// Deduplicate: only one invite per network per target
+	for _, inv := range s.inviteInbox[targetNodeID] {
+		if inv.NetworkID == netID {
+			return map[string]interface{}{
+				"type":           "invite_to_network_ok",
+				"network_id":     netID,
+				"target_node_id": targetNodeID,
+				"status":         "already_invited",
+			}, nil
+		}
+	}
+
+	// Inbox size cap
+	if len(s.inviteInbox[targetNodeID]) >= maxInviteInbox {
+		return nil, fmt.Errorf("invite inbox full for node %d", targetNodeID)
+	}
+
+	s.inviteInbox[targetNodeID] = append(s.inviteInbox[targetNodeID], &NetworkInvite{
+		NetworkID: netID,
+		InviterID: inviterID,
+		Timestamp: s.now(),
+	})
+	s.save()
+
+	slog.Info("network invite stored", "network_id", netID, "inviter_id", inviterID, "target_node_id", targetNodeID)
+	s.audit("invite.created", "network_id", netID, "inviter_id", inviterID, "target_node_id", targetNodeID)
+
+	return map[string]interface{}{
+		"type":           "invite_to_network_ok",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+	}, nil
+}
+
+// handlePollInvites returns and clears a node's invite inbox.
+func (s *Server) handlePollInvites(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	// Verify signature (same pattern as poll_handshakes)
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("poll_invites:%d", nodeID)); err != nil {
+		return nil, err
+	}
+
+	inbox := s.inviteInbox[nodeID]
+	delete(s.inviteInbox, nodeID)
+
+	invites := make([]map[string]interface{}, len(inbox))
+	for i, inv := range inbox {
+		invites[i] = map[string]interface{}{
+			"network_id": inv.NetworkID,
+			"inviter_id": inv.InviterID,
+			"timestamp":  inv.Timestamp.Unix(),
+		}
+	}
+
+	return map[string]interface{}{
+		"type":    "poll_invites_ok",
+		"invites": invites,
+	}, nil
+}
+
+// handleRespondInvite processes an invite response (accept/reject).
+// If accepted, adds the node to the network.
+func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]interface{}, error) {
+	nodeID := jsonUint32(msg, "node_id")
+	netID := jsonUint16(msg, "network_id")
+	accept, _ := msg["accept"].(bool)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+
+	// Verify signature
+	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("respond_invite:%d:%d", nodeID, netID)); err != nil {
+		return nil, err
+	}
+
+	if accept {
+		network, ok := s.networks[netID]
+		if !ok {
+			return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+		}
+
+		// Check not already a member
+		for _, n := range node.Networks {
+			if n == netID {
+				return nil, fmt.Errorf("node %d is already a member of network %d", nodeID, netID)
+			}
+		}
+
+		network.Members = append(network.Members, nodeID)
+		node.Networks = append(node.Networks, netID)
+		s.save()
+
+		slog.Info("invite accepted, node joined network", "node_id", nodeID, "network_id", netID, "name", network.Name)
+	} else {
+		slog.Info("invite rejected", "node_id", nodeID, "network_id", netID)
+	}
+	s.audit("invite.responded", "node_id", nodeID, "network_id", netID, "accepted", accept)
+
+	return map[string]interface{}{
+		"type":       "respond_invite_ok",
+		"accepted":   accept,
+		"network_id": netID,
 	}, nil
 }
 
@@ -1864,6 +2179,7 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 	s.save()
 
 	slog.Debug("hostname set", "node_id", nodeID, "hostname", hostname)
+	s.audit("hostname.changed", "node_id", nodeID, "hostname", hostname)
 
 	return map[string]interface{}{
 		"type":     "set_hostname_ok",
@@ -1924,6 +2240,7 @@ func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface
 	s.save()
 
 	slog.Debug("tags set", "node_id", nodeID, "tags", tags)
+	s.audit("tags.changed", "node_id", nodeID)
 
 	return map[string]interface{}{
 		"type":    "set_tags_ok",
@@ -2098,6 +2415,7 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
 			}
+			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
 			nodes = append(nodes, entry)
 		}
 		return map[string]interface{}{
@@ -2130,6 +2448,7 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
 			}
+			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
 			nodes = append(nodes, entry)
 		}
 	}
@@ -2177,6 +2496,7 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	s.metrics.deregistrations.Inc()
 
 	slog.Info("deregistered node", "node_id", nodeID)
+	s.audit("node.deregistered", "node_id", nodeID)
 
 	return map[string]interface{}{
 		"type": "deregister_ok",
@@ -2269,6 +2589,7 @@ type snapshot struct {
 	PubKeyIdx          map[string]uint32                  `json:"pub_key_idx,omitempty"`
 	HandshakeInbox     map[string][]*HandshakeRelayMsg    `json:"handshake_inbox,omitempty"`
 	HandshakeResponses map[string][]*HandshakeResponseMsg `json:"handshake_responses,omitempty"`
+	InviteInbox        map[string][]*NetworkInvite        `json:"invite_inbox,omitempty"`
 	// Dashboard stats persistence (explicit counters for validation)
 	TotalRequests int64  `json:"total_requests,omitempty"`
 	TotalNodes    int    `json:"total_nodes,omitempty"`
@@ -2291,6 +2612,7 @@ type snapshotNode struct {
 	Tags      []string `json:"tags,omitempty"`
 	PoloScore int      `json:"polo_score,omitempty"`
 	TaskExec  bool     `json:"task_exec,omitempty"`
+	LANAddrs  []string `json:"lan_addrs,omitempty"`
 }
 
 type snapshotNet struct {
@@ -2371,6 +2693,7 @@ func (s *Server) flushSave() error {
 			Tags:      n.Tags,
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
+			LANAddrs:  n.LANAddrs,
 		}
 	}
 
@@ -2409,6 +2732,12 @@ func (s *Server) flushSave() error {
 		snap.HandshakeResponses = make(map[string][]*HandshakeResponseMsg, len(s.handshakeResponses))
 		for nodeID, msgs := range s.handshakeResponses {
 			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
+		}
+	}
+	if len(s.inviteInbox) > 0 {
+		snap.InviteInbox = make(map[string][]*NetworkInvite, len(s.inviteInbox))
+		for nodeID, invites := range s.inviteInbox {
+			snap.InviteInbox[fmt.Sprintf("%d", nodeID)] = invites
 		}
 	}
 	// Persist dashboard stats with current calculations
@@ -2527,6 +2856,7 @@ func (s *Server) load() error {
 			Tags:      n.Tags,
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
+			LANAddrs:  n.LANAddrs,
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
@@ -2585,6 +2915,17 @@ func (s *Server) load() error {
 	inboxCount := len(s.handshakeInbox) + len(s.handshakeResponses)
 	if inboxCount > 0 {
 		slog.Info("loaded handshake inboxes", "request_queues", len(s.handshakeInbox), "response_queues", len(s.handshakeResponses))
+	}
+
+	// Restore invite inboxes
+	for nodeIDStr, invites := range snap.InviteInbox {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.inviteInbox[nodeID] = invites
+		}
+	}
+	if len(s.inviteInbox) > 0 {
+		slog.Info("loaded invite inboxes", "queues", len(s.inviteInbox))
 	}
 
 	// Ensure store directory exists for future saves
@@ -2679,7 +3020,6 @@ type DashboardNode struct {
 // DashboardNetwork is a public-safe view of a network for the dashboard.
 type DashboardNetwork struct {
 	ID            uint16 `json:"id"`
-	Name          string `json:"name"`
 	Members       int    `json:"members"`
 	OnlineMembers int    `json:"online_members"`
 }
@@ -2787,7 +3127,6 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		}
 		networks = append(networks, DashboardNetwork{
 			ID:            net.ID,
-			Name:          net.Name,
 			Members:       len(net.Members),
 			OnlineMembers: onlineCount,
 		})

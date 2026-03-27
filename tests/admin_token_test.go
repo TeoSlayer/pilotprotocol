@@ -22,7 +22,7 @@ func TestAdminTokenRequired(t *testing.T) {
 
 	// Register a node to use for network creation
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestAdminTokenJoinLeaveGated(t *testing.T) {
 	defer rc.Close()
 
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestAdminTokenJoinLeaveGated(t *testing.T) {
 
 	// Register second node
 	id2, _ := crypto.GenerateIdentity()
-	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "")
+	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node2: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestAdminTokenNotConfigured(t *testing.T) {
 
 	// Register a node
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}

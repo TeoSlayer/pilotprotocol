@@ -1,0 +1,204 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Networks</h1>
+  <p class="subtitle">Private networks — group-level connectivity without bilateral trust.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#vs-trust">Networks vs. bilateral trust</a></li>
+      <li><a href="#permissions">What network membership grants</a></li>
+      <li><a href="#backbone">The backbone (network 0)</a></li>
+      <li><a href="#join-rules">Join rules</a></li>
+      <li><a href="#lifecycle">Network lifecycle</a></li>
+      <li><a href="#how-it-works">How it works under the hood</a></li>
+      <li><a href="#security">Security model</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>Networks are the group-level access control primitive in Pilot Protocol. Where <a href="trust">bilateral trust</a> requires every pair of agents to independently negotiate a handshake, a network grants connectivity to all members at once.</p>
+
+  <p>Add 10 agents to the same network and they can all discover and connect to each other immediately &mdash; no handshake ceremony, no approval queues, no N&sup2; trust pairs. The network boundary <em>is</em> the trust boundary.</p>
+
+  <p>All network management happens through the <a href="console">Pilot Console</a> &mdash; a web dashboard where you create networks, add agents, monitor status, and control membership from a browser.</p>
+
+  <h2 id="vs-trust">Networks vs. bilateral trust</h2>
+
+  <p>Pilot Protocol has two distinct access control models. They serve different purposes and can be used together.</p>
+
+  <table>
+    <thead><tr><th></th><th>Bilateral trust</th><th>Network membership</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Scope</strong></td><td>One-to-one</td><td>Group-wide</td></tr>
+      <tr><td><strong>Setup</strong></td><td>Handshake + approve per pair</td><td>Add to network once, connect to all members</td></tr>
+      <tr><td><strong>Scaling</strong></td><td>O(n&sup2;) handshakes for n agents</td><td>O(n) adds for n agents</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Must know address or hostname</td><td>See all members in the console</td></tr>
+      <tr><td><strong>Revocation</strong></td><td>Per-peer (<code>untrust</code>)</td><td>Remove from network; all access revoked at once</td></tr>
+      <tr><td><strong>Use case</strong></td><td>Cross-org collaboration, unknown peers</td><td>Teams, fleets, same-org agents</td></tr>
+      <tr><td><strong>Persistence</strong></td><td>Stored locally on each node</td><td>Stored in registry, survives any node restart</td></tr>
+    </tbody>
+  </table>
+
+  <p>Bilateral trust is designed for relationships between agents that don&rsquo;t share an organizational boundary &mdash; two companies collaborating, an agent reaching out to an unknown peer, or any scenario where explicit mutual consent matters.</p>
+
+  <p>Networks are designed for agents that <em>should</em> be able to talk to each other by default &mdash; a fleet of workers, a team&rsquo;s agents, a research cluster. Membership in the same network implies the authorization to communicate.</p>
+
+  <h2 id="permissions">What network membership grants</h2>
+
+  <p>When two agents share a network, they get a specific set of permissions that would otherwise require bilateral trust:</p>
+
+  <table>
+    <thead><tr><th>Permission</th><th>Without network</th><th>With shared network</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Discover addresses</strong></td><td>Private agents are invisible</td><td>Can resolve any member&rsquo;s endpoint</td></tr>
+      <tr><td><strong>Open connections</strong></td><td>Connection attempts silently dropped</td><td>Connections accepted immediately</td></tr>
+      <tr><td><strong>Send datagrams</strong></td><td>Silently dropped</td><td>Delivered</td></tr>
+      <tr><td><strong>List members</strong></td><td>Cannot enumerate the network</td><td>Full member list visible in the console</td></tr>
+      <tr><td><strong>Handshake auto-approval</strong></td><td>Requires manual approve or mutual request</td><td>Network membership serves as a trust signal</td></tr>
+    </tbody>
+  </table>
+
+  <h3>What networks do NOT grant</h3>
+
+  <ul>
+    <li><strong>No per-port restrictions</strong> &mdash; members can reach all ports on other members. Port-level policies are a future roadmap item.</li>
+    <li><strong>No roles</strong> &mdash; all members have equal network access. Membership management happens in the console, not within the network.</li>
+    <li><strong>No traffic inspection</strong> &mdash; encryption is end-to-end between agents. The network grants connectivity, not visibility.</li>
+    <li><strong>No transitive access</strong> &mdash; if A and B share network 1, and B and C share network 2, A cannot reach C. Each network is an independent trust domain.</li>
+  </ul>
+
+  <h3>The design principle</h3>
+
+  <p>Network permissions are intentionally simple: you are either a member or you are not. Inside the boundary, communication is unrestricted. Outside, private agents are invisible. This replaces complex ACLs with a single, auditable membership list.</p>
+
+  <h2 id="backbone">The backbone (network 0)</h2>
+
+  <p>Every registered agent belongs to network 0 (the backbone). This is the global address space where node IDs are allocated and endpoints are registered. The backbone provides:</p>
+
+  <ul>
+    <li><strong>Address allocation</strong> &mdash; 32-bit node IDs assigned at registration</li>
+    <li><strong>Endpoint resolution</strong> &mdash; public IP:port discovery via STUN</li>
+    <li><strong>NAT traversal</strong> &mdash; hole-punching and relay coordination</li>
+    <li><strong>Handshake relay</strong> &mdash; trust negotiation via the registry</li>
+  </ul>
+
+  <p>The backbone does <em>not</em> grant communication rights. Being on the backbone means you exist in the address space, not that anyone can connect to you. Private agents on the backbone are invisible to everyone except their trusted peers and network co-members.</p>
+
+  <h2 id="join-rules">Join rules</h2>
+
+  <p>When you create a network in the <a href="console">console</a>, you choose a join rule that controls how new members are added:</p>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Who can join</th><th>Use case</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Invite only</strong></td><td>Only when you add them through the console</td><td>High-security environments where membership is tightly controlled</td></tr>
+      <tr><td><strong>Token-gated</strong></td><td>Anyone with the shared secret token</td><td>Teams that can distribute a token out-of-band (Slack, email, config file)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The join rule is set at network creation and enforced by the registry. For token-gated networks, the console displays the join token and a ready-to-paste CLI command that agents can use to self-join:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> network join 1 --token my-secret</code></pre>
+
+  <h2 id="lifecycle">Network lifecycle</h2>
+
+  <h3>Create a network</h3>
+
+  <p>In the <a href="console">console</a>, click <strong>Create Network</strong> and fill in:</p>
+  <ol>
+    <li><strong>Name</strong> &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
+    <li><strong>Join rule</strong> &mdash; invite only or token-gated</li>
+  </ol>
+  <p>Your first network is free (up to 3 agents). Additional networks or larger teams require a <a href="console#upgrade">Pro plan</a>.</p>
+
+  <h3>Add agents</h3>
+
+  <p>On the network detail page, click <strong>Add node</strong>. The form accepts three identifier formats:</p>
+
+  <table>
+    <thead><tr><th>Format</th><th>Example</th><th>Where to find it</th></tr></thead>
+    <tbody>
+      <tr><td>Node ID</td><td><code>1001</code></td><td><code>pilotctl info</code> output</td></tr>
+      <tr><td>Pilot address</td><td><code>1:0001.0000.03E9</code></td><td>Daemon startup output</td></tr>
+      <tr><td>Hostname</td><td><code>my-agent</code></td><td>Set at daemon start with <code>--hostname</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Type any of these into the input field and click <strong>Add</strong>. The console resolves the identifier automatically. Once added, the agent appears in the Active Nodes table and can immediately communicate with all other network members.</p>
+
+  <h3>Monitor agents</h3>
+
+  <p>The Active Nodes table on the network detail page shows each agent&rsquo;s live status: online/offline indicator, Pilot address, node ID, hostname, real endpoint, and capability flags. You can see at a glance which agents are connected and reachable.</p>
+
+  <h3>Remove agents</h3>
+
+  <p>Click <strong>Remove</strong> next to any agent in the Active Nodes table. Access is revoked immediately &mdash; the agent can no longer resolve, connect to, or be discovered by other network members (unless they also share bilateral trust).</p>
+
+  <h3>Delete a network</h3>
+
+  <p>Click <strong>Delete</strong> on the network detail page (requires confirmation). All member associations are removed. Agents retain their backbone registration and bilateral trust relationships, but lose all network-granted permissions.</p>
+
+  <h2 id="how-it-works">How it works under the hood</h2>
+
+  <p>Network membership is checked automatically at three points in the protocol. You don&rsquo;t need to configure any of this &mdash; it happens transparently when agents communicate.</p>
+
+  <h3>1. Address resolution</h3>
+
+  <p>When agent A looks up agent B&rsquo;s endpoint, the registry checks: is B public? If not, does A share a network with B, or do they have mutual trust? If neither, the lookup is denied with no information leaked.</p>
+
+  <h3>2. Connection acceptance</h3>
+
+  <p>When a connection request arrives at a private agent, the daemon checks the source against its trust list and shared network membership. If neither applies, the request is silently dropped &mdash; no response, no indication the target exists.</p>
+
+  <h3>3. Datagram delivery</h3>
+
+  <p>Datagrams to private agents use the same check. If the sender is not trusted and not in a shared network, the datagram is silently dropped.</p>
+
+  <h2 id="security">Security model</h2>
+
+  <h3>Membership is the boundary</h3>
+
+  <p>The network security model is deliberately simple: membership equals access. There are no roles, no per-port policies, and no traffic inspection within a network. This makes the model easy to reason about and audit &mdash; look at the member list in the console, and you know exactly who can communicate with whom.</p>
+
+  <h3>Silent rejection</h3>
+
+  <p>When a non-member tries to connect to a private network agent, nothing happens. No error, no response, no indication the target exists. This prevents scanning and enumeration.</p>
+
+  <h3>Backbone isolation</h3>
+
+  <p>Backbone (network 0) membership does not grant any communication rights. Private agents on the backbone are invisible to everyone outside their trust and network boundaries.</p>
+
+  <h3>Immediate revocation</h3>
+
+  <p>Click <strong>Remove</strong> in the console and the agent&rsquo;s access is revoked immediately. The next connection attempt will be silently dropped. There is no cache or propagation delay &mdash; the registry is the single source of truth.</p>
+
+  <h3>No transitive trust</h3>
+
+  <p>Network membership is not transitive. If A and B share network 1, and B and C share network 2, A cannot reach C through B unless A and C also share a network or have bilateral trust. Each network is an independent trust domain.</p>
+
+  <h3>Future: tag-based policies</h3>
+
+  <p>The roadmap includes tag-based access policies that add port-level control within networks: <em>&ldquo;agents tagged <code>frontend</code> can reach agents tagged <code>api</code> on ports 80 and 443.&rdquo;</em> See the <a href="/blog/enterprise-private-networks-roadmap">enterprise roadmap</a> for details.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="console">Console</a> &mdash; full walkthrough of the web dashboard including signup, API keys, and billing.
+  </div>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/private-networks-now-in-testing">Private Networks: Now in Testing</a> · <a href="/blog/private-agent-network-company">Building a Private Agent Network for Your Company</a> · <a href="trust">Trust & Handshakes</a>
+  </div>`;
+---
+<DocLayout
+  title="Networks"
+  description="Private networks in Pilot Protocol — group-level connectivity, membership permissions, join rules, and the security model."
+  activePage="networks"
+  canonicalPath="/docs/networks"
+  prev={{ label: "Trust & Handshakes", href: "/docs/trust" }}
+  next={{ label: "Built-in Services", href: "/docs/services" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

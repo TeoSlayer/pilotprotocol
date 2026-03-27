@@ -11,6 +11,15 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "pilot-console-manage-agent-networks",
+    title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing — all from your browser.",
+    date: "Mar 26",
+    category: "Enterprise",
+    tags: ["console", "enterprise", "dashboard"],
+    banner: "banners/pilot-console-manage-agent-networks.webp",
+  },
+  {
     slug: "private-networks-now-in-testing",
     title: "Private Networks: Now in Testing",
     description: "Private networks are live on the Pilot Protocol production registry. Token-gated and invite-only networks, scoped membership, admin CLI, and an honest look at the backbone constraint.",
@@ -283,7 +292,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "run-agent-network-without-cloud-dependency",
     title: "Run Your Agent Network Without Cloud Dependency",
-    description: "Insteon, Wemo, Google IoT Core -- cloud services shut down and devices become paperweights. Own your agent network with one binary, zero cloud accounts, and total independence.",
+    description: "Insteon, Wemo, Google IoT Core -- cloud services shut down and devices become paperweights. Own your agent network with one binary, zero cloud accounts, and no vendor lock-in.",
     date: "Feb 21",
     category: "Guide",
     tags: ["independence", "IoT"],

@@ -1,0 +1,161 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Console Guide</h1>
+  <p class="subtitle">Step-by-step walkthrough: from registration to managing a production agent network.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#create-account">1. Create an account</a></li>
+      <li><a href="#first-network">2. Create your first network</a></li>
+      <li><a href="#install-agents">3. Install agents</a></li>
+      <li><a href="#add-agents">4. Add agents to the network</a></li>
+      <li><a href="#monitor">5. Monitor your network</a></li>
+      <li><a href="#token-join">6. Token-gated join</a></li>
+      <li><a href="#api-keys">7. API keys for automation</a></li>
+      <li><a href="#billing">8. Billing &amp; upgrades</a></li>
+    </ul>
+  </div>
+
+  <h2 id="create-account">1. Create an account</h2>
+
+  <ol>
+    <li>Open <a href="https://console.pilotprotocol.network">console.pilotprotocol.network</a></li>
+    <li>Click <strong>Register</strong></li>
+    <li>Enter your email and a password (minimum 8 characters)</li>
+    <li>You are logged in automatically and redirected to the Networks page</li>
+  </ol>
+
+  <p>No credit card required. Your first network is free with up to 3 agents.</p>
+
+  <h2 id="first-network">2. Create your first network</h2>
+
+  <ol>
+    <li>Click <strong>Create network</strong> in the top-right corner</li>
+    <li>Enter a name &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
+    <li>Choose a <strong>join rule</strong>:
+      <ul>
+        <li><strong>Invite only</strong> &mdash; you control membership entirely from the console</li>
+        <li><strong>Token-gated</strong> &mdash; generates a shared secret that agents can use to self-join from the CLI</li>
+      </ul>
+    </li>
+    <li>Click <strong>Create</strong></li>
+  </ol>
+
+  <p>Your network appears as a card on the Networks page. Click it to open the detail view.</p>
+
+  <h2 id="install-agents">3. Install agents</h2>
+
+  <p>On each machine that should join the network, install the Pilot daemon:</p>
+
+  <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
+
+  <p>Start the daemon with a hostname:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+
+  <p>The daemon registers with the backbone and displays a <strong>node ID</strong>, <strong>Pilot address</strong>, and <strong>hostname</strong>. You will use one of these to add it to your network.</p>
+
+  <h2 id="add-agents">4. Add agents to the network</h2>
+
+  <ol>
+    <li>In the console, open your network</li>
+    <li>Click <strong>Add node</strong></li>
+    <li>Enter the agent&rsquo;s identifier &mdash; any of these formats work:
+      <table>
+        <thead><tr><th>Format</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Node ID</td><td><code>1001</code></td></tr>
+          <tr><td>Pilot address</td><td><code>1:0001.0000.03E9</code></td></tr>
+          <tr><td>Hostname</td><td><code>my-agent</code></td></tr>
+        </tbody>
+      </table>
+    </li>
+    <li>Click <strong>Add</strong></li>
+  </ol>
+
+  <p>The agent immediately appears in the Active Nodes table and can communicate with all other network members.</p>
+
+  <h2 id="monitor">5. Monitor your network</h2>
+
+  <p>The network detail page shows a live table of all agents:</p>
+
+  <table>
+    <thead><tr><th>Column</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Status</strong></td><td>Green dot = online (seen in last 3 minutes), grey = offline</td></tr>
+      <tr><td><strong>Address</strong></td><td>Pilot virtual address</td></tr>
+      <tr><td><strong>Node ID</strong></td><td>Numeric identifier</td></tr>
+      <tr><td><strong>Hostname</strong></td><td>Registered hostname or <code>-</code></td></tr>
+      <tr><td><strong>Endpoint</strong></td><td>Real IP:port, or <em>private</em> if behind NAT</td></tr>
+      <tr><td><strong>Flags</strong></td><td>Capabilities like <code>task-exec</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Click <strong>Remove</strong> next to any agent to instantly revoke its network access.</p>
+
+  <h2 id="token-join">6. Token-gated join</h2>
+
+  <p>For networks with the <strong>token</strong> join rule, the console displays a join token card. Share this token with your agents &mdash; they can join from the CLI without any console interaction:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> network join &lt;network-id&gt; --token &lt;token&gt;</code></pre>
+
+  <p>The token card also shows this command ready to copy.</p>
+
+  <h2 id="api-keys">7. API keys for automation</h2>
+
+  <p>Every console operation is available via the REST API. To authenticate programmatically:</p>
+
+  <ol>
+    <li>Go to <strong>Settings &rarr; API Keys</strong></li>
+    <li>Click <strong>Create key</strong> and enter a name (e.g., <code>ci-deploy</code>)</li>
+    <li>Copy the key immediately &mdash; it is shown only once</li>
+  </ol>
+
+  <p>Use the key as a Bearer token:</p>
+
+  <pre><code><span class="comment"># List networks</span>
+<span class="cmd">curl</span> -H "Authorization: Bearer pk_a1b2c3..." \\
+  https://console.pilotprotocol.network/api/networks
+
+<span class="comment"># Add a node</span>
+<span class="cmd">curl</span> -X POST -H "Authorization: Bearer pk_a1b2c3..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"identifier": "worker-3"}' \\
+  https://console.pilotprotocol.network/api/networks/1/nodes</code></pre>
+
+  <p>Revoke keys anytime from the Settings page.</p>
+
+  <h2 id="billing">8. Billing &amp; upgrades</h2>
+
+  <h3>Free tier</h3>
+  <p>1 network, up to 3 agents. Full protocol access. No credit card required.</p>
+
+  <h3>Upgrading to Pro</h3>
+  <p>When you need more agents or additional networks, upgrade from the plan card on the network detail page:</p>
+  <ul>
+    <li><strong>$200/month</strong> per network</li>
+    <li><strong>~$10/month per agent</strong></li>
+    <li>Unlimited agents per network</li>
+  </ul>
+
+  <p>If you have credits, they are applied automatically. Otherwise, you are redirected to Stripe checkout.</p>
+
+  <h3>Managing your subscription</h3>
+  <p>Go to <strong>Billing &rarr; Open billing portal</strong> to view invoices, update payment methods, or cancel. Cancelled subscriptions have a 7-day grace period before the network is removed.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="console">Console reference</a> &middot; <a href="networks">Networks</a> &middot; <a href="/docs/plans">Plans</a>
+  </div>`;
+---
+<DocLayout
+  title="Console Guide"
+  description="Step-by-step guide to using the Pilot Console: registration, network creation, agent management, API keys, and billing."
+  activePage="console-guide"
+  canonicalPath="/docs/console-guide"
+  prev={{ label: "Console", href: "/docs/console" }}
+  next={{ label: "Error Codes", href: "/docs/error-codes" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

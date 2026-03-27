@@ -147,7 +147,7 @@ WantedBy=multi-user.target</code></pre>
   <p>With the network created, join each agent and configure its visibility.</p>
 
   <pre><code><span class="comment"># On Agent A: join the corp-net network</span>
-<span class="cmd">pilotctl join-network "corp-net"</span>
+<span class="cmd">pilotctl network join "corp-net"</span>
 
 <span class="comment"># Register a human-readable hostname</span>
 <span class="cmd">pilotctl set-hostname "data-processor"</span>
@@ -166,11 +166,11 @@ WantedBy=multi-user.target</code></pre>
   <p>Repeat this on each agent machine, choosing a descriptive hostname for each:</p>
 
   <pre><code><span class="comment"># On Agent B</span>
-<span class="cmd">pilotctl join-network "corp-net"</span>
+<span class="cmd">pilotctl network join "corp-net"</span>
 <span class="cmd">pilotctl set-hostname "model-runner"</span>
 
 <span class="comment"># On Agent C</span>
-<span class="cmd">pilotctl join-network "corp-net"</span>
+<span class="cmd">pilotctl network join "corp-net"</span>
 <span class="cmd">pilotctl set-hostname "orchestrator"</span></code></pre>
 
   <p>With visibility set to private, these agents are registered with the rendezvous server but <strong>invisible to each other</strong>. No agent can resolve another agent's endpoint until a trust relationship is established. This is the foundation of Pilot's <a href="/blog/trust-model-agents-invisible-by-default">invisible-by-default trust model</a>.</p>

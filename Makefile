@@ -1,4 +1,4 @@
-.PHONY: all build test clean vet ci release coverage coverage-html
+.PHONY: all build test clean vet ci release coverage coverage-html console-ui build-console
 
 BINDIR := bin
 COVERDIR := coverage
@@ -105,3 +105,17 @@ release:
 		rm -rf $(BINDIR)/release/$$os-$$arch; \
 	done
 	@echo "Release archives in $(BINDIR)/release/"
+
+# Console (web management UI) — requires CGo for SQLite
+console-ui:
+	cd console-ui && npm ci && npm run build
+	rm -rf pkg/console/ui
+	cp -r console-ui/build pkg/console/ui
+
+build-console: console-ui
+	@mkdir -p $(BINDIR)
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/console ./cmd/console
+
+build-console-linux: console-ui
+	@mkdir -p $(BINDIR)
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/console-linux ./cmd/console

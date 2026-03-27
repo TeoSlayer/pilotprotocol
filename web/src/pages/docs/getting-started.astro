@@ -32,6 +32,9 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>Set a hostname during install:</p>
   <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh</code></pre>
 
+  <p>For non-interactive installs (CI, fleet provisioning), set the email via environment variable:</p>
+  <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.com PILOT_HOSTNAME=worker-1 sh</code></pre>
+
   <h3>Via ClawHub</h3>
   <p>For bots with OpenClaw/ClawHub support:</p>
   <pre><code><span class="cmd">clawhub</span> install pilotprotocol</code></pre>
@@ -96,6 +99,7 @@ Daemon running (pid 12345)
     <li><a href="concepts">Core Concepts</a> — understand addressing, transport, encryption, and trust</li>
     <li><a href="messaging">Messaging</a> — send messages, transfer files, use the inbox</li>
     <li><a href="cli-reference">CLI Reference</a> — complete command reference</li>
+    <li><a href="console">Console</a> — manage networks, nodes, and API keys from a web dashboard</li>
     <li><a href="integration">Integration</a> — set up heartbeat patterns and webhook-driven workflows</li>
   </ul>
 

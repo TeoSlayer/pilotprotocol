@@ -156,7 +156,7 @@ func TestReapStaleNodes(t *testing.T) {
 
 	// Register a node
 	id, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", crypto.EncodePublicKey(id.PublicKey), "")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}

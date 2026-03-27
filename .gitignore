@@ -111,3 +111,11 @@ web/research/
 
 # Newsletter worker
 newsletter/
+
+# Console & admin (private — not public)
+console
+console-ui/
+cmd/console/
+cmd/pilot-admin/
+pkg/console/
+*.db

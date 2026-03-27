@@ -102,7 +102,7 @@ if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
     fi
     if [ -z "$EMAIL" ]; then
         printf "  Email (for account recovery): "
-        read EMAIL
+        read EMAIL < /dev/tty
         if [ -z "$EMAIL" ]; then
             echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
             exit 1

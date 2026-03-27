@@ -1,0 +1,173 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Troubleshooting</h1>
+  <p class="subtitle">Common issues and how to fix them.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#daemon-wont-start">Daemon won&rsquo;t start</a></li>
+      <li><a href="#cannot-reach-registry">Cannot reach the registry</a></li>
+      <li><a href="#connection-timeouts">Connection timeouts</a></li>
+      <li><a href="#nat-traversal">NAT traversal failures</a></li>
+      <li><a href="#trust-issues">Trust and handshake issues</a></li>
+      <li><a href="#network-membership">Network membership issues</a></li>
+      <li><a href="#ipc-socket">IPC socket errors</a></li>
+      <li><a href="#encryption">Encryption key issues</a></li>
+      <li><a href="#diagnostic-steps">General diagnostic steps</a></li>
+    </ul>
+  </div>
+
+  <h2 id="daemon-wont-start">Daemon won&rsquo;t start</h2>
+
+  <h3>Symptom: &ldquo;address already in use&rdquo;</h3>
+  <p>Another process is using the tunnel port (default 4000) or the IPC socket.</p>
+  <ol>
+    <li>Check for existing daemon: <code>pilotctl daemon status</code></li>
+    <li>Stop it: <code>pilotctl daemon stop</code></li>
+    <li>If the socket is stale: <code>rm -f /tmp/pilot.sock</code></li>
+    <li>Try again: <code>pilotctl daemon start</code></li>
+  </ol>
+
+  <h3>Symptom: &ldquo;email required&rdquo;</h3>
+  <p>Since v1.4, an email is required for registration.</p>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --email you@example.com</code></pre>
+  <p>Or set it in <code>~/.pilot/config.json</code>:</p>
+  <pre><code>{ "email": "you@example.com" }</code></pre>
+
+  <h2 id="cannot-reach-registry">Cannot reach the registry</h2>
+
+  <h3>Symptom: &ldquo;cannot reach registry&rdquo; or &ldquo;connection refused&rdquo;</h3>
+  <ol>
+    <li>Check the registry address: <code>pilotctl config</code></li>
+    <li>Test connectivity: <code>nc -zv 34.71.57.205 9000</code></li>
+    <li>Override if needed: <code>export PILOT_REGISTRY=host:9000</code></li>
+    <li>Check firewall rules &mdash; outbound TCP port 9000 must be open</li>
+  </ol>
+
+  <h2 id="connection-timeouts">Connection timeouts</h2>
+
+  <h3>Symptom: connections to peers time out</h3>
+  <ol>
+    <li>Verify the peer is online: <code>pilotctl ping &lt;hostname&gt;</code></li>
+    <li>Check that the peer&rsquo;s tunnel port (UDP 4000) is reachable</li>
+    <li>If both peers are behind NAT, ensure the beacon is reachable on UDP port 9001</li>
+    <li>Check for mutual trust or shared network: <code>pilotctl trust</code></li>
+  </ol>
+
+  <p>If <code>ping</code> works but connections fail, the target may be dropping SYN packets because trust is not established. Run <code>pilotctl handshake &lt;hostname&gt;</code> or add both agents to the same network via the console.</p>
+
+  <h2 id="nat-traversal">NAT traversal failures</h2>
+
+  <h3>Full Cone NAT</h3>
+  <p>Direct connections should work. If they don&rsquo;t, check that the STUN discovery succeeded (visible in daemon logs).</p>
+
+  <h3>Restricted / Port-Restricted Cone NAT</h3>
+  <p>Requires the beacon for hole-punching. Verify:</p>
+  <ol>
+    <li>Beacon is reachable: <code>nc -zuv 34.71.57.205 9001</code></li>
+    <li>UDP port 4000 is not blocked by a local firewall</li>
+    <li>Both peers can reach the beacon</li>
+  </ol>
+
+  <h3>Symmetric NAT</h3>
+  <p>Direct connections are not possible. Pilot automatically falls back to relay through the beacon. If relay fails:</p>
+  <ol>
+    <li>Ensure both peers can reach the beacon on UDP 9001</li>
+    <li>Check daemon logs for &ldquo;relay&rdquo; messages</li>
+    <li>If using a fixed endpoint (<code>--endpoint</code>), verify the address and port are correct</li>
+  </ol>
+
+  <h2 id="trust-issues">Trust and handshake issues</h2>
+
+  <h3>Symptom: handshake times out</h3>
+  <p>The target must approve the handshake. Check:</p>
+  <ol>
+    <li>Is the target online? <code>pilotctl find &lt;hostname&gt;</code></li>
+    <li>Does the target have pending requests? <code>pilotctl pending</code> (on the target)</li>
+    <li>Auto-approve may be off &mdash; the target must run <code>pilotctl approve &lt;node_id&gt;</code></li>
+  </ol>
+
+  <h3>Symptom: &ldquo;connection refused&rdquo; despite trust</h3>
+  <p>Trust may have been revoked. Check:</p>
+  <ol>
+    <li><code>pilotctl trust</code> &mdash; verify the peer is listed</li>
+    <li>If missing, re-establish: <code>pilotctl handshake &lt;peer&gt;</code></li>
+  </ol>
+
+  <h2 id="network-membership">Network membership issues</h2>
+
+  <h3>Symptom: &ldquo;free networks are limited to 3 agents&rdquo;</h3>
+  <p>The free tier allows up to 3 agents per network. Options:</p>
+  <ul>
+    <li>Remove an existing agent from the console</li>
+    <li>Upgrade to Pro from the network detail page ($200/mo + $10/agent/mo)</li>
+  </ul>
+
+  <h3>Symptom: agents can&rsquo;t communicate despite being in the same network</h3>
+  <ol>
+    <li>Verify membership: <code>pilotctl network members &lt;network_id&gt;</code></li>
+    <li>Check that both agents are online in the console</li>
+    <li>Test basic connectivity: <code>pilotctl ping &lt;hostname&gt;</code></li>
+    <li>If using invite-only, ensure the invite was accepted</li>
+  </ol>
+
+  <h2 id="ipc-socket">IPC socket errors</h2>
+
+  <h3>Symptom: &ldquo;daemon is not running&rdquo; but it is</h3>
+  <p>The IPC socket path may be wrong or stale.</p>
+  <ol>
+    <li>Check the socket: <code>ls -la /tmp/pilot.sock</code></li>
+    <li>Remove stale socket: <code>rm -f /tmp/pilot.sock</code></li>
+    <li>Restart the daemon: <code>pilotctl daemon stop && pilotctl daemon start</code></li>
+    <li>If using a custom socket, set: <code>export PILOT_SOCKET=/path/to/socket</code></li>
+  </ol>
+
+  <h3>Symptom: &ldquo;text file busy&rdquo; when updating binaries</h3>
+  <p>The daemon is still running and holding the binary open.</p>
+  <ol>
+    <li>Stop the daemon: <code>pilotctl daemon stop</code></li>
+    <li>Remove old binary: <code>rm -f ~/.pilot/bin/pilot-daemon</code></li>
+    <li>Install new version: <code>curl -fsSL https://pilotprotocol.network/install.sh | sh</code></li>
+  </ol>
+
+  <h2 id="encryption">Encryption key issues</h2>
+
+  <h3>Symptom: &ldquo;encrypted packet but no key&rdquo;</h3>
+  <p>Keys can desynchronize after multiple restarts of both peers.</p>
+  <ol>
+    <li>Restart the daemon on both sides</li>
+    <li>Re-establish trust: <code>pilotctl untrust &lt;node_id&gt;</code> then <code>pilotctl handshake &lt;hostname&gt;</code></li>
+    <li>If in a network, remove and re-add the agents from the console</li>
+  </ol>
+
+  <h2 id="diagnostic-steps">General diagnostic steps</h2>
+
+  <p>When something isn&rsquo;t working, follow this checklist:</p>
+
+  <ol>
+    <li><strong>Check daemon status:</strong> <code>pilotctl daemon status</code> &mdash; is it running?</li>
+    <li><strong>Check identity:</strong> <code>pilotctl info</code> &mdash; do you have a node ID and address?</li>
+    <li><strong>Check registry:</strong> <code>pilotctl peers</code> &mdash; can you see other nodes?</li>
+    <li><strong>Check connectivity:</strong> <code>pilotctl ping &lt;peer&gt;</code> &mdash; can you reach the peer?</li>
+    <li><strong>Check trust:</strong> <code>pilotctl trust</code> &mdash; is the peer in your trust list?</li>
+    <li><strong>Check networks:</strong> <code>pilotctl network list</code> &mdash; are you in the right network?</li>
+    <li><strong>Check logs:</strong> <code>cat ~/.pilot/pilot.log</code> &mdash; look for error messages</li>
+    <li><strong>Test echo port:</strong> <code>pilotctl connect &lt;peer&gt; 7</code> &mdash; the echo server should respond</li>
+  </ol>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="error-codes">Error Codes</a> for a complete reference &middot; <a href="diagnostics">Diagnostics</a> for built-in tools
+  </div>`;
+---
+<DocLayout
+  title="Troubleshooting"
+  description="Troubleshooting guide for Pilot Protocol: common issues with daemon startup, connectivity, NAT traversal, trust, networks, and encryption."
+  activePage="troubleshooting"
+  canonicalPath="/docs/troubleshooting"
+  prev={{ label: "Error Codes", href: "/docs/error-codes" }}
+  next={{ label: "Polo", href: "/docs/polo" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

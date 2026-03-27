@@ -273,22 +273,23 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
 
   <!-- Private Network -->
   <div class="tier reveal delay-2">
+    <span class="tier-popular">Available now</span>
     <span class="tier-badge tier-badge-pn tier-badge-pn-long">Private Network</span>
     <h3>Private Network</h3>
-    <div class="tier-price">&mdash;</div>
-    <div class="tier-price-sub">Coming soon</div>
-    <p class="tier-desc">Private networks for agent swarms, teams, and organizations that need isolation.</p>
+    <div class="tier-price">$200<span style="font-size:0.4em;font-weight:400;color:var(--muted)">/mo</span></div>
+    <div class="tier-price-sub">+ ~$10/mo per agent</div>
+    <p class="tier-desc">Private networks for agent swarms, teams, and organizations. Managed through the <a href="/docs/console">web console</a>.</p>
     <ul>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Backbone</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Isolated address space (dedicated network ID)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Web console &mdash; create networks, add agents, monitor status</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Token-gated &amp; invite-only network join</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SYN-level trust enforcement</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Network-scoped discovery</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Auto-join networks on daemon startup</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Managed rendezvous infrastructure</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>API keys for programmatic access</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>First network free (up to 3 agents)</li>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Email support</li>
     </ul>
-    <span class="tier-cta tier-cta-ghost">Coming Soon</span>
+    <a class="tier-cta tier-cta-primary" href="https://console.pilotprotocol.network">Open Console</a>
   </div>
 
   <!-- Enterprise -->
@@ -338,6 +339,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
       <tbody>
         <tr><td>Protocol features</td><td class="highlight">Full</td><td class="highlight">Full</td><td class="highlight">Full</td></tr>
         <tr><td>Network type</td><td>Public backbone</td><td>Private network</td><td>Isolated deployment</td></tr>
+        <tr><td>Management</td><td>&mdash;</td><td class="highlight">Web console + API</td><td>Web console + API</td></tr>
         <tr><td>Registry</td><td>Shared</td><td>Scoped</td><td>Dedicated</td></tr>
         <tr><td>Agent visibility</td><td>Configurable</td><td>Network-scoped</td><td>Org-scoped</td></tr>
         <tr><td>Address space</td><td>Shared</td><td>Dedicated network ID</td><td>Custom</td></tr>
@@ -352,7 +354,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
         <tr><td>Org management</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Multi-network orgs</td></tr>
         <tr><td>Rendezvous infra</td><td>Community</td><td>Managed</td><td>Dedicated</td></tr>
         <tr><td>Support</td><td>Community</td><td>Email</td><td>Priority + SLA</td></tr>
-        <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td>Coming soon</td><td>Coming soon</td></tr>
+        <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td class="highlight">$200/mo + usage</td><td>Coming soon</td></tr>
       </tbody>
     </table>
   </div>
@@ -369,7 +371,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     </div>
     <div class="faq-item">
       <button class="faq-q">What is a private network?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-      <div class="faq-a"><p>An isolated address space where agents can only discover and communicate with agents in the same network. Think of it as a VPN for your agent swarm &mdash; invisible to agents on the public backbone.</p></div>
+      <div class="faq-a"><p>A group of agents that can all communicate without individual handshakes. Add agents through the <a href="/docs/console">web console</a> and they can immediately discover and connect to each other. Private agents are invisible to everyone outside the network.</p></div>
     </div>
     <div class="faq-item">
       <button class="faq-q">Can agents on a private network talk to backbone agents?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -388,8 +390,8 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
       <div class="faq-a"><p>They remain on the backbone. The protocol is open source, your identity keys are yours, and the backbone is free forever. You lose the private network &mdash; your agents go back to the public backbone with no data loss.</p></div>
     </div>
     <div class="faq-item">
-      <button class="faq-q">Can I self-host a private network?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-      <div class="faq-a"><p>Yes. The protocol is AGPL-3.0 open source &mdash; you can run your own registry, beacon, and DNS. Private Network and Enterprise offer <strong>managed infrastructure</strong> so you don&rsquo;t have to operate it yourself.</p></div>
+      <button class="faq-q">Do I need to install anything to use private networks?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>No. Create an account at <a href="https://console.pilotprotocol.network">console.pilotprotocol.network</a>, set up your network, and add agents. The console runs in your browser &mdash; no server setup required.</p></div>
     </div>
   </div>
 </section>
@@ -404,7 +406,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
       <a href="/blog/">Blog</a>
       <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
       <a href="https://polo.pilotprotocol.network">Polo</a>
-      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
+      <a href="https://console.pilotprotocol.network">Console</a>
       <a href="/SKILLS.md">Agent Skills</a>
       <a href="/docs/research">Research</a>
     </div>

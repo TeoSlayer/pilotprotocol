@@ -159,13 +159,13 @@ func TestResolveHostnamePrivateNodeSameNetwork(t *testing.T) {
 		t.Fatalf("create network: %v", err)
 	}
 	netID := uint16(resp["network_id"].(float64))
+	setClientSigner(rc, infoB.Daemon.Identity())
 	_, err = rc.JoinNetwork(infoB.Daemon.NodeID(), netID, "", 0, env.AdminToken)
 	if err != nil {
 		t.Fatalf("join network: %v", err)
 	}
 
 	// B resolves A's hostname — should succeed (same network)
-	setClientSigner(rc, infoB.Daemon.Identity())
 	resolveResp, err := rc.ResolveHostnameAs(infoB.Daemon.NodeID(), "network-agent")
 	if err != nil {
 		t.Fatalf("expected resolve_hostname to succeed for same-network node: %v", err)

@@ -1,0 +1,74 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>Managing private agent networks should not require a CLI. Today we are launching the <a href="https://console.pilotprotocol.network">Pilot Console</a> &mdash; a web dashboard where you create networks, add agents, monitor their status, generate API keys, and handle billing from your browser.</p>
+
+<h2 id="what-you-can-do">What You Can Do</h2>
+
+<p>Create an account at <a href="https://console.pilotprotocol.network">console.pilotprotocol.network</a> and you are up and running in seconds.</p>
+
+<ul>
+  <li><strong>Create networks</strong> with invite-only or token-gated join rules</li>
+  <li><strong>Add agents</strong> by node ID, Pilot address, or hostname &mdash; whatever identifier you have</li>
+  <li><strong>Monitor nodes</strong> in real time &mdash; online/offline status, addresses, hostnames, endpoints, and capability flags</li>
+  <li><strong>Token-gated join</strong> &mdash; share a token and agents can join from the CLI without admin interaction</li>
+  <li><strong>Generate API keys</strong> for CI/CD pipelines, fleet automation, or custom tooling</li>
+  <li><strong>Upgrade to Pro</strong> for unlimited agents ($200/month + ~$10/month per agent)</li>
+</ul>
+
+<h2 id="free-tier">Free Tier</h2>
+
+<p>Your first network is free with up to 3 agents. No credit card required. Create an account and start building.</p>
+
+<h2 id="pro-networks">Pro Networks</h2>
+
+<p>When you need more than 3 agents, upgrade to Pro directly from the console:</p>
+
+<ul>
+  <li><strong>$200/month</strong> per network</li>
+  <li><strong>~$10/month per agent</strong></li>
+  <li><strong>Unlimited agents</strong> per network</li>
+  <li><strong>Credits</strong> are applied automatically before card charges</li>
+</ul>
+
+<p>Manage your subscription, view invoices, and update payment methods from the billing portal.</p>
+
+<h2 id="api-keys">API Keys</h2>
+
+<p>Every operation available in the browser is also available via the API. Generate a key from the settings page, then use it with any HTTP client:</p>
+
+<pre><code><span class="comment"># List your networks</span>
+<span class="cmd">curl</span> -H "Authorization: Bearer pk_a1b2c3..." \\
+  https://console.pilotprotocol.network/api/networks
+
+<span class="comment"># Add a node by hostname</span>
+<span class="cmd">curl</span> -X POST -H "Authorization: Bearer pk_a1b2c3..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"identifier": "worker-3"}' \\
+  https://console.pilotprotocol.network/api/networks/1/nodes</code></pre>
+
+<h2 id="get-started">Get Started</h2>
+
+<p>The console is live now. Create an account, set up your first network, and add agents in minutes.</p>
+
+<div class="cta">
+  <h3>Try It Now</h3>
+  <p>Create an account and manage your agent networks from a browser.</p>
+  <a href="https://console.pilotprotocol.network">Open Console</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/docs/console">Console Docs</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/docs/getting-started">Getting Started</a>
+</div>`;
+---
+<BlogLayout
+  title="Introducing the Pilot Console: Manage Agent Networks From a Browser"
+  description="The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing — all from your browser."
+  date="March 26, 2026"
+  tags={["console", "enterprise", "dashboard"]}
+  canonicalPath="/blog/pilot-console-manage-agent-networks"
+  bannerImage="/blog/banners/pilot-console-manage-agent-networks.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

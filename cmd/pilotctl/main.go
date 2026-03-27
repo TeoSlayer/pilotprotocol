@@ -584,6 +584,36 @@ func main() {
 	case "trust":
 		cmdTrust()
 
+	// Networks
+	case "network":
+		if len(cmdArgs) < 1 {
+			fatalHint("invalid_argument",
+				"available: list, join, leave, members, invite, invites, accept, reject",
+				"usage: pilotctl network <subcommand>")
+		}
+		switch cmdArgs[0] {
+		case "list":
+			cmdNetworkList()
+		case "join":
+			cmdNetworkJoin(cmdArgs[1:])
+		case "leave":
+			cmdNetworkLeave(cmdArgs[1:])
+		case "members":
+			cmdNetworkMembers(cmdArgs[1:])
+		case "invite":
+			cmdNetworkInvite(cmdArgs[1:])
+		case "invites":
+			cmdNetworkInvites()
+		case "accept":
+			cmdNetworkAccept(cmdArgs[1:])
+		case "reject":
+			cmdNetworkReject(cmdArgs[1:])
+		default:
+			fatalHint("invalid_argument",
+				"available: list, join, leave, members, invite, invites, accept, reject",
+				"unknown network subcommand: %s", cmdArgs[0])
+		}
+
 	// Management
 	case "connections":
 		cmdConnections()
@@ -1050,11 +1080,24 @@ func cmdDaemonStart(args []string) {
 			webhookURL = w
 		}
 	}
+	adminToken := flagString(flags, "admin-token", "")
+	if adminToken == "" {
+		if a, ok := cfg["admin_token"].(string); ok {
+			adminToken = a
+		}
+	}
+	networks := flagString(flags, "networks", "")
+	if networks == "" {
+		if n, ok := cfg["networks"].(string); ok {
+			networks = n
+		}
+	}
 
 	// If --foreground, run in-process
 	if flagBool(flags, "foreground") {
 		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL)
+			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
+			adminToken, networks)
 		return
 	}
 
@@ -1097,6 +1140,12 @@ func cmdDaemonStart(args []string) {
 	}
 	if webhookURL != "" {
 		daemonArgs = append(daemonArgs, "--webhook", webhookURL)
+	}
+	if adminToken != "" {
+		daemonArgs = append(daemonArgs, "--admin-token", adminToken)
+	}
+	if networks != "" {
+		daemonArgs = append(daemonArgs, "--networks", networks)
 	}
 
 	proc := exec.Command(selfPath, daemonArgs...)
@@ -1336,14 +1385,18 @@ func runDaemonInternal(args []string) {
 	encrypt := !flagBool(flags, "no-encrypt")
 	public := flagBool(flags, "public")
 	webhookURL := flagString(flags, "webhook", "")
+	adminToken := flagString(flags, "admin-token", "")
+	networks := flagString(flags, "networks", "")
 
 	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL)
+		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
+		adminToken, networks)
 }
 
 func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	socketPath string, encrypt bool, identityPath, email, hostname,
-	logLevel, logFormat string, public bool, webhookURL string) {
+	logLevel, logFormat string, public bool, webhookURL string,
+	adminToken, networks string) {
 
 	if configFile != "" {
 		cfg, err := config.Load(configFile)
@@ -1377,6 +1430,8 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		Public:       public,
 		Hostname:     hostname,
 		WebhookURL:   webhookURL,
+		AdminToken:   adminToken,
+		Networks:     pilotctlParseNetworkIDs(networks),
 	})
 
 	if err := d.Start(); err != nil {
@@ -1409,6 +1464,28 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		gw.Stop()
 	}
 	d.Stop()
+}
+
+// pilotctlParseNetworkIDs parses a comma-separated string of network IDs into a uint16 slice.
+func pilotctlParseNetworkIDs(s string) []uint16 {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	var ids []uint16
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			slog.Warn("invalid network ID", "value", p, "error", err)
+			continue
+		}
+		ids = append(ids, uint16(n))
+	}
+	return ids
 }
 
 // PID file helpers
@@ -4110,4 +4187,218 @@ func cmdInbox(args []string) {
 		fmt.Printf("    %s\n", preview)
 	}
 	fmt.Printf("\nclear with: pilotctl inbox --clear\n")
+}
+
+// --- Network commands ---
+
+func cmdNetworkList() {
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkList()
+	if err != nil {
+		fatalCode("connection_failed", "network list: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+		return
+	}
+	nets, _ := result["networks"].([]interface{})
+	if len(nets) == 0 {
+		fmt.Println("no networks")
+		return
+	}
+	fmt.Printf("%-8s %-30s %-10s %s\n", "ID", "NAME", "JOIN RULE", "MEMBERS")
+	for _, n := range nets {
+		nm, _ := n.(map[string]interface{})
+		id := uint16(nm["id"].(float64))
+		name, _ := nm["name"].(string)
+		rule, _ := nm["join_rule"].(string)
+		count := 0
+		if members, ok := nm["members"].([]interface{}); ok {
+			count = len(members)
+		} else if mc, ok := nm["members"].(float64); ok {
+			count = int(mc)
+		}
+		fmt.Printf("%-8d %-30s %-10s %d\n", id, name, rule, count)
+	}
+}
+
+func cmdNetworkJoin(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network join <network_id> [--token TOKEN]")
+	}
+	netID := parseUint16(args[0], "network_id")
+	token := ""
+	for i := 1; i < len(args)-1; i++ {
+		if args[i] == "--token" {
+			token = args[i+1]
+			break
+		}
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkJoin(netID, token)
+	if err != nil {
+		fatalCode("connection_failed", "network join: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+	} else {
+		fmt.Printf("joined network %d\n", netID)
+	}
+}
+
+func cmdNetworkLeave(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network leave <network_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkLeave(netID)
+	if err != nil {
+		fatalCode("connection_failed", "network leave: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+	} else {
+		fmt.Printf("left network %d\n", netID)
+	}
+}
+
+func cmdNetworkMembers(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network members <network_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkMembers(netID)
+	if err != nil {
+		fatalCode("connection_failed", "network members: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+		return
+	}
+	nodes, _ := result["nodes"].([]interface{})
+	if len(nodes) == 0 {
+		fmt.Println("no members")
+		return
+	}
+	fmt.Printf("%-12s %-20s %-10s\n", "NODE ID", "HOSTNAME", "PUBLIC")
+	for _, n := range nodes {
+		nm, _ := n.(map[string]interface{})
+		nodeID := uint32(nm["node_id"].(float64))
+		hostname, _ := nm["hostname"].(string)
+		public := false
+		if p, ok := nm["public"].(bool); ok {
+			public = p
+		}
+		vis := "private"
+		if public {
+			vis = "public"
+		}
+		if hostname == "" {
+			hostname = "-"
+		}
+		fmt.Printf("%-12d %-20s %-10s\n", nodeID, hostname, vis)
+	}
+}
+
+func cmdNetworkInvite(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network invite <network_id> <node_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	nodeID := parseNodeID(args[1])
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkInvite(netID, nodeID)
+	if err != nil {
+		fatalCode("connection_failed", "network invite: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+	} else {
+		fmt.Printf("invited node %d to network %d\n", nodeID, netID)
+	}
+}
+
+func cmdNetworkInvites() {
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkPollInvites()
+	if err != nil {
+		fatalCode("connection_failed", "network invites: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+		return
+	}
+	invites, _ := result["invites"].([]interface{})
+	if len(invites) == 0 {
+		fmt.Println("no pending invites")
+		return
+	}
+	fmt.Printf("%-12s %-12s %s\n", "NETWORK", "INVITER", "TIMESTAMP")
+	for _, inv := range invites {
+		im, _ := inv.(map[string]interface{})
+		netID := uint16(im["network_id"].(float64))
+		inviterID := uint32(im["inviter_id"].(float64))
+		ts, _ := im["timestamp"].(string)
+		fmt.Printf("%-12d %-12d %s\n", netID, inviterID, ts)
+	}
+	fmt.Println("\naccept: pilotctl network accept <network_id>")
+	fmt.Println("reject: pilotctl network reject <network_id>")
+}
+
+func cmdNetworkAccept(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network accept <network_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkRespondInvite(netID, true)
+	if err != nil {
+		fatalCode("connection_failed", "network accept: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+	} else {
+		fmt.Printf("accepted invite to network %d\n", netID)
+	}
+}
+
+func cmdNetworkReject(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network reject <network_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.NetworkRespondInvite(netID, false)
+	if err != nil {
+		fatalCode("connection_failed", "network reject: %v", err)
+	}
+	if jsonOutput {
+		output(result)
+	} else {
+		fmt.Printf("rejected invite to network %d\n", netID)
+	}
 }

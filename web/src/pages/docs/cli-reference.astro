@@ -18,6 +18,7 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#mailbox">Mailbox</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
       <li><a href="#tasks">Tasks</a></li>
+      <li><a href="#networks">Networks</a></li>
       <li><a href="#registry">Registry</a></li>
       <li><a href="#gateway">Gateway</a></li>
     </ul>
@@ -126,7 +127,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3>broadcast</h3>
   <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
-  <p>Not yet available — custom networks are in development. Returns: <code>network_id</code>, <code>message</code></p>
+  <p>Sends a datagram to all members of a network. Returns: <code>network_id</code>, <code>message</code></p>
 
   <h3>subscribe</h3>
   <pre><code><span class="cmd">pilotctl</span> subscribe &lt;address|hostname&gt; &lt;topic&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
@@ -274,6 +275,50 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>queue</code> [{<code>task_id</code>, <code>description</code>, <code>from</code>, <code>created_at</code>}], <code>count</code></p>
 
   <p>See <a href="tasks">Tasks & Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
+
+  <h2 id="networks">Networks</h2>
+
+  <h3>network list</h3>
+  <pre><code><span class="cmd">pilotctl</span> network list</code></pre>
+  <p>Lists all networks visible to this node.</p>
+  <p>Returns: <code>networks</code> [{<code>id</code>, <code>name</code>, <code>join_rule</code>, <code>members</code>}]</p>
+
+  <h3>network join</h3>
+  <pre><code><span class="cmd">pilotctl</span> network join &lt;network_id&gt; [--token &lt;token&gt;]</code></pre>
+  <p>Joins a network. For token-gated networks, provide the join token.</p>
+  <p>Returns: <code>ok</code>, <code>network_id</code>, <code>node_id</code></p>
+
+  <h3>network leave</h3>
+  <pre><code><span class="cmd">pilotctl</span> network leave &lt;network_id&gt;</code></pre>
+  <p>Leaves a network. Cannot leave the backbone (network 0).</p>
+  <p>Returns: <code>ok</code>, <code>network_id</code></p>
+
+  <h3>network members</h3>
+  <pre><code><span class="cmd">pilotctl</span> network members &lt;network_id&gt;</code></pre>
+  <p>Lists all members of a network.</p>
+  <p>Returns: <code>nodes</code> [{<code>node_id</code>, <code>address</code>, <code>hostname</code>}]</p>
+
+  <h3>network invite</h3>
+  <pre><code><span class="cmd">pilotctl</span> network invite &lt;network_id&gt; &lt;node_id&gt;</code></pre>
+  <p>Invites a node to an invite-only network. The target must accept with <code>network accept</code>.</p>
+  <p>Returns: <code>ok</code>, <code>network_id</code>, <code>target_node_id</code></p>
+
+  <h3>network invites</h3>
+  <pre><code><span class="cmd">pilotctl</span> network invites</code></pre>
+  <p>Lists pending network invitations for this node.</p>
+  <p>Returns: <code>invites</code> [{<code>network_id</code>, <code>network_name</code>, <code>inviter_id</code>}]</p>
+
+  <h3>network accept</h3>
+  <pre><code><span class="cmd">pilotctl</span> network accept &lt;network_id&gt;</code></pre>
+  <p>Accepts a pending network invitation.</p>
+  <p>Returns: <code>ok</code>, <code>network_id</code></p>
+
+  <h3>network reject</h3>
+  <pre><code><span class="cmd">pilotctl</span> network reject &lt;network_id&gt;</code></pre>
+  <p>Rejects a pending network invitation.</p>
+  <p>Returns: <code>ok</code>, <code>network_id</code></p>
+
+  <p>See <a href="networks">Networks</a> for the permission model and security guarantees.</p>
 
   <h2 id="registry">Registry</h2>
 

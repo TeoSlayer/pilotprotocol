@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>The network stack for AI agents.</strong><br>
-  Addresses. Ports. Tunnels. Encryption. Trust. Zero dependencies.
+  Addresses. Ports. Tunnels. Encryption. Trust.
 </p>
 
 <p align="center">
@@ -27,9 +27,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/deps-zero-brightgreen" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/deps-stdlib_only-brightgreen" alt="Standard Library Only">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-683%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-845%20pass-success" alt="Tests">
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
@@ -44,15 +44,15 @@
   <img src="docs/media/pilot-demo.gif" alt="Pilot Protocol Demo — two agents: install, trust, data exchange" width="960">
 </p>
 
-The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, encrypted peer-to-peer channels, and a trust model** -- all layered on top of standard UDP.
+The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, authenticated encrypted channels, and a trust model** -- all layered on top of standard UDP.
 
-It is not an API. It is not a framework. It is infrastructure.
+Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers -- never through a central server. It is not an API. It is not a framework. It is infrastructure.
 
 ---
 
 ## The problem
 
-Today, agents talk through centralized APIs. Every connection requires a platform in the middle. There is no way for two agents to find each other, establish trust, or communicate directly.
+Today, agents talk through centralized APIs. Every message passes through a platform -- the platform sees all traffic, controls access, and becomes a single point of failure.
 
 ```mermaid
 graph LR
@@ -65,16 +65,20 @@ graph LR
     style A3 fill:#4a9,stroke:#333,color:#fff
 ```
 
-Pilot Protocol removes the middleman. Each agent gets a permanent address and talks directly to peers over encrypted tunnels:
+Pilot Protocol takes the platform out of the data path. A lightweight **rendezvous** service handles discovery and NAT traversal, but once agents find each other, they talk directly over authenticated, encrypted tunnels:
 
 ```mermaid
 graph LR
     A1[Agent A<br/><small>0:0000.0000.0001</small>] <-->|Encrypted UDP Tunnel| A2[Agent B<br/><small>0:0000.0000.0002</small>]
     A1 <-->|Encrypted UDP Tunnel| A3[Agent C<br/><small>0:0000.0000.0003</small>]
     A2 <-->|Encrypted UDP Tunnel| A3
+    A1 -.->|discovery| RV[Rendezvous]
+    A2 -.->|discovery| RV
+    A3 -.->|discovery| RV
     style A1 fill:#4a9,stroke:#333,color:#fff
     style A2 fill:#4a9,stroke:#333,color:#fff
     style A3 fill:#4a9,stroke:#333,color:#fff
+    style RV fill:#888,stroke:#333,color:#fff
 ```
 
 ---
@@ -161,8 +165,8 @@ $ pilotctl --json find nonexistent
 <td width="50%" valign="top">
 
 **Security**
-- Encrypt-by-default (X25519 + AES-256-GCM)
-- Ed25519 identities with persistence
+- Authenticated key exchange (Ed25519-signed X25519 + AES-256-GCM)
+- Ed25519 identity keys bound to tunnel sessions
 - Nodes are private by default
 - Mutual trust handshake protocol (signed, relay via registry)
 
@@ -210,7 +214,9 @@ graph LR
     end
 ```
 
-Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon connects to a **rendezvous** server (registry + beacon) for node discovery and NAT hole-punching.
+Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon maintains a connection to a **rendezvous** server (registry + beacon) for node registration, peer discovery, and NAT hole-punching. Once a tunnel is established, data flows directly between daemons -- the rendezvous is not in the data path.
+
+A public rendezvous is provided at `34.71.57.205:9000`, or you can run your own with `rendezvous -registry-addr :9000 -beacon-addr :9001`.
 
 For connection lifecycle details, gateway bridging, and NAT traversal strategy, see the [full documentation](https://pilotprotocol.network/docs/).
 
@@ -293,7 +299,7 @@ See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk
 go test -parallel 4 -count=1 ./tests/
 ```
 
-683 tests pass, 26 skipped (IPv6, platform-specific). The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+845 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 

@@ -187,7 +187,8 @@ func (c *Client) RegisterWithOwner(listenAddr, owner string) (map[string]interfa
 
 // RegisterWithKey re-registers using an existing Ed25519 public key.
 // The registry returns the same node_id if the key is known.
-func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string) (map[string]interface{}, error) {
+// lanAddrs are the node's LAN addresses for same-network peer detection.
+func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string, lanAddrs []string) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":        "register",
 		"listen_addr": listenAddr,
@@ -195,6 +196,9 @@ func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string) (map[st
 	}
 	if owner != "" {
 		msg["owner"] = owner
+	}
+	if len(lanAddrs) > 0 {
+		msg["lan_addrs"] = lanAddrs
 	}
 	return c.Send(msg)
 }
@@ -292,7 +296,9 @@ func (c *Client) JoinNetwork(nodeID uint32, networkID uint16, token string, invi
 		"token":      token,
 		"inviter_id": inviterID,
 	}
-	if adminToken != "" {
+	if sig := c.sign(fmt.Sprintf("join_network:%d:%d", nodeID, networkID)); sig != "" {
+		msg["signature"] = sig
+	} else if adminToken != "" {
 		msg["admin_token"] = adminToken
 	}
 	return c.Send(msg)
@@ -304,7 +310,9 @@ func (c *Client) LeaveNetwork(nodeID uint32, networkID uint16, adminToken string
 		"node_id":    nodeID,
 		"network_id": networkID,
 	}
-	if adminToken != "" {
+	if sig := c.sign(fmt.Sprintf("leave_network:%d:%d", nodeID, networkID)); sig != "" {
+		msg["signature"] = sig
+	} else if adminToken != "" {
 		msg["admin_token"] = adminToken
 	}
 	return c.Send(msg)
@@ -314,6 +322,18 @@ func (c *Client) DeleteNetwork(networkID uint16, adminToken string) (map[string]
 	msg := map[string]interface{}{
 		"type":       "delete_network",
 		"network_id": networkID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+func (c *Client) RenameNetwork(networkID uint16, name, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":       "rename_network",
+		"network_id": networkID,
+		"name":       name,
 	}
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
@@ -521,4 +541,47 @@ func (c *Client) GetPoloScore(nodeID uint32) (int, error) {
 		return int(poloScore), nil
 	}
 	return 0, fmt.Errorf("polo_score not found in response")
+}
+
+// InviteToNetwork stores a pending invite for a target node to join an invite-only network.
+func (c *Client) InviteToNetwork(networkID uint16, inviterID, targetNodeID uint32, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":           "invite_to_network",
+		"network_id":     networkID,
+		"inviter_id":     inviterID,
+		"target_node_id": targetNodeID,
+	}
+	if sig := c.sign(fmt.Sprintf("invite:%d:%d:%d", inviterID, networkID, targetNodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// PollInvites returns and clears pending network invites for a node. Signed.
+func (c *Client) PollInvites(nodeID uint32) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":    "poll_invites",
+		"node_id": nodeID,
+	}
+	if sig := c.sign(fmt.Sprintf("poll_invites:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
+}
+
+// RespondInvite accepts or rejects a pending network invite. Signed.
+func (c *Client) RespondInvite(nodeID uint32, networkID uint16, accept bool) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":       "respond_invite",
+		"node_id":    nodeID,
+		"network_id": networkID,
+		"accept":     accept,
+	}
+	if sig := c.sign(fmt.Sprintf("respond_invite:%d:%d", nodeID, networkID)); sig != "" {
+		msg["signature"] = sig
+	}
+	return c.Send(msg)
 }

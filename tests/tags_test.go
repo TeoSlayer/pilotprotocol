@@ -183,7 +183,7 @@ func TestSetTagsPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", icrypto.EncodePublicKey(ident.PublicKey), "")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", icrypto.EncodePublicKey(ident.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 	}
 	defer rc.Close()
 
-	resp, err := rc.RegisterWithKey("127.0.0.1:4000", icrypto.EncodePublicKey(ident.PublicKey), "")
+	resp, err := rc.RegisterWithKey("127.0.0.1:4000", icrypto.EncodePublicKey(ident.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register: %v", err)
 	}

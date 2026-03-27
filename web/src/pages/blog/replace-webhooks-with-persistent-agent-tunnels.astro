@@ -314,7 +314,7 @@ publish("tasks.complete", {
   <p>What you gain: a single <code>pilotctl subscribe</code> command or six lines of Go. The Pilot daemon handles connection management, encryption, NAT traversal, and peer authentication. Your application code receives events on a channel.</p>
 
   <div class="callout">
-    <p><strong>Operational cost:</strong> Webhooks require you to operate infrastructure proportional to the number of integrations. Pilot's event stream requires you to run one daemon process per agent. The daemon is a single binary, ~15 MB, that runs alongside your agent. No external services, no cloud subscriptions, no infrastructure team.</p>
+    <p><strong>Operational cost:</strong> Webhooks require you to operate infrastructure proportional to the number of integrations. Pilot's event stream requires you to run one daemon process per agent. The daemon is a single binary, ~15 MB, that runs alongside your agent. No message brokers, no cloud subscriptions, no infrastructure team beyond the shared rendezvous server.</p>
   </div>
   </section>
 

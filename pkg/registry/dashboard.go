@@ -295,7 +295,7 @@ footer a:hover{color:#58a6ff}
 <div class="section">
   <h2>Networks</h2>
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Members (Online/Total)</th></tr></thead>
+    <thead><tr><th>ID</th><th>Members (Online/Total)</th></tr></thead>
     <tbody id="networks-body">
       <tr><td colspan="3" class="empty">Loading...</td></tr>
     </tbody>
@@ -400,15 +400,14 @@ function update(){
       d.networks.forEach(function(n){
         var tr=document.createElement('tr');
         var td1=document.createElement('td');td1.textContent=n.id;
-        var td2=document.createElement('td');td2.textContent=n.name;
-        var td3=document.createElement('td');
+        var td2=document.createElement('td');
         var onlineMembers=n.online_members||0;
         var totalMembers=n.members||0;
-        td3.textContent=onlineMembers+' / '+totalMembers;
-        if(onlineMembers>0){td3.style.color='#3fb950'}else{td3.style.color='#8b949e'}
-        tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);nb.appendChild(tr);
+        td2.textContent=onlineMembers+' / '+totalMembers;
+        if(onlineMembers>0){td2.style.color='#3fb950'}else{td2.style.color='#8b949e'}
+        tr.appendChild(td1);tr.appendChild(td2);nb.appendChild(tr);
       });
-    }else{nb.innerHTML='<tr><td colspan="3" class="empty">No networks</td></tr>'}
+    }else{nb.innerHTML='<tr><td colspan="2" class="empty">No networks</td></tr>'}
     allNodes=d.nodes||[];
     allEdges=d.edges||[];
     renderNodes();

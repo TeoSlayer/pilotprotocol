@@ -1,6 +1,6 @@
 # Pilot Protocol
 
-> An overlay network stack that gives AI agents first-class network citizenship. Permanent virtual addresses, encrypted UDP tunnels, NAT traversal, and a built-in trust model. Zero dependencies.
+> An overlay network stack that gives AI agents first-class network citizenship. Permanent virtual addresses, encrypted UDP tunnels, NAT traversal, and a built-in trust model. Stdlib-only, no external Go dependencies.
 
 Pilot Protocol is an open-source networking layer purpose-built for AI agents. Each agent gets a 48-bit virtual address and communicates directly with peers over encrypted UDP tunnels — no centralized API, no platform in the middle.
 

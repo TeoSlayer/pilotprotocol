@@ -1,0 +1,205 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
+  <p class="subtitle">Overlay networks compared. Same layer, different goals: VPN mesh for humans vs networking for agents.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#vs-tailscale">vs Tailscale</a></li>
+      <li><a href="#vs-zerotier">vs ZeroTier</a></li>
+      <li><a href="#vs-nebula">vs Nebula</a></li>
+      <li><a href="#vs-libp2p">vs libp2p</a></li>
+      <li><a href="#matrix">Feature matrix</a></li>
+      <li><a href="#when">When to use what</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+  <p>Pilot Protocol, Tailscale, ZeroTier, and Nebula are all overlay networks. They all create virtual addresses, encrypt traffic, and traverse NATs. The difference is <strong>who they are built for</strong>:</p>
+
+  <ul>
+    <li><strong>Pilot Protocol</strong> &mdash; An overlay network built for autonomous AI agents. Provides virtual addresses, port-based services, a bilateral trust model, peer discovery with tags, and built-in application services (data exchange, task delegation, pub/sub). No external Go dependencies.</li>
+    <li><strong>Tailscale</strong> &mdash; A VPN mesh built on WireGuard for connecting human users and servers. Manages device access through an admin console, integrates with SSO/OIDC, and provides Magic DNS.</li>
+    <li><strong>ZeroTier</strong> &mdash; A virtual Ethernet switch that creates flat L2 networks. Devices join a network ID and get an IP. Managed through a central controller.</li>
+    <li><strong>Nebula</strong> &mdash; Slack's overlay network for connecting servers at scale. Certificate-based identity, firewall rules in config files, designed for infrastructure teams.</li>
+    <li><strong>libp2p</strong> &mdash; A modular networking stack for peer-to-peer applications. Provides transport, discovery, and pubsub primitives. Used by IPFS, Ethereum, and Filecoin.</li>
+  </ul>
+
+  <h2 id="vs-tailscale">vs Tailscale</h2>
+  <p>Tailscale is a WireGuard-based mesh VPN with strong NAT traversal and a polished admin experience. It is designed for connecting users and servers under centralized access control. Pilot Protocol is designed for autonomous agents that generate their own identity and negotiate trust without an admin. Different audiences, different trade-offs &mdash; they can coexist in the same deployment.</p>
+
+  <table>
+    <thead><tr><th></th><th>Pilot Protocol</th><th>Tailscale</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Designed for</strong></td><td>AI agents</td><td>Users and servers</td></tr>
+      <tr><td><strong>Addressing</strong></td><td>48-bit virtual (N:NNNN.HHHH.LLLL)</td><td>100.x.y.z (CGNAT range)</td></tr>
+      <tr><td><strong>Encryption</strong></td><td>X25519 + AES-256-GCM</td><td>WireGuard (ChaCha20-Poly1305)</td></tr>
+      <tr><td><strong>NAT traversal</strong></td><td>STUN + hole-punch + relay</td><td>DERP relay servers</td></tr>
+      <tr><td><strong>Trust model</strong></td><td>Bilateral handshake (agent-initiated)</td><td>Centralized ACLs (admin console)</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Registry + tags + hostnames</td><td>Magic DNS + admin console</td></tr>
+      <tr><td><strong>Identity</strong></td><td>Ed25519 key pair (self-generated)</td><td>SSO/OIDC provider</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>Taildrop, Funnel, Serve</td></tr>
+      <tr><td><strong>Admin experience</strong></td><td>CLI + config files</td><td>Polished admin console</td></tr>
+      <tr><td><strong>Account required</strong></td><td>No</td><td>Yes (Google, Microsoft, GitHub, etc.)</td></tr>
+      <tr><td><strong>Transport</strong></td><td>UDP with custom reliable transport</td><td>WireGuard (kernel or userspace)</td></tr>
+      <tr><td><strong>License</strong></td><td>AGPL-3.0</td><td>BSD-3 (client), proprietary (coordination)</td></tr>
+      <tr><td><strong>Self-hostable</strong></td><td>Yes (rendezvous server)</td><td>Yes (Headscale, community project)</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Key difference:</strong> Tailscale is built for human-managed networks &mdash; you sign in with an identity provider, an admin defines ACL policies, and devices get IP addresses on a WireGuard mesh. Pilot Protocol is built for agent-managed networks &mdash; agents generate their own cryptographic identity, negotiate trust directly with peers, and get built-in services for data exchange and task delegation. If your agents run on machines already on a Tailscale network, Pilot tunnels run over it just fine.</p>
+
+  <h2 id="vs-zerotier">vs ZeroTier</h2>
+  <p>ZeroTier creates virtual Ethernet segments (L2). Any device can join a network by ID and get an IP. Pilot Protocol operates at L3/L4 with port-based service multiplexing and agent-native features.</p>
+
+  <table>
+    <thead><tr><th></th><th>Pilot Protocol</th><th>ZeroTier</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Layer</strong></td><td>L3/L4 (network + transport)</td><td>L2 (virtual Ethernet)</td></tr>
+      <tr><td><strong>Addressing</strong></td><td>48-bit virtual addresses</td><td>10-character node ID + IP</td></tr>
+      <tr><td><strong>Ports</strong></td><td>16-bit ports with well-known assignments</td><td>Standard IP ports</td></tr>
+      <tr><td><strong>Trust</strong></td><td>Bilateral handshake</td><td>Network controller approval</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Tags, hostnames, registry search</td><td>Network member list</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>None</td></tr>
+      <tr><td><strong>Account required</strong></td><td>No</td><td>Yes (for managed networks)</td></tr>
+      <tr><td><strong>Self-hosted</strong></td><td>Yes (rendezvous server)</td><td>Yes (controller)</td></tr>
+      <tr><td><strong>Free tier</strong></td><td>Unlimited (open source)</td><td>25 devices</td></tr>
+      <tr><td><strong>License</strong></td><td>AGPL-3.0</td><td>BSL 1.1</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Key difference:</strong> ZeroTier emulates Ethernet &mdash; it gives you a flat network and you build everything else on top. Pilot Protocol provides a complete agent networking stack: addressing, transport, discovery, trust, and application-layer services out of the box.</p>
+
+  <h2 id="vs-nebula">vs Nebula</h2>
+  <p>Nebula is Slack's overlay network for infrastructure. It uses certificate-based identity and config-file firewall rules. Pilot Protocol uses dynamic trust negotiation and agent-driven discovery.</p>
+
+  <table>
+    <thead><tr><th></th><th>Pilot Protocol</th><th>Nebula</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Designed for</strong></td><td>AI agents</td><td>Server infrastructure</td></tr>
+      <tr><td><strong>Identity</strong></td><td>Ed25519 (self-generated)</td><td>X.509 certificates (CA-signed)</td></tr>
+      <tr><td><strong>Trust</strong></td><td>Dynamic (runtime handshake)</td><td>Static (certificate + config)</td></tr>
+      <tr><td><strong>Firewall</strong></td><td>Per-port accept rules</td><td>YAML config rules</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Registry + tags + hostnames</td><td>Lighthouse nodes + static hosts</td></tr>
+      <tr><td><strong>Configuration</strong></td><td>JSON config + CLI flags</td><td>YAML files + CA PKI</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>None</td></tr>
+      <tr><td><strong>PKI required</strong></td><td>No</td><td>Yes (nebula-cert CA)</td></tr>
+      <tr><td><strong>NAT traversal</strong></td><td>STUN + hole-punch + relay</td><td>Lighthouse + punch</td></tr>
+      <tr><td><strong>License</strong></td><td>AGPL-3.0</td><td>MIT</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Key difference:</strong> Nebula requires a PKI setup &mdash; you run a certificate authority, sign certificates for each node, and distribute them manually. Pilot Protocol agents generate their own identity and negotiate trust at runtime. This makes Pilot better suited for dynamic agent populations where nodes come and go, while Nebula excels for static infrastructure with known hosts.</p>
+
+  <h2 id="vs-libp2p">vs libp2p</h2>
+  <p>libp2p is a modular networking toolkit used by IPFS, Ethereum, and Polkadot. It provides building blocks; Pilot Protocol provides a complete, opinionated stack.</p>
+
+  <table>
+    <thead><tr><th></th><th>Pilot Protocol</th><th>libp2p</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Approach</strong></td><td>Complete stack (single binary)</td><td>Modular toolkit (assemble yourself)</td></tr>
+      <tr><td><strong>Dependencies</strong></td><td>Stdlib only</td><td>Heavy (multiple crates/modules)</td></tr>
+      <tr><td><strong>Addressing</strong></td><td>48-bit virtual addresses</td><td>Multiaddr + PeerID</td></tr>
+      <tr><td><strong>Transport</strong></td><td>UDP with reliable streams</td><td>TCP, QUIC, WebSocket, WebRTC</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Central registry + tags</td><td>DHT (Kademlia) + mDNS</td></tr>
+      <tr><td><strong>Trust</strong></td><td>Mutual handshake with approval</td><td>Connection-level (no trust model)</td></tr>
+      <tr><td><strong>Complexity</strong></td><td>One binary, one config file</td><td>Multiple protocols to configure</td></tr>
+      <tr><td><strong>Primary use case</strong></td><td>AI agent networking</td><td>Blockchain and decentralized apps</td></tr>
+      <tr><td><strong>Setup time</strong></td><td>Minutes</td><td>Hours to days</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Key difference:</strong> libp2p is a toolkit &mdash; you choose transports, discovery mechanisms, and security protocols, then wire them together. Pilot Protocol is opinionated and complete: one binary, no external dependencies, built-in services, and a trust model designed for agents. If you need maximum flexibility for a blockchain or decentralized application, use libp2p. If you need agents talking to each other in minutes, use Pilot.</p>
+
+  <h2 id="matrix">Feature matrix</h2>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>Pilot</th>
+        <th>Tailscale</th>
+        <th>ZeroTier</th>
+        <th>Nebula</th>
+        <th>libp2p</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Agent-native design</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+      <tr><td>Account required</td><td>No</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+      <tr><td>PKI/CA required</td><td>No</td><td>No</td><td>No</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Stdlib-only (no external deps)</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+      <tr><td>NAT traversal</td><td>STUN+relay</td><td>DERP relay</td><td>Root servers</td><td>Lighthouse</td><td>AutoNAT+relay</td></tr>
+      <tr><td>E2E encryption</td><td>AES-256-GCM</td><td>WireGuard</td><td>ChaCha20</td><td>AES-256-GCM</td><td>Noise/TLS</td></tr>
+      <tr><td>Trust model</td><td>Bilateral</td><td>Central ACL</td><td>Controller</td><td>Certificates</td><td>None</td></tr>
+      <tr><td>Peer discovery</td><td>Registry+tags</td><td>Magic DNS</td><td>Controller</td><td>Lighthouse</td><td>DHT+mDNS</td></tr>
+      <tr><td>Port multiplexing</td><td>16-bit ports</td><td>IP ports</td><td>IP ports</td><td>IP ports</td><td>Protocol IDs</td></tr>
+      <tr><td>Built-in services</td><td>7 ports</td><td>None</td><td>None</td><td>None</td><td>Pubsub only</td></tr>
+      <tr><td>Task delegation</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+      <tr><td>Pub/Sub</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+      <tr><td>Self-hosted</td><td>Yes</td><td>Headscale</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+      <tr><td>License</td><td>AGPL-3.0</td><td>BSD-3/Prop.</td><td>BSL 1.1</td><td>MIT</td><td>MIT/Apache</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="when">When to use what</h2>
+
+  <h3>Use Pilot Protocol when:</h3>
+  <ul>
+    <li>You are building with AI agents that need to find, trust, and communicate with each other</li>
+    <li>You want lightweight networking with no accounts, no PKI, no cloud platform to manage</li>
+    <li>You need built-in application services (data exchange, task delegation, pub/sub) out of the box</li>
+    <li>Agents need to dynamically discover peers by tags, hostnames, or capabilities</li>
+    <li>You want agents to negotiate trust at runtime without a central authority</li>
+  </ul>
+
+  <h3>Use Tailscale when:</h3>
+  <ul>
+    <li>You need a VPN mesh for human users and their devices</li>
+    <li>You want SSO integration (Google, Microsoft, Okta)</li>
+    <li>You need centralized access control managed by an admin</li>
+    <li>You want an admin console and commercial support</li>
+  </ul>
+
+  <h3>Use ZeroTier when:</h3>
+  <ul>
+    <li>You need a flat L2 network that "just works" for up to 25 devices (free tier)</li>
+    <li>You want virtual Ethernet between devices across the internet</li>
+    <li>You need broad platform support (runs on nearly everything)</li>
+  </ul>
+
+  <h3>Use Nebula when:</h3>
+  <ul>
+    <li>You are connecting servers in a known, static infrastructure</li>
+    <li>You already have a PKI or are comfortable running a certificate authority</li>
+    <li>You need fine-grained firewall rules defined in config files</li>
+    <li>You want MIT-licensed software with proven scale (50,000+ hosts at Slack)</li>
+  </ul>
+
+  <h3>Use libp2p when:</h3>
+  <ul>
+    <li>You are building a blockchain, decentralized storage, or Web3 application</li>
+    <li>You need maximum protocol flexibility and transport agnosticism</li>
+    <li>You want DHT-based fully decentralized discovery (no central server at all)</li>
+    <li>You are willing to invest time assembling and configuring the stack</li>
+  </ul>
+
+  <div class="callout">
+    <p><strong>The short version:</strong> Tailscale, ZeroTier, and Nebula give you a network. Pilot Protocol gives agents a network <em>with identity, trust, discovery, and services built in</em>. If your nodes are humans or servers, use a VPN. If your nodes are agents, use Pilot.</p>
+  </div>`;
+---
+<DocLayout
+  title="Pilot Protocol vs Tailscale vs ZeroTier vs Nebula"
+  description="Compare Pilot Protocol with Tailscale, ZeroTier, Nebula, and libp2p. Overlay networks for AI agents vs VPN mesh for servers."
+  activePage="comparison-networking"
+  canonicalPath="/docs/comparison-networking"
+  prev={{ label: "vs MCP / A2A / ACP", href: "/docs/comparison" }}
+  next={{ label: "Papers", href: "/docs/research" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

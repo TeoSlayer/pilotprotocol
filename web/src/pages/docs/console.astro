@@ -1,0 +1,278 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Console</h1>
+  <p class="subtitle">Web dashboard for managing networks, agents, API keys, and billing &mdash; all from a browser.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#signup">Signing up</a></li>
+      <li><a href="#networks-page">Networks page</a></li>
+      <li><a href="#create-network">Creating a network</a></li>
+      <li><a href="#network-detail">Network detail page</a></li>
+      <li><a href="#how-networks-work">How networks work</a></li>
+      <li><a href="#adding-nodes">Adding nodes</a></li>
+      <li><a href="#monitoring">Monitoring nodes</a></li>
+      <li><a href="#token-join">Token-gated join</a></li>
+      <li><a href="#upgrade">Upgrading to Pro</a></li>
+      <li><a href="#settings">Settings page</a></li>
+      <li><a href="#api-keys">API keys</a></li>
+      <li><a href="#billing">Billing</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>The Pilot Console is a web dashboard where you manage everything about your agent networks. No CLI required &mdash; create networks, add agents, monitor their status, generate API keys, and handle billing from a browser.</p>
+
+  <p><strong><a href="https://console.pilotprotocol.network">Open the Console &rarr;</a></strong></p>
+
+  <p>After login, a sidebar provides navigation between <strong>Networks</strong>, <strong>Billing</strong>, and <strong>Settings</strong>.</p>
+
+  <h2 id="signup">Signing up</h2>
+
+  <p>Open the console at <a href="https://console.pilotprotocol.network">console.pilotprotocol.network</a> and click <strong>Register</strong>. Enter an email and password (minimum 8 characters). After registration you are logged in automatically and redirected to the Networks page.</p>
+
+  <h2 id="networks-page">Networks page</h2>
+
+  <p>The Networks page is the home screen. It shows a card grid of all your networks, each displaying:</p>
+
+  <ul>
+    <li>Network name and ID</li>
+    <li>Tier badge (<strong>Free</strong> or <strong>Pro</strong>)</li>
+    <li>Join rule badge (<strong>invite</strong> or <strong>token</strong>)</li>
+    <li>Number of nodes</li>
+  </ul>
+
+  <p>Click any card to open the network detail page. Click <strong>Create network</strong> in the top-right to add a new one.</p>
+
+  <h2 id="create-network">Creating a network</h2>
+
+  <p>Click <strong>Create network</strong> and fill in:</p>
+
+  <ol>
+    <li><strong>Name</strong> &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
+    <li><strong>Join rule</strong> &mdash; choose from:
+      <ul>
+        <li><strong>Invite only</strong> &mdash; you control membership entirely. Only you can add nodes from the console.</li>
+        <li><strong>Token-gated</strong> &mdash; generates a shared secret. Anyone with the token can join from the CLI.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <p>Your first network is free (up to 3 agents). Additional networks require a paid plan.</p>
+
+  <h2 id="network-detail">Network detail page</h2>
+
+  <p>Click a network card to see its full detail view. The page shows:</p>
+
+  <ul>
+    <li><strong>Header</strong> &mdash; network name (click the pencil icon to rename), ID, tier, join rule, and node count</li>
+    <li><strong>Add node</strong> button &mdash; opens the node enrollment form</li>
+    <li><strong>Delete</strong> button &mdash; removes the network (requires confirmation)</li>
+    <li><strong>Join token</strong> &mdash; for token-gated networks, shows the token with a copy button and a CLI command</li>
+    <li><strong>Active Nodes table</strong> &mdash; live view of all agents in the network</li>
+    <li><strong>Plan card</strong> &mdash; shows current tier, agent usage, and upgrade button</li>
+  </ul>
+
+  <h2 id="how-networks-work">How networks work</h2>
+
+  <p>A network is a group of agents that can all communicate without needing to individually establish trust. This is fundamentally different from <a href="trust">bilateral trust</a>, where every pair of agents must negotiate a handshake.</p>
+
+  <h3>The two access control models</h3>
+
+  <table>
+    <thead><tr><th></th><th>Bilateral trust</th><th>Network membership</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Scope</strong></td><td>One-to-one</td><td>Group-wide</td></tr>
+      <tr><td><strong>Setup</strong></td><td>Handshake + approve per pair</td><td>Add to network once, connect to all members</td></tr>
+      <tr><td><strong>Scaling</strong></td><td>O(n&sup2;) handshakes for n agents</td><td>O(n) adds for n agents</td></tr>
+      <tr><td><strong>Discovery</strong></td><td>Must already know hostname or address</td><td>Can see all network members in the console</td></tr>
+      <tr><td><strong>Revocation</strong></td><td>Per-peer untrust</td><td>Remove from network &mdash; all access revoked at once</td></tr>
+    </tbody>
+  </table>
+
+  <p>Use bilateral trust for cross-organization collaboration where explicit mutual consent matters. Use networks for your own fleets, teams, and clusters where every agent should talk to every other agent by default.</p>
+
+  <h3>What network membership grants</h3>
+
+  <p>When you add an agent to a network through the console, it immediately gains these permissions with every other member:</p>
+
+  <table>
+    <thead><tr><th>Permission</th><th>Without network</th><th>With shared network</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Discover addresses</strong></td><td>Private nodes are invisible</td><td>Can resolve any member&rsquo;s IP and port</td></tr>
+      <tr><td><strong>Open connections</strong></td><td>SYN packets silently dropped</td><td>Connections accepted immediately</td></tr>
+      <tr><td><strong>Send datagrams</strong></td><td>Silently dropped</td><td>Delivered</td></tr>
+      <tr><td><strong>List members</strong></td><td>Cannot enumerate the network</td><td>Full member list visible in the console</td></tr>
+    </tbody>
+  </table>
+
+  <h3>What networks do NOT grant</h3>
+
+  <ul>
+    <li><strong>No per-port restrictions</strong> &mdash; members can reach all ports on other members. Port-level policies are a future roadmap item.</li>
+    <li><strong>No roles</strong> &mdash; all members have equal network access. Membership management happens in the console, not within the network.</li>
+    <li><strong>No traffic inspection</strong> &mdash; encryption is end-to-end between agents. The network grants connectivity, not visibility.</li>
+    <li><strong>No transitive access</strong> &mdash; if A and B share network 1, and B and C share network 2, A cannot reach C. Each network is an independent trust domain.</li>
+  </ul>
+
+  <h3>Immediate revocation</h3>
+
+  <p>Click <strong>Remove</strong> next to any node in the console and its access is revoked immediately. The next connection attempt from that node will be silently dropped.</p>
+
+  <h3>Silent rejection</h3>
+
+  <p>When a non-member tries to connect to a private network node, nothing happens. No error, no response, no indication the target exists. This prevents scanning and enumeration.</p>
+
+  <h2 id="adding-nodes">Adding nodes</h2>
+
+  <p>On the network detail page, click <strong>Add node</strong>. The form accepts three identifier formats:</p>
+
+  <table>
+    <thead><tr><th>Format</th><th>Example</th><th>Where to find it</th></tr></thead>
+    <tbody>
+      <tr><td>Node ID</td><td><code>1001</code></td><td><code>pilotctl info</code> output</td></tr>
+      <tr><td>Pilot address</td><td><code>1:0001.0000.03E9</code></td><td>Daemon startup output</td></tr>
+      <tr><td>Hostname</td><td><code>my-agent</code></td><td>Set at daemon start with <code>--hostname</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Type any of these into the input field and click <strong>Add</strong>. Once added, the agent appears in the Active Nodes table and can immediately communicate with all other network members.</p>
+
+  <h2 id="monitoring">Monitoring nodes</h2>
+
+  <p>The Active Nodes table on the network detail page shows each agent&rsquo;s live status:</p>
+
+  <table>
+    <thead><tr><th>Column</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Status</strong></td><td>Green dot = online, grey dot = offline</td></tr>
+      <tr><td><strong>Address</strong></td><td>Pilot address (e.g., <code>1:0001.0000.03E9</code>)</td></tr>
+      <tr><td><strong>Node ID</strong></td><td>Numeric ID</td></tr>
+      <tr><td><strong>Hostname</strong></td><td>Registered hostname or <code>-</code> if none</td></tr>
+      <tr><td><strong>Endpoint</strong></td><td>Real IP:port, or <em>private</em> if not publicly visible</td></tr>
+      <tr><td><strong>Flags</strong></td><td>Capability badges (e.g., <code>task-exec</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <p>Click <strong>Remove</strong> to instantly revoke a node&rsquo;s network membership.</p>
+
+  <h2 id="token-join">Token-gated join</h2>
+
+  <p>For networks with the <strong>token</strong> join rule, the console displays a join token card below the header. It shows:</p>
+
+  <ul>
+    <li>The token value with a <strong>Copy</strong> button</li>
+    <li>A ready-to-paste CLI command: <code>pilotctl network join &lt;id&gt; --token &lt;token&gt;</code></li>
+  </ul>
+
+  <p>Share this token with agents that need to join. They run the CLI command and are added to the network automatically &mdash; no console interaction needed on the admin side.</p>
+
+  <h2 id="upgrade">Upgrading to Pro</h2>
+
+  <p>Free networks are limited to 3 agents. The plan card at the bottom of the network detail page shows current usage and an <strong>Upgrade to Pro ($200)</strong> button.</p>
+
+  <p>Clicking upgrade will:</p>
+  <ol>
+    <li>Deduct from your credit balance if sufficient</li>
+    <li>Otherwise, redirect to Stripe checkout for payment</li>
+  </ol>
+
+  <p>Pro networks have unlimited agents. Agent usage is billed at ~$10/month per continuously running agent.</p>
+
+  <h2 id="settings">Settings page</h2>
+
+  <p>Click <strong>Settings</strong> in the sidebar. The page has four sections:</p>
+
+  <ul>
+    <li><strong>API Keys</strong> &mdash; create and revoke programmatic access keys</li>
+    <li><strong>Change Password</strong> &mdash; update your account password</li>
+    <li><strong>Billing</strong> &mdash; link to billing overview and Stripe portal</li>
+    <li><strong>Danger Zone</strong> &mdash; permanently delete your account (requires password confirmation)</li>
+  </ul>
+
+  <h2 id="api-keys">API keys</h2>
+
+  <p>API keys let you automate console operations from scripts, CI/CD, or custom tooling.</p>
+
+  <h3>Create a key</h3>
+
+  <ol>
+    <li>Go to <strong>Settings &rarr; API Keys</strong></li>
+    <li>Click <strong>Create key</strong></li>
+    <li>Enter a name (e.g., <code>ci-deploy</code>)</li>
+    <li>The full key is displayed once &mdash; copy it immediately</li>
+    <li>Click <strong>Done</strong> to dismiss</li>
+  </ol>
+
+  <h3>Use a key</h3>
+
+  <p>Send the key as a Bearer token with any API request:</p>
+
+  <pre><code><span class="comment"># List networks</span>
+<span class="cmd">curl</span> -H "Authorization: Bearer pk_a1b2c3..." \\
+  https://console.pilotprotocol.network/api/networks
+
+<span class="comment"># Add a node by hostname</span>
+<span class="cmd">curl</span> -X POST -H "Authorization: Bearer pk_a1b2c3..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"identifier": "worker-3"}' \\
+  https://console.pilotprotocol.network/api/networks/1/nodes</code></pre>
+
+  <p>Every operation available in the browser is also available via the API.</p>
+
+  <h3>Revoke a key</h3>
+
+  <p>Click <strong>Revoke</strong> next to any key on the settings page. The key stops working immediately.</p>
+
+  <h2 id="billing">Billing</h2>
+
+  <h3>Pricing</h3>
+
+  <table>
+    <thead><tr><th>Item</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Free tier</td><td>1 network, up to 3 agents</td></tr>
+      <tr><td>Pro network (monthly)</td><td>$200</td></tr>
+      <tr><td>Agent usage</td><td>~$10/month per agent</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Credits</h3>
+
+  <p>Your credit balance is shown on the Billing page. Credits are deducted automatically before your card is charged.</p>
+
+  <h3>Usage</h3>
+
+  <p>For Pro networks, the plan card on the network detail page shows:</p>
+  <ul>
+    <li>Active agents count</li>
+    <li>Agent-days consumed this billing period</li>
+    <li>Estimated total cost for the period</li>
+  </ul>
+
+  <h3>Manage subscription</h3>
+
+  <p>Go to <strong>Settings &rarr; Billing &rarr; Stripe billing portal</strong> to view invoices, update payment methods, or cancel subscriptions. Cancelled subscriptions have a 7-day grace period before the network is removed.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="networks">Networks</a> for the full protocol-level permission model and security guarantees.
+  </div>
+
+  <div class="callout">
+    <strong>Further reading:</strong> <a href="/blog/pilot-console-manage-agent-networks">Introducing the Pilot Console</a>
+  </div>`;
+---
+<DocLayout
+  title="Console"
+  description="Pilot Console — web dashboard for managing agent networks, API keys, billing, and node monitoring."
+  activePage="console"
+  canonicalPath="/docs/console"
+  prev={{ label: "Configuration", href: "/docs/configuration" }}
+  next={{ label: "Integration", href: "/docs/integration" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

@@ -62,7 +62,7 @@ func TestReRegistrationAfterRegistryRestart(t *testing.T) {
 		t.Fatalf("dial registry 1: %v", err)
 	}
 
-	resp1, err := rc1.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner")
+	resp1, err := rc1.RegisterWithKey("127.0.0.1:4000", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("register on registry 1: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestReRegistrationAfterRegistryRestart(t *testing.T) {
 	}
 	defer rc2.Close()
 
-	resp2, err := rc2.RegisterWithKey("127.0.0.1:4001", pubKeyB64, "test-owner")
+	resp2, err := rc2.RegisterWithKey("127.0.0.1:4001", pubKeyB64, "test-owner", nil)
 	if err != nil {
 		t.Fatalf("re-register on registry 2: %v", err)
 	}

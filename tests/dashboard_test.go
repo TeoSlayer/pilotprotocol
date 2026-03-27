@@ -72,12 +72,12 @@ func TestDashboardStatsEmpty(t *testing.T) {
 	}
 	found := false
 	for _, n := range stats.Networks {
-		if n.Name == "backbone" {
+		if n.ID == 0 {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("expected backbone network in stats")
+		t.Fatal("expected backbone network (ID=0) in stats")
 	}
 }
 

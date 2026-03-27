@@ -45,13 +45,13 @@ func TestSnapshotStructure(t *testing.T) {
 	id2, _ := crypto.GenerateIdentity()
 
 	// Register nodes
-	resp1, err := client.RegisterWithKey("node-1.local", crypto.EncodePublicKey(id1.PublicKey), "127.0.0.1:5001")
+	resp1, err := client.RegisterWithKey("node-1.local", crypto.EncodePublicKey(id1.PublicKey), "127.0.0.1:5001", nil)
 	if err != nil {
 		t.Fatalf("register node 1: %v", err)
 	}
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
-	resp2, err := client.RegisterWithKey("node-2.local", crypto.EncodePublicKey(id2.PublicKey), "127.0.0.1:5002")
+	resp2, err := client.RegisterWithKey("node-2.local", crypto.EncodePublicKey(id2.PublicKey), "127.0.0.1:5002", nil)
 	if err != nil {
 		t.Fatalf("register node 2: %v", err)
 	}
@@ -269,19 +269,19 @@ func TestSnapshotSaveLoad(t *testing.T) {
 	id2, _ := crypto.GenerateIdentity()
 	id3, _ := crypto.GenerateIdentity()
 
-	resp1, err := client1.RegisterWithKey("ml-gpu-1", crypto.EncodePublicKey(id1.PublicKey), "127.0.0.1:8000")
+	resp1, err := client1.RegisterWithKey("ml-gpu-1", crypto.EncodePublicKey(id1.PublicKey), "127.0.0.1:8000", nil)
 	if err != nil {
 		t.Fatalf("register node 1: %v", err)
 	}
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
-	resp2, err := client1.RegisterWithKey("storage-1", crypto.EncodePublicKey(id2.PublicKey), "127.0.0.1:8001")
+	resp2, err := client1.RegisterWithKey("storage-1", crypto.EncodePublicKey(id2.PublicKey), "127.0.0.1:8001", nil)
 	if err != nil {
 		t.Fatalf("register node 2: %v", err)
 	}
 	nodeID2 := uint32(resp2["node_id"].(float64))
 
-	resp3, err := client1.RegisterWithKey("compute-1", crypto.EncodePublicKey(id3.PublicKey), "127.0.0.1:8002")
+	resp3, err := client1.RegisterWithKey("compute-1", crypto.EncodePublicKey(id3.PublicKey), "127.0.0.1:8002", nil)
 	if err != nil {
 		t.Fatalf("register node 3: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestManualSnapshotTrigger(t *testing.T) {
 	defer client.Close()
 
 	id, _ := crypto.GenerateIdentity()
-	resp, err := client.RegisterWithKey("test-node", crypto.EncodePublicKey(id.PublicKey), "127.0.0.1:5000")
+	resp, err := client.RegisterWithKey("test-node", crypto.EncodePublicKey(id.PublicKey), "127.0.0.1:5000", nil)
 	if err != nil {
 		t.Fatalf("register node: %v", err)
 	}

@@ -180,7 +180,7 @@ done</code></pre>
 
   <h3>Step 5: Decommission the Cloud Service</h3>
 
-  <p>Once all devices are communicating over Pilot, disable the cloud service. Your devices are now independent. The communication is peer-to-peer, encrypted end-to-end, and there is no vendor dependency and no risk of service shutdown.</p>
+  <p>Once all devices are communicating over Pilot, disable the cloud service. The communication is peer-to-peer and encrypted end-to-end. A rendezvous server is still needed for new device discovery and NAT traversal coordination, but you can self-host it -- no vendor dependency, no risk of third-party service shutdown.</p>
 
   <h2 id="ownership">The Ownership Principle</h2>
 
@@ -194,7 +194,7 @@ done</code></pre>
 
   <div class="cta">
     <h3>Try Pilot Protocol</h3>
-    <p>One binary, five minutes, zero cloud dependency. Own your agent network. No accounts, no vendor lock-in, no service shutdowns.</p>
+    <p>One binary, five minutes, no vendor lock-in. Own your agent network — self-host the rendezvous server, keep your data peer-to-peer, and never worry about a cloud shutdown.</p>
     <a href="https://github.com/TeoSlayer/pilotprotocol">View on GitHub</a>
   </div>`;
 ---

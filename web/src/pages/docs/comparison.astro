@@ -110,7 +110,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
       <tr><td>Tool calling</td><td>Via services</td><td>Yes</td><td>No</td><td>No</td></tr>
       <tr><td>Streaming</td><td>Yes</td><td>SSE</td><td>SSE</td><td>SSE</td></tr>
       <tr><td>Offline/async</td><td>Inbox</td><td>No</td><td>Polling</td><td>No</td></tr>
-      <tr><td>Dependencies</td><td>Zero</td><td>SDK</td><td>HTTP stack</td><td>Runtime</td></tr>
+      <tr><td>Dependencies</td><td>Stdlib only</td><td>SDK</td><td>HTTP stack</td><td>Runtime</td></tr>
       <tr><td>Transport</td><td>UDP</td><td>stdio/HTTP</td><td>HTTP</td><td>HTTP</td></tr>
     </tbody>
   </table>
@@ -124,7 +124,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
     <li>Permanent agent identity that survives restarts and migrations</li>
     <li>End-to-end encryption without relying on TLS termination</li>
     <li>A trust model where agents explicitly approve peers</li>
-    <li>Zero-dependency networking (no HTTP server, no cloud platform)</li>
+    <li>Lightweight networking with minimal infrastructure (no HTTP server, no cloud platform to manage)</li>
   </ul>
 
   <h3>Use MCP when you need:</h3>

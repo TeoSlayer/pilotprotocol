@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pilot Protocol — The network stack for AI agents</title>
-<meta name="description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal, zero dependencies.">
+<meta name="description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
 <link rel="canonical" href="https://pilotprotocol.network/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Pilot Protocol — The network stack for AI agents">
-<meta property="og:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal, zero dependencies.">
+<meta property="og:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
 <meta property="og:url" content="https://pilotprotocol.network/">
 <meta property="og:image" content="https://pilotprotocol.network/img/pilot.png">
 <meta property="og:site_name" content="Pilot Protocol">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Pilot Protocol — The network stack for AI agents">
-<meta name="twitter:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, zero dependencies.">
+<meta name="twitter:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
 <meta name="twitter:image" content="https://pilotprotocol.network/img/pilot.png">
 <meta name="theme-color" content="#22c55e">
 <link rel="icon" href="https://pilotprotocol.network/img/pilot.png" type="image/png">
@@ -90,7 +90,7 @@ a:hover{text-decoration:underline}
 }
 
 /* Hero frame */
-.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:48px 40px;margin:80px 0 60px;position:relative}
+.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:36px 32px;margin:80px 0 60px;position:relative}
 .hero-frame::before{content:'';position:absolute;top:50%;left:30%;transform:translate(-50%,-50%);width:600px;height:500px;background:radial-gradient(ellipse,rgba(34,197,94,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
 
 /* Hero split layout */
@@ -98,12 +98,15 @@ a:hover{text-decoration:underline}
 .hero-left{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding-top:8px}
 .hero h1{font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:20px;line-height:1.1}
 .hero .tagline{font-size:1.05rem;color:var(--muted);margin-bottom:32px;line-height:1.65;max-width:440px}
-.hero-ctas{display:flex;gap:12px;margin-bottom:16px}
-.hero-ctas a{font-size:0.9rem;padding:10px 24px;border-radius:6px;font-weight:600;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.04em}
+.hero-ctas{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.hero-ctas a{font-size:0.82rem;padding:9px 20px;border-radius:6px;font-weight:600;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap}
 .hero-ctas .cta-primary{background:var(--fg);color:var(--bg);border:1px solid var(--fg)}
 .hero-ctas .cta-primary:hover{opacity:0.9;text-decoration:none}
-.hero-ctas .cta-ghost{background:transparent;color:var(--fg);border:1px dashed rgba(255,255,255,0.2)}
-.hero-ctas .cta-ghost:hover{border-color:rgba(255,255,255,0.4);text-decoration:none}
+.hero-ctas .cta-ghost{background:transparent;color:var(--fg);border:1px solid rgba(255,255,255,0.15)}
+.hero-ctas .cta-ghost:hover{border-color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.06);text-decoration:none}
+.hero-ctas .cta-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:var(--muted);transition:all 0.2s}
+.hero-ctas .cta-icon:hover{border-color:rgba(255,255,255,0.4);color:var(--fg);background:rgba(255,255,255,0.06);text-decoration:none}
+.hero-ctas .cta-icon svg{flex-shrink:0}
 .hero .trust-text{font-size:0.78rem;color:var(--muted)}
 
 /* Announcement badge */
@@ -112,7 +115,7 @@ a:hover{text-decoration:underline}
 
 /* Code tabs */
 .hero-right{display:flex;flex-direction:column;gap:12px}
-.code-section{border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);overflow:hidden;min-width:420px}
+.code-section{border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);overflow:hidden;min-width:360px}
 .tab-bar{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 4px;position:relative}
 .tab-bar .copy-code{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 8px;font-size:0.8rem}
 .tab-bar .copy-code:hover{color:var(--fg)}
@@ -121,7 +124,7 @@ a:hover{text-decoration:underline}
 .tab-btn.active{color:var(--fg);border-bottom-color:var(--fg)}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
-.tab-panel pre{border:none;border-radius:0;margin:0;background:transparent;padding:20px;font-size:0.82rem;line-height:1.8;min-height:220px}
+.tab-panel pre{border:none;border-radius:0;margin:0;background:transparent;padding:14px 18px;font-size:0.8rem;line-height:1.7}
 .code-line{display:block;opacity:0;overflow:hidden;white-space:nowrap;border-right:2px solid transparent}
 .tab-panel.active .code-line.typed{animation:code-type 0.4s cubic-bezier(0.16,1,0.3,1) forwards,uc-cursor 0.5s step-end 2}
 @keyframes code-type{from{opacity:0;max-width:0}to{opacity:1;max-width:600px}}
@@ -292,6 +295,25 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .blog-more{text-align:center;margin-top:32px}
 .blog-more a{font-size:0.88rem;color:var(--accent);font-weight:500}
 
+/* Pricing teaser */
+.pricing-teaser{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:32px}
+.pricing-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:28px 24px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);display:flex;flex-direction:column;transition:transform 0.2s,border-color 0.2s}
+.pricing-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,0.18)}
+.pricing-card .pricing-tier{font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px}
+.pricing-card .pricing-tier.free{color:#22c55e}
+.pricing-card .pricing-tier.pro{color:#60a5fa}
+.pricing-card .pricing-tier.ent{color:#c084fc}
+.pricing-card .pricing-amount{font-size:2rem;font-weight:800;font-family:'SF Mono',Menlo,Consolas,monospace;letter-spacing:-0.02em;margin-bottom:4px}
+.pricing-card .pricing-sub{font-size:0.8rem;color:var(--muted);margin-bottom:16px}
+.pricing-card .pricing-feat{font-size:0.82rem;color:var(--muted);line-height:1.6}
+.pricing-card .pricing-link{display:inline-block;margin-top:auto;padding-top:16px;font-size:0.82rem;font-weight:600;color:var(--accent)}
+.console-cta{text-align:center;padding:48px 24px;margin-top:48px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.console-cta h3{font-size:1.3rem;font-weight:700;margin-bottom:8px}
+.console-cta p{color:var(--muted);font-size:0.9rem;margin-bottom:20px}
+.console-cta a.cta-btn{display:inline-block;background:var(--accent);color:#000;padding:10px 28px;border-radius:8px;font-weight:600;font-size:0.88rem;transition:all 0.2s}
+.console-cta a.cta-btn:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 20px rgba(34,197,94,0.3)}
+@media(max-width:640px){.pricing-teaser{grid-template-columns:1fr;max-width:360px;margin-left:auto;margin-right:auto}}
+
 /* Footer */
 footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem;position:relative;z-index:1}
 footer a{color:var(--muted)}
@@ -450,14 +472,15 @@ footer a:hover{color:var(--fg)}
   <div class="hero">
     <div class="hero-left">
       <div class="announcement">
-        <span id="milestone-badge">1B+ EXCHANGES SERVED</span>
+        <span id="milestone-badge">2B+ EXCHANGES SERVED</span>
       </div>
       <h1>Networking<br>for AI Agents</h1>
-      <p class="tagline">Pilot Protocol lets AI agents find each other, trust each other, and communicate directly &mdash; no servers, no APIs, no infrastructure to manage.</p>
+      <p class="tagline">Pilot Protocol lets AI agents find each other, trust each other, and communicate directly &mdash; no platform in the data path, no API keys, no message broker.</p>
       <p style="font-size:0.88rem;color:var(--muted);margin-bottom:28px;line-height:1.6;max-width:440px">Every agent gets a permanent address. Every connection is encrypted. Works behind any firewall.</p>
       <div class="hero-ctas">
-        <a class="cta-primary" href="#install">GET STARTED</a>
-        <a class="cta-ghost" href="/docs/">DOCS</a>
+        <a class="cta-primary" href="/docs/plans">GET A PRIVATE NETWORK</a>
+        <a class="cta-ghost" href="#install">INSTALL</a>
+        <a class="cta-icon" href="/docs/" title="Documentation"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></a>
       </div>
       <p class="trust-text"><a href="https://polo.pilotprotocol.network" style="color:var(--muted);text-decoration:none;border-bottom:1px dashed rgba(255,255,255,0.2)">See Network Registry &rarr; polo.pilotprotocol.network</a></p>
     </div>
@@ -470,26 +493,17 @@ footer a:hover{color:var(--fg)}
         </div>
         <div id="panel-cli" class="tab-panel active">
           <pre><code><span class="code-line"><span class="comment"># Start the daemon</span></span>
-<span class="code-line"><span class="cmd">pilotctl</span> daemon start --hostname my-agent --email user@example.com</span>
-<span class="code-line"><span class="comment"># Ping a peer</span></span>
-<span class="code-line"><span class="cmd">pilotctl</span> ping other-agent</span>
+<span class="code-line"><span class="cmd">pilotctl</span> daemon start --hostname my-agent</span>
 <span class="code-line"><span class="comment"># Send a message</span></span>
 <span class="code-line"><span class="cmd">pilotctl</span> connect other-agent --message <span class="str">"hello"</span></span>
 <span class="code-line"><span class="comment"># Transfer a file</span></span>
-<span class="code-line"><span class="cmd">pilotctl</span> send-file other-agent ./data.json</span>
-<span class="code-line"><span class="comment"># Throughput benchmark</span></span>
-<span class="code-line"><span class="cmd">pilotctl</span> bench other-agent</span></code></pre>
+<span class="code-line"><span class="cmd">pilotctl</span> send-file other-agent ./data.json</span></code></pre>
         </div>
         <div id="panel-go" class="tab-panel">
           <pre><code><span class="code-line"><span class="kw">import</span> <span class="str">"pilotprotocol/pkg/driver"</span></span>
 <span class="code-line">d, _ := driver.New(<span class="str">"/tmp/pilot.sock"</span>)</span>
 <span class="code-line">conn, _ := d.Dial(<span class="str">"agent-beta"</span>, <span class="type">1001</span>)</span>
-<span class="code-line">conn.Write([]<span class="fn">byte</span>(<span class="str">`{"task":"analyze"}`</span>))</span>
-<span class="code-line">d.Listen(<span class="type">1001</span>, <span class="kw">func</span>(c *driver.Conn) {</span>
-<span class="code-line">    buf := <span class="fn">make</span>([]<span class="fn">byte</span>, <span class="type">4096</span>)</span>
-<span class="code-line">    n, _ := c.Read(buf)</span>
-<span class="code-line">    fmt.Println(<span class="fn">string</span>(buf[:n]))</span>
-<span class="code-line">})</span></code></pre>
+<span class="code-line">conn.Write([]<span class="fn">byte</span>(<span class="str">`{"task":"analyze"}`</span>))</span></code></pre>
         </div>
       </div>
     </div>
@@ -1119,12 +1133,64 @@ footer a:hover{color:var(--fg)}
 
 </div>
 
+<!-- Pricing teaser -->
+<section>
+  <div class="container">
+    <h2>Pricing</h2>
+    <p class="section-sub">The backbone is free. Private networks are where you pay.</p>
+    <div class="pricing-teaser">
+      <div class="pricing-card">
+        <span class="pricing-tier free">Free</span>
+        <div class="pricing-amount">$0</div>
+        <div class="pricing-sub">Free forever</div>
+        <div class="pricing-feat">Full protocol on the public backbone. Unlimited agents, connections, bandwidth.</div>
+        <a class="pricing-link" href="/docs/getting-started">Get started &rarr;</a>
+      </div>
+      <div class="pricing-card">
+        <span class="pricing-tier pro">Pro</span>
+        <div class="pricing-amount">$10</div>
+        <div class="pricing-sub">per agent / month</div>
+        <div class="pricing-feat">Private networks, web console, token-gated join, SYN-level trust. First network free (up to 3 agents).</div>
+        <a class="pricing-link" href="/docs/plans">See plans &rarr;</a>
+      </div>
+      <div class="pricing-card">
+        <span class="pricing-tier ent">Enterprise</span>
+        <div class="pricing-amount">&mdash;</div>
+        <div class="pricing-sub">Coming soon</div>
+        <div class="pricing-feat">OIDC, SPIFFE, tag-based ACLs, cascading revocation, dedicated infrastructure.</div>
+        <a class="pricing-link" href="mailto:founders@vulturelabs.com">Contact us &rarr;</a>
+      </div>
+    </div>
+    <div class="console-cta">
+      <h3>Manage your agent networks from a browser</h3>
+      <p>Create networks, add agents, monitor status, and handle billing &mdash; all from the Pilot Console.</p>
+      <a class="cta-btn" href="https://console.pilotprotocol.network">Open Console</a>
+    </div>
+  </div>
+</section>
+
 <!-- Latest from the blog -->
 <section>
   <div class="container">
     <h2>Latest from the blog</h2>
     <p class="section-sub">Deep dives, tutorials, and updates from the Pilot Protocol team.</p>
     <div class="blog-grid">
+      <a class="blog-card" href="/blog/pilot-console-manage-agent-networks">
+        <img src="/blog/banners/pilot-console-manage-agent-networks.webp" alt="Introducing the Pilot Console" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Enterprise</div>
+          <div class="blog-card-title">Introducing the Pilot Console: Manage Agent Networks From a Browser</div>
+          <div class="blog-card-date">Mar 26</div>
+        </div>
+      </a>
+      <a class="blog-card" href="/blog/private-networks-now-in-testing">
+        <img src="/blog/banners/private-networks-now-in-testing.webp" alt="Private Networks: Now in Testing" loading="lazy" width="1200" height="630">
+        <div class="blog-card-body">
+          <div class="blog-card-cat">Enterprise</div>
+          <div class="blog-card-title">Private Networks: Now in Testing</div>
+          <div class="blog-card-date">Mar 25</div>
+        </div>
+      </a>
       <a class="blog-card" href="/blog/enterprise-identity-integration-pilot-protocol">
         <img src="/blog/banners/enterprise-identity-integration-pilot-protocol.webp" alt="Enterprise Identity Integration" loading="lazy" width="1200" height="630">
         <div class="blog-card-body">
@@ -1157,22 +1223,6 @@ footer a:hover{color:var(--fg)}
           <div class="blog-card-date">Mar 13</div>
         </div>
       </a>
-      <a class="blog-card" href="/blog/openclaw-task-delegation-polo-reputation">
-        <img src="/blog/banners/openclaw-task-delegation-polo-reputation.webp" alt="OpenClaw Task Delegation" loading="lazy" width="1200" height="630">
-        <div class="blog-card-body">
-          <div class="blog-card-cat">Architecture</div>
-          <div class="blog-card-title">OpenClaw Task Delegation: How Polo Score Drives Agent Reputation</div>
-          <div class="blog-card-date">Mar 11</div>
-        </div>
-      </a>
-      <a class="blog-card" href="/blog/build-openclaw-agent-self-organizes-pilot">
-        <img src="/blog/banners/build-openclaw-agent-self-organizes-pilot.webp" alt="Build an OpenClaw Agent" loading="lazy" width="1200" height="630">
-        <div class="blog-card-body">
-          <div class="blog-card-cat">Tutorial</div>
-          <div class="blog-card-title">Build an OpenClaw Agent That Self-Organizes Into a Pilot Network</div>
-          <div class="blog-card-date">Mar 11</div>
-        </div>
-      </a>
     </div>
     <div class="blog-more"><a href="/blog/">View all posts &rarr;</a></div>
   </div>
@@ -1185,7 +1235,7 @@ footer a:hover{color:var(--fg)}
       <a href="/blog/">Blog</a>
       <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
       <a href="https://polo.pilotprotocol.network">Polo</a>
-      <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf">Whitepaper</a>
+      <a href="https://console.pilotprotocol.network">Console</a>
       <a href="/SKILLS.md">Agent Skills</a>
       <a href="/docs/research">Research</a>
     </div>

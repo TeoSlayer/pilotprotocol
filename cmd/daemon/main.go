@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
@@ -39,6 +41,8 @@ func main() {
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	noTaskSubmit := flag.Bool("no-tasksubmit", false, "disable built-in task submit service (port 1003)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
+	adminToken := flag.String("admin-token", "", "admin token for network operations")
+	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
@@ -78,6 +82,8 @@ func main() {
 		DisableEventStream:    *noEventStream,
 		DisableTaskSubmit:     *noTaskSubmit,
 		WebhookURL:            *webhookURL,
+		AdminToken:            *adminToken,
+		Networks:              parseNetworkIDs(*networks),
 	})
 
 	if err := d.Start(); err != nil {
@@ -91,4 +97,26 @@ func main() {
 
 	slog.Info("shutting down")
 	d.Stop()
+}
+
+// parseNetworkIDs parses a comma-separated string of network IDs into a uint16 slice.
+func parseNetworkIDs(s string) []uint16 {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	var ids []uint16
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			log.Printf("warning: invalid network ID %q: %v", p, err)
+			continue
+		}
+		ids = append(ids, uint16(n))
+	}
+	return ids
 }

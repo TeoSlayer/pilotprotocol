@@ -332,7 +332,7 @@ func callModel(client *http.Client, agentAddr, path string, payload any) (string
 <span class="comment"># The orchestrator discovers agents via tags and chains calls</span>
 <span class="cmd">pilotctl find-by-tag model-service --json</span></code></pre>
 
-  <p>Once the tunnels are established, model calls flow through persistent encrypted connections. The orchestrator code looks like standard HTTP, but the transport is Pilot. No infrastructure changes, no certificate management, no firewall rules. Just persistent tunnels that stay connected and keep your inference pipeline fast.</p>
+  <p>Once the tunnels are established, model calls flow through persistent encrypted connections. The orchestrator code looks like standard HTTP, but the transport is Pilot. No certificate management, no firewall rules — just persistent tunnels that stay connected and keep your inference pipeline fast. The only infrastructure requirement is a rendezvous server for initial discovery (the public one at <code>pilotprotocol.network</code> works out of the box, or you can self-host your own).</p>
   </section>
 
   <div class="cta">

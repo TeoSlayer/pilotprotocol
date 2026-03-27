@@ -47,6 +47,10 @@ type Config struct {
 	// Webhook
 	WebhookURL string // HTTP(S) endpoint for event notifications (empty = disabled)
 
+	// Fleet enrollment
+	AdminToken string   // admin token for network operations (empty = disabled)
+	Networks   []uint16 // network IDs to auto-join at startup (empty = none)
+
 	// Tuning (zero = use defaults)
 	KeepaliveInterval     time.Duration // default 30s
 	IdleTimeout           time.Duration // default 120s
@@ -101,6 +105,7 @@ type Daemon struct {
 	taskQueue  *TaskQueue
 	startTime  time.Time
 	stopCh     chan struct{} // closed on Stop() to signal goroutines
+	lanAddrs   []string     // LAN addresses for same-network peer detection
 
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
@@ -294,6 +299,8 @@ func (d *Daemon) Start() error {
 			pubAddr, err := discoverWithTempSocket(d.config.BeaconAddr, d.config.ListenAddr)
 			if err != nil {
 				slog.Warn("beacon discover failed, using local addr", "error", err)
+			} else if isPrivateAddr(pubAddr) {
+				slog.Warn("STUN returned private/unusable IP, discarding", "stun_addr", pubAddr)
 			} else {
 				registrationAddr = pubAddr
 				slog.Debug("discovered public endpoint", "endpoint", pubAddr)
@@ -314,6 +321,13 @@ func (d *Daemon) Start() error {
 	}
 	actualAddr := d.tunnels.LocalAddr().String()
 	slog.Info("tunnel listening", "addr", actualAddr)
+
+	// Collect LAN addresses using the actual tunnel port (not config port which may be 0)
+	_, actualPort, _ := net.SplitHostPort(actualAddr)
+	if actualPort == "" || actualPort == "0" {
+		actualPort = "4000"
+	}
+	d.lanAddrs = collectLANAddrs(actualPort)
 
 	// If STUN discovered a public endpoint, keep it. The temp socket and
 	// tunnel socket bind the same local port, so endpoint-independent NAT
@@ -379,9 +393,24 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := rc.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner)
+	resp, err := rc.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs)
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
+	}
+
+	// Use registry-observed IP as fallback when STUN returned garbage
+	if observed, ok := resp["observed_addr"].(string); ok && observed != "" {
+		obsHost, _, _ := net.SplitHostPort(observed)
+		obsIP := net.ParseIP(obsHost)
+		if obsIP != nil && !obsIP.IsPrivate() && !obsIP.IsLoopback() && !obsIP.IsLinkLocalUnicast() {
+			regHost, _, _ := net.SplitHostPort(registrationAddr)
+			regIP := net.ParseIP(regHost)
+			if regIP == nil || regIP.IsPrivate() || regIP.IsLoopback() || regIP.IsLinkLocalUnicast() {
+				_, stunPort, _ := net.SplitHostPort(registrationAddr)
+				registrationAddr = net.JoinHostPort(obsHost, stunPort)
+				slog.Info("using registry-observed IP", "observed", obsHost)
+			}
+		}
 	}
 
 	nodeIDVal, ok := resp["node_id"].(float64)
@@ -444,6 +473,9 @@ func (d *Daemon) Start() error {
 		}
 	}
 
+	// Auto-join configured networks
+	d.autoJoinNetworks()
+
 	// 4. Start IPC server
 	if err := d.ipc.Start(); err != nil {
 		return fmt.Errorf("ipc start: %w", err)
@@ -494,6 +526,110 @@ func discoverWithTempSocket(beaconAddr, listenAddr string) (string, error) {
 	return pub.String(), nil
 }
 
+// isPrivateAddr returns true if the host part of addr is a private, loopback,
+// or link-local IP — i.e., not routable on the public internet.
+func isPrivateAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast())
+}
+
+// collectLANAddrs returns all non-loopback private IPv4 addresses with the
+// given port appended (e.g., ["192.168.4.76:4000", "10.0.1.5:4000"]).
+func collectLANAddrs(listenPort string) []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var addrs []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		ifAddrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range ifAddrs {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.To4() == nil {
+				continue // skip IPv6 and nil
+			}
+			if ip.IsLoopback() {
+				continue
+			}
+			if ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+				addrs = append(addrs, net.JoinHostPort(ip.String(), listenPort))
+			}
+		}
+	}
+	return addrs
+}
+
+// matchLANSubnet checks if any of our LAN IPs share a /24 subnet with any peer LAN IP.
+// Returns the matching peer LAN address, or empty string if no match.
+func matchLANSubnet(ours []string, theirs []interface{}) string {
+	for _, theirRaw := range theirs {
+		theirAddr, ok := theirRaw.(string)
+		if !ok {
+			continue
+		}
+		theirHost, _, err := net.SplitHostPort(theirAddr)
+		if err != nil {
+			continue
+		}
+		theirIP := net.ParseIP(theirHost)
+		if theirIP == nil || theirIP.To4() == nil {
+			continue
+		}
+
+		for _, ourAddr := range ours {
+			ourHost, _, err := net.SplitHostPort(ourAddr)
+			if err != nil {
+				continue
+			}
+			ourIP := net.ParseIP(ourHost)
+			if ourIP == nil || ourIP.To4() == nil {
+				continue
+			}
+
+			// Same /24 subnet
+			ourNet := ourIP.To4().Mask(net.CIDRMask(24, 32))
+			theirNet := theirIP.To4().Mask(net.CIDRMask(24, 32))
+			if ourNet.Equal(theirNet) {
+				return theirAddr
+			}
+		}
+	}
+	return ""
+}
+
+// autoJoinNetworks joins the networks listed in Config.Networks at startup.
+// Requires AdminToken. Errors are logged but do not prevent daemon startup.
+func (d *Daemon) autoJoinNetworks() {
+	if d.config.AdminToken == "" || len(d.config.Networks) == 0 {
+		return
+	}
+	for _, netID := range d.config.Networks {
+		_, err := d.regConn.JoinNetwork(d.nodeID, netID, "", 0, d.config.AdminToken)
+		if err != nil {
+			slog.Warn("auto-join failed", "network_id", netID, "error", err)
+			continue
+		}
+		slog.Info("auto-joined network", "network_id", netID)
+		d.webhook.Emit("network.auto_joined", map[string]interface{}{"network_id": netID})
+	}
+}
+
 func (d *Daemon) Stop() error {
 	// Signal all goroutines to stop
 	select {
@@ -539,10 +675,10 @@ func (d *Daemon) Stop() error {
 		d.handshakes.Stop()
 	}
 
-	// Deregister from registry
+	// Close registry connection (do NOT deregister — node stays registered so
+	// network memberships, hostname, and visibility are preserved across restarts;
+	// the registry marks the node offline when heartbeats stop)
 	if d.regConn != nil {
-		d.webhook.Emit("node.deregistered", nil)
-		d.regConn.Deregister(d.NodeID())
 		d.regConn.Close()
 	}
 
@@ -1704,15 +1840,22 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 		return fmt.Errorf("node %d has no real address", nodeID)
 	}
 
-	udpAddr, err := net.ResolveUDPAddr("udp", realAddr)
-	if err != nil {
-		return fmt.Errorf("resolve %s: %w", realAddr, err)
+	// Same-LAN detection: if peer has LAN addresses matching our subnet, use LAN directly
+	targetAddr := realAddr
+	if lanAddrs, ok := resp["lan_addrs"].([]interface{}); ok && len(lanAddrs) > 0 {
+		if lanAddr := matchLANSubnet(d.lanAddrs, lanAddrs); lanAddr != "" {
+			targetAddr = lanAddr
+			slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
+		}
 	}
 
-	// Request beacon-coordinated NAT hole-punching (cheap, one UDP packet).
-	// Works for Full Cone, Restricted Cone, and Port-Restricted Cone NAT.
-	// For Symmetric NAT, hole-punching fails but relay fallback kicks in during DialConnection.
-	if d.config.BeaconAddr != "" {
+	udpAddr, err := net.ResolveUDPAddr("udp", targetAddr)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", targetAddr, err)
+	}
+
+	// Only request hole-punching if NOT using LAN address
+	if targetAddr == realAddr && d.config.BeaconAddr != "" {
 		d.tunnels.RequestHolePunch(nodeID)
 	}
 
@@ -1776,7 +1919,7 @@ func (d *Daemon) reRegister() {
 
 	// Always re-register with client-generated key
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := d.regConn.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner)
+	resp, err := d.regConn.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs)
 	if err != nil {
 		slog.Error("re-registration failed", "error", err)
 		return

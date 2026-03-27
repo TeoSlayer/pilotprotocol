@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="en" class="Internet-Draft">
+<head>
+<meta charset="utf-8">
+<meta content="Common,Latin" name="scripts">
+<meta content="initial-scale=1.0" name="viewport">
+<title>Problem Statement: Network-Layer Infrastructure for Autonomous Agent Communication</title>
+<meta content="Calin Teodor" name="author">
+<meta content="
+       AI agents --- autonomous software entities capable of reasoning, planning,
+and executing tasks --- are an increasingly important class of network
+participant. Current agent communication protocols operate exclusively at
+the application layer over HTTP, assuming the existence of stable endpoints,
+DNS names, and centralized infrastructure. No existing standard provides
+network-layer identity, addressing, or transport for agents. This document
+describes the problem space and identifies requirements for a network-layer
+infrastructure that would give agents first-class network citizenship,
+independent of the web infrastructure designed for human users. 
+    " name="description">
+<meta content="xml2rfc 3.32.0" name="generator">
+<meta content="draft-teodor-pilot-problem-statement-00" name="ietf.draft">
+<!-- Generator version information:
+  xml2rfc 3.32.0
+    Python 3.13.7
+    ConfigArgParse 1.7.5
+    google-i18n-address 3.1.1
+    intervaltree 3.2.1
+    Jinja2 3.1.6
+    lxml 6.0.2
+    platformdirs 4.9.4
+    pycountry 26.2.16
+    PyYAML 6.0.3
+    requests 2.32.5
+    wcwidth 0.6.0
+-->
+<link href="draft-teodor-pilot-problem-statement-00.xml" rel="alternate" type="application/rfc+xml">
+<link href="#copyright" rel="license">
+<style type="text/css">/*
+
+  NOTE: Changes at the bottom of this file overrides some earlier settings.
+
+  Once the style has stabilized and has been adopted as an official RFC style,
+  this can be consolidated so that style settings occur only in one place, but
+  for now the contents of this file consists first of the initial CSS work as
+  provided to the RFC Formatter (xml2rfc) work, followed by itemized and
+  commented changes found necessary during the development of the v3
+  formatters.
+
+*/
+
+/* fonts */
+@import url('https://static.ietf.org/fonts/noto-sans/import.css'); /* Sans-serif */
+@import url('https://static.ietf.org/fonts/noto-serif/import.css'); /* Serif (print) */
+@import url('https://static.ietf.org/fonts/roboto-mono/import.css'); /* Monospace */
+
+:root {
+  --font-sans: 'Noto Sans', Arial, Helvetica, sans-serif;
+  --font-serif: 'Noto Serif', 'Times', 'Times New Roman', serif;
+  --font-mono: 'Roboto Mono', Courier, 'Courier New', monospace;
+}
+
+@viewport {
+  zoom: 1.0;
+}
+@-ms-viewport {
+  width: extend-to-zoom;
+  zoom: 1.0;
+}
+/* general and mobile first */
+html {
+}
+body {
+  max-width: 90%;
+  margin: 1.5em auto;
+  color: #222;
+  background-color: #fff;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  scroll-behavior: smooth;
+  overflow-wrap: break-word;
+}
+.ears {
+  display: none;
+}
+
+/* headings */
+#title, h1, h2, h3, h4, h5, h6 {
+  margin: 1em 0 0.5em;
+  font-weight: bold;
+  line-height: 1.3;
+}
+#title {
+  clear: both;
+  border-bottom: 1px solid #ddd;
+  margin: 0 0 0.5em 0;
+  padding: 1em 0 0.5em;
+}
+.author {
+  padding-bottom: 4px;
+}
+h1 {
+  font-size: 26px;
+  margin: 1em 0;
+}
+h2 {
+  font-size: 22px;
+  margin-top: -20px;  /* provide offset for in-page anchors */
+  padding-top: 33px;
+}
+h3 {
+  font-size: 18px;
+  margin-top: -36px;  /* provide offset for in-page anchors */
+  padding-top: 42px;
+}
+h4 {
+  font-size: 16px;
+  margin-top: -36px;  /* provide offset for in-page anchors */
+  padding-top: 42px;
+}
+h5, h6 {
+  font-size: 14px;
+}
+#n-copyright-notice {
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 1em;
+  margin-bottom: 1em;
+}
+/* general structure */
+p {
+  padding: 0;
+  margin: 0 0 1em 0;
+  text-align: left;
+}
+div, span {
+  position: relative;
+}
+div {
+  margin: 0;
+}
+.alignRight.art-text {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  padding: 1em 1em 0;
+  margin-bottom: 1.5em;
+}
+.alignRight.art-text pre {
+  padding: 0;
+}
+.alignRight {
+  margin: 1em 0;
+}
+.alignRight > *:first-child {
+  border: none;
+  margin: 0;
+  float: right;
+  clear: both;
+}
+.alignRight > *:nth-child(2) {
+  clear: both;
+  display: block;
+  border: none;
+}
+svg {
+  display: block;
+}
+@media print {
+  svg {
+    max-height: 850px;
+    max-width: 660px;
+  }
+}
+svg[font-family~="serif" i], svg [font-family~="serif" i] {
+  font-family: var(--font-serif);
+}
+svg[font-family~="sans-serif" i], svg [font-family~="sans-serif" i] {
+  font-family: var(--font-sans);
+}
+svg[font-family~="monospace" i], svg [font-family~="monospace" i] {
+  font-family: var(--font-mono);
+}
+.alignCenter.art-text {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  padding: 1em 1em 0;
+  margin-bottom: 1.5em;
+}
+.alignCenter.art-text pre {
+  padding: 0;
+}
+.alignCenter {
+  margin: 1em 0;
+}
+.alignCenter > *:first-child {
+  display: table;
+  border: none;
+  margin: 0 auto;
+}
+
+/* lists */
+ol, ul {
+  padding: 0;
+  margin: 0 0 1em 2em;
+}
+ol ol, ul ul, ol ul, ul ol {
+  margin-left: 1em;
+}
+li {
+  margin: 0 0 0.25em 0;
+}
+.ulCompact li {
+  margin: 0;
+}
+ul.empty, .ulEmpty {
+  list-style-type: none;
+}
+ul.empty li, .ulEmpty li {
+  margin-top: 0.5em;
+}
+ul.ulBare, li.ulBare {
+  margin-left: 0em !important;
+}
+ul.compact, .ulCompact,
+ol.compact, .olCompact {
+  line-height: 100%;
+  margin: 0 0 0 2em;
+}
+
+/* definition lists */
+dl {
+}
+dl > dt {
+  float: left;
+  margin-right: 1em;
+}
+/* 
+dl.nohang > dt {
+  float: none;
+}
+*/
+dl > dd {
+  margin-bottom: .8em;
+  min-height: 1.3em;
+}
+dl.compact > dd, .dlCompact > dd {
+  margin-bottom: 0em;
+}
+dl > dd > dl {
+  margin-top: 0.5em;
+  margin-bottom: 0em;
+}
+
+/* links */
+a {
+  text-decoration: none;
+}
+a[href] {
+  color: #22e; /* Arlen: WCAG 2019 */
+}
+a[href]:hover {
+  background-color: #f2f2f2;
+}
+figcaption a[href],
+a[href].selfRef {
+  color: #222;
+}
+/* XXX probably not this:
+a.selfRef:hover {
+  background-color: transparent;
+  cursor: default;
+} */
+
+/* Figures */
+tt, code, pre {
+  background-color: #f9f9f9;
+  font-family: var(--font-mono);
+}
+pre {
+  border: 1px solid #eee;
+  margin: 0;
+  padding: 1em;
+}
+img {
+  max-width: 100%;
+}
+figure {
+  margin: 0;
+}
+figure blockquote {
+  margin: 0.8em 0.4em 0.4em;
+}
+figcaption {
+  font-style: italic;
+  margin: 0 0 1em 0;
+}
+@media screen {
+  pre {
+    overflow-x: auto;
+    max-width: 100%;
+    max-width: calc(100% - 22px);
+  }
+}
+
+/* aside, blockquote */
+aside, blockquote {
+  margin-left: 0;
+  padding: 1.2em 2em;
+}
+blockquote {
+  background-color: #f9f9f9;
+  color: #111; /* Arlen: WCAG 2019 */
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  margin: 1em 0;
+}
+blockquote > *:last-child {
+  margin-bottom: 0;
+}
+cite {
+  display: block;
+  text-align: right;
+  font-style: italic;
+}
+.xref {
+  overflow-wrap: normal;
+}
+
+/* tables */
+table {
+  width: 100%;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  border: 1px solid #eee;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.5em 0.75em;
+}
+th {
+  text-align: left;
+  background-color: #e9e9e9;
+}
+tr:nth-child(2n+1) > td {
+  background-color: #f5f5f5;
+}
+table caption {
+  font-style: italic;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+table p {
+  /* XXX to avoid bottom margin on table row signifiers. If paragraphs should
+     be allowed within tables more generally, it would be far better to select on a class. */
+  margin: 0;
+}
+
+/* pilcrow */
+a.pilcrow {
+  color: #666; /* Arlen: AHDJ 2019 */
+  text-decoration: none;
+  visibility: hidden;
+  user-select: none;
+  -ms-user-select: none;
+  -o-user-select:none;
+  -moz-user-select: none;
+  -khtml-user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+@media screen {
+  aside:hover > a.pilcrow,
+  p:hover > a.pilcrow,
+  blockquote:hover > a.pilcrow,
+  div:hover > a.pilcrow,
+  li:hover > a.pilcrow,
+  pre:hover > a.pilcrow {
+    visibility: visible;
+  }
+  a.pilcrow:hover {
+    background-color: transparent;
+  }
+}
+
+/* misc */
+hr {
+  border: 0;
+  border-top: 1px solid #eee;
+}
+.bcp14 {
+  font-variant: small-caps;
+}
+
+.role {
+  font-variant: all-small-caps;
+}
+
+/* info block */
+#identifiers {
+  margin: 0;
+  font-size: 0.9em;
+}
+#identifiers dt {
+  width: 3em;
+  clear: left;
+}
+#identifiers dd {
+  float: left;
+  margin-bottom: 0;
+}
+/* Fix PDF info block run off issue */
+@media print {
+  #identifiers dd {
+    max-width: 100%;
+  }
+}
+#identifiers .authors .author {
+  display: inline-block;
+  margin-right: 1.5em;
+}
+#identifiers .authors .org {
+  font-style: italic;
+}
+
+/* The prepared/rendered info at the very bottom of the page */
+.docInfo {
+  color: #666; /* Arlen: WCAG 2019 */
+  font-size: 0.9em;
+  font-style: italic;
+  margin-top: 2em;
+}
+.docInfo .prepared {
+  float: left;
+}
+.docInfo .prepared {
+  float: right;
+}
+
+/* table of contents */
+#toc  {
+  padding: 0.75em 0 2em 0;
+  margin-bottom: 1em;
+}
+nav.toc ul {
+  margin: 0 0.5em 0 0;
+  padding: 0;
+  list-style: none;
+}
+nav.toc li {
+  line-height: 1.3em;
+  margin: 0.75em 0;
+  padding-left: 1.2em;
+  text-indent: -1.2em;
+}
+/* references */
+.references dt {
+  text-align: right;
+  font-weight: bold;
+  min-width: 7em;
+}
+.references dd {
+  margin-left: 8em;
+  overflow: auto;
+}
+
+.refInstance {
+  margin-bottom: 1.25em;
+}
+
+.refSubseries {
+  margin-bottom: 1.25em;
+}
+
+.references .ascii {
+  margin-bottom: 0.25em;
+}
+
+/* index */
+.index ul {
+  margin: 0 0 0 1em;
+  padding: 0;
+  list-style: none;
+}
+.index ul ul {
+  margin: 0;
+}
+.index li {
+  margin: 0;
+  text-indent: -2em;
+  padding-left: 2em;
+  padding-bottom: 5px;
+}
+.indexIndex {
+  margin: 0.5em 0 1em;
+}
+.index a {
+  font-weight: 700;
+}
+/* make the index two-column on all but the smallest screens */
+@media (min-width: 600px) {
+  .index ul {
+    -moz-column-count: 2;
+    -moz-column-gap: 20px;
+  }
+  .index ul ul {
+    -moz-column-count: 1;
+    -moz-column-gap: 0;
+  }
+}
+
+/* authors */
+address.vcard {
+  font-style: normal;
+  margin: 1em 0;
+}
+
+address.vcard .nameRole {
+  font-weight: 700;
+  margin-left: 0;
+}
+address.vcard .label {
+  font-family: var(--font-sans);
+  margin: 0.5em 0;
+}
+address.vcard .type {
+  display: none;
+}
+.alternative-contact {
+  margin: 1.5em 0 1em;
+}
+hr.addr {
+  border-top: 1px dashed;
+  margin: 0;
+  color: #ddd;
+  max-width: calc(100% - 16px);
+}
+
+/* temporary notes */
+.rfcEditorRemove::before {
+  position: absolute;
+  top: 0.2em;
+  right: 0.2em;
+  padding: 0.2em;
+  content: "The RFC Editor will remove this note";
+  color: #9e2a00; /* Arlen: WCAG 2019 */
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+}
+.rfcEditorRemove {
+  position: relative;
+  padding-top: 1.8em;
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+  border-radius: 3px;
+}
+.cref {
+  background-color: #ffd; /* Arlen: WCAG 2019 */
+  padding: 2px 4px;
+}
+.crefSource {
+  font-style: italic;
+}
+/* alternative layout for smaller screens */
+@media screen and (max-width: 1023px) {
+  body {
+    padding-top: 2em;
+  }
+  #title {
+    padding: 1em 0;
+  }
+  h1 {
+    font-size: 24px;
+  }
+  h2 {
+    font-size: 20px;
+    margin-top: -18px;  /* provide offset for in-page anchors */
+    padding-top: 38px;
+  }
+  #identifiers dd {
+    max-width: 60%;
+  }
+  #toc {
+    position: fixed;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    padding: 0;
+    margin: 0;
+    background-color: inherit;
+    border-bottom: 1px solid #ccc;
+  }
+  #toc h2 {
+    margin: -1px 0 0 0;
+    padding: 4px 0 4px 6px;
+    padding-right: 1em;
+    min-width: 190px;
+    font-size: 1.1em;
+    text-align: right;
+    background-color: #444;
+    color: white;
+    cursor: pointer;
+  }
+  #toc h2::before { /* css hamburger */
+    float: right;
+    position: relative;
+    width: 1em;
+    height: 1px;
+    left: -164px;
+    margin: 6px 0 0 0;
+    background: white none repeat scroll 0 0;
+    box-shadow: 0 4px 0 0 white, 0 8px 0 0 white;
+    content: "";
+  }
+  #toc nav {
+    display: none;
+    padding: 0.5em 1em 1em;
+    overflow: auto;
+    height: calc(100vh - 48px);
+    border-left: 1px solid #ddd;
+  }
+}
+
+/* alternative layout for wide screens */
+@media screen and (min-width: 1024px) {
+  body {
+    max-width: 724px;
+    margin: 42px auto;
+    padding-left: 1.5em;
+    padding-right: 29em;
+  }
+  #toc {
+    position: fixed;
+    top: 42px;
+    right: 42px;
+    width: 25%;
+    margin: 0;
+    padding: 0 1em;
+    z-index: 1;
+  }
+  #toc h2 {
+    border-top: none;
+    border-bottom: 1px solid #ddd;
+    font-size: 1em;
+    font-weight: normal;
+    margin: 0;
+    padding: 0.25em 1em 1em 0;
+  }
+  #toc nav {
+    display: block;
+    height: calc(90vh - 84px);
+    bottom: 0;
+    padding: 0.5em 0 0;
+    overflow: auto;
+  }
+  img { /* future proofing */
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* pagination */
+@media print {
+  body {
+    width: 100%;
+  }
+  p {
+    orphans: 3;
+    widows: 3;
+  }
+  #n-copyright-notice {
+    border-bottom: none;
+  }
+  #toc, #n-introduction {
+    page-break-before: always;
+  }
+  #toc {
+    border-top: none;
+    padding-top: 0;
+  }
+  figure, pre {
+    page-break-inside: avoid;
+  }
+  figure {
+    overflow: scroll;
+  }
+  .breakable pre {
+    break-inside: auto;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+  h2+*, h3+*, h4+*, h5+*, h6+* {
+    page-break-before: avoid;
+  }
+  pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 10pt;
+  }
+  table {
+    border: 1px solid #ddd;
+  }
+  td {
+    border-top: 1px solid #ddd;
+  }
+}
+
+/* This is commented out here, as the string-set: doesn't
+   pass W3C validation currently */
+/*
+.ears thead .left {
+  string-set: ears-top-left content();
+}
+
+.ears thead .center {
+  string-set: ears-top-center content();
+}
+
+.ears thead .right {
+  string-set: ears-top-right content();
+}
+
+.ears tfoot .left {
+  string-set: ears-bottom-left content();
+}
+
+.ears tfoot .center {
+  string-set: ears-bottom-center content();
+}
+
+.ears tfoot .right {
+  string-set: ears-bottom-right content();
+}
+*/
+
+@page :first {
+  padding-top: 0;
+  @top-left {
+    content: normal;
+    border: none;
+  }
+  @top-center {
+    content: normal;
+    border: none;
+  }
+  @top-right {
+    content: normal;
+    border: none;
+  }
+}
+
+@page {
+  size: A4;
+  margin-bottom: 45mm;
+  padding-top: 20px;
+  /* The following is commented out here, but set appropriately by in code, as
+     the content depends on the document */
+  /*
+  @top-left {
+    content: 'Internet-Draft';
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-left {
+    content: string(ears-top-left);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-center {
+    content: string(ears-top-center);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @top-right {
+    content: string(ears-top-right);
+    vertical-align: bottom;
+    border-bottom: solid 1px #ccc;
+  }
+  @bottom-left {
+    content: string(ears-bottom-left);
+    vertical-align: top;
+    border-top: solid 1px #ccc;
+  }
+  @bottom-center {
+    content: string(ears-bottom-center);
+    vertical-align: top;
+    border-top: solid 1px #ccc;
+  }
+  @bottom-right {
+      content: '[Page ' counter(page) ']';
+      vertical-align: top;
+      border-top: solid 1px #ccc;
+  }
+  */
+
+}
+
+/* Changes introduced to fix issues found during implementation */
+/* Make sure links are clickable even if overlapped by following H* */
+a {
+  z-index: 2;
+}
+/* Separate body from document info even without intervening H1 */
+section {
+  clear: both;
+}
+
+
+/* Top align author divs, to avoid names without organization dropping level with org names */
+.author {
+  vertical-align: top;
+}
+
+/* Leave room in document info to show Internet-Draft on one line */
+#identifiers dt {
+  width: 8em;
+}
+
+/* Don't waste quite as much whitespace between label and value in doc info */
+#identifiers dd {
+  margin-left: 1em;
+}
+
+/* Give floating toc a background color (needed when it's a div inside section */
+#toc {
+  background-color: white;
+}
+
+/* Make the collapsed ToC header render white on gray also when it's a link */
+@media screen and (max-width: 1023px) {
+  #toc h2 a,
+  #toc h2 a:link,
+  #toc h2 a:focus,
+  #toc h2 a:hover,
+  #toc a.toplink,
+  #toc a.toplink:hover {
+    color: white;
+    background-color: #444;
+    text-decoration: none;
+  }
+}
+
+/* Give the bottom of the ToC some whitespace */
+@media screen and (min-width: 1024px) {
+  #toc {
+    padding: 0 0 1em 1em;
+  }
+}
+
+/* Style section numbers with more space between number and title */
+.section-number {
+  padding-right: 0.5em;
+}
+
+/* prevent monospace from becoming overly large */
+tt, code, pre {
+  font-size: 95%;
+}
+
+/* Fix the height/width aspect for ascii art*/
+.sourcecode pre,
+.art-text pre {
+  line-height: 1.12;
+}
+
+
+/* Add styling for a link in the ToC that points to the top of the document */
+a.toplink {
+  float: right;
+  margin-right: 0.5em;
+}
+
+/* Fix the dl styling to match the RFC 7992 attributes */
+dl > dt,
+dl.dlParallel > dt {
+  float: left;
+  margin-right: 1em;
+}
+dl.dlNewline > dt {
+  float: none;
+}
+
+/* Provide styling for table cell text alignment */
+table td.text-left,
+table th.text-left {
+  text-align: left;
+}
+table td.text-center,
+table th.text-center {
+  text-align: center;
+}
+table td.text-right,
+table th.text-right {
+  text-align: right;
+}
+
+/* Make the alternative author contact information look less like just another
+   author, and group it closer with the primary author contact information */
+.alternative-contact {
+  margin: 0.5em 0 0.25em 0;
+}
+address .non-ascii {
+  margin: 0 0 0 2em;
+}
+
+/* With it being possible to set tables with alignment
+  left, center, and right, { width: 100%; } does not make sense */
+table {
+  width: auto;
+}
+
+/* Avoid reference text that sits in a block with very wide left margin,
+   because of a long floating dt label.*/
+.references dd {
+  overflow: visible;
+}
+
+/* Control caption placement */
+caption {
+  caption-side: bottom;
+}
+
+/* Limit the width of the author address vcard, so names in right-to-left
+   script don't end up on the other side of the page. */
+
+address.vcard {
+  max-width: 30em;
+  margin-right: auto;
+}
+
+/* For address alignment dependent on LTR or RTL scripts */
+address div.left {
+  text-align: left;
+}
+address div.right {
+  text-align: right;
+}
+
+/* Provide table alignment support.  We can't use the alignX classes above
+   since they do unwanted things with caption and other styling. */
+table.right {
+ margin-left: auto;
+ margin-right: 0;
+}
+table.center {
+ margin-left: auto;
+ margin-right: auto;
+}
+table.left {
+ margin-left: 0;
+ margin-right: auto;
+}
+
+/* Give the table caption label the same styling as the figcaption */
+caption a[href] {
+  color: #222;
+}
+
+@media print {
+  .toplink {
+    display: none;
+  }
+
+  /* avoid overwriting the top border line with the ToC header */
+  #toc {
+    padding-top: 1px;
+  }
+
+  /* Avoid page breaks inside dl and author address entries */
+  .vcard {
+    page-break-inside: avoid;
+  }
+
+}
+/* Tweak the bcp14 keyword presentation */
+.bcp14 {
+  font-variant: small-caps;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+/* Tweak the invisible space above H* in order not to overlay links in text above */
+ h2 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 31px;
+ }
+ h3 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 24px;
+ }
+ h4 {
+  margin-top: -18px;  /* provide offset for in-page anchors */
+  padding-top: 24px;
+ }
+/* Float artwork pilcrow to the right */
+@media screen {
+  .artwork a.pilcrow {
+    display: block;
+    line-height: 0.7;
+    margin-top: 0.15em;
+  }
+}
+/* Make pilcrows on dd visible */
+@media screen {
+  dd:hover > a.pilcrow {
+    visibility: visible;
+  }
+}
+/* Make the placement of figcaption match that of a table's caption
+   by removing the figure's added bottom margin */
+.alignLeft.art-text,
+.alignCenter.art-text,
+.alignRight.art-text {
+   margin-bottom: 0;
+}
+.alignLeft,
+.alignCenter,
+.alignRight {
+  margin: 1em 0 0 0;
+}
+/* In print, the pilcrow won't show on hover, so prevent it from taking up space,
+   possibly even requiring a new line */
+@media print {
+  a.pilcrow {
+    display: none;
+  }
+}
+/* Styling for the external metadata */
+div#external-metadata {
+  background-color: #eee;
+  padding: 0.5em;
+  margin-bottom: 0.5em;
+  display: none;
+}
+div#internal-metadata {
+  padding: 0.5em;                       /* to match the external-metadata padding */
+}
+/* Styling for title RFC Number */
+h1#rfcnum {
+  clear: both;
+  margin: 0 0 -1em;
+  padding: 1em 0 0 0;
+}
+/* Make .olPercent look the same as <ol><li> */
+dl.olPercent > dd {
+  margin-bottom: 0.25em;
+  min-height: initial;
+}
+/* Give aside some styling to set it apart */
+aside {
+  border-left: 1px solid #ddd;
+  margin: 1em 0 1em 2em;
+  padding: 0.2em 2em;
+}
+aside > dl,
+aside > ol,
+aside > ul,
+aside > table,
+aside > p {
+  margin-bottom: 0.5em;
+}
+/* Additional page break settings */
+@media print {
+  figcaption, table caption {
+    page-break-before: avoid;
+  }
+}
+/* Font size adjustments for print */
+@media print {
+  body  { font-size: 10pt;      line-height: normal; max-width: 96%; }
+  h1    { font-size: 1.72em;    padding-top: 1.5em; } /* 1*1.2*1.2*1.2 */
+  h2    { font-size: 1.44em;    padding-top: 1.5em; } /* 1*1.2*1.2 */
+  h3    { font-size: 1.2em;     padding-top: 1.5em; } /* 1*1.2 */
+  h4    { font-size: 1em;       padding-top: 1.5em; }
+  h5, h6 { font-size: 1em;      margin: initial; padding: 0.5em 0 0.3em; }
+}
+/* Sourcecode margin in print, when there's no pilcrow */
+@media print {
+  .artwork,
+  .artwork > pre,
+  .sourcecode {
+    margin-bottom: 1em;
+  }
+}
+/* Avoid narrow tables forcing too narrow table captions, which may render badly */
+table {
+  min-width: 20em;
+}
+/* ol type a */
+ol.type-a { list-style-type: lower-alpha; }
+ol.type-A { list-style-type: upper-alpha; }
+ol.type-i { list-style-type: lower-roman; }
+ol.type-I { list-style-type: upper-roman; }
+/* Apply the print table and row borders in general, on request from the RPC,
+and increase the contrast between border and odd row background slightly */
+table {
+  border: 1px solid #ddd;
+}
+td {
+  border-top: 1px solid #ddd;
+}
+tr {
+  break-inside: avoid;
+}
+tr:nth-child(2n+1) > td {
+  background-color: #f8f8f8;
+}
+/* Use style rules to govern display of the TOC. */
+@media screen and (max-width: 1023px) {
+  #toc nav { display: none; }
+  #toc.active nav { display: block; }
+}
+/* Add support for keepWithNext */
+.keepWithNext {
+  break-after: avoid-page;
+  break-after: avoid-page;
+}
+/* Add support for keepWithPrevious */
+.keepWithPrevious {
+  break-before: avoid-page;
+}
+/* Change the approach to avoiding breaks inside artwork etc. */
+figure, pre, table, .artwork, .sourcecode  {
+  break-before: auto;
+  break-after: auto;
+}
+/* Avoid breaks between <dt> and <dd> */
+dl {
+  break-before: auto;
+  break-inside: auto;
+}
+dt {
+  break-before: auto;
+  break-after: avoid-page;
+}
+dd {
+  break-before: avoid-page;
+  break-after: auto;
+  orphans: 3;
+  widows: 3
+}
+span.break, dd.break {
+  margin-bottom: 0;
+  min-height: 0;
+  break-before: auto;
+  break-inside: auto;
+  break-after: auto;
+}
+/* Undo break-before ToC */
+@media print {
+  #toc {
+    break-before: auto;
+  }
+}
+/* Text in compact lists should not get extra bottom margin space,
+   since that would makes the list not compact */
+ul.compact p, .ulCompact p,
+ol.compact p, .olCompact p {
+ margin: 0;
+}
+/* But the list as a whole needs the extra space at the end */
+section ul.compact,
+section .ulCompact,
+section ol.compact,
+section .olCompact {
+  margin-bottom: 1em;                    /* same as p not within ul.compact etc. */
+}
+/* The tt and code background above interferes with for instance table cell
+   backgrounds.  Changed to something a bit more selective. */
+tt, code {
+  background-color: transparent;
+}
+p tt, p code, li tt, li code, dt tt, dt code {
+  background-color: #f8f8f8;
+}
+/* Tweak the pre margin -- 0px doesn't come out well */
+pre {
+   margin-top: 0.5px;
+}
+/* Tweak the compact list text */
+ul.compact, .ulCompact,
+ol.compact, .olCompact,
+dl.compact, .dlCompact {
+  line-height: normal;
+}
+/* Don't add top margin for nested lists */
+li > ul, li > ol, li > dl,
+dd > ul, dd > ol, dd > dl,
+dl > dd > dl {
+  margin-top: initial;
+}
+/* Elements that should not be rendered on the same line as a <dt> */
+/* This should match the element list in writer.text.TextWriter.render_dl() */
+dd > div.artwork:first-child,
+dd > aside:first-child,
+dd > blockquote:first-child,
+dd > figure:first-child,
+dd > ol:first-child,
+dd > div.sourcecode:first-child,
+dd > table:first-child,
+dd > ul:first-child {
+  clear: left;
+}
+/* fix for weird browser behaviour when <dd/> is empty */
+dt+dd:empty::before{
+  content: "\00a0";
+}
+/* Make paragraph spacing inside <li> smaller than in body text, to fit better within the list */
+li > p {
+  margin-bottom: 0.5em
+}
+/* Don't let p margin spill out from inside list items */
+li > p:last-of-type:only-child {
+  margin-bottom: 0;
+}
+</style>
+<link href="rfc-local.css" rel="stylesheet" type="text/css">
+<script type="application/javascript">async function addMetadata(){try{const e=document.styleSheets[0].cssRules;for(let t=0;t<e.length;t++)if(/#identifiers/.exec(e[t].selectorText)){const a=e[t].cssText.replace("#identifiers","#external-updates");document.styleSheets[0].insertRule(a,document.styleSheets[0].cssRules.length)}}catch(e){console.log(e)}const e=document.getElementById("external-metadata");if(e)try{var t,a="",o=function(e){const t=document.getElementsByTagName("meta");for(let a=0;a<t.length;a++)if(t[a].getAttribute("name")===e)return t[a].getAttribute("content");return""}("rfc.number");if(o){t="https://www.rfc-editor.org/rfc/rfc"+o+".json";try{const e=await fetch(t);a=await e.json()}catch(e){t=document.URL.indexOf("html")>=0?document.URL.replace(/html$/,"json"):document.URL+".json";const o=await fetch(t);a=await o.json()}}if(!a)return;e.style.display="block";const s="",d="https://datatracker.ietf.org/doc",n="https://datatracker.ietf.org/ipr/search",c="https://www.rfc-editor.org/info",l=a.doc_id.toLowerCase(),i=a.doc_id.slice(0,3).toLowerCase(),f=a.doc_id.slice(3).replace(/^0+/,""),u={status:"Status",obsoletes:"Obsoletes",obsoleted_by:"Obsoleted By",updates:"Updates",updated_by:"Updated By",see_also:"See Also",errata_url:"Errata"};let h="<dl style='overflow:hidden' id='external-updates'>";["status","obsoletes","obsoleted_by","updates","updated_by","see_also","errata_url"].forEach(e=>{if("status"==e){a[e]=a[e].toLowerCase();var t=a[e].split(" "),o=t.length,w="",p=1;for(let e=0;e<o;e++)p<o?w=w+r(t[e])+" ":w+=r(t[e]),p++;a[e]=w}else if("obsoletes"==e||"obsoleted_by"==e||"updates"==e||"updated_by"==e){var g,m="",b=1;g=a[e].length;for(let t=0;t<g;t++)a[e][t]&&(a[e][t]=String(a[e][t]).toLowerCase(),m=b<g?m+"<a href='"+s+"/rfc/".concat(a[e][t])+"'>"+a[e][t].slice(3)+"</a>, ":m+"<a href='"+s+"/rfc/".concat(a[e][t])+"'>"+a[e][t].slice(3)+"</a>",b++);a[e]=m}else if("see_also"==e){var y,L="",C=1;y=a[e].length;for(let t=0;t<y;t++)if(a[e][t]){a[e][t]=String(a[e][t]);var _=a[e][t].slice(0,3),v=a[e][t].slice(3).replace(/^0+/,"");L=C<y?"RFC"!=_?L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+_+" "+v+"</a>, ":L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+v+"</a>, ":"RFC"!=_?L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+_+" "+v+"</a>":L+"<a href='"+s+"/info/"+_.toLowerCase().concat(v.toLowerCase())+"'>"+v+"</a>",C++}a[e]=L}else if("errata_url"==e){var R="";R=a[e]?R+"<a href='"+a[e]+"'>Errata exist</a> | <a href='"+d+"/"+l+"'>Datatracker</a>| <a href='"+n+"/?"+i+"="+f+"&submit="+i+"'>IPR</a> | <a href='"+c+"/"+l+"'>Info page</a>":"<a href='"+d+"/"+l+"'>Datatracker</a> | <a href='"+n+"/?"+i+"="+f+"&submit="+i+"'>IPR</a> | <a href='"+c+"/"+l+"'>Info page</a>",a[e]=R}""!=a[e]?"Errata"==u[e]?h+=`<dt>More info:</dt><dd>${a[e]}</dd>`:h+=`<dt>${u[e]}:</dt><dd>${a[e]}</dd>`:"Errata"==u[e]&&(h+=`<dt>More info:</dt><dd>${a[e]}</dd>`)}),h+="</dl>",e.innerHTML=h}catch(e){console.log(e)}else console.log("Could not locate metadata <div> element");function r(e){return e.charAt(0).toUpperCase()+e.slice(1)}}window.removeEventListener("load",addMetadata),window.addEventListener("load",addMetadata);</script>
+</head>
+<body class="xml2rfc">
+<table class="ears">
+<thead><tr>
+<td class="left">Internet-Draft</td>
+<td class="center">Agent Network Problem Statement</td>
+<td class="right">March 2026</td>
+</tr></thead>
+<tfoot><tr>
+<td class="left">Teodor</td>
+<td class="center">Expires 15 September 2026</td>
+<td class="right">[Page]</td>
+</tr></tfoot>
+</table>
+<div id="external-metadata" class="document-information"></div>
+<div id="internal-metadata" class="document-information">
+<dl id="identifiers">
+<dt class="label-workgroup">Workgroup:</dt>
+<dd class="workgroup">Independent Submission</dd>
+<dt class="label-internet-draft">Internet-Draft:</dt>
+<dd class="internet-draft">draft-teodor-pilot-problem-statement-00</dd>
+<dt class="label-published">Published:</dt>
+<dd class="published">
+<time datetime="2026-03-14" class="published">14 March 2026</time>
+    </dd>
+<dt class="label-intended-status">Intended Status:</dt>
+<dd class="intended-status">Informational</dd>
+<dt class="label-expires">Expires:</dt>
+<dd class="expires"><time datetime="2026-09-15">15 September 2026</time></dd>
+<dt class="label-authors">Author:</dt>
+<dd class="authors">
+<div class="author">
+      <div class="author-name">C. Teodor</div>
+<div class="org">Vulture Labs</div>
+</div>
+</dd>
+</dl>
+</div>
+<h1 id="title">Problem Statement: Network-Layer Infrastructure for Autonomous Agent Communication</h1>
+<section id="section-abstract">
+      <h2 id="abstract"><a href="#abstract" class="selfRef">Abstract</a></h2>
+<p id="section-abstract-1">AI agents --- autonomous software entities capable of reasoning, planning,
+and executing tasks --- are an increasingly important class of network
+participant. Current agent communication protocols operate exclusively at
+the application layer over HTTP, assuming the existence of stable endpoints,
+DNS names, and centralized infrastructure. No existing standard provides
+network-layer identity, addressing, or transport for agents. This document
+describes the problem space and identifies requirements for a network-layer
+infrastructure that would give agents first-class network citizenship,
+independent of the web infrastructure designed for human users.<a href="#section-abstract-1" class="pilcrow">¶</a></p>
+</section>
+<div id="status-of-memo">
+<section id="section-boilerplate.1">
+        <h2 id="name-status-of-this-memo">
+<a href="#name-status-of-this-memo" class="section-name selfRef">Status of This Memo</a>
+        </h2>
+<p id="section-boilerplate.1-1">
+        This Internet-Draft is submitted in full conformance with the
+        provisions of BCP 78 and BCP 79.<a href="#section-boilerplate.1-1" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-2">
+        Internet-Drafts are working documents of the Internet Engineering Task
+        Force (IETF). Note that other groups may also distribute working
+        documents as Internet-Drafts. The list of current Internet-Drafts is
+        at <span><a href="https://datatracker.ietf.org/drafts/current/">https://datatracker.ietf.org/drafts/current/</a></span>.<a href="#section-boilerplate.1-2" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-3">
+        Internet-Drafts are draft documents valid for a maximum of six months
+        and may be updated, replaced, or obsoleted by other documents at any
+        time. It is inappropriate to use Internet-Drafts as reference
+        material or to cite them other than as "work in progress."<a href="#section-boilerplate.1-3" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.1-4">
+        This Internet-Draft will expire on 15 September 2026.<a href="#section-boilerplate.1-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="copyright">
+<section id="section-boilerplate.2">
+        <h2 id="name-copyright-notice">
+<a href="#name-copyright-notice" class="section-name selfRef">Copyright Notice</a>
+        </h2>
+<p id="section-boilerplate.2-1">
+            Copyright (c) 2026 IETF Trust and the persons identified as the
+            document authors. All rights reserved.<a href="#section-boilerplate.2-1" class="pilcrow">¶</a></p>
+<p id="section-boilerplate.2-2">
+            This document is subject to BCP 78 and the IETF Trust's Legal
+            Provisions Relating to IETF Documents
+            (<span><a href="https://trustee.ietf.org/license-info">https://trustee.ietf.org/license-info</a></span>) in effect on the date of
+            publication of this document. Please review these documents
+            carefully, as they describe your rights and restrictions with
+            respect to this document.<a href="#section-boilerplate.2-2" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="toc">
+<section id="section-toc.1">
+        <a href="#" onclick="scroll(0,0)" class="toplink">▲</a><h2 id="name-table-of-contents">
+<a href="#name-table-of-contents" class="section-name selfRef">Table of Contents</a>
+        </h2>
+<nav class="toc"><ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.1">
+            <p id="section-toc.1-1.1.1" class="keepWithNext"><a href="#section-1" class="auto internal xref">1</a>.  <a href="#name-introduction" class="internal xref">Introduction</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.2">
+            <p id="section-toc.1-1.2.1" class="keepWithNext"><a href="#section-2" class="auto internal xref">2</a>.  <a href="#name-terminology" class="internal xref">Terminology</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3">
+            <p id="section-toc.1-1.3.1"><a href="#section-3" class="auto internal xref">3</a>.  <a href="#name-problem-description" class="internal xref">Problem Description</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.1">
+                <p id="section-toc.1-1.3.2.1.1" class="keepWithNext"><a href="#section-3.1" class="auto internal xref">3.1</a>.  <a href="#name-agent-identity-is-coupled-t" class="internal xref">Agent Identity Is Coupled to Infrastructure</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.2">
+                <p id="section-toc.1-1.3.2.2.1"><a href="#section-3.2" class="auto internal xref">3.2</a>.  <a href="#name-no-peer-to-peer-communicati" class="internal xref">No Peer-to-Peer Communication Without Web Infrastructure</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.3">
+                <p id="section-toc.1-1.3.2.3.1"><a href="#section-3.3" class="auto internal xref">3.3</a>.  <a href="#name-no-agent-native-trust-model" class="internal xref">No Agent-Native Trust Model</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.4">
+                <p id="section-toc.1-1.3.2.4.1"><a href="#section-3.4" class="auto internal xref">3.4</a>.  <a href="#name-no-lightweight-transport-fo" class="internal xref">No Lightweight Transport for Agent Streams</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.5">
+                <p id="section-toc.1-1.3.2.5.1"><a href="#section-3.5" class="auto internal xref">3.5</a>.  <a href="#name-privacy-gaps-in-agent-disco" class="internal xref">Privacy Gaps in Agent Discovery</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4">
+            <p id="section-toc.1-1.4.1"><a href="#section-4" class="auto internal xref">4</a>.  <a href="#name-requirements-for-a-solution" class="internal xref">Requirements for a Solution</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.1">
+                <p id="section-toc.1-1.4.2.1.1"><a href="#section-4.1" class="auto internal xref">4.1</a>.  <a href="#name-virtual-addressing" class="internal xref">Virtual Addressing</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.2">
+                <p id="section-toc.1-1.4.2.2.1"><a href="#section-4.2" class="auto internal xref">4.2</a>.  <a href="#name-nat-traversal" class="internal xref">NAT Traversal</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.3">
+                <p id="section-toc.1-1.4.2.3.1"><a href="#section-4.3" class="auto internal xref">4.3</a>.  <a href="#name-bilateral-trust-model" class="internal xref">Bilateral Trust Model</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.4">
+                <p id="section-toc.1-1.4.2.4.1"><a href="#section-4.4" class="auto internal xref">4.4</a>.  <a href="#name-lightweight-encrypted-trans" class="internal xref">Lightweight Encrypted Transport</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.4.2.5">
+                <p id="section-toc.1-1.4.2.5.1"><a href="#section-4.5" class="auto internal xref">4.5</a>.  <a href="#name-privacy-by-default-discover" class="internal xref">Privacy-by-Default Discovery</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5">
+            <p id="section-toc.1-1.5.1"><a href="#section-5" class="auto internal xref">5</a>.  <a href="#name-existing-approaches-and-gap" class="internal xref">Existing Approaches and Gaps</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.1">
+                <p id="section-toc.1-1.5.2.1.1"><a href="#section-5.1" class="auto internal xref">5.1</a>.  <a href="#name-mcp-model-context-protocol" class="internal xref">MCP (Model Context Protocol)</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.2">
+                <p id="section-toc.1-1.5.2.2.1"><a href="#section-5.2" class="auto internal xref">5.2</a>.  <a href="#name-a2a-agent-to-agent-protocol" class="internal xref">A2A (Agent-to-Agent Protocol)</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.3">
+                <p id="section-toc.1-1.5.2.3.1"><a href="#section-5.3" class="auto internal xref">5.3</a>.  <a href="#name-webrtc" class="internal xref">WebRTC</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.4">
+                <p id="section-toc.1-1.5.2.4.1"><a href="#section-5.4" class="auto internal xref">5.4</a>.  <a href="#name-quic" class="internal xref">QUIC</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.5">
+                <p id="section-toc.1-1.5.2.5.1"><a href="#section-5.5" class="auto internal xref">5.5</a>.  <a href="#name-libp2p" class="internal xref">libp2p</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.6">
+                <p id="section-toc.1-1.5.2.6.1"><a href="#section-5.6" class="auto internal xref">5.6</a>.  <a href="#name-wireguard" class="internal xref">WireGuard</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.5.2.7">
+                <p id="section-toc.1-1.5.2.7.1"><a href="#section-5.7" class="auto internal xref">5.7</a>.  <a href="#name-lisp" class="internal xref">LISP</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.6">
+            <p id="section-toc.1-1.6.1"><a href="#section-6" class="auto internal xref">6</a>.  <a href="#name-security-considerations" class="internal xref">Security Considerations</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7">
+            <p id="section-toc.1-1.7.1"><a href="#section-7" class="auto internal xref">7</a>.  <a href="#name-iana-considerations" class="internal xref">IANA Considerations</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8">
+            <p id="section-toc.1-1.8.1"><a href="#section-8" class="auto internal xref">8</a>.  <a href="#name-references" class="internal xref">References</a></p>
+<ul class="compact toc ulBare ulEmpty">
+<li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.1">
+                <p id="section-toc.1-1.8.2.1.1"><a href="#section-8.1" class="auto internal xref">8.1</a>.  <a href="#name-normative-references" class="internal xref">Normative References</a></p>
+</li>
+              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.8.2.2">
+                <p id="section-toc.1-1.8.2.2.1"><a href="#section-8.2" class="auto internal xref">8.2</a>.  <a href="#name-informative-references" class="internal xref">Informative References</a></p>
+</li>
+            </ul>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.9">
+            <p id="section-toc.1-1.9.1"><a href="#appendix-A" class="auto internal xref">Appendix A</a>.  <a href="#name-acknowledgments" class="internal xref">Acknowledgments</a></p>
+</li>
+          <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.10">
+            <p id="section-toc.1-1.10.1"><a href="#appendix-B" class="auto internal xref"></a><a href="#name-authors-address" class="internal xref">Author's Address</a></p>
+</li>
+        </ul>
+</nav>
+</section>
+</div>
+<div id="introduction">
+<section id="section-1">
+      <h2 id="name-introduction">
+<a href="#section-1" class="section-number selfRef">1. </a><a href="#name-introduction" class="section-name selfRef">Introduction</a>
+      </h2>
+<p id="section-1-1">The internet's protocol stack was designed for human-operated devices with
+stable network attachments. IP addresses identify interfaces, DNS names
+identify services, and TLS certificates identify organizations. These
+assumptions break down for AI agents, which are transient software
+processes that may run behind NAT, migrate between hosts, and lack
+persistent network identity.<a href="#section-1-1" class="pilcrow">¶</a></p>
+<p id="section-1-2">Recent standardization efforts for agent communication --- notably MCP
+<span>[<a href="#MCP" class="cite xref">MCP</a>]</span> (agent-to-tool) and A2A <span>[<a href="#A2A" class="cite xref">A2A</a>]</span> (agent-to-agent) --- have focused
+on application-layer protocols built on HTTP. These protocols define what
+agents say to each other but assume the underlying problem of how agents
+reach each other is already solved. For agents running in cloud
+environments with public endpoints, this assumption holds. For agents
+running on edge devices, behind corporate firewalls, on laptops, or in
+heterogeneous multi-cloud deployments, it does not.<a href="#section-1-2" class="pilcrow">¶</a></p>
+<p id="section-1-3">The IETF has seen significant activity in AI agent protocol
+standardization, with over a dozen drafts filed in 2025-2026 (see
+<span>[<a href="#I-D.rosenberg-aiproto-framework" class="cite xref">I-D.rosenberg-aiproto-framework</a>]</span>, <span>[<a href="#I-D.zyyhl-agent-networks-framework" class="cite xref">I-D.zyyhl-agent-networks-framework</a>]</span>,
+<span>[<a href="#I-D.narvaneni-agent-uri" class="cite xref">I-D.narvaneni-agent-uri</a>]</span>). Every one of these drafts operates at the
+application layer over HTTP. None addresses the network or transport layer.<a href="#section-1-3" class="pilcrow">¶</a></p>
+<p id="section-1-4">This document describes the problem of network-layer infrastructure for
+autonomous agent communication, identifies the gaps in existing protocols,
+and states requirements for a solution. It is modeled after <span>[<a href="#RFC7364" class="cite xref">RFC7364</a>]</span>,
+which performed a similar analysis for network virtualization overlays.<a href="#section-1-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="terminology">
+<section id="section-2">
+      <h2 id="name-terminology">
+<a href="#section-2" class="section-number selfRef">2. </a><a href="#name-terminology" class="section-name selfRef">Terminology</a>
+      </h2>
+<p id="section-2-1">The key words "<span class="bcp14">MUST</span>", "<span class="bcp14">MUST NOT</span>", "<span class="bcp14">REQUIRED</span>", "<span class="bcp14">SHALL</span>", "<span class="bcp14">SHALL NOT</span>", "<span class="bcp14">SHOULD</span>", "<span class="bcp14">SHOULD NOT</span>", "<span class="bcp14">RECOMMENDED</span>", "<span class="bcp14">NOT RECOMMENDED</span>",
+"<span class="bcp14">MAY</span>", and "<span class="bcp14">OPTIONAL</span>" in this document are to be interpreted as
+described in BCP 14 <span>[<a href="#RFC2119" class="cite xref">RFC2119</a>]</span> <span>[<a href="#RFC8174" class="cite xref">RFC8174</a>]</span> when, and only when, they
+appear in all capitals, as shown here.<a href="#section-2-1" class="pilcrow">¶</a></p>
+<span class="break"></span><dl class="dlParallel" id="section-2-2">
+        <dt id="section-2-2.1">Agent:</dt>
+        <dd style="margin-left: 1.5em" id="section-2-2.2">
+          <p id="section-2-2.2.1">An autonomous software entity capable of reasoning, planning, and
+executing tasks without continuous human supervision. An agent may run as
+a process, container, or serverless function.<a href="#section-2-2.2.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-2-2.3">Overlay Network:</dt>
+        <dd style="margin-left: 1.5em" id="section-2-2.4">
+          <p id="section-2-2.4.1">A virtual network built on top of an existing network (the underlay).
+Overlay nodes communicate using encapsulated packets carried over the
+underlay.<a href="#section-2-2.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-2-2.5">Virtual Address:</dt>
+        <dd style="margin-left: 1.5em" id="section-2-2.6">
+          <p id="section-2-2.6.1">A network address assigned within the overlay address space, independent
+of the underlay IP address. A virtual address identifies an agent, not a
+network interface.<a href="#section-2-2.6.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-2-2.7">Registry:</dt>
+        <dd style="margin-left: 1.5em" id="section-2-2.8">
+          <p id="section-2-2.8.1">A service that assigns virtual addresses, maintains an address-to-locator
+mapping table, and provides bootstrap information for overlay
+participants.<a href="#section-2-2.8.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-2-2.9">Trust Handshake:</dt>
+        <dd style="margin-left: 1.5em" id="section-2-2.10">
+          <p id="section-2-2.10.1">A protocol exchange through which two agents establish a bilateral trust
+relationship with explicit mutual consent.<a href="#section-2-2.10.1" class="pilcrow">¶</a></p>
+</dd>
+      <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="problem-description">
+<section id="section-3">
+      <h2 id="name-problem-description">
+<a href="#section-3" class="section-number selfRef">3. </a><a href="#name-problem-description" class="section-name selfRef">Problem Description</a>
+      </h2>
+<div id="agent-identity-is-coupled-to-infrastructure">
+<section id="section-3.1">
+        <h3 id="name-agent-identity-is-coupled-t">
+<a href="#section-3.1" class="section-number selfRef">3.1. </a><a href="#name-agent-identity-is-coupled-t" class="section-name selfRef">Agent Identity Is Coupled to Infrastructure</a>
+        </h3>
+<p id="section-3.1-1">In current practice, agents are identified by URLs, DNS names, or API
+endpoints --- all of which are tied to the infrastructure hosting the
+agent, not to the agent itself. When an agent migrates to a different host,
+changes cloud provider, or restarts behind a different NAT binding, its
+identity changes. There is no stable identifier that follows an agent
+across these transitions.<a href="#section-3.1-1" class="pilcrow">¶</a></p>
+<p id="section-3.1-2">This is analogous to the identity/locator conflation problem in IP
+networking, which motivated the Locator/ID Separation Protocol (LISP)
+<span>[<a href="#RFC9300" class="cite xref">RFC9300</a>]</span>. In LISP, Endpoint Identifiers (EIDs) are separated from
+Routing Locators (RLOCs) so that an endpoint's identity is independent of
+its network attachment point. Agents need the same separation: a permanent
+identity that is independent of the transient infrastructure hosting them.<a href="#section-3.1-2" class="pilcrow">¶</a></p>
+<p id="section-3.1-3">The A2A protocol <span>[<a href="#A2A" class="cite xref">A2A</a>]</span> identifies agents via "Agent Cards" served at
+well-known HTTPS URLs. This requires the agent to maintain a stable,
+publicly reachable web endpoint --- a requirement that excludes agents
+running on edge devices, behind NAT, or in ephemeral compute environments.<a href="#section-3.1-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="no-peer-to-peer-communication-without-web-infrastructure">
+<section id="section-3.2">
+        <h3 id="name-no-peer-to-peer-communicati">
+<a href="#section-3.2" class="section-number selfRef">3.2. </a><a href="#name-no-peer-to-peer-communicati" class="section-name selfRef">No Peer-to-Peer Communication Without Web Infrastructure</a>
+        </h3>
+<p id="section-3.2-1">Both MCP <span>[<a href="#MCP" class="cite xref">MCP</a>]</span> and A2A <span>[<a href="#A2A" class="cite xref">A2A</a>]</span> require HTTP endpoints for communication.
+This means every agent must either have a publicly routable IP address or
+be fronted by a reverse proxy, load balancer, or API gateway. For two
+agents behind NAT to communicate, at least one must provision web
+infrastructure as an intermediary.<a href="#section-3.2-1" class="pilcrow">¶</a></p>
+<p id="section-3.2-2">NAT traversal is a solved problem for specific domains: WebRTC handles it
+for browsers (at the cost of ICE/DTLS-SRTP/SDP negotiation complexity),
+and WireGuard <span>[<a href="#WIREGUARD" class="cite xref">WIREGUARD</a>]</span> handles it for VPN tunnels. But no existing
+protocol provides NAT traversal specifically designed for agent-to-agent
+communication, with agent-native addressing and trust semantics.<a href="#section-3.2-2" class="pilcrow">¶</a></p>
+<p id="section-3.2-3">An estimated 88% of real-world network environments involve some form of
+NAT. Agents running on laptops, IoT devices, edge servers, and mobile
+phones cannot participate in HTTP-based agent protocols without significant
+infrastructure provisioning.<a href="#section-3.2-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="no-agent-native-trust-model">
+<section id="section-3.3">
+        <h3 id="name-no-agent-native-trust-model">
+<a href="#section-3.3" class="section-number selfRef">3.3. </a><a href="#name-no-agent-native-trust-model" class="section-name selfRef">No Agent-Native Trust Model</a>
+        </h3>
+<p id="section-3.3-1">Existing trust models were designed for different participants:<a href="#section-3.3-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-3.3-2.1">
+            <p id="section-3.3-2.1.1">TLS: Trust is anchored in Certificate Authorities. Agents would need to
+obtain and manage X.509 certificates, adding operational complexity
+disproportionate to many agent interactions.<a href="#section-3.3-2.1.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.3-2.2">
+            <p id="section-3.3-2.2.1">SSH: Trust-on-first-use (TOFU) assumes a human operator who can verify a
+host key fingerprint. Autonomous agents have no human in the loop.<a href="#section-3.3-2.2.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.3-2.3">
+            <p id="section-3.3-2.3.1">OAuth/OIDC: Designed for user-to-service authorization, not peer-to-peer
+agent trust. Requires an authorization server as a trusted third party.<a href="#section-3.3-2.3.1" class="pilcrow">¶</a></p>
+</li>
+        </ul>
+<p id="section-3.3-3">None of these models provide bilateral consent --- the property that both
+parties must explicitly agree before a communication relationship is
+established. For autonomous entities that may be operated by different
+organizations, bilateral consent is a natural trust primitive: neither
+agent should be reachable by the other until both have agreed.<a href="#section-3.3-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="no-lightweight-transport-for-agent-streams">
+<section id="section-3.4">
+        <h3 id="name-no-lightweight-transport-fo">
+<a href="#section-3.4" class="section-number selfRef">3.4. </a><a href="#name-no-lightweight-transport-fo" class="section-name selfRef">No Lightweight Transport for Agent Streams</a>
+        </h3>
+<p id="section-3.4-1">TCP and QUIC <span>[<a href="#RFC9000" class="cite xref">RFC9000</a>]</span> are general-purpose transports optimized for web
+traffic patterns (request-response, large transfers, multiplexed streams).
+Agent communication patterns differ:<a href="#section-3.4-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-3.4-2.1">
+            <p id="section-3.4-2.1.1">Many agents exchange small, frequent messages (status updates, task
+delegations, sensor readings) where connection setup overhead dominates.<a href="#section-3.4-2.1.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.4-2.2">
+            <p id="section-3.4-2.2.1">Agents often maintain long-lived bidirectional streams for event-driven
+architectures, where TCP's head-of-line blocking is problematic.<a href="#section-3.4-2.2.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.4-2.3">
+            <p id="section-3.4-2.3.1">Agents may need port-based service multiplexing (echo on one port, task
+submission on another, events on a third) --- a concept that exists in
+TCP/UDP but has no equivalent in HTTP-based agent protocols.<a href="#section-3.4-2.3.1" class="pilcrow">¶</a></p>
+</li>
+        </ul>
+<p id="section-3.4-3">While QUIC addresses head-of-line blocking through multiplexed streams, it
+does not provide agent addressing, discovery, or trust semantics. A
+transport designed for agents could provide these as built-in capabilities
+rather than requiring them to be layered on top.<a href="#section-3.4-3" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="privacy-gaps-in-agent-discovery">
+<section id="section-3.5">
+        <h3 id="name-privacy-gaps-in-agent-disco">
+<a href="#section-3.5" class="section-number selfRef">3.5. </a><a href="#name-privacy-gaps-in-agent-disco" class="section-name selfRef">Privacy Gaps in Agent Discovery</a>
+        </h3>
+<p id="section-3.5-1">Current agent discovery mechanisms are designed for visibility:<a href="#section-3.5-1" class="pilcrow">¶</a></p>
+<ul class="normal">
+<li class="normal" id="section-3.5-2.1">
+            <p id="section-3.5-2.1.1">A2A Agent Cards are intended to be publicly discoverable at well-known
+URLs.<a href="#section-3.5-2.1.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.5-2.2">
+            <p id="section-3.5-2.2.1">DNS-SD and mDNS broadcast service availability to all listeners on a
+network segment.<a href="#section-3.5-2.2.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-3.5-2.3">
+            <p id="section-3.5-2.3.1">HTTP-based service registries typically allow any authenticated client to
+enumerate all registered services.<a href="#section-3.5-2.3.1" class="pilcrow">¶</a></p>
+</li>
+        </ul>
+<p id="section-3.5-3">For agents, the default should be the opposite. An agent's existence and
+capabilities should not be disclosed to parties that have not been
+explicitly authorized. Mass enumeration of agent endpoints creates attack
+surface (reconnaissance for exploitation) and privacy risks (mapping an
+organization's agent infrastructure).<a href="#section-3.5-3" class="pilcrow">¶</a></p>
+<p id="section-3.5-4">A privacy-by-default discovery model --- where agents are invisible until
+they explicitly opt in to specific peer relationships --- has no equivalent
+in current standards.<a href="#section-3.5-4" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="requirements-for-a-solution">
+<section id="section-4">
+      <h2 id="name-requirements-for-a-solution">
+<a href="#section-4" class="section-number selfRef">4. </a><a href="#name-requirements-for-a-solution" class="section-name selfRef">Requirements for a Solution</a>
+      </h2>
+<p id="section-4-1">Based on the problems identified above, a network-layer infrastructure for
+agent communication should satisfy the following requirements:<a href="#section-4-1" class="pilcrow">¶</a></p>
+<div id="virtual-addressing">
+<section id="section-4.1">
+        <h3 id="name-virtual-addressing">
+<a href="#section-4.1" class="section-number selfRef">4.1. </a><a href="#name-virtual-addressing" class="section-name selfRef">Virtual Addressing</a>
+        </h3>
+<span class="break"></span><dl class="dlNewline" id="section-4.1-1">
+          <dt id="section-4.1-1.1">REQ-1:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.1-1.2">
+            <p id="section-4.1-1.2.1">Agents <span class="bcp14">MUST</span> receive stable virtual addresses that are independent of
+their underlying IP address, network attachment point, and hosting
+infrastructure.<a href="#section-4.1-1.2.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.1-1.3">REQ-2:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.1-1.4">
+            <p id="section-4.1-1.4.1">The addressing scheme <span class="bcp14">MUST</span> support hierarchical grouping (e.g., network
+or topic-based segmentation) to enable scoped communication boundaries.<a href="#section-4.1-1.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="nat-traversal">
+<section id="section-4.2">
+        <h3 id="name-nat-traversal">
+<a href="#section-4.2" class="section-number selfRef">4.2. </a><a href="#name-nat-traversal" class="section-name selfRef">NAT Traversal</a>
+        </h3>
+<span class="break"></span><dl class="dlNewline" id="section-4.2-1">
+          <dt id="section-4.2-1.1">REQ-3:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.2-1.2">
+            <p id="section-4.2-1.2.1">The system <span class="bcp14">MUST</span> provide automatic NAT traversal without requiring manual
+configuration of port forwarding, firewall rules, or relay proxies by the
+agent operator.<a href="#section-4.2-1.2.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.2-1.3">REQ-4:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.2-1.4">
+            <p id="section-4.2-1.4.1">NAT traversal <span class="bcp14">MUST</span> support direct peer-to-peer communication where
+possible, with transparent relay fallback when direct communication is
+not achievable.<a href="#section-4.2-1.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="bilateral-trust-model">
+<section id="section-4.3">
+        <h3 id="name-bilateral-trust-model">
+<a href="#section-4.3" class="section-number selfRef">4.3. </a><a href="#name-bilateral-trust-model" class="section-name selfRef">Bilateral Trust Model</a>
+        </h3>
+<span class="break"></span><dl class="dlNewline" id="section-4.3-1">
+          <dt id="section-4.3-1.1">REQ-5:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.3-1.2">
+            <p id="section-4.3-1.2.1">Communication between agents <span class="bcp14">MUST</span> require explicit bilateral consent.
+Neither agent should be reachable by the other until both have agreed to
+establish a trust relationship.<a href="#section-4.3-1.2.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.3-1.3">REQ-6:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.3-1.4">
+            <p id="section-4.3-1.4.1">Trust relationships <span class="bcp14">MUST</span> be revocable. Revoking trust <span class="bcp14">MUST</span> immediately
+prevent further communication.<a href="#section-4.3-1.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="lightweight-encrypted-transport">
+<section id="section-4.4">
+        <h3 id="name-lightweight-encrypted-trans">
+<a href="#section-4.4" class="section-number selfRef">4.4. </a><a href="#name-lightweight-encrypted-trans" class="section-name selfRef">Lightweight Encrypted Transport</a>
+        </h3>
+<span class="break"></span><dl class="dlNewline" id="section-4.4-1">
+          <dt id="section-4.4-1.1">REQ-7:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.4-1.2">
+            <p id="section-4.4-1.2.1">The transport <span class="bcp14">MUST</span> provide reliable, ordered byte stream delivery
+(TCP-equivalent) and unreliable datagram delivery (UDP-equivalent) over
+the overlay.<a href="#section-4.4-1.2.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.4-1.3">REQ-8:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.4-1.4">
+            <p id="section-4.4-1.4.1">Encryption <span class="bcp14">MUST</span> be enabled by default for all data in transit, with no
+opt-in required from the agent developer.<a href="#section-4.4-1.4.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.4-1.5">REQ-9:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.4-1.6">
+            <p id="section-4.4-1.6.1">The transport <span class="bcp14">MUST</span> support port-based service multiplexing, allowing an
+agent to expose multiple services on different virtual ports.<a href="#section-4.4-1.6.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="privacy-by-default-discovery">
+<section id="section-4.5">
+        <h3 id="name-privacy-by-default-discover">
+<a href="#section-4.5" class="section-number selfRef">4.5. </a><a href="#name-privacy-by-default-discover" class="section-name selfRef">Privacy-by-Default Discovery</a>
+        </h3>
+<span class="break"></span><dl class="dlNewline" id="section-4.5-1">
+          <dt id="section-4.5-1.1">REQ-10:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.5-1.2">
+            <p id="section-4.5-1.2.1">Agents <span class="bcp14">MUST</span> be private by default. An agent's virtual address, physical
+locator, and capabilities <span class="bcp14">MUST NOT</span> be disclosed to parties without an
+established trust relationship or shared group membership.<a href="#section-4.5-1.2.1" class="pilcrow">¶</a></p>
+</dd>
+          <dd class="break"></dd>
+<dt id="section-4.5-1.3">REQ-11:</dt>
+          <dd style="margin-left: 1.5em" id="section-4.5-1.4">
+            <p id="section-4.5-1.4.1">It <span class="bcp14">MUST</span> be possible to establish trust with a private agent without
+first knowing its physical network location (i.e., via a trusted relay
+or rendezvous mechanism).<a href="#section-4.5-1.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+</dl>
+</section>
+</div>
+</section>
+</div>
+<div id="existing-approaches-and-gaps">
+<section id="section-5">
+      <h2 id="name-existing-approaches-and-gap">
+<a href="#section-5" class="section-number selfRef">5. </a><a href="#name-existing-approaches-and-gap" class="section-name selfRef">Existing Approaches and Gaps</a>
+      </h2>
+<div id="mcp-model-context-protocol">
+<section id="section-5.1">
+        <h3 id="name-mcp-model-context-protocol">
+<a href="#section-5.1" class="section-number selfRef">5.1. </a><a href="#name-mcp-model-context-protocol" class="section-name selfRef">MCP (Model Context Protocol)</a>
+        </h3>
+<p id="section-5.1-1">MCP <span>[<a href="#MCP" class="cite xref">MCP</a>]</span> standardizes the interface between AI models and external
+tools/resources. It uses JSON-RPC over HTTP with Server-Sent Events for
+streaming. MCP addresses agent-to-tool communication, not agent-to-agent
+communication, and provides no network-layer capabilities. It assumes
+agents can reach tool servers via HTTP.<a href="#section-5.1-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="a2a-agent-to-agent-protocol">
+<section id="section-5.2">
+        <h3 id="name-a2a-agent-to-agent-protocol">
+<a href="#section-5.2" class="section-number selfRef">5.2. </a><a href="#name-a2a-agent-to-agent-protocol" class="section-name selfRef">A2A (Agent-to-Agent Protocol)</a>
+        </h3>
+<p id="section-5.2-1">A2A <span>[<a href="#A2A" class="cite xref">A2A</a>]</span> defines a protocol for agent interoperability: Agent Cards for
+discovery, task lifecycle management, and multimodal message exchange. A2A
+operates entirely over HTTP/HTTPS. It provides no NAT traversal, no
+overlay addressing, no built-in encryption beyond TLS, and no bilateral
+trust model. It assumes agents have reachable HTTP endpoints.<a href="#section-5.2-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="webrtc">
+<section id="section-5.3">
+        <h3 id="name-webrtc">
+<a href="#section-5.3" class="section-number selfRef">5.3. </a><a href="#name-webrtc" class="section-name selfRef">WebRTC</a>
+        </h3>
+<p id="section-5.3-1">WebRTC provides peer-to-peer communication with NAT traversal via ICE,
+encryption via DTLS-SRTP, and data channels via SCTP. However, WebRTC was
+designed for browser-based audio/video communication. Its complexity
+(ICE candidate gathering, SDP offer/answer negotiation, DTLS-SRTP key
+exchange) is disproportionate for agent message exchange. WebRTC also lacks
+agent-specific concepts like virtual addressing, bilateral trust, and
+privacy-by-default discovery.<a href="#section-5.3-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="quic">
+<section id="section-5.4">
+        <h3 id="name-quic">
+<a href="#section-5.4" class="section-number selfRef">5.4. </a><a href="#name-quic" class="section-name selfRef">QUIC</a>
+        </h3>
+<p id="section-5.4-1">QUIC <span>[<a href="#RFC9000" class="cite xref">RFC9000</a>]</span> provides a modern transport with multiplexed streams,
+built-in encryption, and reduced connection setup latency. QUIC addresses
+transport-layer concerns but does not provide overlay addressing, agent
+identity, NAT traversal coordination, trust management, or discovery. It
+is a potential underlay transport for an agent overlay, not a complete
+solution.<a href="#section-5.4-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="libp2p">
+<section id="section-5.5">
+        <h3 id="name-libp2p">
+<a href="#section-5.5" class="section-number selfRef">5.5. </a><a href="#name-libp2p" class="section-name selfRef">libp2p</a>
+        </h3>
+<p id="section-5.5-1">libp2p <span>[<a href="#LIBP2P" class="cite xref">LIBP2P</a>]</span> is a modular networking stack developed for
+decentralized applications, particularly in the blockchain ecosystem. It
+provides peer identity (via cryptographic keypairs), NAT traversal, and
+transport multiplexing. libp2p is the closest existing system to the
+requirements stated above. However, it uses unstructured peer IDs (not
+hierarchical addresses), is heavyweight (large dependency tree), is
+oriented toward content-addressed distributed systems rather than agent
+communication patterns, and lacks built-in bilateral trust or privacy-by-
+default semantics.<a href="#section-5.5-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="wireguard">
+<section id="section-5.6">
+        <h3 id="name-wireguard">
+<a href="#section-5.6" class="section-number selfRef">5.6. </a><a href="#name-wireguard" class="section-name selfRef">WireGuard</a>
+        </h3>
+<p id="section-5.6-1">WireGuard <span>[<a href="#WIREGUARD" class="cite xref">WIREGUARD</a>]</span> provides encrypted point-to-point tunnels with
+excellent performance. It uses Curve25519 for key exchange and ChaCha20-
+Poly1305 for encryption. WireGuard establishes tunnels between known peers
+with pre-shared public keys --- it does not provide dynamic discovery,
+agent addressing, or trust negotiation. It is a VPN, not an agent network.<a href="#section-5.6-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="lisp">
+<section id="section-5.7">
+        <h3 id="name-lisp">
+<a href="#section-5.7" class="section-number selfRef">5.7. </a><a href="#name-lisp" class="section-name selfRef">LISP</a>
+        </h3>
+<p id="section-5.7-1">The Locator/ID Separation Protocol <span>[<a href="#RFC9300" class="cite xref">RFC9300</a>]</span> <span>[<a href="#RFC9301" class="cite xref">RFC9301</a>]</span> separates
+endpoint identity from network location, providing a conceptual precedent
+for agent addressing. LISP's EID-to-RLOC mapping system is architecturally
+similar to an agent registry that maps virtual addresses to physical
+locators. However, LISP operates at the IP layer for routing optimization,
+not at the application layer for agent communication. It does not provide
+agent-specific trust models, privacy semantics, or built-in services.<a href="#section-5.7-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+</section>
+</div>
+<div id="security-considerations">
+<section id="section-6">
+      <h2 id="name-security-considerations">
+<a href="#section-6" class="section-number selfRef">6. </a><a href="#name-security-considerations" class="section-name selfRef">Security Considerations</a>
+      </h2>
+<p id="section-6-1">A network-layer infrastructure for agents introduces security
+considerations beyond those of traditional overlay networks:<a href="#section-6-1" class="pilcrow">¶</a></p>
+<span class="break"></span><dl class="dlParallel" id="section-6-2">
+        <dt id="section-6-2.1">Centralized Registry:</dt>
+        <dd style="margin-left: 1.5em" id="section-6-2.2">
+          <p id="section-6-2.2.1">A registry that assigns addresses and maintains locator mappings is a
+trusted third party. Compromise of the registry could allow address
+hijacking, locator spoofing, or metadata harvesting. The registry
+should support authentication, access control, and replication for high
+availability.<a href="#section-6-2.2.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-6-2.3">Overlay Header Metadata:</dt>
+        <dd style="margin-left: 1.5em" id="section-6-2.4">
+          <p id="section-6-2.4.1">Even with payload encryption, overlay packet headers may expose source
+and destination virtual addresses, port numbers, and packet sizes. Traffic
+analysis on the overlay is possible even when the underlay is encrypted.<a href="#section-6-2.4.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-6-2.5">Trust Model Assumptions:</dt>
+        <dd style="margin-left: 1.5em" id="section-6-2.6">
+          <p id="section-6-2.6.1">A bilateral trust model assumes that agents can make informed consent
+decisions. If an agent's trust logic is compromised (e.g., by adversarial
+prompt injection), it may approve trust relationships it should reject.
+The trust model provides a mechanism, not a policy --- the security of
+trust decisions depends on the agent's reasoning capability.<a href="#section-6-2.6.1" class="pilcrow">¶</a></p>
+</dd>
+        <dd class="break"></dd>
+<dt id="section-6-2.7">Key Management:</dt>
+        <dd style="margin-left: 1.5em" id="section-6-2.8">
+          <p id="section-6-2.8.1">Overlay encryption requires key exchange between peers. Anonymous key
+exchange (without identity binding) is vulnerable to man-in-the-middle
+attacks. Authenticated key exchange requires a mechanism to distribute
+and verify public keys, which depends on the registry's integrity.<a href="#section-6-2.8.1" class="pilcrow">¶</a></p>
+</dd>
+      <dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="iana-considerations">
+<section id="section-7">
+      <h2 id="name-iana-considerations">
+<a href="#section-7" class="section-number selfRef">7. </a><a href="#name-iana-considerations" class="section-name selfRef">IANA Considerations</a>
+      </h2>
+<p id="section-7-1">This document has no IANA actions.<a href="#section-7-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="sec-combined-references">
+<section id="section-8">
+      <h2 id="name-references">
+<a href="#section-8" class="section-number selfRef">8. </a><a href="#name-references" class="section-name selfRef">References</a>
+      </h2>
+<div id="sec-normative-references">
+<section id="section-8.1">
+        <h3 id="name-normative-references">
+<a href="#section-8.1" class="section-number selfRef">8.1. </a><a href="#name-normative-references" class="section-name selfRef">Normative References</a>
+        </h3>
+<dl class="references">
+<dt id="RFC2119">[RFC2119]</dt>
+        <dd>
+<span class="refAuthor">Bradner, S.</span>, <span class="refTitle">"Key words for use in RFCs to Indicate Requirement Levels"</span>, <span class="seriesInfo">BCP 14</span>, <span class="seriesInfo">RFC 2119</span>, <span class="seriesInfo">DOI 10.17487/RFC2119</span>, <time datetime="1997-03" class="refDate">March 1997</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc2119">https://www.rfc-editor.org/rfc/rfc2119</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC8174">[RFC8174]</dt>
+      <dd>
+<span class="refAuthor">Leiba, B.</span>, <span class="refTitle">"Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words"</span>, <span class="seriesInfo">BCP 14</span>, <span class="seriesInfo">RFC 8174</span>, <span class="seriesInfo">DOI 10.17487/RFC8174</span>, <time datetime="2017-05" class="refDate">May 2017</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc8174">https://www.rfc-editor.org/rfc/rfc8174</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+</dl>
+</section>
+</div>
+<div id="sec-informative-references">
+<section id="section-8.2">
+        <h3 id="name-informative-references">
+<a href="#section-8.2" class="section-number selfRef">8.2. </a><a href="#name-informative-references" class="section-name selfRef">Informative References</a>
+        </h3>
+<dl class="references">
+<dt id="A2A">[A2A]</dt>
+        <dd>
+<span class="refAuthor">Google</span>, <span class="refTitle">"Agent-to-Agent Protocol"</span>, <time datetime="2025" class="refDate">2025</time>, <span>&lt;<a href="https://google.github.io/A2A/">https://google.github.io/A2A/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="I-D.narvaneni-agent-uri">[I-D.narvaneni-agent-uri]</dt>
+        <dd>
+<span class="refAuthor">Narvaneni, S.</span>, <span class="refTitle">"Agent URI Scheme"</span>, <time datetime="2025" class="refDate">2025</time>, <span>&lt;<a href="https://datatracker.ietf.org/doc/draft-narvaneni-agent-uri/">https://datatracker.ietf.org/doc/draft-narvaneni-agent-uri/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="I-D.rosenberg-aiproto-framework">[I-D.rosenberg-aiproto-framework]</dt>
+        <dd>
+<span class="refAuthor">Rosenberg, J.</span>, <span class="refTitle">"A Framework for AI Protocols"</span>, <time datetime="2025" class="refDate">2025</time>, <span>&lt;<a href="https://datatracker.ietf.org/doc/draft-rosenberg-aiproto-framework/">https://datatracker.ietf.org/doc/draft-rosenberg-aiproto-framework/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="I-D.zyyhl-agent-networks-framework">[I-D.zyyhl-agent-networks-framework]</dt>
+        <dd>
+<span class="refAuthor">Yao, Z.</span>, <span class="refTitle">"A Framework for Agent Networks"</span>, <time datetime="2025" class="refDate">2025</time>, <span>&lt;<a href="https://datatracker.ietf.org/doc/draft-zyyhl-agent-networks-framework/">https://datatracker.ietf.org/doc/draft-zyyhl-agent-networks-framework/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="LIBP2P">[LIBP2P]</dt>
+        <dd>
+<span class="refAuthor">Protocol Labs</span>, <span class="refTitle">"libp2p: A Modular Network Stack"</span>, <time datetime="2023" class="refDate">2023</time>, <span>&lt;<a href="https://libp2p.io/">https://libp2p.io/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="MCP">[MCP]</dt>
+        <dd>
+<span class="refAuthor">Anthropic</span>, <span class="refTitle">"Model Context Protocol"</span>, <time datetime="2024" class="refDate">2024</time>, <span>&lt;<a href="https://modelcontextprotocol.io/">https://modelcontextprotocol.io/</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC7364">[RFC7364]</dt>
+        <dd>
+<span class="refAuthor">Narten, T., Ed.</span>, <span class="refAuthor">Gray, E., Ed.</span>, <span class="refAuthor">Black, D.</span>, <span class="refAuthor">Fang, L.</span>, <span class="refAuthor">Kreeger, L.</span>, and <span class="refAuthor">M. Napierala</span>, <span class="refTitle">"Problem Statement: Overlays for Network Virtualization"</span>, <span class="seriesInfo">RFC 7364</span>, <span class="seriesInfo">DOI 10.17487/RFC7364</span>, <time datetime="2014-10" class="refDate">October 2014</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc7364">https://www.rfc-editor.org/rfc/rfc7364</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9000">[RFC9000]</dt>
+        <dd>
+<span class="refAuthor">Iyengar, J., Ed.</span> and <span class="refAuthor">M. Thomson, Ed.</span>, <span class="refTitle">"QUIC: A UDP-Based Multiplexed and Secure Transport"</span>, <span class="seriesInfo">RFC 9000</span>, <span class="seriesInfo">DOI 10.17487/RFC9000</span>, <time datetime="2021-05" class="refDate">May 2021</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc9000">https://www.rfc-editor.org/rfc/rfc9000</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9300">[RFC9300]</dt>
+        <dd>
+<span class="refAuthor">Farinacci, D.</span>, <span class="refAuthor">Fuller, V.</span>, <span class="refAuthor">Meyer, D.</span>, <span class="refAuthor">Lewis, D.</span>, and <span class="refAuthor">A. Cabellos, Ed.</span>, <span class="refTitle">"The Locator/ID Separation Protocol (LISP)"</span>, <span class="seriesInfo">RFC 9300</span>, <span class="seriesInfo">DOI 10.17487/RFC9300</span>, <time datetime="2022-10" class="refDate">October 2022</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc9300">https://www.rfc-editor.org/rfc/rfc9300</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="RFC9301">[RFC9301]</dt>
+        <dd>
+<span class="refAuthor">Farinacci, D.</span>, <span class="refAuthor">Maino, F.</span>, <span class="refAuthor">Fuller, V.</span>, and <span class="refAuthor">A. Cabellos, Ed.</span>, <span class="refTitle">"Locator/ID Separation Protocol (LISP) Control Plane"</span>, <span class="seriesInfo">RFC 9301</span>, <span class="seriesInfo">DOI 10.17487/RFC9301</span>, <time datetime="2022-10" class="refDate">October 2022</time>, <span>&lt;<a href="https://www.rfc-editor.org/rfc/rfc9301">https://www.rfc-editor.org/rfc/rfc9301</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+<dt id="WIREGUARD">[WIREGUARD]</dt>
+      <dd>
+<span class="refAuthor">Donenfeld, J. A.</span>, <span class="refTitle">"WireGuard: Next Generation Kernel Network Tunnel"</span>, <time datetime="2017" class="refDate">2017</time>, <span>&lt;<a href="https://www.wireguard.com/papers/wireguard.pdf">https://www.wireguard.com/papers/wireguard.pdf</a>&gt;</span>. </dd>
+<dd class="break"></dd>
+</dl>
+</section>
+</div>
+</section>
+</div>
+<div id="acknowledgments">
+<section id="appendix-A">
+      <h2 id="name-acknowledgments">
+<a href="#appendix-A" class="section-number selfRef">Appendix A. </a><a href="#name-acknowledgments" class="section-name selfRef">Acknowledgments</a>
+      </h2>
+<p id="appendix-A-1">The author thanks the participants of the IETF AI protocols discussions
+for their contributions to understanding the agent communication
+landscape.<a href="#appendix-A-1" class="pilcrow">¶</a></p>
+</section>
+</div>
+<div id="authors-addresses">
+<section id="appendix-B">
+      <h2 id="name-authors-address">
+<a href="#name-authors-address" class="section-name selfRef">Author's Address</a>
+      </h2>
+<address class="vcard">
+        <div dir="auto" class="left"><span class="fn nameRole">Calin Teodor</span></div>
+<div dir="auto" class="left"><span class="org">Vulture Labs</span></div>
+<div class="email">
+<span>Email:</span>
+<a href="mailto:calin@vulturelabs.com" class="email">calin@vulturelabs.com</a>
+</div>
+</address>
+</section>
+</div>
+<script>const toc = document.getElementById("toc");
+toc.querySelector("h2").addEventListener("click", e => {
+  toc.classList.toggle("active");
+});
+toc.querySelector("nav").addEventListener("click", e => {
+  toc.classList.remove("active");
+});
+</script>
+</body>
+</html>

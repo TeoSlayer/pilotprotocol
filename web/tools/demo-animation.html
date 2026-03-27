@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    height: 44px;
+  }
+  .logo {
+    color: #4ade80;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .phase-badge {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 6px 22px;
+    color: #e6edf3;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .phase-badge.visible { opacity: 1; }
+
+  .terminals {
+    display: flex;
+    gap: 16px;
+    padding: 8px 20px 20px;
+    flex: 1;
+  }
+
+  .terminal {
+    flex: 1;
+    background: #161b22;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .terminal .titlebar {
+    background: rgba(255,255,255,0.04);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .dots { display: flex; gap: 6px; }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .titlebar .title {
+    flex: 1;
+    text-align: center;
+    color: rgba(255,255,255,0.35);
+    font-size: 13px;
+    margin-right: 48px;
+  }
+
+  .terminal .content {
+    flex: 1;
+    padding: 16px 18px;
+    overflow: hidden;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: #c9d1d9;
+  }
+
+  .line {
+    white-space: pre;
+    min-height: 1.55em;
+  }
+
+  .prompt { color: #4ade80; }
+  .cmd { color: #79c0ff; }
+  .output { color: #c9d1d9; }
+  .dim { color: #6e7681; }
+  .green { color: #3fb950; }
+  .cyan { color: #79c0ff; }
+  .yellow { color: #d29922; }
+
+  .cursor {
+    display: inline;
+    background: #4ade80;
+    color: #4ade80;
+    animation: blink 1s step-end infinite;
+  }
+  .cursor::after { content: '\00a0'; }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">Pilot Protocol</div>
+    <div class="phase-badge" id="phase-badge"></div>
+  </div>
+  <div class="terminals">
+    <div class="terminal">
+      <div class="titlebar">
+        <div class="dots"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="title">Agent A &mdash; agent-a</div>
+      </div>
+      <div class="content" id="termA"></div>
+    </div>
+    <div class="terminal">
+      <div class="titlebar">
+        <div class="dots"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="title">Agent B &mdash; agent-b</div>
+      </div>
+      <div class="content" id="termB"></div>
+    </div>
+  </div>
+
+<script>
+const termA = document.getElementById('termA');
+const termB = document.getElementById('termB');
+const badge = document.getElementById('phase-badge');
+
+const events = [];
+
+function at(ms, fn) {
+  events.push({ ms, fn });
+}
+
+function setPhase(text) {
+  badge.textContent = text;
+  badge.classList.add('visible');
+}
+
+function removeCursor(el) {
+  const c = el.querySelector('.cursor');
+  if (c) c.remove();
+}
+
+function addCursor(el) {
+  removeCursor(el);
+  const c = document.createElement('span');
+  c.className = 'cursor';
+  el.appendChild(c);
+}
+
+// Add a new line div and return it
+function newLine(el) {
+  const line = document.createElement('div');
+  line.className = 'line';
+  el.appendChild(line);
+  return line;
+}
+
+// Type a command with prompt, returns end time
+function typeCmd(el, text, startMs, charDelay) {
+  charDelay = charDelay || 25;
+  at(startMs, () => {
+    removeCursor(el);
+    const line = newLine(el);
+    const prompt = document.createElement('span');
+    prompt.className = 'prompt';
+    prompt.textContent = '$ ';
+    line.appendChild(prompt);
+    line._cmdSpan = document.createElement('span');
+    line._cmdSpan.className = 'cmd';
+    line.appendChild(line._cmdSpan);
+    el._currentCmdLine = line;
+    addCursor(line);
+  });
+
+  for (let i = 0; i < text.length; i++) {
+    at(startMs + (i + 1) * charDelay, () => {
+      const line = el._currentCmdLine;
+      removeCursor(el);
+      line._cmdSpan.textContent += text[i];
+      addCursor(line);
+    });
+  }
+  return startMs + (text.length + 1) * charDelay;
+}
+
+// Show output lines (array of {text, cls} or string)
+function showLines(el, lines, startMs, lineDelay) {
+  lineDelay = lineDelay || 0;
+  for (let i = 0; i < lines.length; i++) {
+    at(startMs + i * lineDelay, () => {
+      removeCursor(el);
+      const line = newLine(el);
+      const entry = lines[i];
+      if (typeof entry === 'string') {
+        line.textContent = entry;
+      } else {
+        line.innerHTML = entry.html;
+      }
+      addCursor(el);
+    });
+  }
+  return startMs + lines.length * lineDelay;
+}
+
+// ===== SCRIPT =====
+let t = 500;
+
+// Phase 1 — Install
+at(t, () => setPhase('Phase 1 — Install'));
+t += 400;
+
+const installA = [
+  { html: '<span class="dim">Downloading pilot-protocol v1.2.0 (darwin/arm64)...</span>' },
+  { html: '<span class="dim">Installing to ~/.pilot/bin/...</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilot-daemon</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilotctl</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilot-gateway</span>' },
+  { html: '<span class="dim">Config saved → ~/.pilot/config.json</span>' },
+  "Ready! Run 'pilotctl daemon start' to begin.",
+];
+const installB = [
+  { html: '<span class="dim">Downloading pilot-protocol v1.2.0 (linux/amd64)...</span>' },
+  { html: '<span class="dim">Installing to ~/.pilot/bin/...</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilot-daemon</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilotctl</span>' },
+  { html: '  <span class="green">✓</span> <span class="green">pilot-gateway</span>' },
+  { html: '<span class="dim">Config saved → ~/.pilot/config.json</span>' },
+  "Ready! Run 'pilotctl daemon start' to begin.",
+];
+
+let endA = typeCmd(termA, 'curl -fsSL https://pilotprotocol.network/install.sh | sh', t, 20);
+let endB = typeCmd(termB, 'curl -fsSL https://pilotprotocol.network/install.sh | sh', t, 20);
+showLines(termA, installA, endA + 200, 120);
+showLines(termB, installB, endB + 200, 120);
+t = endA + 2200;
+
+// Phase 2 — Start Daemon
+at(t, () => setPhase('Phase 2 — Start Daemon'));
+t += 400;
+
+endA = typeCmd(termA, 'pilotctl daemon start --hostname agent-a', t, 25);
+endB = typeCmd(termB, 'pilotctl daemon start --hostname agent-b', t + 200, 25);
+showLines(termA, [
+  'Daemon running (pid 54321)',
+  '  Address:  0:0000.0000.000A',
+  '  Hostname: agent-a',
+  '  Socket:   /tmp/pilot.sock',
+  '  Logs:     ~/.pilot/pilot.log',
+], endA + 500, 80);
+showLines(termB, [
+  'Daemon running (pid 67890)',
+  '  Address:  0:0000.0000.000B',
+  '  Hostname: agent-b',
+  '  Socket:   /tmp/pilot.sock',
+  '  Logs:     ~/.pilot/pilot.log',
+], endB + 700, 80);
+t = Math.max(endA, endB) + 2200;
+
+// Phase 3 — Trust Handshake
+at(t, () => setPhase('Phase 3 — Trust Handshake'));
+t += 400;
+
+endA = typeCmd(termA, 'pilotctl handshake agent-b "collaborative research"', t, 22);
+showLines(termA, [
+  'handshake request sent to node 11',
+  '  next: node 11 must approve — or send a handshake back for auto-approval',
+  '  check: pilotctl trust',
+], endA + 350, 80);
+t = endA + 1800;
+
+endB = typeCmd(termB, 'pilotctl pending', t, 30);
+showLines(termB, [
+  { html: '<span class="dim">NODE ID     JUSTIFICATION                             RECEIVED</span>' },
+  '10          collaborative research                    2026-03-23 15:30:00',
+], endB + 300, 80);
+t = endB + 1500;
+
+endB = typeCmd(termB, 'pilotctl approve 10', t, 30);
+showLines(termB, [
+  'trust established with node 10',
+  '  try: pilotctl ping 10',
+], endB + 300, 80);
+t = endB + 1500;
+
+endA = typeCmd(termA, 'pilotctl trust', t, 30);
+endB = typeCmd(termB, 'pilotctl trust', t + 100, 30);
+showLines(termA, [
+  { html: '<span class="dim">NODE ID     MUTUAL      NETWORK     APPROVED AT</span>' },
+  '11          yes         -           2026-03-23 15:30:05',
+], endA + 300, 80);
+showLines(termB, [
+  { html: '<span class="dim">NODE ID     MUTUAL      NETWORK     APPROVED AT</span>' },
+  '10          yes         -           2026-03-23 15:30:05',
+], endB + 400, 80);
+t = Math.max(endA, endB) + 2000;
+
+// Phase 4 — Communication
+at(t, () => setPhase('Phase 4 — Data Exchange'));
+t += 400;
+
+endA = typeCmd(termA, 'pilotctl ping agent-b --count 3', t, 25);
+showLines(termA, [
+  'seq=0 bytes=6 time=4.2ms',
+], endA + 400, 0);
+showLines(termA, [
+  'seq=1 bytes=6 time=3.8ms',
+], endA + 1400, 0);
+showLines(termA, [
+  'seq=2 bytes=6 time=4.1ms',
+], endA + 2400, 0);
+t = endA + 3600;
+
+endA = typeCmd(termA, "pilotctl send-message agent-b --data '{\"task\":\"analyze\"}' --type json", t, 18);
+showLines(termA, [
+  '{',
+  '  "bytes": 18,',
+  '  "target": "0:0000.0000.000B",',
+  '  "type": "json"',
+  '}',
+], endA + 400, 50);
+t = endA + 1800;
+
+endB = typeCmd(termB, 'pilotctl inbox', t, 30);
+showLines(termB, [
+  'Inbox (1 messages):',
+  '',
+  { html: '  <span class="dim">[2026-03-23T15:30:00Z]</span> from 0:0000.0000.000A type=json' },
+  '    {"task":"analyze"}',
+  '',
+  { html: '<span class="dim">clear with: pilotctl inbox --clear</span>' },
+], endB + 400, 80);
+t = endB + 2500;
+
+endA = typeCmd(termA, 'pilotctl bench agent-b', t, 28);
+showLines(termA, [
+  { html: 'BENCH 0:0000.0000.000B — sending 1.0 MB via echo port' },
+], endA + 300, 0);
+showLines(termA, [
+  '  Sent:     1.0 MB in 95ms (10.5 MB/s)',
+], endA + 1100, 0);
+showLines(termA, [
+  '  Echoed:   1.0 MB in 125ms (8.0 MB/s round-trip)',
+], endA + 1700, 0);
+t = endA + 4000;
+
+// Sort and execute timeline
+events.sort((a, b) => a.ms - b.ms);
+
+window._totalDuration = t;
+window._events = events;
+window._currentIndex = 0;
+
+window.advanceTo = function(ms) {
+  while (window._currentIndex < events.length && events[window._currentIndex].ms <= ms) {
+    events[window._currentIndex].fn();
+    window._currentIndex++;
+  }
+};
+</script>
+</body>
+</html>

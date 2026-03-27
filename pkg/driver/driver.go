@@ -258,6 +258,66 @@ func (d *Driver) Disconnect(connID uint32) error {
 	return err
 }
 
+// NetworkList returns all networks known to the registry.
+func (d *Driver) NetworkList() (map[string]interface{}, error) {
+	return d.jsonRPC([]byte{cmdNetwork, subNetworkList}, cmdNetworkOK, "network list")
+}
+
+// NetworkJoin joins a network by ID, optionally using a token for token-gated networks.
+func (d *Driver) NetworkJoin(networkID uint16, token string) (map[string]interface{}, error) {
+	msg := make([]byte, 1+1+2+len(token))
+	msg[0] = cmdNetwork
+	msg[1] = subNetworkJoin
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	copy(msg[4:], token)
+	return d.jsonRPC(msg, cmdNetworkOK, "network join")
+}
+
+// NetworkLeave leaves a network by ID.
+func (d *Driver) NetworkLeave(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdNetwork
+	msg[1] = subNetworkLeave
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdNetworkOK, "network leave")
+}
+
+// NetworkMembers lists all members of a network.
+func (d *Driver) NetworkMembers(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdNetwork
+	msg[1] = subNetworkMembers
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdNetworkOK, "network members")
+}
+
+// NetworkInvite invites a target node to a network (requires admin token on daemon).
+func (d *Driver) NetworkInvite(networkID uint16, targetNodeID uint32) (map[string]interface{}, error) {
+	msg := make([]byte, 8)
+	msg[0] = cmdNetwork
+	msg[1] = subNetworkInvite
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	binary.BigEndian.PutUint32(msg[4:8], targetNodeID)
+	return d.jsonRPC(msg, cmdNetworkOK, "network invite")
+}
+
+// NetworkPollInvites returns pending network invites for this node.
+func (d *Driver) NetworkPollInvites() (map[string]interface{}, error) {
+	return d.jsonRPC([]byte{cmdNetwork, subNetworkPollInvites}, cmdNetworkOK, "network poll-invites")
+}
+
+// NetworkRespondInvite accepts or rejects a pending network invite.
+func (d *Driver) NetworkRespondInvite(networkID uint16, accept bool) (map[string]interface{}, error) {
+	msg := make([]byte, 5)
+	msg[0] = cmdNetwork
+	msg[1] = subNetworkRespondInvite
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	if accept {
+		msg[4] = 1
+	}
+	return d.jsonRPC(msg, cmdNetworkOK, "network respond-invite")
+}
+
 // Close disconnects from the daemon.
 func (d *Driver) Close() error {
 	return d.ipc.close()
