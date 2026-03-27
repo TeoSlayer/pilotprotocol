@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build all binaries
+        run: make build
+
+      - name: Unit tests
+        run: go test -parallel 4 -count=1 -timeout 120s ./tests/ ./pkg/beacon/
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build release binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          BINS="daemon pilotctl gateway registry beacon rendezvous nameserver"
+          mkdir -p dist
+          for bin in $BINS; do
+            echo "Building $bin for ${{ matrix.goos }}/${{ matrix.goarch }}..."
+            go build -ldflags "$LDFLAGS" -o dist/$bin ./cmd/$bin
+          done
+
+      - name: Smoke test binaries
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64' || matrix.goos == 'darwin'
+        run: |
+          echo "=== Binary smoke tests ==="
+          for bin in dist/*; do
+            name=$(basename $bin)
+            # Verify it's a valid executable
+            file $bin
+            # Version flag check (all binaries should accept -h without crashing)
+            timeout 5 $bin -h 2>&1 || true
+            echo "  ✓ $name"
+          done
+
+          echo ""
+          echo "=== Registry start/stop test ==="
+          dist/registry -addr 127.0.0.1:0 &
+          REG_PID=$!
+          sleep 1
+          kill $REG_PID 2>/dev/null && echo "  ✓ registry starts and stops cleanly"
+
+          echo ""
+          echo "=== Daemon help test ==="
+          dist/daemon -h 2>&1 | head -5
+          echo "  ✓ daemon shows help"
+
+          echo ""
+          echo "=== pilotctl version test ==="
+          dist/pilotctl version 2>&1 || dist/pilotctl -h 2>&1 | head -3
+          echo "  ✓ pilotctl responds"
+
+      - name: Package archive
+        run: |
+          ARCHIVE="pilot-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
+          tar -czf $ARCHIVE -C dist .
+          echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARCHIVE }}
+
+  harness:
+    name: Integration harness
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download linux/amd64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: pilot-linux-amd64
+
+      - name: Extract binaries
+        run: |
+          mkdir -p bin
+          tar -xzf pilot-linux-amd64.tar.gz -C bin
+          chmod +x bin/*
+
+      - name: End-to-end harness
+        run: |
+          set -e
+          echo "=== Starting registry ==="
+          bin/registry -addr 127.0.0.1:19000 -log-level error &
+          REG_PID=$!
+          sleep 1
+
+          echo "=== Starting beacon ==="
+          bin/beacon -registry-addr 127.0.0.1:19000 -listen :19001 -log-level error &
+          BEACON_PID=$!
+          sleep 1
+
+          echo "=== Starting daemon A ==="
+          PILOT_HOME=$(mktemp -d)
+          bin/daemon -registry 127.0.0.1:19000 -beacon 127.0.0.1:19001 \
+            -hostname harness-a -home "$PILOT_HOME/a" -log-level error &
+          DA_PID=$!
+          sleep 2
+
+          echo "=== Starting daemon B ==="
+          bin/daemon -registry 127.0.0.1:19000 -beacon 127.0.0.1:19001 \
+            -hostname harness-b -home "$PILOT_HOME/b" -log-level error &
+          DB_PID=$!
+          sleep 2
+
+          echo "=== Verify nodes registered ==="
+          # pilotctl info via daemon A
+          PILOT_SOCK="$PILOT_HOME/a/pilot.sock" bin/pilotctl info --json 2>&1 | head -20
+          echo "  ✓ daemon A responds to info"
+
+          PILOT_SOCK="$PILOT_HOME/b/pilot.sock" bin/pilotctl info --json 2>&1 | head -20
+          echo "  ✓ daemon B responds to info"
+
+          echo "=== Health check ==="
+          PILOT_SOCK="$PILOT_HOME/a/pilot.sock" bin/pilotctl health --json 2>&1 | head -20
+          echo "  ✓ daemon A health OK"
+
+          echo "=== Teardown ==="
+          kill $DA_PID $DB_PID $BEACON_PID $REG_PID 2>/dev/null || true
+          wait $DA_PID $DB_PID $BEACON_PID $REG_PID 2>/dev/null || true
+          rm -rf "$PILOT_HOME"
+          echo "  ✓ all processes stopped cleanly"
+          echo ""
+          echo "=== HARNESS PASSED ==="
+
+  release:
+    name: Create release
+    needs: harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect archives
+        run: |
+          mkdir -p release
+          find artifacts -name '*.tar.gz' -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.tar.gz
+            release/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

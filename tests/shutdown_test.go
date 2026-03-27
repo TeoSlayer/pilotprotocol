@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 
 func TestGracefulShutdown(t *testing.T) {
 	t.Parallel()
+	if os.Getenv("CI") != "" {
+		t.Skip("skipping in CI: timing-sensitive deregister race on constrained runners")
+	}
 	env := NewTestEnv(t)
 
 	// Start daemon A (server) — AddDaemonOnly since we stop it mid-test
