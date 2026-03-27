@@ -4,6 +4,7 @@ set -e
 # Pilot Protocol installer
 # Usage:
 #   Install:    curl -fsSL https://pilotprotocol.network/install.sh | sh
+#   RC build:   PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
 
 REPO="TeoSlayer/pilotprotocol"
@@ -127,7 +128,12 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Try downloading a release first
-TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+# PILOT_RC=1 opts into release candidates (pre-releases)
+if [ "${PILOT_RC:-}" = "1" ]; then
+    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+else
+    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+fi
 
 if [ -n "$TAG" ]; then
     ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
