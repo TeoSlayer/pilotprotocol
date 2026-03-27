@@ -1,0 +1,17 @@
+name = "pilot-publish"
+account_id = "ef9da13de5572ea8482b2921770fa0e3"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+GITHUB_OWNER = "TeoSlayer"
+GITHUB_REPO = "pilotprotocol"
+
+[browser]
+binding = "BROWSER"
+
+# Secrets (set via `wrangler secret put`):
+#   PUBLISH_SECRET  — HMAC shared secret for signature verification
+#   GITHUB_TOKEN    — GitHub PAT with repo contents:write scope
+#   GEMINI_API_KEY  — Google Gemini API key for banner decoration generation
