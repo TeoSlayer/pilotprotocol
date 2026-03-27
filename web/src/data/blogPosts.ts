@@ -11,9 +11,19 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "dry-run-test-delete-me",
+    title: "Dry Run Test Post",
+    description: "This is a dry run test of the publish pipeline.",
+    date: "Mar 27",
+    category: "Tutorial",
+    tags: ["test"],
+    banner: "banners/dry-run-test-delete-me.png",
+  },
+
+  {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing — all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing â all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
