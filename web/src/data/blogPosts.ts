@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "advanced-network-automation-tips-secure-ai-systems",
+    title: "Advanced network automation: 7 tips for secure AI systems",
+    description: "Discover 7 expert network automation strategies for secure, scalable multi-agent AI systems, covering scripting, APIs, NSoT, NETCONF, ML remediation, and IBN.",
+    date: "Mar 29",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/advanced-network-automation-tips-secure-ai-systems.jpg",
+  },
+
+  {
     slug: "multi-agent-system-networking-guide-ai-developers",
     title: "Multi-agent system networking guide: 86.7% failure fix",
     description: "Learn how to build secure, scalable multi-agent system networks. Covers architecture, protocols, benchmarking, and how to cut 86.7% failure rates in MAS.",
@@ -23,7 +33,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing Ã¢ÂÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂ¢ÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
