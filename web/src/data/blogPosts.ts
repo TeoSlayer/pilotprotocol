@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ai-networking-challenges-decentralized-systems",
+    title: "Top AI networking challenges for decentralized systems",
+    description: "Discover the 7 biggest AI networking challenges for decentralized and multi-cloud agent systems, with solution comparisons and practical guidance for engineers.",
+    date: "Mar 30",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/ai-networking-challenges-decentralized-systems.jpg",
+  },
+
+  {
     slug: "advanced-network-automation-tips-secure-ai-systems",
     title: "Advanced network automation: 7 tips for secure AI systems",
     description: "Discover 7 expert network automation strategies for secure, scalable multi-agent AI systems, covering scripting, APIs, NSoT, NETCONF, ML remediation, and IBN.",
@@ -33,7 +43,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂ¢ÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
