@@ -1995,3 +1995,172 @@ func TestAuditEnrichedTagsTaskExecPolicy(t *testing.T) {
 		t.Error("network.policy_changed audit entry missing old/new max_members")
 	}
 }
+
+// TestAdminKicksAdmin verifies that an admin can kick another admin.
+func TestAdminKicksAdmin(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + 2 admins
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	admin1Identity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(admin1Identity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register admin1: %v", err)
+	}
+	admin1ID := uint32(resp["node_id"].(float64))
+
+	admin2Identity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(admin2Identity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register admin2: %v", err)
+	}
+	admin2ID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network, invite both
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "kick-admin", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept admin1
+	_, err = rc.InviteToNetwork(netID, ownerID, admin1ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite admin1: %v", err)
+	}
+	setClientSigner(rc, admin1Identity)
+	_, err = rc.RespondInvite(admin1ID, netID, true)
+	if err != nil {
+		t.Fatalf("accept admin1: %v", err)
+	}
+
+	// Invite and accept admin2
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, admin2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite admin2: %v", err)
+	}
+	setClientSigner(rc, admin2Identity)
+	_, err = rc.RespondInvite(admin2ID, netID, true)
+	if err != nil {
+		t.Fatalf("accept admin2: %v", err)
+	}
+
+	// Promote both to admin
+	_, err = rc.PromoteMember(netID, ownerID, admin1ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote admin1: %v", err)
+	}
+	_, err = rc.PromoteMember(netID, ownerID, admin2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote admin2: %v", err)
+	}
+
+	// Admin1 kicks Admin2 (admin kicking admin — should succeed)
+	setClientSigner(rc, admin1Identity)
+	_, err = rc.KickMember(netID, admin1ID, admin2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("admin1 kick admin2: %v", err)
+	}
+	t.Log("admin successfully kicked another admin")
+
+	// Verify admin2 is no longer in the network
+	resp, err = rc.ListNodes(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("list nodes: %v", err)
+	}
+	nodes := resp["nodes"].([]interface{})
+	for _, n := range nodes {
+		node := n.(map[string]interface{})
+		if uint32(node["node_id"].(float64)) == admin2ID {
+			t.Fatal("admin2 should have been kicked from the network")
+		}
+	}
+
+	// Admin cannot kick owner
+	_, err = rc.KickMember(netID, admin1ID, ownerID, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error kicking owner")
+	}
+	if !strings.Contains(err.Error(), "cannot kick") {
+		t.Fatalf("expected 'cannot kick' error, got: %v", err)
+	}
+	t.Logf("admin correctly blocked from kicking owner: %v", err)
+}
+
+// TestDuplicateTagsDedup verifies that duplicate tags are deduplicated.
+func TestDuplicateTagsDedup(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Set tags with duplicates
+	resp, err := rc.SetTagsAdmin(nodeID, []string{"gpu", "gpu", "cpu", "gpu", "cpu"}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set tags with dupes: %v", err)
+	}
+
+	// Verify deduplication
+	tags := resp["tags"].([]interface{})
+	if len(tags) != 2 {
+		t.Fatalf("expected 2 unique tags, got %d: %v", len(tags), tags)
+	}
+	if tags[0].(string) != "gpu" || tags[1].(string) != "cpu" {
+		t.Fatalf("expected [gpu, cpu], got %v", tags)
+	}
+	t.Logf("duplicate tags correctly deduped: %v", tags)
+}
+
+// TestPolicyOnDeletedNetwork verifies that setting policy on a deleted network fails.
+func TestPolicyOnDeletedNetwork(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner and create enterprise network
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "policy-delete", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Delete the network
+	_, err = rc.DeleteNetwork(netID, TestAdminToken, ownerID)
+	if err != nil {
+		t.Fatalf("delete network: %v", err)
+	}
+
+	// Try to set policy on the deleted network — should fail
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(10),
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error setting policy on deleted network")
+	}
+	t.Logf("policy on deleted network correctly rejected: %v", err)
+}

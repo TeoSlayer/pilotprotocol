@@ -983,7 +983,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			if strings.Contains(err.Error(), "rate limited") ||
 				strings.Contains(err.Error(), "enterprise feature") ||
 				strings.Contains(err.Error(), "expired") ||
-				strings.Contains(err.Error(), "already") {
+				strings.Contains(err.Error(), "already") ||
+				strings.Contains(err.Error(), "not a member") ||
+				strings.Contains(err.Error(), "cannot") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -3349,6 +3351,17 @@ func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface
 			tags[i] = t[1:]
 		}
 	}
+
+	// Deduplicate tags (preserve order)
+	seen := make(map[string]bool, len(tags))
+	deduped := tags[:0]
+	for _, t := range tags {
+		if !seen[t] {
+			seen[t] = true
+			deduped = append(deduped, t)
+		}
+	}
+	tags = deduped
 
 	// Validate tags
 	if len(tags) > 10 {
