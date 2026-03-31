@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -1243,4 +1245,220 @@ func TestAuditEnrichedPromoteDemote(t *testing.T) {
 	if !foundDemoteEnriched {
 		t.Error("member.demoted audit entry missing old/new role values")
 	}
+}
+
+// TestDeregisterCleansEnterprise verifies that deregistering a node cleans up
+// invite inbox, RBAC roles, and emits enriched audit events.
+func TestDeregisterCleansEnterprise(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "dereg-clean", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite target
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Verify invite exists before deregister
+	setClientSigner(rc, targetIdentity)
+	pollResp, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 invite before deregister, got %d", len(invites))
+	}
+
+	// Deregister target node (using admin token)
+	_, err = rc.DeregisterAdmin(targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("deregister: %v", err)
+	}
+
+	// Re-register target to check invite is gone
+	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(targetIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("re-register: %v", err)
+	}
+	newTargetID := uint32(resp2["node_id"].(float64))
+	setClientSigner(rc, targetIdentity)
+	pollResp2, err := rc.PollInvites(newTargetID)
+	if err != nil {
+		t.Fatalf("poll invites after re-register: %v", err)
+	}
+	invites2 := pollResp2["invites"].([]interface{})
+	if len(invites2) != 0 {
+		t.Fatalf("expected 0 invites after deregister+reregister, got %d", len(invites2))
+	}
+	t.Log("deregister correctly cleaned up invite inbox")
+
+	// Check audit for enriched deregister event
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+	foundEnriched := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "node.deregistered" {
+			details, _ := entry["details"].(string)
+			if strings.Contains(details, "networks=") {
+				foundEnriched = true
+				t.Logf("deregister audit enriched: %s", details)
+			}
+		}
+	}
+	if !foundEnriched {
+		t.Error("node.deregistered audit entry missing networks count")
+	}
+	_ = memberID
+}
+
+// TestDeregisterOwnerAudit verifies that when a network owner deregisters,
+// a network.owner_lost audit event is emitted.
+func TestDeregisterOwnerAudit(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+
+	// Create enterprise network with a member
+	resp, err := rc.CreateNetwork(ownerID, "owner-lost", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join network: %v", err)
+	}
+
+	// Deregister the owner
+	_, err = rc.DeregisterAdmin(ownerID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("deregister owner: %v", err)
+	}
+
+	// Check audit for owner_lost event
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+	foundOwnerLost := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "network.owner_lost" {
+			foundOwnerLost = true
+			details, _ := entry["details"].(string)
+			t.Logf("owner_lost audit: network_id=%v, details=%s", entry["network_id"], details)
+		}
+	}
+	if !foundOwnerLost {
+		t.Error("missing network.owner_lost audit event when owner deregistered")
+	}
+}
+
+// TestKeyRotationPreservesExpiry verifies that key rotation does NOT reset
+// the key expiry — this is intentional security behavior.
+func TestKeyRotationPreservesExpiry(t *testing.T) {
+	t.Parallel()
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	clk := newTestClock()
+	reg.SetClock(clk.Now)
+
+	// Register with key
+	id, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+
+	// Join enterprise network (needed for key expiry)
+	resp2, err := rc.CreateNetwork(nodeID, "rot-exp", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp2["network_id"].(float64))
+	_ = netID
+
+	// Set key expiry to 7 days from now
+	expiresAt := clk.Now().Add(7 * 24 * time.Hour)
+	_, err = rc.SetKeyExpiryAdmin(nodeID, expiresAt, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set key expiry: %v", err)
+	}
+
+	// Verify expiry is set
+	info, err := rc.GetKeyInfo(nodeID)
+	if err != nil {
+		t.Fatalf("get key info: %v", err)
+	}
+	expiresAtStr := info["expires_at"].(string)
+	if expiresAtStr == "" {
+		t.Fatal("expected expires_at to be set")
+	}
+	t.Logf("expiry set to: %s", expiresAtStr)
+
+	// Advance 5 days (within expiry window)
+	clk.Advance(5 * 24 * time.Hour)
+
+	// Rotate key
+	newID, _ := crypto.GenerateIdentity()
+	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	sig := id.Sign([]byte(challenge))
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
+
+	_, err = rc.RotateKey(nodeID, sigB64, newPubKeyB64)
+	if err != nil {
+		t.Fatalf("rotate key: %v", err)
+	}
+
+	// Check that expiry is STILL set (not cleared by rotation)
+	info2, err := rc.GetKeyInfo(nodeID)
+	if err != nil {
+		t.Fatalf("get key info after rotation: %v", err)
+	}
+	expiresAtStr2 := info2["expires_at"].(string)
+	if expiresAtStr2 == "" {
+		t.Fatal("key rotation cleared expiry — should preserve it")
+	}
+	if expiresAtStr2 != expiresAtStr {
+		t.Fatalf("key rotation changed expiry: before=%s, after=%s", expiresAtStr, expiresAtStr2)
+	}
+	t.Log("key rotation correctly preserved expiry (by design)")
+
+	// Advance past expiry — heartbeat should still be blocked
+	clk.Advance(3 * 24 * time.Hour) // total 8 days, past 7-day expiry
+	setClientSigner(rc, newID)
+	_, err = rc.Heartbeat(nodeID)
+	if err == nil {
+		t.Fatal("expected heartbeat to be blocked after key expiry, even after rotation")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expected 'expired' error, got: %v", err)
+	}
+	t.Log("heartbeat correctly blocked after rotation+expiry")
 }

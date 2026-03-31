@@ -982,7 +982,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			errMsg := "request failed"
 			if strings.Contains(err.Error(), "rate limited") ||
 				strings.Contains(err.Error(), "enterprise feature") ||
-				strings.Contains(err.Error(), "has expired") {
+				strings.Contains(err.Error(), "expired") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -3566,17 +3566,26 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 		}
 	}
 
-	// Remove from all networks
+	// Remove from all networks and clean up RBAC roles
+	var lostOwnerNets []uint16
 	for _, netID := range node.Networks {
 		if net, ok := s.networks[netID]; ok {
+			if net.MemberRoles[nodeID] == RoleOwner && len(net.Members) > 1 {
+				lostOwnerNets = append(lostOwnerNets, netID)
+			}
 			for i, m := range net.Members {
 				if m == nodeID {
 					net.Members = append(net.Members[:i], net.Members[i+1:]...)
 					break
 				}
 			}
+			delete(net.MemberRoles, nodeID)
 		}
 	}
+
+	// Clean up pending invites for this node
+	delete(s.inviteInbox, nodeID)
+
 	// Keep ownerIdx entry so owner-based key recovery can reclaim the node_id
 	if node.Hostname != "" {
 		delete(s.hostnameIdx, node.Hostname)
@@ -3586,8 +3595,13 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	s.save()
 	s.metrics.deregistrations.Inc()
 
-	slog.Info("deregistered node", "node_id", nodeID)
-	s.audit("node.deregistered", "node_id", nodeID)
+	slog.Info("deregistered node", "node_id", nodeID, "networks", len(node.Networks))
+	s.audit("node.deregistered", "node_id", nodeID, "networks", len(node.Networks))
+
+	// Audit any networks that lost their owner
+	for _, netID := range lostOwnerNets {
+		s.audit("network.owner_lost", "network_id", netID, "former_owner", nodeID)
+	}
 
 	return map[string]interface{}{
 		"type": "deregister_ok",
