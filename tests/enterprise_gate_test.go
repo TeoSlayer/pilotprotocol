@@ -2520,3 +2520,185 @@ func TestTransferOwnershipZeroID(t *testing.T) {
 	}
 	t.Logf("transfer to node 0 correctly rejected: %v", err)
 }
+
+// TestListNetworksEnterpriseFields verifies that list_networks exposes
+// enterprise policy fields (max_members, description) for enterprise networks.
+func TestListNetworksEnterpriseFields(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, nodeIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, nodeIdentity)
+
+	// Create a non-enterprise network
+	_, err := rc.CreateNetwork(nodeID, "plain-net", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create plain: %v", err)
+	}
+
+	// Create an enterprise network with policy
+	resp, err := rc.CreateNetwork(nodeID, "ent-net", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create enterprise: %v", err)
+	}
+	entNetID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.SetNetworkPolicy(entNetID, map[string]interface{}{
+		"max_members": float64(25),
+		"description": "test enterprise listing",
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// List networks and verify fields
+	listResp, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	networks := listResp["networks"].([]interface{})
+
+	foundPlain := false
+	foundEnt := false
+	for _, n := range networks {
+		net := n.(map[string]interface{})
+		name := net["name"].(string)
+
+		if name == "plain-net" {
+			foundPlain = true
+			if net["enterprise"] != false {
+				t.Error("plain-net should have enterprise=false")
+			}
+			// Should NOT have max_members or description
+			if _, ok := net["max_members"]; ok {
+				t.Error("plain-net should not have max_members")
+			}
+		}
+
+		if name == "ent-net" {
+			foundEnt = true
+			if net["enterprise"] != true {
+				t.Error("ent-net should have enterprise=true")
+			}
+			if int(net["max_members"].(float64)) != 25 {
+				t.Errorf("ent-net max_members: got %v, want 25", net["max_members"])
+			}
+			if net["description"] != "test enterprise listing" {
+				t.Errorf("ent-net description: got %v", net["description"])
+			}
+			t.Logf("enterprise network listing: max_members=%v, description=%v", net["max_members"], net["description"])
+		}
+	}
+	if !foundPlain {
+		t.Error("plain-net not found in listing")
+	}
+	if !foundEnt {
+		t.Error("ent-net not found in listing")
+	}
+}
+
+// TestListNodesEnterpriseMembers verifies that list_nodes returns role, tags,
+// and other enterprise fields for network members.
+func TestListNodesEnterpriseMembers(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + member
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	memberIdentity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(memberIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register member: %v", err)
+	}
+	memberID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "node-fields", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept member
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Promote member to admin
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Set tags on member
+	_, err = rc.SetTagsAdmin(memberID, []string{"gpu", "fast"}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set tags: %v", err)
+	}
+
+	// Set member visibility to public
+	_, err = rc.SetVisibilityAdmin(memberID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set visibility: %v", err)
+	}
+
+	// List nodes and verify fields
+	nodesResp, err := rc.ListNodes(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("list nodes: %v", err)
+	}
+	nodes := nodesResp["nodes"].([]interface{})
+
+	foundOwner := false
+	foundMember := false
+	for _, n := range nodes {
+		node := n.(map[string]interface{})
+		nid := uint32(node["node_id"].(float64))
+
+		if nid == ownerID {
+			foundOwner = true
+			if node["role"] != "owner" {
+				t.Errorf("owner role: got %v, want owner", node["role"])
+			}
+		}
+
+		if nid == memberID {
+			foundMember = true
+			if node["role"] != "admin" {
+				t.Errorf("member role: got %v, want admin", node["role"])
+			}
+			if node["public"] != true {
+				t.Errorf("member public: got %v, want true", node["public"])
+			}
+			tags, ok := node["tags"].([]interface{})
+			if !ok || len(tags) != 2 {
+				t.Errorf("member tags: got %v, want [gpu, fast]", node["tags"])
+			}
+			t.Logf("member node: role=%v, public=%v, tags=%v", node["role"], node["public"], node["tags"])
+		}
+	}
+	if !foundOwner {
+		t.Error("owner not found in list_nodes")
+	}
+	if !foundMember {
+		t.Error("member not found in list_nodes")
+	}
+}

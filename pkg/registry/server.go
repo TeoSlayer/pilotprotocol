@@ -3555,13 +3555,22 @@ func (s *Server) handleListNetworks() (map[string]interface{}, error) {
 
 	nets := make([]map[string]interface{}, 0, len(s.networks))
 	for _, n := range s.networks {
-		nets = append(nets, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id":         n.ID,
 			"name":       n.Name,
 			"members":    len(n.Members),
 			"join_rule":  n.JoinRule,
 			"enterprise": n.Enterprise,
-		})
+		}
+		if n.Enterprise {
+			if n.Policy.MaxMembers > 0 {
+				entry["max_members"] = n.Policy.MaxMembers
+			}
+			if n.Policy.Description != "" {
+				entry["description"] = n.Policy.Description
+			}
+		}
+		nets = append(nets, entry)
 	}
 
 	return map[string]interface{}{
