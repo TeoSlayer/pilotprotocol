@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "decentralized-communication-protocols-ai-developers",
+    title: "Decentralized communication protocols for AI developers",
+    description: "Learn how to choose decentralized communication protocols for AI agent networks, covering NAT traversal, Kademlia DHT, E2EE, and practical stack selection.",
+    date: "Mar 31",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/decentralized-communication-protocols-ai-developers.jpg",
+  },
+
+  {
     slug: "connecting-mcp-servers-across-agents",
     title: "Connecting MCP Servers to Agents Across Any Network",
     description: "How to connect MCP-equipped agents across NATs, firewalls, and clouds. One command install, zero networking config. Go and Python examples.",
@@ -59,7 +69,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
