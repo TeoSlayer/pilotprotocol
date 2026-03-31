@@ -310,6 +310,121 @@ func TestMetricsErrorCounting(t *testing.T) {
 	}
 }
 
+func TestMetricsEnterprise(t *testing.T) {
+	t.Parallel()
+
+	r := registry.New("127.0.0.1:9001")
+	r.SetAdminToken(TestAdminToken)
+	go r.ListenAndServe("127.0.0.1:0")
+	<-r.Ready()
+	defer r.Close()
+
+	regAddr := r.Addr().String()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("find free port: %v", err)
+	}
+	dashAddr := ln.Addr().String()
+	ln.Close()
+
+	go r.ServeDashboard(dashAddr)
+	waitDashboard(t, dashAddr)
+
+	// Register owner and create enterprise network
+	rc, err := registry.Dial(regAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	ownerID, _ := icrypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", icrypto.EncodePublicKey(ownerID.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerNodeID := uint32(resp["node_id"].(float64))
+
+	memberID, _ := icrypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", icrypto.EncodePublicKey(memberID.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register member: %v", err)
+	}
+	memberNodeID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network
+	setClientSigner(rc, ownerID)
+	resp, err = rc.CreateNetwork(ownerNodeID, "metrics-ent", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite + accept member
+	_, err = rc.InviteToNetwork(netID, ownerNodeID, memberNodeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberID)
+	_, err = rc.RespondInvite(memberNodeID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Promote member
+	setClientSigner(rc, ownerID)
+	_, err = rc.PromoteMember(netID, ownerNodeID, memberNodeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Set policy
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(50),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	body := fetchMetrics(t, dashAddr)
+
+	// Verify enterprise gauges
+	for _, metric := range []string{
+		"pilot_networks_total",
+		"pilot_networks_enterprise",
+		"pilot_invites_pending",
+		"pilot_audit_events_total",
+		"pilot_invites_sent_total",
+		"pilot_invites_accepted_total",
+		"pilot_rbac_operations_total",
+		"pilot_policy_changes_total",
+		"pilot_key_rotations_total",
+	} {
+		if !strings.Contains(body, metric) {
+			t.Errorf("metrics output missing %q", metric)
+		}
+	}
+
+	// Check specific values
+	if !strings.Contains(body, "pilot_networks_enterprise 1") {
+		t.Errorf("expected pilot_networks_enterprise 1, got: %s", extractLine(body, "pilot_networks_enterprise "))
+	}
+	if !strings.Contains(body, "pilot_invites_sent_total 1") {
+		t.Errorf("expected pilot_invites_sent_total 1, got: %s", extractLine(body, "pilot_invites_sent_total "))
+	}
+	if !strings.Contains(body, "pilot_invites_accepted_total 1") {
+		t.Errorf("expected pilot_invites_accepted_total 1, got: %s", extractLine(body, "pilot_invites_accepted_total "))
+	}
+	if !strings.Contains(body, `pilot_rbac_operations_total{op="promote"} 1`) {
+		t.Errorf("expected promote rbac op, got: %s", extractLine(body, "pilot_rbac_operations_total"))
+	}
+	if !strings.Contains(body, "pilot_policy_changes_total 1") {
+		t.Errorf("expected pilot_policy_changes_total 1, got: %s", extractLine(body, "pilot_policy_changes_total "))
+	}
+
+	t.Logf("enterprise metrics verified: networks_enterprise=1, invites_sent=1, invites_accepted=1, rbac promote=1, policy_changes=1")
+}
+
 // extractLine returns the first line containing prefix, for better error messages.
 func extractLine(body, prefix string) string {
 	for _, line := range strings.Split(body, "\n") {

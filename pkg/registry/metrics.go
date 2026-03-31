@@ -203,6 +203,20 @@ type registryMetrics struct {
 	trustReports      counter // pilot_trust_reports_total
 	trustRevocations  counter // pilot_trust_revocations_total
 	handshakeRequests counter // pilot_handshake_requests_total
+
+	// Network gauges (updated on each scrape)
+	networksTotal      gauge // pilot_networks_total
+	networksEnterprise gauge // pilot_networks_enterprise
+	invitesPending     gauge // pilot_invites_pending
+
+	// Enterprise counters
+	auditEventsTotal   counter    // pilot_audit_events_total
+	invitesSent        counter    // pilot_invites_sent_total
+	invitesAccepted    counter    // pilot_invites_accepted_total
+	invitesRejected    counter    // pilot_invites_rejected_total
+	rbacOps            *counterVec // pilot_rbac_operations_total{op="..."}
+	policyChanges      counter    // pilot_policy_changes_total
+	keyRotations       counter    // pilot_key_rotations_total
 }
 
 func newRegistryMetrics() *registryMetrics {
@@ -210,6 +224,7 @@ func newRegistryMetrics() *registryMetrics {
 		requestsTotal:   newCounterVec(),
 		requestDuration: newHistogramVec(defaultDurationBuckets),
 		errorsTotal:     newCounterVec(),
+		rbacOps:         newCounterVec(),
 	}
 }
 
@@ -238,6 +253,27 @@ func (m *registryMetrics) updateGauges(s *Server) {
 	m.trustLinks.Set(float64(len(s.trustPairs)))
 	m.taskExecutors.Set(float64(taskExec))
 	m.uptimeSeconds.Set(now.Sub(s.startTime).Seconds())
+
+	// Enterprise gauges
+	netTotal := 0
+	netEnterprise := 0
+	for _, n := range s.networks {
+		if n.ID == 0 {
+			continue // skip backbone
+		}
+		netTotal++
+		if n.Enterprise {
+			netEnterprise++
+		}
+	}
+	m.networksTotal.Set(float64(netTotal))
+	m.networksEnterprise.Set(float64(netEnterprise))
+
+	pendingInvites := 0
+	for _, invites := range s.inviteInbox {
+		pendingInvites += len(invites)
+	}
+	m.invitesPending.Set(float64(pendingInvites))
 }
 
 // WriteTo writes all metrics in Prometheus text exposition format.
@@ -311,6 +347,50 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeHelp(&b, "pilot_handshake_requests_total", "Total number of handshake requests relayed.")
 	writeType(&b, "pilot_handshake_requests_total", "counter")
 	writeMetric(&b, "pilot_handshake_requests_total", m.handshakeRequests.Get())
+
+	// --- Network gauges ---
+	writeHelp(&b, "pilot_networks_total", "Total number of networks (excluding backbone).")
+	writeType(&b, "pilot_networks_total", "gauge")
+	writeMetric(&b, "pilot_networks_total", m.networksTotal.Get())
+
+	writeHelp(&b, "pilot_networks_enterprise", "Number of enterprise networks.")
+	writeType(&b, "pilot_networks_enterprise", "gauge")
+	writeMetric(&b, "pilot_networks_enterprise", m.networksEnterprise.Get())
+
+	writeHelp(&b, "pilot_invites_pending", "Number of pending network invites.")
+	writeType(&b, "pilot_invites_pending", "gauge")
+	writeMetric(&b, "pilot_invites_pending", m.invitesPending.Get())
+
+	// --- Enterprise counters ---
+	writeHelp(&b, "pilot_audit_events_total", "Total number of audit events emitted.")
+	writeType(&b, "pilot_audit_events_total", "counter")
+	writeMetric(&b, "pilot_audit_events_total", m.auditEventsTotal.Get())
+
+	writeHelp(&b, "pilot_invites_sent_total", "Total number of network invites sent.")
+	writeType(&b, "pilot_invites_sent_total", "counter")
+	writeMetric(&b, "pilot_invites_sent_total", m.invitesSent.Get())
+
+	writeHelp(&b, "pilot_invites_accepted_total", "Total number of network invites accepted.")
+	writeType(&b, "pilot_invites_accepted_total", "counter")
+	writeMetric(&b, "pilot_invites_accepted_total", m.invitesAccepted.Get())
+
+	writeHelp(&b, "pilot_invites_rejected_total", "Total number of network invites rejected.")
+	writeType(&b, "pilot_invites_rejected_total", "counter")
+	writeMetric(&b, "pilot_invites_rejected_total", m.invitesRejected.Get())
+
+	writeHelp(&b, "pilot_rbac_operations_total", "Total number of RBAC operations by type.")
+	writeType(&b, "pilot_rbac_operations_total", "counter")
+	for _, lv := range m.rbacOps.snapshot() {
+		writeLabeledMetric(&b, "pilot_rbac_operations_total", "op", lv.label, lv.value)
+	}
+
+	writeHelp(&b, "pilot_policy_changes_total", "Total number of network policy changes.")
+	writeType(&b, "pilot_policy_changes_total", "counter")
+	writeMetric(&b, "pilot_policy_changes_total", m.policyChanges.Get())
+
+	writeHelp(&b, "pilot_key_rotations_total", "Total number of key rotations.")
+	writeType(&b, "pilot_key_rotations_total", "counter")
+	writeMetric(&b, "pilot_key_rotations_total", m.keyRotations.Get())
 
 	n, err := io.WriteString(w, b.String())
 	return int64(n), err

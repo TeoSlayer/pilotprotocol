@@ -113,6 +113,7 @@ func (s *Server) requireNetworkRole(msg map[string]interface{}, netID uint16, al
 func (s *Server) audit(action string, attrs ...any) {
 	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
 	s.appendAudit(action, 0, 0, attrs...)
+	s.metrics.auditEventsTotal.Inc()
 }
 
 // requireEnterprise checks that the given network has the Enterprise flag.
@@ -1288,6 +1289,7 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 	addr := protocol.Addr{Network: 0, Node: nodeID}
 	slog.Debug("rotated key", "node_id", nodeID, "addr", addr)
 	s.audit("key.rotated", "node_id", nodeID)
+	s.metrics.keyRotations.Inc()
 
 	return map[string]interface{}{
 		"type":       "rotate_key_ok",
@@ -2810,6 +2812,7 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 
 	slog.Info("network invite stored", "network_id", netID, "inviter_id", inviterID, "target_node_id", targetNodeID)
 	s.audit("invite.created", "network_id", netID, "inviter_id", inviterID, "target_node_id", targetNodeID)
+	s.metrics.invitesSent.Inc()
 
 	return map[string]interface{}{
 		"type":           "invite_to_network_ok",
@@ -2960,6 +2963,11 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 
 	s.save()
 	s.audit("invite.responded", "node_id", nodeID, "network_id", netID, "accepted", accept)
+	if accept {
+		s.metrics.invitesAccepted.Inc()
+	} else {
+		s.metrics.invitesRejected.Inc()
+	}
 
 	return map[string]interface{}{
 		"type":       "respond_invite_ok",
@@ -3062,6 +3070,7 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 
 	slog.Info("member kicked from network", "target_node_id", targetNodeID, "network_id", netID, "role", string(kickedRole))
 	s.audit("member.kicked", "target_node_id", targetNodeID, "network_id", netID, "role", string(kickedRole))
+	s.metrics.rbacOps.WithLabel("kick").Inc()
 
 	return map[string]interface{}{
 		"type":           "kick_member_ok",
@@ -3110,6 +3119,7 @@ func (s *Server) handlePromoteMember(msg map[string]interface{}) (map[string]int
 	slog.Info("member promoted to admin", "target_node_id", targetNodeID, "network_id", netID)
 	s.audit("member.promoted", "target_node_id", targetNodeID, "network_id", netID,
 		"old_role", string(currentRole), "new_role", "admin")
+	s.metrics.rbacOps.WithLabel("promote").Inc()
 
 	return map[string]interface{}{
 		"type":           "promote_member_ok",
@@ -3159,6 +3169,7 @@ func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]inte
 	slog.Info("admin demoted to member", "target_node_id", targetNodeID, "network_id", netID)
 	s.audit("member.demoted", "target_node_id", targetNodeID, "network_id", netID,
 		"old_role", string(currentRole), "new_role", "member")
+	s.metrics.rbacOps.WithLabel("demote").Inc()
 
 	return map[string]interface{}{
 		"type":           "demote_member_ok",
@@ -3228,6 +3239,7 @@ func (s *Server) handleTransferOwnership(msg map[string]interface{}) (map[string
 	s.audit("network.ownership_transferred", "network_id", netID,
 		"old_owner", currentOwnerID, "new_owner", newOwnerID,
 		"new_owner_old_role", string(newOwnerRole))
+	s.metrics.rbacOps.WithLabel("transfer_ownership").Inc()
 
 	return map[string]interface{}{
 		"type":       "transfer_ownership_ok",
@@ -3334,6 +3346,7 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	s.audit("network.policy_changed", "network_id", netID,
 		"old_max_members", oldPolicy.MaxMembers, "new_max_members", policy.MaxMembers,
 		"old_allowed_ports_count", len(oldPolicy.AllowedPorts), "new_allowed_ports_count", len(policy.AllowedPorts))
+	s.metrics.policyChanges.Inc()
 
 	return map[string]interface{}{
 		"type":          "set_network_policy_ok",
