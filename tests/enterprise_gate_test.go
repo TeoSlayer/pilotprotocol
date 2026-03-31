@@ -2971,3 +2971,158 @@ func TestInviteEnterpriseRecheck(t *testing.T) {
 	}
 	t.Logf("enterprise recheck blocked invite: %v", err)
 }
+
+// TestOwnerCannotLeaveNetwork verifies that the owner of an enterprise network
+// cannot leave — they must transfer ownership first.
+func TestOwnerCannotLeaveNetwork(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "owner-leave", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept member
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Owner tries to leave — should fail
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.LeaveNetwork(ownerID, netID, "")
+	if err == nil {
+		t.Fatal("expected error: owner should not be able to leave")
+	}
+	if !strings.Contains(err.Error(), "cannot leave") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("owner leave blocked: %v", err)
+
+	// Member can still leave
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.LeaveNetwork(memberID, netID, "")
+	if err != nil {
+		t.Fatalf("member leave should succeed: %v", err)
+	}
+
+	// After transfer, old owner can leave
+	newMemberID, newMemberIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, newMemberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite new member: %v", err)
+	}
+	setClientSigner(rc, newMemberIdentity)
+	_, err = rc.RespondInvite(newMemberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept new member: %v", err)
+	}
+
+	// Transfer ownership then leave
+	_, err = rc.TransferOwnership(netID, ownerID, newMemberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("transfer: %v", err)
+	}
+
+	// Old owner (now admin) can leave
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.LeaveNetwork(ownerID, netID, "")
+	if err != nil {
+		t.Fatalf("old owner leave after transfer should succeed: %v", err)
+	}
+	t.Log("owner leave correctly blocked, member/ex-owner leave succeeds")
+}
+
+// TestEnterpriseToggleRBACCleanup verifies that MemberRoles are cleaned up
+// when enterprise is disabled, and re-initialized when re-enabled.
+func TestEnterpriseToggleRBACCleanup(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "toggle-rbac", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept member, promote to admin
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Verify admin role
+	roleResp, err := rc.GetMemberRole(netID, memberID)
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	if roleResp["role"] != "admin" {
+		t.Fatalf("expected admin, got %v", roleResp["role"])
+	}
+
+	// Disable enterprise — roles should be cleaned up
+	_, err = rc.SetNetworkEnterprise(netID, false, TestAdminToken)
+	if err != nil {
+		t.Fatalf("disable enterprise: %v", err)
+	}
+
+	// Role check should fail (enterprise off)
+	_, err = rc.GetMemberRole(netID, memberID)
+	if err == nil {
+		t.Fatal("expected error: get_member_role on non-enterprise network")
+	}
+
+	// Re-enable enterprise — roles should be re-initialized
+	_, err = rc.SetNetworkEnterprise(netID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("re-enable enterprise: %v", err)
+	}
+
+	// Owner should be re-initialized as owner (first member gets owner)
+	roleResp, err = rc.GetMemberRole(netID, ownerID)
+	if err != nil {
+		t.Fatalf("get owner role after re-enable: %v", err)
+	}
+	if roleResp["role"] != "owner" {
+		t.Errorf("expected owner after re-enable, got %v", roleResp["role"])
+	}
+
+	// Member should be re-initialized as member (not admin — old roles were cleaned)
+	roleResp, err = rc.GetMemberRole(netID, memberID)
+	if err != nil {
+		t.Fatalf("get member role after re-enable: %v", err)
+	}
+	if roleResp["role"] != "member" {
+		t.Errorf("expected member after re-enable (old admin role cleaned), got %v", roleResp["role"])
+	}
+	t.Log("RBAC roles correctly cleaned on disable, re-initialized on enable")
+}

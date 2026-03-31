@@ -1965,6 +1965,11 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
 	}
 
+	// Owner cannot leave — must transfer ownership first (check before modifying state)
+	if network.Enterprise && network.MemberRoles[nodeID] == RoleOwner {
+		return nil, fmt.Errorf("cannot leave network: owner must transfer ownership first")
+	}
+
 	// Remove network from node's list
 	found := false
 	for i, n := range node.Networks {
@@ -2135,6 +2140,11 @@ func (s *Server) handleSetNetworkEnterprise(msg map[string]interface{}) (map[str
 	}
 
 	network.Enterprise = enterprise
+
+	// Clean up RBAC roles when disabling enterprise
+	if !enterprise && network.MemberRoles != nil {
+		network.MemberRoles = nil
+	}
 
 	// When enabling enterprise, ensure all existing members have RBAC roles.
 	// The first member (creator) gets owner if no owner exists; others get member.
