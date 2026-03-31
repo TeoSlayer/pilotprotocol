@@ -3787,3 +3787,85 @@ func TestNetworkRenameValidation(t *testing.T) {
 
 	t.Log("network rename validation works correctly")
 }
+
+// TestJoinBackboneRejected verifies that joining the backbone network (ID 0) is rejected.
+func TestJoinBackboneRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	_, err := rc.JoinNetwork(nodeID, 0, "", 0, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error when joining backbone network")
+	}
+	if !strings.Contains(err.Error(), "cannot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("backbone join correctly rejected: %v", err)
+}
+
+// TestMaxMembersValidation verifies that max_members rejects overflow, fractional, and out-of-range values.
+func TestMaxMembersValidation(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, ownerIdentity)
+
+	resp, err := rc.CreateNetwork(ownerID, "maxmem-test", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Fractional max_members should fail
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": 5.5,
+	}, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for fractional max_members")
+	} else {
+		t.Logf("fractional max_members rejected: %v", err)
+	}
+
+	// Negative max_members should fail
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(-1),
+	}, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for negative max_members")
+	} else {
+		t.Logf("negative max_members rejected: %v", err)
+	}
+
+	// Overflow max_members (>10000) should fail
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(10001),
+	}, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for overflow max_members")
+	} else {
+		t.Logf("overflow max_members rejected: %v", err)
+	}
+
+	// Valid max_members should succeed
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(100),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("valid max_members should succeed: %v", err)
+	}
+
+	// Zero max_members (unlimited) should succeed
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(0),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("zero max_members (unlimited) should succeed: %v", err)
+	}
+
+	t.Log("max_members validation works correctly")
+}

@@ -1858,6 +1858,10 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	netID := jsonUint16(msg, "network_id")
 	token, _ := msg["token"].(string)
 
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot join the backbone network")
+	}
+
 	// Auth: signature (daemon) or admin token (console)
 	s.mu.RLock()
 	node, ok := s.nodes[nodeID]
@@ -3270,8 +3274,8 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	policy := network.Policy
 
 	if v, ok := msg["max_members"].(float64); ok {
-		if v < 0 {
-			return nil, fmt.Errorf("max_members must be >= 0")
+		if v < 0 || v > 10000 || v != float64(int(v)) {
+			return nil, fmt.Errorf("invalid max_members (must be integer 0-10000)")
 		}
 		newMax := int(v)
 		if newMax > 0 && len(network.Members) > newMax {
