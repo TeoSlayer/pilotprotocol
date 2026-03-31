@@ -5319,3 +5319,192 @@ func TestBlueprintLoadFromFile(t *testing.T) {
 		t.Errorf("validation failed: %v", err)
 	}
 }
+
+// TestDirectorySync verifies the enterprise directory sync (SCIM-like) functionality.
+func TestDirectorySync(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Register an owner node first, then create enterprise network
+	ownerID, _ := registerTestNode(t, rc)
+	resp, err := rc.CreateNetwork(ownerID, "dir-sync-net", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Register nodes and join the network
+	nodeA, _ := registerTestNode(t, rc)
+	nodeB, _ := registerTestNode(t, rc)
+	nodeC, _ := registerTestNode(t, rc)
+
+	for _, nid := range []uint32{nodeA, nodeB, nodeC} {
+		_, err := rc.JoinNetwork(nid, netID, "", 0, TestAdminToken)
+		if err != nil {
+			t.Fatalf("join network: %v", err)
+		}
+	}
+
+	// Set external IDs on nodes (simulating identity verification)
+	_, err = rc.SetExternalID(nodeA, "alice@corp.com", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set external id A: %v", err)
+	}
+	_, err = rc.SetExternalID(nodeB, "bob@corp.com", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set external id B: %v", err)
+	}
+	_, err = rc.SetExternalID(nodeC, "charlie@corp.com", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set external id C: %v", err)
+	}
+
+	// Step 1: Directory sync — update roles
+	t.Log("step 1: directory sync with role updates")
+	entries := []map[string]interface{}{
+		{"external_id": "alice@corp.com", "role": "admin", "display_name": "Alice Smith"},
+		{"external_id": "bob@corp.com", "role": "member"},
+		{"external_id": "charlie@corp.com", "disabled": true},
+		{"external_id": "dave@corp.com", "role": "member"}, // not yet registered
+	}
+	syncResp, err := rc.DirectorySync(netID, entries, false, TestAdminToken)
+	if err != nil {
+		t.Fatalf("directory sync: %v", err)
+	}
+	t.Logf("sync result: mapped=%v updated=%v disabled=%v unmapped=%v",
+		syncResp["mapped"], syncResp["updated"], syncResp["disabled"], syncResp["unmapped"])
+
+	if syncResp["mapped"] != float64(3) {
+		t.Errorf("mapped: got %v, want 3", syncResp["mapped"])
+	}
+	if syncResp["unmapped"] != float64(1) {
+		t.Errorf("unmapped: got %v, want 1 (dave)", syncResp["unmapped"])
+	}
+	if syncResp["disabled"] != float64(1) {
+		t.Errorf("disabled: got %v, want 1 (charlie)", syncResp["disabled"])
+	}
+
+	// Step 2: Verify role changes
+	t.Log("step 2: verify role changes")
+	roleResp, err := rc.GetMemberRole(netID, nodeA)
+	if err != nil {
+		t.Fatalf("get role A: %v", err)
+	}
+	if roleResp["role"] != "admin" {
+		t.Errorf("alice role: got %v, want admin", roleResp["role"])
+	}
+
+	// Step 3: Directory status
+	t.Log("step 3: directory status")
+	statusResp, err := rc.DirectoryStatus(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("directory status: %v", err)
+	}
+	if statusResp["mapped"] != float64(2) { // alice and bob (charlie was removed)
+		t.Errorf("status mapped: got %v, want 2", statusResp["mapped"])
+	}
+	if statusResp["last_sync"] == nil || statusResp["last_sync"] == "" {
+		t.Error("last_sync should be set")
+	}
+
+	// Step 4: Auth check
+	t.Log("step 4: auth check")
+	_, err = rc.DirectorySync(netID, entries, false, "wrong-token")
+	if err == nil {
+		t.Fatal("expected auth error")
+	}
+
+	t.Log("all directory sync tests passed")
+}
+
+// TestBlueprintPersistence verifies enterprise config survives restart.
+func TestBlueprintPersistence(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "registry.json")
+
+	// Start first server with persistence
+	srv1 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	srv1.SetAdminToken(TestAdminToken)
+	go srv1.ListenAndServe(":0")
+	select {
+	case <-srv1.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	rc1, err := registry.Dial(srv1.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Provision network and configure enterprise features
+	blueprint := map[string]interface{}{
+		"name":       "persist-net",
+		"enterprise": true,
+		"policy":     map[string]interface{}{"max_members": float64(25)},
+		"roles": []interface{}{
+			map[string]interface{}{"external_id": "admin@corp.com", "role": "admin"},
+		},
+	}
+	_, err = rc1.ProvisionNetwork(blueprint, TestAdminToken)
+	if err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+
+	// Configure IDP
+	_, err = rc1.SetIDPConfig("entra_id", "https://login.example.com", "https://issuer", "client123", "tenant456", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set idp: %v", err)
+	}
+
+	// Wait for save to flush
+	time.Sleep(200 * time.Millisecond)
+	rc1.Close()
+	srv1.Close()
+
+	// Start second server from persisted state
+	srv2 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	srv2.SetAdminToken(TestAdminToken)
+	go srv2.ListenAndServe(":0")
+	select {
+	case <-srv2.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry2 failed to start")
+	}
+	rc2, err := registry.Dial(srv2.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc2.Close()
+	defer srv2.Close()
+
+	// Verify IDP config survived restart
+	idpResp, err := rc2.GetIDPConfig(TestAdminToken)
+	if err != nil {
+		t.Fatalf("get idp after restart: %v", err)
+	}
+	if idpResp["idp_type"] != "entra_id" {
+		t.Errorf("idp_type after restart: got %v", idpResp["idp_type"])
+	}
+	if idpResp["tenant_id"] != "tenant456" {
+		t.Errorf("tenant_id after restart: got %v", idpResp["tenant_id"])
+	}
+
+	// Verify provision status shows the network
+	status, err := rc2.GetProvisionStatus(TestAdminToken)
+	if err != nil {
+		t.Fatalf("provision status after restart: %v", err)
+	}
+	networks, ok := status["networks"].([]interface{})
+	if !ok || len(networks) == 0 {
+		t.Fatal("no networks after restart")
+	}
+	net := networks[0].(map[string]interface{})
+	if net["name"] != "persist-net" {
+		t.Errorf("network name: got %v", net["name"])
+	}
+
+	t.Log("blueprint persistence test passed")
+}

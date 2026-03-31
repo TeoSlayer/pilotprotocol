@@ -277,6 +277,20 @@ func (s *Server) snapshotJSON() []byte {
 	}
 	s.auditMu.Unlock()
 
+	// Enterprise config persistence
+	if s.idpConfig != nil {
+		snap.IDPConfig = s.idpConfig
+	}
+	if s.auditExportConfig != nil {
+		snap.AuditExportCfg = s.auditExportConfig
+	}
+	if len(s.rbacPreAssign) > 0 {
+		snap.RBACPreAssign = make(map[string][]BlueprintRole, len(s.rbacPreAssign))
+		for netID, roles := range s.rbacPreAssign {
+			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = roles
+		}
+	}
+
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("snapshot marshal error", "err", err)
@@ -530,6 +544,28 @@ func (s *Server) applySnapshot(data []byte) error {
 		s.auditMu.Lock()
 		s.auditLog = snap.AuditLog
 		s.auditMu.Unlock()
+	}
+
+	// Restore enterprise config
+	if snap.IDPConfig != nil {
+		s.idpConfig = snap.IDPConfig
+		s.identityWebhookURL = snap.IDPConfig.URL
+	}
+	if snap.AuditExportCfg != nil {
+		s.auditExportConfig = snap.AuditExportCfg
+		if s.auditExporter != nil {
+			s.auditExporter.Close()
+		}
+		s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+	}
+	if len(snap.RBACPreAssign) > 0 {
+		s.rbacPreAssign = make(map[uint16][]BlueprintRole)
+		for netIDStr, roles := range snap.RBACPreAssign {
+			var netID uint16
+			if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+				s.rbacPreAssign[netID] = roles
+			}
+		}
 	}
 
 	// Persist to local disk for crash recovery

@@ -1240,6 +1240,10 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetIDPConfig(msg)
 	case "get_provision_status":
 		return s.handleGetProvisionStatus(msg)
+	case "directory_sync":
+		return s.handleDirectorySync(msg)
+	case "directory_status":
+		return s.handleGetDirectoryStatus(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -4391,6 +4395,10 @@ type snapshot struct {
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []AuditEntry `json:"audit_log,omitempty"`
+	// Enterprise config persistence
+	IDPConfig       *BlueprintIdentityProvider  `json:"idp_config,omitempty"`
+	AuditExportCfg  *BlueprintAuditExport       `json:"audit_export_config,omitempty"`
+	RBACPreAssign   map[string][]BlueprintRole  `json:"rbac_pre_assign,omitempty"` // networkID -> roles
 	// Integrity: SHA256 hex digest of all fields except Checksum
 	Checksum string `json:"checksum,omitempty"`
 }
@@ -4599,6 +4607,20 @@ func (s *Server) flushSave() error {
 	snap.TrustLinks = len(s.trustPairs)
 	snap.UniqueTags = len(tagSet)
 	snap.TaskExecutors = taskExecCount
+
+	// Enterprise config persistence
+	if s.idpConfig != nil {
+		snap.IDPConfig = s.idpConfig
+	}
+	if s.auditExportConfig != nil {
+		snap.AuditExportCfg = s.auditExportConfig
+	}
+	if len(s.rbacPreAssign) > 0 {
+		snap.RBACPreAssign = make(map[string][]BlueprintRole, len(s.rbacPreAssign))
+		for netID, roles := range s.rbacPreAssign {
+			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = roles
+		}
+	}
 
 	nodeCount := len(s.nodes)
 	netCount := len(s.networks)
@@ -4850,6 +4872,32 @@ func (s *Server) load() error {
 		s.auditLog = snap.AuditLog
 		s.auditMu.Unlock()
 		slog.Info("loaded audit log", "entries", len(snap.AuditLog))
+	}
+
+	// Restore enterprise config (IDP, audit export, RBAC pre-assignments)
+	if snap.IDPConfig != nil {
+		s.idpConfig = snap.IDPConfig
+		s.identityWebhookURL = snap.IDPConfig.URL
+		slog.Info("loaded identity provider config", "type", snap.IDPConfig.Type)
+	}
+	if snap.AuditExportCfg != nil {
+		s.auditExportConfig = snap.AuditExportCfg
+		if s.auditExporter != nil {
+			s.auditExporter.Close()
+		}
+		s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+		slog.Info("loaded audit export config", "format", snap.AuditExportCfg.Format,
+			"endpoint", snap.AuditExportCfg.Endpoint)
+	}
+	if len(snap.RBACPreAssign) > 0 {
+		s.rbacPreAssign = make(map[uint16][]BlueprintRole)
+		for netIDStr, roles := range snap.RBACPreAssign {
+			var netID uint16
+			if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+				s.rbacPreAssign[netID] = roles
+			}
+		}
+		slog.Info("loaded RBAC pre-assignments", "networks", len(s.rbacPreAssign))
 	}
 
 	// Ensure store directory exists for future saves

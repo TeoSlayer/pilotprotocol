@@ -664,6 +664,10 @@ func main() {
 		cmdAuditExport(cmdArgs)
 	case "provision-status":
 		cmdProvisionStatus()
+	case "directory-sync":
+		cmdDirectorySync(cmdArgs)
+	case "directory-status":
+		cmdDirectoryStatus(cmdArgs)
 
 	// Management
 	case "connections":
@@ -4980,5 +4984,101 @@ func cmdProvisionStatus() {
 		fmt.Printf("%-6v %-20v %-12s %-10v %-8v %s\n",
 			net["network_id"], net["name"], enterprise,
 			net["members"], net["join_rule"], preAssign)
+	}
+}
+
+// --- Directory sync commands ---
+
+func cmdDirectorySync(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl directory-sync <directory.json> [--network <id>] [--remove-unlisted]")
+	}
+	adminToken := requireAdminToken()
+	flags, pos := parseFlags(args)
+
+	var filePath string
+	if len(pos) > 0 {
+		filePath = pos[0]
+	} else {
+		filePath = args[0]
+	}
+
+	netIDStr := flagString(flags, "network", "0")
+	netID := parseUint16(netIDStr, "network_id")
+	removeUnlisted := flagBool(flags, "remove-unlisted")
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		fatalCode("invalid_argument", "read directory file: %v", err)
+	}
+
+	var payload struct {
+		NetworkID      uint16                   `json:"network_id"`
+		Entries        []map[string]interface{} `json:"entries"`
+		RemoveUnlisted bool                     `json:"remove_unlisted"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		fatalCode("invalid_argument", "parse directory file: %v", err)
+	}
+
+	if netID == 0 && payload.NetworkID > 0 {
+		netID = payload.NetworkID
+	}
+	if netID == 0 {
+		fatalCode("invalid_argument", "network_id required (use --network or set in file)")
+	}
+	if removeUnlisted {
+		payload.RemoveUnlisted = true
+	}
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.DirectorySync(netID, payload.Entries, payload.RemoveUnlisted, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "directory-sync: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+		return
+	}
+
+	fmt.Printf("directory sync complete: %v mapped, %v updated, %v disabled, %v unmapped\n",
+		resp["mapped"], resp["updated"], resp["disabled"], resp["unmapped"])
+	if actions, ok := resp["actions"].([]interface{}); ok {
+		for _, a := range actions {
+			fmt.Printf("  - %v\n", a)
+		}
+	}
+}
+
+func cmdDirectoryStatus(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl directory-status <network_id>")
+	}
+	adminToken := requireAdminToken()
+	netID := parseUint16(args[0], "network_id")
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.DirectoryStatus(netID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "directory-status: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+		return
+	}
+
+	fmt.Printf("Network %v directory status:\n", resp["network_id"])
+	fmt.Printf("  total members: %v\n", resp["total"])
+	fmt.Printf("  directory mapped: %v\n", resp["mapped"])
+	fmt.Printf("  unmapped: %v\n", resp["unmapped"])
+	if v := resp["pre_assignments"]; v != nil && v != float64(0) {
+		fmt.Printf("  pre-assignments: %v\n", v)
+	}
+	if v := resp["last_sync"]; v != nil && v != "" {
+		fmt.Printf("  last sync: %v\n", v)
 	}
 }

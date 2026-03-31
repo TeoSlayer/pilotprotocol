@@ -912,3 +912,27 @@ func (c *Client) GetProvisionStatus(adminToken string) (map[string]interface{}, 
 		"admin_token": adminToken,
 	})
 }
+
+// DirectorySync pushes a directory listing to update RBAC roles and membership.
+func (c *Client) DirectorySync(networkID uint16, entries []map[string]interface{}, removeUnlisted bool, adminToken string) (map[string]interface{}, error) {
+	entryList := make([]interface{}, len(entries))
+	for i, e := range entries {
+		entryList[i] = e
+	}
+	return c.Send(map[string]interface{}{
+		"type":             "directory_sync",
+		"network_id":       networkID,
+		"entries":          entryList,
+		"remove_unlisted":  removeUnlisted,
+		"admin_token":      adminToken,
+	})
+}
+
+// DirectoryStatus returns directory sync status for a network.
+func (c *Client) DirectoryStatus(networkID uint16, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "directory_status",
+		"network_id":  networkID,
+		"admin_token": adminToken,
+	})
+}
