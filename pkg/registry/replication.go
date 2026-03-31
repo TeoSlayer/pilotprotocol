@@ -214,6 +214,7 @@ func (s *Server) snapshotJSON() []byte {
 		if !n.KeyMeta.ExpiresAt.IsZero() {
 			sn.KeyExpires = n.KeyMeta.ExpiresAt.Format(time.RFC3339)
 		}
+		sn.ExternalID = n.ExternalID
 		snap.Nodes[fmt.Sprintf("%d", id)] = sn
 	}
 
@@ -447,6 +448,7 @@ func (s *Server) applySnapshot(data []byte) error {
 				node.KeyMeta.ExpiresAt = t
 			}
 		}
+		node.ExternalID = n.ExternalID
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
 		if n.Owner != "" {

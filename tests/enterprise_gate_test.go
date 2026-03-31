@@ -4759,3 +4759,239 @@ func TestRegistryWebhookRequiresAdmin(t *testing.T) {
 		t.Error("expected error for get_webhook with wrong admin token")
 	}
 }
+
+// TestExternalIdentityIntegration is a comprehensive harness that validates
+// all external identity integration features end-to-end:
+// - Identity webhook verification during registration
+// - set_external_id / get_identity admin API
+// - ExternalID in lookup responses
+// - ExternalID persistence across restart
+// - Backwards compatibility (old nodes without identity still work)
+func TestExternalIdentityIntegration(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("/tmp", "w4-identity-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	storePath := filepath.Join(tmpDir, "registry.json")
+
+	// Start identity verification webhook mock
+	var idMu sync.Mutex
+	verifyCount := 0
+	idWebhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "bad json", 400)
+			return
+		}
+		idMu.Lock()
+		verifyCount++
+		idMu.Unlock()
+
+		// Simulate identity verification: token format is "valid:<identity>"
+		if strings.HasPrefix(req.Token, "valid:") {
+			identity := strings.TrimPrefix(req.Token, "valid:")
+			w.WriteHeader(200)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"verified":    true,
+				"external_id": identity,
+			})
+		} else {
+			w.WriteHeader(200)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"verified": false,
+				"error":    "invalid token",
+			})
+		}
+	}))
+	defer idWebhook.Close()
+
+	// Phase 1: Set up registry with identity webhook
+	reg := registry.NewWithStore("127.0.0.1:9001", storePath)
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Configure identity webhook via admin API
+	resp, err := rc.SetIdentityWebhook(idWebhook.URL, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set_identity_webhook: %v", err)
+	}
+	if resp["status"] != "enabled" {
+		t.Fatalf("expected status=enabled, got %v", resp["status"])
+	}
+	t.Log("step 1: identity webhook configured")
+
+	// Step 2: Register a node WITH a valid identity token
+	id1, _ := crypto.GenerateIdentity()
+	resp, err = rc.Send(map[string]interface{}{
+		"type":           "register",
+		"listen_addr":    "127.0.0.1:4000",
+		"public_key":     crypto.EncodePublicKey(id1.PublicKey),
+		"identity_token": "valid:alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("register with identity: %v", err)
+	}
+	if resp["type"] != "register_ok" {
+		t.Fatalf("expected register_ok, got %v (error: %v)", resp["type"], resp["error"])
+	}
+	nodeID1 := uint32(resp["node_id"].(float64))
+	if resp["external_id"] != "alice@example.com" {
+		t.Errorf("expected external_id=alice@example.com, got %v", resp["external_id"])
+	}
+	t.Logf("step 2: node %d registered with external_id=%v", nodeID1, resp["external_id"])
+
+	// Step 3: Register a node WITHOUT identity token (backwards compat)
+	id2, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register without identity: %v", err)
+	}
+	nodeID2 := uint32(resp["node_id"].(float64))
+	if _, hasID := resp["external_id"]; hasID {
+		t.Errorf("node without identity_token should not have external_id, got %v", resp["external_id"])
+	}
+	t.Logf("step 3: node %d registered without identity (backwards compat ok)", nodeID2)
+
+	// Step 4: Register a node with INVALID identity token (should fail)
+	id3, _ := crypto.GenerateIdentity()
+	_, err = rc.Send(map[string]interface{}{
+		"type":           "register",
+		"listen_addr":    "127.0.0.1:4001",
+		"public_key":     crypto.EncodePublicKey(id3.PublicKey),
+		"identity_token": "bad-token-format",
+	})
+	if err == nil {
+		t.Error("expected error for invalid identity token")
+	} else {
+		t.Logf("step 4: invalid token correctly rejected: %v", err)
+	}
+
+	// Step 5: Lookup node 1 — should include external_id
+	resp, err = rc.Lookup(nodeID1)
+	if err != nil {
+		t.Fatalf("lookup node 1: %v", err)
+	}
+	if resp["external_id"] != "alice@example.com" {
+		t.Errorf("lookup external_id: got %v, want alice@example.com", resp["external_id"])
+	}
+	t.Log("step 5: external_id present in lookup response")
+
+	// Step 6: Lookup node 2 — should NOT have external_id
+	resp, err = rc.Lookup(nodeID2)
+	if err != nil {
+		t.Fatalf("lookup node 2: %v", err)
+	}
+	if _, hasID := resp["external_id"]; hasID {
+		t.Errorf("node 2 should not have external_id, got %v", resp["external_id"])
+	}
+	t.Log("step 6: no external_id for plain node (backwards compat)")
+
+	// Step 7: Admin set_external_id on node 2
+	resp, err = rc.SetExternalID(nodeID2, "bob@example.com", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set_external_id: %v", err)
+	}
+	if resp["external_id"] != "bob@example.com" {
+		t.Errorf("set_external_id response: got %v", resp["external_id"])
+	}
+
+	// Step 8: Admin get_identity on node 2
+	resp, err = rc.GetIdentity(nodeID2, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get_identity: %v", err)
+	}
+	if resp["external_id"] != "bob@example.com" {
+		t.Errorf("get_identity: got %v, want bob@example.com", resp["external_id"])
+	}
+	t.Log("step 7-8: admin set/get external_id works")
+
+	// Step 9: Auth checks — set_external_id/get_identity require admin token
+	_, err = rc.SetExternalID(nodeID1, "evil@example.com", "wrong-token")
+	if err == nil {
+		t.Error("set_external_id should require admin token")
+	}
+	_, err = rc.GetIdentity(nodeID1, "wrong-token")
+	if err == nil {
+		t.Error("get_identity should require admin token")
+	}
+	t.Log("step 9: auth checks pass")
+
+	// Step 10: Verify identity webhook was called
+	idMu.Lock()
+	calls := verifyCount
+	idMu.Unlock()
+	if calls < 2 {
+		t.Errorf("expected at least 2 identity webhook calls, got %d", calls)
+	}
+	t.Logf("step 10: identity webhook called %d times", calls)
+
+	// Step 11: Persistence — restart and verify external_id survives
+	rc.Close()
+	reg.Close()
+
+	reg2 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	reg2.SetAdminToken(TestAdminToken)
+	go reg2.ListenAndServe(":0")
+	select {
+	case <-reg2.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry 2 failed to start")
+	}
+	defer reg2.Close()
+
+	rc2, err := registry.Dial(reg2.Addr().String())
+	if err != nil {
+		t.Fatalf("dial registry 2: %v", err)
+	}
+	defer rc2.Close()
+
+	// Lookup after restart
+	resp, err = rc2.Lookup(nodeID1)
+	if err != nil {
+		t.Fatalf("lookup after restart: %v", err)
+	}
+	if resp["external_id"] != "alice@example.com" {
+		t.Errorf("external_id after restart: got %v, want alice@example.com", resp["external_id"])
+	}
+
+	resp, err = rc2.GetIdentity(nodeID2, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get_identity after restart: %v", err)
+	}
+	if resp["external_id"] != "bob@example.com" {
+		t.Errorf("external_id after restart: got %v, want bob@example.com", resp["external_id"])
+	}
+	t.Log("step 11: external_id persisted across restart")
+
+	// Step 12: Clear external_id (set to empty)
+	_, err = rc2.SetExternalID(nodeID2, "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("clear external_id: %v", err)
+	}
+	resp, err = rc2.GetIdentity(nodeID2, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get_identity after clear: %v", err)
+	}
+	if resp["external_id"] != "" {
+		t.Errorf("external_id after clear: got %v, want empty", resp["external_id"])
+	}
+	t.Log("step 12: external_id cleared successfully")
+
+	t.Log("all external identity integration tests passed")
+}

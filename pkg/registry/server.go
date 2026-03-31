@@ -286,6 +286,9 @@ type Server struct {
 	// Webhook dispatcher (nil = disabled)
 	webhook *registryWebhook
 
+	// Identity verification webhook URL (POST id_token → get verified identity)
+	identityWebhookURL string
+
 	// Clock (overridable for testing)
 	now func() time.Time
 
@@ -473,19 +476,20 @@ type KeyInfo struct {
 }
 
 type NodeInfo struct {
-	ID        uint32
-	Owner     string // email or identifier (for key rotation)
-	PublicKey []byte
-	RealAddr  string
-	Networks  []uint16
-	LastSeen  time.Time
-	Public    bool     // if true, endpoint is visible in lookup/list_nodes
-	Hostname  string   // unique hostname for discovery (empty = none)
-	Tags      []string // capability tags (e.g., "webserver", "assistant")
-	PoloScore int      // polo score for reputation system (default: 0)
-	TaskExec  bool     // if true, node advertises task execution capability
-	LANAddrs  []string // LAN addresses for same-network peer detection
-	KeyMeta   KeyInfo  // key lifecycle metadata
+	ID         uint32
+	Owner      string // email or identifier (for key rotation)
+	PublicKey  []byte
+	RealAddr   string
+	Networks   []uint16
+	LastSeen   time.Time
+	Public     bool     // if true, endpoint is visible in lookup/list_nodes
+	Hostname   string   // unique hostname for discovery (empty = none)
+	Tags       []string // capability tags (e.g., "webserver", "assistant")
+	PoloScore  int      // polo score for reputation system (default: 0)
+	TaskExec   bool     // if true, node advertises task execution capability
+	LANAddrs   []string // LAN addresses for same-network peer detection
+	KeyMeta    KeyInfo  // key lifecycle metadata
+	ExternalID string   // verified external identity (e.g., OIDC sub, email from IdP)
 }
 
 // Role represents a member's permission level within a network.
@@ -743,6 +747,19 @@ func (s *Server) SetWebhookURL(url string) {
 	if url != "" {
 		s.webhook = newRegistryWebhook(url)
 		slog.Info("registry webhook configured", "url", url)
+	}
+}
+
+// SetIdentityWebhookURL configures a verification webhook for identity tokens.
+// When a node registers with an identity_token, the registry POSTs it to this
+// URL for verification. The webhook should return {"verified": true, "external_id": "..."}
+// or {"verified": false, "error": "..."}. Empty URL disables identity verification.
+func (s *Server) SetIdentityWebhookURL(url string) {
+	s.mu.Lock()
+	s.identityWebhookURL = url
+	s.mu.Unlock()
+	if url != "" {
+		slog.Info("identity webhook configured", "url", url)
 	}
 }
 
@@ -1188,6 +1205,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetWebhook(msg)
 	case "get_webhook":
 		return s.handleGetWebhook(msg)
+	case "set_identity_webhook":
+		return s.handleSetIdentityWebhook(msg)
+	case "set_external_id":
+		return s.handleSetExternalID(msg)
+	case "get_identity":
+		return s.handleGetIdentity(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -1217,6 +1240,17 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	listenAddr := sanitizeListenAddr(remoteAddr, clientAddr)
 	owner, _ := msg["owner"].(string)
 	hostname, _ := msg["hostname"].(string)
+	identityToken, _ := msg["identity_token"].(string)
+
+	// Verify identity token before registration (calls external webhook)
+	var externalID string
+	if identityToken != "" {
+		var err error
+		externalID, err = s.verifyIdentityToken(identityToken)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Warn if client reports a newer protocol version than the server supports.
 	if clientVer, ok := msg["protocol_version"]; ok {
@@ -1267,6 +1301,25 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 		s.metrics.registrations.Inc()
 		resp["observed_addr"] = listenAddr
 		resp["protocol_version"] = int(protocol.Version)
+		// Set verified external identity if provided
+		if externalID != "" {
+			var nid uint32
+			switch v := resp["node_id"].(type) {
+			case uint32:
+				nid = v
+			case float64:
+				nid = uint32(v)
+			}
+			if nid != 0 {
+				s.mu.Lock()
+				if node, exists := s.nodes[nid]; exists {
+					node.ExternalID = externalID
+					s.save()
+				}
+				s.mu.Unlock()
+				resp["external_id"] = externalID
+			}
+		}
 	}
 	return resp, err
 }
@@ -1542,6 +1595,74 @@ func (s *Server) handleGetWebhook(msg map[string]interface{}) (map[string]interf
 		"enabled": wh != nil,
 		"url":     url,
 		"dropped": dropped,
+	}, nil
+}
+
+// handleSetIdentityWebhook configures the identity verification webhook URL.
+func (s *Server) handleSetIdentityWebhook(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	url, _ := msg["url"].(string)
+	s.SetIdentityWebhookURL(url)
+	status := "disabled"
+	if url != "" {
+		status = "enabled"
+	}
+	return map[string]interface{}{
+		"type":   "set_identity_webhook_ok",
+		"status": status,
+	}, nil
+}
+
+// handleSetExternalID sets the external identity on a node. Requires admin token.
+func (s *Server) handleSetExternalID(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	nodeID := jsonUint32(msg, "node_id")
+	externalID, _ := msg["external_id"].(string)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node not found")
+	}
+
+	oldID := node.ExternalID
+	node.ExternalID = externalID
+	s.save()
+	s.audit("identity.external_id_set", "node_id", nodeID, "old_external_id", oldID, "new_external_id", externalID)
+
+	return map[string]interface{}{
+		"type":        "set_external_id_ok",
+		"node_id":     nodeID,
+		"external_id": externalID,
+	}, nil
+}
+
+// handleGetIdentity returns the external identity of a node. Requires admin token.
+func (s *Server) handleGetIdentity(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	nodeID := jsonUint32(msg, "node_id")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node not found")
+	}
+
+	return map[string]interface{}{
+		"type":        "get_identity_ok",
+		"node_id":     nodeID,
+		"external_id": node.ExternalID,
+		"owner":       node.Owner,
 	}, nil
 }
 
@@ -2323,6 +2444,9 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	}
 	if node.Public {
 		resp["real_addr"] = node.RealAddr
+	}
+	if node.ExternalID != "" {
+		resp["external_id"] = node.ExternalID
 	}
 	return resp, nil
 }
@@ -3774,6 +3898,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if len(node.Tags) > 0 {
 				entry["tags"] = node.Tags
 			}
+			if node.ExternalID != "" {
+				entry["external_id"] = node.ExternalID
+			}
 			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
 			nodes = append(nodes, entry)
 		}
@@ -3814,6 +3941,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			}
 			if len(node.Tags) > 0 {
 				entry["tags"] = node.Tags
+			}
+			if node.ExternalID != "" {
+				entry["external_id"] = node.ExternalID
 			}
 			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
 			nodes = append(nodes, entry)
@@ -4044,6 +4174,7 @@ type snapshotNode struct {
 	KeyRotated  string   `json:"key_rotated,omitempty"`
 	KeyRotCount int      `json:"key_rot_count,omitempty"`
 	KeyExpires  string   `json:"key_expires,omitempty"`
+	ExternalID  string   `json:"external_id,omitempty"`
 }
 
 type snapshotNet struct {
@@ -4143,6 +4274,7 @@ func (s *Server) flushSave() error {
 		if !n.KeyMeta.ExpiresAt.IsZero() {
 			sn.KeyExpires = n.KeyMeta.ExpiresAt.Format(time.RFC3339)
 		}
+		sn.ExternalID = n.ExternalID
 		snap.Nodes[fmt.Sprintf("%d", id)] = sn
 	}
 
@@ -4379,6 +4511,7 @@ func (s *Server) load() error {
 				node.KeyMeta.ExpiresAt = t
 			}
 		}
+		node.ExternalID = n.ExternalID
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
 		if n.Owner != "" {

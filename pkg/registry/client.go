@@ -815,3 +815,31 @@ func (c *Client) GetWebhook(adminToken string) (map[string]interface{}, error) {
 		"admin_token": adminToken,
 	})
 }
+
+// SetIdentityWebhook configures the identity verification webhook URL.
+func (c *Client) SetIdentityWebhook(url, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_identity_webhook",
+		"url":         url,
+		"admin_token": adminToken,
+	})
+}
+
+// SetExternalID sets the external identity on a node. Requires admin token.
+func (c *Client) SetExternalID(nodeID uint32, externalID, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_external_id",
+		"node_id":     nodeID,
+		"external_id": externalID,
+		"admin_token": adminToken,
+	})
+}
+
+// GetIdentity returns the external identity of a node. Requires admin token.
+func (c *Client) GetIdentity(nodeID uint32, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_identity",
+		"node_id":     nodeID,
+		"admin_token": adminToken,
+	})
+}
