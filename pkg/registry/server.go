@@ -1437,6 +1437,7 @@ func (s *Server) handleUpdatePoloScore(msg map[string]interface{}) (map[string]i
 
 	addr := protocol.Addr{Network: 0, Node: nodeID}
 	slog.Info("polo score updated", "node_id", nodeID, "delta", int(delta), "new_score", node.PoloScore)
+	s.audit("polo_score.updated", "node_id", nodeID, "delta", int(delta), "new_score", node.PoloScore)
 
 	return map[string]interface{}{
 		"type":       "update_polo_score_ok",
@@ -1466,8 +1467,9 @@ func (s *Server) handleSetPoloScore(msg map[string]interface{}) (map[string]inte
 	node.LastSeen = time.Now()
 	s.save()
 
+	s.audit("polo_score.set", "node_id", nodeID, "polo_score", node.PoloScore)
+
 	addr := protocol.Addr{Network: 0, Node: nodeID}
-	slog.Info("polo score set", "node_id", nodeID, "polo_score", node.PoloScore)
 
 	return map[string]interface{}{
 		"type":       "set_polo_score_ok",
@@ -2033,6 +2035,7 @@ func (s *Server) handleSetNetworkEnterprise(msg map[string]interface{}) (map[str
 	s.save()
 
 	slog.Info("set network enterprise", "network_id", netID, "enterprise", enterprise)
+	s.audit("network.enterprise_changed", "network_id", netID, "enterprise", enterprise)
 
 	return map[string]interface{}{
 		"type":       "set_network_enterprise_ok",
