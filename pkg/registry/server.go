@@ -531,6 +531,9 @@ type NetworkInvite struct {
 // maxInviteInbox limits the number of pending invites per node.
 const maxInviteInbox = 100
 
+// inviteTTL is the maximum age of a pending invite before it expires.
+const inviteTTL = 30 * 24 * time.Hour // 30 days
+
 // hostnameRegex validates hostname format: lowercase alphanumeric + hyphens, 1-63 chars.
 var hostnameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
@@ -978,7 +981,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		if err != nil {
 			errMsg := "request failed"
 			if strings.Contains(err.Error(), "rate limited") ||
-				strings.Contains(err.Error(), "enterprise feature") {
+				strings.Contains(err.Error(), "enterprise feature") ||
+				strings.Contains(err.Error(), "has expired") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -2093,10 +2097,37 @@ func (s *Server) handleSetNetworkEnterprise(msg map[string]interface{}) (map[str
 	}
 
 	network.Enterprise = enterprise
+
+	// When enabling enterprise, ensure all existing members have RBAC roles.
+	// The first member (creator) gets owner if no owner exists; others get member.
+	if enterprise && len(network.Members) > 0 {
+		if network.MemberRoles == nil {
+			network.MemberRoles = make(map[uint32]Role)
+		}
+		hasOwner := false
+		for _, role := range network.MemberRoles {
+			if role == RoleOwner {
+				hasOwner = true
+				break
+			}
+		}
+		for _, memberID := range network.Members {
+			if _, ok := network.MemberRoles[memberID]; !ok {
+				if !hasOwner {
+					network.MemberRoles[memberID] = RoleOwner
+					hasOwner = true
+				} else {
+					network.MemberRoles[memberID] = RoleMember
+				}
+			}
+		}
+	}
+
 	s.save()
 
 	slog.Info("set network enterprise", "network_id", netID, "enterprise", enterprise)
-	s.audit("network.enterprise_changed", "network_id", netID, "enterprise", enterprise)
+	s.audit("network.enterprise_changed", "network_id", netID, "enterprise", enterprise,
+		"members", len(network.Members))
 
 	return map[string]interface{}{
 		"type":       "set_network_enterprise_ok",
@@ -2717,9 +2748,26 @@ func (s *Server) handlePollInvites(msg map[string]interface{}) (map[string]inter
 	}
 
 	inbox := s.inviteInbox[nodeID]
+	now := s.now()
 
-	invites := make([]map[string]interface{}, len(inbox))
-	for i, inv := range inbox {
+	// Filter out expired invites (TTL-based cleanup on read)
+	var active []*NetworkInvite
+	var expired int
+	for _, inv := range inbox {
+		if now.Sub(inv.Timestamp) > inviteTTL {
+			expired++
+			continue
+		}
+		active = append(active, inv)
+	}
+	if expired > 0 {
+		s.inviteInbox[nodeID] = active
+		s.save()
+		s.audit("invite.expired_cleanup", "node_id", nodeID, "expired_count", expired)
+	}
+
+	invites := make([]map[string]interface{}, len(active))
+	for i, inv := range active {
 		invites[i] = map[string]interface{}{
 			"network_id": inv.NetworkID,
 			"inviter_id": inv.InviterID,
@@ -2758,10 +2806,14 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		return nil, err
 	}
 
-	// Verify a pending invite actually exists for this node+network
+	// Verify a pending, non-expired invite exists for this node+network
 	inviteFound := false
+	now := s.now()
 	for _, inv := range s.inviteInbox[nodeID] {
 		if inv.NetworkID == netID {
+			if now.Sub(inv.Timestamp) > inviteTTL {
+				return nil, fmt.Errorf("invite for node %d to network %d has expired", nodeID, netID)
+			}
 			inviteFound = true
 			break
 		}
@@ -3216,7 +3268,7 @@ func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface
 	s.save()
 
 	slog.Debug("tags set", "node_id", nodeID, "tags", tags)
-	s.audit("tags.changed", "node_id", nodeID)
+	s.audit("tags.changed", "node_id", nodeID, "tags_count", len(tags))
 
 	return map[string]interface{}{
 		"type":    "set_tags_ok",

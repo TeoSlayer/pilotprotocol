@@ -782,3 +782,189 @@ func TestPoloScoreBounds(t *testing.T) {
 
 	t.Logf("polo score bounds: clamping works correctly, max=%d", score)
 }
+
+// TestInviteTTLExpiry verifies that invites expire after the TTL period.
+// Uses SetClock to advance time past the 30-day invite TTL.
+func TestInviteTTLExpiry(t *testing.T) {
+	t.Parallel()
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	clk := newTestClock()
+	reg.SetClock(clk.Now)
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "ttl-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Owner invites target
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Poll invites — should see 1 invite (signed as target)
+	setClientSigner(rc, targetIdentity)
+	pollResp, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 invite, got %d", len(invites))
+	}
+	t.Log("invite visible before TTL expiry")
+
+	// Advance clock past 30-day TTL
+	clk.Advance(31 * 24 * time.Hour)
+
+	// Poll invites — expired invite should be filtered out
+	pollResp, err = rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites after TTL: %v", err)
+	}
+	invites = pollResp["invites"].([]interface{})
+	if len(invites) != 0 {
+		t.Fatalf("expected 0 invites after TTL, got %d", len(invites))
+	}
+	t.Log("invite filtered out after TTL expiry")
+
+	// Create a second invite (at advanced clock time) and verify it's valid
+	clk.Advance(-31 * 24 * time.Hour) // reset clock back to "now"
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("re-invite: %v", err)
+	}
+
+	// Advance clock again past TTL
+	clk.Advance(31 * 24 * time.Hour)
+
+	// Respond without polling first — should get "expired" error
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err == nil {
+		t.Fatal("expected error responding to expired invite")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expected 'expired' error, got: %v", err)
+	}
+	t.Logf("expired invite response correctly rejected: %v", err)
+}
+
+// TestEnterpriseToggleRBACInit verifies that toggling enterprise=true on an
+// existing network initializes RBAC roles for all current members.
+func TestEnterpriseToggleRBACInit(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+
+	// Create non-enterprise network
+	resp, err := rc.CreateNetwork(ownerID, "toggle-rbac", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Member joins
+	_, err = rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join network: %v", err)
+	}
+
+	// Toggle enterprise=true
+	_, err = rc.SetNetworkEnterprise(netID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set enterprise: %v", err)
+	}
+
+	// List nodes to verify roles were initialized
+	listResp, err := rc.ListNodes(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("list nodes: %v", err)
+	}
+	nodes := listResp["nodes"].([]interface{})
+
+	foundOwner := false
+	foundMember := false
+	for _, n := range nodes {
+		node := n.(map[string]interface{})
+		nid := uint32(node["node_id"].(float64))
+		role, _ := node["role"].(string)
+
+		if nid == ownerID {
+			if role != "owner" {
+				t.Errorf("owner node %d has role %q, want 'owner'", nid, role)
+			}
+			foundOwner = true
+		}
+		if nid == memberID {
+			if role != "member" {
+				t.Errorf("member node %d has role %q, want 'member'", nid, role)
+			}
+			foundMember = true
+		}
+	}
+	if !foundOwner {
+		t.Error("owner not found in list_nodes")
+	}
+	if !foundMember {
+		t.Error("member not found in list_nodes")
+	}
+
+	// Now verify enterprise operations work (e.g., promote)
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote after toggle should work: %v", err)
+	}
+	t.Log("enterprise toggle RBAC initialization verified")
+}
+
+// TestInviteRespondAfterNetworkDelete verifies that responding to an invite
+// after the network has been deleted returns a clear error.
+func TestInviteRespondAfterNetworkDelete(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "delete-inv", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Owner invites target
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Delete the network
+	_, err = rc.DeleteNetwork(netID, TestAdminToken, ownerID)
+	if err != nil {
+		t.Fatalf("delete network: %v", err)
+	}
+
+	// Try to respond — should fail (invite cleaned up or network not found)
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err == nil {
+		t.Fatal("expected error responding to invite after network deletion")
+	}
+	t.Logf("invite response after network delete correctly rejected: %v", err)
+}
