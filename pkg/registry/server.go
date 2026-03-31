@@ -1013,7 +1013,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	s.mu.RUnlock()
 	if isStandby {
 		switch msgType {
-		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "poll_invites", "resolve_hostname", "beacon_list":
+		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "poll_invites", "resolve_hostname", "beacon_list",
+			"get_polo_score", "get_key_info", "get_network_policy", "get_audit_log":
 			// reads are allowed on standby
 		default:
 			return nil, fmt.Errorf("standby mode: write operations not accepted (use primary)")
@@ -3379,6 +3380,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 				"public":     node.Public,
 				"polo_score": node.PoloScore,
 			}
+			if role, ok := network.MemberRoles[nid]; ok {
+				entry["role"] = string(role)
+			}
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
 			}
@@ -3399,6 +3403,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 				"node_id": nid,
 				"address": protocol.Addr{Network: netID, Node: nid}.String(),
 				"offline": true,
+			}
+			if role, ok := network.MemberRoles[nid]; ok {
+				entry["role"] = string(role)
 			}
 			nodes = append(nodes, entry)
 		}

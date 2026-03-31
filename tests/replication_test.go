@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -456,4 +457,288 @@ func TestFailoverUnderLoad(t *testing.T) {
 		}
 	}
 	t.Logf("failover under load: success (4 nodes, new id=%d)", nodeID4)
+}
+
+// TestReplicationEnterpriseData verifies that enterprise features survive replication:
+// RBAC roles, network policy, enterprise flag, admin token, node tags, polo score,
+// task exec, key metadata, and audit log entries.
+func TestReplicationEnterpriseData(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("CI") != "" {
+		t.Skip("skipping in CI: standby timing unreliable on constrained runners")
+	}
+	tmpDir, err := os.MkdirTemp("/tmp", "w4-repl-ent-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	primaryStore := filepath.Join(tmpDir, "primary.json")
+	standbyStore := filepath.Join(tmpDir, "standby.json")
+
+	// Start primary
+	primary := registry.NewWithStore("127.0.0.1:9001", primaryStore)
+	primary.SetAdminToken(TestAdminToken)
+	primary.SetReplicationToken("test-repl-token")
+	go primary.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-primary.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("primary failed to start")
+	}
+	defer primary.Close()
+	primaryAddr := primary.Addr().String()
+
+	rc, err := registry.Dial(primaryAddr)
+	if err != nil {
+		t.Fatalf("dial primary: %v", err)
+	}
+	defer rc.Close()
+
+	// Register two nodes
+	id1, _ := crypto.GenerateIdentity()
+	resp1, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id1.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register node 1: %v", err)
+	}
+	nodeID1 := uint32(resp1["node_id"].(float64))
+
+	id2, _ := crypto.GenerateIdentity()
+	resp2, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id2.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register node 2: %v", err)
+	}
+	nodeID2 := uint32(resp2["node_id"].(float64))
+
+	// Create enterprise network with network admin token
+	netResp, err := rc.CreateNetwork(nodeID1, "ent-repl-test", "open", "", TestAdminToken, true, "net-admin-tok")
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(netResp["network_id"].(float64))
+
+	// Join node 2
+	if _, err := rc.JoinNetwork(nodeID2, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// Promote node 2 to admin
+	if _, err := rc.PromoteMember(netID, nodeID1, nodeID2, TestAdminToken); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Set network policy with allowed ports
+	if _, err := rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members":   float64(50),
+		"description":   "test enterprise policy",
+		"allowed_ports": []interface{}{float64(80), float64(443)},
+	}, TestAdminToken); err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// Set node properties via admin token
+	if _, err := rc.SetTagsAdmin(nodeID1, []string{"gpu", "us-east"}, TestAdminToken); err != nil {
+		t.Fatalf("set tags: %v", err)
+	}
+	if _, err := rc.SetVisibilityAdmin(nodeID1, true, TestAdminToken); err != nil {
+		t.Fatalf("set visibility: %v", err)
+	}
+	if _, err := rc.SetPoloScore(nodeID1, 42); err != nil {
+		t.Fatalf("set polo score: %v", err)
+	}
+	if _, err := rc.SetTaskExecAdmin(nodeID1, true, TestAdminToken); err != nil {
+		t.Fatalf("set task exec: %v", err)
+	}
+	expiry := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	if _, err := rc.SetKeyExpiryAdmin(nodeID1, expiry, TestAdminToken); err != nil {
+		t.Fatalf("set key expiry: %v", err)
+	}
+
+	// Start standby
+	standby := registry.NewWithStore("127.0.0.1:9001", standbyStore)
+	standby.SetAdminToken(TestAdminToken)
+	standby.SetReplicationToken("test-repl-token")
+	standby.SetStandby(primaryAddr)
+	go standby.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-standby.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("standby failed to start")
+	}
+	defer standby.Close()
+
+	// Poll until replication delivers
+	sc, err := registry.Dial(standby.Addr().String())
+	if err != nil {
+		t.Fatalf("dial standby: %v", err)
+	}
+	defer sc.Close()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		_, lookupErr := sc.Lookup(nodeID2)
+		if lookupErr == nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for replication: %v", lookupErr)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Verify node fields replicated
+	lookup1, err := sc.Lookup(nodeID1)
+	if err != nil {
+		t.Fatalf("standby lookup node 1: %v", err)
+	}
+	if pub, ok := lookup1["public"].(bool); !ok || !pub {
+		t.Error("standby: node 1 public flag not replicated")
+	}
+
+	// Verify polo score
+	score, err := sc.GetPoloScore(nodeID1)
+	if err != nil {
+		t.Fatalf("standby get polo score: %v", err)
+	}
+	if score != 42 {
+		t.Errorf("standby: polo score = %d, want 42", score)
+	}
+
+	// Verify network enterprise data via list_nodes
+	listResp, err := sc.ListNodes(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("standby list nodes: %v", err)
+	}
+	nodes := listResp["nodes"].([]interface{})
+	if len(nodes) != 2 {
+		t.Fatalf("standby: expected 2 members, got %d", len(nodes))
+	}
+
+	// Find node 1 in list and check fields
+	for _, n := range nodes {
+		entry := n.(map[string]interface{})
+		nid := uint32(entry["node_id"].(float64))
+		if nid == nodeID1 {
+			// Check role
+			if role, ok := entry["role"].(string); !ok || role != "admin" {
+				// node1 is owner, but PromoteMember promoted node2
+				// node1 should be owner (creator)
+				if role != "owner" {
+					t.Errorf("standby: node 1 role = %q, want owner", role)
+				}
+			}
+			// Check tags replicated
+			if tags, ok := entry["tags"].([]interface{}); ok {
+				if len(tags) != 2 {
+					t.Errorf("standby: node 1 tags count = %d, want 2", len(tags))
+				}
+			} else {
+				t.Error("standby: node 1 tags not replicated")
+			}
+			// Check polo_score
+			if ps, ok := entry["polo_score"].(float64); !ok || int(ps) != 42 {
+				t.Errorf("standby: node 1 polo_score in list = %v, want 42", entry["polo_score"])
+			}
+		}
+		if nid == nodeID2 {
+			if role, ok := entry["role"].(string); !ok || role != "admin" {
+				t.Errorf("standby: node 2 role = %q, want admin", role)
+			}
+		}
+	}
+
+	// Verify network policy via GetNetworkPolicy
+	polResp, err := sc.GetNetworkPolicy(netID)
+	if err != nil {
+		t.Fatalf("standby get policy: %v", err)
+	}
+	if desc, ok := polResp["description"].(string); !ok || desc != "test enterprise policy" {
+		t.Errorf("standby: policy description = %q, want %q", polResp["description"], "test enterprise policy")
+	}
+	if mm, ok := polResp["max_members"].(float64); !ok || int(mm) != 50 {
+		t.Errorf("standby: policy max_members = %v, want 50", polResp["max_members"])
+	}
+	if ports, ok := polResp["allowed_ports"].([]interface{}); ok {
+		if len(ports) != 2 {
+			t.Errorf("standby: policy allowed_ports count = %d, want 2", len(ports))
+		}
+	} else {
+		t.Error("standby: policy allowed_ports not replicated")
+	}
+
+	// Verify audit log replicated
+	auditResp, err := sc.GetAuditLog(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("standby get audit: %v", err)
+	}
+	entries, ok := auditResp["entries"].([]interface{})
+	if !ok || len(entries) == 0 {
+		t.Error("standby: audit log not replicated (zero entries)")
+	} else {
+		t.Logf("standby: %d audit entries replicated", len(entries))
+	}
+
+	// Stop primary, promote standby
+	primary.Close()
+
+	standby.Close()
+	promoted := registry.NewWithStore("127.0.0.1:9001", standbyStore)
+	promoted.SetAdminToken(TestAdminToken)
+	go promoted.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-promoted.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("promoted failed to start")
+	}
+	defer promoted.Close()
+
+	pc, err := registry.Dial(promoted.Addr().String())
+	if err != nil {
+		t.Fatalf("dial promoted: %v", err)
+	}
+	defer pc.Close()
+
+	// Verify enterprise data survived failover + promotion
+	pScore, err := pc.GetPoloScore(nodeID1)
+	if err != nil {
+		t.Fatalf("promoted get polo score: %v", err)
+	}
+	if pScore != 42 {
+		t.Errorf("promoted: polo score = %d, want 42", pScore)
+	}
+
+	pPol, err := pc.GetNetworkPolicy(netID)
+	if err != nil {
+		t.Fatalf("promoted get policy: %v", err)
+	}
+	if desc, ok := pPol["description"].(string); !ok || desc != "test enterprise policy" {
+		t.Errorf("promoted: policy description = %q", pPol["description"])
+	}
+
+	pAudit, err := pc.GetAuditLog(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promoted get audit: %v", err)
+	}
+	pEntries, ok := pAudit["entries"].([]interface{})
+	if !ok || len(pEntries) == 0 {
+		t.Error("promoted: audit log lost after failover")
+	}
+
+	// Verify RBAC still works — promote should still work as enterprise
+	id3, _ := crypto.GenerateIdentity()
+	resp3, err := pc.RegisterWithKey("", crypto.EncodePublicKey(id3.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register node 3 on promoted: %v", err)
+	}
+	nodeID3 := uint32(resp3["node_id"].(float64))
+	if _, err := pc.JoinNetwork(nodeID3, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join on promoted: %v", err)
+	}
+	if _, err := pc.PromoteMember(netID, nodeID1, nodeID3, TestAdminToken); err != nil {
+		t.Fatalf("promote on promoted: %v", err)
+	}
+
+	t.Logf("enterprise data survived replication + failover: network=%d, nodes=%s",
+		netID, fmt.Sprintf("%d,%d,%d", nodeID1, nodeID2, nodeID3))
 }

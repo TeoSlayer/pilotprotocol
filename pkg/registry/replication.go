@@ -260,6 +260,22 @@ func (s *Server) snapshotJSON() []byte {
 		}
 	}
 
+	// Include invite inboxes
+	if len(s.inviteInbox) > 0 {
+		snap.InviteInbox = make(map[string][]*NetworkInvite, len(s.inviteInbox))
+		for nodeID, invites := range s.inviteInbox {
+			snap.InviteInbox[fmt.Sprintf("%d", nodeID)] = invites
+		}
+	}
+
+	// Include audit log (separate lock — not nested under s.mu)
+	s.auditMu.Lock()
+	if len(s.auditLog) > 0 {
+		snap.AuditLog = make([]AuditEntry, len(s.auditLog))
+		copy(snap.AuditLog, s.auditLog)
+	}
+	s.auditMu.Unlock()
+
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("snapshot marshal error", "err", err)
@@ -409,6 +425,27 @@ func (s *Server) applySnapshot(data []byte) error {
 			LastSeen:  lastSeen,
 			Public:    n.Public,
 			Hostname:  n.Hostname,
+			Tags:      n.Tags,
+			PoloScore: n.PoloScore,
+			TaskExec:  n.TaskExec,
+			LANAddrs:  n.LANAddrs,
+		}
+		// Restore key lifecycle metadata
+		if n.KeyCreated != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyCreated); err == nil {
+				node.KeyMeta.CreatedAt = t
+			}
+		}
+		if n.KeyRotated != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyRotated); err == nil {
+				node.KeyMeta.RotatedAt = t
+			}
+		}
+		node.KeyMeta.RotateCount = n.KeyRotCount
+		if n.KeyExpires != "" {
+			if t, err := time.Parse(time.RFC3339, n.KeyExpires); err == nil {
+				node.KeyMeta.ExpiresAt = t
+			}
 		}
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
@@ -423,12 +460,34 @@ func (s *Server) applySnapshot(data []byte) error {
 	for _, n := range snap.Networks {
 		created, _ := time.Parse(time.RFC3339, n.Created)
 		net := &NetworkInfo{
-			ID:       n.ID,
-			Name:     n.Name,
-			JoinRule: n.JoinRule,
-			Token:    n.Token,
-			Members:  n.Members,
-			Created:  created,
+			ID:          n.ID,
+			Name:        n.Name,
+			JoinRule:    n.JoinRule,
+			Token:       n.Token,
+			Members:     n.Members,
+			MemberRoles: make(map[uint32]Role),
+			AdminToken:  n.AdminToken,
+			Enterprise:  n.Enterprise,
+			Created:     created,
+		}
+		if n.Policy != nil {
+			net.Policy = *n.Policy
+		}
+		for nodeIDStr, roleStr := range n.MemberRoles {
+			var nodeID uint32
+			if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil {
+				net.MemberRoles[nodeID] = Role(roleStr)
+			}
+		}
+		// Backfill roles for legacy snapshots
+		if len(n.MemberRoles) == 0 && len(net.Members) > 0 && net.ID != 0 {
+			for i, m := range net.Members {
+				if i == 0 {
+					net.MemberRoles[m] = RoleOwner
+				} else {
+					net.MemberRoles[m] = RoleMember
+				}
+			}
 		}
 		s.networks[n.ID] = net
 	}
@@ -453,6 +512,22 @@ func (s *Server) applySnapshot(data []byte) error {
 		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
 			s.handshakeResponses[nodeID] = msgs
 		}
+	}
+
+	// Restore invite inboxes
+	s.inviteInbox = make(map[uint32][]*NetworkInvite)
+	for nodeIDStr, invites := range snap.InviteInbox {
+		var nodeID uint32
+		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
+			s.inviteInbox[nodeID] = invites
+		}
+	}
+
+	// Restore audit log
+	if len(snap.AuditLog) > 0 {
+		s.auditMu.Lock()
+		s.auditLog = snap.AuditLog
+		s.auditMu.Unlock()
 	}
 
 	// Persist to local disk for crash recovery
