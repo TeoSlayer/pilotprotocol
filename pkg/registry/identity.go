@@ -2,15 +2,19 @@ package registry
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -190,8 +194,126 @@ func validateJWTClaims(claims *jwtClaims, expectedIssuer, expectedAudience strin
 	return nil
 }
 
+// --- JWKS Cache ---
+
+// jwksKey represents a key from a JWKS endpoint.
+type jwksKey struct {
+	Kty string `json:"kty"` // "RSA" or "oct"
+	Kid string `json:"kid"`
+	Alg string `json:"alg"`
+	// Symmetric (oct)
+	K string `json:"k,omitempty"`
+	// RSA
+	N string `json:"n,omitempty"`
+	E string `json:"e,omitempty"`
+}
+
+// jwksCache caches JWKS responses to avoid fetching on every validation.
+type jwksCache struct {
+	mu       sync.RWMutex
+	keys     []jwksKey
+	url      string
+	fetchedAt time.Time
+	ttl      time.Duration
+}
+
+const jwksCacheTTL = 5 * time.Minute
+
+func newJWKSCache() *jwksCache {
+	return &jwksCache{ttl: jwksCacheTTL}
+}
+
+// getKey returns a key by kid, fetching from the JWKS endpoint if needed.
+func (c *jwksCache) getKey(jwksURL, kid string) (*jwksKey, error) {
+	c.mu.RLock()
+	if c.url == jwksURL && time.Since(c.fetchedAt) < c.ttl && len(c.keys) > 0 {
+		for i := range c.keys {
+			if kid == "" || c.keys[i].Kid == kid {
+				key := c.keys[i]
+				c.mu.RUnlock()
+				return &key, nil
+			}
+		}
+		c.mu.RUnlock()
+		return nil, fmt.Errorf("JWKS key %q not found (cached)", kid)
+	}
+	c.mu.RUnlock()
+
+	// Fetch fresh JWKS
+	keys, err := fetchJWKSKeys(jwksURL)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.keys = keys
+	c.url = jwksURL
+	c.fetchedAt = time.Now()
+	c.mu.Unlock()
+
+	for i := range keys {
+		if kid == "" || keys[i].Kid == kid {
+			return &keys[i], nil
+		}
+	}
+	return nil, fmt.Errorf("JWKS key %q not found", kid)
+}
+
+// fetchJWKSKeys fetches keys from a JWKS endpoint.
+func fetchJWKSKeys(jwksURL string) ([]jwksKey, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(jwksURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch JWKS: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read JWKS: %w", err)
+	}
+
+	var jwks struct {
+		Keys []jwksKey `json:"keys"`
+	}
+	if err := json.Unmarshal(body, &jwks); err != nil {
+		return nil, fmt.Errorf("parse JWKS: %w", err)
+	}
+	return jwks.Keys, nil
+}
+
+// verifyJWTSignatureRS256 verifies an RS256 JWT signature with an RSA public key.
+func verifyJWTSignatureRS256(signingInput, signatureB64 string, key *jwksKey) error {
+	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
+	if err != nil {
+		return fmt.Errorf("decode RSA n: %w", err)
+	}
+	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
+	if err != nil {
+		return fmt.Errorf("decode RSA e: %w", err)
+	}
+
+	n := new(big.Int).SetBytes(nBytes)
+	e := 0
+	for _, b := range eBytes {
+		e = e<<8 + int(b)
+	}
+
+	pubKey := &rsa.PublicKey{N: n, E: e}
+
+	sig, err := base64.RawURLEncoding.DecodeString(signatureB64)
+	if err != nil {
+		return fmt.Errorf("decode signature: %w", err)
+	}
+
+	hash := sha256.Sum256([]byte(signingInput))
+	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hash[:], sig); err != nil {
+		return fmt.Errorf("invalid RSA signature: %w", err)
+	}
+	return nil
+}
+
 // handleValidateToken handles the "validate_token" protocol command.
-// It validates a JWT token against the configured IDP settings.
 func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]interface{}, error) {
 	if err := s.requireAdminToken(msg); err != nil {
 		return nil, err
@@ -215,7 +337,7 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
-	// Validate claims against IDP config
+	// Validate claims
 	if err := validateJWTClaims(claims, idp.Issuer, idp.ClientID); err != nil {
 		return map[string]interface{}{
 			"type":     "validate_token_ok",
@@ -224,14 +346,19 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 		}, nil
 	}
 
-	// Signature verification: for HS256, fetch the key from JWKS
-	if header.Alg == "HS256" {
-		secret, err := s.fetchJWKSSecret(idp.URL, header.Kid)
-		if err != nil {
-			return nil, fmt.Errorf("JWKS fetch: %w", err)
-		}
+	parts := strings.SplitN(token, ".", 3)
 
-		parts := strings.SplitN(token, ".", 3)
+	// Signature verification based on algorithm
+	switch header.Alg {
+	case "HS256":
+		key, err := s.jwksCache.getKey(idp.URL, header.Kid)
+		if err != nil {
+			return nil, fmt.Errorf("JWKS: %w", err)
+		}
+		secret, err := base64.RawURLEncoding.DecodeString(key.K)
+		if err != nil {
+			return nil, fmt.Errorf("decode HMAC key: %w", err)
+		}
 		if err := verifyJWTSignatureHS256(signingInput, parts[2], secret); err != nil {
 			return map[string]interface{}{
 				"type":     "validate_token_ok",
@@ -239,8 +366,23 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 				"error":    err.Error(),
 			}, nil
 		}
+
+	case "RS256":
+		key, err := s.jwksCache.getKey(idp.URL, header.Kid)
+		if err != nil {
+			return nil, fmt.Errorf("JWKS: %w", err)
+		}
+		if err := verifyJWTSignatureRS256(signingInput, parts[2], key); err != nil {
+			return map[string]interface{}{
+				"type":     "validate_token_ok",
+				"verified": false,
+				"error":    err.Error(),
+			}, nil
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported JWT algorithm: %s", header.Alg)
 	}
-	// Note: RS256/ES256 would go here with RSA/ECDSA verification
 
 	s.metrics.idpVerifications.Inc()
 	return map[string]interface{}{
@@ -249,46 +391,4 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 		"subject":  claims.Subject,
 		"issuer":   claims.Issuer,
 	}, nil
-}
-
-// fetchJWKSSecret fetches a symmetric key from a JWKS endpoint.
-func (s *Server) fetchJWKSSecret(jwksURL, kid string) ([]byte, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(jwksURL)
-	if err != nil {
-		return nil, fmt.Errorf("fetch JWKS: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	if err != nil {
-		return nil, fmt.Errorf("read JWKS: %w", err)
-	}
-
-	var jwks struct {
-		Keys []struct {
-			Kty string `json:"kty"`
-			K   string `json:"k"`
-			Kid string `json:"kid"`
-			Alg string `json:"alg"`
-		} `json:"keys"`
-	}
-	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, fmt.Errorf("parse JWKS: %w", err)
-	}
-
-	for _, key := range jwks.Keys {
-		if kid != "" && key.Kid != kid {
-			continue
-		}
-		if key.Kty == "oct" && key.K != "" {
-			decoded, err := base64.RawURLEncoding.DecodeString(key.K)
-			if err != nil {
-				return nil, fmt.Errorf("decode JWKS key: %w", err)
-			}
-			return decoded, nil
-		}
-	}
-
-	return nil, fmt.Errorf("JWKS key %q not found", kid)
 }

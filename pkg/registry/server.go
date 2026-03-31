@@ -303,6 +303,9 @@ type Server struct {
 	// RBAC pre-assignments: networkID -> roles that auto-apply when matching nodes join
 	rbacPreAssign map[uint16][]BlueprintRole
 
+	// JWKS cache for JWT validation
+	jwksCache *jwksCache
+
 	// Clock (overridable for testing)
 	now func() time.Time
 
@@ -650,6 +653,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		saveCh:             make(chan struct{}, 1),
 		saveDone:           make(chan struct{}),
 		now:                time.Now,
+		jwksCache:          newJWKSCache(),
 	}
 
 	// Per-operation rate limits

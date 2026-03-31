@@ -1,13 +1,17 @@
 package tests
 
 import (
+	"crypto"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1359,5 +1363,163 @@ func TestIntegration_SplunkHECAuditEvents(t *testing.T) {
 	}
 	if len(events) < 2 {
 		t.Errorf("expected at least 2 Splunk events, got %d", len(events))
+	}
+}
+
+// ============================================================
+// Integration Test: RS256 JWT validation
+// ============================================================
+// TDD: Generate an RSA keypair, serve JWKS with the public key, sign a JWT
+// with RS256, and validate it through the registry.
+
+func TestIntegration_RS256JWTValidation(t *testing.T) {
+	t.Parallel()
+
+	// Generate RSA key pair
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+
+	// Serve JWKS with the public key
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := base64.RawURLEncoding.EncodeToString(rsaKey.PublicKey.N.Bytes())
+		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(rsaKey.PublicKey.E)).Bytes())
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"keys":[{"kty":"RSA","n":"%s","e":"%s","kid":"rsa-key-1","alg":"RS256","use":"sig"}]}`, n, e)
+	}))
+	defer jwksServer.Close()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Configure OIDC IDP with JWKS
+	_, err = rc.SetIDPConfig("oidc", jwksServer.URL, "https://idp.example.com", "my-app", "", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set idp config: %v", err)
+	}
+
+	// Create RS256-signed JWT
+	validJWT := createRS256JWT(t, rsaKey, map[string]interface{}{
+		"iss": "https://idp.example.com",
+		"aud": "my-app",
+		"sub": "rs256-user@example.com",
+		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	})
+
+	resp, err := rc.ValidateToken(validJWT, TestAdminToken)
+	if err != nil {
+		t.Fatalf("validate RS256 token: %v", err)
+	}
+
+	verified, _ := resp["verified"].(bool)
+	subject, _ := resp["subject"].(string)
+
+	if !verified {
+		errMsg, _ := resp["error"].(string)
+		t.Fatalf("RS256 token not verified: %s", errMsg)
+	}
+	if subject != "rs256-user@example.com" {
+		t.Errorf("expected subject=rs256-user@example.com, got %v", subject)
+	}
+	t.Logf("RS256 JWT validated: subject=%s", subject)
+
+	// Test with tampered token (wrong signature)
+	tamperedJWT := validJWT[:len(validJWT)-5] + "XXXXX"
+	resp2, err := rc.ValidateToken(tamperedJWT, TestAdminToken)
+	if err != nil {
+		t.Logf("tampered RS256 correctly rejected: %v", err)
+	} else {
+		verified2, _ := resp2["verified"].(bool)
+		if verified2 {
+			t.Error("tampered RS256 token should not be verified")
+		} else {
+			t.Log("tampered RS256 correctly rejected via response")
+		}
+	}
+}
+
+// createRS256JWT creates an RS256-signed JWT for testing.
+func createRS256JWT(t *testing.T, key *rsa.PrivateKey, claims map[string]interface{}) string {
+	t.Helper()
+
+	header := base64URLEncode([]byte(`{"alg":"RS256","typ":"JWT","kid":"rsa-key-1"}`))
+
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	payload := base64URLEncode(claimsJSON)
+
+	signingInput := header + "." + payload
+
+	hash := sha256.Sum256([]byte(signingInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hash[:])
+	if err != nil {
+		t.Fatalf("sign RS256: %v", err)
+	}
+
+	return signingInput + "." + base64URLEncode(sig)
+}
+
+// ============================================================
+// Integration Test: JWKS caching
+// ============================================================
+// TDD: Validate multiple tokens and verify the JWKS endpoint is not called
+// for every single validation (caching should reduce calls).
+
+func TestIntegration_JWKSCaching(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("caching-test-secret-key-123456")
+	var jwksCallCount int
+	var mu sync.Mutex
+
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		jwksCallCount++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"oct","k":"Y2FjaGluZy10ZXN0LXNlY3JldC1rZXktMTIzNDU2","kid":"test-key-1","alg":"HS256"}]}`))
+	}))
+	defer jwksServer.Close()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	_, err := rc.SetIDPConfig("oidc", jwksServer.URL, "https://cache-test.example.com", "cache-app", "", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set idp config: %v", err)
+	}
+
+	// Validate 5 tokens
+	for i := 0; i < 5; i++ {
+		jwt := createTestJWT(t, secret, map[string]interface{}{
+			"iss": "https://cache-test.example.com",
+			"aud": "cache-app",
+			"sub": fmt.Sprintf("user-%d@test.com", i),
+			"exp": time.Now().Add(1 * time.Hour).Unix(),
+		})
+		resp, err := rc.ValidateToken(jwt, TestAdminToken)
+		if err != nil {
+			t.Fatalf("validate token %d: %v", i, err)
+		}
+		verified, _ := resp["verified"].(bool)
+		if !verified {
+			t.Errorf("token %d should be verified", i)
+		}
+	}
+
+	mu.Lock()
+	calls := jwksCallCount
+	mu.Unlock()
+
+	t.Logf("JWKS endpoint called %d times for 5 validations", calls)
+
+	// With caching, should be fewer than 5 calls
+	// Without caching, it's exactly 5
+	if calls >= 5 {
+		t.Errorf("JWKS called %d times for 5 validations — caching not working", calls)
 	}
 }
