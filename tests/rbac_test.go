@@ -544,6 +544,49 @@ func TestRBACPerNetworkAdminToken(t *testing.T) {
 		t.Fatal("per-network token from net1 should not work for kick on net2")
 	}
 	t.Logf("correctly rejected cross-network token for kick: %v", err)
+
+	// Per-network token should work for set_network_policy on network 1
+	_, err = rc.SetNetworkPolicy(net1ID, map[string]interface{}{
+		"description": "per-token policy test",
+		"max_members": float64(20),
+	}, net1Token)
+	if err != nil {
+		t.Fatalf("set policy with per-network token should succeed: %v", err)
+	}
+	t.Logf("per-network token worked for set_network_policy on network 1")
+
+	// Cross-network: per-network token from net1 should NOT work for policy on net2
+	_, err = rc.SetNetworkPolicy(net2ID, map[string]interface{}{
+		"description": "should fail",
+	}, net1Token)
+	if err == nil {
+		t.Fatal("per-network token from net1 should not work for policy on net2")
+	}
+
+	// Per-network token should work for promote/demote on network 1
+	// Re-join node2 (was kicked earlier) and promote
+	_, err = rc.JoinNetwork(nodeID2, net1ID, "", 0, env.AdminToken)
+	if err != nil {
+		t.Fatalf("rejoin node2: %v", err)
+	}
+	_, err = rc.PromoteMember(net1ID, 0, nodeID2, net1Token)
+	if err != nil {
+		t.Fatalf("promote with per-network token should succeed: %v", err)
+	}
+	t.Logf("per-network token worked for promote on network 1")
+
+	_, err = rc.DemoteMember(net1ID, 0, nodeID2, net1Token)
+	if err != nil {
+		t.Fatalf("demote with per-network token should succeed: %v", err)
+	}
+	t.Logf("per-network token worked for demote on network 1")
+
+	// Per-network token should work for delete on network 1
+	_, err = rc.DeleteNetwork(net1ID, net1Token)
+	if err != nil {
+		t.Fatalf("delete with per-network token should succeed: %v", err)
+	}
+	t.Logf("per-network token worked for delete on network 1")
 }
 
 // TestRBACInviteAcceptGetsRole verifies that accepting an invite gives member role.
