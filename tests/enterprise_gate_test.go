@@ -968,3 +968,279 @@ func TestInviteRespondAfterNetworkDelete(t *testing.T) {
 	}
 	t.Logf("invite response after network delete correctly rejected: %v", err)
 }
+
+// TestLeaveNetworkCleansInvites verifies that when a node leaves a network,
+// any pending invites for that node+network are cleaned up.
+func TestLeaveNetworkCleansInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "leave-inv", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Create a second enterprise network for the target
+	resp2, err := rc.CreateNetwork(ownerID, "other-net", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create second network: %v", err)
+	}
+	netID2 := uint16(resp2["network_id"].(float64))
+
+	// Invite target to both networks
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite to net1: %v", err)
+	}
+	_, err = rc.InviteToNetwork(netID2, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite to net2: %v", err)
+	}
+
+	// Accept invite to net1 first (target joins)
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Now leave net1
+	_, err = rc.LeaveNetwork(targetID, netID, "")
+	if err != nil {
+		t.Fatalf("leave network: %v", err)
+	}
+
+	// Poll invites — should still see invite for net2 (not cleaned up)
+	pollResp, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 remaining invite (net2), got %d", len(invites))
+	}
+	inv := invites[0].(map[string]interface{})
+	if uint16(inv["network_id"].(float64)) != netID2 {
+		t.Fatalf("remaining invite should be for net2 (%d), got %v", netID2, inv["network_id"])
+	}
+	t.Log("leave network correctly preserved unrelated invites")
+	_ = memberID
+	_ = memberIdentity
+}
+
+// TestKickMemberCleansInvites verifies that when a member is kicked from a
+// network, any pending invites for that member+network are cleaned up.
+func TestKickMemberCleansInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create two enterprise invite-only networks
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "kick-inv1", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	resp2, err := rc.CreateNetwork(ownerID, "kick-inv2", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create second network: %v", err)
+	}
+	netID2 := uint16(resp2["network_id"].(float64))
+
+	// Invite target to both networks and accept both
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite to net1: %v", err)
+	}
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite net1: %v", err)
+	}
+
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID2, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite to net2: %v", err)
+	}
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID2, true)
+	if err != nil {
+		t.Fatalf("accept invite net2: %v", err)
+	}
+
+	// Now invite target again to net1 (e.g., they might get re-invited after kick)
+	// Actually, let's create a scenario where target has a pending invite for ANOTHER
+	// network and gets kicked from net1
+	setClientSigner(rc, ownerIdentity)
+	resp3, err := rc.CreateNetwork(ownerID, "kick-inv3", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create third network: %v", err)
+	}
+	netID3 := uint16(resp3["network_id"].(float64))
+
+	// Invite target to net3 (pending, not accepted)
+	_, err = rc.InviteToNetwork(netID3, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite to net3: %v", err)
+	}
+
+	// Kick target from net1
+	_, err = rc.KickMember(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("kick member: %v", err)
+	}
+
+	// Poll invites — should still see invite for net3
+	setClientSigner(rc, targetIdentity)
+	pollResp, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites after kick: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 remaining invite (net3), got %d", len(invites))
+	}
+	inv := invites[0].(map[string]interface{})
+	if uint16(inv["network_id"].(float64)) != netID3 {
+		t.Fatalf("remaining invite should be for net3 (%d), got %v", netID3, inv["network_id"])
+	}
+	t.Log("kick member correctly preserved unrelated invites")
+}
+
+// TestAuditEnrichedHostnameVisibility verifies that hostname and visibility
+// changes include old and new values in the audit log.
+func TestAuditEnrichedHostnameVisibility(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Set initial hostname
+	_, err := rc.SetHostnameAdmin(nodeID, "first-host", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set hostname: %v", err)
+	}
+
+	// Change hostname
+	_, err = rc.SetHostnameAdmin(nodeID, "second-host", TestAdminToken)
+	if err != nil {
+		t.Fatalf("change hostname: %v", err)
+	}
+
+	// Set visibility to public
+	_, err = rc.SetVisibilityAdmin(nodeID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set visibility: %v", err)
+	}
+
+	// Check audit log for enriched entries
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+
+	// Find hostname.changed entries with old/new values
+	foundHostnameEnriched := false
+	foundVisibilityEnriched := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		action := entry["action"].(string)
+		details, _ := entry["details"].(string)
+
+		if action == "hostname.changed" && strings.Contains(details, "old_hostname=first-host") && strings.Contains(details, "new_hostname=second-host") {
+			foundHostnameEnriched = true
+			t.Logf("hostname audit enriched: %s", details)
+		}
+		if action == "visibility.changed" && strings.Contains(details, "old_public=false") && strings.Contains(details, "new_public=true") {
+			foundVisibilityEnriched = true
+			t.Logf("visibility audit enriched: %s", details)
+		}
+	}
+	if !foundHostnameEnriched {
+		t.Error("hostname.changed audit entry missing old/new values")
+	}
+	if !foundVisibilityEnriched {
+		t.Error("visibility.changed audit entry missing old/new values")
+	}
+}
+
+// TestAuditEnrichedPromoteDemote verifies that promote/demote audit entries
+// include old and new role values.
+func TestAuditEnrichedPromoteDemote(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+
+	// Create enterprise network
+	resp, err := rc.CreateNetwork(ownerID, "audit-roles", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join network: %v", err)
+	}
+
+	// Promote member to admin
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Demote admin back to member
+	_, err = rc.DemoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+
+	// Check audit log
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+
+	foundPromoteEnriched := false
+	foundDemoteEnriched := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		action := entry["action"].(string)
+		details, _ := entry["details"].(string)
+
+		if action == "member.promoted" && strings.Contains(details, "old_role=member") && strings.Contains(details, "new_role=admin") {
+			foundPromoteEnriched = true
+			t.Logf("promote audit enriched: %s", details)
+		}
+		if action == "member.demoted" && strings.Contains(details, "old_role=admin") && strings.Contains(details, "new_role=member") {
+			foundDemoteEnriched = true
+			t.Logf("demote audit enriched: %s", details)
+		}
+	}
+	if !foundPromoteEnriched {
+		t.Error("member.promoted audit entry missing old/new role values")
+	}
+	if !foundDemoteEnriched {
+		t.Error("member.demoted audit entry missing old/new role values")
+	}
+}

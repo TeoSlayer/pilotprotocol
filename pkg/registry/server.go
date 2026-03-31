@@ -1964,6 +1964,22 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 		}
 	}
 	delete(network.MemberRoles, nodeID)
+
+	// Clean up any pending invites for this node+network
+	if invites, ok := s.inviteInbox[nodeID]; ok {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if inv.NetworkID != netID {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, nodeID)
+		} else {
+			s.inviteInbox[nodeID] = remaining
+		}
+	}
+
 	s.save()
 
 	slog.Info("node left network", "node_id", nodeID, "network_id", netID, "name", network.Name)
@@ -2389,6 +2405,7 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		}
 	}
 
+	oldPublic := node.Public
 	node.Public = public
 	s.save()
 
@@ -2397,7 +2414,7 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		visibility = "public"
 	}
 	slog.Info("node visibility changed", "node_id", nodeID, "visibility", visibility)
-	s.audit("visibility.changed", "node_id", nodeID, "public", public)
+	s.audit("visibility.changed", "node_id", nodeID, "old_public", oldPublic, "new_public", public)
 
 	return map[string]interface{}{
 		"type":       "set_visibility_ok",
@@ -2932,6 +2949,22 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 			}
 		}
 	}
+
+	// Clean up any pending invites for the kicked node+network
+	if invites, ok := s.inviteInbox[targetNodeID]; ok {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if inv.NetworkID != netID {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, targetNodeID)
+		} else {
+			s.inviteInbox[targetNodeID] = remaining
+		}
+	}
+
 	s.save()
 
 	slog.Info("member kicked from network", "target_node_id", targetNodeID, "network_id", netID)
@@ -2982,7 +3015,8 @@ func (s *Server) handlePromoteMember(msg map[string]interface{}) (map[string]int
 	s.save()
 
 	slog.Info("member promoted to admin", "target_node_id", targetNodeID, "network_id", netID)
-	s.audit("member.promoted", "target_node_id", targetNodeID, "network_id", netID, "new_role", "admin")
+	s.audit("member.promoted", "target_node_id", targetNodeID, "network_id", netID,
+		"old_role", string(currentRole), "new_role", "admin")
 
 	return map[string]interface{}{
 		"type":           "promote_member_ok",
@@ -3030,7 +3064,8 @@ func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]inte
 	s.save()
 
 	slog.Info("admin demoted to member", "target_node_id", targetNodeID, "network_id", netID)
-	s.audit("member.demoted", "target_node_id", targetNodeID, "network_id", netID, "new_role", "member")
+	s.audit("member.demoted", "target_node_id", targetNodeID, "network_id", netID,
+		"old_role", string(currentRole), "new_role", "member")
 
 	return map[string]interface{}{
 		"type":           "demote_member_ok",
@@ -3193,6 +3228,7 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 	}
 
 	// Remove old hostname index entry
+	oldHostname := node.Hostname
 	if node.Hostname != "" {
 		delete(s.hostnameIdx, node.Hostname)
 	}
@@ -3205,7 +3241,7 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 	s.save()
 
 	slog.Debug("hostname set", "node_id", nodeID, "hostname", hostname)
-	s.audit("hostname.changed", "node_id", nodeID, "hostname", hostname)
+	s.audit("hostname.changed", "node_id", nodeID, "old_hostname", oldHostname, "new_hostname", hostname)
 
 	return map[string]interface{}{
 		"type":     "set_hostname_ok",
