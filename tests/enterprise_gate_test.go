@@ -2833,3 +2833,141 @@ func TestKickAuditIncludesRole(t *testing.T) {
 		t.Error("member.kicked audit entry missing role=admin")
 	}
 }
+
+// TestPolicyFractionalPortsRejected verifies that fractional port numbers
+// are rejected by the policy handler (must be whole integers 1-65535).
+func TestPolicyFractionalPortsRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "frac-ports", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Fractional port should be rejected
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": []interface{}{float64(80), float64(443.5)},
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for fractional port 443.5")
+	}
+	if !strings.Contains(err.Error(), "invalid port") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Integer ports should work
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": []interface{}{float64(80), float64(443)},
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("integer ports should succeed: %v", err)
+	}
+
+	// Zero port should be rejected
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": []interface{}{float64(0)},
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for port 0")
+	}
+
+	// Port 65536 should be rejected
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": []interface{}{float64(65536)},
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for port 65536")
+	}
+	t.Log("fractional and out-of-range ports correctly rejected")
+}
+
+// TestRespondInviteEnterpriseDowngradeBlocked verifies that accepting an
+// invite after the enterprise flag is toggled off is blocked by the TOCTOU
+// defense in handleRespondInvite.
+func TestRespondInviteEnterpriseDowngradeBlocked(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "downgrade-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite target
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Toggle enterprise OFF before target accepts
+	_, err = rc.SetNetworkEnterprise(netID, false, TestAdminToken)
+	if err != nil {
+		t.Fatalf("disable enterprise: %v", err)
+	}
+
+	// Target tries to accept — should fail because enterprise is now off
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err == nil {
+		t.Fatal("expected error: accept invite on non-enterprise network should fail")
+	}
+	if !strings.Contains(err.Error(), "enterprise") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("TOCTOU defense worked: %v", err)
+}
+
+// TestInviteEnterpriseRecheck verifies that the enterprise flag is rechecked
+// under the write lock in handleInviteToNetwork (TOCTOU defense).
+func TestInviteEnterpriseRecheck(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	targetID, _ := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network then downgrade
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "recheck-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite works while enterprise is on
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite while enterprise on: %v", err)
+	}
+
+	// Disable enterprise
+	_, err = rc.SetNetworkEnterprise(netID, false, TestAdminToken)
+	if err != nil {
+		t.Fatalf("disable enterprise: %v", err)
+	}
+
+	// New invite should fail
+	newTargetID, _ := registerTestNode(t, rc)
+	_, err = rc.InviteToNetwork(netID, ownerID, newTargetID, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: invite on non-enterprise network should fail")
+	}
+	if !strings.Contains(err.Error(), "enterprise") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("enterprise recheck blocked invite: %v", err)
+}

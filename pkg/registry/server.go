@@ -2703,6 +2703,10 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 	if !ok {
 		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
 	}
+	// Re-check enterprise flag under write lock (TOCTOU defense)
+	if !network.Enterprise {
+		return nil, fmt.Errorf("enterprise feature: requires enterprise network")
+	}
 	if network.JoinRule != "invite" {
 		return nil, fmt.Errorf("network %d is not invite-only (rule: %s)", netID, network.JoinRule)
 	}
@@ -2883,6 +2887,10 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		network, ok := s.networks[netID]
 		if !ok {
 			return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+		}
+		// Re-check enterprise flag under write lock (TOCTOU defense)
+		if !network.Enterprise {
+			return nil, fmt.Errorf("enterprise feature: requires enterprise network")
 		}
 
 		// Check membership limit
@@ -3242,8 +3250,8 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 		policy.AllowedPorts = nil
 		for _, p := range v {
 			port, ok := p.(float64)
-			if !ok || port < 1 || port > 65535 {
-				return nil, fmt.Errorf("allowed_ports must contain valid port numbers (1-65535)")
+			if !ok || port < 1 || port > 65535 || port != float64(int(port)) {
+				return nil, fmt.Errorf("invalid port number in allowed_ports (must be integer 1-65535)")
 			}
 			policy.AllowedPorts = append(policy.AllowedPorts, uint16(port))
 		}
