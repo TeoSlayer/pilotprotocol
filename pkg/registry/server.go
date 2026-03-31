@@ -3634,6 +3634,7 @@ func (s *Server) handleListNetworks() (map[string]interface{}, error) {
 			"members":    len(n.Members),
 			"join_rule":  n.JoinRule,
 			"enterprise": n.Enterprise,
+			"created":    n.Created.Unix(),
 		}
 		if n.Enterprise {
 			if n.Policy.MaxMembers > 0 {

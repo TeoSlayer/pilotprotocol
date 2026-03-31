@@ -3,6 +3,8 @@ package tests
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -4167,4 +4169,141 @@ func TestDeleteNetworkNonOwner(t *testing.T) {
 		t.Error("network should still exist after failed admin delete")
 	}
 	t.Log("non-owner delete correctly rejected")
+}
+
+// TestListNetworksCreatedTimestamp verifies that list_networks includes the created timestamp.
+func TestListNetworksCreatedTimestamp(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+
+	_, err := rc.CreateNetwork(ownerID, "timestamp-test", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+
+	networks, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+
+	netList := networks["networks"].([]interface{})
+	found := false
+	for _, n := range netList {
+		net := n.(map[string]interface{})
+		if net["name"] == "timestamp-test" {
+			created, ok := net["created"].(float64)
+			if !ok || created <= 0 {
+				t.Errorf("expected positive created timestamp, got %v", net["created"])
+			} else {
+				t.Logf("created timestamp: %v", created)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("timestamp-test network not found")
+	}
+	t.Log("list_networks includes created timestamp")
+}
+
+// TestPersistenceEnterprisePolicyWithPorts verifies that enterprise policy
+// with allowed_ports survives a registry restart.
+func TestPersistenceEnterprisePolicyWithPorts(t *testing.T) {
+	t.Parallel()
+	tmpDir, err := os.MkdirTemp("/tmp", "w4-persist-ports-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	storePath := filepath.Join(tmpDir, "registry.json")
+
+	// Phase 1: create enterprise network with policy
+	reg1 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	reg1.SetAdminToken(TestAdminToken)
+	go reg1.ListenAndServe(":0")
+	select {
+	case <-reg1.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry 1 failed to start")
+	}
+
+	rc, err := registry.Dial(reg1.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, ownerIdentity)
+
+	resp, err := rc.CreateNetwork(ownerID, "port-persist", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set policy with allowed_ports
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members":   float64(25),
+		"allowed_ports": []interface{}{float64(80), float64(443), float64(8080)},
+		"description":   "test port persistence",
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	rc.Close()
+	reg1.Close()
+
+	// Phase 2: restart and verify
+	reg2 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	reg2.SetAdminToken(TestAdminToken)
+	go reg2.ListenAndServe(":0")
+	select {
+	case <-reg2.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry 2 failed to start")
+	}
+	defer reg2.Close()
+
+	rc2, err := registry.Dial(reg2.Addr().String())
+	if err != nil {
+		t.Fatalf("dial registry 2: %v", err)
+	}
+	defer rc2.Close()
+
+	// Verify policy survived
+	policyResp, err := rc2.GetNetworkPolicy(netID)
+	if err != nil {
+		t.Fatalf("get policy after restart: %v", err)
+	}
+
+	if int(policyResp["max_members"].(float64)) != 25 {
+		t.Errorf("max_members: got %v, want 25", policyResp["max_members"])
+	}
+	if policyResp["description"] != "test port persistence" {
+		t.Errorf("description: got %v", policyResp["description"])
+	}
+
+	ports := policyResp["allowed_ports"].([]interface{})
+	if len(ports) != 3 {
+		t.Fatalf("allowed_ports count: got %d, want 3", len(ports))
+	}
+
+	expectedPorts := map[float64]bool{80: true, 443: true, 8080: true}
+	for _, p := range ports {
+		port := p.(float64)
+		if !expectedPorts[port] {
+			t.Errorf("unexpected port: %v", port)
+		}
+		delete(expectedPorts, port)
+	}
+	if len(expectedPorts) > 0 {
+		t.Errorf("missing ports: %v", expectedPorts)
+	}
+
+	t.Log("enterprise policy with allowed_ports persisted correctly")
 }
