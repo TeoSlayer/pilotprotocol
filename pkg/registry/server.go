@@ -859,8 +859,10 @@ func (s *Server) reapStaleNodes() {
 	reaped := false
 	for id, node := range s.nodes {
 		if node.LastSeen.Before(threshold) {
-			slog.Info("registry reaping stale node", "node_id", id, "last_seen_ago", time.Since(node.LastSeen).Round(time.Second))
-			s.audit("node.reaped", "node_id", id, "reason", "stale_heartbeat")
+			staleDuration := time.Since(node.LastSeen).Round(time.Second)
+			slog.Info("registry reaping stale node", "node_id", id, "last_seen_ago", staleDuration)
+			s.audit("node.reaped", "node_id", id, "reason", "stale_heartbeat",
+				"last_seen_ago", staleDuration.String(), "networks", len(node.Networks))
 			// Remove from backbone (network 0) only. Keep non-backbone network
 			// memberships in the member lists so re-registration can restore them.
 			if net, ok := s.networks[0]; ok {

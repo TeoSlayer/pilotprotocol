@@ -745,3 +745,194 @@ func TestAuditLogPersistence(t *testing.T) {
 
 	t.Logf("after restart: %d audit entries (before: %d)", len(entriesAfter), len(entriesBefore))
 }
+
+// TestAuditMemberOperations verifies that promote, demote, and kick emit audit events
+// with the correct fields. Uses the ring buffer API (not slog) so it runs in parallel.
+func TestAuditMemberOperations(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Setup: create enterprise network, register 3 nodes
+	owner, _ := registerTestNode(t, rc)
+	nodeB, _ := registerTestNode(t, rc)
+	nodeC, _ := registerTestNode(t, rc)
+
+	resp, err := rc.CreateNetwork(owner, "member-ops-audit", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	if _, err := rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join B: %v", err)
+	}
+	if _, err := rc.JoinNetwork(nodeC, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join C: %v", err)
+	}
+
+	// Promote B to admin
+	if _, err := rc.PromoteMember(netID, owner, nodeB, TestAdminToken); err != nil {
+		t.Fatalf("promote B: %v", err)
+	}
+
+	// Demote B back to member
+	if _, err := rc.DemoteMember(netID, owner, nodeB, TestAdminToken); err != nil {
+		t.Fatalf("demote B: %v", err)
+	}
+
+	// Kick C from network
+	if _, err := rc.KickMember(netID, owner, nodeC, TestAdminToken); err != nil {
+		t.Fatalf("kick C: %v", err)
+	}
+
+	// Fetch audit log for this network
+	logResp, err := rc.GetAuditLog(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+
+	// Collect actions and verify each operation is present
+	actionMap := make(map[string]map[string]interface{})
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		action := entry["action"].(string)
+		actionMap[action] = entry // last occurrence
+	}
+
+	// Verify promote
+	if entry, ok := actionMap["member.promoted"]; ok {
+		if details, ok := entry["details"].(string); ok {
+			if !strings.Contains(details, "admin") {
+				t.Errorf("member.promoted details missing role: %s", details)
+			}
+		}
+	} else {
+		t.Error("missing audit action: member.promoted")
+	}
+
+	// Verify demote
+	if _, ok := actionMap["member.demoted"]; !ok {
+		t.Error("missing audit action: member.demoted")
+	}
+
+	// Verify kick
+	if _, ok := actionMap["member.kicked"]; !ok {
+		t.Error("missing audit action: member.kicked")
+	}
+
+	// Verify enterprise flag and policy change are also present
+	if _, ok := actionMap["network.created"]; !ok {
+		t.Error("missing audit action: network.created")
+	}
+
+	t.Logf("member ops audit: %d entries for network %d, actions: %v",
+		len(entries), netID, func() []string {
+			keys := make([]string, 0, len(actionMap))
+			for k := range actionMap {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
+}
+
+// TestAuditEnterpriseToggle verifies that enterprise flag changes emit audit events
+// via the ring buffer API.
+func TestAuditEnterpriseToggle(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	nodeID, _ := registerTestNode(t, rc)
+	resp, err := rc.CreateNetwork(nodeID, "ent-toggle-audit", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Enable enterprise
+	if _, err := rc.Send(map[string]interface{}{
+		"type":        "set_network_enterprise",
+		"network_id":  netID,
+		"enterprise":  true,
+		"admin_token": TestAdminToken,
+	}); err != nil {
+		t.Fatalf("enable enterprise: %v", err)
+	}
+
+	// Set policy
+	if _, err := rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(100),
+		"description": "audit toggle test",
+	}, TestAdminToken); err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// Disable enterprise
+	if _, err := rc.Send(map[string]interface{}{
+		"type":        "set_network_enterprise",
+		"network_id":  netID,
+		"enterprise":  false,
+		"admin_token": TestAdminToken,
+	}); err != nil {
+		t.Fatalf("disable enterprise: %v", err)
+	}
+
+	// Fetch audit log
+	logResp, err := rc.GetAuditLog(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+
+	enterpriseChanges := 0
+	policyChanges := 0
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		switch entry["action"].(string) {
+		case "network.enterprise_changed":
+			enterpriseChanges++
+		case "network.policy_changed":
+			policyChanges++
+		}
+	}
+
+	if enterpriseChanges != 2 {
+		t.Errorf("expected 2 enterprise_changed events (enable + disable), got %d", enterpriseChanges)
+	}
+	if policyChanges != 1 {
+		t.Errorf("expected 1 policy_changed event, got %d", policyChanges)
+	}
+
+	t.Logf("enterprise toggle audit: %d entries, %d enterprise changes, %d policy changes",
+		len(entries), enterpriseChanges, policyChanges)
+}
