@@ -188,7 +188,7 @@ func (s *Server) snapshotJSON() []byte {
 	}
 
 	for id, n := range s.nodes {
-		snap.Nodes[fmt.Sprintf("%d", id)] = &snapshotNode{
+		sn := &snapshotNode{
 			ID:        n.ID,
 			Owner:     n.Owner,
 			PublicKey: base64.StdEncoding.EncodeToString(n.PublicKey),
@@ -200,18 +200,45 @@ func (s *Server) snapshotJSON() []byte {
 			Tags:      n.Tags,
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
+			LANAddrs:  n.LANAddrs,
 		}
+		if !n.KeyMeta.CreatedAt.IsZero() {
+			sn.KeyCreated = n.KeyMeta.CreatedAt.Format(time.RFC3339)
+		}
+		if !n.KeyMeta.RotatedAt.IsZero() {
+			sn.KeyRotated = n.KeyMeta.RotatedAt.Format(time.RFC3339)
+		}
+		if n.KeyMeta.RotateCount > 0 {
+			sn.KeyRotCount = n.KeyMeta.RotateCount
+		}
+		if !n.KeyMeta.ExpiresAt.IsZero() {
+			sn.KeyExpires = n.KeyMeta.ExpiresAt.Format(time.RFC3339)
+		}
+		snap.Nodes[fmt.Sprintf("%d", id)] = sn
 	}
 
 	for id, n := range s.networks {
-		snap.Networks[fmt.Sprintf("%d", id)] = &snapshotNet{
-			ID:       n.ID,
-			Name:     n.Name,
-			JoinRule: n.JoinRule,
-			Token:    n.Token,
-			Members:  n.Members,
-			Created:  n.Created.Format(time.RFC3339),
+		sn := &snapshotNet{
+			ID:         n.ID,
+			Name:       n.Name,
+			JoinRule:   n.JoinRule,
+			Token:      n.Token,
+			Members:    n.Members,
+			AdminToken: n.AdminToken,
+			Enterprise: n.Enterprise,
+			Created:    n.Created.Format(time.RFC3339),
 		}
+		if len(n.MemberRoles) > 0 {
+			sn.MemberRoles = make(map[string]string, len(n.MemberRoles))
+			for nodeID, role := range n.MemberRoles {
+				sn.MemberRoles[fmt.Sprintf("%d", nodeID)] = string(role)
+			}
+		}
+		if n.Policy.MaxMembers != 0 || len(n.Policy.AllowedPorts) > 0 || n.Policy.Description != "" {
+			pol := n.Policy
+			sn.Policy = &pol
+		}
+		snap.Networks[fmt.Sprintf("%d", id)] = sn
 	}
 
 	// Include trust pairs

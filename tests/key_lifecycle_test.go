@@ -185,6 +185,12 @@ func TestKeyExpirySet(t *testing.T) {
 	}
 	nodeID := uint32(resp["node_id"].(float64))
 
+	// Key expiry requires enterprise network membership
+	_, err = rc.CreateNetwork(nodeID, "ent-expiry-set", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
+
 	// Set expiry to 7 days from now
 	expiresAt := time.Now().Add(7 * 24 * time.Hour).UTC().Truncate(time.Second)
 
@@ -270,6 +276,12 @@ func TestKeyExpiryWarningInHeartbeat(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	nodeID := uint32(resp["node_id"].(float64))
+
+	// Key expiry requires enterprise network membership
+	_, err = rc.CreateNetwork(nodeID, "ent-expiry-hb", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
 
 	// Set expiry to 12 hours from now (within the 24-hour warning window)
 	expiresAt := time.Now().Add(12 * time.Hour)
@@ -374,6 +386,7 @@ func TestKeyInfoPersistence(t *testing.T) {
 
 	// Phase 1: start registry, register node, rotate key, set expiry
 	reg1 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	reg1.SetAdminToken(TestAdminToken)
 	go reg1.ListenAndServe(":0")
 	select {
 	case <-reg1.Ready():
@@ -395,6 +408,12 @@ func TestKeyInfoPersistence(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	nodeID := uint32(resp["node_id"].(float64))
+
+	// Key expiry requires enterprise network membership
+	_, err = rc.CreateNetwork(nodeID, "ent-expiry-persist", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
 
 	// Rotate key
 	newID, _ := crypto.GenerateIdentity()

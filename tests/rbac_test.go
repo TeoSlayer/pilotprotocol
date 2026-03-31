@@ -28,7 +28,7 @@ func TestRBACOwnerRole(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	// Create a network
-	netResp, err := rc.CreateNetwork(nodeID, "rbac-owner-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID, "rbac-owner-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRBACMemberJoin(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create a token-gated network
-	netResp, err := rc.CreateNetwork(nodeID1, "rbac-join-test", "token", "join-secret", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "rbac-join-test", "token", "join-secret", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestRBACPromoteDemote(t *testing.T) {
 	ownerNodeID := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(ownerNodeID, "rbac-promote-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(ownerNodeID, "rbac-promote-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestRBACAdminCanInvite(t *testing.T) {
 	targetID := uint32(resp4["node_id"].(float64))
 
 	// Create invite-only network
-	netResp, err := rc.CreateNetwork(ownerID, "rbac-invite-test", "invite", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(ownerID, "rbac-invite-test", "invite", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestRBACOnlyOwnerCanDelete(t *testing.T) {
 	ownerID := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(ownerID, "rbac-delete-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(ownerID, "rbac-delete-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestRBACKickMember(t *testing.T) {
 	ownerID := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(ownerID, "rbac-kick-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(ownerID, "rbac-kick-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -473,14 +473,14 @@ func TestRBACPerNetworkAdminToken(t *testing.T) {
 
 	// Create network 1 with per-network admin token
 	net1Token := "net1-secret-token"
-	net1Resp, err := rc.CreateNetwork(nodeID, "rbac-pertoken-net1", "open", "", env.AdminToken, net1Token)
+	net1Resp, err := rc.CreateNetwork(nodeID, "rbac-pertoken-net1", "open", "", env.AdminToken, true, net1Token)
 	if err != nil {
 		t.Fatalf("create network 1: %v", err)
 	}
 	net1ID := uint16(net1Resp["network_id"].(float64))
 
 	// Create network 2 without per-network admin token
-	net2Resp, err := rc.CreateNetwork(nodeID, "rbac-pertoken-net2", "open", "", env.AdminToken)
+	net2Resp, err := rc.CreateNetwork(nodeID, "rbac-pertoken-net2", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create network 2: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestRBACInviteAcceptGetsRole(t *testing.T) {
 	targetID := uint32(resp2["node_id"].(float64))
 
 	// Create invite-only network
-	netResp, err := rc.CreateNetwork(ownerID, "rbac-invite-accept", "invite", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(ownerID, "rbac-invite-accept", "invite", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}

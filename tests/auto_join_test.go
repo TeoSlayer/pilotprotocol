@@ -26,7 +26,7 @@ func TestAutoJoinNetworks(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "fleet-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "fleet-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestAutoJoinAlreadyMember(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "idempotent-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "idempotent-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestAutoJoinNoAdminToken(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "no-token-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "no-token-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestAutoJoinMultipleNetworks(t *testing.T) {
 	const numNets = 3
 	netIDs := make([]uint16, numNets)
 	for i := 0; i < numNets; i++ {
-		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("multi-auto-net-%d", i), "open", "", TestAdminToken)
+		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("multi-auto-net-%d", i), "open", "", TestAdminToken, false)
 		if err != nil {
 			t.Fatalf("create network %d: %v", i, err)
 		}
@@ -237,7 +237,7 @@ func TestAutoJoinInviteNetworkFails(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "invite-only-autojoin", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "invite-only-autojoin", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create invite network: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestAutoJoinWebhookEvent(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "webhook-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "webhook-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestAutoJoinTokenGatedWithoutJoinToken(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "token-gated-autojoin", "token", "secret-token", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "token-gated-autojoin", "token", "secret-token", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestAutoJoinMixedValidInvalid(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "mixed-valid-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "mixed-valid-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

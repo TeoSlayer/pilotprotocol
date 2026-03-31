@@ -32,7 +32,7 @@ func TestNetworkPolicyMaxMembers(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create a token-gated network
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-max-test", "token", "secret", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-max-test", "token", "secret", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestNetworkPolicyAllowedPorts(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-ports-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-ports-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestNetworkPolicyRequiresAdmin(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-auth-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-auth-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestNetworkPolicyPersistence(t *testing.T) {
 	}
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-persist-test", "open", "", TestAdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-persist-test", "open", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestNetworkPolicyDescription(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-desc-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-desc-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestNetworkPolicyGetPolicy(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	// Create network
-	netResp, err := rc.CreateNetwork(nodeID1, "policy-get-test", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "policy-get-test", "open", "", env.AdminToken, true)
 	if err != nil {
 		t.Fatalf("create_network: %v", err)
 	}

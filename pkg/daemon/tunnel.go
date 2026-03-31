@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -633,7 +634,10 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	}
 	pc.replayMu.Unlock()
 
-	plaintext, err := pc.aead.Open(nil, nonce, ciphertext, nil)
+	// H3 fix: verify sender's nodeID as AAD
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, peerNodeID)
+	plaintext, err := pc.aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		atomic.AddUint64(&tm.EncryptFail, 1)
 		slog.Error("tunnel decrypt error", "peer_node_id", peerNodeID, "error", err)
@@ -676,11 +680,14 @@ func (tm *TunnelManager) deriveSecret(peerPubKeyBytes []byte) (*peerCrypto, erro
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
-	// Derive key with domain separator
-	h := sha256.New()
-	h.Write([]byte("pilot-tunnel-v1:"))
-	h.Write(shared)
-	key := h.Sum(nil)
+	// HKDF-SHA256 key derivation (H1 fix)
+	mac := hmac.New(sha256.New, nil) // HKDF-Extract: PRK = HMAC-SHA256(nil salt, IKM)
+	mac.Write(shared)
+	prk := mac.Sum(nil)
+	mac = hmac.New(sha256.New, prk) // HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
+	mac.Write([]byte("pilot-tunnel-v1"))
+	mac.Write([]byte{0x01})
+	key := mac.Sum(nil)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -689,6 +696,17 @@ func (tm *TunnelManager) deriveSecret(peerPubKeyBytes []byte) (*peerCrypto, erro
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("gcm: %w", err)
+	}
+
+	// Zero intermediate key material (H4 fix)
+	for i := range shared {
+		shared[i] = 0
+	}
+	for i := range key {
+		key[i] = 0
+	}
+	for i := range prk {
+		prk[i] = 0
 	}
 
 	// Generate random nonce prefix for domain separation
@@ -802,7 +820,10 @@ func (tm *TunnelManager) encryptFrame(pc *peerCrypto, plaintext []byte) []byte {
 	counter := atomic.AddUint64(&pc.nonce, 1)
 	binary.BigEndian.PutUint64(nonce[pc.aead.NonceSize()-8:], counter)
 
-	ciphertext := pc.aead.Seal(nil, nonce, plaintext, nil)
+	// H3 fix: bind sender's nodeID as AAD
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, tm.loadNodeID())
+	ciphertext := pc.aead.Seal(nil, nonce, plaintext, aad)
 	atomic.AddUint64(&tm.EncryptOK, 1)
 
 	frame := make([]byte, 4+4+len(nonce)+len(ciphertext))
@@ -845,22 +866,20 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 			return tm.writeFrame(nodeID, addr, frame)
 		}
 
-		// No key yet — initiate key exchange and queue the packet
+		// No key yet — initiate key exchange and queue the packet (C1 fix: no plaintext fallback)
 		tm.sendKeyExchangeToNode(nodeID)
 		tm.pendMu.Lock()
 		if _, exists := tm.pending[nodeID]; !exists && len(tm.pending) >= maxPendingPeers {
 			tm.pendMu.Unlock()
-			return tm.sendPlaintextToNode(nodeID, addr, data)
+			return fmt.Errorf("too many pending key exchanges")
 		}
 		q := tm.pending[nodeID]
 		if len(q) >= maxPendingPerPeer {
-			q = q[1:]
+			q = q[1:] // drop oldest
 		}
 		tm.pending[nodeID] = append(q, data)
 		tm.pendMu.Unlock()
-
-		// Also send plaintext so the connection isn't blocked
-		return tm.sendPlaintextToNode(nodeID, addr, data)
+		return nil // queued, will be sent encrypted after key exchange
 	}
 
 	return tm.sendPlaintextToNode(nodeID, addr, data)

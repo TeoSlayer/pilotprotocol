@@ -24,7 +24,7 @@ func TestBroadcast(t *testing.T) {
 	}
 	defer rc.Close()
 
-	resp, err := rc.CreateNetwork(a.Daemon.NodeID(), "test-topic", "open", "", env.AdminToken)
+	resp, err := rc.CreateNetwork(a.Daemon.NodeID(), "test-topic", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

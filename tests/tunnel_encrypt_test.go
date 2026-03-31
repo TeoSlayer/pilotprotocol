@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -133,61 +132,27 @@ func TestTunnelEncryption(t *testing.T) {
 
 func TestTunnelEncryptionBackwardCompat(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI") != "" {
-		t.Skip("skipping in CI: encryption fallback timing unreliable on constrained runners")
-	}
-	// Test that an encrypted daemon can talk to an unencrypted daemon
-	// (falls back to plaintext)
+	// C1 fix: encrypted daemons no longer fall back to plaintext.
+	// Verify that an encrypted daemon CANNOT communicate with a plaintext daemon.
 
 	env := NewTestEnv(t)
 
 	// Start daemon A with encryption
 	infoA := env.AddDaemon(func(c *daemon.Config) { c.Encrypt = true })
 	daemonA := infoA.Daemon
-	drvA := infoA.Driver
 
 	// Start daemon B WITHOUT encryption
 	infoB := env.AddDaemon()
 	drvB := infoB.Driver
 
-	t.Logf("daemon A: encrypted, daemon B: plaintext")
+	t.Logf("daemon A: encrypted, daemon B: plaintext — expect dial failure")
 
-	ln, err := drvA.Listen(2001)
-	if err != nil {
-		t.Fatalf("driver A listen: %v", err)
+	// Plaintext daemon B should NOT be able to reach encrypted daemon A
+	_, err := drvB.Dial(daemonA.Addr().String() + ":7")
+	if err == nil {
+		t.Fatal("expected dial to fail: encrypted daemon should not accept plaintext connections")
 	}
-
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		buf := make([]byte, 4096)
-		n, _ := conn.Read(buf)
-		conn.Write(buf[:n])
-	}()
-
-	conn, err := drvB.Dial(daemonA.Addr().String() + ":2001")
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	msg := "plaintext fallback test"
-	conn.Write([]byte(msg))
-
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-
-	if string(buf[:n]) != msg {
-		t.Fatalf("echo mismatch: got %q, want %q", string(buf[:n]), msg)
-	}
-
-	t.Logf("backward-compatible echo: %q", string(buf[:n]))
+	t.Logf("correctly rejected: %v", err)
 }
 
 func TestAuthenticatedKeyExchange(t *testing.T) {

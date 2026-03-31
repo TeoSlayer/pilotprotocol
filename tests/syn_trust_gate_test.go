@@ -138,7 +138,7 @@ func TestSYNFromSameNetworkAccepted(t *testing.T) {
 	}
 	defer rc.Close()
 
-	resp, err := rc.CreateNetwork(server.Daemon.NodeID(), "syn-net-test", "open", "", env.AdminToken)
+	resp, err := rc.CreateNetwork(server.Daemon.NodeID(), "syn-net-test", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestDatagramAllowedFromSameNetwork(t *testing.T) {
 	}
 	defer rc.Close()
 
-	resp, err := rc.CreateNetwork(server.Daemon.NodeID(), "dg-trust-net", "open", "", env.AdminToken)
+	resp, err := rc.CreateNetwork(server.Daemon.NodeID(), "dg-trust-net", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

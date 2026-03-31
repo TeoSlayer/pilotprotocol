@@ -66,7 +66,7 @@ func TestAuditEvents(t *testing.T) {
 	nodeB, _ := registerTestNode(t, rc)
 
 	// 2. Network lifecycle: create, join, leave, rename, delete
-	resp, err := rc.CreateNetwork(nodeA, "audit-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "audit-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestAuditInviteActions(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "audit-invite-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "audit-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestAuditEventHasRequiredFields(t *testing.T) {
 	defer rc.Close()
 
 	nodeID, _ := registerTestNode(t, rc)
-	rc.CreateNetwork(nodeID, "fields-check-net", "open", "", TestAdminToken)
+	rc.CreateNetwork(nodeID, "fields-check-net", "open", "", TestAdminToken, false)
 
 	events := parseAuditLines(&buf)
 	if len(events) == 0 {
@@ -322,7 +322,7 @@ func TestAuditConcurrentMutations(t *testing.T) {
 			}
 			defer rc.Close()
 			nodeID, _ := registerTestNode(t, rc)
-			rc.CreateNetwork(nodeID, strings.Repeat("x", i+1)+"-concurrent-net", "open", "", TestAdminToken)
+			rc.CreateNetwork(nodeID, strings.Repeat("x", i+1)+"-concurrent-net", "open", "", TestAdminToken, false)
 		}(i)
 	}
 	wg.Wait()

@@ -28,7 +28,7 @@ func TestPilotctlNetworkJoinToken(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "token-net", "token", "secret123", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "token-net", "token", "secret123", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestPilotctlNetworkLeave(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "leave-drv-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "leave-drv-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestPilotctlNetworkMembers(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "members-drv-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "members-drv-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestPilotctlNetworkList(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "list-test-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "list-test-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestPilotctlNetworkJoinWrongToken(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "wrong-token-net", "token", "correcttoken", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "wrong-token-net", "token", "correcttoken", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestPilotctlNetworkLeaveNotMember(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "not-member-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "not-member-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestPilotctlNetworkRejectInvite(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "reject-drv-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "reject-drv-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestPilotctlNetworkConcurrentJoins(t *testing.T) {
 	const numNets = 5
 	netIDs := make([]uint16, numNets)
 	for i := 0; i < numNets; i++ {
-		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("concurrent-join-net-%d", i), "open", "", TestAdminToken)
+		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("concurrent-join-net-%d", i), "open", "", TestAdminToken, false)
 		if err != nil {
 			t.Fatalf("create network %d: %v", i, err)
 		}
@@ -426,7 +426,7 @@ func TestPilotctlNetworkJoinLeaveRejoin(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "rejoin-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "rejoin-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -505,14 +505,14 @@ func TestPhase2IntegrationInviteAuditWebhook(t *testing.T) {
 	creatorID, _ := registerTestNode(t, rc)
 
 	// Open network for auto-join (Unit 4)
-	openResp, err := rc.CreateNetwork(creatorID, "integration-open-net", "open", "", TestAdminToken)
+	openResp, err := rc.CreateNetwork(creatorID, "integration-open-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create open network: %v", err)
 	}
 	openNetID := uint16(openResp["network_id"].(float64))
 
 	// Invite-only network for the invite flow (Units 3+5)
-	invResp, err := rc.CreateNetwork(creatorID, "integration-invite-net", "invite", "", TestAdminToken)
+	invResp, err := rc.CreateNetwork(creatorID, "integration-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create invite network: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestPilotctlNetworkInviteAccept(t *testing.T) {
 
 	// Creator creates invite-only network
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "invite-drv-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "invite-drv-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -720,7 +720,7 @@ func TestPilotctlNetworkConcurrentSameNetwork(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "concurrent-same-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "concurrent-same-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestPilotctlNetworkLargeMemberList(t *testing.T) {
 	defer rc.Close()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "large-member-net", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "large-member-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -863,7 +863,7 @@ func TestPilotctlNetworkUnicodeNames(t *testing.T) {
 	netIDs := make([]uint16, 0, len(names))
 
 	for _, name := range names {
-		resp, err := rc.CreateNetwork(creatorID, name, "open", "", TestAdminToken)
+		resp, err := rc.CreateNetwork(creatorID, name, "open", "", TestAdminToken, false)
 		if err != nil {
 			// Some names may be rejected by validation — that's OK
 			t.Logf("create network %q: %v (may be expected)", name, err)

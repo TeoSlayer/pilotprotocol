@@ -20,7 +20,7 @@ func TestInviteRequiresAcceptance(t *testing.T) {
 
 	// Creator node
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "invite-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create invite network: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestInviteReject(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "reject-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "reject-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestInviteDedup(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "dedup-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "dedup-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestInviteRequiresAdmin(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "admin-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "admin-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestInviteNonMemberCantInvite(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "member-check-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "member-check-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestInvitePersistence(t *testing.T) {
 	}
 
 	creatorID, _ := registerTestNode(t, rc1)
-	resp, err := rc1.CreateNetwork(creatorID, "persist-invite-net", "invite", "", TestAdminToken)
+	resp, err := rc1.CreateNetwork(creatorID, "persist-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestInviteInboxClearedAfterPoll(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "inbox-clear-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "inbox-clear-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestInviteTargetAlreadyMember(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "already-member-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "already-member-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestInviteOpenNetworkRejected(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "open-invite-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "open-invite-test", "open", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create open network: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestInviteMultipleNetworksAcceptAll(t *testing.T) {
 	const numNetworks = 3
 	netIDs := make([]uint16, numNetworks)
 	for i := 0; i < numNetworks; i++ {
-		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("multi-net-%d", i), "invite", "", TestAdminToken)
+		resp, err := rc.CreateNetwork(creatorID, fmt.Sprintf("multi-net-%d", i), "invite", "", TestAdminToken, true)
 		if err != nil {
 			t.Fatalf("create network %d: %v", i, err)
 		}
@@ -510,7 +510,7 @@ func TestInviteConcurrentAccepts(t *testing.T) {
 	regAddr := reg.Addr().String()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "concurrent-accept-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "concurrent-accept-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestInviteInboxCapEnforced(t *testing.T) {
 	const cap = 100
 	for i := 0; i < cap; i++ {
 		netName := fmt.Sprintf("cap-net-%03d", i)
-		resp, err := rc.CreateNetwork(creatorID, netName, "invite", "", TestAdminToken)
+		resp, err := rc.CreateNetwork(creatorID, netName, "invite", "", TestAdminToken, true)
 		if err != nil {
 			t.Fatalf("create network %d: %v", i, err)
 		}
@@ -594,7 +594,7 @@ func TestInviteInboxCapEnforced(t *testing.T) {
 	}
 
 	// 101st invite should fail
-	resp, err := rc.CreateNetwork(creatorID, "cap-net-overflow", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "cap-net-overflow", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create overflow network: %v", err)
 	}
@@ -613,7 +613,7 @@ func TestInviteChain(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "chain-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "chain-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestDirectJoinInviteNetworkFails(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "no-direct-join", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "no-direct-join", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -692,7 +692,7 @@ func TestInviteDoubleAcceptRace(t *testing.T) {
 	regAddr := reg.Addr().String()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "double-accept-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "double-accept-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -767,7 +767,7 @@ func TestInviteAfterTargetDeregister(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "deregister-invite-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "deregister-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -809,7 +809,7 @@ func TestInviteNetworkDeletedWhilePending(t *testing.T) {
 	defer cleanup()
 
 	creatorID, _ := registerTestNode(t, rc)
-	resp, err := rc.CreateNetwork(creatorID, "delete-while-pending", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(creatorID, "delete-while-pending", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

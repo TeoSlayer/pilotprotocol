@@ -317,8 +317,25 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 			slog.Warn("handshake: missing signature from authenticated node", "peer_node_id", msg.NodeID)
 			return
 		}
+
+		// M3 fix: verify claimed pubkey against registry-registered key
+		verifyKey := msg.PublicKey
+		if hm.daemon.regConn != nil {
+			resp, err := hm.daemon.regConn.Lookup(msg.NodeID)
+			if err == nil {
+				if regPubKey, ok := resp["public_key"].(string); ok && regPubKey != "" {
+					if regPubKey != msg.PublicKey {
+						slog.Warn("handshake: pubkey mismatch with registry",
+							"peer_node_id", msg.NodeID)
+						return
+					}
+					verifyKey = regPubKey
+				}
+			}
+		}
+
 		challenge := fmt.Sprintf("handshake:%d:%d", msg.NodeID, hm.daemon.NodeID())
-		pubKeyBytes, err := base64.StdEncoding.DecodeString(msg.PublicKey)
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(verifyKey)
 		if err != nil {
 			slog.Warn("handshake: invalid public key encoding", "peer_node_id", msg.NodeID, "err", err)
 			return

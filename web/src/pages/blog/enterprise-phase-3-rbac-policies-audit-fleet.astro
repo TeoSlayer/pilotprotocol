@@ -1,0 +1,256 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>Pilot Protocol v1.5 ships the enterprise stack. Three phases of development, merged to main, covering role-based access control, network policies, structured audit logging, consent-based invites, fleet enrollment, webhook reliability, key lifecycle management, and a health endpoint. This post covers everything that shipped and why it matters for production agent deployments.</p>
+
+<h2 id="rbac">Role-Based Access Control</h2>
+
+<p>Every network now has three roles: <strong>owner</strong>, <strong>admin</strong>, and <strong>member</strong>. The node that creates a network is automatically the owner. Nodes that join via token or accept an invite start as members.</p>
+
+<ul>
+  <li><strong>Owner</strong> &mdash; full control. Can promote, demote, kick, set policies, delete the network.</li>
+  <li><strong>Admin</strong> &mdash; can invite nodes, kick members, and manage settings. Cannot promote or demote other admins.</li>
+  <li><strong>Member</strong> &mdash; can communicate with all network peers. No management privileges.</li>
+</ul>
+
+<p>Authorization is checked on every mutation. The registry evaluates a three-step chain: global admin token, per-network admin token, then the node&rsquo;s RBAC role. This means infrastructure operators can always override, but day-to-day management works through roles without sharing tokens.</p>
+
+<pre><code><span class="comment"># Promote a member to admin</span>
+pilotctl network promote 1 --node 686
+
+<span class="comment"># Demote an admin back to member</span>
+pilotctl network demote 1 --node 686
+
+<span class="comment"># Kick a node from the network</span>
+pilotctl network kick 1 --node 687</code></pre>
+
+<p>Owners cannot be kicked. Admins cannot promote or demote &mdash; only owners can change roles. This prevents privilege escalation within the network.</p>
+
+<h2 id="policies">Network Policies</h2>
+
+<p>Networks can now enforce policies that restrict membership and communication:</p>
+
+<ul>
+  <li><strong>MaxMembers</strong> &mdash; cap the number of nodes in a network. Once the limit is reached, join attempts fail with a clear error. Set to 0 for unlimited.</li>
+  <li><strong>AllowedPorts</strong> &mdash; restrict which ports are available within the network. Empty means all ports allowed.</li>
+  <li><strong>Description</strong> &mdash; human-readable policy metadata for dashboards and audit trails.</li>
+</ul>
+
+<p>Policies use merge-on-update semantics. Setting <code>MaxMembers</code> does not reset <code>AllowedPorts</code>. Partial updates are safe.</p>
+
+<pre><code><span class="comment"># Set a membership cap</span>
+pilotctl network set-policy 1 --max-members 50
+
+<span class="comment"># Restrict ports</span>
+pilotctl network set-policy 1 --allowed-ports 80,443,7</code></pre>
+
+<h2 id="invites">Consent-Based Invites</h2>
+
+<p>Invite-only networks no longer auto-add nodes. When you invite a node to a network, it lands in an inbox. The target node must explicitly accept or reject. This is a privacy requirement: joining a network changes your trust surface, since any member can connect to you. Nodes should not be silently enrolled.</p>
+
+<p>The flow:</p>
+
+<ol>
+  <li>An admin invites a node: <code>pilotctl network invite 1 --node 686</code></li>
+  <li>The target polls their inbox: <code>pilotctl network invites</code></li>
+  <li>The target accepts or rejects: <code>pilotctl network accept 1</code> or <code>pilotctl network reject 1</code></li>
+  <li>On acceptance, the node joins the network with <code>member</code> role.</li>
+</ol>
+
+<p>Invites are deduplicated (one per network per target), persisted across registry restarts, and capped at 100 per node. The old direct-join path for invite-only networks is blocked &mdash; attempting <code>JoinNetwork</code> on an invite-only network returns an error directing you to the consent flow.</p>
+
+<h2 id="audit">Structured Audit Trail</h2>
+
+<p>Every registry mutation now emits a structured audit event via <code>slog</code>. When the registry runs with <code>--log-format=json</code>, the output is SIEM-ingestible. Filter with <code>jq</code>:</p>
+
+<pre><code><span class="comment"># Stream audit events from the registry log</span>
+tail -f /var/log/pilot-registry.log | jq 'select(.msg=="audit")'
+
+<span class="comment"># Example output</span>
+{
+  "time": "2026-03-27T10:15:03Z",
+  "level": "INFO",
+  "msg": "audit",
+  "audit_action": "network.created",
+  "network_id": 3,
+  "name": "prod-fleet",
+  "join_rule": "token",
+  "creator_node_id": 685
+}</code></pre>
+
+<p>18 mutation handlers are instrumented:</p>
+
+<table>
+  <thead><tr><th>Category</th><th>Actions</th></tr></thead>
+  <tbody>
+    <tr><td>Nodes</td><td><code>node.registered</code>, <code>node.deregistered</code></td></tr>
+    <tr><td>Networks</td><td><code>network.created</code>, <code>network.deleted</code>, <code>network.renamed</code></td></tr>
+    <tr><td>Membership</td><td><code>network.joined</code>, <code>network.left</code>, <code>member.promoted</code>, <code>member.demoted</code></td></tr>
+    <tr><td>Trust</td><td><code>trust.created</code>, <code>trust.revoked</code></td></tr>
+    <tr><td>Settings</td><td><code>visibility.changed</code>, <code>task_exec.changed</code>, <code>hostname.changed</code>, <code>tags.changed</code></td></tr>
+    <tr><td>Handshake</td><td><code>handshake.relayed</code>, <code>handshake.responded</code></td></tr>
+    <tr><td>Keys</td><td><code>key.rotated</code></td></tr>
+  </tbody>
+</table>
+
+<p>Every event includes the relevant IDs (node, network, peer) as structured attributes. No string parsing required.</p>
+
+<h2 id="fleet">Fleet Enrollment</h2>
+
+<p>Deploying N agents to the same network is now a config change, not N manual commands. The daemon accepts two new flags:</p>
+
+<pre><code><span class="comment"># Start a daemon that auto-joins networks 1 and 3</span>
+pilot-daemon -registry host:9000 -beacon host:9001 \\
+  -admin-token $TOKEN -networks 1,3 \\
+  -listen :4000 -encrypt</code></pre>
+
+<p>On startup, the daemon calls <code>JoinNetwork</code> for each configured network ID. Already-a-member errors are silently ignored (idempotent). Failed joins log a warning but do not prevent the daemon from starting. Each successful auto-join emits a <code>network.auto_joined</code> webhook event.</p>
+
+<p>This means you can deploy a fleet with identical config files. Push the config, restart the daemons, and they all converge to the same network membership.</p>
+
+<h2 id="webhooks">Webhook Reliability</h2>
+
+<p>The webhook system got three upgrades for enterprise event delivery:</p>
+
+<ul>
+  <li><strong>Monotonic event IDs.</strong> Every event gets a sequential <code>event_id</code>. Consumers can detect gaps, sequence events, and build exactly-once delivery on top.</li>
+  <li><strong>Retry with backoff.</strong> Failed deliveries (5xx or network errors) retry up to 3 times with exponential backoff (1s, 2s, 4s). Client errors (4xx) are not retried &mdash; those are permanent.</li>
+  <li><strong>Dropped counter.</strong> When the internal buffer is full, events are dropped and counted. The <code>Dropped()</code> accessor lets you monitor event loss without blocking the daemon.</li>
+</ul>
+
+<p>On shutdown, the webhook client drains its queue with a 5-second timeout. Pending events are delivered if the endpoint is reachable; abandoned otherwise.</p>
+
+<h2 id="keys">Key Lifecycle Management</h2>
+
+<p>Ed25519 identity keys now carry metadata:</p>
+
+<ul>
+  <li><strong>CreatedAt</strong> &mdash; when the key was first registered.</li>
+  <li><strong>RotatedAt</strong> &mdash; when the key was last rotated (zero if never).</li>
+  <li><strong>RotateCount</strong> &mdash; how many times the key has been rotated.</li>
+  <li><strong>ExpiresAt</strong> &mdash; optional expiration time. Expired keys are rejected at registration.</li>
+  <li><strong>KeyAgeDays</strong> &mdash; computed age for compliance dashboards.</li>
+</ul>
+
+<p>Nodes can set their own key expiry via a signature-verified command. This enables compliance policies like &ldquo;rotate keys every 90 days&rdquo; without requiring infrastructure-level enforcement.</p>
+
+<h2 id="health">Health Endpoint and Metrics</h2>
+
+<p>The registry now exposes a <code>/healthz</code> HTTP endpoint:</p>
+
+<pre><code>curl http://registry:9000/healthz
+{
+  "status": "ok",
+  "version": "1.5.0",
+  "uptime_seconds": 86412,
+  "nodes_online": 247,
+  "networks_count": 12,
+  "requests_total": 1482903,
+  "errors_total": 37
+}</code></pre>
+
+<p>Internal Prometheus-style metrics track request counts, duration, and errors per message type. The <code>pilotctl health</code> command queries daemon health via IPC for local monitoring.</p>
+
+<h2 id="hardening">Registry Hardening</h2>
+
+<p>Four hardening measures to protect the registry under adversarial conditions:</p>
+
+<ul>
+  <li><strong>Connection limits.</strong> Maximum concurrent connections enforced at accept time.</li>
+  <li><strong>Message size cap.</strong> 64KB per message. Oversized messages are rejected immediately.</li>
+  <li><strong>Per-operation rate limiting.</strong> Separate from connection rate limits. Prevents mutation flooding.</li>
+  <li><strong>Snapshot checksums.</strong> Registry persistence files are integrity-checked on load. Corrupted snapshots are detected and rejected.</li>
+</ul>
+
+<h2 id="secure-channels">Secure Channel Authentication</h2>
+
+<p>Encrypted tunnels now verify identity during the ECDH handshake. Both sides present Ed25519 signatures, and the tunnel records the authenticated <code>PeerNodeID</code>. This binds the ephemeral X25519 session key to a persistent identity &mdash; you know who you are talking to, not just that the channel is encrypted.</p>
+
+<p>Backward compatibility is preserved: peers that do not support authentication fall back to unauthenticated encryption. No flag day required.</p>
+
+<h2 id="pilotctl">Network Management via pilotctl</h2>
+
+<p>All network operations are now available through <code>pilotctl</code>, routed through the daemon&rsquo;s IPC socket. Every command is signed by the daemon&rsquo;s Ed25519 identity.</p>
+
+<pre><code><span class="comment"># List your networks</span>
+pilotctl network list
+
+<span class="comment"># Join a token-gated network</span>
+pilotctl network join 1 --token my-secret
+
+<span class="comment"># Leave a network</span>
+pilotctl network leave 1
+
+<span class="comment"># List members</span>
+pilotctl network members 1
+
+<span class="comment"># Invite a node (admin/owner only)</span>
+pilotctl network invite 1 --node 686
+
+<span class="comment"># Check pending invites</span>
+pilotctl network invites
+
+<span class="comment"># Accept or reject</span>
+pilotctl network accept 1
+pilotctl network reject 1</code></pre>
+
+<h2 id="test-coverage">Test Coverage</h2>
+
+<p>The enterprise features ship with 43 new tests across 8 test files, all passing with <code>-parallel 4</code>. Coverage includes:</p>
+
+<ul>
+  <li>RBAC role assignment, promotion, demotion, and permission boundaries</li>
+  <li>Network policy enforcement (membership limits, port restrictions)</li>
+  <li>Invite consent flow (accept, reject, dedup, persistence across restart)</li>
+  <li>Auto-join idempotency and webhook emission</li>
+  <li>Webhook event ID monotonicity, retry behavior, and dropped counters</li>
+  <li>Key lifecycle metadata (creation, rotation, expiry)</li>
+  <li>Secure channel authentication and replay prevention</li>
+  <li>Registry hardening (connection limits, message caps, rate limits)</li>
+  <li>Health endpoint and metrics</li>
+</ul>
+
+<h2 id="release">Release</h2>
+
+<p>All enterprise features are in <code>v1.5.0-rc1</code>, available now via the install script:</p>
+
+<pre><code><span class="comment"># Install release candidate</span>
+PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
+
+<span class="comment"># Or wait for the stable release</span>
+curl -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
+
+<p>The release pipeline is fully automated: push a <code>v*</code> tag, and GitHub Actions runs the full test suite, builds binaries for 4 platforms (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64), executes an integration harness with a live registry + beacon + 2 daemons, and publishes the release with checksums.</p>
+
+<h2 id="whats-next">What Is Next</h2>
+
+<p>The enterprise stack is the foundation. What follows:</p>
+
+<ul>
+  <li><strong>Console integration.</strong> The web console will expose RBAC, policies, invites, and audit logs through the dashboard.</li>
+  <li><strong>OIDC/SPIFFE identity.</strong> Bring your own identity provider. Map enterprise identities to Pilot nodes.</li>
+  <li><strong>Cascading revocation.</strong> When an admin is removed, cascade the effect to nodes they invited.</li>
+  <li><strong>Dedicated infrastructure.</strong> Private registry and beacon instances for organizations that need full isolation.</li>
+</ul>
+
+<div class="cta">
+  <h3>Try the Enterprise Features</h3>
+  <p>Install the release candidate and create your first RBAC-governed network.</p>
+  <a href="/docs/getting-started">Get Started</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/docs/networks">Network Docs</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://console.pilotprotocol.network">Open Console</a>
+</div>`;
+---
+<BlogLayout
+  title="Enterprise Phase 3: RBAC, Policies, Audit Trail, and Fleet Enrollment"
+  description="Pilot Protocol v1.5 ships role-based access control, network policies, structured audit logging, consent-based invites, fleet enrollment, webhook reliability, key lifecycle management, and a health endpoint."
+  date="March 27, 2026"
+  tags={["enterprise", "security", "rbac", "audit"]}
+  canonicalPath="/blog/enterprise-phase-3-rbac-policies-audit-fleet"
+  bannerImage="/blog/banners/enterprise-phase-3-rbac-policies-audit-fleet.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

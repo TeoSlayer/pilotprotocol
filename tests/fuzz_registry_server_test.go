@@ -717,7 +717,7 @@ func TestRegistryClientNetworkCreateNoToken(t *testing.T) {
 
 	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
 
-	_, err = c.CreateNetwork(nodeID, "testnet", "open", "", "")
+	_, err = c.CreateNetwork(nodeID, "testnet", "open", "", "", false)
 	if err == nil {
 		t.Fatal("expected error when no admin token configured")
 	}
@@ -737,7 +737,7 @@ func TestRegistryClientNetworkCreateWithToken(t *testing.T) {
 
 	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
 
-	resp, err := c.CreateNetwork(nodeID, "tokennet", "open", "", TestAdminToken)
+	resp, err := c.CreateNetwork(nodeID, "tokennet", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("CreateNetwork with token: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestRegistryClientNetworkJoinLeave(t *testing.T) {
 	nodeID2 := regTestNodeWithKey(t, c2, "127.0.0.1:4002")
 
 	// Create network with node1
-	resp, err := c1.CreateNetwork(nodeID1, "joinleave", "open", "", TestAdminToken)
+	resp, err := c1.CreateNetwork(nodeID1, "joinleave", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("CreateNetwork: %v", err)
 	}

@@ -55,7 +55,7 @@ func TestRegistryPersistence(t *testing.T) {
 	t.Logf("registered node %d", nodeID2)
 
 	// Create a network
-	netResp, err := rc.CreateNetwork(nodeID1, "test-persist", "open", "", TestAdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "test-persist", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

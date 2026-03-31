@@ -70,7 +70,7 @@ func TestBroadcastExcludesSender(t *testing.T) {
 	}
 	defer rc.Close()
 
-	resp, err := rc.CreateNetwork(a.Daemon.NodeID(), "bcast-excl", "open", "", env.AdminToken)
+	resp, err := rc.CreateNetwork(a.Daemon.NodeID(), "bcast-excl", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

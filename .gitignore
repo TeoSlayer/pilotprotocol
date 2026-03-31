@@ -112,6 +112,10 @@ web/research/
 # Newsletter worker
 newsletter/
 
+# BabyLoveGrowth webhook integration (deployment-only)
+publish-worker/src/webhook.ts
+publish-worker/test/webhook.test.ts
+
 # Console & admin (private — not public)
 console
 console-ui/

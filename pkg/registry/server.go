@@ -47,6 +47,15 @@ func (s *Server) requireAdminToken(msg map[string]interface{}) error {
 	s.mu.RLock()
 	adminToken := s.adminToken
 	s.mu.RUnlock()
+	return s.checkAdminToken(msg, adminToken)
+}
+
+// requireAdminTokenLocked is like requireAdminToken but for use when s.mu is already held.
+func (s *Server) requireAdminTokenLocked(msg map[string]interface{}) error {
+	return s.checkAdminToken(msg, s.adminToken)
+}
+
+func (s *Server) checkAdminToken(msg map[string]interface{}, adminToken string) error {
 	if adminToken == "" {
 		return fmt.Errorf("network creation is disabled")
 	}
@@ -103,6 +112,97 @@ func (s *Server) requireNetworkRole(msg map[string]interface{}, netID uint16, al
 // When log-format=json, these are filterable via jq 'select(.msg=="audit")'.
 func (s *Server) audit(action string, attrs ...any) {
 	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
+	s.appendAudit(action, 0, 0, attrs...)
+}
+
+// requireEnterprise checks that the given network has the Enterprise flag.
+// Returns a clear error for non-enterprise networks attempting enterprise features.
+func (s *Server) requireEnterprise(netID uint16) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	net, ok := s.networks[netID]
+	if !ok {
+		return fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+	if !net.Enterprise {
+		return fmt.Errorf("enterprise feature: requires enterprise network")
+	}
+	return nil
+}
+
+// isEnterpriseNode returns true if the node belongs to at least one enterprise network.
+func (s *Server) isEnterpriseNode(nodeID uint32) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		return false
+	}
+	for _, netID := range node.Networks {
+		if net, ok := s.networks[netID]; ok && net.Enterprise {
+			return true
+		}
+	}
+	return false
+}
+
+// auditEnterprise emits an audit log only for enterprise networks.
+// Non-enterprise networks silently skip the audit entry.
+func (s *Server) auditEnterprise(netID uint16, action string, attrs ...any) {
+	s.mu.RLock()
+	net, ok := s.networks[netID]
+	s.mu.RUnlock()
+	if !ok || !net.Enterprise {
+		return
+	}
+	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
+	s.appendAudit(action, netID, 0, attrs...)
+}
+
+const maxAuditEntries = 1000
+
+// appendAudit adds an entry to the in-memory audit ring buffer.
+func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs ...any) {
+	// Extract node_id from attrs if not explicitly provided
+	if nodeID == 0 {
+		for i := 0; i+1 < len(attrs); i += 2 {
+			if k, ok := attrs[i].(string); ok && k == "node_id" {
+				switch v := attrs[i+1].(type) {
+				case uint32:
+					nodeID = v
+				case int:
+					nodeID = uint32(v)
+				case float64:
+					nodeID = uint32(v)
+				}
+			}
+		}
+	}
+	// Build details string from remaining attrs
+	var details string
+	for i := 0; i+1 < len(attrs); i += 2 {
+		if k, ok := attrs[i].(string); ok && k != "node_id" {
+			if details != "" {
+				details += ", "
+			}
+			details += fmt.Sprintf("%s=%v", k, attrs[i+1])
+		}
+	}
+
+	entry := AuditEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Action:    action,
+		NetworkID: netID,
+		NodeID:    nodeID,
+		Details:   details,
+	}
+
+	s.auditMu.Lock()
+	if len(s.auditLog) >= maxAuditEntries {
+		s.auditLog = s.auditLog[1:]
+	}
+	s.auditLog = append(s.auditLog, entry)
+	s.auditMu.Unlock()
 }
 
 type Server struct {
@@ -166,6 +266,19 @@ type Server struct {
 
 	// Shutdown
 	done chan struct{}
+
+	// Audit ring buffer (separate mutex — audit() is called while holding s.mu)
+	auditMu  sync.Mutex
+	auditLog []AuditEntry
+}
+
+// AuditEntry records a single audit event.
+type AuditEntry struct {
+	Timestamp string `json:"timestamp"`
+	Action    string `json:"action"`
+	NetworkID uint16 `json:"network_id,omitempty"`
+	NodeID    uint32 `json:"node_id,omitempty"`
+	Details   string `json:"details,omitempty"`
 }
 
 // beaconEntry tracks a registered beacon instance.
@@ -182,7 +295,7 @@ const beaconTTL = 60 * time.Second
 const staleNodeThreshold = 3 * time.Minute // 3 missed heartbeats (60s heartbeat interval)
 
 // defaultMaxConnections is the maximum concurrent connections the server will accept.
-const defaultMaxConnections int64 = 10000
+const defaultMaxConnections int64 = 100000
 
 // maxMessageSize is the maximum allowed wire message size (64KB).
 // Messages exceeding this limit cause the connection to be closed.
@@ -375,6 +488,7 @@ type NetworkInfo struct {
 	MemberRoles map[uint32]Role   // per-member RBAC roles
 	AdminToken  string            // per-network admin token (optional)
 	Policy      NetworkPolicy     // network policy (membership limits, port restrictions)
+	Enterprise  bool              // enterprise network (gates Phase 2-5 features)
 	Created     time.Time
 }
 
@@ -848,7 +962,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		resp, err := s.handleMessage(msg, conn.RemoteAddr().String())
 		if err != nil {
 			errMsg := "request failed"
-			if strings.Contains(err.Error(), "rate limited") {
+			if strings.Contains(err.Error(), "rate limited") ||
+				strings.Contains(err.Error(), "enterprise feature") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -919,6 +1034,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleDeleteNetwork(msg)
 	case "rename_network":
 		return s.handleRenameNetwork(msg)
+	case "set_network_enterprise":
+		return s.handleSetNetworkEnterprise(msg)
 	case "lookup":
 		if !s.opRateLimiter.Allow("query", host) {
 			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
@@ -1004,6 +1121,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetKeyExpiry(msg)
 	case "get_key_info":
 		return s.handleGetKeyInfo(msg)
+	case "get_audit_log":
+		return s.handleGetAuditLog(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -1176,9 +1295,24 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	// Verify signature: only the node itself can set its own expiry
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_key_expiry:%d", nodeID)); err != nil {
-		return nil, err
+	// Verify signature (admin token bypass for console control plane)
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_key_expiry:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
+	}
+
+	// Enterprise gate: key expiry is a Phase 4 feature
+	// (inline check — lock already held, cannot call isEnterpriseNode)
+	isEnterprise := false
+	for _, nid := range node.Networks {
+		if net, ok := s.networks[nid]; ok && net.Enterprise {
+			isEnterprise = true
+			break
+		}
+	}
+	if !isEnterprise {
+		return nil, fmt.Errorf("enterprise feature: key expiry requires enterprise network membership")
 	}
 
 	node.KeyMeta.ExpiresAt = expiresAt
@@ -1230,6 +1364,55 @@ func (s *Server) handleGetKeyInfo(msg map[string]interface{}) (map[string]interf
 	}
 
 	return resp, nil
+}
+
+// handleGetAuditLog returns recent audit entries, optionally filtered by network_id.
+func (s *Server) handleGetAuditLog(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+
+	filterNetID := jsonUint16(msg, "network_id")
+	limit := 100
+	if l, ok := msg["limit"].(float64); ok && l > 0 && l <= 1000 {
+		limit = int(l)
+	}
+
+	s.auditMu.Lock()
+	all := make([]AuditEntry, len(s.auditLog))
+	copy(all, s.auditLog)
+	s.auditMu.Unlock()
+
+	// Filter and reverse (newest first)
+	var entries []map[string]interface{}
+	for i := len(all) - 1; i >= 0 && len(entries) < limit; i-- {
+		e := all[i]
+		if filterNetID != 0 && e.NetworkID != filterNetID {
+			continue
+		}
+		entry := map[string]interface{}{
+			"timestamp": e.Timestamp,
+			"action":    e.Action,
+		}
+		if e.NetworkID != 0 {
+			entry["network_id"] = e.NetworkID
+		}
+		if e.NodeID != 0 {
+			entry["node_id"] = e.NodeID
+		}
+		if e.Details != "" {
+			entry["details"] = e.Details
+		}
+		entries = append(entries, entry)
+	}
+	if entries == nil {
+		entries = []map[string]interface{}{}
+	}
+
+	return map[string]interface{}{
+		"type":    "get_audit_log_ok",
+		"entries": entries,
+	}, nil
 }
 
 // handleUpdatePoloScore adjusts the polo score of a node by a delta value.
@@ -1529,12 +1712,18 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 	joinRule, _ := msg["join_rule"].(string)
 	token, _ := msg["token"].(string)
 	networkAdminToken, _ := msg["network_admin_token"].(string)
+	enterprise, _ := msg["enterprise"].(bool)
 
 	if err := validateNetworkName(name); err != nil {
 		return nil, err
 	}
 	if joinRule == "" {
 		joinRule = "open"
+	}
+
+	// Invite-only join rule requires enterprise network
+	if joinRule == "invite" && !enterprise {
+		return nil, fmt.Errorf("enterprise feature: invite-only networks require the enterprise flag")
 	}
 
 	s.mu.Lock()
@@ -1567,6 +1756,7 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 		Members:     []uint32{nodeID},
 		MemberRoles: map[uint32]Role{nodeID: RoleOwner},
 		AdminToken:  networkAdminToken,
+		Enterprise:  enterprise,
 		Created:     time.Now(),
 	}
 	s.networks[netID] = net
@@ -1575,13 +1765,14 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 	s.nodes[nodeID].Networks = append(s.nodes[nodeID].Networks, netID)
 	s.save()
 
-	slog.Info("created network", "network_id", netID, "name", name, "creator", nodeID, "rule", joinRule)
-	s.audit("network.created", "network_id", netID, "name", name, "join_rule", joinRule, "creator_node_id", nodeID)
+	slog.Info("created network", "network_id", netID, "name", name, "creator", nodeID, "rule", joinRule, "enterprise", enterprise)
+	s.audit("network.created", "network_id", netID, "name", name, "join_rule", joinRule, "creator_node_id", nodeID, "enterprise", enterprise)
 
 	return map[string]interface{}{
 		"type":       "create_network_ok",
 		"network_id": netID,
 		"name":       name,
+		"enterprise": enterprise,
 	}, nil
 }
 
@@ -1818,6 +2009,35 @@ func (s *Server) handleRenameNetwork(msg map[string]interface{}) (map[string]int
 		"type":       "rename_network_ok",
 		"network_id": netID,
 		"name":       name,
+	}, nil
+}
+
+func (s *Server) handleSetNetworkEnterprise(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	enterprise, _ := msg["enterprise"].(bool)
+
+	// Require global admin token
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, fmt.Errorf("set_network_enterprise requires admin token")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	network.Enterprise = enterprise
+	s.save()
+
+	slog.Info("set network enterprise", "network_id", netID, "enterprise", enterprise)
+
+	return map[string]interface{}{
+		"type":       "set_network_enterprise_ok",
+		"network_id": netID,
+		"enterprise": enterprise,
 	}, nil
 }
 
@@ -2067,9 +2287,11 @@ func (s *Server) handleSetVisibility(msg map[string]interface{}) (map[string]int
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	// H3 fix: verify signature
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_visibility:%d", nodeID)); err != nil {
-		return nil, err
+	// H3 fix: verify signature (admin token bypass for console control plane)
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_visibility:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
 	}
 
 	node.Public = public
@@ -2101,9 +2323,11 @@ func (s *Server) handleSetTaskExec(msg map[string]interface{}) (map[string]inter
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	// H3 fix: verify signature
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_task_exec:%d", nodeID)); err != nil {
-		return nil, err
+	// H3 fix: verify signature (admin token bypass for console control plane)
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_task_exec:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
 	}
 
 	node.TaskExec = enabled
@@ -2328,6 +2552,11 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 		}
 	}
 
+	// Enterprise gate: invites are a Phase 3 feature
+	if err := s.requireEnterprise(netID); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2447,6 +2676,11 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 	netID := jsonUint16(msg, "network_id")
 	accept, _ := msg["accept"].(bool)
 
+	// Enterprise gate: invites are a Phase 3 feature
+	if err := s.requireEnterprise(netID); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2540,6 +2774,11 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 		return nil, err
 	}
 
+	// Enterprise gate: kick is a Phase 2 RBAC feature
+	if err := s.requireEnterprise(netID); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2599,6 +2838,11 @@ func (s *Server) handlePromoteMember(msg map[string]interface{}) (map[string]int
 		return nil, err
 	}
 
+	// Enterprise gate: promote is a Phase 2 RBAC feature
+	if err := s.requireEnterprise(netID); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2639,6 +2883,11 @@ func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]inte
 
 	// RBAC: only owner can demote
 	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
+		return nil, err
+	}
+
+	// Enterprise gate: demote is a Phase 2 RBAC feature
+	if err := s.requireEnterprise(netID); err != nil {
 		return nil, err
 	}
 
@@ -2707,6 +2956,11 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	netID := jsonUint16(msg, "network_id")
 
 	if err := s.requireNetworkRole(msg, netID, RoleOwner, RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	// Enterprise gate: network policies are a Phase 3 feature
+	if err := s.requireEnterprise(netID); err != nil {
 		return nil, err
 	}
 
@@ -2808,9 +3062,11 @@ func (s *Server) handleSetHostname(msg map[string]interface{}) (map[string]inter
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	// H3 fix: verify signature
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_hostname:%d", nodeID)); err != nil {
-		return nil, err
+	// H3 fix: verify signature (admin token bypass for console control plane)
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_hostname:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
 	}
 
 	// Check uniqueness: if hostname is non-empty, must not be taken by another node
@@ -2886,8 +3142,10 @@ func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_tags:%d", nodeID)); err != nil {
-		return nil, err
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_tags:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
 	}
 
 	node.Tags = tags
@@ -3029,10 +3287,11 @@ func (s *Server) handleListNetworks() (map[string]interface{}, error) {
 	nets := make([]map[string]interface{}, 0, len(s.networks))
 	for _, n := range s.networks {
 		nets = append(nets, map[string]interface{}{
-			"id":        n.ID,
-			"name":      n.Name,
-			"members":   len(n.Members),
-			"join_rule": n.JoinRule,
+			"id":         n.ID,
+			"name":       n.Name,
+			"members":    len(n.Members),
+			"join_rule":  n.JoinRule,
+			"enterprise": n.Enterprise,
 		})
 	}
 
@@ -3092,6 +3351,7 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			entry := map[string]interface{}{
 				"node_id": node.ID,
 				"address": protocol.Addr{Network: netID, Node: node.ID}.String(),
+				"public":  node.Public,
 			}
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
@@ -3102,7 +3362,18 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
 			}
+			if len(node.Tags) > 0 {
+				entry["tags"] = node.Tags
+			}
 			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
+			nodes = append(nodes, entry)
+		} else {
+			// Offline member — still include with minimal info
+			entry := map[string]interface{}{
+				"node_id": nid,
+				"address": protocol.Addr{Network: netID, Node: nid}.String(),
+				"offline": true,
+			}
 			nodes = append(nodes, entry)
 		}
 	}
@@ -3292,6 +3563,7 @@ type snapshotNet struct {
 	MemberRoles map[string]string `json:"member_roles,omitempty"` // nodeID -> role
 	AdminToken  string            `json:"admin_token,omitempty"`  // per-network admin token
 	Policy      *NetworkPolicy    `json:"policy,omitempty"`       // network policy
+	Enterprise  bool              `json:"enterprise,omitempty"`   // enterprise network flag
 	Created     string            `json:"created"`
 }
 
@@ -3390,6 +3662,7 @@ func (s *Server) flushSave() error {
 			Token:      n.Token,
 			Members:    n.Members,
 			AdminToken: n.AdminToken,
+			Enterprise: n.Enterprise,
 			Created:    n.Created.Format(time.RFC3339),
 		}
 		if len(n.MemberRoles) > 0 {
@@ -3626,6 +3899,7 @@ func (s *Server) load() error {
 			Members:     n.Members,
 			MemberRoles: make(map[uint32]Role),
 			AdminToken:  n.AdminToken,
+			Enterprise:  n.Enterprise,
 			Created:     created,
 		}
 		if n.Policy != nil {
@@ -3922,7 +4196,11 @@ func (s *Server) GetDashboardStats() DashboardStats {
 // If the node has no public key (old registration), unsigned requests are allowed.
 func (s *Server) verifyNodeSignature(node *NodeInfo, msg map[string]interface{}, challenge string) error {
 	if node.PublicKey == nil {
-		return nil // no key on file, allow unsigned
+		// M4 fix: no key on file — require admin token as fallback auth
+		if err := s.checkAdminToken(msg, s.adminToken); err != nil {
+			return fmt.Errorf("node has no public key: signature or admin token required")
+		}
+		return nil
 	}
 	sigB64, _ := msg["signature"].(string)
 	if sigB64 == "" {

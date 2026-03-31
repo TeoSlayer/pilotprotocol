@@ -29,21 +29,21 @@ func TestAdminTokenRequired(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	// Attempt without admin token — should fail
-	_, err = rc.CreateNetwork(nodeID, "no-token-net", "open", "", "")
+	_, err = rc.CreateNetwork(nodeID, "no-token-net", "open", "", "", false)
 	if err == nil {
 		t.Fatal("create_network without admin token should fail")
 	}
 	t.Logf("correctly rejected (no token): %v", err)
 
 	// Attempt with wrong admin token — should fail
-	_, err = rc.CreateNetwork(nodeID, "wrong-token-net", "open", "", "wrong-secret")
+	_, err = rc.CreateNetwork(nodeID, "wrong-token-net", "open", "", "wrong-secret", false)
 	if err == nil {
 		t.Fatal("create_network with wrong admin token should fail")
 	}
 	t.Logf("correctly rejected (wrong token): %v", err)
 
 	// Attempt with correct admin token — should succeed
-	netResp, err := rc.CreateNetwork(nodeID, "correct-token-net", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID, "correct-token-net", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create_network with correct admin token should succeed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestAdminTokenJoinLeaveGated(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	// Create a network with admin token
-	netResp, err := rc.CreateNetwork(nodeID, "gated-net", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(nodeID, "gated-net", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -141,14 +141,14 @@ func TestAdminTokenNotConfigured(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	// Even providing a token value should fail — server has no token configured
-	_, err = rc.CreateNetwork(nodeID, "disabled-net", "open", "", "some-token")
+	_, err = rc.CreateNetwork(nodeID, "disabled-net", "open", "", "some-token", false)
 	if err == nil {
 		t.Fatal("create_network should be rejected when server has no admin token configured")
 	}
 	t.Logf("correctly rejected (creation disabled): %v", err)
 
 	// Without any token should also fail
-	_, err = rc.CreateNetwork(nodeID, "disabled-net-2", "open", "", "")
+	_, err = rc.CreateNetwork(nodeID, "disabled-net-2", "open", "", "", false)
 	if err == nil {
 		t.Fatal("create_network should be rejected when server has no admin token configured")
 	}

@@ -281,7 +281,7 @@ func TestHandshakeNetworkTrust(t *testing.T) {
 	}
 	defer rc.Close()
 
-	netResp, err := rc.CreateNetwork(daemonA.NodeID(), "test-trust-net", "open", "", env.AdminToken)
+	netResp, err := rc.CreateNetwork(daemonA.NodeID(), "test-trust-net", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

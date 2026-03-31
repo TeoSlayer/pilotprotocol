@@ -274,7 +274,7 @@ func (c *Client) SetVisibility(nodeID uint32, public bool) (map[string]interface
 	return c.Send(msg)
 }
 
-func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken string, networkAdminToken ...string) (map[string]interface{}, error) {
+func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken string, enterprise bool, networkAdminToken ...string) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":      "create_network",
 		"node_id":   nodeID,
@@ -284,6 +284,9 @@ func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken 
 	}
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
+	}
+	if enterprise {
+		msg["enterprise"] = true
 	}
 	if len(networkAdminToken) > 0 && networkAdminToken[0] != "" {
 		msg["network_admin_token"] = networkAdminToken[0]
@@ -348,6 +351,15 @@ func (c *Client) RenameNetwork(networkID uint16, name, adminToken string, nodeID
 		msg["node_id"] = nodeID[0]
 	}
 	return c.Send(msg)
+}
+
+func (c *Client) SetNetworkEnterprise(networkID uint16, enterprise bool, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":       "set_network_enterprise",
+		"network_id": networkID,
+		"enterprise": enterprise,
+		"admin_token": adminToken,
+	})
 }
 
 func (c *Client) ListNetworks() (map[string]interface{}, error) {
@@ -688,4 +700,68 @@ func (c *Client) GetKeyInfo(nodeID uint32) (map[string]interface{}, error) {
 		"type":    "get_key_info",
 		"node_id": nodeID,
 	})
+}
+
+// --- Admin methods (bypass node signature, use admin_token instead) ---
+
+// SetHostnameAdmin sets a node's hostname using admin token auth.
+func (c *Client) SetHostnameAdmin(nodeID uint32, hostname, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_hostname",
+		"node_id":     nodeID,
+		"hostname":    hostname,
+		"admin_token": adminToken,
+	})
+}
+
+// SetVisibilityAdmin sets a node's visibility using admin token auth.
+func (c *Client) SetVisibilityAdmin(nodeID uint32, public bool, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_visibility",
+		"node_id":     nodeID,
+		"public":      public,
+		"admin_token": adminToken,
+	})
+}
+
+// SetTagsAdmin sets a node's tags using admin token auth.
+func (c *Client) SetTagsAdmin(nodeID uint32, tags []string, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_tags",
+		"node_id":     nodeID,
+		"tags":        tags,
+		"admin_token": adminToken,
+	})
+}
+
+// SetTaskExecAdmin sets a node's task exec flag using admin token auth.
+func (c *Client) SetTaskExecAdmin(nodeID uint32, enabled bool, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_task_exec",
+		"node_id":     nodeID,
+		"enabled":     enabled,
+		"admin_token": adminToken,
+	})
+}
+
+// SetKeyExpiryAdmin sets a node's key expiry using admin token auth.
+func (c *Client) SetKeyExpiryAdmin(nodeID uint32, expiresAt time.Time, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_key_expiry",
+		"node_id":     nodeID,
+		"expires_at":  expiresAt.Format(time.RFC3339),
+		"admin_token": adminToken,
+	})
+}
+
+// GetAuditLog returns recent audit entries from the registry.
+func (c *Client) GetAuditLog(networkID uint16, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":        "get_audit_log",
+		"admin_token": adminToken,
+	}
+	if networkID != 0 {
+		msg["network_id"] = networkID
+	}
+	return c.Send(msg)
 }

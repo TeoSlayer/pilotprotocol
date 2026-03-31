@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -66,6 +67,9 @@ func replayCacheCleaner() {
 	}
 }
 
+// maxReplayCacheEntries caps the replay cache to prevent memory exhaustion (M1 fix).
+const maxReplayCacheEntries = 100000
+
 // checkAndRecordNonce returns an error if the nonce was already seen within
 // the replay window, otherwise records it and returns nil.
 func checkAndRecordNonce(nonce [16]byte) error {
@@ -73,6 +77,9 @@ func checkAndRecordNonce(nonce [16]byte) error {
 	defer replayCache.Unlock()
 	if _, exists := replayCache.nonces[nonce]; exists {
 		return fmt.Errorf("auth nonce replay detected")
+	}
+	if len(replayCache.nonces) >= maxReplayCacheEntries {
+		return fmt.Errorf("auth replay cache full")
 	}
 	replayCache.nonces[nonce] = time.Now()
 	return nil
@@ -146,10 +153,14 @@ func HandshakeWithTimestampOffset(conn net.Conn, isServer bool, cfg *HandshakeCo
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
-	h := sha256.New()
-	h.Write([]byte("pilot-secure-v1:"))
-	h.Write(shared)
-	key := h.Sum(nil)
+	// HKDF-SHA256 key derivation (H1 fix)
+	mac := hmac.New(sha256.New, nil)
+	mac.Write(shared)
+	prk := mac.Sum(nil)
+	mac = hmac.New(sha256.New, prk)
+	mac.Write([]byte("pilot-secure-v1"))
+	mac.Write([]byte{0x01})
+	key := mac.Sum(nil)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -158,6 +169,17 @@ func HandshakeWithTimestampOffset(conn net.Conn, isServer bool, cfg *HandshakeCo
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("gcm: %w", err)
+	}
+
+	// Zero intermediate key material (H4 fix)
+	for i := range shared {
+		shared[i] = 0
+	}
+	for i := range key {
+		key[i] = 0
+	}
+	for i := range prk {
+		prk[i] = 0
 	}
 
 	sc := &SecureConn{raw: conn, aead: aead}
@@ -295,11 +317,14 @@ func Handshake(conn net.Conn, isServer bool, auth ...*HandshakeConfig) (*SecureC
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
-	// Derive AES-256 key from shared secret with domain separator
-	h := sha256.New()
-	h.Write([]byte("pilot-secure-v1:"))
-	h.Write(shared)
-	key := h.Sum(nil)
+	// HKDF-SHA256 key derivation (H1 fix)
+	mac := hmac.New(sha256.New, nil)
+	mac.Write(shared)
+	prk := mac.Sum(nil)
+	mac = hmac.New(sha256.New, prk)
+	mac.Write([]byte("pilot-secure-v1"))
+	mac.Write([]byte{0x01})
+	key := mac.Sum(nil)
 
 	// Create AES-GCM cipher
 	block, err := aes.NewCipher(key)
@@ -309,6 +334,17 @@ func Handshake(conn net.Conn, isServer bool, auth ...*HandshakeConfig) (*SecureC
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("gcm: %w", err)
+	}
+
+	// Zero intermediate key material (H4 fix)
+	for i := range shared {
+		shared[i] = 0
+	}
+	for i := range key {
+		key[i] = 0
+	}
+	for i := range prk {
+		prk[i] = 0
 	}
 
 	sc := &SecureConn{raw: conn, aead: aead}
@@ -383,10 +419,14 @@ func HandshakeWithLookup(conn net.Conn, isServer bool, cfg *HandshakeConfig, loo
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
-	h := sha256.New()
-	h.Write([]byte("pilot-secure-v1:"))
-	h.Write(shared)
-	key := h.Sum(nil)
+	// HKDF-SHA256 key derivation (H1 fix)
+	mac := hmac.New(sha256.New, nil)
+	mac.Write(shared)
+	prk := mac.Sum(nil)
+	mac = hmac.New(sha256.New, prk)
+	mac.Write([]byte("pilot-secure-v1"))
+	mac.Write([]byte{0x01})
+	key := mac.Sum(nil)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -395,6 +435,17 @@ func HandshakeWithLookup(conn net.Conn, isServer bool, cfg *HandshakeConfig, loo
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("gcm: %w", err)
+	}
+
+	// Zero intermediate key material (H4 fix)
+	for i := range shared {
+		shared[i] = 0
+	}
+	for i := range key {
+		key[i] = 0
+	}
+	for i := range prk {
+		prk[i] = 0
 	}
 
 	sc := &SecureConn{raw: conn, aead: aead}
@@ -656,8 +707,9 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	nonce := ciphertext[:sc.aead.NonceSize()]
 	encrypted := ciphertext[sc.aead.NonceSize():]
 
-	// Decrypt
-	plaintext, err := sc.aead.Open(nil, nonce, encrypted, nil)
+	// Decrypt with sender's nonce prefix as AAD (H3 fix)
+	peerAAD := nonce[:4]
+	plaintext, err := sc.aead.Open(nil, nonce, encrypted, peerAAD)
 	if err != nil {
 		return 0, fmt.Errorf("decrypt: %w", err)
 	}
@@ -682,8 +734,8 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	sc.nonce++
 	binary.BigEndian.PutUint64(nonce[sc.aead.NonceSize()-8:], sc.nonce)
 
-	// Encrypt
-	ciphertext := sc.aead.Seal(nil, nonce, b, nil)
+	// Encrypt with nonce prefix as AAD (H3 fix)
+	ciphertext := sc.aead.Seal(nil, nonce, b, sc.noncePrefix[:])
 
 	// Write: [4-byte length][nonce][ciphertext]
 	total := len(nonce) + len(ciphertext)

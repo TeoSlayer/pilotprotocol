@@ -65,7 +65,7 @@ func TestRegistryReplication(t *testing.T) {
 	nodeID2 := uint32(resp2["node_id"].(float64))
 
 	// Create a network
-	netResp, err := rc.CreateNetwork(nodeID1, "repl-test", "open", "", TestAdminToken)
+	netResp, err := rc.CreateNetwork(nodeID1, "repl-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}

@@ -36,7 +36,7 @@ func TestNetworkNameValidation(t *testing.T) {
 	}
 
 	for _, name := range invalid {
-		_, err := rc.CreateNetwork(nodeID, name, "open", "", TestAdminToken)
+		_, err := rc.CreateNetwork(nodeID, name, "open", "", TestAdminToken, false)
 		if err == nil {
 			t.Errorf("expected error for network name %q, got nil", name)
 		}
@@ -50,7 +50,7 @@ func TestNetworkNameValidation(t *testing.T) {
 	}
 
 	for _, name := range valid {
-		_, err := rc.CreateNetwork(nodeID, name, "open", "", TestAdminToken)
+		_, err := rc.CreateNetwork(nodeID, name, "open", "", TestAdminToken, false)
 		if err != nil {
 			t.Errorf("expected network name %q to be valid, got error: %v", name, err)
 		}
@@ -67,7 +67,7 @@ func TestNetworkLeave(t *testing.T) {
 	nodeB, _ := registerTestNode(t, rc)
 
 	// Create a network
-	resp, err := rc.CreateNetwork(nodeA, "leave-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "leave-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestNetworkLeaveAndRejoin(t *testing.T) {
 
 	nodeID, _ := registerTestNode(t, rc)
 
-	resp, err := rc.CreateNetwork(nodeID, "rejoin-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeID, "rejoin-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestNetworkLeaveNotMember(t *testing.T) {
 	nodeA, _ := registerTestNode(t, rc)
 	nodeB, _ := registerTestNode(t, rc)
 
-	resp, err := rc.CreateNetwork(nodeA, "not-member-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "not-member-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestNetworkIDOverflowGuard(t *testing.T) {
 	// by setting nextNet to 0 via creating the boundary condition.
 	// Instead, let's just test that normal creation works and the response
 	// has a valid network_id.
-	resp, err := rc.CreateNetwork(nodeID, "overflow-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeID, "overflow-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestNetworkTokenJoinRule(t *testing.T) {
 	nodeB, _ := registerTestNode(t, rc)
 
 	// Create token-gated network
-	_, err := rc.CreateNetwork(nodeA, "token-net", "token", "secret123", TestAdminToken)
+	_, err := rc.CreateNetwork(nodeA, "token-net", "token", "secret123", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create token network: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 	nodeC, idC := registerTestNode(t, rc)
 
 	// Create invite-only network
-	resp, err := rc.CreateNetwork(nodeA, "invite-net", "invite", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create invite network: %v", err)
 	}
@@ -325,13 +325,13 @@ func TestNetworkDuplicateName(t *testing.T) {
 
 	nodeID, _ := registerTestNode(t, rc)
 
-	_, err := rc.CreateNetwork(nodeID, "unique-net", "open", "", TestAdminToken)
+	_, err := rc.CreateNetwork(nodeID, "unique-net", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
 
 	// Same name should fail
-	_, err = rc.CreateNetwork(nodeID, "unique-net", "open", "", TestAdminToken)
+	_, err = rc.CreateNetwork(nodeID, "unique-net", "open", "", TestAdminToken, false)
 	if err == nil {
 		t.Fatal("expected error for duplicate network name, got nil")
 	}
@@ -347,7 +347,7 @@ func TestNetworkAlreadyMember(t *testing.T) {
 	nodeA, _ := registerTestNode(t, rc)
 	nodeB, _ := registerTestNode(t, rc)
 
-	resp, err := rc.CreateNetwork(nodeA, "dup-join-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "dup-join-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -406,11 +406,11 @@ func TestListNetworks(t *testing.T) {
 	nodeID, _ := registerTestNode(t, rc)
 
 	// Create two networks
-	_, err := rc.CreateNetwork(nodeID, "net-one", "open", "", TestAdminToken)
+	_, err := rc.CreateNetwork(nodeID, "net-one", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create net-one: %v", err)
 	}
-	_, err = rc.CreateNetwork(nodeID, "net-two", "open", "", TestAdminToken)
+	_, err = rc.CreateNetwork(nodeID, "net-two", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create net-two: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestListNodes(t *testing.T) {
 	nodeB, _ := registerTestNode(t, rc)
 	nodeC, _ := registerTestNode(t, rc)
 
-	resp, err := rc.CreateNetwork(nodeA, "members-test", "open", "", TestAdminToken)
+	resp, err := rc.CreateNetwork(nodeA, "members-test", "open", "", TestAdminToken, false)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

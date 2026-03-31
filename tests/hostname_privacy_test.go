@@ -154,7 +154,7 @@ func TestResolveHostnamePrivateNodeSameNetwork(t *testing.T) {
 	}
 
 	// Create a network and join both nodes
-	resp, err := rc.CreateNetwork(infoA.Daemon.NodeID(), "hostname-net", "open", "", env.AdminToken)
+	resp, err := rc.CreateNetwork(infoA.Daemon.NodeID(), "hostname-net", "open", "", env.AdminToken, false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
