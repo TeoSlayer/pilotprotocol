@@ -3580,3 +3580,108 @@ func TestReInviteAfterLeave(t *testing.T) {
 	}
 	t.Log("re-invite after leave works correctly")
 }
+
+// TestJoinTokenConstantTime verifies that token-gated network join uses
+// constant-time comparison (wrong token is rejected with correct error).
+func TestJoinTokenConstantTime(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	joinerID, _ := registerTestNode(t, rc)
+
+	// Create token-gated network
+	resp, err := rc.CreateNetwork(ownerID, "token-net", "token", "secret-join-token", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Wrong token should fail
+	_, err = rc.JoinNetwork(joinerID, netID, "wrong-token", 0, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: wrong join token")
+	}
+	if !strings.Contains(err.Error(), "invalid token") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Empty token should fail
+	_, err = rc.JoinNetwork(joinerID, netID, "", 0, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: empty join token")
+	}
+
+	// Correct token should succeed
+	_, err = rc.JoinNetwork(joinerID, netID, "secret-join-token", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("correct token should succeed: %v", err)
+	}
+	t.Log("join token validation works correctly")
+}
+
+// TestEmptyAdminTokenRejected verifies that an empty admin token string
+// in a request is rejected (not confused with "no token configured").
+func TestEmptyAdminTokenRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Empty string admin token should fail
+	_, err := rc.CreateNetwork(nodeID, "empty-tok", "open", "", "", false)
+	if err == nil {
+		t.Fatal("expected error: empty admin token should be rejected")
+	}
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Correct token works
+	_, err = rc.CreateNetwork(nodeID, "good-tok", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("valid admin token should work: %v", err)
+	}
+	t.Log("empty admin token correctly rejected")
+}
+
+// TestDeregisterRequiresAuth verifies that deregister requires either
+// a valid signature or admin token.
+func TestDeregisterRequiresAuth(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Deregister without auth — should fail (node has a public key)
+	_, err := rc.Send(map[string]interface{}{
+		"type":    "deregister",
+		"node_id": nodeID,
+	})
+	if err == nil {
+		t.Fatal("expected error: deregister without auth")
+	}
+	if !strings.Contains(err.Error(), "signature") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Deregister with admin token should succeed
+	_, err = rc.Send(map[string]interface{}{
+		"type":        "deregister",
+		"node_id":     nodeID,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Fatalf("deregister with admin token should work: %v", err)
+	}
+
+	// Verify node is gone
+	_, err = rc.Lookup(nodeID)
+	if err == nil {
+		t.Error("expected error: node should be deregistered")
+	}
+	t.Log("deregister auth correctly enforced")
+}

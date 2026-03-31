@@ -1891,7 +1891,7 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	case "open":
 		// anyone can join
 	case "token":
-		if token != network.Token {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(network.Token)) != 1 {
 			return nil, fmt.Errorf("invalid token for network %d", netID)
 		}
 	case "invite":
