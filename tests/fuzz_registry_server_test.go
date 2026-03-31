@@ -211,26 +211,6 @@ func TestRegistryServerDashboardStatsJSON(t *testing.T) {
 	}
 }
 
-func TestRegistryServerDashboardStatsNetworks(t *testing.T) {
-	s := startTestServer(t)
-	defer s.Close()
-
-	stats := s.GetDashboardStats()
-	if len(stats.Networks) < 1 {
-		t.Fatal("expected at least backbone network")
-	}
-	found := false
-	for _, n := range stats.Networks {
-		if n.ID == 0 {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("backbone network (ID=0) not found in dashboard stats")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Dashboard HTTP
 // ---------------------------------------------------------------------------
@@ -988,20 +968,6 @@ func TestRegistryDashboardEdgeJSON(t *testing.T) {
 	json.Unmarshal(data, &decoded)
 	if decoded.Source != edge.Source || decoded.Target != edge.Target {
 		t.Fatal("edge JSON round-trip failed")
-	}
-}
-
-func TestRegistryDashboardNetworkJSON(t *testing.T) {
-	n := registry.DashboardNetwork{
-		ID:            1,
-		Members:       5,
-		OnlineMembers: 3,
-	}
-	data, _ := json.Marshal(n)
-	var decoded registry.DashboardNetwork
-	json.Unmarshal(data, &decoded)
-	if decoded.ID != 1 || decoded.Members != 5 || decoded.OnlineMembers != 3 {
-		t.Fatal("network JSON round-trip failed")
 	}
 }
 

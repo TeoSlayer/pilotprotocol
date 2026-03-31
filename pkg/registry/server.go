@@ -5033,13 +5033,6 @@ type DashboardNode struct {
 	PoloScore  int      `json:"polo_score"`
 }
 
-// DashboardNetwork is a public-safe view of a network for the dashboard.
-type DashboardNetwork struct {
-	ID            uint16 `json:"id"`
-	Members       int    `json:"members"`
-	OnlineMembers int    `json:"online_members"`
-}
-
 // DashboardEdge represents a trust relationship between two nodes.
 type DashboardEdge struct {
 	Source string `json:"source"`
@@ -5054,7 +5047,6 @@ type DashboardStats struct {
 	TotalRequests   int64              `json:"total_requests"`
 	UniqueTags      int                `json:"unique_tags"`
 	TaskExecutors   int                `json:"task_executors"`
-	Networks        []DashboardNetwork `json:"networks"`
 	Nodes           []DashboardNode    `json:"nodes"`
 	Edges           []DashboardEdge    `json:"edges"`
 	UptimeSecs      int64              `json:"uptime_secs"`
@@ -5131,23 +5123,6 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		return nodes[i].Address < nodes[j].Address
 	})
 
-	networks := make([]DashboardNetwork, 0, len(s.networks))
-	for _, net := range s.networks {
-		onlineCount := 0
-		for _, memberID := range net.Members {
-			if node, exists := s.nodes[memberID]; exists {
-				if node.LastSeen.After(onlineThreshold) {
-					onlineCount++
-				}
-			}
-		}
-		networks = append(networks, DashboardNetwork{
-			ID:            net.ID,
-			Members:       len(net.Members),
-			OnlineMembers: onlineCount,
-		})
-	}
-
 	return DashboardStats{
 		TotalNodes:      len(s.nodes),
 		ActiveNodes:     activeCount,
@@ -5155,7 +5130,6 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		TotalRequests:   s.requestCount.Load(),
 		UniqueTags:      len(tagSet),
 		TaskExecutors:   taskExecCount,
-		Networks:        networks,
 		Nodes:           nodes,
 		Edges:           edges,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),

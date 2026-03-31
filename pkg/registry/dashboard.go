@@ -329,16 +329,6 @@ footer a:hover{color:#58a6ff}
 </div>
 
 <div class="section">
-  <h2>Networks</h2>
-  <table>
-    <thead><tr><th>ID</th><th>Members (Online/Total)</th></tr></thead>
-    <tbody id="networks-body">
-      <tr><td colspan="3" class="empty">Loading...</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="section">
   <h2>Nodes</h2>
   <div class="filter-row">
     <input type="text" id="tag-filter" class="tag-filter" placeholder="Filter by tag...">
@@ -430,20 +420,6 @@ function update(){
     document.getElementById('unique-tags').textContent=fmt(d.unique_tags||0);
     document.getElementById('task-executors').textContent=fmt(d.task_executors||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
-    var nb=document.getElementById('networks-body');
-    nb.innerHTML='';
-    if(d.networks&&d.networks.length){
-      d.networks.forEach(function(n){
-        var tr=document.createElement('tr');
-        var td1=document.createElement('td');td1.textContent=n.id;
-        var td2=document.createElement('td');
-        var onlineMembers=n.online_members||0;
-        var totalMembers=n.members||0;
-        td2.textContent=onlineMembers+' / '+totalMembers;
-        if(onlineMembers>0){td2.style.color='#3fb950'}else{td2.style.color='#8b949e'}
-        tr.appendChild(td1);tr.appendChild(td2);nb.appendChild(tr);
-      });
-    }else{nb.innerHTML='<tr><td colspan="2" class="empty">No networks</td></tr>'}
     allNodes=d.nodes||[];
     allEdges=d.edges||[];
     renderNodes();

@@ -66,19 +66,6 @@ func TestDashboardStatsEmpty(t *testing.T) {
 	if stats.UptimeSecs < 0 {
 		t.Fatal("uptime should not be negative")
 	}
-	// Should have at least the backbone network
-	if len(stats.Networks) < 1 {
-		t.Fatal("expected at least 1 network (backbone)")
-	}
-	found := false
-	for _, n := range stats.Networks {
-		if n.ID == 0 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected backbone network (ID=0) in stats")
-	}
 }
 
 func TestDashboardStatsWithNodes(t *testing.T) {
