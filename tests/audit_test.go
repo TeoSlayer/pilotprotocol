@@ -15,6 +15,152 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
+// TestAuditLogAPI tests the get_audit_log API endpoint (the ring buffer, not slog).
+func TestAuditLogAPI(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Register nodes and create a network to generate audit events
+	nodeA, _ := registerTestNode(t, rc)
+	registerTestNode(t, rc)
+	resp, err := rc.CreateNetwork(nodeA, "audit-api-net", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Fetch full audit log
+	logResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+
+	entries, ok := logResp["entries"].([]interface{})
+	if !ok {
+		t.Fatalf("entries field not a list: %T", logResp["entries"])
+	}
+	if len(entries) < 3 {
+		t.Errorf("expected at least 3 audit entries (2 registrations + 1 network create), got %d", len(entries))
+	}
+
+	// Verify newest-first ordering
+	first := entries[0].(map[string]interface{})
+	last := entries[len(entries)-1].(map[string]interface{})
+	firstTime := first["timestamp"].(string)
+	lastTime := last["timestamp"].(string)
+	if firstTime < lastTime {
+		t.Errorf("expected newest-first ordering: first=%s, last=%s", firstTime, lastTime)
+	}
+
+	// Verify all entries have required fields
+	for i, e := range entries {
+		entry := e.(map[string]interface{})
+		if _, ok := entry["timestamp"]; !ok {
+			t.Errorf("entry %d missing timestamp", i)
+		}
+		if _, ok := entry["action"]; !ok {
+			t.Errorf("entry %d missing action", i)
+		}
+	}
+
+	// Verify the newest entry is network.created
+	if first["action"] != "network.created" {
+		t.Errorf("expected newest entry to be network.created, got %s", first["action"])
+	}
+
+	// Test filtering by network_id
+	filteredResp, err := rc.GetAuditLog(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get filtered audit log: %v", err)
+	}
+	filteredEntries := filteredResp["entries"].([]interface{})
+	if len(filteredEntries) == 0 {
+		t.Error("expected at least 1 filtered entry for the created network")
+	}
+	for _, e := range filteredEntries {
+		entry := e.(map[string]interface{})
+		if nid, ok := entry["network_id"]; ok {
+			if uint16(nid.(float64)) != netID {
+				t.Errorf("filtered entry has wrong network_id: %v", nid)
+			}
+		}
+	}
+
+	// Test that wrong admin token is rejected
+	_, err = rc.GetAuditLog(0, "wrong-token")
+	if err == nil {
+		t.Error("expected error with wrong admin token")
+	}
+
+	t.Logf("audit log returned %d entries, filtered=%d", len(entries), len(filteredEntries))
+}
+
+// TestAuditLogRingBuffer verifies that the audit ring buffer caps at maxAuditEntries (1000)
+// and that the default API limit returns 100 entries.
+func TestAuditLogRingBuffer(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Register a single node, then set polo score 1010 times to exceed
+	// the 1000-entry ring buffer without hitting rate limiters.
+	nodeID, _ := registerTestNode(t, rc)
+	for i := 0; i < 1010; i++ {
+		rc.SetPoloScore(nodeID, i)
+	}
+	// Total events: 1 registration + 1010 polo_score.set = 1011 events.
+	// Ring buffer should cap at 1000, dropping the oldest 11.
+
+	// Default limit is 100 — verify we get exactly 100 entries
+	logResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+	if len(entries) != 100 {
+		t.Errorf("expected 100 entries (default limit), got %d", len(entries))
+	}
+
+	// All returned entries should be polo_score.set (the registration was evicted)
+	for i, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] != "polo_score.set" {
+			t.Errorf("entry %d: expected polo_score.set, got %s", i, entry["action"])
+		}
+	}
+
+	t.Logf("ring buffer test: got %d entries with default limit", len(entries))
+}
+
 // parseAuditLines extracts audit events from JSON log lines.
 func parseAuditLines(buf *bytes.Buffer) []map[string]interface{} {
 	var events []map[string]interface{}

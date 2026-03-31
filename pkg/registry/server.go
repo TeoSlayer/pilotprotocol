@@ -163,25 +163,37 @@ const maxAuditEntries = 1000
 
 // appendAudit adds an entry to the in-memory audit ring buffer.
 func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs ...any) {
-	// Extract node_id from attrs if not explicitly provided
-	if nodeID == 0 {
-		for i := 0; i+1 < len(attrs); i += 2 {
-			if k, ok := attrs[i].(string); ok && k == "node_id" {
-				switch v := attrs[i+1].(type) {
-				case uint32:
-					nodeID = v
-				case int:
-					nodeID = uint32(v)
-				case float64:
-					nodeID = uint32(v)
-				}
+	// Extract node_id and network_id from attrs if not explicitly provided
+	for i := 0; i+1 < len(attrs); i += 2 {
+		k, ok := attrs[i].(string)
+		if !ok {
+			continue
+		}
+		if k == "node_id" && nodeID == 0 {
+			switch v := attrs[i+1].(type) {
+			case uint32:
+				nodeID = v
+			case int:
+				nodeID = uint32(v)
+			case float64:
+				nodeID = uint32(v)
+			}
+		}
+		if k == "network_id" && netID == 0 {
+			switch v := attrs[i+1].(type) {
+			case uint16:
+				netID = v
+			case int:
+				netID = uint16(v)
+			case float64:
+				netID = uint16(v)
 			}
 		}
 	}
 	// Build details string from remaining attrs
 	var details string
 	for i := 0; i+1 < len(attrs); i += 2 {
-		if k, ok := attrs[i].(string); ok && k != "node_id" {
+		if k, ok := attrs[i].(string); ok && k != "node_id" && k != "network_id" {
 			if details != "" {
 				details += ", "
 			}
@@ -3324,8 +3336,10 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 		nodes := make([]map[string]interface{}, 0, len(s.nodes))
 		for _, node := range s.nodes {
 			entry := map[string]interface{}{
-				"node_id": node.ID,
-				"address": protocol.Addr{Network: 0, Node: node.ID}.String(),
+				"node_id":    node.ID,
+				"address":    protocol.Addr{Network: 0, Node: node.ID}.String(),
+				"public":     node.Public,
+				"polo_score": node.PoloScore,
 			}
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
@@ -3335,6 +3349,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			}
 			if node.Public {
 				entry["real_addr"] = node.RealAddr
+			}
+			if len(node.Tags) > 0 {
+				entry["tags"] = node.Tags
 			}
 			entry["last_seen"] = node.LastSeen.Format(time.RFC3339)
 			nodes = append(nodes, entry)
@@ -3357,9 +3374,10 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 	for _, nid := range network.Members {
 		if node, ok := s.nodes[nid]; ok {
 			entry := map[string]interface{}{
-				"node_id": node.ID,
-				"address": protocol.Addr{Network: netID, Node: node.ID}.String(),
-				"public":  node.Public,
+				"node_id":    node.ID,
+				"address":    protocol.Addr{Network: netID, Node: node.ID}.String(),
+				"public":     node.Public,
+				"polo_score": node.PoloScore,
 			}
 			if node.Hostname != "" {
 				entry["hostname"] = node.Hostname
