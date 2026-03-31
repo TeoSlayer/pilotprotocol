@@ -2,6 +2,7 @@ package tests
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -361,5 +362,137 @@ func TestEnterpriseRespondInviteGate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "enterprise feature") {
 		t.Fatalf("expected 'enterprise feature' error, got: %v", err)
+	}
+}
+
+// TestEnterpriseToggle verifies that toggling the enterprise flag on a network
+// enables/disables enterprise features and that the audit event is emitted.
+func TestEnterpriseToggle(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+
+	// Create as regular network
+	resp, err := rc.CreateNetwork(ownerID, "ent-toggle", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// Promote should fail (not enterprise)
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err == nil || !strings.Contains(err.Error(), "enterprise feature") {
+		t.Fatalf("expected enterprise error before toggle, got: %v", err)
+	}
+
+	// Toggle enterprise ON
+	_, err = rc.SetNetworkEnterprise(netID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set enterprise=true: %v", err)
+	}
+
+	// Promote should succeed now
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote after enterprise enable: %v", err)
+	}
+
+	// Demote back
+	_, err = rc.DemoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+
+	// Toggle enterprise OFF
+	_, err = rc.SetNetworkEnterprise(netID, false, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set enterprise=false: %v", err)
+	}
+
+	// Promote should fail again
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err == nil || !strings.Contains(err.Error(), "enterprise feature") {
+		t.Fatalf("expected enterprise error after toggle off, got: %v", err)
+	}
+
+	// Verify audit log has the toggle events
+	logResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+	toggleCount := 0
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "network.enterprise_changed" {
+			toggleCount++
+		}
+	}
+	if toggleCount < 2 {
+		t.Errorf("expected at least 2 enterprise_changed audit events, got %d", toggleCount)
+	}
+}
+
+// TestPoloScoreConcurrent verifies that concurrent polo score updates
+// are serialized correctly and produce the expected final result.
+func TestPoloScoreConcurrent(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Set initial score to 0
+	_, err = rc.SetPoloScore(nodeID, 0)
+	if err != nil {
+		t.Fatalf("set initial: %v", err)
+	}
+
+	// Run N concurrent workers, each incrementing by +1
+	const workers = 50
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wrc, err := registry.Dial(reg.Addr().String())
+			if err != nil {
+				return
+			}
+			defer wrc.Close()
+			wrc.UpdatePoloScore(nodeID, 1)
+		}()
+	}
+	wg.Wait()
+
+	// Final score should be exactly 50
+	score, err := rc.GetPoloScore(nodeID)
+	if err != nil {
+		t.Fatalf("get final score: %v", err)
+	}
+	if score != workers {
+		t.Errorf("expected polo score %d after %d concurrent +1 updates, got %d", workers, workers, score)
 	}
 }
