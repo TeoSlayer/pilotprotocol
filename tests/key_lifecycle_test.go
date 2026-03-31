@@ -507,3 +507,138 @@ func TestKeyInfoPersistence(t *testing.T) {
 			infoBefore["expires_at"], infoAfter["expires_at"])
 	}
 }
+
+// TestKeyExpiryEnforcementOnHeartbeat verifies that a node with an expired key
+// is rejected during heartbeat, and that the audit ring buffer logs the event.
+// Uses SetClock to advance time past the expiry.
+func TestKeyExpiryEnforcementOnHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	clk := newTestClock()
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	reg.SetClock(clk.Now)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Register node and create enterprise network (key expiry requires enterprise)
+	id, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+	setClientSigner(rc, id)
+
+	netResp, err := rc.CreateNetwork(nodeID, "key-expiry-test", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
+	_ = uint16(netResp["network_id"].(float64))
+
+	// Heartbeat should work before expiry
+	if _, err := rc.Heartbeat(nodeID); err != nil {
+		t.Fatalf("heartbeat before expiry: %v", err)
+	}
+
+	// Set key expiry to 1 hour from now
+	futureExpiry := clk.Now().Add(1 * time.Hour)
+	if _, err := rc.SetKeyExpiryAdmin(nodeID, futureExpiry, TestAdminToken); err != nil {
+		t.Fatalf("set key expiry: %v", err)
+	}
+
+	// Heartbeat should still work (not expired yet)
+	if _, err := rc.Heartbeat(nodeID); err != nil {
+		t.Fatalf("heartbeat before clock advance: %v", err)
+	}
+
+	// Advance clock past expiry
+	clk.Advance(2 * time.Hour)
+
+	// Heartbeat should now be rejected
+	_, err = rc.Heartbeat(nodeID)
+	if err == nil {
+		t.Fatal("heartbeat should have been rejected for expired key")
+	}
+	t.Logf("heartbeat correctly rejected: %v", err)
+
+	// Verify audit log has the blocked event
+	logResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+	found := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "key.expired_heartbeat_blocked" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("missing audit action: key.expired_heartbeat_blocked")
+	}
+}
+
+// TestKeyExpiryWarningOnHeartbeat verifies that a node with a key expiring
+// within 24 hours receives a warning in the heartbeat response.
+func TestKeyExpiryWarningOnHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	id, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+	setClientSigner(rc, id)
+
+	// Create enterprise network (key expiry requires enterprise)
+	if _, err := rc.CreateNetwork(nodeID, "key-warn-test", "open", "", TestAdminToken, true); err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
+
+	// Set key expiry to 12 hours from now (within 24h warning threshold)
+	soonExpiry := time.Now().Add(12 * time.Hour)
+	if _, err := rc.SetKeyExpiryAdmin(nodeID, soonExpiry, TestAdminToken); err != nil {
+		t.Fatalf("set key expiry: %v", err)
+	}
+
+	// Heartbeat should succeed but include warning
+	hbResp, err := rc.Heartbeat(nodeID)
+	if err != nil {
+		t.Fatalf("heartbeat should succeed for soon-to-expire key: %v", err)
+	}
+	if warning, ok := hbResp["key_expiry_warning"].(bool); !ok || !warning {
+		t.Error("heartbeat response should include key_expiry_warning=true")
+	}
+	t.Logf("heartbeat returned key_expiry_warning for key expiring in 12h")
+}

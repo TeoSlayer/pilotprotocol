@@ -1299,7 +1299,7 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 	}
 
 	// Reject if expiry is in the past
-	if expiresAt.Before(time.Now()) {
+	if expiresAt.Before(s.now()) {
 		return nil, fmt.Errorf("expires_at must be in the future")
 	}
 
@@ -1983,8 +1983,9 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 	delete(s.networks, netID)
 	s.save()
 
-	slog.Info("deleted network", "network_id", netID, "name", name)
-	s.audit("network.deleted", "network_id", netID, "name", network.Name)
+	slog.Info("deleted network", "network_id", netID, "name", name, "members", len(network.Members))
+	s.audit("network.deleted", "network_id", netID, "name", network.Name,
+		"members", len(network.Members), "enterprise", network.Enterprise)
 
 	return map[string]interface{}{
 		"type":       "delete_network_ok",
@@ -3481,7 +3482,13 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 		return nil, err
 	}
 
-	node.LastSeen = time.Now()
+	// Reject heartbeat if key has expired
+	if !node.KeyMeta.ExpiresAt.IsZero() && node.KeyMeta.ExpiresAt.Before(s.now()) {
+		s.audit("key.expired_heartbeat_blocked", "node_id", nodeID)
+		return nil, fmt.Errorf("node %d: key expired at %s", nodeID, node.KeyMeta.ExpiresAt.Format(time.RFC3339))
+	}
+
+	node.LastSeen = s.now()
 
 	resp := map[string]interface{}{
 		"type": "heartbeat_ok",
@@ -3489,7 +3496,7 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 	}
 
 	// Key expiry warning: if key expires within 24 hours, warn the daemon
-	if !node.KeyMeta.ExpiresAt.IsZero() && node.KeyMeta.ExpiresAt.Before(time.Now().Add(24*time.Hour)) {
+	if !node.KeyMeta.ExpiresAt.IsZero() && node.KeyMeta.ExpiresAt.Before(s.now().Add(24*time.Hour)) {
 		resp["key_expiry_warning"] = true
 	}
 

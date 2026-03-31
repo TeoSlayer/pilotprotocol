@@ -936,3 +936,71 @@ func TestAuditEnterpriseToggle(t *testing.T) {
 	t.Logf("enterprise toggle audit: %d entries, %d enterprise changes, %d policy changes",
 		len(entries), enterpriseChanges, policyChanges)
 }
+
+// TestAuditDeleteNetworkEnriched verifies that network deletion audit includes
+// member count and enterprise flag in the ring buffer.
+func TestAuditDeleteNetworkEnriched(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	owner, _ := registerTestNode(t, rc)
+	nodeB, _ := registerTestNode(t, rc)
+
+	resp, err := rc.CreateNetwork(owner, "del-audit-ent", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	if _, err := rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// Delete the network
+	if _, err := rc.DeleteNetwork(netID, TestAdminToken); err != nil {
+		t.Fatalf("delete network: %v", err)
+	}
+
+	// Check audit log for enriched delete event
+	logResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := logResp["entries"].([]interface{})
+
+	found := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "network.deleted" {
+			found = true
+			details, _ := entry["details"].(string)
+			// Should include member count and enterprise flag
+			if !strings.Contains(details, "members") {
+				t.Errorf("network.deleted details missing members count: %s", details)
+			}
+			if !strings.Contains(details, "enterprise") {
+				t.Errorf("network.deleted details missing enterprise flag: %s", details)
+			}
+			t.Logf("network.deleted details: %s", details)
+			break
+		}
+	}
+	if !found {
+		t.Error("missing audit action: network.deleted")
+	}
+}
