@@ -3421,9 +3421,11 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 		return map[string]interface{}{"type": "deregister_ok"}, nil
 	}
 
-	// H3 fix: verify signature
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("deregister:%d", nodeID)); err != nil {
-		return nil, err
+	// H3 fix: verify signature (admin token bypass for console control plane)
+	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("deregister:%d", nodeID)); sigErr != nil {
+		if err := s.requireAdminTokenLocked(msg); err != nil {
+			return nil, sigErr
+		}
 	}
 
 	// Remove from all networks

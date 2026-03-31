@@ -577,3 +577,37 @@ func TestAdminNodeManagement(t *testing.T) {
 
 	t.Log("all 5 admin node management methods work correctly")
 }
+
+// TestAdminDeregister verifies that an admin can force-deregister a node
+// using admin_token (without the node's signature).
+func TestAdminDeregister(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Verify node exists
+	_, err := rc.Lookup(nodeID)
+	if err != nil {
+		t.Fatalf("lookup before deregister: %v", err)
+	}
+
+	// Wrong token should fail
+	_, err = rc.DeregisterAdmin(nodeID, "wrong-token")
+	if err == nil {
+		t.Fatal("expected error with wrong token")
+	}
+
+	// Admin deregister should succeed
+	_, err = rc.DeregisterAdmin(nodeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("admin deregister: %v", err)
+	}
+
+	// Verify node is gone
+	_, err = rc.Lookup(nodeID)
+	if err == nil {
+		t.Error("node should not be found after deregister")
+	}
+}

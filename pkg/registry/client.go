@@ -754,6 +754,15 @@ func (c *Client) SetKeyExpiryAdmin(nodeID uint32, expiresAt time.Time, adminToke
 	})
 }
 
+// DeregisterAdmin removes a node using admin token auth.
+func (c *Client) DeregisterAdmin(nodeID uint32, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "deregister",
+		"node_id":     nodeID,
+		"admin_token": adminToken,
+	})
+}
+
 // GetAuditLog returns recent audit entries from the registry.
 func (c *Client) GetAuditLog(networkID uint16, adminToken string) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
