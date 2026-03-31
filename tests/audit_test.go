@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
@@ -643,4 +646,102 @@ func TestAuditHandshakeRelayedAndResponded(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestAuditLogPersistence verifies that audit entries survive a registry restart.
+func TestAuditLogPersistence(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("/tmp", "w4-audit-persist-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	storePath := filepath.Join(tmpDir, "registry.json")
+
+	b := beacon.New()
+	go b.ListenAndServe(":0")
+	select {
+	case <-b.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("beacon failed to start")
+	}
+	defer b.Close()
+	beaconAddr := b.Addr().String()
+
+	// Phase 1: Start registry, generate audit events
+	reg1 := registry.NewWithStore(beaconAddr, storePath)
+	reg1.SetAdminToken(TestAdminToken)
+	go reg1.ListenAndServe(":0")
+	select {
+	case <-reg1.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry 1 failed to start")
+	}
+
+	rc1, err := registry.Dial(reg1.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register a node and set polo score to generate audit events
+	nodeID, _ := registerTestNode(t, rc1)
+	rc1.SetPoloScore(nodeID, 42)
+
+	// Verify audit entries exist before shutdown
+	logResp, err := rc1.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log before restart: %v", err)
+	}
+	entriesBefore := logResp["entries"].([]interface{})
+	if len(entriesBefore) < 2 {
+		t.Fatalf("expected at least 2 audit entries before restart, got %d", len(entriesBefore))
+	}
+	t.Logf("before restart: %d audit entries", len(entriesBefore))
+
+	rc1.Close()
+	reg1.Close()
+
+	// Phase 2: Restart registry and verify audit log survived
+	reg2 := registry.NewWithStore(beaconAddr, storePath)
+	reg2.SetAdminToken(TestAdminToken)
+	go reg2.ListenAndServe(":0")
+	select {
+	case <-reg2.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry 2 failed to start")
+	}
+	defer reg2.Close()
+
+	rc2, err := registry.Dial(reg2.Addr().String())
+	if err != nil {
+		t.Fatalf("dial registry 2: %v", err)
+	}
+	defer rc2.Close()
+
+	logResp2, err := rc2.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log after restart: %v", err)
+	}
+	entriesAfter := logResp2["entries"].([]interface{})
+
+	if len(entriesAfter) < len(entriesBefore) {
+		t.Errorf("audit log lost entries across restart: before=%d, after=%d", len(entriesBefore), len(entriesAfter))
+	}
+
+	// Verify the entries contain the expected actions
+	actions := make(map[string]bool)
+	for _, e := range entriesAfter {
+		entry := e.(map[string]interface{})
+		actions[entry["action"].(string)] = true
+	}
+	if !actions["node.registered"] {
+		t.Error("missing node.registered after restart")
+	}
+	if !actions["polo_score.set"] {
+		t.Error("missing polo_score.set after restart")
+	}
+
+	t.Logf("after restart: %d audit entries (before: %d)", len(entriesAfter), len(entriesBefore))
 }

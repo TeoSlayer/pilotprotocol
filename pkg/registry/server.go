@@ -3557,6 +3557,8 @@ type snapshot struct {
 	UniqueTags    int    `json:"unique_tags,omitempty"`
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
+	// Audit log persistence (most recent entries, capped at maxAuditEntries)
+	AuditLog []AuditEntry `json:"audit_log,omitempty"`
 	// Integrity: SHA256 hex digest of all fields except Checksum
 	Checksum string `json:"checksum,omitempty"`
 }
@@ -3767,6 +3769,14 @@ func (s *Server) flushSave() error {
 	nodeCount := len(s.nodes)
 	netCount := len(s.networks)
 	s.mu.RUnlock()
+
+	// Persist audit log (separate mutex from s.mu)
+	s.auditMu.Lock()
+	if len(s.auditLog) > 0 {
+		snap.AuditLog = make([]AuditEntry, len(s.auditLog))
+		copy(snap.AuditLog, s.auditLog)
+	}
+	s.auditMu.Unlock()
 
 	// Compute checksum: marshal without Checksum, hash, then set Checksum and remarshal
 	snap.Checksum = ""
@@ -3997,6 +4007,14 @@ func (s *Server) load() error {
 	}
 	if len(s.inviteInbox) > 0 {
 		slog.Info("loaded invite inboxes", "queues", len(s.inviteInbox))
+	}
+
+	// Restore audit log
+	if len(snap.AuditLog) > 0 {
+		s.auditMu.Lock()
+		s.auditLog = snap.AuditLog
+		s.auditMu.Unlock()
+		slog.Info("loaded audit log", "entries", len(snap.AuditLog))
 	}
 
 	// Ensure store directory exists for future saves
