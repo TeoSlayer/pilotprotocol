@@ -1733,3 +1733,169 @@ func TestMaxMembersOnInviteAccept(t *testing.T) {
 	}
 	t.Logf("max_members enforcement on invite accept: %v", err)
 }
+
+// TestPromoteAlreadyAdmin verifies that promoting an already-admin node returns a clear error.
+func TestPromoteAlreadyAdmin(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + target
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	targetIdentity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(targetIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register target: %v", err)
+	}
+	targetID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "promote-edge", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Add target to network
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Promote target to admin (first time — should succeed)
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.PromoteMember(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("first promote: %v", err)
+	}
+
+	// Promote again — should fail with "already an admin"
+	_, err = rc.PromoteMember(netID, ownerID, targetID, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error promoting already-admin node")
+	}
+	if !strings.Contains(err.Error(), "already an admin") {
+		t.Fatalf("expected 'already an admin' error, got: %v", err)
+	}
+	t.Logf("promote already-admin correctly rejected: %v", err)
+}
+
+// TestDemoteAlreadyMember verifies that demoting an already-member node returns a clear error.
+func TestDemoteAlreadyMember(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + target
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	targetIdentity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(targetIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register target: %v", err)
+	}
+	targetID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "demote-edge", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Add target to network (joins as member role)
+	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, targetIdentity)
+	_, err = rc.RespondInvite(targetID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Demote target — should fail because target is already a member
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.DemoteMember(netID, ownerID, targetID, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error demoting already-member node")
+	}
+	if !strings.Contains(err.Error(), "already a member") {
+		t.Fatalf("expected 'already a member' error, got: %v", err)
+	}
+	t.Logf("demote already-member correctly rejected: %v", err)
+}
+
+// TestSetTaskExecAdminToken verifies that SetTaskExec works via admin token
+// bypass (without node signature).
+func TestSetTaskExecAdminToken(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register a node
+	nodeIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(nodeIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register node: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+
+	// Enable task_exec via admin token (no node signer set)
+	resp, err = rc.SetTaskExecAdmin(nodeID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetTaskExecAdmin(true): %v", err)
+	}
+	if resp["task_exec"] != true {
+		t.Fatalf("expected task_exec=true, got %v", resp["task_exec"])
+	}
+
+	// Verify via node signature path too
+	setClientSigner(rc, nodeIdentity)
+	resp, err = rc.SetTaskExec(nodeID, false)
+	if err != nil {
+		t.Fatalf("SetTaskExec(false): %v", err)
+	}
+	if resp["task_exec"] != false {
+		t.Fatalf("expected task_exec=false, got %v", resp["task_exec"])
+	}
+
+	// Toggle back via admin token
+	rc.SetSigner(nil) // clear signer
+	resp, err = rc.SetTaskExecAdmin(nodeID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetTaskExecAdmin(true) again: %v", err)
+	}
+	if resp["task_exec"] != true {
+		t.Fatalf("expected task_exec=true after re-enable, got %v", resp["task_exec"])
+	}
+
+	t.Log("SetTaskExec admin token bypass works correctly")
+}

@@ -982,7 +982,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			errMsg := "request failed"
 			if strings.Contains(err.Error(), "rate limited") ||
 				strings.Contains(err.Error(), "enterprise feature") ||
-				strings.Contains(err.Error(), "expired") {
+				strings.Contains(err.Error(), "expired") ||
+				strings.Contains(err.Error(), "already") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
