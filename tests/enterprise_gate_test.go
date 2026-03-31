@@ -3281,3 +3281,137 @@ func TestTransferToMemberRole(t *testing.T) {
 	}
 	t.Log("transfer to member role works, audit captures old role")
 }
+
+// TestHostnameCollision verifies that setting a hostname already in use by
+// another node is rejected.
+func TestHostnameCollision(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeA, _ := registerTestNode(t, rc)
+	nodeB, _ := registerTestNode(t, rc)
+
+	// Set hostname on node A
+	_, err := rc.SetHostnameAdmin(nodeA, "taken-host", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set hostname A: %v", err)
+	}
+
+	// Try to set same hostname on node B — should fail
+	_, err = rc.SetHostnameAdmin(nodeB, "taken-host", TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: hostname collision should be rejected")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("hostname collision rejected: %v", err)
+
+	// Node A can re-set its own hostname (idempotent)
+	_, err = rc.SetHostnameAdmin(nodeA, "taken-host", TestAdminToken)
+	if err != nil {
+		t.Fatalf("re-set own hostname should succeed: %v", err)
+	}
+
+	// Clear hostname on A, then B can claim it
+	_, err = rc.SetHostnameAdmin(nodeA, "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("clear hostname: %v", err)
+	}
+	_, err = rc.SetHostnameAdmin(nodeB, "taken-host", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set freed hostname should succeed: %v", err)
+	}
+	t.Log("hostname collision, re-set, clear, and reclaim all work correctly")
+}
+
+// TestHostnameValidationEnterprise verifies that invalid hostnames are rejected
+// via the admin-token path.
+func TestHostnameValidationEnterprise(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	cases := []struct {
+		name     string
+		hostname string
+		wantErr  string
+	}{
+		{"too long", strings.Repeat("a", 64), "invalid"},
+		{"starts with hyphen", "-bad", "invalid"},
+		{"ends with hyphen", "bad-", "invalid"},
+		{"uppercase", "BAD", "invalid"},
+		{"special chars", "bad@host", "invalid"},
+		{"reserved localhost", "localhost", "reserved"},
+		{"reserved backbone", "backbone", "reserved"},
+		{"reserved broadcast", "broadcast", "reserved"},
+	}
+
+	for _, tc := range cases {
+		_, err := rc.SetHostnameAdmin(nodeID, tc.hostname, TestAdminToken)
+		if err == nil {
+			t.Errorf("%s: expected error for hostname %q", tc.name, tc.hostname)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: got %v, want error containing %q", tc.name, err, tc.wantErr)
+		}
+	}
+
+	// Valid hostnames should work
+	validCases := []string{"a", "my-host", "node-1", "abc123"}
+	for _, h := range validCases {
+		_, err := rc.SetHostnameAdmin(nodeID, h, TestAdminToken)
+		if err != nil {
+			t.Errorf("valid hostname %q rejected: %v", h, err)
+		}
+	}
+	t.Log("hostname validation correctly enforced")
+}
+
+// TestNodeOpsOnNonExistent verifies that hostname, visibility, tags, and
+// task_exec operations on non-existent nodes return proper errors.
+func TestNodeOpsOnNonExistent(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	badNodeID := uint32(99999)
+
+	// SetHostname on non-existent node
+	_, err := rc.SetHostnameAdmin(badNodeID, "ghost", TestAdminToken)
+	if err == nil {
+		t.Error("expected error for SetHostname on non-existent node")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("SetHostname error: %v (want 'not found')", err)
+	}
+
+	// SetVisibility on non-existent node
+	_, err = rc.SetVisibilityAdmin(badNodeID, true, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for SetVisibility on non-existent node")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("SetVisibility error: %v (want 'not found')", err)
+	}
+
+	// SetTags on non-existent node
+	_, err = rc.SetTagsAdmin(badNodeID, []string{"tag1"}, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for SetTags on non-existent node")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("SetTags error: %v (want 'not found')", err)
+	}
+
+	// SetTaskExec on non-existent node
+	_, err = rc.SetTaskExecAdmin(badNodeID, true, TestAdminToken)
+	if err == nil {
+		t.Error("expected error for SetTaskExec on non-existent node")
+	} else if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("SetTaskExec error: %v (want 'not found')", err)
+	}
+
+	t.Log("all node ops on non-existent node return 'not found'")
+}
