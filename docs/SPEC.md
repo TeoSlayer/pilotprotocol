@@ -15,16 +15,17 @@ Addresses are 48-bit, split into two fields:
 
 ### 1.2 Text Representation
 
-Format: `N:XXXX.YYYY.YYYY`
+Format: `N:NNNN.HHHH.LLLL`
 
 - `N` -- network ID in decimal
-- Node ID -- three dot-separated groups of 4 hex digits
+- `NNNN` -- network ID in hex (must match `N`)
+- `HHHH.LLLL` -- 32-bit node ID as two dot-separated groups of 4 hex digits
 
 Examples:
 - `0:0000.0000.0001` -- Node 1 on the backbone
-- `1:00A3.F291.0004` -- Node on network 1
+- `1:0001.F291.0004` -- Node 0xF2910004 on network 1
 
-Socket address includes a port: `1:00A3.F291.0004:1000`
+Socket address includes a port: `1:0001.F291.0004:1000`
 
 ### 1.3 Special Addresses
 
@@ -64,6 +65,7 @@ Socket address includes a port: `1:00A3.F291.0004:1000`
 | 1000 | Standard I/O | Text stream between agents |
 | 1001 | Data exchange | Typed frames (text, binary, JSON, file) |
 | 1002 | Event stream | Pub/sub with topic filtering |
+| 1003 | Task submit | Task submission and lifecycle |
 
 ---
 
@@ -166,7 +168,8 @@ When tunnel encryption is active (default):
 [ciphertext + 16-byte GCM tag]
 ```
 
-Encryption: AES-256-GCM. Key derived from X25519 ECDH exchange.
+Encryption: AES-256-GCM with HKDF-SHA256 key derivation (info: "pilot-tunnel-v1").
+Key derived from X25519 ECDH exchange. The sender's Node ID is used as GCM Additional Authenticated Data (AAD).
 
 ### 4.3 Key Exchange Frame
 
@@ -191,6 +194,15 @@ Authenticated key exchange (with Ed25519 identity):
 ```
 
 The signature covers: `"auth"` + Node ID (4 bytes) + X25519 public key (32 bytes).
+
+### 4.5 NAT Punch Frame
+
+```
+[4-byte magic: 0x50494C50 ("PILP")]
+[4-byte sender Node ID]
+```
+
+Sent during hole-punching to create NAT mappings. Contains no payload beyond the sender identification.
 
 ---
 
@@ -270,6 +282,38 @@ Maximum message size: 1 MB (1,048,576 bytes).
 | 0x0E | InfoOK | Daemon -> Driver | `[NB JSON]` |
 | 0x0F | Handshake | Driver -> Daemon | `[1B sub-cmd][NB payload]` |
 | 0x10 | HandshakeOK | Daemon -> Driver | `[NB JSON]` |
+| 0x11 | ResolveHostname | Driver -> Daemon | `[NB hostname]` |
+| 0x12 | ResolveHostnameOK | Daemon -> Driver | `[NB JSON]` |
+| 0x13 | SetHostname | Driver -> Daemon | `[NB hostname]` |
+| 0x14 | SetHostnameOK | Daemon -> Driver | `[NB JSON]` |
+| 0x15 | SetVisibility | Driver -> Daemon | `[1B public]` |
+| 0x16 | SetVisibilityOK | Daemon -> Driver | `[NB JSON]` |
+| 0x17 | Deregister | Driver -> Daemon | (empty) |
+| 0x18 | DeregisterOK | Daemon -> Driver | `[NB JSON]` |
+| 0x19 | SetTags | Driver -> Daemon | `[NB JSON]` |
+| 0x1A | SetTagsOK | Daemon -> Driver | `[NB JSON]` |
+| 0x1B | SetWebhook | Driver -> Daemon | `[NB URL]` |
+| 0x1C | SetWebhookOK | Daemon -> Driver | `[NB JSON]` |
+| 0x1D | SetTaskExec | Driver -> Daemon | `[1B enabled]` |
+| 0x1E | SetTaskExecOK | Daemon -> Driver | `[NB JSON]` |
+| 0x1F | Network | Driver -> Daemon | `[1B sub-cmd][NB payload]` |
+| 0x20 | NetworkOK | Daemon -> Driver | `[NB JSON]` |
+| 0x21 | Health | Driver -> Daemon | (empty) |
+| 0x22 | HealthOK | Daemon -> Driver | `[NB JSON]` |
+
+### 6.2 Network Sub-Commands
+
+The Network command (0x1F) uses a sub-command byte as the first byte of the payload:
+
+| Sub-Cmd | Name | Payload |
+|---------|------|---------|
+| 0x01 | List | (empty) |
+| 0x02 | Join | `[2B network_id][NB token]` |
+| 0x03 | Leave | `[2B network_id]` |
+| 0x04 | Members | `[2B network_id]` |
+| 0x05 | Invite | `[2B network_id][4B node_id]` |
+| 0x06 | PollInvites | (empty) |
+| 0x07 | RespondInvite | `[2B network_id][1B accept]` |
 
 ---
 
@@ -436,4 +480,13 @@ The 8-byte counter supports 2^64 packets per session. At 1 million packets per s
 
 ### 10.5 Application-Layer Nonces (Port 443)
 
-The secure channel on port 443 uses a separate nonce scheme: a monotonically increasing 8-byte counter zero-padded to 12 bytes. Each secure connection has an independent counter starting at 0. Since each connection performs its own X25519 key exchange, nonce uniqueness is guaranteed per-key.
+The secure channel on port 443 uses a separate nonce scheme:
+
+```
+[4-byte role prefix][8-byte monotonic counter]
+```
+
+- **Role prefix**: `0x00000001` for server, `0x00000002` for client. Fixed per role to prevent nonce collision between the two sides.
+- **Counter**: 8-byte unsigned integer starting at 0, incremented per encryption.
+
+Each secure connection performs its own X25519 key exchange and HKDF-SHA256 key derivation (info: "pilot-secure-v1"), so nonce uniqueness is guaranteed per-key. The sender's nonce prefix (first 4 bytes) is used as GCM AAD on both sides.

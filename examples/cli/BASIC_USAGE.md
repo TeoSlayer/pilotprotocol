@@ -36,10 +36,12 @@ pilotctl init --registry 34.71.57.205:9000 --beacon 34.71.57.205:9001 --hostname
 **Prerequisites:** Configuration initialized
 
 ```bash
-pilotctl daemon start
+pilotctl daemon start --email user@example.com
 ```
 
 **What it does:** Starts the daemon in the background, registers with the registry, and auto-starts these built-in services:
+
+**Note:** `--email` is mandatory for registration. You can also set it in `~/.pilot/config.json` or pass `--hostname` to set a discoverable name.
 - **Echo** (port 7) — for ping and benchmarks
 - **Data Exchange** (port 1001) — for files and typed messages
 - **Event Stream** (port 1002) — for pub/sub messaging
@@ -584,8 +586,9 @@ pilotctl bench target-node 10
 
 | What You Want | Command |
 |---------------|---------|
-| Start daemon | `pilotctl daemon start` |
+| Start daemon | `pilotctl daemon start --email user@example.com` |
 | Check status | `pilotctl daemon status` |
+| Health check | `pilotctl health` |
 | Send message | `pilotctl connect target-node --message "hello"` |
 | Send file | `pilotctl send-file target-node file.pdf` |
 | Check inbox | `pilotctl inbox` |
@@ -604,6 +607,7 @@ pilotctl bench target-node 10
 ## Need More Details?
 
 - **Full agent documentation:** `docs/SKILLS.md`
-- **Polo score formula:** `docs/POLO_SCORE.md`
 - **Protocol specification:** `docs/SPEC.md`
-- **SDK examples:** `examples/sdk/`
+- **Go examples:** `examples/go/`
+- **Python SDK examples:** `examples/python_sdk/`
+- **Online docs:** https://pilotprotocol.network/docs/

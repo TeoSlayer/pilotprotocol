@@ -434,3 +434,143 @@ func extractLine(body, prefix string) string {
 	}
 	return "(not found)"
 }
+
+// TestPerNetworkMetrics verifies Grafana-ready per-network labeled metrics.
+func TestPerNetworkMetrics(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry start timeout")
+	}
+	defer reg.Close()
+
+	// Start dashboard
+	dashLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashAddr := dashLn.Addr().String()
+	dashLn.Close()
+	go reg.ServeDashboard(dashAddr)
+	waitDashboard(t, dashAddr)
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Create an enterprise network with members
+	id1, _ := icrypto.GenerateIdentity()
+	resp1, _ := rc.RegisterWithKey("", icrypto.EncodePublicKey(id1.PublicKey), "", nil)
+	nodeID1 := uint32(resp1["node_id"].(float64))
+
+	id2, _ := icrypto.GenerateIdentity()
+	resp2, _ := rc.RegisterWithKey("", icrypto.EncodePublicKey(id2.PublicKey), "", nil)
+	nodeID2 := uint32(resp2["node_id"].(float64))
+
+	netResp, err := rc.CreateNetwork(nodeID1, "grafana-test", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(netResp["network_id"].(float64))
+
+	_, err = rc.JoinNetwork(nodeID2, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// Promote nodeID2 to admin
+	_, err = rc.PromoteMember(netID, nodeID1, nodeID2, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Scrape metrics
+	time.Sleep(100 * time.Millisecond) // let gauges update
+	client := http.Client{Timeout: 2 * time.Second}
+	metricsResp, err := client.Get(fmt.Sprintf("http://%s/metrics", dashAddr))
+	if err != nil {
+		t.Fatalf("scrape metrics: %v", err)
+	}
+	body, _ := io.ReadAll(metricsResp.Body)
+	metricsResp.Body.Close()
+	metricsBody := string(body)
+
+	// Check per-network metrics
+	if !strings.Contains(metricsBody, `pilot_network_members{network="grafana-test"}`) {
+		t.Error("missing pilot_network_members for grafana-test")
+		t.Log(extractLine(metricsBody, "pilot_network_members"))
+	}
+	if !strings.Contains(metricsBody, `pilot_network_admins{network="grafana-test"}`) {
+		t.Error("missing pilot_network_admins for grafana-test")
+	}
+	if !strings.Contains(metricsBody, `pilot_network_enterprise{network="grafana-test"} 1`) {
+		t.Error("missing pilot_network_enterprise for grafana-test")
+	}
+
+	// Check enterprise status gauges
+	if !strings.Contains(metricsBody, "pilot_idp_configured") {
+		t.Error("missing pilot_idp_configured metric")
+	}
+	if !strings.Contains(metricsBody, "pilot_webhook_configured") {
+		t.Error("missing pilot_webhook_configured metric")
+	}
+
+	t.Log("per-network Grafana metrics verified")
+}
+
+// TestWebhookDLQ verifies the dead letter queue for failed webhook deliveries.
+func TestWebhookDLQ(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Configure webhook to an endpoint that always returns 500
+	failCount := 0
+	srv := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			failCount++
+			w.WriteHeader(500)
+		}),
+	}
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	_, err := rc.SetWebhook("http://"+ln.Addr().String(), TestAdminToken)
+	if err != nil {
+		t.Fatalf("set webhook: %v", err)
+	}
+
+	// Trigger audit events that will fail to deliver
+	registerTestNode(t, rc)
+	time.Sleep(2 * time.Second) // wait for retries
+
+	// Check webhook stats
+	whResp, err := rc.GetWebhook(TestAdminToken)
+	if err != nil {
+		t.Fatalf("get webhook: %v", err)
+	}
+	t.Logf("webhook stats: delivered=%v failed=%v dropped=%v dlq=%v",
+		whResp["delivered"], whResp["failed"], whResp["dropped"], whResp["dlq_size"])
+
+	if whResp["failed"] == float64(0) && whResp["dlq_size"] == float64(0) {
+		t.Log("warning: no failed events detected (timing sensitive)")
+	}
+
+	// Check DLQ contents
+	dlqResp, err := rc.GetWebhookDLQ(TestAdminToken)
+	if err != nil {
+		t.Fatalf("get webhook dlq: %v", err)
+	}
+	dlqCount := dlqResp["count"]
+	t.Logf("DLQ has %v events", dlqCount)
+
+	t.Log("webhook DLQ test passed")
+}

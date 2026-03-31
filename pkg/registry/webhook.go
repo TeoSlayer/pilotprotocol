@@ -28,6 +28,13 @@ type registryWebhook struct {
 	closed    chan struct{}
 	nextID    atomic.Uint64
 	dropped   atomic.Uint64
+	failed    atomic.Uint64
+	delivered atomic.Uint64
+
+	// Dead letter queue: stores last N failed events for retry/inspection
+	dlqMu  sync.Mutex
+	dlq    []*RegistryWebhookEvent
+	dlqMax int
 }
 
 func newRegistryWebhook(url string) *registryWebhook {
@@ -37,6 +44,7 @@ func newRegistryWebhook(url string) *registryWebhook {
 		client: &http.Client{Timeout: 5 * time.Second},
 		done:   make(chan struct{}),
 		closed: make(chan struct{}),
+		dlqMax: 100,
 	}
 	go wh.run()
 	return wh
@@ -117,12 +125,48 @@ func (wh *registryWebhook) post(ev *RegistryWebhookEvent) {
 		resp.Body.Close()
 
 		if resp.StatusCode < 400 {
+			wh.delivered.Add(1)
 			return
 		}
 		if resp.StatusCode < 500 {
 			slog.Warn("registry webhook client error", "action", ev.Action, "status", resp.StatusCode)
+			wh.addToDLQ(ev)
+			wh.failed.Add(1)
 			return
 		}
 		slog.Warn("registry webhook server error", "action", ev.Action, "status", resp.StatusCode, "attempt", attempt+1)
 	}
+	// All retries exhausted — add to dead letter queue
+	wh.addToDLQ(ev)
+	wh.failed.Add(1)
+}
+
+// addToDLQ adds a failed event to the dead letter queue.
+func (wh *registryWebhook) addToDLQ(ev *RegistryWebhookEvent) {
+	wh.dlqMu.Lock()
+	defer wh.dlqMu.Unlock()
+	if len(wh.dlq) >= wh.dlqMax {
+		wh.dlq = wh.dlq[1:] // drop oldest
+	}
+	wh.dlq = append(wh.dlq, ev)
+}
+
+// DLQ returns the current dead letter queue contents.
+func (wh *registryWebhook) DLQ() []*RegistryWebhookEvent {
+	if wh == nil {
+		return nil
+	}
+	wh.dlqMu.Lock()
+	defer wh.dlqMu.Unlock()
+	out := make([]*RegistryWebhookEvent, len(wh.dlq))
+	copy(out, wh.dlq)
+	return out
+}
+
+// Stats returns webhook delivery statistics.
+func (wh *registryWebhook) Stats() (delivered, failed, dropped uint64) {
+	if wh == nil {
+		return 0, 0, 0
+	}
+	return wh.delivered.Load(), wh.failed.Load(), wh.dropped.Load()
 }

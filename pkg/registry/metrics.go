@@ -224,6 +224,26 @@ type registryMetrics struct {
 	auditExportErrors  counter // pilot_audit_export_errors_total
 	idpVerifications   counter // pilot_idp_verifications_total
 	rbacPreAssignments counter // pilot_rbac_pre_assignments_total
+
+	// Per-network metrics (computed on scrape, for Grafana dashboards)
+	networkMetricsMu sync.Mutex
+	networkMetrics   []networkMetricSnapshot
+
+	// Enterprise status gauges
+	idpConfigured     gauge // pilot_idp_configured (0 or 1)
+	webhookConfigured gauge // pilot_webhook_configured (0 or 1)
+	auditExportActive gauge // pilot_audit_export_active (0 or 1)
+	directorySynced   gauge // pilot_directory_synced_networks
+}
+
+// networkMetricSnapshot holds per-network metrics computed on each scrape.
+type networkMetricSnapshot struct {
+	Name       string
+	Members    int
+	Owners     int
+	Admins     int
+	Enterprise bool
+	PolicySet  bool
 }
 
 func newRegistryMetrics() *registryMetrics {
@@ -264,6 +284,7 @@ func (m *registryMetrics) updateGauges(s *Server) {
 	// Enterprise gauges
 	netTotal := 0
 	netEnterprise := 0
+	var netSnaps []networkMetricSnapshot
 	for _, n := range s.networks {
 		if n.ID == 0 {
 			continue // skip backbone
@@ -272,15 +293,57 @@ func (m *registryMetrics) updateGauges(s *Server) {
 		if n.Enterprise {
 			netEnterprise++
 		}
+
+		snap := networkMetricSnapshot{
+			Name:       n.Name,
+			Members:    len(n.Members),
+			Enterprise: n.Enterprise,
+			PolicySet:  n.Policy.MaxMembers > 0 || len(n.Policy.AllowedPorts) > 0,
+		}
+		for _, role := range n.MemberRoles {
+			switch role {
+			case RoleOwner:
+				snap.Owners++
+			case RoleAdmin:
+				snap.Admins++
+			}
+		}
+		netSnaps = append(netSnaps, snap)
 	}
 	m.networksTotal.Set(float64(netTotal))
 	m.networksEnterprise.Set(float64(netEnterprise))
+
+	m.networkMetricsMu.Lock()
+	m.networkMetrics = netSnaps
+	m.networkMetricsMu.Unlock()
 
 	pendingInvites := 0
 	for _, invites := range s.inviteInbox {
 		pendingInvites += len(invites)
 	}
 	m.invitesPending.Set(float64(pendingInvites))
+
+	// Enterprise status
+	if s.idpConfig != nil {
+		m.idpConfigured.Set(1)
+	} else {
+		m.idpConfigured.Set(0)
+	}
+	if s.webhook != nil {
+		m.webhookConfigured.Set(1)
+	} else {
+		m.webhookConfigured.Set(0)
+	}
+	if s.auditExporter != nil {
+		m.auditExportActive.Set(1)
+	} else {
+		m.auditExportActive.Set(0)
+	}
+	dirSynced := 0
+	for range s.rbacPreAssign {
+		dirSynced++
+	}
+	m.directorySynced.Set(float64(dirSynced))
 }
 
 // WriteTo writes all metrics in Prometheus text exposition format.
@@ -418,6 +481,68 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeHelp(&b, "pilot_rbac_pre_assignments_total", "Total RBAC pre-assignment applications.")
 	writeType(&b, "pilot_rbac_pre_assignments_total", "counter")
 	writeMetric(&b, "pilot_rbac_pre_assignments_total", m.rbacPreAssignments.Get())
+
+	// --- Enterprise status gauges ---
+	writeHelp(&b, "pilot_idp_configured", "Whether an identity provider is configured (0 or 1).")
+	writeType(&b, "pilot_idp_configured", "gauge")
+	writeMetric(&b, "pilot_idp_configured", m.idpConfigured.Get())
+
+	writeHelp(&b, "pilot_webhook_configured", "Whether audit webhook is configured (0 or 1).")
+	writeType(&b, "pilot_webhook_configured", "gauge")
+	writeMetric(&b, "pilot_webhook_configured", m.webhookConfigured.Get())
+
+	writeHelp(&b, "pilot_audit_export_active", "Whether audit export is active (0 or 1).")
+	writeType(&b, "pilot_audit_export_active", "gauge")
+	writeMetric(&b, "pilot_audit_export_active", m.auditExportActive.Get())
+
+	writeHelp(&b, "pilot_directory_synced_networks", "Number of networks with directory sync configured.")
+	writeType(&b, "pilot_directory_synced_networks", "gauge")
+	writeMetric(&b, "pilot_directory_synced_networks", m.directorySynced.Get())
+
+	// --- Per-network metrics (for Grafana dashboards) ---
+	m.networkMetricsMu.Lock()
+	nets := m.networkMetrics
+	m.networkMetricsMu.Unlock()
+
+	if len(nets) > 0 {
+		writeHelp(&b, "pilot_network_members", "Number of members per network.")
+		writeType(&b, "pilot_network_members", "gauge")
+		for _, n := range nets {
+			writeLabeledMetric(&b, "pilot_network_members", "network", n.Name, float64(n.Members))
+		}
+
+		writeHelp(&b, "pilot_network_admins", "Number of admins per network.")
+		writeType(&b, "pilot_network_admins", "gauge")
+		for _, n := range nets {
+			writeLabeledMetric(&b, "pilot_network_admins", "network", n.Name, float64(n.Admins))
+		}
+
+		writeHelp(&b, "pilot_network_owners", "Number of owners per network.")
+		writeType(&b, "pilot_network_owners", "gauge")
+		for _, n := range nets {
+			writeLabeledMetric(&b, "pilot_network_owners", "network", n.Name, float64(n.Owners))
+		}
+
+		writeHelp(&b, "pilot_network_enterprise", "Whether network has enterprise flag (0 or 1).")
+		writeType(&b, "pilot_network_enterprise", "gauge")
+		for _, n := range nets {
+			v := float64(0)
+			if n.Enterprise {
+				v = 1
+			}
+			writeLabeledMetric(&b, "pilot_network_enterprise", "network", n.Name, v)
+		}
+
+		writeHelp(&b, "pilot_network_policy_set", "Whether network has a policy configured (0 or 1).")
+		writeType(&b, "pilot_network_policy_set", "gauge")
+		for _, n := range nets {
+			v := float64(0)
+			if n.PolicySet {
+				v = 1
+			}
+			writeLabeledMetric(&b, "pilot_network_policy_set", "network", n.Name, v)
+		}
+	}
 
 	n, err := io.WriteString(w, b.String())
 	return int64(n), err

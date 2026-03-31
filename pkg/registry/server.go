@@ -1228,6 +1228,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetExternalID(msg)
 	case "get_identity":
 		return s.handleGetIdentity(msg)
+	case "get_webhook_dlq":
+		return s.handleGetWebhookDLQ(msg)
 	case "provision_network":
 		return s.handleProvisionNetwork(msg)
 	case "set_audit_export":
@@ -1618,16 +1620,52 @@ func (s *Server) handleGetWebhook(msg map[string]interface{}) (map[string]interf
 	s.mu.RUnlock()
 
 	url := ""
-	dropped := uint64(0)
+	var delivered, failed, dropped uint64
+	dlqLen := 0
 	if wh != nil {
 		url = wh.url
-		dropped = wh.dropped.Load()
+		delivered, failed, dropped = wh.Stats()
+		dlqLen = len(wh.DLQ())
 	}
 	return map[string]interface{}{
-		"type":    "get_webhook_ok",
-		"enabled": wh != nil,
-		"url":     url,
-		"dropped": dropped,
+		"type":      "get_webhook_ok",
+		"enabled":   wh != nil,
+		"url":       url,
+		"delivered": delivered,
+		"failed":    failed,
+		"dropped":   dropped,
+		"dlq_size":  dlqLen,
+	}, nil
+}
+
+// handleGetWebhookDLQ returns the dead letter queue (failed webhook events).
+func (s *Server) handleGetWebhookDLQ(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	wh := s.webhook
+	s.mu.RUnlock()
+
+	var events []map[string]interface{}
+	if wh != nil {
+		for _, ev := range wh.DLQ() {
+			entry := map[string]interface{}{
+				"event_id":  ev.EventID,
+				"action":    ev.Action,
+				"timestamp": ev.Timestamp.Format("2006-01-02T15:04:05Z"),
+			}
+			if len(ev.Details) > 0 {
+				entry["details"] = ev.Details
+			}
+			events = append(events, entry)
+		}
+	}
+
+	return map[string]interface{}{
+		"type":   "get_webhook_dlq_ok",
+		"events": events,
+		"count":  len(events),
 	}, nil
 }
 

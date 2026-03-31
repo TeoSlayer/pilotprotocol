@@ -816,6 +816,14 @@ func (c *Client) GetWebhook(adminToken string) (map[string]interface{}, error) {
 	})
 }
 
+// GetWebhookDLQ returns the dead letter queue (failed webhook events).
+func (c *Client) GetWebhookDLQ(adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_webhook_dlq",
+		"admin_token": adminToken,
+	})
+}
+
 // SetIdentityWebhook configures the identity verification webhook URL.
 func (c *Client) SetIdentityWebhook(url, adminToken string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
