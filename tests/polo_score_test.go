@@ -530,7 +530,7 @@ func TestPoloScoreEdgeCases(t *testing.T) {
 		t.Errorf("expected polo=-1000000, got %d", polo)
 	}
 
-	// Test overflow scenario: start at large value and add more
+	// Test clamping: start at max and add more — should clamp to maxPoloScore (1000000)
 	_, err = rc.SetPoloScore(nodeID, 1000000)
 	if err != nil {
 		t.Fatalf("set polo: %v", err)
@@ -546,7 +546,7 @@ func TestPoloScoreEdgeCases(t *testing.T) {
 		t.Fatalf("get polo: %v", err)
 	}
 
-	if polo != 1500000 {
-		t.Errorf("expected polo=1500000, got %d", polo)
+	if polo != 1000000 {
+		t.Errorf("expected polo=1000000 (clamped), got %d", polo)
 	}
 }

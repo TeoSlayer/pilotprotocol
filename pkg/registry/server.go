@@ -1288,19 +1288,20 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 
-	// Parse expires_at as RFC3339 string
+	// Parse expires_at — empty string or "never" clears the expiry
 	expiresAtStr, _ := msg["expires_at"].(string)
-	if expiresAtStr == "" {
-		return nil, fmt.Errorf("set_key_expiry requires expires_at field (RFC3339)")
-	}
-	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid expires_at: %w", err)
-	}
-
-	// Reject if expiry is in the past
-	if expiresAt.Before(s.now()) {
-		return nil, fmt.Errorf("expires_at must be in the future")
+	var expiresAt time.Time
+	clearExpiry := expiresAtStr == "" || expiresAtStr == "never"
+	if !clearExpiry {
+		var err error
+		expiresAt, err = time.Parse(time.RFC3339, expiresAtStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expires_at: %w", err)
+		}
+		// Reject if expiry is in the past
+		if expiresAt.Before(s.now()) {
+			return nil, fmt.Errorf("expires_at must be in the future")
+		}
 	}
 
 	s.mu.Lock()
@@ -1331,8 +1332,17 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("enterprise feature: key expiry requires enterprise network membership")
 	}
 
-	node.KeyMeta.ExpiresAt = expiresAt
+	node.KeyMeta.ExpiresAt = expiresAt // zero value clears it
 	s.save()
+
+	if clearExpiry {
+		slog.Debug("cleared key expiry", "node_id", nodeID)
+		s.audit("key.expiry_cleared", "node_id", nodeID)
+		return map[string]interface{}{
+			"type":    "set_key_expiry_ok",
+			"node_id": nodeID,
+		}, nil
+	}
 
 	slog.Debug("set key expiry", "node_id", nodeID, "expires_at", expiresAt)
 	s.audit("key.expiry_set", "node_id", nodeID, "expires_at", expiresAt)
@@ -1431,12 +1441,18 @@ func (s *Server) handleGetAuditLog(msg map[string]interface{}) (map[string]inter
 	}, nil
 }
 
+// maxPoloScore defines the valid range for polo scores.
+const maxPoloScore = 1_000_000
+
 // handleUpdatePoloScore adjusts the polo score of a node by a delta value.
 func (s *Server) handleUpdatePoloScore(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	delta, ok := msg["delta"].(float64)
 	if !ok {
 		return nil, fmt.Errorf("update_polo_score requires delta field")
+	}
+	if delta > maxPoloScore || delta < -maxPoloScore {
+		return nil, fmt.Errorf("polo score delta out of range (max %d)", maxPoloScore)
 	}
 
 	s.mu.Lock()
@@ -1447,7 +1463,13 @@ func (s *Server) handleUpdatePoloScore(msg map[string]interface{}) (map[string]i
 		return nil, fmt.Errorf("node %d not found", nodeID)
 	}
 
-	node.PoloScore += int(delta)
+	newScore := node.PoloScore + int(delta)
+	if newScore > maxPoloScore {
+		newScore = maxPoloScore
+	} else if newScore < -maxPoloScore {
+		newScore = -maxPoloScore
+	}
+	node.PoloScore = newScore
 	node.LastSeen = time.Now()
 	s.save()
 
@@ -1469,6 +1491,9 @@ func (s *Server) handleSetPoloScore(msg map[string]interface{}) (map[string]inte
 	poloScore, ok := msg["polo_score"].(float64)
 	if !ok {
 		return nil, fmt.Errorf("set_polo_score requires polo_score field")
+	}
+	if poloScore > maxPoloScore || poloScore < -maxPoloScore {
+		return nil, fmt.Errorf("polo score out of range (max %d)", maxPoloScore)
 	}
 
 	s.mu.Lock()
@@ -1976,6 +2001,21 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 					break
 				}
 			}
+		}
+	}
+
+	// Clean up pending invites for this network
+	for nodeID, invites := range s.inviteInbox {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if inv.NetworkID != netID {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, nodeID)
+		} else {
+			s.inviteInbox[nodeID] = remaining
 		}
 	}
 

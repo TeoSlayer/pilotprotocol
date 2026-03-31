@@ -611,3 +611,174 @@ func TestAdminDeregister(t *testing.T) {
 		t.Error("node should not be found after deregister")
 	}
 }
+
+// TestClearKeyExpiry verifies that a key expiry can be cleared, re-enabling
+// heartbeats that would otherwise be blocked.
+func TestClearKeyExpiry(t *testing.T) {
+	t.Parallel()
+
+	clk := newTestClock()
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	reg.SetClock(clk.Now)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	id, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+	setClientSigner(rc, id)
+
+	// Create enterprise network
+	if _, err := rc.CreateNetwork(nodeID, "clear-exp-test", "open", "", TestAdminToken, true); err != nil {
+		t.Fatalf("create enterprise network: %v", err)
+	}
+
+	// Set key expiry to 1 hour from now
+	if _, err := rc.SetKeyExpiryAdmin(nodeID, clk.Now().Add(1*time.Hour), TestAdminToken); err != nil {
+		t.Fatalf("set key expiry: %v", err)
+	}
+
+	// Advance past expiry
+	clk.Advance(2 * time.Hour)
+
+	// Heartbeat should be blocked
+	if _, err := rc.Heartbeat(nodeID); err == nil {
+		t.Fatal("heartbeat should be blocked with expired key")
+	}
+
+	// Clear the expiry
+	if _, err := rc.ClearKeyExpiryAdmin(nodeID, TestAdminToken); err != nil {
+		t.Fatalf("clear key expiry: %v", err)
+	}
+
+	// Heartbeat should now work
+	if _, err := rc.Heartbeat(nodeID); err != nil {
+		t.Fatalf("heartbeat after clearing expiry: %v", err)
+	}
+
+	// Verify key info no longer has expires_at
+	info, err := rc.GetKeyInfo(nodeID)
+	if err != nil {
+		t.Fatalf("get key info: %v", err)
+	}
+	if _, ok := info["expires_at"]; ok {
+		t.Error("key info should not have expires_at after clearing")
+	}
+
+	t.Logf("clear key expiry: heartbeat restored after clearing expired key")
+}
+
+// TestDeleteNetworkCleansInvites verifies that pending invites for a deleted
+// network are cleaned up from the invite inbox.
+func TestDeleteNetworkCleansInvites(t *testing.T) {
+	t.Parallel()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	owner, _ := registerTestNode(t, rc)
+	target, targetID := registerTestNode(t, rc)
+
+	// Create invite-only enterprise network
+	resp, err := rc.CreateNetwork(owner, "inv-cleanup-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Send invite to target
+	if _, err := rc.InviteToNetwork(netID, owner, target, TestAdminToken); err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Verify invite exists
+	setClientSigner(rc, targetID)
+	pollResp, err := rc.PollInvites(target)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 invite, got %d", len(invites))
+	}
+
+	// Delete the network
+	if _, err := rc.DeleteNetwork(netID, TestAdminToken); err != nil {
+		t.Fatalf("delete network: %v", err)
+	}
+
+	// Poll invites again — should be empty (invite was cleaned up)
+	pollResp2, err := rc.PollInvites(target)
+	if err != nil {
+		t.Fatalf("poll invites after delete: %v", err)
+	}
+	invites2 := pollResp2["invites"].([]interface{})
+	if len(invites2) != 0 {
+		t.Errorf("expected 0 invites after network delete, got %d", len(invites2))
+	}
+
+	t.Logf("delete network cleaned %d pending invites", len(invites)-len(invites2))
+}
+
+// TestPoloScoreBounds verifies that polo scores are clamped to the valid range.
+func TestPoloScoreBounds(t *testing.T) {
+	t.Parallel()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Setting a score beyond the limit should be rejected
+	_, err := rc.SetPoloScore(nodeID, 2_000_000)
+	if err == nil {
+		t.Error("expected error setting polo score beyond max")
+	}
+
+	_, err = rc.SetPoloScore(nodeID, -2_000_000)
+	if err == nil {
+		t.Error("expected error setting polo score below min")
+	}
+
+	// Setting within bounds should work
+	if _, err := rc.SetPoloScore(nodeID, 999_999); err != nil {
+		t.Fatalf("set polo score within bounds: %v", err)
+	}
+
+	score, err := rc.GetPoloScore(nodeID)
+	if err != nil {
+		t.Fatalf("get polo score: %v", err)
+	}
+	if score != 999_999 {
+		t.Errorf("polo score = %d, want 999999", score)
+	}
+
+	// Delta update should clamp (not overflow)
+	if _, err := rc.UpdatePoloScore(nodeID, 500_000); err != nil {
+		t.Fatalf("update polo score: %v", err)
+	}
+	score, err = rc.GetPoloScore(nodeID)
+	if err != nil {
+		t.Fatalf("get polo score after delta: %v", err)
+	}
+	if score != 1_000_000 {
+		t.Errorf("polo score should clamp to 1000000, got %d", score)
+	}
+
+	t.Logf("polo score bounds: clamping works correctly, max=%d", score)
+}

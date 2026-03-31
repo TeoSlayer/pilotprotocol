@@ -754,6 +754,16 @@ func (c *Client) SetKeyExpiryAdmin(nodeID uint32, expiresAt time.Time, adminToke
 	})
 }
 
+// ClearKeyExpiryAdmin removes the key expiry from a node using admin token auth.
+func (c *Client) ClearKeyExpiryAdmin(nodeID uint32, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_key_expiry",
+		"node_id":     nodeID,
+		"expires_at":  "never",
+		"admin_token": adminToken,
+	})
+}
+
 // DeregisterAdmin removes a node using admin token auth.
 func (c *Client) DeregisterAdmin(nodeID uint32, adminToken string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
