@@ -944,3 +944,12 @@ func (c *Client) DirectoryStatus(networkID uint16, adminToken string) (map[strin
 		"admin_token": adminToken,
 	})
 }
+
+// ValidateToken validates a JWT token against the configured IDP. Requires admin token.
+func (c *Client) ValidateToken(token, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "validate_token",
+		"token":       token,
+		"admin_token": adminToken,
+	})
+}

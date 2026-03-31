@@ -1,6 +1,9 @@
 package tests
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1112,4 +1115,249 @@ func TestIntegration_MetricsReflectOperations(t *testing.T) {
 		}
 	}
 	t.Logf("verified %d metric checks, body=%d bytes", len(checks), len(body))
+}
+
+// ============================================================
+// Integration Test: OIDC JWT token validation (built-in)
+// ============================================================
+// TDD: When IDP is configured as OIDC with a JWKS endpoint, the registry
+// should validate JWT tokens directly (decode, verify signature, check claims)
+// without needing an external webhook.
+
+func TestIntegration_OIDCJWTValidation(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock JWKS endpoint that serves our test key
+	secret := []byte("test-secret-key-for-hs256-signing")
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Serve a JWKS response with our HMAC key
+		// For HMAC, we serve as a symmetric key in JWK format
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"oct","k":"dGVzdC1zZWNyZXQta2V5LWZvci1oczI1Ni1zaWduaW5n","kid":"test-key-1","alg":"HS256"}]}`))
+	}))
+	defer jwksServer.Close()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Configure OIDC IDP with JWKS endpoint
+	_, err := rc.SetIDPConfig("oidc", jwksServer.URL, "https://auth.corp.example.com", "pilot-app", "", "", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set idp config: %v", err)
+	}
+
+	// Create a valid JWT token
+	validJWT := createTestJWT(t, secret, map[string]interface{}{
+		"iss": "https://auth.corp.example.com",
+		"aud": "pilot-app",
+		"sub": "user-12345@corp.example.com",
+		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	})
+
+	// Try to validate the token via the registry
+	resp, err := rc.Send(map[string]interface{}{
+		"type":        "validate_token",
+		"token":       validJWT,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Fatalf("validate token: %v", err)
+	}
+	if resp["type"] == "error" {
+		t.Fatalf("token validation returned error: %v", resp["error"])
+	}
+
+	verified, _ := resp["verified"].(bool)
+	subject, _ := resp["subject"].(string)
+	issuer, _ := resp["issuer"].(string)
+
+	if !verified {
+		t.Error("expected token to be verified")
+	}
+	if subject != "user-12345@corp.example.com" {
+		t.Errorf("expected subject=user-12345@corp.example.com, got %v", subject)
+	}
+	if issuer != "https://auth.corp.example.com" {
+		t.Errorf("expected issuer, got %v", issuer)
+	}
+
+	t.Logf("OIDC JWT validated: subject=%s issuer=%s", subject, issuer)
+
+	// Test expired token
+	expiredJWT := createTestJWT(t, secret, map[string]interface{}{
+		"iss": "https://auth.corp.example.com",
+		"aud": "pilot-app",
+		"sub": "expired@corp.example.com",
+		"exp": time.Now().Add(-1 * time.Hour).Unix(), // expired
+		"iat": time.Now().Add(-2 * time.Hour).Unix(),
+	})
+
+	resp2, err := rc.Send(map[string]interface{}{
+		"type":        "validate_token",
+		"token":       expiredJWT,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		// Expected — expired token should fail
+		t.Logf("expired token correctly rejected: %v", err)
+	} else {
+		verified2, _ := resp2["verified"].(bool)
+		if verified2 {
+			t.Error("expired token should not be verified")
+		} else {
+			t.Log("expired token correctly rejected via response")
+		}
+	}
+
+	// Test wrong issuer
+	wrongIssuerJWT := createTestJWT(t, secret, map[string]interface{}{
+		"iss": "https://evil.example.com",
+		"aud": "pilot-app",
+		"sub": "hacker@evil.com",
+		"exp": time.Now().Add(1 * time.Hour).Unix(),
+	})
+
+	resp3, err := rc.Send(map[string]interface{}{
+		"type":        "validate_token",
+		"token":       wrongIssuerJWT,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Logf("wrong issuer correctly rejected: %v", err)
+	} else {
+		verified3, _ := resp3["verified"].(bool)
+		if verified3 {
+			t.Error("wrong issuer token should not be verified")
+		} else {
+			t.Log("wrong issuer correctly rejected via response")
+		}
+	}
+
+	// Test malformed token
+	_, err = rc.Send(map[string]interface{}{
+		"type":        "validate_token",
+		"token":       "not-a-jwt-token",
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Logf("malformed token correctly rejected: %v", err)
+	} else {
+		t.Log("malformed token handled (may return verified=false)")
+	}
+}
+
+// createTestJWT creates an HS256-signed JWT for testing.
+func createTestJWT(t *testing.T, secret []byte, claims map[string]interface{}) string {
+	t.Helper()
+
+	header := base64URLEncode([]byte(`{"alg":"HS256","typ":"JWT","kid":"test-key-1"}`))
+
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	payload := base64URLEncode(claimsJSON)
+
+	signingInput := header + "." + payload
+
+	// HMAC-SHA256
+	mac := hmacSHA256([]byte(signingInput), secret)
+	signature := base64URLEncode(mac)
+
+	return signingInput + "." + signature
+}
+
+func base64URLEncode(data []byte) string {
+	encoded := base64.RawURLEncoding.EncodeToString(data)
+	return encoded
+}
+
+func hmacSHA256(message, key []byte) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write(message)
+	return h.Sum(nil)
+}
+
+// ============================================================
+// Integration Test: Splunk HEC receives actual audit events
+// ============================================================
+// Tightened: Wait for specific audit event types (not just config event).
+
+func TestIntegration_SplunkHECAuditEvents(t *testing.T) {
+	t.Parallel()
+
+	splunkToken := "splunk-audit-events-token"
+	splunk := newSplunkHECCollector(splunkToken)
+	defer splunk.Close()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Configure audit export first
+	_, err := rc.SetAuditExport("splunk_hec", splunk.URL(), splunkToken, "pilot-audit", "audit-test", TestAdminToken)
+	if err != nil {
+		t.Fatalf("set audit export: %v", err)
+	}
+
+	// Now do operations that generate audit events
+	ownerID, _ := registerTestNode(t, rc)
+	netResp, err := rc.CreateNetwork(ownerID, "splunk-audit-net", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(netResp["network_id"].(float64))
+	memberID, _ := registerTestNode(t, rc)
+	_, err = rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Wait for events to arrive (async export)
+	time.Sleep(500 * time.Millisecond)
+	if !splunk.WaitForEvents(3, 5*time.Second) {
+		events := splunk.Events()
+		t.Logf("only got %d events (wanted 3+)", len(events))
+	}
+
+	events := splunk.Events()
+	t.Logf("total Splunk HEC events: %d", len(events))
+
+	// Parse and check for specific audit actions
+	actions := map[string]bool{}
+	for _, raw := range events {
+		var ev map[string]interface{}
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			continue
+		}
+		event, _ := ev["event"].(map[string]interface{})
+		if event == nil {
+			continue
+		}
+		action, _ := event["action"].(string)
+		if action != "" {
+			actions[action] = true
+			t.Logf("  HEC event: action=%s", action)
+		}
+		// Verify structure
+		if ev["sourcetype"] != "pilot:audit" {
+			t.Errorf("wrong sourcetype: %v", ev["sourcetype"])
+		}
+	}
+
+	// We should see at least node.registered and network.created
+	// (network.joined/member.promoted may still be in the async channel)
+	expected := []string{"node.registered", "network.created"}
+	for _, exp := range expected {
+		if !actions[exp] {
+			t.Errorf("missing Splunk HEC event: %s (got: %v)", exp, actions)
+		}
+	}
+	if len(events) < 2 {
+		t.Errorf("expected at least 2 Splunk events, got %d", len(events))
+	}
 }

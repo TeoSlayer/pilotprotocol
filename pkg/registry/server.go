@@ -1246,6 +1246,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleDirectorySync(msg)
 	case "directory_status":
 		return s.handleGetDirectoryStatus(msg)
+	case "validate_token":
+		return s.handleValidateToken(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
