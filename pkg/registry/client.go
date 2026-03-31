@@ -843,3 +843,72 @@ func (c *Client) GetIdentity(nodeID uint32, adminToken string) (map[string]inter
 		"admin_token": adminToken,
 	})
 }
+
+// ProvisionNetwork applies a network blueprint. Requires admin token.
+func (c *Client) ProvisionNetwork(blueprint map[string]interface{}, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "provision_network",
+		"blueprint":   blueprint,
+		"admin_token": adminToken,
+	})
+}
+
+// SetAuditExport configures the audit export adapter. Requires admin token.
+func (c *Client) SetAuditExport(format, endpoint, token, index, source, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_audit_export",
+		"format":      format,
+		"endpoint":    endpoint,
+		"token":       token,
+		"index":       index,
+		"source":      source,
+		"admin_token": adminToken,
+	})
+}
+
+// GetAuditExport returns the current audit export configuration. Requires admin token.
+func (c *Client) GetAuditExport(adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_audit_export",
+		"admin_token": adminToken,
+	})
+}
+
+// SetIDPConfig configures the identity provider. Requires admin token.
+func (c *Client) SetIDPConfig(idpType, url, issuer, clientID, tenantID, domain, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":        "set_idp_config",
+		"idp_type":    idpType,
+		"url":         url,
+		"admin_token": adminToken,
+	}
+	if issuer != "" {
+		msg["issuer"] = issuer
+	}
+	if clientID != "" {
+		msg["client_id"] = clientID
+	}
+	if tenantID != "" {
+		msg["tenant_id"] = tenantID
+	}
+	if domain != "" {
+		msg["domain"] = domain
+	}
+	return c.Send(msg)
+}
+
+// GetIDPConfig returns the current identity provider configuration. Requires admin token.
+func (c *Client) GetIDPConfig(adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_idp_config",
+		"admin_token": adminToken,
+	})
+}
+
+// GetProvisionStatus returns per-network provisioning status. Requires admin token.
+func (c *Client) GetProvisionStatus(adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_provision_status",
+		"admin_token": adminToken,
+	})
+}

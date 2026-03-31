@@ -76,6 +76,7 @@ func (s *Server) verifyIdentityToken(token string) (string, error) {
 		return "", fmt.Errorf("identity webhook returned empty external_id")
 	}
 
+	s.metrics.idpVerifications.Inc()
 	slog.Info("identity verified", "external_id", result.ExternalID)
 	return result.ExternalID, nil
 }

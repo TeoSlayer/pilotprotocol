@@ -656,6 +656,14 @@ func main() {
 	// Enterprise admin commands (direct to registry)
 	case "audit":
 		cmdAudit(cmdArgs)
+	case "provision":
+		cmdProvision(cmdArgs)
+	case "idp":
+		cmdIDP(cmdArgs)
+	case "audit-export":
+		cmdAuditExport(cmdArgs)
+	case "provision-status":
+		cmdProvisionStatus()
 
 	// Management
 	case "connections":
@@ -4752,5 +4760,225 @@ func cmdAudit(args []string) {
 			line += fmt.Sprintf("  %v", details)
 		}
 		fmt.Println(line)
+	}
+}
+
+// --- Provisioning commands ---
+
+func cmdProvision(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl provision <blueprint.json>")
+	}
+	adminToken := requireAdminToken()
+
+	data, err := os.ReadFile(args[0])
+	if err != nil {
+		fatalCode("invalid_argument", "read blueprint: %v", err)
+	}
+
+	var blueprint map[string]interface{}
+	if err := json.Unmarshal(data, &blueprint); err != nil {
+		fatalCode("invalid_argument", "parse blueprint: %v", err)
+	}
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.ProvisionNetwork(blueprint, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "provision: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+		return
+	}
+
+	fmt.Printf("provisioned network %v (%s)\n", resp["network_id"], resp["name"])
+	if actions, ok := resp["actions"].([]interface{}); ok {
+		for _, a := range actions {
+			fmt.Printf("  - %v\n", a)
+		}
+	}
+}
+
+func cmdIDP(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl idp <get|set> [options]")
+	}
+	adminToken := requireAdminToken()
+
+	switch args[0] {
+	case "get":
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.GetIDPConfig(adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "idp get: %v", err)
+		}
+		if jsonOutput {
+			output(resp)
+		} else {
+			if resp["configured"] == true {
+				fmt.Printf("IdP: %v (%v)\n", resp["idp_type"], resp["url"])
+				if v := resp["issuer"]; v != nil && v != "" {
+					fmt.Printf("  issuer: %v\n", v)
+				}
+				if v := resp["tenant_id"]; v != nil && v != "" {
+					fmt.Printf("  tenant: %v\n", v)
+				}
+				if v := resp["client_id"]; v != nil && v != "" {
+					fmt.Printf("  client_id: %v\n", v)
+				}
+			} else {
+				fmt.Println("no identity provider configured")
+			}
+		}
+
+	case "set":
+		flags, _ := parseFlags(args[1:])
+		idpType := flagString(flags, "type", "")
+		url := flagString(flags, "url", "")
+		issuer := flagString(flags, "issuer", "")
+		clientID := flagString(flags, "client-id", "")
+		tenantID := flagString(flags, "tenant-id", "")
+		domain := flagString(flags, "domain", "")
+
+		if idpType == "" || url == "" {
+			fatalCode("invalid_argument", "usage: pilotctl idp set --type <oidc|saml|entra_id|ldap|webhook> --url <URL> [--issuer URL] [--client-id ID] [--tenant-id ID] [--domain D]")
+		}
+
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.SetIDPConfig(idpType, url, issuer, clientID, tenantID, domain, adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "idp set: %v", err)
+		}
+		if jsonOutput {
+			output(resp)
+		} else {
+			fmt.Printf("identity provider configured: %s (%s)\n", idpType, resp["status"])
+		}
+
+	default:
+		fatalCode("invalid_argument", "unknown idp subcommand: %s (use get or set)", args[0])
+	}
+}
+
+func cmdAuditExport(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl audit-export <get|set|disable> [options]")
+	}
+	adminToken := requireAdminToken()
+
+	switch args[0] {
+	case "get":
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.GetAuditExport(adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "audit-export get: %v", err)
+		}
+		if jsonOutput {
+			output(resp)
+		} else {
+			if resp["enabled"] == true {
+				fmt.Printf("audit export: %v → %v\n", resp["format"], resp["endpoint"])
+				if v := resp["exported"]; v != nil {
+					fmt.Printf("  exported: %v, dropped: %v\n", v, resp["dropped"])
+				}
+			} else {
+				fmt.Println("audit export not configured")
+			}
+		}
+
+	case "set":
+		flags, _ := parseFlags(args[1:])
+		format := flagString(flags, "format", "")
+		endpoint := flagString(flags, "endpoint", "")
+		token := flagString(flags, "splunk-token", "")
+		index := flagString(flags, "index", "")
+		source := flagString(flags, "source", "pilot-registry")
+
+		if format == "" || endpoint == "" {
+			fatalCode("invalid_argument", "usage: pilotctl audit-export set --format <json|splunk_hec|syslog_cef> --endpoint <URL> [--splunk-token T] [--index I] [--source S]")
+		}
+
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.SetAuditExport(format, endpoint, token, index, source, adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "audit-export set: %v", err)
+		}
+		if jsonOutput {
+			output(resp)
+		} else {
+			fmt.Printf("audit export configured: %s → %s\n", format, endpoint)
+		}
+
+	case "disable":
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.SetAuditExport("", "", "", "", "", adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "audit-export disable: %v", err)
+		}
+		if jsonOutput {
+			output(resp)
+		} else {
+			fmt.Println("audit export disabled")
+		}
+
+	default:
+		fatalCode("invalid_argument", "unknown audit-export subcommand: %s (use get, set, or disable)", args[0])
+	}
+}
+
+func cmdProvisionStatus() {
+	adminToken := requireAdminToken()
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.GetProvisionStatus(adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "provision-status: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+		return
+	}
+
+	if v := resp["idp_type"]; v != nil {
+		fmt.Printf("identity provider: %v\n", v)
+	}
+	if v := resp["audit_export"]; v != nil {
+		fmt.Printf("audit export: %v\n", v)
+	}
+	if v := resp["webhook_enabled"]; v == true {
+		fmt.Println("webhook: enabled")
+	}
+	fmt.Println()
+
+	networks, ok := resp["networks"].([]interface{})
+	if !ok || len(networks) == 0 {
+		fmt.Println("no networks provisioned")
+		return
+	}
+	fmt.Printf("%-6s %-20s %-12s %-10s %-8s %s\n", "ID", "Name", "Enterprise", "Members", "Rule", "Pre-Assign")
+	for _, n := range networks {
+		net, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		enterprise := "no"
+		if net["enterprise"] == true {
+			enterprise = "yes"
+		}
+		preAssign := ""
+		if v := net["rbac_pre_assignments"]; v != nil && v != float64(0) {
+			preAssign = fmt.Sprintf("%v roles", v)
+		}
+		fmt.Printf("%-6v %-20v %-12s %-10v %-8v %s\n",
+			net["network_id"], net["name"], enterprise,
+			net["members"], net["join_rule"], preAssign)
 	}
 }

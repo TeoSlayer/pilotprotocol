@@ -217,6 +217,13 @@ type registryMetrics struct {
 	rbacOps            *counterVec // pilot_rbac_operations_total{op="..."}
 	policyChanges      counter    // pilot_policy_changes_total
 	keyRotations       counter    // pilot_key_rotations_total
+
+	// Provisioning counters
+	provisionsTotal    counter // pilot_provisions_total
+	auditExportsTotal  counter // pilot_audit_exports_total
+	auditExportErrors  counter // pilot_audit_export_errors_total
+	idpVerifications   counter // pilot_idp_verifications_total
+	rbacPreAssignments counter // pilot_rbac_pre_assignments_total
 }
 
 func newRegistryMetrics() *registryMetrics {
@@ -391,6 +398,26 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeHelp(&b, "pilot_key_rotations_total", "Total number of key rotations.")
 	writeType(&b, "pilot_key_rotations_total", "counter")
 	writeMetric(&b, "pilot_key_rotations_total", m.keyRotations.Get())
+
+	writeHelp(&b, "pilot_provisions_total", "Total number of network provisions.")
+	writeType(&b, "pilot_provisions_total", "counter")
+	writeMetric(&b, "pilot_provisions_total", m.provisionsTotal.Get())
+
+	writeHelp(&b, "pilot_audit_exports_total", "Total audit events exported to external systems.")
+	writeType(&b, "pilot_audit_exports_total", "counter")
+	writeMetric(&b, "pilot_audit_exports_total", m.auditExportsTotal.Get())
+
+	writeHelp(&b, "pilot_audit_export_errors_total", "Total audit export errors.")
+	writeType(&b, "pilot_audit_export_errors_total", "counter")
+	writeMetric(&b, "pilot_audit_export_errors_total", m.auditExportErrors.Get())
+
+	writeHelp(&b, "pilot_idp_verifications_total", "Total identity provider verifications.")
+	writeType(&b, "pilot_idp_verifications_total", "counter")
+	writeMetric(&b, "pilot_idp_verifications_total", m.idpVerifications.Get())
+
+	writeHelp(&b, "pilot_rbac_pre_assignments_total", "Total RBAC pre-assignment applications.")
+	writeType(&b, "pilot_rbac_pre_assignments_total", "counter")
+	writeMetric(&b, "pilot_rbac_pre_assignments_total", m.rbacPreAssignments.Get())
 
 	n, err := io.WriteString(w, b.String())
 	return int64(n), err

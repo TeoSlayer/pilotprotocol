@@ -112,7 +112,7 @@ func (s *Server) requireNetworkRole(msg map[string]interface{}, netID uint16, al
 // When log-format=json, these are filterable via jq 'select(.msg=="audit")'.
 func (s *Server) audit(action string, attrs ...any) {
 	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
-	s.appendAudit(action, 0, 0, attrs...)
+	entry := s.appendAudit(action, 0, 0, attrs...)
 	s.metrics.auditEventsTotal.Inc()
 	if s.webhook != nil {
 		details := make(map[string]interface{}, len(attrs)/2)
@@ -122,6 +122,9 @@ func (s *Server) audit(action string, attrs ...any) {
 			}
 		}
 		s.webhook.Emit(action, details)
+	}
+	if s.auditExporter != nil && entry != nil {
+		s.auditExporter.Export(entry)
 	}
 }
 
@@ -172,7 +175,7 @@ func (s *Server) auditEnterprise(netID uint16, action string, attrs ...any) {
 const maxAuditEntries = 1000
 
 // appendAudit adds an entry to the in-memory audit ring buffer.
-func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs ...any) {
+func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs ...any) *AuditEntry {
 	// Extract node_id and network_id from attrs if not explicitly provided
 	for i := 0; i+1 < len(attrs); i += 2 {
 		k, ok := attrs[i].(string)
@@ -225,6 +228,7 @@ func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs .
 	}
 	s.auditLog = append(s.auditLog, entry)
 	s.auditMu.Unlock()
+	return &entry
 }
 
 type Server struct {
@@ -288,6 +292,16 @@ type Server struct {
 
 	// Identity verification webhook URL (POST id_token → get verified identity)
 	identityWebhookURL string
+
+	// Identity provider configuration (set via blueprint or protocol)
+	idpConfig *BlueprintIdentityProvider
+
+	// Audit export adapter (Splunk HEC, syslog/CEF, JSON)
+	auditExporter     *AuditExporter
+	auditExportConfig *BlueprintAuditExport
+
+	// RBAC pre-assignments: networkID -> roles that auto-apply when matching nodes join
+	rbacPreAssign map[uint16][]BlueprintRole
 
 	// Clock (overridable for testing)
 	now func() time.Time
@@ -970,6 +984,9 @@ func (s *Server) Close() error {
 	if s.webhook != nil {
 		s.webhook.Close()
 	}
+	if s.auditExporter != nil {
+		s.auditExporter.Close()
+	}
 	if s.listener != nil {
 		return s.listener.Close()
 	}
@@ -1211,6 +1228,18 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetExternalID(msg)
 	case "get_identity":
 		return s.handleGetIdentity(msg)
+	case "provision_network":
+		return s.handleProvisionNetwork(msg)
+	case "set_audit_export":
+		return s.handleSetAuditExport(msg)
+	case "get_audit_export":
+		return s.handleGetAuditExport(msg)
+	case "get_idp_config":
+		return s.handleGetIDPConfig(msg)
+	case "set_idp_config":
+		return s.handleSetIDPConfig(msg)
+	case "get_provision_status":
+		return s.handleGetProvisionStatus(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -1664,6 +1693,212 @@ func (s *Server) handleGetIdentity(msg map[string]interface{}) (map[string]inter
 		"external_id": node.ExternalID,
 		"owner":       node.Owner,
 	}, nil
+}
+
+// handleSetAuditExport configures the audit export adapter. Requires admin token.
+func (s *Server) handleSetAuditExport(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	format, _ := msg["format"].(string)
+	endpoint, _ := msg["endpoint"].(string)
+	token, _ := msg["token"].(string)
+	index, _ := msg["index"].(string)
+	source, _ := msg["source"].(string)
+
+	if format == "" || endpoint == "" {
+		// Disable export
+		s.mu.Lock()
+		if s.auditExporter != nil {
+			s.auditExporter.Close()
+			s.auditExporter = nil
+		}
+		s.auditExportConfig = nil
+		s.mu.Unlock()
+		return map[string]interface{}{
+			"type":   "set_audit_export_ok",
+			"status": "disabled",
+		}, nil
+	}
+
+	cfg := &BlueprintAuditExport{
+		Format:   format,
+		Endpoint: endpoint,
+		Token:    token,
+		Index:    index,
+		Source:   source,
+	}
+
+	s.mu.Lock()
+	if s.auditExporter != nil {
+		s.auditExporter.Close()
+	}
+	s.auditExporter = newAuditExporter(cfg)
+	s.auditExportConfig = cfg
+	s.mu.Unlock()
+
+	s.audit("audit_export.configured", "format", format, "endpoint", endpoint)
+	return map[string]interface{}{
+		"type":     "set_audit_export_ok",
+		"status":   "enabled",
+		"format":   format,
+		"endpoint": endpoint,
+	}, nil
+}
+
+// handleGetAuditExport returns the current audit export configuration.
+func (s *Server) handleGetAuditExport(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	cfg := s.auditExportConfig
+	exp := s.auditExporter
+	s.mu.RUnlock()
+
+	resp := map[string]interface{}{
+		"type":    "get_audit_export_ok",
+		"enabled": cfg != nil,
+	}
+	if cfg != nil {
+		resp["format"] = cfg.Format
+		resp["endpoint"] = cfg.Endpoint
+		if exp != nil {
+			exported, dropped := exp.Stats()
+			resp["exported"] = exported
+			resp["dropped"] = dropped
+		}
+	}
+	return resp, nil
+}
+
+// handleSetIDPConfig configures the identity provider. Requires admin token.
+func (s *Server) handleSetIDPConfig(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+
+	idpType, _ := msg["idp_type"].(string)
+	url, _ := msg["url"].(string)
+
+	if idpType == "" || url == "" {
+		// Clear IDP config
+		s.mu.Lock()
+		s.idpConfig = nil
+		s.identityWebhookURL = ""
+		s.mu.Unlock()
+		return map[string]interface{}{
+			"type":   "set_idp_config_ok",
+			"status": "disabled",
+		}, nil
+	}
+
+	cfg := &BlueprintIdentityProvider{
+		Type: idpType,
+		URL:  url,
+	}
+	if v, ok := msg["issuer"].(string); ok {
+		cfg.Issuer = v
+	}
+	if v, ok := msg["client_id"].(string); ok {
+		cfg.ClientID = v
+	}
+	if v, ok := msg["tenant_id"].(string); ok {
+		cfg.TenantID = v
+	}
+	if v, ok := msg["domain"].(string); ok {
+		cfg.Domain = v
+	}
+
+	s.mu.Lock()
+	s.idpConfig = cfg
+	s.identityWebhookURL = url
+	s.mu.Unlock()
+
+	s.audit("idp.configured", "type", idpType, "url", url)
+	return map[string]interface{}{
+		"type":     "set_idp_config_ok",
+		"status":   "enabled",
+		"idp_type": idpType,
+	}, nil
+}
+
+// handleGetIDPConfig returns the current identity provider configuration.
+func (s *Server) handleGetIDPConfig(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	cfg := s.GetIdentityProviderConfig()
+	resp := map[string]interface{}{
+		"type":       "get_idp_config_ok",
+		"configured": cfg != nil,
+	}
+	if cfg != nil {
+		resp["idp_type"] = cfg.Type
+		resp["url"] = cfg.URL
+		if cfg.Issuer != "" {
+			resp["issuer"] = cfg.Issuer
+		}
+		if cfg.ClientID != "" {
+			resp["client_id"] = cfg.ClientID
+		}
+		if cfg.TenantID != "" {
+			resp["tenant_id"] = cfg.TenantID
+		}
+		if cfg.Domain != "" {
+			resp["domain"] = cfg.Domain
+		}
+	}
+	return resp, nil
+}
+
+// handleGetProvisionStatus returns per-network provisioning details.
+func (s *Server) handleGetProvisionStatus(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var networks []map[string]interface{}
+	for _, net := range s.networks {
+		if net.ID == 0 {
+			continue // skip backbone
+		}
+		entry := map[string]interface{}{
+			"network_id": net.ID,
+			"name":       net.Name,
+			"enterprise": net.Enterprise,
+			"members":    len(net.Members),
+			"join_rule":  net.JoinRule,
+		}
+		if net.Policy.MaxMembers > 0 {
+			entry["max_members"] = net.Policy.MaxMembers
+		}
+		if len(net.Policy.AllowedPorts) > 0 {
+			entry["allowed_ports"] = net.Policy.AllowedPorts
+		}
+		if roles, ok := s.rbacPreAssign[net.ID]; ok {
+			entry["rbac_pre_assignments"] = len(roles)
+		}
+		networks = append(networks, entry)
+	}
+
+	resp := map[string]interface{}{
+		"type":     "get_provision_status_ok",
+		"networks": networks,
+	}
+	if s.idpConfig != nil {
+		resp["idp_type"] = s.idpConfig.Type
+	}
+	if s.auditExportConfig != nil {
+		resp["audit_export"] = s.auditExportConfig.Format
+	}
+	if s.webhook != nil {
+		resp["webhook_enabled"] = true
+	}
+	return resp, nil
 }
 
 // maxPoloScore defines the valid range for polo scores.
@@ -2121,6 +2356,9 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	network.MemberRoles[nodeID] = RoleMember
 	node.Networks = append(node.Networks, netID)
 	s.save()
+
+	// Check RBAC pre-assignments (upgrade role if external_id matches)
+	s.applyRBACPreAssignmentLocked(netID, nodeID)
 
 	addr := protocol.Addr{Network: netID, Node: nodeID}
 
