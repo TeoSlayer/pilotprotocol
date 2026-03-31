@@ -179,6 +179,27 @@ func loadConfig() map[string]interface{} {
 	return cfg
 }
 
+func getAdminToken() string {
+	if v := os.Getenv("PILOT_ADMIN_TOKEN"); v != "" {
+		return v
+	}
+	cfg := loadConfig()
+	if s, ok := cfg["admin_token"].(string); ok && s != "" {
+		return s
+	}
+	return ""
+}
+
+func requireAdminToken() string {
+	token := getAdminToken()
+	if token == "" {
+		fatalHint("auth_required",
+			"set PILOT_ADMIN_TOKEN env var or admin_token in ~/.pilot/config.json",
+			"admin token required for this operation")
+	}
+	return token
+}
+
 func saveConfig(cfg map[string]interface{}) error {
 	dir := configDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -589,7 +610,7 @@ func main() {
 	case "network":
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: list, join, leave, members, invite, invites, accept, reject",
+				"available: list, join, leave, members, invite, invites, accept, reject, create, delete, rename, promote, demote, kick, role, policy",
 				"usage: pilotctl network <subcommand>")
 		}
 		switch cmdArgs[0] {
@@ -609,11 +630,32 @@ func main() {
 			cmdNetworkAccept(cmdArgs[1:])
 		case "reject":
 			cmdNetworkReject(cmdArgs[1:])
+		// Enterprise operations (direct to registry, require admin token)
+		case "create":
+			cmdNetworkCreate(cmdArgs[1:])
+		case "delete":
+			cmdNetworkDelete(cmdArgs[1:])
+		case "rename":
+			cmdNetworkRename(cmdArgs[1:])
+		case "promote":
+			cmdNetworkPromote(cmdArgs[1:])
+		case "demote":
+			cmdNetworkDemote(cmdArgs[1:])
+		case "kick":
+			cmdNetworkKick(cmdArgs[1:])
+		case "role":
+			cmdNetworkRole(cmdArgs[1:])
+		case "policy":
+			cmdNetworkPolicy(cmdArgs[1:])
 		default:
 			fatalHint("invalid_argument",
-				"available: list, join, leave, members, invite, invites, accept, reject",
+				"available: list, join, leave, members, invite, invites, accept, reject, create, delete, rename, promote, demote, kick, role, policy",
 				"unknown network subcommand: %s", cmdArgs[0])
 		}
+
+	// Enterprise admin commands (direct to registry)
+	case "audit":
+		cmdAudit(cmdArgs)
 
 	// Management
 	case "connections":
@@ -4434,5 +4476,281 @@ func cmdNetworkReject(args []string) {
 		output(result)
 	} else {
 		fmt.Printf("rejected invite to network %d\n", netID)
+	}
+}
+
+// --- Enterprise network commands (direct to registry, admin token required) ---
+
+func cmdNetworkCreate(args []string) {
+	flags, _ := parseFlags(args)
+	name := flagString(flags, "name", "")
+	joinRule := flagString(flags, "join-rule", "open")
+	token := flagString(flags, "token", "")
+	enterprise := flagBool(flags, "enterprise")
+	nodeIDStr := flagString(flags, "node-id", "0")
+	networkAdminToken := flagString(flags, "network-admin-token", "")
+
+	if name == "" {
+		fatalCode("invalid_argument", "usage: pilotctl network create --name <name> [--join-rule open|token|invite] [--token T] [--enterprise] [--node-id N]")
+	}
+
+	adminToken := requireAdminToken()
+	nodeID := parseNodeID(nodeIDStr)
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	var resp map[string]interface{}
+	var err error
+	if networkAdminToken != "" {
+		resp, err = rc.CreateNetwork(nodeID, name, joinRule, token, adminToken, enterprise, networkAdminToken)
+	} else {
+		resp, err = rc.CreateNetwork(nodeID, name, joinRule, token, adminToken, enterprise)
+	}
+	if err != nil {
+		fatalCode("connection_failed", "network create: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("created network %v: %s (join_rule=%s, enterprise=%v)\n",
+			resp["network_id"], name, joinRule, enterprise)
+	}
+}
+
+func cmdNetworkDelete(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network delete <network_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.DeleteNetwork(netID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network delete: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("deleted network %d\n", netID)
+	}
+}
+
+func cmdNetworkRename(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network rename <network_id> <new_name>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	name := args[1]
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.RenameNetwork(netID, name, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network rename: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("renamed network %d to %q\n", netID, name)
+	}
+}
+
+func cmdNetworkPromote(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network promote <network_id> <target_node_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	targetNodeID := parseNodeID(args[1])
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	// Use node_id=0 since we're authenticating with admin token, not RBAC
+	resp, err := rc.PromoteMember(netID, 0, targetNodeID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network promote: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("promoted node %d to admin in network %d\n", targetNodeID, netID)
+	}
+}
+
+func cmdNetworkDemote(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network demote <network_id> <target_node_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	targetNodeID := parseNodeID(args[1])
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.DemoteMember(netID, 0, targetNodeID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network demote: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("demoted node %d to member in network %d\n", targetNodeID, netID)
+	}
+}
+
+func cmdNetworkKick(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network kick <network_id> <target_node_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	targetNodeID := parseNodeID(args[1])
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.KickMember(netID, 0, targetNodeID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network kick: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("kicked node %d from network %d\n", targetNodeID, netID)
+	}
+}
+
+func cmdNetworkRole(args []string) {
+	if len(args) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl network role <network_id> <node_id>")
+	}
+	netID := parseUint16(args[0], "network_id")
+	nodeID := parseNodeID(args[1])
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.GetMemberRole(netID, nodeID)
+	if err != nil {
+		fatalCode("connection_failed", "network role: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("node %d in network %d: role=%v\n", nodeID, netID, resp["role"])
+	}
+}
+
+func cmdNetworkPolicy(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl network policy <network_id> [--set key=value ...]")
+	}
+	netID := parseUint16(args[0], "network_id")
+
+	// Check if we're setting or getting
+	setArgs := args[1:]
+	if len(setArgs) == 0 {
+		// GET policy
+		rc := connectRegistry()
+		defer rc.Close()
+		resp, err := rc.GetNetworkPolicy(netID)
+		if err != nil {
+			fatalCode("connection_failed", "network policy: %v", err)
+		}
+		output(resp)
+		return
+	}
+
+	// SET policy
+	adminToken := requireAdminToken()
+	policy := make(map[string]interface{})
+	flags, _ := parseFlags(setArgs)
+	if v := flagString(flags, "max-members", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			fatalCode("invalid_argument", "invalid max-members: %v", err)
+		}
+		policy["max_members"] = float64(n)
+	}
+	if v := flagString(flags, "description", ""); v != "" {
+		policy["description"] = v
+	}
+	if v := flagString(flags, "allowed-ports", ""); v != "" {
+		var ports []interface{}
+		for _, p := range strings.Split(v, ",") {
+			pv, err := strconv.Atoi(strings.TrimSpace(p))
+			if err != nil {
+				fatalCode("invalid_argument", "invalid port %q: %v", p, err)
+			}
+			ports = append(ports, float64(pv))
+		}
+		policy["allowed_ports"] = ports
+	}
+
+	rc := connectRegistry()
+	defer rc.Close()
+	resp, err := rc.SetNetworkPolicy(netID, policy, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "network policy set: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("updated policy for network %d\n", netID)
+	}
+}
+
+func cmdAudit(args []string) {
+	adminToken := requireAdminToken()
+	flags, _ := parseFlags(args)
+	netIDStr := flagString(flags, "network", "0")
+	netID := parseUint16(netIDStr, "network_id")
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	resp, err := rc.GetAuditLog(netID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "audit: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+		return
+	}
+	entries, ok := resp["entries"].([]interface{})
+	if !ok || len(entries) == 0 {
+		fmt.Println("no audit entries")
+		return
+	}
+	for _, e := range entries {
+		entry, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ts := entry["timestamp"]
+		action := entry["action"]
+		nodeID := entry["node_id"]
+		netID := entry["network_id"]
+		details := entry["details"]
+
+		line := fmt.Sprintf("%-30v  %-30v", ts, action)
+		if nodeID != nil && nodeID != float64(0) {
+			line += fmt.Sprintf("  node=%v", nodeID)
+		}
+		if netID != nil && netID != float64(0) {
+			line += fmt.Sprintf("  net=%v", netID)
+		}
+		if details != nil && details != "" {
+			line += fmt.Sprintf("  %v", details)
+		}
+		fmt.Println(line)
 	}
 }
