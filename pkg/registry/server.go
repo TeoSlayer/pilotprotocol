@@ -2911,19 +2911,6 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		return nil, fmt.Errorf("no pending invite for node %d to network %d", nodeID, netID)
 	}
 
-	// Remove the consumed invite from the inbox
-	remaining := make([]*NetworkInvite, 0, len(s.inviteInbox[nodeID]))
-	for _, inv := range s.inviteInbox[nodeID] {
-		if inv.NetworkID != netID {
-			remaining = append(remaining, inv)
-		}
-	}
-	if len(remaining) == 0 {
-		delete(s.inviteInbox, nodeID)
-	} else {
-		s.inviteInbox[nodeID] = remaining
-	}
-
 	if accept {
 		network, ok := s.networks[netID]
 		if !ok {
@@ -2934,7 +2921,7 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 			return nil, fmt.Errorf("enterprise feature: requires enterprise network")
 		}
 
-		// Check membership limit
+		// Check membership limit (don't consume invite if full — user can retry later)
 		if network.Policy.MaxMembers > 0 && len(network.Members) >= network.Policy.MaxMembers {
 			return nil, fmt.Errorf("network membership limit reached")
 		}
@@ -2952,12 +2939,26 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		}
 		network.MemberRoles[nodeID] = RoleMember
 		node.Networks = append(node.Networks, netID)
-		s.save()
 
 		slog.Info("invite accepted, node joined network", "node_id", nodeID, "network_id", netID, "name", network.Name)
 	} else {
 		slog.Info("invite rejected", "node_id", nodeID, "network_id", netID)
 	}
+
+	// Consume the invite only after successful accept or explicit reject
+	remaining := make([]*NetworkInvite, 0, len(s.inviteInbox[nodeID]))
+	for _, inv := range s.inviteInbox[nodeID] {
+		if inv.NetworkID != netID {
+			remaining = append(remaining, inv)
+		}
+	}
+	if len(remaining) == 0 {
+		delete(s.inviteInbox, nodeID)
+	} else {
+		s.inviteInbox[nodeID] = remaining
+	}
+
+	s.save()
 	s.audit("invite.responded", "node_id", nodeID, "network_id", netID, "accepted", accept)
 
 	return map[string]interface{}{

@@ -4484,3 +4484,143 @@ func TestSelfKickAdmin(t *testing.T) {
 	}
 	t.Log("self-kick works correctly")
 }
+
+// TestInviteNotConsumedWhenFull verifies that accepting an invite when the
+// network is full preserves the invite for retry.
+func TestInviteNotConsumedWhenFull(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+	inviteeID, inviteeIdentity := registerTestNode(t, rc)
+
+	// Create enterprise network with max_members=2
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "full-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set max_members=2 (owner + one member fills it)
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(2),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// Invite and join member (fills the network to capacity)
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite member: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept member invite: %v", err)
+	}
+
+	// Invite invitee
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, inviteeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite invitee: %v", err)
+	}
+
+	// Try to accept — should fail (network full)
+	setClientSigner(rc, inviteeIdentity)
+	_, err = rc.RespondInvite(inviteeID, netID, true)
+	if err == nil {
+		t.Fatal("expected error: network should be full")
+	}
+	t.Logf("accept when full correctly rejected: %v", err)
+
+	// Verify invite is still pending (not consumed)
+	pollResp, err := rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites, ok := pollResp["invites"].([]interface{})
+	if !ok || len(invites) == 0 {
+		t.Fatal("invite should still be pending after network-full rejection")
+	}
+	t.Log("invite preserved when network full — user can retry")
+
+	// Now kick a member to make room
+	_, err = rc.KickMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("kick member: %v", err)
+	}
+
+	// Retry accepting — should succeed now
+	setClientSigner(rc, inviteeIdentity)
+	_, err = rc.RespondInvite(inviteeID, netID, true)
+	if err != nil {
+		t.Fatalf("retry accept should succeed: %v", err)
+	}
+
+	// Verify invitee is now a member
+	role, err := rc.GetMemberRole(netID, inviteeID)
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	if role["role"] != "member" {
+		t.Errorf("expected member role, got %v", role["role"])
+	}
+	t.Log("invite retry after room made worked correctly")
+}
+
+// TestJoinMaxMembersEnforced verifies that join_network respects max_members policy.
+func TestJoinMaxMembersEnforced(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+	extraID, _ := registerTestNode(t, rc)
+
+	// Create enterprise open network with max_members=2
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "limit-test", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(2),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// First join should succeed (use raw send to bypass wrong signer)
+	_, err = rc.Send(map[string]interface{}{
+		"type":        "join_network",
+		"node_id":     memberID,
+		"network_id":  netID,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Fatalf("first join: %v", err)
+	}
+
+	// Second join should fail (network full: owner + member = 2)
+	_, err = rc.Send(map[string]interface{}{
+		"type":        "join_network",
+		"node_id":     extraID,
+		"network_id":  netID,
+		"admin_token": TestAdminToken,
+	})
+	if err == nil {
+		t.Error("expected error: network should be full")
+	} else {
+		t.Logf("join when full correctly rejected: %v", err)
+	}
+
+	t.Log("max_members correctly enforced on join_network")
+}
