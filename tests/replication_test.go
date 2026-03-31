@@ -742,3 +742,205 @@ func TestReplicationEnterpriseData(t *testing.T) {
 	t.Logf("enterprise data survived replication + failover: network=%d, nodes=%s",
 		netID, fmt.Sprintf("%d,%d,%d", nodeID1, nodeID2, nodeID3))
 }
+
+// TestReplicationTokenValidation verifies that the H4 fix correctly rejects
+// replication subscriptions with wrong or missing tokens.
+func TestReplicationTokenValidation(t *testing.T) {
+	t.Parallel()
+	tmpDir, err := os.MkdirTemp("/tmp", "w4-repl-auth-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Start primary with replication token
+	primary := registry.NewWithStore("127.0.0.1:9001", filepath.Join(tmpDir, "primary.json"))
+	primary.SetReplicationToken("correct-token")
+	go primary.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-primary.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("primary failed to start")
+	}
+	defer primary.Close()
+	primaryAddr := primary.Addr().String()
+
+	// Test 1: Standby with WRONG token should not receive data
+	wrongStandby := registry.NewWithStore("127.0.0.1:9001", filepath.Join(tmpDir, "wrong.json"))
+	wrongStandby.SetReplicationToken("wrong-token")
+	wrongStandby.SetStandby(primaryAddr)
+	go wrongStandby.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-wrongStandby.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("wrong standby failed to start")
+	}
+	defer wrongStandby.Close()
+
+	// Register a node on primary to trigger a snapshot push
+	rc, err := registry.Dial(primaryAddr)
+	if err != nil {
+		t.Fatalf("dial primary: %v", err)
+	}
+	defer rc.Close()
+
+	id, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	nodeID := uint32(resp["node_id"].(float64))
+
+	// Wait a moment, then verify wrong-token standby does NOT have the node
+	time.Sleep(500 * time.Millisecond)
+	wsc, err := registry.Dial(wrongStandby.Addr().String())
+	if err != nil {
+		t.Fatalf("dial wrong standby: %v", err)
+	}
+	defer wsc.Close()
+
+	_, lookupErr := wsc.Lookup(nodeID)
+	if lookupErr == nil {
+		t.Error("wrong-token standby should NOT have received data from primary")
+	} else {
+		t.Logf("correctly rejected: wrong-token standby has no data: %v", lookupErr)
+	}
+
+	// Test 2: Standby with CORRECT token should receive data
+	correctStandby := registry.NewWithStore("127.0.0.1:9001", filepath.Join(tmpDir, "correct.json"))
+	correctStandby.SetReplicationToken("correct-token")
+	correctStandby.SetStandby(primaryAddr)
+	go correctStandby.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-correctStandby.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("correct standby failed to start")
+	}
+	defer correctStandby.Close()
+
+	csc, err := registry.Dial(correctStandby.Addr().String())
+	if err != nil {
+		t.Fatalf("dial correct standby: %v", err)
+	}
+	defer csc.Close()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		_, lookupErr := csc.Lookup(nodeID)
+		if lookupErr == nil {
+			t.Logf("correct-token standby has node %d", nodeID)
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for correct-token standby: %v", lookupErr)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// TestListNodesEnrichedFields verifies that list_nodes includes role, polo_score,
+// tags, public fields for enterprise network members.
+func TestListNodesEnrichedFields(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New("127.0.0.1:9001")
+	reg.SetAdminToken(TestAdminToken)
+	go reg.ListenAndServe(":0")
+	select {
+	case <-reg.Ready():
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry failed to start")
+	}
+	defer reg.Close()
+
+	rc, err := registry.Dial(reg.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer rc.Close()
+
+	// Setup: enterprise network with 2 members, varied properties
+	owner, _ := registerTestNode(t, rc)
+	member, _ := registerTestNode(t, rc)
+
+	resp, err := rc.CreateNetwork(owner, "enriched-list-test", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	if _, err := rc.JoinNetwork(member, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// Set properties on owner
+	if _, err := rc.SetTagsAdmin(owner, []string{"gpu", "arm64"}, TestAdminToken); err != nil {
+		t.Fatalf("set tags: %v", err)
+	}
+	if _, err := rc.SetVisibilityAdmin(owner, true, TestAdminToken); err != nil {
+		t.Fatalf("set visibility: %v", err)
+	}
+	if _, err := rc.SetPoloScore(owner, 75); err != nil {
+		t.Fatalf("set polo score: %v", err)
+	}
+
+	// Promote member to admin
+	if _, err := rc.PromoteMember(netID, owner, member, TestAdminToken); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// List nodes
+	listResp, err := rc.ListNodes(netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("list nodes: %v", err)
+	}
+	nodes := listResp["nodes"].([]interface{})
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+
+	for _, n := range nodes {
+		entry := n.(map[string]interface{})
+		nid := uint32(entry["node_id"].(float64))
+
+		if nid == owner {
+			// Check role
+			if role, ok := entry["role"].(string); !ok || role != "owner" {
+				t.Errorf("owner role = %q, want owner", role)
+			}
+			// Check public
+			if pub, ok := entry["public"].(bool); !ok || !pub {
+				t.Error("owner public should be true")
+			}
+			// Check polo_score
+			if ps, ok := entry["polo_score"].(float64); !ok || int(ps) != 75 {
+				t.Errorf("owner polo_score = %v, want 75", entry["polo_score"])
+			}
+			// Check tags
+			if tags, ok := entry["tags"].([]interface{}); ok {
+				if len(tags) != 2 {
+					t.Errorf("owner tags count = %d, want 2", len(tags))
+				}
+			} else {
+				t.Error("owner missing tags field")
+			}
+			// Check last_seen
+			if _, ok := entry["last_seen"].(string); !ok {
+				t.Error("owner missing last_seen field")
+			}
+		}
+
+		if nid == member {
+			if role, ok := entry["role"].(string); !ok || role != "admin" {
+				t.Errorf("member role = %q, want admin", role)
+			}
+			// polo_score should default to 0
+			if ps, ok := entry["polo_score"].(float64); ok && int(ps) != 0 {
+				t.Errorf("member polo_score = %v, want 0", entry["polo_score"])
+			}
+		}
+	}
+
+	t.Logf("list_nodes enriched fields: all present for %d members", len(nodes))
+}
