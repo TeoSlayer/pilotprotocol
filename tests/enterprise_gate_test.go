@@ -2164,3 +2164,214 @@ func TestPolicyOnDeletedNetwork(t *testing.T) {
 	}
 	t.Logf("policy on deleted network correctly rejected: %v", err)
 }
+
+// TestMaxMembersBelowCurrentCount verifies that setting max_members below the
+// current member count is rejected.
+func TestMaxMembersBelowCurrentCount(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + 2 members
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	member1Identity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(member1Identity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register member1: %v", err)
+	}
+	member1ID := uint32(resp["node_id"].(float64))
+
+	member2Identity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(member2Identity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register member2: %v", err)
+	}
+	member2ID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network with all 3 members
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "max-boundary", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept both members
+	_, err = rc.InviteToNetwork(netID, ownerID, member1ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite member1: %v", err)
+	}
+	setClientSigner(rc, member1Identity)
+	_, err = rc.RespondInvite(member1ID, netID, true)
+	if err != nil {
+		t.Fatalf("accept member1: %v", err)
+	}
+
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, member2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite member2: %v", err)
+	}
+	setClientSigner(rc, member2Identity)
+	_, err = rc.RespondInvite(member2ID, netID, true)
+	if err != nil {
+		t.Fatalf("accept member2: %v", err)
+	}
+
+	// Network now has 3 members. Setting max_members=3 should work.
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(3),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set max_members=3: %v", err)
+	}
+
+	// Setting max_members=2 should fail (3 members already)
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(2),
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error setting max_members below current count")
+	}
+	if !strings.Contains(err.Error(), "cannot set max_members") {
+		t.Fatalf("expected 'cannot set max_members' error, got: %v", err)
+	}
+	t.Logf("max_members below current count correctly rejected: %v", err)
+
+	// Setting max_members=0 (unlimited) should work
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(0),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set max_members=0 (unlimited): %v", err)
+	}
+	t.Log("max_members=0 (unlimited) accepted")
+}
+
+// TestConcurrentRBACOperations exercises promote/demote under concurrent access.
+func TestConcurrentRBACOperations(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + 5 members
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "concurrent-rbac", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	memberIDs := make([]uint32, 5)
+	for i := 0; i < 5; i++ {
+		memberIdentity, _ := crypto.GenerateIdentity()
+		resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(memberIdentity.PublicKey), "", nil)
+		if err != nil {
+			t.Fatalf("register member %d: %v", i, err)
+		}
+		memberIDs[i] = uint32(resp["node_id"].(float64))
+
+		_, err = rc.InviteToNetwork(netID, ownerID, memberIDs[i], TestAdminToken)
+		if err != nil {
+			t.Fatalf("invite member %d: %v", i, err)
+		}
+		setClientSigner(rc, memberIdentity)
+		_, err = rc.RespondInvite(memberIDs[i], netID, true)
+		if err != nil {
+			t.Fatalf("accept member %d: %v", i, err)
+		}
+		setClientSigner(rc, ownerIdentity)
+	}
+
+	// Concurrently promote all 5 members to admin
+	var wg sync.WaitGroup
+	errors := make([]error, 5)
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			client, err := registry.Dial(env.RegistryAddr)
+			if err != nil {
+				errors[idx] = err
+				return
+			}
+			defer client.Close()
+			_, errors[idx] = client.PromoteMember(netID, ownerID, memberIDs[idx], TestAdminToken)
+		}(i)
+	}
+	wg.Wait()
+
+	promoted := 0
+	for i, err := range errors {
+		if err != nil {
+			t.Logf("promote member %d: %v", i, err)
+		} else {
+			promoted++
+		}
+	}
+	t.Logf("concurrent promote: %d/5 succeeded", promoted)
+	if promoted != 5 {
+		t.Errorf("expected all 5 promotes to succeed, got %d", promoted)
+	}
+
+	// Concurrently demote all 5 back to member
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			client, err := registry.Dial(env.RegistryAddr)
+			if err != nil {
+				errors[idx] = err
+				return
+			}
+			defer client.Close()
+			_, errors[idx] = client.DemoteMember(netID, ownerID, memberIDs[idx], TestAdminToken)
+		}(i)
+	}
+	wg.Wait()
+
+	demoted := 0
+	for i, err := range errors {
+		if err != nil {
+			t.Logf("demote member %d: %v", i, err)
+		} else {
+			demoted++
+		}
+	}
+	t.Logf("concurrent demote: %d/5 succeeded", demoted)
+	if demoted != 5 {
+		t.Errorf("expected all 5 demotes to succeed, got %d", demoted)
+	}
+
+	// Verify final state: all members should have "member" role
+	for _, mid := range memberIDs {
+		roleResp, err := rc.GetMemberRole(netID, mid)
+		if err != nil {
+			t.Errorf("get role for %d: %v", mid, err)
+			continue
+		}
+		if roleResp["role"] != "member" {
+			t.Errorf("member %d role: got %v, want member", mid, roleResp["role"])
+		}
+	}
+	t.Log("concurrent RBAC operations completed with consistent final state")
+}

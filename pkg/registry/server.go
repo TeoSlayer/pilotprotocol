@@ -1731,6 +1731,9 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 	}
 
 	// Entirely new key and no owner match — assign new node
+	if s.nextNode == 0 {
+		return nil, fmt.Errorf("node ID space exhausted")
+	}
 	nodeID := s.nextNode
 	s.nextNode++
 
@@ -3212,7 +3215,11 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 		if v < 0 {
 			return nil, fmt.Errorf("max_members must be >= 0")
 		}
-		policy.MaxMembers = int(v)
+		newMax := int(v)
+		if newMax > 0 && len(network.Members) > newMax {
+			return nil, fmt.Errorf("cannot set max_members to %d: network already has %d members", newMax, len(network.Members))
+		}
+		policy.MaxMembers = newMax
 	}
 
 	if v, ok := msg["allowed_ports"].([]interface{}); ok {
