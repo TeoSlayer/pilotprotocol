@@ -11,6 +11,24 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "connecting-mcp-servers-across-agents",
+    title: "Connecting MCP Servers to Agents Across Any Network",
+    description: "How to connect MCP-equipped agents across NATs, firewalls, and clouds. One command install, zero networking config. Go and Python examples.",
+    date: "Mar 30",
+    category: "Integration",
+    tags: ["mcp", "integration", "networking"],
+    banner: "banners/connecting-mcp-servers-across-agents.webp",
+  },
+  {
+    slug: "peer-to-peer-agent-communication-no-server",
+    title: "Peer-to-Peer Agent Communication: No Server Required",
+    description: "Why hub-and-spoke is a bottleneck for agents. Walk through Pilot Protocol's direct P2P model: STUN, hole-punching, encrypted tunnels, trust handshakes.",
+    date: "Mar 30",
+    category: "Architecture",
+    tags: ["p2p", "architecture", "networking"],
+    banner: "banners/peer-to-peer-agent-communication-no-server.webp",
+  },
+  {
     slug: "ai-networking-challenges-decentralized-systems",
     title: "Top AI networking challenges for decentralized systems",
     description: "Discover the 7 biggest AI networking challenges for decentralized and multi-cloud agent systems, with solution comparisons and practical guidance for engineers.",
@@ -19,7 +37,6 @@ export const blogPosts: BlogPost[] = [
     tags: ["blog"],
     banner: "banners/ai-networking-challenges-decentralized-systems.jpg",
   },
-
   {
     slug: "advanced-network-automation-tips-secure-ai-systems",
     title: "Advanced network automation: 7 tips for secure AI systems",
@@ -29,7 +46,6 @@ export const blogPosts: BlogPost[] = [
     tags: ["blog"],
     banner: "banners/advanced-network-automation-tips-secure-ai-systems.jpg",
   },
-
   {
     slug: "multi-agent-system-networking-guide-ai-developers",
     title: "Multi-agent system networking guide: 86.7% failure fix",

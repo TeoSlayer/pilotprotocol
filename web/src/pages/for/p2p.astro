@@ -1,0 +1,516 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import IslandNavbar from '../../components/IslandNavbar.astro';
+import BlogFooter from '../../components/BlogFooter.astro';
+import '../../styles/global.css';
+
+const title = "Direct Peer-to-Peer for AI Agents — Pilot Protocol";
+const description = "No server in the middle. No API gateway. No message broker. Agents connect directly — encrypted, NAT-traversing, zero config. One command install.";
+const canonicalUrl = "https://pilotprotocol.network/for/p2p";
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": title,
+    "description": description,
+    "url": canonicalUrl,
+    "publisher": {"@type": "Organization", "name": "Vulture Labs", "url": "https://vulturelabs.com"},
+  })}></script>
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {"@type": "Question", "name": "Is there really no server?", "acceptedAnswer": {"@type": "Answer", "text": "The data path is fully peer-to-peer. A lightweight registry handles discovery (hostname lookup), but once agents find each other, all data flows directly between them. No server ever sees your data."}},
+      {"@type": "Question", "name": "How long does it take to install?", "acceptedAnswer": {"@type": "Answer", "text": "One command, under 30 seconds. Run curl -fsSL https://pilotprotocol.network/install.sh | sh — single binary, zero dependencies."}},
+      {"@type": "Question", "name": "How does NAT traversal work?", "acceptedAnswer": {"@type": "Answer", "text": "Three tiers: STUN discovery for full-cone NAT, UDP hole-punching for restricted NAT, and automatic relay fallback for symmetric NAT. All transparent to your code."}},
+      {"@type": "Question", "name": "What encryption is used?", "acceptedAnswer": {"@type": "Answer", "text": "X25519 Diffie-Hellman key exchange with AES-256-GCM authenticated encryption. Every connection is encrypted by default. Random nonce prefix per session."}},
+      {"@type": "Question", "name": "Can agents behind different clouds connect?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Agents on AWS, GCP, Azure, home labs, or laptops all connect the same way. No VPN, no cloud interconnect, no special configuration."}},
+    ]
+  })}></script>
+<style is:inline>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);--code-bg:rgba(255,255,255,0.06);--glass-bg:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);--glass-shadow:0 8px 32px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06)}
+html,body{overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:960px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+
+/* Hero */
+.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:36px 32px;margin:100px 0 60px;position:relative}
+.hero-frame::before{content:'';position:absolute;top:50%;left:30%;transform:translate(-50%,-50%);width:600px;height:500px;background:radial-gradient(ellipse,rgba(59,130,246,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start;position:relative;z-index:1}
+.hero-left{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding-top:8px}
+.hero h1{font-size:2.6rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:20px;line-height:1.1}
+.hero .tagline{font-size:1.05rem;color:var(--muted);margin-bottom:32px;line-height:1.65;max-width:440px}
+.hero-ctas{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.hero-ctas a{font-size:0.82rem;padding:9px 20px;border-radius:6px;font-weight:600;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap}
+.hero-ctas .cta-primary{background:var(--fg);color:var(--bg);border:1px solid var(--fg)}
+.hero-ctas .cta-primary:hover{opacity:0.9;text-decoration:none}
+.hero-ctas .cta-ghost{background:transparent;color:var(--fg);border:1px solid rgba(255,255,255,0.15)}
+.hero-ctas .cta-ghost:hover{border-color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.06);text-decoration:none}
+.hero .trust-text{font-size:0.78rem;color:var(--muted)}
+.announcement{margin-bottom:24px}
+.announcement span{display:inline-block;background:var(--surface);color:var(--fg);border:1px solid var(--border);padding:6px 16px;border-radius:6px;font-size:0.75rem;font-weight:600;font-family:'SF Mono',Menlo,Consolas,monospace;letter-spacing:0.05em;text-transform:uppercase}
+.hero-right{display:flex;flex-direction:column;gap:12px}
+
+/* Code section */
+.code-section{border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);overflow:hidden}
+pre{background:transparent;border:none;border-radius:0;padding:16px 20px;overflow-x:auto;font-size:0.8rem;line-height:1.7;margin:0;max-width:100%}
+pre code{display:block;overflow-x:auto}
+code{font-family:'SF Mono',Menlo,Consolas,monospace}
+.comment{color:var(--muted)}
+.cmd{color:var(--accent)}
+.kw{color:#c084fc}
+.str{color:#fbbf24}
+.fn{color:#60a5fa}
+.type{color:#22d3ee}
+
+/* Sections */
+section{padding:60px 0}
+section h2{font-size:1.75rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px}
+section .section-sub{font-size:1rem;color:var(--muted);margin-bottom:32px}
+
+/* Steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:32px}
+.step-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:28px 24px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.step-num{font-size:2rem;font-weight:800;color:var(--accent2);font-family:'SF Mono',Menlo,Consolas,monospace;margin-bottom:8px}
+.step-card h3{font-size:0.95rem;font-weight:600;margin-bottom:8px}
+.step-card p{font-size:0.85rem;color:var(--muted);line-height:1.5}
+
+/* Differentiators */
+.diff-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
+.diff-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:24px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.diff-card h3{font-size:0.95rem;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.diff-card h3 .diff-icon{width:20px;height:20px;stroke:var(--accent2);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.diff-card p{font-size:0.85rem;color:var(--muted);line-height:1.5}
+
+/* Bento grid */
+.bento{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:32px}
+.bento-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:28px 24px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);text-align:center}
+.bento-card .bento-big{display:block;font-size:2.2rem;font-weight:800;color:var(--fg);font-family:'SF Mono',Menlo,Consolas,monospace;letter-spacing:-0.03em;line-height:1}
+.bento-card .bento-label{display:block;font-size:0.72rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-top:8px}
+.bento-card .bento-desc{display:block;font-size:0.82rem;color:var(--muted);margin-top:8px;line-height:1.4}
+
+/* Use cases */
+.uc-layout{display:grid;grid-template-columns:280px 1fr;gap:0;border:1px solid var(--glass-border);border-radius:14px;overflow:hidden;background:var(--glass-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);min-height:380px}
+.uc-nav{border-right:1px solid var(--border);display:flex;flex-direction:column}
+.uc-btn{display:flex;align-items:flex-start;gap:12px;padding:16px 24px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.95rem;font-weight:500;cursor:pointer;text-align:left;transition:color 0.15s,background 0.15s;font-family:inherit;flex-wrap:wrap}
+.uc-btn .uc-desc{display:none;width:100%;font-size:0.78rem;font-weight:400;color:var(--muted);margin-top:2px;padding-left:30px;line-height:1.4}
+.uc-btn.active .uc-desc{display:block}
+.uc-btn:last-child{border-bottom:none}
+.uc-btn:hover{color:var(--fg);background:rgba(255,255,255,0.03)}
+.uc-btn.active{color:var(--fg);background:rgba(59,130,246,0.06);border-left:2px solid var(--accent2)}
+.uc-btn svg.uc-icon{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.uc-btn.active svg.uc-icon{color:var(--accent2)}
+.uc-detail{padding:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.uc-panel{display:none;width:100%;height:100%}
+.uc-panel.active{display:flex;align-items:center;justify-content:center}
+.uc-win{background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);border-radius:10px;margin:20px;width:calc(100% - 40px);max-width:560px;overflow:hidden}
+.uc-win-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.06)}
+.uc-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.uc-dot-r{background:#ff5f57}.uc-dot-y{background:#febc2e}.uc-dot-g{background:#28c840}
+.uc-win-title{color:var(--muted);font-size:0.72rem;margin-left:8px;font-family:'SF Mono',Menlo,Consolas,monospace}
+.uc-win-body{padding:16px 18px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.78rem;line-height:1.9;color:var(--fg)}
+.uc-step{opacity:0}
+.uc-step.revealed{animation:uc-pop 0.5s cubic-bezier(0.16,1,0.3,1) forwards}
+.uc-win-body .uc-step{overflow:hidden;white-space:nowrap;border-right:2px solid transparent}
+.uc-win-body .uc-step.revealed{animation:uc-type-reveal 0.4s cubic-bezier(0.16,1,0.3,1) forwards,uc-cursor 0.5s step-end 2}
+@keyframes uc-pop{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes uc-type-reveal{from{opacity:0;max-width:0}to{opacity:1;max-width:100%}}
+@keyframes uc-cursor{0%,100%{border-right-color:transparent}50%{border-right-color:var(--accent2)}}
+.uc-sep{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:8px 0}
+
+/* Install */
+.install-box{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px 20px;margin-bottom:12px;position:relative;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.install-box .cmd-row{display:flex;align-items:center;gap:12px}
+.install-box code{font-size:0.85rem;color:var(--accent);overflow-x:auto;white-space:nowrap;display:block;flex:1;scrollbar-width:none}
+.install-box code::-webkit-scrollbar{display:none}
+.install-box p{font-size:0.8rem;color:var(--muted);margin-top:8px}
+.copy-btn{background:var(--border);border:none;color:var(--muted);padding:6px 10px;border-radius:4px;cursor:pointer;font-size:0.75rem;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:color 0.2s}
+.copy-btn:hover{color:var(--fg)}
+
+/* FAQ */
+.faq-list{max-width:700px;margin:0 auto}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-q{display:flex;align-items:center;justify-content:space-between;width:100%;padding:20px 0;background:none;border:none;color:var(--fg);font-size:0.95rem;font-weight:500;cursor:pointer;font-family:inherit;text-align:left}
+.faq-q svg{width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2;flex-shrink:0;transition:transform 0.2s}
+.faq-item.open .faq-q svg{transform:rotate(45deg)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height 0.3s ease}
+.faq-item.open .faq-a{max-height:300px}
+.faq-a p{padding:0 0 20px;color:var(--muted);font-size:0.9rem;line-height:1.6}
+
+/* Footer */
+footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem;position:relative;z-index:1}
+footer a{color:var(--muted)}
+footer a:hover{color:var(--fg)}
+.footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 28px;margin-bottom:20px}
+.footer-links a{font-size:0.85rem}
+
+/* CTA banner */
+.cta-banner{text-align:center;padding:48px 24px;margin-top:20px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.cta-banner h3{font-size:1.3rem;font-weight:700;margin-bottom:8px}
+.cta-banner p{color:var(--muted);font-size:0.9rem;margin-bottom:20px}
+.cta-banner a.cta-btn{display:inline-block;background:var(--accent2);color:#fff;padding:10px 28px;border-radius:8px;font-weight:600;font-size:0.88rem;transition:all 0.2s}
+.cta-banner a.cta-btn:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 20px rgba(59,130,246,0.3)}
+
+/* Responsive */
+@media(max-width:768px){
+  .container{padding:0 16px}
+  .hero-frame{padding:24px 16px;margin:68px 0 40px}
+  .hero{grid-template-columns:1fr;gap:24px}
+  .hero h1{font-size:1.8rem}
+  .hero .tagline{font-size:0.92rem;margin-bottom:20px}
+  .hero-ctas{flex-wrap:wrap}
+  .code-section{min-width:0}
+  pre{font-size:0.75rem;padding:14px}
+  section{padding:40px 0}
+  section h2{font-size:1.4rem}
+  .steps{grid-template-columns:1fr}
+  .diff-grid{grid-template-columns:1fr}
+  .bento{grid-template-columns:1fr}
+  .uc-layout{grid-template-columns:1fr;min-height:auto}
+  .uc-nav{border-right:none;border-bottom:1px solid var(--border)}
+  .uc-btn{padding:12px 16px;font-size:0.88rem}
+  .uc-btn .uc-desc{padding-left:30px;font-size:0.75rem}
+  .uc-win{margin:12px;width:calc(100% - 24px)}
+  .uc-win-body{font-size:0.72rem;padding:12px 14px}
+  .uc-win-body .uc-step{white-space:pre-wrap;word-break:break-all;max-width:none}
+  .uc-win-body .uc-step.revealed{animation:mobile-fade 0.3s ease forwards}
+  @keyframes mobile-fade{from{opacity:0}to{opacity:1}}
+  .faq-q{font-size:0.88rem;padding:16px 0}
+  .faq-a p{font-size:0.84rem}
+  .install-box code{font-size:0.78rem}
+}
+@media(max-width:480px){
+  .hero h1{font-size:1.5rem}
+  .hero-frame{padding:20px 12px;margin:60px 0 32px}
+}
+</style>
+</head>
+<body>
+
+<IslandNavbar />
+
+<div class="container">
+
+<!-- Hero -->
+<div class="hero-frame">
+  <div class="hero">
+    <div class="hero-left">
+      <div class="announcement">
+        <span>ZERO CONFIG &middot; ONE BINARY</span>
+      </div>
+      <h1>Direct peer-to-peer for AI agents</h1>
+      <p class="tagline">No server in the middle. No API gateway. No message broker. Agents connect directly &mdash; encrypted, NAT-traversing, zero config.</p>
+      <p style="font-size:0.88rem;color:var(--muted);margin-bottom:28px;line-height:1.6;max-width:440px">Install in one command. Your agents talk directly in under 30 seconds. The data path is pure peer-to-peer.</p>
+      <div class="hero-ctas">
+        <a class="cta-primary" href="#install">INSTALL NOW</a>
+        <a class="cta-ghost" href="/docs/getting-started">READ THE DOCS</a>
+      </div>
+      <p class="trust-text">Open source &middot; AGPL-3.0 &middot; <a href="https://github.com/TeoSlayer/pilotprotocol" style="color:var(--muted);text-decoration:none;border-bottom:1px dashed rgba(255,255,255,0.2)">GitHub &rarr;</a></p>
+    </div>
+    <div class="hero-right">
+      <div class="code-section">
+        <pre><code><span class="comment"># Agent A — install and start</span>
+<span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh
+<span class="cmd">pilotctl</span> daemon start --hostname agent-a
+
+<span class="comment"># Agent B — dial agent-a directly</span>
+<span class="cmd">pilotctl</span> connect agent-a --message <span class="str">"hello, peer"</span>
+<span class="comment"># ✓ Direct tunnel. No server touched your data.</span></code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Why P2P -->
+<section>
+  <h2>Why direct connections matter</h2>
+  <p class="section-sub">Hub-and-spoke is a bottleneck. Every relay, gateway, and broker adds latency, cost, and a point of failure.</p>
+  <div class="diff-grid">
+    <div class="diff-card">
+      <h3><svg class="diff-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Zero-hop data path</h3>
+      <p>Data flows directly between agents. No relay server sees or touches your packets. Latency is just the network RTT between the two machines.</p>
+    </div>
+    <div class="diff-card">
+      <h3><svg class="diff-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>End-to-end encrypted</h3>
+      <p>X25519 key exchange, AES-256-GCM. Encryption is not optional &mdash; it is the default. No one in the middle can read your data.</p>
+    </div>
+    <div class="diff-card">
+      <h3><svg class="diff-icon" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>Any NAT, any firewall</h3>
+      <p>Three-tier traversal: STUN discovery, UDP hole-punching, relay fallback. Works behind corporate firewalls, carrier-grade NAT, and cloud VPCs.</p>
+    </div>
+    <div class="diff-card">
+      <h3><svg class="diff-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Private by default</h3>
+      <p>Agents are invisible until they choose to trust each other. Mutual handshake required before any connection. You decide who talks to you.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Performance stats -->
+<section>
+  <h2>Performance</h2>
+  <p class="section-sub">No middleman means no middleman overhead.</p>
+  <div class="bento">
+    <div class="bento-card">
+      <span class="bento-big">0</span>
+      <span class="bento-label">Servers in data path</span>
+      <span class="bento-desc">Pure peer-to-peer. No relay, no broker, no gateway.</span>
+    </div>
+    <div class="bento-card">
+      <span class="bento-big">&lt;1ms</span>
+      <span class="bento-label">Added overhead</span>
+      <span class="bento-desc">Just UDP encapsulation. No HTTP parsing, no TLS renegotiation.</span>
+    </div>
+    <div class="bento-card">
+      <span class="bento-big">~10MB</span>
+      <span class="bento-label">Binary size</span>
+      <span class="bento-desc">Single static binary. Zero external dependencies. Pure Go.</span>
+    </div>
+  </div>
+</section>
+
+<!-- Easy install -->
+<section>
+  <h2>Up and running in 3 steps</h2>
+  <p class="section-sub">No Docker. No Kubernetes. No cloud accounts. No YAML.</p>
+  <div class="steps">
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <h3>Install</h3>
+      <p>One command. Single binary download (~10 MB). Runs on Linux and macOS. Nothing else to install.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <h3>Start</h3>
+      <p><code style="color:var(--accent2);font-size:0.82rem">pilotctl daemon start --hostname my-agent</code><br>Gets a permanent address. Joins the network. NAT traversal is automatic.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <h3>Connect</h3>
+      <p>Dial any agent by name. Trust handshake, key exchange, and hole-punching happen in the background. You just send data.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Use Cases -->
+<section>
+  <h2>What you can build</h2>
+  <p class="section-sub">Real patterns for agents that connect directly.</p>
+  <div class="uc-layout">
+    <div class="uc-nav">
+      <button class="uc-btn active" data-uc="tunnel">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+        NAT-to-NAT Tunnel
+        <span class="uc-desc">Two agents behind NAT establish a direct encrypted tunnel.</span>
+      </button>
+      <button class="uc-btn" data-uc="transfer">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        P2P File Transfer
+        <span class="uc-desc">Send files directly. No S3, no intermediary storage.</span>
+      </button>
+      <button class="uc-btn" data-uc="mesh">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        Cross-Cloud Mesh
+        <span class="uc-desc">AWS, GCP, Azure agents connect directly. No VPN needed.</span>
+      </button>
+      <button class="uc-btn" data-uc="trust">
+        <svg class="uc-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Trust Handshake
+        <span class="uc-desc">Private by default. Mutual trust before any data flows.</span>
+      </button>
+    </div>
+    <div class="uc-detail">
+      <div class="uc-panel active" id="uc-tunnel">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">agent-a → agent-b (both behind NAT)</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#60a5fa">⟩</span> Discovering NAT type...</div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22c55e">✓</span> STUN: <span style="color:#22d3ee">port-restricted cone</span></div>
+            <div class="uc-step" style="animation-delay:0.8s"><span style="color:#60a5fa">⟩</span> Requesting hole-punch...</div>
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#22c55e">✓</span> Punch sent, waiting for peer...</div>
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#22c55e">✓</span> Punch received from peer</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> Direct tunnel established <span style="color:#22d3ee">RTT 34ms</span></div>
+            <div class="uc-step" style="animation-delay:2.4s"><span style="color:#22c55e">✓</span> No relay. No server. Pure P2P.</div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-transfer">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl send-file agent-b model.bin</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">✓</span> Connected to <span style="color:#60a5fa">agent-b</span></div>
+            <div class="uc-step" style="animation-delay:0.4s"><span style="color:#22c55e">✓</span> X25519 handshake, AES-256-GCM</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.8s">Sending <span style="color:#fbbf24">model.bin</span> <span style="color:#737373">(248 MB)</span></div>
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#22d3ee">SEQ</span>:8192 &nbsp;<span style="color:#22d3ee">WIN</span>:65535 &nbsp;<span style="color:#22d3ee">RTT</span>:18ms</div>
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#60a5fa">████████████████████████</span> 100%</div>
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> 248 MB transferred. CRC32 verified.</div>
+            <div class="uc-step" style="animation-delay:2.3s"><span style="color:#737373">No S3. No intermediary. Direct.</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-mesh">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">pilotctl network — cross-cloud mesh</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#22c55e">●</span> agent-aws &nbsp;&nbsp;&nbsp;<span style="color:#60a5fa">us-east-1</span> &nbsp;&nbsp;<span style="color:#22c55e">direct</span></div>
+            <div class="uc-step" style="animation-delay:0.3s"><span style="color:#22c55e">●</span> agent-gcp &nbsp;&nbsp;&nbsp;<span style="color:#22c55e">eu-west-1</span> &nbsp;&nbsp;<span style="color:#22c55e">direct</span></div>
+            <div class="uc-step" style="animation-delay:0.5s"><span style="color:#22c55e">●</span> agent-azure &nbsp;<span style="color:#c084fc">asia-east</span> &nbsp;&nbsp;<span style="color:#22c55e">direct</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:1.0s"><span style="color:#737373">aws ↔ gcp</span> &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#22d3ee">12ms</span></div>
+            <div class="uc-step" style="animation-delay:1.3s"><span style="color:#737373">aws ↔ azure</span> &nbsp;&nbsp;<span style="color:#22d3ee">18ms</span></div>
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#737373">gcp ↔ azure</span> &nbsp;&nbsp;<span style="color:#22d3ee">22ms</span></div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> Full mesh. No VPN. No cloud interconnect.</div>
+          </div>
+        </div>
+      </div>
+      <div class="uc-panel" id="uc-trust">
+        <div class="uc-win">
+          <div class="uc-win-bar"><span class="uc-dot uc-dot-r"></span><span class="uc-dot uc-dot-y"></span><span class="uc-dot uc-dot-g"></span><span class="uc-win-title">trust handshake flow</span></div>
+          <div class="uc-win-body">
+            <div class="uc-step" style="animation-delay:0.1s"><span style="color:#737373">agent-a:</span> private, invisible on network</div>
+            <div class="uc-step" style="animation-delay:0.4s"><span style="color:#737373">agent-b:</span> private, invisible on network</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:0.8s"><span style="color:#60a5fa">⟩</span> agent-a → trust request → agent-b</div>
+            <div class="uc-step" style="animation-delay:1.2s"><span style="color:#60a5fa">⟩</span> agent-b → trust accept → agent-a</div>
+            <div class="uc-step" style="animation-delay:1.6s"><span style="color:#22c55e">✓</span> Mutual trust established</div>
+            <hr class="uc-sep">
+            <div class="uc-step" style="animation-delay:2.0s"><span style="color:#22c55e">✓</span> agent-a can now resolve + dial agent-b</div>
+            <div class="uc-step" style="animation-delay:2.3s"><span style="color:#22c55e">✓</span> agent-b can now resolve + dial agent-a</div>
+            <div class="uc-step" style="animation-delay:2.6s"><span style="color:#737373">Revoke trust anytime. Instant disconnect.</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Install -->
+<section id="install">
+  <h2>Install in one command</h2>
+  <p class="section-sub">Single binary. Zero dependencies. Under 30 seconds.</p>
+  <div class="install-box">
+    <div class="cmd-row">
+      <code id="cmd-curl">curl -fsSL https://pilotprotocol.network/install.sh | sh</code>
+      <button class="copy-btn" onclick="copyCmd('cmd-curl',this)">Copy</button>
+    </div>
+    <p>Detects your platform, downloads a single binary (~10 MB), writes config, and starts the daemon.</p>
+  </div>
+  <p style="font-size:0.85rem;color:var(--muted)">Or with pip: <code style="color:var(--accent)">pip install pilotprotocol</code> &middot; Python 3.10+</p>
+  <p style="font-size:0.85rem;color:var(--muted);margin-top:8px">Set a hostname: <code style="color:var(--accent)">curl ... | PILOT_HOSTNAME=my-agent sh</code></p>
+</section>
+
+<!-- FAQ -->
+<section>
+  <h2>FAQ</h2>
+  <div class="faq-list">
+    <div class="faq-item">
+      <button class="faq-q">Is there really no server?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>The data path is fully peer-to-peer. A lightweight registry handles discovery (hostname lookup and NAT coordination), but once two agents find each other, all data flows directly between them. No server ever sees your data.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">How does NAT traversal work?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Three tiers: STUN discovery for full-cone NAT (direct reachability), UDP hole-punching for restricted and port-restricted cone NAT, and automatic relay fallback for symmetric NAT. All transparent to your code &mdash; you just dial a hostname.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What about symmetric NAT?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Symmetric NAT cannot be hole-punched. Pilot automatically detects this and routes through a relay beacon. The relay only forwards opaque encrypted packets &mdash; it cannot read your data. Once one side has a traversable NAT, direct connections resume.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">How is this different from Tailscale or ZeroTier?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Tailscale and ZeroTier are VPNs that extend IP networks. Pilot is an application-layer overlay designed for agents: virtual addresses, ports, hostname discovery, trust handshakes, task delegation, and pub/sub. It is a network stack, not a tunnel.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">How hard is it to set up?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>One command. The installer downloads a single binary, generates an Ed25519 identity, writes a config file, and starts the daemon. No accounts, no API keys, no YAML, no Docker. Under 30 seconds from nothing to connected.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Can I use it for non-AI workloads?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Yes. The protocol is general-purpose. Anything that can connect to a Unix socket or call pilotctl can use Pilot: microservices, IoT devices, CLI tools, scripts. The "for AI agents" framing reflects the primary use case, not a technical limitation.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-banner">
+  <h3>Go direct</h3>
+  <p>No server. No broker. No gateway. Just agents talking to agents.</p>
+  <a class="cta-btn" href="#install">Install Pilot Protocol</a>
+</div>
+
+<!-- Blog link -->
+<section style="text-align:center;padding:40px 0 20px">
+  <p style="color:var(--muted);font-size:0.9rem">Want the full technical deep dive? Read <a href="/blog/peer-to-peer-agent-communication-no-server">Peer-to-Peer Agent Communication: No Server Required &rarr;</a></p>
+</section>
+
+</div>
+
+<BlogFooter />
+
+<script is:inline>
+function copyCmd(id,btn){
+  navigator.clipboard.writeText(document.getElementById(id).textContent.trim());
+  btn.textContent='Copied';
+  setTimeout(function(){btn.textContent='Copy'},1500);
+}
+
+// Sequential step reveal
+function triggerSteps(panel){
+  panel.classList.add('in-view');
+  var steps = panel.querySelectorAll('.uc-step');
+  steps.forEach(function(s){s.style.animation='none';s.style.opacity='0';s.classList.remove('revealed')});
+  var i = 0;
+  function next(){
+    if(i >= steps.length) return;
+    var step = steps[i]; i++;
+    step.classList.add('revealed');
+    step.style.animation='';
+    var isWinLine = step.closest('.uc-win-body');
+    var dur = isWinLine ? 250 : 400;
+    setTimeout(next, dur);
+  }
+  setTimeout(next, 150);
+}
+
+// Use Cases nav switching
+document.querySelectorAll('.uc-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.uc-btn').forEach(function(b){b.classList.remove('active')});
+    document.querySelectorAll('.uc-panel').forEach(function(p){p.classList.remove('active');p.classList.remove('in-view')});
+    btn.classList.add('active');
+    var panel = document.getElementById('uc-'+btn.dataset.uc);
+    panel.classList.add('active');
+    triggerSteps(panel);
+  });
+});
+
+// FAQ accordion
+document.querySelectorAll('.faq-q').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    btn.parentElement.classList.toggle('open');
+  });
+});
+
+// Scroll-triggered animation
+var observer = new IntersectionObserver(function(entries){
+  entries.forEach(function(entry){
+    if(entry.isIntersecting){
+      var panel = entry.target.querySelector('.uc-panel.active');
+      if(panel && !panel.classList.contains('in-view')){
+        triggerSteps(panel);
+      }
+    }
+  });
+},{threshold:0.2});
+document.querySelectorAll('.uc-layout').forEach(function(el){observer.observe(el)});
+</script>
+</body>
+</html>
