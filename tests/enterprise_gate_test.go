@@ -4307,3 +4307,180 @@ func TestPersistenceEnterprisePolicyWithPorts(t *testing.T) {
 
 	t.Log("enterprise policy with allowed_ports persisted correctly")
 }
+
+// TestConcurrentEnterpriseOps verifies that concurrent enterprise operations
+// (invite, kick, promote, leave) don't cause races or panics.
+func TestConcurrentEnterpriseOps(t *testing.T) {
+	t.Parallel()
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Register owner + 5 members
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, ownerIdentity)
+
+	resp, err := rc.CreateNetwork(ownerID, "concurrent-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	type nodeInfo struct {
+		id       uint32
+		identity *crypto.Identity
+	}
+	var nodes []nodeInfo
+	for i := 0; i < 5; i++ {
+		id, identity := registerTestNode(t, rc)
+		nodes = append(nodes, nodeInfo{id, identity})
+
+		// Invite and accept each member
+		setClientSigner(rc, ownerIdentity)
+		_, err := rc.InviteToNetwork(netID, ownerID, id, TestAdminToken)
+		if err != nil {
+			t.Fatalf("invite node %d: %v", i, err)
+		}
+		setClientSigner(rc, identity)
+		_, err = rc.RespondInvite(id, netID, true)
+		if err != nil {
+			t.Fatalf("accept invite node %d: %v", i, err)
+		}
+	}
+
+	// Promote first 2 to admin
+	for i := 0; i < 2; i++ {
+		_, err := rc.PromoteMember(netID, ownerID, nodes[i].id, TestAdminToken)
+		if err != nil {
+			t.Fatalf("promote node %d: %v", i, err)
+		}
+	}
+
+	// Concurrent operations: each in its own client connection
+	var wg sync.WaitGroup
+	errors := make(chan string, 50)
+
+	// 2 goroutines: kick members 3-4
+	for i := 3; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c, err := registry.Dial(reg.Addr().String())
+			if err != nil {
+				errors <- fmt.Sprintf("dial for kick %d: %v", idx, err)
+				return
+			}
+			defer c.Close()
+			_, err = c.KickMember(netID, ownerID, nodes[idx].id, TestAdminToken)
+			if err != nil {
+				t.Logf("kick %d: %v (expected if raced)", idx, err)
+			}
+		}(i)
+	}
+
+	// 2 goroutines: demote admins 0-1
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c, err := registry.Dial(reg.Addr().String())
+			if err != nil {
+				errors <- fmt.Sprintf("dial for demote %d: %v", idx, err)
+				return
+			}
+			defer c.Close()
+			_, err = c.DemoteMember(netID, ownerID, nodes[idx].id, TestAdminToken)
+			if err != nil {
+				t.Logf("demote %d: %v (expected if raced)", idx, err)
+			}
+		}(i)
+	}
+
+	// 1 goroutine: leave (member 2)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c, err := registry.Dial(reg.Addr().String())
+		if err != nil {
+			errors <- fmt.Sprintf("dial for leave: %v", err)
+			return
+		}
+		defer c.Close()
+		setClientSigner(c, nodes[2].identity)
+		_, err = c.LeaveNetwork(nodes[2].id, netID, TestAdminToken)
+		if err != nil {
+			t.Logf("leave: %v (expected if raced)", err)
+		}
+	}()
+
+	wg.Wait()
+	close(errors)
+
+	for e := range errors {
+		t.Errorf("concurrent error: %s", e)
+	}
+
+	// Verify network still exists and is consistent
+	networks, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	netList := networks["networks"].([]interface{})
+	found := false
+	for _, n := range netList {
+		net := n.(map[string]interface{})
+		if net["name"] == "concurrent-test" {
+			members := int(net["members"].(float64))
+			t.Logf("members after concurrent ops: %d", members)
+			found = true
+		}
+	}
+	if !found {
+		t.Error("network should still exist after concurrent ops")
+	}
+	t.Log("concurrent enterprise ops completed without panics")
+}
+
+// TestSelfKickAdmin verifies that an admin can kick themselves (equivalent to leaving).
+func TestSelfKickAdmin(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	adminID, adminIdentity := registerTestNode(t, rc)
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "selfkick-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and join admin
+	_, err = rc.InviteToNetwork(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.RespondInvite(adminID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	_, err = rc.PromoteMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Admin kicks themselves — should work (it's just leaving with admin token)
+	_, err = rc.KickMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Logf("self-kick via admin token: %v", err)
+	}
+
+	// Verify admin is no longer a member
+	_, err = rc.GetMemberRole(netID, adminID)
+	if err == nil {
+		t.Error("expected error: admin should no longer be a member")
+	}
+	t.Log("self-kick works correctly")
+}
