@@ -649,6 +649,20 @@ func (c *Client) KickMember(networkID uint16, nodeID, targetNodeID uint32, admin
 	return c.Send(msg)
 }
 
+// TransferOwnership transfers network ownership to another member. Only the current owner can transfer.
+func (c *Client) TransferOwnership(networkID uint16, ownerNodeID, newOwnerID uint32, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":         "transfer_ownership",
+		"network_id":   networkID,
+		"node_id":      ownerNodeID,
+		"new_owner_id": newOwnerID,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
 // GetMemberRole returns the RBAC role of a node in a network.
 func (c *Client) GetMemberRole(networkID uint16, targetNodeID uint32) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{

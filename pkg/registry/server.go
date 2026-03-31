@@ -1131,6 +1131,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handlePromoteMember(msg)
 	case "demote_member":
 		return s.handleDemoteMember(msg)
+	case "transfer_ownership":
+		return s.handleTransferOwnership(msg)
 	case "get_member_role":
 		return s.handleGetMemberRole(msg)
 	case "set_network_policy":
@@ -3072,6 +3074,72 @@ func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]inte
 		"network_id":     netID,
 		"target_node_id": targetNodeID,
 		"role":           string(RoleMember),
+	}, nil
+}
+
+// handleTransferOwnership transfers network ownership from the current owner
+// to another member. Only the current owner can transfer ownership.
+func (s *Server) handleTransferOwnership(msg map[string]interface{}) (map[string]interface{}, error) {
+	netID := jsonUint16(msg, "network_id")
+	newOwnerID := jsonUint32(msg, "new_owner_id")
+
+	// RBAC: only the current owner can transfer
+	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
+		return nil, err
+	}
+
+	// Enterprise gate
+	if err := s.requireEnterprise(netID); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	network, ok := s.networks[netID]
+	if !ok {
+		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+	}
+
+	// Find current owner
+	var currentOwnerID uint32
+	for memberID, role := range network.MemberRoles {
+		if role == RoleOwner {
+			currentOwnerID = memberID
+			break
+		}
+	}
+	if currentOwnerID == 0 {
+		return nil, fmt.Errorf("network %d has no owner", netID)
+	}
+
+	// Cannot transfer to self
+	if newOwnerID == currentOwnerID {
+		return nil, fmt.Errorf("node %d is already the owner", newOwnerID)
+	}
+
+	// Verify new owner is a member
+	newOwnerRole, isMember := network.MemberRoles[newOwnerID]
+	if !isMember {
+		return nil, fmt.Errorf("node %d is not a member of network %d", newOwnerID, netID)
+	}
+
+	// Transfer: demote current owner to admin, promote new owner to owner
+	network.MemberRoles[currentOwnerID] = RoleAdmin
+	network.MemberRoles[newOwnerID] = RoleOwner
+	s.save()
+
+	slog.Info("ownership transferred", "network_id", netID,
+		"old_owner", currentOwnerID, "new_owner", newOwnerID)
+	s.audit("network.ownership_transferred", "network_id", netID,
+		"old_owner", currentOwnerID, "new_owner", newOwnerID,
+		"new_owner_old_role", string(newOwnerRole))
+
+	return map[string]interface{}{
+		"type":       "transfer_ownership_ok",
+		"network_id": netID,
+		"old_owner":  currentOwnerID,
+		"new_owner":  newOwnerID,
 	}, nil
 }
 
