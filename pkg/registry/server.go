@@ -2044,14 +2044,14 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
 	netID := jsonUint16(msg, "network_id")
 
+	// Cannot delete backbone (check first, before RBAC)
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot delete the backbone network")
+	}
+
 	// RBAC: only owner or global/per-network admin token
 	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
 		return nil, err
-	}
-
-	// Cannot delete backbone
-	if netID == 0 {
-		return nil, fmt.Errorf("cannot delete the backbone network")
 	}
 
 	s.mu.Lock()

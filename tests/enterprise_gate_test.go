@@ -4021,3 +4021,150 @@ func TestLeaveNetworkRevokesOutgoingInvites(t *testing.T) {
 	}
 	t.Log("leave network correctly revokes outgoing invites")
 }
+
+// TestDeleteNetworkCleansAllInvites verifies that deleting a network removes
+// all pending invites for that network and cleans member state.
+func TestDeleteNetworkCleansAllInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	inviteeID, inviteeIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "delete-invite-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Send invite
+	_, err = rc.InviteToNetwork(netID, ownerID, inviteeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// Verify invite exists
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err := rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) == 0 {
+		t.Fatal("expected pending invite before delete")
+	}
+
+	// Delete the network
+	_, err = rc.DeleteNetwork(netID, TestAdminToken, ownerID)
+	if err != nil {
+		t.Fatalf("delete network: %v", err)
+	}
+
+	// Poll invites — should be empty
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err = rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites after delete: %v", err)
+	}
+	invites2, ok := pollResp["invites"].([]interface{})
+	if ok && len(invites2) > 0 {
+		t.Errorf("expected no invites after network deleted, got %d", len(invites2))
+	}
+
+	// Verify network is gone
+	networks, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	netList := networks["networks"].([]interface{})
+	for _, n := range netList {
+		net := n.(map[string]interface{})
+		if net["name"] == "delete-invite-test" {
+			t.Error("deleted network still in list")
+		}
+	}
+
+	// Verify member's network list is cleaned up
+	lookup, err := rc.Lookup(ownerID)
+	if err != nil {
+		t.Fatalf("lookup owner: %v", err)
+	}
+	if nets, ok := lookup["networks"].([]interface{}); ok {
+		for _, n := range nets {
+			if uint16(n.(float64)) == netID {
+				t.Error("deleted network still in owner's network list")
+			}
+		}
+	}
+
+	t.Log("delete network correctly cleans up invites and membership")
+}
+
+// TestDeleteNetworkSelfKickProtection verifies that non-owner cannot delete a network.
+func TestDeleteNetworkNonOwner(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+
+	// Create enterprise network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "delete-nonowner", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and join member
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Promote to admin
+	_, err = rc.PromoteMember(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Admin tries to delete — should fail (only owner can delete)
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.Send(map[string]interface{}{
+		"type":       "delete_network",
+		"network_id": netID,
+		"node_id":    memberID,
+	})
+	if err == nil {
+		t.Error("expected error: admin should not be able to delete network")
+	} else {
+		t.Logf("admin delete correctly rejected: %v", err)
+	}
+
+	// Verify network still exists
+	networks, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	found := false
+	netList := networks["networks"].([]interface{})
+	for _, n := range netList {
+		net := n.(map[string]interface{})
+		if net["name"] == "delete-nonowner" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("network should still exist after failed admin delete")
+	}
+	t.Log("non-owner delete correctly rejected")
+}
