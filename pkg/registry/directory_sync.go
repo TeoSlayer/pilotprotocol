@@ -173,8 +173,9 @@ func (s *Server) applyDirectorySync(netID uint16, entries []DirectoryEntry, remo
 		}
 	}
 
-	// Remove unlisted members
+	// Remove unlisted members — collect IDs first to avoid mutating slice during iteration
 	if removeUnlisted {
+		var toRemove []uint32
 		for _, memberID := range net.Members {
 			node, ok := s.nodes[memberID]
 			if !ok {
@@ -184,10 +185,14 @@ func (s *Server) applyDirectorySync(netID uint16, entries []DirectoryEntry, remo
 				continue // skip nodes without external_id
 			}
 			if !directoryIDs[strings.ToLower(node.ExternalID)] {
-				s.removeMemberLocked(net, memberID)
-				result.Disabled++
-				result.Actions = append(result.Actions, fmt.Sprintf("removed unlisted %s (node %d)", node.ExternalID, memberID))
+				toRemove = append(toRemove, memberID)
 			}
+		}
+		for _, memberID := range toRemove {
+			node := s.nodes[memberID]
+			s.removeMemberLocked(net, memberID)
+			result.Disabled++
+			result.Actions = append(result.Actions, fmt.Sprintf("removed unlisted %s (node %d)", node.ExternalID, memberID))
 		}
 	}
 

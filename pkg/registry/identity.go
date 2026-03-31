@@ -93,11 +93,12 @@ func (s *Server) verifyIdentityToken(token string) (string, error) {
 
 // jwtClaims holds the standard OIDC JWT claims we validate.
 type jwtClaims struct {
-	Issuer   string `json:"iss"`
-	Subject  string `json:"sub"`
-	Audience jwtAud `json:"aud"`
-	Expiry   int64  `json:"exp"`
-	IssuedAt int64  `json:"iat"`
+	Issuer    string `json:"iss"`
+	Subject   string `json:"sub"`
+	Audience  jwtAud `json:"aud"`
+	Expiry    int64  `json:"exp"`
+	IssuedAt  int64  `json:"iat"`
+	NotBefore int64  `json:"nbf"`
 }
 
 // jwtAud handles both string and []string audience claims.
@@ -167,7 +168,10 @@ func verifyJWTSignatureHS256(signingInput string, signatureB64 string, secret []
 	return nil
 }
 
-// validateJWTClaims checks issuer, audience, and expiry.
+// jwtClockSkew is the allowed clock drift between IDP and registry (60 seconds).
+const jwtClockSkew = 60
+
+// validateJWTClaims checks issuer, audience, expiry, and not-before.
 func validateJWTClaims(claims *jwtClaims, expectedIssuer, expectedAudience string) error {
 	if expectedIssuer != "" && claims.Issuer != expectedIssuer {
 		return fmt.Errorf("issuer mismatch: got %q, want %q", claims.Issuer, expectedIssuer)
@@ -187,8 +191,11 @@ func validateJWTClaims(claims *jwtClaims, expectedIssuer, expectedAudience strin
 	}
 
 	now := time.Now().Unix()
-	if claims.Expiry > 0 && claims.Expiry < now {
+	if claims.Expiry > 0 && claims.Expiry < now-jwtClockSkew {
 		return fmt.Errorf("token expired at %d (now %d)", claims.Expiry, now)
+	}
+	if claims.NotBefore > 0 && claims.NotBefore > now+jwtClockSkew {
+		return fmt.Errorf("token not yet valid (nbf %d, now %d)", claims.NotBefore, now)
 	}
 
 	return nil
@@ -267,6 +274,10 @@ func fetchJWKSKeys(jwksURL string) ([]jwksKey, error) {
 		return nil, fmt.Errorf("fetch JWKS: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("JWKS endpoint returned status %d", resp.StatusCode)
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
@@ -355,6 +366,13 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 		if err != nil {
 			return nil, fmt.Errorf("JWKS: %w", err)
 		}
+		// Enforce algorithm match to prevent algorithm confusion attacks
+		if key.Alg != "" && key.Alg != "HS256" {
+			return nil, fmt.Errorf("algorithm mismatch: JWT header says HS256, JWKS key says %s", key.Alg)
+		}
+		if key.Kty != "" && key.Kty != "oct" {
+			return nil, fmt.Errorf("key type mismatch: HS256 requires oct key, got %s", key.Kty)
+		}
 		secret, err := base64.RawURLEncoding.DecodeString(key.K)
 		if err != nil {
 			return nil, fmt.Errorf("decode HMAC key: %w", err)
@@ -371,6 +389,13 @@ func (s *Server) handleValidateToken(msg map[string]interface{}) (map[string]int
 		key, err := s.jwksCache.getKey(idp.URL, header.Kid)
 		if err != nil {
 			return nil, fmt.Errorf("JWKS: %w", err)
+		}
+		// Enforce algorithm match to prevent algorithm confusion attacks
+		if key.Alg != "" && key.Alg != "RS256" {
+			return nil, fmt.Errorf("algorithm mismatch: JWT header says RS256, JWKS key says %s", key.Alg)
+		}
+		if key.Kty != "" && key.Kty != "RSA" {
+			return nil, fmt.Errorf("key type mismatch: RS256 requires RSA key, got %s", key.Kty)
 		}
 		if err := verifyJWTSignatureRS256(signingInput, parts[2], key); err != nil {
 			return map[string]interface{}{

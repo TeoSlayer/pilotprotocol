@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 )
 
 // NetworkBlueprint defines a declarative configuration for provisioning
@@ -248,6 +249,9 @@ func (s *Server) findOrCreateNetwork(bp *NetworkBlueprint, adminToken string) (u
 	if err := s.checkAdminToken(map[string]interface{}{"admin_token": adminToken}, s.adminToken); err != nil {
 		return 0, false, err
 	}
+	if err := validateNetworkName(bp.Name); err != nil {
+		return 0, false, err
+	}
 
 	netID := s.nextNet
 	s.nextNet++
@@ -264,6 +268,7 @@ func (s *Server) findOrCreateNetwork(bp *NetworkBlueprint, adminToken string) (u
 		Members:     nil,
 		MemberRoles: make(map[uint32]Role),
 		JoinRule:    joinRule,
+		Created:     time.Now(),
 	}
 	if bp.JoinToken != "" {
 		net.Token = bp.JoinToken
@@ -321,6 +326,11 @@ func (s *Server) configureAuditExport(cfg *BlueprintAuditExport) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.auditExportConfig = cfg
+	// Close existing exporter if any
+	if s.auditExporter != nil {
+		s.auditExporter.Close()
+	}
+	s.auditExporter = newAuditExporter(cfg)
 	slog.Info("audit export configured", "format", cfg.Format, "endpoint", cfg.Endpoint)
 }
 
