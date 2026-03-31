@@ -496,3 +496,84 @@ func TestPoloScoreConcurrent(t *testing.T) {
 		t.Errorf("expected polo score %d after %d concurrent +1 updates, got %d", workers, workers, score)
 	}
 }
+
+// TestAdminNodeManagement verifies that the 5 admin node management methods
+// (hostname, visibility, tags, task_exec, key_expiry) work via admin_token
+// without requiring node signature.
+func TestAdminNodeManagement(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, _ := registerTestNode(t, rc)
+
+	// Create enterprise network (creator auto-joins, needed for key expiry)
+	_, err := rc.CreateNetwork(nodeID, "admin-mgmt-net", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+
+	// 1. SetHostnameAdmin
+	_, err = rc.SetHostnameAdmin(nodeID, "admin-managed", TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetHostnameAdmin: %v", err)
+	}
+
+	// Verify hostname via lookup
+	lookupResp, err := rc.Lookup(nodeID)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if lookupResp["hostname"] != "admin-managed" {
+		t.Errorf("hostname: got %v, want admin-managed", lookupResp["hostname"])
+	}
+
+	// 2. SetVisibilityAdmin
+	_, err = rc.SetVisibilityAdmin(nodeID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetVisibilityAdmin: %v", err)
+	}
+
+	// 3. SetTagsAdmin
+	_, err = rc.SetTagsAdmin(nodeID, []string{"gpu", "arm64"}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetTagsAdmin: %v", err)
+	}
+
+	// 4. SetTaskExecAdmin
+	_, err = rc.SetTaskExecAdmin(nodeID, true, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetTaskExecAdmin: %v", err)
+	}
+
+	// 5. SetKeyExpiryAdmin
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	_, err = rc.SetKeyExpiryAdmin(nodeID, expiresAt, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetKeyExpiryAdmin: %v", err)
+	}
+
+	// Verify all wrong-token calls are rejected
+	_, err = rc.SetHostnameAdmin(nodeID, "bad", "wrong-token")
+	if err == nil {
+		t.Error("SetHostnameAdmin should reject wrong token")
+	}
+	_, err = rc.SetVisibilityAdmin(nodeID, false, "wrong-token")
+	if err == nil {
+		t.Error("SetVisibilityAdmin should reject wrong token")
+	}
+	_, err = rc.SetTagsAdmin(nodeID, []string{"bad"}, "wrong-token")
+	if err == nil {
+		t.Error("SetTagsAdmin should reject wrong token")
+	}
+	_, err = rc.SetTaskExecAdmin(nodeID, false, "wrong-token")
+	if err == nil {
+		t.Error("SetTaskExecAdmin should reject wrong token")
+	}
+	_, err = rc.SetKeyExpiryAdmin(nodeID, expiresAt, "wrong-token")
+	if err == nil {
+		t.Error("SetKeyExpiryAdmin should reject wrong token")
+	}
+
+	t.Log("all 5 admin node management methods work correctly")
+}
