@@ -987,7 +987,10 @@ func (s *Server) handleConn(conn net.Conn) {
 				strings.Contains(err.Error(), "not a member") ||
 				strings.Contains(err.Error(), "cannot") ||
 				strings.Contains(err.Error(), "too many") ||
-				strings.Contains(err.Error(), "too long") {
+				strings.Contains(err.Error(), "too long") ||
+				strings.Contains(err.Error(), "not found") ||
+				strings.Contains(err.Error(), "invalid") ||
+				strings.Contains(err.Error(), "required") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -2962,6 +2965,7 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
 	}
 
+	kickedRole := network.MemberRoles[targetNodeID]
 	delete(network.MemberRoles, targetNodeID)
 
 	// Remove network from target node's list
@@ -2991,8 +2995,8 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 
 	s.save()
 
-	slog.Info("member kicked from network", "target_node_id", targetNodeID, "network_id", netID)
-	s.audit("member.kicked", "target_node_id", targetNodeID, "network_id", netID)
+	slog.Info("member kicked from network", "target_node_id", targetNodeID, "network_id", netID, "role", string(kickedRole))
+	s.audit("member.kicked", "target_node_id", targetNodeID, "network_id", netID, "role", string(kickedRole))
 
 	return map[string]interface{}{
 		"type":           "kick_member_ok",

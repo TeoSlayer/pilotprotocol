@@ -2702,3 +2702,134 @@ func TestListNodesEnterpriseMembers(t *testing.T) {
 		t.Error("member not found in list_nodes")
 	}
 }
+
+// TestErrorPassthrough verifies that meaningful error messages reach clients
+// instead of being sanitized to "request failed".
+func TestErrorPassthrough(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// "not found" — lookup non-existent node
+	_, err = rc.Lookup(99999)
+	if err == nil {
+		t.Fatal("expected error for non-existent node")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+	t.Logf("not found passthrough: %v", err)
+
+	// "invalid" — register with invalid public key
+	_, err = rc.RegisterWithKey("", "not-a-valid-key", "", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid key")
+	}
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("expected 'invalid' in error, got: %v", err)
+	}
+	t.Logf("invalid passthrough: %v", err)
+
+	// "required" — transfer ownership with missing new_owner_id
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "err-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.TransferOwnership(netID, ownerID, 0, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for zero new_owner_id")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Errorf("expected 'required' in error, got: %v", err)
+	}
+	t.Logf("required passthrough: %v", err)
+}
+
+// TestKickAuditIncludesRole verifies that the kick audit entry includes
+// the kicked member's role.
+func TestKickAuditIncludesRole(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Register owner + admin
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	adminIdentity, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(adminIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register admin: %v", err)
+	}
+	adminID := uint32(resp["node_id"].(float64))
+
+	// Create enterprise network, add admin
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "kick-role-audit", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.InviteToNetwork(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.RespondInvite(adminID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Promote to admin then kick
+	_, err = rc.PromoteMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.KickMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("kick: %v", err)
+	}
+
+	// Check audit for kick event with role
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+
+	foundKickWithRole := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "member.kicked" {
+			details, _ := entry["details"].(string)
+			if strings.Contains(details, "role=admin") {
+				foundKickWithRole = true
+				t.Logf("kick audit with role: %s", details)
+			}
+		}
+	}
+	if !foundKickWithRole {
+		t.Error("member.kicked audit entry missing role=admin")
+	}
+}
