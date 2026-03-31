@@ -848,6 +848,7 @@ func (s *Server) reapStaleNodes() {
 	for id, node := range s.nodes {
 		if node.LastSeen.Before(threshold) {
 			slog.Info("registry reaping stale node", "node_id", id, "last_seen_ago", time.Since(node.LastSeen).Round(time.Second))
+			s.audit("node.reaped", "node_id", id, "reason", "stale_heartbeat")
 			// Remove from backbone (network 0) only. Keep non-backbone network
 			// memberships in the member lists so re-registration can restore them.
 			if net, ok := s.networks[0]; ok {
@@ -1553,6 +1554,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			s.setNodeHostname(node, hostname, resp)
 			s.save()
 			slog.Debug("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "existing_identity")
+			s.audit("node.re_registered", "node_id", nodeID, "mode", "existing_identity")
 			return resp, nil
 		}
 
@@ -1607,6 +1609,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 		s.setNodeHostname(node, hostname, resp)
 		s.save()
 		slog.Debug("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "reclaimed_identity")
+		s.audit("node.re_registered", "node_id", nodeID, "mode", "reclaimed_identity")
 		return resp, nil
 	}
 
@@ -1634,6 +1637,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				s.setNodeHostname(existingNode, hostname, resp)
 				s.save()
 				slog.Debug("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_key_update")
+				s.audit("node.re_registered", "node_id", existingID, "mode", "owner_key_update")
 				return resp, nil
 			}
 
@@ -1663,6 +1667,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			s.setNodeHostname(node, hostname, resp)
 			s.save()
 			slog.Debug("registered node", "node_id", existingID, "listen", listenAddr, "addr", addr, "mode", "owner_reclaim")
+			s.audit("node.re_registered", "node_id", existingID, "mode", "owner_reclaim")
 			return resp, nil
 		}
 	}
