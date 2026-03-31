@@ -2,7 +2,11 @@ package tests
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -4623,4 +4627,135 @@ func TestJoinMaxMembersEnforced(t *testing.T) {
 	}
 
 	t.Log("max_members correctly enforced on join_network")
+}
+
+// TestRegistryWebhookDispatch verifies that the registry dispatches audit events
+// to a configured webhook URL.
+func TestRegistryWebhookDispatch(t *testing.T) {
+	t.Parallel()
+
+	// Collect webhook events
+	var mu sync.Mutex
+	var events []registry.RegistryWebhookEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "bad body", 400)
+			return
+		}
+		var ev registry.RegistryWebhookEvent
+		if err := json.Unmarshal(body, &ev); err != nil {
+			http.Error(w, "bad json", 400)
+			return
+		}
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+	_ = reg
+
+	// Configure webhook via protocol
+	resp, err := rc.SetWebhook(srv.URL, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set_webhook: %v", err)
+	}
+	if resp["status"] != "enabled" {
+		t.Fatalf("expected status=enabled, got %v", resp["status"])
+	}
+
+	// Verify get_webhook
+	whResp, err := rc.GetWebhook(TestAdminToken)
+	if err != nil {
+		t.Fatalf("get_webhook: %v", err)
+	}
+	if whResp["enabled"] != true {
+		t.Errorf("expected enabled=true, got %v", whResp["enabled"])
+	}
+
+	// Perform operations that generate audit events
+	ownerID, _ := crypto.GenerateIdentity()
+	resp, err = rc.RegisterWithKey("", crypto.EncodePublicKey(ownerID.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ownerNodeID := uint32(resp["node_id"].(float64))
+
+	setClientSigner(rc, ownerID)
+	resp, err = rc.CreateNetwork(ownerNodeID, "webhook-test", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+
+	// Wait for async webhook delivery
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	received := make([]registry.RegistryWebhookEvent, len(events))
+	copy(received, events)
+	mu.Unlock()
+
+	if len(received) < 2 {
+		t.Fatalf("expected at least 2 webhook events (register + create_network), got %d", len(received))
+	}
+
+	// Check that we got the expected actions
+	actions := make(map[string]bool)
+	for _, ev := range received {
+		actions[ev.Action] = true
+		if ev.EventID == 0 {
+			t.Error("webhook event has zero event_id")
+		}
+		if ev.Timestamp.IsZero() {
+			t.Error("webhook event has zero timestamp")
+		}
+	}
+
+	if !actions["node.registered"] {
+		t.Error("missing node.registered webhook event")
+	}
+	if !actions["network.created"] {
+		t.Error("missing network.created webhook event")
+	}
+
+	t.Logf("received %d webhook events: %v", len(received), func() []string {
+		var a []string
+		for _, e := range received {
+			a = append(a, e.Action)
+		}
+		return a
+	}())
+
+	// Disable webhook
+	resp, err = rc.SetWebhook("", TestAdminToken)
+	if err != nil {
+		t.Fatalf("disable webhook: %v", err)
+	}
+	if resp["status"] != "disabled" {
+		t.Errorf("expected status=disabled, got %v", resp["status"])
+	}
+}
+
+// TestRegistryWebhookRequiresAdmin verifies webhook API requires admin token.
+func TestRegistryWebhookRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// set_webhook without admin token
+	_, err := rc.SetWebhook("http://example.com", "wrong-token")
+	if err == nil {
+		t.Error("expected error for set_webhook with wrong admin token")
+	}
+
+	// get_webhook without admin token
+	_, err = rc.GetWebhook("wrong-token")
+	if err == nil {
+		t.Error("expected error for get_webhook with wrong admin token")
+	}
 }

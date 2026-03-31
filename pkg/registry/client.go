@@ -798,3 +798,20 @@ func (c *Client) GetAuditLog(networkID uint16, adminToken string) (map[string]in
 	}
 	return c.Send(msg)
 }
+
+// SetWebhook configures the registry webhook URL. Pass empty string to disable.
+func (c *Client) SetWebhook(url, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "set_webhook",
+		"url":         url,
+		"admin_token": adminToken,
+	})
+}
+
+// GetWebhook returns the current webhook configuration.
+func (c *Client) GetWebhook(adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":        "get_webhook",
+		"admin_token": adminToken,
+	})
+}

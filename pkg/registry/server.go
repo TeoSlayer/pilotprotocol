@@ -114,6 +114,15 @@ func (s *Server) audit(action string, attrs ...any) {
 	slog.Info("audit", append([]any{"audit_action", action}, attrs...)...)
 	s.appendAudit(action, 0, 0, attrs...)
 	s.metrics.auditEventsTotal.Inc()
+	if s.webhook != nil {
+		details := make(map[string]interface{}, len(attrs)/2)
+		for i := 0; i+1 < len(attrs); i += 2 {
+			if key, ok := attrs[i].(string); ok {
+				details[key] = attrs[i+1]
+			}
+		}
+		s.webhook.Emit(action, details)
+	}
 }
 
 // requireEnterprise checks that the given network has the Enterprise flag.
@@ -273,6 +282,9 @@ type Server struct {
 
 	// Prometheus metrics
 	metrics *registryMetrics
+
+	// Webhook dispatcher (nil = disabled)
+	webhook *registryWebhook
 
 	// Clock (overridable for testing)
 	now func() time.Time
@@ -719,6 +731,21 @@ func (s *Server) SetReplicationToken(token string) {
 	s.mu.Unlock()
 }
 
+// SetWebhookURL configures the registry to POST audit events to the given URL.
+// If url is empty, webhook dispatching is disabled.
+func (s *Server) SetWebhookURL(url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.webhook != nil {
+		s.webhook.Close()
+		s.webhook = nil
+	}
+	if url != "" {
+		s.webhook = newRegistryWebhook(url)
+		slog.Info("registry webhook configured", "url", url)
+	}
+}
+
 // SetTLS configures the registry to use TLS with the given cert and key files.
 // If certFile is empty, a self-signed certificate is generated automatically.
 func (s *Server) SetTLS(certFile, keyFile string) error {
@@ -923,6 +950,9 @@ func (s *Server) Close() error {
 		close(s.done)
 	}
 	<-s.saveDone // wait for saveLoop to finish its final flush
+	if s.webhook != nil {
+		s.webhook.Close()
+	}
 	if s.listener != nil {
 		return s.listener.Close()
 	}
@@ -1154,6 +1184,10 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleGetKeyInfo(msg)
 	case "get_audit_log":
 		return s.handleGetAuditLog(msg)
+	case "set_webhook":
+		return s.handleSetWebhook(msg)
+	case "get_webhook":
+		return s.handleGetWebhook(msg)
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", msgType)
 	}
@@ -1467,6 +1501,47 @@ func (s *Server) handleGetAuditLog(msg map[string]interface{}) (map[string]inter
 	return map[string]interface{}{
 		"type":    "get_audit_log_ok",
 		"entries": entries,
+	}, nil
+}
+
+// handleSetWebhook configures the registry webhook URL. Requires admin token.
+func (s *Server) handleSetWebhook(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	url, _ := msg["url"].(string)
+	s.SetWebhookURL(url)
+	status := "disabled"
+	if url != "" {
+		status = "enabled"
+	}
+	return map[string]interface{}{
+		"type":   "set_webhook_ok",
+		"status": status,
+		"url":    url,
+	}, nil
+}
+
+// handleGetWebhook returns the current webhook configuration. Requires admin token.
+func (s *Server) handleGetWebhook(msg map[string]interface{}) (map[string]interface{}, error) {
+	if err := s.requireAdminToken(msg); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	wh := s.webhook
+	s.mu.RUnlock()
+
+	url := ""
+	dropped := uint64(0)
+	if wh != nil {
+		url = wh.url
+		dropped = wh.dropped.Load()
+	}
+	return map[string]interface{}{
+		"type":    "get_webhook_ok",
+		"enabled": wh != nil,
+		"url":     url,
+		"dropped": dropped,
 	}, nil
 }
 
