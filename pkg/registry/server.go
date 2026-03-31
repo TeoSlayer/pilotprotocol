@@ -3258,12 +3258,17 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 			return nil, fmt.Errorf("too many allowed_ports (max 100)")
 		}
 		policy.AllowedPorts = nil
+		seen := make(map[uint16]bool, len(v))
 		for _, p := range v {
 			port, ok := p.(float64)
 			if !ok || port < 1 || port > 65535 || port != float64(int(port)) {
 				return nil, fmt.Errorf("invalid port number in allowed_ports (must be integer 1-65535)")
 			}
-			policy.AllowedPorts = append(policy.AllowedPorts, uint16(port))
+			p16 := uint16(port)
+			if !seen[p16] {
+				seen[p16] = true
+				policy.AllowedPorts = append(policy.AllowedPorts, p16)
+			}
 		}
 	}
 

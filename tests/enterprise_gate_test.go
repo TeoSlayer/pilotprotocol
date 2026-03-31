@@ -3126,3 +3126,158 @@ func TestEnterpriseToggleRBACCleanup(t *testing.T) {
 	}
 	t.Log("RBAC roles correctly cleaned on disable, re-initialized on enable")
 }
+
+// TestPolicyPortDeduplication verifies that duplicate ports in allowed_ports
+// are deduplicated while preserving order.
+func TestPolicyPortDeduplication(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "port-dedup", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set ports with duplicates
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": []interface{}{float64(80), float64(443), float64(80), float64(8080), float64(443)},
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// Verify deduplication
+	policyResp, err := rc.GetNetworkPolicy(netID)
+	if err != nil {
+		t.Fatalf("get policy: %v", err)
+	}
+	ports := policyResp["allowed_ports"].([]interface{})
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 unique ports, got %d: %v", len(ports), ports)
+	}
+	// Verify order preserved: 80, 443, 8080
+	expected := []float64{80, 443, 8080}
+	for i, p := range ports {
+		if p.(float64) != expected[i] {
+			t.Errorf("port[%d] = %v, want %v", i, p, expected[i])
+		}
+	}
+	t.Logf("ports deduplicated: %v", ports)
+}
+
+// TestPolicyOnNonEnterprise verifies that set_network_policy fails on
+// non-enterprise networks.
+func TestPolicyOnNonEnterprise(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+
+	// Create non-enterprise network
+	resp, err := rc.CreateNetwork(ownerID, "no-ent-policy", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Try to set policy — should fail
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(10),
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: policy on non-enterprise network")
+	}
+	if !strings.Contains(err.Error(), "enterprise") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("policy on non-enterprise correctly rejected: %v", err)
+}
+
+// TestTransferToMemberRole verifies that ownership can be transferred
+// directly to a member with role=member (not just admin).
+func TestTransferToMemberRole(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "xfer-member", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept member (role=member, NOT admin)
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Verify member has role=member
+	roleResp, err := rc.GetMemberRole(netID, memberID)
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	if roleResp["role"] != "member" {
+		t.Fatalf("expected member role, got %v", roleResp["role"])
+	}
+
+	// Transfer ownership to member (role=member)
+	_, err = rc.TransferOwnership(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("transfer to member: %v", err)
+	}
+
+	// Verify new owner
+	roleResp, err = rc.GetMemberRole(netID, memberID)
+	if err != nil {
+		t.Fatalf("get new owner role: %v", err)
+	}
+	if roleResp["role"] != "owner" {
+		t.Errorf("expected owner, got %v", roleResp["role"])
+	}
+
+	// Verify old owner is now admin
+	roleResp, err = rc.GetMemberRole(netID, ownerID)
+	if err != nil {
+		t.Fatalf("get old owner role: %v", err)
+	}
+	if roleResp["role"] != "admin" {
+		t.Errorf("expected admin, got %v", roleResp["role"])
+	}
+
+	// Verify audit captured the old role
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+	foundTransfer := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "network.ownership_transferred" {
+			details, _ := entry["details"].(string)
+			if strings.Contains(details, "new_owner_old_role=member") {
+				foundTransfer = true
+			}
+		}
+	}
+	if !foundTransfer {
+		t.Error("ownership transfer audit missing new_owner_old_role=member")
+	}
+	t.Log("transfer to member role works, audit captures old role")
+}
