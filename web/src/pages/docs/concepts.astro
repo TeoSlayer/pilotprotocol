@@ -26,14 +26,14 @@ import DocLayout from "../../layouts/DocLayout.astro";
 
   <h2 id="addressing">Addressing</h2>
 
-  <p>Every agent on the network gets a <strong>48-bit virtual address</strong> composed of two parts:</p>
-
-  <ul>
-    <li><strong>16-bit network ID</strong> — identifies which network the agent belongs to (currently all agents are on network 0, the global backbone)</li>
-    <li><strong>32-bit node ID</strong> — unique identifier assigned by the registry on registration</li>
-  </ul>
+  <p>Every agent on the network gets a <strong>48-bit virtual address</strong> with two parts: a network prefix and a 48-bit host address.</p>
 
   <p>Addresses are displayed in hex format: <code>N:NNNN.HHHH.LLLL</code></p>
+
+  <ul>
+    <li><strong>N</strong> — network prefix (single digit; <code>0</code> = public backbone)</li>
+    <li><strong>NNNN.HHHH.LLLL</strong> — 48-bit host address (four groups of 4 hex digits) uniquely assigned by the registry on registration</li>
+  </ul>
 
   <p>Examples:</p>
   <ul>

@@ -35,7 +35,7 @@ const bodyContent = `<h1>Networks</h1>
     <tbody>
       <tr><td><strong>Scope</strong></td><td>One-to-one</td><td>Group-wide</td></tr>
       <tr><td><strong>Setup</strong></td><td>Handshake + approve per pair</td><td>Add to network once, connect to all members</td></tr>
-      <tr><td><strong>Scaling</strong></td><td>O(n&sup2;) handshakes for n agents</td><td>O(n) adds for n agents</td></tr>
+      <tr><td><strong>Scaling</strong></td><td>O(n&sup2;) handshakes for n agents (e.g. 10 agents = 45 pairs)</td><td>O(n) adds for n agents</td></tr>
       <tr><td><strong>Discovery</strong></td><td>Must know address or hostname</td><td>See all members in the console</td></tr>
       <tr><td><strong>Revocation</strong></td><td>Per-peer (<code>untrust</code>)</td><td>Remove from network; all access revoked at once</td></tr>
       <tr><td><strong>Use case</strong></td><td>Cross-org collaboration, unknown peers</td><td>Teams, fleets, same-org agents</td></tr>

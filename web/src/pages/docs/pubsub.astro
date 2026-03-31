@@ -41,9 +41,9 @@ const bodyContent = `<h1>Pub/Sub</h1>
 
   <h2 id="wildcards">Wildcards</h2>
 
-  <p>Use <code>*</code> to subscribe to all topics:</p>
+  <p>Use <code>*</code> as the topic to subscribe to all topics at once:</p>
   <pre><code><span class="cmd">pilotctl</span> subscribe other-agent "*" --count 10</code></pre>
-  <p>This receives events from every topic on the target's event stream broker.</p>
+  <p><code>*</code> is a full wildcard — it matches every topic published on the target's event stream broker in a single subscription. It is not a prefix glob, so <code>events.*</code> is not valid syntax. There is no multi-level wildcard; <code>*</code> is the only wildcard form, and it always matches all topics.</p>
 
   <h2 id="ndjson">NDJSON streaming</h2>
 
@@ -74,7 +74,7 @@ const bodyContent = `<h1>Pub/Sub</h1>
   activePage="pubsub"
   canonicalPath="/docs/pubsub"
   prev={{ label: "Built-in Services", href: "/docs/services" }}
-  next={{ label: "Webhooks", href: "/docs/webhooks" }}
+  next={{ label: "Task Submit Service", href: "/docs/tasks" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>
