@@ -1602,3 +1602,134 @@ func TestTransferOwnershipNonEnterprise(t *testing.T) {
 	}
 	t.Logf("non-enterprise transfer correctly rejected: %v", err)
 }
+
+// TestTransferOwnershipThenReTransfer verifies that the new owner can
+// transfer ownership again, creating a chain of transfers.
+func TestTransferOwnershipThenReTransfer(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeA, _ := registerTestNode(t, rc)
+	nodeB, _ := registerTestNode(t, rc)
+	nodeC, _ := registerTestNode(t, rc)
+
+	// Create enterprise network with A as owner
+	resp, err := rc.CreateNetwork(nodeA, "chain-transfer", "open", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("B join: %v", err)
+	}
+	_, err = rc.JoinNetwork(nodeC, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("C join: %v", err)
+	}
+
+	// A transfers to B
+	_, err = rc.TransferOwnership(netID, nodeA, nodeB, TestAdminToken)
+	if err != nil {
+		t.Fatalf("A→B transfer: %v", err)
+	}
+
+	// Verify A is now admin, B is owner
+	roleA, _ := rc.GetMemberRole(netID, nodeA)
+	roleB, _ := rc.GetMemberRole(netID, nodeB)
+	if roleA["role"] != "admin" {
+		t.Fatalf("expected A=admin, got %v", roleA["role"])
+	}
+	if roleB["role"] != "owner" {
+		t.Fatalf("expected B=owner, got %v", roleB["role"])
+	}
+
+	// B transfers to C
+	_, err = rc.TransferOwnership(netID, nodeB, nodeC, TestAdminToken)
+	if err != nil {
+		t.Fatalf("B→C transfer: %v", err)
+	}
+
+	// Verify B is now admin, C is owner
+	roleB, _ = rc.GetMemberRole(netID, nodeB)
+	roleC, _ := rc.GetMemberRole(netID, nodeC)
+	if roleB["role"] != "admin" {
+		t.Fatalf("expected B=admin after transfer, got %v", roleB["role"])
+	}
+	if roleC["role"] != "owner" {
+		t.Fatalf("expected C=owner, got %v", roleC["role"])
+	}
+
+	// Check audit log has both transfer events
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+	transferCount := 0
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		if entry["action"] == "network.ownership_transferred" {
+			transferCount++
+		}
+	}
+	if transferCount != 2 {
+		t.Fatalf("expected 2 transfer audit events, got %d", transferCount)
+	}
+	t.Log("chain transfer (A→B→C) verified with audit trail")
+}
+
+// TestMaxMembersOnInviteAccept verifies that accepting an invite when the
+// network is at max_members capacity is rejected.
+func TestMaxMembersOnInviteAccept(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	member1ID, member1Identity := registerTestNode(t, rc)
+	member2ID, member2Identity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "max-cap", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set max_members to 2 (owner counts as 1)
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(2),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+
+	// Invite member1 and accept (fills the network to capacity)
+	_, err = rc.InviteToNetwork(netID, ownerID, member1ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite member1: %v", err)
+	}
+	setClientSigner(rc, member1Identity)
+	_, err = rc.RespondInvite(member1ID, netID, true)
+	if err != nil {
+		t.Fatalf("accept member1: %v", err)
+	}
+	t.Log("member1 joined successfully (2/2 capacity)")
+
+	// Invite member2 and try to accept (should fail — at capacity)
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, member2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite member2: %v", err)
+	}
+	setClientSigner(rc, member2Identity)
+	_, err = rc.RespondInvite(member2ID, netID, true)
+	if err == nil {
+		t.Fatal("expected error: network at max capacity")
+	}
+	t.Logf("max_members enforcement on invite accept: %v", err)
+}

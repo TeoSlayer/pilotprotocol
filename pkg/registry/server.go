@@ -1020,7 +1020,7 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	if isStandby {
 		switch msgType {
 		case "lookup", "resolve", "list_networks", "list_nodes", "heartbeat", "poll_handshakes", "poll_invites", "resolve_hostname", "beacon_list",
-			"get_polo_score", "get_key_info", "get_network_policy", "get_audit_log":
+			"get_polo_score", "get_key_info", "get_network_policy", "get_audit_log", "get_member_role", "check_trust":
 			// reads are allowed on standby
 		default:
 			return nil, fmt.Errorf("standby mode: write operations not accepted (use primary)")
@@ -3470,6 +3470,7 @@ func (s *Server) handleBeaconRegister(msg map[string]interface{}) (map[string]in
 	s.mu.Unlock()
 
 	slog.Debug("beacon registered", "beacon_id", beaconID, "addr", addr)
+	s.audit("beacon.registered", "beacon_id", beaconID, "addr", addr)
 
 	return map[string]interface{}{
 		"type":      "beacon_register_ok",
