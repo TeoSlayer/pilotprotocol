@@ -3415,3 +3415,168 @@ func TestNodeOpsOnNonExistent(t *testing.T) {
 
 	t.Log("all node ops on non-existent node return 'not found'")
 }
+
+// TestKickRevokesOutgoingInvites verifies that when a member is kicked,
+// any invites they sent to other nodes are revoked.
+func TestKickRevokesOutgoingInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	adminID, adminIdentity := registerTestNode(t, rc)
+	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "kick-revoke", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and accept admin, promote
+	_, err = rc.InviteToNetwork(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite admin: %v", err)
+	}
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.RespondInvite(adminID, netID, true)
+	if err != nil {
+		t.Fatalf("accept admin: %v", err)
+	}
+	_, err = rc.PromoteMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote admin: %v", err)
+	}
+
+	// Admin invites target
+	_, err = rc.InviteToNetwork(netID, adminID, targetID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("admin invite target: %v", err)
+	}
+
+	// Verify target has a pending invite
+	setClientSigner(rc, targetIdentity)
+	pollResp, err := rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) != 1 {
+		t.Fatalf("expected 1 invite, got %d", len(invites))
+	}
+
+	// Owner kicks admin
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.KickMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("kick admin: %v", err)
+	}
+
+	// Target's pending invite from kicked admin should be revoked
+	setClientSigner(rc, targetIdentity)
+	pollResp, err = rc.PollInvites(targetID)
+	if err != nil {
+		t.Fatalf("poll after kick: %v", err)
+	}
+	invites2, _ := pollResp["invites"].([]interface{})
+	if len(invites2) != 0 {
+		t.Errorf("expected 0 invites after inviter kicked, got %d", len(invites2))
+	}
+	t.Log("outgoing invites from kicked member correctly revoked")
+}
+
+// TestKeyExpiryUpperBound verifies that unreasonably far future expiry dates
+// are rejected (max 10 years).
+func TestKeyExpiryUpperBound(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, nodeIdentity := registerTestNode(t, rc)
+
+	// Create enterprise network so key expiry works
+	setClientSigner(rc, nodeIdentity)
+	resp, err := rc.CreateNetwork(nodeID, "expiry-bound", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_ = uint16(resp["network_id"].(float64))
+
+	// 5 years should be OK
+	fiveYears := time.Now().Add(5 * 365 * 24 * time.Hour)
+	_, err = rc.SetKeyExpiryAdmin(nodeID, fiveYears, TestAdminToken)
+	if err != nil {
+		t.Fatalf("5-year expiry should work: %v", err)
+	}
+
+	// 11 years should be rejected
+	elevenYears := time.Now().Add(11 * 365 * 24 * time.Hour)
+	_, err = rc.SetKeyExpiryAdmin(nodeID, elevenYears, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error: 11-year expiry should be rejected")
+	}
+	if !strings.Contains(err.Error(), "invalid") && !strings.Contains(err.Error(), "10 years") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("upper bound enforced: %v", err)
+}
+
+// TestReInviteAfterLeave verifies that a node can be re-invited after leaving.
+func TestReInviteAfterLeave(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	memberID, memberIdentity := registerTestNode(t, rc)
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "reinvite", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite, accept, leave
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("first invite: %v", err)
+	}
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("first accept: %v", err)
+	}
+
+	// Leave
+	_, err = rc.LeaveNetwork(memberID, netID, "")
+	if err != nil {
+		t.Fatalf("leave: %v", err)
+	}
+
+	// Re-invite should succeed (node is no longer a member)
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.InviteToNetwork(netID, ownerID, memberID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("re-invite after leave should succeed: %v", err)
+	}
+
+	// Accept re-invite
+	setClientSigner(rc, memberIdentity)
+	_, err = rc.RespondInvite(memberID, netID, true)
+	if err != nil {
+		t.Fatalf("re-accept: %v", err)
+	}
+
+	// Verify member is back with member role
+	roleResp, err := rc.GetMemberRole(netID, memberID)
+	if err != nil {
+		t.Fatalf("get role: %v", err)
+	}
+	if roleResp["role"] != "member" {
+		t.Errorf("expected member role after re-join, got %v", roleResp["role"])
+	}
+	t.Log("re-invite after leave works correctly")
+}

@@ -1316,6 +1316,10 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 		if expiresAt.Before(s.now()) {
 			return nil, fmt.Errorf("expires_at must be in the future")
 		}
+		// Reject unreasonably far expiry (max 10 years)
+		if expiresAt.After(s.now().Add(10 * 365 * 24 * time.Hour)) {
+			return nil, fmt.Errorf("invalid expires_at: cannot exceed 10 years")
+		}
 	}
 
 	s.mu.Lock()
@@ -3008,6 +3012,21 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 			delete(s.inviteInbox, targetNodeID)
 		} else {
 			s.inviteInbox[targetNodeID] = remaining
+		}
+	}
+
+	// Also revoke any outgoing invites sent by the kicked member for this network
+	for nodeID, invites := range s.inviteInbox {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if !(inv.NetworkID == netID && inv.InviterID == targetNodeID) {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, nodeID)
+		} else if len(remaining) < len(invites) {
+			s.inviteInbox[nodeID] = remaining
 		}
 	}
 
