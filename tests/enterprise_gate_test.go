@@ -2375,3 +2375,148 @@ func TestConcurrentRBACOperations(t *testing.T) {
 	}
 	t.Log("concurrent RBAC operations completed with consistent final state")
 }
+
+// TestSelfInvitePrevented verifies that a node cannot invite itself.
+func TestSelfInvitePrevented(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "self-invite", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Try to invite self
+	_, err = rc.InviteToNetwork(netID, ownerID, ownerID, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for self-invite")
+	}
+	if !strings.Contains(err.Error(), "cannot invite yourself") {
+		t.Fatalf("expected 'cannot invite yourself' error, got: %v", err)
+	}
+	t.Logf("self-invite correctly rejected: %v", err)
+}
+
+// TestPolicyDescriptionLimit verifies that overly long descriptions are rejected.
+func TestPolicyDescriptionLimit(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, nodeIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, nodeIdentity)
+	resp, err := rc.CreateNetwork(nodeID, "desc-limit", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// 256 chars should work
+	desc256 := strings.Repeat("a", 256)
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"description": desc256,
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set description (256 chars): %v", err)
+	}
+
+	// 257 chars should fail
+	desc257 := strings.Repeat("b", 257)
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"description": desc257,
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for description > 256 chars")
+	}
+	if !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("expected 'too long' error, got: %v", err)
+	}
+	t.Logf("description limit enforced: %v", err)
+}
+
+// TestAllowedPortsLimit verifies that too many allowed_ports are rejected.
+func TestAllowedPortsLimit(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, nodeIdentity := registerTestNode(t, rc)
+	setClientSigner(rc, nodeIdentity)
+	resp, err := rc.CreateNetwork(nodeID, "ports-limit", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// 100 ports should work
+	ports100 := make([]interface{}, 100)
+	for i := 0; i < 100; i++ {
+		ports100[i] = float64(i + 1)
+	}
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": ports100,
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set 100 ports: %v", err)
+	}
+
+	// 101 ports should fail
+	ports101 := make([]interface{}, 101)
+	for i := 0; i < 101; i++ {
+		ports101[i] = float64(i + 1)
+	}
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"allowed_ports": ports101,
+	}, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for > 100 allowed_ports")
+	}
+	if !strings.Contains(err.Error(), "too many") {
+		t.Fatalf("expected 'too many' error, got: %v", err)
+	}
+	t.Logf("allowed_ports limit enforced: %v", err)
+}
+
+// TestTransferOwnershipZeroID verifies that transferring to node 0 is rejected.
+func TestTransferOwnershipZeroID(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	ownerIdentity, _ := crypto.GenerateIdentity()
+	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(ownerIdentity.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ownerID := uint32(resp["node_id"].(float64))
+
+	setClientSigner(rc, ownerIdentity)
+	resp, err = rc.CreateNetwork(ownerID, "transfer-zero", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Transfer to node 0
+	_, err = rc.TransferOwnership(netID, ownerID, 0, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error transferring to node 0")
+	}
+	t.Logf("transfer to node 0 correctly rejected: %v", err)
+}

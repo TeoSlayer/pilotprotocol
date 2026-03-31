@@ -985,7 +985,9 @@ func (s *Server) handleConn(conn net.Conn) {
 				strings.Contains(err.Error(), "expired") ||
 				strings.Contains(err.Error(), "already") ||
 				strings.Contains(err.Error(), "not a member") ||
-				strings.Contains(err.Error(), "cannot") {
+				strings.Contains(err.Error(), "cannot") ||
+				strings.Contains(err.Error(), "too many") ||
+				strings.Contains(err.Error(), "too long") {
 				errMsg = err.Error()
 			}
 			slog.Error("registry handle error", "remote", conn.RemoteAddr(), "err", err)
@@ -2652,6 +2654,10 @@ func (s *Server) handleInviteToNetwork(msg map[string]interface{}) (map[string]i
 	inviterID := jsonUint32(msg, "inviter_id")
 	targetNodeID := jsonUint32(msg, "target_node_id")
 
+	if inviterID == targetNodeID {
+		return nil, fmt.Errorf("cannot invite yourself")
+	}
+
 	// Auth check BEFORE write lock (requireAdminToken takes its own RLock)
 	s.mu.RLock()
 	inviterNode, ok := s.nodes[inviterID]
@@ -3098,6 +3104,9 @@ func (s *Server) handleDemoteMember(msg map[string]interface{}) (map[string]inte
 func (s *Server) handleTransferOwnership(msg map[string]interface{}) (map[string]interface{}, error) {
 	netID := jsonUint16(msg, "network_id")
 	newOwnerID := jsonUint32(msg, "new_owner_id")
+	if newOwnerID == 0 {
+		return nil, fmt.Errorf("new_owner_id is required")
+	}
 
 	// RBAC: only the current owner can transfer
 	if err := s.requireNetworkRole(msg, netID, RoleOwner); err != nil {
@@ -3223,6 +3232,9 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	}
 
 	if v, ok := msg["allowed_ports"].([]interface{}); ok {
+		if len(v) > 100 {
+			return nil, fmt.Errorf("too many allowed_ports (max 100)")
+		}
 		policy.AllowedPorts = nil
 		for _, p := range v {
 			port, ok := p.(float64)
@@ -3234,6 +3246,9 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	}
 
 	if v, ok := msg["description"].(string); ok {
+		if len(v) > 256 {
+			return nil, fmt.Errorf("policy description too long (max 256 chars)")
+		}
 		policy.Description = v
 	}
 
