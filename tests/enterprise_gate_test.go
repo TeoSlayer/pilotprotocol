@@ -3685,3 +3685,105 @@ func TestDeregisterRequiresAuth(t *testing.T) {
 	}
 	t.Log("deregister auth correctly enforced")
 }
+
+// TestBackboneRenameRejected verifies that renaming the backbone network (ID 0) is rejected.
+func TestBackboneRenameRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	_, err := rc.RenameNetwork(0, "evil-backbone", TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error when renaming backbone network")
+	}
+	if !strings.Contains(err.Error(), "cannot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("backbone rename correctly rejected: %v", err)
+}
+
+// TestBackboneEnterpriseRejected verifies that setting enterprise flag on the backbone is rejected.
+func TestBackboneEnterpriseRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	_, err := rc.SetNetworkEnterprise(0, true, TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error when setting enterprise on backbone")
+	}
+	if !strings.Contains(err.Error(), "cannot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("backbone enterprise correctly rejected: %v", err)
+}
+
+// TestBackboneDeleteRejected verifies that deleting the backbone network is rejected.
+func TestBackboneDeleteRejected(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	_, err := rc.Send(map[string]interface{}{
+		"type":        "delete_network",
+		"network_id":  uint16(0),
+		"admin_token": TestAdminToken,
+	})
+	if err == nil {
+		t.Fatal("expected error when deleting backbone network")
+	}
+	if !strings.Contains(err.Error(), "cannot") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	t.Logf("backbone delete correctly rejected: %v", err)
+}
+
+// TestNetworkRenameValidation verifies that network rename works for non-backbone and rejects invalid names.
+func TestNetworkRenameValidation(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+
+	// Create a normal network
+	resp, err := rc.CreateNetwork(ownerID, "rename-test", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Rename should work for non-backbone
+	_, err = rc.RenameNetwork(netID, "renamed-test", TestAdminToken)
+	if err != nil {
+		t.Fatalf("rename should succeed: %v", err)
+	}
+
+	// Verify rename took effect
+	networks, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("list networks: %v", err)
+	}
+	netList := networks["networks"].([]interface{})
+	found := false
+	for _, n := range netList {
+		net := n.(map[string]interface{})
+		if uint16(net["id"].(float64)) == netID {
+			if net["name"] != "renamed-test" {
+				t.Errorf("name not updated: got %v", net["name"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("renamed network not found in list")
+	}
+
+	// Rename with invalid name should fail
+	_, err = rc.RenameNetwork(netID, "", TestAdminToken)
+	if err == nil {
+		t.Error("expected error for empty name")
+	}
+
+	t.Log("network rename validation works correctly")
+}

@@ -2087,6 +2087,10 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 func (s *Server) handleRenameNetwork(msg map[string]interface{}) (map[string]interface{}, error) {
 	netID := jsonUint16(msg, "network_id")
 
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot rename the backbone network")
+	}
+
 	// RBAC: owner or admin role, or global/per-network admin token
 	if err := s.requireNetworkRole(msg, netID, RoleOwner, RoleAdmin); err != nil {
 		return nil, err
@@ -2129,6 +2133,10 @@ func (s *Server) handleRenameNetwork(msg map[string]interface{}) (map[string]int
 func (s *Server) handleSetNetworkEnterprise(msg map[string]interface{}) (map[string]interface{}, error) {
 	netID := jsonUint16(msg, "network_id")
 	enterprise, _ := msg["enterprise"].(bool)
+
+	if netID == 0 {
+		return nil, fmt.Errorf("cannot set enterprise on the backbone network")
+	}
 
 	// Require global admin token
 	if err := s.requireAdminToken(msg); err != nil {
