@@ -2000,7 +2000,7 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 	}
 	delete(network.MemberRoles, nodeID)
 
-	// Clean up any pending invites for this node+network
+	// Clean up any pending invites for this node+network (inbound)
 	if invites, ok := s.inviteInbox[nodeID]; ok {
 		remaining := make([]*NetworkInvite, 0, len(invites))
 		for _, inv := range invites {
@@ -2012,6 +2012,21 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 			delete(s.inviteInbox, nodeID)
 		} else {
 			s.inviteInbox[nodeID] = remaining
+		}
+	}
+
+	// Revoke outgoing invites sent by this node for this network
+	for targetID, invites := range s.inviteInbox {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if !(inv.NetworkID == netID && inv.InviterID == nodeID) {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, targetID)
+		} else if len(remaining) < len(invites) {
+			s.inviteInbox[targetID] = remaining
 		}
 	}
 
@@ -3767,8 +3782,23 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 		}
 	}
 
-	// Clean up pending invites for this node
+	// Clean up pending invites for this node (inbound)
 	delete(s.inviteInbox, nodeID)
+
+	// Clean up outgoing invites sent by this node
+	for targetID, invites := range s.inviteInbox {
+		remaining := make([]*NetworkInvite, 0, len(invites))
+		for _, inv := range invites {
+			if inv.InviterID != nodeID {
+				remaining = append(remaining, inv)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.inviteInbox, targetID)
+		} else if len(remaining) < len(invites) {
+			s.inviteInbox[targetID] = remaining
+		}
+	}
 
 	// Keep ownerIdx entry so owner-based key recovery can reclaim the node_id
 	if node.Hostname != "" {

@@ -3869,3 +3869,155 @@ func TestMaxMembersValidation(t *testing.T) {
 
 	t.Log("max_members validation works correctly")
 }
+
+// TestDeregisterCleansOutgoingInvites verifies that deregistering a node
+// revokes any outgoing invites they sent.
+func TestDeregisterCleansOutgoingInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	// Register 3 nodes: owner, inviter, invitee
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	inviterID, inviterIdentity := registerTestNode(t, rc)
+	inviteeID, inviteeIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "dereg-invite-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and join inviter
+	_, err = rc.InviteToNetwork(netID, ownerID, inviterID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite inviter: %v", err)
+	}
+	setClientSigner(rc, inviterIdentity)
+	_, err = rc.RespondInvite(inviterID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Promote inviter to admin so they can send invites
+	_, err = rc.PromoteMember(netID, ownerID, inviterID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote inviter: %v", err)
+	}
+
+	// Inviter sends invite to invitee
+	setClientSigner(rc, inviterIdentity)
+	_, err = rc.InviteToNetwork(netID, inviterID, inviteeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite invitee: %v", err)
+	}
+
+	// Verify invite exists
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err := rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) == 0 {
+		t.Fatal("expected pending invite before deregister")
+	}
+
+	// Deregister the inviter
+	_, err = rc.Send(map[string]interface{}{
+		"type":        "deregister",
+		"node_id":     inviterID,
+		"admin_token": TestAdminToken,
+	})
+	if err != nil {
+		t.Fatalf("deregister inviter: %v", err)
+	}
+
+	// Poll invites for invitee — should be empty now
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err = rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites after deregister: %v", err)
+	}
+	invites2, ok := pollResp["invites"].([]interface{})
+	if ok && len(invites2) > 0 {
+		t.Errorf("expected no invites after inviter deregistered, got %d", len(invites2))
+	}
+	t.Log("deregister correctly cleans up outgoing invites")
+}
+
+// TestLeaveNetworkRevokesOutgoingInvites verifies that leaving a network
+// revokes any outgoing invites the leaving node sent for that network.
+func TestLeaveNetworkRevokesOutgoingInvites(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, ownerIdentity := registerTestNode(t, rc)
+	adminID, adminIdentity := registerTestNode(t, rc)
+	inviteeID, inviteeIdentity := registerTestNode(t, rc)
+
+	// Create enterprise invite-only network
+	setClientSigner(rc, ownerIdentity)
+	resp, err := rc.CreateNetwork(ownerID, "leave-invite-test", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invite and join admin
+	_, err = rc.InviteToNetwork(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite admin: %v", err)
+	}
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.RespondInvite(adminID, netID, true)
+	if err != nil {
+		t.Fatalf("accept invite: %v", err)
+	}
+
+	// Promote admin
+	_, err = rc.PromoteMember(netID, ownerID, adminID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Admin sends invite to invitee
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.InviteToNetwork(netID, adminID, inviteeID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("invite invitee: %v", err)
+	}
+
+	// Verify invite exists
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err := rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites: %v", err)
+	}
+	invites := pollResp["invites"].([]interface{})
+	if len(invites) == 0 {
+		t.Fatal("expected pending invite before leave")
+	}
+
+	// Admin leaves the network
+	setClientSigner(rc, adminIdentity)
+	_, err = rc.LeaveNetwork(adminID, netID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("leave network: %v", err)
+	}
+
+	// Poll invites for invitee — should be empty now
+	setClientSigner(rc, inviteeIdentity)
+	pollResp, err = rc.PollInvites(inviteeID)
+	if err != nil {
+		t.Fatalf("poll invites after leave: %v", err)
+	}
+	invites2, ok := pollResp["invites"].([]interface{})
+	if ok && len(invites2) > 0 {
+		t.Errorf("expected no invites after admin left network, got %d", len(invites2))
+	}
+	t.Log("leave network correctly revokes outgoing invites")
+}
