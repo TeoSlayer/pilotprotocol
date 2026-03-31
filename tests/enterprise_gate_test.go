@@ -1899,3 +1899,99 @@ func TestSetTaskExecAdminToken(t *testing.T) {
 
 	t.Log("SetTaskExec admin token bypass works correctly")
 }
+
+// TestAuditEnrichedTagsTaskExecPolicy verifies that tags, task_exec, and policy
+// audit entries include old and new values.
+func TestAuditEnrichedTagsTaskExecPolicy(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	nodeID, nodeIdentity := registerTestNode(t, rc)
+
+	// --- Tags: set then change ---
+	_, err := rc.SetTagsAdmin(nodeID, []string{"alpha", "beta"}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set tags: %v", err)
+	}
+	_, err = rc.SetTagsAdmin(nodeID, []string{"gamma"}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("change tags: %v", err)
+	}
+
+	// --- TaskExec: enable then disable ---
+	setClientSigner(rc, nodeIdentity)
+	_, err = rc.SetTaskExec(nodeID, true)
+	if err != nil {
+		t.Fatalf("enable task_exec: %v", err)
+	}
+	_, err = rc.SetTaskExec(nodeID, false)
+	if err != nil {
+		t.Fatalf("disable task_exec: %v", err)
+	}
+
+	// --- Policy: create enterprise network, set policy, then change it ---
+	resp, err := rc.CreateNetwork(nodeID, "audit-policy", "invite", "", TestAdminToken, true)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(10),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("set policy: %v", err)
+	}
+	_, err = rc.SetNetworkPolicy(netID, map[string]interface{}{
+		"max_members": float64(20),
+	}, TestAdminToken)
+	if err != nil {
+		t.Fatalf("change policy: %v", err)
+	}
+
+	// --- Check audit log ---
+	auditResp, err := rc.GetAuditLog(0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("get audit log: %v", err)
+	}
+	entries := auditResp["entries"].([]interface{})
+
+	foundTagsEnriched := false
+	foundTaskExecEnriched := false
+	foundPolicyEnriched := false
+
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		action := entry["action"].(string)
+		details, _ := entry["details"].(string)
+
+		// Tags: second set should show old_tags_count=2, new_tags_count=1
+		if action == "tags.changed" && strings.Contains(details, "old_tags_count=2") && strings.Contains(details, "new_tags_count=1") {
+			foundTagsEnriched = true
+			t.Logf("tags audit enriched: %s", details)
+		}
+
+		// TaskExec: disable should show old_enabled=true, new_enabled=false
+		if action == "task_exec.changed" && strings.Contains(details, "old_enabled=true") && strings.Contains(details, "new_enabled=false") {
+			foundTaskExecEnriched = true
+			t.Logf("task_exec audit enriched: %s", details)
+		}
+
+		// Policy: second set should show old_max_members=10, new_max_members=20
+		if action == "network.policy_changed" && strings.Contains(details, "old_max_members=10") && strings.Contains(details, "new_max_members=20") {
+			foundPolicyEnriched = true
+			t.Logf("policy audit enriched: %s", details)
+		}
+	}
+
+	if !foundTagsEnriched {
+		t.Error("tags.changed audit entry missing old/new tag counts")
+	}
+	if !foundTaskExecEnriched {
+		t.Error("task_exec.changed audit entry missing old/new enabled values")
+	}
+	if !foundPolicyEnriched {
+		t.Error("network.policy_changed audit entry missing old/new max_members")
+	}
+}

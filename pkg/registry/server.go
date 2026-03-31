@@ -1339,12 +1339,17 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 		return nil, fmt.Errorf("enterprise feature: key expiry requires enterprise network membership")
 	}
 
+	oldExpiresAt := node.KeyMeta.ExpiresAt
 	node.KeyMeta.ExpiresAt = expiresAt // zero value clears it
 	s.save()
 
 	if clearExpiry {
 		slog.Debug("cleared key expiry", "node_id", nodeID)
-		s.audit("key.expiry_cleared", "node_id", nodeID)
+		if !oldExpiresAt.IsZero() {
+			s.audit("key.expiry_cleared", "node_id", nodeID, "old_expires_at", oldExpiresAt.Format(time.RFC3339))
+		} else {
+			s.audit("key.expiry_cleared", "node_id", nodeID)
+		}
 		return map[string]interface{}{
 			"type":    "set_key_expiry_ok",
 			"node_id": nodeID,
@@ -1352,7 +1357,11 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 	}
 
 	slog.Debug("set key expiry", "node_id", nodeID, "expires_at", expiresAt)
-	s.audit("key.expiry_set", "node_id", nodeID, "expires_at", expiresAt)
+	if !oldExpiresAt.IsZero() {
+		s.audit("key.expiry_set", "node_id", nodeID, "expires_at", expiresAt.Format(time.RFC3339), "old_expires_at", oldExpiresAt.Format(time.RFC3339))
+	} else {
+		s.audit("key.expiry_set", "node_id", nodeID, "expires_at", expiresAt.Format(time.RFC3339))
+	}
 
 	return map[string]interface{}{
 		"type":       "set_key_expiry_ok",
@@ -2445,11 +2454,12 @@ func (s *Server) handleSetTaskExec(msg map[string]interface{}) (map[string]inter
 		}
 	}
 
+	oldEnabled := node.TaskExec
 	node.TaskExec = enabled
 	s.save()
 
 	slog.Info("node task_exec changed", "node_id", nodeID, "task_exec", enabled)
-	s.audit("task_exec.changed", "node_id", nodeID, "enabled", enabled)
+	s.audit("task_exec.changed", "node_id", nodeID, "old_enabled", oldEnabled, "new_enabled", enabled)
 
 	return map[string]interface{}{
 		"type":      "set_task_exec_ok",
@@ -3193,6 +3203,7 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	}
 
 	// Merge policy fields: only update fields present in the message (preserve unset fields)
+	oldPolicy := network.Policy
 	policy := network.Policy
 
 	if v, ok := msg["max_members"].(float64); ok {
@@ -3223,8 +3234,8 @@ func (s *Server) handleSetNetworkPolicy(msg map[string]interface{}) (map[string]
 	slog.Info("network policy updated", "network_id", netID, "max_members", policy.MaxMembers,
 		"allowed_ports", policy.AllowedPorts, "description", policy.Description)
 	s.audit("network.policy_changed", "network_id", netID,
-		"max_members", policy.MaxMembers, "allowed_ports_count", len(policy.AllowedPorts),
-		"description", policy.Description)
+		"old_max_members", oldPolicy.MaxMembers, "new_max_members", policy.MaxMembers,
+		"old_allowed_ports_count", len(oldPolicy.AllowedPorts), "new_allowed_ports_count", len(policy.AllowedPorts))
 
 	return map[string]interface{}{
 		"type":          "set_network_policy_ok",
@@ -3369,11 +3380,12 @@ func (s *Server) handleSetTags(msg map[string]interface{}) (map[string]interface
 		}
 	}
 
+	oldTags := node.Tags
 	node.Tags = tags
 	s.save()
 
 	slog.Debug("tags set", "node_id", nodeID, "tags", tags)
-	s.audit("tags.changed", "node_id", nodeID, "tags_count", len(tags))
+	s.audit("tags.changed", "node_id", nodeID, "old_tags_count", len(oldTags), "new_tags_count", len(tags))
 
 	return map[string]interface{}{
 		"type":    "set_tags_ok",
