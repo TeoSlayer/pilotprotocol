@@ -29,7 +29,7 @@ const bodyContent = `<h1>Configuration</h1>
   "webhook": "http://localhost:8080/events"
 }</code></pre>
 
-  <p>CLI flags override config file values. The config file is created by <code>pilotctl init</code> and can be updated with <code>pilotctl config --set</code>.</p>
+  <p>CLI flags override environment variables, which override config file values. The config file is created by <code>pilotctl init</code> and can be updated with <code>pilotctl config --set</code>.</p>
 
   <h2 id="commands">Config commands</h2>
 
@@ -51,11 +51,9 @@ const bodyContent = `<h1>Configuration</h1>
     <tbody>
       <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
-      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install</td></tr>
+      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install; if unset, the daemon uses the system hostname</td></tr>
     </tbody>
   </table>
-
-  <p>Environment variables override config file values but are overridden by CLI flags.</p>
 
   <h2 id="directory">Directory structure</h2>
 

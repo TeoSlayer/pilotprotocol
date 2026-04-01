@@ -14,9 +14,10 @@ interface Props {
   canonicalPath?: string;
   prev?: { label: string; href: string };
   next?: { label: string; href: string };
+  hidePageNav?: boolean;
 }
 
-const { title, description, activePage, canonicalPath, prev, next } = Astro.props;
+const { title, description, activePage, canonicalPath, prev, next, hidePageNav } = Astro.props;
 const canonicalUrl = canonicalPath ? `https://pilotprotocol.network${canonicalPath}` : undefined;
 
 const breadcrumbItems = [
@@ -31,6 +32,7 @@ if (activePage !== 'index') {
 <html lang="en">
 <head>
   <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
   <script type="application/ld+json" set:html={JSON.stringify({
     "@context": "https://schema.org",
     "@type": "WebPage",
@@ -54,11 +56,61 @@ if (activePage !== 'index') {
 <body>
   <Topbar variant="docs" />
   <DocSidebar activePage={activePage} />
+  <aside class="toc-sidebar" id="toc-sidebar"></aside>
   <div class="content">
-    {activePage !== 'index' && <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/docs/">Docs</a> <span class="sep">/</span> <span>{title}</span></nav>}
-    <slot />
-    <PageNav prev={prev} next={next} />
+    <div class="content-body">
+      {activePage !== 'index' && <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/docs/">Docs</a> <span class="sep">/</span> <span>{title}</span></nav>}
+      {activePage !== 'index' && (
+        <a class="back-overview" href="/docs/#flow">
+          <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Flow
+        </a>
+      )}
+      <slot />
+      {!hidePageNav && <PageNav prev={prev} next={next} />}
+    </div>
   </div>
   <DocFooter />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>
+  <script>
+    (function() {
+      const sidebar = document.getElementById('toc-sidebar');
+      if (!sidebar) return;
+      const content = document.querySelector('.content');
+      if (!content) return;
+      const headings = Array.from(content.querySelectorAll('h2[id], h3[id]'));
+      if (headings.length === 0) return;
+
+      const title = document.createElement('div');
+      title.className = 'toc-title';
+      title.textContent = 'On this page';
+      sidebar.appendChild(title);
+
+      const links: HTMLAnchorElement[] = [];
+      headings.forEach(h => {
+        const a = document.createElement('a');
+        a.href = '#' + h.id;
+        a.textContent = h.textContent || '';
+        if (h.tagName === 'H3') a.classList.add('toc-h3');
+        sidebar.appendChild(a);
+        links.push(a);
+      });
+
+      // Scroll spy
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            links.forEach(l => l.classList.remove('active'));
+            const active = links.find(l => l.getAttribute('href') === '#' + entry.target.id);
+            if (active) active.classList.add('active');
+          }
+        });
+      }, { rootMargin: '-56px 0px -60% 0px', threshold: 0 });
+
+      headings.forEach(h => observer.observe(h));
+    })();
+  </script>
 </body>
 </html>

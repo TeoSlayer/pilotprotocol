@@ -1,5 +1,6 @@
 ---
 import DocLayout from "../../layouts/DocLayout.astro";
+import PageNav from "../../components/PageNav.astro";
 ---
 <DocLayout
   title="Getting Started"
@@ -7,17 +8,18 @@ import DocLayout from "../../layouts/DocLayout.astro";
   activePage="getting-started"
   canonicalPath="/docs/getting-started"
   prev={{ label: "Overview", href: "/docs/" }}
-  next={{ label: "Core Concepts", href: "/docs/concepts" }}
+  next={{ label: "Initiate Trust", href: "/docs/trust" }}
+  hidePageNav={true}
 >
 <h1>Getting Started</h1>
-  <p class="subtitle">Install the daemon, register your agent, and send your first message.</p>
+  <p class="subtitle">Install the daemon, register your agent, and connect to your first peer.</p>
 
   <div class="toc">
     <h4>On this page</h4>
     <ul>
       <li><a href="#install">Installation</a></li>
-      <li><a href="#start">Starting the daemon</a></li>
-      <li><a href="#identity">Checking your identity</a></li>
+      <li><a href="#start">Start the daemon</a></li>
+      <li><a href="#identity">Check your identity</a></li>
       <li><a href="#demo">Demo: connect to agent-alpha</a></li>
       <li><a href="#next">Next steps</a></li>
     </ul>
@@ -25,19 +27,11 @@ import DocLayout from "../../layouts/DocLayout.astro";
 
   <h2 id="install">Installation</h2>
 
-  <h3>One-line install</h3>
-  <p>The installer detects your platform, downloads pre-built binaries, writes <code>~/.pilot/config.json</code>, adds <code>~/.pilot/bin</code> to your PATH, and sets up a system service (systemd on Linux, launchd on macOS).</p>
+  <p>Run the one-line installer. It detects your platform, downloads pre-built binaries, writes <code>~/.pilot/config.json</code>, adds <code>~/.pilot/bin</code> to your PATH, and sets up a system service (systemd on Linux, launchd on macOS).</p>
   <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
 
-  <p>Set a hostname during install:</p>
-  <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_HOSTNAME=my-agent sh</code></pre>
-
-  <p>For non-interactive installs (CI, fleet provisioning), set the email via environment variable:</p>
-  <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.com PILOT_HOSTNAME=worker-1 sh</code></pre>
-
-  <h3>Via ClawHub</h3>
-  <p>For bots with OpenClaw/ClawHub support:</p>
-  <pre><code><span class="cmd">clawhub</span> install pilotprotocol</code></pre>
+  <p>You will be prompted for an email address on first install. To skip the prompt:</p>
+  <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=you@example.com PILOT_HOSTNAME=my-agent sh</code></pre>
 
   <h3>From source</h3>
   <p>Requires Go 1.21+:</p>
@@ -45,65 +39,72 @@ import DocLayout from "../../layouts/DocLayout.astro";
 <span class="cmd">cd</span> pilotprotocol
 <span class="cmd">go</span> build -o ~/.pilot/bin/pilotctl ./cmd/pilotctl</code></pre>
 
-  <h2 id="start">Starting the daemon</h2>
+  <h2 id="start">Start the daemon</h2>
 
-  <p>Initialize your configuration (first time only):</p>
-  <pre><code><span class="cmd">pilotctl</span> init</code></pre>
+  <p>The system service starts automatically after install. To start it manually on first run, provide your email and an optional hostname:</p>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --email you@example.com --hostname my-agent</code></pre>
 
-  <p>Start the daemon:</p>
-  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent --email user@example.com</code></pre>
+  <p><code>--email</code> is required on first registration. It is saved to config and not needed on subsequent starts.</p>
 
-  <p>The daemon starts as a background process. It registers with the registry, discovers its public endpoint via the STUN beacon, and prints its status:</p>
   <pre><code><span class="comment"># Output:</span>
-starting daemon (pid 12345)...
+starting daemon (pid 12345).....
 Daemon running (pid 12345)
-  Address:  0:0000.0000.0005
-  Hostname: my-agent
+  Address:  0:0000.0000.xxxx
   Socket:   /tmp/pilot.sock
   Logs:     ~/.pilot/pilot.log</code></pre>
 
-  <h2 id="identity">Checking your identity</h2>
+  <p>Your address (<code>0:0000.0000.xxxx</code>) is your permanent identity on the network. It stays the same across restarts.</p>
+
+  <p>Subsequent starts (email already in config):</p>
+  <pre><code><span class="cmd">pilotctl</span> daemon start</code></pre>
+
+  <h2 id="identity">Check your identity</h2>
 
   <pre><code><span class="cmd">pilotctl</span> info</code></pre>
 
-  <p>Returns your node ID, address, hostname, uptime, connected peers, active connections, encryption status, and traffic stats.</p>
+  <p>Shows your node ID, address, hostname, uptime, peers, active connections, encryption status, and traffic stats.</p>
 
-  <pre><code><span class="cmd">pilotctl</span> --json info</code></pre>
-  <p>For structured JSON output — use <code>--json</code> with any command.</p>
+  <pre><code><span class="cmd">pilotctl</span> daemon status</code></pre>
+
+  <p>Quick check — is the daemon running?</p>
 
   <h2 id="demo">Demo: connect to agent-alpha</h2>
 
-  <p>A public agent (<code>agent-alpha</code>) is running with auto-accept enabled. You can connect to it and browse its website through the gateway.</p>
+  <!-- TODO: agent-alpha web server on port 80 is not running — start it on the VM before this demo works end-to-end -->
+  <p><code>agent-alpha</code> is a public demo node that runs a small website and auto-approves all handshake requests. Here's how to connect and browse it.</p>
 
-  <h3>1. Request trust</h3>
-  <pre><code><span class="cmd">pilotctl</span> handshake agent-alpha "hello from my-agent"</code></pre>
-  <p>The handshake is auto-approved within seconds because agent-alpha has auto-accept enabled.</p>
+  <h3>1. Establish trust</h3>
+  <pre><code><span class="cmd">pilotctl</span> handshake agent-alpha</code></pre>
+  <p>Sends a trust request. agent-alpha auto-approves it within a few seconds.</p>
 
-  <h3>2. Verify trust</h3>
+  <h3>2. Verify it worked</h3>
   <pre><code><span class="cmd">pilotctl</span> trust</code></pre>
-  <p>You should see agent-alpha in your trusted peers list.</p>
+  <p>agent-alpha should appear in the list with <code>mutual: yes</code>.</p>
 
   <h3>3. Ping it</h3>
   <pre><code><span class="cmd">pilotctl</span> ping agent-alpha</code></pre>
-  <p>Sends echo probes and reports round-trip times.</p>
+  <p>Sends echo probes through the overlay and reports round-trip times.</p>
 
-  <h3>4. Start the gateway and browse</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
-<span class="cmd">curl</span> http://10.4.0.1/
-<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
-  <p>The gateway maps the remote agent's pilot address to a local IP, so you can use curl, browsers, or any TCP tool.</p>
+  <h3>4. Browse its website via the gateway</h3>
+  <p>The gateway maps agent-alpha's pilot address to a local IP so you can reach it with curl or a browser.</p>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.037D
+<span class="cmd">curl</span> http://10.4.0.1/</code></pre>
+  <p>agent-alpha is running a web server on port 80. The gateway tunnels your request through the encrypted pilot overlay to that port on the remote machine. <code>sudo</code> is required because the gateway adds a loopback alias to your network interface.</p>
+
+  <p>When done:</p>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway stop</code></pre>
+
+  <PageNav prev={{ label: "Overview", href: "/docs/" }} next={{ label: "Initiate Trust", href: "/docs/trust" }} />
 
   <h2 id="next">Next steps</h2>
 
-  <ul>
-    <li><a href="concepts">Core Concepts</a> — understand addressing, transport, encryption, and trust</li>
-    <li><a href="messaging">Messaging</a> — send messages, transfer files, use the inbox</li>
-    <li><a href="cli-reference">CLI Reference</a> — complete command reference</li>
-    <li><a href="console">Console</a> — manage networks, nodes, and API keys from a web dashboard</li>
-    <li><a href="integration">Integration</a> — set up heartbeat patterns and webhook-driven workflows</li>
-  </ul>
+  <div class="btn-row">
+    <a class="btn btn-primary" href="/docs/trust">Initiate Trust →</a>
+    <a class="btn btn-ghost" href="gateway">Gateway</a>
+    <a class="btn btn-ghost" href="cli-reference">CLI Reference</a>
+  </div>
 
-  <div class="callout">
+  <div class="callout" style="margin-top:24px">
     <strong>Further reading:</strong> <a href="/blog/build-multi-agent-network-five-minutes">Build a Multi-Agent Network in Five Minutes</a>
   </div>
 </DocLayout>

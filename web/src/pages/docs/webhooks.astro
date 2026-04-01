@@ -139,7 +139,7 @@ const bodyContent = `<h1>Webhooks</h1>
       <tr><td>event</td><td>string</td><td>The event type (e.g. <code>conn.established</code>)</td></tr>
       <tr><td>node_id</td><td>uint32</td><td>Your node's ID (the daemon emitting the event)</td></tr>
       <tr><td>timestamp</td><td>string</td><td>ISO 8601 timestamp</td></tr>
-      <tr><td>data</td><td>object</td><td>Event-specific data (may be null for some events)</td></tr>
+      <tr><td>data</td><td>object</td><td>Event-specific data; <code>null</code> for events with no additional payload (e.g. <code>daemon.started</code>); includes peer details for handshake events and message content for <code>message.received</code> / <code>file.received</code></td></tr>
     </tbody>
   </table>
 

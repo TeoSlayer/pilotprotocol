@@ -2,86 +2,110 @@
 import DocLayout from "../../layouts/DocLayout.astro";
 
 const bodyContent = `<h1>Gateway</h1>
-  <p class="subtitle">Bridge standard IP/TCP traffic to the Pilot Protocol overlay.</p>
+  <p class="subtitle">Reach a service on a remote pilot node using curl, a browser, or any TCP client. Ports are not translated — the port you connect to locally must match the port the remote service is listening on.</p>
 
   <div class="toc">
     <h4>On this page</h4>
     <ul>
-      <li><a href="#what">What the gateway does</a></li>
-      <li><a href="#start">Starting the gateway</a></li>
-      <li><a href="#mappings">Managing mappings</a></li>
-      <li><a href="#examples">Examples</a></li>
-      <li><a href="#notes">Notes</a></li>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#access">Access a remote server</a></li>
+      <li><a href="#host">Expose your own server on pilotprotocol network</a></li>
+      <li><a href="#manage">Manage mappings</a></li>
+      <li><a href="#notes">Notes &amp; limits</a></li>
     </ul>
   </div>
 
-  <h2 id="what">What the gateway does</h2>
+  <h2 id="how">How it works</h2>
 
-  <p>The gateway maps pilot addresses to local IP addresses on a private subnet. It starts TCP proxy listeners on the specified ports, so you can use standard tools — curl, browsers, any TCP client — to reach agents on the overlay network.</p>
+  <p>The gateway lets you connect to a TCP service running on a remote pilot node using normal tools — curl, a browser, netcat, anything.</p>
 
-  <p>When a connection comes in to a mapped local IP, the gateway opens a pilot connection to the corresponding remote agent and bridges the data bidirectionally.</p>
-
-  <h2 id="start">Starting the gateway</h2>
-
-  <pre><code><span class="comment"># Map one agent, proxy port 80</span>
-<span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
-
-<span class="comment"># Map multiple agents, multiple ports</span>
-<span class="cmd">sudo pilotctl</span> gateway start --ports 80,3000,8080 0:0000.0000.0001 0:0000.0000.0002
-
-<span class="comment"># Custom subnet</span>
-<span class="cmd">sudo pilotctl</span> gateway start --subnet 10.5.0.0/16 --ports 80 0:0000.0000.0001</code></pre>
-
-  <p>Returns: <code>pid</code>, <code>subnet</code>, <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}]</p>
-
-  <p>The default subnet is <code>10.4.0.0/16</code>. Each mapped agent gets the next available IP in the subnet (10.4.0.1, 10.4.0.2, etc.).</p>
-
-  <h3>How it works</h3>
+  <p>When you start the gateway with a pilot address, it:</p>
   <ol>
-    <li>The gateway adds a loopback alias for each mapped IP (Linux: <code>ip addr add</code>, macOS: <code>ifconfig lo0 alias</code>)</li>
-    <li>It starts TCP listeners on the specified ports for each mapped IP</li>
-    <li>Incoming TCP connections are bridged to pilot connections on the corresponding remote agent</li>
+    <li>Picks a local IP from a private subnet (default <code>10.4.0.0/16</code>) and adds it as a <strong>loopback alias</strong> on your network interface</li>
+    <li>Starts <strong>TCP listeners</strong> on that IP for every port you specify</li>
+    <li>When a connection comes in, tunnels it through the <strong>encrypted pilot overlay</strong> to the remote machine</li>
   </ol>
 
-  <h2 id="mappings">Managing mappings</h2>
+  <p>On the remote side, the incoming pilot connection arrives at the same port number. So if you start the gateway on port 8080, the remote machine needs a service <strong>actually listening on port 8080</strong> — the gateway does not translate ports.</p>
 
-  <h3>Add a mapping</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007          <span class="comment"># Auto-assign IP</span>
-<span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007 10.4.0.5  <span class="comment"># Specific IP</span></code></pre>
+  <p><strong>sudo is always required.</strong> Adding the loopback alias requires root on both macOS and Linux, regardless of which port you use.</p>
+
+  <h2 id="access">Access a remote server</h2>
+
+  <p>This is the most common use case: a peer is running a server and you want to reach it.</p>
+
+  <!-- TODO: agent-alpha web server on port 80 is not running — start it on the VM before this demo works end-to-end -->
+  <p><strong>Example:</strong> agent-alpha is running a web server on port 80. To browse it:</p>
+
+  <pre><code><span class="comment"># 1. Trust the peer first (required)</span>
+<span class="cmd">pilotctl</span> handshake agent-alpha
+
+<span class="comment"># 2. Start the gateway — maps 0:0000.0000.037D to 10.4.0.1</span>
+<span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.037D
+
+<span class="comment"># 3. Connect using any TCP tool</span>
+<span class="cmd">curl</span> http://10.4.0.1/
+<span class="comment"># or open http://10.4.0.1/ in a browser</span>
+
+<span class="comment"># 4. Stop when done</span>
+<span class="cmd">sudo pilotctl</span> gateway stop</code></pre>
+
+  <p>The first pilot address you map gets <code>10.4.0.1</code>, the second gets <code>10.4.0.2</code>, and so on.</p>
+
+  <h3>Multiple peers at once</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80,8080 0:0000.0000.037D 0:0000.0000.0002
+<span class="comment"># First peer  → http://10.4.0.1/  and  http://10.4.0.1:8080/</span>
+<span class="comment"># Second peer → http://10.4.0.2/  and  http://10.4.0.2:8080/</span></code></pre>
+
+  <h2 id="host">Expose your own server on pilotprotocol network</h2>
+
+  <p>To let a trusted peer reach a service running on your machine, you just run the server — no special gateway setup needed on your side. The peer runs the gateway on their end and connects to you.</p>
+
+  <h3>Your machine (the server)</h3>
+  <pre><code><span class="comment"># Start your server on whatever port you want</span>
+<span class="cmd">python3</span> -m http.server 8080
+<span class="comment"># nginx, caddy, your app — anything that listens on a TCP port</span>
+
+<span class="comment"># Find your pilot address to share with the peer</span>
+<span class="cmd">pilotctl</span> info
+<span class="comment"># Address: 0:0000.0000.xxxx  ← share this</span></code></pre>
+
+  <p>When the peer sends a handshake, approve it:</p>
+  <pre><code><span class="cmd">pilotctl</span> pending            <span class="comment"># see incoming requests</span>
+<span class="cmd">pilotctl</span> approve &lt;node_id&gt;</code></pre>
+
+  <h3>Peer's machine (the client)</h3>
+  <pre><code><span class="comment"># --ports 8080 must match the port your server is actually on</span>
+<span class="cmd">pilotctl</span> handshake 0:0000.0000.xxxx
+<span class="cmd">sudo pilotctl</span> gateway start --ports 8080 0:0000.0000.xxxx
+<span class="cmd">curl</span> http://10.4.0.1:8080/</code></pre>
+
+  <p>No port forwarding, no VPN, no firewall changes needed on your side. The pilot overlay handles the traversal.</p>
+
+  <h2 id="manage">Manage mappings</h2>
+
+  <h3>List current mappings</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
+
+  <h3>Add a mapping to a running gateway</h3>
+  <pre><code><span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007           <span class="comment"># auto-assign local IP</span>
+<span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007 10.4.0.5  <span class="comment"># assign a specific IP</span></code></pre>
 
   <h3>Remove a mapping</h3>
   <pre><code><span class="cmd">pilotctl</span> gateway unmap 10.4.0.1</code></pre>
 
-  <h3>List all mappings</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
-
   <h3>Stop the gateway</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway stop</code></pre>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway stop</code></pre>
 
-  <h2 id="examples">Examples</h2>
-
-  <h3>Browse an agent's website</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.0004
-<span class="cmd">curl</span> http://10.4.0.1/
-<span class="cmd">curl</span> http://10.4.0.1/status</code></pre>
-
-  <h3>Access an API on a custom port</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 3000 0:0000.0000.0001
-<span class="cmd">curl</span> http://10.4.0.1:3000/api/data
-<span class="comment"># {"status":"ok","protocol":"pilot","port":3000}</span></code></pre>
-
-  <h3>Multi-agent dashboard</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80,8080 0:0000.0000.0001 0:0000.0000.0002
-<span class="comment"># Agent 1: http://10.4.0.1/</span>
-<span class="comment"># Agent 2: http://10.4.0.2/</span></code></pre>
-
-  <h2 id="notes">Notes</h2>
+  <h2 id="notes">Notes &amp; limits</h2>
 
   <ul>
-    <li><strong>Root required</strong> — ports below 1024 require root/sudo. Ports 1024+ can run without root</li>
-    <li><strong>Loopback aliases</strong> — the gateway automatically manages loopback aliases; they are cleaned up on <code>gateway stop</code> or <code>gateway unmap</code></li>
-    <li><strong>Trust required</strong> — you must have mutual trust with the remote agent before the gateway can bridge traffic</li>
-    <li><strong>TCP only</strong> — the gateway proxies TCP connections; UDP is not supported through the gateway</li>
+    <li><strong>Ports are not translated</strong> — the port you specify in <code>--ports</code> is the port the remote machine must be listening on. The gateway forwards traffic to the same port number on the other side.</li>
+    <li><strong>sudo required</strong> — loopback alias creation requires root on macOS and Linux, regardless of port number.</li>
+    <li><strong>TCP only</strong> — the gateway does not support UDP.</li>
+    <li><strong>Trust required</strong> — you must have mutual trust with the remote node. Run <code>pilotctl handshake</code> first.</li>
+    <li><strong>Default ports</strong> — if you omit <code>--ports</code>, the gateway listens on: <code>7, 80, 443, 1000, 1001, 1002, 8080, 8443</code>.</li>
+    <li><strong>Cleanup</strong> — loopback aliases are removed automatically on <code>gateway stop</code> or <code>gateway unmap</code>.</li>
   </ul>
 
   <div class="callout">

@@ -13,7 +13,13 @@ const bodyContent = `<h1>Python SDK</h1>
     <ul>
       <li><a href="#installation">Installation</a></li>
       <li><a href="#quick-start">Quick Start</a></li>
-      <li><a href="#api-reference">API Reference</a></li>
+      <li><a href="#api-reference">API Reference</a>
+        <ul>
+          <li><a href="#driver">Driver</a></li>
+          <li><a href="#conn">Conn</a></li>
+          <li><a href="#listener">Listener</a></li>
+        </ul>
+      </li>
       <li><a href="#usage-examples">Usage Examples</a></li>
       <li><a href="#error-handling">Error Handling</a></li>
       <li><a href="#cli-tools">CLI Tools</a></li>
@@ -33,12 +39,12 @@ const bodyContent = `<h1>Python SDK</h1>
 
   <h2 id="quick-start">Quick Start</h2>
 
-  <h3>1. Start the Daemon</h3>
+  <h3 id="start-daemon">1. Start the Daemon</h3>
   <p>The daemon must be running before using the SDK:</p>
-  <pre><code>pilotctl daemon start --hostname my-agent --email user@example.com</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --email you@example.com --hostname my-agent</code></pre>
 
-  <h3>2. Use the SDK</h3>
-  <pre><code>from pilotprotocol import Driver
+  <h3 id="use-sdk">2. Use the SDK</h3>
+  <pre><code class="language-python">from pilotprotocol import Driver
 
 # Driver automatically connects to daemon at /tmp/pilot.sock
 with Driver() as d:
@@ -55,11 +61,11 @@ with Driver() as d:
 
   <h2 id="api-reference">API Reference</h2>
 
-  <h3>Driver</h3>
+  <h3 id="driver">Driver</h3>
   <p>Main entry point for interacting with the Pilot Protocol daemon. Use as a context manager for automatic cleanup.</p>
 
   <h4>Constructor</h4>
-  <pre><code>driver = Driver(socket_path: str = "/tmp/pilot.sock")</code></pre>
+  <pre><code class="language-python">driver = Driver(socket_path: str = "/tmp/pilot.sock")</code></pre>
   <p><strong>Parameters:</strong></p>
   <ul>
     <li><code>socket_path</code> — Path to the daemon's Unix socket (default: <code>/tmp/pilot.sock</code>)</li>
@@ -68,51 +74,51 @@ with Driver() as d:
   <h4>Core Methods</h4>
 
   <p><strong><code>info()</code></strong> — Returns agent information (address, hostname, public visibility, uptime).</p>
-  <pre><code>d.info() -&gt; dict
+  <pre><code class="language-python">d.info() -&gt; dict
 # {"address": "0:0000.0000.0042", "hostname": "my-agent", "public": false, "uptime": 3600}</code></pre>
 
   <p><strong><code>dial()</code></strong> — Opens a stream connection to a peer. Returns a <code>Conn</code> object.</p>
-  <pre><code>with d.dial("other-agent:1000") as conn:
+  <pre><code class="language-python">with d.dial("other-agent:1000") as conn:
     conn.write(b"data")
     response = conn.read(1024)</code></pre>
 
   <p><strong><code>listen()</code></strong> — Listens for incoming connections on a port. Returns a <code>Listener</code>.</p>
-  <pre><code>with d.listen(5000) as listener:
+  <pre><code class="language-python">with d.listen(5000) as listener:
     conn = listener.accept()
     data = conn.read(1024)</code></pre>
 
   <p><strong><code>resolve_hostname()</code></strong> — Resolves a hostname to a virtual address.</p>
-  <pre><code>d.resolve_hostname("other-agent") -&gt; {"address": "0:0000.0000.0042"}</code></pre>
+  <pre><code class="language-python">d.resolve_hostname("other-agent") -&gt; {"address": "0:0000.0000.0042"}</code></pre>
 
   <h4>High-Level Service Methods</h4>
 
   <p><strong><code>send_message()</code></strong> — Send via data exchange service (port 1001).</p>
-  <pre><code>result = d.send_message("other-agent", b"Hello!", "text")</code></pre>
+  <pre><code class="language-python">result = d.send_message("other-agent", b"Hello!", "text")</code></pre>
 
   <p><strong><code>send_file()</code></strong> — Send a file via data exchange (port 1001).</p>
-  <pre><code>result = d.send_file("other-agent", "/path/to/file.pdf")</code></pre>
+  <pre><code class="language-python">result = d.send_file("other-agent", "/path/to/file.pdf")</code></pre>
 
   <p><strong><code>publish_event()</code></strong> — Publish via event stream (port 1002).</p>
-  <pre><code>d.publish_event("other-agent", "sensor/temp", b"23.5")</code></pre>
+  <pre><code class="language-python">d.publish_event("other-agent", "sensor/temp", b"23.5")</code></pre>
 
-  <p><strong><code>subscribe_event()</code></strong> — Subscribe to events. Wildcards supported: <code>*</code>, <code>**</code>.</p>
-  <pre><code>def on_event(topic, data):
+  <p><strong><code>subscribe_event()</code></strong> — Subscribe to events. Use <code>*</code> as a wildcard for a single topic segment.</p>
+  <pre><code class="language-python">def on_event(topic, data):
     print(f"{topic}: {data}")
 
-d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
+d.subscribe_event("other-agent", "sensor/*", on_event)  # matches sensor/temp, sensor/humidity, etc.</code></pre>
 
   <p><strong><code>submit_task()</code></strong> — Submit a task via task service (port 1003).</p>
-  <pre><code>result = d.submit_task("worker-agent", {"command": "process", "params": {"input": "data.txt"}})</code></pre>
+  <pre><code class="language-python">result = d.submit_task("worker-agent", {"command": "process", "params": {"input": "data.txt"}})</code></pre>
 
   <h4>Administration Methods</h4>
   <ul>
     <li><code>set_hostname(hostname: str)</code> — Set or update hostname</li>
     <li><code>set_visibility(public: bool)</code> — Set public visibility</li>
-    <li><code>set_tags(tags: list[str])</code> — Set capability tags</li>
+    <li><code>set_tags(tags: list[str])</code> — Set capability tags (max 3)</li>
     <li><code>set_webhook(url: str)</code> — Set or clear webhook URL</li>
   </ul>
 
-  <h3>Conn</h3>
+  <h3 id="conn">Conn</h3>
   <p>Represents an active stream connection. Supports context management (<code>with</code> statement).</p>
   <ul>
     <li><code>write(data: bytes) -&gt; int</code> — Write data, returns bytes written</li>
@@ -120,7 +126,7 @@ d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
     <li><code>close()</code> — Close the connection</li>
   </ul>
 
-  <h3>Listener</h3>
+  <h3 id="listener">Listener</h3>
   <p>Listens for incoming connections. Supports context management.</p>
   <ul>
     <li><code>accept() -&gt; Conn</code> — Accept incoming connection (blocks)</li>
@@ -129,8 +135,8 @@ d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
 
   <h2 id="usage-examples">Usage Examples</h2>
 
-  <h3>Echo Server</h3>
-  <pre><code>from pilotprotocol import Driver
+  <h3 id="example-echo">Echo Server</h3>
+  <pre><code class="language-python">from pilotprotocol import Driver
 
 with Driver() as d:
     with d.listen(5000) as listener:
@@ -143,8 +149,8 @@ with Driver() as d:
             conn.write(data)  # Echo back
             conn.close()</code></pre>
 
-  <h3>Send Messages</h3>
-  <pre><code>from pilotprotocol import Driver
+  <h3 id="example-messages">Send Messages</h3>
+  <pre><code class="language-python">from pilotprotocol import Driver
 import json
 
 with Driver() as d:
@@ -155,8 +161,8 @@ with Driver() as d:
     payload = json.dumps({"command": "status"}).encode()
     d.send_message("other-agent", payload, "json")</code></pre>
 
-  <h3>Pub/Sub Events</h3>
-  <pre><code>from pilotprotocol import Driver
+  <h3 id="example-pubsub">Pub/Sub Events</h3>
+  <pre><code class="language-python">from pilotprotocol import Driver
 
 with Driver() as d:
     d.publish_event("other-agent", "sensor/temperature", b"23.5")
@@ -164,17 +170,17 @@ with Driver() as d:
     def on_event(topic, data):
         print(f"{topic}: {data.decode()}")
 
-    d.subscribe_event("other-agent", "sensor/**", on_event)</code></pre>
+    d.subscribe_event("other-agent", "sensor/*", on_event)</code></pre>
 
-  <h3>File Transfer</h3>
-  <pre><code>from pilotprotocol import Driver
+  <h3 id="example-file">File Transfer</h3>
+  <pre><code class="language-python">from pilotprotocol import Driver
 
 with Driver() as d:
     result = d.send_file("other-agent", "/path/to/document.pdf")
     print(f"Sent {result['filename']}: {result['sent']} bytes")</code></pre>
 
   <h2 id="error-handling">Error Handling</h2>
-  <pre><code>from pilotprotocol import Driver, PilotError
+  <pre><code class="language-python">from pilotprotocol import Driver, PilotError
 
 with Driver() as d:
     try:

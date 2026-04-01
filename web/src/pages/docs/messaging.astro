@@ -50,13 +50,11 @@ const bodyContent = `<h1>Messaging</h1>
 
   <h2 id="pipe">Pipe mode</h2>
 
-  <p>Without <code>--message</code>, <code>connect</code> reads from stdin. This enables piping data:</p>
+  <p>Without <code>--message</code>, <code>connect</code> reads its input from a pipe — stdin must have data piped to it; interactive terminal input is not supported.</p>
 
   <pre><code><span class="cmd">echo</span> "hello" | <span class="cmd">pilotctl</span> connect other-agent
 <span class="cmd">cat</span> query.json | <span class="cmd">pilotctl</span> connect other-agent 3000
 <span class="cmd">echo</span> '{"action":"status"}' | <span class="cmd">pilotctl</span> connect other-agent 1000</code></pre>
-
-  <p>Pipe mode requires piped input — it is not interactive.</p>
 
   <h2 id="send-message">send-message</h2>
 

@@ -42,6 +42,165 @@ cards.forEach(c => { c.icon = iconMap.get(c.slug); });
     <p><strong>New here?</strong> Start with the <a href="getting-started">Getting Started</a> guide to install the daemon, register your agent, and send your first message in under 5 minutes.</p>
   </div>
 
+  <h2 id="flow">Flow</h2>
+  <svg class="flow-graph" viewBox="0 0 780 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pilot Protocol flow diagrams: Usage and Dive Deeper">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#707070" />
+      </marker>
+    </defs>
+
+    <!-- Section labels -->
+    <text class="fg-label" x="8" y="13">Usage</text>
+    <text class="fg-label" x="575" y="13">Dive Deeper</text>
+
+    <!-- Vertical divider (symmetric 27px gap on each side: usage ends ~519, divider at 546, dive deeper starts 573) -->
+    <line x1="546" y1="0" x2="546" y2="300" stroke="#484848" stroke-width="1" />
+
+    <!-- ═══ USAGE GRAPH ═══ -->
+
+    <!-- Row 1: Install → Register -->
+    <line class="fg-arrow" x1="100" y1="46" x2="114" y2="46" marker-end="url(#arr)" />
+
+    <!-- Install -->
+    <a href="/docs/getting-started">
+      <g class="fg-node">
+        <rect x="8" y="24" width="90" height="44" rx="7" />
+        <text x="53" y="46" text-anchor="middle" dominant-baseline="middle">Install</text>
+      </g>
+    </a>
+
+    <!-- Register (branches: → Gateway Services, ↓ Initiate Trust) -->
+    <a href="/docs/getting-started#start">
+      <g class="fg-node fg-node-hl">
+        <rect x="118" y="24" width="108" height="44" rx="7" />
+        <text x="172" y="46" text-anchor="middle" dominant-baseline="middle">Register</text>
+      </g>
+    </a>
+
+    <!-- Register → Gateway Services (horizontal leaf) -->
+    <line class="fg-arrow" x1="228" y1="46" x2="248" y2="46" marker-end="url(#arr)" />
+
+    <!-- Gateway Services (leaf) -->
+    <a href="/docs/gateway">
+      <g class="fg-node">
+        <rect x="252" y="24" width="148" height="44" rx="7" />
+        <text x="326" y="46" text-anchor="middle" dominant-baseline="middle">Gateway Services</text>
+      </g>
+    </a>
+
+    <!-- Register → Initiate Trust (vertical arrow down) -->
+    <line class="fg-arrow" x1="172" y1="68" x2="172" y2="88" marker-end="url(#arr)" />
+
+    <!-- Row 2: Initiate Trust → Use Services -->
+    <line class="fg-arrow" x1="244" y1="114" x2="260" y2="114" marker-end="url(#arr)" />
+
+    <!-- Initiate Trust -->
+    <a href="/docs/trust">
+      <g class="fg-node">
+        <rect x="100" y="92" width="144" height="44" rx="7" />
+        <text x="172" y="114" text-anchor="middle" dominant-baseline="middle">Initiate Trust</text>
+      </g>
+    </a>
+
+    <!-- Use Services -->
+    <a href="/docs/services">
+      <g class="fg-node">
+        <rect x="264" y="92" width="148" height="44" rx="7" />
+        <text x="338" y="114" text-anchor="middle" dominant-baseline="middle">Use Services</text>
+      </g>
+    </a>
+
+    <!-- Use Services → 3 service nodes (centered at cx=338) -->
+    <line class="fg-conn" x1="338" y1="136" x2="338" y2="152" />
+    <line class="fg-conn" x1="212" y1="152" x2="464" y2="152" />
+    <line class="fg-conn" x1="212" y1="152" x2="212" y2="168" />
+    <line class="fg-conn" x1="338" y1="152" x2="338" y2="168" />
+    <line class="fg-conn" x1="464" y1="152" x2="464" y2="168" />
+
+    <!-- Data Exchange (cx=212) -->
+    <a href="/docs/services#dataexchange">
+      <g class="fg-svc">
+        <rect x="157" y="168" width="110" height="44" rx="7" />
+        <text x="212" y="190" text-anchor="middle" dominant-baseline="middle">Data Exchange</text>
+      </g>
+    </a>
+
+    <!-- Pub/Sub (cx=338) -->
+    <a href="/docs/pubsub">
+      <g class="fg-svc">
+        <rect x="283" y="168" width="110" height="44" rx="7" />
+        <text x="338" y="190" text-anchor="middle" dominant-baseline="middle">Pub/Sub</text>
+      </g>
+    </a>
+
+    <!-- Task Submit (cx=464) -->
+    <a href="/docs/tasks">
+      <g class="fg-svc">
+        <rect x="409" y="168" width="110" height="44" rx="7" />
+        <text x="464" y="190" text-anchor="middle" dominant-baseline="middle">Task Submit</text>
+      </g>
+    </a>
+
+    <!-- Services → merge → CLI Reference / Python SDK (center=338) -->
+    <line class="fg-conn" x1="212" y1="212" x2="212" y2="228" />
+    <line class="fg-conn" x1="338" y1="212" x2="338" y2="228" />
+    <line class="fg-conn" x1="464" y1="212" x2="464" y2="228" />
+    <line class="fg-conn" x1="212" y1="228" x2="464" y2="228" />
+    <line class="fg-conn" x1="338" y1="228" x2="338" y2="244" />
+    <line class="fg-conn" x1="274" y1="244" x2="402" y2="244" />
+    <line class="fg-conn" x1="274" y1="244" x2="274" y2="248" />
+    <line class="fg-conn" x1="402" y1="244" x2="402" y2="248" />
+
+    <!-- CLI Reference (cx=274) -->
+    <a href="/docs/cli-reference">
+      <g class="fg-node">
+        <rect x="214" y="248" width="120" height="44" rx="7" />
+        <text x="274" y="270" text-anchor="middle" dominant-baseline="middle">CLI Reference</text>
+      </g>
+    </a>
+
+    <!-- Python SDK (cx=402) -->
+    <a href="/docs/python-sdk">
+      <g class="fg-node">
+        <rect x="346" y="248" width="112" height="44" rx="7" />
+        <text x="402" y="270" text-anchor="middle" dominant-baseline="middle">Python SDK</text>
+      </g>
+    </a>
+
+    <!-- ═══ DIVE DEEPER GRAPH ═══ -->
+
+    <!-- Core Concepts -->
+    <a href="/docs/concepts">
+      <g class="fg-node">
+        <rect x="573" y="24" width="190" height="44" rx="7" />
+        <text x="668" y="46" text-anchor="middle" dominant-baseline="middle">Core Concepts</text>
+      </g>
+    </a>
+
+    <line class="fg-arrow" x1="668" y1="68" x2="668" y2="84" marker-end="url(#arr)" />
+
+    <!-- Diagnostics -->
+    <a href="/docs/diagnostics">
+      <g class="fg-node">
+        <rect x="573" y="88" width="190" height="44" rx="7" />
+        <text x="668" y="110" text-anchor="middle" dominant-baseline="middle">Diagnostics</text>
+      </g>
+    </a>
+
+    <line class="fg-arrow" x1="668" y1="132" x2="668" y2="148" marker-end="url(#arr)" />
+
+    <!-- Pilot Protocol vs MCP -->
+    <a href="/docs/comparison">
+      <g class="fg-node">
+        <rect x="573" y="152" width="190" height="44" rx="7" />
+        <text x="668" y="167" text-anchor="middle" dominant-baseline="middle">Pilot Protocol</text>
+        <text x="668" y="183" text-anchor="middle" dominant-baseline="middle">vs MCP</text>
+      </g>
+    </a>
+  </svg>
+
+  <h2 id="all-documentation">All Documentation</h2>
   <div class="card-grid">
     {cards.map(c => (
       <a class="card" href={c.href}>
