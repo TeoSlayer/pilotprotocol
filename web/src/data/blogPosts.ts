@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ai-networking-terminology-a2a-mcp-anp-protocols",
+    title: "AI networking terminology explained: A2A, MCP, ANP protocols",
+    description: "Understand A2A, MCP, and ANP protocols for AI agent networking. Learn how each works, their security models, benchmark realities, and which to use in 2026.",
+    date: "Apr 1",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/ai-networking-terminology-a2a-mcp-anp-protocols.jpg",
+  },
+
+  {
     slug: "decentralized-communication-protocols-ai-developers",
     title: "Decentralized communication protocols for AI developers",
     description: "Learn how to choose decentralized communication protocols for AI agent networks, covering NAT traversal, Kademlia DHT, E2EE, and practical stack selection.",
@@ -69,7 +79,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
