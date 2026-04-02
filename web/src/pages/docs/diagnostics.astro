@@ -7,6 +7,7 @@ const bodyContent = `<h1>Diagnostics</h1>
   <div class="toc">
     <h4>On this page</h4>
     <ul>
+      <li><a href="#health">health</a></li>
       <li><a href="#ping">ping</a></li>
       <li><a href="#traceroute">traceroute</a></li>
       <li><a href="#bench">bench</a></li>
@@ -16,6 +17,23 @@ const bodyContent = `<h1>Diagnostics</h1>
       <li><a href="#disconnect">disconnect</a></li>
     </ul>
   </div>
+
+  <h2 id="health">health</h2>
+
+  <p>Quick check on daemon vitals:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> health</code></pre>
+
+  <p>Returns: <code>status</code>, <code>uptime_seconds</code>, <code>connections</code>, <code>peers</code>, <code>bytes_sent</code>, <code>bytes_recv</code></p>
+
+  <pre><code><span class="comment"># Example output</span>
+Daemon Health
+  Status:      ok
+  Uptime:      01:23:45
+  Connections: 3
+  Peers:       5
+  Bytes Sent:  1.2 MB
+  Bytes Recv:  842 KB</code></pre>
 
   <h2 id="ping">ping</h2>
 
@@ -101,7 +119,7 @@ BENCH 0:0000.0000.037D — sending 1.0 MB via echo port
   description="Ping, traceroute, bench, connections, and peer inspection for Pilot Protocol."
   activePage="diagnostics"
   canonicalPath="/docs/diagnostics"
-  prev={{ label: "Tasks & Polo", href: "/docs/tasks" }}
+  prev={{ label: "Blueprints", href: "/docs/enterprise-blueprints" }}
   next={{ label: "Configuration", href: "/docs/configuration" }}
 >
   <Fragment set:html={bodyContent} />

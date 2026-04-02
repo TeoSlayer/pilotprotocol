@@ -19,7 +19,15 @@ export const blogPosts: BlogPost[] = [
     tags: ["blog"],
     banner: "banners/ai-networking-terminology-a2a-mcp-anp-protocols.jpg",
   },
-
+  {
+    slug: "enterprise-production-complete-identity-directory-audit-export",
+    title: "Enterprise Production Complete: 99 Features, 234 Tests, Zero Dependencies",
+    description: "Pilot Protocol ships the full enterprise stack: OIDC/JWT identity, directory sync, blueprint provisioning, Splunk/CEF/JSON audit export, per-network Prometheus metrics, and 234 tests across 53 protocol commands.",
+    date: "Mar 30",
+    category: "Enterprise",
+    tags: ["enterprise", "identity", "audit", "directory-sync", "siem"],
+    banner: "banners/enterprise-production-complete-identity-directory-audit-export.webp",
+  },
   {
     slug: "decentralized-communication-protocols-ai-developers",
     title: "Decentralized communication protocols for AI developers",
@@ -84,6 +92,15 @@ export const blogPosts: BlogPost[] = [
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
     banner: "banners/pilot-console-manage-agent-networks.webp",
+  },
+  {
+    slug: "enterprise-phase-3-rbac-policies-audit-fleet",
+    title: "Enterprise Phase 3: RBAC, Policies, Audit Trail, and Fleet Enrollment",
+    description: "Pilot Protocol v1.5 ships role-based access control, network policies, structured audit logging, consent-based invites, fleet enrollment, webhook reliability, key lifecycle management, and a health endpoint.",
+    date: "Mar 27",
+    category: "Enterprise",
+    tags: ["enterprise", "security", "rbac", "audit"],
+    banner: "banners/enterprise-phase-3-rbac-policies-audit-fleet.webp",
   },
   {
     slug: "private-networks-now-in-testing",

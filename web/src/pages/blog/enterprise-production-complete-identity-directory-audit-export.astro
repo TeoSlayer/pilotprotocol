@@ -1,0 +1,344 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+<p>Pilot Protocol now ships 99 features across 53 protocol commands, backed by 234 tests. This post catalogs everything the enterprise stack does today &mdash; identity providers, directory sync, declarative provisioning, SIEM-grade audit export, JWT validation, webhook reliability, per-network Prometheus metrics, and the security hardening that ties it all together. Every feature described here is implemented, tested, and running in production on the live registry.</p>
+
+<h2 id="enterprise-gating">Enterprise Feature Gating</h2>
+
+<p>Enterprise features are opt-in at the network level. Set <code>enterprise: true</code> when creating a network, and the full enterprise stack activates for that network only. Non-enterprise networks are unaffected &mdash; zero overhead, zero behavior change. Toggling enterprise on mid-lifecycle initializes RBAC roles for all existing members.</p>
+
+<p>Seven registry handlers enforce the enterprise gate: promote, demote, kick, set policy, invite, respond to invite, and set key expiry. Each returns a clear <code>"enterprise feature"</code> error when called against a non-enterprise network. The gate check is a single function call at the top of each handler &mdash; no configuration, no flags, no environment variables.</p>
+
+<h2 id="identity">Identity Provider Integration</h2>
+
+<p>The registry validates identity tokens from five provider types: <strong>OIDC</strong>, <strong>SAML</strong>, <strong>Entra ID</strong>, <strong>LDAP</strong>, and <strong>webhook</strong>. Configuration is per-registry (global) via the <code>set_idp_config</code> protocol command or a blueprint.</p>
+
+<h3>Built-in JWT Validation</h3>
+
+<p>For OIDC providers, the registry validates JWTs directly &mdash; no sidecar, no proxy, no external validator. Two signature algorithms are supported:</p>
+
+<ul>
+  <li><strong>RS256</strong> &mdash; RSA PKCS#1 v1.5 with SHA-256. Keys fetched from the provider's JWKS endpoint.</li>
+  <li><strong>HS256</strong> &mdash; HMAC-SHA256 with symmetric keys from JWKS.</li>
+</ul>
+
+<p>Claims validated: <code>iss</code> (issuer), <code>aud</code> (audience, supports both string and array), <code>exp</code> (expiry), <code>nbf</code> (not-before). A 60-second clock skew tolerance prevents failures from minor time drift between the IDP and registry.</p>
+
+<p>Algorithm confusion attacks are blocked. The registry enforces that the JWKS key type matches the JWT header algorithm &mdash; an HS256 header with an RSA key, or an RS256 header with an oct key, is rejected before signature verification.</p>
+
+<h3>JWKS Caching</h3>
+
+<p>JWKS keys are cached for 5 minutes with automatic refresh. The first validation triggers a fetch; subsequent validations within the TTL use the cache. Cache entries are keyed by JWKS URL and key ID (<code>kid</code>). Response size is capped at 64KB.</p>
+
+<pre><code><span class="comment"># Configure OIDC identity provider</span>
+{
+  "type": "set_idp_config",
+  "admin_token": "$TOKEN",
+  "provider_type": "oidc",
+  "url": "https://login.microsoftonline.com/tenant/.well-known/jwks",
+  "issuer": "https://login.microsoftonline.com/tenant/v2.0",
+  "client_id": "your-app-client-id"
+}
+
+<span class="comment"># Validate a JWT token</span>
+{
+  "type": "validate_token",
+  "admin_token": "$TOKEN",
+  "token": "eyJhbGciOiJSUzI1NiI..."
+}</code></pre>
+
+<h3>Webhook-Based Identity</h3>
+
+<p>For providers that do not expose JWKS (LDAP, SAML, custom systems), the registry delegates verification to an external webhook. The webhook receives the token and returns a verified <code>external_id</code>. The external ID links the node to a directory entry for RBAC pre-assignment and directory sync.</p>
+
+<h2 id="directory-sync">Directory Sync</h2>
+
+<p>Enterprise directories (Active Directory, Entra ID, LDAP) push membership listings to the registry via the <code>directory_sync</code> command. The registry maps directory entries to existing nodes by <code>external_id</code> and applies changes:</p>
+
+<ul>
+  <li><strong>Role updates.</strong> If a directory entry specifies a role (owner, admin, member), the node's RBAC role is updated to match.</li>
+  <li><strong>Disable/kick.</strong> Disabled entries remove the node from the network immediately.</li>
+  <li><strong>Remove unlisted.</strong> Optionally, nodes whose <code>external_id</code> is not in the directory listing are removed. Nodes without an external ID are left untouched.</li>
+  <li><strong>Pre-assignment.</strong> Unmapped directory entries (no matching node yet) create RBAC pre-assignments. When a node with that external ID later joins the network, it automatically receives the assigned role.</li>
+  <li><strong>Hostname enrichment.</strong> Display names from the directory are set as hostnames for nodes that do not already have one.</li>
+</ul>
+
+<pre><code><span class="comment"># Push a directory listing</span>
+{
+  "type": "directory_sync",
+  "admin_token": "$TOKEN",
+  "network_id": 3,
+  "remove_unlisted": true,
+  "entries": [
+    {"external_id": "alice@acme.com", "role": "admin", "display_name": "Alice"},
+    {"external_id": "bob@acme.com", "role": "member"},
+    {"external_id": "charlie@acme.com", "disabled": true}
+  ]
+}
+
+<span class="comment"># Response</span>
+{
+  "type": "directory_sync_ok",
+  "mapped": 2,
+  "unmapped": 0,
+  "updated": 1,
+  "disabled": 1,
+  "actions": [
+    "role alice@acme.com: member &rarr; admin (node 685)",
+    "disabled charlie@acme.com (node 687)"
+  ]
+}</code></pre>
+
+<p>The <code>directory_status</code> command returns current sync state: total members, mapped (with external ID), unmapped (without), pre-assignment count, and last sync timestamp.</p>
+
+<h2 id="blueprint">Blueprint Provisioning</h2>
+
+<p>Declare an entire network configuration in a single JSON document. The <code>provision_network</code> command creates the network (or finds it by name), enables enterprise, applies policy, configures the identity provider, sets up webhooks, configures audit export, and stores RBAC pre-assignments &mdash; all in one atomic operation.</p>
+
+<pre><code><span class="comment"># Blueprint: production network with full enterprise config</span>
+{
+  "name": "prod-fleet",
+  "join_rule": "invite",
+  "enterprise": true,
+  "policy": {
+    "max_members": 100,
+    "allowed_ports": [7, 80, 443, 1001],
+    "description": "Production agent fleet"
+  },
+  "identity_provider": {
+    "type": "oidc",
+    "url": "https://login.microsoftonline.com/tenant/.well-known/jwks",
+    "issuer": "https://login.microsoftonline.com/tenant/v2.0",
+    "client_id": "pilot-prod"
+  },
+  "webhooks": {
+    "audit_url": "https://siem.acme.com/pilot/events"
+  },
+  "audit_export": {
+    "format": "splunk_hec",
+    "endpoint": "https://splunk.acme.com:8088/services/collector",
+    "token": "HEC-TOKEN",
+    "index": "pilot_audit",
+    "source": "pilot-registry"
+  },
+  "roles": [
+    {"external_id": "alice@acme.com", "role": "owner"},
+    {"external_id": "bob@acme.com", "role": "admin"},
+    {"external_id": "charlie@acme.com", "role": "member"}
+  ]
+}</code></pre>
+
+<p>Blueprints are idempotent. Running the same blueprint twice finds the existing network by name and applies updates. The result lists every action taken:</p>
+
+<pre><code>{
+  "type": "provision_network_ok",
+  "network_id": 3,
+  "name": "prod-fleet",
+  "created": true,
+  "actions": [
+    "created network 3 (prod-fleet)",
+    "enabled enterprise features",
+    "applied network policy",
+    "configured oidc identity provider",
+    "configured audit webhook",
+    "configured splunk_hec audit export to https://splunk.acme.com:8088/services/collector",
+    "stored 3 RBAC pre-assignments"
+  ]
+}</code></pre>
+
+<p>Validation runs before any mutation. Invalid join rules, missing tokens for token-gated networks, unrecognized IDP types, and invalid audit export formats are all rejected with clear errors.</p>
+
+<h2 id="audit-export">Audit Export</h2>
+
+<p>Every registry mutation emits a structured audit event. Events flow through three channels simultaneously: <code>slog</code> structured logging, the webhook system, and the audit exporter. Three export formats are supported, covering the major SIEM platforms:</p>
+
+<h3>Splunk HEC</h3>
+
+<p>Events are formatted as Splunk HTTP Event Collector payloads with <code>time</code> (epoch), <code>source</code> (configurable, defaults to <code>pilot-registry</code>), <code>sourcetype</code> (<code>pilot:audit</code>), optional <code>index</code>, and the full <code>event</code> object. Authentication via <code>Authorization: Splunk &lt;token&gt;</code> header.</p>
+
+<h3>CEF/Syslog</h3>
+
+<p>Events are formatted in Common Event Format for syslog-based SIEMs: <code>CEF:0|Pilot|Registry|1.0|&lt;action&gt;|&lt;action&gt;|&lt;severity&gt;|&lt;extensions&gt;</code>. Severity is dynamic: 6 for kick/delete operations, 4 for promote/demote, 3 (informational) for everything else. Extensions include <code>network_id</code>, <code>node_id</code>, and <code>action</code>.</p>
+
+<h3>JSON</h3>
+
+<p>Plain JSON <code>AuditEntry</code> objects posted to an HTTP endpoint. Each entry includes <code>timestamp</code>, <code>action</code>, <code>network_id</code>, <code>node_id</code>, and a freeform <code>details</code> string.</p>
+
+<p>The exporter is asynchronous with a 1024-slot buffered channel. Delivery uses 3 retries with exponential backoff (1s, 2s, 4s). Non-blocking: if the buffer is full, events are dropped and counted. The <code>get_audit_export</code> command returns export stats (delivered, dropped counts).</p>
+
+<h2 id="webhooks">Webhook Dead Letter Queue</h2>
+
+<p>Building on the Phase 3 webhook system, failed deliveries now land in a dead letter queue. Server errors (5xx) are retried 3 times with exponential backoff; client errors (4xx) go directly to the DLQ without retry. The DLQ holds the last 100 failed events for inspection via the <code>get_webhook_dlq</code> command.</p>
+
+<pre><code><span class="comment"># Inspect the dead letter queue</span>
+{
+  "type": "get_webhook_dlq",
+  "admin_token": "$TOKEN"
+}
+
+<span class="comment"># Response</span>
+{
+  "type": "webhook_dlq_ok",
+  "events": [
+    {
+      "event_id": 47,
+      "action": "member.promoted",
+      "timestamp": "2026-03-28T10:30:00Z",
+      "details": {"node_id": 685, "network_id": 3}
+    }
+  ]
+}</code></pre>
+
+<h2 id="ownership">Ownership Transfer</h2>
+
+<p>Network owners can now transfer ownership to another member. The transfer is atomic: the previous owner is demoted to admin, the new owner gets the owner role. Six edge cases are enforced: non-owners cannot transfer, non-members cannot receive, self-transfer is rejected, and the audit trail records both the old and new owner.</p>
+
+<pre><code><span class="comment"># Transfer ownership</span>
+pilotctl network transfer-ownership 1 --to 686</code></pre>
+
+<p>Chain transfers work: A transfers to B, then B can transfer to C. Each transfer generates its own audit event with the complete provenance.</p>
+
+<h2 id="metrics">Per-Network Prometheus Metrics</h2>
+
+<p>The Prometheus endpoint now includes per-network labeled metrics for Grafana dashboards:</p>
+
+<table>
+  <thead><tr><th>Metric</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>pilot_network_members{network="prod"}</code></td><td>Gauge</td><td>Members per network</td></tr>
+    <tr><td><code>pilot_network_admins{network="prod"}</code></td><td>Gauge</td><td>Admins per network</td></tr>
+    <tr><td><code>pilot_network_owners{network="prod"}</code></td><td>Gauge</td><td>Owners per network</td></tr>
+    <tr><td><code>pilot_network_enterprise{network="prod"}</code></td><td>Gauge</td><td>Enterprise flag (0/1)</td></tr>
+    <tr><td><code>pilot_network_policy_set{network="prod"}</code></td><td>Gauge</td><td>Policy configured (0/1)</td></tr>
+  </tbody>
+</table>
+
+<p>Enterprise-specific counters track operational volume:</p>
+
+<table>
+  <thead><tr><th>Metric</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>pilot_invites_sent_total</code></td><td>Invites sent</td></tr>
+    <tr><td><code>pilot_invites_accepted_total</code></td><td>Invites accepted</td></tr>
+    <tr><td><code>pilot_rbac_operations_total{op="promote"}</code></td><td>RBAC operations by type</td></tr>
+    <tr><td><code>pilot_policy_changes_total</code></td><td>Policy mutations</td></tr>
+    <tr><td><code>pilot_key_rotations_total</code></td><td>Key rotations</td></tr>
+    <tr><td><code>pilot_provisions_total</code></td><td>Blueprint provisions</td></tr>
+    <tr><td><code>pilot_audit_exports_total</code></td><td>Audit events exported</td></tr>
+    <tr><td><code>pilot_idp_verifications_total</code></td><td>Identity verifications</td></tr>
+    <tr><td><code>pilot_directory_synced_networks</code></td><td>Networks with directory sync</td></tr>
+  </tbody>
+</table>
+
+<p>Status gauges show configuration state at a glance: <code>pilot_idp_configured</code>, <code>pilot_webhook_configured</code>, <code>pilot_audit_export_active</code>. All metrics are zero-dependency &mdash; the Prometheus exposition format is implemented from scratch with custom counter, gauge, histogram, counterVec, and histogramVec types using atomic operations.</p>
+
+<h2 id="security">Security Hardening</h2>
+
+<p>The latest security audit covered JWT handling, rate limiting, and protocol-level defenses:</p>
+
+<ul>
+  <li><strong>JWT algorithm confusion prevention.</strong> The registry enforces that the JWKS key type (<code>kty</code>) and algorithm (<code>alg</code>) match the JWT header. An HS256 header paired with an RSA key is rejected, preventing the classic algorithm confusion attack where an attacker uses a public RSA key as an HMAC secret.</li>
+  <li><strong>Clock skew tolerance.</strong> 60-second tolerance on both <code>exp</code> and <code>nbf</code> claims prevents token rejection from minor clock drift between the IDP and registry.</li>
+  <li><strong>JWKS endpoint validation.</strong> Non-200 HTTP responses from JWKS endpoints are treated as errors instead of being silently parsed. Response size is capped at 64KB.</li>
+  <li><strong>Directory sync safety.</strong> The <code>removeUnlisted</code> operation collects member IDs before removal, preventing the slice-mutation-during-iteration bug that could skip members.</li>
+  <li><strong>Replication token enforcement.</strong> Standby registry connections are authenticated with constant-time token comparison. Wrong tokens receive no data.</li>
+  <li><strong>Per-operation rate limits.</strong> Separate rate limits per operation category: resolve (100/min), query (500/min), heartbeat (50/min), registration (10/min).</li>
+</ul>
+
+<h2 id="test-coverage">234 Tests Across 21 Files</h2>
+
+<p>The enterprise stack ships with comprehensive test coverage. Every feature has dedicated tests, including concurrent stress tests, persistence round-trips, and negative-path validation.</p>
+
+<table>
+  <thead><tr><th>Test File</th><th>Tests</th><th>Category</th></tr></thead>
+  <tbody>
+    <tr><td><code>enterprise_gate_test.go</code></td><td>43</td><td>Feature gating, RBAC edge cases, ownership transfer</td></tr>
+    <tr><td><code>fuzz_registry_server_test.go</code></td><td>42</td><td>Registry API surface coverage</td></tr>
+    <tr><td><code>invite_acceptance_test.go</code></td><td>19</td><td>Consent flow, concurrent accepts, inbox cap</td></tr>
+    <tr><td><code>integration_test.go</code></td><td>17</td><td>E2E: blueprint, RS256 JWT, Splunk HEC</td></tr>
+    <tr><td><code>network_test.go</code></td><td>17</td><td>Name validation, join rules, leave/rejoin</td></tr>
+    <tr><td><code>pilotctl_network_test.go</code></td><td>14</td><td>Driver IPC, concurrent join/leave</td></tr>
+    <tr><td><code>audit_test.go</code></td><td>12</td><td>Concurrent audit, persistence, enriched events</td></tr>
+    <tr><td><code>key_lifecycle_test.go</code></td><td>9</td><td>Rotation, expiry, heartbeat warning</td></tr>
+    <tr><td><code>auto_join_test.go</code></td><td>9</td><td>Fleet enrollment, mixed success/failure</td></tr>
+    <tr><td><code>rbac_test.go</code></td><td>8</td><td>Per-network tokens, role hierarchy</td></tr>
+    <tr><td><code>syn_trust_gate_test.go</code></td><td>8</td><td>SYN/datagram trust, defense-in-depth</td></tr>
+    <tr><td><code>handshake_test.go</code></td><td>8</td><td>P2P trust, revocation, persistence</td></tr>
+    <tr><td><code>metrics_test.go</code></td><td>7</td><td>Prometheus, enterprise counters, DLQ</td></tr>
+    <tr><td><code>replication_test.go</code></td><td>6</td><td>Hot-standby failover, enterprise data</td></tr>
+    <tr><td><code>network_policy_test.go</code></td><td>6</td><td>MaxMembers, AllowedPorts, persistence</td></tr>
+    <tr><td><code>Other (6 files)</code></td><td>9</td><td>Dashboard, hostname privacy, admin tokens, etc.</td></tr>
+  </tbody>
+</table>
+
+<p>Testing methodology includes clock injection for time-sensitive tests (invite TTL, key expiry), concurrent goroutine stress tests (up to 10 workers), mock HTTP servers for external systems (Splunk HEC, OIDC JWKS, CEF/Syslog), and full registry restart round-trips for persistence verification.</p>
+
+<h2 id="protocol">53 Protocol Commands</h2>
+
+<p>The complete protocol surface, grouped by authentication requirement:</p>
+
+<table>
+  <thead><tr><th>Auth</th><th>Commands</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Admin token</strong></td><td><code>create_network</code>, <code>set_network_enterprise</code>, <code>get_audit_log</code>, <code>set_webhook</code>, <code>get_webhook</code>, <code>get_webhook_dlq</code>, <code>set_identity_webhook</code>, <code>set_external_id</code>, <code>get_identity</code>, <code>provision_network</code>, <code>set_audit_export</code>, <code>get_audit_export</code>, <code>set_idp_config</code>, <code>get_idp_config</code>, <code>get_provision_status</code>, <code>directory_sync</code>, <code>directory_status</code>, <code>validate_token</code></td></tr>
+    <tr><td><strong>Signature + enterprise</strong></td><td><code>invite_to_network</code>, <code>respond_invite</code>, <code>kick_member</code>, <code>promote_member</code>, <code>demote_member</code>, <code>transfer_ownership</code>, <code>set_network_policy</code>, <code>set_key_expiry</code></td></tr>
+    <tr><td><strong>Signature or admin</strong></td><td><code>join_network</code>, <code>leave_network</code>, <code>delete_network</code>, <code>rename_network</code>, <code>resolve</code>, <code>deregister</code>, <code>set_visibility</code>, <code>set_hostname</code>, <code>set_tags</code>, <code>set_task_exec</code></td></tr>
+    <tr><td><strong>Signature</strong></td><td><code>report_trust</code>, <code>revoke_trust</code>, <code>request_handshake</code>, <code>poll_handshakes</code>, <code>respond_handshake</code>, <code>heartbeat</code>, <code>punch</code>, <code>rotate_key</code></td></tr>
+    <tr><td><strong>None (read)</strong></td><td><code>register</code>, <code>lookup</code>, <code>list_networks</code>, <code>list_nodes</code>, <code>check_trust</code>, <code>resolve_hostname</code>, <code>beacon_register</code>, <code>beacon_list</code>, <code>get_member_role</code>, <code>get_network_policy</code>, <code>get_key_info</code>, <code>poll_invites</code>, <code>update_polo_score</code>, <code>set_polo_score</code>, <code>get_polo_score</code></td></tr>
+    <tr><td><strong>Replication token</strong></td><td><code>subscribe_replication</code></td></tr>
+  </tbody>
+</table>
+
+<h2 id="feature-count">99 Features, 21 Categories</h2>
+
+<p>The full feature inventory spans:</p>
+
+<ul>
+  <li><strong>Core Protocol</strong> (10) &mdash; registration, lookup, resolve, heartbeat, deregister, hostname, tags, task exec, visibility, list nodes</li>
+  <li><strong>Network Management</strong> (8) &mdash; create, join, leave, delete, rename, enterprise toggle, list, broadcast</li>
+  <li><strong>Trust &amp; Handshake</strong> (6) &mdash; report, revoke, check, request handshake, poll, respond</li>
+  <li><strong>RBAC</strong> (8) &mdash; roles (owner/admin/member), promote, demote, kick, transfer ownership, per-network admin tokens, RBAC pre-assignments</li>
+  <li><strong>Policies</strong> (2) &mdash; max members, allowed ports</li>
+  <li><strong>Invites</strong> (3) &mdash; invite, poll, accept/reject with consent</li>
+  <li><strong>Identity &amp; SSO</strong> (8) &mdash; webhook verification, built-in JWT (RS256/HS256), JWKS caching, IDP config, external ID, token validation</li>
+  <li><strong>Directory Sync</strong> (2) &mdash; push sync, status query</li>
+  <li><strong>Blueprints</strong> (3) &mdash; provision, validate, status</li>
+  <li><strong>Key Lifecycle</strong> (3) &mdash; rotation, expiry, info</li>
+  <li><strong>Reputation</strong> (3) &mdash; polo score update, set, get</li>
+  <li><strong>Audit</strong> (6) &mdash; ring buffer, query API, Splunk HEC, CEF/Syslog, JSON export, async delivery</li>
+  <li><strong>Webhooks</strong> (4) &mdash; dispatch, retry + DLQ, status, DLQ query</li>
+  <li><strong>Observability</strong> (7) &mdash; 40+ Prometheus metrics, per-type histograms, per-network labels, enterprise counters, status gauges</li>
+  <li><strong>Dashboard</strong> (7) &mdash; HTML dashboard, stats API, health check, SVG badges, Prometheus /metrics, pprof, manual snapshot</li>
+  <li><strong>High Availability</strong> (4) &mdash; push-based replication, heartbeat, standby mode, full snapshot format</li>
+  <li><strong>Security</strong> (10) &mdash; Ed25519 signatures, rate limiting (per-IP + per-operation), connection limits, TLS + cert pinning, admin tokens, message size cap, idle timeout, address sanitization</li>
+  <li><strong>Persistence</strong> (1) &mdash; atomic JSON snapshots with debounced writes</li>
+  <li><strong>Beacon</strong> (2) &mdash; register, list</li>
+  <li><strong>NAT Traversal</strong> (1) &mdash; hole punch coordination</li>
+  <li><strong>Client SDK</strong> (1) &mdash; auto-reconnect client with 60+ methods, TLS pinning, signer support</li>
+</ul>
+
+<h2 id="whats-next">What Is Next</h2>
+
+<p>The enterprise stack is production-complete. What follows is the console control plane: a web UI for managing enterprise networks, nodes, policies, audit logs, and identity configuration &mdash; all backed by the protocol commands described here. The registry is the engine. The console is the dashboard.</p>
+
+<div class="cta">
+  <h3>Try the Enterprise Stack</h3>
+  <p>Install the latest release and provision your first enterprise network from a blueprint.</p>
+  <a href="/docs/getting-started">Get Started</a>
+  &nbsp;&middot;&nbsp;
+  <a href="/docs/networks">Network Docs</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://console.pilotprotocol.network">Open Console</a>
+</div>`;
+---
+<BlogLayout
+  title="Enterprise Production Complete: 99 Features, 234 Tests, Zero Dependencies"
+  description="Pilot Protocol ships the full enterprise stack: OIDC/JWT identity, directory sync, blueprint provisioning, Splunk/CEF/JSON audit export, per-network Prometheus metrics, and 234 tests across 53 protocol commands."
+  date="March 30, 2026"
+  tags={["enterprise", "identity", "audit", "directory-sync", "siem"]}
+  canonicalPath="/blog/enterprise-production-complete-identity-directory-audit-export"
+  bannerImage="/blog/banners/enterprise-production-complete-identity-directory-audit-export.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

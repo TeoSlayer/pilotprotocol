@@ -1,0 +1,227 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Identity & SSO</h1>
+  <p class="subtitle">Identity providers, JWT validation, JWKS caching, external IDs, and directory sync.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#providers">Supported providers</a></li>
+      <li><a href="#configuration">Configuration</a></li>
+      <li><a href="#jwt">JWT validation</a></li>
+      <li><a href="#jwks">JWKS caching</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#webhook-identity">Webhook identity</a></li>
+      <li><a href="#external-ids">External IDs</a></li>
+      <li><a href="#directory-sync">Directory sync</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>Enterprise networks can integrate with external identity providers (IDPs) to centralize authentication. Instead of relying solely on Pilot&rsquo;s built-in Ed25519 keys, agents can present tokens from your organization&rsquo;s IDP &mdash; OIDC, SAML, Entra ID, LDAP, or a custom webhook &mdash; and the registry validates them before granting access.</p>
+
+  <p>Identity integration is per-network. Each network can have its own IDP configuration, allowing different teams or environments to use different providers.</p>
+
+  <h2 id="providers">Supported providers</h2>
+
+  <table>
+    <thead><tr><th>Provider</th><th>Type value</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><strong>OIDC</strong></td><td><code>oidc</code></td><td>OpenID Connect &mdash; standard JWT-based SSO. Works with Auth0, Okta, Google, etc.</td></tr>
+      <tr><td><strong>SAML</strong></td><td><code>saml</code></td><td>Security Assertion Markup Language &mdash; XML-based enterprise SSO.</td></tr>
+      <tr><td><strong>Entra ID</strong></td><td><code>entra_id</code></td><td>Microsoft Entra ID (Azure AD) &mdash; native integration for Microsoft environments.</td></tr>
+      <tr><td><strong>LDAP</strong></td><td><code>ldap</code></td><td>Lightweight Directory Access Protocol &mdash; on-premises directory servers.</td></tr>
+      <tr><td><strong>Webhook</strong></td><td><code>webhook</code></td><td>Custom HTTP callback &mdash; your own verification endpoint for non-standard systems.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="configuration">Configuration</h2>
+
+  <p>Configure an identity provider with the <code>set_idp_config</code> protocol command:</p>
+
+  <pre><code><span class="comment"># OIDC example</span>
+{
+  "command": "set_idp_config",
+  "type": "oidc",
+  "url": "https://accounts.example.com/.well-known/openid-configuration",
+  "client_id": "pilot-network-prod",
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>The IDP configuration is stored in the registry and persists across restarts. You can also set the IDP through a <a href="enterprise-blueprints">blueprint</a> using the <code>identity_provider</code> field.</p>
+
+  <p>To query the current configuration:</p>
+
+  <pre><code>{
+  "command": "get_idp_config",
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>An audit event (<code>idp.configured</code>) is emitted when the IDP is set or changed.</p>
+
+  <h2 id="jwt">JWT validation</h2>
+
+  <p>The registry includes built-in JWT validation supporting two algorithms:</p>
+
+  <table>
+    <thead><tr><th>Algorithm</th><th>Key type</th><th>Use case</th></tr></thead>
+    <tbody>
+      <tr><td><strong>RS256</strong></td><td>RSA public key (from JWKS)</td><td>Standard OIDC/OAuth2 providers</td></tr>
+      <tr><td><strong>HS256</strong></td><td>Shared secret</td><td>Simple integrations, internal services</td></tr>
+    </tbody>
+  </table>
+
+  <p>Validate a token with the <code>validate_token</code> protocol command:</p>
+
+  <pre><code>{
+  "command": "validate_token",
+  "token": "eyJhbGciOiJSUzI1NiIs...",
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>Returns: <code>valid</code> (bool), <code>claims</code> (the decoded JWT claims if valid), or <code>error</code> (string describing why validation failed).</p>
+
+  <h3>Validated claims</h3>
+
+  <p>The validator checks:</p>
+
+  <ul>
+    <li><strong>Signature</strong> &mdash; verified against the JWKS public key (RS256) or shared secret (HS256)</li>
+    <li><strong>Expiration</strong> (<code>exp</code>) &mdash; token must not be expired</li>
+    <li><strong>Not-before</strong> (<code>nbf</code>) &mdash; token must not be used before its valid time</li>
+    <li><strong>Issued-at</strong> (<code>iat</code>) &mdash; checked for reasonableness</li>
+    <li><strong>Issuer</strong> (<code>iss</code>) &mdash; must match the configured IDP URL</li>
+    <li><strong>Audience</strong> (<code>aud</code>) &mdash; must match the configured client ID</li>
+  </ul>
+
+  <h2 id="jwks">JWKS caching</h2>
+
+  <p>For RS256 tokens, the registry fetches the provider&rsquo;s JSON Web Key Set (JWKS) to obtain public keys for signature verification. JWKS responses are cached to avoid hitting the provider on every validation.</p>
+
+  <table>
+    <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Cache TTL</td><td>5 minutes</td></tr>
+      <tr><td>Max response size</td><td>64 KB</td></tr>
+      <tr><td>Key matching</td><td>By <code>kid</code> (Key ID) header in the JWT</td></tr>
+      <tr><td>Refresh</td><td>Automatic on cache expiry; on-demand if <code>kid</code> not found in cached set</td></tr>
+    </tbody>
+  </table>
+
+  <p>If the JWKS endpoint is unreachable and the cache has expired, validation fails with a clear error. The registry does not fall back to accepting unverified tokens.</p>
+
+  <h2 id="security">Security</h2>
+
+  <h3>Algorithm confusion prevention</h3>
+
+  <p>The validator enforces the expected algorithm based on configuration. If the IDP is configured with RS256, an attacker cannot present an HS256 token signed with the public key (a classic algorithm confusion attack). The <code>alg</code> header in the JWT must match the configured algorithm.</p>
+
+  <h3>Clock skew tolerance</h3>
+
+  <p>A 60-second clock skew tolerance is applied to all time-based claims (<code>exp</code>, <code>nbf</code>, <code>iat</code>). This accommodates minor clock differences between the IDP and the registry without opening a significant window for expired tokens.</p>
+
+  <h2 id="webhook-identity">Webhook identity</h2>
+
+  <p>For systems that don&rsquo;t support OIDC or SAML, configure a <strong>webhook</strong> identity provider. The registry sends the agent&rsquo;s credentials to your HTTP endpoint, and your endpoint returns an approval or rejection.</p>
+
+  <pre><code><span class="comment"># Configure a webhook IDP</span>
+{
+  "command": "set_idp_config",
+  "type": "webhook",
+  "url": "https://auth.example.com/verify-agent",
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>Your endpoint receives a POST with the agent&rsquo;s identity information and must return a JSON response indicating whether the agent is authorized.</p>
+
+  <h2 id="external-ids">External IDs</h2>
+
+  <p>Map agents to external identity systems using external IDs:</p>
+
+  <pre><code><span class="comment"># Set an external ID for an agent</span>
+{
+  "command": "set_external_id",
+  "node_id": 5,
+  "external_id": "user@example.com",
+  "admin_token": "your-admin-token"
+}
+
+<span class="comment"># Look up an agent&rsquo;s identity</span>
+{
+  "command": "get_identity",
+  "node_id": 5,
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>External IDs are free-form strings &mdash; email addresses, UPNs, LDAP DNs, or any identifier from your external system. They are stored in the registry and included in audit events. An <code>identity.external_id_set</code> audit event is emitted on change, recording both old and new values.</p>
+
+  <h2 id="directory-sync">Directory sync</h2>
+
+  <p>Directory sync pushes entries from an external directory (AD, Entra ID, LDAP) to the registry, automatically provisioning and deprovisioning network members.</p>
+
+  <h3>Sync operation</h3>
+
+  <pre><code>{
+  "command": "directory_sync",
+  "network_id": 1,
+  "entries": [
+    {
+      "external_id": "alice@example.com",
+      "node_id": 5,
+      "role": "admin",
+      "tags": ["frontend", "us-east"]
+    },
+    {
+      "external_id": "bob@example.com",
+      "node_id": 8,
+      "role": "member"
+    }
+  ],
+  "remove_unlisted": true,
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <h3>What sync does</h3>
+
+  <ol>
+    <li><strong>Matches entries</strong> &mdash; each entry is matched to a registered node by <code>node_id</code></li>
+    <li><strong>Joins to network</strong> &mdash; nodes not already in the network are added</li>
+    <li><strong>Maps roles</strong> &mdash; the <code>role</code> field sets the RBAC role (admin or member). Owner role cannot be assigned through sync.</li>
+    <li><strong>Sets external IDs</strong> &mdash; the <code>external_id</code> field is stored for identity mapping</li>
+    <li><strong>Applies tags</strong> &mdash; optional <code>tags</code> field sets the node&rsquo;s capability tags</li>
+    <li><strong>Removes unlisted</strong> &mdash; if <code>remove_unlisted</code> is true, members not in the entries list are kicked from the network</li>
+  </ol>
+
+  <h3>RBAC pre-assignments</h3>
+
+  <p>Directory sync supports role pre-assignment: when a new member is added through sync, they receive their assigned role immediately instead of defaulting to member. This is useful for provisioning admin roles in bulk.</p>
+
+  <h3>Query sync status</h3>
+
+  <pre><code>{
+  "command": "get_directory_status",
+  "network_id": 1,
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>Returns the last sync timestamp, number of entries processed, and any errors encountered.</p>
+
+  <p>A <code>directory.synced</code> audit event is emitted after each sync, recording the network ID, number of entries added, removed, and role changes.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> &mdash; role definitions and the permissions matrix. <a href="enterprise-blueprints">Blueprints</a> &mdash; include IDP configuration in declarative provisioning.
+  </div>`;
+---
+<DocLayout
+  title="Identity & SSO"
+  description="Identity provider integration for Pilot Protocol — OIDC, SAML, Entra ID, LDAP, JWT validation, JWKS caching, and directory sync."
+  activePage="enterprise-identity"
+  canonicalPath="/docs/enterprise-identity"
+  prev={{ label: "RBAC & Access Control", href: "/docs/enterprise-rbac" }}
+  next={{ label: "Network Policies", href: "/docs/enterprise-policies" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

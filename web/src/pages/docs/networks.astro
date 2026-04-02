@@ -65,15 +65,29 @@ const bodyContent = `<h1>Networks</h1>
   <h3>What networks do NOT grant</h3>
 
   <ul>
-    <li><strong>No per-port restrictions</strong> &mdash; members can reach all ports on other members. Port-level policies are a future roadmap item.</li>
-    <li><strong>No roles</strong> &mdash; all members have equal network access. Membership management happens in the console, not within the network.</li>
     <li><strong>No traffic inspection</strong> &mdash; encryption is end-to-end between agents. The network grants connectivity, not visibility.</li>
     <li><strong>No transitive access</strong> &mdash; if A and B share network 1, and B and C share network 2, A cannot reach C. Each network is an independent trust domain.</li>
   </ul>
 
+  <h3>Enterprise networks</h3>
+
+  <p>Enterprise networks add a full suite of production controls on top of standard network membership. Enable enterprise with <code>pilotctl network create --name prod --enterprise</code> or <code>network set-enterprise</code>.</p>
+
+  <ul>
+    <li><strong><a href="enterprise-rbac">RBAC</a></strong> &mdash; three-tier roles (owner, admin, member) with a permissions matrix. Promote, demote, kick, and transfer ownership.</li>
+    <li><strong><a href="enterprise-rbac#invites">Invites</a></strong> &mdash; consent-based invite flow with 30-day TTL and inbox cap.</li>
+    <li><strong><a href="enterprise-identity">Identity &amp; SSO</a></strong> &mdash; OIDC, SAML, Entra ID, LDAP, and webhook identity providers with built-in JWT validation.</li>
+    <li><strong><a href="enterprise-identity#directory-sync">Directory sync</a></strong> &mdash; push AD/Entra ID/LDAP entries to auto-provision members and roles.</li>
+    <li><strong><a href="enterprise-policies">Policies</a></strong> &mdash; membership caps, port whitelists, and network descriptions with merge-on-update semantics.</li>
+    <li><strong><a href="enterprise-audit">Audit &amp; compliance</a></strong> &mdash; structured audit events, SIEM export (Splunk HEC, CEF, JSON), webhooks with DLQ.</li>
+    <li><strong><a href="enterprise-blueprints">Blueprints</a></strong> &mdash; declarative JSON provisioning: one document, one command, full network setup.</li>
+  </ul>
+
+  <p>See the <a href="enterprise">Enterprise documentation</a> for the full guide, or the <a href="cli-reference#networks">CLI reference</a> for enterprise commands.</p>
+
   <h3>The design principle</h3>
 
-  <p>Network permissions are intentionally simple: you are either a member or you are not. Inside the boundary, communication is unrestricted. Outside, private agents are invisible. This replaces complex ACLs with a single, auditable membership list.</p>
+  <p>Standard network permissions are intentionally simple: you are either a member or you are not. Inside the boundary, communication is unrestricted. Outside, private agents are invisible. Enterprise networks add roles and port policies for organizations that need finer-grained control.</p>
 
   <h2 id="backbone">The backbone (network 0)</h2>
 
@@ -95,6 +109,7 @@ const bodyContent = `<h1>Networks</h1>
   <table>
     <thead><tr><th>Rule</th><th>Who can join</th><th>Use case</th></tr></thead>
     <tbody>
+      <tr><td><strong>Open</strong></td><td>Any node can join without approval</td><td>Public communities, open collaboration spaces</td></tr>
       <tr><td><strong>Invite only</strong></td><td>Only when you add them through the console</td><td>High-security environments where membership is tightly controlled</td></tr>
       <tr><td><strong>Token-gated</strong></td><td>Anyone with the shared secret token</td><td>Teams that can distribute a token out-of-band (Slack, email, config file)</td></tr>
     </tbody>
@@ -111,7 +126,7 @@ const bodyContent = `<h1>Networks</h1>
   <p>In the <a href="console">console</a>, click <strong>Create Network</strong> and fill in:</p>
   <ol>
     <li><strong>Name</strong> &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
-    <li><strong>Join rule</strong> &mdash; invite only or token-gated</li>
+    <li><strong>Join rule</strong> &mdash; open, invite only, or token-gated</li>
   </ol>
   <p>Your first network is free (up to 3 agents). Additional networks or larger teams require a <a href="console#upgrade">Pro plan</a>.</p>
 
@@ -162,7 +177,7 @@ const bodyContent = `<h1>Networks</h1>
 
   <h3>Membership is the boundary</h3>
 
-  <p>The network security model is deliberately simple: membership equals access. There are no roles, no per-port policies, and no traffic inspection within a network. This makes the model easy to reason about and audit &mdash; look at the member list in the console, and you know exactly who can communicate with whom.</p>
+  <p>The network security model is deliberately simple: membership equals access. Standard networks have no traffic inspection &mdash; look at the member list in the console, and you know exactly who can communicate with whom. Enterprise networks layer on RBAC (owner/admin/member roles) and port-level policies for finer-grained control.</p>
 
   <h3>Silent rejection</h3>
 
@@ -180,9 +195,9 @@ const bodyContent = `<h1>Networks</h1>
 
   <p>Network membership is not transitive. If A and B share network 1, and B and C share network 2, A cannot reach C through B unless A and C also share a network or have bilateral trust. Each network is an independent trust domain.</p>
 
-  <h3>Future: tag-based policies</h3>
+  <h3>Enterprise port policies</h3>
 
-  <p>The roadmap includes tag-based access policies that add port-level control within networks: <em>&ldquo;agents tagged <code>frontend</code> can reach agents tagged <code>api</code> on ports 80 and 443.&rdquo;</em> See the <a href="/blog/enterprise-private-networks-roadmap">enterprise roadmap</a> for details.</p>
+  <p>Enterprise networks support <a href="enterprise-policies">port-level policies</a> that restrict which ports members can access. Use <code>pilotctl network policy &lt;network_id&gt; --set allowed_ports=80,443,1001</code> to limit accessible ports within a network. See <a href="enterprise-policies">Network Policies</a> for details on membership caps, port whitelists, and merge-on-update semantics.</p>
 
   <div class="callout">
     <strong>See also:</strong> <a href="console">Console</a> &mdash; full walkthrough of the web dashboard including signup, API keys, and billing.

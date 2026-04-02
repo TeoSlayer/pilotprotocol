@@ -1,0 +1,171 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>RBAC & Access Control</h1>
+  <p class="subtitle">Roles, permissions, invites, and the authorization chain for enterprise networks.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#roles">Roles</a></li>
+      <li><a href="#permissions">Permissions matrix</a></li>
+      <li><a href="#managing">Managing roles</a></li>
+      <li><a href="#ownership">Ownership transfer</a></li>
+      <li><a href="#admin-tokens">Per-network admin tokens</a></li>
+      <li><a href="#invites">Invite flow</a></li>
+      <li><a href="#authorization-chain">Authorization chain</a></li>
+    </ul>
+  </div>
+
+  <h2 id="roles">Roles</h2>
+
+  <p>Enterprise networks have three roles, ordered by privilege:</p>
+
+  <table>
+    <thead><tr><th>Role</th><th>Description</th><th>Assigned when</th></tr></thead>
+    <tbody>
+      <tr><td><strong>owner</strong></td><td>Full control over the network. One owner per network.</td><td>Creates the network, or receives ownership transfer</td></tr>
+      <tr><td><strong>admin</strong></td><td>Can manage members but cannot delete the network or transfer ownership.</td><td>Promoted by the owner</td></tr>
+      <tr><td><strong>member</strong></td><td>Standard network access. Can communicate with all other members.</td><td>Joins the network (default role)</td></tr>
+    </tbody>
+  </table>
+
+  <p>When enterprise mode is enabled on a network, the creator is automatically assigned the <strong>owner</strong> role. All existing members receive the <strong>member</strong> role.</p>
+
+  <h2 id="permissions">Permissions matrix</h2>
+
+  <table>
+    <thead><tr><th>Action</th><th>Owner</th><th>Admin</th><th>Member</th></tr></thead>
+    <tbody>
+      <tr><td>Communicate with members</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+      <tr><td>List members</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+      <tr><td>Invite agents</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Kick members</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Promote to admin</td><td>Yes</td><td>No</td><td>No</td></tr>
+      <tr><td>Demote admin to member</td><td>Yes</td><td>No</td><td>No</td></tr>
+      <tr><td>Set network policies</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Transfer ownership</td><td>Yes</td><td>No</td><td>No</td></tr>
+      <tr><td>Delete the network</td><td>Yes</td><td>No</td><td>No</td></tr>
+      <tr><td>Rename the network</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+      <tr><td>Toggle enterprise mode</td><td>Yes</td><td>No</td><td>No</td></tr>
+    </tbody>
+  </table>
+
+  <p>Admins can kick <strong>members</strong> but not other admins or the owner. The owner can kick anyone.</p>
+
+  <h2 id="managing">Managing roles</h2>
+
+  <h3>Promote a member to admin</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network promote &lt;network_id&gt; &lt;node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>promote_member</code>. Only the owner can promote. The target must be a current member of the network.</p>
+
+  <h3>Demote an admin to member</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network demote &lt;network_id&gt; &lt;node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>demote_member</code>. Only the owner can demote.</p>
+
+  <h3>Kick a member</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network kick &lt;network_id&gt; &lt;node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>kick_member</code>. Owners can kick anyone. Admins can kick members but not other admins or the owner. The kicked agent loses all network access immediately.</p>
+
+  <h3>Check a member&rsquo;s role</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network role &lt;network_id&gt; &lt;node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>get_member_role</code>. Returns the role (<code>owner</code>, <code>admin</code>, or <code>member</code>) for the given node in the given network.</p>
+
+  <h2 id="ownership">Ownership transfer</h2>
+
+  <p>Transfer network ownership to another member:</p>
+
+  <pre><code><span class="cmd">pilotctl</span> network transfer-ownership &lt;network_id&gt; &lt;new_owner_node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>transfer_ownership</code>. The current owner becomes an admin. The target must be a current member of the network (any role). This is an atomic operation &mdash; there is never a moment without an owner.</p>
+
+  <h2 id="admin-tokens">Per-network admin tokens</h2>
+
+  <p>The global admin token controls registry-level operations. For delegated administration, enterprise networks support <strong>per-network admin tokens</strong> that grant admin-level access to a specific network without global privileges.</p>
+
+  <p>Per-network admin tokens can be set during blueprint provisioning via the <code>network_admin_token</code> field. They authorize the holder to perform admin-level operations (kick, invite, set policies) on that specific network.</p>
+
+  <h2 id="invites">Invite flow</h2>
+
+  <p>Enterprise networks support a consent-based invite flow. Instead of adding agents directly, owners and admins send invitations that the target agent must accept.</p>
+
+  <h3>Send an invite</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network invite &lt;network_id&gt; &lt;target_node_id&gt;</code></pre>
+
+  <p>Protocol command: <code>invite_to_network</code>. The inviter must be an owner or admin. The target receives the invitation in their inbox.</p>
+
+  <h3>Check inbox</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network invites</code></pre>
+
+  <p>Protocol command: <code>get_invites</code>. Returns pending invitations with network name, inviter ID, and expiry timestamp.</p>
+
+  <h3>Accept or reject</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network accept-invite &lt;network_id&gt;
+<span class="cmd">pilotctl</span> network reject-invite &lt;network_id&gt;</code></pre>
+
+  <p>Protocol command: <code>respond_to_invite</code>. Accepting joins the agent to the network with the <strong>member</strong> role. Rejecting removes the invitation from the inbox.</p>
+
+  <h3>Invite rules</h3>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>TTL</td><td>30 days from creation</td></tr>
+      <tr><td>Inbox cap</td><td>100 pending invitations per agent</td></tr>
+      <tr><td>Duplicate protection</td><td>Cannot invite an agent who already has a pending invite for the same network</td></tr>
+      <tr><td>Membership check</td><td>Cannot invite an agent who is already a member</td></tr>
+      <tr><td>MaxMembers enforcement</td><td>Accepting an invite is rejected if the network is at capacity</td></tr>
+      <tr><td>Expired cleanup</td><td>Expired invites are automatically pruned when the inbox is queried</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="authorization-chain">Authorization chain</h2>
+
+  <p>Enterprise operations are authorized through a layered chain:</p>
+
+  <ol>
+    <li><strong>Global admin token</strong> &mdash; the registry-level admin token set with <code>--admin-token</code>. Has full access to all operations across all networks.</li>
+    <li><strong>Per-network admin token</strong> &mdash; scoped to a single network. Grants admin-level operations on that network only.</li>
+    <li><strong>RBAC role</strong> &mdash; the agent&rsquo;s role in the specific network (owner, admin, member). Checked for all network-scoped operations.</li>
+    <li><strong>Ed25519 signature</strong> &mdash; protocol commands that modify state (set-hostname, set-visibility, deregister, promote, demote, kick) are signed with the agent&rsquo;s private key to prevent spoofing.</li>
+  </ol>
+
+  <p>Each layer is checked in order. If any layer grants the required permission, the operation proceeds. For example, the global admin token can promote a member even without being the network owner.</p>
+
+  <h3>Key lifecycle</h3>
+
+  <p>Agent keys support rotation and expiry:</p>
+
+  <ul>
+    <li><strong>Key rotation</strong> &mdash; <code>rotate_key</code> replaces the agent&rsquo;s Ed25519 public key. The new key is used for all subsequent signed operations.</li>
+    <li><strong>Key expiry</strong> &mdash; <code>set_key_expiry</code> sets a deadline after which the agent&rsquo;s key is considered expired. Expired agents are blocked from heartbeating and gradually reaped.</li>
+    <li><strong>Clear expiry</strong> &mdash; <code>set_key_expiry</code> with no expiry date clears the deadline.</li>
+  </ul>
+
+  <p>Key expiry enables automated credential rotation policies: set an expiry date, and the agent must rotate its key before that date to remain active.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="enterprise-identity">Identity &amp; SSO</a> &mdash; connect external identity providers for centralized authentication. <a href="enterprise-policies">Network Policies</a> &mdash; enforce membership caps and port restrictions.
+  </div>`;
+---
+<DocLayout
+  title="RBAC & Access Control"
+  description="Role-based access control for Pilot Protocol enterprise networks — roles, permissions, invites, and the authorization chain."
+  activePage="enterprise-rbac"
+  canonicalPath="/docs/enterprise-rbac"
+  prev={{ label: "Enterprise Overview", href: "/docs/enterprise" }}
+  next={{ label: "Identity & SSO", href: "/docs/enterprise-identity" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

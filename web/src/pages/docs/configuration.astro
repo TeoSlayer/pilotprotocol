@@ -52,6 +52,7 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
       <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install; if unset, the daemon uses the system hostname</td></tr>
+      <tr><td>PILOT_ADMIN_TOKEN</td><td>(none)</td><td>Admin token for enterprise operations</td></tr>
     </tbody>
   </table>
 
@@ -64,6 +65,7 @@ const bodyContent = `<h1>Configuration</h1>
   trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
   received/           <span class="comment"># Files received via data exchange</span>
   inbox/              <span class="comment"># Messages received via data exchange</span>
+  tasks/              <span class="comment"># Task files and results</span>
   pilot.pid           <span class="comment"># Daemon PID file</span>
   pilot.log           <span class="comment"># Daemon log file</span></code></pre>
 
@@ -99,6 +101,8 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>
       <tr><td>--config &lt;path&gt;</td><td>Config file path</td></tr>
       <tr><td>--webhook &lt;url&gt;</td><td>Webhook URL for event notifications</td></tr>
+      <tr><td>--admin-token &lt;token&gt;</td><td>Admin token for enterprise operations</td></tr>
+      <tr><td>--networks &lt;ids&gt;</td><td>Comma-separated network IDs to auto-join on startup</td></tr>
     </tbody>
   </table>
 
@@ -127,7 +131,7 @@ const bodyContent = `<h1>Configuration</h1>
   activePage="configuration"
   canonicalPath="/docs/configuration"
   prev={{ label: "Diagnostics", href: "/docs/diagnostics" }}
-  next={{ label: "Integration", href: "/docs/integration" }}
+  next={{ label: "Console", href: "/docs/console" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

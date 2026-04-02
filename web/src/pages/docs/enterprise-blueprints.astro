@@ -1,0 +1,188 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Blueprints</h1>
+  <p class="subtitle">Declarative network provisioning &mdash; one JSON document, one command, full network setup.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#format">Blueprint format</a></li>
+      <li><a href="#fields">Fields reference</a></li>
+      <li><a href="#sequence">Apply sequence</a></li>
+      <li><a href="#idempotency">Idempotency</a></li>
+      <li><a href="#validation">Validation</a></li>
+      <li><a href="#command">Protocol command</a></li>
+      <li><a href="#status">Status query</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>A blueprint is a single JSON document that describes an entire enterprise network: its name, join rule, policies, identity provider, webhooks, audit export, role pre-assignments, and admin token. Apply it with one command and the registry provisions everything in a deterministic sequence.</p>
+
+  <p>Blueprints are designed for infrastructure-as-code workflows. Store them in version control, review changes in pull requests, and apply them through CI/CD pipelines.</p>
+
+  <h2 id="format">Blueprint format</h2>
+
+  <pre><code>{
+  "name": "prod-fleet",
+  "join_rule": "invite_only",
+  "enterprise": true,
+  "policy": {
+    "max_members": 100,
+    "allowed_ports": [80, 443, 1001],
+    "description": "Production fleet - US East"
+  },
+  "identity_provider": {
+    "type": "oidc",
+    "url": "https://accounts.example.com/.well-known/openid-configuration",
+    "client_id": "pilot-prod"
+  },
+  "webhooks": [
+    {
+      "url": "https://ops.example.com/pilot-events",
+      "events": ["member.kicked", "network.policy_changed"]
+    }
+  ],
+  "audit_export": {
+    "format": "splunk_hec",
+    "endpoint": "https://splunk.example.com:8088/services/collector",
+    "token": "hec-token-here"
+  },
+  "roles": {
+    "42": "admin",
+    "108": "admin"
+  },
+  "network_admin_token": "network-specific-secret"
+}</code></pre>
+
+  <h2 id="fields">Fields reference</h2>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>name</code></td><td>string</td><td>Yes</td><td>Network name. Lowercase alphanumeric with hyphens. Used for idempotent lookup.</td></tr>
+      <tr><td><code>join_rule</code></td><td>string</td><td>No</td><td>One of <code>open</code>, <code>invite_only</code>, or <code>token</code>. Defaults to <code>open</code>.</td></tr>
+      <tr><td><code>enterprise</code></td><td>bool</td><td>No</td><td>Enable enterprise features. Defaults to <code>false</code>.</td></tr>
+      <tr><td><code>policy</code></td><td>object</td><td>No</td><td>Network policy: <code>max_members</code>, <code>allowed_ports</code>, <code>description</code>. See <a href="enterprise-policies">Network Policies</a>.</td></tr>
+      <tr><td><code>identity_provider</code></td><td>object</td><td>No</td><td>IDP configuration: <code>type</code>, <code>url</code>, <code>client_id</code>. See <a href="enterprise-identity">Identity &amp; SSO</a>.</td></tr>
+      <tr><td><code>webhooks</code></td><td>array</td><td>No</td><td>Webhook endpoints: <code>url</code> and <code>events</code> filter.</td></tr>
+      <tr><td><code>audit_export</code></td><td>object</td><td>No</td><td>Export config: <code>format</code>, <code>endpoint</code>, <code>token</code>. See <a href="enterprise-audit#export">Audit Export</a>.</td></tr>
+      <tr><td><code>roles</code></td><td>object</td><td>No</td><td>Map of node ID (string) &rarr; role (<code>admin</code> or <code>member</code>). Pre-assigns RBAC roles.</td></tr>
+      <tr><td><code>network_admin_token</code></td><td>string</td><td>No</td><td>Per-network admin token for delegated administration.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="sequence">Apply sequence</h2>
+
+  <p>When a blueprint is applied, the registry executes these steps in order:</p>
+
+  <ol>
+    <li><strong>Find or create</strong> &mdash; look up the network by name. If it exists, use it. If not, create it with the specified join rule.</li>
+    <li><strong>Enable enterprise</strong> &mdash; if <code>enterprise: true</code> and the network is not yet enterprise, enable it.</li>
+    <li><strong>Set policies</strong> &mdash; apply the <code>policy</code> object using merge-on-update semantics.</li>
+    <li><strong>Configure IDP</strong> &mdash; set the identity provider configuration if specified.</li>
+    <li><strong>Configure audit export</strong> &mdash; set the audit export endpoint and format if specified.</li>
+    <li><strong>Configure webhooks</strong> &mdash; register webhook endpoints if specified.</li>
+    <li><strong>Assign roles</strong> &mdash; for each entry in <code>roles</code>, set the RBAC role. Nodes must already be members of the network.</li>
+  </ol>
+
+  <p>Each step is independent &mdash; if a later step fails, earlier steps are not rolled back. The result includes which actions were taken and which failed.</p>
+
+  <h2 id="idempotency">Idempotency</h2>
+
+  <p>Blueprints are idempotent. Applying the same blueprint twice produces the same result. The registry looks up the network by <code>name</code>:</p>
+
+  <ul>
+    <li>If a network with that name exists, it is updated (not duplicated)</li>
+    <li>If no network with that name exists, a new one is created</li>
+  </ul>
+
+  <p>This makes blueprints safe to apply repeatedly in CI/CD pipelines. Re-applying after a partial failure completes the remaining steps without duplicating already-completed ones.</p>
+
+  <h2 id="validation">Validation</h2>
+
+  <p>The registry validates the blueprint before applying any changes:</p>
+
+  <ul>
+    <li><strong><code>name</code></strong> is required and must match the network name rules (lowercase alphanumeric with hyphens)</li>
+    <li><strong><code>join_rule</code></strong> must be one of <code>open</code>, <code>invite_only</code>, or <code>token</code></li>
+    <li><strong><code>policy.max_members</code></strong> must be a non-negative integer</li>
+    <li><strong><code>policy.allowed_ports</code></strong> must have &le; 100 entries</li>
+    <li><strong><code>policy.description</code></strong> must be &le; 256 characters</li>
+    <li><strong><code>identity_provider.type</code></strong> must be a valid provider type (<code>oidc</code>, <code>saml</code>, <code>entra_id</code>, <code>ldap</code>, <code>webhook</code>)</li>
+    <li><strong><code>roles</code></strong> values must be <code>admin</code> or <code>member</code> (not <code>owner</code> &mdash; ownership is assigned to the creator)</li>
+  </ul>
+
+  <p>If validation fails, no changes are made and the error is returned immediately.</p>
+
+  <h2 id="command">Protocol command</h2>
+
+  <h3>Apply a blueprint</h3>
+
+  <pre><code>{
+  "command": "provision_network",
+  "blueprint": {
+    "name": "prod-fleet",
+    "enterprise": true,
+    "policy": { "max_members": 100 }
+  },
+  "node_id": 1,
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>The <code>node_id</code> identifies the agent that will be the network owner (if creating a new network).</p>
+
+  <h3>Result format</h3>
+
+  <pre><code>{
+  "network_id": 5,
+  "created": true,
+  "actions": [
+    "network created",
+    "enterprise enabled",
+    "policy set",
+    "audit export configured"
+  ]
+}</code></pre>
+
+  <p>The <code>created</code> field indicates whether a new network was created (<code>true</code>) or an existing one was updated (<code>false</code>).</p>
+
+  <h3>File-based blueprints</h3>
+
+  <p>For programmatic use, load a blueprint from a JSON file:</p>
+
+  <pre><code><span class="comment"># Go SDK</span>
+bp, err := registry.LoadBlueprint("network.json")
+result, err := client.ProvisionNetwork(bp, nodeID, adminToken)</code></pre>
+
+  <p><code>LoadBlueprint</code> reads and validates the JSON file, returning a typed blueprint struct ready for provisioning.</p>
+
+  <h2 id="status">Status query</h2>
+
+  <p>Inspect the provisioning state of a network:</p>
+
+  <pre><code>{
+  "command": "get_provision_status",
+  "network_id": 5,
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>Returns the network&rsquo;s current configuration as seen by the registry: enterprise status, policies, IDP config, webhook endpoints, audit export, and role assignments. Use this to verify that a blueprint was applied correctly or to diff the current state against a desired state.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="enterprise">Enterprise Overview</a> &mdash; the full enterprise feature set. <a href="enterprise-policies">Network Policies</a> &mdash; policy fields that blueprints configure. <a href="enterprise-audit#export">Audit Export</a> &mdash; export formats and delivery guarantees.
+  </div>`;
+---
+<DocLayout
+  title="Blueprints"
+  description="Blueprint provisioning for Pilot Protocol — declarative JSON documents that provision entire enterprise networks in one command."
+  activePage="enterprise-blueprints"
+  canonicalPath="/docs/enterprise-blueprints"
+  prev={{ label: "Audit & Compliance", href: "/docs/enterprise-audit" }}
+  next={{ label: "Diagnostics", href: "/docs/diagnostics" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

@@ -36,6 +36,7 @@ const bodyContent = `<h1>Console Guide</h1>
     <li>Enter a name &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
     <li>Choose a <strong>join rule</strong>:
       <ul>
+        <li><strong>Open</strong> &mdash; any node can join without approval</li>
         <li><strong>Invite only</strong> &mdash; you control membership entirely from the console</li>
         <li><strong>Token-gated</strong> &mdash; generates a shared secret that agents can use to self-join from the CLI</li>
       </ul>
@@ -53,7 +54,7 @@ const bodyContent = `<h1>Console Guide</h1>
 
   <p>Start the daemon with a hostname:</p>
 
-  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --hostname my-agent --email user@example.com</code></pre>
 
   <p>The daemon registers with the backbone and displays a <strong>node ID</strong>, <strong>Pilot address</strong>, and <strong>hostname</strong>. You will use one of these to add it to your network.</p>
 
@@ -155,7 +156,7 @@ const bodyContent = `<h1>Console Guide</h1>
   activePage="console-guide"
   canonicalPath="/docs/console-guide"
   prev={{ label: "Console", href: "/docs/console" }}
-  next={{ label: "Error Codes", href: "/docs/error-codes" }}
+  next={{ label: "Integration", href: "/docs/integration" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

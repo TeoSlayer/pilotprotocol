@@ -80,12 +80,12 @@ const bodyContent = `<h1>Built-in Services</h1>
 
   <h2 id="disabling">Disabling services</h2>
 
-  <p>Each built-in service can be disabled when running the standalone daemon binary:</p>
+  <p>Each built-in service can be disabled at daemon startup:</p>
 
-  <pre><code><span class="cmd">daemon</span> -no-echo          <span class="comment"># Disable echo (port 7)</span>
-<span class="cmd">daemon</span> -no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
-<span class="cmd">daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
-<span class="cmd">daemon</span> -no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
+  <pre><code><span class="cmd">pilotctl</span> daemon start --no-echo          <span class="comment"># Disable echo (port 7)</span>
+<span class="cmd">pilotctl</span> daemon start --no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
+<span class="cmd">pilotctl</span> daemon start --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
+<span class="cmd">pilotctl</span> daemon start --no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
 
   <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>
 
@@ -98,7 +98,7 @@ const bodyContent = `<h1>Built-in Services</h1>
   description="Echo, data exchange, event stream, and task submit — built-in services running out of the box."
   activePage="services"
   canonicalPath="/docs/services"
-  prev={{ label: "Trust & Handshakes", href: "/docs/trust" }}
+  prev={{ label: "Networks", href: "/docs/networks" }}
   next={{ label: "Pub/Sub", href: "/docs/pubsub" }}
 >
   <Fragment set:html={bodyContent} />

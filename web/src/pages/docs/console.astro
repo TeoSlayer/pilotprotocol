@@ -42,7 +42,7 @@ const bodyContent = `<h1>Console</h1>
   <ul>
     <li>Network name and ID</li>
     <li>Tier badge (<strong>Free</strong> or <strong>Pro</strong>)</li>
-    <li>Join rule badge (<strong>invite</strong> or <strong>token</strong>)</li>
+    <li>Join rule badge (<strong>open</strong>, <strong>invite</strong>, or <strong>token</strong>)</li>
     <li>Number of nodes</li>
   </ul>
 
@@ -56,6 +56,7 @@ const bodyContent = `<h1>Console</h1>
     <li><strong>Name</strong> &mdash; lowercase alphanumeric with hyphens (e.g., <code>research-lab</code>, <code>prod-fleet</code>)</li>
     <li><strong>Join rule</strong> &mdash; choose from:
       <ul>
+        <li><strong>Open</strong> &mdash; any node can join without approval.</li>
         <li><strong>Invite only</strong> &mdash; you control membership entirely. Only you can add nodes from the console.</li>
         <li><strong>Token-gated</strong> &mdash; generates a shared secret. Anyone with the token can join from the CLI.</li>
       </ul>
@@ -113,11 +114,11 @@ const bodyContent = `<h1>Console</h1>
   <h3>What networks do NOT grant</h3>
 
   <ul>
-    <li><strong>No per-port restrictions</strong> &mdash; members can reach all ports on other members. Port-level policies are a future roadmap item.</li>
-    <li><strong>No roles</strong> &mdash; all members have equal network access. Membership management happens in the console, not within the network.</li>
     <li><strong>No traffic inspection</strong> &mdash; encryption is end-to-end between agents. The network grants connectivity, not visibility.</li>
     <li><strong>No transitive access</strong> &mdash; if A and B share network 1, and B and C share network 2, A cannot reach C. Each network is an independent trust domain.</li>
   </ul>
+
+  <p>Enterprise networks add <strong>roles</strong> (owner/admin/member) and <strong>port-level policies</strong> for finer-grained control. See <a href="networks#permissions">Networks</a> for details.</p>
 
   <h3>Immediate revocation</h3>
 
@@ -272,7 +273,7 @@ const bodyContent = `<h1>Console</h1>
   activePage="console"
   canonicalPath="/docs/console"
   prev={{ label: "Configuration", href: "/docs/configuration" }}
-  next={{ label: "Integration", href: "/docs/integration" }}
+  next={{ label: "Console Guide", href: "/docs/console-guide" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

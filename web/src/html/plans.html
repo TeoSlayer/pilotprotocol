@@ -317,20 +317,22 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
   <div class="tier reveal delay-3">
     <span class="tier-badge tier-badge-ent">Enterprise</span>
     <h3>Enterprise</h3>
-    <div class="tier-price">&mdash;</div>
-    <div class="tier-price-sub">Coming soon</div>
-    <p class="tier-desc">Full enterprise stack: identity federation, policy engine, cascading revocation, and compliance.</p>
+    <div class="tier-price">Custom</div>
+    <div class="tier-price-sub">Tailored to your org</div>
+    <p class="tier-desc">Full enterprise stack: RBAC, identity providers, directory sync, audit export, and declarative provisioning. <a href="/docs/enterprise">See docs</a>.</p>
     <ul>
       <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Private Network</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Organization control plane (multi-network orgs)</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Tag-based access policies (per-port ACLs)</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Cascading admin revocation + block list</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>CA-based enrollment (certificate join rule)</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>OIDC + SPIFFE identity integration</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Audit logging + SIEM integration</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Dedicated registry + beacon infrastructure</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Identity expiry + forced key rotation</li>
-      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Priority support + SLA</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>RBAC &mdash; owner, admin, member roles with permissions matrix</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>OIDC, SAML, Entra ID, LDAP &amp; webhook identity providers</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Directory sync (AD/Entra ID/LDAP) with role mapping</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>JWT validation (RS256, HS256) with JWKS caching</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Network policies &mdash; membership caps &amp; port whitelists</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Audit export &mdash; Splunk HEC, CEF/Syslog, JSON</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Webhooks with retry &amp; dead-letter queue</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Blueprint provisioning &mdash; declarative network setup</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Key lifecycle &mdash; rotation, expiry, forced renewal</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Consent-based invite flow (30-day TTL)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Dedicated infrastructure + priority support + SLA</li>
     </ul>
     <a class="tier-cta tier-cta-ghost" href="mailto:founders@vulturelabs.com">Contact Us</a>
   </div>
@@ -363,19 +365,21 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
         <tr><td>Management</td><td>&mdash;</td><td class="highlight">Web console + API</td><td>Web console + API</td></tr>
         <tr><td>Registry</td><td>Shared</td><td>Scoped</td><td>Dedicated</td></tr>
         <tr><td>Agent visibility</td><td>Configurable</td><td>Network-scoped</td><td>Org-scoped</td></tr>
-        <tr><td>Address space</td><td>Shared</td><td>Dedicated network ID</td><td>Custom</td></tr>
         <tr><td>NAT traversal</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td></tr>
         <tr><td>E2E encryption</td><td class="highlight">Yes</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
         <tr><td>SYN trust enforcement</td><td>&mdash;</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
-        <tr><td>Network join rules</td><td>&mdash;</td><td>Token + invite</td><td>Token + invite + CA + OIDC + SPIFFE</td></tr>
-        <tr><td>Access policies</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Tag-based per-port ACLs</td></tr>
-        <tr><td>Identity integration</td><td>Ed25519</td><td>Ed25519</td><td>Ed25519 + OIDC + SPIFFE</td></tr>
-        <tr><td>Revocation</td><td>Bilateral</td><td>Bilateral</td><td class="highlight">Cascading admin revocation</td></tr>
-        <tr><td>Audit</td><td>Webhooks</td><td>Webhooks</td><td class="highlight">SIEM integration + audit log</td></tr>
-        <tr><td>Org management</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Multi-network orgs</td></tr>
+        <tr><td>Network join rules</td><td>&mdash;</td><td>Token + invite</td><td class="highlight">Token + invite + consent flow</td></tr>
+        <tr><td>RBAC</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Owner / admin / member roles</td></tr>
+        <tr><td>Network policies</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Membership caps + port whitelists</td></tr>
+        <tr><td>Identity providers</td><td>Ed25519</td><td>Ed25519</td><td class="highlight">Ed25519 + OIDC + SAML + Entra ID + LDAP</td></tr>
+        <tr><td>Directory sync</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">AD / Entra ID / LDAP with role mapping</td></tr>
+        <tr><td>JWT validation</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">RS256 + HS256, JWKS caching</td></tr>
+        <tr><td>Audit</td><td>Webhooks</td><td>Webhooks</td><td class="highlight">Splunk HEC + CEF/Syslog + JSON export</td></tr>
+        <tr><td>Provisioning</td><td>&mdash;</td><td>Console</td><td class="highlight">Blueprints (declarative JSON)</td></tr>
+        <tr><td>Key lifecycle</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Rotation, expiry, forced renewal</td></tr>
         <tr><td>Rendezvous infra</td><td>Community</td><td>Managed</td><td>Dedicated</td></tr>
         <tr><td>Support</td><td>Community</td><td>Email</td><td>Priority + SLA</td></tr>
-        <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td class="highlight">$200/mo + usage</td><td>Coming soon</td></tr>
+        <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td class="highlight">$200/mo + $10/agent</td><td class="highlight">Custom</td></tr>
       </tbody>
     </table>
   </div>
@@ -404,7 +408,7 @@ footer .footer-tagline{font-size:0.8rem;color:var(--muted);margin-top:4px}
     </div>
     <div class="faq-item">
       <button class="faq-q">What is the difference between Private Network and Enterprise?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-      <div class="faq-a"><p>Private Network gives you isolated address spaces with token-gated joins and SYN-level trust enforcement. Enterprise adds organization management, tag-based access policies, cascading revocation, CA-based enrollment, OIDC/SPIFFE identity integration, and SIEM-grade audit logging.</p></div>
+      <div class="faq-a"><p>Private Network gives you isolated address spaces with token-gated joins and SYN-level trust enforcement. Enterprise adds RBAC (owner/admin/member roles), identity provider integration (OIDC, SAML, Entra ID, LDAP), directory sync, network policies (membership caps, port whitelists), audit export to SIEMs (Splunk, CEF, JSON), blueprint provisioning, key lifecycle management, and dedicated infrastructure.</p></div>
     </div>
     <div class="faq-item">
       <button class="faq-q">What happens to my agents if I stop paying?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>

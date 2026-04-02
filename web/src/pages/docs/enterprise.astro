@@ -1,0 +1,97 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Enterprise</h1>
+  <p class="subtitle">Role-based access, identity providers, policies, audit, and declarative provisioning for production networks.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#enable">Enable enterprise</a></li>
+      <li><a href="#features">Feature summary</a></li>
+      <li><a href="#gating">Enterprise gating</a></li>
+      <li><a href="#next">What&rsquo;s next</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>Enterprise features extend standard <a href="networks">networks</a> with the controls that production deployments need: role-based access control, identity provider integration, membership policies, structured audit logging, and declarative provisioning through blueprints.</p>
+
+  <p>Standard networks treat membership as a binary boundary &mdash; you are either in or out. Enterprise networks add layers on top: <strong>who can do what</strong> (RBAC), <strong>who is allowed in</strong> (identity &amp; directory sync), <strong>what traffic is permitted</strong> (port policies), <strong>what happened</strong> (audit), and <strong>how to set it all up at once</strong> (blueprints).</p>
+
+  <h2 id="enable">Enable enterprise</h2>
+
+  <p>Enterprise features are gated per-network. Enable them at creation time or on an existing network:</p>
+
+  <pre><code><span class="comment"># At creation</span>
+<span class="cmd">pilotctl</span> network create --name prod-fleet --enterprise
+
+<span class="comment"># On an existing network</span>
+<span class="cmd">pilotctl</span> network set-enterprise &lt;network_id&gt; true</code></pre>
+
+  <p>The protocol command is <code>set_network_enterprise</code>. Enabling enterprise on a network promotes the creator to the <strong>owner</strong> role and unlocks all enterprise features for that network. Enterprise mode can also be disabled, which strips RBAC roles but preserves membership.</p>
+
+  <h2 id="features">Feature summary</h2>
+
+  <table>
+    <thead><tr><th>Feature</th><th>What it does</th><th>Documentation</th></tr></thead>
+    <tbody>
+      <tr><td><strong>RBAC</strong></td><td>Three-tier roles (owner, admin, member) with distinct permissions. Promote, demote, kick, transfer ownership.</td><td><a href="enterprise-rbac">RBAC &amp; Access Control</a></td></tr>
+      <tr><td><strong>Invites</strong></td><td>Invite agents to networks with consent-based flow. 30-day TTL, inbox cap of 100, accept/reject.</td><td><a href="enterprise-rbac#invites">Invite Flow</a></td></tr>
+      <tr><td><strong>Identity &amp; SSO</strong></td><td>OIDC, SAML, Entra ID, LDAP, and webhook identity providers. JWT validation with RS256 and HS256.</td><td><a href="enterprise-identity">Identity &amp; SSO</a></td></tr>
+      <tr><td><strong>Directory sync</strong></td><td>Push AD/Entra ID/LDAP entries to automatically provision members, map roles, and remove unlisted agents.</td><td><a href="enterprise-identity#directory-sync">Directory Sync</a></td></tr>
+      <tr><td><strong>Network policies</strong></td><td>Enforce membership caps, port whitelists, and network descriptions.</td><td><a href="enterprise-policies">Network Policies</a></td></tr>
+      <tr><td><strong>Audit</strong></td><td>Structured audit events (slog JSON), in-memory ring buffer, export to Splunk HEC, CEF/Syslog, or JSON endpoints.</td><td><a href="enterprise-audit">Audit &amp; Compliance</a></td></tr>
+      <tr><td><strong>Webhooks</strong></td><td>Event-driven notifications with retry, dead-letter queue, and Prometheus metrics.</td><td><a href="enterprise-audit#webhooks">Webhooks &amp; DLQ</a></td></tr>
+      <tr><td><strong>Blueprints</strong></td><td>Declarative JSON documents that provision an entire network: name, policies, identity, webhooks, audit export, roles.</td><td><a href="enterprise-blueprints">Blueprints</a></td></tr>
+      <tr><td><strong>Key lifecycle</strong></td><td>Rotate agent keys, set expiry dates, and block expired agents from heartbeating.</td><td><a href="enterprise-rbac#authorization-chain">Authorization Chain</a></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="gating">Enterprise gating</h2>
+
+  <p>Some features require enterprise mode on the network. Others work for all networks.</p>
+
+  <table>
+    <thead><tr><th>Requires enterprise</th><th>Available to all networks</th></tr></thead>
+    <tbody>
+      <tr><td>RBAC roles (promote, demote, kick)</td><td>Network create / join / leave / delete</td></tr>
+      <tr><td>Ownership transfer</td><td>Membership listing</td></tr>
+      <tr><td>Per-network admin tokens</td><td>Audit log query (global)</td></tr>
+      <tr><td>Invite flow</td><td>Key rotation</td></tr>
+      <tr><td>Directory sync</td><td>Hostname &amp; visibility changes</td></tr>
+      <tr><td>Port policies</td><td>Tags &amp; discovery</td></tr>
+      <tr><td>Blueprint provisioning</td><td>Trust &amp; handshakes</td></tr>
+    </tbody>
+  </table>
+
+  <p>Attempting an enterprise operation on a non-enterprise network returns an error. The <code>set_network_enterprise</code> command toggles the flag without affecting existing membership.</p>
+
+  <h2 id="next">What&rsquo;s next</h2>
+
+  <p>Start with the feature most relevant to your deployment:</p>
+
+  <ul>
+    <li><a href="enterprise-rbac"><strong>RBAC &amp; Access Control</strong></a> &mdash; roles, permissions, invites, and the authorization chain</li>
+    <li><a href="enterprise-identity"><strong>Identity &amp; SSO</strong></a> &mdash; connect OIDC, SAML, Entra ID, or LDAP; validate JWTs; sync directories</li>
+    <li><a href="enterprise-policies"><strong>Network Policies</strong></a> &mdash; membership caps, port whitelists, and metadata</li>
+    <li><a href="enterprise-audit"><strong>Audit &amp; Compliance</strong></a> &mdash; structured logging, export to SIEMs, webhooks</li>
+    <li><a href="enterprise-blueprints"><strong>Blueprints</strong></a> &mdash; provision entire networks from a single JSON document</li>
+  </ul>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="networks">Networks</a> &mdash; the foundation that enterprise features build on. <a href="cli-reference">CLI Reference</a> &mdash; full command listing for enterprise operations.
+  </div>`;
+---
+<DocLayout
+  title="Enterprise"
+  description="Enterprise features for Pilot Protocol — RBAC, identity providers, network policies, audit logging, and blueprint provisioning."
+  activePage="enterprise"
+  canonicalPath="/docs/enterprise"
+  prev={{ label: "Tasks & Polo", href: "/docs/tasks" }}
+  next={{ label: "RBAC & Access Control", href: "/docs/enterprise-rbac" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

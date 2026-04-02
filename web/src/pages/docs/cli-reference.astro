@@ -19,6 +19,7 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#networks">Networks</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
       <li><a href="#tasks">Tasks</a></li>
+      <li><a href="#enterprise">Enterprise Admin</a></li>
       <li><a href="#registry">Registry</a></li>
       <li><a href="#gateway">Gateway</a></li>
     </ul>
@@ -56,7 +57,8 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> daemon start [--registry &lt;addr&gt;] [--beacon &lt;addr&gt;] [--listen &lt;addr&gt;]
   [--identity &lt;path&gt;] [--email &lt;addr&gt;] [--hostname &lt;name&gt;]
   [--public] [--no-encrypt] [--foreground] [--log-level &lt;level&gt;] [--log-format &lt;fmt&gt;]
-  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]</code></pre>
+  [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]
+  [--admin-token &lt;token&gt;] [--networks &lt;ids&gt;]</code></pre>
   <p>Starts as a background process. Blocks until registered, prints status, then exits. Use <code>--foreground</code> to run in the current process.</p>
   <p><strong>Note:</strong> <code>--email</code> is required on first registration. It is saved to <code>~/.pilot/config.json</code> and not needed on subsequent starts.</p>
   <p>Returns: <code>node_id</code>, <code>address</code>, <code>pid</code>, <code>socket</code>, <code>hostname</code>, <code>log_file</code></p>
@@ -128,7 +130,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="broadcast">broadcast <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(WIP — not yet available)</span></h3>
   <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
-  <p>Will send a datagram to all members of a network. Returns <code>"not available yet — custom networks are WIP"</code> in the current release.</p>
+  <p>Will send a datagram to all members of a network. Returns <code>"not available yet"</code> in the current release.</p>
 
   <h3 id="subscribe">subscribe</h3>
   <pre><code><span class="cmd">pilotctl</span> subscribe &lt;address|hostname&gt; &lt;topic&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
@@ -318,6 +320,36 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>queue</code> [{<code>task_id</code>, <code>description</code>, <code>from</code>, <code>created_at</code>}], <code>count</code></p>
 
   <p>See <a href="tasks">Tasks &amp; Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
+
+  <h2 id="enterprise">Enterprise Admin</h2>
+
+  <h3>audit</h3>
+  <pre><code><span class="cmd">pilotctl</span> audit [--network &lt;id&gt;] [--node &lt;id&gt;] [--action &lt;type&gt;] [--limit &lt;n&gt;]</code></pre>
+  <p>Queries the audit trail. Requires admin token. Returns: <code>entries</code></p>
+
+  <h3>audit-export</h3>
+  <pre><code><span class="cmd">pilotctl</span> audit-export [--network &lt;id&gt;] [--format csv|json] [--output &lt;path&gt;]</code></pre>
+  <p>Exports audit log to a file. Requires admin token.</p>
+
+  <h3>provision</h3>
+  <pre><code><span class="cmd">pilotctl</span> provision --network &lt;id&gt; --count &lt;n&gt; [--hostname-prefix &lt;prefix&gt;] [--email &lt;addr&gt;]</code></pre>
+  <p>Bulk-provisions nodes in a network. Requires admin token.</p>
+
+  <h3>provision-status</h3>
+  <pre><code><span class="cmd">pilotctl</span> provision-status</code></pre>
+  <p>Shows the status of the last provisioning job. Requires admin token.</p>
+
+  <h3>idp</h3>
+  <pre><code><span class="cmd">pilotctl</span> idp [--set provider=&lt;name&gt;] [--set client-id=&lt;id&gt;] [--set domain=&lt;domain&gt;]</code></pre>
+  <p>Configures identity provider integration. Requires admin token.</p>
+
+  <h3>directory-sync</h3>
+  <pre><code><span class="cmd">pilotctl</span> directory-sync --provider &lt;name&gt; [--network &lt;id&gt;]</code></pre>
+  <p>Triggers a directory sync from the configured IdP. Requires admin token.</p>
+
+  <h3>directory-status</h3>
+  <pre><code><span class="cmd">pilotctl</span> directory-status [--provider &lt;name&gt;]</code></pre>
+  <p>Shows the last sync status and statistics. Requires admin token.</p>
 
   <h2 id="registry">Registry</h2>
 

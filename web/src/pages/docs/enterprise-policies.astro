@@ -1,0 +1,134 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Network Policies</h1>
+  <p class="subtitle">Membership caps, port whitelists, and network metadata for enterprise networks.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#max-members">MaxMembers</a></li>
+      <li><a href="#allowed-ports">AllowedPorts</a></li>
+      <li><a href="#description">Description</a></li>
+      <li><a href="#setting">Setting policies</a></li>
+      <li><a href="#persistence">Persistence</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>Network policies let owners and admins enforce constraints on enterprise networks. Policies control how many agents can join, which ports are accessible, and what metadata is attached to the network.</p>
+
+  <p>Policies use <strong>merge-on-update</strong> semantics: you only send the fields you want to change, and unmentioned fields keep their current values. This makes partial updates safe &mdash; setting <code>max_members</code> does not reset <code>allowed_ports</code>.</p>
+
+  <h2 id="max-members">MaxMembers</h2>
+
+  <p>Caps the total number of agents that can be members of the network at any given time. The owner counts toward the cap.</p>
+
+  <table>
+    <thead><tr><th>Behavior</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>Join attempt at capacity</td><td>Rejected with &ldquo;membership limit reached&rdquo;</td></tr>
+      <tr><td>Invite accept at capacity</td><td>Rejected &mdash; the invite remains pending but the agent cannot join until a slot opens</td></tr>
+      <tr><td>Value of 0</td><td>No limit (default)</td></tr>
+      <tr><td>Reducing below current count</td><td>Allowed &mdash; existing members are not kicked, but no new members can join</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code><span class="comment"># Set a membership cap of 50 agents</span>
+<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set max_members=50</code></pre>
+
+  <h2 id="allowed-ports">AllowedPorts</h2>
+
+  <p>Restricts which Pilot ports are accessible within the network. When set, only connections to listed ports are permitted between network members. Connections to unlisted ports are silently dropped.</p>
+
+  <table>
+    <thead><tr><th>Behavior</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>Empty list (default)</td><td>All ports allowed</td></tr>
+      <tr><td>Non-empty list</td><td>Only listed ports are accessible</td></tr>
+      <tr><td>Maximum entries</td><td>100 ports per policy</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code><span class="comment"># Allow only HTTP, HTTPS, and data exchange ports</span>
+<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set allowed_ports=80,443,1001
+
+<span class="comment"># Reset to allow all ports</span>
+<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set allowed_ports=</code></pre>
+
+  <p>Port policies are enforced at the connection acceptance layer. The daemon checks the destination port against the network&rsquo;s allowed ports list before accepting the connection.</p>
+
+  <h2 id="description">Description</h2>
+
+  <p>A free-text metadata field for the network. Use it for human-readable context: purpose, team name, environment, or compliance notes.</p>
+
+  <table>
+    <thead><tr><th>Constraint</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Maximum length</td><td>256 characters</td></tr>
+      <tr><td>Default</td><td>Empty string</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set description="Production fleet - US East region"</code></pre>
+
+  <h2 id="setting">Setting policies</h2>
+
+  <h3>Set a policy</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set max_members=50 --set allowed_ports=80,443</code></pre>
+
+  <p>Protocol command: <code>set_network_policy</code>. Requires owner or admin role (or admin token).</p>
+
+  <pre><code>{
+  "command": "set_network_policy",
+  "network_id": 1,
+  "policy": {
+    "max_members": 50,
+    "allowed_ports": [80, 443],
+    "description": "Production fleet"
+  },
+  "admin_token": "your-admin-token"
+}</code></pre>
+
+  <p>Merge-on-update: only include the fields you want to change. Omitted fields are preserved.</p>
+
+  <h3>Get a policy</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt;</code></pre>
+
+  <p>Protocol command: <code>get_network_policy</code>. Returns the current policy for the network.</p>
+
+  <pre><code><span class="comment"># Example response</span>
+{
+  "max_members": 50,
+  "allowed_ports": [80, 443],
+  "description": "Production fleet"
+}</code></pre>
+
+  <h3>Audit trail</h3>
+
+  <p>Every policy change emits a <code>network.policy_changed</code> audit event with the network ID and the updated policy fields (old and new values).</p>
+
+  <h2 id="persistence">Persistence</h2>
+
+  <p>Policies are stored as part of the network record in the registry. They persist across registry restarts via the atomic JSON snapshot system. When the registry loads from a snapshot, all network policies are restored exactly as they were.</p>
+
+  <p>Policy state is also included in <a href="configuration#replication">HA replication</a> snapshots, so standby registries have the same policies as the primary.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> &mdash; who can set policies (owners and admins). <a href="enterprise-blueprints">Blueprints</a> &mdash; set policies declaratively during network provisioning.
+  </div>`;
+---
+<DocLayout
+  title="Network Policies"
+  description="Network policies for Pilot Protocol enterprise networks — membership caps, port whitelists, descriptions, and merge-on-update semantics."
+  activePage="enterprise-policies"
+  canonicalPath="/docs/enterprise-policies"
+  prev={{ label: "Identity & SSO", href: "/docs/enterprise-identity" }}
+  next={{ label: "Audit & Compliance", href: "/docs/enterprise-audit" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>
