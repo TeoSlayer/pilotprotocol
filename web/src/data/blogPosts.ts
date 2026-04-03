@@ -11,6 +11,27 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
+    title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief — 92% fewer tokens, half the latency, identical decision quality.",
+    date: "Apr 2",
+    year: 2026,
+    category: "Blog",
+    tags: ["blog", "services", "scriptorium"],
+    banner: "banners/scriptorium-replace-agentic-active-research-ready-intelligence.png",
+  },
+
+  {
+    slug: "secure-network-infrastructure-ai-agents-practical-guide",
+    title: "Secure network infrastructure for AI agents: A practical guide",
+    description: "Learn how to build secure, decentralized network infrastructure for AI agents. Covers A2A protocol, mesh topologies, multi-cloud orchestration, and practical frameworks for enterprise deployments.",
+    date: "Apr 2",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/secure-network-infrastructure-ai-agents-practical-guide.jpg",
+  },
+
+  {
     slug: "ai-networking-terminology-a2a-mcp-anp-protocols",
     title: "AI networking terminology explained: A2A, MCP, ANP protocols",
     description: "Understand A2A, MCP, and ANP protocols for AI agent networking. Learn how each works, their security models, benchmark realities, and which to use in 2026.",
@@ -87,7 +108,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
