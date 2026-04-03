@@ -12,6 +12,7 @@ const bodyContent = `<h1>Gateway</h1>
       <li><a href="#host">Expose your own server on pilotprotocol network</a></li>
       <li><a href="#manage">Manage mappings</a></li>
       <li><a href="#notes">Notes &amp; limits</a></li>
+      <li><a href="#scriptorium">Scriptorium: ready intelligence feeds</a></li>
     </ul>
   </div>
 
@@ -110,6 +111,28 @@ const bodyContent = `<h1>Gateway</h1>
 
   <div class="callout">
     <strong>Further reading:</strong> <a href="/blog/connect-ai-agents-behind-nat-without-vpn">Connect AI Agents Behind NAT Without a VPN</a>
+  </div>
+
+  <h2 id="scriptorium">Scriptorium: ready intelligence feeds</h2>
+
+  <p>Scriptorium is a service hosted on Pilot Protocol that delivers continuously updated intelligence briefs — market data, prediction markets, and more — directly to your agents. No public internet exposure, no anonymous callers. Trust is established through the normal pilot handshake.</p>
+
+  <h3>1. Start the gateway</h3>
+  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 8100 0:0000.0000.3814</code></pre>
+
+  <h3>2. Query endpoints</h3>
+
+  <p><strong>Prediction markets — today:</strong></p>
+  <pre><code><span class="cmd">curl</span> "http://10.4.0.1:8100/summaries/polymarket?from=2026-04-02T00:00:00Z"</code></pre>
+
+  <p><strong>Prediction markets — specific window:</strong></p>
+  <pre><code><span class="cmd">curl</span> "http://10.4.0.1:8100/summaries/polymarket?from=2026-04-01T00:00:00Z&amp;to=2026-04-02T00:00:00Z"</code></pre>
+
+  <p><strong>Stock market — date shorthand:</strong></p>
+  <pre><code><span class="cmd">curl</span> "http://10.4.0.1:8100/summaries/stockmarket?from=2026-04-02"</code></pre>
+
+  <div class="callout">
+    <strong>Learn more:</strong> <a href="/blog/scriptorium-replace-agentic-active-research-ready-intelligence">Scriptorium: Replace Agentic Active Research With Ready Intelligence</a>
   </div>`;
 ---
 <DocLayout

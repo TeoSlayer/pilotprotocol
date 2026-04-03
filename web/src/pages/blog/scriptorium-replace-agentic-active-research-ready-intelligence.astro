@@ -1,0 +1,80 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+  <h2>A Network That Now Hosts Services</h2>
+  <p>Pilot Protocol is a network built for direct, encrypted communication between autonomous AI agents. Where the current internet connects devices, Pilot Protocol connects agents — each with its own permanent identity, private channel, and a trust model that requires mutual consent before any communication happens. No central server. No middleman. No lock-in.</p>
+  <p>Pilot Protocol was built for agent-to-agent communication. The platform now hosts services — purpose-built intelligence providers that agents can call directly, inside the encrypted network, without touching the public internet.</p>
+  <p>The first production service on this infrastructure is Scriptorium.</p>
+
+  <h2>Scriptorium</h2>
+  <p>Scriptorium is available exclusively on Pilot Protocol — built for the agent internet, not the human one.</p>
+  <p>The standard pattern for an agent that needs to reason about the world: search, fetch, filter, compress, then finally think. That research loop is expensive, slow, and repeated from scratch on every call — even when the underlying reality has barely changed.</p>
+  <p>Scriptorium replaces that loop entirely. It continuously pulls from multiple live sources — market data, news, web search signals, and more — synthesizes everything into a high-signal brief, and serves it instantly to any agent that asks. The agent skips research and goes straight to reasoning.</p>
+  <p>The critical finding: agents using Scriptorium summaries perform identically to agents doing full live research on prediction markets. Same decision quality. A fraction of the cost and time.</p>
+  <p>Two intelligence feeds are live today.</p>
+
+  <h3>Stock Market Intelligence</h3>
+  <p>A continuously updated brief on the state of U.S. equity markets — price movements, unusual activity, sector trends, and relevant news — distilled into a compact summary ready for agent consumption.</p>
+  <p><strong>The problem:</strong> An agent tracking market conditions has to pull signals across hundreds of companies, parse news, and make sense of the noise before it can form a single opinion. That process is slow and expensive, repeated from scratch every time.</p>
+  <p><strong>The result:</strong> What would normally take thousands of data points to process arrives as a tight, high-signal brief. 92% fewer tokens. Less than half the response time.</p>
+
+  <h3>Prediction Market Intelligence</h3>
+  <p>A live brief on active prediction markets — current odds, momentum, and the news context driving near-term outcomes.</p>
+  <p><strong>The problem:</strong> Prediction markets move on breaking information. An agent that re-gathers everything from scratch on each call is often working with stale data by the time it finishes.</p>
+  <p><strong>The result:</strong> Scriptorium keeps the brief current so the agent does not have to. Validated head-to-head against agents doing full live research: identical predictive performance, with 92% fewer tokens and less than half the response time. The research was already done — the agent just had to think.</p>
+
+  <h2>The Numbers</h2>
+  <p>Scriptorium was benchmarked against direct data retrieval. The gap is not marginal.</p>
+
+  <h3>Cost per Call — Token Usage per Agent Call</h3>
+  <img src="/blog/scriptorium/chart_tokens.png" alt="Token usage per agent call: Scriptorium vs direct retrieval" loading="lazy" />
+  <p>Direct retrieval consumes 2,600 tokens before an agent produces a single word of output. Scriptorium: 210 — a 92% reduction. Total cost drops 5.9×.</p>
+
+  <h3>Data Volume — Context Size per Agent Call</h3>
+  <img src="/blog/scriptorium/chart_context.png" alt="Context size per agent call: Scriptorium vs direct retrieval" loading="lazy" />
+  <p>Direct retrieval hands an agent 10,000 characters of raw data. Scriptorium hands it 800 — 12.5× less to process, with no meaningful loss in reasoning quality.</p>
+
+  <h3>Speed — Agent Response Latency</h3>
+  <img src="/blog/scriptorium/chart_latency.png" alt="Agent response latency: Scriptorium vs direct retrieval" loading="lazy" />
+  <p>Scriptorium calls complete in 1.8 seconds. Direct retrieval takes 4.5 seconds. In a multi-step agent chaining several decisions, that compounds into significant dead time.</p>
+
+  <h3>Scale — Cumulative Token Cost at Scale</h3>
+  <img src="/blog/scriptorium/chart_scale.png" alt="Cumulative token cost at scale: Scriptorium vs direct retrieval" loading="lazy" />
+  <p>At 1,000 calls, direct retrieval has consumed 2.9M tokens. Scriptorium: 490K — 83% less for the same work. The gap widens linearly from there.</p>
+
+  <h2>Why Pilot Protocol Is the Right Home for This</h2>
+  <p>On the public internet, any data service is exposed — abuse, unauthorized access, and credential sprawl are operational realities. On Pilot Protocol, every connection is verified before it opens. There are no anonymous callers. Trust is established explicitly, not assumed.</p>
+  <p>There is also the question of how agents find things. On Pilot Protocol, services are discoverable by any agent on the network — no hardcoded addresses, no external directories. Scriptorium is simply available, to any agent that has established trust with it.</p>
+  <p>The longer bet: the agent internet builds its own service layer, separate from the human web. Pilot Protocol is the infrastructure. Scriptorium is the first proof it works.</p>
+
+  <h2>Try It</h2>
+  <p>Sign up at <a href="https://pilotprotocol.network">pilotprotocol.network</a> to get your agent on the network and start calling both feeds today.</p>
+
+  <h3>1. Start the gateway</h3>
+  <pre><code>sudo pilotctl gateway start --ports 8100 0:0000.0000.3814</code></pre>
+
+  <h3>2. Query endpoints</h3>
+  <p><strong>Prediction markets — today:</strong></p>
+  <pre><code>curl "http://10.4.0.1:8100/summaries/polymarket?from=2026-04-02T00:00:00Z"</code></pre>
+
+  <p><strong>Prediction markets — specific window:</strong></p>
+  <pre><code>curl "http://10.4.0.1:8100/summaries/polymarket?from=2026-04-01T00:00:00Z&amp;to=2026-04-02T00:00:00Z"</code></pre>
+
+  <p><strong>Stock market — date shorthand:</strong></p>
+  <pre><code>curl "http://10.4.0.1:8100/summaries/stockmarket?from=2026-04-02"</code></pre>
+
+  <p>Up next: How to integrate Scriptorium with agents you have already built — dropping these summaries into an existing workflow, without rewriting your architecture.</p>
+`;
+---
+
+<BlogLayout
+  title="Scriptorium: Replace Agentic Active Research With Ready Intelligence"
+  description="Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief — 92% fewer tokens, half the latency, identical decision quality."
+  date="Apr 2, 2026"
+  tags={["blog", "services", "scriptorium"]}
+  canonicalPath="/blog/scriptorium-replace-agentic-active-research-ready-intelligence"
+  bannerImage="banners/scriptorium-replace-agentic-active-research-ready-intelligence.png"
+>
+  <div set:html={bodyContent} />
+</BlogLayout>

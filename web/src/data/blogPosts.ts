@@ -11,6 +11,17 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
+    title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief — 92% fewer tokens, half the latency, identical decision quality.",
+    date: "Apr 2",
+    year: 2026,
+    category: "Blog",
+    tags: ["blog", "services", "scriptorium"],
+    banner: "banners/scriptorium-replace-agentic-active-research-ready-intelligence.png",
+  },
+
+  {
     slug: "secure-network-infrastructure-ai-agents-practical-guide",
     title: "Secure network infrastructure for AI agents: A practical guide",
     description: "Learn how to build secure, decentralized network infrastructure for AI agents. Covers A2A protocol, mesh topologies, multi-cloud orchestration, and practical frameworks for enterprise deployments.",
