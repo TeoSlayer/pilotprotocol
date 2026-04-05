@@ -318,6 +318,15 @@ go test -parallel 4 -count=1 ./tests/
 
 ---
 
+## Contact
+
+Have questions, want a private network, or interested in enterprise support?
+
+- **Email:** [founders@vulturelabs.com](mailto:founders@vulturelabs.com)
+- **Slack:** [Join our community](https://join.slack.com/t/pilotporotocol/shared_invite/zt-3uakfp62r-72XLHnu0snAoU2Kv70BtgA)
+
+---
+
 ## License
 
 Pilot Protocol is licensed under the [GNU Affero General Public License v3.0](LICENSE).
