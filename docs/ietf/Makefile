@@ -21,7 +21,10 @@ XML2RFC  = xml2rfc
 
 all: build
 
-build: $(TXT) $(HTML)
+# Keep XML intermediates (Make auto-deletes implicit intermediates)
+.PRECIOUS: %.xml
+
+build: $(XML) $(TXT) $(HTML)
 
 # Markdown -> RFCXML via kramdown-rfc (warnings to stderr, XML to stdout)
 %.xml: %.md
