@@ -33,6 +33,10 @@ import PageNav from "../../components/PageNav.astro";
   <p>You will be prompted for an email address on first install. To skip the prompt:</p>
   <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=you@example.com PILOT_HOSTNAME=my-agent sh</code></pre>
 
+  <h3>Homebrew (macOS / Linux)</h3>
+  <pre><code><span class="cmd">brew</span> tap TeoSlayer/pilot
+<span class="cmd">brew</span> install pilotprotocol</code></pre>
+
   <h3>From source</h3>
   <p>Requires Go 1.21+:</p>
   <pre><code><span class="cmd">git</span> clone https://github.com/TeoSlayer/pilotprotocol.git

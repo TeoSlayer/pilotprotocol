@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ietf-internet-drafts-pilot-protocol-revision-01",
+    title: "IETF Internet-Drafts: Pilot Protocol Revision 01",
+    description: "Pilot Protocol publishes revision 01 of both IETF Internet-Drafts, covering HKDF key derivation, enterprise RBAC, NAT punch frames, registry high availability, and the expanding CATALIST landscape.",
+    date: "Apr 6",
+    category: "Standards",
+    tags: ["blog", "standards", "ietf"],
+    banner: "banners/ietf-internet-drafts-pilot-protocol-revision-01.jpg",
+  },
+
+  {
     slug: "encrypted-tunnel-advantages-peer-to-peer-ai-networks",
     title: "Top encrypted tunnel advantages for P2P AI networks",
     description: "Discover the top encrypted tunnel advantages for securing peer-to-peer AI agent networks across multi-cloud and NAT environments, with practical implementation guidance.",

@@ -1,0 +1,204 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `<script type="application/ld+json">
+      {
+  "@type": "Article",
+  "author": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "@context": "https://schema.org",
+  "headline": "IETF Internet-Drafts: Pilot Protocol Revision 01",
+  "publisher": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "inLanguage": "en-US",
+  "articleBody": "Pilot Protocol publishes revision 01 of both IETF Internet-Drafts, covering HKDF key derivation, enterprise RBAC, NAT punch frames, registry high availability, and the expanding CATALIST landscape.",
+  "description": "Pilot Protocol publishes revision 01 of both IETF Internet-Drafts, covering HKDF key derivation, enterprise RBAC, NAT punch frames, registry high availability, and the expanding CATALIST landscape.",
+  "datePublished": "2026-04-06T12:00:00.000Z"
+}
+      </script>
+    <h1 id="ietf-internet-drafts-pilot-protocol-revision-01" tabindex="-1">IETF Internet-Drafts: Pilot Protocol Revision 01</h1>
+<hr>
+<blockquote>
+<p><strong>TL;DR:</strong></p>
+<ul>
+<li>Both IETF Internet-Drafts (Problem Statement and Protocol Specification) have been updated to revision 01, reflecting 80+ commits of new functionality since the initial March 2026 submission.</li>
+<li>The Protocol Specification now covers HKDF key derivation, PILP NAT punch frames, enterprise RBAC and audit trails, registry high availability, 18 new IPC commands, and a gateway bridge.</li>
+<li>The Problem Statement adds multi-tenant isolation requirements and positions Pilot against 30+ new IETF drafts filed since the CATALIST BoF at IETF 125.</li>
+</ul>
+</blockquote>
+<hr>
+<p>When we submitted the initial Pilot Protocol Internet-Drafts to the IETF in March 2026, the protocol had a solid core: 48-bit virtual addressing, UDP tunnel encapsulation, X25519 key exchange, and a registry-mediated trust model. Three weeks and 80+ commits later, the implementation has grown substantially. Revision 01 brings the formal specification in line with what the code already does.</p>
+<p>This post walks through what changed in each draft and why it matters for the broader IETF conversation around AI agent networking.</p>
+<h2 id="table-of-contents" tabindex="-1">Table of Contents</h2>
+<ul>
+<li><a href="#the-ietf-landscape-has-changed">The IETF landscape has changed</a></li>
+<li><a href="#problem-statement-whats-new">Problem Statement: what's new</a></li>
+<li><a href="#protocol-specification-whats-new">Protocol Specification: what's new</a></li>
+<li><a href="#reading-the-drafts">Reading the drafts</a></li>
+<li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
+</ul>
+
+<h2 id="the-ietf-landscape-has-changed" tabindex="-1">The IETF landscape has changed</h2>
+<p>Since the original submission, the IETF agent protocol space has exploded. Over 30 individual drafts have been filed, and the <strong>CATALIST Birds of a Feather</strong> session at IETF 125 (Shenzhen, March 2026) marked the first formal coordination effort. Proposals now span agent identity (AIP), agent transfer protocols (AGTP, ATP), agent discovery (AID), audit trails, and routing considerations.</p>
+<p>Despite this activity, a pattern holds: <strong>every new draft operates at the application layer over HTTP</strong>. None addresses the network or transport layer. None provides virtual addressing, overlay tunneling, or built-in NAT traversal. This validates the original problem statement's thesis and gives Pilot Protocol a distinct position in the conversation.</p>
+<p>The revised Problem Statement adds a structured comparison of these new proposals, documenting where they overlap with Pilot and where they leave gaps.</p>
+
+<h2 id="problem-statement-whats-new" tabindex="-1">Problem Statement: what's new</h2>
+<p>The Problem Statement draft (<code>draft-teodor-pilot-problem-statement-01</code>) receives four categories of updates:</p>
+
+<h3 id="catalist-context" tabindex="-1">CATALIST context</h3>
+<p>The introduction now cites the CATALIST BoF and the 30+ draft landscape. This frames the document within the current IETF coordination effort rather than as a standalone proposal.</p>
+
+<h3 id="multi-tenant-isolation" tabindex="-1">Multi-tenant isolation</h3>
+<p>A new problem section (3.6) addresses the absence of network-level multi-tenancy in existing agent protocols. Organizations running multiple agent teams need isolated network segments with independent membership control, role-based access, and per-network policy enforcement. No existing draft covers this.</p>
+
+<h3 id="new-requirements" tabindex="-1">New requirements</h3>
+<p>Two new requirements formalize what the implementation already provides:</p>
+<table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>REQ-12</strong></td>
+<td>Multi-tenant isolation with independent membership control, RBAC (owner, admin, member), and per-network policy enforcement</td>
+</tr>
+<tr>
+<td><strong>REQ-13</strong></td>
+<td>Audit trail recording security-relevant operations for compliance and forensic analysis</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="gap-analysis-updates" tabindex="-1">Gap analysis updates</h3>
+<p>The existing approaches section now includes AGTP (intent-based methods over QUIC, but no overlay addressing), ATP (two-tier architecture with DNS discovery, but requires server infrastructure), AIP (verifiable identity with delegation tokens, but no transport), and a summary of CATALIST coordination status. Ten new informative references are added.</p>
+
+<h2 id="protocol-specification-whats-new" tabindex="-1">Protocol Specification: what's new</h2>
+<p>The Protocol Specification draft (<code>draft-teodor-pilot-protocol-01</code>) sees the largest changes. Here's what was added.</p>
+
+<h3 id="pilp-nat-punch-frame" tabindex="-1">PILP NAT punch frame</h3>
+<p>A new tunnel frame type joins PILT, PILS, PILK, and PILA:</p>
+<pre><code>+------+------+------+------+----------+
+| 0x50 | 0x49 | 0x4C | 0x50 | SenderID |
++------+------+------+------+----------+
+    P      I      L      P    4 bytes
+</code></pre>
+<p>PILP frames carry no overlay payload. Their sole purpose is to create NAT bindings during hole-punch coordination. Receivers silently discard them after recording the sender's source address.</p>
+
+<h3 id="hkdf-key-derivation" tabindex="-1">HKDF key derivation</h3>
+<p>The original draft said X25519 ECDH produces a shared secret and derives an AES-256-GCM key, but didn't specify <em>how</em>. Revision 01 adds the full HKDF specification (RFC 5869):</p>
+<pre><code>Extract:  PRK = HMAC-SHA256(salt=empty, IKM=shared_secret)
+Expand:   key = HMAC-SHA256(PRK, info || 0x01)
+</code></pre>
+<p>Two distinct info strings separate tunnel encryption (<code>pilot-tunnel-v1</code>) from application-layer encryption on port 443 (<code>pilot-secure-v1</code>). GCM Additional Authenticated Data (AAD) is also specified: the sender's Node ID for tunnel encryption, and the nonce prefix for port 443.</p>
+
+<h3 id="role-prefix-nonce-scheme" tabindex="-1">Role-prefix nonce scheme</h3>
+<p>Port 443 encryption now uses a role-prefix nonce scheme that prevents nonce collision between the two sides of a connection:</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Prefix</th>
+<th>Counter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Server</td>
+<td><code>0x00000001</code></td>
+<td>8-byte counter starting at 0</td>
+</tr>
+<tr>
+<td>Client</td>
+<td><code>0x00000002</code></td>
+<td>8-byte counter starting at 0</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="replay-detection" tabindex="-1">Replay detection</h3>
+<p>The security section now specifies a sliding-window replay bitmap (recommended window: 256 nonces). Nonces older than the window or already seen within it are rejected, providing replay protection while tolerating out-of-order packet delivery.</p>
+
+<h3 id="expanded-ipc-command-set" tabindex="-1">Expanded IPC command set</h3>
+<p>Eighteen new IPC commands (0x11 through 0x22) are added, covering hostname resolution, visibility control, deregistration, tags, webhooks, task execution, network management, and health checks. A new Network sub-command table documents the seven operations for multi-tenant network management (list, join, leave, members, invite, poll invites, respond to invite).</p>
+
+<h3 id="registry-high-availability" tabindex="-1">Registry high availability</h3>
+<p>A new section documents the hot-standby replication architecture: one primary, one or more standbys, push-based state snapshots on mutations, 15-second heartbeat for liveness detection, and manual failover promotion.</p>
+
+<h3 id="enterprise-extensions" tabindex="-1">Enterprise extensions</h3>
+<p>A full new top-level section covers the enterprise control plane:</p>
+<ul>
+<li><strong>RBAC</strong> with three roles: Owner (full control), Admin (manage members and policies), Member (participate)</li>
+<li><strong>Network policies</strong> including per-network <code>max_members</code> enforcement</li>
+<li><strong>Audit trail</strong> as a ring-buffer log recording registration, trust changes, network membership, RBAC modifications, policy changes, and key rotation</li>
+<li><strong>Identity integration</strong> with optional OIDC/JWT validation, RS256 signature verification, JWKS endpoint caching, and directory synchronization webhooks</li>
+</ul>
+
+<h3 id="gateway-bridge" tabindex="-1">Gateway bridge</h3>
+<p>A new section specifies the gateway that bridges the overlay and standard IP networks. It maps virtual addresses to local IP addresses via loopback aliases, enabling unmodified TCP programs (curl, browsers, databases) to communicate with overlay agents without any code changes.</p>
+
+<h3 id="security-additions" tabindex="-1">Security additions</h3>
+<p>Three new security subsections document P2P handshake signing (Ed25519 signatures over relay messages to prevent forgery by a compromised registry), registry authentication (Ed25519 signatures or admin tokens for write operations), and TLS certificate pinning (SHA-256 fingerprint verification).</p>
+
+<h3 id="updated-implementation-status" tabindex="-1">Updated implementation status</h3>
+<p>The implementation status section now reports 983 tests validated across 5 GCP regions. The Python SDK is upgraded from beta to production-ready. A new Node.js SDK entry documents the TypeScript FFI bindings published on npm.</p>
+
+<h2 id="reading-the-drafts" tabindex="-1">Reading the drafts</h2>
+<p>Both drafts are available in multiple formats:</p>
+<table>
+<thead>
+<tr>
+<th>Draft</th>
+<th>HTML</th>
+<th>Plain Text</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem Statement</td>
+<td><a href="/research/ietf/draft-teodor-pilot-problem-statement-01.html">HTML</a></td>
+<td><a href="/research/ietf/draft-teodor-pilot-problem-statement-01.txt">TXT</a></td>
+</tr>
+<tr>
+<td>Protocol Specification</td>
+<td><a href="/research/ietf/draft-teodor-pilot-protocol-01.html">HTML</a></td>
+<td><a href="/research/ietf/draft-teodor-pilot-protocol-01.txt">TXT</a></td>
+</tr>
+</tbody>
+</table>
+<p>The source Markdown and build tooling live in <a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/docs/ietf"><code>docs/ietf/</code></a> in the repository. Run <code>make build</code> to regenerate from source (requires <code>kramdown-rfc</code> and <code>xml2rfc</code>).</p>
+
+<h2 id="frequently-asked-questions" tabindex="-1">Frequently asked questions</h2>
+<h3 id="what-is-an-ietf-internet-draft" tabindex="-1">What is an IETF Internet-Draft?</h3>
+<p>An Internet-Draft (I-D) is a working document submitted to the Internet Engineering Task Force for review and discussion. It is the standard mechanism for proposing new internet protocols and is a prerequisite for eventual publication as an RFC (Request for Comments).</p>
+<h3 id="what-is-the-catalist-bof" tabindex="-1">What is the CATALIST BoF?</h3>
+<p>CATALIST (Coordinating AI Agent Layer Interoperability and Standardization) was a Birds of a Feather session at IETF 125 in Shenzhen (March 2026). It was the first formal IETF coordination effort specifically focused on AI agent networking protocols.</p>
+<h3 id="how-does-pilot-differ-from-other-ietf-agent-drafts" tabindex="-1">How does Pilot differ from other IETF agent drafts?</h3>
+<p>All other IETF agent drafts (AGTP, ATP, AIP, AID, and others) operate at the application layer over HTTP. Pilot Protocol is the only proposal that operates at the network and transport layer, providing virtual addressing, overlay tunneling, built-in NAT traversal, and encrypted encapsulation.</p>
+<h3 id="will-there-be-a-revision-02" tabindex="-1">Will there be a revision 02?</h3>
+<p>Yes. The drafts will continue to track the implementation as new features are added and as the CATALIST working group conversation develops. Feedback from the IETF community will be incorporated into subsequent revisions.</p>
+<h2 id="recommended" tabindex="-1">Recommended</h2>
+<ul>
+<li><a href="https://pilotprotocol.network/blog/encrypted-tunnel-advantages-peer-to-peer-ai-networks">Top encrypted tunnel advantages for P2P AI networks</a></li>
+<li><a href="https://pilotprotocol.network/blog/protocol-wrapping-secure-peer-to-peer-ai-systems">Protocol wrapping for secure peer-to-peer AI systems</a></li>
+<li><a href="https://pilotprotocol.network/blog/secure-network-infrastructure-ai-agents-practical-guide">Secure network infrastructure for AI agents: A practical guide</a></li>
+</ul>`;
+---
+<BlogLayout
+  title="IETF Internet-Drafts: Pilot Protocol Revision 01"
+  description="Pilot Protocol publishes revision 01 of both IETF Internet-Drafts, covering HKDF key derivation, enterprise RBAC, NAT punch frames, registry high availability, and the expanding CATALIST landscape."
+  date="April 6, 2026"
+  tags={["blog", "standards", "ietf"]}
+  canonicalPath="/blog/ietf-internet-drafts-pilot-protocol-revision-01"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>
