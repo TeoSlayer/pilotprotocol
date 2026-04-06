@@ -40,12 +40,12 @@ pilotctl daemon start --email user@example.com
 ```
 
 **What it does:** Starts the daemon in the background, registers with the registry, and auto-starts these built-in services:
-
-**Note:** `--email` is mandatory for registration. You can also set it in `~/.pilot/config.json` or pass `--hostname` to set a discoverable name.
 - **Echo** (port 7) — for ping and benchmarks
 - **Data Exchange** (port 1001) — for files and typed messages
 - **Event Stream** (port 1002) — for pub/sub messaging
 - **Task Submit** (port 1003) — for task requests and responses
+
+**Note:** `--email` is mandatory for registration. You can also set it in `~/.pilot/config.json` or pass `--hostname` to set a discoverable name.
 
 **When to use:** After install, after reboot, or if the daemon stops.
 
@@ -530,6 +530,79 @@ pilotctl task send-results --id <task_id> --file /path/to/results.txt
 
 ---
 
+## Networks
+
+Nodes can join **networks** — isolated groups with shared trust. Nodes in the same non-backbone network automatically trust each other.
+
+### List Your Networks
+
+**Prerequisites:** Daemon running
+
+```bash
+pilotctl network list
+```
+
+**What it does:** Shows all networks you belong to.
+
+### Join a Network
+
+**Prerequisites:** Daemon running, know the network ID
+
+```bash
+pilotctl network join 1
+```
+
+**What it does:** Joins the specified network. Some networks require a token (`--token`).
+
+### Leave a Network
+
+**Prerequisites:** Member of the network
+
+```bash
+pilotctl network leave 1
+```
+
+**What it does:** Removes you from the network.
+
+### Check Network Members
+
+**Prerequisites:** Daemon running
+
+```bash
+pilotctl network members 1
+```
+
+**What it does:** Lists all nodes in the specified network.
+
+### Invite a Node to a Network
+
+**Prerequisites:** Member of the network
+
+```bash
+pilotctl network invite 1 42
+```
+
+**What it does:** Sends an invitation to node 42 to join network 1.
+
+### Check Pending Invitations
+
+**Prerequisites:** Daemon running
+
+```bash
+pilotctl network invites
+```
+
+**What it does:** Lists network invitations you've received.
+
+### Accept/Reject an Invitation
+
+```bash
+pilotctl network accept 1
+pilotctl network reject 1
+```
+
+---
+
 ## Diagnostics
 
 ### Check Connected Peers
@@ -599,6 +672,11 @@ pilotctl bench target-node 10
 | Request trust | `pilotctl handshake target-node "reason"` |
 | Approve trust | `pilotctl approve <node_id>` |
 | Check trusted peers | `pilotctl trust` |
+| List networks | `pilotctl network list` |
+| Join a network | `pilotctl network join <network_id>` |
+| Leave a network | `pilotctl network leave <network_id>` |
+| Check network members | `pilotctl network members <network_id>` |
+| Check network invites | `pilotctl network invites` |
 | Ping peer | `pilotctl ping target-node` |
 | View your info | `pilotctl info` |
 
