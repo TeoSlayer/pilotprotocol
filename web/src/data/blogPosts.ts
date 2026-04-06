@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "encrypted-tunnel-advantages-peer-to-peer-ai-networks",
+    title: "Top encrypted tunnel advantages for P2P AI networks",
+    description: "Discover the top encrypted tunnel advantages for securing peer-to-peer AI agent networks across multi-cloud and NAT environments, with practical implementation guidance.",
+    date: "Apr 6",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/encrypted-tunnel-advantages-peer-to-peer-ai-networks.jpg",
+  },
+
+  {
     slug: "protocol-wrapping-secure-peer-to-peer-ai-systems",
     title: "Protocol wrapping for secure peer-to-peer AI systems",
     description: "Learn how protocol wrapping powers secure P2P AI networks. Covers VXLAN, Geneve, UDP overlays, anonymity wrappers, and real-world benchmarks for distributed systems engineers.",
@@ -43,7 +53,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief — 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief â 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -138,7 +148,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing — all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing â all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
