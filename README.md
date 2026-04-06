@@ -322,7 +322,7 @@ go test -parallel 4 -count=1 ./tests/
 
 Have questions, want a private network, or interested in enterprise support?
 
-- **Email:** [founders@vulturelabs.com](mailto:founders@vulturelabs.com)
+- **Email:** [founders@pilotprotocol.network](mailto:founders@pilotprotocol.network)
 - **Slack:** [Join our community](https://join.slack.com/t/pilotporotocol/shared_invite/zt-3uakfp62r-72XLHnu0snAoU2Kv70BtgA)
 
 ---
