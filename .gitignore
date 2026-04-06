@@ -51,7 +51,7 @@ go.work.sum
 .DS_Store
 Thumbs.db
 
-# Docs — only track .tex, .pdf, SPEC.md, SKILLS.md, and media/
+# Docs — only track .tex, .pdf, SPEC.md, SKILLS.md, media/, ietf/, and research/
 docs/*
 !docs/*.tex
 !docs/*.pdf
@@ -59,6 +59,7 @@ docs/*
 !docs/SKILLS.md
 !docs/media/
 !docs/research/
+!docs/ietf/
 
 # LaTeX build artifacts
 *.aux
