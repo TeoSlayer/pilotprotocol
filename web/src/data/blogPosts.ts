@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "overlay-networking-automation-secure-ai-agent-solutions",
+    title: "Overlay networking for automation: Secure AI agent solutions",
+    description: "Learn how overlay networking for AI agent automation works, compare top tools like Cilium and Istio, and build secure zero-trust multi-cloud agent networks.",
+    date: "Apr 7",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/overlay-networking-automation-secure-ai-agent-solutions.jpg",
+  },
+
+  {
     slug: "ietf-internet-drafts-pilot-protocol-revision-01",
     title: "IETF Internet-Drafts: Pilot Protocol Revision 01",
     description: "Pilot Protocol publishes revision 01 of both IETF Internet-Drafts, covering HKDF key derivation, enterprise RBAC, NAT punch frames, registry high availability, and the expanding CATALIST landscape.",
@@ -63,7 +73,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief â 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief Ã¢ÂÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -158,7 +168,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing â all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing Ã¢ÂÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
