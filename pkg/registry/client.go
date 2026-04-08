@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -281,6 +282,28 @@ func (c *Client) CreateNetwork(nodeID uint32, name, joinRule, token, adminToken 
 		"name":      name,
 		"join_rule": joinRule,
 		"token":     token,
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	if enterprise {
+		msg["enterprise"] = true
+	}
+	if len(networkAdminToken) > 0 && networkAdminToken[0] != "" {
+		msg["network_admin_token"] = networkAdminToken[0]
+	}
+	return c.Send(msg)
+}
+
+// CreateManagedNetwork creates a network with managed rules.
+func (c *Client) CreateManagedNetwork(nodeID uint32, name, joinRule, token, adminToken string, enterprise bool, rules string, networkAdminToken ...string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":      "create_network",
+		"node_id":   nodeID,
+		"name":      name,
+		"join_rule": joinRule,
+		"token":     token,
+		"rules":     rules,
 	}
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
@@ -691,6 +714,28 @@ func (c *Client) SetNetworkPolicy(networkID uint16, policy map[string]interface{
 func (c *Client) GetNetworkPolicy(networkID uint16) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
 		"type":       "get_network_policy",
+		"network_id": networkID,
+	})
+}
+
+// SetExprPolicy sets the programmable policy for a network.
+// Requires owner/admin role or admin token.
+func (c *Client) SetExprPolicy(networkID uint16, policyJSON json.RawMessage, adminToken string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
+		"type":        "set_expr_policy",
+		"network_id":  networkID,
+		"expr_policy": string(policyJSON),
+	}
+	if adminToken != "" {
+		msg["admin_token"] = adminToken
+	}
+	return c.Send(msg)
+}
+
+// GetExprPolicy returns the programmable policy for a network.
+func (c *Client) GetExprPolicy(networkID uint16) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":       "get_expr_policy",
 		"network_id": networkID,
 	})
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
@@ -651,6 +652,49 @@ func main() {
 			fatalHint("invalid_argument",
 				"available: list, join, leave, members, invite, invites, accept, reject, create, delete, rename, promote, demote, kick, role, policy",
 				"unknown network subcommand: %s", cmdArgs[0])
+		}
+
+	// Managed networks
+	case "managed":
+		if len(cmdArgs) < 1 {
+			fatalHint("invalid_argument",
+				"available: score, status, rankings, cycle",
+				"usage: pilotctl managed <subcommand>")
+		}
+		switch cmdArgs[0] {
+		case "score":
+			cmdManagedScore(cmdArgs[1:])
+		case "status":
+			cmdManagedStatus(cmdArgs[1:])
+		case "rankings":
+			cmdManagedRankings(cmdArgs[1:])
+		case "cycle":
+			cmdManagedCycle(cmdArgs[1:])
+		default:
+			fatalHint("invalid_argument",
+				"available: score, status, rankings, cycle",
+				"unknown managed subcommand: %s", cmdArgs[0])
+		}
+
+	case "policy":
+		if len(cmdArgs) < 1 {
+			fatalHint("invalid_argument",
+				"available: get, set, validate, test",
+				"usage: pilotctl policy <subcommand>")
+		}
+		switch cmdArgs[0] {
+		case "get":
+			cmdPolicyGet(cmdArgs[1:])
+		case "set":
+			cmdPolicySet(cmdArgs[1:])
+		case "validate":
+			cmdPolicyValidate(cmdArgs[1:])
+		case "test":
+			cmdPolicyTest(cmdArgs[1:])
+		default:
+			fatalHint("invalid_argument",
+				"available: get, set, validate, test",
+				"unknown policy subcommand: %s", cmdArgs[0])
 		}
 
 	// Enterprise admin commands (direct to registry)
@@ -4501,9 +4545,20 @@ func cmdNetworkCreate(args []string) {
 	enterprise := flagBool(flags, "enterprise")
 	nodeIDStr := flagString(flags, "node-id", "0")
 	networkAdminToken := flagString(flags, "network-admin-token", "")
+	rulesJSON := flagString(flags, "rules", "")
+	rulesFile := flagString(flags, "rules-file", "")
 
 	if name == "" {
-		fatalCode("invalid_argument", "usage: pilotctl network create --name <name> [--join-rule open|token|invite] [--token T] [--enterprise] [--node-id N]")
+		fatalCode("invalid_argument", "usage: pilotctl network create --name <name> [--join-rule open|token|invite] [--token T] [--enterprise] [--node-id N] [--rules '<json>'] [--rules-file path]")
+	}
+
+	// Load rules from file if specified
+	if rulesFile != "" && rulesJSON == "" {
+		data, err := os.ReadFile(rulesFile)
+		if err != nil {
+			fatalCode("invalid_argument", "cannot read rules file: %v", err)
+		}
+		rulesJSON = string(data)
 	}
 
 	adminToken := requireAdminToken()
@@ -4514,7 +4569,9 @@ func cmdNetworkCreate(args []string) {
 
 	var resp map[string]interface{}
 	var err error
-	if networkAdminToken != "" {
+	if rulesJSON != "" {
+		resp, err = rc.CreateManagedNetwork(nodeID, name, joinRule, token, adminToken, enterprise, rulesJSON, networkAdminToken)
+	} else if networkAdminToken != "" {
 		resp, err = rc.CreateNetwork(nodeID, name, joinRule, token, adminToken, enterprise, networkAdminToken)
 	} else {
 		resp, err = rc.CreateNetwork(nodeID, name, joinRule, token, adminToken, enterprise)
@@ -4525,8 +4582,12 @@ func cmdNetworkCreate(args []string) {
 	if jsonOutput {
 		output(resp)
 	} else {
-		fmt.Printf("created network %v: %s (join_rule=%s, enterprise=%v)\n",
-			resp["network_id"], name, joinRule, enterprise)
+		managed := ""
+		if resp["managed"] == true {
+			managed = ", managed=true"
+		}
+		fmt.Printf("created network %v: %s (join_rule=%s, enterprise=%v%s)\n",
+			resp["network_id"], name, joinRule, enterprise, managed)
 	}
 }
 
@@ -5080,5 +5141,306 @@ func cmdDirectoryStatus(args []string) {
 	}
 	if v := resp["last_sync"]; v != nil && v != "" {
 		fmt.Printf("  last sync: %v\n", v)
+	}
+}
+
+// --- Managed network commands ---
+
+func cmdManagedScore(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl managed score <peer_node_id> [--net <id>] [--topic T] [--delta N]")
+	}
+	nodeID := parseNodeID(pos[0])
+	netID := uint16(flagInt(flags, "net", 0))
+	topic := flagString(flags, "topic", "")
+	delta := flagInt(flags, "delta", 1)
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.ManagedScore(netID, nodeID, delta, topic)
+	if err != nil {
+		fatalCode("connection_failed", "managed score: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("scored peer %d: delta=%d topic=%q\n", nodeID, delta, topic)
+	}
+}
+
+func cmdManagedStatus(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.ManagedStatus(netID)
+	if err != nil {
+		fatalCode("connection_failed", "managed status: %v", err)
+	}
+	output(resp)
+}
+
+func cmdManagedRankings(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.ManagedRankings(netID)
+	if err != nil {
+		fatalCode("connection_failed", "managed rankings: %v", err)
+	}
+	output(resp)
+}
+
+func cmdManagedCycle(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+	force := flagBool(flags, "force")
+
+	if !force {
+		fatalCode("invalid_argument", "usage: pilotctl managed cycle --force [--net <id>]")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.ManagedForceCycle(netID)
+	if err != nil {
+		fatalCode("connection_failed", "managed cycle: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("cycle complete: pruned=%v filled=%v peers=%v\n",
+			resp["pruned"], resp["filled"], resp["peers"])
+	}
+}
+
+// --- Policy commands ---
+
+func cmdPolicyGet(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+	if netID == 0 {
+		fatalCode("invalid_argument", "usage: pilotctl policy get --net <id>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.PolicyGet(netID)
+	if err != nil {
+		fatalCode("connection_failed", "policy get: %v", err)
+	}
+	output(resp)
+}
+
+func cmdPolicySet(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+	file := flagString(flags, "file", "")
+	inline := flagString(flags, "inline", "")
+
+	if netID == 0 {
+		fatalCode("invalid_argument", "usage: pilotctl policy set --net <id> --file <path> | --inline '<json>'")
+	}
+
+	var policyJSON []byte
+	if file != "" {
+		var err error
+		policyJSON, err = os.ReadFile(file)
+		if err != nil {
+			fatalCode("io_error", "reading policy file: %v", err)
+		}
+	} else if inline != "" {
+		policyJSON = []byte(inline)
+	} else {
+		fatalCode("invalid_argument", "provide --file or --inline")
+	}
+
+	// Validate locally first
+	doc, err := policy.Parse(policyJSON)
+	if err != nil {
+		fatalCode("invalid_argument", "policy validation: %v", err)
+	}
+	if _, err := policy.Compile(doc); err != nil {
+		fatalCode("invalid_argument", "policy compilation: %v", err)
+	}
+
+	// Send to registry (admin-token gated)
+	reg := connectRegistry()
+	defer reg.Close()
+
+	_, err = reg.SetExprPolicy(netID, policyJSON, flagString(flags, "admin-token", ""))
+	if err != nil {
+		fatalCode("connection_failed", "set policy on registry: %v", err)
+	}
+
+	// Also apply locally to daemon if running
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.PolicySet(netID, policyJSON)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: policy saved to registry but daemon apply failed: %v\n", err)
+		return
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("policy set on network %d (registry + daemon)\n", netID)
+	}
+}
+
+func cmdPolicyValidate(args []string) {
+	flags, _ := parseFlags(args)
+	file := flagString(flags, "file", "")
+	inline := flagString(flags, "inline", "")
+
+	var policyJSON []byte
+	if file != "" {
+		var err error
+		policyJSON, err = os.ReadFile(file)
+		if err != nil {
+			fatalCode("io_error", "reading policy file: %v", err)
+		}
+	} else if inline != "" {
+		policyJSON = []byte(inline)
+	} else {
+		fatalCode("invalid_argument", "provide --file or --inline")
+	}
+
+	doc, err := policy.Parse(policyJSON)
+	if err != nil {
+		fatalCode("invalid_argument", "validation failed: %v", err)
+	}
+
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		fatalCode("invalid_argument", "compilation failed: %v", err)
+	}
+
+	if jsonOutput {
+		output(map[string]interface{}{
+			"valid":   true,
+			"version": doc.Version,
+			"rules":   len(doc.Rules),
+			"events":  countEventTypes(cp),
+		})
+	} else {
+		fmt.Printf("valid policy: %d rules\n", len(doc.Rules))
+		for _, r := range doc.Rules {
+			fmt.Printf("  - %s (on %s): %d actions\n", r.Name, r.On, len(r.Actions))
+		}
+	}
+}
+
+func cmdPolicyTest(args []string) {
+	flags, _ := parseFlags(args)
+	file := flagString(flags, "file", "")
+	eventJSON := flagString(flags, "event", "")
+
+	if file == "" || eventJSON == "" {
+		fatalCode("invalid_argument", "usage: pilotctl policy test --file <path> --event '<json>'")
+	}
+
+	policyJSON, err := os.ReadFile(file)
+	if err != nil {
+		fatalCode("io_error", "reading policy file: %v", err)
+	}
+
+	doc, err := policy.Parse(policyJSON)
+	if err != nil {
+		fatalCode("invalid_argument", "policy: %v", err)
+	}
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		fatalCode("invalid_argument", "policy: %v", err)
+	}
+
+	var event map[string]interface{}
+	if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+		fatalCode("invalid_argument", "event JSON: %v", err)
+	}
+
+	// JSON unmarshaling puts numbers as float64; expr env expects int.
+	for k, v := range event {
+		if f, ok := v.(float64); ok {
+			event[k] = int(f)
+		}
+	}
+
+	eventType, _ := event["type"].(string)
+	if eventType == "" {
+		fatalCode("invalid_argument", "event must have a 'type' field (connect, dial, datagram, cycle, join, leave)")
+	}
+	delete(event, "type")
+
+	dirs, err := cp.Evaluate(policy.EventType(eventType), event)
+	if err != nil {
+		fatalCode("invalid_argument", "evaluation: %v", err)
+	}
+
+	if jsonOutput {
+		results := make([]map[string]interface{}, 0, len(dirs))
+		for _, d := range dirs {
+			results = append(results, map[string]interface{}{
+				"type":   directiveTypeName(d.Type),
+				"rule":   d.Rule,
+				"params": d.Params,
+			})
+		}
+		output(map[string]interface{}{"directives": results})
+	} else {
+		fmt.Printf("event type: %s → %d directives\n", eventType, len(dirs))
+		for _, d := range dirs {
+			fmt.Printf("  %s (from rule %q)\n", directiveTypeName(d.Type), d.Rule)
+		}
+	}
+}
+
+func countEventTypes(cp *policy.CompiledPolicy) map[string]bool {
+	events := map[string]bool{}
+	for _, et := range []policy.EventType{
+		policy.EventConnect, policy.EventDial, policy.EventDatagram,
+		policy.EventCycle, policy.EventJoin, policy.EventLeave,
+	} {
+		if cp.HasRulesFor(et) {
+			events[string(et)] = true
+		}
+	}
+	return events
+}
+
+func directiveTypeName(dt policy.DirectiveType) string {
+	switch dt {
+	case policy.DirectiveAllow:
+		return "allow"
+	case policy.DirectiveDeny:
+		return "deny"
+	case policy.DirectiveScore:
+		return "score"
+	case policy.DirectiveTag:
+		return "tag"
+	case policy.DirectiveEvict:
+		return "evict"
+	case policy.DirectiveEvictWhere:
+		return "evict_where"
+	case policy.DirectivePrune:
+		return "prune"
+	case policy.DirectiveFill:
+		return "fill"
+	case policy.DirectiveWebhook:
+		return "webhook"
+	case policy.DirectiveLog:
+		return "log"
+	default:
+		return "unknown"
 	}
 }

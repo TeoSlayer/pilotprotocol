@@ -323,6 +323,71 @@ func (d *Driver) NetworkRespondInvite(networkID uint16, accept bool) (map[string
 	return d.jsonRPC(msg, cmdNetworkOK, "network respond-invite")
 }
 
+// ManagedScore adjusts a peer's score in a managed network.
+func (d *Driver) ManagedScore(networkID uint16, nodeID uint32, delta int, topic string) (map[string]interface{}, error) {
+	msg := make([]byte, 1+1+2+4+4+len(topic))
+	msg[0] = cmdManaged
+	msg[1] = subManagedScore
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	binary.BigEndian.PutUint32(msg[4:8], nodeID)
+	binary.BigEndian.PutUint32(msg[8:12], uint32(int32(delta)))
+	copy(msg[12:], topic)
+	return d.jsonRPC(msg, cmdManagedOK, "managed score")
+}
+
+// ManagedStatus returns the status of a managed network engine.
+func (d *Driver) ManagedStatus(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdManaged
+	msg[1] = subManagedStatus
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdManagedOK, "managed status")
+}
+
+// ManagedRankings returns ranked peers in a managed network.
+func (d *Driver) ManagedRankings(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdManaged
+	msg[1] = subManagedRankings
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdManagedOK, "managed rankings")
+}
+
+// ManagedForceCycle forces a prune/fill cycle in a managed network.
+func (d *Driver) ManagedForceCycle(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdManaged
+	msg[1] = subManagedCycle
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdManagedOK, "managed cycle")
+}
+
+// PolicyGet retrieves the active policy for a network from the daemon.
+func (d *Driver) PolicyGet(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdManaged
+	msg[1] = subManagedPolicy
+	msg[2] = 0x00 // get
+	// Shift: need [cmd][sub][action][netID_hi][netID_lo]
+	msg = make([]byte, 5)
+	msg[0] = cmdManaged
+	msg[1] = subManagedPolicy
+	msg[2] = 0x00 // get
+	binary.BigEndian.PutUint16(msg[3:5], networkID)
+	return d.jsonRPC(msg, cmdManagedOK, "policy get")
+}
+
+// PolicySet sends a policy document to the daemon for immediate application.
+func (d *Driver) PolicySet(networkID uint16, policyJSON []byte) (map[string]interface{}, error) {
+	msg := make([]byte, 5+len(policyJSON))
+	msg[0] = cmdManaged
+	msg[1] = subManagedPolicy
+	msg[2] = 0x01 // set
+	binary.BigEndian.PutUint16(msg[3:5], networkID)
+	copy(msg[5:], policyJSON)
+	return d.jsonRPC(msg, cmdManagedOK, "policy set")
+}
+
 // Close disconnects from the daemon.
 func (d *Driver) Close() error {
 	return d.ipc.close()

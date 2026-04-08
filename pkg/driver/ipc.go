@@ -46,6 +46,8 @@ const (
 	cmdNetworkOK         byte = 0x20
 	cmdHealth            byte = 0x21
 	cmdHealthOK          byte = 0x22
+	cmdManaged           byte = 0x23
+	cmdManagedOK         byte = 0x24
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)
@@ -57,6 +59,15 @@ const (
 	subNetworkInvite        byte = 0x05
 	subNetworkPollInvites   byte = 0x06
 	subNetworkRespondInvite byte = 0x07
+)
+
+// Managed sub-commands (must match daemon SubManaged* constants)
+const (
+	subManagedScore    byte = 0x01
+	subManagedStatus   byte = 0x02
+	subManagedRankings byte = 0x03
+	subManagedCycle    byte = 0x04
+	subManagedPolicy   byte = 0x05
 )
 
 // Datagram represents a received unreliable datagram.

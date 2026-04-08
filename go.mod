@@ -3,6 +3,7 @@ module github.com/TeoSlayer/pilotprotocol
 go 1.25.3
 
 require (
+	github.com/expr-lang/expr v1.17.8
 	github.com/stripe/stripe-go/v81 v81.4.0
 	modernc.org/sqlite v1.48.0
 )

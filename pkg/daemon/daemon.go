@@ -3,6 +3,7 @@ package daemon
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
+	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
@@ -114,7 +116,8 @@ type Daemon struct {
 	webhook    *WebhookClient
 	taskQueue  *TaskQueue
 	startTime  time.Time
-	stopCh     chan struct{} // closed on Stop() to signal goroutines
+	stopCh   chan struct{} // closed on Stop() to signal goroutines
+	stopOnce sync.Once    // ensures stopCh is closed exactly once
 	lanAddrs   []string     // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
@@ -129,6 +132,18 @@ type Daemon struct {
 	// Per-source SYN rate limiter
 	perSrcSYNMu sync.Mutex
 	perSrcSYN   map[uint32]*srcSYNBucket // source nodeID -> bucket
+
+	// Network port policies: netID -> allowed ports (nil/empty = all allowed)
+	netPolicyMu sync.RWMutex
+	netPolicies map[uint16][]uint16
+
+	// Managed network engines: netID -> engine
+	managedMu sync.Mutex
+	managed   map[uint16]*ManagedEngine
+
+	// Policy runners: netID -> compiled policy runner (expr-based policy engine)
+	policyMu      sync.Mutex
+	policyRunners map[uint16]*PolicyRunner
 }
 
 const perSourceSYNLimit = 10     // max SYNs per source per second
@@ -192,6 +207,9 @@ func New(cfg Config) *Daemon {
 		synLastFill: time.Now(),
 		perSrcSYN:   make(map[uint32]*srcSYNBucket),
 		epCache:     make(map[uint32]*endpointEntry),
+		netPolicies:   make(map[uint16][]uint16),
+		managed:       make(map[uint16]*ManagedEngine),
+		policyRunners: make(map[uint16]*PolicyRunner),
 	}
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	d.handshakes = NewHandshakeManager(d)
@@ -491,6 +509,15 @@ func (d *Daemon) Start() error {
 	// Auto-join configured networks
 	d.autoJoinNetworks()
 
+	// Cache network port policies for SYN enforcement
+	d.loadNetworkPolicies()
+
+	// Load expr-based policy runners for joined networks
+	d.loadPolicyRunners()
+
+	// Detect managed networks and start engines
+	d.startManaged()
+
 	// 4. Start IPC server
 	if err := d.ipc.Start(); err != nil {
 		return fmt.Errorf("ipc start: %w", err)
@@ -645,14 +672,26 @@ func (d *Daemon) autoJoinNetworks() {
 	}
 }
 
-func (d *Daemon) Stop() error {
-	// Signal all goroutines to stop
+// stopping returns true if Stop() has been called.
+func (d *Daemon) stopping() bool {
 	select {
 	case <-d.stopCh:
+		return true
 	default:
-		close(d.stopCh)
+		return false
 	}
+}
 
+func (d *Daemon) Stop() error {
+	// Idempotent: only the first caller runs shutdown; others wait and return nil.
+	d.stopOnce.Do(func() {
+		close(d.stopCh)
+		d.doStop()
+	})
+	return nil
+}
+
+func (d *Daemon) doStop() {
 	// Graceful close: send FIN to all active connections, then force remove
 	conns := d.ports.AllConnections()
 	for _, conn := range conns {
@@ -690,23 +729,359 @@ func (d *Daemon) Stop() error {
 		d.handshakes.Stop()
 	}
 
-	// Close registry connection (do NOT deregister — node stays registered so
-	// network memberships, hostname, and visibility are preserved across restarts;
-	// the registry marks the node offline when heartbeats stop)
+	// Graceful deregister: tell the registry we're going away so lookups
+	// fail immediately rather than waiting for heartbeat timeout.
+	// pubKeyIdx/ownerIdx entries are preserved server-side, so
+	// re-registration with the same key reclaims the same node ID.
+	// Timeout: regConn.Send() has no deadline (io.ReadFull can block forever
+	// if registry is unreachable), so run deregister in a goroutine with a
+	// 3-second deadline. regConn.Close() unblocks the stuck goroutine.
 	if d.regConn != nil {
+		if nid := d.NodeID(); nid != 0 {
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if _, err := d.regConn.Deregister(nid); err != nil {
+					slog.Debug("deregister on shutdown", "err", err)
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				slog.Debug("deregister on shutdown timed out")
+			}
+			d.webhook.Emit("node.deregistered", nil)
+		}
 		d.regConn.Close()
 	}
 
+	d.stopPolicyRunners()
+	d.stopManaged()
 	d.ipc.Close()
 	d.tunnels.Close()
 	d.webhook.Close()
-	return nil
+}
+
+// startManaged detects managed networks this node belongs to and starts engines.
+func (d *Daemon) startManaged() {
+	resp, err := d.regConn.ListNetworks()
+	if err != nil {
+		slog.Debug("managed: cannot list networks", "err", err)
+		return
+	}
+	networks, _ := resp["networks"].([]interface{})
+	for _, raw := range networks {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rulesRaw, hasRules := n["rules"]
+		if !hasRules || rulesRaw == nil {
+			continue
+		}
+		netIDf, _ := n["id"].(float64)
+		netID := uint16(netIDf)
+
+		// Check if this node is a member
+		isMember := false
+		for _, nid := range d.nodeNetworks() {
+			if nid == netID {
+				isMember = true
+				break
+			}
+		}
+		if !isMember {
+			continue
+		}
+
+		// Parse rules from map
+		rb, _ := json.Marshal(rulesRaw)
+		rules, err := registry.ParseRules(string(rb))
+		if err != nil {
+			slog.Warn("managed: invalid rules on network", "network_id", netID, "err", err)
+			continue
+		}
+
+		me := NewManagedEngine(netID, rules, d)
+		me.Start()
+		d.managedMu.Lock()
+		d.managed[netID] = me
+		d.managedMu.Unlock()
+		slog.Info("managed: engine started for network", "network_id", netID)
+	}
+}
+
+// stopManaged stops all managed engines.
+func (d *Daemon) stopManaged() {
+	d.managedMu.Lock()
+	engines := make(map[uint16]*ManagedEngine, len(d.managed))
+	for k, v := range d.managed {
+		engines[k] = v
+	}
+	d.managedMu.Unlock()
+
+	for _, me := range engines {
+		me.Stop()
+	}
+}
+
+// StartManagedEngine starts a managed engine for a newly joined network.
+func (d *Daemon) StartManagedEngine(netID uint16, rules *registry.NetworkRules) {
+	d.managedMu.Lock()
+	defer d.managedMu.Unlock()
+
+	if _, exists := d.managed[netID]; exists {
+		return // already running
+	}
+
+	me := NewManagedEngine(netID, rules, d)
+	me.Start()
+	d.managed[netID] = me
+}
+
+// StopManagedEngine stops a managed engine (e.g., on network leave).
+func (d *Daemon) StopManagedEngine(netID uint16) {
+	d.managedMu.Lock()
+	me, ok := d.managed[netID]
+	if ok {
+		delete(d.managed, netID)
+	}
+	d.managedMu.Unlock()
+
+	if ok {
+		me.Stop()
+	}
+}
+
+// GetManagedEngine returns the managed engine for a network, or nil.
+func (d *Daemon) GetManagedEngine(netID uint16) *ManagedEngine {
+	d.managedMu.Lock()
+	defer d.managedMu.Unlock()
+	return d.managed[netID]
+}
+
+// nodeNetworks returns this node's network memberships by querying the registry.
+func (d *Daemon) nodeNetworks() []uint16 {
+	resp, err := d.regConn.Lookup(d.NodeID())
+	if err != nil {
+		return nil
+	}
+	networksRaw, _ := resp["networks"].([]interface{})
+	var nets []uint16
+	for _, v := range networksRaw {
+		if f, ok := v.(float64); ok {
+			nets = append(nets, uint16(f))
+		}
+	}
+	return nets
 }
 
 func (d *Daemon) NodeID() uint32 {
 	d.addrMu.RLock()
 	defer d.addrMu.RUnlock()
 	return d.nodeID
+}
+
+// loadNetworkPolicies fetches AllowedPorts for every joined network and caches
+// them for SYN-handler enforcement. Called at startup and after IPC joins.
+func (d *Daemon) loadNetworkPolicies() {
+	nets := d.nodeNetworks()
+	policies := make(map[uint16][]uint16, len(nets))
+	for _, netID := range nets {
+		resp, err := d.regConn.GetNetworkPolicy(netID)
+		if err != nil {
+			continue
+		}
+		portsRaw, _ := resp["allowed_ports"].([]interface{})
+		var ports []uint16
+		for _, p := range portsRaw {
+			if f, ok := p.(float64); ok {
+				ports = append(ports, uint16(f))
+			}
+		}
+		if len(ports) > 0 {
+			policies[netID] = ports
+		}
+	}
+	d.netPolicyMu.Lock()
+	d.netPolicies = policies
+	d.netPolicyMu.Unlock()
+}
+
+// isPortAllowed checks whether dstPort is permitted by the network's AllowedPorts
+// policy. Returns true if no restriction is set (empty list = all ports allowed).
+func (d *Daemon) isPortAllowed(netID uint16, port uint16) bool {
+	d.netPolicyMu.RLock()
+	ports := d.netPolicies[netID]
+	d.netPolicyMu.RUnlock()
+	if len(ports) == 0 {
+		return true
+	}
+	for _, p := range ports {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}
+
+// evaluatePortPolicy checks whether a protocol event is allowed by the policy
+// engine. If no policy runner exists for the network, falls back to the legacy
+// isPortAllowed check.
+func (d *Daemon) evaluatePortPolicy(eventType policy.EventType, netID uint16, port uint16, peerNodeID uint32, payloadSize int, direction string) bool {
+	d.policyMu.Lock()
+	pr := d.policyRunners[netID]
+	d.policyMu.Unlock()
+
+	if pr != nil {
+		ctx := map[string]interface{}{
+			"port":       int(port),
+			"peer_id":    int(peerNodeID),
+			"network_id": int(netID),
+		}
+		switch eventType {
+		case policy.EventConnect:
+			ctx["peer_score"] = 0
+			ctx["peer_tags"] = []string{}
+			ctx["peer_age_s"] = 0.0
+			ctx["members"] = 0
+			// Enrich with peer state if available
+			pr.mu.RLock()
+			if p, ok := pr.peers[peerNodeID]; ok {
+				ctx["peer_score"] = p.Score
+				ctx["peer_tags"] = p.tags()
+				ctx["peer_age_s"] = time.Since(p.AddedAt).Seconds()
+			}
+			ctx["members"] = len(pr.peers)
+			pr.mu.RUnlock()
+		case policy.EventDatagram:
+			ctx["size"] = payloadSize
+			ctx["direction"] = direction
+		}
+		return pr.EvaluateGate(eventType, ctx)
+	}
+
+	// Fallback: legacy port allowlist
+	return d.isPortAllowed(netID, port)
+}
+
+// GetPolicyRunner returns the policy runner for a network, or nil.
+func (d *Daemon) GetPolicyRunner(netID uint16) *PolicyRunner {
+	d.policyMu.Lock()
+	defer d.policyMu.Unlock()
+	return d.policyRunners[netID]
+}
+
+// StartPolicyRunner starts a policy runner for a network.
+func (d *Daemon) StartPolicyRunner(netID uint16, policyJSON json.RawMessage) error {
+	doc, err := policy.Parse(policyJSON)
+	if err != nil {
+		return fmt.Errorf("policy parse: %w", err)
+	}
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		return fmt.Errorf("policy compile: %w", err)
+	}
+
+	d.policyMu.Lock()
+	defer d.policyMu.Unlock()
+
+	// Stop existing runner if any
+	if old, ok := d.policyRunners[netID]; ok {
+		old.Stop()
+	}
+
+	pr := NewPolicyRunner(netID, cp, d)
+	pr.Start()
+	d.policyRunners[netID] = pr
+	return nil
+}
+
+// StopPolicyRunner stops the policy runner for a network.
+func (d *Daemon) StopPolicyRunner(netID uint16) {
+	d.policyMu.Lock()
+	pr, ok := d.policyRunners[netID]
+	if ok {
+		delete(d.policyRunners, netID)
+	}
+	d.policyMu.Unlock()
+
+	if ok {
+		pr.Stop()
+	}
+}
+
+// loadPolicyRunners loads expr policies for all joined networks at startup.
+func (d *Daemon) loadPolicyRunners() {
+	resp, err := d.regConn.ListNetworks()
+	if err != nil {
+		slog.Debug("policy: cannot list networks", "err", err)
+		return
+	}
+	networks, _ := resp["networks"].([]interface{})
+	for _, raw := range networks {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		// Only load if has_expr_policy is true
+		hasPolicy, _ := n["has_expr_policy"].(bool)
+		if !hasPolicy {
+			continue
+		}
+		netIDf, _ := n["id"].(float64)
+		netID := uint16(netIDf)
+
+		// Check membership
+		isMember := false
+		for _, nid := range d.nodeNetworks() {
+			if nid == netID {
+				isMember = true
+				break
+			}
+		}
+		if !isMember {
+			continue
+		}
+
+		// Fetch the full policy
+		resp, err := d.regConn.GetExprPolicy(netID)
+		if err != nil {
+			slog.Warn("policy: cannot fetch expr_policy", "network_id", netID, "err", err)
+			continue
+		}
+
+		var policyJSON json.RawMessage
+		switch v := resp["expr_policy"].(type) {
+		case string:
+			policyJSON = json.RawMessage(v)
+		case map[string]interface{}:
+			b, _ := json.Marshal(v)
+			policyJSON = b
+		default:
+			continue
+		}
+
+		if err := d.StartPolicyRunner(netID, policyJSON); err != nil {
+			slog.Warn("policy: failed to start runner", "network_id", netID, "err", err)
+			continue
+		}
+		slog.Info("policy: runner started for network", "network_id", netID)
+	}
+}
+
+// stopPolicyRunners stops all policy runners.
+func (d *Daemon) stopPolicyRunners() {
+	d.policyMu.Lock()
+	runners := make(map[uint16]*PolicyRunner, len(d.policyRunners))
+	for k, v := range d.policyRunners {
+		runners[k] = v
+	}
+	d.policyMu.Unlock()
+
+	for _, pr := range runners {
+		pr.Stop()
+	}
 }
 
 // SetWebhookURL hot-swaps the webhook client at runtime.
@@ -916,6 +1291,18 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				})
 				return // silent drop — no RST to avoid leaking node existence
 			}
+		}
+
+		// Network policy: reject SYN if port/peer is not allowed
+		if !d.evaluatePortPolicy(policy.EventConnect, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, 0, "") {
+			slog.Warn("SYN rejected: not allowed by network policy",
+				"src_node", pkt.Src.Node, "dst_port", pkt.DstPort, "network", pkt.Dst.Network)
+			d.webhook.Emit("syn.port_rejected", map[string]interface{}{
+				"src_node_id": pkt.Src.Node,
+				"dst_port":    pkt.DstPort,
+				"network":     pkt.Dst.Network,
+			})
+			return // silent drop — don't reveal policy to attacker
 		}
 
 		// SYN rate limiting
@@ -1235,6 +1622,18 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 		}
 	}
 
+	// Network policy: reject datagram if not allowed
+	if !d.evaluatePortPolicy(policy.EventDatagram, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, len(pkt.Payload), "in") {
+		slog.Warn("datagram rejected: not allowed by network policy",
+			"src_node", pkt.Src.Node, "dst_port", pkt.DstPort, "network", pkt.Dst.Network)
+		d.webhook.Emit("datagram.port_rejected", map[string]interface{}{
+			"src_node_id": pkt.Src.Node,
+			"dst_port":    pkt.DstPort,
+			"network":     pkt.Dst.Network,
+		})
+		return
+	}
+
 	d.webhook.Emit("data.datagram", map[string]interface{}{
 		"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 		"dst_port": pkt.DstPort, "size": len(pkt.Payload),
@@ -1276,6 +1675,11 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 
 // DialConnection initiates a connection to a remote address:port.
 func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	// Enforce outbound port policy: prevent dialing ports blocked by the network
+	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
+		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
+	}
+
 	// Ensure we have a tunnel to the destination
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
 		return nil, err
@@ -1754,6 +2158,11 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 // SendDatagram sends an unreliable packet.
 // If the destination is a broadcast address, sends to all members of that network.
 func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte) error {
+	// Enforce outbound port policy
+	if !d.evaluatePortPolicy(policy.EventDatagram, dstAddr.Network, dstPort, dstAddr.Node, len(data), "out") {
+		return fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
+	}
+
 	srcPort := d.ports.AllocEphemeralPort()
 
 	if dstAddr.IsBroadcast() {
@@ -1979,7 +2388,12 @@ func (d *Daemon) heartbeatLoop() {
 }
 
 // reRegister re-registers with the registry after a connection loss or registry restart.
+// Checks d.stopCh between regConn calls to avoid racing with Stop().
 func (d *Daemon) reRegister() {
+	if d.stopping() {
+		return
+	}
+
 	var registrationAddr string
 	if d.config.Endpoint != "" {
 		registrationAddr = d.config.Endpoint
@@ -2029,6 +2443,10 @@ func (d *Daemon) reRegister() {
 		"address": d.addr.String(),
 	})
 
+	if d.stopping() {
+		return
+	}
+
 	// Restore visibility and hostname after re-registration
 	if d.config.Public {
 		if _, err := d.regConn.SetVisibility(nodeID, true); err != nil {
@@ -2041,11 +2459,18 @@ func (d *Daemon) reRegister() {
 		}
 	}
 
+	if d.stopping() {
+		return
+	}
+
 	// Re-sync local trust pairs to registry (trust survives disconnection locally
 	// but the registry may have lost and re-loaded state)
 	if d.handshakes != nil {
 		peers := d.handshakes.TrustedPeers()
 		for _, rec := range peers {
+			if d.stopping() {
+				return
+			}
 			if _, err := d.regConn.ReportTrust(nodeID, rec.NodeID); err != nil {
 				slog.Debug("re-registration: failed to re-sync trust pair", "peer", rec.NodeID, "error", err)
 			}

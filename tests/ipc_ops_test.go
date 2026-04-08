@@ -366,3 +366,127 @@ func TestIPCOpsAfterDeregister(t *testing.T) {
 		t.Fatal("expected error for SetTaskExec after deregister")
 	}
 }
+
+// TestPolicySetGetViaIPC verifies the full driver → IPC → daemon round-trip
+// for PolicySet and PolicyGet.
+func TestPolicySetGetViaIPC(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Create a network for the daemon to join
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial registry: %v", err)
+	}
+	defer rc.Close()
+
+	nodeID := di.Daemon.NodeID()
+	resp, err := rc.CreateNetwork(nodeID, "ipc-policy-net", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Creator auto-joins, so no need to join explicitly.
+
+	// Set policy on registry first (admin gated)
+	policyJSON := []byte(`{"version":1,"rules":[{"name":"allow-80","on":"connect","match":"port == 80","actions":[{"type":"allow"}]},{"name":"deny-all","on":"connect","match":"true","actions":[{"type":"deny"}]}]}`)
+	_, err = rc.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy on registry: %v", err)
+	}
+
+	// Apply policy to daemon via IPC
+	setResult, err := di.Driver.PolicySet(netID, policyJSON)
+	if err != nil {
+		t.Fatalf("PolicySet: %v", err)
+	}
+	if setResult["applied"] != true {
+		t.Fatalf("expected applied=true, got %v", setResult["applied"])
+	}
+
+	// Get policy status via IPC
+	getResult, err := di.Driver.PolicyGet(netID)
+	if err != nil {
+		t.Fatalf("PolicyGet: %v", err)
+	}
+	if getResult["engine"] != "policy" {
+		t.Fatalf("expected engine=policy, got %v", getResult["engine"])
+	}
+	if getResult["expr_policy"] == nil {
+		t.Fatal("expected expr_policy in response")
+	}
+}
+
+// TestPolicyGetNoRunnerViaIPC verifies PolicyGet returns engine=none when
+// no policy runner exists for the given network.
+func TestPolicyGetNoRunnerViaIPC(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Get policy for a network with no runner — returns engine=none
+	result, err := di.Driver.PolicyGet(9999)
+	if err != nil {
+		t.Fatalf("PolicyGet: %v", err)
+	}
+	if result["engine"] != "none" {
+		t.Fatalf("expected engine=none, got %v", result["engine"])
+	}
+}
+
+// TestManagedOpsViaIPCWithPolicyRunner verifies that existing managed commands
+// (score, status, rankings, cycle) work through the PolicyRunner when no
+// ManagedEngine exists.
+func TestManagedOpsViaIPCWithPolicyRunner(t *testing.T) {
+	t.Parallel()
+	env := NewTestEnv(t)
+	di := env.AddDaemon()
+
+	// Create a network
+	rc, err := registry.Dial(env.RegistryAddr)
+	if err != nil {
+		t.Fatalf("dial registry: %v", err)
+	}
+	defer rc.Close()
+
+	nodeID := di.Daemon.NodeID()
+	resp, err := rc.CreateNetwork(nodeID, "managed-compat", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Creator auto-joins, so no need to join explicitly.
+
+	// Set policy with cycle/score rules
+	policyJSON := []byte(`{"version":1,"config":{"cycle":"1h","max_peers":50},"rules":[{"name":"score-data","on":"datagram","match":"size > 0","actions":[{"type":"score","params":{"delta":1,"topic":"activity"}}]},{"name":"cycle","on":"cycle","match":"true","actions":[{"type":"prune","params":{"count":2,"by":"score"}}]}]}`)
+	_, err = di.Driver.PolicySet(netID, policyJSON)
+	if err != nil {
+		t.Fatalf("PolicySet: %v", err)
+	}
+
+	// ManagedStatus should work via PolicyRunner
+	status, err := di.Driver.ManagedStatus(netID)
+	if err != nil {
+		t.Fatalf("ManagedStatus: %v", err)
+	}
+	if status["engine"] != "policy" {
+		t.Fatalf("expected engine=policy, got %v", status["engine"])
+	}
+
+	// ManagedRankings should work
+	rankings, err := di.Driver.ManagedRankings(netID)
+	if err != nil {
+		t.Fatalf("ManagedRankings: %v", err)
+	}
+	_ = rankings
+
+	// ManagedForceCycle should work
+	cycleResp, err := di.Driver.ManagedForceCycle(netID)
+	if err != nil {
+		t.Fatalf("ManagedForceCycle: %v", err)
+	}
+	_ = cycleResp
+}

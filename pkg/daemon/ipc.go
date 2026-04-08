@@ -50,6 +50,8 @@ const (
 	CmdNetworkOK         byte = 0x20
 	CmdHealth            byte = 0x21
 	CmdHealthOK          byte = 0x22
+	CmdManaged           byte = 0x23
+	CmdManagedOK         byte = 0x24
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -61,6 +63,15 @@ const (
 	SubNetworkInvite        byte = 0x05
 	SubNetworkPollInvites   byte = 0x06
 	SubNetworkRespondInvite byte = 0x07
+)
+
+// Managed sub-commands (second byte of CmdManaged payload)
+const (
+	SubManagedScore     byte = 0x01
+	SubManagedStatus    byte = 0x02
+	SubManagedRankings  byte = 0x03
+	SubManagedCycle     byte = 0x04
+	SubManagedPolicy    byte = 0x05 // get/set expr policy
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -227,6 +238,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleNetwork(conn, payload)
 		case CmdHealth:
 			s.handleHealth(conn)
+		case CmdManaged:
+			s.handleManaged(conn, payload)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -812,6 +825,23 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 		}
 		data, _ := json.Marshal(result)
 		s.ipcWriteNetworkOK(conn, data)
+		// Refresh port policy cache for the newly joined network
+		go s.daemon.loadNetworkPolicies()
+		// Start policy runner if the network has an expr_policy
+		if epRaw, ok := result["expr_policy"]; ok {
+			var policyJSON json.RawMessage
+			switch v := epRaw.(type) {
+			case string:
+				policyJSON = json.RawMessage(v)
+			case map[string]interface{}:
+				policyJSON, _ = json.Marshal(v)
+			}
+			if len(policyJSON) > 0 {
+				if err := s.daemon.StartPolicyRunner(netID, policyJSON); err != nil {
+					slog.Warn("policy: failed to start runner on join", "network_id", netID, "err", err)
+				}
+			}
+		}
 
 	case SubNetworkLeave:
 		// [2-byte networkID]
@@ -952,4 +982,201 @@ func (s *IPCServer) DeliverDatagram(srcAddr protocol.Addr, srcPort uint16, dstPo
 			slog.Debug("IPC datagram delivery failed", "err", err)
 		}
 	}
+}
+
+func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
+	if len(payload) < 1 {
+		s.sendError(conn, "managed: missing sub-command")
+		return
+	}
+	sub := payload[0]
+	rest := payload[1:]
+
+	switch sub {
+	case SubManagedScore:
+		// [2-byte netID][4-byte nodeID][4-byte delta (int32)][topic...]
+		if len(rest) < 10 {
+			s.sendError(conn, "managed score: missing fields (need netID + nodeID + delta)")
+			return
+		}
+		netID := binary.BigEndian.Uint16(rest[0:2])
+		nodeID := binary.BigEndian.Uint32(rest[2:6])
+		delta := int(int32(binary.BigEndian.Uint32(rest[6:10])))
+		topic := ""
+		if len(rest) > 10 {
+			topic = string(rest[10:])
+		}
+
+		me := s.daemon.GetManagedEngine(netID)
+		if me != nil {
+			if err := me.Score(nodeID, delta, topic); err != nil {
+				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
+				return
+			}
+		} else if pr := s.daemon.GetPolicyRunner(netID); pr != nil {
+			if err := pr.Score(nodeID, delta, topic); err != nil {
+				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
+				return
+			}
+		} else {
+			s.sendError(conn, fmt.Sprintf("managed: no engine for network %d", netID))
+			return
+		}
+
+		data, _ := json.Marshal(map[string]interface{}{
+			"type":    "managed_score_ok",
+			"node_id": nodeID,
+			"delta":   delta,
+			"topic":   topic,
+		})
+		s.ipcWriteManagedOK(conn, data)
+
+	case SubManagedStatus:
+		// [2-byte netID] (optional — 0 means first/only engine)
+		netID := uint16(0)
+		if len(rest) >= 2 {
+			netID = binary.BigEndian.Uint16(rest[0:2])
+		}
+
+		if me := s.findManagedEngine(netID); me != nil {
+			data, _ := json.Marshal(me.Status())
+			s.ipcWriteManagedOK(conn, data)
+		} else if pr := s.findPolicyRunner(netID); pr != nil {
+			data, _ := json.Marshal(pr.Status())
+			s.ipcWriteManagedOK(conn, data)
+		} else {
+			s.sendError(conn, "managed: no active managed networks")
+		}
+
+	case SubManagedRankings:
+		// [2-byte netID] (optional)
+		netID := uint16(0)
+		if len(rest) >= 2 {
+			netID = binary.BigEndian.Uint16(rest[0:2])
+		}
+
+		var rankings []map[string]interface{}
+		if me := s.findManagedEngine(netID); me != nil {
+			rankings = me.Rankings()
+		} else if pr := s.findPolicyRunner(netID); pr != nil {
+			rankings = pr.Rankings()
+		} else {
+			s.sendError(conn, "managed: no active managed networks")
+			return
+		}
+
+		data, _ := json.Marshal(map[string]interface{}{
+			"type":     "managed_rankings_ok",
+			"rankings": rankings,
+		})
+		s.ipcWriteManagedOK(conn, data)
+
+	case SubManagedCycle:
+		// [2-byte netID] (optional)
+		netID := uint16(0)
+		if len(rest) >= 2 {
+			netID = binary.BigEndian.Uint16(rest[0:2])
+		}
+
+		var result map[string]interface{}
+		if me := s.findManagedEngine(netID); me != nil {
+			result = me.ForceCycle()
+		} else if pr := s.findPolicyRunner(netID); pr != nil {
+			result = pr.ForceCycle()
+		} else {
+			s.sendError(conn, "managed: no active managed networks")
+			return
+		}
+
+		data, _ := json.Marshal(result)
+		s.ipcWriteManagedOK(conn, data)
+
+	case SubManagedPolicy:
+		// Sub-sub-command: [0x00=get][2-byte netID] or [0x01=set][2-byte netID][policy JSON...]
+		if len(rest) < 3 {
+			s.sendError(conn, "managed policy: missing sub-sub-command and network_id")
+			return
+		}
+		action := rest[0]
+		netID := binary.BigEndian.Uint16(rest[1:3])
+
+		switch action {
+		case 0x00: // get
+			pr := s.daemon.GetPolicyRunner(netID)
+			resp := map[string]interface{}{
+				"type":       "managed_policy_ok",
+				"network_id": netID,
+			}
+			if pr != nil {
+				policyData, _ := json.Marshal(pr.Policy().Doc)
+				resp["expr_policy"] = json.RawMessage(policyData)
+				resp["engine"] = "policy"
+			} else if me := s.daemon.GetManagedEngine(netID); me != nil {
+				resp["engine"] = "managed"
+			} else {
+				resp["engine"] = "none"
+			}
+			data, _ := json.Marshal(resp)
+			s.ipcWriteManagedOK(conn, data)
+		case 0x01: // set — reload policy from registry
+			policyJSON := rest[3:]
+			if len(policyJSON) == 0 {
+				s.sendError(conn, "managed policy set: missing policy JSON")
+				return
+			}
+			if err := s.daemon.StartPolicyRunner(netID, policyJSON); err != nil {
+				s.sendError(conn, fmt.Sprintf("managed policy set: %v", err))
+				return
+			}
+			data, _ := json.Marshal(map[string]interface{}{
+				"type":       "managed_policy_ok",
+				"network_id": netID,
+				"applied":    true,
+			})
+			s.ipcWriteManagedOK(conn, data)
+		default:
+			s.sendError(conn, fmt.Sprintf("managed policy: unknown action 0x%02X", action))
+		}
+
+	default:
+		s.sendError(conn, fmt.Sprintf("managed: unknown sub-command 0x%02X", sub))
+	}
+}
+
+func (s *IPCServer) ipcWriteManagedOK(conn *ipcConn, data []byte) {
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdManagedOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC managed reply failed", "err", err)
+	}
+}
+
+// findManagedEngine returns the engine for a specific network, or the first
+// engine if netID is 0.
+func (s *IPCServer) findManagedEngine(netID uint16) *ManagedEngine {
+	if netID != 0 {
+		return s.daemon.GetManagedEngine(netID)
+	}
+	// Return first engine
+	s.daemon.managedMu.Lock()
+	defer s.daemon.managedMu.Unlock()
+	for _, me := range s.daemon.managed {
+		return me
+	}
+	return nil
+}
+
+// findPolicyRunner returns the policy runner for a specific network, or the
+// first runner if netID is 0.
+func (s *IPCServer) findPolicyRunner(netID uint16) *PolicyRunner {
+	if netID != 0 {
+		return s.daemon.GetPolicyRunner(netID)
+	}
+	s.daemon.policyMu.Lock()
+	defer s.daemon.policyMu.Unlock()
+	for _, pr := range s.daemon.policyRunners {
+		return pr
+	}
+	return nil
 }

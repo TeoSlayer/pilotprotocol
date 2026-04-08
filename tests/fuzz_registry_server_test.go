@@ -814,6 +814,365 @@ func TestRegistryClientListNodesBackboneBlocked(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Client expr policy operations
+// ---------------------------------------------------------------------------
+
+func TestRegistryClientSetExprPolicyWithAdminToken(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	// Create network
+	resp, err := c.CreateNetwork(nodeID, "policynet", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set expr policy using admin token
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"allow-80","on":"connect","match":"port == 80","actions":[{"type":"allow"}]},{"name":"deny-all","on":"connect","match":"true","actions":[{"type":"deny"}]}]}`)
+	setResp, err := c.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy: %v", err)
+	}
+	if setResp["type"] != "set_expr_policy_ok" {
+		t.Fatalf("expected set_expr_policy_ok, got %v", setResp["type"])
+	}
+
+	// Get expr policy
+	getResp, err := c.GetExprPolicy(netID)
+	if err != nil {
+		t.Fatalf("GetExprPolicy: %v", err)
+	}
+	if getResp["type"] != "get_expr_policy_ok" {
+		t.Fatalf("expected get_expr_policy_ok, got %v", getResp["type"])
+	}
+	if getResp["expr_policy"] == nil {
+		t.Fatal("expected expr_policy in response")
+	}
+}
+
+func TestRegistryClientSetExprPolicyNoAuth(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	resp, err := c.CreateNetwork(nodeID, "noauthnet", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set expr policy without token should fail
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"r1","on":"connect","match":"true","actions":[{"type":"allow"}]}]}`)
+	_, err = c.SetExprPolicy(netID, policyJSON, "")
+	if err == nil {
+		t.Fatal("expected error setting policy without admin token")
+	}
+}
+
+func TestRegistryClientSetExprPolicyInvalidJSON(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	resp, err := c.CreateNetwork(nodeID, "badjson", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Invalid JSON
+	_, err = c.SetExprPolicy(netID, json.RawMessage(`not-json`), TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON policy")
+	}
+
+	// Valid JSON but wrong version
+	_, err = c.SetExprPolicy(netID, json.RawMessage(`{"version":99,"rules":[{"name":"r1","on":"connect","match":"true","actions":[{"type":"allow"}]}]}`), TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for wrong version")
+	}
+
+	// Missing rules
+	_, err = c.SetExprPolicy(netID, json.RawMessage(`{"version":1}`), TestAdminToken)
+	if err == nil {
+		t.Fatal("expected error for missing rules")
+	}
+}
+
+func TestRegistryClientClearExprPolicy(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	resp, err := c.CreateNetwork(nodeID, "clearnet", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set a policy
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"r1","on":"connect","match":"true","actions":[{"type":"allow"}]}]}`)
+	_, err = c.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy: %v", err)
+	}
+
+	// Verify it's set
+	getResp, err := c.GetExprPolicy(netID)
+	if err != nil {
+		t.Fatalf("GetExprPolicy: %v", err)
+	}
+	if getResp["expr_policy"] == nil {
+		t.Fatal("expected policy to be set")
+	}
+
+	// Clear the policy with empty string
+	clearResp, err := c.SetExprPolicy(netID, json.RawMessage(`""`), TestAdminToken)
+	if err != nil {
+		// Clear is done by sending empty string, need to use Send directly
+		// since SetExprPolicy wraps as string(policyJSON)
+	}
+	_ = clearResp
+
+	// Try clearing via direct Send with empty expr_policy
+	clearResp, err = c.Send(map[string]interface{}{
+		"type":        "set_expr_policy",
+		"network_id":  netID,
+		"admin_token": TestAdminToken,
+		"expr_policy": "",
+	})
+	if err != nil {
+		t.Fatalf("clear policy: %v", err)
+	}
+	if clearResp["cleared"] != true {
+		t.Fatalf("expected cleared=true, got %v", clearResp["cleared"])
+	}
+
+	// Verify policy is gone
+	getResp, err = c.GetExprPolicy(netID)
+	if err != nil {
+		t.Fatalf("GetExprPolicy after clear: %v", err)
+	}
+	if getResp["expr_policy"] != nil {
+		t.Fatalf("expected nil policy after clear, got %v", getResp["expr_policy"])
+	}
+}
+
+func TestRegistryClientGetExprPolicyNonExistent(t *testing.T) {
+	s := startTestServer(t)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	// Get policy for non-existent network
+	_, err = c.GetExprPolicy(9999)
+	if err == nil {
+		t.Fatal("expected error for non-existent network")
+	}
+}
+
+func TestRegistryClientExprPolicyPersistence(t *testing.T) {
+	s, storePath := startTestServerWithStore(t)
+	s.SetAdminToken(TestAdminToken)
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	// Create network with policy
+	resp, err := c.CreateNetwork(nodeID, "persistnet", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"persist-rule","on":"connect","match":"port == 443","actions":[{"type":"allow"}]}]}`)
+	_, err = c.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy: %v", err)
+	}
+
+	c.Close()
+	s.Close()
+
+	// Restart with same store
+	s2 := registry.NewWithStore("", storePath)
+	s2.SetAdminToken(TestAdminToken)
+	go s2.ListenAndServe("127.0.0.1:0")
+	select {
+	case <-s2.Ready():
+	case <-time.After(3 * time.Second):
+		t.Fatal("registry server did not restart in time")
+	}
+	defer s2.Close()
+
+	addr2 := s2.Addr().(*net.TCPAddr)
+	c2, err := registry.Dial(addr2.String())
+	if err != nil {
+		t.Fatalf("Dial after restart: %v", err)
+	}
+	defer c2.Close()
+
+	// Verify policy survived restart
+	getResp, err := c2.GetExprPolicy(netID)
+	if err != nil {
+		t.Fatalf("GetExprPolicy after restart: %v", err)
+	}
+	if getResp["expr_policy"] == nil {
+		t.Fatal("expected policy to survive restart")
+	}
+}
+
+func TestRegistryClientListNetworksHasExprPolicy(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	addr := s.Addr().(*net.TCPAddr)
+	c, err := registry.Dial(addr.String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	nodeID := regTestNodeWithKey(t, c, "127.0.0.1:4000")
+
+	// Create network
+	resp, err := c.CreateNetwork(nodeID, "listnet", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	// Set policy
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"r1","on":"connect","match":"true","actions":[{"type":"allow"}]}]}`)
+	_, err = c.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy: %v", err)
+	}
+
+	// ListNetworks should include has_expr_policy
+	listResp, err := c.ListNetworks()
+	if err != nil {
+		t.Fatalf("ListNetworks: %v", err)
+	}
+	networks, ok := listResp["networks"].([]interface{})
+	if !ok {
+		t.Fatal("expected networks array")
+	}
+
+	found := false
+	for _, n := range networks {
+		nm, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := nm["id"].(float64)
+		if uint16(id) == netID {
+			if nm["has_expr_policy"] == true {
+				found = true
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected has_expr_policy=true for network with policy")
+	}
+}
+
+func TestRegistryClientJoinNetworkIncludesExprPolicy(t *testing.T) {
+	s := startTestServer(t)
+	s.SetAdminToken(TestAdminToken)
+	defer s.Close()
+
+	sAddr := s.Addr().(*net.TCPAddr).String()
+
+	c1, err := registry.Dial(sAddr)
+	if err != nil {
+		t.Fatalf("Dial c1: %v", err)
+	}
+	defer c1.Close()
+
+	c2, err := registry.Dial(sAddr)
+	if err != nil {
+		t.Fatalf("Dial c2: %v", err)
+	}
+	defer c2.Close()
+
+	nodeID1 := regTestNodeWithKey(t, c1, "127.0.0.1:4001")
+	nodeID2 := regTestNodeWithKey(t, c2, "127.0.0.1:4002")
+
+	// Create network with policy
+	resp, err := c1.CreateNetwork(nodeID1, "joinpolicy", "open", "", TestAdminToken, false)
+	if err != nil {
+		t.Fatalf("CreateNetwork: %v", err)
+	}
+	netID := uint16(resp["network_id"].(float64))
+
+	policyJSON := json.RawMessage(`{"version":1,"rules":[{"name":"allow-all","on":"connect","match":"true","actions":[{"type":"allow"}]}]}`)
+	_, err = c1.SetExprPolicy(netID, policyJSON, TestAdminToken)
+	if err != nil {
+		t.Fatalf("SetExprPolicy: %v", err)
+	}
+
+	// Node2 joins — response should include expr_policy
+	joinResp, err := c2.JoinNetwork(nodeID2, netID, "", 0, TestAdminToken)
+	if err != nil {
+		t.Fatalf("JoinNetwork: %v", err)
+	}
+	if joinResp["expr_policy"] == nil {
+		t.Fatal("expected expr_policy in join response")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Client trust operations
 // ---------------------------------------------------------------------------
 
