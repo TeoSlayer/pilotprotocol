@@ -124,3 +124,30 @@ cmd/console/
 cmd/pilot-admin/
 pkg/console/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Graph server (architecture tooling, not shipped)
+docs/architecture/
+pilot-graph.db.backup-*
+
+# MCP config
+.mcp.json
+
+# Survey / research scripts & outputs (ephemeral)
+survey*.mjs
+*-results.jsonl
+results.jsonl
+*-dashboard.html
+dashboard.html
+highlights.json
+profiles.json
+summary.json
+
+# Plans (ephemeral)
+TRUST_DECAY_PLAN.md
+
+# Root-level npm (tooling only)
+/package.json
+/package-lock.json
