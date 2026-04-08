@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "secure-communication-protocols-distributed-ai-systems",
+    title: "Secure communication protocols for distributed AI systems",
+    description: "Learn how to evaluate and implement secure communication protocols for distributed AI systems and autonomous agent networks, covering TLS 1.3, mTLS, WireGuard, and zero-trust architectures.",
+    date: "Apr 8",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/secure-communication-protocols-distributed-ai-systems.jpg",
+  },
+
+  {
     slug: "overlay-networking-automation-secure-ai-agent-solutions",
     title: "Overlay networking for automation: Secure AI agent solutions",
     description: "Learn how overlay networking for AI agent automation works, compare top tools like Cilium and Istio, and build secure zero-trust multi-cloud agent networks.",
@@ -73,7 +83,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief Ã¢ÂÂ 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂ¢ÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -168,7 +178,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing Ã¢ÂÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂ¢ÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
