@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 // Frame types for data exchange on port 1001.
@@ -29,7 +30,11 @@ func WriteFrame(w io.Writer, f *Frame) error {
 	if f.Type == TypeFile {
 		// Prepend filename
 		name := []byte(f.Filename)
-		payload = make([]byte, 2+len(name)+len(f.Payload))
+		totalLen := int64(2) + int64(len(name)) + int64(len(f.Payload))
+		if totalLen > math.MaxInt || totalLen < 0 {
+			return fmt.Errorf("file frame too large: %d bytes", totalLen)
+		}
+		payload = make([]byte, int(totalLen))
 		binary.BigEndian.PutUint16(payload[0:2], uint16(len(name)))
 		copy(payload[2:], name)
 		copy(payload[2+len(name):], f.Payload)
