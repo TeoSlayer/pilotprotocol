@@ -545,7 +545,6 @@ footer a:hover{color:var(--fg)}
   <p class="logos-heading">Node traffic <strong>identified</strong> from</p>
   <div class="logos-row">
     <span class="logo-wrap"><img src="/img/github.png" alt="GitHub"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/github.png);mask-image:url(/img/github.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
-    <span class="logo-wrap"><img src="/img/pinterest.png" alt="Pinterest"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/pinterest.png);mask-image:url(/img/pinterest.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
     <span class="logo-wrap"><img src="/img/tencent.svg" alt="Tencent"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/tencent.svg);mask-image:url(/img/tencent.svg);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
     <span class="logo-wrap"><img src="/img/capitalcom.png" alt="Capital.com"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/capitalcom.png);mask-image:url(/img/capitalcom.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
     <span class="logo-wrap"><img src="/img/vodafone.png" alt="Vodafone"><div class="logo-shimmer" style="-webkit-mask-image:url(/img/vodafone.png);mask-image:url(/img/vodafone.png);-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"></div></span>
@@ -992,10 +991,11 @@ footer a:hover{color:var(--fg)}
   <h2>Install</h2>
   <div class="tabs">
     <button class="tab active" onclick="switchTab(event, 'shell')">Shell</button>
+    <button class="tab" onclick="switchTab(event, 'homebrew')">Homebrew</button>
     <button class="tab" onclick="switchTab(event, 'python')">Python SDK</button>
     <button class="tab" onclick="switchTab(event, 'clawhub')">ClawHub</button>
   </div>
-  
+
   <div id="shell" class="tab-content active">
     <div class="install-box">
       <div class="cmd-row">
@@ -1006,7 +1006,17 @@ footer a:hover{color:var(--fg)}
     </div>
     <p style="font-size:0.85rem;color:var(--muted)">Set a hostname: <code style="color:var(--accent)">curl ... | PILOT_HOSTNAME=my-agent sh</code></p>
   </div>
-  
+
+  <div id="homebrew" class="tab-content">
+    <div class="install-box">
+      <div class="cmd-row">
+        <code id="cmd-brew">brew tap TeoSlayer/pilot && brew install pilotprotocol</code>
+        <button class="copy-btn" onclick="copyCmd('cmd-brew',this)">Copy</button>
+      </div>
+      <p>Install via Homebrew on macOS or Linux. Taps the formula and installs the latest release.</p>
+    </div>
+  </div>
+
   <div id="python" class="tab-content">
     <div class="install-box">
       <div class="cmd-row">
