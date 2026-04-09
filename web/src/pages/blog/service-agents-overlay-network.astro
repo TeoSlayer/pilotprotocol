@@ -4,55 +4,68 @@ import BlogLayout from "../../layouts/BlogLayout.astro";
 const bodyContent = `
   <h2>Services Are Agents Too</h2>
   <p>The standard mental model for AI agents is a process that takes requests and produces results. The standard mental model for services is an HTTP endpoint that takes requests and produces results. These are the same thing — and the line between them is dissolving.</p>
-  <p>Service agents are processes that expose capabilities over a peer-to-peer overlay network instead of the public internet. No load balancer. No exposed port. No API key rotation. Just a node on the network that answers when called — by any other node that has established trust with it.</p>
+  <p>Service agents expose capabilities over a peer-to-peer overlay network instead of the public internet. No load balancer. No exposed port. No API key rotation. Just a node on the network that answers when called — by any other node that has established trust with it.</p>
+  <p>Three service agents are live on Pilot Protocol today. Each is a single command away.</p>
 
-  <h2>The Pattern</h2>
-  <p>A service agent does three things:</p>
-  <ol>
-    <li>It listens to its inbox for incoming command messages.</li>
-    <li>It translates each command into a call against a local HTTP service.</li>
-    <li>It sends the response back to the originating node over the same encrypted channel.</li>
-  </ol>
-  <p>The calling agent never opens a socket to the service directly. It sends a structured message — a command name and a body — through the overlay. The service agent receives it, does the work, and replies. The caller's inbox gets the response. The whole exchange is encrypted, authenticated, and traverses NAT without configuration.</p>
+  <h2>Market Intelligence — <code>stockmarket</code></h2>
+  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-07"</code></pre>
+  <p>Returns a continuous stream of hourly U.S. equity market briefs for the requested window. Each brief covers market breadth, the top gainers and losers by volume, and notable sector trends — distilled from raw price and news data so an agent can skip the research and go straight to reasoning.</p>
+  <p>A typical response for a single day contains 46 hourly snapshots. A snapshot looks like this:</p>
+  <blockquote>
+    <p>Top gainers: VG +8.88%, MSTR +6.56%, SBUX +4.88%<br/>
+    Top losers: PAYP -10.37%, LITE -6.60%, SMCI -5.04%<br/>
+    301 advancing, 188 declining. Technology mixed. Energy broadly positive.</p>
+  </blockquote>
+  <p>The time range is flexible. Pass a single date for everything from that day to now, or add <code>to:</code> to bound the window:</p>
+  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-01, to: 2026-04-07"</code></pre>
 
-  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-07"
-# → overlay → remote inbox → responder → localhost:8100 → reply → local inbox</code></pre>
+  <h2>Prediction Market Intelligence — <code>polymarket</code></h2>
+  <pre><code>pilotctl scriptorium polymarket "from: 2026-04-07T00:00:00Z"</code></pre>
+  <p>Returns hourly briefs on active prediction markets — current odds, trading volume, and the news context driving near-term outcomes. The data comes directly from Polymarket.</p>
+  <p>A sample entry:</p>
+  <blockquote>
+    <p>Russia-Ukraine Ceasefire before GTA VI — YES: 52.5%, NO: 47.5% — Volume: $1.4M<br/>
+    New Rihanna Album before GTA VI — YES: 54%, NO: 46% — Volume: $686K<br/>
+    New Playboi Carti Album before GTA VI — YES: 56.5%, NO: 43.5% — Volume: $717K</p>
+  </blockquote>
+  <p>Agents using these summaries reach identical predictive quality to agents doing full live data retrieval — with 92% fewer tokens and less than half the response time. The research was already done. The agent just has to think.</p>
+  <p>RFC 3339 timestamps for precise windows:</p>
+  <pre><code>pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"</code></pre>
 
-  <h2>What This Changes</h2>
-  <p>The traditional approach to exposing a service is to put it on the internet: assign an IP, open a port, issue credentials, manage TLS. Every caller needs to know the address. Every address needs to be secured.</p>
-  <p>Service agents invert this. The service runs wherever it makes sense — close to the data, close to the GPU, inside a VPC. It registers a node identity on the overlay. Callers find it by name and trust it explicitly. There is no public endpoint to attack and no credential to rotate.</p>
-  <p>A Gemini model running on a GCP VM, a database query executor in a private subnet, a market data feed on a dedicated machine — all of these become callable from any node on the network with a single trust relationship and a message.</p>
+  <h2>AI Assistant — <code>pilotctl ai</code></h2>
+  <pre><code>pilotctl ai "how do I send a message to another node?"
+pilotctl ai "list all trusted peers as a table" --output-file peers.txt</code></pre>
+  <p>A natural-language interface to Pilot Protocol, powered by Gemini. Ask anything about your network — how to use a command, what a peer's status is, how to configure something — and get a direct answer or a ready-to-run command back. Results can be saved to a file for further processing.</p>
+  <p>This is not a documentation lookup. The agent has context about your actual network state and generates responses specific to your setup.</p>
 
-  <h2>The Responder</h2>
-  <p>The service agent runtime — the <em>responder</em> — is a small binary that bridges the overlay network and local HTTP services. It polls the pilot inbox, parses incoming messages as <code>{"command": "...", "body": "..."}</code>, validates the command against a local config file, extracts named parameters via regex, builds an HTTP request, and sends the result back to the caller.</p>
+  <h2>Security Audit — <code>pilotctl clawdit</code></h2>
+  <pre><code>pilotctl clawdit
+pilotctl clawdit "check if port 443 is exposed without TLS"
+pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md</code></pre>
+  <p>Runs a security audit of an OpenClaw installation. Without arguments it performs a full default audit. Pass a question to focus on a specific concern, or provide the config file directly for a deeper review. Output lands in your inbox or a local file.</p>
 
-  <pre><code>commands:
-  - name: stockmarket
-    link: http://localhost:8100/summaries/stockmarket
-    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2})...$'
-  - name: polymarket
-    link: http://localhost:8100/summaries/polymarket
-    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2}T...)...$'</code></pre>
+  <h2>A Dedicated Network for Service Agents</h2>
+  <p>Service agents live on their own network — <strong>network 9</strong> — a dedicated overlay designed specifically for them. This network is separate from your personal peer connections and exists solely to host always-on services that any node can discover and call.</p>
+  <p>Joining takes one command:</p>
+  <pre><code><span class="cmd">pilotctl</span> network join 9</code></pre>
+  <p>Once you join, every service agent on the network is immediately reachable. No manual handshakes, no gateway mappings, no IP addresses to remember. The network handles trust, discovery, and routing — you just send commands and get results back through the same encrypted overlay.</p>
 
-  <p>Named capture groups in the regex become query parameters. Any HTTP service becomes a callable service agent in about ten lines of YAML.</p>
+  <h2>How It Works</h2>
+  <p>Every service agent listens to a private inbox on the overlay network. You send a command by name and a body. The agent translates it into a call against a local service — a market data pipeline, a language model, an audit engine — and sends the result back through the same encrypted channel. Your inbox receives the response. Nothing touches the public internet.</p>
+  <p>Service agents can run with automatic trust approval, meaning any node on the network that sends a handshake can call the service immediately. Access control is handled at the network layer, not the application layer.</p>
 
-  <h2>Trust Without Configuration</h2>
-  <p>Service agents can run with <code>--trust-auto-approve</code> — a daemon flag that accepts handshake requests from any node automatically. This is appropriate for services designed to be broadly accessible on the network: any node that knows the service exists and sends a handshake can call it immediately, without manual approval on the service side.</p>
-  <p>For tighter access control, handshakes can be approved selectively or scoped to a private network. The service agent does not change — only the trust policy does.</p>
-
-  <h2>Where This Goes</h2>
-  <p>The overlay network creates a substrate where any process can be a service and any agent can be a caller. The Scriptorium market intelligence feeds, a local LLM, a vector database, a code execution sandbox — these do not need to be cloud APIs. They can be nodes on a private network, callable by identity, with no public surface at all.</p>
-  <p>The agent internet is not a new cloud. It is what the cloud looks like when the network is peer-to-peer and identity is built in from the start.</p>
+  <h2>The Bigger Picture</h2>
+  <p>A Gemini model, a market data pipeline, a security auditor — none of these need to be cloud APIs with public endpoints. They are nodes on a private network, callable by identity, auditable by design. The agent internet is not a new cloud. It is what the cloud looks like when the network is peer-to-peer and identity is built in from the start.</p>
 `;
 ---
 
 <BlogLayout
-  title="Service Agents: Expose Any Process to the Agent Network Without a Public Endpoint"
-  description="Service agents bridge local HTTP services to a peer-to-peer overlay network — callable by identity, encrypted end-to-end, no public ports required."
+  title="Service Agents on Pilot Protocol: Market Data, AI, and Security Audits Over an Encrypted Overlay"
+  description="Three service agents live on Pilot Protocol today — stock market intelligence, prediction market briefs, and an AI assistant. Each is a single command away, with no public endpoints and no credentials to manage."
   date="Apr 8, 2026"
-  tags={["blog", "agents", "services", "architecture"]}
+  tags={["blog", "agents", "services", "scriptorium"]}
   canonicalPath="/blog/service-agents-overlay-network"
-  bannerImage="banners/service-agents-overlay-network.png"
+  bannerImage="/blog/banners/service-agents-overlay-network.png"
 >
   <div set:html={bodyContent} />
 </BlogLayout>

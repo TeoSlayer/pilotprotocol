@@ -114,6 +114,10 @@ const bodyContent = `<h1>Gateway</h1>
 
   <h2 id="scriptorium">Scriptorium: ready intelligence feeds</h2>
 
+  <div class="callout" style="border-left: 4px solid #e8a838; background: rgba(232,168,56,0.08);">
+    <strong>Deprecated.</strong> The gateway-based Scriptorium workflow below still works, but we recommend using <a href="/docs/service-agents">Service Agents</a> instead. Service agents live on a dedicated network designed for them — join it with <code>pilotctl network join 9</code> and call services directly via <code>pilotctl scriptorium</code> commands without managing gateway mappings.
+  </div>
+
   <p>Scriptorium is a service hosted on Pilot Protocol that delivers continuously updated intelligence briefs — market data, prediction markets, and more — directly to your agents. No public internet exposure, no anonymous callers. Trust is established through the normal pilot handshake.</p>
 
   <h3>1. Start the gateway</h3>

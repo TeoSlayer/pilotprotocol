@@ -417,13 +417,14 @@ Mailbox:
   pilotctl received [--clear]
   pilotctl inbox [--clear]
 
-Scriptorium (low-level responder dispatch):
+Service Agents (AI-powered overlay services):
+  pilotctl tui                                     Interactive TUI for all service agents
+  pilotctl ls                                      List available service agents and config status
+
   pilotctl scriptorium <command> [body] [--node <address|hostname>]
   pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"
   pilotctl scriptorium stockmarket "from: 2026-04-01"
-  Config: ~/.pilot/scriptorium.yaml  (node: <pilot-address>)
 
-Service Agents (AI-powered overlay services):
   pilotctl ai "<query>" [--node <address>] [--timeout <dur>] [--output-file [path]]
   pilotctl clawdit ["<query>"] [--file <openclaw.json>] [--node <address>] [--timeout <dur>] [--output-file [path]]
 
@@ -799,6 +800,10 @@ func main() {
 		cmdAi(cmdArgs)
 	case "clawdit":
 		cmdClawdit(cmdArgs)
+	case "ls":
+		cmdLs(cmdArgs)
+	case "tui":
+		cmdTui(cmdArgs)
 
 	// Internal: forked daemon process
 	case "_daemon-run":
@@ -1131,6 +1136,31 @@ func cmdContext() {
 				"args":        []string{"[--clear]"},
 				"description": "List messages received via data exchange (port 1001). Messages saved to ~/.pilot/inbox/. Use --clear to delete all",
 				"returns":     "messages [{type, from, data, received_at}], total, dir",
+			},
+			"scriptorium": map[string]interface{}{
+				"args":        []string{"<command>", "[body]", "[--node <address|hostname>]"},
+				"description": "Send a command to a Scriptorium service agent (e.g. stockmarket, polymarket)",
+				"returns":     "command, body, node, ack",
+			},
+			"ai": map[string]interface{}{
+				"args":        []string{"<query>", "[--node <address>]", "[--timeout <dur>]", "[--output-file [path]]"},
+				"description": "Send a natural-language query to the AI assistant and wait for the reply",
+				"returns":     "reply",
+			},
+			"clawdit": map[string]interface{}{
+				"args":        []string{"[query]", "[--file <openclaw.json>]", "[--node <address>]", "[--timeout <dur>]", "[--output-file [path]]"},
+				"description": "Run a security audit of an OpenClaw installation",
+				"returns":     "reply",
+			},
+			"ls": map[string]interface{}{
+				"args":        []string{},
+				"description": "List all available service agents and their configuration status",
+				"returns":     "agents [{name, description, usage, config, configured, node}]",
+			},
+			"tui": map[string]interface{}{
+				"args":        []string{},
+				"description": "Launch the interactive service-agent TUI (chat with AI, query Scriptorium, run audits)",
+				"returns":     "(interactive — no JSON output)",
 			},
 		},
 		"error_codes": map[string]interface{}{
@@ -5526,6 +5556,124 @@ func writeServiceAgentReply(reply, outputFile, prefix string) {
 		outputOK(map[string]interface{}{"saved": outputFile, "bytes": len(reply)})
 	} else {
 		fmt.Printf("saved to %s (%d bytes)\n", outputFile, len(reply))
+	}
+}
+
+// cmdLs lists all available service agents and their configuration status.
+func cmdLs(args []string) {
+	type agentInfo struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Usage       string `json:"usage"`
+		Config      string `json:"config"`
+		Configured  bool   `json:"configured"`
+		Node        string `json:"node,omitempty"`
+	}
+
+	agents := []agentInfo{
+		{
+			Name:        "ai",
+			Description: "Natural-language assistant — ask anything about your network",
+			Usage:       `pilotctl ai "<query>"`,
+			Config:      "~/.pilot/scriptorium.yaml",
+		},
+		{
+			Name:        "scriptorium",
+			Description: "Intelligence briefs (stockmarket, polymarket, …)",
+			Usage:       `pilotctl scriptorium <command> "<body>"`,
+			Config:      "~/.pilot/scriptorium.yaml",
+		},
+		{
+			Name:        "clawdit",
+			Description: "Security audit of an OpenClaw installation",
+			Usage:       `pilotctl clawdit ["<query>"] [--file <path>]`,
+			Config:      "~/.pilot/clawdit.yaml",
+		},
+	}
+
+	// Resolve configured state.
+	scriptoriumNode := loadScriptoriumNode()
+	clawditNode := loadClawditNode()
+	for i := range agents {
+		switch agents[i].Name {
+		case "ai", "scriptorium":
+			if scriptoriumNode != "" {
+				agents[i].Configured = true
+				agents[i].Node = scriptoriumNode
+			}
+		case "clawdit":
+			if clawditNode != "" {
+				agents[i].Configured = true
+				agents[i].Node = clawditNode
+			}
+		}
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{"agents": agents})
+		return
+	}
+
+	fmt.Println("Service Agents:")
+	fmt.Println()
+	for _, a := range agents {
+		status := "  ✗ not configured"
+		if a.Configured {
+			status = fmt.Sprintf("  ✓ node %s", a.Node)
+		}
+		fmt.Printf("  %-14s %s\n", a.Name, a.Description)
+		fmt.Printf("  %-14s %s\n", "", a.Usage)
+		fmt.Printf("  %-14s config: %s%s\n", "", a.Config, status)
+		fmt.Println()
+	}
+}
+
+// cmdTui launches the interactive service-agent TUI.
+func cmdTui(args []string) {
+	// Locate tui.py: check next to the binary first, then fall back to ~/.pilot/tui.py.
+	exe, _ := os.Executable()
+	candidates := []string{
+		filepath.Join(filepath.Dir(exe), "tui.py"),
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		candidates = append(candidates, filepath.Join(home, ".pilot", "tui.py"))
+	}
+
+	var tuiPath string
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			tuiPath = p
+			break
+		}
+	}
+	if tuiPath == "" {
+		fatalHint("not_found",
+			"ensure tui.py is installed at ~/.pilot/tui.py or next to the pilotctl binary",
+			"TUI not found")
+	}
+
+	// Find python3.
+	python := "python3"
+	if p, err := exec.LookPath("python3"); err == nil {
+		python = p
+	} else if p, err := exec.LookPath("python"); err == nil {
+		python = p
+	} else {
+		fatalHint("not_found",
+			"install Python 3: https://python.org",
+			"python3 not found on PATH")
+	}
+
+	cmd := exec.Command(python, tuiPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fatalCode("internal", "tui: %v", err)
 	}
 }
 

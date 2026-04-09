@@ -11,6 +11,28 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "service-agent-tui-pilotctl",
+    title: "Introducing the Pilot Protocol TUI: All Service Agents in One Terminal",
+    description: "A new interactive terminal puts every Pilot Protocol service agent — AI assistant, market intelligence, security audits — one keystroke away. Chat with AI by default, switch agents with slash commands.",
+    date: "Apr 8",
+    year: 2026,
+    category: "Blog",
+    tags: ["blog", "tui", "agents", "services"],
+    banner: "banners/service-agent-tui-pilotctl.png",
+  },
+
+  {
+    slug: "service-agents-overlay-network",
+    title: "Service Agents on Pilot Protocol: Market Data, AI, and Security Audits Over an Encrypted Overlay",
+    description: "Four service agents live on Pilot Protocol today — stock market intelligence, prediction market briefs, an AI assistant, and a security auditor. Each is a single command away, with no public endpoints and no credentials to manage.",
+    date: "Apr 8",
+    year: 2026,
+    category: "Blog",
+    tags: ["blog", "agents", "services", "scriptorium"],
+    banner: "banners/service-agents-overlay-network.png",
+  },
+
+  {
     slug: "secure-communication-protocols-distributed-ai-systems",
     title: "Secure communication protocols for distributed AI systems",
     description: "Learn how to evaluate and implement secure communication protocols for distributed AI systems and autonomous agent networks, covering TLS 1.3, mTLS, WireGuard, and zero-trust architectures.",

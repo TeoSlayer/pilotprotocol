@@ -383,3 +383,24 @@ echo ""
 echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
 echo "  curl http://10.4.0.1:3000/status"
 echo ""
+
+# --- TUI (optional, best-effort — never fails the install) ---
+
+(
+    if [ -f "$TMPDIR/src/cmd/pilotctl/tui.py" ]; then
+        cp "$TMPDIR/src/cmd/pilotctl/tui.py" "$BIN_DIR/tui.py" 2>/dev/null
+    elif [ -f "$TMPDIR/tui.py" ]; then
+        cp "$TMPDIR/tui.py" "$BIN_DIR/tui.py" 2>/dev/null
+    fi
+
+    if [ -f "$BIN_DIR/tui.py" ]; then
+        echo "TUI installed: ${BIN_DIR}/tui.py"
+        if command -v python3 >/dev/null 2>&1; then
+            python3 -c "import rich" 2>/dev/null || {
+                echo "  Installing Python 'rich' library for TUI..."
+                python3 -m pip install --quiet rich 2>/dev/null || true
+            }
+        fi
+        echo "  Run: python3 ${BIN_DIR}/tui.py"
+    fi
+) || true
