@@ -44,7 +44,7 @@ cards.forEach(c => { c.icon = iconMap.get(c.slug); });
   </div>
 
   <h2 id="flow">Flow</h2>
-  <svg class="flow-graph" viewBox="0 0 780 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pilot Protocol flow diagrams: Usage and Dive Deeper">
+  <svg class="flow-graph" viewBox="0 -40 780 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pilot Protocol flow diagrams: Usage and Dive Deeper">
     <defs>
       <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
         <polygon points="0 0, 8 3, 0 6" fill="#707070" />
@@ -60,6 +60,17 @@ cards.forEach(c => { c.icon = iconMap.get(c.slug); });
 
     <!-- ═══ USAGE GRAPH ═══ -->
 
+    <!-- Service Agents (above Register) -->
+    <a href="/docs/service-agents">
+      <g class="fg-node fg-node-hl">
+        <rect x="108" y="-30" width="128" height="40" rx="7" />
+        <text x="172" y="-10" text-anchor="middle" dominant-baseline="middle">Service Agents</text>
+      </g>
+    </a>
+
+    <!-- Register ↑ Service Agents (vertical arrow upward) -->
+    <line class="fg-arrow" x1="172" y1="24" x2="172" y2="14" marker-end="url(#arr)" />
+
     <!-- Row 1: Install → Register -->
     <line class="fg-arrow" x1="100" y1="46" x2="114" y2="46" marker-end="url(#arr)" />
 
@@ -71,7 +82,7 @@ cards.forEach(c => { c.icon = iconMap.get(c.slug); });
       </g>
     </a>
 
-    <!-- Register (branches: → Gateway Services, ↓ Initiate Trust) -->
+    <!-- Register (branches: → Gateway Services, ↑ Service Agents, ↓ Initiate Trust) -->
     <a href="/docs/getting-started#start">
       <g class="fg-node fg-node-hl">
         <rect x="118" y="24" width="108" height="44" rx="7" />
@@ -79,7 +90,7 @@ cards.forEach(c => { c.icon = iconMap.get(c.slug); });
       </g>
     </a>
 
-    <!-- Register → Gateway Services (horizontal leaf) -->
+    <!-- Register → Gateway Services (horizontal) -->
     <line class="fg-arrow" x1="228" y1="46" x2="248" y2="46" marker-end="url(#arr)" />
 
     <!-- Gateway Services (leaf) -->
