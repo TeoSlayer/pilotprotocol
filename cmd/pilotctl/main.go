@@ -802,9 +802,6 @@ func main() {
 		cmdClawdit(cmdArgs)
 	case "ls":
 		cmdLs(cmdArgs)
-	case "tui":
-		cmdTui(cmdArgs)
-
 	// Internal: forked daemon process
 	case "_daemon-run":
 		runDaemonInternal(cmdArgs)
@@ -1156,11 +1153,6 @@ func cmdContext() {
 				"args":        []string{},
 				"description": "List all available service agents and their configuration status",
 				"returns":     "agents [{name, description, usage, config, configured, node}]",
-			},
-			"tui": map[string]interface{}{
-				"args":        []string{},
-				"description": "Launch the interactive service-agent TUI (chat with AI, query Scriptorium, run audits)",
-				"returns":     "(interactive — no JSON output)",
 			},
 		},
 		"error_codes": map[string]interface{}{
@@ -5639,54 +5631,6 @@ func cmdLs(args []string) {
 	}
 }
 
-// cmdTui launches the interactive service-agent TUI.
-func cmdTui(args []string) {
-	// Locate tui.py: check next to the binary first, then fall back to ~/.pilot/tui.py.
-	exe, _ := os.Executable()
-	candidates := []string{
-		filepath.Join(filepath.Dir(exe), "tui.py"),
-	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		candidates = append(candidates, filepath.Join(home, ".pilot", "tui.py"))
-	}
-
-	var tuiPath string
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			tuiPath = p
-			break
-		}
-	}
-	if tuiPath == "" {
-		fatalHint("not_found",
-			"ensure tui.py is installed at ~/.pilot/tui.py or next to the pilotctl binary",
-			"TUI not found")
-	}
-
-	// Find python3.
-	python := "python3"
-	if p, err := exec.LookPath("python3"); err == nil {
-		python = p
-	} else if p, err := exec.LookPath("python"); err == nil {
-		python = p
-	} else {
-		fatalHint("not_found",
-			"install Python 3: https://python.org",
-			"python3 not found on PATH")
-	}
-
-	cmd := exec.Command(python, tuiPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		fatalCode("internal", "tui: %v", err)
-	}
-}
 
 // loadClawditNode reads the target node from ~/.pilot/clawdit.yaml.
 func loadClawditNode() string {

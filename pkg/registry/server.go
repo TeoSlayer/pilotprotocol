@@ -5624,11 +5624,12 @@ func (s *Server) sampleStats() statsSampleResult {
 			}
 		}
 		netSamples[net.ID] = NetworkSampleEntry{
-			ID:       net.ID,
-			Name:     net.Name,
-			Members:  len(net.Members),
-			Online:   netOnline,
-			Requests: net.requestCount.Load(),
+			Timestamp: now.Unix(),
+			ID:        net.ID,
+			Name:      net.Name,
+			Members:   len(net.Members),
+			Online:    netOnline,
+			Requests:  net.requestCount.Load(),
 		}
 	}
 
@@ -6465,7 +6466,7 @@ func (r *netHistoryRing) read() []NetworkSampleEntry {
 	var out []NetworkSampleEntry
 	for i := 0; i < r.Size; i++ {
 		idx := (r.Idx + i) % r.Size
-		if r.Samples[idx].Members > 0 || r.Samples[idx].Online > 0 || r.Samples[idx].Requests > 0 {
+		if r.Samples[idx].Timestamp != 0 {
 			out = append(out, r.Samples[idx])
 		}
 	}
@@ -6474,11 +6475,12 @@ func (r *netHistoryRing) read() []NetworkSampleEntry {
 
 // NetworkSampleEntry holds per-network stats within a time-series sample.
 type NetworkSampleEntry struct {
-	ID       uint16 `json:"id"`
-	Name     string `json:"name"`
-	Members  int    `json:"members"`
-	Online   int    `json:"online"`
-	Requests int64  `json:"requests"`
+	Timestamp int64  `json:"ts"`
+	ID        uint16 `json:"id"`
+	Name      string `json:"name"`
+	Members   int    `json:"members"`
+	Online    int    `json:"online"`
+	Requests  int64  `json:"requests"`
 }
 
 // DashboardStats is the public-safe data returned by the dashboard API.
