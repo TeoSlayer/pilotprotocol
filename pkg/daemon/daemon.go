@@ -1323,7 +1323,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagSYN | protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.Addr(),
+				Src:      pkt.Dst,
 				Dst:      pkt.Src,
 				SrcPort:  pkt.DstPort,
 				DstPort:  pkt.SrcPort,
@@ -1396,7 +1396,11 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		conn := d.ports.NewConnection(pkt.DstPort, pkt.Src, pkt.SrcPort)
 		conn.Mu.Lock()
-		conn.LocalAddr = d.Addr()
+		// Use the destination address from the SYN as our local address.
+		// This ensures the correct network-specific address is used for
+		// multi-network connections (e.g. 1:0001.0000.0003 instead of
+		// the primary 0:0000.0000.0003).
+		conn.LocalAddr = pkt.Dst
 		conn.State = StateSynReceived
 		conn.RecvAck = pkt.Seq + 1
 		conn.ExpectedSeq = pkt.Seq + 1 // first data segment after SYN
@@ -1417,7 +1421,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagSYN | protocol.FlagACK,
 			Protocol: protocol.ProtoStream,
-			Src:      d.Addr(),
+			Src:      pkt.Dst,
 			Dst:      pkt.Src,
 			SrcPort:  pkt.DstPort,
 			DstPort:  pkt.SrcPort,
@@ -1727,7 +1731,7 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagRST,
 		Protocol: protocol.ProtoStream,
-		Src:      d.Addr(),
+		Src:      orig.Dst,
 		Dst:      orig.Src,
 		SrcPort:  orig.DstPort,
 		DstPort:  orig.SrcPort,

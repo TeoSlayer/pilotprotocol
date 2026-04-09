@@ -353,16 +353,11 @@ func (pr *PolicyRunner) executeWebhook(d policy.Directive) {
 func (pr *PolicyRunner) cycleLoop() {
 	defer close(pr.done)
 
-	// Bootstrap if no peers and the policy has cycle rules
-	if pr.compiled.HasRulesFor(policy.EventCycle) {
-		pr.mu.RLock()
-		needBootstrap := len(pr.peers) == 0
-		pr.mu.RUnlock()
-		if needBootstrap {
-			if err := pr.bootstrap(); err != nil {
-				slog.Warn("policy: bootstrap failed", "network_id", pr.netID, "err", err)
-			}
-		}
+	// Always bootstrap from registry to refresh peer list and tags.
+	// Persisted state preserves scores/history, but membership and tags
+	// may have changed since last run.
+	if err := pr.bootstrap(); err != nil {
+		slog.Warn("policy: bootstrap failed", "network_id", pr.netID, "err", err)
 	}
 
 	cycleStr, _ := pr.compiled.CycleDuration()

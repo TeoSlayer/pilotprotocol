@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "service-connect",
+      "on": "connect",
+      "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "service-dial",
+      "on": "dial",
+      "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "block-peer-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    },
+    {
+      "name": "block-peer-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    },
+    {
+      "name": "allow-text",
+      "on": "datagram",
+      "match": "port == 1000",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-service-files",
+      "on": "datagram",
+      "match": "port == 1001 && ((direction == \"out\" && has_tag(local_tags, \"service\")) || (direction == \"in\" && has_tag(peer_tags, \"service\")))",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "deny-other-data",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    }
+  ]
+}

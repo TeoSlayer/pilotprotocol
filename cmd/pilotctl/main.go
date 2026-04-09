@@ -4384,15 +4384,30 @@ func cmdNetworkList() {
 
 func cmdNetworkJoin(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl network join <network_id> [--token TOKEN]")
+		fatalCode("invalid_argument", "usage: pilotctl network join <network_id> [--token TOKEN] [--node-id N]")
 	}
 	netID := parseUint16(args[0], "network_id")
-	token := ""
-	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--token" {
-			token = args[i+1]
-			break
+	flags, _ := parseFlags(args[1:])
+	token := flagString(flags, "token", "")
+	nodeIDStr := flagString(flags, "node-id", "")
+
+	// Admin path: --node-id joins a remote node directly via registry
+	if nodeIDStr != "" {
+		nodeID := parseNodeID(nodeIDStr)
+		adminToken := requireAdminToken()
+		rc := connectRegistry()
+		defer rc.Close()
+
+		result, err := rc.JoinNetwork(nodeID, netID, token, 0, adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "network join: %v", err)
 		}
+		if jsonOutput {
+			output(result)
+		} else {
+			fmt.Printf("joined node %d to network %d\n", nodeID, netID)
+		}
+		return
 	}
 
 	d := connectDriver()
@@ -5303,7 +5318,11 @@ func cmdPolicySet(args []string) {
 	reg := connectRegistry()
 	defer reg.Close()
 
-	_, err = reg.SetExprPolicy(netID, policyJSON, flagString(flags, "admin-token", ""))
+	adminToken := flagString(flags, "admin-token", "")
+	if adminToken == "" {
+		adminToken = getAdminToken()
+	}
+	_, err = reg.SetExprPolicy(netID, policyJSON, adminToken)
 	if err != nil {
 		fatalCode("connection_failed", "set policy on registry: %v", err)
 	}
@@ -5487,6 +5506,23 @@ func cmdMemberTagsSet(args []string) {
 	}
 
 	tags := strings.Split(tagsStr, ",")
+
+	// If admin token is available, go directly to registry (no daemon needed)
+	if adminToken := getAdminToken(); adminToken != "" {
+		rc := connectRegistry()
+		defer rc.Close()
+
+		result, err := rc.SetMemberTags(netID, uint32(nid), tags, adminToken)
+		if err != nil {
+			fatalCode("connection_failed", "member-tags set: %v", err)
+		}
+		if jsonOutput {
+			output(result)
+			return
+		}
+		fmt.Printf("Member tags set for node %d in network %d: %s\n", uint32(nid), netID, strings.Join(tags, ", "))
+		return
+	}
 
 	d := connectDriver()
 	defer d.Close()
