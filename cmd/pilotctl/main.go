@@ -429,16 +429,13 @@ Service Agents (AI-powered overlay services):
   pilotctl clawdit ["<query>"] [--file <openclaw.json>] [--node <address>] [--timeout <dur>] [--output-file [path]]
 
   Examples:
-    pilotctl tui
-    pilotctl ls
     pilotctl ai "how do I send a message to another node?"
-    pilotctl ai "I want to list all service agents and send a message to each. What is the format for scriptorium" --output-file peers.txt
+    pilotctl ai "list all trusted peers as a table" --output-file peers.txt
     pilotctl clawdit
-    pilotctl clawdit "should I set my mode on loopback or lan"
+    pilotctl clawdit "check if port 443 is exposed without TLS"
     pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md
 
   Config:
-    ~/.pilot/scriptorium.yaml  — default node for 'scriptorium' (key: node)
     ~/.pilot/scriptorium.yaml  — default node for 'ai' (key: node)
     ~/.pilot/clawdit.yaml      — default node for 'clawdit' (key: node)
 
