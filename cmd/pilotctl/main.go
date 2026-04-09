@@ -3627,6 +3627,15 @@ func cmdInfo() {
 	if email, ok := info["email"].(string); ok && email != "" {
 		fmt.Printf("  Email:       %s\n", email)
 	}
+	if nets, ok := info["networks"].([]interface{}); ok && len(nets) > 0 {
+		fmt.Printf("  Networks:    %d\n", len(nets))
+		for _, n := range nets {
+			nm, _ := n.(map[string]interface{})
+			netID := int(nm["network_id"].(float64))
+			addr, _ := nm["address"].(string)
+			fmt.Printf("    - network %d: %s\n", netID, addr)
+		}
+	}
 	fmt.Printf("  Traffic:     %s sent / %s recv\n", formatBytes(bytesSent), formatBytes(bytesRecv))
 	fmt.Printf("  Packets:     %d sent / %d recv\n", pktsSent, pktsRecv)
 

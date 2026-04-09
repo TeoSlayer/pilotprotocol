@@ -1182,6 +1182,11 @@ func (d *Daemon) Addr() protocol.Addr {
 }
 
 // DaemonInfo holds status information about the running daemon.
+type NetworkMembership struct {
+	NetworkID uint16 `json:"network_id"`
+	Address   string `json:"address"`
+}
+
 type DaemonInfo struct {
 	NodeID             uint32
 	Address            string
@@ -1203,6 +1208,7 @@ type DaemonInfo struct {
 	EncryptOK             uint64
 	EncryptFail           uint64
 	HandshakePendingCount int
+	Networks              []NetworkMembership
 	PeerList              []PeerInfo
 	ConnList              []ConnectionInfo
 }
@@ -1246,6 +1252,19 @@ func (d *Daemon) Info() *DaemonInfo {
 	hostname := d.config.Hostname
 	d.addrMu.RUnlock()
 
+	// Collect network memberships from registry
+	var networks []NetworkMembership
+	for _, netID := range d.nodeNetworks() {
+		if netID == 0 {
+			continue // backbone is already shown as primary address
+		}
+		addr := protocol.Addr{Network: netID, Node: nid}
+		networks = append(networks, NetworkMembership{
+			NetworkID: netID,
+			Address:   addr.String(),
+		})
+	}
+
 	return &DaemonInfo{
 		NodeID:             nid,
 		Address:            addrStr,
@@ -1267,6 +1286,7 @@ func (d *Daemon) Info() *DaemonInfo {
 		EncryptOK:             atomic.LoadUint64(&d.tunnels.EncryptOK),
 		EncryptFail:           atomic.LoadUint64(&d.tunnels.EncryptFail),
 		HandshakePendingCount: d.handshakes.PendingCount(),
+		Networks:              networks,
 		PeerList:              peerList,
 		ConnList:              d.ports.ConnectionList(),
 	}

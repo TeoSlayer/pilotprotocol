@@ -441,6 +441,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 		"tunnel_encryption_success":    info.EncryptOK,
 		"tunnel_encryption_failure":    info.EncryptFail,
 		"handshake_pending_count":      info.HandshakePendingCount,
+		"networks":                     info.Networks,
 		"peer_list":                    peers,
 		"conn_list":                    conns,
 	})
