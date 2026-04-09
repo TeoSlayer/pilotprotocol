@@ -1,0 +1,312 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import IslandNavbar from '../components/IslandNavbar.astro';
+import BlogFooter from '../components/BlogFooter.astro';
+import '../styles/global.css';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<BaseHead
+  title="Plans — Pilot Protocol"
+  description="The backbone is free. Private networks are where you pay. Compare Backbone, Private Network, and Enterprise tiers for Pilot Protocol."
+  canonicalUrl="https://pilotprotocol.network/plans"
+/>
+<style is:inline>
+:root{--accent2:#3b82f6;--glass-bg:rgba(10,10,10,0.55);--glass-border:rgba(255,255,255,0.1);--glass-shadow:0 8px 32px rgba(0,0,0,0.6),inset 0 1px 0 rgba(255,255,255,0.05)}
+.container{max-width:960px;margin:0 auto;padding:0 24px}
+.page-content{position:relative;z-index:1}
+
+/* Hero */
+.plans-hero{text-align:center;padding:100px 0 56px}
+.plans-hero h1{font-size:3.2rem;font-weight:800;letter-spacing:-0.04em;margin-bottom:16px;line-height:1.05;background:linear-gradient(135deg,#e5e5e5 0%,#22c55e 50%,#3b82f6 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.plans-hero .tagline{font-size:1.15rem;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.65}
+
+/* Tier cards */
+.tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin:0 0 80px}
+.tier{position:relative;border-radius:16px;padding:36px 30px;display:flex;flex-direction:column;background:var(--glass-bg);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);box-shadow:var(--glass-shadow);border:1px solid var(--glass-border);transition:transform 0.3s ease,box-shadow 0.3s ease}
+.tier:hover{transform:translateY(-4px);box-shadow:0 16px 48px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.08)}
+.tier.featured{border:none;background:var(--glass-bg);isolation:isolate}
+.tier.featured::before{content:'';position:absolute;inset:-1px;border-radius:17px;padding:1px;background:conic-gradient(from var(--angle,0deg),#22c55e,#3b82f6,#a855f7,#22c55e);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotate-border 4s linear infinite;pointer-events:none;z-index:-1}
+@property --angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes rotate-border{to{--angle:360deg}}
+.tier.featured::after{content:'';position:absolute;inset:0;border-radius:16px;background:radial-gradient(ellipse at 50% 0%,rgba(34,197,94,0.08) 0%,transparent 60%);pointer-events:none;z-index:0}
+.tier.featured>*{position:relative;z-index:1}
+.tier-popular{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#22c55e,#16a34a);color:#000;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;padding:4px 16px;border-radius:20px;white-space:nowrap}
+.tier-badge{display:inline-block;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding:4px 14px;border-radius:20px;margin-bottom:16px;width:fit-content;backdrop-filter:blur(8px)}
+.tier-badge-free{background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e}
+.tier-badge-pn{background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3);color:#60a5fa}
+.tier-badge-pn-long{font-size:0.62rem}
+.tier-badge-ent{background:rgba(192,132,252,0.15);border:1px solid rgba(192,132,252,0.3);color:#c084fc}
+.tier h3{font-size:1.35rem;font-weight:700;margin-bottom:8px}
+.tier .tier-price{font-size:2.2rem;font-weight:800;font-family:'SF Mono',Menlo,Consolas,monospace;margin-bottom:4px;letter-spacing:-0.02em}
+.tier .tier-price-sub{font-size:0.8rem;color:var(--muted);margin-bottom:24px}
+.tier .tier-desc{font-size:0.88rem;color:var(--muted);margin-bottom:24px;line-height:1.55}
+.tier ul{list-style:none;padding:0;margin:0 0 28px;flex:1}
+.tier li{font-size:0.84rem;color:var(--muted);padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:flex-start;gap:10px}
+.tier li:last-child{border-bottom:none}
+.tier li svg{width:16px;height:16px;flex-shrink:0;margin-top:2px}
+.tier li svg.check{stroke:#22c55e;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.tier .tier-cta{display:block;text-align:center;padding:11px 20px;border-radius:8px;font-size:0.85rem;font-weight:600;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.04em}
+.tier .tier-cta-primary{background:var(--accent);color:#000;border:none;box-shadow:0 0 20px rgba(34,197,94,0.3)}
+.tier .tier-cta-primary:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 30px rgba(34,197,94,0.4)}
+.tier .tier-cta-ghost{background:rgba(255,255,255,0.06);color:var(--fg);border:1px solid rgba(255,255,255,0.12)}
+.tier .tier-cta-ghost:hover{background:rgba(255,255,255,0.1);text-decoration:none}
+
+/* Sections */
+section{padding:60px 0}
+section h2{font-size:1.75rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:8px}
+section .section-sub{font-size:1rem;color:var(--muted);margin-bottom:32px}
+
+/* Comparison table */
+.table-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);box-shadow:var(--glass-shadow);overflow:hidden;margin-bottom:24px}
+.table-card table{width:100%;border-collapse:collapse;font-size:0.85rem;display:table}
+.table-card th{text-align:left;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.08);color:var(--muted);font-weight:600;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em}
+.table-card th:first-child{width:28%}
+.table-card td{padding:13px 18px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+.table-card tr:last-child td{border-bottom:none}
+.table-card tr:hover td{background:rgba(255,255,255,0.02)}
+.table-card td:first-child{color:var(--fg);font-weight:500;white-space:normal;font-family:inherit;font-size:inherit}
+.table-card td strong{color:var(--fg)}
+.table-card .highlight{color:var(--accent);font-weight:600}
+
+/* FAQ */
+.faq-list{max-width:700px}
+.faq-item{border-bottom:1px solid rgba(255,255,255,0.06)}
+.faq-q{display:flex;align-items:center;justify-content:space-between;width:100%;padding:20px 0;background:none;border:none;color:var(--fg);font-size:0.95rem;font-weight:500;cursor:pointer;font-family:inherit;text-align:left;transition:color 0.15s}
+.faq-q:hover{color:var(--accent)}
+.faq-q svg{width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2;flex-shrink:0;transition:transform 0.2s,stroke 0.2s}
+.faq-item.open .faq-q svg{transform:rotate(45deg);stroke:var(--accent)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height 0.3s ease}
+.faq-item.open .faq-a{max-height:200px}
+.faq-a p{padding:0 0 20px;color:var(--muted);font-size:0.9rem;line-height:1.6}
+.faq-a strong{color:var(--fg)}
+
+/* Callout */
+.callout{background:var(--glass-bg);border:1px solid var(--glass-border);border-left:3px solid var(--accent);border-radius:10px;padding:24px 28px;margin:48px 0;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);box-shadow:var(--glass-shadow)}
+.callout p{color:var(--muted);font-size:0.9rem;line-height:1.65;margin:0}
+.callout strong{color:var(--accent)}
+
+/* Scroll reveal */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity 0.7s ease,transform 0.7s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.reveal.delay-1{transition-delay:0.1s}
+.reveal.delay-2{transition-delay:0.2s}
+.reveal.delay-3{transition-delay:0.3s}
+
+/* Responsive */
+@media(max-width:768px){
+  .plans-hero{padding:80px 0 36px}
+  .plans-hero h1{font-size:2.2rem}
+  .tiers{grid-template-columns:1fr;gap:20px;margin-bottom:48px;max-width:440px;margin-left:auto;margin-right:auto}
+  section h2{font-size:1.5rem}
+}
+@media(max-width:640px){
+  .plans-hero{padding:72px 0 32px}
+  .plans-hero h1{font-size:1.8rem}
+  .plans-hero .tagline{font-size:0.95rem}
+  .tiers{max-width:none}
+  .tier{padding:28px 22px}
+  .tier-popular{font-size:0.6rem;padding:3px 12px}
+  .table-card{overflow-x:auto}
+  .table-card table{min-width:560px}
+  .faq-q{font-size:0.88rem;padding:16px 0}
+  .faq-a p{font-size:0.82rem}
+  .callout{padding:18px 20px}
+}
+@media(max-width:380px){
+  .plans-hero h1{font-size:1.5rem}
+  .tier .tier-price{font-size:1.6rem}
+  .tier h3{font-size:1.1rem}
+}
+</style>
+</head>
+<body>
+
+<IslandNavbar active="plans" />
+
+<div class="page-content">
+<div class="container">
+
+<!-- Hero -->
+<div class="plans-hero reveal">
+  <h1>Plans</h1>
+  <p class="tagline">The backbone is free. Private networks are where you pay.</p>
+</div>
+
+<!-- Tier cards -->
+<div class="tiers">
+
+  <!-- Backbone -->
+  <div class="tier featured reveal delay-1">
+    <span class="tier-badge tier-badge-free">Free</span>
+    <h3>Backbone</h3>
+    <div class="tier-price">$0</div>
+    <div class="tier-price-sub">Free forever</div>
+    <p class="tier-desc">Open to all agents. Full protocol features on the public backbone.</p>
+    <ul>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Addressing, tunnels, encryption, trust</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>NAT traversal (STUN + relay)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Public registry + beacon</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Unlimited agents, connections, bandwidth</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>AGPL-3.0 open source</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Community support</li>
+    </ul>
+    <a class="tier-cta tier-cta-primary" href="/docs/getting-started">Get Started</a>
+  </div>
+
+  <!-- Private Network -->
+  <div class="tier reveal delay-2">
+    <span class="tier-popular">Available now</span>
+    <span class="tier-badge tier-badge-pn tier-badge-pn-long">Private Network</span>
+    <h3>Private Network</h3>
+    <div class="tier-price">$200<span style="font-size:0.4em;font-weight:400;color:var(--muted)">/mo</span></div>
+    <div class="tier-price-sub">+ $10/mo per agent</div>
+    <p class="tier-desc">Private networks for agent swarms, teams, and organizations. Managed through the <a href="/docs/console">web console</a>.</p>
+    <ul>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Backbone</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Web console &mdash; create networks, add agents, monitor status</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Token-gated &amp; invite-only network join</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>SYN-level trust enforcement</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Network-scoped discovery</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>API keys for programmatic access</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>First network free (up to 3 agents)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Email support</li>
+    </ul>
+    <a class="tier-cta tier-cta-primary" href="https://console.pilotprotocol.network">Open Console</a>
+  </div>
+
+  <!-- Enterprise -->
+  <div class="tier reveal delay-3">
+    <span class="tier-badge tier-badge-ent">Enterprise</span>
+    <h3>Enterprise</h3>
+    <div class="tier-price">Custom</div>
+    <div class="tier-price-sub">Tailored to your org</div>
+    <p class="tier-desc">Full enterprise stack: RBAC, identity providers, directory sync, audit export, and declarative provisioning. <a href="/docs/enterprise">See docs</a>.</p>
+    <ul>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Everything in Private Network</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>RBAC &mdash; owner, admin, member roles with permissions matrix</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>OIDC, SAML, Entra ID, LDAP &amp; webhook identity providers</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Directory sync (AD/Entra ID/LDAP) with role mapping</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>JWT validation (RS256, HS256) with JWKS caching</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Network policies &mdash; membership caps &amp; port whitelists</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Audit export &mdash; Splunk HEC, CEF/Syslog, JSON</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Webhooks with retry &amp; dead-letter queue</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Blueprint provisioning &mdash; declarative network setup</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Key lifecycle &mdash; rotation, expiry, forced renewal</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Consent-based invite flow (30-day TTL)</li>
+      <li><svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Dedicated infrastructure + priority support + SLA</li>
+    </ul>
+    <a class="tier-cta tier-cta-ghost" href="mailto:founders@pilotprotocol.network">Contact Us</a>
+  </div>
+
+</div>
+
+<!-- Callout -->
+<div class="callout reveal">
+  <p><strong>The backbone will always be free.</strong> The protocol is open source. Your identity keys are yours. No vendor lock-in, no surprise bills, no &ldquo;free tier&rdquo; that quietly throttles. You pay for private infrastructure, not for the protocol.</p>
+</div>
+
+<!-- Comparison -->
+<section>
+  <h2 class="reveal">Comparison</h2>
+  <p class="section-sub reveal">Every tier includes the full protocol. The difference is scope and infrastructure.</p>
+
+  <div class="table-card reveal">
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>Backbone (Free)</th>
+          <th>Private Network</th>
+          <th>Enterprise</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Protocol features</td><td class="highlight">Full</td><td class="highlight">Full</td><td class="highlight">Full</td></tr>
+        <tr><td>Network type</td><td>Public backbone</td><td>Private network</td><td>Isolated deployment</td></tr>
+        <tr><td>Management</td><td>&mdash;</td><td class="highlight">Web console + API</td><td>Web console + API</td></tr>
+        <tr><td>Registry</td><td>Shared</td><td>Scoped</td><td>Dedicated</td></tr>
+        <tr><td>Agent visibility</td><td>Configurable</td><td>Network-scoped</td><td>Org-scoped</td></tr>
+        <tr><td>NAT traversal</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td><td class="highlight">Built-in</td></tr>
+        <tr><td>E2E encryption</td><td class="highlight">Yes</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
+        <tr><td>SYN trust enforcement</td><td>&mdash;</td><td class="highlight">Yes</td><td class="highlight">Yes</td></tr>
+        <tr><td>Network join rules</td><td>&mdash;</td><td>Token + invite</td><td class="highlight">Token + invite + consent flow</td></tr>
+        <tr><td>RBAC</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Owner / admin / member roles</td></tr>
+        <tr><td>Network policies</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Membership caps + port whitelists</td></tr>
+        <tr><td>Identity providers</td><td>Ed25519</td><td>Ed25519</td><td class="highlight">Ed25519 + OIDC + SAML + Entra ID + LDAP</td></tr>
+        <tr><td>Directory sync</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">AD / Entra ID / LDAP with role mapping</td></tr>
+        <tr><td>JWT validation</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">RS256 + HS256, JWKS caching</td></tr>
+        <tr><td>Audit</td><td>Webhooks</td><td>Webhooks</td><td class="highlight">Splunk HEC + CEF/Syslog + JSON export</td></tr>
+        <tr><td>Provisioning</td><td>&mdash;</td><td>Console</td><td class="highlight">Blueprints (declarative JSON)</td></tr>
+        <tr><td>Key lifecycle</td><td>&mdash;</td><td>&mdash;</td><td class="highlight">Rotation, expiry, forced renewal</td></tr>
+        <tr><td>Rendezvous infra</td><td>Community</td><td>Managed</td><td>Dedicated</td></tr>
+        <tr><td>Support</td><td>Community</td><td>Email</td><td>Priority + SLA</td></tr>
+        <tr><td><strong>Price</strong></td><td class="highlight">Free forever</td><td class="highlight">$200/mo + $10/agent</td><td class="highlight">Custom</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section>
+  <h2 class="reveal">FAQ</h2>
+  <p class="section-sub reveal">Common questions about plans and pricing.</p>
+  <div class="faq-list reveal">
+    <div class="faq-item">
+      <button class="faq-q">Is the backbone really free?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Yes, forever. The protocol is open source (AGPL-3.0), the backbone registry and beacon are community infrastructure, and there are no usage limits. No signup required.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What is a private network?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>A group of agents that can all communicate without individual handshakes. Add agents through the <a href="/docs/console">web console</a> and they can immediately discover and connect to each other. Private agents are invisible to everyone outside the network.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Can agents on a private network talk to backbone agents?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Only if explicitly bridged. Private means private. Agents in a private network are not discoverable or reachable from the backbone by default.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Do I need Private Network or Enterprise for encryption?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>No. End-to-end encryption (X25519 + AES-256-GCM) is built into every tier, including the free backbone. Encryption is a protocol feature, not a paid add-on.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What is the difference between Private Network and Enterprise?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>Private Network gives you isolated address spaces with token-gated joins and SYN-level trust enforcement. Enterprise adds RBAC (owner/admin/member roles), identity provider integration (OIDC, SAML, Entra ID, LDAP), directory sync, network policies (membership caps, port whitelists), audit export to SIEMs (Splunk, CEF, JSON), blueprint provisioning, key lifecycle management, and dedicated infrastructure.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">What happens to my agents if I stop paying?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>They remain on the backbone. The protocol is open source, your identity keys are yours, and the backbone is free forever. You lose the private network &mdash; your agents go back to the public backbone with no data loss.</p></div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q">Do I need to install anything to use private networks?<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <div class="faq-a"><p>No. Create an account at <a href="https://console.pilotprotocol.network">console.pilotprotocol.network</a>, set up your network, and add agents. The console runs in your browser &mdash; no server setup required.</p></div>
+    </div>
+  </div>
+</section>
+
+</div>
+</div>
+
+<BlogFooter />
+
+<script is:inline>
+// FAQ accordion
+document.querySelectorAll('.faq-q').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    this.closest('.faq-item').classList.toggle('open');
+  });
+});
+
+// Scroll reveal
+var revealObserver = new IntersectionObserver(function(entries){
+  entries.forEach(function(entry){
+    if(entry.isIntersecting){
+      entry.target.classList.add('visible');
+    }
+  });
+},{threshold:0.1});
+document.querySelectorAll('.reveal').forEach(function(el){revealObserver.observe(el)});
+</script>
+
+</body>
+</html>

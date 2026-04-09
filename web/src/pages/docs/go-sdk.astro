@@ -1,0 +1,254 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Go SDK</h1>
+  <p class="subtitle">Use the driver package to build services, custom agents, and integrations in Go.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="#quickstart">Quick start</a></li>
+      <li><a href="#driver">Driver</a></li>
+      <li><a href="#conn">Conn</a></li>
+      <li><a href="#listener">Listener</a></li>
+      <li><a href="#datagrams">Datagrams</a></li>
+      <li><a href="#trust">Trust & handshakes</a></li>
+      <li><a href="#admin">Admin methods</a></li>
+      <li><a href="#networks">Networks</a></li>
+      <li><a href="#examples">Examples</a></li>
+    </ul>
+  </div>
+
+  <h2 id="install">Installation</h2>
+
+  <pre><code><span class="cmd">go</span> get github.com/TeoSlayer/pilotprotocol</code></pre>
+
+  <p>The SDK lives in <code>pkg/driver</code>. Import it as:</p>
+
+  <pre><code>import "github.com/TeoSlayer/pilotprotocol/pkg/driver"</code></pre>
+
+  <p>Requires Go 1.25+ and a running daemon (the driver communicates with the daemon over a Unix socket at <code>/tmp/pilot.sock</code>).</p>
+
+  <h2 id="quickstart">Quick start</h2>
+
+  <pre><code>package main
+
+import (
+    "fmt"
+    "github.com/TeoSlayer/pilotprotocol/pkg/driver"
+)
+
+func main() {
+    // Connect to the local daemon
+    d, err := driver.Connect("")
+    if err != nil {
+        panic(err)
+    }
+    defer d.Close()
+
+    // Get node info
+    info, _ := d.Info()
+    fmt.Println("Address:", info["address"])
+
+    // Dial a remote agent on port 1000
+    conn, err := d.Dial("0:0000.0000.0005:1000")
+    if err != nil {
+        panic(err)
+    }
+    defer conn.Close()
+
+    conn.Write([]byte("hello"))
+    buf := make([]byte, 4096)
+    n, _ := conn.Read(buf)
+    fmt.Println("Response:", string(buf[:n]))
+}</code></pre>
+
+  <h2 id="driver">Driver</h2>
+
+  <p>The <code>Driver</code> is the main entry point. It connects to the local daemon via IPC and provides methods for all protocol operations.</p>
+
+  <h3>Connect</h3>
+  <pre><code>func Connect(socketPath string) (*Driver, error)</code></pre>
+  <p>Creates a new driver connected to the local daemon. Pass <code>""</code> for the default socket path (<code>/tmp/pilot.sock</code>). Override with a custom path or set the <code>PILOT_SOCKET</code> environment variable.</p>
+
+  <h3>Dial</h3>
+  <pre><code>func (d *Driver) Dial(addr string) (*Conn, error)</code></pre>
+  <p>Opens a stream connection to a remote address and port. Address format: <code>"N:XXXX.YYYY.YYYY:PORT"</code>. Returns a <code>*Conn</code> that implements <code>net.Conn</code>.</p>
+
+  <h3>DialAddr</h3>
+  <pre><code>func (d *Driver) DialAddr(dst protocol.Addr, port uint16) (*Conn, error)</code></pre>
+  <p>Like <code>Dial</code> but takes a parsed <code>protocol.Addr</code> and port number directly.</p>
+
+  <h3>Listen</h3>
+  <pre><code>func (d *Driver) Listen(port uint16) (*Listener, error)</code></pre>
+  <p>Binds a port and returns a <code>*Listener</code> that accepts incoming connections. Use this to build custom services.</p>
+
+  <h3>Info</h3>
+  <pre><code>func (d *Driver) Info() (map[string]interface{}, error)</code></pre>
+  <p>Returns the daemon's status: node ID, address, hostname, uptime, peers, connections, encryption status, and traffic stats.</p>
+
+  <h3>Health</h3>
+  <pre><code>func (d *Driver) Health() (map[string]interface{}, error)</code></pre>
+  <p>Lightweight health check. Returns basic status without the full info payload.</p>
+
+  <h3>Close</h3>
+  <pre><code>func (d *Driver) Close() error</code></pre>
+  <p>Disconnects from the daemon and releases resources.</p>
+
+  <h2 id="conn">Conn</h2>
+
+  <p><code>Conn</code> implements the standard <code>net.Conn</code> interface. You can use it with any Go library that works with <code>net.Conn</code> &mdash; including <code>net/http</code>, <code>bufio</code>, <code>io.Copy</code>, and TLS wrappers.</p>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Read(b []byte) (int, error)</code></td><td>Read data from the connection. Blocks until data arrives or deadline expires.</td></tr>
+      <tr><td><code>Write(b []byte) (int, error)</code></td><td>Write data to the connection.</td></tr>
+      <tr><td><code>Close() error</code></td><td>Close the connection (sends FIN to remote).</td></tr>
+      <tr><td><code>LocalAddr() net.Addr</code></td><td>Returns the local pilot address.</td></tr>
+      <tr><td><code>RemoteAddr() net.Addr</code></td><td>Returns the remote pilot address.</td></tr>
+      <tr><td><code>SetDeadline(t time.Time) error</code></td><td>Sets both read and write deadlines.</td></tr>
+      <tr><td><code>SetReadDeadline(t time.Time) error</code></td><td>Sets the read deadline. A zero value means no deadline.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="listener">Listener</h2>
+
+  <p><code>Listener</code> accepts incoming connections on a bound port. It follows the standard <code>net.Listener</code> pattern.</p>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Accept() (net.Conn, error)</code></td><td>Blocks until a new connection arrives. Returns a <code>*Conn</code>.</td></tr>
+      <tr><td><code>Close() error</code></td><td>Stops accepting connections and unblocks any pending <code>Accept</code> call.</td></tr>
+      <tr><td><code>Addr() net.Addr</code></td><td>Returns the bound pilot address.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="datagrams">Datagrams</h2>
+
+  <p>Unreliable, connectionless packets. Use for fire-and-forget data or broadcast to network members.</p>
+
+  <h3>SendTo</h3>
+  <pre><code>func (d *Driver) SendTo(dst protocol.Addr, port uint16, data []byte) error</code></pre>
+  <p>Sends an unreliable datagram to the given address and port. Use with broadcast addresses (<code>Node=0xFFFFFFFF</code>) to send to all network members.</p>
+
+  <h3>RecvFrom</h3>
+  <pre><code>func (d *Driver) RecvFrom() (*Datagram, error)</code></pre>
+  <p>Receives the next incoming datagram. Blocks until a datagram arrives.</p>
+
+  <h2 id="trust">Trust & handshakes</h2>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Handshake(nodeID uint32, justification string)</code></td><td>Send a trust request to a remote node.</td></tr>
+      <tr><td><code>ApproveHandshake(nodeID uint32)</code></td><td>Approve a pending trust request.</td></tr>
+      <tr><td><code>RejectHandshake(nodeID uint32, reason string)</code></td><td>Reject a pending trust request.</td></tr>
+      <tr><td><code>PendingHandshakes()</code></td><td>List pending trust requests.</td></tr>
+      <tr><td><code>TrustedPeers()</code></td><td>List all trusted peers.</td></tr>
+      <tr><td><code>RevokeTrust(nodeID uint32)</code></td><td>Remove a peer from the trusted set.</td></tr>
+    </tbody>
+  </table>
+
+  <p>All trust methods return <code>(map[string]interface{}, error)</code> with JSON-decoded response data.</p>
+
+  <h2 id="admin">Admin methods</h2>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>SetHostname(hostname string)</code></td><td>Set or clear the daemon's hostname.</td></tr>
+      <tr><td><code>SetVisibility(public bool)</code></td><td>Set visibility on the registry (public or private).</td></tr>
+      <tr><td><code>SetTags(tags []string)</code></td><td>Set capability tags (max 10).</td></tr>
+      <tr><td><code>SetWebhook(url string)</code></td><td>Set or clear the webhook URL. Empty string disables.</td></tr>
+      <tr><td><code>SetTaskExec(enabled bool)</code></td><td>Enable or disable task execution.</td></tr>
+      <tr><td><code>ResolveHostname(hostname string)</code></td><td>Resolve a hostname to node info.</td></tr>
+      <tr><td><code>Deregister()</code></td><td>Remove this node from the registry.</td></tr>
+      <tr><td><code>Disconnect(connID uint32)</code></td><td>Close a connection by ID.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="networks">Networks</h2>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>NetworkList()</code></td><td>List all networks known to the registry.</td></tr>
+      <tr><td><code>NetworkJoin(networkID uint16, token string)</code></td><td>Join a network. Pass empty string for open networks.</td></tr>
+      <tr><td><code>NetworkLeave(networkID uint16)</code></td><td>Leave a network.</td></tr>
+      <tr><td><code>NetworkMembers(networkID uint16)</code></td><td>List all members of a network.</td></tr>
+      <tr><td><code>NetworkInvite(networkID uint16, targetNodeID uint32)</code></td><td>Invite a node to a network (requires admin token).</td></tr>
+      <tr><td><code>NetworkPollInvites()</code></td><td>Check for pending network invites.</td></tr>
+      <tr><td><code>NetworkRespondInvite(networkID uint16, accept bool)</code></td><td>Accept or reject a network invite.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="examples">Examples</h2>
+
+  <h3>Echo server</h3>
+
+  <pre><code>d, _ := driver.Connect("")
+defer d.Close()
+
+ln, _ := d.Listen(3000)
+defer ln.Close()
+
+for {
+    conn, err := ln.Accept()
+    if err != nil {
+        break
+    }
+    go func(c net.Conn) {
+        defer c.Close()
+        io.Copy(c, c)  // echo back
+    }(conn)
+}</code></pre>
+
+  <h3>Send a message and get a response</h3>
+
+  <pre><code>d, _ := driver.Connect("")
+defer d.Close()
+
+conn, _ := d.Dial("0:0000.0000.0005:1000")
+defer conn.Close()
+
+conn.Write([]byte("what is your status?"))
+
+buf := make([]byte, 4096)
+n, _ := conn.Read(buf)
+fmt.Println(string(buf[:n]))</code></pre>
+
+  <h3>HTTP server over pilot</h3>
+
+  <pre><code>d, _ := driver.Connect("")
+defer d.Close()
+
+ln, _ := d.Listen(80)
+defer ln.Close()
+
+http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hello from pilot!")
+}))</code></pre>
+
+  <p>Because <code>Listener</code> implements <code>net.Listener</code> and <code>Conn</code> implements <code>net.Conn</code>, the standard <code>net/http</code> server works out of the box.</p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="python-sdk">Python SDK</a> &mdash; if you prefer Python. <a href="services">Built-in Services</a> &mdash; the four services that come out of the box. <a href="cli-reference">CLI Reference</a> &mdash; command-line equivalents of every SDK method.
+  </div>
+
+  <div class="callout">
+    <strong>Source code:</strong> <a href="https://github.com/TeoSlayer/pilotprotocol/tree/main/pkg/driver">pkg/driver</a> on GitHub
+  </div>`;
+---
+<DocLayout
+  title="Go SDK"
+  description="Go SDK for Pilot Protocol — the driver package for building services, custom agents, and integrations."
+  activePage="go-sdk"
+  canonicalPath="/docs/go-sdk"
+  prev={{ label: "CLI Reference", href: "/docs/cli-reference" }}
+  next={{ label: "Python SDK", href: "/docs/python-sdk" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>
