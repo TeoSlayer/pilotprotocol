@@ -81,11 +81,9 @@ const bodyContent = `<h1>RBAC & Access Control</h1>
 
   <h2 id="ownership">Ownership transfer</h2>
 
-  <p>Transfer network ownership to another member:</p>
+  <p>Transfer network ownership to another member via the registry protocol command <code>transfer_ownership</code>. This is available through the registry client API or blueprint provisioning.</p>
 
-  <pre><code><span class="cmd">pilotctl</span> network transfer-ownership &lt;network_id&gt; &lt;new_owner_node_id&gt;</code></pre>
-
-  <p>Protocol command: <code>transfer_ownership</code>. The current owner becomes an admin. The target must be a current member of the network (any role). This is an atomic operation &mdash; there is never a moment without an owner.</p>
+  <p>The current owner becomes an admin. The target must be a current member of the network (any role). This is an atomic operation &mdash; there is never a moment without an owner.</p>
 
   <h2 id="admin-tokens">Per-network admin tokens</h2>
 
@@ -111,8 +109,8 @@ const bodyContent = `<h1>RBAC & Access Control</h1>
 
   <h3>Accept or reject</h3>
 
-  <pre><code><span class="cmd">pilotctl</span> network accept-invite &lt;network_id&gt;
-<span class="cmd">pilotctl</span> network reject-invite &lt;network_id&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> network accept &lt;network_id&gt;
+<span class="cmd">pilotctl</span> network reject &lt;network_id&gt;</code></pre>
 
   <p>Protocol command: <code>respond_to_invite</code>. Accepting joins the agent to the network with the <strong>member</strong> role. Rejecting removes the invitation from the inbox.</p>
 

@@ -16,6 +16,8 @@ export const docsNav: NavItem[] = [
     icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' },
   { label: 'CLI Reference', href: '/docs/cli-reference', slug: 'cli-reference',
     icon: '<svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>' },
+  { label: 'Go SDK', href: '/docs/go-sdk', slug: 'go-sdk',
+    icon: '<svg viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>' },
   { label: 'Python SDK', href: '/docs/python-sdk', slug: 'python-sdk',
     icon: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 4.69 2 8v2c0 3.31 4.48 6 10 6s10-2.69 10-6V8c0-3.31-4.48-6-10-6z"/><path d="M2 14v2c0 3.31 4.48 6 10 6s10-2.69 10-6v-2"/></svg>' },
   // Features
@@ -77,7 +79,4 @@ export const docsNav: NavItem[] = [
   // Research
   { section: 'Research', label: 'Papers', href: '/docs/research', slug: 'research',
     icon: '<svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>' },
-  // Plans
-  { section: 'Plans', label: 'Plans', href: '/docs/plans', slug: 'plans',
-    icon: '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
 ];

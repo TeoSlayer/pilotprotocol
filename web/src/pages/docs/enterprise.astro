@@ -23,15 +23,11 @@ const bodyContent = `<h1>Enterprise</h1>
 
   <h2 id="enable">Enable enterprise</h2>
 
-  <p>Enterprise features are gated per-network. Enable them at creation time or on an existing network:</p>
+  <p>Enterprise features are gated per-network. Enable them at creation time:</p>
 
-  <pre><code><span class="comment"># At creation</span>
-<span class="cmd">pilotctl</span> network create --name prod-fleet --enterprise
+  <pre><code><span class="cmd">pilotctl</span> network create --name prod-fleet --enterprise</code></pre>
 
-<span class="comment"># On an existing network</span>
-<span class="cmd">pilotctl</span> network set-enterprise &lt;network_id&gt; true</code></pre>
-
-  <p>The protocol command is <code>set_network_enterprise</code>. Enabling enterprise on a network promotes the creator to the <strong>owner</strong> role and unlocks all enterprise features for that network. Enterprise mode can also be disabled, which strips RBAC roles but preserves membership.</p>
+  <p>Enabling enterprise on a network promotes the creator to the <strong>owner</strong> role and unlocks all enterprise features for that network.</p>
 
   <h2 id="features">Feature summary</h2>
 

@@ -1,8 +1,0 @@
----
-import fs from 'node:fs';
-import path from 'node:path';
-
-const htmlPath = path.join(process.cwd(), 'src/html/plans.html');
-const rawHtml = fs.readFileSync(htmlPath, 'utf-8');
----
-<Fragment set:html={rawHtml} />

@@ -20,7 +20,7 @@ export async function GET() {
 
   // Static pages
   urls.push(url('/', today, 1.0, 'weekly'));
-  urls.push(url('/playground', '2026-03-23', 0.7));
+urls.push(url('/plans', today, 0.9));
   urls.push(url('/blog/', today, 0.9, 'weekly'));
   urls.push(url('/llms.txt', '2026-02-28', 0.5));
 

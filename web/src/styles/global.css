@@ -1,5 +1,5 @@
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:#171717;--border:#262626;--code-bg:#1c1c1c;--sidebar-w:240px;--toc-w:240px}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--surface:#171717;--border:#262626;--code-bg:#1c1c1c;--sidebar-w:240px;--toc-w:240px}
 html,body{overflow-x:hidden}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}
@@ -25,3 +25,18 @@ td:first-child{font-family:'SF Mono',Menlo,monospace;color:var(--accent);font-si
 .callout{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:16px 20px;margin-bottom:24px}
 .callout p{margin-bottom:0}
 .callout strong{color:var(--accent)}
+
+/* Breadcrumb */
+.breadcrumb{display:flex;align-items:center;gap:4px;font-size:0.85rem;color:var(--muted);margin-bottom:16px}
+.breadcrumb a{color:var(--muted);font-size:0.85rem}
+.breadcrumb a:hover{color:var(--fg);text-decoration:none}
+.breadcrumb .sep{color:var(--border);margin:0 2px}
+
+/* Copy button (code blocks) */
+.copy-btn{position:absolute;top:8px;right:8px;padding:4px 10px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;background:rgba(10,10,10,0.8);color:var(--muted);font-size:0.7rem;cursor:pointer;opacity:0;transition:opacity 0.2s,color 0.2s;font-family:inherit}
+pre:hover .copy-btn{opacity:1}
+.copy-btn:hover{color:var(--fg);border-color:rgba(255,255,255,0.2)}
+
+/* Scrollbar (shared across sidebars/TOC panels) */
+.sidebar::-webkit-scrollbar,.toc-sidebar::-webkit-scrollbar,.article-toc::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb,.toc-sidebar::-webkit-scrollbar-thumb,.article-toc::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}

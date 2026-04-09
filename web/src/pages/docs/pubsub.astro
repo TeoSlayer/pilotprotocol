@@ -8,10 +8,15 @@ const bodyContent = `<h1>Pub/Sub</h1>
     <h4>On this page</h4>
     <ul>
       <li><a href="#overview">Overview</a></li>
+      <li><a href="#architecture">Architecture</a></li>
       <li><a href="#subscribe">Subscribing</a></li>
       <li><a href="#publish">Publishing</a></li>
       <li><a href="#wildcards">Wildcards</a></li>
       <li><a href="#ndjson">NDJSON streaming</a></li>
+      <li><a href="#guarantees">Delivery guarantees</a></li>
+      <li><a href="#limits">Limits</a></li>
+      <li><a href="#topics">Topic conventions</a></li>
+      <li><a href="#internals">How it works under the hood</a></li>
       <li><a href="#use-cases">Use cases</a></li>
     </ul>
   </div>
@@ -19,6 +24,22 @@ const bodyContent = `<h1>Pub/Sub</h1>
   <h2 id="overview">Overview</h2>
 
   <p>Every daemon runs an event stream broker on <strong>port 1002</strong>. Agents can subscribe to topics on any trusted peer and receive events in real time. Publishers send events to a topic, and the broker distributes them to all active subscribers.</p>
+
+  <p>Pub/sub is designed for fan-out scenarios where multiple consumers need the same data stream — monitoring, coordination, event-driven workflows. For one-to-one messaging, use <a href="messaging#connect">stream connections</a> or <a href="messaging#send-message">data exchange</a> instead.</p>
+
+  <h2 id="architecture">Architecture</h2>
+
+  <p>Each daemon runs its own <strong>independent broker</strong> — there is no central message server. The broker lives inside the daemon process and manages subscriptions for that node only.</p>
+
+  <p>When you subscribe to topics on another agent, your daemon opens a connection to their event stream port (1002). The remote broker registers your subscription and pushes matching events over that connection. When you publish to another agent, your daemon sends the event to their broker, which fans it out to all active subscribers.</p>
+
+  <p>This means:</p>
+  <ul>
+    <li>Each node is both a potential publisher and broker</li>
+    <li>Subscribers connect <strong>to the publisher</strong>, not to a shared server</li>
+    <li>No single point of failure — if one node goes down, other nodes' brokers continue operating independently</li>
+    <li>Subscriptions are per-connection — if the connection drops, the subscription is gone</li>
+  </ul>
 
   <h2 id="subscribe">Subscribing</h2>
 
@@ -53,16 +74,90 @@ const bodyContent = `<h1>Pub/Sub</h1>
 <span class="cmd">pilotctl</span> subscribe other-agent status | <span class="cmd">jq</span> '.data'
 
 <span class="comment"># Log events to a file</span>
-<span class="cmd">pilotctl</span> subscribe other-agent "*" >> events.jsonl</code></pre>
+<span class="cmd">pilotctl</span> subscribe other-agent "*" >> events.jsonl
+
+<span class="comment"># Monitor metrics in real time</span>
+<span class="cmd">pilotctl</span> subscribe other-agent metrics | while read -r line; do
+  echo "\\$line" | <span class="cmd">jq</span> -r '"CPU: \\(.data | fromjson | .cpu)%"'
+done</code></pre>
+
+  <h2 id="guarantees">Delivery guarantees</h2>
+
+  <table>
+    <thead><tr><th>Property</th><th>Guarantee</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Delivery</strong></td><td>At-most-once. No acknowledgments, no retries.</td></tr>
+      <tr><td><strong>Ordering</strong></td><td>Events arrive in publish order per connection.</td></tr>
+      <tr><td><strong>Persistence</strong></td><td>None. Events are not stored anywhere.</td></tr>
+      <tr><td><strong>Replay</strong></td><td>Not supported. Missed events are gone.</td></tr>
+      <tr><td><strong>Disconnection</strong></td><td>If a subscriber disconnects, events published during the disconnection are lost. Reconnecting starts a fresh subscription.</td></tr>
+    </tbody>
+  </table>
+
+  <p>Pub/sub is designed for real-time streaming where dropping an occasional event is acceptable. If you need guaranteed delivery, use <a href="messaging#send-message">data exchange</a> (messages persist in the inbox) or <a href="messaging#connect">stream connections</a> (synchronous request-response).</p>
+
+  <h2 id="limits">Limits</h2>
+
+  <ul>
+    <li><strong>Topic name:</strong> max 1024 bytes</li>
+    <li><strong>Payload:</strong> max 16 MB per event</li>
+    <li><strong>Subscribers:</strong> no hard limit — bounded by available connections</li>
+  </ul>
+
+  <h2 id="topics">Topic conventions</h2>
+
+  <p>Topic names are arbitrary strings. There is no enforced hierarchy, but using dot-separated namespaces keeps things organized:</p>
+
+  <ul>
+    <li><code>status</code> — agent status updates (online, processing, idle)</li>
+    <li><code>metrics.cpu</code> — CPU utilization metrics</li>
+    <li><code>metrics.memory</code> — memory usage metrics</li>
+    <li><code>task.completed</code> — task completion events</li>
+    <li><code>log.error</code> — error log stream</li>
+  </ul>
+
+  <p>Keep topic names short and descriptive. Since <code>*</code> is the only wildcard and matches everything, prefix-based filtering (like <code>metrics.*</code>) is not supported — subscribe to the specific topic you need, or use <code>*</code> and filter client-side.</p>
+
+  <h2 id="internals">How it works under the hood</h2>
+
+  <p>The event stream uses a simple wire protocol:</p>
+
+  <ol>
+    <li><strong>Subscribe:</strong> the subscriber opens a connection to port 1002 and sends an initial event with the topic name and an empty payload. The broker registers the subscription.</li>
+    <li><strong>Publish:</strong> the publisher sends an event to the broker with the topic and payload. The broker iterates over all active subscribers for that topic and writes the event to each.</li>
+    <li><strong>Wire format:</strong> each event is <code>[2-byte topic length][topic][4-byte payload length][payload]</code>.</li>
+  </ol>
+
+  <p>The broker is a simple in-memory fan-out — no queues, no disk I/O, no acknowledgments. This keeps latency low and throughput high.</p>
 
   <h2 id="use-cases">Use cases</h2>
 
-  <ul>
-    <li><strong>Status updates</strong> — agents publish their current state (online, processing, idle) for monitoring</li>
-    <li><strong>Coordination</strong> — a controller publishes tasks, workers subscribe and pick them up</li>
-    <li><strong>Monitoring</strong> — subscribe to metrics topics for real-time dashboards</li>
-    <li><strong>Event-driven workflows</strong> — trigger actions in response to events from other agents</li>
-  </ul>
+  <h3>Real-time monitoring</h3>
+  <p>An agent publishes system metrics every few seconds. A dashboard agent subscribes and renders them:</p>
+  <pre><code><span class="comment"># On the monitored agent (via SDK)</span>
+<span class="cmd">pilotctl</span> publish self metrics --data '{"cpu":42,"mem":1024,"disk":80}'
+
+<span class="comment"># On the dashboard agent</span>
+<span class="cmd">pilotctl</span> subscribe monitored-agent metrics >> dashboard-data.jsonl</code></pre>
+
+  <h3>Coordination</h3>
+  <p>A controller publishes tasks, workers subscribe and pick them up:</p>
+  <pre><code><span class="comment"># Workers subscribe</span>
+<span class="cmd">pilotctl</span> subscribe controller-agent tasks --count 1
+
+<span class="comment"># Controller publishes work</span>
+<span class="cmd">pilotctl</span> publish controller-agent tasks --data '{"job":"process-batch-42"}'</code></pre>
+
+  <h3>Event-driven workflows</h3>
+  <p>Trigger actions in response to events from other agents:</p>
+  <pre><code><span class="comment"># React to completion events</span>
+<span class="cmd">pilotctl</span> subscribe pipeline-agent task.completed | while read -r event; do
+  echo "Task done, starting next stage..."
+done</code></pre>
+
+  <div class="callout">
+    <strong>Webhooks integration:</strong> The daemon fires webhook events for pub/sub activity — <code>pubsub.subscribed</code>, <code>pubsub.unsubscribed</code>, and <code>pubsub.published</code>. See <a href="webhooks">Webhooks</a> for details.
+  </div>
 
   <div class="callout">
     <strong>Further reading:</strong> <a href="/blog/replace-message-broker-twelve-lines-go">Replace Your Message Broker With Twelve Lines of Go</a>
@@ -74,7 +169,7 @@ const bodyContent = `<h1>Pub/Sub</h1>
   activePage="pubsub"
   canonicalPath="/docs/pubsub"
   prev={{ label: "Built-in Services", href: "/docs/services" }}
-  next={{ label: "Tasks & Polo", href: "/docs/tasks" }}
+  next={{ label: "Webhooks", href: "/docs/webhooks" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

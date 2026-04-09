@@ -19,6 +19,8 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#networks">Networks</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
       <li><a href="#tasks">Tasks</a></li>
+      <li><a href="#managed">Managed Networks</a></li>
+      <li><a href="#policy">Network Policies</a></li>
       <li><a href="#enterprise">Enterprise Admin</a></li>
       <li><a href="#registry">Registry</a></li>
       <li><a href="#gateway">Gateway</a></li>
@@ -321,35 +323,88 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <p>See <a href="tasks">Tasks &amp; Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
 
+  <h2 id="managed">Managed Networks</h2>
+  <p>Commands for managed networks with polo score peer evaluation.</p>
+
+  <h3 id="managed-score">managed score</h3>
+  <pre><code><span class="cmd">pilotctl</span> managed score &lt;peer_node_id&gt; [--net &lt;id&gt;] [--topic &lt;T&gt;] [--delta &lt;N&gt;]</code></pre>
+  <p>Score a peer in a managed network. Default delta: 1.</p>
+  <p>Returns: <code>node_id</code>, <code>delta</code>, <code>topic</code></p>
+
+  <h3 id="managed-status">managed status</h3>
+  <pre><code><span class="cmd">pilotctl</span> managed status [--net &lt;id&gt;]</code></pre>
+  <p>Show managed network status for this node.</p>
+
+  <h3 id="managed-rankings">managed rankings</h3>
+  <pre><code><span class="cmd">pilotctl</span> managed rankings [--net &lt;id&gt;]</code></pre>
+  <p>Display peer rankings in the managed network.</p>
+
+  <h3 id="managed-cycle">managed cycle</h3>
+  <pre><code><span class="cmd">pilotctl</span> managed cycle --force [--net &lt;id&gt;]</code></pre>
+  <p>Force a managed network evaluation cycle. Prunes low-scoring peers and fills vacancies.</p>
+  <p>Returns: <code>pruned</code>, <code>filled</code>, <code>peers</code></p>
+
+  <h2 id="policy">Network Policies</h2>
+  <p>Local policy engine for automating network behavior.</p>
+
+  <h3 id="policy-get">policy get</h3>
+  <pre><code><span class="cmd">pilotctl</span> policy get --net &lt;id&gt;</code></pre>
+  <p>Retrieve the active policy for a network.</p>
+
+  <h3 id="policy-set">policy set</h3>
+  <pre><code><span class="cmd">pilotctl</span> policy set --net &lt;id&gt; --file &lt;path&gt;
+<span class="cmd">pilotctl</span> policy set --net &lt;id&gt; --inline '&lt;json&gt;'</code></pre>
+  <p>Apply a policy document to a network. Validates and compiles locally before applying.</p>
+
+  <h3 id="policy-validate">policy validate</h3>
+  <pre><code><span class="cmd">pilotctl</span> policy validate --file &lt;path&gt;
+<span class="cmd">pilotctl</span> policy validate --inline '&lt;json&gt;'</code></pre>
+  <p>Validate a policy document without applying it. Returns rule count and compilation status.</p>
+
+  <h3 id="policy-test">policy test</h3>
+  <pre><code><span class="cmd">pilotctl</span> policy test --file &lt;path&gt; --event '&lt;json&gt;'</code></pre>
+  <p>Test a policy against a simulated event. Returns whether the event would be allowed or denied.</p>
+
   <h2 id="enterprise">Enterprise Admin</h2>
 
   <h3>audit</h3>
-  <pre><code><span class="cmd">pilotctl</span> audit [--network &lt;id&gt;] [--node &lt;id&gt;] [--action &lt;type&gt;] [--limit &lt;n&gt;]</code></pre>
-  <p>Queries the audit trail. Requires admin token. Returns: <code>entries</code></p>
+  <pre><code><span class="cmd">pilotctl</span> audit [--network &lt;id&gt;]</code></pre>
+  <p>Queries the audit trail for a network (default: backbone network 0). Requires admin token. Returns: <code>entries</code></p>
 
   <h3>audit-export</h3>
-  <pre><code><span class="cmd">pilotctl</span> audit-export [--network &lt;id&gt;] [--format csv|json] [--output &lt;path&gt;]</code></pre>
-  <p>Exports audit log to a file. Requires admin token.</p>
+  <pre><code><span class="cmd">pilotctl</span> audit-export &lt;get|set|disable&gt; [options]</code></pre>
+  <p>Configure external audit log export. Subcommands:</p>
+  <ul>
+    <li><code>get</code> — show current export config</li>
+    <li><code>set --format &lt;json|splunk_hec|syslog_cef&gt; --endpoint &lt;URL&gt;</code> — configure export</li>
+    <li><code>disable</code> — disable export</li>
+  </ul>
+  <p>Requires admin token.</p>
 
   <h3>provision</h3>
-  <pre><code><span class="cmd">pilotctl</span> provision --network &lt;id&gt; --count &lt;n&gt; [--hostname-prefix &lt;prefix&gt;] [--email &lt;addr&gt;]</code></pre>
-  <p>Bulk-provisions nodes in a network. Requires admin token.</p>
+  <pre><code><span class="cmd">pilotctl</span> provision &lt;blueprint.json&gt;</code></pre>
+  <p>Provision a network from a JSON blueprint file. Creates the network, sets RBAC roles and policies. Requires admin token.</p>
 
   <h3>provision-status</h3>
   <pre><code><span class="cmd">pilotctl</span> provision-status</code></pre>
-  <p>Shows the status of the last provisioning job. Requires admin token.</p>
+  <p>Shows provisioning status: identity provider, audit export, webhook, and provisioned networks. Requires admin token.</p>
 
   <h3>idp</h3>
-  <pre><code><span class="cmd">pilotctl</span> idp [--set provider=&lt;name&gt;] [--set client-id=&lt;id&gt;] [--set domain=&lt;domain&gt;]</code></pre>
-  <p>Configures identity provider integration. Requires admin token.</p>
+  <pre><code><span class="cmd">pilotctl</span> idp &lt;get|set&gt; [options]</code></pre>
+  <p>Get or set the identity provider configuration. Subcommands:</p>
+  <ul>
+    <li><code>get</code> — show current IdP config</li>
+    <li><code>set --type &lt;oidc|saml|entra_id|ldap|webhook&gt; --url &lt;URL&gt; [--issuer URL] [--client-id ID] [--tenant-id ID]</code> — configure IdP</li>
+  </ul>
+  <p>Requires admin token.</p>
 
   <h3>directory-sync</h3>
-  <pre><code><span class="cmd">pilotctl</span> directory-sync --provider &lt;name&gt; [--network &lt;id&gt;]</code></pre>
-  <p>Triggers a directory sync from the configured IdP. Requires admin token.</p>
+  <pre><code><span class="cmd">pilotctl</span> directory-sync &lt;directory.json&gt; [--network &lt;id&gt;] [--remove-unlisted]</code></pre>
+  <p>Sync a directory of node-to-identity mappings into a network. Use <code>--remove-unlisted</code> to disable nodes not in the file. Requires admin token.</p>
 
   <h3>directory-status</h3>
-  <pre><code><span class="cmd">pilotctl</span> directory-status [--provider &lt;name&gt;]</code></pre>
-  <p>Shows the last sync status and statistics. Requires admin token.</p>
+  <pre><code><span class="cmd">pilotctl</span> directory-status &lt;network_id&gt;</code></pre>
+  <p>Shows directory sync status for a network. Requires admin token.</p>
 
   <h2 id="registry">Registry</h2>
 
@@ -398,7 +453,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   activePage="cli-reference"
   canonicalPath="/docs/cli-reference"
   prev={{ label: "Core Concepts", href: "/docs/concepts" }}
-  next={{ label: "Python SDK", href: "/docs/python-sdk" }}
+  next={{ label: "Go SDK", href: "/docs/go-sdk" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

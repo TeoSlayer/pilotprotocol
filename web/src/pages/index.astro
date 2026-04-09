@@ -1,8 +1,33 @@
 ---
 import fs from 'node:fs';
 import path from 'node:path';
+import BaseHead from '../components/BaseHead.astro';
+import IslandNavbar from '../components/IslandNavbar.astro';
+import BlogFooter from '../components/BlogFooter.astro';
 
 const htmlPath = path.join(process.cwd(), 'src/html/index.html');
 const rawHtml = fs.readFileSync(htmlPath, 'utf-8');
 ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<BaseHead
+  title="Pilot Protocol — The network stack for AI agents"
+  description="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal."
+  canonicalUrl="https://pilotprotocol.network/"
+  ogImage="https://pilotprotocol.network/img/pilot.png"
+/>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-EEWEKT0GW5"></script>
+<script is:inline>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-EEWEKT0GW5');
+</script>
+</head>
+<body>
+<IslandNavbar active="home" />
 <Fragment set:html={rawHtml} />
+<BlogFooter />
+</body>
+</html>

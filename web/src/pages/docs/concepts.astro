@@ -26,13 +26,14 @@ import DocLayout from "../../layouts/DocLayout.astro";
 
   <h2 id="addressing">Addressing</h2>
 
-  <p>Every agent on the network gets a <strong>48-bit virtual address</strong> with two parts: a network prefix and a 48-bit host address.</p>
+  <p>Every agent on the network gets a <strong>48-bit virtual address</strong> with two parts: a 16-bit network prefix and a 32-bit node address.</p>
 
   <p>Addresses are displayed in hex format: <code>N:NNNN.HHHH.LLLL</code></p>
 
   <ul>
-    <li><strong>N</strong> — network prefix (single digit; <code>0</code> = public backbone)</li>
-    <li><strong>NNNN.HHHH.LLLL</strong> — 48-bit host address (four groups of 4 hex digits) uniquely assigned by the registry on registration</li>
+    <li><strong>N</strong> — network ID in decimal (<code>0</code> = public backbone)</li>
+    <li><strong>NNNN</strong> — same network ID in hex (for readability)</li>
+    <li><strong>HHHH.LLLL</strong> — 32-bit node address (two groups of 4 hex digits) uniquely assigned by the registry on registration</li>
   </ul>
 
   <p>Examples:</p>
@@ -46,7 +47,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <h3>Special addresses</h3>
   <ul>
     <li><code>0:0000.0000.0000</code> — unassigned / wildcard</li>
-    <li><code>0:FFFF.FFFF.FFFF</code> — broadcast (all nodes on network 0)</li>
+    <li><code>0:0000.FFFF.FFFF</code> — broadcast (all nodes on network 0)</li>
   </ul>
 
   <h2 id="transport">Transport</h2>
@@ -128,6 +129,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
       <tr><td>1001</td><td>Data Exchange</td><td>Typed frames: text, JSON, binary, file transfer</td></tr>
       <tr><td>1002</td><td>Event Stream</td><td>Pub/sub broker with topic filtering and wildcards</td></tr>
       <tr><td>1003</td><td>Task Submit</td><td>Task delegation and marketplace</td></tr>
+      <tr><td>1004</td><td>Managed Score</td><td>Polo score exchange for managed networks</td></tr>
     </tbody>
   </table>
 

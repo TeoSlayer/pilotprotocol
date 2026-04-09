@@ -1,23 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pilot Protocol — The network stack for AI agents</title>
-<meta name="description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
-<link rel="canonical" href="https://pilotprotocol.network/">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Pilot Protocol — The network stack for AI agents">
-<meta property="og:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
-<meta property="og:url" content="https://pilotprotocol.network/">
-<meta property="og:image" content="https://pilotprotocol.network/img/pilot.png">
-<meta property="og:site_name" content="Pilot Protocol">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Pilot Protocol — The network stack for AI agents">
-<meta name="twitter:description" content="Pilot Protocol lets AI agents find each other, trust each other, and communicate directly. Permanent addresses, encrypted tunnels, NAT traversal.">
-<meta name="twitter:image" content="https://pilotprotocol.network/img/pilot.png">
-<meta name="theme-color" content="#22c55e">
-<link rel="icon" href="https://pilotprotocol.network/img/pilot.png" type="image/png">
+<!-- JSON-LD structured data and page styles — injected as Fragment by index.astro -->
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Pilot Protocol","description":"An overlay network stack that gives AI agents first-class network citizenship. Permanent virtual addresses, encrypted UDP tunnels, NAT traversal, and a built-in trust model.","applicationCategory":"NetworkingApplication","operatingSystem":"Linux, macOS","programmingLanguage":"Go","author":{"@type":"Organization","name":"Vulture Labs","url":"https://vulturelabs.com"},"keywords":["ai agents","overlay network","peer-to-peer","encryption","udp","nat traversal","virtual addresses","trust model","agent protocol","decentralized","mcp alternative","agent communication"],"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://pilotprotocol.network","license":"https://www.gnu.org/licenses/agpl-3.0.html","codeRepository":"https://github.com/TeoSlayer/pilotprotocol"}
 </script>
@@ -36,68 +17,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .container{max-width:960px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
-
-/* Navbar — glassmorphic floating island */
-.navbar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;width:calc(100% - 48px);max-width:960px}
-.nav-island{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:16px;background:rgba(10,10,10,0.5);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset}
-.nav-left{display:flex;align-items:center;gap:8px;text-decoration:none;padding:4px 12px 4px 6px;border-radius:40px;transition:background 0.2s}
-.nav-left img{width:24px;height:24px}
-.nav-left span{font-weight:700;font-size:0.88rem;color:var(--fg);white-space:nowrap}
-.nav-left:hover{text-decoration:none;background:rgba(255,255,255,0.06)}
-.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px;flex-shrink:0}
-.nav-center{display:flex;gap:2px;flex-shrink:0}
-.nav-center a,.nav-dd-trigger{font-size:0.82rem;color:var(--muted);transition:all 0.2s;padding:6px 14px;border-radius:40px;display:flex;align-items:center;gap:6px;cursor:pointer;background:none;border:none;font-family:inherit}
-.nav-center a:hover,.nav-dd-trigger:hover{color:var(--fg);text-decoration:none;background:rgba(255,255,255,0.06)}
-.nav-center a svg.nav-icon,.nav-dd-trigger svg.nav-icon{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.nav-dd-trigger .dd-chevron{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform 0.2s;margin-left:-2px}
-.nav-dd{position:relative}
-.nav-dd-menu{display:none;position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:rgba(10,10,10,0.9);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:6px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
-.nav-dd-menu::before{content:'';position:absolute;top:-12px;left:0;right:0;height:12px}
-.nav-dd:hover .nav-dd-menu,.nav-dd-menu:hover{display:flex;flex-direction:column;gap:2px}
-.nav-dd:hover .dd-chevron{transform:rotate(180deg)}
-.nav-dd-menu a{font-size:0.82rem;color:var(--muted);padding:8px 14px;border-radius:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s;white-space:nowrap}
-.nav-dd-menu a:hover{color:var(--fg);background:rgba(255,255,255,0.08);text-decoration:none}
-.nav-dd-menu a svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.nav-right{display:flex;align-items:center;gap:4px;margin-left:auto}
-.gh-stars{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:0.78rem;font-weight:500;padding:4px 10px 4px 8px;border-radius:40px;border:1px solid rgba(255,255,255,0.1);transition:all 0.2s;text-decoration:none;white-space:nowrap}
-.gh-stars:hover{color:var(--fg);border-color:rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);text-decoration:none}
-.gh-star-icon{color:#e3b341}
-.gh-count{min-width:1ch}
-.nav-cta{font-size:0.8rem;padding:6px 16px;border-radius:40px;background:var(--accent);color:#000;font-weight:600;transition:all 0.2s;border:none;cursor:pointer;white-space:nowrap}
-.nav-cta{text-decoration:none;display:inline-block}
-.nav-cta:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 16px rgba(34,197,94,0.3)}
-
-/* Hamburger */
-.nav-hamburger{display:none;background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 8px;border-radius:40px;transition:all 0.2s;line-height:1}
-.nav-hamburger:hover{color:var(--fg);background:rgba(255,255,255,0.06)}
-.nav-hamburger svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-
-/* Mobile dropdown */
-.nav-mobile{display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;background:rgba(10,10,10,0.85);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
-.nav-mobile.open{display:flex;flex-direction:column;gap:2px}
-.nav-mobile a{font-size:0.85rem;color:var(--muted);padding:10px 16px;border-radius:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s}
-.nav-mobile a:hover{color:var(--fg);background:rgba(255,255,255,0.06);text-decoration:none}
-.nav-mobile a svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.nav-mobile .mob-label{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.3);padding:8px 16px 4px;font-weight:600}
-
-/* Responsive — tablet */
-@media(max-width:768px){
-  .nav-center a svg.nav-icon,.nav-dd-trigger svg.nav-icon{display:none}
-  .nav-mobile a svg{display:none}
-}
-
-/* Responsive — phone */
-@media(max-width:640px){
-  .navbar{top:8px;left:8px;right:8px;transform:none;max-width:none;width:auto}
-  .nav-island{width:100%;max-width:100%;position:relative;overflow:visible}
-  .nav-center{display:none}
-  .nav-divider{display:none}
-  .nav-hamburger{display:block}
-  .nav-right{margin-left:auto;flex-shrink:0}
-  .nav-cta{padding:5px 12px;font-size:0.78rem}
-  .nav-left{min-width:0;overflow:hidden}
-  .nav-left span{font-size:0.82rem;overflow:hidden;text-overflow:ellipsis}
-}
 
 /* Hero frame */
 .hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:36px 32px;margin:80px 0 60px;position:relative}
@@ -326,13 +245,6 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .console-cta a.cta-btn:hover{opacity:0.9;text-decoration:none;box-shadow:0 0 20px rgba(34,197,94,0.3)}
 @media(max-width:640px){.pricing-teaser{grid-template-columns:1fr;max-width:360px;margin-left:auto;margin-right:auto}}
 
-/* Footer */
-footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;color:var(--muted);font-size:0.8rem;position:relative;z-index:1}
-footer a{color:var(--muted)}
-footer a:hover{color:var(--fg)}
-.footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 28px;margin-bottom:20px}
-.footer-links a{font-size:0.85rem}
-
 /* Tabs */
 .tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border)}
 .tab{padding:10px 20px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:0.9rem;font-family:inherit;border-bottom:2px solid transparent;transition:all 0.2s}
@@ -434,71 +346,7 @@ footer a:hover{color:var(--fg)}
   .map-card .map-overlay{padding:16px}
 }
 </style>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-EEWEKT0GW5"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-EEWEKT0GW5');
-</script>
-</head>
-<body>
-
 <canvas id="bg-canvas"></canvas>
-
-<nav class="navbar">
-  <div class="nav-island">
-    <a class="nav-left" href="/">
-      <img src="https://pilotprotocol.network/img/pilot.png" alt="Pilot Protocol">
-      <span>Pilot Protocol</span>
-    </a>
-    <div class="nav-divider"></div>
-    <div class="nav-center">
-      <div class="nav-dd">
-        <button class="nav-dd-trigger">
-          <svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          Solutions
-          <svg class="dd-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="nav-dd-menu">
-          <a href="/for/mcp"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>For MCP Servers</a>
-          <a href="/for/p2p"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>For P2P Agents</a>
-          <a href="/for/skills"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>Skill Zoo</a>
-          <a href="/for/setups"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setups</a>
-        </div>
-      </div>
-      <a href="/docs/plans"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Plans</a>
-      <a href="/blog/"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
-    </div>
-    <div class="nav-divider"></div>
-    <div class="nav-center">
-      <a href="#contact"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Contact Us</a>
-    </div>
-    <div class="nav-right">
-      <a class="gh-stars" href="https://github.com/TeoSlayer/pilotprotocol" title="Star on GitHub">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-        <svg class="gh-star-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        <span class="gh-count" id="gh-star-count"></span>
-      </a>
-      <a class="nav-cta" href="#install">Get Started</a>
-      <button class="nav-hamburger" onclick="document.querySelector('.nav-mobile').classList.toggle('open')" aria-label="Menu">
-        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="nav-mobile">
-      <div class="mob-label">Solutions</div>
-      <a href="/for/mcp"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>For MCP Servers</a>
-      <a href="/for/p2p"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>For P2P Agents</a>
-      <a href="/for/skills"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>Skill Zoo</a>
-      <a href="/for/setups"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setups</a>
-      <div class="mob-label">Navigate</div>
-      <a href="/docs/plans"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Plans</a>
-      <a href="/blog/"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Blog</a>
-      <a href="/docs/"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Docs</a>
-      <a href="#contact"><svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Contact Us</a>
-    </div>
-  </div>
-</nav>
 
 <div class="container">
 
@@ -513,7 +361,7 @@ footer a:hover{color:var(--fg)}
       <p class="tagline">Pilot Protocol lets AI agents find each other, trust each other, and communicate directly &mdash; no platform in the data path, no API keys, no message broker.</p>
       <p style="font-size:0.88rem;color:var(--muted);margin-bottom:28px;line-height:1.6;max-width:440px">Every agent gets a permanent address. Every connection is encrypted. Works behind any firewall.</p>
       <div class="hero-ctas">
-        <a class="cta-primary" href="/docs/plans">GET A PRIVATE NETWORK</a>
+        <a class="cta-primary" href="/plans">GET A PRIVATE NETWORK</a>
         <a class="cta-ghost" href="#install">INSTALL</a>
         <a class="cta-icon" href="/docs/" title="Documentation"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></a>
       </div>
@@ -1216,7 +1064,7 @@ footer a:hover{color:var(--fg)}
         <div class="pricing-amount">$200<span style="font-size:0.5em;font-weight:400;color:var(--muted)">/mo</span></div>
         <div class="pricing-sub">+ $10/mo per agent</div>
         <div class="pricing-feat">Private networks, web console, token-gated join, SYN-level trust. First network free (up to 3 agents).</div>
-        <a class="pricing-link" href="/docs/plans">See plans &rarr;</a>
+        <a class="pricing-link" href="/plans">See plans &rarr;</a>
       </div>
       <div class="pricing-card">
         <span class="pricing-tier ent">Enterprise</span>
@@ -1293,31 +1141,7 @@ footer a:hover{color:var(--fg)}
   </div>
 </section>
 
-<footer>
-  <div class="container">
-    <div class="footer-links">
-      <a href="/docs/">Docs</a>
-      <a href="/blog/">Blog</a>
-      <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
-      <a href="https://polo.pilotprotocol.network">Polo</a>
-      <a href="https://console.pilotprotocol.network">Console</a>
-      <a href="/for/skills">Agent Skills</a>
-      <a href="/for/setups">Setups</a>
-      <a href="/for/mcp">For MCP</a>
-      <a href="/for/p2p">For P2P</a>
-    </div>
-    <div style="margin:24px auto 20px;max-width:400px;text-align:center">
-      <p style="color:#a1a1aa;font-size:0.9rem;margin:0 0 10px">Weekly digest in your inbox</p>
-      <form id="newsletter-form" style="display:flex;gap:8px;justify-content:center">
-        <input type="email" name="email" placeholder="you@example.com" required style="flex:1;padding:8px 14px;border-radius:6px;border:1px solid #333;background:#18181b;color:#fff;font-size:0.9rem;outline:none">
-        <button type="submit" style="padding:8px 18px;border-radius:6px;border:none;background:#22c55e;color:#fff;font-weight:600;font-size:0.9rem;cursor:pointer;white-space:nowrap">Subscribe</button>
-      </form>
-      <p id="newsletter-msg" style="font-size:0.8rem;margin:8px 0 0;min-height:1.2em"></p>
-    </div>
-    <p class="footer-brand"><a href="https://vulturelabs.com"><img src="/img/vulture-labs.png" alt="Vulture Labs" style="height:1em;vertical-align:-0.15em;margin-right:6px;filter:brightness(0) invert(1);display:inline-block">Vulture Labs</a></p>
-    <p class="footer-tagline">Built for agents, by humans.</p>
-  </div>
-</footer>
+<!-- Footer provided by BlogFooter component in index.astro -->
 
 <script>
 function typeLines(container){
@@ -1613,41 +1437,4 @@ if(heroPanel) typeLines(heroPanel);
   for(var i=0;i<2;i++) setTimeout(spawnArc, i*1500);
   setTimeout(loop, 3000);
 })();
-
-// Newsletter subscribe form
-(function(){
-  var form = document.getElementById('newsletter-form');
-  if(!form) return;
-  var msg = document.getElementById('newsletter-msg');
-  form.addEventListener('submit', function(e){
-    e.preventDefault();
-    var email = form.email.value.trim();
-    if(!email) return;
-    msg.style.color = '#a1a1aa';
-    msg.textContent = 'Subscribing...';
-    fetch('/api/newsletter/subscribe', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({email: email})
-    }).then(function(r){
-      if(!r.ok) throw new Error('not ok');
-      return r.json();
-    }).then(function(d){
-      if(d.error){
-        msg.style.color = '#ef4444';
-        msg.textContent = d.error;
-      } else {
-        msg.style.color = '#22c55e';
-        msg.textContent = d.message || 'Thanks for subscribing!';
-        form.reset();
-      }
-    }).catch(function(){
-      msg.style.color = '#22c55e';
-      msg.textContent = 'Thanks! We\'ll be in touch.';
-      form.reset();
-    });
-  });
-})();
 </script>
-</body>
-</html>

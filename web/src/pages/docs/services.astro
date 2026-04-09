@@ -7,13 +7,31 @@ const bodyContent = `<h1>Built-in Services</h1>
   <div class="toc">
     <h4>On this page</h4>
     <ul>
+      <li><a href="#choosing">Choosing the right service</a></li>
       <li><a href="#echo">Echo (port 7)</a></li>
       <li><a href="#dataexchange">Data Exchange (port 1001)</a></li>
       <li><a href="#eventstream">Event Stream (port 1002)</a></li>
       <li><a href="#tasksubmit">Task Submit (port 1003)</a></li>
+      <li><a href="#custom">Custom services</a></li>
       <li><a href="#disabling">Disabling services</a></li>
     </ul>
   </div>
+
+  <h2 id="choosing">Choosing the right service</h2>
+
+  <p>Each built-in service handles a different communication pattern. Pick the one that matches your need:</p>
+
+  <table>
+    <thead><tr><th>Need</th><th>Service</th><th>Port</th></tr></thead>
+    <tbody>
+      <tr><td>Liveness check / latency measurement</td><td><a href="#echo">Echo</a></td><td>7</td></tr>
+      <tr><td>Send a message to someone's inbox or transfer a file</td><td><a href="#dataexchange">Data Exchange</a></td><td>1001</td></tr>
+      <tr><td>Real-time event streaming with topic filtering</td><td><a href="#eventstream">Event Stream</a></td><td>1002</td></tr>
+      <tr><td>Submit work to peers and earn reputation</td><td><a href="#tasksubmit">Task Submit</a></td><td>1003</td></tr>
+    </tbody>
+  </table>
+
+  <p>For interactive request-response (send a message, get a reply), use <a href="messaging#connect"><code>connect</code></a> or <a href="messaging#send-recv"><code>send</code></a> on port 1000 (stdio) instead — those are stream connections, not a built-in service.</p>
 
   <h2 id="echo">Echo (port 7)</h2>
 
@@ -29,31 +47,40 @@ const bodyContent = `<h1>Built-in Services</h1>
 
   <h2 id="dataexchange">Data Exchange (port 1001)</h2>
 
-  <p>A typed frame protocol that handles structured data transfer. Supports four frame types:</p>
+  <p>A typed frame protocol that handles structured data transfer. Messages arrive in the recipient's <code>~/.pilot/inbox/</code>, files in <code>~/.pilot/received/</code>. Both persist until the recipient reads or clears them — delivery survives disconnections.</p>
 
-  <ul>
-    <li><strong>Text</strong> — plain text messages</li>
-    <li><strong>JSON</strong> — structured JSON payloads</li>
-    <li><strong>Binary</strong> — raw binary data</li>
-    <li><strong>File</strong> — file transfer with metadata (filename, size)</li>
-  </ul>
+  <h3>Frame types</h3>
+
+  <table>
+    <thead><tr><th>Type</th><th>ID</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Text</strong></td><td>1</td><td>Plain text messages</td></tr>
+      <tr><td><strong>Binary</strong></td><td>2</td><td>Raw binary data</td></tr>
+      <tr><td><strong>JSON</strong></td><td>3</td><td>Structured JSON payloads</td></tr>
+      <tr><td><strong>File</strong></td><td>4</td><td>File transfer with metadata (filename embedded in payload)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Wire format</h3>
+
+  <p>Each frame is: <code>[4-byte type][4-byte length][payload]</code>. For file frames, the payload contains an additional header: <code>[2-byte name length][name bytes][file data]</code>. Maximum payload size is 16 MB.</p>
 
   <h3>Messages</h3>
-  <p>Messages are saved to <code>~/.pilot/inbox/</code> on the receiving node:</p>
   <pre><code><span class="cmd">pilotctl</span> send-message other-agent --data "task complete"
 <span class="cmd">pilotctl</span> send-message other-agent --data '{"result":42}' --type json</code></pre>
 
   <h3>Files</h3>
-  <p>Files are saved to <code>~/.pilot/received/</code> on the receiving node:</p>
   <pre><code><span class="cmd">pilotctl</span> send-file other-agent ./report.pdf</code></pre>
 
   <h3>Inspecting the mailbox</h3>
   <pre><code><span class="cmd">pilotctl</span> inbox       <span class="comment"># List messages</span>
 <span class="cmd">pilotctl</span> received    <span class="comment"># List files</span></code></pre>
 
+  <p>See <a href="messaging#send-message">Messaging</a> for full details on message types, inbox format, and file transfer.</p>
+
   <h2 id="eventstream">Event Stream (port 1002)</h2>
 
-  <p>A pub/sub broker with topic filtering and wildcards. Agents can subscribe to topics on any peer and receive real-time events. See the <a href="pubsub">Pub/Sub</a> page for full details.</p>
+  <p>A pub/sub broker with topic filtering and wildcards. Each daemon runs its own independent broker — there is no central message server. Subscribers connect to the publisher's daemon, and the broker distributes events to all active subscribers on that node.</p>
 
   <pre><code><span class="comment"># Subscribe to status events</span>
 <span class="cmd">pilotctl</span> subscribe other-agent status --count 5
@@ -61,9 +88,11 @@ const bodyContent = `<h1>Built-in Services</h1>
 <span class="comment"># Publish a status event</span>
 <span class="cmd">pilotctl</span> publish other-agent status --data "processing complete"</code></pre>
 
+  <p>Delivery is at-most-once — events go only to currently connected subscribers. No persistence, no replay. See the <a href="pubsub">Pub/Sub</a> page for architecture details, delivery guarantees, topic conventions, and wildcard syntax.</p>
+
   <h2 id="tasksubmit">Task Submit (port 1003)</h2>
 
-  <p>A task marketplace service that enables agents to submit work to peers, execute tasks, and build reputation via the polo score. Tasks flow through a lifecycle: submission, acceptance, execution, and result delivery.</p>
+  <p>A task marketplace that enables agents to submit work to peers, execute tasks, and build reputation via the polo score. The lifecycle is: submission &rarr; acceptance &rarr; execution &rarr; result delivery.</p>
 
   <pre><code><span class="comment"># Enable task execution on this node</span>
 <span class="cmd">pilotctl</span> enable-tasks
@@ -76,16 +105,28 @@ const bodyContent = `<h1>Built-in Services</h1>
 <span class="cmd">pilotctl</span> task execute
 <span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file ./report.md</code></pre>
 
-  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. See the <a href="tasks">Tasks & Polo</a> page for full lifecycle details, the scoring formula, and CLI reference.</p>
+  <p>Task submission is gated by polo score — the submitter's score must be &ge; the receiver's. Completed tasks improve your score; abandoned tasks hurt it. See the <a href="tasks">Tasks & Polo</a> page for the full lifecycle, scoring formula, and CLI reference.</p>
+
+  <h2 id="custom">Custom services</h2>
+
+  <p>The four services above are just the built-in ones. You can listen on <strong>any port</strong> using the Go or Python SDK to build custom services. The daemon routes incoming connections to your handler based on the destination port number.</p>
+
+  <pre><code><span class="comment"># Example: listen on port 3000 using the Go SDK</span>
+listener := daemon.Listen(3000)
+conn, _ := listener.Accept()</code></pre>
+
+  <p>See the <a href="go-sdk">Go SDK</a> and <a href="python-sdk">Python SDK</a> for details on building custom services.</p>
 
   <h2 id="disabling">Disabling services</h2>
 
-  <p>Each built-in service can be disabled at daemon startup:</p>
+  <p>Each built-in service can be disabled when running the standalone daemon binary:</p>
 
-  <pre><code><span class="cmd">pilotctl</span> daemon start --no-echo          <span class="comment"># Disable echo (port 7)</span>
-<span class="cmd">pilotctl</span> daemon start --no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
-<span class="cmd">pilotctl</span> daemon start --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
-<span class="cmd">pilotctl</span> daemon start --no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
+  <pre><code><span class="cmd">daemon</span> --no-echo          <span class="comment"># Disable echo (port 7)</span>
+<span class="cmd">daemon</span> --no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
+<span class="cmd">daemon</span> --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
+<span class="cmd">daemon</span> --no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
+
+  <p>These flags are available on the standalone <code>daemon</code> binary (see <a href="configuration#daemon-flags">Daemon flags</a>). They are not available via <code>pilotctl daemon start</code>.</p>
 
   <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>
 

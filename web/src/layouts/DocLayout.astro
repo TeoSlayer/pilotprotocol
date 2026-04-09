@@ -2,7 +2,7 @@
 import BaseHead from '../components/BaseHead.astro';
 import Topbar from '../components/Topbar.astro';
 import DocSidebar from '../components/DocSidebar.astro';
-import DocFooter from '../components/DocFooter.astro';
+import BlogFooter from '../components/BlogFooter.astro';
 import PageNav from '../components/PageNav.astro';
 import '../styles/global.css';
 import '../styles/docs.css';
@@ -70,7 +70,7 @@ if (activePage !== 'index') {
       {!hidePageNav && <PageNav prev={prev} next={next} />}
     </div>
   </div>
-  <DocFooter />
+  <div class="doc-footer-wrap"><BlogFooter /></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>

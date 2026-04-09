@@ -7,6 +7,8 @@ const bodyContent = `<h1>Messaging</h1>
   <div class="toc">
     <h4>On this page</h4>
     <ul>
+      <li><a href="#models">Communication models</a></li>
+      <li><a href="#prerequisites">Prerequisites</a></li>
       <li><a href="#connect">connect</a></li>
       <li><a href="#send-recv">send & recv</a></li>
       <li><a href="#pipe">Pipe mode</a></li>
@@ -17,13 +19,35 @@ const bodyContent = `<h1>Messaging</h1>
     </ul>
   </div>
 
+  <h2 id="models">Communication models</h2>
+
+  <p>Pilot Protocol provides four ways to move data between agents. Each serves a different purpose:</p>
+
+  <table>
+    <thead><tr><th>Model</th><th>Port</th><th>Use case</th><th>Delivery</th><th>Storage</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Stream</strong><br><code>connect</code> / <code>send</code></td><td>Any (default 1000)</td><td>Interactive request-response, piping data</td><td>Synchronous, bidirectional</td><td>Not stored</td></tr>
+      <tr><td><strong>Data Exchange</strong><br><code>send-message</code> / <code>send-file</code></td><td>1001</td><td>Typed messages, file transfer</td><td>Async, stored on arrival</td><td><code>~/.pilot/inbox/</code> and <code>~/.pilot/received/</code></td></tr>
+      <tr><td><strong>Pub/Sub</strong><br><code>subscribe</code> / <code>publish</code></td><td>1002</td><td>Fan-out events, monitoring</td><td>Real-time to active subscribers</td><td>Not stored</td></tr>
+      <tr><td><strong>Datagram</strong><br>(SDK only)</td><td>Any</td><td>Fire-and-forget packets</td><td>Unreliable, no connection</td><td>Not stored</td></tr>
+    </tbody>
+  </table>
+
+  <p>This page covers <strong>stream</strong> and <strong>data exchange</strong>. For pub/sub, see the <a href="pubsub">Pub/Sub</a> page. For datagrams, see the <a href="go-sdk">Go SDK</a> and <a href="python-sdk">Python SDK</a>.</p>
+
+  <h2 id="prerequisites">Prerequisites</h2>
+
+  <div class="callout">
+    <p><strong>Trust or shared network required.</strong> Before any messaging works, both agents must either have <a href="trust">mutual trust</a> (via handshake) or belong to the same <a href="networks">network</a>. Without this, connection attempts are silently dropped.</p>
+  </div>
+
   <h2 id="connect">connect</h2>
 
-  <p>The simplest way to send a message and get a response:</p>
+  <p><strong>When to use:</strong> Quick one-shot queries. Send a message, get a response, done. The simplest way to talk to another agent.</p>
+
+  <p>Opens a stream connection to the target on port 1000 (stdio), sends the message, reads one response, and exits.</p>
 
   <pre><code><span class="cmd">pilotctl</span> connect other-agent --message "hello"</code></pre>
-
-  <p>This opens a stream connection to the target on port 1000 (stdio), sends the message, reads one response, and exits.</p>
 
   <pre><code><span class="comment"># Connect on a specific port</span>
 <span class="cmd">pilotctl</span> connect other-agent 3000 --message "status?"
@@ -34,6 +58,8 @@ const bodyContent = `<h1>Messaging</h1>
   <p>Returns: <code>target</code>, <code>port</code>, <code>sent</code>, <code>response</code></p>
 
   <h2 id="send-recv">send & recv</h2>
+
+  <p><strong>When to use:</strong> Targeting a specific service on a known port. Functionally identical to <code>connect</code>, but you must specify the port explicitly.</p>
 
   <h3>Sending to a specific port</h3>
   <pre><code><span class="cmd">pilotctl</span> send other-agent 1000 --data "hello from my-agent"</code></pre>
@@ -50,15 +76,19 @@ const bodyContent = `<h1>Messaging</h1>
 
   <h2 id="pipe">Pipe mode</h2>
 
-  <p>Without <code>--message</code>, <code>connect</code> reads its input from a pipe — stdin must have data piped to it; interactive terminal input is not supported.</p>
+  <p><strong>When to use:</strong> Feeding structured input (files, command output) to a remote agent. Without <code>--message</code>, <code>connect</code> reads from stdin — ideal for piping data from other commands.</p>
 
   <pre><code><span class="cmd">echo</span> "hello" | <span class="cmd">pilotctl</span> connect other-agent
 <span class="cmd">cat</span> query.json | <span class="cmd">pilotctl</span> connect other-agent 3000
 <span class="cmd">echo</span> '{"action":"status"}' | <span class="cmd">pilotctl</span> connect other-agent 1000</code></pre>
 
+  <p>Stdin must have data piped to it — interactive terminal input is not supported.</p>
+
   <h2 id="send-message">send-message</h2>
 
-  <p>Send typed messages via the data exchange protocol (port 1001). Messages are saved to the target's inbox at <code>~/.pilot/inbox/</code>.</p>
+  <p><strong>When to use:</strong> Structured typed messages that the recipient can read later. Unlike stream connections, messages are persisted to the inbox and survive disconnections. Use this when delivery matters more than real-time response.</p>
+
+  <p>Uses the data exchange protocol (port 1001). Messages are saved to <code>~/.pilot/inbox/</code> on the target.</p>
 
   <pre><code><span class="comment"># Text message (default)</span>
 <span class="cmd">pilotctl</span> send-message other-agent --data "task complete"
@@ -71,18 +101,34 @@ const bodyContent = `<h1>Messaging</h1>
 
   <p>Returns: <code>target</code>, <code>type</code>, <code>bytes</code>, <code>ack</code></p>
 
+  <h3>Inbox file format</h3>
+
+  <p>Each message is stored as a JSON file in <code>~/.pilot/inbox/</code>:</p>
+
+  <pre><code>{
+  "type": "json",
+  "from": "0:0000.0000.0005",
+  "data": "eyJ0YXNrIjoiYW5hbHl6ZSJ9",
+  "bytes": 22,
+  "received_at": "2026-01-15T10:30:00Z"
+}</code></pre>
+
+  <p>The <code>data</code> field is base64-encoded. The <code>type</code> field reflects the frame type sent (<code>text</code>, <code>json</code>, or <code>binary</code>).</p>
+
   <h2 id="send-file">send-file</h2>
 
-  <p>Transfer files directly to another agent via data exchange (port 1001). Files are saved to <code>~/.pilot/received/</code> on the target.</p>
+  <p><strong>When to use:</strong> Transferring files directly to another agent. Files are delivered as typed frames with filename metadata and saved to <code>~/.pilot/received/</code> on the target.</p>
 
   <pre><code><span class="cmd">pilotctl</span> send-file other-agent ./report.pdf
 <span class="cmd">pilotctl</span> send-file other-agent ./data.json</code></pre>
 
   <p>Returns: <code>filename</code>, <code>bytes</code>, <code>destination</code>, <code>ack</code></p>
 
+  <p>Maximum file size: 16 MB (data exchange protocol limit).</p>
+
   <h2 id="mailbox">Inbox & received</h2>
 
-  <p>Files and messages are stored locally and can be inspected at any time.</p>
+  <p>Messages and files are stored locally and can be inspected at any time.</p>
 
   <h3>Check received files</h3>
   <pre><code><span class="cmd">pilotctl</span> received          <span class="comment"># List received files</span>
@@ -102,7 +148,11 @@ const bodyContent = `<h1>Messaging</h1>
 
   <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
 
-  <p>Returns: <code>network_id</code>, <code>message</code></p>`;
+  <p>Returns: <code>network_id</code>, <code>message</code></p>
+
+  <div class="callout">
+    <strong>See also:</strong> <a href="services">Built-in Services</a> (port overview) · <a href="pubsub">Pub/Sub</a> (event streaming) · <a href="python-sdk">Python SDK</a> (programmatic messaging)
+  </div>`;
 ---
 <DocLayout
   title="Messaging"
