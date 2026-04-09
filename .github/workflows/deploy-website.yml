@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths: ['web/**']
+  repository_dispatch:
+    types: [pilot-skills-updated]
   workflow_dispatch:
 
 jobs:

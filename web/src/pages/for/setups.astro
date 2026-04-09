@@ -1,0 +1,361 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import IslandNavbar from '../../components/IslandNavbar.astro';
+import BlogFooter from '../../components/BlogFooter.astro';
+import '../../styles/global.css';
+
+const title = "Deployment Setups — Multi-Agent Recipes for Pilot Protocol";
+const description = "Curated multi-agent deployment recipes for Pilot Protocol. Fleet monitoring, CI/CD pipelines, ML training, content sync, incident response, and more — real patterns with real skills.";
+const canonicalUrl = "https://pilotprotocol.network/for/setups";
+
+// Fetch setups.json at build time
+let catalog = { setups: [], total: 0 };
+try {
+  const res = await fetch("https://raw.githubusercontent.com/TeoSlayer/pilot-skills/main/setups.json");
+  if (res.ok) catalog = await res.json();
+} catch {}
+
+// Compute stats
+const totalAgents = catalog.setups.reduce((sum, s) => sum + s.agent_count, 0);
+const allSkills = new Set();
+catalog.setups.forEach(s => s.skills_used.forEach(sk => allSkills.add(sk)));
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": title,
+    "description": description,
+    "url": canonicalUrl,
+    "publisher": {"@type": "Organization", "name": "Vulture Labs", "url": "https://vulturelabs.com"},
+  })}></script>
+<style is:inline>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#3b82f6;--surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08);--glass-bg:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);--glass-shadow:0 8px 32px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06)}
+html,body{overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:'SF Mono',Menlo,Consolas,monospace}
+.container{max-width:960px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+
+/* Hero */
+.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:36px 32px;margin:100px 0 48px;position:relative;text-align:center}
+.hero-frame::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:400px;background:radial-gradient(ellipse,rgba(34,197,94,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
+.hero-frame h1{font-size:2.4rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:12px;line-height:1.1;position:relative;z-index:1}
+.hero-frame .tagline{font-size:1.05rem;color:var(--muted);margin-bottom:24px;line-height:1.65;max-width:560px;margin-left:auto;margin-right:auto;position:relative;z-index:1}
+.hero-stats{display:flex;justify-content:center;gap:32px;position:relative;z-index:1}
+.hero-stat{text-align:center}
+.hero-stat .num{font-size:2rem;font-weight:800;color:var(--accent);font-family:'SF Mono',Menlo,Consolas,monospace}
+.hero-stat .label{font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em}
+
+/* Difficulty filter */
+.filter-bar{display:flex;gap:8px;margin-bottom:32px;justify-content:center;flex-wrap:wrap}
+.pill{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:0.78rem;cursor:pointer;font-family:inherit;transition:all 0.15s;white-space:nowrap}
+.pill:hover{color:var(--fg);border-color:rgba(255,255,255,0.2)}
+.pill.active{color:var(--fg);background:rgba(34,197,94,0.12);border-color:rgba(34,197,94,0.4)}
+
+/* Browser layout */
+.setup-browser{display:grid;grid-template-columns:280px 1fr;gap:20px;min-height:500px}
+
+/* Setup selector (left) */
+.setup-list{display:flex;flex-direction:column;gap:8px}
+.setup-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:16px;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.setup-card:hover{border-color:rgba(255,255,255,0.2);transform:translateY(-1px)}
+.setup-card.active{border-color:rgba(34,197,94,0.5);background:rgba(34,197,94,0.06)}
+.setup-card.hidden{display:none}
+.setup-card-name{font-size:0.9rem;font-weight:600;margin-bottom:4px}
+.setup-card-tagline{font-size:0.78rem;color:var(--muted);line-height:1.4}
+.setup-card-meta{display:flex;gap:8px;margin-top:8px;align-items:center}
+.setup-badge{font-size:0.68rem;padding:2px 8px;border-radius:10px;font-weight:500}
+.badge-beginner{color:#22c55e;background:rgba(34,197,94,0.12)}
+.badge-intermediate{color:#f59e0b;background:rgba(245,158,11,0.12)}
+.badge-advanced{color:#ef4444;background:rgba(239,68,68,0.12)}
+.setup-agents-count{font-size:0.72rem;color:var(--muted)}
+
+/* Detail panel (right) */
+.setup-detail{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;padding:28px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.setup-detail.hidden{display:none}
+.detail-header{margin-bottom:24px}
+.detail-title{font-size:1.5rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:8px}
+.detail-meta{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.detail-desc{font-size:0.88rem;color:var(--muted);line-height:1.6}
+
+/* Agent cards */
+.agents-title{font-size:1rem;font-weight:700;margin:24px 0 12px;display:flex;align-items:center;gap:8px}
+.agents-title .count{font-size:0.75rem;color:var(--muted);background:var(--surface);padding:2px 10px;border-radius:12px}
+.agent-card{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px}
+.agent-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.agent-hostname{font-size:0.85rem;font-weight:600;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--accent)}
+.agent-role{font-size:0.78rem;color:var(--muted)}
+.agent-desc{font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:10px}
+.agent-skills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.skill-pill{font-size:0.72rem;color:rgba(255,255,255,0.6);background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);padding:2px 8px;border-radius:8px;font-family:'SF Mono',Menlo,Consolas,monospace}
+.agent-cmds{background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 14px;font-size:0.75rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--muted);line-height:1.6;overflow-x:auto}
+.agent-cmds .cmd{color:var(--accent)}
+
+/* Data flows */
+.flows-title{font-size:1rem;font-weight:700;margin:24px 0 12px}
+.flow-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.flow-item:last-child{border-bottom:none}
+.flow-from,.flow-to{font-size:0.78rem;font-weight:600;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--fg);min-width:80px}
+.flow-arrow{color:var(--accent);font-size:0.9rem;flex-shrink:0}
+.flow-desc{font-size:0.78rem;color:var(--muted);flex:1}
+.flow-port{font-size:0.68rem;color:rgba(255,255,255,0.4);background:var(--surface);padding:2px 6px;border-radius:6px;font-family:'SF Mono',Menlo,Consolas,monospace;flex-shrink:0}
+
+/* Quick start */
+.quickstart-title{font-size:1rem;font-weight:700;margin:24px 0 12px;display:flex;align-items:center;gap:8px}
+.quickstart-block{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-size:0.78rem;font-family:'SF Mono',Menlo,Consolas,monospace;line-height:1.7;overflow-x:auto;position:relative}
+.quickstart-block .qs-comment{color:var(--muted)}
+.quickstart-block .qs-cmd{color:var(--accent)}
+.copy-btn{position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.08);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:0.7rem;color:var(--muted);cursor:pointer;font-family:inherit;transition:all 0.15s}
+.copy-btn:hover{color:var(--fg);border-color:rgba(255,255,255,0.2)}
+
+/* Trust callout */
+.trust-callout{background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:20px 24px;margin-bottom:32px}
+.trust-callout h3{font-size:0.95rem;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.trust-callout h3 svg{width:16px;height:16px;stroke:#3b82f6;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.trust-callout p{font-size:0.82rem;color:var(--muted);line-height:1.6;margin:0}
+.trust-callout a{color:#3b82f6}
+.trust-callout code{font-size:0.78rem;background:rgba(59,130,246,0.1);padding:1px 5px;border-radius:4px;color:rgba(255,255,255,0.7)}
+
+/* Agent command styling */
+.agent-cmds .cmd-comment{color:var(--muted);font-style:italic}
+.agent-cmds .cmd-trust{color:#3b82f6}
+
+/* CTA banner */
+.cta-banner{text-align:center;padding:48px 24px;margin:40px 0;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
+.cta-banner h3{font-size:1.3rem;font-weight:700;margin-bottom:8px}
+.cta-banner p{color:var(--muted);font-size:0.9rem;margin-bottom:20px}
+.cta-links{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.cta-link{padding:8px 20px;border-radius:8px;font-size:0.88rem;font-weight:600;transition:all 0.2s;display:inline-block}
+.cta-link.primary{background:var(--accent);color:#000}
+.cta-link.primary:hover{opacity:0.9;text-decoration:none}
+.cta-link.secondary{border:1px solid var(--border);color:var(--fg)}
+.cta-link.secondary:hover{border-color:rgba(255,255,255,0.2);text-decoration:none}
+
+/* Responsive */
+@media(max-width:768px){
+  .container{padding:0 16px}
+  .hero-frame{padding:24px 16px;margin:68px 0 32px}
+  .hero-frame h1{font-size:1.8rem}
+  .hero-stats{gap:20px}
+  .hero-stat .num{font-size:1.6rem}
+  .setup-browser{grid-template-columns:1fr;gap:16px}
+  .setup-list{flex-direction:row;overflow-x:auto;gap:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .setup-card{min-width:220px;flex-shrink:0}
+  .setup-detail{padding:20px}
+  .detail-title{font-size:1.2rem}
+  .flow-item{flex-wrap:wrap;gap:6px}
+  .flow-from,.flow-to{min-width:auto}
+}
+@media(max-width:480px){
+  .hero-frame h1{font-size:1.5rem}
+  .hero-frame{padding:20px 12px;margin:60px 0 24px}
+  .hero-stats{flex-direction:column;gap:12px}
+  .setup-card{min-width:180px}
+}
+</style>
+</head>
+<body>
+
+<IslandNavbar active="solutions" />
+
+<div class="container">
+
+<!-- Hero -->
+<div class="hero-frame">
+  <h1>Deployment Setups</h1>
+  <p class="tagline">Curated multi-agent deployment recipes. Real skills, real data flows, real infrastructure patterns — copy-paste and go.</p>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="num">{catalog.total}</div>
+      <div class="label">Setups</div>
+    </div>
+    <div class="hero-stat">
+      <div class="num">{totalAgents}</div>
+      <div class="label">Agents</div>
+    </div>
+    <div class="hero-stat">
+      <div class="num">{allSkills.size}</div>
+      <div class="label">Skills Used</div>
+    </div>
+  </div>
+</div>
+
+<!-- Trust explainer -->
+<div class="trust-callout">
+  <h3><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Agents are private by default</h3>
+  <p>No one can discover or connect to your agent until you explicitly establish mutual trust. Each pair of agents that needs to communicate must exchange handshakes using <code>pilotctl handshake</code>. When both sides handshake each other, trust is auto-approved — no manual approval needed. <a href="/docs/trust">Learn more about trust &rarr;</a></p>
+</div>
+
+<!-- Difficulty filter -->
+<div class="filter-bar" id="filter-bar">
+  <button class="pill active" data-diff="all">All</button>
+  <button class="pill" data-diff="beginner">Beginner</button>
+  <button class="pill" data-diff="intermediate">Intermediate</button>
+  <button class="pill" data-diff="advanced">Advanced</button>
+</div>
+
+<!-- Setup browser -->
+<div class="setup-browser">
+
+  <!-- Left: setup selector -->
+  <div class="setup-list" id="setup-list">
+    {catalog.setups.map((setup, i) => (
+      <div class={`setup-card ${i === 0 ? 'active' : ''}`} data-slug={setup.slug} data-diff={setup.difficulty}>
+        <div class="setup-card-name">{setup.name}</div>
+        <div class="setup-card-tagline">{setup.tagline}</div>
+        <div class="setup-card-meta">
+          <span class={`setup-badge badge-${setup.difficulty}`}>{setup.difficulty}</span>
+          <span class="setup-agents-count">{setup.agent_count} agents</span>
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <!-- Right: detail panels -->
+  <div id="detail-panels">
+    {catalog.setups.map((setup, i) => (
+      <div class={`setup-detail ${i !== 0 ? 'hidden' : ''}`} data-panel={setup.slug}>
+        <div class="detail-header">
+          <div class="detail-title">{setup.name}</div>
+          <div class="detail-meta">
+            <span class={`setup-badge badge-${setup.difficulty}`}>{setup.difficulty}</span>
+            <span class="setup-agents-count">{setup.agent_count} agents &middot; {setup.skills_used.length} skills</span>
+          </div>
+          <div class="detail-desc">{setup.description}</div>
+        </div>
+
+        <div class="agents-title">Agents <span class="count">{setup.agents.length}</span></div>
+        {setup.agents.map(agent => (
+          <div class="agent-card">
+            <div class="agent-header">
+              <span class="agent-hostname">{agent.hostname}</span>
+              <span class="agent-role">{agent.role}</span>
+            </div>
+            <div class="agent-desc">{agent.description}</div>
+            <div class="agent-skills">
+              {agent.skills.map(sk => (
+                <span class="skill-pill">{sk}</span>
+              ))}
+            </div>
+            <div class="agent-cmds">
+              {agent.setup_commands.map(cmd => (
+                cmd === '' ? <br /> :
+                cmd.startsWith('#') ?
+                  <div><span class="cmd-comment">{cmd}</span></div> :
+                cmd.includes('handshake') ?
+                  <div><span class="cmd-trust">{cmd}</span></div> :
+                  <div><span class="cmd">{cmd}</span></div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div class="flows-title">Data Flows</div>
+        {setup.data_flows.map(flow => (
+          <div class="flow-item">
+            <span class="flow-from">{flow.from}</span>
+            <span class="flow-arrow">&rarr;</span>
+            <span class="flow-to">{flow.to}</span>
+            <span class="flow-desc">{flow.description}</span>
+            <span class="flow-port">:{flow.port}</span>
+          </div>
+        ))}
+
+        <div class="quickstart-title">Quick Start</div>
+        <div class="quickstart-block">
+          <button class="copy-btn" data-copy={setup.slug}>Copy</button>
+          {setup.quick_start.map(line => (
+            line === '' ? <br /> :
+            line.startsWith('#') ?
+              <div><span class="qs-comment">{line}</span></div> :
+              <div><span class="qs-cmd">{line}</span></div>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
+
+<!-- CTA -->
+<div class="cta-banner">
+  <h3>Build your own setup</h3>
+  <p>Browse 80+ skills in the Skill Zoo, or follow the Getting Started guide to deploy your first agent.</p>
+  <div class="cta-links">
+    <a class="cta-link primary" href="/for/skills">Skill Zoo</a>
+    <a class="cta-link secondary" href="/docs/getting-started">Getting Started</a>
+  </div>
+</div>
+
+</div>
+
+<BlogFooter />
+
+<script is:inline>
+(function(){
+  var cards = document.querySelectorAll('.setup-card');
+  var panels = document.querySelectorAll('.setup-detail');
+  var pills = document.querySelectorAll('#filter-bar .pill');
+  var activeDiff = 'all';
+
+  function selectSetup(slug){
+    cards.forEach(function(c){
+      c.classList.toggle('active', c.dataset.slug === slug);
+    });
+    panels.forEach(function(p){
+      p.classList.toggle('hidden', p.dataset.panel !== slug);
+    });
+  }
+
+  cards.forEach(function(card){
+    card.addEventListener('click', function(){
+      selectSetup(card.dataset.slug);
+    });
+  });
+
+  function filterByDifficulty(diff){
+    activeDiff = diff;
+    var firstVisible = null;
+    cards.forEach(function(c){
+      var show = diff === 'all' || c.dataset.diff === diff;
+      c.classList.toggle('hidden', !show);
+      if(show && !firstVisible) firstVisible = c;
+    });
+    if(firstVisible){
+      selectSetup(firstVisible.dataset.slug);
+    }
+  }
+
+  pills.forEach(function(pill){
+    pill.addEventListener('click', function(){
+      pills.forEach(function(p){ p.classList.remove('active') });
+      pill.classList.add('active');
+      filterByDifficulty(pill.dataset.diff);
+    });
+  });
+
+  // Copy quick start
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var block = btn.parentElement;
+      var lines = [];
+      block.querySelectorAll('.qs-comment, .qs-cmd').forEach(function(el){
+        lines.push(el.textContent);
+      });
+      var text = lines.join('\n');
+      navigator.clipboard.writeText(text).then(function(){
+        btn.textContent = 'Copied!';
+        setTimeout(function(){ btn.textContent = 'Copy'; }, 2000);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
