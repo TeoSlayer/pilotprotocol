@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -26,7 +27,19 @@ func (s *Server) ServeDashboard(addr string) error {
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		stats := s.GetDashboardStats()
+		var stats DashboardStats
+		if token := r.URL.Query().Get("token"); token != "" {
+			s.mu.RLock()
+			dt := s.dashboardToken
+			s.mu.RUnlock()
+			if dt != "" && subtle.ConstantTimeCompare([]byte(token), []byte(dt)) == 1 {
+				stats = s.GetDashboardStatsExtended()
+			} else {
+				stats = s.GetDashboardStats()
+			}
+		} else {
+			stats = s.GetDashboardStats()
+		}
 		_ = json.NewEncoder(w).Encode(stats)
 	})
 
@@ -242,12 +255,29 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 .ver-bar{height:100%;border-radius:4px;transition:width 0.3s}
 .ver-count{min-width:60px;text-align:right;font-size:13px;color:#8b949e}
 
+.token-bar{display:flex;align-items:center;gap:8px;margin-top:8px}
+.token-bar input{background:#0d1117;border:1px solid #21262d;border-radius:4px;color:#c9d1d9;padding:4px 8px;font-family:inherit;font-size:12px;width:180px}
+.token-bar input::placeholder{color:#484f58}
+.token-bar button{background:#21262d;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;padding:4px 10px;font-family:inherit;font-size:12px;cursor:pointer}
+.token-bar button:hover{border-color:#58a6ff;color:#58a6ff}
+.token-bar .status{font-size:11px;color:#484f58}
+.token-bar .status.ok{color:#3fb950}
+
+.networks{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;margin-bottom:32px;display:none}
+.networks h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.networks table{width:100%;border-collapse:collapse}
+.networks th{text-align:left;font-size:11px;color:#484f58;text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px;border-bottom:1px solid #21262d}
+.networks td{font-size:13px;color:#c9d1d9;padding:6px 8px;border-bottom:1px solid #161b22}
+.networks tr:hover td{background:#0d1117}
+.net-id{color:#8b949e;font-size:11px}
+
 footer{text-align:center;padding:24px 0;border-top:1px solid #21262d;margin-top:32px;font-size:12px;color:#484f58}
 footer a{color:#484f58}
 footer a:hover{color:#58a6ff}
 
 @media(max-width:640px){
   .stats-row{grid-template-columns:repeat(2,1fr)}
+  .networks table{font-size:12px}
 }
 </style>
 </head>
@@ -258,6 +288,11 @@ footer a:hover{color:#58a6ff}
   <div>
     <h1>Pilot Protocol</h1>
     <div class="uptime">Uptime: <span id="uptime">—</span></div>
+    <div class="token-bar">
+      <input type="password" id="token-input" placeholder="Dashboard token" autocomplete="off">
+      <button id="token-btn" onclick="toggleToken()">Unlock</button>
+      <span class="status" id="token-status"></span>
+    </div>
   </div>
 </header>
 
@@ -281,6 +316,14 @@ footer a:hover{color:#58a6ff}
 </div>
 
 <div class="versions" id="versions"></div>
+
+<div class="networks" id="networks">
+  <h2>Networks</h2>
+  <table>
+    <thead><tr><th>Network</th><th>Members</th><th>Online</th><th>Requests</th><th>Trust Links</th></tr></thead>
+    <tbody id="net-tbody"></tbody>
+  </table>
+</div>
 
 <footer>
   Pilot Protocol &middot;
@@ -306,17 +349,45 @@ function renderVersions(versions){
   });
   el.innerHTML=html;
 }
+function getToken(){return localStorage.getItem('pilot_dash_token')||''}
+function setToken(t){if(t)localStorage.setItem('pilot_dash_token',t);else localStorage.removeItem('pilot_dash_token')}
+function toggleToken(){
+  var inp=document.getElementById('token-input');
+  var btn=document.getElementById('token-btn');
+  if(getToken()){setToken('');inp.value='';btn.textContent='Unlock';document.getElementById('token-status').textContent='';document.getElementById('token-status').className='status';document.getElementById('networks').style.display='none';update();return}
+  var t=inp.value.trim();if(!t)return;
+  setToken(t);btn.textContent='Lock';update();
+}
+function initToken(){
+  var t=getToken();
+  if(t){document.getElementById('token-input').value=t;document.getElementById('token-btn').textContent='Lock'}
+}
+function renderNetworks(networks){
+  var wrap=document.getElementById('networks');
+  var tbody=document.getElementById('net-tbody');
+  if(!networks||!networks.length){wrap.style.display='none';var st=document.getElementById('token-status');if(getToken()){st.textContent='invalid token';st.className='status'}return}
+  wrap.style.display='block';
+  var st=document.getElementById('token-status');st.textContent='authenticated';st.className='status ok';
+  var html='';
+  networks.forEach(function(n){
+    html+='<tr><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td><td>'+fmt(n.trust_links)+'</td></tr>';
+  });
+  tbody.innerHTML=html;
+}
 function update(){
-  fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
+  var url='/api/stats';
+  var t=getToken();if(t)url+='?token='+encodeURIComponent(t);
+  fetch(url).then(function(r){return r.json()}).then(function(d){
     document.getElementById('total-requests').textContent=fmt(d.total_requests);
     document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     renderVersions(d.versions);
+    renderNetworks(d.networks);
   }).catch(function(){})
 }
-update();setInterval(update,30000);
+initToken();update();setInterval(update,30000);
 </script>
 </body>
 </html>`

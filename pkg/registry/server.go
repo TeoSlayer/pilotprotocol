@@ -288,7 +288,8 @@ type Server struct {
 	replMgr    *replicationManager
 	replToken  string // H4 fix: required for subscribe_replication; empty = replication disabled
 	standby    bool   // if true, reject writes and receive snapshots from primary
-	adminToken string // required for create_network; empty = creation disabled
+	adminToken     string // required for create_network; empty = creation disabled
+	dashboardToken string // token for per-network stats on dashboard; empty = public-only
 
 	// Delta log for incremental replication
 	deltaLog *deltaLog
@@ -336,6 +337,12 @@ type Server struct {
 	// Audit ring buffer (separate mutex — audit() is called while holding s.mu)
 	auditMu  sync.Mutex
 	auditLog []AuditEntry
+
+	// Time-series history ring buffers for dashboard charts
+	hourlyHistory [24]StatsSample // last 24 hours, one sample per hour
+	dailyHistory  [7]StatsSample  // last 7 days, one sample per day
+	hourlyIdx     int             // next write index for hourly ring
+	dailyIdx      int             // next write index for daily ring
 }
 
 // AuditEntry records a single audit event.
@@ -635,19 +642,20 @@ type NetworkPolicy struct {
 }
 
 type NetworkInfo struct {
-	ID          uint16
-	Name        string
-	JoinRule    string
-	Token       string // for token-gated networks
-	Members     []uint32
-	MemberRoles map[uint32]Role     // per-member RBAC roles
-	MemberTags  map[uint32][]string // admin-assigned per-member tags (e.g. "service")
-	AdminToken  string              // per-network admin token (optional)
-	Policy      NetworkPolicy       // network policy (membership limits, port restrictions)
-	Rules       *NetworkRules       // managed network rules (nil = normal network)
-	ExprPolicy  json.RawMessage     // programmable policy engine document (nil = none)
-	Enterprise  bool                // enterprise network (gates Phase 2-5 features)
-	Created     time.Time
+	ID           uint16
+	Name         string
+	JoinRule     string
+	Token        string // for token-gated networks
+	Members      []uint32
+	MemberRoles  map[uint32]Role     // per-member RBAC roles
+	MemberTags   map[uint32][]string // admin-assigned per-member tags (e.g. "service")
+	AdminToken   string              // per-network admin token (optional)
+	Policy       NetworkPolicy       // network policy (membership limits, port restrictions)
+	Rules        *NetworkRules       // managed network rules (nil = normal network)
+	ExprPolicy   json.RawMessage     // programmable policy engine document (nil = none)
+	Enterprise   bool                // enterprise network (gates Phase 2-5 features)
+	Created      time.Time
+	requestCount atomic.Int64 // per-network request counter (dashboard stats)
 }
 
 // HandshakeRelayMsg is a handshake request stored in the registry's relay inbox.
@@ -840,6 +848,14 @@ func (s *Server) IsStandby() bool {
 func (s *Server) SetAdminToken(token string) {
 	s.mu.Lock()
 	s.adminToken = token
+	s.mu.Unlock()
+}
+
+// SetDashboardToken sets the token required to view per-network stats on the dashboard.
+// If empty, the dashboard only shows global aggregates.
+func (s *Server) SetDashboardToken(token string) {
+	s.mu.Lock()
+	s.dashboardToken = token
 	s.mu.Unlock()
 }
 
@@ -1668,6 +1684,29 @@ func (s *Server) handleBinaryJSONFallback(conn net.Conn, payload []byte, remoteA
 func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (resp map[string]interface{}, err error) {
 	s.requestCount.Add(1)
 	msgType, _ := msg["type"].(string)
+
+	// Per-network request counting: if the message identifies a node, increment its networks' counters.
+	if nodeIDVal, ok := msg["node_id"]; ok {
+		var nodeID uint32
+		switch v := nodeIDVal.(type) {
+		case float64:
+			nodeID = uint32(v)
+		case uint32:
+			nodeID = v
+		}
+		if nodeID > 0 {
+			s.mu.RLock()
+			if node, exists := s.nodes[nodeID]; exists {
+				nets := node.Networks
+				for _, netID := range nets {
+					if net, ok := s.networks[netID]; ok {
+						net.requestCount.Add(1)
+					}
+				}
+			}
+			s.mu.RUnlock()
+		}
+	}
 
 	// Prometheus instrumentation
 	s.metrics.requestsTotal.WithLabel(msgType).Inc()
@@ -5551,19 +5590,20 @@ type snapshotNode struct {
 }
 
 type snapshotNet struct {
-	ID          uint16              `json:"id"`
-	Name        string              `json:"name"`
-	JoinRule    string              `json:"join_rule"`
-	Token       string              `json:"token,omitempty"`
-	Members     []uint32            `json:"members"`
-	MemberRoles map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
-	MemberTags  map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
-	AdminToken  string              `json:"admin_token,omitempty"`  // per-network admin token
-	Policy      *NetworkPolicy      `json:"policy,omitempty"`       // network policy
-	Rules       *NetworkRules       `json:"rules,omitempty"`        // managed network rules
-	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
-	Enterprise  bool                `json:"enterprise,omitempty"`   // enterprise network flag
-	Created     string              `json:"created"`
+	ID           uint16              `json:"id"`
+	Name         string              `json:"name"`
+	JoinRule     string              `json:"join_rule"`
+	Token        string              `json:"token,omitempty"`
+	Members      []uint32            `json:"members"`
+	MemberRoles  map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
+	MemberTags   map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
+	AdminToken   string              `json:"admin_token,omitempty"`  // per-network admin token
+	Policy       *NetworkPolicy      `json:"policy,omitempty"`       // network policy
+	Rules        *NetworkRules       `json:"rules,omitempty"`        // managed network rules
+	ExprPolicy   json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
+	Enterprise   bool                `json:"enterprise,omitempty"`   // enterprise network flag
+	RequestCount int64               `json:"request_count,omitempty"`
+	Created      string              `json:"created"`
 }
 
 // save signals that state has changed and should be persisted.
@@ -5607,6 +5647,64 @@ func (s *Server) saveLoop() {
 					slog.Error("final save failed", "err", err)
 				}
 			}
+			return
+		}
+	}
+}
+
+// sampleStats snapshots current stats into a StatsSample under RLock.
+func (s *Server) sampleStats() StatsSample {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+	onlineThreshold := now.Add(-staleNodeThreshold)
+	online := 0
+	for _, node := range s.nodes {
+		if node.getLastSeen().After(onlineThreshold) {
+			online++
+		}
+	}
+	return StatsSample{
+		Timestamp:     now.Unix(),
+		TotalNodes:    len(s.nodes),
+		OnlineNodes:   online,
+		TrustLinks:    len(s.trustPairs),
+		TotalRequests: s.requestCount.Load(),
+	}
+}
+
+// statsCollectorLoop runs in the background and samples stats for history charts.
+// Hourly samples are taken every hour; daily samples on hour transitions where
+// the previous tick's hour differs from current hour == 0 (midnight UTC).
+func (s *Server) statsCollectorLoop() {
+	// Sample immediately on startup so there's at least one data point
+	sample := s.sampleStats()
+	s.mu.Lock()
+	s.hourlyHistory[s.hourlyIdx%24] = sample
+	s.hourlyIdx++
+	s.dailyHistory[s.dailyIdx%7] = sample
+	s.dailyIdx++
+	s.mu.Unlock()
+
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	hourCounter := 0
+	for {
+		select {
+		case <-ticker.C:
+			hourCounter++
+			sample := s.sampleStats()
+			s.mu.Lock()
+			s.hourlyHistory[s.hourlyIdx%24] = sample
+			s.hourlyIdx++
+			// Daily sample every 24 hours
+			if hourCounter%24 == 0 {
+				s.dailyHistory[s.dailyIdx%7] = sample
+				s.dailyIdx++
+			}
+			s.mu.Unlock()
+		case <-s.done:
 			return
 		}
 	}
@@ -5790,14 +5888,15 @@ func (s *Server) flushSave() error {
 	for _, rn := range rawNets {
 		n := rn.info
 		sn := &snapshotNet{
-			ID:         n.ID,
-			Name:       n.Name,
-			JoinRule:   n.JoinRule,
-			Token:      n.Token,
-			Members:    n.Members,
-			AdminToken: n.AdminToken,
-			Enterprise: n.Enterprise,
-			Created:    n.Created.Format(time.RFC3339),
+			ID:           n.ID,
+			Name:         n.Name,
+			JoinRule:     n.JoinRule,
+			Token:        n.Token,
+			Members:      n.Members,
+			AdminToken:   n.AdminToken,
+			Enterprise:   n.Enterprise,
+			RequestCount: n.requestCount.Load(),
+			Created:      n.Created.Format(time.RFC3339),
 		}
 		if len(n.MemberRoles) > 0 {
 			sn.MemberRoles = make(map[string]string, len(n.MemberRoles))
@@ -6042,6 +6141,9 @@ func (s *Server) load() error {
 			Enterprise:  n.Enterprise,
 			Created:     created,
 		}
+		if n.RequestCount > 0 {
+			net.requestCount.Store(n.RequestCount)
+		}
 		if n.Policy != nil {
 			net.Policy = *n.Policy
 		}
@@ -6234,6 +6336,15 @@ func base64Decode(s string) ([]byte, error) {
 
 // --- Dashboard ---
 
+// StatsSample is a single time-series data point for dashboard history charts.
+type StatsSample struct {
+	Timestamp     int64 `json:"ts"`
+	TotalNodes    int   `json:"total_nodes"`
+	OnlineNodes   int   `json:"online_nodes"`
+	TrustLinks    int   `json:"trust_links"`
+	TotalRequests int64 `json:"total_requests"`
+}
+
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
 	TotalNodes      int            `json:"total_nodes"`
@@ -6242,6 +6353,19 @@ type DashboardStats struct {
 	TotalRequests   int64          `json:"total_requests"`
 	UptimeSecs      int64          `json:"uptime_secs"`
 	Versions        map[string]int `json:"versions"`
+	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
+	Hourly          []StatsSample  `json:"hourly,omitempty"`
+	Daily           []StatsSample  `json:"daily,omitempty"`
+}
+
+// NetworkStats holds per-network statistics for the authenticated dashboard view.
+type NetworkStats struct {
+	ID         uint16 `json:"id"`
+	Name       string `json:"name"`
+	Members    int    `json:"members"`
+	Online     int    `json:"online"`
+	Requests   int64  `json:"requests"`
+	TrustLinks int    `json:"trust_links"`
 }
 
 // GetDashboardStats returns aggregate statistics for the dashboard.
@@ -6261,6 +6385,8 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		v := node.Version
 		if v == "" {
 			v = "<1.7.0"
+		} else if !strings.HasPrefix(v, "v") {
+			v = "v" + v
 		}
 		versions[v]++
 	}
@@ -6272,6 +6398,97 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		TotalRequests:   s.requestCount.Load(),
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
+	}
+}
+
+// GetDashboardStatsExtended returns dashboard stats including per-network breakdowns.
+// Requires the dashboard token — only called from the token-gated API path.
+func (s *Server) GetDashboardStatsExtended() DashboardStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	onlineThreshold := now.Add(-staleNodeThreshold)
+
+	activeCount := 0
+	versions := make(map[string]int)
+	for _, node := range s.nodes {
+		if node.getLastSeen().After(onlineThreshold) {
+			activeCount++
+		}
+		v := node.Version
+		if v == "" {
+			v = "<1.7.0"
+		} else if !strings.HasPrefix(v, "v") {
+			v = "v" + v
+		}
+		versions[v]++
+	}
+
+	// Build per-network member sets for trust link counting
+	netMembers := make(map[uint16]map[uint32]bool, len(s.networks))
+	for _, net := range s.networks {
+		m := make(map[uint32]bool, len(net.Members))
+		for _, id := range net.Members {
+			m[id] = true
+		}
+		netMembers[net.ID] = m
+	}
+
+	// Count per-network trust links: both nodes must be members of the network
+	netTrust := make(map[uint16]int, len(s.networks))
+	for key := range s.trustPairs {
+		// Trust pair format: "nodeA:nodeB"
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var nodeA, nodeB uint32
+		if _, err := fmt.Sscanf(parts[0], "%d", &nodeA); err != nil {
+			continue
+		}
+		if _, err := fmt.Sscanf(parts[1], "%d", &nodeB); err != nil {
+			continue
+		}
+		for netID, members := range netMembers {
+			if members[nodeA] && members[nodeB] {
+				netTrust[netID]++
+			}
+		}
+	}
+
+	// Build network stats
+	networks := make([]NetworkStats, 0, len(s.networks))
+	for _, net := range s.networks {
+		online := 0
+		for _, memberID := range net.Members {
+			if node, exists := s.nodes[memberID]; exists {
+				if node.getLastSeen().After(onlineThreshold) {
+					online++
+				}
+			}
+		}
+		networks = append(networks, NetworkStats{
+			ID:         net.ID,
+			Name:       net.Name,
+			Members:    len(net.Members),
+			Online:     online,
+			Requests:   net.requestCount.Load(),
+			TrustLinks: netTrust[net.ID],
+		})
+	}
+
+	// Sort by ID for stable output
+	sort.Slice(networks, func(i, j int) bool { return networks[i].ID < networks[j].ID })
+
+	return DashboardStats{
+		TotalNodes:      len(s.nodes),
+		ActiveNodes:     activeCount,
+		TotalTrustLinks: len(s.trustPairs),
+		TotalRequests:   s.requestCount.Load(),
+		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
+		Versions:        versions,
+		Networks:        networks,
 	}
 }
 

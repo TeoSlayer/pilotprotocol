@@ -1044,12 +1044,8 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
           <span class="bento-big" id="stat-trust">&mdash;</span>
           <span class="bento-label">Trust Links</span>
         </div>
-        <div>
-          <span class="bento-big" id="stat-task-executors">&mdash;</span>
-          <span class="bento-label">Task Executors</span>
-        </div>
       </div>
-      <span class="bento-desc">Mutual trust relationships and agents accepting work.</span>
+      <span class="bento-desc">Mutual trust relationships between agents.</span>
     </div>
   </div>
 </section>
@@ -1411,7 +1407,6 @@ fetch('https://polo.pilotprotocol.network/api/stats').then(function(r){return r.
   document.getElementById('stat-nodes').textContent=fmtNum(d.active_nodes||0);
   document.getElementById('stat-trust').textContent=fmtNum(d.total_trust_links||0);
   if(req>0){document.getElementById('milestone-count').textContent=fmtNum(req)+'+';}
-  document.getElementById('stat-task-executors').textContent=fmtNum(d.task_executors||0);
 }).catch(function(){});
 
 fetch('https://api.github.com/repos/TeoSlayer/pilotprotocol').then(function(r){return r.json()}).then(function(d){
