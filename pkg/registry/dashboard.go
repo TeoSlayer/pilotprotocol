@@ -137,23 +137,6 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "requests", fmtCount(int(stats.TotalRequests)), "#a855f7")
 	})
 
-	mux.HandleFunc("/api/badge/tags", func(w http.ResponseWriter, r *http.Request) {
-		stats := s.GetDashboardStats()
-		c := "#f59e0b"
-		if stats.UniqueTags == 0 {
-			c = "#9f9f9f"
-		}
-		serveBadge(w, "tags", fmtCount(stats.UniqueTags), c)
-	})
-
-	mux.HandleFunc("/api/badge/task-executors", func(w http.ResponseWriter, r *http.Request) {
-		stats := s.GetDashboardStats()
-		c := "#4c1"
-		if stats.TaskExecutors == 0 {
-			c = "#9f9f9f"
-		}
-		serveBadge(w, "task executors", fmtCount(stats.TaskExecutors), c)
-	})
 
 	// Snapshot trigger endpoint (POST only, localhost only)
 	mux.HandleFunc("/api/snapshot", func(w http.ResponseWriter, r *http.Request) {
@@ -242,15 +225,22 @@ a:hover{text-decoration:underline}
 
 .container{max-width:960px;margin:0 auto;padding:24px 16px}
 
-header{display:flex;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px solid #21262d;margin-bottom:32px}
+header{padding:16px 0;border-bottom:1px solid #21262d;margin-bottom:32px}
 header h1{font-size:20px;font-weight:600;color:#e6edf3}
-header .links{display:flex;gap:16px;font-size:13px}
 .uptime{font-size:12px;color:#8b949e;margin-top:4px}
 
-.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
 .stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
+
+.versions{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px}
+.versions h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.ver-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.ver-label{min-width:120px;font-size:13px;color:#c9d1d9}
+.ver-bar-bg{flex:1;height:20px;background:#0d1117;border-radius:4px;overflow:hidden}
+.ver-bar{height:100%;border-radius:4px;transition:width 0.3s}
+.ver-count{min-width:60px;text-align:right;font-size:13px;color:#8b949e}
 
 footer{text-align:center;padding:24px 0;border-top:1px solid #21262d;margin-top:32px;font-size:12px;color:#484f58}
 footer a{color:#484f58}
@@ -268,10 +258,6 @@ footer a:hover{color:#58a6ff}
   <div>
     <h1>Pilot Protocol</h1>
     <div class="uptime">Uptime: <span id="uptime">—</span></div>
-  </div>
-  <div class="links">
-    <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
-    <a href="https://pilotprotocol.network">pilotprotocol.network</a>
   </div>
 </header>
 
@@ -292,15 +278,9 @@ footer a:hover{color:#58a6ff}
     <span class="value" id="trust-links">—</span>
     <span class="label">Trust Links</span>
   </div>
-  <div class="stat-card">
-    <span class="value" id="unique-tags">—</span>
-    <span class="label">Unique Tags</span>
-  </div>
-  <div class="stat-card">
-    <span class="value" id="task-executors">—</span>
-    <span class="label">Task Executors</span>
-  </div>
 </div>
+
+<div class="versions" id="versions"></div>
 
 <footer>
   Pilot Protocol &middot;
@@ -312,15 +292,28 @@ footer a:hover{color:#58a6ff}
 <script>
 function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);var p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ')}
+function renderVersions(versions){
+  var el=document.getElementById('versions');
+  if(!versions||!Object.keys(versions).length){el.innerHTML='';return}
+  var sorted=Object.entries(versions).sort(function(a,b){return b[1]-a[1]});
+  var max=sorted[0][1];
+  var colors=['#58a6ff','#3fb950','#a855f7','#f59e0b','#f97316','#ef4444','#8b949e'];
+  var html='<h2>Client Versions</h2>';
+  sorted.forEach(function(e,i){
+    var pct=Math.max(2,Math.round(e[1]/max*100));
+    var c=colors[i%colors.length];
+    html+='<div class="ver-row"><span class="ver-label">'+e[0]+'</span><div class="ver-bar-bg"><div class="ver-bar" style="width:'+pct+'%;background:'+c+'"></div></div><span class="ver-count">'+fmt(e[1])+'</span></div>';
+  });
+  el.innerHTML=html;
+}
 function update(){
   fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
     document.getElementById('total-requests').textContent=fmt(d.total_requests);
     document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
-    document.getElementById('unique-tags').textContent=fmt(d.unique_tags||0);
-    document.getElementById('task-executors').textContent=fmt(d.task_executors||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
+    renderVersions(d.versions);
   }).catch(function(){})
 }
 update();setInterval(update,30000);

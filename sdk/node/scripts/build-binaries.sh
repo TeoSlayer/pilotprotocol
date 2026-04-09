@@ -49,8 +49,14 @@ CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DI
 echo "   ✓ Built: $OUTPUT_DIR/pilot-gateway"
 echo ""
 
-# 4. Build CGO bindings
-echo "4. Building libpilot CGO bindings..."
+# 4. Build updater
+echo "4. Building pilot-updater..."
+CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DIR/pilot-updater" ./cmd/updater
+echo "   ✓ Built: $OUTPUT_DIR/pilot-updater"
+echo ""
+
+# 5. Build CGO bindings
+echo "5. Building libpilot CGO bindings..."
 cd sdk/cgo
 CGO_ENABLED=1 GOOS="$OS" GOARCH="$ARCH" go build -buildmode=c-shared -ldflags="-s -w" -o "../../$OUTPUT_DIR/libpilot.$EXT" .
 cd ../..

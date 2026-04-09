@@ -60,6 +60,7 @@ classifiers = [
 pilotctl = "pilotprotocol.cli:run_pilotctl"
 pilot-daemon = "pilotprotocol.cli:run_daemon"
 pilot-gateway = "pilotprotocol.cli:run_gateway"
+pilot-updater = "pilotprotocol.cli:run_updater"
 
 [project.urls]
 Homepage = "https://pilotprotocol.network"

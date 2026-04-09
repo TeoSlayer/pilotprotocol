@@ -27,7 +27,7 @@ import PageNav from "../../components/PageNav.astro";
 
   <h2 id="install">Installation</h2>
 
-  <p>Run the one-line installer. It detects your platform, downloads pre-built binaries, writes <code>~/.pilot/config.json</code>, adds <code>~/.pilot/bin</code> to your PATH, and sets up a system service (systemd on Linux, launchd on macOS).</p>
+  <p>Run the one-line installer. It detects your platform, downloads pre-built binaries, writes <code>~/.pilot/config.json</code>, adds <code>~/.pilot/bin</code> to your PATH, and sets up system services (systemd on Linux, launchd on macOS) for the daemon and auto-updater. Future releases are applied automatically in the background.</p>
   <pre><code><span class="cmd">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
 
   <p>You will be prompted for an email address on first install. To skip the prompt:</p>

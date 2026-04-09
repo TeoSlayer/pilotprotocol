@@ -127,21 +127,43 @@ def run_daemon():
 
 def run_gateway():
     """Entry point for pilot-gateway IP traffic bridge.
-    
+
     This is called when the user runs 'pilot-gateway' from the command line.
     All arguments are passed through to the Go binary.
-    
+
     Example:
         $ pilot-gateway --ports 80,3000 <pilot-addr>
     """
     # Ensure environment is set up
     _ensure_pilot_env()
-    
+
     # Get path to bundled binary
     binary = _get_binary_path("pilot-gateway")
-    
+
     # Execute the binary with all arguments
     exit_code = subprocess.call([str(binary)] + sys.argv[1:])
-    
+
+    # Exit with the same code as the binary
+    sys.exit(exit_code)
+
+
+def run_updater():
+    """Entry point for pilot-updater auto-update sidecar.
+
+    This is called when the user runs 'pilot-updater' from the command line.
+    All arguments are passed through to the Go binary.
+
+    Example:
+        $ pilot-updater -install-dir ~/.pilot/bin
+    """
+    # Ensure environment is set up
+    _ensure_pilot_env()
+
+    # Get path to bundled binary
+    binary = _get_binary_path("pilot-updater")
+
+    # Execute the binary with all arguments
+    exit_code = subprocess.call([str(binary)] + sys.argv[1:])
+
     # Exit with the same code as the binary
     sys.exit(exit_code)

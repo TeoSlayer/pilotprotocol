@@ -1565,6 +1565,9 @@ func runDaemonInternal(args []string) {
 	listenAddr := flagString(flags, "listen", ":0")
 	socketPath := flagString(flags, "socket", defaultSocket)
 	identityPath := flagString(flags, "identity", "")
+	if identityPath == "" {
+		identityPath = configDir() + "/identity.json"
+	}
 	email := flagString(flags, "email", "")
 	owner := flagString(flags, "owner", "")
 	if email == "" && owner != "" {
@@ -1626,6 +1629,7 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		AdminToken:       adminToken,
 		Networks:         pilotctlParseNetworkIDs(networks),
 		TrustAutoApprove: trustAutoApprove,
+		Version:          version,
 	})
 
 	if err := d.Start(); err != nil {

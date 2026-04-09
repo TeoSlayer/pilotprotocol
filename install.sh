@@ -31,25 +31,31 @@ if [ "${1}" = "uninstall" ]; then
         pilotctl gateway stop 2>/dev/null || true
     fi
 
-    # Remove system service
-    if [ "$OS" = "linux" ] && [ -f /etc/systemd/system/pilot-daemon.service ]; then
+    # Remove system services (daemon + updater)
+    if [ "$OS" = "linux" ]; then
         if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
-            sudo systemctl stop pilot-daemon 2>/dev/null || true
-            sudo systemctl disable pilot-daemon 2>/dev/null || true
-            sudo rm -f /etc/systemd/system/pilot-daemon.service
+            for svc in pilot-daemon pilot-updater; do
+                if [ -f "/etc/systemd/system/${svc}.service" ]; then
+                    sudo systemctl stop "$svc" 2>/dev/null || true
+                    sudo systemctl disable "$svc" 2>/dev/null || true
+                    sudo rm -f "/etc/systemd/system/${svc}.service"
+                fi
+            done
             sudo systemctl daemon-reload
-            echo "  Removed systemd service"
+            echo "  Removed systemd services"
         else
             echo "  Skipped systemd removal (run with sudo to remove)"
         fi
     fi
     if [ "$OS" = "darwin" ]; then
-        PLIST="$HOME/Library/LaunchAgents/com.vulturelabs.pilot-daemon.plist"
-        if [ -f "$PLIST" ]; then
-            launchctl unload "$PLIST" 2>/dev/null || true
-            rm -f "$PLIST"
-            echo "  Removed LaunchAgent"
-        fi
+        for label in com.vulturelabs.pilot-daemon com.vulturelabs.pilot-updater; do
+            PLIST="$HOME/Library/LaunchAgents/${label}.plist"
+            if [ -f "$PLIST" ]; then
+                launchctl unload "$PLIST" 2>/dev/null || true
+                rm -f "$PLIST"
+            fi
+        done
+        echo "  Removed LaunchAgents"
     fi
 
     # Remove pilot directory (binaries, config, identity, received files)
@@ -165,6 +171,8 @@ if [ -z "$TAG" ]; then
     CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" "$TMPDIR/src/cmd/pilotctl"
     echo "Building gateway..."
     CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" "$TMPDIR/src/cmd/gateway"
+    echo "Building updater..."
+    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" "$TMPDIR/src/cmd/updater"
 fi
 
 # --- Install binaries to ~/.pilot/bin ---
@@ -184,7 +192,13 @@ if [ -f "$TMPDIR/gateway" ]; then
 else
     cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
 fi
+if [ -f "$TMPDIR/updater" ]; then
+    cp "$TMPDIR/updater" "$BIN_DIR/pilot-updater"
+elif [ -f "$TMPDIR/pilot-updater" ]; then
+    cp "$TMPDIR/pilot-updater" "$BIN_DIR/pilot-updater"
+fi
 chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
+[ -f "$BIN_DIR/pilot-updater" ] && chmod 755 "$BIN_DIR/pilot-updater"
 
 # --- Symlink to /usr/local/bin if writable, otherwise skip ---
 
@@ -193,17 +207,21 @@ if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
     ln -sf "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
     ln -sf "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
     ln -sf "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-updater" ] && ln -sf "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
     echo "  Symlinked to ${LINK_DIR}"
 fi
 
 # --- Update: stop here, skip config/service/PATH setup ---
 
 if [ "$UPDATING" = true ]; then
+    # Write version file for the auto-updater
+    [ -n "$TAG" ] && echo "$TAG" > "$BIN_DIR/.pilot-version"
     echo ""
     echo "Updated to ${TAG:-source}:"
-    echo "  pilot-daemon   ${BIN_DIR}/pilot-daemon"
-    echo "  pilotctl        ${BIN_DIR}/pilotctl"
-    echo "  pilot-gateway   ${BIN_DIR}/pilot-gateway"
+    echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
+    echo "  pilotctl         ${BIN_DIR}/pilotctl"
+    echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
+    echo "  pilot-updater    ${BIN_DIR}/pilot-updater"
     echo ""
     echo "Restart the daemon to use the new version:"
     echo "  pilotctl daemon stop && pilotctl daemon start"
@@ -266,10 +284,32 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 SVC
+    # Auto-updater service
+    if [ -f "$BIN_DIR/pilot-updater" ]; then
+    sudo tee /etc/systemd/system/pilot-updater.service >/dev/null <<USVC
+[Unit]
+Description=Pilot Protocol Auto-Updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$(whoami)
+ExecStart=${BIN_DIR}/pilot-updater \\
+  -install-dir ${BIN_DIR}
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+USVC
+    fi
+
     sudo systemctl daemon-reload
     echo "  Service: pilot-daemon.service"
-    echo "  Start:   sudo systemctl start pilot-daemon"
-    echo "  Enable:  sudo systemctl enable pilot-daemon"
+    echo "  Service: pilot-updater.service (auto-updates)"
+    echo "  Start:   sudo systemctl start pilot-daemon pilot-updater"
+    echo "  Enable:  sudo systemctl enable pilot-daemon pilot-updater"
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
@@ -327,7 +367,37 @@ ${EXTRA_ARGS}    </array>
 </dict>
 </plist>
 PLIST
+    # Auto-updater LaunchAgent
+    if [ -f "$BIN_DIR/pilot-updater" ]; then
+        UPLIST="$PLIST_DIR/com.vulturelabs.pilot-updater.plist"
+        cat > "$UPLIST" <<UPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vulturelabs.pilot-updater</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${BIN_DIR}/pilot-updater</string>
+        <string>-install-dir</string>
+        <string>${BIN_DIR}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${PILOT_DIR}/updater.log</string>
+    <key>StandardErrorPath</key>
+    <string>${PILOT_DIR}/updater.log</string>
+</dict>
+</plist>
+UPLIST
+    fi
+
     echo "  Service: com.vulturelabs.pilot-daemon"
+    echo "  Service: com.vulturelabs.pilot-updater (auto-updates)"
     echo "  Start:   launchctl load $PLIST"
     echo "  Stop:    launchctl unload $PLIST"
 fi
@@ -358,11 +428,15 @@ fi
 
 # --- Verify ---
 
+# Write version file for the auto-updater
+[ -n "$TAG" ] && echo "$TAG" > "$BIN_DIR/.pilot-version"
+
 echo ""
 echo "Installed:"
-echo "  pilot-daemon   ${BIN_DIR}/pilot-daemon"
-echo "  pilotctl        ${BIN_DIR}/pilotctl"
-echo "  pilot-gateway   ${BIN_DIR}/pilot-gateway"
+echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
+echo "  pilotctl         ${BIN_DIR}/pilotctl"
+echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
+echo "  pilot-updater    ${BIN_DIR}/pilot-updater (auto-updates in background)"
 echo ""
 echo "Config: ${PILOT_DIR}/config.json"
 echo "  Registry: ${REGISTRY}"

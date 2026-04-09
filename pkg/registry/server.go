@@ -6236,31 +6236,12 @@ func base64Decode(s string) ([]byte, error) {
 
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
-	TotalNodes      int             `json:"total_nodes"`
-	ActiveNodes     int             `json:"active_nodes"`
-	TotalTrustLinks int             `json:"total_trust_links"`
-	TotalRequests   int64           `json:"total_requests"`
-	UniqueTags      int             `json:"unique_tags"`
-	TaskExecutors   int             `json:"task_executors"`
-	Nodes           []DashboardNode `json:"nodes"`
-	Edges           []DashboardEdge `json:"edges"`
-	UptimeSecs      int64           `json:"uptime_secs"`
-}
-
-// DashboardNode represents a node in the dashboard visualization.
-type DashboardNode struct {
-	Address    string   `json:"address"`
-	Tags       []string `json:"tags"`
-	Online     bool     `json:"online"`
-	TrustLinks int      `json:"trust_links"`
-	TaskExec   bool     `json:"task_exec"`
-	PoloScore  int      `json:"polo_score"`
-}
-
-// DashboardEdge represents a trust relationship between two nodes.
-type DashboardEdge struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
+	TotalNodes      int            `json:"total_nodes"`
+	ActiveNodes     int            `json:"active_nodes"`
+	TotalTrustLinks int            `json:"total_trust_links"`
+	TotalRequests   int64          `json:"total_requests"`
+	UptimeSecs      int64          `json:"uptime_secs"`
+	Versions        map[string]int `json:"versions"`
 }
 
 // GetDashboardStats returns aggregate statistics for the dashboard.
@@ -6271,76 +6252,26 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	now := time.Now()
 	onlineThreshold := now.Add(-staleNodeThreshold)
 
-	// Count trust links per node and build edge list
-	trustCount := make(map[uint32]int)
-	nodeAddr := make(map[uint32]string, len(s.nodes))
-	for _, node := range s.nodes {
-		addr := protocol.Addr{Network: 0, Node: node.ID}
-		if len(node.Networks) > 0 {
-			addr.Network = node.Networks[0]
-		}
-		nodeAddr[node.ID] = addr.String()
-	}
-	edges := make([]DashboardEdge, 0, len(s.trustPairs))
-	for key := range s.trustPairs {
-		var a, b uint32
-		fmt.Sscanf(key, "%d:%d", &a, &b)
-		trustCount[a]++
-		trustCount[b]++
-		if addrA, okA := nodeAddr[a]; okA {
-			if addrB, okB := nodeAddr[b]; okB {
-				edges = append(edges, DashboardEdge{Source: addrA, Target: addrB})
-			}
-		}
-	}
-
-	nodes := make([]DashboardNode, 0, len(s.nodes))
 	activeCount := 0
-	taskExecCount := 0
-	tagSet := make(map[string]bool)
+	versions := make(map[string]int)
 	for _, node := range s.nodes {
-		online := node.getLastSeen().After(onlineThreshold)
-		if online {
+		if node.getLastSeen().After(onlineThreshold) {
 			activeCount++
 		}
-		if node.TaskExec {
-			taskExecCount++
+		v := node.Version
+		if v == "" {
+			v = "<1.7.0"
 		}
-		addr := protocol.Addr{Network: 0, Node: node.ID}
-		if len(node.Networks) > 0 {
-			addr.Network = node.Networks[0]
-		}
-		for _, t := range node.Tags {
-			tagSet[t] = true
-		}
-		tags := node.Tags
-		if tags == nil {
-			tags = []string{}
-		}
-		nodes = append(nodes, DashboardNode{
-			Address:    addr.String(),
-			Tags:       tags,
-			Online:     online,
-			TrustLinks: trustCount[node.ID],
-			TaskExec:   node.TaskExec,
-			PoloScore:  node.PoloScore,
-		})
+		versions[v]++
 	}
-
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].Address < nodes[j].Address
-	})
 
 	return DashboardStats{
 		TotalNodes:      len(s.nodes),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
-		UniqueTags:      len(tagSet),
-		TaskExecutors:   taskExecCount,
-		Nodes:           nodes,
-		Edges:           edges,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
+		Versions:        versions,
 	}
 }
 

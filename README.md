@@ -272,10 +272,11 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 - Detects your platform (linux/darwin, amd64/arm64)
 - Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
-- Installs `pilot-daemon`, `pilotctl`, and `pilot-gateway` to `~/.pilot/bin`
+- Installs `pilot-daemon`, `pilotctl`, `pilot-gateway`, and `pilot-updater` to `~/.pilot/bin`
 - Adds `~/.pilot/bin` to your PATH
 - Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
-- Sets up a system service (**Linux**: systemd, **macOS**: launchd)
+- Sets up system services (**Linux**: systemd, **macOS**: launchd) for daemon and auto-updater
+- The auto-updater runs in the background, checking for new releases every hour and applying updates automatically
 
 **Uninstall:** `curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall`
 

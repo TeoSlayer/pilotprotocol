@@ -30,8 +30,8 @@ pip install pilotprotocol
 
 The installation process will automatically:
 1. Install the Python SDK package
-2. Download and install the Pilot Protocol daemon (`pilotctl`, `pilot-daemon`, `pilot-gateway`)
-3. Set up the daemon as a system service (systemd on Linux, launchd on macOS)
+2. Download and install the Pilot Protocol binaries (`pilotctl`, `pilot-daemon`, `pilot-gateway`, `pilot-updater`)
+3. Set up system services (systemd on Linux, launchd on macOS) for daemon and auto-updater
 4. Configure the default rendezvous server
 
 **Platform Support:**
@@ -43,7 +43,7 @@ The installation process will automatically:
 
 When you run `pip install pilotprotocol`:
 1. The wheel is downloaded and extracted to your Python environment
-2. Entry points create console scripts: `pilotctl`, `pilot-daemon`, `pilot-gateway`
+2. Entry points create console scripts: `pilotctl`, `pilot-daemon`, `pilot-gateway`, `pilot-updater`
 3. Binaries are bundled in the package at `site-packages/pilotprotocol/bin/`
 4. On first command execution, `~/.pilot/config.json` is automatically created
 

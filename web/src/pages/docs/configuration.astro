@@ -60,7 +60,8 @@ const bodyContent = `<h1>Configuration</h1>
   <h2 id="directory">Directory structure</h2>
 
   <pre><code>~/.pilot/
-  bin/                <span class="comment"># Installed binaries (pilotctl)</span>
+  bin/                <span class="comment"># Installed binaries (daemon, pilotctl, gateway, updater)</span>
+  bin/.pilot-version  <span class="comment"># Current version (used by auto-updater)</span>
   config.json         <span class="comment"># Configuration file</span>
   identity.json       <span class="comment"># Ed25519 keypair (persistent identity)</span>
   trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
@@ -69,7 +70,8 @@ const bodyContent = `<h1>Configuration</h1>
   inbox/              <span class="comment"># Messages received via data exchange</span>
   tasks/              <span class="comment"># Task files and results</span>
   pilot.pid           <span class="comment"># Daemon PID file</span>
-  pilot.log           <span class="comment"># Daemon log file</span></code></pre>
+  pilot.log           <span class="comment"># Daemon log file</span>
+  updater.log         <span class="comment"># Auto-updater log file</span></code></pre>
 
   <h2 id="daemon-flags">Daemon flags</h2>
 

@@ -65,7 +65,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME}
           LDFLAGS="-s -w -X main.version=${VERSION}"
-          BINS="daemon pilotctl gateway registry beacon rendezvous nameserver"
+          BINS="daemon pilotctl gateway registry beacon rendezvous nameserver updater"
           mkdir -p dist
           for bin in $BINS; do
             echo "Building $bin for ${{ matrix.goos }}/${{ matrix.goarch }}..."

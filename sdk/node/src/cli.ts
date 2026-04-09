@@ -103,3 +103,7 @@ export function runDaemon(): void {
 export function runGateway(): void {
   runBinary('pilot-gateway');
 }
+
+export function runUpdater(): void {
+  runBinary('pilot-updater');
+}
