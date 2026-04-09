@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -275,6 +276,95 @@ func TestReplaceBinary(t *testing.T) {
 	data, _ := os.ReadFile(dst)
 	if string(data) != "new content" {
 		t.Fatalf("got %q, want %q", string(data), "new content")
+	}
+}
+
+func TestApplyUpdate_SkipsServerBinaries(t *testing.T) {
+	tmpDir := t.TempDir()
+	installDir := filepath.Join(tmpDir, "bin")
+	os.MkdirAll(installDir, 0755)
+
+	// Seed existing binaries (client + server).
+	os.WriteFile(filepath.Join(installDir, "daemon"), []byte("old-daemon"), 0755)
+	os.WriteFile(filepath.Join(installDir, "registry"), []byte("old-registry"), 0755)
+	os.WriteFile(filepath.Join(installDir, "beacon"), []byte("old-beacon"), 0755)
+	os.WriteFile(filepath.Join(installDir, ".pilot-version"), []byte("v1.0.0\n"), 0644)
+
+	// Build an archive with both client and server binaries.
+	archiveDir := t.TempDir()
+	archiveName := fmt.Sprintf("pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	archivePath := filepath.Join(archiveDir, archiveName)
+	createTestTarGz(t, archivePath, map[string]string{
+		"daemon":     "new-daemon",
+		"pilotctl":   "new-pilotctl",
+		"gateway":    "new-gateway",
+		"updater":    "new-updater",
+		"registry":   "new-registry",
+		"beacon":     "new-beacon",
+		"rendezvous": "new-rendezvous",
+		"nameserver": "new-nameserver",
+	})
+	archiveContent, _ := os.ReadFile(archivePath)
+	archiveHash := sha256.Sum256(archiveContent)
+	checksumsContent := fmt.Sprintf("%x  %s\n", archiveHash, archiveName)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download/" + archiveName:
+			w.Write(archiveContent)
+		case "/download/checksums.txt":
+			w.Write([]byte(checksumsContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	u := &Updater{
+		config: Config{InstallDir: installDir},
+		client: srv.Client(),
+		stopCh: make(chan struct{}),
+	}
+
+	release := &GitHubRelease{
+		TagName: "v1.1.0",
+		Assets: []GitHubAsset{
+			{Name: archiveName, BrowserDownloadURL: srv.URL + "/download/" + archiveName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/download/checksums.txt"},
+		},
+	}
+
+	if err := u.applyUpdate(release); err != nil {
+		t.Fatalf("applyUpdate: %v", err)
+	}
+
+	// Client binaries should be updated.
+	for _, name := range []string{"daemon", "pilotctl", "gateway", "updater"} {
+		data, err := os.ReadFile(filepath.Join(installDir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(data) != "new-"+name {
+			t.Errorf("%s = %q, want %q", name, string(data), "new-"+name)
+		}
+	}
+
+	// Server binaries should NOT be updated.
+	for _, name := range []string{"registry", "beacon"} {
+		data, err := os.ReadFile(filepath.Join(installDir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(data) != "old-"+name {
+			t.Errorf("%s = %q, want %q (should be unchanged)", name, string(data), "old-"+name)
+		}
+	}
+
+	// Server binaries not previously present should NOT be created.
+	for _, name := range []string{"rendezvous", "nameserver"} {
+		if _, err := os.Stat(filepath.Join(installDir, name)); err == nil {
+			t.Errorf("%s should not have been created", name)
+		}
 	}
 }
 

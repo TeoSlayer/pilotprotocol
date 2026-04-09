@@ -228,7 +228,15 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
-	// Replace binaries (rm -f first, then copy — same pattern as GCP deploy).
+	// Only replace client binaries — server binaries (registry, beacon,
+	// rendezvous, nameserver) are managed separately.
+	clientBins := map[string]bool{
+		"daemon":   true,
+		"pilotctl": true,
+		"gateway":  true,
+		"updater":  true,
+	}
+
 	entries, err := os.ReadDir(stagingDir)
 	if err != nil {
 		return fmt.Errorf("read staging dir: %w", err)
@@ -236,6 +244,10 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+		if !clientBins[entry.Name()] {
+			slog.Debug("skipping server binary", "name", entry.Name())
 			continue
 		}
 		src := filepath.Join(stagingDir, entry.Name())
