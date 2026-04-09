@@ -67,11 +67,12 @@ const (
 
 // Managed sub-commands (second byte of CmdManaged payload)
 const (
-	SubManagedScore     byte = 0x01
-	SubManagedStatus    byte = 0x02
-	SubManagedRankings  byte = 0x03
-	SubManagedCycle     byte = 0x04
-	SubManagedPolicy    byte = 0x05 // get/set expr policy
+	SubManagedScore      byte = 0x01
+	SubManagedStatus     byte = 0x02
+	SubManagedRankings   byte = 0x03
+	SubManagedCycle      byte = 0x04
+	SubManagedPolicy     byte = 0x05 // get/set expr policy
+	SubManagedMemberTags byte = 0x06 // get/set member tags
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -1136,6 +1137,46 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 			s.ipcWriteManagedOK(conn, data)
 		default:
 			s.sendError(conn, fmt.Sprintf("managed policy: unknown action 0x%02X", action))
+		}
+
+	case SubManagedMemberTags:
+		// Sub-sub-command: [0x00=get][2-byte netID][4-byte nodeID] or [0x01=set][2-byte netID][4-byte nodeID][tags JSON...]
+		if len(rest) < 7 {
+			s.sendError(conn, "managed member-tags: missing action, network_id, or node_id")
+			return
+		}
+		action := rest[0]
+		tagNetID := binary.BigEndian.Uint16(rest[1:3])
+		targetNodeID := binary.BigEndian.Uint32(rest[3:7])
+
+		switch action {
+		case 0x00: // get
+			resp, err := s.daemon.regConn.GetMemberTags(tagNetID, targetNodeID)
+			if err != nil {
+				s.sendError(conn, fmt.Sprintf("member-tags get: %v", err))
+				return
+			}
+			data, _ := json.Marshal(resp)
+			s.ipcWriteManagedOK(conn, data)
+		case 0x01: // set
+			if len(rest) < 8 {
+				s.sendError(conn, "managed member-tags set: missing tags JSON")
+				return
+			}
+			var tags []string
+			if err := json.Unmarshal(rest[7:], &tags); err != nil {
+				s.sendError(conn, fmt.Sprintf("member-tags set: invalid tags JSON: %v", err))
+				return
+			}
+			resp, err := s.daemon.regConn.SetMemberTags(tagNetID, targetNodeID, tags, s.daemon.config.AdminToken)
+			if err != nil {
+				s.sendError(conn, fmt.Sprintf("member-tags set: %v", err))
+				return
+			}
+			data, _ := json.Marshal(resp)
+			s.ipcWriteManagedOK(conn, data)
+		default:
+			s.sendError(conn, fmt.Sprintf("managed member-tags: unknown action 0x%02X", action))
 		}
 
 	default:

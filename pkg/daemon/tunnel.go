@@ -143,7 +143,9 @@ const maxPendingPerPeer = 64
 const maxPendingPeers = 256
 
 // RecvChSize is the capacity of the incoming packet channel.
-const RecvChSize = 1024
+// Increased from 1024 to 8192 for 1M-node scale to prevent drops during
+// bursts (e.g., many peers sending simultaneously after a cron trigger).
+const RecvChSize = 8192
 
 func NewTunnelManager() *TunnelManager {
 	return &TunnelManager{

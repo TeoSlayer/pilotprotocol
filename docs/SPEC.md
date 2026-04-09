@@ -35,7 +35,7 @@ Socket address includes a port: `1:0001.F291.0004:1000`
 | `0:0000.0000.0001` | Registry |
 | `0:0000.0000.0002` | Beacon |
 | `0:0000.0000.0003` | Nameserver |
-| `X:FFFF.FFFF.FFFF` | Broadcast on network X |
+| `X:XXXX.FFFF.FFFF` | Broadcast on network X (XXXX = X in hex, node = all-ones) |
 
 ---
 
@@ -66,6 +66,7 @@ Socket address includes a port: `1:0001.F291.0004:1000`
 | 1001 | Data exchange | Typed frames (text, binary, JSON, file) |
 | 1002 | Event stream | Pub/sub with topic filtering |
 | 1003 | Task submit | Task submission and lifecycle |
+| 1004 | Managed score | Polo score exchange for managed networks |
 
 ---
 
@@ -300,6 +301,8 @@ Maximum message size: 1 MB (1,048,576 bytes).
 | 0x20 | NetworkOK | Daemon -> Driver | `[NB JSON]` |
 | 0x21 | Health | Driver -> Daemon | (empty) |
 | 0x22 | HealthOK | Daemon -> Driver | `[NB JSON]` |
+| 0x23 | Managed | Driver -> Daemon | `[1B sub-cmd][NB payload]` |
+| 0x24 | ManagedOK | Daemon -> Driver | `[NB JSON]` |
 
 ### 6.2 Network Sub-Commands
 
@@ -314,6 +317,18 @@ The Network command (0x1F) uses a sub-command byte as the first byte of the payl
 | 0x05 | Invite | `[2B network_id][4B node_id]` |
 | 0x06 | PollInvites | (empty) |
 | 0x07 | RespondInvite | `[2B network_id][1B accept]` |
+
+### 6.3 Managed Sub-Commands
+
+The Managed command (0x23) uses a sub-command byte as the first byte of the payload:
+
+| Sub-Cmd | Name | Payload |
+|---------|------|---------|
+| 0x01 | Score | `[2B network_id][4B node_id][4B delta][NB topic]` |
+| 0x02 | Status | `[2B network_id]` |
+| 0x03 | Rankings | `[2B network_id]` |
+| 0x04 | Cycle | `[2B network_id]` |
+| 0x05 | Policy | `[2B network_id][NB JSON]` |
 
 ---
 

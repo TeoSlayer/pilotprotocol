@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
@@ -63,11 +64,12 @@ const (
 
 // Managed sub-commands (must match daemon SubManaged* constants)
 const (
-	subManagedScore    byte = 0x01
-	subManagedStatus   byte = 0x02
-	subManagedRankings byte = 0x03
-	subManagedCycle    byte = 0x04
-	subManagedPolicy   byte = 0x05
+	subManagedScore      byte = 0x01
+	subManagedStatus     byte = 0x02
+	subManagedRankings   byte = 0x03
+	subManagedCycle      byte = 0x04
+	subManagedPolicy     byte = 0x05
+	subManagedMemberTags byte = 0x06
 )
 
 // Datagram represents a received unreliable datagram.
@@ -246,6 +248,10 @@ func (c *ipcClient) send(data []byte) error {
 }
 
 func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
+	return c.sendAndWaitTimeout(data, expectCmd, 0)
+}
+
+func (c *ipcClient) sendAndWaitTimeout(data []byte, expectCmd byte, timeout time.Duration) ([]byte, error) {
 	ch := make(chan []byte, 1)
 
 	c.mu.Lock()
@@ -258,6 +264,13 @@ func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
 	errCh := make(chan []byte, 1)
 	c.handlers[cmdError] = append(c.handlers[cmdError], errCh)
 	c.mu.Unlock()
+
+	var timer <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		timer = t.C
+	}
 
 	select {
 	case resp, ok := <-ch:
@@ -277,6 +290,10 @@ func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
 		return nil, fmt.Errorf("daemon error")
 	case <-c.doneCh:
 		return nil, fmt.Errorf("daemon disconnected")
+	case <-timer:
+		c.removeHandler(expectCmd, ch)
+		c.removeHandler(cmdError, errCh)
+		return nil, fmt.Errorf("dial timeout")
 	}
 }
 

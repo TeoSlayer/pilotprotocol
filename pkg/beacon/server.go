@@ -43,7 +43,7 @@ type Server struct {
 	done chan struct{} // closed on shutdown
 }
 
-const relayQueueSize = 4096 // buffered relay jobs before backpressure
+const relayQueueSize = 32768 // buffered relay jobs before backpressure (increased for 1M-node scale)
 
 func New() *Server {
 	return NewWithPeers(0, nil)

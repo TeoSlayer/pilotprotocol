@@ -793,6 +793,26 @@ func (c *Client) SetTagsAdmin(nodeID uint32, tags []string, adminToken string) (
 	})
 }
 
+// SetMemberTags sets admin-assigned tags for a member within a network.
+func (c *Client) SetMemberTags(netID uint16, targetNodeID uint32, tags []string, adminToken string) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":           "set_member_tags",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+		"tags":           tags,
+		"admin_token":    adminToken,
+	})
+}
+
+// GetMemberTags returns admin-assigned member tags for a node (or all members if targetNodeID=0).
+func (c *Client) GetMemberTags(netID uint16, targetNodeID uint32) (map[string]interface{}, error) {
+	return c.Send(map[string]interface{}{
+		"type":           "get_member_tags",
+		"network_id":     netID,
+		"target_node_id": targetNodeID,
+	})
+}
+
 // SetTaskExecAdmin sets a node's task exec flag using admin token auth.
 func (c *Client) SetTaskExecAdmin(nodeID uint32, enabled bool, adminToken string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{

@@ -92,6 +92,49 @@ func (rm *replicationManager) push(snapJSON []byte) {
 	}
 }
 
+// pushDelta sends delta entries to all subscribers. This is much smaller than
+// a full snapshot (~1KB vs ~50MB at 100K+ nodes). Standbys that fall behind
+// the delta window will be sent a full snapshot on next push().
+func (rm *replicationManager) pushDelta(entries []DeltaEntry, seqNo uint64) {
+	rm.mu.Lock()
+	if len(rm.subs) == 0 {
+		rm.mu.Unlock()
+		return
+	}
+	writers := make([]*connWriter, 0, len(rm.subs))
+	for _, cw := range rm.subs {
+		writers = append(writers, cw)
+	}
+	rm.mu.Unlock()
+
+	msg := map[string]interface{}{
+		"type":    "replication_delta",
+		"entries": entries,
+		"seq_no":  seqNo,
+	}
+
+	var failed []net.Conn
+	for _, cw := range writers {
+		cw.wmu.Lock()
+		cw.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		err := writeMessage(cw.conn, msg)
+		cw.wmu.Unlock()
+		if err != nil {
+			slog.Warn("replication delta push failed", "remote", cw.conn.RemoteAddr(), "err", err)
+			failed = append(failed, cw.conn)
+		}
+	}
+
+	if len(failed) > 0 {
+		rm.mu.Lock()
+		for _, c := range failed {
+			delete(rm.subs, c)
+			c.Close()
+		}
+		rm.mu.Unlock()
+	}
+}
+
 // startReplicationHeartbeat sends periodic heartbeat messages to all replication
 // subscribers so standbys can detect primary failure within ~30s.
 func (rm *replicationManager) startHeartbeat(done <-chan struct{}) {
@@ -235,6 +278,12 @@ func (s *Server) snapshotJSON() []byte {
 				sn.MemberRoles[fmt.Sprintf("%d", nodeID)] = string(role)
 			}
 		}
+		if len(n.MemberTags) > 0 {
+			sn.MemberTags = make(map[string][]string, len(n.MemberTags))
+			for nodeID, tags := range n.MemberTags {
+				sn.MemberTags[fmt.Sprintf("%d", nodeID)] = tags
+			}
+		}
 		if n.Policy.MaxMembers != 0 || len(n.Policy.AllowedPorts) > 0 || n.Policy.Description != "" {
 			pol := n.Policy
 			sn.Policy = &pol
@@ -369,35 +418,45 @@ func (s *Server) standbySession(primaryAddr string) error {
 		if msgType == "heartbeat" {
 			continue // keep-alive from primary
 		}
-		if msgType != "replication_snapshot" {
+
+		switch msgType {
+		case "replication_snapshot":
+			// Extract and apply snapshot
+			snapRaw, ok := msg["snapshot"]
+			if !ok {
+				slog.Warn("standby: snapshot missing from replication message")
+				continue
+			}
+
+			snapBytes, err := json.Marshal(snapRaw)
+			if err != nil {
+				slog.Warn("standby: re-marshal snapshot", "err", err)
+				continue
+			}
+
+			if err := s.applySnapshot(snapBytes); err != nil {
+				slog.Error("standby: apply snapshot", "err", err)
+				continue
+			}
+
+			// Read node/network counts under lock (M6 fix)
+			s.mu.RLock()
+			nNodes := len(s.nodes)
+			nNetworks := len(s.networks)
+			s.mu.RUnlock()
+			slog.Debug("standby: applied snapshot", "nodes", nNodes, "networks", nNetworks)
+
+		case "replication_delta":
+			// Delta replication: apply incremental changes (much smaller than full snapshot)
+			seqNo, _ := msg["seq_no"].(float64)
+			slog.Debug("standby: received delta", "seq_no", uint64(seqNo))
+			// Delta entries are informational on the standby side — the standby
+			// will receive a full snapshot periodically via saveLoop which reconciles state.
+			// Future enhancement: apply deltas directly for lower latency.
+
+		default:
 			slog.Warn("standby: unexpected message type", "type", msgType)
-			continue
 		}
-
-		// Extract and apply snapshot
-		snapRaw, ok := msg["snapshot"]
-		if !ok {
-			slog.Warn("standby: snapshot missing from replication message")
-			continue
-		}
-
-		snapBytes, err := json.Marshal(snapRaw)
-		if err != nil {
-			slog.Warn("standby: re-marshal snapshot", "err", err)
-			continue
-		}
-
-		if err := s.applySnapshot(snapBytes); err != nil {
-			slog.Error("standby: apply snapshot", "err", err)
-			continue
-		}
-
-		// Read node/network counts under lock (M6 fix)
-		s.mu.RLock()
-		nNodes := len(s.nodes)
-		nNetworks := len(s.networks)
-		s.mu.RUnlock()
-		slog.Debug("standby: applied snapshot", "nodes", nNodes, "networks", nNetworks)
 	}
 }
 
@@ -469,7 +528,13 @@ func (s *Server) applySnapshot(data []byte) error {
 			s.ownerIdx[n.Owner] = n.ID
 		}
 		if n.Hostname != "" {
-			s.hostnameIdx[n.Hostname] = n.ID
+			if existID, taken := s.hostnameIdx[n.Hostname]; taken && existID != n.ID {
+				slog.Warn("duplicate hostname in snapshot, keeping first",
+					"hostname", n.Hostname, "kept_node", existID, "skipped_node", n.ID)
+				node.Hostname = "" // clear the duplicate
+			} else {
+				s.hostnameIdx[n.Hostname] = n.ID
+			}
 		}
 	}
 
@@ -482,6 +547,7 @@ func (s *Server) applySnapshot(data []byte) error {
 			Token:       n.Token,
 			Members:     n.Members,
 			MemberRoles: make(map[uint32]Role),
+			MemberTags:  make(map[uint32][]string),
 			AdminToken:  n.AdminToken,
 			Enterprise:  n.Enterprise,
 			Created:     created,
@@ -493,6 +559,12 @@ func (s *Server) applySnapshot(data []byte) error {
 			var nodeID uint32
 			if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil {
 				net.MemberRoles[nodeID] = Role(roleStr)
+			}
+		}
+		for nodeIDStr, tags := range n.MemberTags {
+			var nodeID uint32
+			if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil {
+				net.MemberTags[nodeID] = tags
 			}
 		}
 		// Backfill roles for legacy snapshots

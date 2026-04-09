@@ -22,29 +22,47 @@ type WebhookEvent struct {
 // WebhookClient dispatches events asynchronously to an HTTP(S) endpoint.
 // If URL is empty, all methods are no-ops (zero overhead when disabled).
 type WebhookClient struct {
-	url       string
-	ch        chan *WebhookEvent
-	client    *http.Client
-	done      chan struct{}
-	nodeID    func() uint32
-	closeOnce sync.Once
-	closed    chan struct{} // closed when Close is called, guards Emit
-	nextID    atomic.Uint64
-	dropped   atomic.Uint64
+	url            string
+	ch             chan *WebhookEvent
+	client         *http.Client
+	done           chan struct{}
+	nodeID         func() uint32
+	closeOnce      sync.Once
+	closed         chan struct{} // closed when Close is called, guards Emit
+	nextID         atomic.Uint64
+	dropped        atomic.Uint64
+	initialBackoff time.Duration // retry backoff (default 1s)
+}
+
+// WebhookOption configures a WebhookClient.
+type WebhookOption func(*WebhookClient)
+
+// WithHTTPTimeout sets the HTTP client timeout (default 5s).
+func WithHTTPTimeout(d time.Duration) WebhookOption {
+	return func(wc *WebhookClient) { wc.client.Timeout = d }
+}
+
+// WithRetryBackoff sets the initial retry backoff (default 1s, doubles each retry).
+func WithRetryBackoff(d time.Duration) WebhookOption {
+	return func(wc *WebhookClient) { wc.initialBackoff = d }
 }
 
 // NewWebhookClient creates a webhook dispatcher. If url is empty, returns nil.
-func NewWebhookClient(url string, nodeIDFunc func() uint32) *WebhookClient {
+func NewWebhookClient(url string, nodeIDFunc func() uint32, opts ...WebhookOption) *WebhookClient {
 	if url == "" {
 		return nil
 	}
 	wc := &WebhookClient{
-		url:    url,
-		ch:     make(chan *WebhookEvent, 1024),
-		client: &http.Client{Timeout: 5 * time.Second},
-		done:   make(chan struct{}),
-		nodeID: nodeIDFunc,
-		closed: make(chan struct{}),
+		url:            url,
+		ch:             make(chan *WebhookEvent, 1024),
+		client:         &http.Client{Timeout: 5 * time.Second},
+		done:           make(chan struct{}),
+		nodeID:         nodeIDFunc,
+		closed:         make(chan struct{}),
+		initialBackoff: webhookInitialBackoff,
+	}
+	for _, opt := range opts {
+		opt(wc)
 	}
 	go wc.run()
 	return wc
@@ -121,7 +139,7 @@ func (wc *WebhookClient) post(ev *WebhookEvent) {
 		return
 	}
 
-	backoff := webhookInitialBackoff
+	backoff := wc.initialBackoff
 	for attempt := 0; attempt < webhookMaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(backoff)

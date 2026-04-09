@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -47,14 +48,16 @@ type Config struct {
 	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
 
 	// Webhook
-	WebhookURL string // HTTP(S) endpoint for event notifications (empty = disabled)
+	WebhookURL            string        // HTTP(S) endpoint for event notifications (empty = disabled)
+	WebhookHTTPTimeout    time.Duration // HTTP client timeout for webhook POSTs (default 5s)
+	WebhookRetryBackoff   time.Duration // initial retry backoff for webhook POSTs (default 1s)
 
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
 	Networks   []uint16 // network IDs to auto-join at startup (empty = none)
 
 	// Tuning (zero = use defaults)
-	KeepaliveInterval     time.Duration // default 30s
+	KeepaliveInterval     time.Duration // default 60s
 	IdleTimeout           time.Duration // default 120s
 	SYNRateLimit          int           // default 100
 	MaxConnectionsPerPort int           // default 1024
@@ -64,7 +67,7 @@ type Config struct {
 
 // Default tuning constants (used when Config fields are zero).
 const (
-	DefaultKeepaliveInterval     = 30 * time.Second
+	DefaultKeepaliveInterval     = 60 * time.Second
 	DefaultIdleTimeout           = 120 * time.Second
 	DefaultIdleSweepInterval     = 15 * time.Second
 	DefaultSYNRateLimit          = 100
@@ -96,10 +99,21 @@ const (
 // After this, the entry is stale but still usable as a fallback.
 const EndpointCacheTTL = 5 * time.Minute
 
+// ResolveCacheTTL is how long a registry resolve response is cached.
+// During cron bursts, agents resolve the same peers repeatedly — this
+// avoids hitting the registry for the same node within the TTL window.
+const ResolveCacheTTL = 60 * time.Second
+
 // endpointEntry caches a resolved endpoint for a peer node.
 type endpointEntry struct {
 	addr      string    // "host:port"
 	cachedAt  time.Time // when the entry was stored
+}
+
+// resolveEntry caches a full registry resolve response for a peer node.
+type resolveEntry struct {
+	resp     map[string]interface{}
+	cachedAt time.Time
 }
 
 type Daemon struct {
@@ -124,6 +138,10 @@ type Daemon struct {
 	epCacheMu sync.RWMutex
 	epCache   map[uint32]*endpointEntry
 
+	// Resolve cache: nodeID -> cached registry response (60s TTL)
+	resolveCacheMu sync.RWMutex
+	resolveCache   map[uint32]*resolveEntry
+
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
 	synTokens   int
@@ -144,6 +162,10 @@ type Daemon struct {
 	// Policy runners: netID -> compiled policy runner (expr-based policy engine)
 	policyMu      sync.Mutex
 	policyRunners map[uint16]*PolicyRunner
+
+	// Cached member tags: netID -> local node's admin-assigned tags
+	memberTagsMu sync.RWMutex
+	memberTags   map[uint16][]string
 }
 
 const perSourceSYNLimit = 10     // max SYNs per source per second
@@ -206,10 +228,12 @@ func New(cfg Config) *Daemon {
 		synTokens:   cfg.synRateLimit(),
 		synLastFill: time.Now(),
 		perSrcSYN:   make(map[uint32]*srcSYNBucket),
-		epCache:     make(map[uint32]*endpointEntry),
+		epCache:      make(map[uint32]*endpointEntry),
+		resolveCache: make(map[uint32]*resolveEntry),
 		netPolicies:   make(map[uint16][]uint16),
 		managed:       make(map[uint16]*ManagedEngine),
 		policyRunners: make(map[uint16]*PolicyRunner),
+		memberTags:    make(map[uint16][]string),
 	}
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	d.handshakes = NewHandshakeManager(d)
@@ -471,7 +495,14 @@ func (d *Daemon) Start() error {
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
 
 	// Initialize webhook client (no-op if URL is empty)
-	d.webhook = NewWebhookClient(d.config.WebhookURL, d.NodeID)
+	var webhookOpts []WebhookOption
+	if d.config.WebhookHTTPTimeout > 0 {
+		webhookOpts = append(webhookOpts, WithHTTPTimeout(d.config.WebhookHTTPTimeout))
+	}
+	if d.config.WebhookRetryBackoff > 0 {
+		webhookOpts = append(webhookOpts, WithRetryBackoff(d.config.WebhookRetryBackoff))
+	}
+	d.webhook = NewWebhookClient(d.config.WebhookURL, d.NodeID, webhookOpts...)
 	d.tunnels.SetWebhook(d.webhook)
 	d.handshakes.SetWebhook(d.webhook)
 	d.webhook.Emit("node.registered", map[string]interface{}{
@@ -939,13 +970,21 @@ func (d *Daemon) evaluatePortPolicy(eventType policy.EventType, netID uint16, po
 			"peer_id":    int(peerNodeID),
 			"network_id": int(netID),
 		}
+		// Enrich local_tags from cached member tags
+		d.memberTagsMu.RLock()
+		if tags, ok := d.memberTags[netID]; ok {
+			ctx["local_tags"] = tags
+		} else {
+			ctx["local_tags"] = []string{}
+		}
+		d.memberTagsMu.RUnlock()
+		// Enrich peer state for connect, dial, and datagram events
 		switch eventType {
-		case policy.EventConnect:
+		case policy.EventConnect, policy.EventDial, policy.EventDatagram:
 			ctx["peer_score"] = 0
 			ctx["peer_tags"] = []string{}
 			ctx["peer_age_s"] = 0.0
 			ctx["members"] = 0
-			// Enrich with peer state if available
 			pr.mu.RLock()
 			if p, ok := pr.peers[peerNodeID]; ok {
 				ctx["peer_score"] = p.Score
@@ -954,7 +993,8 @@ func (d *Daemon) evaluatePortPolicy(eventType policy.EventType, netID uint16, po
 			}
 			ctx["members"] = len(pr.peers)
 			pr.mu.RUnlock()
-		case policy.EventDatagram:
+		}
+		if eventType == policy.EventDatagram {
 			ctx["size"] = payloadSize
 			ctx["direction"] = direction
 		}
@@ -1009,6 +1049,21 @@ func (d *Daemon) StopPolicyRunner(netID uint16) {
 	if ok {
 		pr.Stop()
 	}
+}
+
+// SetMemberTags updates the cached member tags for the local node in a network.
+func (d *Daemon) SetMemberTags(netID uint16, tags []string) {
+	d.memberTagsMu.Lock()
+	d.memberTags[netID] = tags
+	d.memberTagsMu.Unlock()
+}
+
+// GetMemberTags returns the cached member tags for the local node in a network.
+func (d *Daemon) GetMemberTags(netID uint16) []string {
+	d.memberTagsMu.RLock()
+	tags := d.memberTags[netID]
+	d.memberTagsMu.RUnlock()
+	return tags
 }
 
 // loadPolicyRunners loads expr policies for all joined networks at startup.
@@ -1088,7 +1143,14 @@ func (d *Daemon) stopPolicyRunners() {
 // An empty URL disables the webhook (all Emit calls become no-ops).
 func (d *Daemon) SetWebhookURL(url string) {
 	old := d.webhook
-	d.webhook = NewWebhookClient(url, d.NodeID)
+	var opts []WebhookOption
+	if d.config.WebhookHTTPTimeout > 0 {
+		opts = append(opts, WithHTTPTimeout(d.config.WebhookHTTPTimeout))
+	}
+	if d.config.WebhookRetryBackoff > 0 {
+		opts = append(opts, WithRetryBackoff(d.config.WebhookRetryBackoff))
+	}
+	d.webhook = NewWebhookClient(url, d.NodeID, opts...)
 	d.tunnels.SetWebhook(d.webhook)
 	d.handshakes.SetWebhook(d.webhook)
 	old.Close()
@@ -2233,6 +2295,12 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 			continue // skip self
 		}
 
+		// Evaluate outbound datagram policy per recipient
+		if !d.evaluatePortPolicy(policy.EventDatagram, netID, dstPort, nodeID, len(data), "out") {
+			slog.Debug("broadcast: policy denied", "network_id", netID, "peer", nodeID)
+			continue
+		}
+
 		if err := d.ensureTunnel(nodeID); err != nil {
 			slog.Warn("broadcast: skip node", "node_id", nodeID, "error", err)
 			continue
@@ -2288,30 +2356,56 @@ func (d *Daemon) CachedEndpoint(nodeID uint32) (string, bool) {
 	return d.cachedEndpoint(nodeID)
 }
 
+// cachedResolve returns a cached registry resolve response if it exists and is fresh.
+func (d *Daemon) cachedResolve(nodeID uint32) (map[string]interface{}, bool) {
+	d.resolveCacheMu.RLock()
+	e, ok := d.resolveCache[nodeID]
+	d.resolveCacheMu.RUnlock()
+	if !ok || time.Since(e.cachedAt) > ResolveCacheTTL {
+		return nil, false
+	}
+	return e.resp, true
+}
+
+// cacheResolve stores a registry resolve response in the cache.
+func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
+	d.resolveCacheMu.Lock()
+	d.resolveCache[nodeID] = &resolveEntry{resp: resp, cachedAt: time.Now()}
+	d.resolveCacheMu.Unlock()
+}
+
 // ensureTunnel makes sure we have a route to the given node.
 // Requests beacon hole-punching for NAT traversal when beacon is configured.
-// Uses an endpoint cache as fallback when the registry is unreachable.
+// Uses a resolve cache (60s TTL) to avoid repeated registry calls during
+// cron bursts, and an endpoint cache as fallback when the registry is unreachable.
 func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	if d.tunnels.HasPeer(nodeID) {
 		return nil
 	}
 
-	// Resolve the node's real address from registry (requires our node ID)
-	resp, err := d.regConn.Resolve(nodeID, d.NodeID())
-	if err != nil {
-		// Registry unreachable — fall back to cached endpoint
-		if cached, ok := d.cachedEndpoint(nodeID); ok {
-			stale := d.isEndpointStale(nodeID)
-			slog.Warn("registry resolve failed, using cached endpoint",
-				"node_id", nodeID, "cached_addr", cached, "stale", stale, "error", err)
-			udpAddr, udpErr := net.ResolveUDPAddr("udp", cached)
-			if udpErr != nil {
-				return fmt.Errorf("resolve cached %s: %w", cached, udpErr)
+	// Check resolve cache first (60s TTL) to avoid registry round-trip
+	resp, cached := d.cachedResolve(nodeID)
+	if !cached {
+		// Cache miss — resolve from registry
+		var err error
+		resp, err = d.regConn.Resolve(nodeID, d.NodeID())
+		if err != nil {
+			// Registry unreachable — fall back to cached endpoint
+			if ep, ok := d.cachedEndpoint(nodeID); ok {
+				stale := d.isEndpointStale(nodeID)
+				slog.Warn("registry resolve failed, using cached endpoint",
+					"node_id", nodeID, "cached_addr", ep, "stale", stale, "error", err)
+				udpAddr, udpErr := net.ResolveUDPAddr("udp", ep)
+				if udpErr != nil {
+					return fmt.Errorf("resolve cached %s: %w", ep, udpErr)
+				}
+				d.tunnels.AddPeer(nodeID, udpAddr)
+				return nil
 			}
-			d.tunnels.AddPeer(nodeID, udpAddr)
-			return nil
+			return fmt.Errorf("resolve node %d: %w", nodeID, err)
 		}
-		return fmt.Errorf("resolve node %d: %w", nodeID, err)
+		// Store in resolve cache for subsequent calls within TTL
+		d.cacheResolve(nodeID, resp)
 	}
 
 	realAddr, ok := resp["real_addr"].(string)
@@ -2346,9 +2440,15 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 }
 
 func (d *Daemon) heartbeatLoop() {
+	// Add random jitter (0-5s) to the initial tick to prevent thundering herd
+	// when many daemons restart simultaneously after a registry restart.
+	jitter := time.Duration(rand.Int63n(int64(5 * time.Second)))
+	time.Sleep(jitter)
+
 	ticker := time.NewTicker(d.config.keepaliveInterval())
 	defer ticker.Stop()
 	consecutiveFailures := 0
+	reregBackoff := 100 * time.Millisecond // initial backoff for re-registration attempts
 	for {
 		select {
 		case <-d.stopCh:
@@ -2360,19 +2460,28 @@ func (d *Daemon) heartbeatLoop() {
 					consecutiveFailures++
 					slog.Warn("heartbeat failed", "consecutive_failures", consecutiveFailures, "error", err)
 
-					// After 3 failures, try to re-register (the auto-reconnect in
-					// the registry client will re-establish the TCP connection, but
-					// after a registry restart we need to re-register our node)
+					// After 3 failures, try to re-register with exponential backoff + jitter
 					if consecutiveFailures >= HeartbeatReregThresh {
-						slog.Info("attempting re-registration")
+						// Backoff with jitter before attempting re-registration
+						jitter := time.Duration(rand.Int63n(int64(reregBackoff) / 2))
+						time.Sleep(reregBackoff + jitter)
+
+						slog.Info("attempting re-registration", "backoff", reregBackoff)
 						d.reRegister()
 						consecutiveFailures = 0
+
+						// Exponential backoff: 100ms → 200ms → 400ms → ... → 30s max
+						reregBackoff *= 2
+						if reregBackoff > 30*time.Second {
+							reregBackoff = 30 * time.Second
+						}
 					}
 				} else {
 					if consecutiveFailures > 0 {
 						slog.Info("heartbeat recovered", "previous_failures", consecutiveFailures)
 					}
 					consecutiveFailures = 0
+					reregBackoff = 100 * time.Millisecond // reset backoff on success
 
 					// Re-register with beacon (keeps NAT mapping alive)
 					if d.config.BeaconAddr != "" {

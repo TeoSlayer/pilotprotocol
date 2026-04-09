@@ -165,10 +165,13 @@ func (s *Server) applyDirectorySync(netID uint16, entries []DirectoryEntry, remo
 			}
 		}
 
-		// Update display name as hostname if set
+		// Update display name as hostname if set (check uniqueness first)
 		if entry.DisplayName != "" {
 			if node, ok := s.nodes[nodeID]; ok && node.Hostname == "" {
-				node.Hostname = entry.DisplayName
+				if existingID, taken := s.hostnameIdx[entry.DisplayName]; !taken || existingID == nodeID {
+					node.Hostname = entry.DisplayName
+					s.hostnameIdx[entry.DisplayName] = nodeID
+				}
 			}
 		}
 	}

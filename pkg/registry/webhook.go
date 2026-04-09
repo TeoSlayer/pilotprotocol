@@ -20,16 +20,17 @@ type RegistryWebhookEvent struct {
 
 // registryWebhook dispatches audit events asynchronously to an HTTP(S) endpoint.
 type registryWebhook struct {
-	url       string
-	ch        chan *RegistryWebhookEvent
-	client    *http.Client
-	done      chan struct{}
-	closeOnce sync.Once
-	closed    chan struct{}
-	nextID    atomic.Uint64
-	dropped   atomic.Uint64
-	failed    atomic.Uint64
-	delivered atomic.Uint64
+	url            string
+	ch             chan *RegistryWebhookEvent
+	client         *http.Client
+	done           chan struct{}
+	closeOnce      sync.Once
+	closed         chan struct{}
+	nextID         atomic.Uint64
+	dropped        atomic.Uint64
+	failed         atomic.Uint64
+	delivered      atomic.Uint64
+	initialBackoff time.Duration
 
 	// Dead letter queue: stores last N failed events for retry/inspection
 	dlqMu  sync.Mutex
@@ -39,12 +40,13 @@ type registryWebhook struct {
 
 func newRegistryWebhook(url string) *registryWebhook {
 	wh := &registryWebhook{
-		url:    url,
-		ch:     make(chan *RegistryWebhookEvent, 1024),
-		client: &http.Client{Timeout: 5 * time.Second},
-		done:   make(chan struct{}),
-		closed: make(chan struct{}),
-		dlqMax: 100,
+		url:            url,
+		ch:             make(chan *RegistryWebhookEvent, 1024),
+		client:         &http.Client{Timeout: 5 * time.Second},
+		done:           make(chan struct{}),
+		closed:         make(chan struct{}),
+		dlqMax:         100,
+		initialBackoff: regWebhookInitialBackoff,
 	}
 	go wh.run()
 	return wh
@@ -110,7 +112,7 @@ func (wh *registryWebhook) post(ev *RegistryWebhookEvent) {
 		return
 	}
 
-	backoff := regWebhookInitialBackoff
+	backoff := wh.initialBackoff
 	for attempt := 0; attempt < regWebhookMaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(backoff)

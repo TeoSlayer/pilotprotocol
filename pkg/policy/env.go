@@ -41,12 +41,20 @@ func envOptions(eventType EventType) []expr.Option {
 		env["peer_id"] = 0
 		env["port"] = 0
 		env["network_id"] = 0
+		env["peer_score"] = 0
+		env["peer_tags"] = []string{}
+		env["peer_age_s"] = 0.0
+		env["members"] = 0
 	case EventDatagram:
 		env["peer_id"] = 0
 		env["port"] = 0
 		env["network_id"] = 0
 		env["size"] = 0
 		env["direction"] = ""       // "in" or "out"
+		env["peer_score"] = 0
+		env["peer_tags"] = []string{}
+		env["peer_age_s"] = 0.0
+		env["members"] = 0
 	case EventCycle:
 		env["network_id"] = 0
 		env["members"] = 0
@@ -67,7 +75,9 @@ func envOptions(eventType EventType) []expr.Option {
 
 // baseEnv returns variables common to all event types.
 func baseEnv() map[string]interface{} {
-	return map[string]interface{}{}
+	return map[string]interface{}{
+		"local_tags": []string{}, // admin-assigned member tags for local node
+	}
 }
 
 // peerEnvOptions returns expr options for sub-expressions that evaluate

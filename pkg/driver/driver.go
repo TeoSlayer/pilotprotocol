@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
@@ -73,6 +74,35 @@ func (d *Driver) DialAddr(dst protocol.Addr, port uint16) (*Conn, error) {
 	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize:], port)
 
 	resp, err := d.ipc.sendAndWait(msg, cmdDialOK)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+
+	if len(resp) < 4 {
+		return nil, fmt.Errorf("invalid dial response")
+	}
+
+	connID := binary.BigEndian.Uint32(resp[0:4])
+	recvCh := d.ipc.registerRecvCh(connID)
+
+	return &Conn{
+		id:         connID,
+		remoteAddr: protocol.SocketAddr{Addr: dst, Port: port},
+		ipc:        d.ipc,
+		recvCh:     recvCh,
+		deadlineCh: make(chan struct{}),
+	}, nil
+}
+
+// DialAddrTimeout opens a stream connection with a client-side timeout.
+// If the daemon does not respond within the timeout, the dial is cancelled.
+func (d *Driver) DialAddrTimeout(dst protocol.Addr, port uint16, timeout time.Duration) (*Conn, error) {
+	msg := make([]byte, 1+protocol.AddrSize+2)
+	msg[0] = cmdDial
+	dst.MarshalTo(msg, 1)
+	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize:], port)
+
+	resp, err := d.ipc.sendAndWaitTimeout(msg, cmdDialOK, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
@@ -386,6 +416,30 @@ func (d *Driver) PolicySet(networkID uint16, policyJSON []byte) (map[string]inte
 	binary.BigEndian.PutUint16(msg[3:5], networkID)
 	copy(msg[5:], policyJSON)
 	return d.jsonRPC(msg, cmdManagedOK, "policy set")
+}
+
+// MemberTagsGet retrieves admin-assigned member tags for a node in a network.
+func (d *Driver) MemberTagsGet(networkID uint16, nodeID uint32) (map[string]interface{}, error) {
+	msg := make([]byte, 9)
+	msg[0] = cmdManaged
+	msg[1] = subManagedMemberTags
+	msg[2] = 0x00 // get
+	binary.BigEndian.PutUint16(msg[3:5], networkID)
+	binary.BigEndian.PutUint32(msg[5:9], nodeID)
+	return d.jsonRPC(msg, cmdManagedOK, "member-tags get")
+}
+
+// MemberTagsSet sets admin-assigned member tags for a node in a network.
+func (d *Driver) MemberTagsSet(networkID uint16, nodeID uint32, tags []string) (map[string]interface{}, error) {
+	tagsJSON, _ := json.Marshal(tags)
+	msg := make([]byte, 9+len(tagsJSON))
+	msg[0] = cmdManaged
+	msg[1] = subManagedMemberTags
+	msg[2] = 0x01 // set
+	binary.BigEndian.PutUint16(msg[3:5], networkID)
+	binary.BigEndian.PutUint32(msg[5:9], nodeID)
+	copy(msg[9:], tagsJSON)
+	return d.jsonRPC(msg, cmdManagedOK, "member-tags set")
 }
 
 // Close disconnects from the daemon.

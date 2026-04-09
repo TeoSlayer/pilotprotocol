@@ -272,9 +272,9 @@ func (pr *PolicyRunner) executePrune(d policy.Directive) {
 func (pr *PolicyRunner) executeFill(d policy.Directive) {
 	count := paramInt(d.Params, "count")
 
-	members, err := pr.fetchMembers()
-	if err != nil {
-		slog.Warn("policy: fill failed (member list)", "network_id", pr.netID, "err", err)
+	fetched := pr.fetchMembersWithTags()
+	if fetched == nil {
+		slog.Warn("policy: fill failed (member list)", "network_id", pr.netID)
 		return
 	}
 
@@ -282,15 +282,21 @@ func (pr *PolicyRunner) executeFill(d policy.Directive) {
 	defer pr.mu.Unlock()
 
 	myID := pr.daemon.NodeID()
-	var candidates []uint32
-	for _, id := range members {
-		if id == myID {
+	type candidate struct {
+		id   uint32
+		tags []string
+	}
+	var candidates []candidate
+	for _, f := range fetched {
+		if f.ID == myID {
 			continue
 		}
-		if _, exists := pr.peers[id]; exists {
+		if p, exists := pr.peers[f.ID]; exists {
+			// Refresh tags for existing peers
+			p.Tags = f.Tags
 			continue
 		}
-		candidates = append(candidates, id)
+		candidates = append(candidates, candidate{id: f.ID, tags: f.Tags})
 	}
 
 	rand.Shuffle(len(candidates), func(i, j int) {
@@ -312,8 +318,8 @@ func (pr *PolicyRunner) executeFill(d policy.Directive) {
 	}
 
 	now := time.Now()
-	for _, id := range candidates[:count] {
-		pr.peers[id] = &managedPeer{NodeID: id, AddedAt: now}
+	for _, c := range candidates[:count] {
+		pr.peers[c.id] = &managedPeer{NodeID: c.id, AddedAt: now, Tags: c.tags}
 	}
 	if count > 0 {
 		slog.Info("policy: filled peers", "network_id", pr.netID, "count", count, "rule", d.Rule)
@@ -510,16 +516,19 @@ func (pr *PolicyRunner) ForceCycle() map[string]interface{} {
 // --- Internal helpers ---
 
 func (pr *PolicyRunner) bootstrap() error {
-	members, err := pr.fetchMembers()
-	if err != nil {
-		return fmt.Errorf("policy bootstrap: %w", err)
+	fetched := pr.fetchMembersWithTags()
+	if fetched == nil {
+		return fmt.Errorf("policy bootstrap: failed to fetch members")
 	}
 
+	// Build tag lookup for candidates
+	tagMap := make(map[uint32][]string, len(fetched))
 	myID := pr.daemon.NodeID()
 	var candidates []uint32
-	for _, id := range members {
-		if id != myID {
-			candidates = append(candidates, id)
+	for _, f := range fetched {
+		tagMap[f.ID] = f.Tags
+		if f.ID != myID {
+			candidates = append(candidates, f.ID)
 		}
 	}
 
@@ -537,7 +546,9 @@ func (pr *PolicyRunner) bootstrap() error {
 	now := time.Now()
 	for _, id := range candidates[:limit] {
 		if _, exists := pr.peers[id]; !exists {
-			pr.peers[id] = &managedPeer{NodeID: id, AddedAt: now}
+			pr.peers[id] = &managedPeer{NodeID: id, AddedAt: now, Tags: tagMap[id]}
+		} else {
+			pr.peers[id].Tags = tagMap[id]
 		}
 	}
 	peerCount := len(pr.peers)
@@ -548,26 +559,63 @@ func (pr *PolicyRunner) bootstrap() error {
 	return nil
 }
 
+// fetchedMember holds a member's ID and admin-assigned tags from ListNodes.
+type fetchedMember struct {
+	ID   uint32
+	Tags []string
+}
+
 func (pr *PolicyRunner) fetchMembers() ([]uint32, error) {
+	fetched := pr.fetchMembersWithTags()
+	ids := make([]uint32, len(fetched))
+	for i, f := range fetched {
+		ids[i] = f.ID
+	}
+	return ids, nil
+}
+
+// fetchMembersWithTags returns member IDs and their admin-assigned tags.
+// Also updates the daemon's local member tags cache for the local node.
+func (pr *PolicyRunner) fetchMembersWithTags() []fetchedMember {
 	resp, err := pr.daemon.regConn.ListNodes(pr.netID, pr.daemon.config.AdminToken)
 	if err != nil {
-		return nil, err
+		slog.Warn("policy: fetchMembers failed", "network_id", pr.netID, "err", err)
+		return nil
 	}
 
 	nodesRaw, ok := resp["nodes"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("unexpected list_nodes response")
+		return nil
 	}
 
-	var members []uint32
+	myID := pr.daemon.NodeID()
+	var members []fetchedMember
 	for _, n := range nodesRaw {
-		if m, ok := n.(map[string]interface{}); ok {
-			if id, ok := m["node_id"].(float64); ok {
-				members = append(members, uint32(id))
+		m, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, ok := m["node_id"].(float64)
+		if !ok {
+			continue
+		}
+		nodeID := uint32(id)
+		var tags []string
+		if rawTags, ok := m["member_tags"].([]interface{}); ok {
+			for _, rt := range rawTags {
+				if t, ok := rt.(string); ok {
+					tags = append(tags, t)
+				}
 			}
 		}
+		members = append(members, fetchedMember{ID: nodeID, Tags: tags})
+
+		// Cache local node's member tags on the daemon
+		if nodeID == myID {
+			pr.daemon.SetMemberTags(pr.netID, tags)
+		}
 	}
-	return members, nil
+	return members
 }
 
 func (pr *PolicyRunner) rankedPeers(by string) []*managedPeer {
