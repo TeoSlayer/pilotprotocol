@@ -460,8 +460,15 @@ func (s *Server) standbySession(primaryAddr string) error {
 	}
 }
 
+// maxSnapshotSize limits incoming replication snapshots to 256MB to prevent
+// a malicious or compromised peer from causing memory exhaustion.
+const maxSnapshotSize = 256 << 20
+
 // applySnapshot loads a snapshot into the server state and persists it.
 func (s *Server) applySnapshot(data []byte) error {
+	if len(data) > maxSnapshotSize {
+		return fmt.Errorf("snapshot too large: %d bytes (max %d)", len(data), maxSnapshotSize)
+	}
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)

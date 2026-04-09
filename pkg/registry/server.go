@@ -243,6 +243,7 @@ type Server struct {
 	mu           sync.RWMutex
 	nodeShards   [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
 	nodes        map[uint32]*NodeInfo
+	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
 	startTime    time.Time
 	requestCount atomic.Int64
 	networks     map[uint16]*NetworkInfo
@@ -430,11 +431,12 @@ func (ls *logSampler) cleanup() {
 
 // RateLimiter tracks per-IP registration attempts using a token bucket.
 type RateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
-	rate    int           // registrations per window
-	window  time.Duration // window size
-	now     func() time.Time
+	mu         sync.Mutex
+	buckets    map[string]*bucket
+	rate       int           // registrations per window
+	window     time.Duration // window size
+	maxBuckets int           // max tracked IPs (0 = unlimited)
+	now        func() time.Time
 }
 
 type bucket struct {
@@ -443,12 +445,16 @@ type bucket struct {
 }
 
 // NewRateLimiter creates a rate limiter allowing rate requests per window per IP.
-func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
+// maxBuckets caps the number of tracked IPs to prevent memory exhaustion from
+// spoofed source addresses. When at capacity, new IPs are rejected until
+// Cleanup() evicts stale entries. Pass 0 for unlimited (not recommended in production).
+func NewRateLimiter(rate int, window time.Duration, maxBuckets int) *RateLimiter {
 	return &RateLimiter{
-		buckets: make(map[string]*bucket),
-		rate:    rate,
-		window:  window,
-		now:     time.Now,
+		buckets:    make(map[string]*bucket),
+		rate:       rate,
+		window:     window,
+		maxBuckets: maxBuckets,
+		now:        time.Now,
 	}
 }
 
@@ -468,6 +474,20 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	now := rl.now()
 	b, ok := rl.buckets[ip]
 	if !ok {
+		// At bucket capacity — evict stale entries first so a flood of spoofed IPs
+		// can't permanently block legitimate new callers.
+		if rl.maxBuckets > 0 && len(rl.buckets) >= rl.maxBuckets {
+			threshold := now.Add(-2 * rl.window)
+			for ip2, b2 := range rl.buckets {
+				if b2.lastFill.Before(threshold) {
+					delete(rl.buckets, ip2)
+				}
+			}
+			// Still full after eviction — hard reject
+			if len(rl.buckets) >= rl.maxBuckets {
+				return false
+			}
+		}
 		rl.buckets[ip] = &bucket{tokens: float64(rl.rate) - 1, lastFill: now}
 		return true
 	}
@@ -533,7 +553,7 @@ func NewOperationRateLimiter() *OperationRateLimiter {
 func (orl *OperationRateLimiter) AddCategory(name string, rate int, window time.Duration) {
 	orl.mu.Lock()
 	defer orl.mu.Unlock()
-	orl.categories[name] = NewRateLimiter(rate, window)
+	orl.categories[name] = NewRateLimiter(rate, window, 100_000)
 }
 
 // Allow checks if a request from the given IP is allowed for the given category.
@@ -757,6 +777,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		pubKeyIdx:          make(map[string]uint32),
 		ownerIdx:           make(map[string]uint32),
 		hostnameIdx:        make(map[string]uint32),
+		maxNodes:           1_000_000,
 		nextNode:           1, // 0 is reserved
 		nextNet:            1, // 0 is backbone
 		beaconAddr:         beaconAddr,
@@ -766,7 +787,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		inviteInbox:        make(map[uint32][]*NetworkInvite),
-		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		rateLimiter:        NewRateLimiter(10, time.Minute, 100_000), // 10 registrations per IP per minute
 		maxConnections:     defaultMaxConnections,
 		beacons:            make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
@@ -799,6 +820,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 	}
 
 	go s.saveLoop()
+	go s.statsCollectorLoop()
 
 	// Try loading from disk
 	if storePath != "" {
@@ -848,6 +870,13 @@ func (s *Server) IsStandby() bool {
 func (s *Server) SetAdminToken(token string) {
 	s.mu.Lock()
 	s.adminToken = token
+	s.mu.Unlock()
+}
+
+// SetMaxNodes sets the maximum number of registered nodes. For testing.
+func (s *Server) SetMaxNodes(n int) {
+	s.mu.Lock()
+	s.maxNodes = n
 	s.mu.Unlock()
 }
 
@@ -2883,6 +2912,9 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 	}
 
 	// Entirely new key and no owner match — assign new node
+	if s.maxNodes > 0 && len(s.nodes) >= s.maxNodes {
+		return nil, fmt.Errorf("registry full")
+	}
 	if s.nextNode == 0 {
 		return nil, fmt.Errorf("node ID space exhausted")
 	}
@@ -5558,6 +5590,9 @@ type snapshot struct {
 	UniqueTags    int    `json:"unique_tags,omitempty"`
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
+	// Time-series history for dashboard charts
+	HourlyHistory []StatsSample `json:"hourly_history,omitempty"`
+	DailyHistory  []StatsSample `json:"daily_history,omitempty"`
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []AuditEntry `json:"audit_log,omitempty"`
 	// Enterprise config persistence
@@ -5825,6 +5860,12 @@ func (s *Server) flushSave() error {
 	nodeCount := len(s.nodes)
 	netCount := len(s.networks)
 	trustCount := len(s.trustPairs)
+
+	// Copy history ring buffers (plain array copy under lock)
+	hourlyHistory := s.hourlyHistory
+	dailyHistory := s.dailyHistory
+	hourlyIdx := s.hourlyIdx
+	dailyIdx := s.dailyIdx
 	s.mu.RUnlock()
 
 	// Phase 2: no lock — all encoding (base64, time.Format, JSON) happens here
@@ -5961,6 +6002,20 @@ func (s *Server) flushSave() error {
 		snap.RBACPreAssign = make(map[string][]BlueprintRole, len(rbacPreAssign))
 		for netID, roles := range rbacPreAssign {
 			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = roles
+		}
+	}
+
+	// Persist history ring buffers (chronological, non-zero only)
+	for i := 0; i < 24; i++ {
+		idx := (hourlyIdx + i) % 24
+		if hourlyHistory[idx].Timestamp != 0 {
+			snap.HourlyHistory = append(snap.HourlyHistory, hourlyHistory[idx])
+		}
+	}
+	for i := 0; i < 7; i++ {
+		idx := (dailyIdx + i) % 7
+		if dailyHistory[idx].Timestamp != 0 {
+			snap.DailyHistory = append(snap.DailyHistory, dailyHistory[idx])
 		}
 	}
 
@@ -6223,6 +6278,34 @@ func (s *Server) load() error {
 		slog.Info("loaded invite inboxes", "queues", len(s.inviteInbox))
 	}
 
+	// Restore time-series history ring buffers
+	if len(snap.HourlyHistory) > 0 {
+		for i, sample := range snap.HourlyHistory {
+			if i >= 24 {
+				break
+			}
+			s.hourlyHistory[i] = sample
+		}
+		s.hourlyIdx = len(snap.HourlyHistory)
+		if s.hourlyIdx > 24 {
+			s.hourlyIdx = 24
+		}
+		slog.Info("loaded hourly history", "samples", len(snap.HourlyHistory))
+	}
+	if len(snap.DailyHistory) > 0 {
+		for i, sample := range snap.DailyHistory {
+			if i >= 7 {
+				break
+			}
+			s.dailyHistory[i] = sample
+		}
+		s.dailyIdx = len(snap.DailyHistory)
+		if s.dailyIdx > 7 {
+			s.dailyIdx = 7
+		}
+		slog.Info("loaded daily history", "samples", len(snap.DailyHistory))
+	}
+
 	// Restore audit log
 	if len(snap.AuditLog) > 0 {
 		s.auditMu.Lock()
@@ -6401,6 +6484,35 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	}
 }
 
+// readHistory returns chronologically-ordered hourly and daily samples.
+// Caller must hold s.mu (at least RLock).
+func (s *Server) readHistory() (hourly, daily []StatsSample) {
+	// Hourly: read from oldest to newest in ring buffer order
+	for i := 0; i < 24; i++ {
+		idx := (s.hourlyIdx + i) % 24
+		if s.hourlyHistory[idx].Timestamp != 0 {
+			hourly = append(hourly, s.hourlyHistory[idx])
+		}
+	}
+	// Daily: same for 7-day ring
+	for i := 0; i < 7; i++ {
+		idx := (s.dailyIdx + i) % 7
+		if s.dailyHistory[idx].Timestamp != 0 {
+			daily = append(daily, s.dailyHistory[idx])
+		}
+	}
+	return
+}
+
+// GetDashboardStatsWithHistory returns aggregate statistics plus history charts.
+func (s *Server) GetDashboardStatsWithHistory() DashboardStats {
+	stats := s.GetDashboardStats()
+	s.mu.RLock()
+	stats.Hourly, stats.Daily = s.readHistory()
+	s.mu.RUnlock()
+	return stats
+}
+
 // GetDashboardStatsExtended returns dashboard stats including per-network breakdowns.
 // Requires the dashboard token — only called from the token-gated API path.
 func (s *Server) GetDashboardStatsExtended() DashboardStats {
@@ -6481,6 +6593,8 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	// Sort by ID for stable output
 	sort.Slice(networks, func(i, j int) bool { return networks[i].ID < networks[j].ID })
 
+	hourly, daily := s.readHistory()
+
 	return DashboardStats{
 		TotalNodes:      len(s.nodes),
 		ActiveNodes:     activeCount,
@@ -6489,6 +6603,8 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
 		Networks:        networks,
+		Hourly:          hourly,
+		Daily:           daily,
 	}
 }
 

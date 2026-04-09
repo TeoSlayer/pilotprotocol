@@ -35,10 +35,10 @@ func (s *Server) ServeDashboard(addr string) error {
 			if dt != "" && subtle.ConstantTimeCompare([]byte(token), []byte(dt)) == 1 {
 				stats = s.GetDashboardStatsExtended()
 			} else {
-				stats = s.GetDashboardStats()
+				stats = s.GetDashboardStatsWithHistory()
 			}
 		} else {
-			stats = s.GetDashboardStats()
+			stats = s.GetDashboardStatsWithHistory()
 		}
 		_ = json.NewEncoder(w).Encode(stats)
 	})
@@ -247,7 +247,7 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
 
-.versions{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px}
+.versions{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;margin-bottom:32px}
 .versions h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
 .ver-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .ver-label{min-width:120px;font-size:13px;color:#c9d1d9}
@@ -270,6 +270,17 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 .networks td{font-size:13px;color:#c9d1d9;padding:6px 8px;border-bottom:1px solid #161b22}
 .networks tr:hover td{background:#0d1117}
 .net-id{color:#8b949e;font-size:11px}
+
+.charts-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px}
+.chart-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px}
+.chart-card h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.chart-card .disclaimer{font-size:11px;color:#484f58;margin-bottom:8px}
+.chart-card svg{width:100%;display:block}
+.chart-tooltip{position:absolute;background:#21262d;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;color:#e6edf3;pointer-events:none;white-space:nowrap;display:none;z-index:10}
+
+@media(max-width:640px){
+  .charts-row{grid-template-columns:1fr}
+}
 
 footer{text-align:center;padding:24px 0;border-top:1px solid #21262d;margin-top:32px;font-size:12px;color:#484f58}
 footer a{color:#484f58}
@@ -312,6 +323,25 @@ footer a:hover{color:#58a6ff}
   <div class="stat-card">
     <span class="value" id="trust-links">—</span>
     <span class="label">Trust Links</span>
+  </div>
+</div>
+
+<div class="charts-row" id="charts-row" style="display:none">
+  <div class="chart-card">
+    <h2>Last 24 Hours</h2>
+    <div class="disclaimer">Since last registry restart</div>
+    <div style="position:relative">
+      <svg id="chart-hourly" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="chart-tooltip" id="tip-hourly"></div>
+    </div>
+  </div>
+  <div class="chart-card">
+    <h2>Last 7 Days</h2>
+    <div class="disclaimer">Since last registry restart</div>
+    <div style="position:relative">
+      <svg id="chart-daily" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="chart-tooltip" id="tip-daily"></div>
+    </div>
   </div>
 </div>
 
@@ -374,6 +404,80 @@ function renderNetworks(networks){
   });
   tbody.innerHTML=html;
 }
+function renderChart(svgId,tipId,samples,labelFn){
+  var svg=document.getElementById(svgId);
+  var tip=document.getElementById(tipId);
+  if(!samples||!samples.length){svg.innerHTML='';return}
+  var W=400,H=180,padL=40,padR=10,padT=10,padB=30;
+  var cW=W-padL-padR,cH=H-padT-padB;
+  var vals=samples.map(function(s){return s.online_nodes||0});
+  var maxV=Math.max.apply(null,vals);
+  if(maxV===0)maxV=1;
+  // Y-axis: nice round gridlines
+  var step=Math.pow(10,Math.floor(Math.log10(maxV||1)));
+  if(maxV/step<2)step=step/4;
+  else if(maxV/step<5)step=step/2;
+  var gridMax=Math.ceil(maxV/step)*step;
+  if(gridMax===0)gridMax=1;
+  var html='';
+  // Grid lines
+  for(var g=0;g<=gridMax;g+=step){
+    var gy=padT+cH-(g/gridMax)*cH;
+    html+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#21262d" stroke-width="1"/>';
+    html+='<text x="'+(padL-4)+'" y="'+(gy+4)+'" fill="#484f58" font-size="10" text-anchor="end" font-family="monospace">'+g+'</text>';
+  }
+  // Build points
+  var pts=[];
+  for(var i=0;i<vals.length;i++){
+    var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
+    var y=padT+cH-(vals[i]/gridMax)*cH;
+    pts.push(x.toFixed(1)+','+y.toFixed(1));
+  }
+  var polyPts=pts.join(' ');
+  // Area fill
+  var firstX=padL+(vals.length>1?0:0.5)*cW;
+  var lastX=padL+(vals.length>1?1:0.5)*cW;
+  var areaFill=firstX.toFixed(1)+','+(padT+cH)+' '+polyPts+' '+lastX.toFixed(1)+','+(padT+cH);
+  html+='<polygon points="'+areaFill+'" fill="#58a6ff" fill-opacity="0.15"/>';
+  html+='<polyline points="'+polyPts+'" fill="none" stroke="#58a6ff" stroke-width="2"/>';
+  // Data points and labels
+  for(var i=0;i<vals.length;i++){
+    var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
+    var y=padT+cH-(vals[i]/gridMax)*cH;
+    html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="#58a6ff" stroke="#0a0e17" stroke-width="1.5"/>';
+    var lbl=labelFn(samples[i]);
+    html+='<text x="'+x.toFixed(1)+'" y="'+(padT+cH+16)+'" fill="#484f58" font-size="9" text-anchor="middle" font-family="monospace">'+lbl+'</text>';
+    // Invisible hover rect per data point
+    var rw=cW/(vals.length||1);
+    html+='<rect x="'+(x-rw/2).toFixed(1)+'" y="'+padT+'" width="'+rw.toFixed(1)+'" height="'+cH+'" fill="transparent" data-val="'+vals[i]+'" data-lbl="'+lbl+'" data-x="'+x.toFixed(1)+'" data-y="'+y.toFixed(1)+'"/>';
+  }
+  svg.innerHTML=html;
+  // Tooltip handlers
+  svg.querySelectorAll('rect[data-val]').forEach(function(r){
+    r.addEventListener('mouseenter',function(e){
+      tip.textContent=r.getAttribute('data-lbl')+': '+r.getAttribute('data-val')+' online';
+      tip.style.display='block';
+      var svgRect=svg.getBoundingClientRect();
+      var px=parseFloat(r.getAttribute('data-x'))/W*svgRect.width;
+      tip.style.left=(px+4)+'px';
+      tip.style.top='0px';
+    });
+    r.addEventListener('mouseleave',function(){tip.style.display='none'});
+  });
+}
+function renderCharts(hourly,daily){
+  var row=document.getElementById('charts-row');
+  if((!hourly||!hourly.length)&&(!daily||!daily.length)){row.style.display='none';return}
+  row.style.display='grid';
+  renderChart('chart-hourly','tip-hourly',hourly||[],function(s){
+    var d=new Date(s.ts*1000);
+    return ('0'+d.getHours()).slice(-2)+':00';
+  });
+  renderChart('chart-daily','tip-daily',daily||[],function(s){
+    var d=new Date(s.ts*1000);
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
+  });
+}
 function update(){
   var url='/api/stats';
   var t=getToken();if(t)url+='?token='+encodeURIComponent(t);
@@ -384,6 +488,7 @@ function update(){
     document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     renderVersions(d.versions);
+    renderCharts(d.hourly,d.daily);
     renderNetworks(d.networks);
   }).catch(function(){})
 }

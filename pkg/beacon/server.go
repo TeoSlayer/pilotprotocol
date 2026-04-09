@@ -16,6 +16,12 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
+// beaconNode tracks a node's observed endpoint and when it was last seen.
+type beaconNode struct {
+	addr     *net.UDPAddr
+	lastSeen time.Time
+}
+
 // relayJob is a pre-parsed relay packet dispatched to a worker.
 type relayJob struct {
 	senderID uint32
@@ -26,7 +32,7 @@ type relayJob struct {
 type Server struct {
 	mu      sync.RWMutex
 	conn    *net.UDPConn
-	nodes   map[uint32]*net.UDPAddr // node_id → observed public endpoint
+	nodes   map[uint32]*beaconNode // node_id → observed endpoint + last-seen
 	readyCh chan struct{}
 	relayCh chan relayJob // buffered channel for relay workers
 	pool    sync.Pool     // reusable payload buffers
@@ -45,6 +51,16 @@ type Server struct {
 
 const relayQueueSize = 32768 // buffered relay jobs before backpressure (increased for 1M-node scale)
 
+// maxRelayPayload caps the relay payload size. UDP itself limits datagrams to ~65KB,
+// but this provides defense-in-depth against future transport changes.
+const maxRelayPayload = 65535
+
+// maxBeaconNodes caps the number of tracked nodes to prevent memory exhaustion.
+const maxBeaconNodes = 100_000
+
+// beaconNodeTTL is how long a node entry lives without a discover refresh.
+const beaconNodeTTL = 5 * time.Minute
+
 func New() *Server {
 	return NewWithPeers(0, nil)
 }
@@ -54,7 +70,7 @@ func New() *Server {
 // peers is a list of peer beacon addresses for gossip exchange.
 func NewWithPeers(beaconID uint32, peers []string) *Server {
 	s := &Server{
-		nodes:     make(map[uint32]*net.UDPAddr),
+		nodes:     make(map[uint32]*beaconNode),
 		readyCh:   make(chan struct{}),
 		relayCh:   make(chan relayJob, relayQueueSize),
 		beaconID:  beaconID,
@@ -106,6 +122,9 @@ func (s *Server) ListenAndServe(addr string) error {
 	for i := 0; i < workers; i++ {
 		go s.relayWorker()
 	}
+
+	// Start reap loop to evict stale node entries
+	go s.reapLoop()
 
 	// Start gossip loop (always — peers may be added dynamically via registry)
 	go s.gossipLoop()
@@ -183,8 +202,17 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 	nodeID := binary.BigEndian.Uint32(data[0:4])
 
 	// Record this node's observed public endpoint
+	now := time.Now()
 	s.mu.Lock()
-	s.nodes[nodeID] = remote
+	if existing, ok := s.nodes[nodeID]; ok {
+		existing.addr = remote
+		existing.lastSeen = now
+	} else if len(s.nodes) < maxBeaconNodes {
+		s.nodes[nodeID] = &beaconNode{addr: remote, lastSeen: now}
+	} else {
+		s.mu.Unlock()
+		return // at capacity — drop silently
+	}
 	s.mu.Unlock()
 
 	slog.Debug("beacon discover", "node_id", nodeID, "addr", remote)
@@ -220,19 +248,28 @@ func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
 	targetID := binary.BigEndian.Uint32(data[4:8])
 
 	// Update requester's endpoint (handles symmetric NAT port changes)
+	now := time.Now()
 	s.mu.Lock()
-	s.nodes[requesterID] = remote
+	if existing, ok := s.nodes[requesterID]; ok {
+		existing.addr = remote
+		existing.lastSeen = now
+	} else if len(s.nodes) < maxBeaconNodes {
+		s.nodes[requesterID] = &beaconNode{addr: remote, lastSeen: now}
+	}
 	s.mu.Unlock()
 
 	s.mu.RLock()
-	targetAddr := s.nodes[targetID]
-	requesterAddr := s.nodes[requesterID]
+	targetNode := s.nodes[targetID]
+	requesterNode := s.nodes[requesterID]
 	s.mu.RUnlock()
 
-	if targetAddr == nil {
+	if targetNode == nil {
 		slog.Warn("punch target not found", "target_id", targetID)
 		return
 	}
+
+	targetAddr := targetNode.addr
+	requesterAddr := requesterNode.addr
 
 	// Send punch commands to both sides
 	if err := s.SendPunchCommand(requesterID, targetAddr.IP, uint16(targetAddr.Port)); err != nil {
@@ -257,6 +294,9 @@ func (s *Server) dispatchRelay(data []byte) {
 
 	// Copy payload into a pooled buffer so we don't hold the read buffer
 	payload := data[8:]
+	if len(payload) > maxRelayPayload {
+		return // oversized relay payload — drop silently
+	}
 	bp := s.pool.Get().(*[]byte)
 	buf := *bp
 	if cap(buf) < len(payload) {
@@ -286,7 +326,11 @@ func (s *Server) relayWorker() {
 	for job := range s.relayCh {
 		// Tier 1: local node lookup
 		s.mu.RLock()
-		destAddr, ok := s.nodes[job.destID]
+		destNode, ok := s.nodes[job.destID]
+		var destAddr *net.UDPAddr
+		if ok {
+			destAddr = destNode.addr
+		}
 		s.mu.RUnlock()
 
 		if ok {
@@ -345,7 +389,11 @@ func (s *Server) returnPayload(buf []byte) {
 // SendPunchCommand tells a node to send UDP to a target endpoint.
 func (s *Server) SendPunchCommand(nodeID uint32, targetIP net.IP, targetPort uint16) error {
 	s.mu.RLock()
-	nodeAddr, ok := s.nodes[nodeID]
+	node, ok := s.nodes[nodeID]
+	var nodeAddr *net.UDPAddr
+	if ok {
+		nodeAddr = node.addr
+	}
 	s.mu.RUnlock()
 
 	if !ok {
@@ -369,6 +417,36 @@ func (s *Server) SendPunchCommand(nodeID uint32, targetIP net.IP, targetPort uin
 
 	_, err := s.conn.WriteToUDP(msg, nodeAddr)
 	return err
+}
+
+// --- Reap ---
+
+// reapLoop periodically removes stale node entries that haven't sent a
+// discover message within beaconNodeTTL. Prevents dead nodes from
+// accumulating indefinitely.
+func (s *Server) reapLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.reapStaleNodes()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+func (s *Server) reapStaleNodes() {
+	threshold := time.Now().Add(-beaconNodeTTL)
+	s.mu.Lock()
+	for id, node := range s.nodes {
+		if node.lastSeen.Before(threshold) {
+			delete(s.nodes, id)
+		}
+	}
+	s.mu.Unlock()
 }
 
 // --- Gossip ---
