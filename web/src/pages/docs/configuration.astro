@@ -13,6 +13,7 @@ const bodyContent = `<h1>Configuration</h1>
       <li><a href="#directory">Directory structure</a></li>
       <li><a href="#daemon-flags">Daemon flags</a></li>
       <li><a href="#logging">Logging</a></li>
+      <li><a href="#setup-manifests">Setup manifests</a></li>
     </ul>
   </div>
 
@@ -51,7 +52,7 @@ const bodyContent = `<h1>Configuration</h1>
     <tbody>
       <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
-      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install; if unset, the daemon uses the system hostname</td></tr>
+      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install; if unset, no hostname is registered</td></tr>
       <tr><td>PILOT_ADMIN_TOKEN</td><td>(none)</td><td>Admin token for enterprise operations</td></tr>
     </tbody>
   </table>
@@ -63,6 +64,7 @@ const bodyContent = `<h1>Configuration</h1>
   config.json         <span class="comment"># Configuration file</span>
   identity.json       <span class="comment"># Ed25519 keypair (persistent identity)</span>
   trust.json          <span class="comment"># Trust state (trusted peers, pending requests)</span>
+  setups/             <span class="comment"># Setup manifests (role identity files)</span>
   received/           <span class="comment"># Files received via data exchange</span>
   inbox/              <span class="comment"># Messages received via data exchange</span>
   tasks/              <span class="comment"># Task files and results</span>
@@ -120,6 +122,60 @@ const bodyContent = `<h1>Configuration</h1>
 <span class="cmd">tail</span> -f ~/.pilot/pilot.log</code></pre>
 
   <p>Log levels: <code>debug</code>, <code>info</code> (default), <code>warn</code>, <code>error</code></p>
+
+  <h2 id="setup-manifests">Setup manifests</h2>
+
+  <p>When a setup skill configures this agent for a specific role, it writes a <strong>setup manifest</strong> to <code>~/.pilot/setups/&lt;slug&gt;.json</code>. This file persists the role configuration so the agent knows its identity, which skills to use and how, which peers exist, and what data flows to expect.</p>
+
+  <pre><code>{
+  "setup": "fleet-health-monitor",
+  "setup_name": "Fleet Health Monitor",
+  "role": "web-monitor",
+  "role_name": "Web Server Monitor",
+  "hostname": "acme-web-monitor",
+  "description": "Watches nginx/app health, CPU, memory, response times.",
+  "skills": {
+    "pilot-health": "Check nginx, app endpoints, SSL certs.",
+    "pilot-alert": "Publish alerts to acme-alert-hub on health-alert.",
+    "pilot-metrics": "Collect CPU, memory, disk, response time."
+  },
+  "peers": [
+    {
+      "role": "alert-hub",
+      "hostname": "acme-alert-hub",
+      "description": "Central alert aggregator"
+    }
+  ],
+  "data_flows": [
+    {
+      "direction": "send",
+      "peer": "acme-alert-hub",
+      "port": 1002,
+      "topic": "health-alert",
+      "description": "Health check failures"
+    }
+  ],
+  "handshakes_needed": ["acme-alert-hub"]
+}</code></pre>
+
+  <h3>Manifest fields</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>setup</td><td>string</td><td>Setup slug (matches the filename)</td></tr>
+      <tr><td>setup_name</td><td>string</td><td>Human-readable setup name</td></tr>
+      <tr><td>role</td><td>string</td><td>This agent's role ID within the setup</td></tr>
+      <tr><td>role_name</td><td>string</td><td>Human-readable role name</td></tr>
+      <tr><td>hostname</td><td>string</td><td>This agent's hostname</td></tr>
+      <tr><td>description</td><td>string</td><td>What this agent does in context</td></tr>
+      <tr><td>skills</td><td>map</td><td>Skill name → contextual description of what it does <em>in this role</em></td></tr>
+      <tr><td>peers</td><td>array</td><td>All peer agents in the setup (even indirect ones)</td></tr>
+      <tr><td>data_flows</td><td>array</td><td>Directional data flows (send/receive) with port and topic</td></tr>
+      <tr><td>handshakes_needed</td><td>array</td><td>Hostnames of peers that need direct trust (handshakes)</td></tr>
+    </tbody>
+  </table>
+
+  <p>The manifest is a convention — the AI agent writes it during setup and reads it when it needs to act. No daemon or CLI changes are required.</p>
 
   <div class="callout">
     <strong>Further reading:</strong> <a href="/blog/run-agent-network-without-cloud-dependency">Run an Agent Network Without Cloud Dependency</a>
