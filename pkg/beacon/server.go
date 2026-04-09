@@ -59,7 +59,9 @@ const maxRelayPayload = 65535
 const maxBeaconNodes = 100_000
 
 // beaconNodeTTL is how long a node entry lives without a discover refresh.
-const beaconNodeTTL = 5 * time.Minute
+// Set to 10 minutes (well above the 60s heartbeat-driven re-discover interval)
+// so nodes survive brief registry outages without losing beacon registration.
+const beaconNodeTTL = 10 * time.Minute
 
 func New() *Server {
 	return NewWithPeers(0, nil)
@@ -265,6 +267,10 @@ func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
 
 	if targetNode == nil {
 		slog.Warn("punch target not found", "target_id", targetID)
+		return
+	}
+	if requesterNode == nil {
+		slog.Warn("punch requester not found", "requester_id", requesterID)
 		return
 	}
 
