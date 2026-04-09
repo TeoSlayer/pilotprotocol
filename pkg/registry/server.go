@@ -277,9 +277,6 @@ type Server struct {
 	// Network invite inbox: target nodeID -> pending invites
 	inviteInbox map[uint32][]*NetworkInvite
 
-	// Rate limiting
-	rateLimiter   *RateLimiter
-	opRateLimiter *OperationRateLimiter
 
 	// Connection tracking
 	connCount      atomic.Int64
@@ -535,57 +532,6 @@ func (rl *RateLimiter) HasBucket(ip string) bool {
 	return ok
 }
 
-// OperationRateLimiter provides per-operation rate limiting using separate
-// token buckets for each operation category. Each category has its own rate.
-type OperationRateLimiter struct {
-	mu         sync.Mutex
-	categories map[string]*RateLimiter
-}
-
-// NewOperationRateLimiter creates a rate limiter with per-operation categories.
-func NewOperationRateLimiter() *OperationRateLimiter {
-	return &OperationRateLimiter{
-		categories: make(map[string]*RateLimiter),
-	}
-}
-
-// AddCategory registers a rate limit for an operation category.
-func (orl *OperationRateLimiter) AddCategory(name string, rate int, window time.Duration) {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	orl.categories[name] = NewRateLimiter(rate, window, 100_000)
-}
-
-// Allow checks if a request from the given IP is allowed for the given category.
-// Returns true if the category is not registered (no limit configured).
-// Note: categories map is read-only after initialization (AddCategory is only
-// called during NewWithStore before any concurrent access), so no lock needed.
-func (orl *OperationRateLimiter) Allow(category, ip string) bool {
-	rl, ok := orl.categories[category]
-	if !ok {
-		return true // no rate limit for this category
-	}
-	return rl.Allow(ip)
-}
-
-// SetClock overrides the time source for all categories (for testing).
-func (orl *OperationRateLimiter) SetClock(fn func() time.Time) {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	for _, rl := range orl.categories {
-		rl.SetClock(fn)
-	}
-}
-
-// Cleanup removes stale buckets from all categories.
-func (orl *OperationRateLimiter) Cleanup() {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	for _, rl := range orl.categories {
-		rl.Cleanup()
-	}
-}
-
 // KeyInfo tracks key lifecycle metadata for compliance and trust decisions.
 type KeyInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
@@ -787,7 +733,6 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		inviteInbox:        make(map[uint32][]*NetworkInvite),
-		rateLimiter:        NewRateLimiter(10, time.Minute, 100_000), // 10 registrations per IP per minute
 		maxConnections:     defaultMaxConnections,
 		beacons:            make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
@@ -801,13 +746,6 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		jwksCache:          newJWKSCache(),
 		logSampler:         newLogSampler(1000),
 	}
-
-	// Per-operation rate limits
-	s.opRateLimiter = NewOperationRateLimiter()
-	s.opRateLimiter.AddCategory("resolve", 100, time.Minute)
-	s.opRateLimiter.AddCategory("query", 500, time.Minute) // lookup, resolve_hostname, list_nodes
-	// Heartbeat rate limit removed: per-IP limits are too restrictive when
-	// thousands of nodes share a single IP (e.g., agents behind NAT/cloud).
 
 	// Initialize WAL for crash recovery between snapshots
 	if storePath != "" {
@@ -905,11 +843,6 @@ func (s *Server) SetMaxConnections(max int64) {
 // ConnCount returns the current number of active connections (for testing).
 func (s *Server) ConnCount() int64 {
 	return s.connCount.Load()
-}
-
-// SetOperationRateLimiterClock overrides the time source for per-operation rate limits (for testing).
-func (s *Server) SetOperationRateLimiterClock(fn func() time.Time) {
-	s.opRateLimiter.SetClock(fn)
 }
 
 // Reap triggers stale node and beacon cleanup (for testing).
@@ -1116,8 +1049,6 @@ func (s *Server) reapLoop() {
 		case <-ticker.C:
 			s.reapStaleNodes()
 			s.reapStaleBeacons()
-			s.rateLimiter.Cleanup()
-			s.opRateLimiter.Cleanup()
 			s.logSampler.cleanup()
 		case <-s.done:
 			return
@@ -1512,11 +1443,7 @@ func (s *Server) handleBinaryLookup(conn net.Conn, payload []byte, host string) 
 		s.metrics.requestDuration.WithLabel("lookup").Observe(time.Since(start).Seconds())
 	}()
 
-	if !s.opRateLimiter.Allow("query", host) {
-		s.metrics.errorsTotal.WithLabel("lookup").Inc()
-		wireWriteFrame(conn, wireMsgError, encodeWireError(fmt.Sprintf("rate limited: too many queries from %s", host)))
-		return
-	}
+
 
 	// Brief global lock for map lookup
 	s.mu.RLock()
@@ -1559,11 +1486,7 @@ func (s *Server) handleBinaryResolve(conn net.Conn, payload []byte, host string)
 		s.metrics.requestDuration.WithLabel("resolve").Observe(time.Since(start).Seconds())
 	}()
 
-	if !s.opRateLimiter.Allow("resolve", host) {
-		s.metrics.errorsTotal.WithLabel("resolve").Inc()
-		wireWriteFrame(conn, wireMsgError, encodeWireError(fmt.Sprintf("rate limited: too many resolves from %s", host)))
-		return
-	}
+
 
 	// Phase 1: copy pubkey for verification
 	s.mu.RLock()
@@ -1761,22 +1684,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		}
 	}
 
-	// Per-operation rate limiting by source IP
-	host, _, _ := net.SplitHostPort(remoteAddr)
-
 	switch msgType {
 	case "register":
-		// Rate limit registrations by source IP (exempt known-key re-registrations)
-		if !s.rateLimiter.Allow(host) {
-			pubKeyB64, _ := msg["public_key"].(string)
-			s.mu.RLock()
-			_, knownKey := s.pubKeyIdx[pubKeyB64]
-			s.mu.RUnlock()
-			if !knownKey {
-				slog.Warn("registration rate limited", "remote_ip", host)
-				return nil, fmt.Errorf("rate limited: too many registrations from %s", host)
-			}
-		}
 		return s.handleRegister(msg, remoteAddr)
 	case "create_network":
 		return s.handleCreateNetwork(msg)
@@ -1791,21 +1700,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "set_network_enterprise":
 		return s.handleSetNetworkEnterprise(msg)
 	case "lookup":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleLookup(msg)
 	case "resolve":
-		if !s.opRateLimiter.Allow("resolve", host) {
-			return nil, fmt.Errorf("rate limited: too many resolves from %s", host)
-		}
 		return s.handleResolve(msg)
 	case "list_networks":
 		return s.handleListNetworks()
 	case "list_nodes":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleListNodes(msg)
 	case "rotate_key":
 		return s.handleRotateKey(msg)
@@ -1846,9 +1746,6 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "set_task_exec":
 		return s.handleSetTaskExec(msg)
 	case "resolve_hostname":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleResolveHostname(msg)
 	case "beacon_register":
 		return s.handleBeaconRegister(msg)
