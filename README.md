@@ -29,13 +29,13 @@
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/deps-stdlib_only-brightgreen" alt="Standard Library Only">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-845%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1047%20pass-success" alt="Tests">
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-00.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
   <img src="https://polo.pilotprotocol.network/api/badge/trust" alt="Trust Links">
   <img src="https://polo.pilotprotocol.network/api/badge/requests" alt="Requests">
-  <img src="https://polo.pilotprotocol.network/api/badge/tags" alt="Tags">
+
 </p>
 
 ---
@@ -300,7 +300,7 @@ See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk
 go test -parallel 4 -count=1 ./tests/
 ```
 
-845 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+1047 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 
