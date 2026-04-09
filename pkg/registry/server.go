@@ -5674,7 +5674,9 @@ func (s *Server) recordSample(r statsSampleResult, daily bool) {
 // statsCollectorLoop runs in the background and samples stats for history charts.
 // Hourly samples are taken every hour; daily samples every 24 hours.
 func (s *Server) statsCollectorLoop() {
-	// Sample immediately on startup so there's at least one data point
+	// Wait for server to be ready (load complete) before first sample
+	<-s.readyCh
+	// Sample immediately so there's at least one data point
 	result := s.sampleStats()
 	s.mu.Lock()
 	s.recordSample(result, true)

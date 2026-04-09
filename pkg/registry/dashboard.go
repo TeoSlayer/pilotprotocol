@@ -270,6 +270,16 @@ header h1{font-size:20px;font-weight:600;color:#e6edf3}
 .networks td{font-size:13px;color:#c9d1d9;padding:6px 8px;border-bottom:1px solid #161b22}
 .networks tr:hover td{background:#0d1117}
 .net-id{color:#8b949e;font-size:11px}
+.networks tr{cursor:pointer}
+.networks tr.active td{background:#0d1117}
+
+.net-detail{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:20px;margin-top:12px;display:none}
+.net-detail h3{font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:4px}
+.net-detail .disclaimer{font-size:11px;color:#484f58;margin-bottom:12px}
+.net-detail .net-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.net-detail .net-chart-wrap{position:relative}
+.net-detail .net-chart-label{font-size:12px;color:#8b949e;margin-bottom:6px}
+.net-detail svg{width:100%;display:block}
 
 .charts-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px}
 .chart-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px}
@@ -353,6 +363,26 @@ footer a:hover{color:#58a6ff}
     <thead><tr><th>Network</th><th>Members</th><th>Online</th><th>Requests</th><th>Trust Links</th></tr></thead>
     <tbody id="net-tbody"></tbody>
   </table>
+  <div class="net-detail" id="net-detail">
+    <h3 id="net-detail-title"></h3>
+    <div class="disclaimer">Since last registry restart</div>
+    <div class="net-charts">
+      <div class="net-chart-wrap">
+        <div class="net-chart-label">Online Members — Last 24 Hours</div>
+        <div style="position:relative">
+          <svg id="net-chart-hourly" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="chart-tooltip" id="net-tip-hourly"></div>
+        </div>
+      </div>
+      <div class="net-chart-wrap">
+        <div class="net-chart-label">Online Members — Last 7 Days</div>
+        <div style="position:relative">
+          <svg id="net-chart-daily" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="chart-tooltip" id="net-tip-daily"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <footer>
@@ -392,41 +422,70 @@ function initToken(){
   var t=getToken();
   if(t){document.getElementById('token-input').value=t;document.getElementById('token-btn').textContent='Lock'}
 }
+var _netData=[];
+var _selectedNet=-1;
 function renderNetworks(networks){
   var wrap=document.getElementById('networks');
   var tbody=document.getElementById('net-tbody');
-  if(!networks||!networks.length){wrap.style.display='none';var st=document.getElementById('token-status');if(getToken()){st.textContent='invalid token';st.className='status'}return}
+  if(!networks||!networks.length){wrap.style.display='none';document.getElementById('net-detail').style.display='none';var st=document.getElementById('token-status');if(getToken()){st.textContent='invalid token';st.className='status'}return}
   wrap.style.display='block';
+  _netData=networks;
   var st=document.getElementById('token-status');st.textContent='authenticated';st.className='status ok';
   var html='';
-  networks.forEach(function(n){
-    html+='<tr><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td><td>'+fmt(n.trust_links)+'</td></tr>';
+  networks.forEach(function(n,i){
+    var cls=n.id===_selectedNet?' class="active"':'';
+    html+='<tr'+cls+' data-idx="'+i+'" onclick="showNetDetail('+i+')"><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td><td>'+fmt(n.trust_links)+'</td></tr>';
   });
   tbody.innerHTML=html;
+  if(_selectedNet>=0){
+    var found=false;
+    for(var i=0;i<networks.length;i++){if(networks[i].id===_selectedNet){showNetDetail(i);found=true;break}}
+    if(!found)document.getElementById('net-detail').style.display='none';
+  }
 }
-function renderChart(svgId,tipId,samples,labelFn){
-  var svg=document.getElementById(svgId);
-  var tip=document.getElementById(tipId);
+function showNetDetail(idx){
+  var n=_netData[idx];if(!n)return;
+  _selectedNet=n.id;
+  var rows=document.getElementById('net-tbody').querySelectorAll('tr');
+  rows.forEach(function(r){r.classList.remove('active')});
+  rows[idx].classList.add('active');
+  document.getElementById('net-detail-title').textContent=n.name+' (#'+n.id+')';
+  var panel=document.getElementById('net-detail');
+  panel.style.display='block';
+  var hourly=n.hourly||[];
+  var daily=n.daily||[];
+  if(!hourly.length&&!daily.length){
+    document.getElementById('net-chart-hourly').innerHTML='<text x="200" y="90" fill="#484f58" font-size="12" text-anchor="middle" font-family="monospace">No history yet</text>';
+    document.getElementById('net-chart-daily').innerHTML='<text x="200" y="90" fill="#484f58" font-size="12" text-anchor="middle" font-family="monospace">No history yet</text>';
+    return;
+  }
+  drawChart(document.getElementById('net-chart-hourly'),document.getElementById('net-tip-hourly'),hourly,function(s){return s.online||0},function(s){
+    var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
+  },'#3fb950');
+  drawChart(document.getElementById('net-chart-daily'),document.getElementById('net-tip-daily'),daily,function(s){return s.online||0},function(s){
+    var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
+  },'#3fb950');
+}
+function drawChart(svg,tip,samples,valFn,labelFn,color){
+  if(!svg)return;
+  color=color||'#58a6ff';
   if(!samples||!samples.length){svg.innerHTML='';return}
   var W=400,H=180,padL=40,padR=10,padT=10,padB=30;
   var cW=W-padL-padR,cH=H-padT-padB;
-  var vals=samples.map(function(s){return s.online_nodes||0});
+  var vals=samples.map(valFn);
   var maxV=Math.max.apply(null,vals);
   if(maxV===0)maxV=1;
-  // Y-axis: nice round gridlines
   var step=Math.pow(10,Math.floor(Math.log10(maxV||1)));
   if(maxV/step<2)step=step/4;
   else if(maxV/step<5)step=step/2;
   var gridMax=Math.ceil(maxV/step)*step;
   if(gridMax===0)gridMax=1;
   var html='';
-  // Grid lines
   for(var g=0;g<=gridMax;g+=step){
     var gy=padT+cH-(g/gridMax)*cH;
     html+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#21262d" stroke-width="1"/>';
     html+='<text x="'+(padL-4)+'" y="'+(gy+4)+'" fill="#484f58" font-size="10" text-anchor="end" font-family="monospace">'+g+'</text>';
   }
-  // Build points
   var pts=[];
   for(var i=0;i<vals.length;i++){
     var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
@@ -434,48 +493,43 @@ function renderChart(svgId,tipId,samples,labelFn){
     pts.push(x.toFixed(1)+','+y.toFixed(1));
   }
   var polyPts=pts.join(' ');
-  // Area fill
   var firstX=padL+(vals.length>1?0:0.5)*cW;
   var lastX=padL+(vals.length>1?1:0.5)*cW;
   var areaFill=firstX.toFixed(1)+','+(padT+cH)+' '+polyPts+' '+lastX.toFixed(1)+','+(padT+cH);
-  html+='<polygon points="'+areaFill+'" fill="#58a6ff" fill-opacity="0.15"/>';
-  html+='<polyline points="'+polyPts+'" fill="none" stroke="#58a6ff" stroke-width="2"/>';
-  // Data points and labels
+  html+='<polygon points="'+areaFill+'" fill="'+color+'" fill-opacity="0.15"/>';
+  html+='<polyline points="'+polyPts+'" fill="none" stroke="'+color+'" stroke-width="2"/>';
   for(var i=0;i<vals.length;i++){
     var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
     var y=padT+cH-(vals[i]/gridMax)*cH;
-    html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="#58a6ff" stroke="#0a0e17" stroke-width="1.5"/>';
+    html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+color+'" stroke="#0a0e17" stroke-width="1.5"/>';
     var lbl=labelFn(samples[i]);
     html+='<text x="'+x.toFixed(1)+'" y="'+(padT+cH+16)+'" fill="#484f58" font-size="9" text-anchor="middle" font-family="monospace">'+lbl+'</text>';
-    // Invisible hover rect per data point
     var rw=cW/(vals.length||1);
-    html+='<rect x="'+(x-rw/2).toFixed(1)+'" y="'+padT+'" width="'+rw.toFixed(1)+'" height="'+cH+'" fill="transparent" data-val="'+vals[i]+'" data-lbl="'+lbl+'" data-x="'+x.toFixed(1)+'" data-y="'+y.toFixed(1)+'"/>';
+    html+='<rect x="'+(x-rw/2).toFixed(1)+'" y="'+padT+'" width="'+rw.toFixed(1)+'" height="'+cH+'" fill="transparent" data-val="'+vals[i]+'" data-lbl="'+lbl+'" data-x="'+x.toFixed(1)+'"/>';
   }
   svg.innerHTML=html;
-  // Tooltip handlers
-  svg.querySelectorAll('rect[data-val]').forEach(function(r){
-    r.addEventListener('mouseenter',function(e){
-      tip.textContent=r.getAttribute('data-lbl')+': '+r.getAttribute('data-val')+' online';
-      tip.style.display='block';
-      var svgRect=svg.getBoundingClientRect();
-      var px=parseFloat(r.getAttribute('data-x'))/W*svgRect.width;
-      tip.style.left=(px+4)+'px';
-      tip.style.top='0px';
+  if(tip){
+    svg.querySelectorAll('rect[data-val]').forEach(function(r){
+      r.addEventListener('mouseenter',function(){
+        tip.textContent=r.getAttribute('data-lbl')+': '+r.getAttribute('data-val')+' online';
+        tip.style.display='block';
+        var svgRect=svg.getBoundingClientRect();
+        var px=parseFloat(r.getAttribute('data-x'))/W*svgRect.width;
+        tip.style.left=(px+4)+'px';tip.style.top='0px';
+      });
+      r.addEventListener('mouseleave',function(){tip.style.display='none'});
     });
-    r.addEventListener('mouseleave',function(){tip.style.display='none'});
-  });
+  }
 }
 function renderCharts(hourly,daily){
   var row=document.getElementById('charts-row');
   if((!hourly||!hourly.length)&&(!daily||!daily.length)){row.style.display='none';return}
   row.style.display='grid';
-  renderChart('chart-hourly','tip-hourly',hourly||[],function(s){
-    var d=new Date(s.ts*1000);
-    return ('0'+d.getHours()).slice(-2)+':00';
+  drawChart(document.getElementById('chart-hourly'),document.getElementById('tip-hourly'),hourly||[],function(s){return s.online_nodes||0},function(s){
+    var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
   });
-  renderChart('chart-daily','tip-daily',daily||[],function(s){
-    var d=new Date(s.ts*1000);
-    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
+  drawChart(document.getElementById('chart-daily'),document.getElementById('tip-daily'),daily||[],function(s){return s.online_nodes||0},function(s){
+    var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
   });
 }
 function update(){
