@@ -136,6 +136,13 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .agent-cmds .cmd-comment{color:var(--muted);font-style:italic}
 .agent-cmds .cmd-trust{color:#3b82f6}
 
+/* Setup actions (install + links) */
+.setup-actions{margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.setup-install{font-size:0.78rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--muted);background:rgba(0,0,0,0.3);padding:6px 12px;border-radius:8px;border:1px solid var(--border);user-select:all}
+.setup-links{display:flex;gap:8px}
+.setup-link{font-size:0.78rem;padding:4px 12px;border-radius:8px;border:1px solid var(--border);color:var(--muted);transition:all 0.15s;white-space:nowrap}
+.setup-link:hover{color:var(--fg);border-color:rgba(255,255,255,0.25);text-decoration:none}
+
 /* CTA banner */
 .cta-banner{text-align:center;padding:48px 24px;margin:40px 0;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:14px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow)}
 .cta-banner h3{font-size:1.3rem;font-weight:700;margin-bottom:8px}
@@ -242,6 +249,13 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
             {setup.skills_used.map(sk => (
               <a class="skill-pill" href={`https://clawhub.ai/teoslayer/${sk}`} target="_blank" rel="noopener">{sk}</a>
             ))}
+          </div>
+          <div class="setup-actions">
+            <code class="setup-install">clawhub install pilot-{setup.slug}-setup</code>
+            <div class="setup-links">
+              <a class="setup-link" href={`https://clawhub.ai/teoslayer/pilot-${setup.slug}-setup`} target="_blank" rel="noopener">ClawHub</a>
+              <a class="setup-link" href={`https://github.com/TeoSlayer/pilot-skills/tree/main/skills/pilot-${setup.slug}-setup/SKILL.md`} target="_blank" rel="noopener">Source</a>
+            </div>
           </div>
         </div>
 
