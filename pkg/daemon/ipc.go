@@ -441,6 +441,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 		"tunnel_encryption_success": info.EncryptOK,
 		"tunnel_encryption_failure": info.EncryptFail,
 		"handshake_pending_count":   info.HandshakePendingCount,
+		"version":                   info.Version,
 		"networks":                  info.Networks,
 		"peer_list":                 peers,
 		"conn_list":                 conns,
@@ -607,6 +608,12 @@ func (s *IPCServer) handleSetTags(conn *ipcConn, payload []byte) {
 
 func (s *IPCServer) handleSetWebhook(conn *ipcConn, payload []byte) {
 	url := string(payload) // empty string = clear webhook
+	if url != "" {
+		if err := ValidateWebhookURL(url); err != nil {
+			s.sendError(conn, err.Error())
+			return
+		}
+	}
 	s.daemon.SetWebhookURL(url)
 	result := map[string]interface{}{"webhook": url}
 	data, _ := json.Marshal(result)
@@ -861,6 +868,14 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 		}
 		data, _ := json.Marshal(result)
 		s.ipcWriteNetworkOK(conn, data)
+
+		// Clean up local state for the left network.
+		go func() {
+			s.daemon.StopPolicyRunner(netID)
+			s.daemon.StopManagedEngine(netID)
+			s.daemon.clearNetworkState(netID)
+			s.daemon.loadNetworkPolicies()
+		}()
 
 	case SubNetworkMembers:
 		// [2-byte networkID]

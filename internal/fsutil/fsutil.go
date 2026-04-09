@@ -27,7 +27,7 @@ func AppendSync(path string, data []byte) error {
 // This ensures the target file is never left in a truncated state.
 func AtomicWrite(path string, data []byte) error {
 	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}

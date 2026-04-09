@@ -189,7 +189,7 @@ func (c *Client) RegisterWithOwner(listenAddr, owner string) (map[string]interfa
 // RegisterWithKey re-registers using an existing Ed25519 public key.
 // The registry returns the same node_id if the key is known.
 // lanAddrs are the node's LAN addresses for same-network peer detection.
-func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string, lanAddrs []string) (map[string]interface{}, error) {
+func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string, lanAddrs []string, opts ...string) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":        "register",
 		"listen_addr": listenAddr,
@@ -200,6 +200,9 @@ func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string, lanAddr
 	}
 	if len(lanAddrs) > 0 {
 		msg["lan_addrs"] = lanAddrs
+	}
+	if len(opts) > 0 && opts[0] != "" {
+		msg["version"] = opts[0]
 	}
 	return c.Send(msg)
 }

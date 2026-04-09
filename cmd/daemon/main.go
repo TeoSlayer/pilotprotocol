@@ -93,6 +93,7 @@ func main() {
 		WebhookURL:            *webhookURL,
 		AdminToken:            *adminToken,
 		Networks:              parseNetworkIDs(*networks),
+		Version:               version,
 	})
 
 	if err := d.Start(); err != nil {

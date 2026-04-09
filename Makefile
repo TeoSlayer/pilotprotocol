@@ -26,6 +26,7 @@ build:
 	go build -o $(BINDIR)/echo ./examples/go/echo
 	go build -o $(BINDIR)/dataexchange ./examples/go/dataexchange
 	go build -o $(BINDIR)/eventstream ./examples/go/eventstream
+	go build -o $(BINDIR)/updater ./cmd/updater
 	go build -o $(BINDIR)/secure ./examples/go/secure
 
 test:
@@ -72,6 +73,7 @@ build-linux:
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/nameserver-linux ./cmd/nameserver
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/gateway-linux ./cmd/gateway
 	@test -d cmd/pilot-admin && GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/pilot-admin-linux ./cmd/pilot-admin || true
+	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/updater-linux ./cmd/updater
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/echo-linux ./examples/go/echo
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/client-linux ./examples/go/client
 	GOOS=linux GOARCH=amd64 go build -o $(BINDIR)/webserver-linux ./examples/go/webserver
@@ -86,7 +88,7 @@ ci: vet test build build-linux
 	@echo "CI: all checks passed"
 
 # All binaries included in release archives
-RELEASE_BINS := daemon pilotctl gateway registry beacon rendezvous nameserver
+RELEASE_BINS := daemon pilotctl gateway registry beacon rendezvous nameserver updater
 
 # Cross-platform release builds
 release:
@@ -104,6 +106,7 @@ release:
 			-C $(BINDIR)/release/$$os-$$arch .; \
 		rm -rf $(BINDIR)/release/$$os-$$arch; \
 	done
+	@cd $(BINDIR)/release && shasum -a 256 *.tar.gz > checksums.txt
 	@echo "Release archives in $(BINDIR)/release/"
 
 # Console (web management UI) — requires CGo for SQLite

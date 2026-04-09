@@ -582,6 +582,7 @@ type NodeInfo struct {
 	LANAddrs   []string  // LAN addresses for same-network peer detection
 	KeyMeta    KeyInfo   // key lifecycle metadata
 	ExternalID string    // verified external identity (e.g., OIDC sub, email from IdP)
+	Version    string    // binary version reported by daemon (e.g., "v1.6.2")
 
 	// lastSeenNano stores time.UnixNano() for lock-free heartbeat updates.
 	// Heartbeats use atomic store (no write lock needed); reap/save read atomically.
@@ -665,6 +666,9 @@ type HandshakeResponseMsg struct {
 
 // maxHandshakeInbox limits the number of pending handshake requests per node.
 const maxHandshakeInbox = 100
+
+// maxJustificationSize limits the justification field to prevent memory abuse.
+const maxJustificationSize = 1024
 
 // NetworkInvite is a pending network invitation stored in the registry's invite inbox.
 type NetworkInvite struct {
@@ -1871,6 +1875,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	listenAddr := sanitizeListenAddr(remoteAddr, clientAddr)
 	owner, _ := msg["owner"].(string)
 	hostname, _ := msg["hostname"].(string)
+	clientVersion, _ := msg["version"].(string)
 	identityToken, _ := msg["identity_token"].(string)
 
 	// Verify identity token before registration (calls external webhook)
@@ -1913,7 +1918,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	if hostname != "" {
 		if err := validateHostname(hostname); err != nil {
 			// Register without hostname, return warning
-			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "", lanAddrs)
+			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "", lanAddrs, clientVersion)
 			if regErr != nil {
 				return resp, regErr
 			}
@@ -1927,7 +1932,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 
 	// M3 fix: pass hostname into handleReRegister so registration + hostname
 	// are set atomically under a single lock acquisition.
-	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname, lanAddrs)
+	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname, lanAddrs, clientVersion)
 	if err == nil {
 		s.metrics.registrations.Inc()
 		resp["observed_addr"] = listenAddr
@@ -2676,7 +2681,7 @@ func (s *Server) setNodeHostname(node *NodeInfo, hostname string, resp map[strin
 // handleReRegister handles a node presenting an existing public key.
 // Returns the same node_id if the key is known, or assigns a new one.
 // M3 fix: hostname is set atomically under the same lock as registration.
-func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string, lanAddrs []string) (map[string]interface{}, error) {
+func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string, lanAddrs []string, version string) (map[string]interface{}, error) {
 	pubKey, err := crypto.DecodePublicKey(pubKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid public key: %w", err)
@@ -2692,6 +2697,9 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			node.RealAddr = listenAddr
 			node.setLastSeen(time.Now())
 			node.LANAddrs = lanAddrs
+			if version != "" {
+				node.Version = version
+			}
 			if owner != "" && node.Owner == "" {
 				node.Owner = owner
 				s.ownerIdx[owner] = nodeID
@@ -2736,6 +2744,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			LastSeen:  now,
 			LANAddrs:  lanAddrs,
 			KeyMeta:   KeyInfo{CreatedAt: now},
+			Version:   version,
 		}
 		node.lastSeenNano.Store(now.UnixNano())
 		s.nodes[nodeID] = node
@@ -2780,6 +2789,9 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				existingNode.RealAddr = listenAddr
 				existingNode.setLastSeen(time.Now())
 				existingNode.LANAddrs = lanAddrs
+				if version != "" {
+					existingNode.Version = version
+				}
 				s.pubKeyIdx[pubKeyB64] = existingID
 
 				addr := protocol.Addr{Network: 0, Node: existingID}
@@ -2809,6 +2821,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				LastSeen:  now,
 				LANAddrs:  lanAddrs,
 				KeyMeta:   KeyInfo{CreatedAt: now},
+				Version:   version,
 			}
 			node.lastSeenNano.Store(now.UnixNano())
 			s.nodes[existingID] = node
@@ -2852,6 +2865,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 		LastSeen:  now,
 		LANAddrs:  lanAddrs,
 		KeyMeta:   KeyInfo{CreatedAt: now},
+		Version:   version,
 	}
 	node.lastSeenNano.Store(now.UnixNano())
 	s.nodes[nodeID] = node
@@ -3418,6 +3432,9 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	if node.ExternalID != "" {
 		resp["external_id"] = node.ExternalID
 	}
+	if node.Version != "" {
+		resp["version"] = node.Version
+	}
 	return resp, nil
 }
 
@@ -3457,7 +3474,7 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 		return nil, err
 	}
 
-	// Phase 3: brief global lock for map lookups + trust check, then shard locks for fields
+	// Phase 3: global lock for map lookups + trust gate (atomic to prevent TOCTOU)
 	s.mu.RLock()
 	requester, ok = s.nodes[requesterID]
 	if !ok {
@@ -3470,29 +3487,14 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 	trustOK := s.trustPairs[trustPairKey(requesterID, nodeID)]
-	s.mu.RUnlock()
 
-	// Shard locks for field access — allows concurrent resolves on different shards
-	// Lock requester shard to read Networks (for shared-network check)
-	rSh := s.nodeShard(requesterID)
-	rSh.RLock()
-	requesterNetworks := make([]uint16, len(requester.Networks))
-	copy(requesterNetworks, requester.Networks)
-	rSh.RUnlock()
-
-	// Lock target shard for field access
-	tSh := s.nodeShard(nodeID)
-	tSh.RLock()
-	defer tSh.RUnlock()
-
-	// Public nodes: endpoint always available
-	// Private nodes: require mutual trust OR shared non-backbone network
+	// Trust gate under global lock to prevent TOCTOU race with concurrent revoke
 	if !node.Public {
 		allowed := trustOK
 
 		// Check shared non-backbone network
 		if !allowed {
-			for _, rNet := range requesterNetworks {
+			for _, rNet := range requester.Networks {
 				if rNet == 0 {
 					continue // skip backbone
 				}
@@ -3509,9 +3511,16 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 		}
 
 		if !allowed {
+			s.mu.RUnlock()
 			return nil, fmt.Errorf("resolve denied: node %d is private (establish mutual trust first)", nodeID)
 		}
 	}
+	s.mu.RUnlock()
+
+	// Shard lock for response field access only
+	tSh := s.nodeShard(nodeID)
+	tSh.RLock()
+	defer tSh.RUnlock()
 
 	resp := map[string]interface{}{
 		"type":      "resolve_ok",
@@ -3773,6 +3782,9 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 	fromNodeID := jsonUint32(msg, "from_node_id")
 	toNodeID := jsonUint32(msg, "to_node_id")
 	justification, _ := msg["justification"].(string)
+	if len(justification) > maxJustificationSize {
+		return nil, fmt.Errorf("justification too large: %d bytes (max %d)", len(justification), maxJustificationSize)
+	}
 
 	// Phase 1: read-lock to copy pubkey for verification
 	s.mu.RLock()
@@ -5207,6 +5219,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			if node.ExternalID != "" {
 				entry["external_id"] = node.ExternalID
 			}
+			if node.Version != "" {
+				entry["version"] = node.Version
+			}
 			entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
 			nodes = append(nodes, entry)
 		}
@@ -5253,6 +5268,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			}
 			if node.ExternalID != "" {
 				entry["external_id"] = node.ExternalID
+			}
+			if node.Version != "" {
+				entry["version"] = node.Version
 			}
 			entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
 			nodes = append(nodes, entry)
@@ -5529,6 +5547,7 @@ type snapshotNode struct {
 	KeyRotCount int      `json:"key_rot_count,omitempty"`
 	KeyExpires  string   `json:"key_expires,omitempty"`
 	ExternalID  string   `json:"external_id,omitempty"`
+	Version     string   `json:"version,omitempty"`
 }
 
 type snapshotNet struct {
@@ -5610,6 +5629,7 @@ type rawNodeCopy struct {
 	lanAddrs   []string
 	keyMeta    KeyInfo
 	externalID string
+	version    string
 }
 
 // flushSave serializes the full registry state and writes it to disk.
@@ -5639,6 +5659,7 @@ func (s *Server) flushSave() error {
 			lanAddrs:   n.LANAddrs,
 			keyMeta:    n.KeyMeta,
 			externalID: n.ExternalID,
+			version:    n.Version,
 		})
 	}
 
@@ -5751,6 +5772,7 @@ func (s *Server) flushSave() error {
 			sn.KeyExpires = rn.keyMeta.ExpiresAt.Format(time.RFC3339)
 		}
 		sn.ExternalID = rn.externalID
+		sn.Version = rn.version
 		snap.Nodes[fmt.Sprintf("%d", rn.id)] = sn
 
 		// Dashboard metrics (computed outside lock)
@@ -5995,6 +6017,7 @@ func (s *Server) load() error {
 			}
 		}
 		node.ExternalID = n.ExternalID
+		node.Version = n.Version
 		s.nodes[n.ID] = node
 		s.pubKeyIdx[n.PublicKey] = n.ID
 		if n.Owner != "" {
@@ -6211,7 +6234,20 @@ func base64Decode(s string) ([]byte, error) {
 
 // --- Dashboard ---
 
-// DashboardNode is a public-safe view of a node for the dashboard.
+// DashboardStats is the public-safe data returned by the dashboard API.
+type DashboardStats struct {
+	TotalNodes      int             `json:"total_nodes"`
+	ActiveNodes     int             `json:"active_nodes"`
+	TotalTrustLinks int             `json:"total_trust_links"`
+	TotalRequests   int64           `json:"total_requests"`
+	UniqueTags      int             `json:"unique_tags"`
+	TaskExecutors   int             `json:"task_executors"`
+	Nodes           []DashboardNode `json:"nodes"`
+	Edges           []DashboardEdge `json:"edges"`
+	UptimeSecs      int64           `json:"uptime_secs"`
+}
+
+// DashboardNode represents a node in the dashboard visualization.
 type DashboardNode struct {
 	Address    string   `json:"address"`
 	Tags       []string `json:"tags"`
@@ -6227,21 +6263,7 @@ type DashboardEdge struct {
 	Target string `json:"target"`
 }
 
-// DashboardStats is the public-safe data returned by the dashboard API.
-type DashboardStats struct {
-	TotalNodes      int             `json:"total_nodes"`
-	ActiveNodes     int             `json:"active_nodes"`
-	TotalTrustLinks int             `json:"total_trust_links"`
-	TotalRequests   int64           `json:"total_requests"`
-	UniqueTags      int             `json:"unique_tags"`
-	TaskExecutors   int             `json:"task_executors"`
-	Nodes           []DashboardNode `json:"nodes"`
-	Edges           []DashboardEdge `json:"edges"`
-	UptimeSecs      int64           `json:"uptime_secs"`
-}
-
-// GetDashboardStats returns public-safe statistics for the dashboard.
-// No IPs, keys, or endpoints are exposed.
+// GetDashboardStats returns aggregate statistics for the dashboard.
 func (s *Server) GetDashboardStats() DashboardStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -6251,7 +6273,6 @@ func (s *Server) GetDashboardStats() DashboardStats {
 
 	// Count trust links per node and build edge list
 	trustCount := make(map[uint32]int)
-	// Build nodeID→address map for edges
 	nodeAddr := make(map[uint32]string, len(s.nodes))
 	for _, node := range s.nodes {
 		addr := protocol.Addr{Network: 0, Node: node.ID}
@@ -6306,7 +6327,6 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		})
 	}
 
-	// Sort nodes by address (ascending)
 	sort.Slice(nodes, func(i, j int) bool {
 		return nodes[i].Address < nodes[j].Address
 	})

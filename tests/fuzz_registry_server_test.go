@@ -1289,47 +1289,6 @@ func TestRegistryClientSetTaskExec(t *testing.T) {
 // Type structs
 // ---------------------------------------------------------------------------
 
-func TestRegistryDashboardNodeJSON(t *testing.T) {
-	node := registry.DashboardNode{
-		Address:    "0:0001.0000.002A",
-		Tags:       []string{"ml", "gpu"},
-		Online:     true,
-		TrustLinks: 3,
-		TaskExec:   true,
-		PoloScore:  50,
-	}
-	data, err := json.Marshal(node)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var decoded registry.DashboardNode
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if decoded.Address != node.Address {
-		t.Fatal("address mismatch")
-	}
-	if len(decoded.Tags) != 2 {
-		t.Fatal("tags mismatch")
-	}
-	if decoded.PoloScore != 50 {
-		t.Fatal("polo score mismatch")
-	}
-}
-
-func TestRegistryDashboardEdgeJSON(t *testing.T) {
-	edge := registry.DashboardEdge{
-		Source: "0:0001.0000.0001",
-		Target: "0:0001.0000.0002",
-	}
-	data, _ := json.Marshal(edge)
-	var decoded registry.DashboardEdge
-	json.Unmarshal(data, &decoded)
-	if decoded.Source != edge.Source || decoded.Target != edge.Target {
-		t.Fatal("edge JSON round-trip failed")
-	}
-}
-
 func TestRegistryHandshakeRelayMsgJSON(t *testing.T) {
 	msg := registry.HandshakeRelayMsg{
 		FromNodeID:    42,

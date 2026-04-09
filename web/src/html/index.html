@@ -345,6 +345,71 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
   .map-card .map-overlay .bento-big{font-size:1.5rem}
   .map-card .map-overlay{padding:16px}
 }
+
+/* Zoo Carousels */
+#ecosystem{padding:60px 0}
+#ecosystem h2{font-size:1.8rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:8px}
+#ecosystem>p{color:var(--muted);font-size:1rem;margin-bottom:40px}
+.zoo-row{margin-bottom:36px}
+.zoo-row-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.zoo-row-head h3{font-size:1rem;font-weight:600;color:var(--fg);display:flex;align-items:center;gap:8px;margin:0}
+.zoo-row-head h3 svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--accent);flex-shrink:0}
+.zoo-see-all{font-size:0.78rem;color:var(--muted);display:flex;align-items:center;gap:4px;transition:color 0.15s;white-space:nowrap}
+.zoo-see-all:hover{color:var(--accent);text-decoration:none}
+.zoo-see-all svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Break tracks out of container to viewport edges */
+.zoo-track-wrap{margin-left:calc(-50vw + 50%);margin-right:calc(-50vw + 50%);position:relative;overflow:hidden}
+.zoo-track-wrap::before,.zoo-track-wrap::after{content:'';position:absolute;top:0;bottom:0;width:60px;z-index:2;pointer-events:none;transition:opacity 0.3s}
+.zoo-track-wrap::before{left:0;background:linear-gradient(to right,var(--bg),transparent)}
+.zoo-track-wrap::after{right:0;background:linear-gradient(to left,var(--bg),transparent)}
+.zoo-track-wrap.at-start::before{opacity:0}
+.zoo-track-wrap.at-end::after{opacity:0}
+
+.zoo-track{display:flex;gap:16px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px 24px;padding-left:max(24px,calc(50vw - 456px))}
+.zoo-track::-webkit-scrollbar{display:none}
+
+.zoo-card{flex:0 0 280px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:12px;padding:20px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:var(--glass-shadow);transition:border-color 0.2s,transform 0.2s,opacity 0.3s;text-decoration:none;display:flex;flex-direction:column;gap:8px}
+.zoo-card:hover{border-color:rgba(255,255,255,0.18);transform:translateY(-2px);text-decoration:none}
+.zoo-card-title{font-size:0.9rem;font-weight:600;color:var(--fg);display:flex;align-items:center;gap:8px}
+.zoo-card-desc{font-size:0.8rem;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1}
+.zoo-card-tags{display:flex;flex-wrap:wrap;gap:6px}
+.zoo-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.68rem;font-weight:500;font-family:'SF Mono',Menlo,Consolas,monospace}
+.zoo-badge-green{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e}
+.zoo-badge-amber{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b}
+.zoo-badge-red{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#ef4444}
+.zoo-badge-dim{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--muted)}
+
+/* Network cards — colored left border */
+.zoo-card-net{border-left:3px solid var(--zoo-accent)}
+.zoo-card-net .zoo-net-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.68rem;font-weight:600;font-family:'SF Mono',Menlo,Consolas,monospace;background:color-mix(in srgb,var(--zoo-accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--zoo-accent) 30%,transparent);color:var(--zoo-accent)}
+.zoo-card-net .zoo-card-id{font-size:0.72rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--muted)}
+
+/* Skill cards */
+.zoo-card-skill .zoo-card-install{font-size:0.72rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--accent);background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.12);border-radius:6px;padding:6px 10px;margin-top:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Org cards */
+.zoo-card-org .zoo-card-meta{display:flex;gap:12px;font-size:0.72rem;color:var(--muted);margin-top:auto}
+.zoo-card-org .zoo-card-meta span{display:flex;align-items:center;gap:4px}
+.zoo-card-org .zoo-card-meta svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* CTA end-cards */
+.zoo-card-cta{border-style:dashed;border-color:rgba(255,255,255,0.15);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;cursor:pointer}
+.zoo-card-cta:hover{border-color:var(--accent)}
+.zoo-card-cta .zoo-cta-big{font-size:2rem;font-weight:800;color:var(--fg);font-family:'SF Mono',Menlo,Consolas,monospace;line-height:1}
+.zoo-card-cta .zoo-cta-label{font-size:0.82rem;color:var(--accent);font-weight:600}
+
+@media(max-width:768px){
+  .zoo-card{flex:0 0 240px}
+  #ecosystem h2{font-size:1.4rem}
+  .zoo-track{padding:4px 16px;padding-left:16px}
+  .zoo-track-wrap::before,.zoo-track-wrap::after{width:32px}
+}
+@media(max-width:480px){
+  .zoo-card{flex:0 0 220px;padding:16px}
+  .zoo-track{padding:4px 12px;padding-left:12px}
+  .zoo-track-wrap::before,.zoo-track-wrap::after{width:20px}
+}
 </style>
 <canvas id="bg-canvas"></canvas>
 
@@ -568,6 +633,155 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
             <div class="uc-step" style="animation-delay:3.0s"><span style="color:#22c55e">✓</span> 4 exchanges, pure P2P. No HTTP server, no broker.</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Ecosystem Carousels -->
+<section id="ecosystem">
+  <h2>Explore the ecosystem</h2>
+  <p>Live networks, agent skills, and deployment recipes.</p>
+
+  <!-- Networks -->
+  <div class="zoo-row">
+    <div class="zoo-row-head">
+      <h3><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Networks</h3>
+      <a href="/for/networks" class="zoo-see-all">See all <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></a>
+    </div>
+    <div class="zoo-track-wrap">
+      <div class="zoo-track">
+        <a href="/for/networks" class="zoo-card zoo-card-net" style="--zoo-accent:#7edba6">
+          <div class="zoo-card-title">Backbone</div>
+          <div class="zoo-card-desc">The default public network. Every agent starts here. Open membership, no approval required.</div>
+          <div class="zoo-card-tags"><span class="zoo-net-badge">Public</span> <span class="zoo-badge zoo-badge-dim">Open</span></div>
+        </a>
+        <a href="/for/networks" class="zoo-card zoo-card-net" style="--zoo-accent:#ff7b9c">
+          <div class="zoo-card-title">High Trust</div>
+          <div class="zoo-card-desc">A curated network with enforced link limits and trust decay. Bottom 10% of nodes dropped each iteration.</div>
+          <div class="zoo-card-tags"><span class="zoo-net-badge">#-</span> <span class="zoo-badge zoo-badge-dim">Invite</span></div>
+        </a>
+        <a href="/for/networks" class="zoo-card zoo-card-net" style="--zoo-accent:#ffb347">
+          <div class="zoo-card-title">Data Exchange</div>
+          <div class="zoo-card-desc">Agents can only talk to service agents — never to each other. Designed for datasets, model weights, and APIs.</div>
+          <div class="zoo-card-tags"><span class="zoo-net-badge">#9</span> <span class="zoo-badge zoo-badge-dim">Open</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Skills -->
+  <div class="zoo-row">
+    <div class="zoo-row-head">
+      <h3><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Skills</h3>
+      <a href="/for/skills" class="zoo-see-all">See all <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></a>
+    </div>
+    <div class="zoo-track-wrap">
+      <div class="zoo-track">
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-protocol</div>
+        <div class="zoo-card-desc">Core networking primitives — addressing, connections, port listeners, and transport.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">core</span> <span class="zoo-badge zoo-badge-dim">networking</span></div>
+        <div class="zoo-card-install">clawhub install pilot-protocol</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-chat</div>
+        <div class="zoo-card-desc">Real-time messaging between agents with delivery confirmation and typing indicators.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">communication</span> <span class="zoo-badge zoo-badge-dim">messaging</span></div>
+        <div class="zoo-card-install">clawhub install pilot-chat</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-share</div>
+        <div class="zoo-card-desc">File and data sharing over Pilot tunnels with chunked transfer and resume support.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">file-transfer</span> <span class="zoo-badge zoo-badge-dim">data</span></div>
+        <div class="zoo-card-install">clawhub install pilot-share</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-trust</div>
+        <div class="zoo-card-desc">Mutual trust establishment, verification challenges, and reputation tracking.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">security</span> <span class="zoo-badge zoo-badge-dim">trust</span></div>
+        <div class="zoo-card-install">clawhub install pilot-trust</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-task-router</div>
+        <div class="zoo-card-desc">Distribute tasks across agents with load balancing, priority queues, and retries.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">orchestration</span> <span class="zoo-badge zoo-badge-dim">routing</span></div>
+        <div class="zoo-card-install">clawhub install pilot-task-router</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-health</div>
+        <div class="zoo-card-desc">Health checks, heartbeat monitoring, and automatic dead-peer detection.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">monitoring</span> <span class="zoo-badge zoo-badge-dim">health</span></div>
+        <div class="zoo-card-install">clawhub install pilot-health</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-broadcast</div>
+        <div class="zoo-card-desc">One-to-many event broadcasting with topic subscriptions and fan-out delivery.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">pub-sub</span> <span class="zoo-badge zoo-badge-dim">events</span></div>
+        <div class="zoo-card-install">clawhub install pilot-broadcast</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-skill">
+        <div class="zoo-card-title">pilot-github-bridge</div>
+        <div class="zoo-card-desc">Bridge GitHub webhooks and API calls through Pilot tunnels for CI/CD agents.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-dim">integration</span> <span class="zoo-badge zoo-badge-dim">github</span></div>
+        <div class="zoo-card-install">clawhub install pilot-github-bridge</div>
+      </a>
+      <a href="/for/skills" class="zoo-card zoo-card-cta">
+        <div class="zoo-cta-big">80+</div>
+        <div class="zoo-cta-label">Browse all skills &rarr;</div>
+      </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Orgs -->
+  <div class="zoo-row">
+    <div class="zoo-row-head">
+      <h3><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Orgs</h3>
+      <a href="/for/setups" class="zoo-see-all">See all <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></a>
+    </div>
+    <div class="zoo-track-wrap">
+      <div class="zoo-track">
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">Fleet Health Monitor</div>
+        <div class="zoo-card-desc">Monitor agent fleet health with automated alerting, log aggregation, and status dashboards.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-green">Beginner</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>3 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>3 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">CI/CD Pipeline</div>
+        <div class="zoo-card-desc">Automated build, test, and deploy pipeline with GitHub integration and artifact sharing.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-amber">Intermediate</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>3 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>4 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">ML Training Pipeline</div>
+        <div class="zoo-card-desc">Distributed model training with data loaders, trainers, and evaluation agents coordinating over Pilot.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-red">Advanced</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>4 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>5 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">Multi-Region Content Sync</div>
+        <div class="zoo-card-desc">Synchronize content across geographic regions with conflict resolution and eventual consistency.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-amber">Intermediate</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>4 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>4 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">Incident Response</div>
+        <div class="zoo-card-desc">Automated incident detection, triage, and response with escalation chains and runbook execution.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-red">Advanced</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>4 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>5 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-org">
+        <div class="zoo-card-title">Dev Team Assistants</div>
+        <div class="zoo-card-desc">A team of specialized agents for code review, documentation, testing, and deployment assistance.</div>
+        <div class="zoo-card-tags"><span class="zoo-badge zoo-badge-amber">Intermediate</span></div>
+        <div class="zoo-card-meta"><span><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>4 agents</span><span><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>5 skills</span></div>
+      </a>
+      <a href="/for/setups" class="zoo-card zoo-card-cta">
+        <div class="zoo-cta-big">20+</div>
+        <div class="zoo-cta-label">Browse all orgs &rarr;</div>
+      </a>
       </div>
     </div>
   </div>
@@ -1436,5 +1650,82 @@ if(heroPanel) typeLines(heroPanel);
   }
   for(var i=0;i<2;i++) setTimeout(spawnArc, i*1500);
   setTimeout(loop, 3000);
+})();
+
+// Zoo carousel: edge fades + infinite auto-scroll
+(function(){
+  var tracks = document.querySelectorAll('.zoo-track');
+  if(!tracks.length) return;
+  var GAP = 16;
+
+  function updateFades(t){
+    var wrap = t.parentElement;
+    if(!wrap || !wrap.classList.contains('zoo-track-wrap')) return;
+    var max = t.scrollWidth - t.clientWidth;
+    if(max <= 2){ wrap.classList.add('at-start','at-end'); return; }
+    // Infinite tracks: always show both fades
+    wrap.classList.remove('at-start','at-end');
+  }
+
+  // After layout: clone cards for infinite scroll on overflowing tracks
+  var loops = [];
+  requestAnimationFrame(function(){
+    tracks.forEach(function(t){
+      updateFades(t);
+      var overflows = t.scrollWidth > t.clientWidth + 4;
+      if(!overflows) return;
+
+      // Measure total width of original card block
+      var cards = t.querySelectorAll('.zoo-card');
+      var first = cards[0], last = cards[cards.length - 1];
+      var loopW = last.offsetLeft + last.offsetWidth - first.offsetLeft + GAP;
+
+      // Clone all cards for seamless wrap
+      for(var j = 0; j < cards.length; j++) t.appendChild(cards[j].cloneNode(true));
+
+      loops.push({t: t, loopW: loopW, pos: 0, paused: false});
+    });
+
+    tracks.forEach(function(t){
+      t.addEventListener('scroll', function(){ updateFades(t); }, {passive:true});
+    });
+
+    // Auto-scroll
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if(!loops.length) return;
+
+    var SPEED = 0.7;
+
+    loops.forEach(function(d){
+      d.t.addEventListener('mouseenter', function(){ d.paused = true; });
+      d.t.addEventListener('mouseleave', function(){ d.paused = false; d.pos = d.t.scrollLeft; });
+      d.t.addEventListener('touchstart', function(){ d.paused = true; }, {passive:true});
+      d.t.addEventListener('touchend', function(){ setTimeout(function(){ d.paused = false; d.pos = d.t.scrollLeft; }, 2000); });
+    });
+
+    var sectionVisible = false;
+    var section = document.getElementById('ecosystem');
+    if(section){
+      new IntersectionObserver(function(entries){
+        sectionVisible = entries[0].isIntersecting;
+      }, {threshold:0}).observe(section);
+    }
+
+    function tick(){
+      if(sectionVisible){
+        for(var i = 0; i < loops.length; i++){
+          var d = loops[i];
+          if(d.paused) continue;
+          d.pos += SPEED;
+          if(d.pos >= d.loopW) d.pos -= d.loopW;
+          d.t.scrollLeft = Math.round(d.pos);
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
+
+  window.addEventListener('resize', function(){ tracks.forEach(updateFades); });
 })();
 </script>

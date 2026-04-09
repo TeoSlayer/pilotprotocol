@@ -8,12 +8,15 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
@@ -58,6 +61,9 @@ type Config struct {
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
 	Networks   []uint16 // network IDs to auto-join at startup (empty = none)
+
+	// Version
+	Version string // binary version string (injected via LDFLAGS at build time)
 
 	// Tuning (zero = use defaults)
 	KeepaliveInterval     time.Duration // default 60s
@@ -106,6 +112,18 @@ const EndpointCacheTTL = 5 * time.Minute
 // During cron bursts, agents resolve the same peers repeatedly — this
 // avoids hitting the registry for the same node within the TTL window.
 const ResolveCacheTTL = 60 * time.Second
+
+// DefaultNetworkSyncInterval is how often the daemon refreshes network
+// memberships, port policies, and member tags from the registry.
+const DefaultNetworkSyncInterval = 5 * time.Minute
+
+// networkSnapshot is the JSON format persisted to {identityDir}/networks.json.
+type networkSnapshot struct {
+	Networks   []uint16            `json:"networks"`
+	Policies   map[uint16][]uint16 `json:"policies,omitempty"`
+	MemberTags map[uint16][]string `json:"member_tags,omitempty"`
+	SyncedAt   string              `json:"synced_at"`
+}
 
 // endpointEntry caches a resolved endpoint for a peer node.
 type endpointEntry struct {
@@ -453,7 +471,7 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := rc.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs)
+	resp, err := rc.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs, d.config.Version)
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
 	}
@@ -543,7 +561,10 @@ func (d *Daemon) Start() error {
 	// Auto-join configured networks
 	d.autoJoinNetworks()
 
-	// Cache network port policies for SYN enforcement
+	// Load cached network snapshot (bootstraps port policies / member tags from disk)
+	d.loadNetworkSnapshot()
+
+	// Cache network port policies for SYN enforcement (overwrites snapshot with live data)
 	d.loadNetworkPolicies()
 
 	// Load expr-based policy runners for joined networks
@@ -575,6 +596,9 @@ func (d *Daemon) Start() error {
 
 	// 9. Start idle connection sweeper
 	go d.idleSweepLoop()
+
+	// 10. Start network sync (refreshes memberships/policies every 5 min)
+	go d.networkSyncLoop()
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
@@ -687,6 +711,31 @@ func matchLANSubnet(ours []string, theirs []interface{}) string {
 		}
 	}
 	return ""
+}
+
+// addrFamilyMismatch returns true if addr is a different IP family than the tunnel socket.
+// For example, returns true if the tunnel is bound to IPv6 but addr is IPv4 (or vice versa).
+func (d *Daemon) addrFamilyMismatch(addr string) bool {
+	local := d.tunnels.LocalAddr()
+	if local == nil {
+		return false
+	}
+	localHost, _, err := net.SplitHostPort(local.String())
+	if err != nil {
+		return false
+	}
+	remoteHost, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	localIP := net.ParseIP(localHost)
+	remoteIP := net.ParseIP(remoteHost)
+	if localIP == nil || remoteIP == nil {
+		return false
+	}
+	localIs4 := localIP.To4() != nil
+	remoteIs4 := remoteIP.To4() != nil
+	return localIs4 != remoteIs4
 }
 
 // autoJoinNetworks joins the networks listed in Config.Networks at startup.
@@ -1211,6 +1260,7 @@ type DaemonInfo struct {
 	EncryptOK             uint64
 	EncryptFail           uint64
 	HandshakePendingCount int
+	Version               string
 	Networks              []NetworkMembership
 	PeerList              []PeerInfo
 	ConnList              []ConnectionInfo
@@ -1289,6 +1339,7 @@ func (d *Daemon) Info() *DaemonInfo {
 		EncryptOK:             atomic.LoadUint64(&d.tunnels.EncryptOK),
 		EncryptFail:           atomic.LoadUint64(&d.tunnels.EncryptFail),
 		HandshakePendingCount: d.handshakes.PendingCount(),
+		Version:               d.config.Version,
 		Networks:              networks,
 		PeerList:              peerList,
 		ConnList:              d.ports.ConnectionList(),
@@ -2440,12 +2491,17 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 		return fmt.Errorf("node %d has no real address", nodeID)
 	}
 
-	// Same-LAN detection: if peer has LAN addresses matching our subnet, use LAN directly
+	// Same-LAN detection: if peer has LAN addresses matching our subnet, use LAN directly.
+	// Skip if our tunnel is bound to a different address family (e.g. IPv6 tunnel vs IPv4 LAN).
 	targetAddr := realAddr
 	if lanAddrs, ok := resp["lan_addrs"].([]interface{}); ok && len(lanAddrs) > 0 {
 		if lanAddr := matchLANSubnet(d.lanAddrs, lanAddrs); lanAddr != "" {
-			targetAddr = lanAddr
-			slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
+			if !d.addrFamilyMismatch(lanAddr) {
+				targetAddr = lanAddr
+				slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
+			} else {
+				slog.Debug("same-LAN peer skipped: address family mismatch with tunnel", "lan_addr", lanAddr)
+			}
 		}
 	}
 
@@ -2542,7 +2598,7 @@ func (d *Daemon) reRegister() {
 
 	// Always re-register with client-generated key
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := d.regConn.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs)
+	resp, err := d.regConn.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs, d.config.Version)
 	if err != nil {
 		slog.Error("re-registration failed", "error", err)
 		return
@@ -2681,6 +2737,368 @@ func (d *Daemon) idleSweepLoop() {
 			}
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Network sync: periodic reconciliation of network state with the registry.
+// ---------------------------------------------------------------------------
+
+// networkSyncLoop periodically refreshes network memberships, port policies,
+// member tags, and policy runners from the registry. Runs every 5 minutes.
+func (d *Daemon) networkSyncLoop() {
+	// Random jitter (0-30s) to spread load across fleet restarts.
+	jitter := time.Duration(rand.Int63n(int64(30 * time.Second)))
+	select {
+	case <-d.stopCh:
+		return
+	case <-time.After(jitter):
+	}
+
+	ticker := time.NewTicker(DefaultNetworkSyncInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			d.syncNetworks()
+		}
+	}
+}
+
+// syncNetworks fetches current network memberships from the registry and
+// reconciles with local state: starts policy runners for new networks, stops
+// them for removed networks, refreshes port policies and member tags.
+func (d *Daemon) syncNetworks() {
+	if d.regConn == nil {
+		return
+	}
+
+	// 1. Fetch current networks from registry.
+	newNets := d.nodeNetworks()
+	if newNets == nil {
+		slog.Debug("network-sync: registry unreachable, skipping")
+		return
+	}
+
+	newSet := make(map[uint16]bool, len(newNets))
+	for _, n := range newNets {
+		newSet[n] = true
+	}
+
+	// 2. Determine previously known networks from local state.
+	oldSet := d.knownNetworkSet()
+
+	// 3. Detect newly joined networks.
+	for netID := range newSet {
+		if netID == 0 {
+			continue
+		}
+		if !oldSet[netID] {
+			slog.Info("network-sync: new network detected", "network_id", netID)
+			d.webhook.Emit("network.sync_joined", map[string]interface{}{"network_id": netID})
+		}
+	}
+
+	// 4. Detect removed networks.
+	for netID := range oldSet {
+		if !newSet[netID] {
+			slog.Info("network-sync: network removed", "network_id", netID)
+			d.StopPolicyRunner(netID)
+			d.StopManagedEngine(netID)
+			d.clearNetworkState(netID)
+			d.webhook.Emit("network.sync_left", map[string]interface{}{"network_id": netID})
+		}
+	}
+
+	// 5. Refresh port policies for all current networks.
+	d.loadNetworkPolicies()
+
+	// 6. Fetch full network list once for policy runner + managed engine sync.
+	var networkList []interface{}
+	listResp, err := d.regConn.ListNetworks()
+	if err == nil {
+		networkList, _ = listResp["networks"].([]interface{})
+	}
+
+	// 7. Start policy runners for new networks that have expr policies.
+	d.syncPolicyRunners(newNets, networkList)
+
+	// 8. Start managed engines for new networks that have rules.
+	d.syncManagedEngines(newNets, networkList)
+
+	// 9. Refresh member tags for all current networks.
+	d.syncMemberTags(newNets)
+
+	// 10. Persist snapshot.
+	d.saveNetworkSnapshot(newNets)
+
+	slog.Debug("network-sync: complete", "networks", len(newNets))
+}
+
+// knownNetworkSet returns the set of non-backbone network IDs the daemon
+// currently has state for (policies, runners, managed engines, or member tags).
+func (d *Daemon) knownNetworkSet() map[uint16]bool {
+	set := make(map[uint16]bool)
+
+	d.netPolicyMu.RLock()
+	for netID := range d.netPolicies {
+		if netID != 0 {
+			set[netID] = true
+		}
+	}
+	d.netPolicyMu.RUnlock()
+
+	d.policyMu.Lock()
+	for netID := range d.policyRunners {
+		set[netID] = true
+	}
+	d.policyMu.Unlock()
+
+	d.managedMu.Lock()
+	for netID := range d.managed {
+		set[netID] = true
+	}
+	d.managedMu.Unlock()
+
+	d.memberTagsMu.RLock()
+	for netID := range d.memberTags {
+		set[netID] = true
+	}
+	d.memberTagsMu.RUnlock()
+
+	return set
+}
+
+// clearNetworkState removes cached port policies and member tags for a network.
+func (d *Daemon) clearNetworkState(netID uint16) {
+	d.netPolicyMu.Lock()
+	delete(d.netPolicies, netID)
+	d.netPolicyMu.Unlock()
+
+	d.memberTagsMu.Lock()
+	delete(d.memberTags, netID)
+	d.memberTagsMu.Unlock()
+}
+
+// syncPolicyRunners starts expr policy runners for newly joined networks.
+// Already-running runners are left alone (policy content changes are handled
+// by explicit admin RPCs, not periodic sync).
+func (d *Daemon) syncPolicyRunners(nets []uint16, networkList []interface{}) {
+	if networkList == nil {
+		return
+	}
+
+	netSet := make(map[uint16]bool, len(nets))
+	for _, n := range nets {
+		netSet[n] = true
+	}
+
+	for _, raw := range networkList {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hasPolicy, _ := n["has_expr_policy"].(bool)
+		if !hasPolicy {
+			continue
+		}
+		netIDf, _ := n["id"].(float64)
+		netID := uint16(netIDf)
+		if !netSet[netID] {
+			continue
+		}
+
+		// Skip if already running.
+		d.policyMu.Lock()
+		_, running := d.policyRunners[netID]
+		d.policyMu.Unlock()
+		if running {
+			continue
+		}
+
+		// Fetch and start.
+		pResp, err := d.regConn.GetExprPolicy(netID)
+		if err != nil {
+			slog.Debug("network-sync: cannot fetch expr_policy", "network_id", netID, "err", err)
+			continue
+		}
+
+		var policyJSON json.RawMessage
+		switch v := pResp["expr_policy"].(type) {
+		case string:
+			policyJSON = json.RawMessage(v)
+		case map[string]interface{}:
+			b, _ := json.Marshal(v)
+			policyJSON = b
+		default:
+			continue
+		}
+
+		if err := d.StartPolicyRunner(netID, policyJSON); err != nil {
+			slog.Warn("network-sync: failed to start policy runner", "network_id", netID, "err", err)
+			continue
+		}
+		slog.Info("network-sync: started policy runner", "network_id", netID)
+	}
+}
+
+// syncManagedEngines starts managed engines for newly joined networks.
+// Already-running engines are left alone.
+func (d *Daemon) syncManagedEngines(nets []uint16, networkList []interface{}) {
+	if networkList == nil {
+		return
+	}
+
+	netSet := make(map[uint16]bool, len(nets))
+	for _, n := range nets {
+		netSet[n] = true
+	}
+
+	for _, raw := range networkList {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rulesRaw, hasRules := n["rules"]
+		if !hasRules || rulesRaw == nil {
+			continue
+		}
+		netIDf, _ := n["id"].(float64)
+		netID := uint16(netIDf)
+		if !netSet[netID] {
+			continue
+		}
+
+		// Skip if already running.
+		d.managedMu.Lock()
+		_, running := d.managed[netID]
+		d.managedMu.Unlock()
+		if running {
+			continue
+		}
+
+		rb, _ := json.Marshal(rulesRaw)
+		rules, err := registry.ParseRules(string(rb))
+		if err != nil {
+			slog.Debug("network-sync: invalid rules", "network_id", netID, "err", err)
+			continue
+		}
+		d.StartManagedEngine(netID, rules)
+		slog.Info("network-sync: started managed engine", "network_id", netID)
+	}
+}
+
+// syncMemberTags refreshes the cached member tags for the local node
+// across all joined networks.
+func (d *Daemon) syncMemberTags(nets []uint16) {
+	nodeID := d.NodeID()
+	for _, netID := range nets {
+		if netID == 0 {
+			continue
+		}
+		resp, err := d.regConn.GetMemberTags(netID, nodeID)
+		if err != nil {
+			continue
+		}
+		tagsRaw, _ := resp["tags"].([]interface{})
+		var tags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, s)
+			}
+		}
+		d.SetMemberTags(netID, tags)
+	}
+}
+
+// saveNetworkSnapshot persists the current network state to {identityDir}/networks.json.
+func (d *Daemon) saveNetworkSnapshot(nets []uint16) {
+	if d.config.IdentityPath == "" {
+		return
+	}
+
+	d.netPolicyMu.RLock()
+	policies := make(map[uint16][]uint16, len(d.netPolicies))
+	for k, v := range d.netPolicies {
+		policies[k] = v
+	}
+	d.netPolicyMu.RUnlock()
+
+	d.memberTagsMu.RLock()
+	tags := make(map[uint16][]string, len(d.memberTags))
+	for k, v := range d.memberTags {
+		tags[k] = v
+	}
+	d.memberTagsMu.RUnlock()
+
+	snap := networkSnapshot{
+		Networks:   nets,
+		Policies:   policies,
+		MemberTags: tags,
+		SyncedAt:   time.Now().Format(time.RFC3339),
+	}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		slog.Error("save network snapshot", "err", err)
+		return
+	}
+
+	dir := filepath.Dir(d.config.IdentityPath)
+	path := filepath.Join(dir, "networks.json")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		slog.Error("create network snapshot directory", "dir", dir, "err", err)
+		return
+	}
+	if err := fsutil.AtomicWrite(path, data); err != nil {
+		slog.Error("write network snapshot", "err", err)
+		return
+	}
+	slog.Debug("network snapshot saved", "networks", len(nets))
+}
+
+// loadNetworkSnapshot loads cached network state from {identityDir}/networks.json.
+// Used at startup to bootstrap port policies and member tags when the registry
+// is temporarily unavailable. Only fills gaps — does not overwrite live data.
+func (d *Daemon) loadNetworkSnapshot() {
+	if d.config.IdentityPath == "" {
+		return
+	}
+
+	dir := filepath.Dir(d.config.IdentityPath)
+	path := filepath.Join(dir, "networks.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no file yet
+	}
+
+	var snap networkSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		slog.Warn("load network snapshot", "err", err)
+		return
+	}
+
+	if len(snap.Policies) > 0 {
+		d.netPolicyMu.Lock()
+		for netID, ports := range snap.Policies {
+			if _, exists := d.netPolicies[netID]; !exists {
+				d.netPolicies[netID] = ports
+			}
+		}
+		d.netPolicyMu.Unlock()
+	}
+
+	if len(snap.MemberTags) > 0 {
+		d.memberTagsMu.Lock()
+		for netID, t := range snap.MemberTags {
+			if _, exists := d.memberTags[netID]; !exists {
+				d.memberTags[netID] = t
+			}
+		}
+		d.memberTagsMu.Unlock()
+	}
+
+	slog.Info("loaded network snapshot", "networks", len(snap.Networks), "synced_at", snap.SyncedAt)
 }
 
 // lookupPeerPubKey fetches a peer's Ed25519 public key from the registry.

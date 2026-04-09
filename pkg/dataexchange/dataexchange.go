@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 )
 
 // Frame types for data exchange on port 1001.
@@ -13,6 +15,9 @@ const (
 	TypeJSON   uint32 = 3
 	TypeFile   uint32 = 4
 )
+
+// maxFilenameLen limits filename length to prevent abuse.
+const maxFilenameLen = 255
 
 // Frame is a typed data unit exchanged between agents.
 // Wire format: [4-byte type][4-byte length][payload]
@@ -68,7 +73,16 @@ func ReadFrame(r io.Reader) (*Frame, error) {
 	if ftype == TypeFile && len(payload) >= 2 {
 		nameLen := binary.BigEndian.Uint16(payload[0:2])
 		if int(nameLen)+2 <= len(payload) {
-			f.Filename = string(payload[2 : 2+nameLen])
+			if nameLen > maxFilenameLen {
+				return nil, fmt.Errorf("filename too long: %d bytes (max %d)", nameLen, maxFilenameLen)
+			}
+			name := string(payload[2 : 2+nameLen])
+			if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
+				return nil, fmt.Errorf("invalid filename: path traversal characters not allowed")
+			}
+			if name != "" {
+				f.Filename = filepath.Base(name)
+			}
 			f.Payload = payload[2+nameLen:]
 		}
 	}

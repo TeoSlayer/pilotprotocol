@@ -3658,6 +3658,9 @@ func cmdInfo() {
 	}
 
 	fmt.Printf("Pilot Protocol Daemon\n")
+	if v, ok := info["version"].(string); ok && v != "" {
+		fmt.Printf("  Version:     %s\n", v)
+	}
 	fmt.Printf("  Node ID:     %d\n", int(info["node_id"].(float64)))
 	fmt.Printf("  Address:     %s\n", info["address"])
 	if hostname, ok := info["hostname"].(string); ok && hostname != "" {
@@ -4542,11 +4545,12 @@ func cmdNetworkMembers(args []string) {
 		fmt.Println("no members")
 		return
 	}
-	fmt.Printf("%-12s %-20s %-10s\n", "NODE ID", "HOSTNAME", "PUBLIC")
+	fmt.Printf("%-12s %-20s %-12s %-10s\n", "NODE ID", "HOSTNAME", "VERSION", "PUBLIC")
 	for _, n := range nodes {
 		nm, _ := n.(map[string]interface{})
 		nodeID := uint32(nm["node_id"].(float64))
 		hostname, _ := nm["hostname"].(string)
+		ver, _ := nm["version"].(string)
 		public := false
 		if p, ok := nm["public"].(bool); ok {
 			public = p
@@ -4558,7 +4562,10 @@ func cmdNetworkMembers(args []string) {
 		if hostname == "" {
 			hostname = "-"
 		}
-		fmt.Printf("%-12d %-20s %-10s\n", nodeID, hostname, vis)
+		if ver == "" {
+			ver = "-"
+		}
+		fmt.Printf("%-12d %-20s %-12s %-10s\n", nodeID, hostname, ver, vis)
 	}
 }
 

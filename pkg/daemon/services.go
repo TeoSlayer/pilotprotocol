@@ -933,9 +933,9 @@ func (d *Daemon) handleTaskSubmitRequest(adapter *connAdapter, conn *Connection,
 			}
 		}
 	} else {
-		// No registry connection, accept by default
-		accepted = true
-		message = "Task received with status NEW"
+		// No registry connection — fail closed (cannot verify polo score)
+		accepted = false
+		message = "Registry unavailable, cannot verify polo score"
 	}
 
 	var resp *tasksubmit.SubmitResponse

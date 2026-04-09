@@ -26,6 +26,12 @@
       "actions": [{"type": "deny"}]
     },
     {
+      "name": "allow-echo",
+      "on": "datagram",
+      "match": "port == 7",
+      "actions": [{"type": "allow"}]
+    },
+    {
       "name": "allow-text",
       "on": "datagram",
       "match": "port == 1000",

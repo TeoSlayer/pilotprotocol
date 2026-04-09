@@ -234,8 +234,18 @@ func newJWKSCache() *jwksCache {
 func (c *jwksCache) getKey(jwksURL, kid string) (*jwksKey, error) {
 	c.mu.RLock()
 	if c.url == jwksURL && time.Since(c.fetchedAt) < c.ttl && len(c.keys) > 0 {
+		// Require kid when JWKS has multiple keys to prevent empty-kid wildcard match
+		if kid == "" {
+			if len(c.keys) == 1 {
+				key := c.keys[0]
+				c.mu.RUnlock()
+				return &key, nil
+			}
+			c.mu.RUnlock()
+			return nil, fmt.Errorf("JWT missing required 'kid' header; JWKS has %d keys", len(c.keys))
+		}
 		for i := range c.keys {
-			if kid == "" || c.keys[i].Kid == kid {
+			if c.keys[i].Kid == kid {
 				key := c.keys[i]
 				c.mu.RUnlock()
 				return &key, nil
@@ -258,8 +268,14 @@ func (c *jwksCache) getKey(jwksURL, kid string) (*jwksKey, error) {
 	c.fetchedAt = time.Now()
 	c.mu.Unlock()
 
+	if kid == "" {
+		if len(keys) == 1 {
+			return &keys[0], nil
+		}
+		return nil, fmt.Errorf("JWT missing required 'kid' header; JWKS has %d keys", len(keys))
+	}
 	for i := range keys {
-		if kid == "" || keys[i].Kid == kid {
+		if keys[i].Kid == kid {
 			return &keys[i], nil
 		}
 	}
