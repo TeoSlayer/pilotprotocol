@@ -417,11 +417,26 @@ Mailbox:
   pilotctl received [--clear]
   pilotctl inbox [--clear]
 
-Scriptorium (responder wrappers):
+Scriptorium (low-level responder dispatch):
   pilotctl scriptorium <command> [body] [--node <address|hostname>]
   pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"
   pilotctl scriptorium stockmarket "from: 2026-04-01"
   Config: ~/.pilot/scriptorium.yaml  (node: <pilot-address>)
+
+Service Agents (AI-powered overlay services):
+  pilotctl ai "<query>" [--node <address>] [--timeout <dur>] [--output-file [path]]
+  pilotctl clawdit ["<query>"] [--file <openclaw.json>] [--node <address>] [--timeout <dur>] [--output-file [path]]
+
+  Examples:
+    pilotctl ai "how do I send a message to another node?"
+    pilotctl ai "list all trusted peers as a table" --output-file peers.txt
+    pilotctl clawdit
+    pilotctl clawdit "check if port 443 is exposed without TLS"
+    pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md
+
+  Config:
+    ~/.pilot/scriptorium.yaml  — default node for 'ai' (key: node)
+    ~/.pilot/clawdit.yaml      — default node for 'clawdit' (key: node)
 
 Diagnostic commands:
   pilotctl info
