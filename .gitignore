@@ -19,10 +19,8 @@ _obj/
 /pilotctl
 /nameserver
 /gateway
-
-pilotctl-arm64
-responder-arm64
-pilot-daemon-arm64
+/responder
+/updater
 # caches
 __pycache__
 .venv
@@ -31,6 +29,7 @@ venv
 *.test
 
 tests/end-to-end/results
+tests/integration/results
 tests/developement-versions
 
 # Output of the go coverage tool

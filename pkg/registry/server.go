@@ -341,6 +341,10 @@ type Server struct {
 	dailyHistory  [7]StatsSample  // last 7 days, one sample per day
 	hourlyIdx     int             // next write index for hourly ring
 	dailyIdx      int             // next write index for daily ring
+
+	// Per-network history ring buffers (keyed by network ID)
+	netHourly map[uint16]*netHistoryRing
+	netDaily  map[uint16]*netHistoryRing
 }
 
 // AuditEntry records a single audit event.
@@ -745,6 +749,8 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		now:                time.Now,
 		jwksCache:          newJWKSCache(),
 		logSampler:         newLogSampler(1000),
+		netHourly:          make(map[uint16]*netHistoryRing),
+		netDaily:           make(map[uint16]*netHistoryRing),
 	}
 
 	// Initialize WAL for crash recovery between snapshots
@@ -5488,8 +5494,10 @@ type snapshot struct {
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
 	// Time-series history for dashboard charts
-	HourlyHistory []StatsSample `json:"hourly_history,omitempty"`
-	DailyHistory  []StatsSample `json:"daily_history,omitempty"`
+	HourlyHistory    []StatsSample                      `json:"hourly_history,omitempty"`
+	DailyHistory     []StatsSample                      `json:"daily_history,omitempty"`
+	NetHourlyHistory map[string][]NetworkSampleEntry `json:"net_hourly_history,omitempty"`
+	NetDailyHistory  map[string][]NetworkSampleEntry `json:"net_daily_history,omitempty"`
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []AuditEntry `json:"audit_log,omitempty"`
 	// Enterprise config persistence
@@ -5584,8 +5592,14 @@ func (s *Server) saveLoop() {
 	}
 }
 
-// sampleStats snapshots current stats into a StatsSample under RLock.
-func (s *Server) sampleStats() StatsSample {
+// statsSampleResult holds both global and per-network samples from a single snapshot.
+type statsSampleResult struct {
+	global   StatsSample
+	networks map[uint16]NetworkSampleEntry
+}
+
+// sampleStats snapshots current stats into a StatsSample and per-network entries under RLock.
+func (s *Server) sampleStats() statsSampleResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -5597,26 +5611,73 @@ func (s *Server) sampleStats() StatsSample {
 			online++
 		}
 	}
-	return StatsSample{
-		Timestamp:     now.Unix(),
-		TotalNodes:    len(s.nodes),
-		OnlineNodes:   online,
-		TrustLinks:    len(s.trustPairs),
-		TotalRequests: s.requestCount.Load(),
+
+	// Per-network samples
+	netSamples := make(map[uint16]NetworkSampleEntry, len(s.networks))
+	for _, net := range s.networks {
+		netOnline := 0
+		for _, memberID := range net.Members {
+			if node, exists := s.nodes[memberID]; exists {
+				if node.getLastSeen().After(onlineThreshold) {
+					netOnline++
+				}
+			}
+		}
+		netSamples[net.ID] = NetworkSampleEntry{
+			ID:       net.ID,
+			Name:     net.Name,
+			Members:  len(net.Members),
+			Online:   netOnline,
+			Requests: net.requestCount.Load(),
+		}
+	}
+
+	return statsSampleResult{
+		global: StatsSample{
+			Timestamp:     now.Unix(),
+			TotalNodes:    len(s.nodes),
+			OnlineNodes:   online,
+			TrustLinks:    len(s.trustPairs),
+			TotalRequests: s.requestCount.Load(),
+		},
+		networks: netSamples,
+	}
+}
+
+// recordSample writes a sample into the global and per-network ring buffers.
+// Caller must hold s.mu (write lock).
+func (s *Server) recordSample(r statsSampleResult, daily bool) {
+	s.hourlyHistory[s.hourlyIdx%24] = r.global
+	s.hourlyIdx++
+	for netID, entry := range r.networks {
+		ring := s.netHourly[netID]
+		if ring == nil {
+			ring = newNetHistoryRing(24)
+			s.netHourly[netID] = ring
+		}
+		ring.write(entry)
+	}
+	if daily {
+		s.dailyHistory[s.dailyIdx%7] = r.global
+		s.dailyIdx++
+		for netID, entry := range r.networks {
+			ring := s.netDaily[netID]
+			if ring == nil {
+				ring = newNetHistoryRing(7)
+				s.netDaily[netID] = ring
+			}
+			ring.write(entry)
+		}
 	}
 }
 
 // statsCollectorLoop runs in the background and samples stats for history charts.
-// Hourly samples are taken every hour; daily samples on hour transitions where
-// the previous tick's hour differs from current hour == 0 (midnight UTC).
+// Hourly samples are taken every hour; daily samples every 24 hours.
 func (s *Server) statsCollectorLoop() {
 	// Sample immediately on startup so there's at least one data point
-	sample := s.sampleStats()
+	result := s.sampleStats()
 	s.mu.Lock()
-	s.hourlyHistory[s.hourlyIdx%24] = sample
-	s.hourlyIdx++
-	s.dailyHistory[s.dailyIdx%7] = sample
-	s.dailyIdx++
+	s.recordSample(result, true)
 	s.mu.Unlock()
 
 	ticker := time.NewTicker(1 * time.Hour)
@@ -5626,15 +5687,9 @@ func (s *Server) statsCollectorLoop() {
 		select {
 		case <-ticker.C:
 			hourCounter++
-			sample := s.sampleStats()
+			result := s.sampleStats()
 			s.mu.Lock()
-			s.hourlyHistory[s.hourlyIdx%24] = sample
-			s.hourlyIdx++
-			// Daily sample every 24 hours
-			if hourCounter%24 == 0 {
-				s.dailyHistory[s.dailyIdx%7] = sample
-				s.dailyIdx++
-			}
+			s.recordSample(result, hourCounter%24 == 0)
 			s.mu.Unlock()
 		case <-s.done:
 			return
@@ -5763,6 +5818,17 @@ func (s *Server) flushSave() error {
 	dailyHistory := s.dailyHistory
 	hourlyIdx := s.hourlyIdx
 	dailyIdx := s.dailyIdx
+	// Per-network history: deep copy ring buffers
+	netHourlyCopy := make(map[uint16]*netHistoryRing, len(s.netHourly))
+	for id, ring := range s.netHourly {
+		cp := *ring
+		netHourlyCopy[id] = &cp
+	}
+	netDailyCopy := make(map[uint16]*netHistoryRing, len(s.netDaily))
+	for id, ring := range s.netDaily {
+		cp := *ring
+		netDailyCopy[id] = &cp
+	}
 	s.mu.RUnlock()
 
 	// Phase 2: no lock — all encoding (base64, time.Format, JSON) happens here
@@ -5913,6 +5979,23 @@ func (s *Server) flushSave() error {
 		idx := (dailyIdx + i) % 7
 		if dailyHistory[idx].Timestamp != 0 {
 			snap.DailyHistory = append(snap.DailyHistory, dailyHistory[idx])
+		}
+	}
+	// Per-network history
+	if len(netHourlyCopy) > 0 {
+		snap.NetHourlyHistory = make(map[string][]NetworkSampleEntry, len(netHourlyCopy))
+		for id, ring := range netHourlyCopy {
+			if entries := ring.read(); len(entries) > 0 {
+				snap.NetHourlyHistory[fmt.Sprintf("%d", id)] = entries
+			}
+		}
+	}
+	if len(netDailyCopy) > 0 {
+		snap.NetDailyHistory = make(map[string][]NetworkSampleEntry, len(netDailyCopy))
+		for id, ring := range netDailyCopy {
+			if entries := ring.read(); len(entries) > 0 {
+				snap.NetDailyHistory[fmt.Sprintf("%d", id)] = entries
+			}
 		}
 	}
 
@@ -6202,6 +6285,41 @@ func (s *Server) load() error {
 		}
 		slog.Info("loaded daily history", "samples", len(snap.DailyHistory))
 	}
+	// Restore per-network history
+	for netIDStr, entries := range snap.NetHourlyHistory {
+		var netID uint16
+		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			ring := newNetHistoryRing(24)
+			for i, e := range entries {
+				if i >= 24 {
+					break
+				}
+				ring.Samples[i] = e
+			}
+			ring.Idx = len(entries)
+			if ring.Idx > 24 {
+				ring.Idx = 24
+			}
+			s.netHourly[netID] = ring
+		}
+	}
+	for netIDStr, entries := range snap.NetDailyHistory {
+		var netID uint16
+		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			ring := newNetHistoryRing(7)
+			for i, e := range entries {
+				if i >= 7 {
+					break
+				}
+				ring.Samples[i] = e
+			}
+			ring.Idx = len(entries)
+			if ring.Idx > 7 {
+				ring.Idx = 7
+			}
+			s.netDaily[netID] = ring
+		}
+	}
 
 	// Restore audit log
 	if len(snap.AuditLog) > 0 {
@@ -6325,6 +6443,42 @@ type StatsSample struct {
 	TotalRequests int64 `json:"total_requests"`
 }
 
+// netHistoryRing is a fixed-size ring buffer for per-network history samples.
+type netHistoryRing struct {
+	Samples [24]NetworkSampleEntry // max 24 (hourly) or 7 (daily) — only used portion matters
+	Size    int                    // ring capacity (24 for hourly, 7 for daily)
+	Idx     int                    // next write index
+}
+
+func newNetHistoryRing(size int) *netHistoryRing {
+	return &netHistoryRing{Size: size}
+}
+
+func (r *netHistoryRing) write(e NetworkSampleEntry) {
+	r.Samples[r.Idx%r.Size] = e
+	r.Idx++
+}
+
+func (r *netHistoryRing) read() []NetworkSampleEntry {
+	var out []NetworkSampleEntry
+	for i := 0; i < r.Size; i++ {
+		idx := (r.Idx + i) % r.Size
+		if r.Samples[idx].Members > 0 || r.Samples[idx].Online > 0 || r.Samples[idx].Requests > 0 {
+			out = append(out, r.Samples[idx])
+		}
+	}
+	return out
+}
+
+// NetworkSampleEntry holds per-network stats within a time-series sample.
+type NetworkSampleEntry struct {
+	ID       uint16 `json:"id"`
+	Name     string `json:"name"`
+	Members  int    `json:"members"`
+	Online   int    `json:"online"`
+	Requests int64  `json:"requests"`
+}
+
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
 	TotalNodes      int            `json:"total_nodes"`
@@ -6340,12 +6494,14 @@ type DashboardStats struct {
 
 // NetworkStats holds per-network statistics for the authenticated dashboard view.
 type NetworkStats struct {
-	ID         uint16 `json:"id"`
-	Name       string `json:"name"`
-	Members    int    `json:"members"`
-	Online     int    `json:"online"`
-	Requests   int64  `json:"requests"`
-	TrustLinks int    `json:"trust_links"`
+	ID         uint16              `json:"id"`
+	Name       string              `json:"name"`
+	Members    int                 `json:"members"`
+	Online     int                 `json:"online"`
+	Requests   int64               `json:"requests"`
+	TrustLinks int                 `json:"trust_links"`
+	Hourly     []NetworkSampleEntry `json:"hourly,omitempty"`
+	Daily      []NetworkSampleEntry `json:"daily,omitempty"`
 }
 
 // GetDashboardStats returns aggregate statistics for the dashboard.
@@ -6477,14 +6633,21 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 				}
 			}
 		}
-		networks = append(networks, NetworkStats{
+		ns := NetworkStats{
 			ID:         net.ID,
 			Name:       net.Name,
 			Members:    len(net.Members),
 			Online:     online,
 			Requests:   net.requestCount.Load(),
 			TrustLinks: netTrust[net.ID],
-		})
+		}
+		if ring := s.netHourly[net.ID]; ring != nil {
+			ns.Hourly = ring.read()
+		}
+		if ring := s.netDaily[net.ID]; ring != nil {
+			ns.Daily = ring.read()
+		}
+		networks = append(networks, ns)
 	}
 
 	// Sort by ID for stable output
