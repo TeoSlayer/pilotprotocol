@@ -10,16 +10,6 @@ pre[class*="language-"],code[class*="language-"]{background:var(--code-bg) !impo
 .topbar nav a{color:var(--muted);font-size:0.85rem;display:flex;align-items:center;gap:5px}
 .topbar nav a:hover{color:var(--fg);text-decoration:none}
 .topbar-icon{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.topbar-dd{position:relative}
-.topbar-dd-trigger{background:none;border:none;color:var(--muted);font-size:0.85rem;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0;font-family:inherit;transition:color 0.15s}
-.topbar-dd-trigger:hover{color:var(--fg)}
-.topbar-dd-chevron{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform 0.2s}
-.topbar-dd-menu{display:none;position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:110}
-.topbar-dd-menu::before{content:'';position:absolute;top:-12px;left:0;right:0;height:12px}
-.topbar-dd:hover .topbar-dd-menu{display:flex;flex-direction:column;gap:2px}
-.topbar-dd:hover .topbar-dd-chevron{transform:rotate(180deg)}
-.topbar-dd-menu a{font-size:0.83rem;color:var(--muted);padding:7px 12px;border-radius:6px;transition:all 0.15s;white-space:nowrap}
-.topbar-dd-menu a:hover{color:var(--fg);background:rgba(255,255,255,0.08);text-decoration:none}
 .hamburger{display:none;background:none;border:none;color:var(--fg);font-size:1.5rem;cursor:pointer;padding:4px}
 
 /* Sidebar */
@@ -133,6 +123,6 @@ pre[class*="language-"],code[class*="language-"]{background:var(--code-bg) !impo
   .page-nav .next{margin-left:0}
   .topbar{padding:0 16px}
   .topbar nav{gap:8px}
-  .topbar nav a:not(.logo),.topbar-dd{display:none}
+  .topbar nav a{display:none}
   .topbar .logo span{font-size:0.88rem}
 }
