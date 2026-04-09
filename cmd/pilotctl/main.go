@@ -30,6 +30,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
 )
 
+var version = "dev"
+
 // Global flags
 var jsonOutput bool
 
@@ -439,6 +441,9 @@ Environment:
   PILOT_REGISTRY     Registry address (default: 34.71.57.205:9000)
   PILOT_SOCKET       Daemon socket path (default: /tmp/pilot.sock)
 
+Version:
+  pilotctl version
+
 Config file: ~/.pilot/config.json
 `)
 	os.Exit(2)
@@ -465,6 +470,10 @@ func main() {
 	cmdArgs := args[1:]
 
 	switch cmd {
+	case "version":
+		fmt.Println(version)
+		return
+
 	// Bootstrap
 	case "init":
 		cmdInit(cmdArgs)
@@ -674,6 +683,23 @@ func main() {
 			fatalHint("invalid_argument",
 				"available: score, status, rankings, cycle",
 				"unknown managed subcommand: %s", cmdArgs[0])
+		}
+
+	case "member-tags":
+		if len(cmdArgs) < 1 {
+			fatalHint("invalid_argument",
+				"available: set, get",
+				"usage: pilotctl member-tags <subcommand>")
+		}
+		switch cmdArgs[0] {
+		case "set":
+			cmdMemberTagsSet(cmdArgs[1:])
+		case "get":
+			cmdMemberTagsGet(cmdArgs[1:])
+		default:
+			fatalHint("invalid_argument",
+				"available: set, get",
+				"unknown member-tags subcommand: %s", cmdArgs[0])
 		}
 
 	case "policy":
@@ -5442,5 +5468,83 @@ func directiveTypeName(dt policy.DirectiveType) string {
 		return "log"
 	default:
 		return "unknown"
+	}
+}
+
+func cmdMemberTagsSet(args []string) {
+	flags, _ := parseFlags(args)
+	netID := parseUint16(flagString(flags, "net", "0"), "net")
+	nodeID := flagString(flags, "node", "0")
+	tagsStr := flagString(flags, "tags", "")
+
+	if netID == 0 || nodeID == "0" || tagsStr == "" {
+		fatalCode("invalid_argument", "usage: pilotctl member-tags set --net <id> --node <id> --tags tag1,tag2")
+	}
+
+	nid, err := strconv.ParseUint(nodeID, 10, 32)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid node ID: %s", nodeID)
+	}
+
+	tags := strings.Split(tagsStr, ",")
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.MemberTagsSet(netID, uint32(nid), tags)
+	if err != nil {
+		fatalCode("connection_failed", "member-tags set: %v", err)
+	}
+
+	if jsonOutput {
+		output(result)
+		return
+	}
+	fmt.Printf("Member tags set for node %d in network %d: %s\n", uint32(nid), netID, strings.Join(tags, ", "))
+}
+
+func cmdMemberTagsGet(args []string) {
+	flags, _ := parseFlags(args)
+	netID := parseUint16(flagString(flags, "net", "0"), "net")
+	nodeID := flagString(flags, "node", "0")
+
+	if netID == 0 {
+		fatalCode("invalid_argument", "usage: pilotctl member-tags get --net <id> [--node <id>]")
+	}
+
+	nid, err := strconv.ParseUint(nodeID, 10, 32)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid node ID: %s", nodeID)
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	result, err := d.MemberTagsGet(netID, uint32(nid))
+	if err != nil {
+		fatalCode("connection_failed", "member-tags get: %v", err)
+	}
+
+	if jsonOutput {
+		output(result)
+		return
+	}
+
+	if uint32(nid) != 0 {
+		if tags, ok := result["tags"].([]interface{}); ok {
+			tagStrs := make([]string, len(tags))
+			for i, t := range tags {
+				tagStrs[i] = fmt.Sprint(t)
+			}
+			fmt.Printf("Node %d in network %d: %s\n", uint32(nid), netID, strings.Join(tagStrs, ", "))
+		} else {
+			fmt.Printf("Node %d in network %d: (no tags)\n", uint32(nid), netID)
+		}
+	} else {
+		if members, ok := result["members"].(map[string]interface{}); ok {
+			for mid, tags := range members {
+				fmt.Printf("  node %s: %v\n", mid, tags)
+			}
+		}
 	}
 }

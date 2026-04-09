@@ -18,14 +18,22 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
 	socketPath := flag.String("socket", "/tmp/pilot.sock", "daemon socket path")
 	subnet := flag.String("subnet", "10.4.0.0/16", "local IP subnet for mappings")
 	portsStr := flag.String("ports", "", "comma-separated ports to proxy (default: 80,443,1000,1001,1002,7,8080,8443)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	if *configPath != "" {
 		cfg, err := config.Load(*configPath)
