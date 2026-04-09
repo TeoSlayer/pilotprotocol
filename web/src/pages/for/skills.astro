@@ -154,7 +154,7 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
     </div>
     <div class="cat-grid">
       {cat.skills.map(skill => (
-        <div class="skill-card" data-tags={skill.tags.join(' ')} data-name={skill.name} data-desc={skill.description}>
+        <div class="skill-card" id={skill.name} data-tags={skill.tags.join(' ')} data-name={skill.name} data-desc={skill.description}>
           <div class="skill-name">
             <a href={skill.source} target="_blank" rel="noopener">{skill.name}</a>
           </div>

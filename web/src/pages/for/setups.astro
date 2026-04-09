@@ -93,7 +93,9 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .agent-role{font-size:0.78rem;color:var(--muted)}
 .agent-desc{font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:10px}
 .agent-skills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
-.skill-pill{font-size:0.72rem;color:rgba(255,255,255,0.6);background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);padding:2px 8px;border-radius:8px;font-family:'SF Mono',Menlo,Consolas,monospace}
+.skill-pill{font-size:0.72rem;color:rgba(255,255,255,0.6);background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);padding:2px 8px;border-radius:8px;font-family:'SF Mono',Menlo,Consolas,monospace;cursor:pointer;transition:all 0.15s;text-decoration:none;display:inline-block}
+.skill-pill:hover{color:rgba(255,255,255,0.85);border-color:rgba(59,130,246,0.5);background:rgba(59,130,246,0.18);text-decoration:underline}
+.detail-skills{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .agent-cmds{background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 14px;font-size:0.75rem;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--muted);line-height:1.6;overflow-x:auto}
 .agent-cmds .cmd{color:var(--accent)}
 
@@ -113,6 +115,14 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
 .quickstart-block .qs-cmd{color:var(--accent)}
 .copy-btn{position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.08);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:0.7rem;color:var(--muted);cursor:pointer;font-family:inherit;transition:all 0.15s}
 .copy-btn:hover{color:var(--fg);border-color:rgba(255,255,255,0.2)}
+
+/* Workflow */
+.workflow-section{margin:24px 0}
+.workflow-title{font-size:1rem;font-weight:700;margin-bottom:6px}
+.workflow-desc{font-size:0.82rem;color:var(--muted);margin-bottom:12px}
+.workflow-block{background:rgba(0,0,0,0.4);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:16px 18px;font-size:0.78rem;font-family:'SF Mono',Menlo,Consolas,monospace;line-height:1.7;overflow-x:auto;position:relative}
+.workflow-block .wf-comment{color:var(--muted);font-style:italic}
+.workflow-block .wf-cmd{color:var(--accent)}
 
 /* Trust callout */
 .trust-callout{background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:20px 24px;margin-bottom:32px}
@@ -228,6 +238,11 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
             <span class="setup-agents-count">{setup.agent_count} agents &middot; {setup.skills_used.length} skills</span>
           </div>
           <div class="detail-desc">{setup.description}</div>
+          <div class="detail-skills">
+            {setup.skills_used.map(sk => (
+              <a class="skill-pill" href={`https://clawhub.ai/teoslayer/${sk}`} target="_blank" rel="noopener">{sk}</a>
+            ))}
+          </div>
         </div>
 
         <div class="agents-title">Agents <span class="count">{setup.agents.length}</span></div>
@@ -240,7 +255,7 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
             <div class="agent-desc">{agent.description}</div>
             <div class="agent-skills">
               {agent.skills.map(sk => (
-                <span class="skill-pill">{sk}</span>
+                <a class="skill-pill" href={`https://clawhub.ai/teoslayer/${sk}`} target="_blank" rel="noopener">{sk}</a>
               ))}
             </div>
             <div class="agent-cmds">
@@ -266,6 +281,22 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
             <span class="flow-port">:{flow.port}</span>
           </div>
         ))}
+
+        {setup.workflow && setup.workflow.length > 0 && (
+          <div class="workflow-section">
+            <div class="workflow-title">&#9654; Try It &mdash; Workflow</div>
+            <p class="workflow-desc">After setup, run these commands to see data flowing between your agents:</p>
+            <div class="workflow-block">
+              <button class="copy-btn" data-copy-wf={setup.slug}>Copy</button>
+              {setup.workflow.map(line => (
+                line === '' ? <br /> :
+                line.startsWith('#') ?
+                  <div><span class="wf-comment">{line}</span></div> :
+                  <div><span class="wf-cmd">{line}</span></div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div class="quickstart-title">Quick Start</div>
         <div class="quickstart-block">
@@ -339,13 +370,13 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace}
     });
   });
 
-  // Copy quick start
+  // Copy quick start and workflow blocks
   document.querySelectorAll('.copy-btn').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       var block = btn.parentElement;
       var lines = [];
-      block.querySelectorAll('.qs-comment, .qs-cmd').forEach(function(el){
+      block.querySelectorAll('.qs-comment, .qs-cmd, .wf-comment, .wf-cmd').forEach(function(el){
         lines.push(el.textContent);
       });
       var text = lines.join('\n');
