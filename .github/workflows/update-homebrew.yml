@@ -1,0 +1,153 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-formula:
+    if: "!github.event.release.prerelease"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get release info
+        id: release
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download checksums
+        run: |
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern checksums.txt
+          cat checksums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Parse checksums
+        id: checksums
+        run: |
+          echo "darwin_arm64=$(grep 'pilot-darwin-arm64.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "darwin_amd64=$(grep 'pilot-darwin-amd64.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(grep 'pilot-linux-arm64.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(grep 'pilot-linux-amd64.tar.gz' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Generate formula
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          VERSION="${{ steps.release.outputs.version }}"
+          cat > pilotprotocol.rb <<RUBY
+          class Pilotprotocol < Formula
+            desc "The network stack for AI agents - addresses, ports, tunnels, encryption, trust"
+            homepage "https://pilotprotocol.network"
+            version "$VERSION"
+            license "AGPL-3.0"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/TeoSlayer/pilotprotocol/releases/download/$TAG/pilot-darwin-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_arm64 }}"
+              else
+                url "https://github.com/TeoSlayer/pilotprotocol/releases/download/$TAG/pilot-darwin-amd64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_amd64 }}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/TeoSlayer/pilotprotocol/releases/download/$TAG/pilot-linux-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_arm64 }}"
+              else
+                url "https://github.com/TeoSlayer/pilotprotocol/releases/download/$TAG/pilot-linux-amd64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_amd64 }}"
+              end
+            end
+
+            def install
+              bin.install "daemon" => "pilot-daemon"
+              bin.install "pilotctl" => "pilotctl"
+              bin.install "gateway" => "pilot-gateway"
+              bin.install "updater" => "pilot-updater"
+            end
+
+            def post_install
+              (var/"pilot").mkpath
+
+              config_dir = Pathname.new(Dir.home)/".pilot"
+              config_dir.mkpath
+              (config_dir/"bin").mkpath
+
+              # Write version file for the auto-updater
+              version_file = config_dir/"bin/.pilot-version"
+              version_file.write "v#{version}\n"
+
+              config_file = config_dir/"config.json"
+              unless config_file.exist?
+                config_file.write <<~JSON
+                  {
+                    "registry": "34.71.57.205:9000",
+                    "beacon": "34.71.57.205:9001",
+                    "socket": "/tmp/pilot.sock",
+                    "encrypt": true,
+                    "identity": "#{config_dir}/identity.json"
+                  }
+                JSON
+              end
+            end
+
+            def caveats
+              <<~EOS
+                Config written to ~/.pilot/config.json (if not already present).
+
+                Get started:
+                  pilotctl daemon start --hostname my-agent --email you@example.com
+                  pilotctl info
+
+                Docs: https://pilotprotocol.network/docs
+
+                To start as background services:
+                  brew services start pilotprotocol
+              EOS
+            end
+
+            service do
+              run [
+                opt_bin/"pilot-daemon",
+                "-registry", "34.71.57.205:9000",
+                "-beacon", "34.71.57.205:9001",
+                "-listen", ":4000",
+                "-socket", "/tmp/pilot.sock",
+                "-identity", "#{Dir.home}/.pilot/identity.json",
+                "-encrypt",
+              ]
+              keep_alive crashed: true
+              log_path var/"log/pilot-daemon.log"
+              error_log_path var/"log/pilot-daemon.log"
+            end
+
+            test do
+              assert_match "pilotctl", shell_output("#{bin}/pilotctl --help 2>&1", 0)
+            end
+          end
+          RUBY
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' pilotprotocol.rb
+          cat pilotprotocol.rb
+
+      - name: Push to homebrew-pilot
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          CONTENT=$(base64 -w 0 pilotprotocol.rb)
+          SHA=$(gh api repos/TeoSlayer/homebrew-pilot/contents/Formula/pilotprotocol.rb --jq '.sha')
+
+          gh api repos/TeoSlayer/homebrew-pilot/contents/Formula/pilotprotocol.rb \
+            -X PUT \
+            -f message="Bump to ${{ steps.release.outputs.tag }}" \
+            -f content="$CONTENT" \
+            -f sha="$SHA"
+
+          echo "Updated homebrew-pilot formula to ${{ steps.release.outputs.tag }}"
