@@ -94,22 +94,12 @@ func TestDashboardStatsWithNodes(t *testing.T) {
 	if stats.TotalRequests < 2 {
 		t.Fatalf("expected at least 2 requests, got %d", stats.TotalRequests)
 	}
-	if len(stats.Nodes) != 2 {
-		t.Fatalf("expected 2 nodes in list, got %d", len(stats.Nodes))
+	// Nodes registered without a version should appear as "<1.7.0"
+	if stats.Versions == nil {
+		t.Fatal("expected non-nil Versions map")
 	}
-
-	// Verify no IPs leak in addresses
-	for _, node := range stats.Nodes {
-		if strings.Contains(node.Address, "127.0.0.1") {
-			t.Fatalf("node address should be a pilot address, not an IP: %s", node.Address)
-		}
-	}
-
-	// Verify node addresses are pilot addresses (not IPs)
-	for _, node := range stats.Nodes {
-		if strings.Contains(node.Address, "127.0.0.1") {
-			t.Fatalf("node address should be a pilot address, not IP: %s", node.Address)
-		}
+	if stats.Versions["<1.7.0"] != 2 {
+		t.Fatalf("expected 2 nodes with version <1.7.0, got %d", stats.Versions["<1.7.0"])
 	}
 }
 

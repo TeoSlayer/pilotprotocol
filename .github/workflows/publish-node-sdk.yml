@@ -217,6 +217,8 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # Install dependencies so prepublishOnly (tsc) can find @types/node
+          npm ci
           # Publish with linux tag
           if [ "${{ needs.setup.outputs.environment }}" = "test" ]; then
             npm publish --tag dev --access public

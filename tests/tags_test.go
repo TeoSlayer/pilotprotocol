@@ -290,14 +290,8 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 		t.Fatalf("decode JSON: %v", err)
 	}
 
-	if len(stats.Nodes) != 1 {
-		t.Fatalf("expected 1 node, got %d", len(stats.Nodes))
-	}
-	if len(stats.Nodes[0].Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %d: %v", len(stats.Nodes[0].Tags), stats.Nodes[0].Tags)
-	}
-	if stats.UniqueTags != 2 {
-		t.Fatalf("expected 2 unique tags, got %d", stats.UniqueTags)
+	if stats.TotalNodes != 1 {
+		t.Fatalf("expected 1 node, got %d", stats.TotalNodes)
 	}
 }
 

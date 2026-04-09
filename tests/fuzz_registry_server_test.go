@@ -163,12 +163,6 @@ func TestRegistryServerDashboardStatsEmpty(t *testing.T) {
 	if stats.TotalRequests != 0 {
 		t.Fatalf("expected 0 requests, got %d", stats.TotalRequests)
 	}
-	if stats.UniqueTags != 0 {
-		t.Fatalf("expected 0 unique tags, got %d", stats.UniqueTags)
-	}
-	if stats.TaskExecutors != 0 {
-		t.Fatalf("expected 0 task executors, got %d", stats.TaskExecutors)
-	}
 	if stats.UptimeSecs < 0 {
 		t.Fatalf("uptime should be non-negative, got %d", stats.UptimeSecs)
 	}
@@ -594,8 +588,8 @@ func TestRegistryClientSetTags(t *testing.T) {
 	}
 
 	stats := s.GetDashboardStats()
-	if stats.UniqueTags < 1 {
-		t.Fatal("expected at least 1 unique tag")
+	if stats.TotalNodes < 1 {
+		t.Fatal("expected at least 1 node after tag set")
 	}
 }
 
@@ -1280,8 +1274,8 @@ func TestRegistryClientSetTaskExec(t *testing.T) {
 	}
 
 	stats := s.GetDashboardStats()
-	if stats.TaskExecutors != 1 {
-		t.Fatalf("expected 1 task executor, got %d", stats.TaskExecutors)
+	if stats.TotalNodes != 1 {
+		t.Fatalf("expected 1 node, got %d", stats.TotalNodes)
 	}
 }
 

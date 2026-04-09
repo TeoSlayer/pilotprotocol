@@ -346,8 +346,6 @@ func TestSnapshotSaveLoad(t *testing.T) {
 	t.Logf("  Total Requests: %d", statsBefore.TotalRequests)
 	t.Logf("  Total Nodes: %d", statsBefore.TotalNodes)
 	t.Logf("  Active Nodes: %d", statsBefore.ActiveNodes)
-	t.Logf("  Unique Tags: %d", statsBefore.UniqueTags)
-	t.Logf("  Task Executors: %d", statsBefore.TaskExecutors)
 	t.Logf("  Uptime: %d seconds", statsBefore.UptimeSecs)
 
 	// Trigger snapshot
@@ -413,8 +411,6 @@ func TestSnapshotSaveLoad(t *testing.T) {
 	t.Logf("  Total Requests: %d", statsAfter.TotalRequests)
 	t.Logf("  Total Nodes: %d", statsAfter.TotalNodes)
 	t.Logf("  Active Nodes: %d", statsAfter.ActiveNodes)
-	t.Logf("  Unique Tags: %d", statsAfter.UniqueTags)
-	t.Logf("  Task Executors: %d", statsAfter.TaskExecutors)
 	t.Logf("  Trust Links: %d", statsAfter.TotalTrustLinks)
 	t.Logf("  Uptime: %d seconds", statsAfter.UptimeSecs)
 
@@ -427,37 +423,8 @@ func TestSnapshotSaveLoad(t *testing.T) {
 		t.Errorf("TotalNodes not restored: before=%d, after=%d",
 			statsBefore.TotalNodes, statsAfter.TotalNodes)
 	}
-	if statsAfter.UniqueTags != statsBefore.UniqueTags {
-		t.Errorf("UniqueTags not restored: before=%d, after=%d",
-			statsBefore.UniqueTags, statsAfter.UniqueTags)
-	}
-	if statsAfter.TaskExecutors != statsBefore.TaskExecutors {
-		t.Errorf("TaskExecutors not restored: before=%d, after=%d",
-			statsBefore.TaskExecutors, statsAfter.TaskExecutors)
-	}
-
-	// Validate nodes are restored
-	if len(statsAfter.Nodes) != 3 {
-		t.Errorf("expected 3 nodes, got %d", len(statsAfter.Nodes))
-	}
-
-	// Validate POLO scores are restored
-	poloScores := make(map[int]bool)
-	for _, node := range statsAfter.Nodes {
-		poloScores[node.PoloScore] = true
-	}
-	expectedScores := []int{150, 45, 92}
-	for _, score := range expectedScores {
-		if !poloScores[score] {
-			t.Errorf("POLO score %d not found in restored nodes", score)
-		}
-	}
-
-	// Validate online status (nodes should be stale after restart)
-	for _, node := range statsAfter.Nodes {
-		if node.Online {
-			t.Logf("Warning: node %s is online after restart (might be ok)", node.Address)
-		}
+	if statsAfter.TotalNodes != 3 {
+		t.Errorf("expected 3 nodes, got %d", statsAfter.TotalNodes)
 	}
 
 	t.Logf("\n✅ Snapshot save/load test passed")

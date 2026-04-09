@@ -228,14 +228,8 @@ func TestSetTaskExecDashboardAPI(t *testing.T) {
 		t.Fatalf("decode JSON: %v", err)
 	}
 
-	if stats.TaskExecutors != 1 {
-		t.Fatalf("expected 1 task executor, got %d", stats.TaskExecutors)
-	}
-	if len(stats.Nodes) != 1 {
-		t.Fatalf("expected 1 node, got %d", len(stats.Nodes))
-	}
-	if !stats.Nodes[0].TaskExec {
-		t.Fatal("expected node task_exec=true in dashboard")
+	if stats.TotalNodes != 1 {
+		t.Fatalf("expected 1 node, got %d", stats.TotalNodes)
 	}
 }
 
