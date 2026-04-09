@@ -188,13 +188,16 @@ func TestWebhookClientServerError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	wc := daemon.NewWebhookClient(ts.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(ts.URL, func() uint32 { return 1 },
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("test", nil) // server error should not crash
 	wc.Close()
 }
 
 func TestWebhookClientBadURL(t *testing.T) {
-	wc := daemon.NewWebhookClient("http://127.0.0.1:1", func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient("http://127.0.0.1:1", func() uint32 { return 1 },
+		daemon.WithHTTPTimeout(200*time.Millisecond),
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("test", nil) // connection refused should not crash
 	wc.Close()
 }

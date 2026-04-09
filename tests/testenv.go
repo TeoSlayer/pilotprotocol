@@ -123,13 +123,15 @@ func (env *TestEnv) AddDaemon(opts ...func(*daemon.Config)) *DaemonInfo {
 	identityPath := filepath.Join(env.tmpDir, fmt.Sprintf("identity-%d.json", idx))
 
 	cfg := daemon.Config{
-		RegistryAddr: env.RegistryAddr,
-		BeaconAddr:   env.BeaconAddr,
-		ListenAddr:   ":0",
-		SocketPath:   sockPath,
-		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
-		Email:        fmt.Sprintf("test-%d@pilot.local", idx),
-		Public:       true, // tests default to public for free connectivity
+		RegistryAddr:       env.RegistryAddr,
+		BeaconAddr:         env.BeaconAddr,
+		ListenAddr:         ":0",
+		SocketPath:         sockPath,
+		IdentityPath:       identityPath, // persist identity to avoid pubkey mismatch on restart
+		Email:              fmt.Sprintf("test-%d@pilot.local", idx),
+		Public:             true,                  // tests default to public for free connectivity
+		WebhookHTTPTimeout:  500 * time.Millisecond, // fast webhook timeouts for tests
+		WebhookRetryBackoff: 10 * time.Millisecond,  // fast retry backoff for tests
 	}
 	for _, fn := range opts {
 		fn(&cfg)
@@ -160,13 +162,15 @@ func (env *TestEnv) AddDaemonOnly(opts ...func(*daemon.Config)) (*daemon.Daemon,
 	identityPath := filepath.Join(env.tmpDir, fmt.Sprintf("identity-%d.json", idx))
 
 	cfg := daemon.Config{
-		RegistryAddr: env.RegistryAddr,
-		BeaconAddr:   env.BeaconAddr,
-		ListenAddr:   ":0",
-		SocketPath:   sockPath,
-		IdentityPath: identityPath, // persist identity to avoid pubkey mismatch on restart
-		Email:        fmt.Sprintf("test-%d@pilot.local", idx),
-		Public:       true, // tests default to public for free connectivity
+		RegistryAddr:       env.RegistryAddr,
+		BeaconAddr:         env.BeaconAddr,
+		ListenAddr:         ":0",
+		SocketPath:         sockPath,
+		IdentityPath:       identityPath, // persist identity to avoid pubkey mismatch on restart
+		Email:              fmt.Sprintf("test-%d@pilot.local", idx),
+		Public:             true,                  // tests default to public for free connectivity
+		WebhookHTTPTimeout:  500 * time.Millisecond, // fast webhook timeouts for tests
+		WebhookRetryBackoff: 10 * time.Millisecond,  // fast retry backoff for tests
 	}
 	for _, fn := range opts {
 		fn(&cfg)

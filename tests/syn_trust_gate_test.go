@@ -35,8 +35,9 @@ func TestSYNFromUntrustedNodeRejected(t *testing.T) {
 	// (e.g., from a cached previous session). The trust gate is defense-in-depth.
 	client.Daemon.AddTunnelPeer(server.Daemon.NodeID(), localUDPAddr(server.Daemon))
 
-	// Server listens on port 7 (echo) by default, so dial should fail via trust gate
-	_, err := client.Driver.DialAddr(server.Daemon.Addr(), 7)
+	// Server listens on port 7 (echo) by default, so dial should fail via trust gate.
+	// Use short timeout — we expect rejection, not a 30s dial timeout.
+	_, err := client.Driver.DialAddrTimeout(server.Daemon.Addr(), 7, 2*time.Second)
 	if err == nil {
 		t.Fatal("expected dial to fail between untrusted nodes, but it succeeded")
 	}
@@ -183,8 +184,9 @@ func TestSYNRejectionWebhook(t *testing.T) {
 	// Pre-populate client's tunnel with server's address to bypass resolve
 	client.Daemon.AddTunnelPeer(server.Daemon.NodeID(), localUDPAddr(server.Daemon))
 
-	// Attempt connection — should be rejected by trust gate
-	_, _ = client.Driver.DialAddr(server.Daemon.Addr(), 7)
+	// Attempt connection — should be rejected by trust gate.
+	// Use short timeout — we expect rejection, not a 30s dial timeout.
+	_, _ = client.Driver.DialAddrTimeout(server.Daemon.Addr(), 7, 2*time.Second)
 
 	// Wait for syn.rejected webhook event
 	ev, ok := collector.WaitFor("syn.rejected", 3*time.Second)

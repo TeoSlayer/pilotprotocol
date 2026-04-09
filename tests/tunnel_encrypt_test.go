@@ -147,8 +147,9 @@ func TestTunnelEncryptionBackwardCompat(t *testing.T) {
 
 	t.Logf("daemon A: encrypted, daemon B: plaintext — expect dial failure")
 
-	// Plaintext daemon B should NOT be able to reach encrypted daemon A
-	_, err := drvB.Dial(daemonA.Addr().String() + ":7")
+	// Plaintext daemon B should NOT be able to reach encrypted daemon A.
+	// Use short timeout — we expect rejection, not a 30s dial timeout.
+	_, err := drvB.DialAddrTimeout(daemonA.Addr(), 7, 2*time.Second)
 	if err == nil {
 		t.Fatal("expected dial to fail: encrypted daemon should not accept plaintext connections")
 	}

@@ -52,7 +52,8 @@ func TestWebhookRetryMaxThreeAttempts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 },
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("always-fail", nil)
 	wc.Close()
 
@@ -190,6 +191,7 @@ func TestWebhookDroppedCounterAccurate(t *testing.T) {
 	t.Parallel()
 
 	ready := make(chan struct{})
+	var blockOnce sync.Once
 	block := make(chan struct{})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -203,9 +205,11 @@ func TestWebhookDroppedCounterAccurate(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	defer close(block)
+	defer blockOnce.Do(func() { close(block) })
 
-	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 },
+		daemon.WithHTTPTimeout(200*time.Millisecond),
+		daemon.WithRetryBackoff(10*time.Millisecond))
 
 	// Emit the first event to get the worker goroutine into the blocked HTTP request
 	wc.Emit("trigger", nil)
@@ -213,7 +217,7 @@ func TestWebhookDroppedCounterAccurate(t *testing.T) {
 	// Wait until the worker is actually blocked in the server
 	select {
 	case <-ready:
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for worker to start sending")
 	}
 
@@ -228,6 +232,8 @@ func TestWebhookDroppedCounterAccurate(t *testing.T) {
 		t.Fatal("expected at least 1 dropped event when queue is overfull")
 	}
 	t.Logf("dropped %d events", dropped)
+
+	blockOnce.Do(func() { close(block) }) // unblock server so queued events drain with 200 OK
 	wc.Close()
 }
 
@@ -345,7 +351,8 @@ func TestWebhookRetryOn5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 },
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("retry.test", nil)
 	wc.Close()
 
@@ -494,15 +501,18 @@ func TestWebhookDroppedCounter(t *testing.T) {
 	t.Parallel()
 
 	// Create a server that blocks forever so the queue fills up
+	var blockOnce sync.Once
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block // block until test ends
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	defer close(block)
+	defer blockOnce.Do(func() { close(block) })
 
-	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 },
+		daemon.WithHTTPTimeout(200*time.Millisecond),
+		daemon.WithRetryBackoff(10*time.Millisecond))
 
 	// Fill the 1024-item buffer. The first event will be consumed by the run
 	// goroutine and block in post(), so we need 1024+1 more to fill the queue
@@ -520,5 +530,6 @@ func TestWebhookDroppedCounter(t *testing.T) {
 	}
 	t.Logf("dropped %d events as expected", dropped)
 
+	blockOnce.Do(func() { close(block) }) // unblock server so queued events drain with 200 OK
 	wc.Close()
 }

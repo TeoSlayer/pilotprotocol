@@ -226,17 +226,20 @@ func TestWebhookClient_FailedPOSTDoesNotBlock(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 })
+	wc := daemon.NewWebhookClient(srv.URL, func() uint32 { return 1 },
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("fail.event", nil)
 	wc.Close() // should not hang
 }
 
 func TestWebhookClient_UnreachableDoesNotBlock(t *testing.T) {
 	t.Parallel()
-	// Point to a non-existent server.
-	wc := daemon.NewWebhookClient("http://127.0.0.1:1", func() uint32 { return 1 })
+	// Point to a non-existent server. Use short timeouts to avoid 15s wait.
+	wc := daemon.NewWebhookClient("http://127.0.0.1:1", func() uint32 { return 1 },
+		daemon.WithHTTPTimeout(200*time.Millisecond),
+		daemon.WithRetryBackoff(10*time.Millisecond))
 	wc.Emit("unreachable.event", nil)
-	wc.Close() // should complete (5s HTTP timeout, but drain completes)
+	wc.Close() // should complete quickly
 }
 
 func TestWebhookClient_DoubleClose(t *testing.T) {
@@ -707,7 +710,7 @@ func TestWebhook_TrustRevoke(t *testing.T) {
 	// B's webhook should have trust.revoked_by_peer (best-effort delivery —
 	// the revoke notification is sent after the tunnel is torn down, so the
 	// re-dial may not always succeed in local test environments)
-	ev, ok = collectorB.WaitFor("trust.revoked_by_peer", 5*time.Second)
+	ev, ok = collectorB.WaitFor("trust.revoked_by_peer", 1*time.Second)
 	if !ok {
 		t.Log("trust.revoked_by_peer not received on B (best-effort delivery, may not arrive after tunnel teardown)")
 	} else {

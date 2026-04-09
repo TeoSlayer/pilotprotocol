@@ -528,7 +528,7 @@ func TestPerNetworkMetrics(t *testing.T) {
 // TestWebhookDLQ verifies the dead letter queue for failed webhook deliveries.
 func TestWebhookDLQ(t *testing.T) {
 	t.Parallel()
-	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
 	// Configure webhook to an endpoint that always returns 500
@@ -547,10 +547,11 @@ func TestWebhookDLQ(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set webhook: %v", err)
 	}
+	reg.SetWebhookRetryBackoff(10 * time.Millisecond) // fast retries in tests
 
 	// Trigger audit events that will fail to deliver
 	registerTestNode(t, rc)
-	time.Sleep(2 * time.Second) // wait for retries
+	time.Sleep(200 * time.Millisecond) // wait for retries
 
 	// Check webhook stats
 	whResp, err := rc.GetWebhook(TestAdminToken)

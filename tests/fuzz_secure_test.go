@@ -91,11 +91,10 @@ func TestSecureHandshakeClosedMidExchange(t *testing.T) {
 }
 
 func TestSecureHandshakeTimeout(t *testing.T) {
-	c1, _ := net.Pipe() // c2 is intentionally unused — simulates slow peer
+	c1, c2 := net.Pipe()
 	defer c1.Close()
-
-	// Override timeout by setting a short deadline
-	c1.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	// Close c2 immediately so c1 reads hit EOF (not a 10s handshake timeout).
+	c2.Close()
 
 	_, err := secure.Handshake(c1, true)
 	if err == nil {

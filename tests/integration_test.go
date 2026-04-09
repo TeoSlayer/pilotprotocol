@@ -983,13 +983,14 @@ func TestIntegration_WebhookDLQWithRealServer(t *testing.T) {
 	}))
 	defer failServer.Close()
 
-	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
 	_, err := rc.SetWebhook(failServer.URL, TestAdminToken)
 	if err != nil {
 		t.Fatalf("set webhook: %v", err)
 	}
+	reg.SetWebhookRetryBackoff(10 * time.Millisecond) // fast retries in tests
 
 	// Trigger events
 	ownerID, _ := registerTestNode(t, rc)
@@ -998,8 +999,8 @@ func TestIntegration_WebhookDLQWithRealServer(t *testing.T) {
 		t.Fatalf("create network: %v", err)
 	}
 
-	// Wait for retries to exhaust (3 retries * exponential backoff)
-	time.Sleep(8 * time.Second)
+	// Wait for retries to exhaust (3 retries * fast backoff)
+	time.Sleep(500 * time.Millisecond)
 
 	whResp, err := rc.GetWebhook(TestAdminToken)
 	if err != nil {
