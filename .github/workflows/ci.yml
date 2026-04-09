@@ -33,6 +33,7 @@ jobs:
           go build ./cmd/pilotctl
           go build ./cmd/nameserver
           go build ./cmd/gateway
+          go build ./cmd/updater
 
       - name: Test
         run: go test -parallel 4 -count=1 -timeout 120s ./tests/ ./pkg/beacon/
