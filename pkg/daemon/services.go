@@ -1112,4 +1112,3 @@ func (d *Daemon) handleTaskResults(adapter *connAdapter, conn *Connection, frame
 		slog.Info("tasksubmit: polo scores updated", "task_id", msg.TaskID, "receiver_reward", reward)
 	}
 }
-

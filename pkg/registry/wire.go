@@ -33,14 +33,14 @@ const wireVersion byte = 1
 
 // Binary message type constants.
 const (
-	wireMsgJSON            byte = 0x00
-	wireMsgHeartbeat       byte = 0x01
-	wireMsgHeartbeatOK     byte = 0x81
-	wireMsgLookup          byte = 0x02
-	wireMsgLookupOK        byte = 0x82
-	wireMsgResolve         byte = 0x03
-	wireMsgResolveOK       byte = 0x83
-	wireMsgError           byte = 0xFF
+	wireMsgJSON        byte = 0x00
+	wireMsgHeartbeat   byte = 0x01
+	wireMsgHeartbeatOK byte = 0x81
+	wireMsgLookup      byte = 0x02
+	wireMsgLookupOK    byte = 0x82
+	wireMsgResolve     byte = 0x03
+	wireMsgResolveOK   byte = 0x83
+	wireMsgError       byte = 0xFF
 )
 
 // wireFrame reads a single binary frame: [4B length][1B type][payload].
@@ -147,23 +147,24 @@ func decodeLookupReq(payload []byte) (uint32, error) {
 
 // wireLookupResp encodes a lookup response in binary.
 // Format: [4B node_id][1B flags][4B polo_score][2B net_count][net_ids...]
-//         [1B pubkey_len][pubkey...][1B hostname_len][hostname...]
-//         [1B tags_count][for each: 1B len, bytes...][2B addr_len][addr...]
-//         [1B extid_len][extid...]
+//
+//	[1B pubkey_len][pubkey...][1B hostname_len][hostname...]
+//	[1B tags_count][for each: 1B len, bytes...][2B addr_len][addr...]
+//	[1B extid_len][extid...]
 func encodeLookupResp(nodeID uint32, public, taskExec bool, poloScore int,
 	networks []uint16, pubKey []byte, hostname string, tags []string,
 	realAddr string, externalID string) []byte {
 
 	// Calculate size
 	size := 4 + 1 + 4 + 2 + len(networks)*2 // node_id + flags + polo + nets
-	size += 1 + len(pubKey)                    // pubkey
-	size += 1 + len(hostname)                  // hostname
-	size += 1                                  // tags count
+	size += 1 + len(pubKey)                 // pubkey
+	size += 1 + len(hostname)               // hostname
+	size += 1                               // tags count
 	for _, t := range tags {
 		size += 1 + len(t) // tag len + tag
 	}
-	size += 2 + len(realAddr)    // real_addr (only if public)
-	size += 1 + len(externalID)  // external_id
+	size += 2 + len(realAddr)   // real_addr (only if public)
+	size += 1 + len(externalID) // external_id
 
 	buf := make([]byte, 0, size)
 
@@ -253,7 +254,8 @@ func decodeResolveReq(payload []byte) (nodeID, requesterID uint32, sig []byte, e
 
 // wireResolveResp encodes a resolve response in binary.
 // Format: [4B node_id][2B addr_len][addr...][2B lan_count][for each: 2B len, addr...]
-//         [4B key_age_days]  (math.MaxUint32 if unknown)
+//
+//	[4B key_age_days]  (math.MaxUint32 if unknown)
 func encodeResolveResp(nodeID uint32, realAddr string, lanAddrs []string, keyAgeDays int) []byte {
 	size := 4 + 2 + len(realAddr) + 2 + 4
 	for _, la := range lanAddrs {

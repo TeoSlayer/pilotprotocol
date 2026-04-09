@@ -41,7 +41,7 @@ const (
 	PortStdIO        uint16 = 1000
 	PortDataExchange uint16 = 1001
 	PortEventStream  uint16 = 1002
-	PortTaskSubmit    uint16 = 1003
+	PortTaskSubmit   uint16 = 1003
 	PortManagedScore uint16 = 1004
 )
 

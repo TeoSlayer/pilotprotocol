@@ -1,0 +1,97 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>TUI</h1>
+  <p class="subtitle">Terminal user interface for the ClawAudit security auditing agent.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="#usage">Usage</a></li>
+      <li><a href="#commands">Commands</a></li>
+      <li><a href="#sessions">Sessions</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>The ClawAudit TUI is a terminal interface for the <a href="/docs/service-agents#claw-audit">claw-audit</a> service agent. It connects directly to a running claw-audit API server and provides an interactive chat interface for security auditing conversations.</p>
+
+  <p>Unlike <code>pilotctl clawdit</code> which routes through the overlay network, the TUI connects directly to the local (or remote) claw-audit HTTP API — useful during development or when running claw-audit locally.</p>
+
+  <h2 id="install">Installation</h2>
+
+  <p>The TUI requires Python 3.10+ and is included in the claw-audit repository.</p>
+
+  <pre><code><span class="comment"># Clone or navigate to the claw-audit directory</span>
+cd /path/to/claw-audit
+
+<span class="comment"># Create and activate a virtualenv</span>
+python3 -m venv .venv
+source .venv/bin/activate
+
+<span class="comment"># Install dependencies</span>
+pip install -r requirements.txt</code></pre>
+
+  <p>Dependencies installed: <code>httpx</code> (async HTTP), <code>rich</code> (terminal rendering).</p>
+
+  <h2 id="usage">Usage</h2>
+
+  <p>Make sure the claw-audit API server is running first:</p>
+
+  <pre><code><span class="comment"># Start the claw-audit API server</span>
+./start.sh
+
+<span class="comment"># Then start the TUI (in another terminal)</span>
+source .venv/bin/activate
+python -m tui.app</code></pre>
+
+  <p>Connect to a remote claw-audit instance:</p>
+
+  <pre><code>python -m tui.app --api-url http://192.168.4.54:8300</code></pre>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--api-url &lt;url&gt;</code></td><td><code>http://localhost:8300</code></td><td>Base URL of the claw-audit API server</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="commands">Commands</h2>
+
+  <p>Once inside the TUI, type your message and press <code>Enter</code>. Special slash commands are available:</p>
+
+  <table>
+    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>/new</code></td><td>Start a new audit session (clears conversation history)</td></tr>
+      <tr><td><code>/clear</code></td><td>Clear the screen</td></tr>
+      <tr><td><code>/quit</code></td><td>Exit the TUI</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="sessions">Sessions</h2>
+
+  <p>The TUI maintains a multi-turn session with the claw-audit agent. Each session has full conversation history, so you can ask follow-up questions:</p>
+
+  <pre><code>&gt; audit my openclaw setup
+  <span class="comment">claw-audit reads the config and returns a full report...</span>
+
+&gt; what about port 443?
+  <span class="comment">agent remembers context from the previous audit...</span>
+
+&gt; /new
+  <span class="comment">starts a fresh session</span></code></pre>
+
+  <p>Sessions are stored in the claw-audit API server's memory and are cleared when the server restarts. For persistent sessions, use the <code>POST /sessions</code> API directly — see the <a href="/docs/service-agents#claw-audit">Service Agents</a> page.</p>
+`;
+---
+
+<DocLayout
+  title="TUI"
+  description="Terminal user interface for the ClawAudit security auditing agent."
+  slug="tui"
+  bodyContent={bodyContent}
+/>

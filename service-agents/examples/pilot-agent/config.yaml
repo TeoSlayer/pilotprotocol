@@ -1,0 +1,8 @@
+# Service agent configuration
+name: "pilot-agent"
+description: "Translates natural language into pilotctl commands"
+
+port: 8200
+
+endpoint_name: "ai"
+endpoint_regex: "^(?P<message>.+)$"

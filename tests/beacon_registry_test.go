@@ -254,4 +254,3 @@ func TestRegistryPunch(t *testing.T) {
 	}
 	t.Logf("punch: A=%v B=%v", resp["node_a_addr"], resp["node_b_addr"])
 }
-

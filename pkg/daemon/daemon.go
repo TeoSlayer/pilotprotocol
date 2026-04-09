@@ -48,9 +48,12 @@ type Config struct {
 	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
 
 	// Webhook
-	WebhookURL            string        // HTTP(S) endpoint for event notifications (empty = disabled)
-	WebhookHTTPTimeout    time.Duration // HTTP client timeout for webhook POSTs (default 5s)
-	WebhookRetryBackoff   time.Duration // initial retry backoff for webhook POSTs (default 1s)
+	WebhookURL          string        // HTTP(S) endpoint for event notifications (empty = disabled)
+	WebhookHTTPTimeout  time.Duration // HTTP client timeout for webhook POSTs (default 5s)
+	WebhookRetryBackoff time.Duration // initial retry backoff for webhook POSTs (default 1s)
+
+	// Trust
+	TrustAutoApprove bool // automatically approve all incoming handshake requests
 
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
@@ -106,8 +109,8 @@ const ResolveCacheTTL = 60 * time.Second
 
 // endpointEntry caches a resolved endpoint for a peer node.
 type endpointEntry struct {
-	addr      string    // "host:port"
-	cachedAt  time.Time // when the entry was stored
+	addr     string    // "host:port"
+	cachedAt time.Time // when the entry was stored
 }
 
 // resolveEntry caches a full registry resolve response for a peer node.
@@ -130,9 +133,9 @@ type Daemon struct {
 	webhook    *WebhookClient
 	taskQueue  *TaskQueue
 	startTime  time.Time
-	stopCh   chan struct{} // closed on Stop() to signal goroutines
-	stopOnce sync.Once    // ensures stopCh is closed exactly once
-	lanAddrs   []string     // LAN addresses for same-network peer detection
+	stopCh     chan struct{} // closed on Stop() to signal goroutines
+	stopOnce   sync.Once     // ensures stopCh is closed exactly once
+	lanAddrs   []string      // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
 	epCacheMu sync.RWMutex
@@ -220,16 +223,16 @@ func (c *Config) timeWaitDuration() time.Duration {
 
 func New(cfg Config) *Daemon {
 	d := &Daemon{
-		config:      cfg,
-		tunnels:     NewTunnelManager(),
-		ports:       NewPortManager(),
-		taskQueue:   NewTaskQueue(),
-		stopCh:      make(chan struct{}),
-		synTokens:   cfg.synRateLimit(),
-		synLastFill: time.Now(),
-		perSrcSYN:   make(map[uint32]*srcSYNBucket),
-		epCache:      make(map[uint32]*endpointEntry),
-		resolveCache: make(map[uint32]*resolveEntry),
+		config:        cfg,
+		tunnels:       NewTunnelManager(),
+		ports:         NewPortManager(),
+		taskQueue:     NewTaskQueue(),
+		stopCh:        make(chan struct{}),
+		synTokens:     cfg.synRateLimit(),
+		synLastFill:   time.Now(),
+		perSrcSYN:     make(map[uint32]*srcSYNBucket),
+		epCache:       make(map[uint32]*endpointEntry),
+		resolveCache:  make(map[uint32]*resolveEntry),
 		netPolicies:   make(map[uint16][]uint16),
 		managed:       make(map[uint16]*ManagedEngine),
 		policyRunners: make(map[uint16]*PolicyRunner),
@@ -1188,19 +1191,19 @@ type NetworkMembership struct {
 }
 
 type DaemonInfo struct {
-	NodeID             uint32
-	Address            string
-	Hostname           string
-	Uptime             time.Duration
-	Connections        int
-	Ports              int
-	Peers              int
-	EncryptedPeers     int
-	AuthenticatedPeers int
-	Encrypt            bool
-	Identity           bool   // true if identity is persisted
-	PublicKey          string // base64 Ed25519 public key (empty if no identity)
-	Email              string // email address for account identification and key recovery
+	NodeID                uint32
+	Address               string
+	Hostname              string
+	Uptime                time.Duration
+	Connections           int
+	Ports                 int
+	Peers                 int
+	EncryptedPeers        int
+	AuthenticatedPeers    int
+	Encrypt               bool
+	Identity              bool   // true if identity is persisted
+	PublicKey             string // base64 Ed25519 public key (empty if no identity)
+	Email                 string // email address for account identification and key recovery
 	BytesSent             uint64
 	BytesRecv             uint64
 	PktsSent              uint64
@@ -1266,19 +1269,19 @@ func (d *Daemon) Info() *DaemonInfo {
 	}
 
 	return &DaemonInfo{
-		NodeID:             nid,
-		Address:            addrStr,
-		Hostname:           hostname,
-		Uptime:             time.Since(d.startTime).Round(time.Second),
-		Connections:        numConns,
-		Ports:              numPorts,
-		Peers:              d.tunnels.PeerCount(),
-		EncryptedPeers:     encryptedPeers,
-		AuthenticatedPeers: authenticatedPeers,
-		Encrypt:            d.config.Encrypt,
-		Identity:           hasIdentity,
-		PublicKey:          pubKeyStr,
-		Email:              d.config.Email,
+		NodeID:                nid,
+		Address:               addrStr,
+		Hostname:              hostname,
+		Uptime:                time.Since(d.startTime).Round(time.Second),
+		Connections:           numConns,
+		Ports:                 numPorts,
+		Peers:                 d.tunnels.PeerCount(),
+		EncryptedPeers:        encryptedPeers,
+		AuthenticatedPeers:    authenticatedPeers,
+		Encrypt:               d.config.Encrypt,
+		Identity:              hasIdentity,
+		PublicKey:             pubKeyStr,
+		Email:                 d.config.Email,
 		BytesSent:             atomic.LoadUint64(&d.tunnels.BytesSent),
 		BytesRecv:             atomic.LoadUint64(&d.tunnels.BytesRecv),
 		PktsSent:              atomic.LoadUint64(&d.tunnels.PktsSent),

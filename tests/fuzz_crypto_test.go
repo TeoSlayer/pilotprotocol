@@ -22,9 +22,9 @@ func FuzzDecodePublicKey(f *testing.F) {
 	f.Add(crypto.EncodePublicKey(id.PublicKey))
 	f.Add("")
 	f.Add("not-base64!!!")
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 31)))  // wrong size
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 33)))  // wrong size
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 0)))   // empty
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 31))) // wrong size
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 33))) // wrong size
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 0)))  // empty
 	f.Add(strings.Repeat("A", 1000))
 
 	f.Fuzz(func(t *testing.T, s string) {
@@ -37,9 +37,9 @@ func FuzzDecodePrivateKey(f *testing.F) {
 	f.Add(crypto.EncodePrivateKey(id.PrivateKey))
 	f.Add("")
 	f.Add("not-base64!!!")
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 63)))  // wrong size
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 65)))  // wrong size
-	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 0)))   // empty
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 63))) // wrong size
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 65))) // wrong size
+	f.Add(base64.StdEncoding.EncodeToString(make([]byte, 0)))  // empty
 
 	f.Fuzz(func(t *testing.T, s string) {
 		_, _ = crypto.DecodePrivateKey(s)
@@ -218,9 +218,9 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 	id, _ := crypto.GenerateIdentity()
 
 	messages := [][]byte{
-		{},                   // empty
-		{0x42},               // 1 byte
-		make([]byte, 1024),   // 1KB
+		{},                  // empty
+		{0x42},              // 1 byte
+		make([]byte, 1024),  // 1KB
 		make([]byte, 1<<20), // 1MB
 	}
 

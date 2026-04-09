@@ -217,11 +217,11 @@ type jwksKey struct {
 
 // jwksCache caches JWKS responses to avoid fetching on every validation.
 type jwksCache struct {
-	mu       sync.RWMutex
-	keys     []jwksKey
-	url      string
+	mu        sync.RWMutex
+	keys      []jwksKey
+	url       string
 	fetchedAt time.Time
-	ttl      time.Duration
+	ttl       time.Duration
 }
 
 const jwksCacheTTL = 5 * time.Minute

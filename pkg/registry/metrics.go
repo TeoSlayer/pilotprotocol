@@ -210,13 +210,13 @@ type registryMetrics struct {
 	invitesPending     gauge // pilot_invites_pending
 
 	// Enterprise counters
-	auditEventsTotal   counter    // pilot_audit_events_total
-	invitesSent        counter    // pilot_invites_sent_total
-	invitesAccepted    counter    // pilot_invites_accepted_total
-	invitesRejected    counter    // pilot_invites_rejected_total
-	rbacOps            *counterVec // pilot_rbac_operations_total{op="..."}
-	policyChanges      counter    // pilot_policy_changes_total
-	keyRotations       counter    // pilot_key_rotations_total
+	auditEventsTotal counter     // pilot_audit_events_total
+	invitesSent      counter     // pilot_invites_sent_total
+	invitesAccepted  counter     // pilot_invites_accepted_total
+	invitesRejected  counter     // pilot_invites_rejected_total
+	rbacOps          *counterVec // pilot_rbac_operations_total{op="..."}
+	policyChanges    counter     // pilot_policy_changes_total
+	keyRotations     counter     // pilot_key_rotations_total
 
 	// Provisioning counters
 	provisionsTotal    counter // pilot_provisions_total

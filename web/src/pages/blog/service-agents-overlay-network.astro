@@ -1,0 +1,58 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `
+  <h2>Services Are Agents Too</h2>
+  <p>The standard mental model for AI agents is a process that takes requests and produces results. The standard mental model for services is an HTTP endpoint that takes requests and produces results. These are the same thing — and the line between them is dissolving.</p>
+  <p>Service agents are processes that expose capabilities over a peer-to-peer overlay network instead of the public internet. No load balancer. No exposed port. No API key rotation. Just a node on the network that answers when called — by any other node that has established trust with it.</p>
+
+  <h2>The Pattern</h2>
+  <p>A service agent does three things:</p>
+  <ol>
+    <li>It listens to its inbox for incoming command messages.</li>
+    <li>It translates each command into a call against a local HTTP service.</li>
+    <li>It sends the response back to the originating node over the same encrypted channel.</li>
+  </ol>
+  <p>The calling agent never opens a socket to the service directly. It sends a structured message — a command name and a body — through the overlay. The service agent receives it, does the work, and replies. The caller's inbox gets the response. The whole exchange is encrypted, authenticated, and traverses NAT without configuration.</p>
+
+  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-07"
+# → overlay → remote inbox → responder → localhost:8100 → reply → local inbox</code></pre>
+
+  <h2>What This Changes</h2>
+  <p>The traditional approach to exposing a service is to put it on the internet: assign an IP, open a port, issue credentials, manage TLS. Every caller needs to know the address. Every address needs to be secured.</p>
+  <p>Service agents invert this. The service runs wherever it makes sense — close to the data, close to the GPU, inside a VPC. It registers a node identity on the overlay. Callers find it by name and trust it explicitly. There is no public endpoint to attack and no credential to rotate.</p>
+  <p>A Gemini model running on a GCP VM, a database query executor in a private subnet, a market data feed on a dedicated machine — all of these become callable from any node on the network with a single trust relationship and a message.</p>
+
+  <h2>The Responder</h2>
+  <p>The service agent runtime — the <em>responder</em> — is a small binary that bridges the overlay network and local HTTP services. It polls the pilot inbox, parses incoming messages as <code>{"command": "...", "body": "..."}</code>, validates the command against a local config file, extracts named parameters via regex, builds an HTTP request, and sends the result back to the caller.</p>
+
+  <pre><code>commands:
+  - name: stockmarket
+    link: http://localhost:8100/summaries/stockmarket
+    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2})...$'
+  - name: polymarket
+    link: http://localhost:8100/summaries/polymarket
+    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2}T...)...$'</code></pre>
+
+  <p>Named capture groups in the regex become query parameters. Any HTTP service becomes a callable service agent in about ten lines of YAML.</p>
+
+  <h2>Trust Without Configuration</h2>
+  <p>Service agents can run with <code>--trust-auto-approve</code> — a daemon flag that accepts handshake requests from any node automatically. This is appropriate for services designed to be broadly accessible on the network: any node that knows the service exists and sends a handshake can call it immediately, without manual approval on the service side.</p>
+  <p>For tighter access control, handshakes can be approved selectively or scoped to a private network. The service agent does not change — only the trust policy does.</p>
+
+  <h2>Where This Goes</h2>
+  <p>The overlay network creates a substrate where any process can be a service and any agent can be a caller. The Scriptorium market intelligence feeds, a local LLM, a vector database, a code execution sandbox — these do not need to be cloud APIs. They can be nodes on a private network, callable by identity, with no public surface at all.</p>
+  <p>The agent internet is not a new cloud. It is what the cloud looks like when the network is peer-to-peer and identity is built in from the start.</p>
+`;
+---
+
+<BlogLayout
+  title="Service Agents: Expose Any Process to the Agent Network Without a Public Endpoint"
+  description="Service agents bridge local HTTP services to a peer-to-peer overlay network — callable by identity, encrypted end-to-end, no public ports required."
+  date="Apr 8, 2026"
+  tags={["blog", "agents", "services", "architecture"]}
+  canonicalPath="/blog/service-agents-overlay-network"
+  bannerImage="banners/service-agents-overlay-network.png"
+>
+  <div set:html={bodyContent} />
+</BlogLayout>

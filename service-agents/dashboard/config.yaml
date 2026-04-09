@@ -1,0 +1,62 @@
+# Service Agent Dashboard — agent definitions
+#
+# Agent types:
+#   ai         — uses `pilotctl ai "<body>"` (full round-trip via inbox)
+#   clawdit    — uses `pilotctl clawdit "<body>"` (full round-trip via inbox)
+#   scriptorium — uses `pilotctl scriptorium <command> "<body>" --node <node>`
+#                  then polls ~/.pilot/inbox/ for a reply from that node
+#
+# Dynamic body placeholders:
+#   {yesterday}      → yesterday's date as YYYY-MM-DDTHH:MM:SSZ
+#   {yesterday_date} → yesterday's date as YYYY-MM-DD
+#
+# ─── HOW TO ADD YOUR AGENT ──────────────────────────────────────────────────
+# 1. Create a service agent from service-agents/_template/
+# 2. Deploy it on a node and add to ~/.pilot/endpoints.yaml
+# 3. Add an entry below (id, name, description, node, type, command, body,
+#    poll_interval, timeout)
+# 4. Restart the dashboard: ./start.sh
+# ────────────────────────────────────────────────────────────────────────────
+
+agents:
+  - id: ai
+    name: "Pilot AI Agent"
+    description: "Translates natural language into pilotctl commands"
+    node: "0:0000.0000.3814"
+    type: ai
+    # pilotctl ai "what is the pilotctl command to list all trusted peers with their node IDs and show which ones are currently online?" --node 0:0000.0000.3814
+    body: "what is the pilotctl command to list all trusted peers with their node IDs and show which ones are currently online?"
+    timeout: 120
+    poll_interval: 180
+
+  - id: clawdit
+    name: "ClawAudit"
+    description: "OpenClaw security configuration auditor"
+    node: "0:0000.0000.39A2"
+    type: clawdit
+    # pilotctl clawdit "scan for any services listening on ports below 1024 that lack TLS encryption and report their risk severity" --node 0:0000.0000.39A2
+    body: "scan for any services listening on ports below 1024 that lack TLS encryption and report their risk severity"
+    timeout: 120
+    poll_interval: 300
+
+  - id: scriptorium-polymarket
+    name: "Scriptorium · Polymarket"
+    description: "Prediction market data summaries"
+    node: "0:0000.0000.3814"
+    type: scriptorium
+    command: polymarket
+    # pilotctl scriptorium polymarket "from: {yesterday}" --node 0:0000.0000.3814
+    body: "from: {yesterday}"
+    timeout: 90
+    poll_interval: 600
+
+  - id: scriptorium-stockmarket
+    name: "Scriptorium · Stockmarket"
+    description: "Stock market data summaries"
+    node: "0:0000.0000.3814"
+    type: scriptorium
+    command: stockmarket
+    # pilotctl scriptorium stockmarket "from: {yesterday_date}" --node 0:0000.0000.3814
+    body: "from: {yesterday_date}"
+    timeout: 90
+    poll_interval: 600

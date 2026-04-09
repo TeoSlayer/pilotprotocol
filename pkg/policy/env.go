@@ -10,7 +10,7 @@ import (
 // The environment defines all variables available to expressions and custom functions.
 func envOptions(eventType EventType) []expr.Option {
 	opts := []expr.Option{
-		expr.AsBool(),       // match expressions must return bool
+		expr.AsBool(),                  // match expressions must return bool
 		expr.AllowUndefinedVariables(), // forward compat: unknown vars → zero value
 
 		// Custom functions
@@ -30,13 +30,13 @@ func envOptions(eventType EventType) []expr.Option {
 	env := baseEnv()
 	switch eventType {
 	case EventConnect:
-		env["peer_id"] = 0          // uint32 as int
-		env["port"] = 0             // uint16 as int
-		env["network_id"] = 0       // uint16 as int
-		env["peer_score"] = 0       // int
+		env["peer_id"] = 0    // uint32 as int
+		env["port"] = 0       // uint16 as int
+		env["network_id"] = 0 // uint16 as int
+		env["peer_score"] = 0 // int
 		env["peer_tags"] = []string{}
-		env["peer_age_s"] = 0.0     // float64: seconds since peer added
-		env["members"] = 0          // int: member count
+		env["peer_age_s"] = 0.0 // float64: seconds since peer added
+		env["members"] = 0      // int: member count
 	case EventDial:
 		env["peer_id"] = 0
 		env["port"] = 0
@@ -50,7 +50,7 @@ func envOptions(eventType EventType) []expr.Option {
 		env["port"] = 0
 		env["network_id"] = 0
 		env["size"] = 0
-		env["direction"] = ""       // "in" or "out"
+		env["direction"] = "" // "in" or "out"
 		env["peer_score"] = 0
 		env["peer_tags"] = []string{}
 		env["peer_age_s"] = 0.0

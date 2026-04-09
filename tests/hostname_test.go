@@ -62,7 +62,7 @@ func TestHostnameSetAndResolve(t *testing.T) {
 	}
 
 	// Resolve hostname
-	resolved, err := rc.ResolveHostnameAs(nodeID,"alice")
+	resolved, err := rc.ResolveHostnameAs(nodeID, "alice")
 	if err != nil {
 		t.Fatalf("resolve hostname: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestHostnameAtRegistration(t *testing.T) {
 	}
 
 	// Resolve should find bob
-	resolved, err := rc.ResolveHostnameAs(nodeID,"bob")
+	resolved, err := rc.ResolveHostnameAs(nodeID, "bob")
 	if err != nil {
 		t.Fatalf("resolve bob: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestHostnameCleanupOnDeregister(t *testing.T) {
 	}
 
 	// Verify resolve works
-	_, err = rc.ResolveHostnameAs(nodeID,"ephemeral")
+	_, err = rc.ResolveHostnameAs(nodeID, "ephemeral")
 	if err != nil {
 		t.Fatalf("resolve before deregister: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestHostnameCleanupOnDeregister(t *testing.T) {
 	}
 
 	// Resolve should now fail
-	_, err = rc.ResolveHostnameAs(nodeID,"ephemeral")
+	_, err = rc.ResolveHostnameAs(nodeID, "ephemeral")
 	if err == nil {
 		t.Fatal("expected resolve to fail after deregister, got nil")
 	}

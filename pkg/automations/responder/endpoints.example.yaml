@@ -1,0 +1,24 @@
+# ~/.pilot/endpoints.yaml — responder command configuration
+#
+# Each command maps an incoming pilot message to a local HTTP service.
+# The arg_regex uses named capture groups (e.g. (?P<from>...)) that are
+# extracted from the message body and appended as query parameters to the link.
+#
+# Example inbound message (JSON sent via pilotctl send-message):
+#   {"command":"polymarket","body":"from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"}
+#
+# Resulting HTTP call:
+#   GET http://localhost:8100/summaries/polymarket?from=2026-04-01T00%3A00%3A00Z&to=2026-04-02T00%3A00%3A00Z
+
+commands:
+  - name: polymarket
+    link: http://localhost:8100/summaries/polymarket
+    # Accepts RFC-3339 timestamps; 'to' is optional.
+    # Valid bodies:
+    #   from: 2026-04-02T00:00:00Z
+    #   from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z
+    arg_regex: "^from:\\s*(?P<from>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?)(?:\\s*,\\s*to:\\s*(?P<to>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?))?$"
+
+  - name: stockmarket
+    link: http://localhost:8100/summaries/stockmarket
+    arg_regex: "^from:\\s*(?P<from>\\d{4}-\\d{2}-\\d{2})(?:\\s*,\\s*to:\\s*(?P<to>\\d{4}-\\d{2}-\\d{2}))?$"

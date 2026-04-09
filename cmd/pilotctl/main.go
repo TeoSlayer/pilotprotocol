@@ -362,7 +362,7 @@ Bootstrap:
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
-  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--email <addr>] [--webhook <url>]
+  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--email <addr>] [--webhook <url>] [--trust-auto-approve]
   pilotctl daemon stop
   pilotctl daemon status
 
@@ -416,6 +416,27 @@ Management commands:
 Mailbox:
   pilotctl received [--clear]
   pilotctl inbox [--clear]
+
+Scriptorium (low-level responder dispatch):
+  pilotctl scriptorium <command> [body] [--node <address|hostname>]
+  pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"
+  pilotctl scriptorium stockmarket "from: 2026-04-01"
+  Config: ~/.pilot/scriptorium.yaml  (node: <pilot-address>)
+
+Service Agents (AI-powered overlay services):
+  pilotctl ai "<query>" [--node <address>] [--timeout <dur>] [--output-file [path]]
+  pilotctl clawdit ["<query>"] [--file <openclaw.json>] [--node <address>] [--timeout <dur>] [--output-file [path]]
+
+  Examples:
+    pilotctl ai "how do I send a message to another node?"
+    pilotctl ai "list all trusted peers as a table" --output-file peers.txt
+    pilotctl clawdit
+    pilotctl clawdit "check if port 443 is exposed without TLS"
+    pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md
+
+  Config:
+    ~/.pilot/scriptorium.yaml  — default node for 'ai' (key: node)
+    ~/.pilot/clawdit.yaml      — default node for 'clawdit' (key: node)
 
 Diagnostic commands:
   pilotctl info
@@ -768,6 +789,16 @@ func main() {
 		cmdReceived(cmdArgs)
 	case "inbox":
 		cmdInbox(cmdArgs)
+
+	// Scriptorium — pre-configured command wrappers for the responder
+	case "scriptorium":
+		cmdScriptorium(cmdArgs)
+
+	// Service agent shortcuts
+	case "ai":
+		cmdAi(cmdArgs)
+	case "clawdit":
+		cmdClawdit(cmdArgs)
 
 	// Internal: forked daemon process
 	case "_daemon-run":
@@ -1219,12 +1250,13 @@ func cmdDaemonStart(args []string) {
 			networks = n
 		}
 	}
+	trustAutoApprove := flagBool(flags, "trust-auto-approve")
 
 	// If --foreground, run in-process
 	if flagBool(flags, "foreground") {
 		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-			adminToken, networks)
+			adminToken, networks, trustAutoApprove)
 		return
 	}
 
@@ -1273,6 +1305,9 @@ func cmdDaemonStart(args []string) {
 	}
 	if networks != "" {
 		daemonArgs = append(daemonArgs, "--networks", networks)
+	}
+	if trustAutoApprove {
+		daemonArgs = append(daemonArgs, "--trust-auto-approve")
 	}
 
 	proc := exec.Command(selfPath, daemonArgs...)
@@ -1514,16 +1549,17 @@ func runDaemonInternal(args []string) {
 	webhookURL := flagString(flags, "webhook", "")
 	adminToken := flagString(flags, "admin-token", "")
 	networks := flagString(flags, "networks", "")
+	trustAutoApprove := flagBool(flags, "trust-auto-approve")
 
 	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-		adminToken, networks)
+		adminToken, networks, trustAutoApprove)
 }
 
 func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	socketPath string, encrypt bool, identityPath, email, hostname,
 	logLevel, logFormat string, public bool, webhookURL string,
-	adminToken, networks string) {
+	adminToken, networks string, trustAutoApprove bool) {
 
 	if configFile != "" {
 		cfg, err := config.Load(configFile)
@@ -1547,18 +1583,19 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	logging.Setup(logLevel, logFormat)
 
 	d := daemon.New(daemon.Config{
-		RegistryAddr: registryAddr,
-		BeaconAddr:   beaconAddr,
-		ListenAddr:   listenAddr,
-		SocketPath:   socketPath,
-		Encrypt:      encrypt,
-		IdentityPath: identityPath,
-		Email:        email,
-		Public:       public,
-		Hostname:     hostname,
-		WebhookURL:   webhookURL,
-		AdminToken:   adminToken,
-		Networks:     pilotctlParseNetworkIDs(networks),
+		RegistryAddr:     registryAddr,
+		BeaconAddr:       beaconAddr,
+		ListenAddr:       listenAddr,
+		SocketPath:       socketPath,
+		Encrypt:          encrypt,
+		IdentityPath:     identityPath,
+		Email:            email,
+		Public:           public,
+		Hostname:         hostname,
+		WebhookURL:       webhookURL,
+		AdminToken:       adminToken,
+		Networks:         pilotctlParseNetworkIDs(networks),
+		TrustAutoApprove: trustAutoApprove,
 	})
 
 	if err := d.Start(); err != nil {
@@ -5161,6 +5198,367 @@ func cmdDirectorySync(args []string) {
 			fmt.Printf("  - %v\n", a)
 		}
 	}
+}
+
+// ===================== SCRIPTORIUM =====================
+
+// cmdScriptorium sends a pre-formatted command message to a configured responder node.
+//
+// Usage:
+//
+//	pilotctl scriptorium <command> [body] [--node <address|hostname>]
+//
+// The target node is read from ~/.pilot/scriptorium.yaml (key: node) unless
+// overridden with --node.  The message is sent as JSON:
+//
+//	{"command":"<command>","body":"<body>"}
+func cmdScriptorium(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl scriptorium <command> [body] [--node <address|hostname>]")
+	}
+
+	cmdName := pos[0]
+	body := ""
+	if len(pos) > 1 {
+		body = strings.Join(pos[1:], " ")
+	}
+
+	// Resolve target node: --node flag > ~/.pilot/scriptorium.yaml > error.
+	nodeAddr := flagString(flags, "node", "")
+	if nodeAddr == "" {
+		nodeAddr = loadScriptoriumNode()
+	}
+	if nodeAddr == "" {
+		fatalHint("config_missing",
+			"add 'node: <pilot-address>' to ~/.pilot/scriptorium.yaml or pass --node <address>",
+			"scriptorium target node not configured")
+	}
+
+	// Build JSON payload.
+	payload := map[string]string{"command": cmdName, "body": body}
+	msgJSON, err := json.Marshal(payload)
+	if err != nil {
+		fatalCode("internal", "marshal message: %v", err)
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, nodeAddr)
+	if err != nil {
+		fatalCode("not_found", "scriptorium node %q: %v", nodeAddr, err)
+	}
+
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("ensure the node is reachable and trusted: pilotctl ping %s", nodeAddr),
+			"cannot connect to scriptorium node %s", nodeAddr)
+	}
+	defer client.Close()
+
+	if err := client.SendJSON(msgJSON); err != nil {
+		fatalCode("connection_failed", "send command: %v", err)
+	}
+
+	// Read ACK from the data-exchange layer.
+	ack, err := client.Recv()
+	if err != nil {
+		slog.Debug("scriptorium ACK read failed", "err", err)
+	}
+
+	result := map[string]interface{}{
+		"command": cmdName,
+		"body":    body,
+		"node":    target.String(),
+	}
+	if ack != nil {
+		result["ack"] = string(ack.Payload)
+	}
+	outputOK(result)
+}
+
+// loadScriptoriumNode reads the target node address from ~/.pilot/scriptorium.yaml.
+// Returns an empty string if the file is absent or contains no node key.
+//
+// Expected format:
+//
+//	node: "0:0000.0000.000B"
+func loadScriptoriumNode() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".pilot", "scriptorium.yaml"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "node:") {
+			val := strings.TrimSpace(line[5:])
+			// Strip surrounding quotes.
+			if len(val) >= 2 {
+				f, l := val[0], val[len(val)-1]
+				if (f == '"' && l == '"') || (f == '\'' && l == '\'') {
+					val = val[1 : len(val)-1]
+				}
+			}
+			return val
+		}
+	}
+	return ""
+}
+
+// ===================== SERVICE AGENT COMMANDS =====================
+
+// cmdAi sends a natural-language query to the pilot-agent service and waits
+// for the AI reply in the local inbox.
+//
+// Usage:
+//
+//	pilotctl ai "<query>" [--node <address>] [--timeout <dur>] [--output-file <path>]
+func cmdAi(args []string) {
+	flags, pos := parseFlags(args)
+	outputFile := flagString(flags, "output-file", "")
+	timeout := flagDuration(flags, "timeout", 120*time.Second)
+
+	if len(pos) == 0 {
+		fatalCode("invalid_argument", "usage: pilotctl ai \"<query>\" [--output-file <path>]")
+	}
+	query := strings.Join(pos, " ")
+
+	nodeAddr := flagString(flags, "node", "")
+	if nodeAddr == "" {
+		nodeAddr = loadScriptoriumNode()
+	}
+	if nodeAddr == "" {
+		fatalHint("config_missing",
+			"add 'node: <pilot-address>' to ~/.pilot/scriptorium.yaml or pass --node <address>",
+			"ai target node not configured")
+	}
+
+	fromAddr := sendServiceCommand("ai", query, nodeAddr)
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "waiting for reply from %s...\n", nodeAddr)
+	}
+
+	reply, err := pollInboxForReply(fromAddr, timeout)
+	if err != nil {
+		if jsonOutput {
+			fatalCode("timeout", "no reply received within %v", timeout)
+		}
+		fmt.Fprintln(os.Stderr, "(no reply — check: pilotctl inbox)")
+		os.Exit(1)
+	}
+
+	writeServiceAgentReply(reply, outputFile, "pilotctl-ai")
+}
+
+// cmdClawdit sends an OpenClaw security audit request to the claw-audit
+// service agent and waits for the report in the local inbox.
+//
+// Usage:
+//
+//	pilotctl clawdit ["<query>"] [--file <openclaw.json>] [--node <address>]
+//	                 [--timeout <dur>] [--output-file <path>]
+func cmdClawdit(args []string) {
+	flags, pos := parseFlags(args)
+	filePath := flagString(flags, "file", "")
+	outputFile := flagString(flags, "output-file", "")
+	timeout := flagDuration(flags, "timeout", 120*time.Second)
+
+	query := strings.Join(pos, " ")
+	if query == "" {
+		query = "Run a full security audit of my OpenClaw installation."
+	}
+
+	nodeAddr := flagString(flags, "node", "")
+	if nodeAddr == "" {
+		nodeAddr = loadClawditNode()
+	}
+	if nodeAddr == "" {
+		fatalHint("config_missing",
+			"add 'node: <pilot-address>' to ~/.pilot/clawdit.yaml or pass --node <address>",
+			"clawdit target node not configured")
+	}
+
+	// Build message body — embed config file content when --file is provided.
+	body := query
+	if filePath != "" {
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			fatalCode("not_found", "cannot read --file %q: %v", filePath, err)
+		}
+		bodyMap := map[string]interface{}{
+			"query":       query,
+			"config_file": string(fileData),
+		}
+		b, _ := json.Marshal(bodyMap)
+		body = string(b)
+	}
+
+	fromAddr := sendServiceCommand("claw-audit", body, nodeAddr)
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "waiting for audit report from %s...\n", nodeAddr)
+	}
+
+	reply, err := pollInboxForReply(fromAddr, timeout)
+	if err != nil {
+		if jsonOutput {
+			fatalCode("timeout", "no reply received within %v", timeout)
+		}
+		fmt.Fprintln(os.Stderr, "(no reply — check: pilotctl inbox)")
+		os.Exit(1)
+	}
+
+	writeServiceAgentReply(reply, outputFile, "claw-audit")
+}
+
+// sendServiceCommand dials a service agent node via data-exchange, sends a
+// JSON command payload, and returns the node's pilot address (for inbox polling).
+func sendServiceCommand(command, body, nodeAddr string) string {
+	payload := map[string]string{"command": command, "body": body}
+	msgJSON, err := json.Marshal(payload)
+	if err != nil {
+		fatalCode("internal", "marshal message: %v", err)
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, nodeAddr)
+	if err != nil {
+		fatalCode("not_found", "service agent node %q: %v", nodeAddr, err)
+	}
+
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("ensure the node is reachable and trusted: pilotctl ping %s", nodeAddr),
+			"cannot connect to service agent node %s", nodeAddr)
+	}
+	defer client.Close()
+
+	if err := client.SendJSON(msgJSON); err != nil {
+		fatalCode("connection_failed", "send command: %v", err)
+	}
+	client.Recv() // drain ACK (non-fatal if absent)
+
+	return target.String()
+}
+
+// pollInboxForReply watches ~/.pilot/inbox/ for a new message from fromAddr
+// and returns its data payload. Returns an error if timeout elapses first.
+func pollInboxForReply(fromAddr string, timeout time.Duration) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".pilot", "inbox")
+
+	// Snapshot existing files so we only react to new arrivals.
+	existing := make(map[string]bool)
+	if entries, err2 := os.ReadDir(dir); err2 == nil {
+		for _, e := range entries {
+			existing[e.Name()] = true
+		}
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(3 * time.Second)
+		entries, err2 := os.ReadDir(dir)
+		if err2 != nil {
+			continue
+		}
+		for _, e := range entries {
+			if existing[e.Name()] {
+				continue
+			}
+			data, err3 := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err3 != nil {
+				continue
+			}
+			var msg map[string]interface{}
+			if err3 = json.Unmarshal(data, &msg); err3 != nil {
+				continue
+			}
+			from, _ := msg["from"].(string)
+			if fromAddr != "" && from != fromAddr {
+				existing[e.Name()] = true // seen, not our node
+				continue
+			}
+			msgData, _ := msg["data"].(string)
+			// Unwrap JSON-encoded string if the agent double-serialised.
+			var unwrapped string
+			if json.Unmarshal([]byte(msgData), &unwrapped) == nil {
+				return unwrapped, nil
+			}
+			return msgData, nil
+		}
+	}
+	return "", fmt.Errorf("timeout waiting for reply from %s", fromAddr)
+}
+
+// writeServiceAgentReply prints reply to stdout or saves it to a file.
+// If outputFile is "true" (bare --output-file flag), a timestamped filename is used.
+func writeServiceAgentReply(reply, outputFile, prefix string) {
+	if outputFile == "" {
+		if jsonOutput {
+			outputOK(map[string]interface{}{"reply": reply})
+		} else {
+			fmt.Println(reply)
+		}
+		return
+	}
+	if outputFile == "true" {
+		outputFile = fmt.Sprintf("%s-%s.txt", prefix, time.Now().Format("20060102-150405"))
+	}
+	if err := os.WriteFile(outputFile, []byte(reply), 0644); err != nil {
+		fatalCode("internal", "write output file: %v", err)
+	}
+	if jsonOutput {
+		outputOK(map[string]interface{}{"saved": outputFile, "bytes": len(reply)})
+	} else {
+		fmt.Printf("saved to %s (%d bytes)\n", outputFile, len(reply))
+	}
+}
+
+// loadClawditNode reads the target node from ~/.pilot/clawdit.yaml.
+func loadClawditNode() string {
+	return loadPilotYAMLNode("clawdit.yaml")
+}
+
+// loadPilotYAMLNode reads a 'node: <addr>' value from a YAML file in ~/.pilot/.
+func loadPilotYAMLNode(filename string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".pilot", filename))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "node:") {
+			continue
+		}
+		val := strings.TrimSpace(line[5:])
+		if len(val) >= 2 {
+			f, l := val[0], val[len(val)-1]
+			if (f == '"' && l == '"') || (f == '\'' && l == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		return val
+	}
+	return ""
 }
 
 func cmdDirectoryStatus(args []string) {

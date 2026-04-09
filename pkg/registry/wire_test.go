@@ -162,7 +162,7 @@ func TestLookupRespRoundTrip(t *testing.T) {
 		true,                       // public
 		true,                       // taskExec
 		100,                        // poloScore
-		[]uint16{1, 2, 3},         // networks
+		[]uint16{1, 2, 3},          // networks
 		pubKey,                     // pubKey
 		"test-host",                // hostname
 		[]string{"svc", "primary"}, // tags

@@ -20,6 +20,9 @@ _obj/
 /nameserver
 /gateway
 
+pilotctl-arm64
+responder-arm64
+pilot-daemon-arm64
 # caches
 __pycache__
 .venv

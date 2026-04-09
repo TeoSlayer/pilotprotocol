@@ -17,6 +17,7 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#tags">Tags</a></li>
       <li><a href="#mailbox">Mailbox</a></li>
       <li><a href="#networks">Networks</a></li>
+      <li><a href="#service-agents">Service Agents</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
       <li><a href="#tasks">Tasks</a></li>
       <li><a href="#managed">Managed Networks</a></li>
@@ -244,6 +245,57 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h3 id="network-reject">network reject</h3>
   <pre><code><span class="cmd">pilotctl</span> network reject &lt;network_id&gt;</code></pre>
   <p>Decline a pending invite.</p>
+
+  <h2 id="service-agents">Service Agents</h2>
+
+  <p>High-level shortcuts for interacting with Gemini-powered service agents running on the overlay network. Replies are delivered via the inbox — the command blocks until the agent responds (default: 120 s timeout).</p>
+
+  <h3 id="ai">ai</h3>
+  <pre><code><span class="cmd">pilotctl</span> ai "&lt;query&gt;" [--node &lt;address&gt;] [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
+  <p>Sends a natural-language query to the <strong>pilot-agent</strong> AI assistant and waits for the reply.</p>
+  <p>The target node is read from <code>~/.pilot/scriptorium.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
+  <ul>
+    <li><code>--output-file &lt;path&gt;</code> — save reply to a file instead of printing; omit the path for a timestamped filename.</li>
+    <li><code>--timeout</code> — how long to wait for the reply (default: <code>120s</code>).</li>
+  </ul>
+  <p>Returns: <code>reply</code> (human-readable text from the AI)</p>
+  <pre><code><span class="comment"># Ask anything about pilotctl</span>
+<span class="cmd">pilotctl</span> ai "how do I ping another node?"
+
+<span class="comment"># Save the answer to a file</span>
+<span class="cmd">pilotctl</span> ai "explain the task workflow" --output-file task-guide.txt
+
+<span class="comment"># Target a specific node</span>
+<span class="cmd">pilotctl</span> ai "list all ports" --node 0:0000.0000.3814</code></pre>
+
+  <h3 id="clawdit">clawdit</h3>
+  <pre><code><span class="cmd">pilotctl</span> clawdit ["&lt;query&gt;"] [--file &lt;openclaw.json&gt;] [--node &lt;address&gt;]
+         [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
+  <p>Sends an OpenClaw security audit request to the <strong>claw-audit</strong> agent and waits for the report.</p>
+  <p>The target node is read from <code>~/.pilot/clawdit.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
+  <ul>
+    <li><code>--file &lt;path&gt;</code> — path to an <code>openclaw.json</code> config to audit; when provided, the agent uses this file instead of reading from the remote machine's filesystem.</li>
+    <li><code>--output-file &lt;path&gt;</code> — save the audit report to a file.</li>
+    <li><code>--timeout</code> — how long to wait (default: <code>120s</code>; audits can be slow).</li>
+  </ul>
+  <p>Without a query, runs a full security audit by default.</p>
+  <p>Returns: <code>reply</code> (formatted audit report)</p>
+  <pre><code><span class="comment"># Full audit of the remote OpenClaw installation</span>
+<span class="cmd">pilotctl</span> clawdit
+
+<span class="comment"># Audit a specific config file</span>
+<span class="cmd">pilotctl</span> clawdit --file ~/.openclaw/openclaw.json
+
+<span class="comment"># Ask a targeted question</span>
+<span class="cmd">pilotctl</span> clawdit "is my gateway exposed to the network?"
+
+<span class="comment"># Save the report</span>
+<span class="cmd">pilotctl</span> clawdit --output-file audit-report.txt --timeout 3m</code></pre>
+
+  <h3 id="scriptorium">scriptorium</h3>
+  <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; [body] [--node &lt;address|hostname&gt;]</code></pre>
+  <p>Low-level command dispatcher. Sends <code>{"command":"&lt;name&gt;","body":"&lt;args&gt;"}</code> to a responder node and prints the transport ACK. Does <em>not</em> wait for a reply — use <code>pilotctl inbox</code> to read the response. Target node is read from <code>~/.pilot/scriptorium.yaml</code>.</p>
+  <p>See <a href="/docs/service-agents">Service Agents</a> for the full dispatch flow and how to build your own agents.</p>
 
   <h2 id="diagnostics">Diagnostics</h2>
 

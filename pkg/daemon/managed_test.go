@@ -275,8 +275,8 @@ func TestManagedPruneGracePeriod(t *testing.T) {
 		},
 		peers: map[uint32]*managedPeer{
 			100: {NodeID: 100, Score: 1, AddedAt: now.Add(-2 * time.Hour)}, // past grace
-			200: {NodeID: 200, Score: 2, AddedAt: now},                      // in grace
-			300: {NodeID: 300, Score: 3, AddedAt: now},                      // in grace
+			200: {NodeID: 200, Score: 2, AddedAt: now},                     // in grace
+			300: {NodeID: 300, Score: 3, AddedAt: now},                     // in grace
 		},
 	}
 

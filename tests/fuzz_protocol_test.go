@@ -99,8 +99,8 @@ func FuzzPacketRoundTrip(f *testing.F) {
 
 		pkt := &protocol.Packet{
 			Version: version & 0x0F, Flags: flags & 0x0F, Protocol: proto,
-			Src: protocol.Addr{Network: srcNet, Node: srcNode},
-			Dst: protocol.Addr{Network: dstNet, Node: dstNode},
+			Src:     protocol.Addr{Network: srcNet, Node: srcNode},
+			Dst:     protocol.Addr{Network: dstNet, Node: dstNode},
 			SrcPort: srcPort, DstPort: dstPort,
 			Seq: seq, Ack: ack, Window: window,
 			Payload: payload,
@@ -485,7 +485,7 @@ func TestParseAddrEdgeCases(t *testing.T) {
 		"0:00000.0000.0001",    // 5 digits
 		"-1:0000.0000.0001",    // negative
 		"99999:0000.0000.0001", // > 65535
-		"0:GGGG.0000.0001",    // invalid hex
+		"0:GGGG.0000.0001",     // invalid hex
 	}
 	for _, s := range bad {
 		_, err := protocol.ParseAddr(s)
@@ -499,10 +499,10 @@ func TestParseSocketAddrEdgeCases(t *testing.T) {
 	bad := []string{
 		"",
 		"no-colon",
-		"0:0000.0000.0001:",         // empty port
-		"0:0000.0000.0001:99999",    // > 65535
-		"0:0000.0000.0001:abc",      // non-numeric
-		"0:0000.0000.0001:1.5",      // float
+		"0:0000.0000.0001:",      // empty port
+		"0:0000.0000.0001:99999", // > 65535
+		"0:0000.0000.0001:abc",   // non-numeric
+		"0:0000.0000.0001:1.5",   // float
 	}
 	for _, s := range bad {
 		_, err := protocol.ParseSocketAddr(s)

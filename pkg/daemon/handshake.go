@@ -437,6 +437,26 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		return
 	}
 
+	// Auto-approve all requests when the daemon is configured to do so.
+	if hm.daemon.config.TrustAutoApprove {
+		hm.trusted[peerNodeID] = &TrustRecord{
+			NodeID:     peerNodeID,
+			PublicKey:  msg.PublicKey,
+			ApprovedAt: time.Now(),
+			Mutual:     false,
+		}
+		slog.Info("handshake auto-approved (trust-auto-approve enabled)", "peer_node_id", peerNodeID)
+		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
+			"peer_node_id": peerNodeID, "reason": "auto_approve",
+		})
+		hm.saveTrust()
+		hm.sendAcceptLocked(peerNodeID)
+		if hm.daemon.regConn != nil {
+			hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.NodeID(), peerNodeID) })
+		}
+		return
+	}
+
 	// Store as pending (cap to prevent unbounded growth from spam)
 	if _, exists := hm.pending[peerNodeID]; !exists && len(hm.pending) >= maxPendingHandshakes {
 		slog.Warn("pending handshake queue full, rejecting", "peer_node_id", peerNodeID)
@@ -565,6 +585,51 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
 			hm.goRPC(func() {
 				hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig)
+				hm.backfillPeerKey(peerID)
+			})
+		}
+		return
+	}
+
+	// Check if peers are on the same network (network trust)
+	if hm.sameNetwork(fromNodeID) {
+		hm.trusted[fromNodeID] = &TrustRecord{
+			NodeID:     fromNodeID,
+			ApprovedAt: time.Now(),
+			Network:    hm.sharedNetwork(fromNodeID),
+		}
+		slog.Info("same network relayed handshake auto-approved", "peer_node_id", fromNodeID)
+		hm.saveTrust()
+		if hm.daemon.regConn != nil {
+			nodeID, peerID := hm.daemon.NodeID(), fromNodeID
+			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
+			hm.goRPC(func() {
+				hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig)
+				hm.daemon.regConn.ReportTrust(nodeID, peerID)
+				hm.backfillPeerKey(peerID)
+			})
+		}
+		return
+	}
+
+	// Auto-approve all requests when the daemon is configured to do so.
+	if hm.daemon.config.TrustAutoApprove {
+		hm.trusted[fromNodeID] = &TrustRecord{
+			NodeID:     fromNodeID,
+			ApprovedAt: time.Now(),
+			Mutual:     false,
+		}
+		slog.Info("relayed handshake auto-approved (trust-auto-approve enabled)", "peer_node_id", fromNodeID)
+		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
+			"peer_node_id": fromNodeID, "reason": "auto_approve",
+		})
+		hm.saveTrust()
+		if hm.daemon.regConn != nil {
+			nodeID, peerID := hm.daemon.NodeID(), fromNodeID
+			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
+			hm.goRPC(func() {
+				hm.daemon.regConn.RespondHandshake(nodeID, peerID, true, sig)
+				hm.daemon.regConn.ReportTrust(nodeID, peerID)
 				hm.backfillPeerKey(peerID)
 			})
 		}

@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""
+new-agent — scaffold a new Pilot Protocol service agent from the template.
+
+Usage:
+    ./new-agent <name> <port> "<description>" [--endpoint <name>]
+
+Examples:
+    ./new-agent weather-agent  8400 "Provides weather forecasts"
+    ./new-agent sql-agent      8401 "Natural language SQL query assistant" --endpoint sql
+    ./new-agent docs-agent     8402 "Searches and summarizes internal docs"
+
+After scaffolding:
+    1. Edit <name>/agent/prompts.py  — write the system prompt
+    2. Edit <name>/agent/tools.py   — add tool functions
+    3. cp _template/.env.example <name>/.env && edit with your API key
+    4. ./service-agents/<name>/start.sh  to run the API
+    5. Add to ~/.pilot/endpoints.yaml   (instructions printed below)
+    6. Add a shell alias (instructions printed below)
+"""
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+TEMPLATE_DIR = Path(__file__).parent / "_template"
+SERVICE_AGENTS_DIR = Path(__file__).parent
+
+
+def slugify(name: str) -> str:
+    """Convert name to safe directory name."""
+    return re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-")
+
+
+def replace_in_file(path: Path, replacements: dict[str, str]) -> None:
+    try:
+        content = path.read_text()
+        for old, new in replacements.items():
+            content = content.replace(old, new)
+        path.write_text(content)
+    except (UnicodeDecodeError, PermissionError):
+        pass  # skip binary files
+
+
+def scaffold(name: str, port: int, description: str, endpoint: str) -> Path:
+    slug = slugify(name)
+    dest = SERVICE_AGENTS_DIR / slug
+
+    if dest.exists():
+        print(f"Error: '{dest}' already exists.", file=sys.stderr)
+        sys.exit(1)
+
+    # Copy template
+    shutil.copytree(TEMPLATE_DIR, dest)
+
+    # Replacements in all text files
+    replacements = {
+        "{{AGENT_NAME}}": name,
+        "{{AGENT_PORT}}": str(port),
+        "{{AGENT_DESCRIPTION}}": description,
+        "{{ENDPOINT_NAME}}": endpoint,
+    }
+    for fpath in dest.rglob("*"):
+        if fpath.is_file():
+            replace_in_file(fpath, replacements)
+
+    # Make start.sh executable
+    (dest / "start.sh").chmod(0o755)
+
+    return dest
+
+
+def print_next_steps(name: str, slug: str, port: int, description: str, endpoint: str, dest: Path) -> None:
+    tui_cmd = f"AGENT_NAME='{name}' AGENT_PORT={port} .venv/bin/python -m tui.app"
+
+    print(f"""
+✓ Agent scaffolded at: {dest}
+
+┌─ Step 1: Edit your agent ────────────────────────────────────────────┐
+│                                                                       │
+│  {dest}/agent/prompts.py
+│    → Write the system prompt (what the agent knows and does)         │
+│                                                                       │
+│  {dest}/agent/tools.py
+│    → Implement tools the agent can call (APIs, file reads, etc.)     │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─ Step 2: Add your API key ────────────────────────────────────────────┐
+│                                                                       │
+│  cp {dest}/.env.example {dest}/.env
+│  # Edit .env and set GOOGLE_API_KEY=...                              │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─ Step 3: Start the agent API ─────────────────────────────────────────┐
+│                                                                       │
+│  {dest}/start.sh
+│                                                                       │
+│  # Or with pm2 for persistence:                                      │
+│  pm2 start {dest}/start.sh --name {slug} --interpreter bash
+│                                                                       │
+│  # TUI (in the agent directory):                                     │
+│  cd {dest} && {tui_cmd}
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─ Step 4: Register in ~/.pilot/endpoints.yaml ─────────────────────────┐
+│                                                                       │
+│  Add this to the 'commands:' section of ~/.pilot/endpoints.yaml:     │
+│                                                                       │
+│  commands:                                                            │
+│    - name: {endpoint}
+│      link: http://localhost:{port}/chat                               │
+│      arg_regex: "^(?P<message>.+)$"                                  │
+│                                                                       │
+│  Then restart the responder:                                         │
+│    pm2 restart responder                                              │
+│  Or if running directly:                                              │
+│    pkill responder && responder -interval 5s -socket /tmp/pilot.sock │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─ Step 5: Add a shell command (add to ~/.zshrc or ~/.bashrc) ──────────┐
+│                                                                       │
+│  # {name} — natural language interface                               │
+│  {slug}() {{                                                          │
+│    _service_agent_call "{endpoint}" "$@"                             │
+│  }}                                                                   │
+│                                                                       │
+│  # Generic helper (add once):                                        │
+│  _service_agent_call() {{                                             │
+│    local endpoint="$1"; shift                                        │
+│    local query="$*"                                                  │
+│    [[ -z "$query" ]] && {{ echo "Usage: $endpoint \\"query\\"" >&2; return 1; }}
+│    local before                                                       │
+│    before=$(pilotctl --json inbox 2>/dev/null | python3 -c \\        │
+│      "import json,sys; print(len(json.load(sys.stdin)['data']['messages']))" 2>/dev/null)
+│    pilotctl scriptorium "$endpoint" "$query" >/dev/null 2>&1         │
+│    local elapsed=0 result=""                                         │
+│    while [[ $elapsed -lt 90 ]]; do                                  │
+│      sleep 3; elapsed=$((elapsed+3))                                 │
+│      result=$(pilotctl --json inbox 2>/dev/null | python3 -c "
+│  import json,sys
+│  data=json.load(sys.stdin)['data']['messages']
+│  if len(data) > ${{before:-0}}:
+│    for m in reversed(data):
+│      if m['bytes']<10000 and m.get('from','').startswith('0:'):
+│        try: print(json.loads(m.get('data','')))
+│        except: print(m.get('data',''))
+│        break
+│  " 2>/dev/null)                                                       │
+│      [[ -n "$result" ]] && {{ echo "$result"; return 0; }}          │
+│    done                                                               │
+│    echo "(no reply — check: pilotctl inbox)" >&2; return 1          │
+│  }}                                                                   │
+│                                                                       │
+│  Then: source ~/.zshrc                                               │
+│  Use:  {slug} "your query here"                                       │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─ Step 6: Start the Pilot Protocol stack ──────────────────────────────┐
+│                                                                       │
+│  # Local daemon (if not running):                                    │
+│  pilotctl daemon start --hostname <your-hostname>                    │
+│                                                                       │
+│  # Build binaries if needed:                                         │
+│  cd ~/web4/pilotprotocol && go build -o ~/.pilot/bin/pilotctl ./cmd/pilotctl
+│  go build -o ~/responder ./cmd/responder                             │
+│                                                                       │
+│  # On the remote scriptorium node:                                   │
+│  pilotctl daemon start --hostname scriptorium --trust-auto-approve   │
+│  pm2 restart responder                                                │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+Test locally:
+  curl http://localhost:{port}/health
+  curl "http://localhost:{port}/chat?message=hello"
+""")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Scaffold a new Pilot Protocol service agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("name", help="Agent name (e.g. 'weather-agent')")
+    parser.add_argument("port", type=int, help="API port (e.g. 8400)")
+    parser.add_argument("description", help="One-line description (quoted)")
+    parser.add_argument("--endpoint", default="",
+                        help="Endpoint name in endpoints.yaml (default: derived from name)")
+    args = parser.parse_args()
+
+    slug = slugify(args.name)
+    endpoint = args.endpoint or slug
+
+    dest = scaffold(args.name, args.port, args.description, endpoint)
+    print_next_steps(args.name, slug, args.port, args.description, endpoint, dest)
+
+
+if __name__ == "__main__":
+    main()

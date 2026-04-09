@@ -1,0 +1,190 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Service Agents</h1>
+  <p class="subtitle">Deploy AI agents on any node and invoke them by name over the overlay network.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#dispatch-flow">Dispatch flow</a></li>
+      <li><a href="#scriptorium">scriptorium</a></li>
+      <li><a href="#pilot-agent">pilot-agent</a></li>
+      <li><a href="#claw-audit">claw-audit</a></li>
+      <li><a href="#building-your-own">Building your own agent</a></li>
+    </ul>
+  </div>
+
+  <h2 id="overview">Overview</h2>
+
+  <p>Service agents are lightweight HTTP microservices that run on any Pilot Protocol node. Other nodes can call them by name using <code>pilotctl scriptorium</code> — or via the higher-level <code>pilotctl ai</code> and <code>pilotctl clawdit</code> commands — without knowing the agent's IP address or port.</p>
+
+  <p>Agents are:</p>
+  <ul>
+    <li><strong>Location-transparent</strong> — callers only need the target's Pilot node address.</li>
+    <li><strong>Encrypted end-to-end</strong> — traffic travels over the X25519 + AES-256-GCM overlay tunnel.</li>
+    <li><strong>Trust-gated</strong> — the daemon only delivers messages from trusted peers.</li>
+    <li><strong>Stateless or stateful</strong> — agents expose any HTTP API; the responder dispatches to them.</li>
+  </ul>
+
+  <h2 id="dispatch-flow">Dispatch flow</h2>
+
+  <pre><code>pilotctl scriptorium &lt;command&gt; &lt;body&gt; --node &lt;address&gt;
+        │
+        ▼  data-exchange port 1001 (overlay encrypted)
+  responder on remote node
+        │  polls ~/.pilot/inbox/
+        │  matches command → endpoint URL
+        ▼
+  localhost HTTP service  (e.g. http://localhost:8300/audit?message=...)
+        │
+        ▼
+  AI agent generates reply
+        │
+        ▼  overlay back to caller's node
+  ~/.pilot/inbox/ on calling node
+        │
+        ▼
+  pilotctl (or shell function) prints reply</code></pre>
+
+  <p>The <strong>responder</strong> binary reads <code>~/.pilot/endpoints.yaml</code> to know which local service handles each command name:</p>
+
+  <pre><code><span class="comment"># ~/.pilot/endpoints.yaml</span>
+endpoints:
+  - name: claw-audit
+    url: http://localhost:8300/audit
+  - name: ai
+    url: http://localhost:9100/chat</code></pre>
+
+  <h2 id="scriptorium">scriptorium</h2>
+
+  <p>Low-level dispatcher — sends a named command to any node and prints the ACK.</p>
+
+  <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; &lt;body&gt; --node &lt;address&gt;</code></pre>
+
+  <table>
+    <thead><tr><th>Argument / Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>&lt;command&gt;</code></td><td>Endpoint name to invoke on the remote node (matches <code>endpoints.yaml</code>)</td></tr>
+      <tr><td><code>&lt;body&gt;</code></td><td>Message body forwarded to the HTTP service as the <code>message</code> query parameter</td></tr>
+      <tr><td><code>--node &lt;addr&gt;</code></td><td>Target Pilot node address (e.g. <code>0:0000.0000.39A2</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <p><code>scriptorium</code> only waits for the transport ACK. To receive the reply you must poll the inbox separately — or use the higher-level <code>pilotctl ai</code> / <code>pilotctl clawdit</code> commands which do this automatically.</p>
+
+  <pre><code><span class="comment"># Low-level: send and wait manually</span>
+<span class="cmd">pilotctl</span> scriptorium claw-audit "check port 22 exposure" --node 0:0000.0000.39A2
+<span class="cmd">pilotctl</span> inbox  <span class="comment"># check for reply</span></code></pre>
+
+  <h2 id="pilot-agent">pilot-agent</h2>
+
+  <p>A general-purpose AI assistant that can answer questions, look up information, and execute tasks on the node it runs on.</p>
+
+  <pre><code><span class="comment"># Send a question to the pilot-agent on a remote node</span>
+<span class="cmd">pilotctl</span> ai "What is the current CPU usage on your node?"
+
+<span class="comment"># Save the reply to a file</span>
+<span class="cmd">pilotctl</span> ai "Summarise recent network traffic" --output-file report.txt
+
+<span class="comment"># Auto-named output file (timestamp)</span>
+<span class="cmd">pilotctl</span> ai "List trusted peers" --output-file</code></pre>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--node &lt;addr&gt;</code></td><td><code>~/.pilot/scriptorium.yaml</code></td><td>Override target node address</td></tr>
+      <tr><td><code>--output-file &lt;path&gt;</code></td><td>—</td><td>Write reply to file. Omit path for auto-named <code>pilotctl-ai-YYYYMMDD-HHMMSS.txt</code></td></tr>
+      <tr><td><code>--timeout &lt;duration&gt;</code></td><td><code>120s</code></td><td>How long to wait for a reply</td></tr>
+    </tbody>
+  </table>
+
+  <p>Configure the default target node in <code>~/.pilot/scriptorium.yaml</code>:</p>
+
+  <pre><code>node: "0:0000.0000.XXXX"</code></pre>
+
+  <h2 id="claw-audit">claw-audit</h2>
+
+  <p>A security-focused agent that audits OpenClaw configurations for vulnerabilities and misconfigurations.</p>
+
+  <pre><code><span class="comment"># Run a default full audit</span>
+<span class="cmd">pilotctl</span> clawdit
+
+<span class="comment"># Ask a targeted question</span>
+<span class="cmd">pilotctl</span> clawdit "Is port 22 exposed without rate limiting?"
+
+<span class="comment"># Audit a specific config file</span>
+<span class="cmd">pilotctl</span> clawdit --file /etc/openclaw/openclaw.json
+
+<span class="comment"># Save the audit report</span>
+<span class="cmd">pilotctl</span> clawdit --file /etc/openclaw/openclaw.json --output-file audit-report.md</code></pre>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--file &lt;path&gt;</code></td><td>—</td><td>Path to a local <code>openclaw.json</code> to embed in the audit request</td></tr>
+      <tr><td><code>--node &lt;addr&gt;</code></td><td><code>~/.pilot/clawdit.yaml</code></td><td>Override target node address</td></tr>
+      <tr><td><code>--output-file &lt;path&gt;</code></td><td>—</td><td>Write report to file. Omit path for auto-named <code>claw-audit-YYYYMMDD-HHMMSS.txt</code></td></tr>
+      <tr><td><code>--timeout &lt;duration&gt;</code></td><td><code>120s</code></td><td>How long to wait for the audit report</td></tr>
+    </tbody>
+  </table>
+
+  <p>Configure the default target node in <code>~/.pilot/clawdit.yaml</code>:</p>
+
+  <pre><code>node: "0:0000.0000.39A2"</code></pre>
+
+  <h2 id="building-your-own">Building your own agent</h2>
+
+  <p>The <code>service-agents/</code> directory in the Pilot Protocol repository contains a scaffold and examples you can copy.</p>
+
+  <h3>1. Scaffold a new agent</h3>
+
+  <pre><code>cp -r service-agents/template my-agent
+cd my-agent</code></pre>
+
+  <p>The template includes:</p>
+  <ul>
+    <li><code>start.sh</code> — creates a virtualenv, installs deps, starts the FastAPI server</li>
+    <li><code>requirements.txt</code> — Python dependencies</li>
+    <li><code>config.yaml</code> — agent name, port, and endpoint path</li>
+    <li><code>api/server.py</code> — FastAPI app (chat or stateless audit endpoint)</li>
+    <li><code>agent/gemini_agent.py</code> — Gemini AI agent base class</li>
+    <li><code>agent/prompts.py</code> — system prompt</li>
+    <li><code>agent/tools.py</code> — tool definitions</li>
+  </ul>
+
+  <h3>2. Edit the system prompt and tools</h3>
+
+  <pre><code><span class="comment"># agent/prompts.py</span>
+SYSTEM_PROMPT = """
+You are MyAgent, a specialized assistant that...
+"""</code></pre>
+
+  <h3>3. Register the endpoint</h3>
+
+  <p>Add an entry to <code>~/.pilot/endpoints.yaml</code> on the node where the agent runs:</p>
+
+  <pre><code>endpoints:
+  - name: my-agent
+    url: http://localhost:8400/chat</code></pre>
+
+  <h3>4. Start the agent and responder</h3>
+
+  <pre><code>./start.sh &amp;
+responder &amp;</code></pre>
+
+  <h3>5. Call it from any trusted node</h3>
+
+  <pre><code><span class="cmd">pilotctl</span> scriptorium my-agent "Hello from another node" --node 0:0000.0000.XXXX</code></pre>
+
+  <p>For multi-turn conversation support, implement a <code>/sessions</code> API following the pattern in <code>service-agents/examples/claw-audit/api/server.py</code>.</p>
+`;
+---
+
+<DocLayout
+  title="Service Agents"
+  description="Deploy AI agents on any node and invoke them over the Pilot Protocol overlay network."
+  slug="service-agents"
+  bodyContent={bodyContent}
+/>

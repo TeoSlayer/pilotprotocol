@@ -562,9 +562,9 @@ func (orl *OperationRateLimiter) Cleanup() {
 // KeyInfo tracks key lifecycle metadata for compliance and trust decisions.
 type KeyInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
-	RotatedAt   time.Time `json:"rotated_at,omitempty"`  // zero if never rotated
+	RotatedAt   time.Time `json:"rotated_at,omitempty"` // zero if never rotated
 	RotateCount int       `json:"rotate_count"`
-	ExpiresAt   time.Time `json:"expires_at,omitempty"`  // zero = no expiry
+	ExpiresAt   time.Time `json:"expires_at,omitempty"` // zero = no expiry
 }
 
 type NodeInfo struct {
@@ -628,24 +628,24 @@ const (
 
 // NetworkPolicy defines constraints and metadata for a network.
 type NetworkPolicy struct {
-	MaxMembers   int      `json:"max_members"`    // 0 = unlimited
-	AllowedPorts []uint16 `json:"allowed_ports"`  // empty = all ports allowed
-	Description  string   `json:"description"`    // human-readable network description
+	MaxMembers   int      `json:"max_members"`   // 0 = unlimited
+	AllowedPorts []uint16 `json:"allowed_ports"` // empty = all ports allowed
+	Description  string   `json:"description"`   // human-readable network description
 }
 
 type NetworkInfo struct {
 	ID          uint16
 	Name        string
 	JoinRule    string
-	Token       string            // for token-gated networks
+	Token       string // for token-gated networks
 	Members     []uint32
-	MemberRoles map[uint32]Role   // per-member RBAC roles
+	MemberRoles map[uint32]Role     // per-member RBAC roles
 	MemberTags  map[uint32][]string // admin-assigned per-member tags (e.g. "service")
-	AdminToken  string            // per-network admin token (optional)
-	Policy      NetworkPolicy     // network policy (membership limits, port restrictions)
-	Rules       *NetworkRules     // managed network rules (nil = normal network)
-	ExprPolicy  json.RawMessage   // programmable policy engine document (nil = none)
-	Enterprise  bool              // enterprise network (gates Phase 2-5 features)
+	AdminToken  string              // per-network admin token (optional)
+	Policy      NetworkPolicy       // network policy (membership limits, port restrictions)
+	Rules       *NetworkRules       // managed network rules (nil = normal network)
+	ExprPolicy  json.RawMessage     // programmable policy engine document (nil = none)
+	Enterprise  bool                // enterprise network (gates Phase 2-5 features)
 	Created     time.Time
 }
 
@@ -754,9 +754,9 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		inviteInbox:        make(map[uint32][]*NetworkInvite),
-		rateLimiter:    NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
-		maxConnections: defaultMaxConnections,
-		beacons:        make(map[uint32]*beaconEntry),
+		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
+		maxConnections:     defaultMaxConnections,
+		beacons:            make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
 		deltaLog:           newDeltaLog(),
 		metrics:            newRegistryMetrics(),
@@ -5504,9 +5504,9 @@ type snapshot struct {
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []AuditEntry `json:"audit_log,omitempty"`
 	// Enterprise config persistence
-	IDPConfig       *BlueprintIdentityProvider  `json:"idp_config,omitempty"`
-	AuditExportCfg  *BlueprintAuditExport       `json:"audit_export_config,omitempty"`
-	RBACPreAssign   map[string][]BlueprintRole  `json:"rbac_pre_assign,omitempty"` // networkID -> roles
+	IDPConfig      *BlueprintIdentityProvider `json:"idp_config,omitempty"`
+	AuditExportCfg *BlueprintAuditExport      `json:"audit_export_config,omitempty"`
+	RBACPreAssign  map[string][]BlueprintRole `json:"rbac_pre_assign,omitempty"` // networkID -> roles
 	// Integrity: SHA256 hex digest of all fields except Checksum
 	Checksum string `json:"checksum,omitempty"`
 }
@@ -5537,13 +5537,13 @@ type snapshotNet struct {
 	JoinRule    string              `json:"join_rule"`
 	Token       string              `json:"token,omitempty"`
 	Members     []uint32            `json:"members"`
-	MemberRoles map[string]string   `json:"member_roles,omitempty"`   // nodeID -> role
-	MemberTags  map[string][]string `json:"member_tags,omitempty"`    // nodeID -> admin-assigned tags
-	AdminToken  string              `json:"admin_token,omitempty"`    // per-network admin token
-	Policy      *NetworkPolicy      `json:"policy,omitempty"`         // network policy
-	Rules       *NetworkRules       `json:"rules,omitempty"`          // managed network rules
-	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`    // programmable policy engine document
-	Enterprise  bool                `json:"enterprise,omitempty"`     // enterprise network flag
+	MemberRoles map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
+	MemberTags  map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
+	AdminToken  string              `json:"admin_token,omitempty"`  // per-network admin token
+	Policy      *NetworkPolicy      `json:"policy,omitempty"`       // network policy
+	Rules       *NetworkRules       `json:"rules,omitempty"`        // managed network rules
+	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
+	Enterprise  bool                `json:"enterprise,omitempty"`   // enterprise network flag
 	Created     string              `json:"created"`
 }
 
@@ -5596,20 +5596,20 @@ func (s *Server) saveLoop() {
 // rawNodeCopy holds raw node fields copied under RLock (no encoding).
 // base64/time.Format happens outside the lock to minimize lock hold time.
 type rawNodeCopy struct {
-	id          uint32
-	owner       string
-	publicKey   []byte
-	realAddr    string
-	networks    []uint16
-	lastSeen    time.Time
-	public      bool
-	hostname    string
-	tags        []string
-	poloScore   int
-	taskExec    bool
-	lanAddrs    []string
-	keyMeta     KeyInfo
-	externalID  string
+	id         uint32
+	owner      string
+	publicKey  []byte
+	realAddr   string
+	networks   []uint16
+	lastSeen   time.Time
+	public     bool
+	hostname   string
+	tags       []string
+	poloScore  int
+	taskExec   bool
+	lanAddrs   []string
+	keyMeta    KeyInfo
+	externalID string
 }
 
 // flushSave serializes the full registry state and writes it to disk.
@@ -6229,15 +6229,15 @@ type DashboardEdge struct {
 
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
-	TotalNodes      int                `json:"total_nodes"`
-	ActiveNodes     int                `json:"active_nodes"`
-	TotalTrustLinks int                `json:"total_trust_links"`
-	TotalRequests   int64              `json:"total_requests"`
-	UniqueTags      int                `json:"unique_tags"`
-	TaskExecutors   int                `json:"task_executors"`
-	Nodes           []DashboardNode    `json:"nodes"`
-	Edges           []DashboardEdge    `json:"edges"`
-	UptimeSecs      int64              `json:"uptime_secs"`
+	TotalNodes      int             `json:"total_nodes"`
+	ActiveNodes     int             `json:"active_nodes"`
+	TotalTrustLinks int             `json:"total_trust_links"`
+	TotalRequests   int64           `json:"total_requests"`
+	UniqueTags      int             `json:"unique_tags"`
+	TaskExecutors   int             `json:"task_executors"`
+	Nodes           []DashboardNode `json:"nodes"`
+	Edges           []DashboardEdge `json:"edges"`
+	UptimeSecs      int64           `json:"uptime_secs"`
 }
 
 // GetDashboardStats returns public-safe statistics for the dashboard.
