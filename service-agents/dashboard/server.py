@@ -80,6 +80,20 @@ class AgentState:
         self.history: deque = deque(maxlen=10)
         self._running: bool = False
 
+    def _full_command(self) -> str:
+        """Build the exact pilotctl command string shown in the dashboard."""
+        t = self.cfg.get("type", "")
+        node = self.cfg.get("node", "")
+        body = self.cfg.get("body", "")
+        if t == "ai":
+            return f'pilotctl ai "{body}" --node {node}'
+        elif t == "clawdit":
+            return f'pilotctl clawdit "{body}" --node {node}'
+        elif t == "scriptorium":
+            cmd = self.cfg.get("command", "")
+            return f'pilotctl scriptorium {cmd} "{body}" --node {node}'
+        return f"pilotctl {t} {body}"
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -89,6 +103,7 @@ class AgentState:
             "type": self.cfg.get("type", ""),
             "command": self.cfg.get("command", ""),
             "body": self.cfg.get("body", ""),
+            "full_command": self._full_command(),
             "poll_interval": self.cfg.get("poll_interval", 120),
             "timeout": self.cfg.get("timeout", 120),
             "status": self.status,
@@ -477,6 +492,21 @@ _HTML = """<!DOCTYPE html>
   .stat-error   .stat-val { color: var(--red); }
   .stat-timeout .stat-val { color: var(--yellow); }
 
+  /* ── Command box ── */
+  .cmd-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--teal);
+    white-space: nowrap;
+    overflow-x: auto;
+    margin-bottom: 8px;
+    opacity: 0.85;
+  }
+
   /* ── Output box ── */
   .output-box {
     background: var(--bg);
@@ -652,10 +682,6 @@ function render_card(a) {
   ).join('');
 
   const successRate = a.success_rate != null ? a.success_rate + '%' : '—';
-  const cmdLabel = a.type === 'scriptorium'
-    ? `scriptorium ${a.command}`
-    : a.type === 'ai' ? 'pilotctl ai' : a.type === 'clawdit' ? 'pilotctl clawdit' : a.type;
-
   return `
   <div class="card ${statusClass}" id="card-${a.id}">
     <div class="card-header">
@@ -663,7 +689,7 @@ function render_card(a) {
       <div>
         <div class="card-title">${a.name}</div>
         <div class="card-desc">${a.description}</div>
-        <div class="card-node">${a.node} · <span style="color:var(--teal)">${cmdLabel}</span></div>
+        <div class="card-node">${a.node}</div>
       </div>
       <button class="poll-btn" onclick="triggerPoll('${a.id}')" id="btn-${a.id}"
         ${a.status==='polling'?'disabled':''}>▶ poll now</button>
@@ -676,6 +702,8 @@ function render_card(a) {
       <span>polls <span class="stat-val">${a.poll_count}</span></span>
       <span>errors <span class="stat-val">${a.error_count}</span></span>
     </div>
+
+    <div class="cmd-box">$ ${a.full_command || ''}</div>
 
     <div class="output-box ${outClass}">${outText}</div>
 

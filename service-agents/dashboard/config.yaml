@@ -24,7 +24,8 @@ agents:
     description: "Translates natural language into pilotctl commands"
     node: "0:0000.0000.3814"
     type: ai
-    body: "respond in exactly 4 words: PILOT AI IS OK"
+    # pilotctl ai "what is the pilotctl command to list all trusted peers with their node IDs and show which ones are currently online?" --node 0:0000.0000.3814
+    body: "what is the pilotctl command to list all trusted peers with their node IDs and show which ones are currently online?"
     timeout: 120
     poll_interval: 180
 
@@ -33,7 +34,8 @@ agents:
     description: "OpenClaw security configuration auditor"
     node: "0:0000.0000.39A2"
     type: clawdit
-    body: "respond in exactly 4 words: CLAWAUDIT IS RUNNING OK"
+    # pilotctl clawdit "scan for any services listening on ports below 1024 that lack TLS encryption and report their risk severity" --node 0:0000.0000.39A2
+    body: "scan for any services listening on ports below 1024 that lack TLS encryption and report their risk severity"
     timeout: 120
     poll_interval: 300
 
@@ -43,6 +45,7 @@ agents:
     node: "0:0000.0000.3814"
     type: scriptorium
     command: polymarket
+    # pilotctl scriptorium polymarket "from: {yesterday}" --node 0:0000.0000.3814
     body: "from: {yesterday}"
     timeout: 90
     poll_interval: 600
@@ -53,6 +56,7 @@ agents:
     node: "0:0000.0000.3814"
     type: scriptorium
     command: stockmarket
+    # pilotctl scriptorium stockmarket "from: {yesterday_date}" --node 0:0000.0000.3814
     body: "from: {yesterday_date}"
     timeout: 90
     poll_interval: 600
