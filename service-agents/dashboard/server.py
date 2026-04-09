@@ -199,7 +199,7 @@ async def _run_scriptorium(state: AgentState) -> tuple[str, float]:
     reply = await loop.run_in_executor(
         _executor, _poll_inbox_sync, node, seen, timeout - 30,
     )
-    return reply[:2000], time.monotonic() - start
+    return str(reply)[:2000], time.monotonic() - start
 
 
 def _poll_inbox_sync(node: str, seen: set[str], timeout: float) -> str:
@@ -221,7 +221,8 @@ def _poll_inbox_sync(node: str, seen: set[str], timeout: float) -> str:
                 continue
             raw = msg.get("data", "")
             try:
-                return json.loads(raw)
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, str) else json.dumps(parsed, indent=2)
             except Exception:
                 return raw
     raise TimeoutError(f"no reply from {node} within {timeout:.0f}s")

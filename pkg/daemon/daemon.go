@@ -48,9 +48,9 @@ type Config struct {
 	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
 
 	// Webhook
-	WebhookURL            string        // HTTP(S) endpoint for event notifications (empty = disabled)
-	WebhookHTTPTimeout    time.Duration // HTTP client timeout for webhook POSTs (default 5s)
-	WebhookRetryBackoff   time.Duration // initial retry backoff for webhook POSTs (default 1s)
+	WebhookURL          string        // HTTP(S) endpoint for event notifications (empty = disabled)
+	WebhookHTTPTimeout  time.Duration // HTTP client timeout for webhook POSTs (default 5s)
+	WebhookRetryBackoff time.Duration // initial retry backoff for webhook POSTs (default 1s)
 
 	// Trust
 	TrustAutoApprove bool // automatically approve all incoming handshake requests
@@ -223,16 +223,16 @@ func (c *Config) timeWaitDuration() time.Duration {
 
 func New(cfg Config) *Daemon {
 	d := &Daemon{
-		config:      cfg,
-		tunnels:     NewTunnelManager(),
-		ports:       NewPortManager(),
-		taskQueue:   NewTaskQueue(),
-		stopCh:      make(chan struct{}),
-		synTokens:   cfg.synRateLimit(),
-		synLastFill: time.Now(),
-		perSrcSYN:   make(map[uint32]*srcSYNBucket),
-		epCache:      make(map[uint32]*endpointEntry),
-		resolveCache: make(map[uint32]*resolveEntry),
+		config:        cfg,
+		tunnels:       NewTunnelManager(),
+		ports:         NewPortManager(),
+		taskQueue:     NewTaskQueue(),
+		stopCh:        make(chan struct{}),
+		synTokens:     cfg.synRateLimit(),
+		synLastFill:   time.Now(),
+		perSrcSYN:     make(map[uint32]*srcSYNBucket),
+		epCache:       make(map[uint32]*endpointEntry),
+		resolveCache:  make(map[uint32]*resolveEntry),
 		netPolicies:   make(map[uint16][]uint16),
 		managed:       make(map[uint16]*ManagedEngine),
 		policyRunners: make(map[uint16]*PolicyRunner),

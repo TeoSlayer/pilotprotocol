@@ -50,7 +50,7 @@ func envOptions(eventType EventType) []expr.Option {
 		env["port"] = 0
 		env["network_id"] = 0
 		env["size"] = 0
-		env["direction"] = ""       // "in" or "out"
+		env["direction"] = "" // "in" or "out"
 		env["peer_score"] = 0
 		env["peer_tags"] = []string{}
 		env["peer_age_s"] = 0.0

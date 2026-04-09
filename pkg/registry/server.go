@@ -639,13 +639,13 @@ type NetworkInfo struct {
 	JoinRule    string
 	Token       string // for token-gated networks
 	Members     []uint32
-	MemberRoles map[uint32]Role   // per-member RBAC roles
+	MemberRoles map[uint32]Role     // per-member RBAC roles
 	MemberTags  map[uint32][]string // admin-assigned per-member tags (e.g. "service")
-	AdminToken  string            // per-network admin token (optional)
-	Policy      NetworkPolicy     // network policy (membership limits, port restrictions)
-	Rules       *NetworkRules     // managed network rules (nil = normal network)
-	ExprPolicy  json.RawMessage   // programmable policy engine document (nil = none)
-	Enterprise  bool              // enterprise network (gates Phase 2-5 features)
+	AdminToken  string              // per-network admin token (optional)
+	Policy      NetworkPolicy       // network policy (membership limits, port restrictions)
+	Rules       *NetworkRules       // managed network rules (nil = normal network)
+	ExprPolicy  json.RawMessage     // programmable policy engine document (nil = none)
+	Enterprise  bool                // enterprise network (gates Phase 2-5 features)
 	Created     time.Time
 }
 
@@ -5537,13 +5537,13 @@ type snapshotNet struct {
 	JoinRule    string              `json:"join_rule"`
 	Token       string              `json:"token,omitempty"`
 	Members     []uint32            `json:"members"`
-	MemberRoles map[string]string   `json:"member_roles,omitempty"`   // nodeID -> role
-	MemberTags  map[string][]string `json:"member_tags,omitempty"`    // nodeID -> admin-assigned tags
-	AdminToken  string              `json:"admin_token,omitempty"`    // per-network admin token
-	Policy      *NetworkPolicy      `json:"policy,omitempty"`         // network policy
-	Rules       *NetworkRules       `json:"rules,omitempty"`          // managed network rules
-	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`    // programmable policy engine document
-	Enterprise  bool                `json:"enterprise,omitempty"`     // enterprise network flag
+	MemberRoles map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
+	MemberTags  map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
+	AdminToken  string              `json:"admin_token,omitempty"`  // per-network admin token
+	Policy      *NetworkPolicy      `json:"policy,omitempty"`       // network policy
+	Rules       *NetworkRules       `json:"rules,omitempty"`        // managed network rules
+	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
+	Enterprise  bool                `json:"enterprise,omitempty"`   // enterprise network flag
 	Created     string              `json:"created"`
 }
 
@@ -5596,20 +5596,20 @@ func (s *Server) saveLoop() {
 // rawNodeCopy holds raw node fields copied under RLock (no encoding).
 // base64/time.Format happens outside the lock to minimize lock hold time.
 type rawNodeCopy struct {
-	id          uint32
-	owner       string
-	publicKey   []byte
-	realAddr    string
-	networks    []uint16
-	lastSeen    time.Time
-	public      bool
-	hostname    string
-	tags        []string
-	poloScore   int
-	taskExec    bool
-	lanAddrs    []string
-	keyMeta     KeyInfo
-	externalID  string
+	id         uint32
+	owner      string
+	publicKey  []byte
+	realAddr   string
+	networks   []uint16
+	lastSeen   time.Time
+	public     bool
+	hostname   string
+	tags       []string
+	poloScore  int
+	taskExec   bool
+	lanAddrs   []string
+	keyMeta    KeyInfo
+	externalID string
 }
 
 // flushSave serializes the full registry state and writes it to disk.
