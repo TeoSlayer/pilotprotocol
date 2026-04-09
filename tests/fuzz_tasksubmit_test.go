@@ -77,7 +77,7 @@ func FuzzUnmarshalTaskFile(f *testing.F) {
 
 func FuzzPoloScore(f *testing.F) {
 	f.Add(int64(0), int64(0), int64(0))
-	f.Add(int64(60000), int64(0), int64(0))    // 1 min CPU
+	f.Add(int64(60000), int64(0), int64(0))      // 1 min CPU
 	f.Add(int64(600000), int64(30000), int64(0)) // 10 min CPU, 30s idle
 	f.Add(int64(-1), int64(-1), int64(-1))
 	f.Add(int64(math.MaxInt64), int64(math.MaxInt64), int64(math.MaxInt64))

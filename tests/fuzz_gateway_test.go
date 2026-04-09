@@ -39,8 +39,8 @@ func TestNewMappingTableInvalidCIDR(t *testing.T) {
 		"999.999.999.999/99",
 		"",
 		"abc",
-		"10.0.0.0",       // missing prefix len
-		"10.0.0.0/33",    // /33 invalid for IPv4
+		"10.0.0.0",    // missing prefix len
+		"10.0.0.0/33", // /33 invalid for IPv4
 	}
 	for _, cidr := range bad {
 		_, err := gateway.NewMappingTable(cidr)

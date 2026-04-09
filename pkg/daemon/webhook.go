@@ -128,7 +128,7 @@ func (wc *WebhookClient) run() {
 }
 
 const (
-	webhookMaxRetries    = 3
+	webhookMaxRetries     = 3
 	webhookInitialBackoff = 1 * time.Second
 )
 

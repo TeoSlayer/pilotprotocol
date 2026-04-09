@@ -362,7 +362,7 @@ Bootstrap:
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
-  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--email <addr>] [--webhook <url>]
+  pilotctl daemon start [--config <path>] [--registry <addr>] [--beacon <addr>] [--email <addr>] [--webhook <url>] [--trust-auto-approve]
   pilotctl daemon stop
   pilotctl daemon status
 
@@ -416,6 +416,12 @@ Management commands:
 Mailbox:
   pilotctl received [--clear]
   pilotctl inbox [--clear]
+
+Scriptorium (responder wrappers):
+  pilotctl scriptorium <command> [body] [--node <address|hostname>]
+  pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"
+  pilotctl scriptorium stockmarket "from: 2026-04-01"
+  Config: ~/.pilot/scriptorium.yaml  (node: <pilot-address>)
 
 Diagnostic commands:
   pilotctl info
@@ -768,6 +774,10 @@ func main() {
 		cmdReceived(cmdArgs)
 	case "inbox":
 		cmdInbox(cmdArgs)
+
+	// Scriptorium — pre-configured command wrappers for the responder
+	case "scriptorium":
+		cmdScriptorium(cmdArgs)
 
 	// Internal: forked daemon process
 	case "_daemon-run":
@@ -1219,12 +1229,13 @@ func cmdDaemonStart(args []string) {
 			networks = n
 		}
 	}
+	trustAutoApprove := flagBool(flags, "trust-auto-approve")
 
 	// If --foreground, run in-process
 	if flagBool(flags, "foreground") {
 		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-			adminToken, networks)
+			adminToken, networks, trustAutoApprove)
 		return
 	}
 
@@ -1273,6 +1284,9 @@ func cmdDaemonStart(args []string) {
 	}
 	if networks != "" {
 		daemonArgs = append(daemonArgs, "--networks", networks)
+	}
+	if trustAutoApprove {
+		daemonArgs = append(daemonArgs, "--trust-auto-approve")
 	}
 
 	proc := exec.Command(selfPath, daemonArgs...)
@@ -1514,16 +1528,17 @@ func runDaemonInternal(args []string) {
 	webhookURL := flagString(flags, "webhook", "")
 	adminToken := flagString(flags, "admin-token", "")
 	networks := flagString(flags, "networks", "")
+	trustAutoApprove := flagBool(flags, "trust-auto-approve")
 
 	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-		adminToken, networks)
+		adminToken, networks, trustAutoApprove)
 }
 
 func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	socketPath string, encrypt bool, identityPath, email, hostname,
 	logLevel, logFormat string, public bool, webhookURL string,
-	adminToken, networks string) {
+	adminToken, networks string, trustAutoApprove bool) {
 
 	if configFile != "" {
 		cfg, err := config.Load(configFile)
@@ -1547,18 +1562,19 @@ func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
 	logging.Setup(logLevel, logFormat)
 
 	d := daemon.New(daemon.Config{
-		RegistryAddr: registryAddr,
-		BeaconAddr:   beaconAddr,
-		ListenAddr:   listenAddr,
-		SocketPath:   socketPath,
-		Encrypt:      encrypt,
-		IdentityPath: identityPath,
-		Email:        email,
-		Public:       public,
-		Hostname:     hostname,
-		WebhookURL:   webhookURL,
-		AdminToken:   adminToken,
-		Networks:     pilotctlParseNetworkIDs(networks),
+		RegistryAddr:     registryAddr,
+		BeaconAddr:       beaconAddr,
+		ListenAddr:       listenAddr,
+		SocketPath:       socketPath,
+		Encrypt:          encrypt,
+		IdentityPath:     identityPath,
+		Email:            email,
+		Public:           public,
+		Hostname:         hostname,
+		WebhookURL:       webhookURL,
+		AdminToken:       adminToken,
+		Networks:         pilotctlParseNetworkIDs(networks),
+		TrustAutoApprove: trustAutoApprove,
 	})
 
 	if err := d.Start(); err != nil {
@@ -5161,6 +5177,120 @@ func cmdDirectorySync(args []string) {
 			fmt.Printf("  - %v\n", a)
 		}
 	}
+}
+
+// ===================== SCRIPTORIUM =====================
+
+// cmdScriptorium sends a pre-formatted command message to a configured responder node.
+//
+// Usage:
+//
+//	pilotctl scriptorium <command> [body] [--node <address|hostname>]
+//
+// The target node is read from ~/.pilot/scriptorium.yaml (key: node) unless
+// overridden with --node.  The message is sent as JSON:
+//
+//	{"command":"<command>","body":"<body>"}
+func cmdScriptorium(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl scriptorium <command> [body] [--node <address|hostname>]")
+	}
+
+	cmdName := pos[0]
+	body := ""
+	if len(pos) > 1 {
+		body = strings.Join(pos[1:], " ")
+	}
+
+	// Resolve target node: --node flag > ~/.pilot/scriptorium.yaml > error.
+	nodeAddr := flagString(flags, "node", "")
+	if nodeAddr == "" {
+		nodeAddr = loadScriptoriumNode()
+	}
+	if nodeAddr == "" {
+		fatalHint("config_missing",
+			"add 'node: <pilot-address>' to ~/.pilot/scriptorium.yaml or pass --node <address>",
+			"scriptorium target node not configured")
+	}
+
+	// Build JSON payload.
+	payload := map[string]string{"command": cmdName, "body": body}
+	msgJSON, err := json.Marshal(payload)
+	if err != nil {
+		fatalCode("internal", "marshal message: %v", err)
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, nodeAddr)
+	if err != nil {
+		fatalCode("not_found", "scriptorium node %q: %v", nodeAddr, err)
+	}
+
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		fatalHint("connection_failed",
+			fmt.Sprintf("ensure the node is reachable and trusted: pilotctl ping %s", nodeAddr),
+			"cannot connect to scriptorium node %s", nodeAddr)
+	}
+	defer client.Close()
+
+	if err := client.SendJSON(msgJSON); err != nil {
+		fatalCode("connection_failed", "send command: %v", err)
+	}
+
+	// Read ACK from the data-exchange layer.
+	ack, err := client.Recv()
+	if err != nil {
+		slog.Debug("scriptorium ACK read failed", "err", err)
+	}
+
+	result := map[string]interface{}{
+		"command": cmdName,
+		"body":    body,
+		"node":    target.String(),
+	}
+	if ack != nil {
+		result["ack"] = string(ack.Payload)
+	}
+	outputOK(result)
+}
+
+// loadScriptoriumNode reads the target node address from ~/.pilot/scriptorium.yaml.
+// Returns an empty string if the file is absent or contains no node key.
+//
+// Expected format:
+//
+//	node: "0:0000.0000.000B"
+func loadScriptoriumNode() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".pilot", "scriptorium.yaml"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "node:") {
+			val := strings.TrimSpace(line[5:])
+			// Strip surrounding quotes.
+			if len(val) >= 2 {
+				f, l := val[0], val[len(val)-1]
+				if (f == '"' && l == '"') || (f == '\'' && l == '\'') {
+					val = val[1 : len(val)-1]
+				}
+			}
+			return val
+		}
+	}
+	return ""
 }
 
 func cmdDirectoryStatus(args []string) {

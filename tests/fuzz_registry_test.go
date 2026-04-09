@@ -295,10 +295,10 @@ func TestTrustPairKeyNormalization(t *testing.T) {
 
 func TestValidationBoundaries(t *testing.T) {
 	tests := []struct {
-		name    string
-		regex   *regexp.Regexp
-		input   string
-		valid   bool
+		name  string
+		regex *regexp.Regexp
+		input string
+		valid bool
 	}{
 		// Hostname boundaries
 		{"hostname-1char", hostnameRegex, "a", true},

@@ -48,9 +48,9 @@ func FuzzDecodeSACK(f *testing.F) {
 	f.Add([]byte("SACK\x01\x00\x00\x00\x64\x00\x00\x00\xC8"))
 	f.Add([]byte{})
 	f.Add([]byte("SACK"))
-	f.Add([]byte("SACK\x00"))         // count=0
-	f.Add([]byte("SACK\x05"))         // count=5 (>4)
-	f.Add([]byte("SACK\x01"))         // count=1, no data
+	f.Add([]byte("SACK\x00"))        // count=0
+	f.Add([]byte("SACK\x05"))        // count=5 (>4)
+	f.Add([]byte("SACK\x01"))        // count=1, no data
 	f.Add([]byte("NOTSACK\x01\x00")) // wrong magic
 
 	f.Fuzz(func(t *testing.T, data []byte) {

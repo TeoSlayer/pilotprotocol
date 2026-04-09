@@ -15,9 +15,9 @@ import (
 type NetworkBlueprint struct {
 	// Network settings
 	Name       string `json:"name"`
-	JoinRule   string `json:"join_rule,omitempty"`   // "open", "token", "invite" (default: "open")
-	JoinToken  string `json:"join_token,omitempty"`  // required if join_rule = "token"
-	Enterprise bool   `json:"enterprise,omitempty"`  // enable enterprise features
+	JoinRule   string `json:"join_rule,omitempty"`  // "open", "token", "invite" (default: "open")
+	JoinToken  string `json:"join_token,omitempty"` // required if join_rule = "token"
+	Enterprise bool   `json:"enterprise,omitempty"` // enable enterprise features
 
 	// Policy
 	Policy *BlueprintPolicy `json:"policy,omitempty"`
@@ -53,9 +53,9 @@ type BlueprintRole struct {
 
 // BlueprintIdentityProvider configures external identity verification.
 type BlueprintIdentityProvider struct {
-	Type     string `json:"type"`               // "oidc", "saml", "webhook", "entra_id", "ldap"
-	URL      string `json:"url"`                // verification endpoint
-	Issuer   string `json:"issuer,omitempty"`   // OIDC issuer URL
+	Type     string `json:"type"`                // "oidc", "saml", "webhook", "entra_id", "ldap"
+	URL      string `json:"url"`                 // verification endpoint
+	Issuer   string `json:"issuer,omitempty"`    // OIDC issuer URL
 	ClientID string `json:"client_id,omitempty"` // OIDC client ID
 	TenantID string `json:"tenant_id,omitempty"` // Azure AD / Entra ID tenant
 	Domain   string `json:"domain,omitempty"`    // LDAP domain
@@ -69,19 +69,19 @@ type BlueprintWebhooks struct {
 
 // BlueprintAuditExport configures external audit log export.
 type BlueprintAuditExport struct {
-	Format   string `json:"format"`             // "json", "splunk_hec", "syslog_cef"
-	Endpoint string `json:"endpoint"`           // destination URL or address
-	Token    string `json:"token,omitempty"`     // auth token (e.g., Splunk HEC token)
-	Index    string `json:"index,omitempty"`     // Splunk index
-	Source   string `json:"source,omitempty"`    // source identifier
+	Format   string `json:"format"`           // "json", "splunk_hec", "syslog_cef"
+	Endpoint string `json:"endpoint"`         // destination URL or address
+	Token    string `json:"token,omitempty"`  // auth token (e.g., Splunk HEC token)
+	Index    string `json:"index,omitempty"`  // Splunk index
+	Source   string `json:"source,omitempty"` // source identifier
 }
 
 // ProvisionResult describes what the provisioning operation did.
 type ProvisionResult struct {
 	NetworkID uint16   `json:"network_id"`
 	Name      string   `json:"name"`
-	Created   bool     `json:"created"`   // true if network was created (vs updated)
-	Actions   []string `json:"actions"`   // human-readable list of actions taken
+	Created   bool     `json:"created"` // true if network was created (vs updated)
+	Actions   []string `json:"actions"` // human-readable list of actions taken
 }
 
 // LoadBlueprint reads a network blueprint from a JSON file.

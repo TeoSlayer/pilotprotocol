@@ -1500,13 +1500,13 @@ func TestTaskResultsEndToEnd(t *testing.T) {
 		t.Fatalf("dial for results: %v", err)
 	}
 	msg := &tasksubmit.TaskResultMessage{
-		TaskID:      taskID,
-		ResultType:  "text",
-		ResultText:  "Task completed successfully",
-		CompletedAt: time.Now().UTC().Format(time.RFC3339),
-		TimeIdleMs:  1000,
+		TaskID:       taskID,
+		ResultType:   "text",
+		ResultText:   "Task completed successfully",
+		CompletedAt:  time.Now().UTC().Format(time.RFC3339),
+		TimeIdleMs:   1000,
 		TimeStagedMs: 2000,
-		TimeCpuMs:   5000,
+		TimeCpuMs:    5000,
 	}
 	if err := resultsClient.SendResults(msg); err != nil {
 		t.Fatalf("send results: %v", err)

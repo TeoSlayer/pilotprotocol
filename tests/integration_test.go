@@ -1105,13 +1105,13 @@ func TestIntegration_MetricsReflectOperations(t *testing.T) {
 	body := fetchMetrics(t, dashAddr)
 
 	checks := map[string]string{
-		"pilot_registrations_total":                            "registrations exist",
-		"pilot_nodes_total":                                    "nodes total exists",
-		"pilot_networks_total":                                 "networks total exists",
-		"pilot_networks_enterprise":                            "enterprise count exists",
-		`pilot_network_members{network="metrics-ops-net"}`:     "per-network members",
-		`pilot_rbac_operations_total{op="promote"}`:            "RBAC promote tracked",
-		`pilot_requests_total{type="register"}`:                "register requests tracked",
+		"pilot_registrations_total":                             "registrations exist",
+		"pilot_nodes_total":                                     "nodes total exists",
+		"pilot_networks_total":                                  "networks total exists",
+		"pilot_networks_enterprise":                             "enterprise count exists",
+		`pilot_network_members{network="metrics-ops-net"}`:      "per-network members",
+		`pilot_rbac_operations_total{op="promote"}`:             "RBAC promote tracked",
+		`pilot_requests_total{type="register"}`:                 "register requests tracked",
 		`pilot_request_duration_seconds_bucket{type="register"`: "register histogram",
 	}
 	for metric, desc := range checks {

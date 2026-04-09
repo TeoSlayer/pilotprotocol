@@ -8,12 +8,12 @@ import (
 
 // DirectoryEntry represents a user from an enterprise directory (AD, Entra ID, LDAP).
 type DirectoryEntry struct {
-	ExternalID  string   `json:"external_id"`            // unique ID from directory (OIDC sub, email, GUID)
+	ExternalID  string   `json:"external_id"` // unique ID from directory (OIDC sub, email, GUID)
 	DisplayName string   `json:"display_name,omitempty"`
 	Email       string   `json:"email,omitempty"`
-	Groups      []string `json:"groups,omitempty"`        // directory groups
-	Role        string   `json:"role,omitempty"`          // desired pilot role: "owner", "admin", "member"
-	Disabled    bool     `json:"disabled,omitempty"`      // deprovisioned users
+	Groups      []string `json:"groups,omitempty"`   // directory groups
+	Role        string   `json:"role,omitempty"`     // desired pilot role: "owner", "admin", "member"
+	Disabled    bool     `json:"disabled,omitempty"` // deprovisioned users
 }
 
 // DirectorySyncRequest is the protocol payload for directory sync.

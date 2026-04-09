@@ -378,9 +378,9 @@ func (c *Client) RenameNetwork(networkID uint16, name, adminToken string, nodeID
 
 func (c *Client) SetNetworkEnterprise(networkID uint16, enterprise bool, adminToken string) (map[string]interface{}, error) {
 	return c.Send(map[string]interface{}{
-		"type":       "set_network_enterprise",
-		"network_id": networkID,
-		"enterprise": enterprise,
+		"type":        "set_network_enterprise",
+		"network_id":  networkID,
+		"enterprise":  enterprise,
 		"admin_token": adminToken,
 	})
 }
@@ -993,11 +993,11 @@ func (c *Client) DirectorySync(networkID uint16, entries []map[string]interface{
 		entryList[i] = e
 	}
 	return c.Send(map[string]interface{}{
-		"type":             "directory_sync",
-		"network_id":       networkID,
-		"entries":          entryList,
-		"remove_unlisted":  removeUnlisted,
-		"admin_token":      adminToken,
+		"type":            "directory_sync",
+		"network_id":      networkID,
+		"entries":         entryList,
+		"remove_unlisted": removeUnlisted,
+		"admin_token":     adminToken,
 	})
 }
 

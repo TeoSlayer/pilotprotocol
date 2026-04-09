@@ -52,6 +52,9 @@ type Config struct {
 	WebhookHTTPTimeout    time.Duration // HTTP client timeout for webhook POSTs (default 5s)
 	WebhookRetryBackoff   time.Duration // initial retry backoff for webhook POSTs (default 1s)
 
+	// Trust
+	TrustAutoApprove bool // automatically approve all incoming handshake requests
+
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
 	Networks   []uint16 // network IDs to auto-join at startup (empty = none)
@@ -106,8 +109,8 @@ const ResolveCacheTTL = 60 * time.Second
 
 // endpointEntry caches a resolved endpoint for a peer node.
 type endpointEntry struct {
-	addr      string    // "host:port"
-	cachedAt  time.Time // when the entry was stored
+	addr     string    // "host:port"
+	cachedAt time.Time // when the entry was stored
 }
 
 // resolveEntry caches a full registry resolve response for a peer node.
@@ -1188,19 +1191,19 @@ type NetworkMembership struct {
 }
 
 type DaemonInfo struct {
-	NodeID             uint32
-	Address            string
-	Hostname           string
-	Uptime             time.Duration
-	Connections        int
-	Ports              int
-	Peers              int
-	EncryptedPeers     int
-	AuthenticatedPeers int
-	Encrypt            bool
-	Identity           bool   // true if identity is persisted
-	PublicKey          string // base64 Ed25519 public key (empty if no identity)
-	Email              string // email address for account identification and key recovery
+	NodeID                uint32
+	Address               string
+	Hostname              string
+	Uptime                time.Duration
+	Connections           int
+	Ports                 int
+	Peers                 int
+	EncryptedPeers        int
+	AuthenticatedPeers    int
+	Encrypt               bool
+	Identity              bool   // true if identity is persisted
+	PublicKey             string // base64 Ed25519 public key (empty if no identity)
+	Email                 string // email address for account identification and key recovery
 	BytesSent             uint64
 	BytesRecv             uint64
 	PktsSent              uint64
@@ -1266,19 +1269,19 @@ func (d *Daemon) Info() *DaemonInfo {
 	}
 
 	return &DaemonInfo{
-		NodeID:             nid,
-		Address:            addrStr,
-		Hostname:           hostname,
-		Uptime:             time.Since(d.startTime).Round(time.Second),
-		Connections:        numConns,
-		Ports:              numPorts,
-		Peers:              d.tunnels.PeerCount(),
-		EncryptedPeers:     encryptedPeers,
-		AuthenticatedPeers: authenticatedPeers,
-		Encrypt:            d.config.Encrypt,
-		Identity:           hasIdentity,
-		PublicKey:          pubKeyStr,
-		Email:              d.config.Email,
+		NodeID:                nid,
+		Address:               addrStr,
+		Hostname:              hostname,
+		Uptime:                time.Since(d.startTime).Round(time.Second),
+		Connections:           numConns,
+		Ports:                 numPorts,
+		Peers:                 d.tunnels.PeerCount(),
+		EncryptedPeers:        encryptedPeers,
+		AuthenticatedPeers:    authenticatedPeers,
+		Encrypt:               d.config.Encrypt,
+		Identity:              hasIdentity,
+		PublicKey:             pubKeyStr,
+		Email:                 d.config.Email,
 		BytesSent:             atomic.LoadUint64(&d.tunnels.BytesSent),
 		BytesRecv:             atomic.LoadUint64(&d.tunnels.BytesRecv),
 		PktsSent:              atomic.LoadUint64(&d.tunnels.PktsSent),

@@ -19,9 +19,9 @@ func FuzzIPCRead(f *testing.F) {
 	ipcutil.Write(&buf, []byte("hello"))
 	f.Add(buf.Bytes())
 	f.Add([]byte{})
-	f.Add(make([]byte, 4))                    // length=0
+	f.Add(make([]byte, 4))                     // length=0
 	f.Add(bytes.Repeat([]byte{0xFF}, 8))       // huge length
-	f.Add([]byte{0x00, 0x00, 0x00, 0x01})     // length=1, no payload
+	f.Add([]byte{0x00, 0x00, 0x00, 0x01})      // length=1, no payload
 	f.Add([]byte{0x00, 0x00, 0x00, 0x01, 'A'}) // length=1, 1 byte payload
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -120,7 +120,7 @@ func TestIPCReadTruncatedLengthPrefix(t *testing.T) {
 func TestIPCReadTruncatedPayload(t *testing.T) {
 	var buf bytes.Buffer
 	binary.Write(&buf, binary.BigEndian, uint32(100)) // claims 100 bytes
-	buf.Write([]byte("short"))                         // only 5 bytes
+	buf.Write([]byte("short"))                        // only 5 bytes
 
 	_, err := ipcutil.Read(&buf)
 	if err == nil {

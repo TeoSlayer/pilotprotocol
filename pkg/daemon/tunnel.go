@@ -121,12 +121,12 @@ type TunnelManager struct {
 	webhook *WebhookClient
 
 	// Metrics
-	BytesSent         uint64
-	BytesRecv         uint64
-	PktsSent          uint64
-	PktsRecv          uint64
-	EncryptOK         uint64
-	EncryptFail       uint64
+	BytesSent   uint64
+	BytesRecv   uint64
+	PktsSent    uint64
+	PktsRecv    uint64
+	EncryptOK   uint64
+	EncryptFail uint64
 }
 
 type IncomingPacket struct {

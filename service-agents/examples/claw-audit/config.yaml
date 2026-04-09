@@ -1,0 +1,8 @@
+# Service agent configuration
+name: "claw-audit"
+description: "OpenClaw security auditor — detects vulnerabilities and misconfigurations"
+
+port: 8300
+
+endpoint_name: "claw-audit"
+endpoint_regex: "^(?P<message>.+)$"
