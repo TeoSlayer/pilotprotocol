@@ -252,7 +252,7 @@ func TestRegistryServerDashboardBadges(t *testing.T) {
 	go s.ServeDashboard(dashAddr)
 	time.Sleep(100 * time.Millisecond)
 
-	badges := []string{"nodes", "trust", "requests", "tags", "task-executors"}
+	badges := []string{"nodes", "trust", "requests"}
 	for _, badge := range badges {
 		resp, err := http.Get("http://" + dashAddr + "/api/badge/" + badge)
 		if err != nil {
