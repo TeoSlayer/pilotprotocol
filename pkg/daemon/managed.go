@@ -34,20 +34,20 @@ type ManagedEngine struct {
 
 // managedPeer tracks a single managed peer's state.
 type managedPeer struct {
-	NodeID   uint32            `json:"node_id"`
-	Score    int               `json:"score"`
-	Topics   map[string]int    `json:"topics,omitempty"` // per-topic scores
-	Tags     []string          `json:"tags,omitempty"`   // peer tags (policy engine)
-	AddedAt  time.Time         `json:"added_at"`
-	LastSeen time.Time         `json:"last_seen"`
+	NodeID   uint32         `json:"node_id"`
+	Score    int            `json:"score"`
+	Topics   map[string]int `json:"topics,omitempty"` // per-topic scores
+	Tags     []string       `json:"tags,omitempty"`   // peer tags (policy engine)
+	AddedAt  time.Time      `json:"added_at"`
+	LastSeen time.Time      `json:"last_seen"`
 }
 
 // managedSnapshot is the JSON format persisted to disk.
 type managedSnapshot struct {
-	NetworkID uint16                   `json:"network_id"`
-	Peers     map[uint32]*managedPeer  `json:"peers"`
-	JoinedAt  string                   `json:"joined_at"`
-	CycleNum  int                      `json:"cycle_num"`
+	NetworkID uint16                  `json:"network_id"`
+	Peers     map[uint32]*managedPeer `json:"peers"`
+	JoinedAt  string                  `json:"joined_at"`
+	CycleNum  int                     `json:"cycle_num"`
 }
 
 // NewManagedEngine creates a managed engine for a network.
@@ -194,10 +194,10 @@ func (me *ManagedEngine) Rankings() []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(entries))
 	for rank, e := range entries {
 		m := map[string]interface{}{
-			"rank":      rank + 1,
-			"node_id":   e.peer.NodeID,
-			"score":     e.peer.Score,
-			"added_at":  e.peer.AddedAt.Format(time.RFC3339),
+			"rank":     rank + 1,
+			"node_id":  e.peer.NodeID,
+			"score":    e.peer.Score,
+			"added_at": e.peer.AddedAt.Format(time.RFC3339),
 		}
 		if !e.peer.LastSeen.IsZero() {
 			m["last_seen"] = e.peer.LastSeen.Format(time.RFC3339)
@@ -260,9 +260,9 @@ func (me *ManagedEngine) runCycle() map[string]interface{} {
 	if err != nil {
 		slog.Warn("managed: cycle fill failed (member list)", "network_id", me.netID, "err", err)
 		return map[string]interface{}{
-			"pruned":  pruned,
-			"filled":  0,
-			"error":   err.Error(),
+			"pruned": pruned,
+			"filled": 0,
+			"error":  err.Error(),
 		}
 	}
 

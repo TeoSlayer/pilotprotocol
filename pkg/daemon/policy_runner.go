@@ -484,9 +484,9 @@ func (pr *PolicyRunner) Rankings() []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(entries))
 	for rank, e := range entries {
 		m := map[string]interface{}{
-			"rank":    rank + 1,
-			"node_id": e.peer.NodeID,
-			"score":   e.peer.Score,
+			"rank":     rank + 1,
+			"node_id":  e.peer.NodeID,
+			"score":    e.peer.Score,
 			"added_at": e.peer.AddedAt.Format(time.RFC3339),
 		}
 		if !e.peer.LastSeen.IsZero() {

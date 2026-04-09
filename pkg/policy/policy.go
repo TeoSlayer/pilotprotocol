@@ -35,16 +35,16 @@ func (e EventType) IsGateEvent() bool { return gateEvents[e] }
 type ActionType string
 
 const (
-	ActionAllow     ActionType = "allow"
-	ActionDeny      ActionType = "deny"
-	ActionScore     ActionType = "score"
-	ActionTag       ActionType = "tag"
-	ActionEvict     ActionType = "evict"
+	ActionAllow      ActionType = "allow"
+	ActionDeny       ActionType = "deny"
+	ActionScore      ActionType = "score"
+	ActionTag        ActionType = "tag"
+	ActionEvict      ActionType = "evict"
 	ActionEvictWhere ActionType = "evict_where"
-	ActionPrune     ActionType = "prune"
-	ActionFill      ActionType = "fill"
-	ActionWebhook   ActionType = "webhook"
-	ActionLog       ActionType = "log"
+	ActionPrune      ActionType = "prune"
+	ActionFill       ActionType = "fill"
+	ActionWebhook    ActionType = "webhook"
+	ActionLog        ActionType = "log"
 )
 
 // verdictActions are actions that produce a gate verdict.
@@ -61,10 +61,10 @@ type Action struct {
 
 // Rule is a single policy rule: when event matches, execute actions.
 type Rule struct {
-	Name    string   `json:"name"`
+	Name    string    `json:"name"`
 	On      EventType `json:"on"`
-	Match   string   `json:"match"`
-	Actions []Action `json:"actions"`
+	Match   string    `json:"match"`
+	Actions []Action  `json:"actions"`
 }
 
 // PolicyDocument is the top-level policy structure stored as JSON.

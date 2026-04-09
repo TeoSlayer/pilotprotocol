@@ -11,13 +11,13 @@ import (
 // these rules. The registry only stores and distributes the rules; all cycle
 // logic runs inside each daemon.
 type NetworkRules struct {
-	Links   int    `json:"links"`            // max managed peers per node
-	Cycle   string `json:"cycle"`            // Go duration: "24h", "1h"
-	Prune   int    `json:"prune"`            // how many to drop per cycle
-	PruneBy string `json:"prune_by"`         // "score", "age", "activity"
-	Fill    int    `json:"fill"`             // how many to add per cycle
-	FillHow string `json:"fill_how"`         // "random"
-	Grace   string `json:"grace,omitempty"`  // grace period for new members
+	Links   int    `json:"links"`           // max managed peers per node
+	Cycle   string `json:"cycle"`           // Go duration: "24h", "1h"
+	Prune   int    `json:"prune"`           // how many to drop per cycle
+	PruneBy string `json:"prune_by"`        // "score", "age", "activity"
+	Fill    int    `json:"fill"`            // how many to add per cycle
+	FillHow string `json:"fill_how"`        // "random"
+	Grace   string `json:"grace,omitempty"` // grace period for new members
 }
 
 // ValidateRules checks that a NetworkRules is well-formed. Returns nil if valid.

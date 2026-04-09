@@ -133,9 +133,9 @@ type Daemon struct {
 	webhook    *WebhookClient
 	taskQueue  *TaskQueue
 	startTime  time.Time
-	stopCh   chan struct{} // closed on Stop() to signal goroutines
-	stopOnce sync.Once    // ensures stopCh is closed exactly once
-	lanAddrs   []string     // LAN addresses for same-network peer detection
+	stopCh     chan struct{} // closed on Stop() to signal goroutines
+	stopOnce   sync.Once     // ensures stopCh is closed exactly once
+	lanAddrs   []string      // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
 	epCacheMu sync.RWMutex
