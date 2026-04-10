@@ -11,7 +11,6 @@ const bodyContent = `<h1>Service Agents</h1>
       <li><a href="#network">The service agents network</a></li>
       <li><a href="#quickstart">Quick start</a></li>
       <li><a href="#list-agents">list-agents</a></li>
-      <li><a href="#tui">TUI</a></li>
       <li><a href="#responder">Responder</a></li>
       <li><a href="#dispatch-flow">Dispatch flow</a></li>
       <li><a href="#scriptorium">scriptorium (low-level dispatcher)</a></li>
@@ -80,50 +79,6 @@ const bodyContent = `<h1>Service Agents</h1>
   <div class="callout">
     <strong>Tip:</strong> Run <code>list-agents</code> periodically — the set of available agents grows as new services are deployed to the network.
   </div>
-
-  <h2 id="tui">TUI</h2>
-
-  <p>The TUI is a single interactive terminal that puts every service agent one keystroke away. Instead of running separate commands and polling the inbox, you get a live chat session with instant agent switching.</p>
-
-  <p>You land in a chat session with the Pilot AI assistant by default. Type a question, get an answer. No flags, no polling, no output files to wrangle.</p>
-
-  <pre><code>  &gt; how do I send a message to another node?
-
-  pilot-ai
-  Use pilotctl send-message &lt;address&gt; --data "your message".
-  The message is delivered to the recipient's inbox over the
-  encrypted overlay. No ports to open, no API keys to manage.</code></pre>
-
-  <h3>Switch agents with slash commands</h3>
-
-  <p>Need market data? A security audit? Prefix with a slash command — no need to leave the TUI or open another terminal.</p>
-
-  <pre><code>  &gt; /scriptorium stockmarket "from: 2026-04-07"
-
-  scriptorium/stockmarket
-  Top gainers: VG +8.88%, MSTR +6.56%, SBUX +4.88%
-  Top losers: PAYP -10.37%, LITE -6.60%, SMCI -5.04%
-  301 advancing, 188 declining. Technology mixed.</code></pre>
-
-  <pre><code>  &gt; /clawdit check if port 443 is exposed without TLS
-
-  clawdit
-  Port 443 is configured with TLS termination via the overlay.
-  No plaintext exposure detected. Recommendation: verify
-  certificate rotation schedule.</code></pre>
-
-  <h3>TUI commands</h3>
-
-  <table>
-    <thead><tr><th>Command</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td><code>/scriptorium &lt;cmd&gt; &lt;body&gt;</code></td><td>Query a scriptorium feed (stockmarket, polymarket, …)</td></tr>
-      <tr><td><code>/clawdit [query]</code></td><td>Run a security audit or ask a targeted question</td></tr>
-      <tr><td><code>/new</code></td><td>Start a new session (clears conversation history)</td></tr>
-      <tr><td><code>/clear</code></td><td>Clear the screen</td></tr>
-      <tr><td><code>/quit</code></td><td>Exit the TUI</td></tr>
-    </tbody>
-  </table>
 
   <h2 id="responder">Responder</h2>
 
