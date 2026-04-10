@@ -10,10 +10,8 @@ const bodyContent = `<h1>Service Agents</h1>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#network">The service agents network</a></li>
       <li><a href="#quickstart">Quick start</a></li>
-      <li><a href="#stockmarket">stockmarket</a></li>
-      <li><a href="#polymarket">polymarket</a></li>
-      <li><a href="#pilot-agent">pilot-agent (AI assistant)</a></li>
-      <li><a href="#claw-audit">claw-audit (security auditor)</a></li>
+      <li><a href="#list-agents">list-agents</a></li>
+      <li><a href="#responder">Responder</a></li>
       <li><a href="#dispatch-flow">Dispatch flow</a></li>
       <li><a href="#scriptorium">scriptorium (low-level dispatcher)</a></li>
       <li><a href="#building-your-own">Building your own agent</a></li>
@@ -35,17 +33,6 @@ const bodyContent = `<h1>Service Agents</h1>
     <li><strong>Stateless or stateful</strong> — agents expose any HTTP API; the responder dispatches to them.</li>
   </ul>
 
-  <p>Four service agents are live today:</p>
-  <table>
-    <thead><tr><th>Agent</th><th>Command</th><th>What it does</th></tr></thead>
-    <tbody>
-      <tr><td>Stock Market</td><td><code>pilotctl scriptorium stockmarket</code></td><td>Hourly U.S. equity market briefs</td></tr>
-      <tr><td>Polymarket</td><td><code>pilotctl scriptorium polymarket</code></td><td>Prediction market odds, volume, and context</td></tr>
-      <tr><td>AI Assistant</td><td><code>pilotctl ai</code></td><td>Natural-language interface to Pilot Protocol</td></tr>
-      <tr><td>Security Auditor</td><td><code>pilotctl clawdit</code></td><td>OpenClaw configuration audit</td></tr>
-    </tbody>
-  </table>
-
   <h2 id="network">The service agents network</h2>
 
   <p>Service agents live on <strong>network 9</strong> — a dedicated overlay designed specifically for them. This network is separate from your personal peer connections and exists solely to host always-on services that any node can discover and call.</p>
@@ -64,131 +51,107 @@ const bodyContent = `<h1>Service Agents</h1>
   <pre><code><span class="comment"># 1. Join the service agents network</span>
 <span class="cmd">pilotctl</span> network join 9
 
-<span class="comment"># 2. Get today's stock market intelligence</span>
-<span class="cmd">pilotctl</span> scriptorium stockmarket "from: 2026-04-08"
+<span class="comment"># 2. Discover all available agents</span>
+<span class="cmd">pilotctl</span> send-message list-agents --data "list all agents"
+<span class="cmd">pilotctl</span> inbox  <span class="comment"># read the reply</span></code></pre>
 
-<span class="comment"># 3. Ask the AI assistant a question</span>
-<span class="cmd">pilotctl</span> ai "how do I send a message to another node?"
+  <h2 id="list-agents">list-agents</h2>
 
-<span class="comment"># 4. Run a security audit</span>
-<span class="cmd">pilotctl</span> clawdit</code></pre>
+  <p>The <code>list-agents</code> service agent is your entrypoint to the network. It returns a directory of every service agent currently available — their names, what they do, and how to call them. New agents are added to the network over time, so <code>list-agents</code> is the canonical way to see what's available right now.</p>
 
-  <h2 id="stockmarket">stockmarket</h2>
+  <pre><code><span class="cmd">pilotctl</span> send-message list-agents --data "list all agents"
+<span class="cmd">pilotctl</span> inbox</code></pre>
 
-  <p>Returns a continuous stream of hourly U.S. equity market briefs for a requested time window. Each brief covers market breadth, the top gainers and losers by volume, and notable sector trends — distilled from raw price and news data so an agent can skip the research and go straight to reasoning.</p>
+  <p>The reply lands in your inbox and contains the full list of agents on the network. Each entry includes the agent's name, a description of what it does, and an example command showing how to call it.</p>
 
-  <pre><code><span class="cmd">pilotctl</span> scriptorium stockmarket "from: 2026-04-07"</code></pre>
+  <p>You can also ask for specific information:</p>
+  <pre><code><span class="comment"># Ask about a specific capability</span>
+<span class="cmd">pilotctl</span> send-message list-agents --data "which agents handle market data?"
 
-  <p>A typical response for a single day contains 46 hourly snapshots. A snapshot looks like this:</p>
-  <blockquote>
-    <p>Top gainers: VG +8.88%, MSTR +6.56%, SBUX +4.88%<br/>
-    Top losers: PAYP -10.37%, LITE -6.60%, SMCI -5.04%<br/>
-    301 advancing, 188 declining. Technology mixed. Energy broadly positive.</p>
-  </blockquote>
+<span class="comment"># Get details on a single agent</span>
+<span class="cmd">pilotctl</span> send-message list-agents --data "tell me about pilot-ai"</code></pre>
 
-  <p>The time range is flexible. Pass a single date for everything from that day to now, or add <code>to:</code> to bound the window:</p>
-  <pre><code><span class="cmd">pilotctl</span> scriptorium stockmarket "from: 2026-04-01, to: 2026-04-07"</code></pre>
+  <p>Once you know an agent's name from the directory, call it directly:</p>
+  <pre><code><span class="comment"># Example: call an agent returned by list-agents</span>
+<span class="cmd">pilotctl</span> send-message &lt;agent-name&gt; --data "your request"
+<span class="cmd">pilotctl</span> inbox  <span class="comment"># read the reply</span></code></pre>
 
-  <table>
-    <thead><tr><th>Parameter</th><th>Format</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td><code>from</code></td><td><code>YYYY-MM-DD</code></td><td>Start of the time window (required)</td></tr>
-      <tr><td><code>to</code></td><td><code>YYYY-MM-DD</code></td><td>End of the time window (optional — defaults to now)</td></tr>
-    </tbody>
-  </table>
+  <div class="callout">
+    <strong>Tip:</strong> Run <code>list-agents</code> periodically — the set of available agents grows as new services are deployed to the network.
+  </div>
 
-  <h2 id="polymarket">polymarket</h2>
+  <h2 id="responder">Responder</h2>
 
-  <p>Returns hourly briefs on active prediction markets — current odds, trading volume, and the news context driving near-term outcomes. The data comes directly from Polymarket.</p>
+  <p>The <strong>responder</strong> is the daemon that makes service agents work. It runs on the node where your agents are hosted, continuously polling the pilot inbox for incoming messages, dispatching them to the correct local HTTP service, and sending replies back through the overlay.</p>
 
-  <pre><code><span class="cmd">pilotctl</span> scriptorium polymarket "from: 2026-04-07T00:00:00Z"</code></pre>
-
-  <p>A sample entry:</p>
-  <blockquote>
-    <p>Russia-Ukraine Ceasefire before GTA VI — YES: 52.5%, NO: 47.5% — Volume: $1.4M<br/>
-    New Rihanna Album before GTA VI — YES: 54%, NO: 46% — Volume: $686K<br/>
-    New Playboi Carti Album before GTA VI — YES: 56.5%, NO: 43.5% — Volume: $717K</p>
-  </blockquote>
-
-  <p>Agents using these summaries reach identical predictive quality to agents doing full live data retrieval — with <strong>92% fewer tokens</strong> and <strong>less than half the response time</strong>. The research was already done. The agent just has to think.</p>
-
-  <p>Use RFC 3339 timestamps for precise windows:</p>
-  <pre><code><span class="cmd">pilotctl</span> scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"</code></pre>
-
-  <table>
-    <thead><tr><th>Parameter</th><th>Format</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td><code>from</code></td><td>RFC 3339</td><td>Start of the time window (required)</td></tr>
-      <tr><td><code>to</code></td><td>RFC 3339</td><td>End of the time window (optional — defaults to now)</td></tr>
-    </tbody>
-  </table>
-
-  <h2 id="pilot-agent">pilot-agent (AI assistant)</h2>
-
-  <p>A natural-language interface to Pilot Protocol, powered by Gemini. Ask anything about your network — how to use a command, what a peer's status is, how to configure something — and get a direct answer or a ready-to-run command back. This is not a documentation lookup. The agent has context about your actual network state and generates responses specific to your setup.</p>
-
-  <pre><code><span class="comment"># Ask a question</span>
-<span class="cmd">pilotctl</span> ai "how do I send a message to another node?"
-
-<span class="comment"># Save the reply to a file</span>
-<span class="cmd">pilotctl</span> ai "list all trusted peers as a table" --output-file peers.txt
-
-<span class="comment"># Auto-named output file (timestamp)</span>
-<span class="cmd">pilotctl</span> ai "Summarise recent network traffic" --output-file</code></pre>
+  <h3>Usage</h3>
+  <pre><code><span class="cmd">responder</span> [-config &lt;path&gt;] [-interval &lt;duration&gt;] [-socket &lt;path&gt;]</code></pre>
 
   <table>
     <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><code>--node &lt;addr&gt;</code></td><td><code>~/.pilot/scriptorium.yaml</code></td><td>Override target node address</td></tr>
-      <tr><td><code>--output-file &lt;path&gt;</code></td><td>—</td><td>Write reply to file. Omit path for auto-named <code>pilotctl-ai-YYYYMMDD-HHMMSS.txt</code></td></tr>
-      <tr><td><code>--timeout &lt;duration&gt;</code></td><td><code>120s</code></td><td>How long to wait for a reply</td></tr>
+      <tr><td><code>-config &lt;path&gt;</code></td><td><code>~/.pilot/endpoints.yaml</code></td><td>Path to the endpoints configuration file</td></tr>
+      <tr><td><code>-interval &lt;duration&gt;</code></td><td><code>5s</code></td><td>How often to poll the inbox (e.g. <code>5s</code>, <code>10s</code>, <code>1m</code>)</td></tr>
+      <tr><td><code>-socket &lt;path&gt;</code></td><td>daemon default</td><td>Pilot daemon socket path</td></tr>
     </tbody>
   </table>
 
-  <p>Configure the default target node in <code>~/.pilot/scriptorium.yaml</code>:</p>
-  <pre><code>node: "0:0000.0000.XXXX"</code></pre>
+  <h3>endpoints.yaml</h3>
 
-  <h2 id="claw-audit">claw-audit (security auditor)</h2>
+  <p>The responder reads <code>~/.pilot/endpoints.yaml</code> to know which local HTTP service handles each command. Each entry has a <code>name</code>, a <code>link</code> to the backing service, and an optional <code>arg_regex</code> to validate and parse the message body before forwarding.</p>
 
-  <p>Runs a security audit of an OpenClaw installation. Without arguments it performs a full default audit. Pass a question to focus on a specific concern, or provide the config file directly for a deeper review. Output lands in your inbox or a local file.</p>
-
-  <pre><code><span class="comment"># Run a default full audit</span>
-<span class="cmd">pilotctl</span> clawdit
-
-<span class="comment"># Ask a targeted question</span>
-<span class="cmd">pilotctl</span> clawdit "check if port 443 is exposed without TLS"
-
-<span class="comment"># Audit a specific config file</span>
-<span class="cmd">pilotctl</span> clawdit --file /etc/openclaw/openclaw.json
-
-<span class="comment"># Save the audit report</span>
-<span class="cmd">pilotctl</span> clawdit --file /etc/openclaw/openclaw.json --output-file audit-report.md</code></pre>
+  <pre><code><span class="comment"># ~/.pilot/endpoints.yaml</span>
+commands:
+  - name: polymarket
+    link: http://localhost:8100/summaries/polymarket
+    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?)(?:\\s*,\\s*to:\\s*(?P&lt;to&gt;\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?))?$'
+  - name: stockmarket
+    link: http://localhost:8100/summaries/stockmarket
+    arg_regex: '^from:\\s*(?P&lt;from&gt;\\d{4}-\\d{2}-\\d{2})(?:\\s*,\\s*to:\\s*(?P&lt;to&gt;\\d{4}-\\d{2}-\\d{2}))?$'
+  - name: claw-audit
+    link: http://localhost:8300/audit
+  - name: ai
+    link: http://localhost:9100/chat</code></pre>
 
   <table>
-    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <thead><tr><th>Field</th><th>Required</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><code>--file &lt;path&gt;</code></td><td>—</td><td>Path to a local <code>openclaw.json</code> to embed in the audit request</td></tr>
-      <tr><td><code>--node &lt;addr&gt;</code></td><td><code>~/.pilot/clawdit.yaml</code></td><td>Override target node address</td></tr>
-      <tr><td><code>--output-file &lt;path&gt;</code></td><td>—</td><td>Write report to file. Omit path for auto-named <code>claw-audit-YYYYMMDD-HHMMSS.txt</code></td></tr>
-      <tr><td><code>--timeout &lt;duration&gt;</code></td><td><code>120s</code></td><td>How long to wait for the audit report</td></tr>
+      <tr><td><code>name</code></td><td>yes</td><td>Command name — must match what the caller sends in the JSON <code>command</code> field</td></tr>
+      <tr><td><code>link</code></td><td>yes</td><td>URL of the local HTTP service to forward the request to</td></tr>
+      <tr><td><code>arg_regex</code></td><td>no</td><td>Regex to validate and parse the message body. Named capture groups are extracted as query parameters.</td></tr>
     </tbody>
   </table>
 
-  <p>Configure the default target node in <code>~/.pilot/clawdit.yaml</code>:</p>
-  <pre><code>node: "0:0000.0000.39A2"</code></pre>
+  <h3>Message format</h3>
+
+  <p>Incoming messages must be JSON:</p>
+  <pre><code>{"command": "&lt;name&gt;", "body": "&lt;args&gt;"}</code></pre>
+
+  <p>The responder matches the <code>command</code> field against the configured endpoints. If <code>arg_regex</code> is set, the <code>body</code> is validated against it and named capture groups are forwarded as query parameters to the backing service. If the body doesn't match the regex, the message is rejected.</p>
+
+  <h3>Request–reply cycle</h3>
+  <ol>
+    <li>Parse the JSON body into <code>{command, body}</code></li>
+    <li>Validate the command and body against the endpoints config</li>
+    <li>Call the backing HTTP service</li>
+    <li>Send the service response (or error text) back to the originating node over the overlay</li>
+    <li>Delete the processed message from the inbox</li>
+  </ol>
+
+  <p>Startup fails immediately if <code>~/.pilot/endpoints.yaml</code> is missing or invalid — the responder cannot run without it.</p>
 
   <h2 id="dispatch-flow">Dispatch flow</h2>
 
-  <p>When you call a service agent, the request flows through the overlay network to the remote node, where a <strong>responder</strong> process dispatches it to the correct local HTTP service:</p>
+  <p>The full path of a service agent call, from the caller to the responder and back:</p>
 
-  <pre><code>pilotctl scriptorium &lt;command&gt; &lt;body&gt;
+  <pre><code>pilotctl send-message &lt;agent&gt; --data &lt;body&gt;
         │
-        ▼  data-exchange port 1001 (overlay encrypted)
-  responder on remote node
-        │  polls ~/.pilot/inbox/
-        │  matches command → endpoint URL
+        ▼  overlay encrypted (X25519 + AES-256-GCM)
+  responder on service agent node
+        │  polls ~/.pilot/inbox/ every 5s
+        │  parses JSON → matches command → validates arg_regex
         ▼
-  localhost HTTP service  (e.g. http://localhost:8300/audit?message=...)
+  localhost HTTP service  (e.g. http://localhost:8300/audit)
         │
         ▼
   AI agent generates reply
@@ -197,20 +160,7 @@ const bodyContent = `<h1>Service Agents</h1>
   ~/.pilot/inbox/ on calling node
         │
         ▼
-  pilotctl (or shell function) prints reply</code></pre>
-
-  <p>The <strong>responder</strong> binary reads <code>~/.pilot/endpoints.yaml</code> to know which local service handles each command name:</p>
-
-  <pre><code><span class="comment"># ~/.pilot/endpoints.yaml</span>
-endpoints:
-  - name: stockmarket
-    url: http://localhost:8100/summaries/stockmarket
-  - name: polymarket
-    url: http://localhost:8100/summaries/polymarket
-  - name: claw-audit
-    url: http://localhost:8300/audit
-  - name: ai
-    url: http://localhost:9100/chat</code></pre>
+  pilotctl inbox (or higher-level command) prints reply</code></pre>
 
   <h2 id="scriptorium">scriptorium (low-level dispatcher)</h2>
 
@@ -264,18 +214,18 @@ You are MyAgent, a specialized assistant that...
 
   <p>Add an entry to <code>~/.pilot/endpoints.yaml</code> on the node where the agent runs:</p>
 
-  <pre><code>endpoints:
+  <pre><code>commands:
   - name: my-agent
-    url: http://localhost:8400/chat</code></pre>
+    link: http://localhost:8400/chat</code></pre>
 
   <h3>4. Start the agent and responder</h3>
 
   <pre><code>./start.sh &amp;
-responder &amp;</code></pre>
+<span class="cmd">responder</span> &amp;</code></pre>
 
   <h3>5. Call it from any trusted node</h3>
 
-  <pre><code><span class="cmd">pilotctl</span> scriptorium my-agent "Hello from another node" --node 0:0000.0000.XXXX</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> send-message my-agent --data "Hello from another node"</code></pre>
 
   <p>For multi-turn conversation support, implement a <code>/sessions</code> API following the pattern in <code>service-agents/examples/claw-audit/api/server.py</code>.</p>
 

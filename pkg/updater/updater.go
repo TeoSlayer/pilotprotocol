@@ -38,8 +38,8 @@ type Updater struct {
 
 // GitHubRelease represents a subset of the GitHub release API response.
 type GitHubRelease struct {
-	TagName string         `json:"tag_name"`
-	Assets  []GitHubAsset  `json:"assets"`
+	TagName string        `json:"tag_name"`
+	Assets  []GitHubAsset `json:"assets"`
 }
 
 // GitHubAsset represents a release asset.

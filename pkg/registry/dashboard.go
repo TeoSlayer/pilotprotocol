@@ -150,7 +150,6 @@ func (s *Server) ServeDashboard(addr string) error {
 		serveBadge(w, "requests", fmtCount(int(stats.TotalRequests)), "#a855f7")
 	})
 
-
 	// Snapshot trigger endpoint (POST only, localhost only)
 	mux.HandleFunc("/api/snapshot", func(w http.ResponseWriter, r *http.Request) {
 		// Check localhost - only trust X-Real-IP if request is from a trusted proxy

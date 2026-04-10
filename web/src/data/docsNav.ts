@@ -41,8 +41,6 @@ export const docsNav: NavItem[] = [
     icon: '<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
   { label: 'Service Agents', href: '/docs/service-agents', slug: 'service-agents',
     icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/><path d="M12 12v9"/><path d="M9 18l3 3 3-3"/></svg>' },
-  { label: 'TUI', href: '/docs/tui', slug: 'tui',
-    icon: '<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="8" y1="7" x2="8.01" y2="7"/><line x1="7" y1="11" x2="17" y2="11"/></svg>' },
   // Enterprise
   { section: 'Enterprise', label: 'Enterprise Overview', href: '/docs/enterprise', slug: 'enterprise',
     icon: '<svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
