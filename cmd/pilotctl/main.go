@@ -418,9 +418,6 @@ Mailbox:
   pilotctl inbox [--clear]
 
 Service Agents (AI-powered overlay services):
-  pilotctl ls                                      Discover agents on the network
-  pilotctl tui                                     Interactive TUI
-
   Talk to agents using standard messaging:
     pilotctl send-message list-agents --data "list all agents"
     pilotctl send-message pilot-ai --data "How do I subscribe to a topic?"
@@ -779,8 +776,6 @@ func main() {
 	case "inbox":
 		cmdInbox(cmdArgs)
 
-	case "ls":
-		cmdLs(cmdArgs)
 	// Internal: forked daemon process
 	case "_daemon-run":
 		runDaemonInternal(cmdArgs)
@@ -1112,16 +1107,6 @@ func cmdContext() {
 				"args":        []string{"[--clear]"},
 				"description": "List messages received via data exchange (port 1001). Messages saved to ~/.pilot/inbox/. Use --clear to delete all",
 				"returns":     "messages [{type, from, data, received_at}], total, dir",
-			},
-			"ls": map[string]interface{}{
-				"args":        []string{},
-				"description": "Discover service agents on the network via the list-agents node",
-				"returns":     "(text guidance)",
-			},
-			"tui": map[string]interface{}{
-				"args":        []string{},
-				"description": "Launch the interactive service-agent TUI (message pilot-ai, /clawdit, /list-agents)",
-				"returns":     "(interactive — no JSON output)",
 			},
 		},
 		"error_codes": map[string]interface{}{
@@ -5199,75 +5184,6 @@ func cmdDirectorySync(args []string) {
 		for _, a := range actions {
 			fmt.Printf("  - %v\n", a)
 		}
-	}
-}
-
-// cmdLs queries the list-agents service to discover agents on the network.
-func cmdLs(args []string) {
-	fmt.Println("Service Agents are discovered via the list-agents node on the network.")
-	fmt.Println()
-	fmt.Println("  Discover agents:")
-	fmt.Println("    pilotctl send-message list-agents --data \"list all agents\"")
-	fmt.Println()
-	fmt.Println("  Query a specific agent:")
-	fmt.Println("    pilotctl send-message pilot-ai --data \"What is the command to list peers?\"")
-	fmt.Println("    pilotctl send-file clawdit ~/.openclaw/openclaw.json")
-	fmt.Println("    pilotctl send-message clawdit --data \"Is LAN mode safe for production?\"")
-	fmt.Println()
-	fmt.Println("  Search for agents:")
-	fmt.Println("    pilotctl send-message list-agents --data \"Any agent that does security audits?\"")
-	fmt.Println()
-}
-
-// cmdTui launches the interactive service-agent TUI.
-func cmdTui(args []string) {
-	// Locate tui.py: check next to the binary, tui/ subdir, or ~/.pilot/tui.py.
-	exe, _ := os.Executable()
-	exeDir := filepath.Dir(exe)
-	candidates := []string{
-		filepath.Join(exeDir, "tui", "tui.py"),
-		filepath.Join(exeDir, "tui.py"),
-	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		candidates = append(candidates, filepath.Join(home, ".pilot", "tui", "tui.py"))
-		candidates = append(candidates, filepath.Join(home, ".pilot", "tui.py"))
-	}
-
-	var tuiPath string
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			tuiPath = p
-			break
-		}
-	}
-	if tuiPath == "" {
-		fatalHint("not_found",
-			"ensure tui/tui.py is installed at ~/.pilot/tui/tui.py or next to the pilotctl binary",
-			"TUI not found")
-	}
-
-	// Find python3.
-	python := "python3"
-	if p, err := exec.LookPath("python3"); err == nil {
-		python = p
-	} else if p, err := exec.LookPath("python"); err == nil {
-		python = p
-	} else {
-		fatalHint("not_found",
-			"install Python 3: https://python.org",
-			"python3 not found on PATH")
-	}
-
-	cmd := exec.Command(python, tuiPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		fatalCode("internal", "tui: %v", err)
 	}
 }
 
