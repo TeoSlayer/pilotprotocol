@@ -5636,7 +5636,7 @@ func (s *Server) sampleStats() statsSampleResult {
 	return statsSampleResult{
 		global: StatsSample{
 			Timestamp:     now.Unix(),
-			TotalNodes:    len(s.nodes),
+			TotalNodes:    int(s.nextNode - 1),
 			OnlineNodes:   online,
 			TrustLinks:    len(s.trustPairs),
 			TotalRequests: s.requestCount.Load(),
@@ -6261,65 +6261,45 @@ func (s *Server) load() error {
 		slog.Info("loaded invite inboxes", "queues", len(s.inviteInbox))
 	}
 
-	// Restore time-series history ring buffers
+	// Restore time-series history ring buffers (deduplicate by bucket)
 	if len(snap.HourlyHistory) > 0 {
-		for i, sample := range snap.HourlyHistory {
-			if i >= 24 {
-				break
-			}
+		deduped := deduplicateSamples(snap.HourlyHistory, 3600, 24)
+		for i, sample := range deduped {
 			s.hourlyHistory[i] = sample
 		}
-		s.hourlyIdx = len(snap.HourlyHistory)
-		if s.hourlyIdx > 24 {
-			s.hourlyIdx = 24
-		}
-		slog.Info("loaded hourly history", "samples", len(snap.HourlyHistory))
+		s.hourlyIdx = len(deduped)
+		slog.Info("loaded hourly history", "samples", len(deduped))
 	}
 	if len(snap.DailyHistory) > 0 {
-		for i, sample := range snap.DailyHistory {
-			if i >= 7 {
-				break
-			}
+		deduped := deduplicateSamples(snap.DailyHistory, 86400, 7)
+		for i, sample := range deduped {
 			s.dailyHistory[i] = sample
 		}
-		s.dailyIdx = len(snap.DailyHistory)
-		if s.dailyIdx > 7 {
-			s.dailyIdx = 7
-		}
-		slog.Info("loaded daily history", "samples", len(snap.DailyHistory))
+		s.dailyIdx = len(deduped)
+		slog.Info("loaded daily history", "samples", len(deduped))
 	}
-	// Restore per-network history
+	// Restore per-network history (deduplicated)
 	for netIDStr, entries := range snap.NetHourlyHistory {
 		var netID uint16
 		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			deduped := deduplicateNetSamples(entries, 3600, 24)
 			ring := newNetHistoryRing(24)
-			for i, e := range entries {
-				if i >= 24 {
-					break
-				}
+			for i, e := range deduped {
 				ring.Samples[i] = e
 			}
-			ring.Idx = len(entries)
-			if ring.Idx > 24 {
-				ring.Idx = 24
-			}
+			ring.Idx = len(deduped)
 			s.netHourly[netID] = ring
 		}
 	}
 	for netIDStr, entries := range snap.NetDailyHistory {
 		var netID uint16
 		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			deduped := deduplicateNetSamples(entries, 86400, 7)
 			ring := newNetHistoryRing(7)
-			for i, e := range entries {
-				if i >= 7 {
-					break
-				}
+			for i, e := range deduped {
 				ring.Samples[i] = e
 			}
-			ring.Idx = len(entries)
-			if ring.Idx > 7 {
-				ring.Idx = 7
-			}
+			ring.Idx = len(deduped)
 			s.netDaily[netID] = ring
 		}
 	}
@@ -6532,13 +6512,82 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	}
 
 	return DashboardStats{
-		TotalNodes:      len(s.nodes),
+		TotalNodes:      int(s.nextNode - 1),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
 	}
+}
+
+// deduplicateSamples keeps only the latest sample per time bucket.
+// bucketSecs is 3600 for hourly or 86400 for daily. maxOut caps the result.
+func deduplicateSamples(samples []StatsSample, bucketSecs int64, maxOut int) []StatsSample {
+	type entry struct {
+		bucket int64
+		sample StatsSample
+	}
+	seen := make(map[int64]int) // bucket -> index in result
+	var result []entry
+	for _, s := range samples {
+		if s.Timestamp == 0 {
+			continue
+		}
+		b := s.Timestamp / bucketSecs
+		if idx, ok := seen[b]; ok {
+			// Keep the later sample in the same bucket
+			if s.Timestamp > result[idx].sample.Timestamp {
+				result[idx].sample = s
+			}
+		} else {
+			seen[b] = len(result)
+			result = append(result, entry{bucket: b, sample: s})
+		}
+	}
+	// Sort chronologically
+	sort.Slice(result, func(i, j int) bool { return result[i].bucket < result[j].bucket })
+	out := make([]StatsSample, 0, len(result))
+	for _, e := range result {
+		out = append(out, e.sample)
+	}
+	if len(out) > maxOut {
+		out = out[len(out)-maxOut:]
+	}
+	return out
+}
+
+// deduplicateNetSamples keeps only the latest NetworkSampleEntry per time bucket.
+func deduplicateNetSamples(samples []NetworkSampleEntry, bucketSecs int64, maxOut int) []NetworkSampleEntry {
+	type entry struct {
+		bucket int64
+		sample NetworkSampleEntry
+	}
+	seen := make(map[int64]int)
+	var result []entry
+	for _, s := range samples {
+		if s.Timestamp == 0 {
+			continue
+		}
+		b := s.Timestamp / bucketSecs
+		if idx, ok := seen[b]; ok {
+			if s.Timestamp > result[idx].sample.Timestamp {
+				result[idx].sample = s
+			}
+		} else {
+			seen[b] = len(result)
+			result = append(result, entry{bucket: b, sample: s})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].bucket < result[j].bucket })
+	out := make([]NetworkSampleEntry, 0, len(result))
+	for _, e := range result {
+		out = append(out, e.sample)
+	}
+	if len(out) > maxOut {
+		out = out[len(out)-maxOut:]
+	}
+	return out
 }
 
 // readHistory returns chronologically-ordered hourly and daily samples.
@@ -6660,7 +6709,7 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	hourly, daily := s.readHistory()
 
 	return DashboardStats{
-		TotalNodes:      len(s.nodes),
+		TotalNodes:      int(s.nextNode - 1),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),

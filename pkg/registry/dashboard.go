@@ -337,7 +337,7 @@ footer a:hover{color:#58a6ff}
 
 <div class="charts-row" id="charts-row" style="display:none">
   <div class="chart-card">
-    <h2>Last 24 Hours</h2>
+    <h2>Online Nodes — Last 24 Hours</h2>
     <div class="disclaimer">Since last registry restart</div>
     <div style="position:relative">
       <svg id="chart-hourly" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
@@ -345,7 +345,7 @@ footer a:hover{color:#58a6ff}
     </div>
   </div>
   <div class="chart-card">
-    <h2>Last 7 Days</h2>
+    <h2>Online Nodes — Last 7 Days</h2>
     <div class="disclaimer">Since last registry restart</div>
     <div style="position:relative">
       <svg id="chart-daily" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
@@ -465,9 +465,9 @@ function showNetDetail(idx){
     var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
   },'#3fb950');
 }
-function drawChart(svg,tip,samples,valFn,labelFn,color){
+function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   if(!svg)return;
-  color=color||'#58a6ff';
+  color=color||'#58a6ff';unit=unit||'online';
   if(!samples||!samples.length){svg.innerHTML='';return}
   var W=400,H=180,padL=40,padR=10,padT=10,padB=30;
   var cW=W-padL-padR,cH=H-padT-padB;
@@ -510,7 +510,7 @@ function drawChart(svg,tip,samples,valFn,labelFn,color){
   if(tip){
     svg.querySelectorAll('rect[data-val]').forEach(function(r){
       r.addEventListener('mouseenter',function(){
-        tip.textContent=r.getAttribute('data-lbl')+': '+r.getAttribute('data-val')+' online';
+        tip.textContent=r.getAttribute('data-lbl')+': '+r.getAttribute('data-val')+' '+unit;
         tip.style.display='block';
         var svgRect=svg.getBoundingClientRect();
         var px=parseFloat(r.getAttribute('data-x'))/W*svgRect.width;
@@ -526,10 +526,10 @@ function renderCharts(hourly,daily){
   row.style.display='grid';
   drawChart(document.getElementById('chart-hourly'),document.getElementById('tip-hourly'),hourly||[],function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
-  });
+  },'#58a6ff','online');
   drawChart(document.getElementById('chart-daily'),document.getElementById('tip-daily'),daily||[],function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
-  });
+  },'#58a6ff','online');
 }
 function update(){
   var url='/api/stats';
