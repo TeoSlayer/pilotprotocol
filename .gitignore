@@ -19,7 +19,6 @@ _obj/
 /pilotctl
 /nameserver
 /gateway
-/responder
 /updater
 # caches
 __pycache__

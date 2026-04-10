@@ -420,9 +420,6 @@ Mailbox:
 Service Agents (AI-powered overlay services):
   Talk to agents using standard messaging:
     pilotctl send-message list-agents --data "list all agents"
-    pilotctl send-message pilot-ai --data "How do I subscribe to a topic?"
-    pilotctl send-message clawdit --data "Is LAN mode safe for production?"
-    pilotctl send-file clawdit ~/.openclaw/openclaw.json
 
 Diagnostic commands:
   pilotctl info
