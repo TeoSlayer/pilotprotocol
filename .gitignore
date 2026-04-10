@@ -19,11 +19,6 @@ _obj/
 /pilotctl
 /nameserver
 /gateway
-
-pilotctl-arm64
-responder-arm64
-responder
-pilot-daemon-arm64
 /responder
 /updater
 # caches
