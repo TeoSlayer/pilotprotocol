@@ -733,6 +733,10 @@ func (d *Daemon) addrFamilyMismatch(addr string) bool {
 	if localIP == nil || remoteIP == nil {
 		return false
 	}
+	// Wildcard addresses (:: or 0.0.0.0) are dual-stack — they accept both families.
+	if localIP.IsUnspecified() {
+		return false
+	}
 	localIs4 := localIP.To4() != nil
 	remoteIs4 := remoteIP.To4() != nil
 	return localIs4 != remoteIs4

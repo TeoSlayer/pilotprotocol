@@ -488,10 +488,23 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 		return
 	}
 
-	// Verify the packet-provided Ed25519 pubkey matches the registry
+	// Verify the packet-provided Ed25519 pubkey matches the registry.
+	// On mismatch, invalidate cache and re-fetch — the peer may have restarted
+	// with a new identity since we last cached their key.
 	if !peerEd25519PubKey.Equal(expectedPubKey) {
-		slog.Error("auth key exchange: Ed25519 pubkey mismatch with registry", "peer_node_id", peerNodeID)
-		return
+		tm.mu.Lock()
+		delete(tm.peerPubKeys, peerNodeID)
+		tm.mu.Unlock()
+		expectedPubKey, err = tm.getPeerPubKey(peerNodeID)
+		if err != nil || expectedPubKey == nil {
+			slog.Warn("auth key exchange rejected: cannot re-verify peer identity", "peer_node_id", peerNodeID, "error", err)
+			return
+		}
+		if !peerEd25519PubKey.Equal(expectedPubKey) {
+			slog.Error("auth key exchange: Ed25519 pubkey mismatch with registry", "peer_node_id", peerNodeID)
+			return
+		}
+		slog.Info("auth key exchange: peer pubkey updated from registry", "peer_node_id", peerNodeID)
 	}
 
 	// Verify signature against the registry-verified key

@@ -46,6 +46,7 @@ func main() {
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
+	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
@@ -94,6 +95,7 @@ func main() {
 		AdminToken:            *adminToken,
 		Networks:              parseNetworkIDs(*networks),
 		Version:               version,
+		TrustAutoApprove:      *trustAutoApprove,
 	})
 
 	if err := d.Start(); err != nil {
