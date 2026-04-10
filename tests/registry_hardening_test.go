@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,9 +14,9 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
-// TestRegistryRateLimitResolve verifies that the per-operation rate limiter
-// blocks resolve operations that exceed 100/IP/min.
-func TestRegistryRateLimitResolve(t *testing.T) {
+// TestRegistryResolveNotRateLimited verifies that resolve operations are not
+// per-IP rate limited (removed to support large agent deployments behind NAT).
+func TestRegistryResolveNotRateLimited(t *testing.T) {
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
@@ -32,7 +31,6 @@ func TestRegistryRateLimitResolve(t *testing.T) {
 
 	regAddr := reg.Addr().String()
 
-	// Register two nodes so we can resolve
 	rc, err := registry.Dial(regAddr)
 	if err != nil {
 		t.Fatalf("dial registry: %v", err)
@@ -54,7 +52,6 @@ func TestRegistryRateLimitResolve(t *testing.T) {
 	}
 	nodeID2 := uint32(resp2["node_id"].(float64))
 
-	// Make both nodes public and establish trust so resolve works
 	setClientSigner(rc, id1)
 	if _, err := rc.SetVisibility(nodeID1, true); err != nil {
 		t.Fatalf("set visibility: %v", err)
@@ -64,29 +61,14 @@ func TestRegistryRateLimitResolve(t *testing.T) {
 		t.Fatalf("set visibility: %v", err)
 	}
 
-	// Send 100 resolve requests — should all succeed (limit is 100/min)
+	// 200 resolves from the same IP should all succeed
 	setClientSigner(rc, id1)
-	successCount := 0
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		_, err := rc.Resolve(nodeID2, nodeID1)
-		if err == nil {
-			successCount++
+		if err != nil {
+			t.Fatalf("resolve %d should succeed (no per-IP rate limit): %v", i+1, err)
 		}
 	}
-
-	if successCount != 100 {
-		t.Fatalf("expected 100 resolves to succeed, got %d", successCount)
-	}
-
-	// 101st resolve should be rate limited
-	_, err = rc.Resolve(nodeID2, nodeID1)
-	if err == nil {
-		t.Fatal("expected 101st resolve to be rate limited, but it succeeded")
-	}
-	if !strings.Contains(err.Error(), "rate limited") {
-		t.Fatalf("expected rate limit error, got: %v", err)
-	}
-	t.Logf("resolve rate limited as expected: %v", err)
 }
 
 // TestRegistryMessageSizeLimit verifies that oversized messages cause

@@ -35,7 +35,7 @@ func TestRateLimiterBasicAllowDeny(t *testing.T) {
 	t.Parallel()
 
 	// 5 requests per 1-second window
-	rl := registry.NewRateLimiter(5, time.Second)
+	rl := registry.NewRateLimiter(5, time.Second, 0)
 
 	ip := "192.168.1.1"
 
@@ -56,7 +56,7 @@ func TestRateLimiterTokenRefill(t *testing.T) {
 	t.Parallel()
 
 	clk := newTestClock()
-	rl := registry.NewRateLimiter(10, 100*time.Millisecond)
+	rl := registry.NewRateLimiter(10, 100*time.Millisecond, 0)
 	rl.SetClock(clk.Now)
 
 	ip := "10.0.0.1"
@@ -86,7 +86,7 @@ func TestRateLimiterPartialRefill(t *testing.T) {
 	t.Parallel()
 
 	clk := newTestClock()
-	rl := registry.NewRateLimiter(10, 100*time.Millisecond)
+	rl := registry.NewRateLimiter(10, 100*time.Millisecond, 0)
 	rl.SetClock(clk.Now)
 
 	ip := "10.0.0.2"
@@ -116,7 +116,7 @@ func TestRateLimiterCleanup(t *testing.T) {
 	t.Parallel()
 
 	clk := newTestClock()
-	rl := registry.NewRateLimiter(5, 50*time.Millisecond)
+	rl := registry.NewRateLimiter(5, 50*time.Millisecond, 0)
 	rl.SetClock(clk.Now)
 
 	// Create entries for two IPs
@@ -143,7 +143,7 @@ func TestRateLimiterCleanup(t *testing.T) {
 func TestRateLimiterCleanupKeepsRecent(t *testing.T) {
 	t.Parallel()
 
-	rl := registry.NewRateLimiter(5, time.Second)
+	rl := registry.NewRateLimiter(5, time.Second, 0)
 
 	// Create entries for several IPs
 	for i := 0; i < 10; i++ {
@@ -162,7 +162,7 @@ func TestRateLimiterMultipleIPs(t *testing.T) {
 	t.Parallel()
 
 	// 3 requests per second per IP
-	rl := registry.NewRateLimiter(3, time.Second)
+	rl := registry.NewRateLimiter(3, time.Second, 0)
 
 	ipA := "1.1.1.1"
 	ipB := "2.2.2.2"
@@ -196,7 +196,7 @@ func TestRateLimiterBoundaryExactLimit(t *testing.T) {
 	t.Parallel()
 
 	// Rate of exactly 1 request per second
-	rl := registry.NewRateLimiter(1, time.Second)
+	rl := registry.NewRateLimiter(1, time.Second, 0)
 
 	ip := "boundary-ip"
 
@@ -215,7 +215,7 @@ func TestRateLimiterTokenCap(t *testing.T) {
 	t.Parallel()
 
 	clk := newTestClock()
-	rl := registry.NewRateLimiter(5, 50*time.Millisecond)
+	rl := registry.NewRateLimiter(5, 50*time.Millisecond, 0)
 	rl.SetClock(clk.Now)
 
 	ip := "cap-test"
@@ -243,7 +243,7 @@ func TestRateLimiterTokenCap(t *testing.T) {
 func TestRateLimiterNewIPAlwaysAllowed(t *testing.T) {
 	t.Parallel()
 
-	rl := registry.NewRateLimiter(5, time.Second)
+	rl := registry.NewRateLimiter(5, time.Second, 0)
 
 	// Each new IP gets its first request allowed
 	for i := 0; i < 100; i++ {
@@ -259,7 +259,7 @@ func TestRateLimiterHighRate(t *testing.T) {
 
 	clk := newTestClock()
 	// High rate: 1000 requests per second
-	rl := registry.NewRateLimiter(1000, time.Second)
+	rl := registry.NewRateLimiter(1000, time.Second, 0)
 	rl.SetClock(clk.Now)
 
 	ip := "high-rate"
@@ -280,7 +280,7 @@ func TestRateLimiterConcurrent(t *testing.T) {
 	t.Parallel()
 
 	// 100 requests per second — accessed concurrently
-	rl := registry.NewRateLimiter(100, time.Second)
+	rl := registry.NewRateLimiter(100, time.Second, 0)
 
 	ip := "concurrent-ip"
 

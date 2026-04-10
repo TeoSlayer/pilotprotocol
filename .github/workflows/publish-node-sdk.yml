@@ -1,58 +1,31 @@
-name: Build and Publish Node SDK
+name: Publish Node SDK
 
 on:
-  push:
-    branches:
-      - 'build/**'
-      - 'main'
-    paths:
-      - 'sdk/node/**'
-      - 'sdk/cgo/**'
-      - '.github/workflows/publish-node-sdk.yml'
+  release:
+    types: [published]
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  # Determine whether this is a production or test deployment
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.determine-env.outputs.environment }}
-    steps:
-      - name: Determine environment
-        id: determine-env
-        run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "environment=production" >> $GITHUB_OUTPUT
-            echo "Deploying to production (main branch)"
-          else
-            echo "environment=test" >> $GITHUB_OUTPUT
-            echo "Deploying to test (build branch)"
-          fi
-
-  # Run SDK unit tests before building
   test-sdk:
-    needs: setup
+    if: "!github.event.release.prerelease"
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: sdk/node
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - run: npm ci
       - run: npm run build
       - run: npm test
 
-  # Build platform-specific packages
   build-packages:
-    needs: [setup, test-sdk]
+    needs: test-sdk
     strategy:
       matrix:
         include:
@@ -60,67 +33,24 @@ jobs:
             platform: linux
           - os: macos-latest
             platform: macos
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Generate version
-        id: version
+      - name: Set version from release tag
         shell: bash
         run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_ENV
           cd sdk/node
-
-          if [ "${{ github.event_name }}" = "push" ]; then
-            BRANCH="${{ github.ref_name }}"
-          else
-            BRANCH="${{ github.ref_name }}"
-          fi
-
-          echo "Branch: $BRANCH"
-
-          # Get latest SDK tag based on environment
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            LATEST_TAG=$(git describe --tags --match "node-sdk-v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "node-sdk-v0.1.0")
-          else
-            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
-            DEV_TAG_PATTERN="node-sdk-dev-${SAFE_BRANCH}-v[0-9]*.[0-9]*.[0-9]*"
-            LATEST_TAG=$(git describe --tags --match "$DEV_TAG_PATTERN" --abbrev=0 2>/dev/null || echo "node-sdk-dev-${SAFE_BRANCH}-v0.1.0")
-          fi
-
-          BASE_VERSION=$(echo "$LATEST_TAG" | sed 's/.*v\([0-9]*\.[0-9]*\.[0-9]*\)$/\1/')
-          COMMITS_SINCE_TAG=$(git rev-list ${LATEST_TAG}..HEAD --count -- . 2>/dev/null || echo "0")
-
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            if [ "$COMMITS_SINCE_TAG" = "0" ]; then
-              VERSION="$BASE_VERSION"
-            else
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-              PATCH=$((PATCH + 1))
-              VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            fi
-          else
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-            DEV_NUMBER=$(date -u +"%Y%m%d%H%M")
-            VERSION="${MAJOR}.${MINOR}.${PATCH}-dev.${DEV_NUMBER}"
-          fi
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Generated version: $VERSION"
-
-          # Update package.json version
           node -e "
             const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
             pkg.version = '$VERSION';
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-
-          echo "Updated package.json:"
-          grep '"version"' package.json
+          echo "SDK version: $VERSION"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -162,29 +92,15 @@ jobs:
           path: sdk/node/
           retention-days: 7
 
-  # Publish to npm
   publish:
-    needs: [setup, build-packages]
+    needs: build-packages
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Download Linux package
         uses: actions/download-artifact@v4
         with:
           name: npm-package-linux
           path: sdk/node-linux
-
-      - name: Download macOS package
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-package-macos
-          path: sdk/node-macos
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -205,98 +121,50 @@ jobs:
           VERSION=${{ steps.extract-version.outputs.version }}
           if npm view pilotprotocol@$VERSION version 2>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "⚠️ Version $VERSION already exists on npm"
+            echo "Version $VERSION already exists on npm"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "✓ Version $VERSION does not exist on npm"
+            echo "Version $VERSION does not exist on npm"
           fi
 
-      - name: Publish Linux package
+      - name: Publish to npm
         if: steps.check-npm.outputs.exists == 'false'
         working-directory: sdk/node-linux
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # Install dependencies so prepublishOnly (tsc) can find @types/node
           npm ci
-          # Publish with linux tag
-          if [ "${{ needs.setup.outputs.environment }}" = "test" ]; then
-            npm publish --tag dev --access public
-          else
-            npm publish --access public
-          fi
-
-      - name: Create git tag
-        if: steps.check-npm.outputs.exists == 'false'
-        run: |
-          VERSION=${{ steps.extract-version.outputs.version }}
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            TAG_NAME="node-sdk-v${VERSION}"
-            git tag -a "$TAG_NAME" -m "Node SDK Release v$VERSION"
-          else
-            BRANCH="${{ github.ref_name }}"
-            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/^build-//')
-            BASE_VERSION=$(echo "$VERSION" | sed 's/^\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
-            TAG_NAME="node-sdk-dev-${SAFE_BRANCH}-v${BASE_VERSION}"
-            git tag -d "$TAG_NAME" 2>/dev/null || true
-            git push origin ":refs/tags/$TAG_NAME" 2>/dev/null || true
-            git tag -a "$TAG_NAME" -m "Node SDK Dev Release v$VERSION"
-          fi
-
-          git push origin "$TAG_NAME"
-          echo "✓ Created tag: $TAG_NAME"
+          npm publish --access public
 
       - name: Skip publish - version exists
         if: steps.check-npm.outputs.exists == 'true'
-        run: |
-          echo "⚠️ Skipping publish - version already exists on npm"
+        run: echo "Skipping publish - version already exists on npm"
 
       - name: Create summary
         run: |
           echo "## Node SDK Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.extract-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.setup.outputs.environment }}" = "production" ]; then
-            echo "**Install:** \`npm install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
-            echo "**npm:** https://www.npmjs.com/package/pilotprotocol" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**Install:** \`npm install pilotprotocol@dev\`" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "**Install:** \`npm install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+          echo "**npm:** https://www.npmjs.com/package/pilotprotocol" >> $GITHUB_STEP_SUMMARY
 
-  # Test installation
   test-install:
-    needs: [setup, publish]
+    needs: publish
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Wait for package availability
+      - name: Wait for npm propagation
         run: sleep 60
 
-      - name: Install from npm
-        if: needs.setup.outputs.environment == 'production'
+      - name: Install and verify
         run: |
           npm install pilotprotocol
-          # Test that binaries are accessible
           npx pilotctl info 2>&1 | head -1 || true
-          # Test Node import
-          node -e "import('pilotprotocol').then(m => console.log('✓ SDK installed, exports:', Object.keys(m)))"
-
-      - name: Install dev version
-        if: needs.setup.outputs.environment == 'test'
-        run: |
-          npm install pilotprotocol@dev
-          node -e "import('pilotprotocol').then(m => console.log('✓ SDK installed, exports:', Object.keys(m)))"
+          node -e "import('pilotprotocol').then(m => console.log('SDK installed, exports:', Object.keys(m)))"

@@ -11,6 +11,11 @@ import (
 
 // Server is the Pilot Protocol nameserver. It runs on the overlay
 // network itself, listening on port 53.
+//
+// Trust boundary note: the nameserver responds to DNS queries from any registered
+// node without trust gating. This is intentional — DNS is a public lookup service
+// (like real-world DNS), and hostname→address mappings are not considered private.
+// Private nodes are protected at the resolve/connect layer, not at name resolution.
 type Server struct {
 	store  *RecordStore
 	driver *driver.Driver

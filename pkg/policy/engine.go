@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
@@ -199,15 +200,28 @@ func (cp *CompiledPolicy) MaxPeers() int {
 // --- helpers ---
 
 func runProgram(prog *vm.Program, ctx map[string]interface{}) (bool, error) {
-	out, err := expr.Run(prog, ctx)
-	if err != nil {
-		return false, err
+	type result struct {
+		val interface{}
+		err error
 	}
-	b, ok := out.(bool)
-	if !ok {
-		return false, fmt.Errorf("expression returned %T, want bool", out)
+	ch := make(chan result, 1)
+	go func() {
+		out, err := expr.Run(prog, ctx)
+		ch <- result{out, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return false, r.err
+		}
+		b, ok := r.val.(bool)
+		if !ok {
+			return false, fmt.Errorf("expression returned %T, want bool", r.val)
+		}
+		return b, nil
+	case <-time.After(100 * time.Millisecond):
+		return false, fmt.Errorf("expression evaluation timed out")
 	}
-	return b, nil
 }
 
 var actionTypeToDirective = map[ActionType]DirectiveType{

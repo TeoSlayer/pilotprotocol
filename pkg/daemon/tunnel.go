@@ -41,6 +41,11 @@ type peerCrypto struct {
 
 // checkAndRecordNonce returns true if the nonce is valid (not replayed, not too old).
 // Must be called with replayMu held.
+//
+// Note on nonce wraparound: the counter is uint64, so it wraps after 2^64 packets.
+// At 1 billion packets/sec this takes ~585 years — purely theoretical. If a
+// connection ever approaches this limit, rekeying (new secure handshake) resets
+// the counter naturally.
 func (pc *peerCrypto) checkAndRecordNonce(counter uint64) bool {
 	if pc.maxRecvNonce == 0 {
 		// First packet ever

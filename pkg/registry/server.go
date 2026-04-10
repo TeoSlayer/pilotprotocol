@@ -243,6 +243,7 @@ type Server struct {
 	mu           sync.RWMutex
 	nodeShards   [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
 	nodes        map[uint32]*NodeInfo
+	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
 	startTime    time.Time
 	requestCount atomic.Int64
 	networks     map[uint16]*NetworkInfo
@@ -276,9 +277,6 @@ type Server struct {
 	// Network invite inbox: target nodeID -> pending invites
 	inviteInbox map[uint32][]*NetworkInvite
 
-	// Rate limiting
-	rateLimiter   *RateLimiter
-	opRateLimiter *OperationRateLimiter
 
 	// Connection tracking
 	connCount      atomic.Int64
@@ -288,7 +286,8 @@ type Server struct {
 	replMgr    *replicationManager
 	replToken  string // H4 fix: required for subscribe_replication; empty = replication disabled
 	standby    bool   // if true, reject writes and receive snapshots from primary
-	adminToken string // required for create_network; empty = creation disabled
+	adminToken     string // required for create_network; empty = creation disabled
+	dashboardToken string // token for per-network stats on dashboard; empty = public-only
 
 	// Delta log for incremental replication
 	deltaLog *deltaLog
@@ -336,6 +335,16 @@ type Server struct {
 	// Audit ring buffer (separate mutex — audit() is called while holding s.mu)
 	auditMu  sync.Mutex
 	auditLog []AuditEntry
+
+	// Time-series history ring buffers for dashboard charts
+	hourlyHistory [24]StatsSample // last 24 hours, one sample per hour
+	dailyHistory  [7]StatsSample  // last 7 days, one sample per day
+	hourlyIdx     int             // next write index for hourly ring
+	dailyIdx      int             // next write index for daily ring
+
+	// Per-network history ring buffers (keyed by network ID)
+	netHourly map[uint16]*netHistoryRing
+	netDaily  map[uint16]*netHistoryRing
 }
 
 // AuditEntry records a single audit event.
@@ -423,11 +432,12 @@ func (ls *logSampler) cleanup() {
 
 // RateLimiter tracks per-IP registration attempts using a token bucket.
 type RateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
-	rate    int           // registrations per window
-	window  time.Duration // window size
-	now     func() time.Time
+	mu         sync.Mutex
+	buckets    map[string]*bucket
+	rate       int           // registrations per window
+	window     time.Duration // window size
+	maxBuckets int           // max tracked IPs (0 = unlimited)
+	now        func() time.Time
 }
 
 type bucket struct {
@@ -436,12 +446,16 @@ type bucket struct {
 }
 
 // NewRateLimiter creates a rate limiter allowing rate requests per window per IP.
-func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
+// maxBuckets caps the number of tracked IPs to prevent memory exhaustion from
+// spoofed source addresses. When at capacity, new IPs are rejected until
+// Cleanup() evicts stale entries. Pass 0 for unlimited (not recommended in production).
+func NewRateLimiter(rate int, window time.Duration, maxBuckets int) *RateLimiter {
 	return &RateLimiter{
-		buckets: make(map[string]*bucket),
-		rate:    rate,
-		window:  window,
-		now:     time.Now,
+		buckets:    make(map[string]*bucket),
+		rate:       rate,
+		window:     window,
+		maxBuckets: maxBuckets,
+		now:        time.Now,
 	}
 }
 
@@ -461,6 +475,20 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	now := rl.now()
 	b, ok := rl.buckets[ip]
 	if !ok {
+		// At bucket capacity — evict stale entries first so a flood of spoofed IPs
+		// can't permanently block legitimate new callers.
+		if rl.maxBuckets > 0 && len(rl.buckets) >= rl.maxBuckets {
+			threshold := now.Add(-2 * rl.window)
+			for ip2, b2 := range rl.buckets {
+				if b2.lastFill.Before(threshold) {
+					delete(rl.buckets, ip2)
+				}
+			}
+			// Still full after eviction — hard reject
+			if len(rl.buckets) >= rl.maxBuckets {
+				return false
+			}
+		}
 		rl.buckets[ip] = &bucket{tokens: float64(rl.rate) - 1, lastFill: now}
 		return true
 	}
@@ -506,57 +534,6 @@ func (rl *RateLimiter) HasBucket(ip string) bool {
 	defer rl.mu.Unlock()
 	_, ok := rl.buckets[ip]
 	return ok
-}
-
-// OperationRateLimiter provides per-operation rate limiting using separate
-// token buckets for each operation category. Each category has its own rate.
-type OperationRateLimiter struct {
-	mu         sync.Mutex
-	categories map[string]*RateLimiter
-}
-
-// NewOperationRateLimiter creates a rate limiter with per-operation categories.
-func NewOperationRateLimiter() *OperationRateLimiter {
-	return &OperationRateLimiter{
-		categories: make(map[string]*RateLimiter),
-	}
-}
-
-// AddCategory registers a rate limit for an operation category.
-func (orl *OperationRateLimiter) AddCategory(name string, rate int, window time.Duration) {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	orl.categories[name] = NewRateLimiter(rate, window)
-}
-
-// Allow checks if a request from the given IP is allowed for the given category.
-// Returns true if the category is not registered (no limit configured).
-// Note: categories map is read-only after initialization (AddCategory is only
-// called during NewWithStore before any concurrent access), so no lock needed.
-func (orl *OperationRateLimiter) Allow(category, ip string) bool {
-	rl, ok := orl.categories[category]
-	if !ok {
-		return true // no rate limit for this category
-	}
-	return rl.Allow(ip)
-}
-
-// SetClock overrides the time source for all categories (for testing).
-func (orl *OperationRateLimiter) SetClock(fn func() time.Time) {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	for _, rl := range orl.categories {
-		rl.SetClock(fn)
-	}
-}
-
-// Cleanup removes stale buckets from all categories.
-func (orl *OperationRateLimiter) Cleanup() {
-	orl.mu.Lock()
-	defer orl.mu.Unlock()
-	for _, rl := range orl.categories {
-		rl.Cleanup()
-	}
 }
 
 // KeyInfo tracks key lifecycle metadata for compliance and trust decisions.
@@ -635,19 +612,20 @@ type NetworkPolicy struct {
 }
 
 type NetworkInfo struct {
-	ID          uint16
-	Name        string
-	JoinRule    string
-	Token       string // for token-gated networks
-	Members     []uint32
-	MemberRoles map[uint32]Role     // per-member RBAC roles
-	MemberTags  map[uint32][]string // admin-assigned per-member tags (e.g. "service")
-	AdminToken  string              // per-network admin token (optional)
-	Policy      NetworkPolicy       // network policy (membership limits, port restrictions)
-	Rules       *NetworkRules       // managed network rules (nil = normal network)
-	ExprPolicy  json.RawMessage     // programmable policy engine document (nil = none)
-	Enterprise  bool                // enterprise network (gates Phase 2-5 features)
-	Created     time.Time
+	ID           uint16
+	Name         string
+	JoinRule     string
+	Token        string // for token-gated networks
+	Members      []uint32
+	MemberRoles  map[uint32]Role     // per-member RBAC roles
+	MemberTags   map[uint32][]string // admin-assigned per-member tags (e.g. "service")
+	AdminToken   string              // per-network admin token (optional)
+	Policy       NetworkPolicy       // network policy (membership limits, port restrictions)
+	Rules        *NetworkRules       // managed network rules (nil = normal network)
+	ExprPolicy   json.RawMessage     // programmable policy engine document (nil = none)
+	Enterprise   bool                // enterprise network (gates Phase 2-5 features)
+	Created      time.Time
+	requestCount atomic.Int64 // per-network request counter (dashboard stats)
 }
 
 // HandshakeRelayMsg is a handshake request stored in the registry's relay inbox.
@@ -749,6 +727,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		pubKeyIdx:          make(map[string]uint32),
 		ownerIdx:           make(map[string]uint32),
 		hostnameIdx:        make(map[string]uint32),
+		maxNodes:           1_000_000,
 		nextNode:           1, // 0 is reserved
 		nextNet:            1, // 0 is backbone
 		beaconAddr:         beaconAddr,
@@ -758,7 +737,6 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		handshakeInbox:     make(map[uint32][]*HandshakeRelayMsg),
 		handshakeResponses: make(map[uint32][]*HandshakeResponseMsg),
 		inviteInbox:        make(map[uint32][]*NetworkInvite),
-		rateLimiter:        NewRateLimiter(10, time.Minute), // 10 registrations per IP per minute
 		maxConnections:     defaultMaxConnections,
 		beacons:            make(map[uint32]*beaconEntry),
 		replMgr:            newReplicationManager(),
@@ -771,14 +749,9 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		now:                time.Now,
 		jwksCache:          newJWKSCache(),
 		logSampler:         newLogSampler(1000),
+		netHourly:          make(map[uint16]*netHistoryRing),
+		netDaily:           make(map[uint16]*netHistoryRing),
 	}
-
-	// Per-operation rate limits
-	s.opRateLimiter = NewOperationRateLimiter()
-	s.opRateLimiter.AddCategory("resolve", 100, time.Minute)
-	s.opRateLimiter.AddCategory("query", 500, time.Minute) // lookup, resolve_hostname, list_nodes
-	// Heartbeat rate limit removed: per-IP limits are too restrictive when
-	// thousands of nodes share a single IP (e.g., agents behind NAT/cloud).
 
 	// Initialize WAL for crash recovery between snapshots
 	if storePath != "" {
@@ -791,6 +764,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 	}
 
 	go s.saveLoop()
+	go s.statsCollectorLoop()
 
 	// Try loading from disk
 	if storePath != "" {
@@ -843,6 +817,21 @@ func (s *Server) SetAdminToken(token string) {
 	s.mu.Unlock()
 }
 
+// SetMaxNodes sets the maximum number of registered nodes. For testing.
+func (s *Server) SetMaxNodes(n int) {
+	s.mu.Lock()
+	s.maxNodes = n
+	s.mu.Unlock()
+}
+
+// SetDashboardToken sets the token required to view per-network stats on the dashboard.
+// If empty, the dashboard only shows global aggregates.
+func (s *Server) SetDashboardToken(token string) {
+	s.mu.Lock()
+	s.dashboardToken = token
+	s.mu.Unlock()
+}
+
 // SetClock overrides the time source for testing.
 func (s *Server) SetClock(fn func() time.Time) {
 	s.mu.Lock()
@@ -860,11 +849,6 @@ func (s *Server) SetMaxConnections(max int64) {
 // ConnCount returns the current number of active connections (for testing).
 func (s *Server) ConnCount() int64 {
 	return s.connCount.Load()
-}
-
-// SetOperationRateLimiterClock overrides the time source for per-operation rate limits (for testing).
-func (s *Server) SetOperationRateLimiterClock(fn func() time.Time) {
-	s.opRateLimiter.SetClock(fn)
 }
 
 // Reap triggers stale node and beacon cleanup (for testing).
@@ -1071,8 +1055,6 @@ func (s *Server) reapLoop() {
 		case <-ticker.C:
 			s.reapStaleNodes()
 			s.reapStaleBeacons()
-			s.rateLimiter.Cleanup()
-			s.opRateLimiter.Cleanup()
 			s.logSampler.cleanup()
 		case <-s.done:
 			return
@@ -1467,11 +1449,7 @@ func (s *Server) handleBinaryLookup(conn net.Conn, payload []byte, host string) 
 		s.metrics.requestDuration.WithLabel("lookup").Observe(time.Since(start).Seconds())
 	}()
 
-	if !s.opRateLimiter.Allow("query", host) {
-		s.metrics.errorsTotal.WithLabel("lookup").Inc()
-		wireWriteFrame(conn, wireMsgError, encodeWireError(fmt.Sprintf("rate limited: too many queries from %s", host)))
-		return
-	}
+
 
 	// Brief global lock for map lookup
 	s.mu.RLock()
@@ -1514,11 +1492,7 @@ func (s *Server) handleBinaryResolve(conn net.Conn, payload []byte, host string)
 		s.metrics.requestDuration.WithLabel("resolve").Observe(time.Since(start).Seconds())
 	}()
 
-	if !s.opRateLimiter.Allow("resolve", host) {
-		s.metrics.errorsTotal.WithLabel("resolve").Inc()
-		wireWriteFrame(conn, wireMsgError, encodeWireError(fmt.Sprintf("rate limited: too many resolves from %s", host)))
-		return
-	}
+
 
 	// Phase 1: copy pubkey for verification
 	s.mu.RLock()
@@ -1669,6 +1643,29 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	s.requestCount.Add(1)
 	msgType, _ := msg["type"].(string)
 
+	// Per-network request counting: if the message identifies a node, increment its networks' counters.
+	if nodeIDVal, ok := msg["node_id"]; ok {
+		var nodeID uint32
+		switch v := nodeIDVal.(type) {
+		case float64:
+			nodeID = uint32(v)
+		case uint32:
+			nodeID = v
+		}
+		if nodeID > 0 {
+			s.mu.RLock()
+			if node, exists := s.nodes[nodeID]; exists {
+				nets := node.Networks
+				for _, netID := range nets {
+					if net, ok := s.networks[netID]; ok {
+						net.requestCount.Add(1)
+					}
+				}
+			}
+			s.mu.RUnlock()
+		}
+	}
+
 	// Prometheus instrumentation
 	s.metrics.requestsTotal.WithLabel(msgType).Inc()
 	start := time.Now()
@@ -1693,22 +1690,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		}
 	}
 
-	// Per-operation rate limiting by source IP
-	host, _, _ := net.SplitHostPort(remoteAddr)
-
 	switch msgType {
 	case "register":
-		// Rate limit registrations by source IP (exempt known-key re-registrations)
-		if !s.rateLimiter.Allow(host) {
-			pubKeyB64, _ := msg["public_key"].(string)
-			s.mu.RLock()
-			_, knownKey := s.pubKeyIdx[pubKeyB64]
-			s.mu.RUnlock()
-			if !knownKey {
-				slog.Warn("registration rate limited", "remote_ip", host)
-				return nil, fmt.Errorf("rate limited: too many registrations from %s", host)
-			}
-		}
 		return s.handleRegister(msg, remoteAddr)
 	case "create_network":
 		return s.handleCreateNetwork(msg)
@@ -1723,21 +1706,12 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "set_network_enterprise":
 		return s.handleSetNetworkEnterprise(msg)
 	case "lookup":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleLookup(msg)
 	case "resolve":
-		if !s.opRateLimiter.Allow("resolve", host) {
-			return nil, fmt.Errorf("rate limited: too many resolves from %s", host)
-		}
 		return s.handleResolve(msg)
 	case "list_networks":
 		return s.handleListNetworks()
 	case "list_nodes":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleListNodes(msg)
 	case "rotate_key":
 		return s.handleRotateKey(msg)
@@ -1778,9 +1752,6 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "set_task_exec":
 		return s.handleSetTaskExec(msg)
 	case "resolve_hostname":
-		if !s.opRateLimiter.Allow("query", host) {
-			return nil, fmt.Errorf("rate limited: too many queries from %s", host)
-		}
 		return s.handleResolveHostname(msg)
 	case "beacon_register":
 		return s.handleBeaconRegister(msg)
@@ -2844,6 +2815,9 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 	}
 
 	// Entirely new key and no owner match — assign new node
+	if s.maxNodes > 0 && len(s.nodes) >= s.maxNodes {
+		return nil, fmt.Errorf("registry full")
+	}
 	if s.nextNode == 0 {
 		return nil, fmt.Errorf("node ID space exhausted")
 	}
@@ -5519,6 +5493,11 @@ type snapshot struct {
 	UniqueTags    int    `json:"unique_tags,omitempty"`
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
+	// Time-series history for dashboard charts
+	HourlyHistory    []StatsSample                      `json:"hourly_history,omitempty"`
+	DailyHistory     []StatsSample                      `json:"daily_history,omitempty"`
+	NetHourlyHistory map[string][]NetworkSampleEntry `json:"net_hourly_history,omitempty"`
+	NetDailyHistory  map[string][]NetworkSampleEntry `json:"net_daily_history,omitempty"`
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []AuditEntry `json:"audit_log,omitempty"`
 	// Enterprise config persistence
@@ -5551,19 +5530,20 @@ type snapshotNode struct {
 }
 
 type snapshotNet struct {
-	ID          uint16              `json:"id"`
-	Name        string              `json:"name"`
-	JoinRule    string              `json:"join_rule"`
-	Token       string              `json:"token,omitempty"`
-	Members     []uint32            `json:"members"`
-	MemberRoles map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
-	MemberTags  map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
-	AdminToken  string              `json:"admin_token,omitempty"`  // per-network admin token
-	Policy      *NetworkPolicy      `json:"policy,omitempty"`       // network policy
-	Rules       *NetworkRules       `json:"rules,omitempty"`        // managed network rules
-	ExprPolicy  json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
-	Enterprise  bool                `json:"enterprise,omitempty"`   // enterprise network flag
-	Created     string              `json:"created"`
+	ID           uint16              `json:"id"`
+	Name         string              `json:"name"`
+	JoinRule     string              `json:"join_rule"`
+	Token        string              `json:"token,omitempty"`
+	Members      []uint32            `json:"members"`
+	MemberRoles  map[string]string   `json:"member_roles,omitempty"` // nodeID -> role
+	MemberTags   map[string][]string `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
+	AdminToken   string              `json:"admin_token,omitempty"`  // per-network admin token
+	Policy       *NetworkPolicy      `json:"policy,omitempty"`       // network policy
+	Rules        *NetworkRules       `json:"rules,omitempty"`        // managed network rules
+	ExprPolicy   json.RawMessage     `json:"expr_policy,omitempty"`  // programmable policy engine document
+	Enterprise   bool                `json:"enterprise,omitempty"`   // enterprise network flag
+	RequestCount int64               `json:"request_count,omitempty"`
+	Created      string              `json:"created"`
 }
 
 // save signals that state has changed and should be persisted.
@@ -5607,6 +5587,114 @@ func (s *Server) saveLoop() {
 					slog.Error("final save failed", "err", err)
 				}
 			}
+			return
+		}
+	}
+}
+
+// statsSampleResult holds both global and per-network samples from a single snapshot.
+type statsSampleResult struct {
+	global   StatsSample
+	networks map[uint16]NetworkSampleEntry
+}
+
+// sampleStats snapshots current stats into a StatsSample and per-network entries under RLock.
+func (s *Server) sampleStats() statsSampleResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+	onlineThreshold := now.Add(-staleNodeThreshold)
+	online := 0
+	for _, node := range s.nodes {
+		if node.getLastSeen().After(onlineThreshold) {
+			online++
+		}
+	}
+
+	// Per-network samples
+	netSamples := make(map[uint16]NetworkSampleEntry, len(s.networks))
+	for _, net := range s.networks {
+		netOnline := 0
+		for _, memberID := range net.Members {
+			if node, exists := s.nodes[memberID]; exists {
+				if node.getLastSeen().After(onlineThreshold) {
+					netOnline++
+				}
+			}
+		}
+		netSamples[net.ID] = NetworkSampleEntry{
+			Timestamp: now.Unix(),
+			ID:        net.ID,
+			Name:      net.Name,
+			Members:   len(net.Members),
+			Online:    netOnline,
+			Requests:  net.requestCount.Load(),
+		}
+	}
+
+	return statsSampleResult{
+		global: StatsSample{
+			Timestamp:     now.Unix(),
+			TotalNodes:    len(s.nodes),
+			OnlineNodes:   online,
+			TrustLinks:    len(s.trustPairs),
+			TotalRequests: s.requestCount.Load(),
+		},
+		networks: netSamples,
+	}
+}
+
+// recordSample writes a sample into the global and per-network ring buffers.
+// Caller must hold s.mu (write lock).
+func (s *Server) recordSample(r statsSampleResult, daily bool) {
+	s.hourlyHistory[s.hourlyIdx%24] = r.global
+	s.hourlyIdx++
+	for netID, entry := range r.networks {
+		ring := s.netHourly[netID]
+		if ring == nil {
+			ring = newNetHistoryRing(24)
+			s.netHourly[netID] = ring
+		}
+		ring.write(entry)
+	}
+	if daily {
+		s.dailyHistory[s.dailyIdx%7] = r.global
+		s.dailyIdx++
+		for netID, entry := range r.networks {
+			ring := s.netDaily[netID]
+			if ring == nil {
+				ring = newNetHistoryRing(7)
+				s.netDaily[netID] = ring
+			}
+			ring.write(entry)
+		}
+	}
+}
+
+// statsCollectorLoop runs in the background and samples stats for history charts.
+// Hourly samples are taken every hour; daily samples every 24 hours.
+func (s *Server) statsCollectorLoop() {
+	// Wait for server to be ready (load complete) before first sample
+	<-s.readyCh
+	// Sample immediately so there's at least one data point
+	result := s.sampleStats()
+	s.mu.Lock()
+	s.recordSample(result, true)
+	s.mu.Unlock()
+
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	hourCounter := 0
+	for {
+		select {
+		case <-ticker.C:
+			hourCounter++
+			result := s.sampleStats()
+			s.mu.Lock()
+			s.recordSample(result, hourCounter%24 == 0)
+			s.mu.Unlock()
+		case <-s.done:
 			return
 		}
 	}
@@ -5727,6 +5815,23 @@ func (s *Server) flushSave() error {
 	nodeCount := len(s.nodes)
 	netCount := len(s.networks)
 	trustCount := len(s.trustPairs)
+
+	// Copy history ring buffers (plain array copy under lock)
+	hourlyHistory := s.hourlyHistory
+	dailyHistory := s.dailyHistory
+	hourlyIdx := s.hourlyIdx
+	dailyIdx := s.dailyIdx
+	// Per-network history: deep copy ring buffers
+	netHourlyCopy := make(map[uint16]*netHistoryRing, len(s.netHourly))
+	for id, ring := range s.netHourly {
+		cp := *ring
+		netHourlyCopy[id] = &cp
+	}
+	netDailyCopy := make(map[uint16]*netHistoryRing, len(s.netDaily))
+	for id, ring := range s.netDaily {
+		cp := *ring
+		netDailyCopy[id] = &cp
+	}
 	s.mu.RUnlock()
 
 	// Phase 2: no lock — all encoding (base64, time.Format, JSON) happens here
@@ -5790,14 +5895,15 @@ func (s *Server) flushSave() error {
 	for _, rn := range rawNets {
 		n := rn.info
 		sn := &snapshotNet{
-			ID:         n.ID,
-			Name:       n.Name,
-			JoinRule:   n.JoinRule,
-			Token:      n.Token,
-			Members:    n.Members,
-			AdminToken: n.AdminToken,
-			Enterprise: n.Enterprise,
-			Created:    n.Created.Format(time.RFC3339),
+			ID:           n.ID,
+			Name:         n.Name,
+			JoinRule:     n.JoinRule,
+			Token:        n.Token,
+			Members:      n.Members,
+			AdminToken:   n.AdminToken,
+			Enterprise:   n.Enterprise,
+			RequestCount: n.requestCount.Load(),
+			Created:      n.Created.Format(time.RFC3339),
 		}
 		if len(n.MemberRoles) > 0 {
 			sn.MemberRoles = make(map[string]string, len(n.MemberRoles))
@@ -5862,6 +5968,37 @@ func (s *Server) flushSave() error {
 		snap.RBACPreAssign = make(map[string][]BlueprintRole, len(rbacPreAssign))
 		for netID, roles := range rbacPreAssign {
 			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = roles
+		}
+	}
+
+	// Persist history ring buffers (chronological, non-zero only)
+	for i := 0; i < 24; i++ {
+		idx := (hourlyIdx + i) % 24
+		if hourlyHistory[idx].Timestamp != 0 {
+			snap.HourlyHistory = append(snap.HourlyHistory, hourlyHistory[idx])
+		}
+	}
+	for i := 0; i < 7; i++ {
+		idx := (dailyIdx + i) % 7
+		if dailyHistory[idx].Timestamp != 0 {
+			snap.DailyHistory = append(snap.DailyHistory, dailyHistory[idx])
+		}
+	}
+	// Per-network history
+	if len(netHourlyCopy) > 0 {
+		snap.NetHourlyHistory = make(map[string][]NetworkSampleEntry, len(netHourlyCopy))
+		for id, ring := range netHourlyCopy {
+			if entries := ring.read(); len(entries) > 0 {
+				snap.NetHourlyHistory[fmt.Sprintf("%d", id)] = entries
+			}
+		}
+	}
+	if len(netDailyCopy) > 0 {
+		snap.NetDailyHistory = make(map[string][]NetworkSampleEntry, len(netDailyCopy))
+		for id, ring := range netDailyCopy {
+			if entries := ring.read(); len(entries) > 0 {
+				snap.NetDailyHistory[fmt.Sprintf("%d", id)] = entries
+			}
 		}
 	}
 
@@ -6042,6 +6179,9 @@ func (s *Server) load() error {
 			Enterprise:  n.Enterprise,
 			Created:     created,
 		}
+		if n.RequestCount > 0 {
+			net.requestCount.Store(n.RequestCount)
+		}
 		if n.Policy != nil {
 			net.Policy = *n.Policy
 		}
@@ -6119,6 +6259,69 @@ func (s *Server) load() error {
 	}
 	if len(s.inviteInbox) > 0 {
 		slog.Info("loaded invite inboxes", "queues", len(s.inviteInbox))
+	}
+
+	// Restore time-series history ring buffers
+	if len(snap.HourlyHistory) > 0 {
+		for i, sample := range snap.HourlyHistory {
+			if i >= 24 {
+				break
+			}
+			s.hourlyHistory[i] = sample
+		}
+		s.hourlyIdx = len(snap.HourlyHistory)
+		if s.hourlyIdx > 24 {
+			s.hourlyIdx = 24
+		}
+		slog.Info("loaded hourly history", "samples", len(snap.HourlyHistory))
+	}
+	if len(snap.DailyHistory) > 0 {
+		for i, sample := range snap.DailyHistory {
+			if i >= 7 {
+				break
+			}
+			s.dailyHistory[i] = sample
+		}
+		s.dailyIdx = len(snap.DailyHistory)
+		if s.dailyIdx > 7 {
+			s.dailyIdx = 7
+		}
+		slog.Info("loaded daily history", "samples", len(snap.DailyHistory))
+	}
+	// Restore per-network history
+	for netIDStr, entries := range snap.NetHourlyHistory {
+		var netID uint16
+		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			ring := newNetHistoryRing(24)
+			for i, e := range entries {
+				if i >= 24 {
+					break
+				}
+				ring.Samples[i] = e
+			}
+			ring.Idx = len(entries)
+			if ring.Idx > 24 {
+				ring.Idx = 24
+			}
+			s.netHourly[netID] = ring
+		}
+	}
+	for netIDStr, entries := range snap.NetDailyHistory {
+		var netID uint16
+		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+			ring := newNetHistoryRing(7)
+			for i, e := range entries {
+				if i >= 7 {
+					break
+				}
+				ring.Samples[i] = e
+			}
+			ring.Idx = len(entries)
+			if ring.Idx > 7 {
+				ring.Idx = 7
+			}
+			s.netDaily[netID] = ring
+		}
 	}
 
 	// Restore audit log
@@ -6234,6 +6437,52 @@ func base64Decode(s string) ([]byte, error) {
 
 // --- Dashboard ---
 
+// StatsSample is a single time-series data point for dashboard history charts.
+type StatsSample struct {
+	Timestamp     int64 `json:"ts"`
+	TotalNodes    int   `json:"total_nodes"`
+	OnlineNodes   int   `json:"online_nodes"`
+	TrustLinks    int   `json:"trust_links"`
+	TotalRequests int64 `json:"total_requests"`
+}
+
+// netHistoryRing is a fixed-size ring buffer for per-network history samples.
+type netHistoryRing struct {
+	Samples [24]NetworkSampleEntry // max 24 (hourly) or 7 (daily) — only used portion matters
+	Size    int                    // ring capacity (24 for hourly, 7 for daily)
+	Idx     int                    // next write index
+}
+
+func newNetHistoryRing(size int) *netHistoryRing {
+	return &netHistoryRing{Size: size}
+}
+
+func (r *netHistoryRing) write(e NetworkSampleEntry) {
+	r.Samples[r.Idx%r.Size] = e
+	r.Idx++
+}
+
+func (r *netHistoryRing) read() []NetworkSampleEntry {
+	var out []NetworkSampleEntry
+	for i := 0; i < r.Size; i++ {
+		idx := (r.Idx + i) % r.Size
+		if r.Samples[idx].Timestamp != 0 {
+			out = append(out, r.Samples[idx])
+		}
+	}
+	return out
+}
+
+// NetworkSampleEntry holds per-network stats within a time-series sample.
+type NetworkSampleEntry struct {
+	Timestamp int64  `json:"ts"`
+	ID        uint16 `json:"id"`
+	Name      string `json:"name"`
+	Members   int    `json:"members"`
+	Online    int    `json:"online"`
+	Requests  int64  `json:"requests"`
+}
+
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
 	TotalNodes      int            `json:"total_nodes"`
@@ -6242,6 +6491,21 @@ type DashboardStats struct {
 	TotalRequests   int64          `json:"total_requests"`
 	UptimeSecs      int64          `json:"uptime_secs"`
 	Versions        map[string]int `json:"versions"`
+	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
+	Hourly          []StatsSample  `json:"hourly,omitempty"`
+	Daily           []StatsSample  `json:"daily,omitempty"`
+}
+
+// NetworkStats holds per-network statistics for the authenticated dashboard view.
+type NetworkStats struct {
+	ID         uint16              `json:"id"`
+	Name       string              `json:"name"`
+	Members    int                 `json:"members"`
+	Online     int                 `json:"online"`
+	Requests   int64               `json:"requests"`
+	TrustLinks int                 `json:"trust_links"`
+	Hourly     []NetworkSampleEntry `json:"hourly,omitempty"`
+	Daily      []NetworkSampleEntry `json:"daily,omitempty"`
 }
 
 // GetDashboardStats returns aggregate statistics for the dashboard.
@@ -6261,6 +6525,8 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		v := node.Version
 		if v == "" {
 			v = "<1.7.0"
+		} else if !strings.HasPrefix(v, "v") {
+			v = "v" + v
 		}
 		versions[v]++
 	}
@@ -6272,6 +6538,137 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		TotalRequests:   s.requestCount.Load(),
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
+	}
+}
+
+// readHistory returns chronologically-ordered hourly and daily samples.
+// Caller must hold s.mu (at least RLock).
+func (s *Server) readHistory() (hourly, daily []StatsSample) {
+	// Hourly: read from oldest to newest in ring buffer order
+	for i := 0; i < 24; i++ {
+		idx := (s.hourlyIdx + i) % 24
+		if s.hourlyHistory[idx].Timestamp != 0 {
+			hourly = append(hourly, s.hourlyHistory[idx])
+		}
+	}
+	// Daily: same for 7-day ring
+	for i := 0; i < 7; i++ {
+		idx := (s.dailyIdx + i) % 7
+		if s.dailyHistory[idx].Timestamp != 0 {
+			daily = append(daily, s.dailyHistory[idx])
+		}
+	}
+	return
+}
+
+// GetDashboardStatsWithHistory returns aggregate statistics plus history charts.
+func (s *Server) GetDashboardStatsWithHistory() DashboardStats {
+	stats := s.GetDashboardStats()
+	s.mu.RLock()
+	stats.Hourly, stats.Daily = s.readHistory()
+	s.mu.RUnlock()
+	return stats
+}
+
+// GetDashboardStatsExtended returns dashboard stats including per-network breakdowns.
+// Requires the dashboard token — only called from the token-gated API path.
+func (s *Server) GetDashboardStatsExtended() DashboardStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	onlineThreshold := now.Add(-staleNodeThreshold)
+
+	activeCount := 0
+	versions := make(map[string]int)
+	for _, node := range s.nodes {
+		if node.getLastSeen().After(onlineThreshold) {
+			activeCount++
+		}
+		v := node.Version
+		if v == "" {
+			v = "<1.7.0"
+		} else if !strings.HasPrefix(v, "v") {
+			v = "v" + v
+		}
+		versions[v]++
+	}
+
+	// Build per-network member sets for trust link counting
+	netMembers := make(map[uint16]map[uint32]bool, len(s.networks))
+	for _, net := range s.networks {
+		m := make(map[uint32]bool, len(net.Members))
+		for _, id := range net.Members {
+			m[id] = true
+		}
+		netMembers[net.ID] = m
+	}
+
+	// Count per-network trust links: both nodes must be members of the network
+	netTrust := make(map[uint16]int, len(s.networks))
+	for key := range s.trustPairs {
+		// Trust pair format: "nodeA:nodeB"
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var nodeA, nodeB uint32
+		if _, err := fmt.Sscanf(parts[0], "%d", &nodeA); err != nil {
+			continue
+		}
+		if _, err := fmt.Sscanf(parts[1], "%d", &nodeB); err != nil {
+			continue
+		}
+		for netID, members := range netMembers {
+			if members[nodeA] && members[nodeB] {
+				netTrust[netID]++
+			}
+		}
+	}
+
+	// Build network stats
+	networks := make([]NetworkStats, 0, len(s.networks))
+	for _, net := range s.networks {
+		online := 0
+		for _, memberID := range net.Members {
+			if node, exists := s.nodes[memberID]; exists {
+				if node.getLastSeen().After(onlineThreshold) {
+					online++
+				}
+			}
+		}
+		ns := NetworkStats{
+			ID:         net.ID,
+			Name:       net.Name,
+			Members:    len(net.Members),
+			Online:     online,
+			Requests:   net.requestCount.Load(),
+			TrustLinks: netTrust[net.ID],
+		}
+		if ring := s.netHourly[net.ID]; ring != nil {
+			ns.Hourly = ring.read()
+		}
+		if ring := s.netDaily[net.ID]; ring != nil {
+			ns.Daily = ring.read()
+		}
+		networks = append(networks, ns)
+	}
+
+	// Sort by ID for stable output
+	sort.Slice(networks, func(i, j int) bool { return networks[i].ID < networks[j].ID })
+
+	hourly, daily := s.readHistory()
+
+	return DashboardStats{
+		TotalNodes:      len(s.nodes),
+		ActiveNodes:     activeCount,
+		TotalTrustLinks: len(s.trustPairs),
+		TotalRequests:   s.requestCount.Load(),
+		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
+		Versions:        versions,
+		Networks:        networks,
+		Hourly:          hourly,
+		Daily:           daily,
 	}
 }
 

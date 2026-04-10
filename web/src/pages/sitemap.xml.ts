@@ -33,8 +33,8 @@ urls.push(url('/plans', today, 0.9));
   }
 
   // Research pages
-  urls.push(url('/research/ietf/draft-teodor-pilot-problem-statement-00.html', '2026-03-14', 0.7));
-  urls.push(url('/research/ietf/draft-teodor-pilot-protocol-00.html', '2026-03-14', 0.7));
+  urls.push(url('/research/ietf/draft-teodor-pilot-problem-statement-01.html', '2026-04-06', 0.7));
+  urls.push(url('/research/ietf/draft-teodor-pilot-protocol-01.html', '2026-04-06', 0.7));
 
   // Blog posts
   for (const post of blogPosts) {

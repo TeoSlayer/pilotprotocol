@@ -781,9 +781,6 @@ func main() {
 
 	case "ls":
 		cmdLs(cmdArgs)
-	case "tui":
-		cmdTui(cmdArgs)
-
 	// Internal: forked daemon process
 	case "_daemon-run":
 		runDaemonInternal(cmdArgs)

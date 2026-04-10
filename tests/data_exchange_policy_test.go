@@ -22,7 +22,7 @@ func TestDataExchangePolicy(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// Read the policy file
-	policyJSON, err := os.ReadFile("../data-exchange-policy.json")
+	policyJSON, err := os.ReadFile("../configs/networks/data-exchange-policy.json")
 	if err != nil {
 		t.Fatalf("read policy: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestDataExchangePolicy(t *testing.T) {
 func TestDataExchangePolicyUnit(t *testing.T) {
 	t.Parallel()
 
-	policyJSON, err := os.ReadFile("../data-exchange-policy.json")
+	policyJSON, err := os.ReadFile("../configs/networks/data-exchange-policy.json")
 	if err != nil {
 		t.Fatalf("read policy: %v", err)
 	}
