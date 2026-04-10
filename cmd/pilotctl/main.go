@@ -417,9 +417,8 @@ Mailbox:
   pilotctl received [--clear]
   pilotctl inbox [--clear]
 
-Service Agents (AI-powered overlay services):
-  Talk to agents using standard messaging:
-    pilotctl send-message list-agents --data "list all agents"
+Service Agents:
+  pilotctl send-message list-agents --data "list all agents"
 
 Diagnostic commands:
   pilotctl info
