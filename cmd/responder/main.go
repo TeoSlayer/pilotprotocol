@@ -97,7 +97,12 @@ func processInbox(cfg *responder.Config, socketPath string) error {
 //  4. Send the service response (or error text) back to the originating node.
 //  5. Delete the processed message from the inbox.
 func handleMessage(cfg *responder.Config, socketPath string, msg *responder.InboxMessage) {
-	req, err := msg.ParseRequest()
+	// Use the first configured command as the default for plain-text messages.
+	defaultCmd := ""
+	if len(cfg.Commands) > 0 {
+		defaultCmd = cfg.Commands[0].Name
+	}
+	req, err := msg.ParseRequest(defaultCmd)
 	if err != nil {
 		log.Printf("[%s] skip unparseable message: %v", msg.From, err)
 		_ = msg.Delete()

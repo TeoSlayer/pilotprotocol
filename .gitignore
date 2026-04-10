@@ -22,6 +22,7 @@ _obj/
 
 pilotctl-arm64
 responder-arm64
+responder
 pilot-daemon-arm64
 # caches
 __pycache__

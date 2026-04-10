@@ -27,18 +27,33 @@ type CommandRequest struct {
 }
 
 // ParseRequest unmarshals the Data field into a CommandRequest.
-func (m *InboxMessage) ParseRequest() (*CommandRequest, error) {
+// If the data is not valid JSON, it is treated as a plain-text message body
+// and the defaultCommand is used as the command name. This allows callers to
+// use `pilotctl send-message <hostname> --data "plain text"` without wrapping
+// the message in JSON.
+func (m *InboxMessage) ParseRequest(defaultCommand string) (*CommandRequest, error) {
 	if m.Data == "" {
 		return nil, fmt.Errorf("message data is empty")
 	}
+
+	// Try JSON first (legacy format: {"command":"...", "body":"..."})
 	var req CommandRequest
-	if err := json.Unmarshal([]byte(m.Data), &req); err != nil {
-		return nil, fmt.Errorf("message data is not valid JSON (expected {\"command\":\"...\",\"body\":\"...\"}): %w", err)
+	if err := json.Unmarshal([]byte(m.Data), &req); err == nil && req.Command != "" {
+		return &req, nil
 	}
-	if req.Command == "" {
-		return nil, fmt.Errorf("message is missing required 'command' field")
+
+	// Plain text — use as body with the default command.
+	if defaultCommand == "" {
+		return nil, fmt.Errorf("message is plain text but no default command configured")
 	}
-	return &req, nil
+
+	// Try to unwrap JSON-encoded string (e.g. "\"hello\"")
+	var unwrapped string
+	if json.Unmarshal([]byte(m.Data), &unwrapped) == nil {
+		return &CommandRequest{Command: defaultCommand, Body: unwrapped}, nil
+	}
+
+	return &CommandRequest{Command: defaultCommand, Body: m.Data}, nil
 }
 
 // Delete removes the inbox message file from disk.

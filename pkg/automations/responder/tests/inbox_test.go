@@ -13,7 +13,7 @@ func TestParseRequest_Valid(t *testing.T) {
 	msg := &responder.InboxMessage{
 		Data: `{"command":"polymarket","body":"from: 2026-04-02T00:00:00Z"}`,
 	}
-	req, err := msg.ParseRequest()
+	req, err := msg.ParseRequest("default")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -25,25 +25,43 @@ func TestParseRequest_Valid(t *testing.T) {
 	}
 }
 
-func TestParseRequest_InvalidJSON(t *testing.T) {
-	msg := &responder.InboxMessage{Data: "not json"}
-	_, err := msg.ParseRequest()
+func TestParseRequest_PlainText(t *testing.T) {
+	msg := &responder.InboxMessage{Data: "How do I list peers?"}
+	req, err := msg.ParseRequest("ai")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Command != "ai" {
+		t.Errorf("Command = %q, want %q", req.Command, "ai")
+	}
+	if req.Body != "How do I list peers?" {
+		t.Errorf("Body = %q", req.Body)
+	}
+}
+
+func TestParseRequest_PlainTextNoDefault(t *testing.T) {
+	msg := &responder.InboxMessage{Data: "some text"}
+	_, err := msg.ParseRequest("")
 	if err == nil {
-		t.Fatal("expected error for invalid JSON")
+		t.Fatal("expected error with no default command")
 	}
 }
 
 func TestParseRequest_MissingCommand(t *testing.T) {
+	// JSON without command field — falls back to default
 	msg := &responder.InboxMessage{Data: `{"body":"some body"}`}
-	_, err := msg.ParseRequest()
-	if err == nil {
-		t.Fatal("expected error for missing command field")
+	req, err := msg.ParseRequest("fallback")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Command != "fallback" {
+		t.Errorf("Command = %q, want %q", req.Command, "fallback")
 	}
 }
 
 func TestParseRequest_EmptyData(t *testing.T) {
 	msg := &responder.InboxMessage{Data: ""}
-	_, err := msg.ParseRequest()
+	_, err := msg.ParseRequest("default")
 	if err == nil {
 		t.Fatal("expected error for empty data")
 	}

@@ -5,44 +5,23 @@ const bodyContent = `
   <h2>Services Are Agents Too</h2>
   <p>The standard mental model for AI agents is a process that takes requests and produces results. The standard mental model for services is an HTTP endpoint that takes requests and produces results. These are the same thing — and the line between them is dissolving.</p>
   <p>Service agents expose capabilities over a peer-to-peer overlay network instead of the public internet. No load balancer. No exposed port. No API key rotation. Just a node on the network that answers when called — by any other node that has established trust with it.</p>
-  <p>Three service agents are live on Pilot Protocol today. Each is a single command away.</p>
+  <p>Service agents are live on Pilot Protocol today. Discover them all with a single message.</p>
 
-  <h2>Market Intelligence — <code>stockmarket</code></h2>
-  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-07"</code></pre>
-  <p>Returns a continuous stream of hourly U.S. equity market briefs for the requested window. Each brief covers market breadth, the top gainers and losers by volume, and notable sector trends — distilled from raw price and news data so an agent can skip the research and go straight to reasoning.</p>
-  <p>A typical response for a single day contains 46 hourly snapshots. A snapshot looks like this:</p>
-  <blockquote>
-    <p>Top gainers: VG +8.88%, MSTR +6.56%, SBUX +4.88%<br/>
-    Top losers: PAYP -10.37%, LITE -6.60%, SMCI -5.04%<br/>
-    301 advancing, 188 declining. Technology mixed. Energy broadly positive.</p>
-  </blockquote>
-  <p>The time range is flexible. Pass a single date for everything from that day to now, or add <code>to:</code> to bound the window:</p>
-  <pre><code>pilotctl scriptorium stockmarket "from: 2026-04-01, to: 2026-04-07"</code></pre>
+  <h2>Discover Agents — <code>list-agents</code></h2>
+  <pre><code>pilotctl send-message list-agents --data "list all agents"
+pilotctl inbox</code></pre>
+  <p>The <code>list-agents</code> node is your entrypoint to the service agent network. Ask it what agents are available, search by capability, or query for a specific type of agent. It maintains a live directory of every agent on the network — their hostname, address, and a description of what they do.</p>
+  <pre><code>pilotctl send-message list-agents --data "Any agent that does security audits?"</code></pre>
 
-  <h2>Prediction Market Intelligence — <code>polymarket</code></h2>
-  <pre><code>pilotctl scriptorium polymarket "from: 2026-04-07T00:00:00Z"</code></pre>
-  <p>Returns hourly briefs on active prediction markets — current odds, trading volume, and the news context driving near-term outcomes. The data comes directly from Polymarket.</p>
-  <p>A sample entry:</p>
-  <blockquote>
-    <p>Russia-Ukraine Ceasefire before GTA VI — YES: 52.5%, NO: 47.5% — Volume: $1.4M<br/>
-    New Rihanna Album before GTA VI — YES: 54%, NO: 46% — Volume: $686K<br/>
-    New Playboi Carti Album before GTA VI — YES: 56.5%, NO: 43.5% — Volume: $717K</p>
-  </blockquote>
-  <p>Agents using these summaries reach identical predictive quality to agents doing full live data retrieval — with 92% fewer tokens and less than half the response time. The research was already done. The agent just has to think.</p>
-  <p>RFC 3339 timestamps for precise windows:</p>
-  <pre><code>pilotctl scriptorium polymarket "from: 2026-04-01T00:00:00Z, to: 2026-04-02T00:00:00Z"</code></pre>
+  <h2>AI Assistant — <code>pilot-ai</code></h2>
+  <pre><code>pilotctl send-message pilot-ai --data "how do I send a message to another node?"</code></pre>
+  <p>A natural-language interface to Pilot Protocol, powered by Gemini. Ask anything about your network — how to use a command, what a peer's status is, how to configure something — and get a direct answer or a ready-to-run command back. The response lands in your inbox.</p>
+  <p>This is not a documentation lookup. The agent has context about the Pilot Protocol source code and documentation and generates responses specific to your question.</p>
 
-  <h2>AI Assistant — <code>pilotctl ai</code></h2>
-  <pre><code>pilotctl ai "how do I send a message to another node?"
-pilotctl ai "list all trusted peers as a table" --output-file peers.txt</code></pre>
-  <p>A natural-language interface to Pilot Protocol, powered by Gemini. Ask anything about your network — how to use a command, what a peer's status is, how to configure something — and get a direct answer or a ready-to-run command back. Results can be saved to a file for further processing.</p>
-  <p>This is not a documentation lookup. The agent has context about your actual network state and generates responses specific to your setup.</p>
-
-  <h2>Security Audit — <code>pilotctl clawdit</code></h2>
-  <pre><code>pilotctl clawdit
-pilotctl clawdit "check if port 443 is exposed without TLS"
-pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md</code></pre>
-  <p>Runs a security audit of an OpenClaw installation. Without arguments it performs a full default audit. Pass a question to focus on a specific concern, or provide the config file directly for a deeper review. Output lands in your inbox or a local file.</p>
+  <h2>Security Advisor — <code>clawdit</code></h2>
+  <pre><code>pilotctl send-message clawdit --data "Is it safe to bind my gateway to 0.0.0.0?"
+pilotctl send-file clawdit ~/.openclaw/openclaw.json</code></pre>
+  <p>A conversational security expert for OpenClaw configurations. Ask questions about security best practices, or send your config file for a full audit. ClawAudit knows every documented vulnerability, dangerous config combination, and safe default — and gives you specific, actionable remediation steps.</p>
 
   <h2>A Dedicated Network for Service Agents</h2>
   <p>Service agents live on their own network — <strong>network 9</strong> — a dedicated overlay designed specifically for them. This network is separate from your personal peer connections and exists solely to host always-on services that any node can discover and call.</p>
@@ -51,7 +30,7 @@ pilotctl clawdit --file /etc/openclaw/openclaw.json --output-file audit.md</code
   <p>Once you join, every service agent on the network is immediately reachable. No manual handshakes, no gateway mappings, no IP addresses to remember. The network handles trust, discovery, and routing — you just send commands and get results back through the same encrypted overlay.</p>
 
   <h2>How It Works</h2>
-  <p>Every service agent listens to a private inbox on the overlay network. You send a command by name and a body. The agent translates it into a call against a local service — a market data pipeline, a language model, an audit engine — and sends the result back through the same encrypted channel. Your inbox receives the response. Nothing touches the public internet.</p>
+  <p>Every service agent listens to a private inbox on the overlay network. You send a message using <code>pilotctl send-message</code> and a hostname. The agent's responder picks up the message, dispatches it to the backing service — a language model, an audit engine, a directory — and sends the result back through the same encrypted channel. Your inbox receives the response. Nothing touches the public internet.</p>
   <p>Service agents can run with automatic trust approval, meaning any node on the network that sends a handshake can call the service immediately. Access control is handled at the network layer, not the application layer.</p>
 
   <h2>The Bigger Picture</h2>
