@@ -136,6 +136,10 @@ func (pr *PolicyRunner) EvaluateActions(eventType policy.EventType, ctx map[stri
 			pr.executePrune(d)
 		case policy.DirectiveFill:
 			pr.executeFill(d)
+		case policy.DirectivePruneTrust:
+			pr.executePruneTrust(d)
+		case policy.DirectiveFillTrust:
+			pr.executeFillTrust(d)
 		case policy.DirectiveLog:
 			pr.executeLog(d)
 		case policy.DirectiveWebhook:
@@ -348,6 +352,139 @@ func (pr *PolicyRunner) executeWebhook(d policy.Directive) {
 	pr.daemon.webhook.Emit("policy."+event, data)
 }
 
+func (pr *PolicyRunner) executePruneTrust(d policy.Directive) {
+	percent := paramInt(d.Params, "percent")
+	minLinks := paramInt(d.Params, "min")
+	by, _ := d.Params["by"].(string)
+	if by == "" {
+		by = "score"
+	}
+
+	trusted := pr.daemon.handshakes.TrustedPeers()
+	total := len(trusted)
+	if total <= minLinks {
+		return
+	}
+
+	toRemove := total * percent / 100
+	if toRemove == 0 {
+		toRemove = 1
+	}
+	if total-toRemove < minLinks {
+		toRemove = total - minLinks
+	}
+	if toRemove <= 0 {
+		return
+	}
+
+	ranked := pr.rankTrustLinks(trusted, by)
+	pruned := 0
+	for i := 0; i < toRemove && i < len(ranked); i++ {
+		if err := pr.daemon.handshakes.RevokeTrust(ranked[i].NodeID); err != nil {
+			slog.Warn("policy: prune_trust revoke failed", "node_id", ranked[i].NodeID, "err", err)
+			continue
+		}
+		pruned++
+	}
+	if pruned > 0 {
+		slog.Info("policy: pruned trust links", "network_id", pr.netID, "count", pruned, "rule", d.Rule)
+		pr.daemon.webhook.Emit("policy.prune_trust", map[string]interface{}{
+			"network_id": pr.netID,
+			"rule":       d.Rule,
+			"pruned":     pruned,
+		})
+	}
+}
+
+func (pr *PolicyRunner) rankTrustLinks(records []TrustRecord, by string) []TrustRecord {
+	ranked := make([]TrustRecord, len(records))
+	copy(ranked, records)
+
+	switch by {
+	case "score":
+		pr.mu.RLock()
+		defer pr.mu.RUnlock()
+		sort.Slice(ranked, func(i, j int) bool {
+			si, oki := pr.peers[ranked[i].NodeID]
+			sj, okj := pr.peers[ranked[j].NodeID]
+			scoreI := -(1 << 30)
+			scoreJ := -(1 << 30)
+			if oki {
+				scoreI = si.Score
+			}
+			if okj {
+				scoreJ = sj.Score
+			}
+			return scoreI < scoreJ
+		})
+	case "age":
+		sort.Slice(ranked, func(i, j int) bool {
+			return ranked[i].ApprovedAt.Before(ranked[j].ApprovedAt)
+		})
+	case "random":
+		rand.Shuffle(len(ranked), func(i, j int) {
+			ranked[i], ranked[j] = ranked[j], ranked[i]
+		})
+	}
+	return ranked
+}
+
+func (pr *PolicyRunner) executeFillTrust(d policy.Directive) {
+	target := paramInt(d.Params, "target")
+
+	trusted := pr.daemon.handshakes.TrustedPeers()
+	current := len(trusted)
+	deficit := target - current
+	if deficit <= 0 {
+		return
+	}
+
+	trustedSet := make(map[uint32]bool, len(trusted))
+	for _, t := range trusted {
+		trustedSet[t.NodeID] = true
+	}
+
+	fetched := pr.fetchMembersWithTags()
+	if fetched == nil {
+		slog.Warn("policy: fill_trust failed (member list)", "network_id", pr.netID)
+		return
+	}
+
+	myID := pr.daemon.NodeID()
+	var candidates []uint32
+	for _, f := range fetched {
+		if f.ID == myID || trustedSet[f.ID] {
+			continue
+		}
+		candidates = append(candidates, f.ID)
+	}
+
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+
+	if deficit > len(candidates) {
+		deficit = len(candidates)
+	}
+
+	sent := 0
+	for _, nodeID := range candidates[:deficit] {
+		if err := pr.daemon.handshakes.SendRequest(nodeID, "trust-decay policy"); err != nil {
+			slog.Warn("policy: fill_trust request failed", "node_id", nodeID, "err", err)
+			continue
+		}
+		sent++
+	}
+	if sent > 0 {
+		slog.Info("policy: sent trust requests", "network_id", pr.netID, "count", sent, "rule", d.Rule)
+		pr.daemon.webhook.Emit("policy.fill_trust", map[string]interface{}{
+			"network_id": pr.netID,
+			"rule":       d.Rule,
+			"sent":       sent,
+		})
+	}
+}
+
 // --- Cycle loop ---
 
 func (pr *PolicyRunner) cycleLoop() {
@@ -392,11 +529,14 @@ func (pr *PolicyRunner) runCycle() map[string]interface{} {
 	cycleNum := pr.cycleNum
 	pr.mu.Unlock()
 
+	trustedCount := len(pr.daemon.handshakes.TrustedPeers())
+
 	ctx := map[string]interface{}{
-		"network_id": int(pr.netID),
-		"members":    peerCount,
-		"peer_count": peerCount,
-		"cycle_num":  cycleNum,
+		"network_id":    int(pr.netID),
+		"members":       peerCount,
+		"peer_count":    peerCount,
+		"cycle_num":     cycleNum,
+		"trusted_count": trustedCount,
 	}
 
 	pr.EvaluateActions(policy.EventCycle, ctx)

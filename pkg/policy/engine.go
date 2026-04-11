@@ -233,6 +233,8 @@ var actionTypeToDirective = map[ActionType]DirectiveType{
 	ActionEvictWhere: DirectiveEvictWhere,
 	ActionPrune:      DirectivePrune,
 	ActionFill:       DirectiveFill,
+	ActionPruneTrust: DirectivePruneTrust,
+	ActionFillTrust:  DirectiveFillTrust,
 	ActionWebhook:    DirectiveWebhook,
 	ActionLog:        DirectiveLog,
 }

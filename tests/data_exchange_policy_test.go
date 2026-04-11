@@ -21,11 +21,18 @@ func TestDataExchangePolicy(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	// Read the policy file
-	policyJSON, err := os.ReadFile("../configs/networks/data-exchange-policy.json")
+	// Read the policy file (blueprint format: extract expr_policy)
+	blueprintJSON, err := os.ReadFile("../configs/networks/data-exchange-policy.json")
 	if err != nil {
 		t.Fatalf("read policy: %v", err)
 	}
+	var blueprint struct {
+		ExprPolicy json.RawMessage `json:"expr_policy"`
+	}
+	if err := json.Unmarshal(blueprintJSON, &blueprint); err != nil {
+		t.Fatalf("parse blueprint: %v", err)
+	}
+	policyJSON := []byte(blueprint.ExprPolicy)
 
 	// Start 4 daemons: svc1, svc2 are service nodes; reg1, reg2 are regular
 	svc1 := env.AddDaemon()

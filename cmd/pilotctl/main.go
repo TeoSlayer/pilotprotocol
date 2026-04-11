@@ -731,6 +731,8 @@ func main() {
 		cmdAudit(cmdArgs)
 	case "provision":
 		cmdProvision(cmdArgs)
+	case "deprovision":
+		cmdDeprovision(cmdArgs)
 	case "idp":
 		cmdIDP(cmdArgs)
 	case "audit-export":
@@ -4934,6 +4936,48 @@ func cmdProvision(args []string) {
 			fmt.Printf("  - %v\n", a)
 		}
 	}
+}
+
+func cmdDeprovision(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl deprovision <network-name>")
+	}
+	name := args[0]
+	adminToken := requireAdminToken()
+
+	rc := connectRegistry()
+	defer rc.Close()
+
+	// Look up network by name
+	resp, err := rc.ListNetworks()
+	if err != nil {
+		fatalCode("connection_failed", "list networks: %v", err)
+	}
+	nets, _ := resp["networks"].([]interface{})
+	var netID uint16
+	found := false
+	for _, n := range nets {
+		nm, _ := n.(map[string]interface{})
+		nname, _ := nm["name"].(string)
+		if nname == name {
+			netID = uint16(nm["id"].(float64))
+			found = true
+			break
+		}
+	}
+	if !found {
+		fatalCode("not_found", "network %q not found", name)
+	}
+
+	delResp, err := rc.DeleteNetwork(netID, adminToken)
+	if err != nil {
+		fatalCode("connection_failed", "delete network %q (id=%d): %v", name, netID, err)
+	}
+	if jsonOutput {
+		output(delResp)
+		return
+	}
+	fmt.Printf("deprovisioned network %q (id=%d)\n", name, netID)
 }
 
 func cmdIDP(args []string) {

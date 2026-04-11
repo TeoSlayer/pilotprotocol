@@ -20,7 +20,8 @@ type NetworkBlueprint struct {
 	Enterprise bool   `json:"enterprise,omitempty"` // enable enterprise features
 
 	// Policy
-	Policy *BlueprintPolicy `json:"policy,omitempty"`
+	Policy     *BlueprintPolicy `json:"policy,omitempty"`
+	ExprPolicy json.RawMessage  `json:"expr_policy,omitempty"`
 
 	// RBAC pre-assignments (by external_id)
 	Roles []BlueprintRole `json:"roles,omitempty"`
@@ -143,6 +144,21 @@ func ValidateBlueprint(bp *NetworkBlueprint) error {
 			return fmt.Errorf("audit_export.endpoint is required")
 		}
 	}
+	if len(bp.ExprPolicy) > 0 {
+		var check struct {
+			Version int             `json:"version"`
+			Rules   json.RawMessage `json:"rules"`
+		}
+		if err := json.Unmarshal(bp.ExprPolicy, &check); err != nil {
+			return fmt.Errorf("expr_policy: invalid JSON: %w", err)
+		}
+		if check.Version != 1 {
+			return fmt.Errorf("expr_policy: unsupported version %d (want 1)", check.Version)
+		}
+		if len(check.Rules) == 0 || string(check.Rules) == "null" {
+			return fmt.Errorf("expr_policy: at least one rule is required")
+		}
+	}
 	return nil
 }
 
@@ -187,6 +203,14 @@ func (s *Server) ApplyBlueprint(bp *NetworkBlueprint, adminToken string) (*Provi
 			return nil, fmt.Errorf("apply policy: %w", err)
 		}
 		result.Actions = append(result.Actions, "applied network policy")
+	}
+
+	// Step 3b: Apply expr policy
+	if len(bp.ExprPolicy) > 0 {
+		if err := s.applyBlueprintExprPolicy(netID, bp.ExprPolicy); err != nil {
+			return nil, fmt.Errorf("apply expr_policy: %w", err)
+		}
+		result.Actions = append(result.Actions, "applied expr policy")
 	}
 
 	// Step 4: Configure identity provider
@@ -299,6 +323,19 @@ func (s *Server) applyBlueprintPolicy(netID uint16, pol *BlueprintPolicy) error 
 	if pol.Description != "" {
 		net.Policy.Description = pol.Description
 	}
+	s.save()
+	return nil
+}
+
+// applyBlueprintExprPolicy sets the programmable policy on a network.
+func (s *Server) applyBlueprintExprPolicy(netID uint16, policyData json.RawMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	net, ok := s.networks[netID]
+	if !ok {
+		return fmt.Errorf("network %d not found", netID)
+	}
+	net.ExprPolicy = policyData
 	s.save()
 	return nil
 }

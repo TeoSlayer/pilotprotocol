@@ -1,0 +1,22 @@
+{
+  "name": "trust-decay",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "config": {"cycle": "24h"},
+    "rules": [
+      {
+        "name": "trust-decay",
+        "on": "cycle",
+        "match": "trusted_count > 100",
+        "actions": [{"type": "prune_trust", "params": {"percent": 10, "min": 100, "by": "score"}}]
+      },
+      {
+        "name": "trust-fill",
+        "on": "cycle",
+        "match": "trusted_count < 100",
+        "actions": [{"type": "fill_trust", "params": {"target": 100}}]
+      }
+    ]
+  }
+}

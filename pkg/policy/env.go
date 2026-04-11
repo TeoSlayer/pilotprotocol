@@ -60,6 +60,7 @@ func envOptions(eventType EventType) []expr.Option {
 		env["members"] = 0
 		env["peer_count"] = 0
 		env["cycle_num"] = 0
+		env["trusted_count"] = 0
 	case EventJoin:
 		env["peer_id"] = 0
 		env["network_id"] = 0

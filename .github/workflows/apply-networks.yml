@@ -1,0 +1,152 @@
+name: Apply Network Configs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'configs/networks/*.json'
+  workflow_dispatch:
+
+concurrency:
+  group: apply-networks
+  cancel-in-progress: false
+
+env:
+  PILOT_REGISTRY: "34.71.57.205:9000"
+
+jobs:
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      deleted: ${{ steps.diff.outputs.deleted }}
+      has_changes: ${{ steps.diff.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed and deleted configs
+        id: diff
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run: apply all existing configs, no deletes
+            CHANGED=$(find configs/networks -name '*.json' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            DELETED="[]"
+          else
+            CHANGED=$(git diff --name-only --diff-filter=ACMR HEAD~1 HEAD -- 'configs/networks/*.json' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            DELETED=$(git diff --name-only --diff-filter=D HEAD~1 HEAD -- 'configs/networks/*.json' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "deleted=$DELETED" >> "$GITHUB_OUTPUT"
+          if [ "$CHANGED" = "[]" ] && [ "$DELETED" = "[]" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed: $CHANGED"
+          echo "Deleted: $DELETED"
+
+  apply:
+    name: Apply
+    needs: detect
+    if: needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build pilotctl
+        run: CGO_ENABLED=0 go build -o pilotctl ./cmd/pilotctl/
+
+      - name: Validate configs
+        if: fromJSON(needs.detect.outputs.changed)[0] != null
+        run: |
+          for f in ${{ join(fromJSON(needs.detect.outputs.changed), ' ') }}; do
+            echo "Validating $f..."
+            ./pilotctl policy validate --file <(jq '.expr_policy' "$f") || {
+              echo "::error::Validation failed for $f"
+              exit 1
+            }
+          done
+
+      - name: Apply changed configs
+        if: fromJSON(needs.detect.outputs.changed)[0] != null
+        env:
+          PILOT_ADMIN_TOKEN: ${{ secrets.PILOT_ADMIN_TOKEN }}
+        run: |
+          FAILED=0
+          for f in ${{ join(fromJSON(needs.detect.outputs.changed), ' ') }}; do
+            NAME=$(jq -r '.name' "$f")
+            echo "Applying $f (network: $NAME)..."
+            if ./pilotctl provision "$f" -json; then
+              echo "Applied $NAME"
+            else
+              echo "::error::Failed to apply $f"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" = "1" ]; then
+            exit 1
+          fi
+
+      - name: Delete removed networks
+        if: fromJSON(needs.detect.outputs.deleted)[0] != null
+        env:
+          PILOT_ADMIN_TOKEN: ${{ secrets.PILOT_ADMIN_TOKEN }}
+        run: |
+          FAILED=0
+          for f in ${{ join(fromJSON(needs.detect.outputs.deleted), ' ') }}; do
+            # Recover the name from the deleted file in the previous commit
+            NAME=$(git show HEAD~1:"$f" | jq -r '.name')
+            if [ -z "$NAME" ] || [ "$NAME" = "null" ]; then
+              echo "::warning::Could not extract name from deleted $f, skipping"
+              continue
+            fi
+            echo "Deleting network $NAME (from $f)..."
+            if ./pilotctl deprovision "$NAME" -json; then
+              echo "Deleted $NAME"
+            else
+              echo "::error::Failed to delete network $NAME"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" = "1" ]; then
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Apply Network Configs" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          CHANGED='${{ needs.detect.outputs.changed }}'
+          DELETED='${{ needs.detect.outputs.deleted }}'
+
+          if [ "$CHANGED" != "[]" ]; then
+            echo "**Applied:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "$CHANGED" | jq -r '.[]' | while read -r f; do
+              if [ -f "$f" ]; then
+                NAME=$(jq -r '.name' "$f")
+                echo "- \`$NAME\` ($f)" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+          fi
+
+          if [ "$DELETED" != "[]" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Deleted:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "$DELETED" | jq -r '.[]' | while read -r f; do
+              echo "- $f" >> "$GITHUB_STEP_SUMMARY"
+            done
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Triggered by:** ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"

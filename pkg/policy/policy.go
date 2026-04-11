@@ -43,6 +43,8 @@ const (
 	ActionEvictWhere ActionType = "evict_where"
 	ActionPrune      ActionType = "prune"
 	ActionFill       ActionType = "fill"
+	ActionPruneTrust ActionType = "prune_trust"
+	ActionFillTrust  ActionType = "fill_trust"
 	ActionWebhook    ActionType = "webhook"
 	ActionLog        ActionType = "log"
 )
@@ -86,6 +88,8 @@ const (
 	DirectiveEvictWhere
 	DirectivePrune
 	DirectiveFill
+	DirectivePruneTrust
+	DirectiveFillTrust
 	DirectiveWebhook
 	DirectiveLog
 )
@@ -196,6 +200,17 @@ func validateAction(ruleName string, idx int, a Action) error {
 	case ActionFill:
 		if _, ok := a.Params["count"]; !ok {
 			return fmt.Errorf("policy: rule %q action[%d]: fill requires 'count' param", ruleName, idx)
+		}
+	case ActionPruneTrust:
+		if _, ok := a.Params["percent"]; !ok {
+			return fmt.Errorf("policy: rule %q action[%d]: prune_trust requires 'percent' param", ruleName, idx)
+		}
+		if _, ok := a.Params["min"]; !ok {
+			return fmt.Errorf("policy: rule %q action[%d]: prune_trust requires 'min' param", ruleName, idx)
+		}
+	case ActionFillTrust:
+		if _, ok := a.Params["target"]; !ok {
+			return fmt.Errorf("policy: rule %q action[%d]: fill_trust requires 'target' param", ruleName, idx)
 		}
 	case ActionWebhook:
 		if _, ok := a.Params["event"]; !ok {
