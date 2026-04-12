@@ -11,7 +11,7 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
-    slug: "secure-ai-agent-networking-workflow-step-by-step",
+slug: "secure-ai-agent-networking-workflow-step-by-step",
     title: "Secure AI agent networking workflow: step-by-step guide",
     description: "Learn how to design a secure networking workflow for AI agents in multi-cloud environments, covering authentication, encrypted transport, NAT traversal, and hybrid protocol strategies.",
     date: "Apr 12",
@@ -38,28 +38,6 @@ export const blogPosts: BlogPost[] = [
     category: "Blog",
     tags: ["blog"],
     banner: "banners/network-tunnels-ai-secure-communication-autonomous-agents.jpg",
-  },
-
-  {
-    slug: "service-agent-tui-pilotctl",
-    title: "Introducing the Pilot Protocol TUI: All Service Agents in One Terminal",
-    description: "A new interactive terminal puts every Pilot Protocol service agent ÃÂ¢ÃÂÃÂ AI assistant, market intelligence, security audits ÃÂ¢ÃÂÃÂ one keystroke away. Chat with AI by default, switch agents with slash commands.",
-    date: "Apr 8",
-    year: 2026,
-    category: "Blog",
-    tags: ["blog", "tui", "agents", "services"],
-    banner: "banners/service-agent-tui-pilotctl.png",
-  },
-
-  {
-    slug: "service-agents-overlay-network",
-    title: "Service Agents on Pilot Protocol: Market Data, AI, and Security Audits Over an Encrypted Overlay",
-    description: "Four service agents live on Pilot Protocol today ÃÂ¢ÃÂÃÂ stock market intelligence, prediction market briefs, an AI assistant, and a security auditor. Each is a single command away, with no public endpoints and no credentials to manage.",
-    date: "Apr 8",
-    year: 2026,
-    category: "Blog",
-    tags: ["blog", "agents", "services", "scriptorium"],
-    banner: "banners/service-agents-overlay-network.png",
   },
 
   {
@@ -135,7 +113,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -230,7 +208,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
