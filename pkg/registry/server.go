@@ -374,9 +374,11 @@ const staleNodeThreshold = 5 * time.Minute
 // defaultMaxConnections is the maximum concurrent connections the server will accept.
 const defaultMaxConnections int64 = 1100000
 
-// maxMessageSize is the maximum allowed wire message size (64KB).
+// maxMessageSize is the maximum allowed wire message size (4MB).
 // Messages exceeding this limit cause the connection to be closed.
-const maxMessageSize = 64 * 1024
+// Note: must stay well below the binary wire magic (0x50494C54 ≈ 1.3B)
+// for protocol auto-detection to work.
+const maxMessageSize = 4 * 1024 * 1024
 
 // logSampler suppresses repeated log messages. Logs the first occurrence of
 // each key, then every Nth occurrence. Prevents log flooding under high load.
@@ -6469,6 +6471,7 @@ type DashboardStats struct {
 	ActiveNodes     int            `json:"active_nodes"`
 	TotalTrustLinks int            `json:"total_trust_links"`
 	TotalRequests   int64          `json:"total_requests"`
+	ReqPerDay       int64          `json:"req_per_day"`
 	UptimeSecs      int64          `json:"uptime_secs"`
 	Versions        map[string]int `json:"versions"`
 	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
@@ -6511,11 +6514,14 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		versions[v]++
 	}
 
+	reqPerDay := s.computeDeltas()
+
 	return DashboardStats{
 		TotalNodes:      int(s.nextNode - 1),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
+		ReqPerDay:       reqPerDay,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
 	}
@@ -6608,6 +6614,38 @@ func (s *Server) readHistory() (hourly, daily []StatsSample) {
 		}
 	}
 	return
+}
+
+// computeDeltas returns req/day and node growth from daily (or hourly) ring buffers.
+// Caller must hold s.mu (at least RLock).
+func (s *Server) computeDeltas() (reqPerDay int64) {
+	// Try daily samples first (preferred — exact 24h delta)
+	var daily []StatsSample
+	for i := 0; i < 7; i++ {
+		idx := (s.dailyIdx + i) % 7
+		if s.dailyHistory[idx].Timestamp != 0 {
+			daily = append(daily, s.dailyHistory[idx])
+		}
+	}
+	if len(daily) >= 2 {
+		prev := daily[len(daily)-2]
+		newest := daily[len(daily)-1]
+		return newest.TotalRequests - prev.TotalRequests
+	}
+	// Fall back to last 2 hourly samples, extrapolate ×24
+	var hourly []StatsSample
+	for i := 0; i < 24; i++ {
+		idx := (s.hourlyIdx + i) % 24
+		if s.hourlyHistory[idx].Timestamp != 0 {
+			hourly = append(hourly, s.hourlyHistory[idx])
+		}
+	}
+	if len(hourly) >= 2 {
+		prev := hourly[len(hourly)-2]
+		newest := hourly[len(hourly)-1]
+		return (newest.TotalRequests - prev.TotalRequests) * 24
+	}
+	return 0
 }
 
 // GetDashboardStatsWithHistory returns aggregate statistics plus history charts.
@@ -6707,12 +6745,14 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	sort.Slice(networks, func(i, j int) bool { return networks[i].ID < networks[j].ID })
 
 	hourly, daily := s.readHistory()
+	reqPerDay := s.computeDeltas()
 
 	return DashboardStats{
 		TotalNodes:      int(s.nextNode - 1),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
 		TotalRequests:   s.requestCount.Load(),
+		ReqPerDay:       reqPerDay,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
 		Networks:        networks,

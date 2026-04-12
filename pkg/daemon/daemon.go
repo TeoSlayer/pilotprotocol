@@ -81,7 +81,7 @@ const (
 	DefaultIdleSweepInterval     = 15 * time.Second
 	DefaultSYNRateLimit          = 100
 	DefaultMaxConnectionsPerPort = 1024
-	DefaultMaxTotalConnections   = 4096
+	DefaultMaxTotalConnections   = 65536
 	DefaultTimeWaitDuration      = 10 * time.Second
 )
 
@@ -103,6 +103,9 @@ const (
 	ZeroWinProbeInitial = 500 * time.Millisecond // initial zero-window probe interval
 	ZeroWinProbeMax     = 30 * time.Second       // max zero-window probe backoff
 )
+
+// RelayProbeInterval is how often we probe relay-flagged peers for direct connectivity.
+const RelayProbeInterval = 5 * time.Minute
 
 // EndpointCacheTTL is how long a cached endpoint is considered fresh.
 // After this, the entry is stale but still usable as a fallback.
@@ -597,7 +600,10 @@ func (d *Daemon) Start() error {
 	// 9. Start idle connection sweeper
 	go d.idleSweepLoop()
 
-	// 10. Start network sync (refreshes memberships/policies every 5 min)
+	// 10. Start relay→direct fallback probe (checks every 5 min)
+	go d.relayProbeLoop()
+
+	// 11. Start network sync (refreshes memberships/policies every 5 min)
 	go d.networkSyncLoop()
 
 	d.startTime = time.Now()
@@ -792,7 +798,7 @@ func (d *Daemon) doStop() {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagFIN,
 				Protocol: protocol.ProtoStream,
-				Src:      d.Addr(),
+				Src:      conn.LocalAddr,
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -1562,7 +1568,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagACK,
 			Protocol: protocol.ProtoStream,
-			Src:      d.Addr(),
+			Src:      conn.LocalAddr,
 			Dst:      pkt.Src,
 			SrcPort:  pkt.DstPort,
 			DstPort:  pkt.SrcPort,
@@ -1574,17 +1580,25 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		return
 	}
 
-	// FIN — remote close
+	// FIN — remote close (or FIN-ACK acknowledging our FIN)
 	if pkt.HasFlag(protocol.FlagFIN) {
 		conn := d.ports.FindConnection(pkt.DstPort, pkt.Src, pkt.SrcPort)
 		if conn != nil {
 			conn.CloseRecvBuf()
 			conn.Mu.Lock()
+			wasFinWait := conn.State == StateFinWait
 			wasTimeWait := conn.State == StateTimeWait
 			conn.State = StateTimeWait
 			conn.LastActivity = time.Now()
+			conn.KeepaliveUnacked = 0
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
+			// If we were in FIN_WAIT, this is a FIN-ACK — clear retx buffer
+			if wasFinWait {
+				conn.RetxMu.Lock()
+				conn.Unacked = nil
+				conn.RetxMu.Unlock()
+			}
 			if !wasTimeWait {
 				d.webhook.Emit("conn.fin", map[string]interface{}{
 					"remote_addr": pkt.Src.String(), "remote_port": pkt.SrcPort,
@@ -1598,7 +1612,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagFIN | protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.Addr(),
+				Src:      conn.LocalAddr,
 				Dst:      pkt.Src,
 				SrcPort:  pkt.DstPort,
 				DstPort:  pkt.SrcPort,
@@ -1636,6 +1650,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		conn.Mu.Lock()
 		conn.LastActivity = time.Now()
+		conn.KeepaliveUnacked = 0
 		conn.Mu.Unlock()
 
 		// Update peer's receive window (H9 fix: always update, honor Window==0)
@@ -1720,7 +1735,7 @@ func (d *Daemon) sendDelayedACK(conn *Connection) {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagACK,
 		Protocol: protocol.ProtoStream,
-		Src:      d.Addr(),
+		Src:      conn.LocalAddr,
 		Dst:      conn.RemoteAddr,
 		SrcPort:  conn.LocalPort,
 		DstPort:  conn.RemotePort,
@@ -1792,7 +1807,7 @@ func (d *Daemon) handleControlPacket(pkt *protocol.Packet) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagACK,
 			Protocol: protocol.ProtoControl,
-			Src:      d.Addr(),
+			Src:      pkt.Dst,
 			Dst:      pkt.Src,
 			SrcPort:  protocol.PortPing,
 			DstPort:  pkt.SrcPort,
@@ -1831,7 +1846,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 
 	localPort := d.ports.AllocEphemeralPort()
 	conn := d.ports.NewConnection(localPort, dstAddr, dstPort)
-	conn.LocalAddr = d.Addr()
+	conn.LocalAddr = protocol.Addr{Network: dstAddr.Network, Node: d.NodeID()}
 	conn.State = StateSynSent
 
 	// Send SYN with our receive window
@@ -1839,7 +1854,7 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 		Version:  protocol.Version,
 		Flags:    protocol.FlagSYN,
 		Protocol: protocol.ProtoStream,
-		Src:      d.Addr(),
+		Src:      conn.LocalAddr,
 		Dst:      dstAddr,
 		SrcPort:  localPort,
 		DstPort:  dstPort,
@@ -1878,8 +1893,14 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 			conn.Mu.Lock()
 			st := conn.State
 			conn.Mu.Unlock()
-			if st == StateEstablished {
-				d.startRetxLoop(conn)
+			if st == StateEstablished || st == StateFinWait || st == StateTimeWait {
+				// StateFinWait/StateTimeWait: the three-way handshake completed but
+				// the remote closed before we observed ESTABLISHED. The connection
+				// was successfully established — return it so the caller can handle
+				// the closed state normally.
+				if st == StateEstablished {
+					d.startRetxLoop(conn)
+				}
 				return conn, nil
 			}
 			if st == StateClosed {
@@ -2077,7 +2098,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 				Version:  protocol.Version,
 				Flags:    protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.Addr(),
+				Src:      conn.LocalAddr,
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -2103,7 +2124,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		Version:  protocol.Version,
 		Flags:    protocol.FlagACK,
 		Protocol: protocol.ProtoStream,
-		Src:      d.Addr(),
+		Src:      conn.LocalAddr,
 		Dst:      conn.RemoteAddr,
 		SrcPort:  conn.LocalPort,
 		DstPort:  conn.RemotePort,
@@ -2158,7 +2179,7 @@ func (d *Daemon) retxLoop(conn *Connection) {
 			conn.Mu.Lock()
 			st := conn.State
 			conn.Mu.Unlock()
-			if st == StateEstablished {
+			if st == StateEstablished || st == StateFinWait {
 				d.retransmitUnacked(conn)
 			} else if st == StateClosed {
 				// Connection abandoned (max retransmit) — clean up immediately
@@ -2249,12 +2270,33 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 
 			conn.Mu.Lock()
 			recvAck := conn.RecvAck
+			st := conn.State
 			conn.Mu.Unlock()
+
+			// FIN retransmit: when in FIN_WAIT, the tracked entry is a
+			// FIN sentinel — resend with FlagFIN instead of data.
+			if st == StateFinWait {
+				pkt := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagFIN,
+					Protocol: protocol.ProtoStream,
+					Src:      conn.LocalAddr,
+					Dst:      conn.RemoteAddr,
+					SrcPort:  conn.LocalPort,
+					DstPort:  conn.RemotePort,
+					Seq:      e.seq,
+				}
+				if conn.RetxSend != nil {
+					conn.RetxSend(pkt)
+				}
+				return
+			}
+
 			pkt := &protocol.Packet{
 				Version:  protocol.Version,
 				Flags:    protocol.FlagACK,
 				Protocol: protocol.ProtoStream,
-				Src:      d.Addr(),
+				Src:      conn.LocalAddr,
 				Dst:      conn.RemoteAddr,
 				SrcPort:  conn.LocalPort,
 				DstPort:  conn.RemotePort,
@@ -2272,31 +2314,39 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 	}
 }
 
-// CloseConnection sends FIN and enters TIME_WAIT.
+// CloseConnection sends FIN and enters FIN_WAIT. The FIN is tracked in the
+// retransmission buffer so it will be retried if lost — the existing retxLoop
+// handles it. When FIN-ACK is received the connection moves to TIME_WAIT and
+// is eventually reaped by idleSweepLoop.
 func (d *Daemon) CloseConnection(conn *Connection) {
 	conn.Mu.Lock()
 	st := conn.State
 	sendSeq := conn.SendSeq
 	conn.Mu.Unlock()
 	if st == StateEstablished {
+		finData := []byte{0} // 1-byte sentinel so retxEntry has non-zero length
 		fin := &protocol.Packet{
 			Version:  protocol.Version,
 			Flags:    protocol.FlagFIN,
 			Protocol: protocol.ProtoStream,
-			Src:      d.Addr(),
+			Src:      conn.LocalAddr,
 			Dst:      conn.RemoteAddr,
 			SrcPort:  conn.LocalPort,
 			DstPort:  conn.RemotePort,
 			Seq:      sendSeq,
 		}
 		d.tunnels.Send(conn.RemoteAddr.Node, fin)
+		// Track FIN in retransmission buffer so the retxLoop retries it
+		conn.TrackSend(sendSeq, finData)
+		conn.Mu.Lock()
+		conn.SendSeq++
+		conn.Mu.Unlock()
 	}
 	conn.CloseRecvBuf()
 	conn.Mu.Lock()
-	conn.State = StateTimeWait
-	conn.LastActivity = time.Now() // start TIME_WAIT timer
+	conn.State = StateFinWait
+	conn.LastActivity = time.Now()
 	conn.Mu.Unlock()
-	// Connection will be reaped by idleSweepLoop after TimeWaitDuration
 }
 
 // SendDatagram sends an unreliable packet.
@@ -2320,7 +2370,7 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	pkt := &protocol.Packet{
 		Version:  protocol.Version,
 		Protocol: protocol.ProtoDatagram,
-		Src:      d.Addr(),
+		Src:      protocol.Addr{Network: dstAddr.Network, Node: d.NodeID()},
 		Dst:      dstAddr,
 		SrcPort:  srcPort,
 		DstPort:  dstPort,
@@ -2391,7 +2441,7 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 		pkt := &protocol.Packet{
 			Version:  protocol.Version,
 			Protocol: protocol.ProtoDatagram,
-			Src:      d.Addr(),
+			Src:      protocol.Addr{Network: netID, Node: d.NodeID()},
 			Dst:      protocol.Addr{Network: netID, Node: nodeID},
 			SrcPort:  srcPort,
 			DstPort:  dstPort,
@@ -2496,15 +2546,21 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	}
 
 	// Same-LAN detection: if peer has LAN addresses matching our subnet, use LAN directly.
-	// Skip if our tunnel is bound to a different address family (e.g. IPv6 tunnel vs IPv4 LAN).
+	// Skip if the registered address is already loopback (tests, same-host) or if our
+	// tunnel is bound to a different address family (e.g. IPv6 tunnel vs IPv4 LAN).
 	targetAddr := realAddr
-	if lanAddrs, ok := resp["lan_addrs"].([]interface{}); ok && len(lanAddrs) > 0 {
-		if lanAddr := matchLANSubnet(d.lanAddrs, lanAddrs); lanAddr != "" {
-			if !d.addrFamilyMismatch(lanAddr) {
-				targetAddr = lanAddr
-				slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
-			} else {
-				slog.Debug("same-LAN peer skipped: address family mismatch with tunnel", "lan_addr", lanAddr)
+	realHost, _, _ := net.SplitHostPort(realAddr)
+	realIP := net.ParseIP(realHost)
+	isLoopback := realIP != nil && realIP.IsLoopback()
+	if !isLoopback {
+		if lanAddrs, ok := resp["lan_addrs"].([]interface{}); ok && len(lanAddrs) > 0 {
+			if lanAddr := matchLANSubnet(d.lanAddrs, lanAddrs); lanAddr != "" {
+				if !d.addrFamilyMismatch(lanAddr) {
+					targetAddr = lanAddr
+					slog.Info("same-LAN peer detected, using LAN address", "node_id", nodeID, "lan_addr", lanAddr)
+				} else {
+					slog.Debug("same-LAN peer skipped: address family mismatch with tunnel", "lan_addr", lanAddr)
+				}
 			}
 		}
 	}
@@ -2715,22 +2771,51 @@ func (d *Daemon) idleSweepLoop() {
 			// Reap stale per-source SYN rate limit buckets
 			d.reapPerSrcSYN()
 
-			// Send keepalive probes to connections idle beyond keepalive interval
+			// Send keepalive probes to connections idle beyond keepalive interval.
+			// Dead-peer detection: if 3 consecutive probes go unanswered, RST + close.
 			idle := d.ports.IdleConnections(keepaliveInterval)
 			for _, conn := range idle {
 				conn.Mu.Lock()
 				st := conn.State
 				sendSeq := conn.SendSeq
 				recvAck := conn.RecvAck
+				kaUnacked := conn.KeepaliveUnacked
 				conn.Mu.Unlock()
 				if st != StateEstablished {
 					continue
 				}
+				if kaUnacked >= 3 {
+					slog.Warn("dead peer detected (3 keepalives unanswered), sending RST",
+						"conn_id", conn.ID, "remote_addr", conn.RemoteAddr, "remote_port", conn.RemotePort)
+					rst := &protocol.Packet{
+						Version:  protocol.Version,
+						Flags:    protocol.FlagRST,
+						Protocol: protocol.ProtoStream,
+						Src:      conn.LocalAddr,
+						Dst:      conn.RemoteAddr,
+						SrcPort:  conn.LocalPort,
+						DstPort:  conn.RemotePort,
+					}
+					d.tunnels.Send(conn.RemoteAddr.Node, rst)
+					conn.Mu.Lock()
+					conn.State = StateClosed
+					conn.Mu.Unlock()
+					conn.CloseRecvBuf()
+					d.ports.RemoveConnection(conn.ID)
+					d.webhook.Emit("conn.dead_peer", map[string]interface{}{
+						"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
+						"local_port": conn.LocalPort, "conn_id": conn.ID,
+					})
+					continue
+				}
+				conn.Mu.Lock()
+				conn.KeepaliveUnacked++
+				conn.Mu.Unlock()
 				probe := &protocol.Packet{
 					Version:  protocol.Version,
 					Flags:    protocol.FlagACK,
 					Protocol: protocol.ProtoStream,
-					Src:      d.Addr(),
+					Src:      conn.LocalAddr,
 					Dst:      conn.RemoteAddr,
 					SrcPort:  conn.LocalPort,
 					DstPort:  conn.RemotePort,
@@ -2738,6 +2823,72 @@ func (d *Daemon) idleSweepLoop() {
 					Ack:      recvAck,
 				}
 				d.tunnels.Send(conn.RemoteAddr.Node, probe)
+			}
+		}
+	}
+}
+
+// relayProbeLoop periodically sends direct probes to relay-flagged peers.
+// If the peer responds directly, relay mode is cleared for that peer.
+func (d *Daemon) relayProbeLoop() {
+	ticker := time.NewTicker(RelayProbeInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			relayPeers := d.tunnels.RelayPeerIDs()
+			for _, nodeID := range relayPeers {
+				// Send a direct ping (control probe) bypassing relay.
+				// If the peer's NAT has changed and direct works now,
+				// the incoming ACK will arrive on the tunnel socket.
+				probe := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagACK,
+					Protocol: protocol.ProtoControl,
+					Src:      d.Addr(),
+					Dst:      protocol.Addr{Network: 0, Node: nodeID},
+					SrcPort:  protocol.PortPing,
+					DstPort:  protocol.PortPing,
+					Seq:      1,
+				}
+				// Send directly (not via relay) by temporarily clearing relay flag,
+				// sending, then re-setting it. Use SendDirect if available.
+				d.tunnels.SetRelayPeer(nodeID, false)
+				err := d.tunnels.Send(nodeID, probe)
+				if err != nil {
+					d.tunnels.SetRelayPeer(nodeID, true)
+					continue
+				}
+				// Wait briefly for a response — if we get one, leave relay off
+				time.AfterFunc(2*time.Second, func() {
+					// If the peer is still in our tunnel cache and has no recent
+					// direct activity, re-enable relay
+					if d.tunnels.IsRelayPeer(nodeID) {
+						return // already re-flagged or cleared by packet handler
+					}
+					// Check if we got any packet from this peer recently
+					// by checking connection activity
+					conns := d.ports.AllConnections()
+					directOk := false
+					for _, c := range conns {
+						if c.RemoteAddr.Node == nodeID {
+							c.Mu.Lock()
+							lastAct := c.LastActivity
+							c.Mu.Unlock()
+							if time.Since(lastAct) < 3*time.Second {
+								directOk = true
+								break
+							}
+						}
+					}
+					if !directOk {
+						d.tunnels.SetRelayPeer(nodeID, true)
+					} else {
+						slog.Info("relay→direct fallback succeeded", "node_id", nodeID)
+					}
+				})
 			}
 		}
 	}

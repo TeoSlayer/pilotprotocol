@@ -158,6 +158,8 @@ type Connection struct {
 	AckMu       sync.Mutex  // protects PendingACKs and ACKTimer
 	PendingACKs int         // count of unacked received segments
 	ACKTimer    *time.Timer // delayed ACK timer
+	// Keepalive dead-peer detection
+	KeepaliveUnacked int // consecutive unanswered keepalive probes
 	// Close
 	CloseOnce  sync.Once // ensures RecvBuf is closed exactly once
 	RecvClosed bool      // true after RecvBuf is closed (guarded by RecvMu)
@@ -456,9 +458,9 @@ func (pm *PortManager) StaleConnections(timeWaitDur time.Duration) []*Connection
 		la := c.LastActivity
 		c.Mu.Unlock()
 		switch st {
-		case StateClosed, StateFinWait, StateCloseWait:
+		case StateClosed, StateCloseWait:
 			stale = append(stale, c)
-		case StateTimeWait:
+		case StateFinWait, StateTimeWait:
 			if now.Sub(la) > timeWaitDur {
 				stale = append(stale, c)
 			}
@@ -746,8 +748,14 @@ func seqAfterOrEqual(a, b uint32) bool {
 // segments and delivering in-order data to RecvBuf. Returns the cumulative
 // ACK number (next expected seq).
 //
-// To avoid deadlocking routeLoop (C1 fix), segments are collected under
-// RecvMu and delivered to RecvBuf after releasing the lock.
+// Three-phase design to avoid both deadlock and sequence leaks:
+//   Phase 1: Collect segments to deliver under RecvMu (don't advance ExpectedSeq).
+//   Phase 2: Deliver outside lock (prevents routeLoop deadlock, C1 fix).
+//   Phase 3: Re-acquire lock, advance ExpectedSeq only for delivered segments,
+//            re-buffer undelivered OOO segments.
+//
+// Safe because routeLoop is single-goroutine — no concurrent DeliverInOrder
+// calls for the same connection between Phase 2 and Phase 3.
 func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 	c.RecvMu.Lock()
 
@@ -757,20 +765,25 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 		return expectedSeq
 	}
 
-	var toDeliver [][]byte
+	type pendingSeg struct {
+		seq  uint32
+		data []byte
+		size uint32
+	}
+	var toDeliver []pendingSeg
 
 	if seq == c.ExpectedSeq {
-		// In order — collect for delivery
-		toDeliver = append(toDeliver, data)
-		c.ExpectedSeq = seq + uint32(len(data))
+		// In order — collect for delivery (don't advance ExpectedSeq yet)
+		toDeliver = append(toDeliver, pendingSeg{seq: seq, data: data, size: uint32(len(data))})
+		nextSeq := seq + uint32(len(data))
 
-		// Drain any buffered segments that are now in order
+		// Drain any buffered segments that would become contiguous
 		for {
 			found := false
 			for i, seg := range c.OOOBuf {
-				if seg.seq == c.ExpectedSeq {
-					toDeliver = append(toDeliver, seg.data)
-					c.ExpectedSeq = seg.seq + uint32(len(seg.data))
+				if seg.seq == nextSeq {
+					toDeliver = append(toDeliver, pendingSeg{seq: seg.seq, data: seg.data, size: uint32(len(seg.data))})
+					nextSeq = seg.seq + uint32(len(seg.data))
 					c.OOOBuf = append(c.OOOBuf[:i], c.OOOBuf[i+1:]...)
 					found = true
 					break
@@ -790,18 +803,43 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 	}
 	// seq before ExpectedSeq means it's a duplicate — ignore
 
-	expectedSeq := c.ExpectedSeq
 	c.RecvMu.Unlock()
 
-	// Deliver outside the lock to prevent deadlocking routeLoop when
-	// RecvBuf is full (C1 fix). The send can still block for backpressure
-	// but won't hold RecvMu, so CloseRecvBuf can proceed.
-	for _, d := range toDeliver {
-		func() {
+	// Phase 2: Deliver outside the lock to prevent deadlocking routeLoop
+	// when RecvBuf is full (C1 fix). Stop at first failure — remaining
+	// segments stay contiguous and will be re-buffered.
+	delivered := 0
+	for _, seg := range toDeliver {
+		ok := func() bool {
 			defer func() { recover() }() // handle closed RecvBuf
-			c.RecvBuf <- d
+			select {
+			case c.RecvBuf <- seg.data:
+				return true
+			case <-time.After(1 * time.Second):
+				return false
+			}
 		}()
+		if !ok {
+			break
+		}
+		delivered++
 	}
+
+	// Phase 3: Commit — advance ExpectedSeq only for successfully delivered
+	// segments. Re-buffer any OOO segments that couldn't be delivered.
+	c.RecvMu.Lock()
+	for i, seg := range toDeliver {
+		if i < delivered {
+			c.ExpectedSeq = seg.seq + seg.size
+		} else if i > 0 {
+			// Re-buffer OOO segments we removed in Phase 1.
+			// Skip index 0 (the incoming segment) — sender retransmits
+			// since we won't ACK it.
+			c.OOOBuf = append(c.OOOBuf, &recvSegment{seq: seg.seq, data: seg.data})
+		}
+	}
+	expectedSeq := c.ExpectedSeq
+	c.RecvMu.Unlock()
 
 	return expectedSeq
 }

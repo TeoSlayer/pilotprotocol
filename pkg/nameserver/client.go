@@ -2,6 +2,7 @@ package nameserver
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
@@ -115,7 +116,7 @@ func (c *Client) RegisterS(name string, addr protocol.Addr, networkID, port uint
 }
 
 func (c *Client) send(msg string) (string, error) {
-	conn, err := c.driver.DialAddr(c.serverAddr, protocol.PortNameserver)
+	conn, err := c.driver.DialAddrTimeout(c.serverAddr, protocol.PortNameserver, 10*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("dial nameserver: %w", err)
 	}

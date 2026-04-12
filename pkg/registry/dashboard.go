@@ -241,7 +241,7 @@ header{padding:16px 0;border-bottom:1px solid #21262d;margin-bottom:32px}
 header h1{font-size:20px;font-weight:600;color:#e6edf3}
 .uptime{font-size:12px;color:#8b949e;margin-top:4px}
 
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
 .stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
 .stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
@@ -329,10 +329,6 @@ footer a:hover{color:#58a6ff}
     <span class="value" id="active-nodes">—</span>
     <span class="label">Online Nodes</span>
   </div>
-  <div class="stat-card">
-    <span class="value" id="trust-links">—</span>
-    <span class="label">Trust Links</span>
-  </div>
 </div>
 
 <div class="charts-row" id="charts-row" style="display:none">
@@ -359,7 +355,7 @@ footer a:hover{color:#58a6ff}
 <div class="networks" id="networks">
   <h2>Networks</h2>
   <table>
-    <thead><tr><th>Network</th><th>Members</th><th>Online</th><th>Requests</th><th>Trust Links</th></tr></thead>
+    <thead><tr><th>Network</th><th>Members</th><th>Online</th><th>Requests</th></tr></thead>
     <tbody id="net-tbody"></tbody>
   </table>
   <div class="net-detail" id="net-detail">
@@ -433,7 +429,7 @@ function renderNetworks(networks){
   var html='';
   networks.forEach(function(n,i){
     var cls=n.id===_selectedNet?' class="active"':'';
-    html+='<tr'+cls+' data-idx="'+i+'" onclick="showNetDetail('+i+')"><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td><td>'+fmt(n.trust_links)+'</td></tr>';
+    html+='<tr'+cls+' data-idx="'+i+'" onclick="showNetDetail('+i+')"><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td></tr>';
   });
   tbody.innerHTML=html;
   if(_selectedNet>=0){
@@ -538,7 +534,6 @@ function update(){
     document.getElementById('total-requests').textContent=fmt(d.total_requests);
     document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
-    document.getElementById('trust-links').textContent=fmt(d.total_trust_links||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     renderVersions(d.versions);
     renderCharts(d.hourly,d.daily);

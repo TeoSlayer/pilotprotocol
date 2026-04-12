@@ -37,6 +37,12 @@ type Server struct {
 	relayCh chan relayJob // buffered channel for relay workers
 	pool    sync.Pool     // reusable payload buffers
 
+	// Relay counters (atomic for lock-free worker access)
+	relayForwarded atomic.Uint64 // successful relay deliveries
+	relayDropped   atomic.Uint64 // queue-full drops
+	relayNotFound  atomic.Uint64 // unknown destination drops
+	lastDropLog    atomic.Int64  // UnixNano of last drop warning (rate limit)
+
 	// Peer mesh (gossip)
 	beaconID  uint32
 	peers     []*net.UDPAddr          // peer beacon addresses
@@ -49,7 +55,7 @@ type Server struct {
 	done chan struct{} // closed on shutdown
 }
 
-const relayQueueSize = 32768 // buffered relay jobs before backpressure (increased for 1M-node scale)
+const relayQueueSize = 131072 // 128K buffered relay jobs before backpressure
 
 // maxRelayPayload caps the relay payload size. UDP itself limits datagrams to ~65KB,
 // but this provides defense-in-depth against future transport changes.
@@ -115,15 +121,18 @@ func (s *Server) ListenAndServe(addr string) error {
 	slog.Info("beacon listening", "addr", conn.LocalAddr(), "beacon_id", s.beaconID, "peers", len(s.peers))
 	close(s.readyCh)
 
-	// Start relay workers — one per CPU core, each processes relay
-	// jobs independently: lookup dest + WriteToUDP in parallel.
-	workers := runtime.NumCPU()
-	if workers < 2 {
-		workers = 2
+	// Start relay workers — two per CPU core to absorb WriteToUDP
+	// syscall latency. Each worker processes relay jobs independently.
+	workers := runtime.NumCPU() * 2
+	if workers < 4 {
+		workers = 4
 	}
 	for i := 0; i < workers; i++ {
 		go s.relayWorker()
 	}
+
+	// Start relay stats logger (every 60s)
+	go s.relayStatsLoop()
 
 	// Start reap loop to evict stale node entries
 	go s.reapLoop()
@@ -316,6 +325,13 @@ func (s *Server) dispatchRelay(data []byte) {
 	case s.relayCh <- relayJob{senderID: senderID, destID: destID, payload: buf}:
 	default:
 		// Queue full — drop packet (UDP is best-effort)
+		s.relayDropped.Add(1)
+		now := time.Now().UnixNano()
+		if last := s.lastDropLog.Load(); now-last > int64(time.Second) {
+			if s.lastDropLog.CompareAndSwap(last, now) {
+				slog.Warn("relay queue full, dropping packet", "sender", senderID, "dest", destID)
+			}
+		}
 		*bp = buf[:cap(buf)]
 		s.pool.Put(bp)
 	}
@@ -351,7 +367,9 @@ func (s *Server) relayWorker() {
 			copy(msg[5:], job.payload)
 
 			if _, err := s.conn.WriteToUDP(msg, destAddr); err != nil {
-				slog.Debug("beacon relay send failed", "dest_node_id", job.destID, "err", err)
+				slog.Warn("beacon relay send failed", "dest_node_id", job.destID, "err", err)
+			} else {
+				s.relayForwarded.Add(1)
 			}
 			s.returnPayload(job.payload)
 			continue
@@ -375,14 +393,17 @@ func (s *Server) relayWorker() {
 			copy(fwd[9:], job.payload)
 
 			if _, err := s.conn.WriteToUDP(fwd, peerAddr); err != nil {
-				slog.Debug("beacon relay forward to peer failed", "dest_node_id", job.destID, "peer", peerAddr, "err", err)
+				slog.Warn("beacon relay forward to peer failed", "dest_node_id", job.destID, "peer", peerAddr, "err", err)
+			} else {
+				s.relayForwarded.Add(1)
 			}
 			s.returnPayload(job.payload)
 			continue
 		}
 
 		// Tier 3: unknown destination
-		slog.Debug("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
+		s.relayNotFound.Add(1)
+		slog.Warn("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
 		s.returnPayload(job.payload)
 	}
 }
@@ -390,6 +411,25 @@ func (s *Server) relayWorker() {
 func (s *Server) returnPayload(buf []byte) {
 	buf = buf[:cap(buf)]
 	s.pool.Put(&buf)
+}
+
+// relayStatsLoop logs relay counters every 60 seconds.
+func (s *Server) relayStatsLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			fwd := s.relayForwarded.Load()
+			drop := s.relayDropped.Load()
+			nf := s.relayNotFound.Load()
+			if fwd > 0 || drop > 0 || nf > 0 {
+				slog.Info("relay stats", "forwarded", fwd, "dropped", drop, "not_found", nf)
+			}
+		}
+	}
 }
 
 // SendPunchCommand tells a node to send UDP to a target endpoint.

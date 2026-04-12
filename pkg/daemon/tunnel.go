@@ -238,6 +238,19 @@ func (tm *TunnelManager) IsRelayPeer(nodeID uint32) bool {
 	return tm.relayPeers[nodeID]
 }
 
+// RelayPeerIDs returns the node IDs of all relay-flagged peers.
+func (tm *TunnelManager) RelayPeerIDs() []uint32 {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	var ids []uint32
+	for id, isRelay := range tm.relayPeers {
+		if isRelay {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // RegisterWithBeacon sends a MsgDiscover to the beacon from the tunnel socket
 // using the real nodeID, so the beacon knows our endpoint for punch coordination.
 func (tm *TunnelManager) RegisterWithBeacon() {

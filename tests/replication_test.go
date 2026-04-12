@@ -174,9 +174,20 @@ func TestRegistryReplication(t *testing.T) {
 	}
 	t.Logf("node %d successfully replicated to standby", nodeID3)
 
-	// Verify standby persisted the state
-	if _, err := os.Stat(standbyStore); err != nil {
-		t.Errorf("standby store file not created: %v", err)
+	// Verify standby persisted the state. save() is coalesced in a background
+	// loop (at most once per second), so we poll briefly for the file.
+	deadline3 := time.After(3 * time.Second)
+	for {
+		if _, err := os.Stat(standbyStore); err == nil {
+			break
+		}
+		select {
+		case <-deadline3:
+			t.Errorf("standby store file not created after 3s")
+		case <-time.After(50 * time.Millisecond):
+			continue
+		}
+		break
 	}
 }
 

@@ -23,6 +23,12 @@
         "actions": [{"type": "deny"}]
       },
       {
+        "name": "allow-echo-dial",
+        "on": "dial",
+        "match": "port == 7",
+        "actions": [{"type": "allow"}]
+      },
+      {
         "name": "block-peer-dial",
         "on": "dial",
         "match": "true",
