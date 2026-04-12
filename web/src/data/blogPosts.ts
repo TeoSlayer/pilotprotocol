@@ -11,6 +11,17 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "service-agents-what-data-ai-agents-want",
+    title: "Service Agents: What data do AI agents actually want?",
+    description: "We launched 102 service agents on the Pilot Protocol service network and watched 91,539 requests roll in. Here is what agents actually demand when given a network of services to call.",
+    date: "Apr 11",
+    year: 2026,
+    category: "Blog",
+    tags: ["blog", "agents", "services", "data"],
+    banner: "banners/service-agents-what-data-ai-agents-want.png",
+  },
+
+  {
     slug: "autonomous-agent-networking-distributed-ai",
     title: "Understanding autonomous agent networking for distributed AI",
     description: "Learn how autonomous agent networking works, where architectures fail at scale, and which methodologies help AI developers build resilient decentralized agent systems.",
@@ -39,17 +50,6 @@ export const blogPosts: BlogPost[] = [
     category: "Blog",
     tags: ["blog", "tui", "agents", "services"],
     banner: "banners/service-agent-tui-pilotctl.png",
-  },
-
-  {
-    slug: "service-agents-overlay-network",
-    title: "Service Agents on Pilot Protocol: Market Data, AI, and Security Audits Over an Encrypted Overlay",
-    description: "Four service agents live on Pilot Protocol today Ã¢ÂÂ stock market intelligence, prediction market briefs, an AI assistant, and a security auditor. Each is a single command away, with no public endpoints and no credentials to manage.",
-    date: "Apr 8",
-    year: 2026,
-    category: "Blog",
-    tags: ["blog", "agents", "services", "scriptorium"],
-    banner: "banners/service-agents-overlay-network.png",
   },
 
   {
