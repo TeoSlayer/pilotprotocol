@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ai-networking-best-practices-secure-scalable-systems",
+    title: "AI networking best practices for secure, scalable systems",
+    description: "Learn proven AI networking best practices for secure, scalable agent systems using P2P architectures, encryption, and zero-trust security across multi-cloud environments.",
+    date: "Apr 13",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/ai-networking-best-practices-secure-scalable-systems.jpg",
+  },
+
+  {
 slug: "secure-ai-agent-networking-workflow-step-by-step",
     title: "Secure AI agent networking workflow: step-by-step guide",
     description: "Learn how to design a secure networking workflow for AI agents in multi-cloud environments, covering authentication, encrypted transport, NAT traversal, and hybrid protocol strategies.",
@@ -113,7 +123,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -208,7 +218,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂ¢ÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
