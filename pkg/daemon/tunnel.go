@@ -14,6 +14,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/pool"
@@ -118,6 +119,11 @@ type TunnelManager struct {
 	pendMu  sync.Mutex
 	pending map[uint32][][]byte // node_id → queued frames
 
+	// Rate-limit rekey-request responses triggered by "encrypted packet but no
+	// key" events. Prevents amplification if a peer floods us with gibberish.
+	rekeyMu       sync.Mutex
+	lastRekeyReq  map[uint32]time.Time
+
 	// NAT traversal: beacon-coordinated hole-punching and relay
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
@@ -154,14 +160,48 @@ const RecvChSize = 8192
 
 func NewTunnelManager() *TunnelManager {
 	return &TunnelManager{
-		peers:       make(map[uint32]*net.UDPAddr),
-		crypto:      make(map[uint32]*peerCrypto),
-		peerPubKeys: make(map[uint32]ed25519.PublicKey),
-		pending:     make(map[uint32][][]byte),
-		relayPeers:  make(map[uint32]bool),
-		recvCh:      make(chan *IncomingPacket, RecvChSize),
-		done:        make(chan struct{}),
+		peers:        make(map[uint32]*net.UDPAddr),
+		crypto:       make(map[uint32]*peerCrypto),
+		peerPubKeys:  make(map[uint32]ed25519.PublicKey),
+		pending:      make(map[uint32][][]byte),
+		relayPeers:   make(map[uint32]bool),
+		lastRekeyReq: make(map[uint32]time.Time),
+		recvCh:       make(chan *IncomingPacket, RecvChSize),
+		done:         make(chan struct{}),
 	}
+}
+
+// rekeyRequestInterval is the minimum interval between unsolicited key-exchange
+// requests triggered by "encrypted packet but no key" events for the same peer.
+// Prevents amplification if a peer streams unreadable frames at us.
+const rekeyRequestInterval = 3 * time.Second
+
+// maybeRequestRekey conditionally sends a key-exchange to a peer that sent us
+// an encrypted packet we can't decrypt. Rate-limited per peer. Returns true if
+// we actually sent one.
+func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr) bool {
+	if tm.conn == nil {
+		return false
+	}
+	tm.rekeyMu.Lock()
+	last := tm.lastRekeyReq[peerNodeID]
+	now := time.Now()
+	if now.Sub(last) < rekeyRequestInterval {
+		tm.rekeyMu.Unlock()
+		return false
+	}
+	tm.lastRekeyReq[peerNodeID] = now
+	tm.rekeyMu.Unlock()
+
+	// Remember the peer's UDP endpoint so sendKeyExchangeToNode can reach them.
+	tm.mu.Lock()
+	if _, ok := tm.peers[peerNodeID]; !ok && from != nil {
+		tm.peers[peerNodeID] = from
+	}
+	tm.mu.Unlock()
+
+	tm.sendKeyExchangeToNode(peerNodeID)
+	return true
 }
 
 // SetWebhook configures the webhook client for event notifications.
@@ -650,7 +690,15 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	tm.mu.RUnlock()
 
 	if pc == nil || !pc.ready {
-		slog.Warn("encrypted packet from node but no key", "peer_node_id", peerNodeID)
+		// We have no key for this peer. Typically this happens after a local
+		// restart: the remote still has a cached crypto context from the
+		// previous session and keeps sending packets we can't decrypt. Reply
+		// with a key-exchange so the sender detects the rekey, invalidates
+		// their cached context, and establishes a fresh tunnel. Rate-limited
+		// to prevent amplification.
+		sent := tm.maybeRequestRekey(peerNodeID, from)
+		slog.Warn("encrypted packet from node but no key",
+			"peer_node_id", peerNodeID, "rekey_sent", sent)
 		return
 	}
 
