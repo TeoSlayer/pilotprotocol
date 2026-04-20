@@ -1,0 +1,180 @@
+---
+import BlogLayout from '../../layouts/BlogLayout.astro';
+
+const bodyContent = `<p>Building a reliable userspace transport stack from scratch is a formidable challenge, but the Go programming language provides the exact concurrency primitives and standard library depth needed to pull it off. We recently relied entirely on pure Go to build <a href="/">Pilot Protocol</a> (created by Calin Teodor at Vulture Labs), a peer-to-peer overlay network designed to provision autonomous AI agents with persistent, routable 48-bit virtual addresses.</p>
+
+<p>If you follow the rapidly evolving AI space, you have likely encountered the Model Context Protocol (MCP) or various Agent-to-Agent (A2A) frameworks. While MCP provides an excellent standard for the application layer by defining how AI models manage context and execute tools, it intentionally stops short of solving the underlying networking layer. MCP does not dictate how two autonomous AI agents natively connect when trapped behind disparate corporate firewalls or residential NATs.</p>
+
+<p>Pilot Protocol fills this exact gap. It leverages UDP hole-punching for efficient NAT traversal, but because agents exchanging structured API data require reliable, stream-oriented connections, raw UDP is not enough. Existing transport protocols like QUIC were too heavy and did not natively support our requirements for custom addressing and bilateral cryptographic trust handshakes.</p>
+
+<p>Our solution was to build a reliable transport layer entirely in userspace over raw UDP using zero external dependencies. This meant implementing sliding windows, Additive-Increase/Multiplicative-Decrease (AIMD) congestion control, Nagle's algorithm, and Retransmission Timeouts (RTO) from scratch. Here is how we bypassed the kernel and built a full state machine, congestion controller, and crypto-router natively in Go, and how you can apply these lessons to your own high-throughput systems.</p>
+
+<section>
+<h2>1. Concurrency and Fine-Grained Locking</h2>
+
+<p>When writing a custom transport protocol, an easy pitfall is locking the entire socket state whenever a packet arrives. At thousands of packets per second, a global lock quickly creates a severe bottleneck.</p>
+
+<p>Instead, we leveraged Go's concurrency primitives to keep locking highly granular. We utilize a single, lock-free routing goroutine that reads off the <code>net.UDPConn</code> and demultiplexes packets to specific connection handlers via channels:</p>
+
+<pre><code>func (d *Daemon) routeLoop() {
+    for incoming := range d.tunnels.RecvCh() {
+        d.handlePacket(incoming.Packet, incoming.From)
+    }
+}</code></pre>
+
+<p>Inside our <code>Connection</code> struct, we partitioned state across multiple specific <code>sync.Mutex</code> instances. Looking through our implementation, you will find <code>conn.Mu</code> for general connection state, <code>conn.RetxMu</code> for the retransmission buffer, <code>conn.NagleMu</code> for write coalescing, <code>conn.AckMu</code> for delayed ACKs, and <code>conn.RecvMu</code> for out-of-order buffers.</p>
+
+<p>This separation of concerns means that an incoming packet carrying both data and a SACK (Selective Acknowledgement) block can update the receive window and the retransmission queue concurrently without ever stalling the outbound write path.</p>
+</section>
+
+<section>
+<h2>2. Taming the Garbage Collector with Polled Timers</h2>
+
+<p>In early iterations of our stack, we noticed a significant source of GC pressure: per-packet timer allocations. Initially, we allocated a new <code>time.AfterFunc</code> for every single packet sent to handle Retransmission Timeouts (RTO). Allocating and tearing down thousands of timer objects per second led to measurable CPU spikes.</p>
+
+<p>To optimize memory management, we shifted to a polling model. Each connection is assigned exactly one background goroutine running a static <code>time.Ticker</code>:</p>
+
+<pre><code>func (d *Daemon) retxLoop(conn *Connection) {
+    ticker := time.NewTicker(RetxCheckInterval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-conn.RetxStop:
+            return
+        case <-ticker.C:
+            conn.Mu.Lock()
+            st := conn.State
+            conn.Mu.Unlock()
+
+            if st == StateEstablished || st == StateFinWait {
+                d.retransmitUnacked(conn)
+            } else if st == StateClosed {
+                conn.CloseRecvBuf()
+                d.ports.RemoveConnection(conn.ID)
+                return
+            } else {
+                return
+            }
+        }
+    }
+}</code></pre>
+
+<p>Scanning an array of several hundred inflight packets periodically is highly efficient in Go. In contrast, managing hundreds of individual timer objects places unnecessary strain on the heap. One goroutine, one ticker, one heap allocation for the timer itself — regardless of how many packets are in flight.</p>
+</section>
+
+<section>
+<h2>3. Modeling Nagle's Algorithm with select</h2>
+
+<p>Nagle's algorithm coalesces small writes into larger Maximum Segment Size (MSS) packets to reduce network overhead. Implementing this in C often requires complex event loop manipulation. In Go, the native <code>select</code> statement handles this control flow elegantly.</p>
+
+<p>When our outbound function receives a sub-MSS write, it buffers the data and evaluates when to flush it. The goroutine simply waits for one of three conditions: a 40 ms timeout is reached, the inflight data is acknowledged (meaning the network is clear to send more), or the connection is closed.</p>
+
+<pre><code>nagleTimer := time.NewTimer(NagleTimeout)
+select {
+case <-conn.NagleCh:
+    nagleTimer.Stop()
+    // All data ACKed, flush now
+case <-nagleTimer.C:
+    // 40ms Timeout reached, flush regardless
+case <-conn.RetxStop:
+    nagleTimer.Stop()
+    return protocol.ErrConnClosed
+}</code></pre>
+
+<p>Using standard channels allowed us to implement classic TCP network states directly as control flow, significantly reducing the complexity of the underlying state machine.</p>
+</section>
+
+<section>
+<h2>4. Native Cryptography: ECDH, AES-GCM, and Ed25519</h2>
+
+<p>Building a secure network stack usually means wrestling with CGO bindings for OpenSSL or Ring. With Go, we built the entire cryptographic layer natively.</p>
+
+<p>For the protocol's default tunnel encryption, we use <code>crypto/ecdh</code> to perform an X25519 key exchange, deriving a shared secret (via HKDF-SHA256) that seamlessly feeds into <code>crypto/aes</code> and <code>crypto/cipher</code> for AES-256-GCM authenticated encryption. This means an attacker cannot read or tamper with the payload without detection.</p>
+
+<p>For node identity and trust handshakes, we rely on <code>crypto/ed25519</code> to issue unique 48-bit virtual addresses. When loading a node's persistent identity from disk upon restart, we use a neat Go trick to verify the keypair's mathematical integrity before trusting it:</p>
+
+<pre><code>// LoadIdentity reads an identity keypair from a JSON file.
+func LoadIdentity(path string) (*Identity, error) {
+    // ... reading file and base64 decoding omitted for brevity ...
+
+    priv, err := DecodePrivateKey(f.PrivateKey)
+    pub, err := DecodePublicKey(f.PublicKey)
+
+    // Verify key consistency: the public key stored on disk must match
+    // the public key derived from the private key
+    derivedPub := priv.Public().(ed25519.PublicKey)
+    if !derivedPub.Equal(pub) {
+        return nil, fmt.Errorf("identity file corrupted: public key does not match private key")
+    }
+
+    return &Identity{PublicKey: pub, PrivateKey: priv}, nil
+}</code></pre>
+
+<p>This entirely native crypto stack handles thousands of authenticated handshake packets per second without breaking a sweat, all while keeping our binary dependency-free.</p>
+</section>
+
+<section>
+<h2>5. Integrating with the Standard Library (net.Conn)</h2>
+
+<p>The ultimate goal of building a custom network stack is making it invisible to the application developer. Because our client <code>Conn</code> implements <code>Read</code>, <code>Write</code>, <code>SetDeadline</code>, and <code>Close</code>, it perfectly satisfies the standard library's <code>net.Conn</code> interface.</p>
+
+<p>To ensure standard library compatibility (like handling timeouts dynamically when wrapped in a Go <code>http.Server</code>), we utilized a channel broadcasting pattern for <code>SetReadDeadline</code>. This was critical; making Go's HTTP server work correctly over our overlay exposed five distinct bugs in our IPC layer before we got it right. When a new deadline is set, we close a dedicated channel (<code>deadlineCh</code>) to interrupt any blocked reads immediately:</p>
+
+<pre><code>func (c *Conn) SetReadDeadline(t time.Time) error {
+    c.mu.Lock()
+    c.readDeadline = t
+    // Signal any blocked Read to re-check
+    if c.deadlineCh != nil {
+        close(c.deadlineCh)
+    }
+    c.deadlineCh = make(chan struct{})
+    c.mu.Unlock()
+    return nil
+}</code></pre>
+
+<p>The <code>Read</code> method itself then uses a <code>select</code> statement that listens on the network receive channel (<code>c.recvCh</code>), the deadline timer, and the deadline interrupt channel (<code>dch</code>). If the deadline is updated mid-read, the <code>dch</code> case triggers, forcing the function to re-evaluate the clock:</p>
+
+<pre><code>// Inside Conn.Read...
+select {
+case data, ok := <-c.recvCh:
+    if !ok {
+        return 0, io.EOF
+    }
+    n := copy(b, data)
+    if n < len(data) {
+        c.recvBuf = data[n:]
+    }
+    return n, nil
+case <-timer:
+    return 0, os.ErrDeadlineExceeded
+case <-dch:
+    // Deadline was changed, re-check
+    return 0, os.ErrDeadlineExceeded
+}</code></pre>
+</section>
+
+<section>
+<h2>Conclusion</h2>
+
+<p>Building a reliable transport layer in userspace is a rigorous technical challenge, but Go's standard library provided everything we needed out of the box. By combining the <code>crypto</code> packages for native security, the <code>time</code> and <code>sync</code> packages for efficient memory management, and the deep interface ecosystem of the <code>net</code> package, we built a high-performance overlay network without importing a single third-party dependency.</p>
+
+<p>If you are interested in networking, custom protocols, or how distributed AI agents will traverse firewalls to communicate in the future, dive into the Go standard library. You will find it is more powerful than you think. Explore the <a href="https://github.com/TeoSlayer/pilotprotocol">Pilot Protocol source on GitHub</a>, or read about <a href="/for/enterprise">running Pilot Protocol as an enterprise private network</a>.</p>
+</section>
+
+<div class="cta">
+  <h3>Try Pilot Protocol</h3>
+  <p>A userspace transport, a 48-bit agent address space, NAT traversal, and end-to-end encryption — all in a single Go binary.</p>
+  <a href="/docs/getting-started">Get Started</a>
+</div>`;
+---
+<BlogLayout
+  title="Building a Userspace TCP-over-UDP Stack in Pure Go"
+  description="How we built a reliable transport layer in userspace for Pilot Protocol — sliding windows, Nagle, RTO, and AES-GCM — using only Go's standard library."
+  date="April 19, 2026"
+  tags={["go", "networking", "transport", "systems"]}
+  canonicalPath="/blog/userspace-tcp-over-udp-stack-pure-go"
+  bannerImage="/blog/banners/why-ai-agents-need-network-stack.webp"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>

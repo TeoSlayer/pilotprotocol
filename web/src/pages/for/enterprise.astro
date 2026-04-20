@@ -1,0 +1,309 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import IslandNavbar from '../../components/IslandNavbar.astro';
+import BlogFooter from '../../components/BlogFooter.astro';
+import '../../styles/global.css';
+
+const title = "Enterprise Private Network for AI Agents — Pilot Protocol";
+const description = "An enterprise private network built for AI agents. End-to-end encrypted, self-hosted, cross-cloud. No VPN, no vendor lock-in, no data leaving your perimeter.";
+const canonicalUrl = "https://pilotprotocol.network/for/enterprise";
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": title,
+    "description": description,
+    "url": canonicalUrl,
+    "publisher": {"@type": "Organization", "name": "Vulture Labs", "url": "https://vulturelabs.com"},
+    "about": {
+      "@type": "Thing",
+      "name": "Enterprise Private Network"
+    }
+  })}></script>
+<style is:inline>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--muted:#737373;--accent:#22c55e;--surface:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.08)}
+html,body{overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--surface);padding:2px 6px;border-radius:4px;font-size:0.9em}
+.container{max-width:960px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+
+/* Hero */
+.hero-frame{border:1px dashed rgba(255,255,255,0.08);border-radius:16px;padding:40px 32px;margin:100px 0 48px;position:relative;text-align:center}
+.hero-frame::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:400px;background:radial-gradient(ellipse,rgba(34,197,94,0.05) 0%,transparent 70%);pointer-events:none;z-index:0}
+.hero-frame h1{font-size:2.6rem;font-weight:800;letter-spacing:-0.03em;margin-bottom:16px;line-height:1.1;position:relative;z-index:1}
+.hero-frame .tagline{font-size:1.1rem;color:var(--muted);margin-bottom:28px;line-height:1.65;max-width:620px;margin-left:auto;margin-right:auto;position:relative;z-index:1}
+.hero-cta{display:inline-flex;gap:12px;position:relative;z-index:1;flex-wrap:wrap;justify-content:center}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:10px;font-size:0.95rem;font-weight:600;transition:all 0.2s}
+.btn-primary{background:var(--accent);color:#0a0a0a;border:1px solid var(--accent)}
+.btn-primary:hover{background:#16a34a;text-decoration:none}
+.btn-secondary{background:transparent;color:var(--fg);border:1px solid var(--border)}
+.btn-secondary:hover{background:var(--surface);text-decoration:none}
+
+/* Section */
+.sec{margin-bottom:56px}
+.sec h2{font-size:1.6rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:20px}
+.sec p.lead{color:var(--muted);font-size:1rem;max-width:720px;margin-bottom:24px}
+
+/* Pain points */
+.pains{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.pain{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.pain h3{font-size:1rem;font-weight:600;margin-bottom:8px;color:var(--fg)}
+.pain p{font-size:0.9rem;color:var(--muted);line-height:1.6}
+
+/* Feature grid */
+.features{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.feat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px}
+.feat .feat-title{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.feat svg{width:20px;height:20px;stroke:var(--accent);fill:none;stroke-width:2}
+.feat h3{font-size:1.05rem;font-weight:700;color:var(--fg)}
+.feat p{font-size:0.92rem;color:var(--muted);line-height:1.65}
+
+/* Comparison */
+.cmp-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cmp-table th,.cmp-table td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--border);font-size:0.92rem}
+.cmp-table th{background:rgba(255,255,255,0.03);font-weight:600;color:var(--fg);font-size:0.85rem;text-transform:uppercase;letter-spacing:0.04em}
+.cmp-table tr:last-child td{border-bottom:none}
+.cmp-table .good{color:var(--accent);font-weight:600}
+.cmp-table .bad{color:#ef4444}
+.cmp-table .mid{color:#eab308}
+
+/* Use cases */
+.use-cases{display:flex;flex-direction:column;gap:12px}
+.use-case{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;display:flex;align-items:flex-start;gap:16px}
+.use-case .uc-num{font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--accent);font-weight:700;font-size:1rem;flex-shrink:0;min-width:28px}
+.use-case h3{font-size:1.02rem;font-weight:700;margin-bottom:6px;color:var(--fg)}
+.use-case p{font-size:0.92rem;color:var(--muted);line-height:1.65}
+
+/* CTA footer */
+.cta-block{border:1px solid var(--border);border-radius:16px;padding:40px 32px;text-align:center;background:linear-gradient(180deg,rgba(34,197,94,0.04) 0%,transparent 100%);margin-bottom:48px}
+.cta-block h2{font-size:1.6rem;margin-bottom:12px}
+.cta-block p{color:var(--muted);max-width:560px;margin:0 auto 24px}
+
+@media(max-width:768px){
+  .container{padding:0 16px}
+  .hero-frame{padding:28px 20px;margin:68px 0 32px}
+  .hero-frame h1{font-size:1.9rem}
+  .hero-frame .tagline{font-size:1rem}
+  .sec h2{font-size:1.35rem}
+  .pains,.features{grid-template-columns:1fr}
+  .cmp-table th,.cmp-table td{padding:10px 12px;font-size:0.85rem}
+}
+@media(max-width:480px){
+  .hero-frame h1{font-size:1.55rem}
+}
+</style>
+</head>
+<body>
+
+<IslandNavbar active="zoos" />
+
+<div class="container">
+
+<div class="hero-frame">
+  <h1>Enterprise Private Network for AI Agents</h1>
+  <p class="tagline">An end-to-end encrypted overlay network that connects your AI agents across clouds, VPCs, and on-prem &mdash; without a VPN, without sending data to a third party, and without touching your firewall config.</p>
+  <div class="hero-cta">
+    <a href="/docs/getting-started" class="btn btn-primary">Get Started</a>
+    <a href="/docs/enterprise" class="btn btn-secondary">Read the Architecture</a>
+  </div>
+</div>
+
+<!-- The Problem -->
+<section class="sec">
+  <h2>The problem with running AI agents across organizational boundaries</h2>
+  <p class="lead">Enterprises want to deploy AI agents across multiple clouds, subsidiaries, partner orgs, and on-prem environments. Every existing solution forces a trade-off.</p>
+  <div class="pains">
+    <div class="pain">
+      <h3>VPNs don't scale to agents</h3>
+      <p>Site-to-site VPNs require coordinated firewall changes, IP allocation, and ops oversight. Not viable for dynamic agent fleets that come up and down across regions.</p>
+    </div>
+    <div class="pain">
+      <h3>Cloud-managed mesh = vendor lock-in</h3>
+      <p>AWS PrivateLink, GCP VPC Peering, Azure Private Link — each works only within its own cloud, and you pay for every cross-region hop.</p>
+    </div>
+    <div class="pain">
+      <h3>SaaS relays see your data</h3>
+      <p>Third-party agent orchestrators route traffic through their infrastructure. Your PHI, trade secrets, and model prompts transit an external perimeter.</p>
+    </div>
+    <div class="pain">
+      <h3>Public internet exposes attack surface</h3>
+      <p>Opening inbound ports on agent hosts invites scanners, credential stuffing, and zero-day exposure. Every new agent is a new CVE risk.</p>
+    </div>
+  </div>
+</section>
+
+<!-- What It Is -->
+<section class="sec">
+  <h2>What Pilot Protocol gives your enterprise</h2>
+  <div class="features">
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <h3>End-to-end encryption</h3>
+      </div>
+      <p>ChaCha20-Poly1305 per-tunnel keys negotiated via X25519. Nothing in transit is readable by infrastructure, the rendezvous, or us. Not decrypted, not logged.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <h3>Cross-cloud, zero firewall changes</h3>
+      </div>
+      <p>NAT traversal handles AWS, GCP, Azure, and on-prem automatically. Agents dial out, the network handles the rest. No inbound ports. No static IPs. No tickets to network ops.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <h3>Private address space per network</h3>
+      </div>
+      <p>48-bit addresses isolated per network ID. Your agents have stable identities that survive IP changes, region migrations, and cloud moves.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M20.62 8.59C20.84 9.67 21 10.82 21 12c0 5-4 9-9 9s-9-4-9-9 4-9 9-9c1.22 0 2.37.25 3.41.66"/></svg>
+        <h3>Trust-gated access control</h3>
+      </div>
+      <p>Fine-grained authorization at the connection level. Agents prove identity before every session. Access is revocable, auditable, and policy-driven.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <h3>Self-hostable control plane</h3>
+      </div>
+      <p>Run your own rendezvous and registry. We never see your traffic or your agent identities. BYO infrastructure, keep compliance boundaries intact.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <h3>Audit-ready by default</h3>
+      </div>
+      <p>Structured connection logs, trust events, and identity lifecycle ship to your SIEM. Designed for HIPAA, SOC 2, and internal compliance review.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison Table -->
+<section class="sec">
+  <h2>How it compares</h2>
+  <p class="lead">Pilot Protocol isn't trying to be another VPN or service mesh. It's the missing layer between agent processes.</p>
+  <table class="cmp-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Pilot Protocol</th>
+        <th>Corporate VPN</th>
+        <th>Service Mesh (Istio)</th>
+        <th>SaaS Agent Router</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Cross-cloud without firewall changes</td>
+        <td class="good">Yes</td>
+        <td class="bad">No</td>
+        <td class="bad">Cluster-scoped</td>
+        <td class="good">Yes</td>
+      </tr>
+      <tr>
+        <td>E2E encrypted (no operator decryption)</td>
+        <td class="good">Yes</td>
+        <td class="mid">Tunnel-level</td>
+        <td class="mid">mTLS (CA-dependent)</td>
+        <td class="bad">No</td>
+      </tr>
+      <tr>
+        <td>Self-hostable control plane</td>
+        <td class="good">Yes</td>
+        <td class="good">Yes</td>
+        <td class="good">Yes</td>
+        <td class="bad">No</td>
+      </tr>
+      <tr>
+        <td>Works behind NAT without config</td>
+        <td class="good">Yes</td>
+        <td class="bad">No</td>
+        <td class="bad">No</td>
+        <td class="good">Yes</td>
+      </tr>
+      <tr>
+        <td>Agent-native addressing and identity</td>
+        <td class="good">Yes</td>
+        <td class="bad">No</td>
+        <td class="mid">Pod-level</td>
+        <td class="mid">Tenant-scoped</td>
+      </tr>
+      <tr>
+        <td>Trust and policy at connection layer</td>
+        <td class="good">Yes</td>
+        <td class="bad">No</td>
+        <td class="good">Yes</td>
+        <td class="mid">Vendor policy</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Use Cases -->
+<section class="sec">
+  <h2>Enterprise use cases</h2>
+  <div class="use-cases">
+    <div class="use-case">
+      <div class="uc-num">01</div>
+      <div>
+        <h3>Healthcare AI with HIPAA compliance</h3>
+        <p>Run diagnostic agents across hospital systems without exposing PHI to model vendors. See the <a href="/blog/hipaa-compliant-agent-communication">HIPAA architecture guide</a> for the full pattern.</p>
+      </div>
+    </div>
+    <div class="use-case">
+      <div class="uc-num">02</div>
+      <div>
+        <h3>Multi-cloud agent deployment</h3>
+        <p>Connect agents in AWS, GCP, and Azure without VPC peering or PrivateLink. One network, one address space, no cross-cloud egress gymnastics.</p>
+      </div>
+    </div>
+    <div class="use-case">
+      <div class="uc-num">03</div>
+      <div>
+        <h3>Cross-subsidiary collaboration</h3>
+        <p>Let agents from different business units share intelligence under a shared trust policy without merging IT environments. Each side keeps its perimeter.</p>
+      </div>
+    </div>
+    <div class="use-case">
+      <div class="uc-num">04</div>
+      <div>
+        <h3>On-prem to cloud hybrid</h3>
+        <p>Bridge on-prem GPU clusters to cloud-hosted orchestrators. Agents connect outbound from behind corporate firewalls. Zero inbound exposure.</p>
+      </div>
+    </div>
+    <div class="use-case">
+      <div class="uc-num">05</div>
+      <div>
+        <h3>B2B agent interop</h3>
+        <p>Expose a private agent API to a partner without opening your infrastructure to the public internet. Trust-gated, revocable, auditable.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-block">
+  <h2>Ready to build your private agent network?</h2>
+  <p>Deploy a working network in under an hour. Open-source, self-hostable, no credit card required.</p>
+  <div class="hero-cta">
+    <a href="/docs/getting-started" class="btn btn-primary">Read the Getting Started Guide</a>
+    <a href="https://github.com/TeoSlayer/pilotprotocol" class="btn btn-secondary">Star on GitHub</a>
+  </div>
+</div>
+
+</div>
+
+<BlogFooter />
+
+</body>
+</html>

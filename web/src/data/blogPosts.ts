@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "userspace-tcp-over-udp-stack-pure-go",
+    title: "Building a Userspace TCP-over-UDP Stack in Pure Go",
+    description: "Sliding windows, Nagle's algorithm, RTO, and AES-GCM — all in userspace, with zero third-party dependencies. How Pilot Protocol's transport layer works.",
+    date: "Apr 19",
+    category: "Engineering",
+    tags: ["go", "networking", "transport", "systems"],
+    banner: "banners/why-ai-agents-need-network-stack.webp",
+  },
+
+  {
     slug: "boarding-pilotagent-org-alternatives-3",
     title: "Top 3 boarding.pilotagent.org alternatives 2026",
     description: "Explore 3 boarding.pilotagent.org alternatives for enhanced decentralized networking solutions in 2026.",
@@ -358,8 +368,8 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   },
   {
     slug: "preferential-attachment-ai-networks-trust-graph",
-    title: "Preferential Attachment in AI Networks: The OpenClaw Trust Graph",
-    description: "The OpenClaw trust graph follows a power law with gamma=2.1. Data analysis of preferential attachment, hub formation, and scale-free topology risks in autonomous agent networks.",
+    title: "Why a Few AI Agents Get 80% of the Work (And How to Stop It)",
+    description: "Autonomous agent networks follow the same winner-take-all dynamics as social networks. Here's the power-law data and how to design against hub collapse.",
     date: "Mar 10",
     category: "AI/ML",
     tags: ["openclaw", "graph-theory"],
@@ -592,8 +602,8 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   },
   {
     slug: "hipaa-compliant-agent-communication",
-    title: "HIPAA-Compliant Agent Communication for Healthcare AI",
-    description: "End-to-end encrypted agent networking with no third-party data exposure. Trust-gated access control, structured audit logging, and full compliance for healthcare environments.",
+    title: "HIPAA-Compliant AI Agents Without Sending PHI to OpenAI or Anthropic",
+    description: "Run healthcare AI agents without a BAA with every model vendor. Self-hosted, end-to-end encrypted, audit-logged. Here's the architecture.",
     date: "Feb 20",
     category: "Security",
     tags: ["HIPAA", "healthcare"],
