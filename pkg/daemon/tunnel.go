@@ -705,15 +705,26 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	// Replay detection using sliding window bitmap (H8 fix)
 	recvCounter := binary.BigEndian.Uint64(nonce[len(nonce)-8:])
 	pc.replayMu.Lock()
-	if !pc.checkAndRecordNonce(recvCounter) {
-		pc.replayMu.Unlock()
-		slog.Warn("tunnel nonce replay detected", "peer_node_id", peerNodeID, "counter", recvCounter, "max", pc.maxRecvNonce)
-		tm.webhook.Emit("security.nonce_replay", map[string]interface{}{
-			"peer_node_id": peerNodeID, "counter": recvCounter,
-		})
+	ok := pc.checkAndRecordNonce(recvCounter)
+	maxN := pc.maxRecvNonce
+	pc.replayMu.Unlock()
+	if !ok {
+		// Distinguish "packet older than our window" (common under
+		// reordering / late retransmission in high-throughput traffic)
+		// from a real replay (counter we've already accepted). Only the
+		// latter is a security event worth paging on.
+		if recvCounter < maxN && maxN-recvCounter >= replayWindowSize {
+			slog.Warn("tunnel packet outside replay window",
+				"peer_node_id", peerNodeID, "counter", recvCounter, "max", maxN)
+		} else {
+			slog.Warn("tunnel nonce replay detected",
+				"peer_node_id", peerNodeID, "counter", recvCounter, "max", maxN)
+			tm.webhook.Emit("security.nonce_replay", map[string]interface{}{
+				"peer_node_id": peerNodeID, "counter": recvCounter,
+			})
+		}
 		return
 	}
-	pc.replayMu.Unlock()
 
 	// H3 fix: verify sender's nodeID as AAD
 	aad := make([]byte, 4)
