@@ -20,9 +20,17 @@ export async function GET() {
 
   // Static pages
   urls.push(url('/', today, 1.0, 'weekly'));
-urls.push(url('/plans', today, 0.9));
+  urls.push(url('/plans', today, 0.9));
   urls.push(url('/blog/', today, 0.9, 'weekly'));
   urls.push(url('/llms.txt', '2026-02-28', 0.5));
+
+  // Solution / "for" pages
+  urls.push(url('/for/enterprise', today, 0.9));
+  urls.push(url('/for/mcp', today, 0.8));
+  urls.push(url('/for/p2p', today, 0.8));
+  urls.push(url('/for/networks', today, 0.8));
+  urls.push(url('/for/setups', today, 0.8));
+  urls.push(url('/for/skills', today, 0.8));
 
   // Doc pages
   for (const nav of docsNav) {
