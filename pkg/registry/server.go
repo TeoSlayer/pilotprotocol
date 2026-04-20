@@ -244,8 +244,19 @@ type Server struct {
 	nodeShards   [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
 	nodes        map[uint32]*NodeInfo
 	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
-	startTime    time.Time
-	requestCount atomic.Int64
+	startTime         time.Time
+	restartEvents     []int64    // unix-millis of each process start after the first
+	downtimeIntervals [][2]int64 // [start,end] unix-millis pairs, pruned to last 30d
+	restartMu         sync.Mutex
+	lastHeartbeatMs   atomic.Int64 // updated each heartbeat tick, persisted
+	requestCount      atomic.Int64
+
+	// Per-probe state for the service-status grid.
+	probeMu     sync.Mutex
+	probeStates map[string]*ProbeState
+	// Endpoints the probe loop dials. Registry comes from the listener, beacon
+	// from beaconAddr; httpProbeAddr is injected via SetDashboardHTTPAddr.
+	httpProbeAddr string
 
 	pulseMu      sync.Mutex
 	pulseSamples [120]pulseSample // 1/sec samples, 2min window
@@ -344,7 +355,7 @@ type Server struct {
 
 	// Time-series history ring buffers for dashboard charts
 	hourlyHistory [24]StatsSample // last 24 hours, one sample per hour
-	dailyHistory  [7]StatsSample  // last 7 days, one sample per day
+	dailyHistory  [30]StatsSample // last 30 days, one sample per day
 	hourlyIdx     int             // next write index for hourly ring
 	dailyIdx      int             // next write index for daily ring
 
@@ -774,6 +785,8 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 	go s.saveLoop()
 	go s.statsCollectorLoop()
 	go s.pulseLoop()
+	go s.heartbeatLoop()
+	go s.probeLoop()
 
 	// Try loading from disk
 	if storePath != "" {
@@ -1313,7 +1326,8 @@ func (s *Server) handleJSONConn(conn net.Conn, reader io.Reader) {
 				strings.Contains(err.Error(), "too long") ||
 				strings.Contains(err.Error(), "not found") ||
 				strings.Contains(err.Error(), "invalid") ||
-				strings.Contains(err.Error(), "required") {
+				strings.Contains(err.Error(), "required") ||
+				strings.Contains(err.Error(), "signature") {
 				errMsg = err.Error()
 			}
 			if shouldLog, suppressed := s.logSampler.shouldLog(host + ":" + msgType); shouldLog {
@@ -1628,7 +1642,8 @@ func (s *Server) handleBinaryJSONFallback(conn net.Conn, payload []byte, remoteA
 			strings.Contains(err.Error(), "too long") ||
 			strings.Contains(err.Error(), "not found") ||
 			strings.Contains(err.Error(), "invalid") ||
-			strings.Contains(err.Error(), "required") {
+			strings.Contains(err.Error(), "required") ||
+			strings.Contains(err.Error(), "signature") {
 			errMsg = err.Error()
 		}
 		if shouldLog, suppressed := s.logSampler.shouldLog(host + ":" + msgType); shouldLog {
@@ -5502,6 +5517,12 @@ type snapshot struct {
 	UniqueTags    int    `json:"unique_tags,omitempty"`
 	TaskExecutors int    `json:"task_executors,omitempty"`
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
+	// Restart events: unix-millis of each process start after first. Lets the
+	// dashboard show brief redeploy "blips" while preserving cumulative uptime.
+	RestartEvents     []int64                `json:"restart_events,omitempty"`
+	DowntimeIntervals [][2]int64             `json:"downtime_intervals,omitempty"`
+	LastHeartbeat     int64                  `json:"last_heartbeat,omitempty"`
+	ProbeStates       map[string]*ProbeState `json:"probe_states,omitempty"`
 	// Time-series history for dashboard charts
 	HourlyHistory    []StatsSample                      `json:"hourly_history,omitempty"`
 	DailyHistory     []StatsSample                      `json:"daily_history,omitempty"`
@@ -5676,7 +5697,7 @@ func (s *Server) recordSample(r statsSampleResult, daily bool) {
 		for netID, entry := range r.networks {
 			ring := s.netDaily[netID]
 			if ring == nil {
-				ring = newNetHistoryRing(7)
+				ring = newNetHistoryRing(30)
 				s.netDaily[netID] = ring
 			}
 			ring.writeBucketed(entry, 86400)
@@ -6030,6 +6051,28 @@ func (s *Server) flushSave() error {
 
 	snap.TotalRequests = totalRequests
 	snap.StartTime = startTime.Format(time.RFC3339)
+	s.restartMu.Lock()
+	if len(s.restartEvents) > 0 {
+		snap.RestartEvents = append([]int64(nil), s.restartEvents...)
+	}
+	if len(s.downtimeIntervals) > 0 {
+		snap.DowntimeIntervals = append([][2]int64(nil), s.downtimeIntervals...)
+	}
+	s.restartMu.Unlock()
+	snap.LastHeartbeat = s.lastHeartbeatMs.Load()
+
+	s.probeMu.Lock()
+	if len(s.probeStates) > 0 {
+		snap.ProbeStates = make(map[string]*ProbeState, len(s.probeStates))
+		for k, v := range s.probeStates {
+			cp := *v
+			if len(v.DowntimeIntervals) > 0 {
+				cp.DowntimeIntervals = append([][2]int64(nil), v.DowntimeIntervals...)
+			}
+			snap.ProbeStates[k] = &cp
+		}
+	}
+	s.probeMu.Unlock()
 	snap.TotalNodes = nodeCount
 	snap.OnlineNodes = onlineCount
 	snap.TrustLinks = trustCount
@@ -6056,8 +6099,8 @@ func (s *Server) flushSave() error {
 			snap.HourlyHistory = append(snap.HourlyHistory, hourlyHistory[idx])
 		}
 	}
-	for i := 0; i < 7; i++ {
-		idx := (dailyIdx + i) % 7
+	for i := 0; i < len(dailyHistory); i++ {
+		idx := (dailyIdx + i) % len(dailyHistory)
 		if dailyHistory[idx].Timestamp != 0 {
 			snap.DailyHistory = append(snap.DailyHistory, dailyHistory[idx])
 		}
@@ -6172,6 +6215,70 @@ func (s *Server) load() error {
 	if snap.StartTime != "" {
 		if startTime, err := time.Parse(time.RFC3339, snap.StartTime); err == nil {
 			s.startTime = startTime
+		}
+		// This is a restart (not a fresh install) — record the event.
+		now := time.Now().UnixMilli()
+		cutoff := time.Now().AddDate(0, 0, -90).UnixMilli()
+		kept := make([]int64, 0, len(snap.RestartEvents)+1)
+		for _, t := range snap.RestartEvents {
+			if t >= cutoff {
+				kept = append(kept, t)
+			}
+		}
+		kept = append(kept, now)
+
+		// Prune persisted downtime intervals to the 90-day window.
+		keptDown := make([][2]int64, 0, len(snap.DowntimeIntervals)+1)
+		for _, iv := range snap.DowntimeIntervals {
+			if iv[1] >= cutoff {
+				keptDown = append(keptDown, iv)
+			}
+		}
+		// If the prior process persisted a last_heartbeat and the gap to now
+		// is wider than a grace window, treat the gap as real downtime.
+		const downtimeGraceMs = 15 * 1000
+		if snap.LastHeartbeat > 0 && now-snap.LastHeartbeat > downtimeGraceMs {
+			keptDown = append(keptDown, [2]int64{snap.LastHeartbeat, now})
+		}
+
+		s.restartMu.Lock()
+		s.restartEvents = kept
+		s.downtimeIntervals = keptDown
+		s.restartMu.Unlock()
+
+		// Restore per-probe state and account for the downtime gap between the
+		// prior last-success timestamp and now.
+		if len(snap.ProbeStates) > 0 {
+			probeCutoff := time.Now().Add(-probeRetention).UnixMilli()
+			restored := make(map[string]*ProbeState, len(snap.ProbeStates))
+			for name, ps := range snap.ProbeStates {
+				if ps == nil {
+					continue
+				}
+				cp := *ps
+				if len(ps.DowntimeIntervals) > 0 {
+					kept := make([][2]int64, 0, len(ps.DowntimeIntervals)+1)
+					for _, iv := range ps.DowntimeIntervals {
+						if iv[1] >= probeCutoff {
+							kept = append(kept, iv)
+						}
+					}
+					cp.DowntimeIntervals = kept
+				}
+				// If the process died while this probe was down, close that
+				// interval at `now`; otherwise the gap from LastSuccess→now is
+				// real downtime.
+				if cp.CurrentDownStart > 0 {
+					cp.DowntimeIntervals = append(cp.DowntimeIntervals, [2]int64{cp.CurrentDownStart, now})
+					cp.CurrentDownStart = 0
+				} else if cp.LastSuccess > 0 && now-cp.LastSuccess > downtimeGraceMs {
+					cp.DowntimeIntervals = append(cp.DowntimeIntervals, [2]int64{cp.LastSuccess, now})
+				}
+				restored[name] = &cp
+			}
+			s.probeMu.Lock()
+			s.probeStates = restored
+			s.probeMu.Unlock()
 		}
 	}
 
@@ -6349,7 +6456,7 @@ func (s *Server) load() error {
 		slog.Info("loaded hourly history", "samples", len(deduped))
 	}
 	if len(snap.DailyHistory) > 0 {
-		deduped := deduplicateSamples(snap.DailyHistory, 86400, 7)
+		deduped := deduplicateSamples(snap.DailyHistory, 86400, len(s.dailyHistory))
 		for i, sample := range deduped {
 			s.dailyHistory[i] = sample
 		}
@@ -6372,12 +6479,12 @@ func (s *Server) load() error {
 	for netIDStr, entries := range snap.NetDailyHistory {
 		var netID uint16
 		if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
-			deduped := deduplicateNetSamples(entries, 86400, 7)
-			ring := newNetHistoryRing(7)
+			deduped := deduplicateNetSamples(entries, 86400, 30)
+			ring := newNetHistoryRing(30)
 			for i, e := range deduped {
 				ring.Samples[i] = e
 			}
-			ring.Idx = len(deduped)
+			ring.Idx = len(deduped) % 30
 			s.netDaily[netID] = ring
 		}
 	}
@@ -6506,13 +6613,13 @@ type StatsSample struct {
 
 // netHistoryRing is a fixed-size ring buffer for per-network history samples.
 type netHistoryRing struct {
-	Samples [24]NetworkSampleEntry // max 24 (hourly) or 7 (daily) — only used portion matters
-	Size    int                    // ring capacity (24 for hourly, 7 for daily)
-	Idx     int                    // next write index
+	Samples []NetworkSampleEntry // length == Size; heap-allocated per ring
+	Size    int                  // ring capacity (24 for hourly, 30 for daily)
+	Idx     int                  // next write index
 }
 
 func newNetHistoryRing(size int) *netHistoryRing {
-	return &netHistoryRing{Size: size}
+	return &netHistoryRing{Samples: make([]NetworkSampleEntry, size), Size: size}
 }
 
 func (r *netHistoryRing) write(e NetworkSampleEntry) {
@@ -6572,6 +6679,9 @@ type DashboardStats struct {
 	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
 	Hourly          []StatsSample  `json:"hourly,omitempty"`
 	Daily           []StatsSample  `json:"daily,omitempty"`
+	RestartEvents     []int64                `json:"restart_events,omitempty"`
+	DowntimeIntervals [][2]int64             `json:"downtime_intervals,omitempty"`
+	Probes            map[string]*ProbeState `json:"probes,omitempty"`
 }
 
 // NetworkStats holds per-network statistics for the authenticated dashboard view.
@@ -6701,9 +6811,9 @@ func (s *Server) readHistory() (hourly, daily []StatsSample) {
 			hourly = append(hourly, s.hourlyHistory[idx])
 		}
 	}
-	// Daily: same for 7-day ring
-	for i := 0; i < 7; i++ {
-		idx := (s.dailyIdx + i) % 7
+	// Daily: same for 30-day ring
+	for i := 0; i < len(s.dailyHistory); i++ {
+		idx := (s.dailyIdx + i) % len(s.dailyHistory)
 		if s.dailyHistory[idx].Timestamp != 0 {
 			daily = append(daily, s.dailyHistory[idx])
 		}
@@ -6716,8 +6826,8 @@ func (s *Server) readHistory() (hourly, daily []StatsSample) {
 func (s *Server) computeDeltas() (reqPerDay int64) {
 	// Try daily samples first (preferred — exact 24h delta)
 	var daily []StatsSample
-	for i := 0; i < 7; i++ {
-		idx := (s.dailyIdx + i) % 7
+	for i := 0; i < len(s.dailyHistory); i++ {
+		idx := (s.dailyIdx + i) % len(s.dailyHistory)
 		if s.dailyHistory[idx].Timestamp != 0 {
 			daily = append(daily, s.dailyHistory[idx])
 		}
@@ -6749,6 +6859,26 @@ func (s *Server) GetDashboardStatsWithHistory() DashboardStats {
 	s.mu.RLock()
 	stats.Hourly, stats.Daily = s.readHistory()
 	s.mu.RUnlock()
+	s.restartMu.Lock()
+	if len(s.restartEvents) > 0 {
+		stats.RestartEvents = append([]int64(nil), s.restartEvents...)
+	}
+	if len(s.downtimeIntervals) > 0 {
+		stats.DowntimeIntervals = append([][2]int64(nil), s.downtimeIntervals...)
+	}
+	s.restartMu.Unlock()
+	s.probeMu.Lock()
+	if len(s.probeStates) > 0 {
+		stats.Probes = make(map[string]*ProbeState, len(s.probeStates))
+		for k, v := range s.probeStates {
+			cp := *v
+			if len(v.DowntimeIntervals) > 0 {
+				cp.DowntimeIntervals = append([][2]int64(nil), v.DowntimeIntervals...)
+			}
+			stats.Probes[k] = &cp
+		}
+	}
+	s.probeMu.Unlock()
 	return stats
 }
 
@@ -6841,6 +6971,30 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 
 	hourly, daily := s.readHistory()
 	reqPerDay := s.computeDeltas()
+	s.restartMu.Lock()
+	var restartEvents []int64
+	if len(s.restartEvents) > 0 {
+		restartEvents = append([]int64(nil), s.restartEvents...)
+	}
+	var downtimeIntervals [][2]int64
+	if len(s.downtimeIntervals) > 0 {
+		downtimeIntervals = append([][2]int64(nil), s.downtimeIntervals...)
+	}
+	s.restartMu.Unlock()
+
+	s.probeMu.Lock()
+	var probes map[string]*ProbeState
+	if len(s.probeStates) > 0 {
+		probes = make(map[string]*ProbeState, len(s.probeStates))
+		for k, v := range s.probeStates {
+			cp := *v
+			if len(v.DowntimeIntervals) > 0 {
+				cp.DowntimeIntervals = append([][2]int64(nil), v.DowntimeIntervals...)
+			}
+			probes[k] = &cp
+		}
+	}
+	s.probeMu.Unlock()
 
 	return DashboardStats{
 		TotalNodes:      int(s.nextNode - 1),
@@ -6852,7 +7006,10 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 		Versions:        versions,
 		Networks:        networks,
 		Hourly:          hourly,
-		Daily:           daily,
+		Daily:             daily,
+		RestartEvents:     restartEvents,
+		DowntimeIntervals: downtimeIntervals,
+		Probes:            probes,
 	}
 }
 

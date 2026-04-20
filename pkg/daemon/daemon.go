@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,35 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
+
+// isRegistryRejectingUsErr returns true when the registry's response to a
+// heartbeat indicates that our identity is no longer valid for the node ID
+// we hold:
+//
+//   - "node not found": the registry was wiped (restart with empty state) or
+//     we were deregistered out-of-band.
+//   - "signature verification failed": another agent has claimed our node ID
+//     (e.g. after a registry restart where a peer re-registered first and
+//     the registry assigned it our old node ID).
+//
+// In both cases the daemon should re-register on the next heartbeat cycle
+// rather than waiting HeartbeatReregThresh * keepaliveInterval (~3 minutes)
+// to act.  Connection-level failures ("request failed", "i/o timeout",
+// "connection refused") are *not* matched — those should still use the
+// normal failure-count threshold because they can be transient.
+func isRegistryRejectingUsErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "node not found") {
+		return true
+	}
+	if strings.Contains(msg, "signature verification failed") {
+		return true
+	}
+	return false
+}
 
 var (
 	zeroTime     = func() time.Time { return time.Time{} }
@@ -2601,6 +2631,13 @@ func (d *Daemon) heartbeatLoop() {
 				_, err := d.regConn.Heartbeat(d.NodeID())
 				if err != nil {
 					consecutiveFailures++
+					// If the registry rejects our identity (node not found, or a
+					// signature-verification failure because someone else claimed
+					// our node ID) re-register on this cycle instead of waiting
+					// for the full failure threshold to elapse.
+					if isRegistryRejectingUsErr(err) && consecutiveFailures < HeartbeatReregThresh {
+						consecutiveFailures = HeartbeatReregThresh
+					}
 					slog.Warn("heartbeat failed", "consecutive_failures", consecutiveFailures, "error", err)
 
 					// After 3 failures, try to re-register with exponential backoff + jitter
