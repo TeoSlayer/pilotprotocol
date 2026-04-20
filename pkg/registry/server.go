@@ -1326,7 +1326,7 @@ func (s *Server) handleJSONConn(conn net.Conn, reader io.Reader) {
 				strings.Contains(err.Error(), "too long") ||
 				strings.Contains(err.Error(), "not found") ||
 				strings.Contains(err.Error(), "invalid") ||
-				strings.Contains(err.Error(), "required") ||
+				strings.Contains(err.Error(), "require") ||
 				strings.Contains(err.Error(), "signature") {
 				errMsg = err.Error()
 			}
@@ -1642,7 +1642,7 @@ func (s *Server) handleBinaryJSONFallback(conn net.Conn, payload []byte, remoteA
 			strings.Contains(err.Error(), "too long") ||
 			strings.Contains(err.Error(), "not found") ||
 			strings.Contains(err.Error(), "invalid") ||
-			strings.Contains(err.Error(), "required") ||
+			strings.Contains(err.Error(), "require") ||
 			strings.Contains(err.Error(), "signature") {
 			errMsg = err.Error()
 		}
