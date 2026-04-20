@@ -780,7 +780,7 @@ func (pr *PolicyRunner) persist() {
 	pr.mu.RLock()
 	snap := policySnapshot{
 		NetworkID: pr.netID,
-		Peers:     pr.peers,
+		Peers:     clonePeersLocked(pr.peers),
 		JoinedAt:  pr.joinedAt.Format(time.RFC3339),
 		CycleNum:  pr.cycleNum,
 	}

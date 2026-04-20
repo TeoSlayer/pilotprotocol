@@ -138,7 +138,6 @@ func (wc *WebhookClient) Close() {
 	}
 	wc.closeOnce.Do(func() {
 		close(wc.closed)
-		close(wc.ch)
 	})
 	select {
 	case <-wc.done:
@@ -149,8 +148,20 @@ func (wc *WebhookClient) Close() {
 
 func (wc *WebhookClient) run() {
 	defer close(wc.done)
-	for ev := range wc.ch {
-		wc.post(ev)
+	for {
+		select {
+		case ev := <-wc.ch:
+			wc.post(ev)
+		case <-wc.closed:
+			for {
+				select {
+				case ev := <-wc.ch:
+					wc.post(ev)
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
