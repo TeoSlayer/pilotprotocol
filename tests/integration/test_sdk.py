@@ -78,8 +78,10 @@ def start_daemon():
     )
     
     # Wait for socket + registration (daemon registers during Start())
+    # Global registry has grown; ListNetworks during startManaged() can take
+    # ~20s from inside a container, so allow up to 60s before giving up.
     registered = False
-    for _ in range(15):
+    for _ in range(60):
         time.sleep(1)
         if daemon_process.poll() is not None:
             log_fail("Daemon exited unexpectedly")

@@ -78,8 +78,10 @@ pilot-daemon \
 DAEMON_PID=$!
 
 # Wait for socket + registration (daemon registers during Start())
+# Global registry has grown; ListNetworks during startManaged() can take ~20s
+# from inside a container, so allow up to 60s before giving up.
 REGISTERED=false
-for i in $(seq 1 15); do
+for i in $(seq 1 60); do
     if [ -S /tmp/pilot.sock ]; then
         # Socket exists — check if we got a node ID (means registered)
         NODE_ID=$(pilotctl --json info 2>/dev/null | jq -r '.data.node_id // empty' 2>/dev/null)
@@ -98,9 +100,9 @@ if [ "$REGISTERED" = true ]; then
 else
     if [ -S /tmp/pilot.sock ]; then
         log_pass "Daemon started (socket ready)"
-        log_fail "Failed to register on the global network within 15s"
+        log_fail "Failed to register on the global network within 60s"
     else
-        log_fail "Daemon failed to start (socket not found after 15s)"
+        log_fail "Daemon failed to start (socket not found after 60s)"
         exit 1
     fi
 fi
