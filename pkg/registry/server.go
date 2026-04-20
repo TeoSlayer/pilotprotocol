@@ -5649,29 +5649,53 @@ func (s *Server) sampleStats() statsSampleResult {
 
 // recordSample writes a sample into the global and per-network ring buffers.
 // Caller must hold s.mu (write lock).
+//
+// Samples are bucketed by time (hourly = 3600s, daily = 86400s) so that
+// multiple samples falling within the same bucket (e.g. two startups on
+// the same UTC day) collapse to a single entry per bucket instead of
+// producing duplicate labels on the dashboard charts.
 func (s *Server) recordSample(r statsSampleResult, daily bool) {
-	s.hourlyHistory[s.hourlyIdx%24] = r.global
-	s.hourlyIdx++
+	writeBucketedStats(s.hourlyHistory[:], &s.hourlyIdx, r.global, 3600)
 	for netID, entry := range r.networks {
 		ring := s.netHourly[netID]
 		if ring == nil {
 			ring = newNetHistoryRing(24)
 			s.netHourly[netID] = ring
 		}
-		ring.write(entry)
+		ring.writeBucketed(entry, 3600)
 	}
 	if daily {
-		s.dailyHistory[s.dailyIdx%7] = r.global
-		s.dailyIdx++
+		writeBucketedStats(s.dailyHistory[:], &s.dailyIdx, r.global, 86400)
 		for netID, entry := range r.networks {
 			ring := s.netDaily[netID]
 			if ring == nil {
 				ring = newNetHistoryRing(7)
 				s.netDaily[netID] = ring
 			}
-			ring.write(entry)
+			ring.writeBucketed(entry, 86400)
 		}
 	}
+}
+
+// writeBucketedStats writes a sample into a fixed ring buffer with time-bucket
+// dedup: if the most recently written slot holds a sample in the same bucket,
+// it is overwritten in place instead of advancing the index. This prevents
+// duplicate entries (e.g. two samples on the same UTC day after a restart).
+func writeBucketedStats(ring []StatsSample, idxPtr *int, sample StatsSample, bucketSecs int64) {
+	size := len(ring)
+	if bucketSecs > 0 && *idxPtr > 0 {
+		lastIdx := (*idxPtr - 1) % size
+		if lastIdx < 0 {
+			lastIdx += size
+		}
+		last := ring[lastIdx]
+		if last.Timestamp > 0 && last.Timestamp/bucketSecs == sample.Timestamp/bucketSecs {
+			ring[lastIdx] = sample
+			return
+		}
+	}
+	ring[*idxPtr%size] = sample
+	*idxPtr++
 }
 
 // statsCollectorLoop runs in the background and samples stats for history charts.
@@ -6440,6 +6464,25 @@ func newNetHistoryRing(size int) *netHistoryRing {
 }
 
 func (r *netHistoryRing) write(e NetworkSampleEntry) {
+	r.Samples[r.Idx%r.Size] = e
+	r.Idx++
+}
+
+// writeBucketed overwrites the most recent entry if its timestamp falls in
+// the same time bucket (e.g. 86400s for per-day dedup); otherwise behaves
+// like write. Guarantees at most one entry per bucket across restarts.
+func (r *netHistoryRing) writeBucketed(e NetworkSampleEntry, bucketSecs int64) {
+	if bucketSecs > 0 && r.Idx > 0 {
+		lastIdx := (r.Idx - 1) % r.Size
+		if lastIdx < 0 {
+			lastIdx += r.Size
+		}
+		last := r.Samples[lastIdx]
+		if last.Timestamp > 0 && last.Timestamp/bucketSecs == e.Timestamp/bucketSecs {
+			r.Samples[lastIdx] = e
+			return
+		}
+	}
 	r.Samples[r.Idx%r.Size] = e
 	r.Idx++
 }

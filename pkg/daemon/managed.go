@@ -116,8 +116,6 @@ func (me *ManagedEngine) Bootstrap() error {
 	}
 
 	me.mu.Lock()
-	defer me.mu.Unlock()
-
 	now := time.Now()
 	for _, id := range candidates[:limit] {
 		if _, exists := me.peers[id]; !exists {
@@ -127,9 +125,11 @@ func (me *ManagedEngine) Bootstrap() error {
 			}
 		}
 	}
+	peerCount := len(me.peers)
+	me.mu.Unlock()
 
 	me.persist()
-	slog.Info("managed: bootstrapped", "network_id", me.netID, "peers", len(me.peers), "available", len(candidates))
+	slog.Info("managed: bootstrapped", "network_id", me.netID, "peers", peerCount, "available", len(candidates))
 	return nil
 }
 

@@ -700,13 +700,12 @@ func (c *Client) GetMemberRole(networkID uint16, targetNodeID uint32) (map[strin
 
 // SetNetworkPolicy sets or updates a network's policy. Requires owner/admin role or admin token.
 func (c *Client) SetNetworkPolicy(networkID uint16, policy map[string]interface{}, adminToken string) (map[string]interface{}, error) {
-	msg := map[string]interface{}{
-		"type":       "set_network_policy",
-		"network_id": networkID,
-	}
+	msg := map[string]interface{}{}
 	for k, v := range policy {
 		msg[k] = v
 	}
+	msg["type"] = "set_network_policy"
+	msg["network_id"] = networkID
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
 	}
