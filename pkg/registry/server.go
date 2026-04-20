@@ -246,7 +246,13 @@ type Server struct {
 	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
 	startTime    time.Time
 	requestCount atomic.Int64
-	networks     map[uint16]*NetworkInfo
+
+	pulseMu      sync.Mutex
+	pulseSamples [120]pulseSample // 1/sec samples, 2min window
+	pulseIdx     int
+	pulseFilled  bool
+
+	networks map[uint16]*NetworkInfo
 	pubKeyIdx    map[string]uint32 // base64(pubkey) -> nodeID for re-registration
 	ownerIdx     map[string]uint32 // owner -> nodeID for key rotation
 	hostnameIdx  map[string]uint32 // hostname -> nodeID (unique index)
@@ -767,6 +773,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 
 	go s.saveLoop()
 	go s.statsCollectorLoop()
+	go s.pulseLoop()
 
 	// Try loading from disk
 	if storePath != "" {

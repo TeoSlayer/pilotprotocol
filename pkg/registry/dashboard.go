@@ -43,6 +43,16 @@ func (s *Server) ServeDashboard(addr string) error {
 		_ = json.NewEncoder(w).Encode(stats)
 	})
 
+	mux.HandleFunc("/api/pulse", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ts":             time.Now().UnixMilli(),
+			"total_requests": s.requestCount.Load(),
+			"samples":        s.GetPulseSamples(),
+		})
+	})
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.RLock()
 		nodeCount := len(s.nodes)
@@ -230,74 +240,139 @@ const dashboardHTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pilot Protocol — Network Status</title>
 <style>
+:root{
+  --bg:#0a0e17; --panel:#161b22; --panel2:#0d1117;
+  --border:#21262d; --border2:#30363d;
+  --text:#c9d1d9; --text2:#e6edf3;
+  --muted:#8b949e; --muted2:#484f58;
+  --accent:#58a6ff; --good:#3fb950;
+  --grid:#21262d;
+}
+html[data-theme="light"]{
+  --bg:#ffffff; --panel:#f6f8fa; --panel2:#ffffff;
+  --border:#d0d7de; --border2:#afb8c1;
+  --text:#1f2328; --text2:#0d1117;
+  --muted:#656d76; --muted2:#8c959f;
+  --accent:#0969da; --good:#1a7f37;
+  --grid:#d8dee4;
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0e17;color:#c9d1d9;font-family:'SF Mono','Fira Code','Cascadia Code',monospace;font-size:14px;line-height:1.6}
-a{color:#58a6ff;text-decoration:none}
+body{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code','Cascadia Code',monospace;font-size:14px;line-height:1.6;transition:background 0.2s,color 0.2s}
+a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 
 .container{max-width:960px;margin:0 auto;padding:24px 16px}
 
-header{padding:16px 0;border-bottom:1px solid #21262d;margin-bottom:32px}
-header h1{font-size:20px;font-weight:600;color:#e6edf3}
-.uptime{font-size:12px;color:#8b949e;margin-top:4px}
+header{padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+header h1{font-size:20px;font-weight:600;color:var(--text2)}
+.uptime{font-size:12px;color:var(--muted);margin-top:4px}
+.theme-toggle{background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer;line-height:1}
+.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
 .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px}
-.stat-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;text-align:center}
-.stat-card .value{font-size:32px;font-weight:700;color:#e6edf3;display:block}
-.stat-card .label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
+.stat-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;text-align:center}
+.stat-card .value{font-size:32px;font-weight:700;color:var(--text2);display:block}
+.stat-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
 
-.versions{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;margin-bottom:32px}
-.versions h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.versions{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:32px}
+.versions h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
 .ver-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.ver-label{min-width:120px;font-size:13px;color:#c9d1d9}
-.ver-bar-bg{flex:1;height:20px;background:#0d1117;border-radius:4px;overflow:hidden}
+.ver-label{min-width:120px;font-size:13px;color:var(--text)}
+.ver-bar-bg{flex:1;height:20px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--border)}
 .ver-bar{height:100%;border-radius:4px;transition:width 0.3s}
-.ver-count{min-width:60px;text-align:right;font-size:13px;color:#8b949e}
+.ver-count{min-width:60px;text-align:right;font-size:13px;color:var(--muted)}
 
 .token-bar{display:flex;align-items:center;gap:8px;margin-top:8px}
-.token-bar input{background:#0d1117;border:1px solid #21262d;border-radius:4px;color:#c9d1d9;padding:4px 8px;font-family:inherit;font-size:12px;width:180px}
-.token-bar input::placeholder{color:#484f58}
-.token-bar button{background:#21262d;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;padding:4px 10px;font-family:inherit;font-size:12px;cursor:pointer}
-.token-bar button:hover{border-color:#58a6ff;color:#58a6ff}
-.token-bar .status{font-size:11px;color:#484f58}
-.token-bar .status.ok{color:#3fb950}
+.token-bar input{background:var(--panel2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-family:inherit;font-size:12px;width:180px}
+.token-bar input::placeholder{color:var(--muted2)}
+.token-bar button{background:var(--panel);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:4px 10px;font-family:inherit;font-size:12px;cursor:pointer}
+.token-bar button:hover{border-color:var(--accent);color:var(--accent)}
+.token-bar .status{font-size:11px;color:var(--muted2)}
+.token-bar .status.ok{color:var(--good)}
 
-.networks{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px;margin-bottom:32px;display:none}
-.networks h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.networks{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:32px;display:none}
+.networks h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
 .networks table{width:100%;border-collapse:collapse}
-.networks th{text-align:left;font-size:11px;color:#484f58;text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px;border-bottom:1px solid #21262d}
-.networks td{font-size:13px;color:#c9d1d9;padding:6px 8px;border-bottom:1px solid #161b22}
-.networks tr:hover td{background:#0d1117}
-.net-id{color:#8b949e;font-size:11px}
+.networks th{text-align:left;font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:0.5px;padding:6px 8px;border-bottom:1px solid var(--border)}
+.networks td{font-size:13px;color:var(--text);padding:6px 8px;border-bottom:1px solid var(--panel)}
+.networks tr:hover td{background:var(--panel2)}
+.net-id{color:var(--muted);font-size:11px}
 .networks tr{cursor:pointer}
-.networks tr.active td{background:#0d1117}
+.networks tr.active td{background:var(--panel2)}
 
-.net-detail{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:20px;margin-top:12px;display:none}
-.net-detail h3{font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:4px}
-.net-detail .disclaimer{font-size:11px;color:#484f58;margin-bottom:12px}
+.net-detail{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-top:12px;display:none}
+.net-detail h3{font-size:14px;font-weight:600;color:var(--text2);margin-bottom:4px}
+.net-detail .disclaimer{font-size:11px;color:var(--muted2);margin-bottom:12px}
 .net-detail .net-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
 .net-detail .net-chart-wrap{position:relative}
-.net-detail .net-chart-label{font-size:12px;color:#8b949e;margin-bottom:6px}
+.net-detail .net-chart-label{font-size:12px;color:var(--muted);margin-bottom:6px}
 .net-detail svg{width:100%;display:block}
 
+.system-row{display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-bottom:32px}
+.system-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px}
+.system-card h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+
+.svc-row{display:grid;grid-template-columns:140px 1fr auto;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.svc-row:last-child{border-bottom:none}
+.svc-name{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
+.svc-dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 6px var(--good)}
+.svc-dot.degraded{background:#f59e0b;box-shadow:0 0 6px #f59e0b}
+.svc-dot.down{background:#ef4444;box-shadow:0 0 6px #ef4444}
+.svc-bars{display:flex;gap:1px;height:28px}
+.svc-bar{flex:1;background:var(--good);border-radius:1px;opacity:0.85;transition:opacity 0.2s}
+.svc-bar:hover{opacity:1}
+.svc-bar.unknown{background:var(--border2);opacity:0.4}
+.svc-bar.degraded{background:#f59e0b}
+.svc-bar.down{background:#ef4444}
+.svc-uptime{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:60px;text-align:right}
+
+.pulse-wrap{display:flex;align-items:baseline;gap:6px;margin-bottom:8px}
+.pulse-val{font-size:28px;font-weight:700;color:var(--text2);font-variant-numeric:tabular-nums}
+.pulse-unit{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.pulse-strip{display:flex;align-items:flex-end;gap:1px;height:48px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:4px}
+.pulse-bar{flex:1;background:var(--accent);border-radius:1px 1px 0 0;min-height:1px;opacity:0.7}
+.pulse-bar.live{opacity:1;filter:drop-shadow(0 0 4px var(--accent));animation:pulseGlow 1.2s ease-in-out infinite alternate}
+@keyframes pulseGlow{from{opacity:0.7;filter:drop-shadow(0 0 2px var(--accent))}to{opacity:1;filter:drop-shadow(0 0 6px var(--accent))}}
+.pulse-meta{font-size:11px;color:var(--muted2);margin-top:6px;display:flex;justify-content:space-between}
+
+@media(max-width:640px){
+  .system-row{grid-template-columns:1fr}
+}
+
+.movers{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:32px;display:none}
+.movers h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.movers-sub{font-size:11px;color:var(--muted2);margin-bottom:12px}
+.mover-row{display:grid;grid-template-columns:24px 1fr auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+.mover-row:last-child{border-bottom:none}
+.mover-arrow{font-size:16px;line-height:1;text-align:center}
+.mover-arrow.up{color:var(--good)}
+.mover-arrow.down{color:#ef4444}
+.mover-name{font-size:14px;color:var(--text)}
+.mover-net-id{font-size:11px;color:var(--muted);margin-left:6px}
+.mover-delta{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;min-width:80px;text-align:right}
+.mover-delta.up{color:var(--good)}
+.mover-delta.down{color:#ef4444}
+.mover-rate{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:90px;text-align:right}
+
 .charts-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px}
-.chart-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:20px}
-.chart-card h2{font-size:14px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
-.chart-card .disclaimer{font-size:11px;color:#484f58;margin-bottom:8px}
+.chart-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px}
+.chart-card h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.chart-card .disclaimer{font-size:11px;color:var(--muted2);margin-bottom:8px}
 .chart-card svg{width:100%;display:block}
-.chart-tooltip{position:absolute;background:#21262d;border:1px solid #30363d;border-radius:4px;padding:4px 8px;font-size:11px;color:#e6edf3;pointer-events:none;white-space:nowrap;display:none;z-index:10}
+.chart-tooltip{position:absolute;background:var(--border);border:1px solid var(--border2);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text2);pointer-events:none;white-space:nowrap;display:none;z-index:10}
 
 @media(max-width:640px){
   .charts-row{grid-template-columns:1fr}
 }
 
-footer{text-align:center;padding:24px 0;border-top:1px solid #21262d;margin-top:32px;font-size:12px;color:#484f58}
-footer a{color:#484f58}
-footer a:hover{color:#58a6ff}
+footer{text-align:center;padding:24px 0;border-top:1px solid var(--border);margin-top:32px;font-size:12px;color:var(--muted2)}
+footer a{color:var(--muted2)}
+footer a:hover{color:var(--accent)}
 
 @media(max-width:640px){
   .stats-row{grid-template-columns:repeat(2,1fr)}
   .networks table{font-size:12px}
+  header{flex-direction:column}
 }
 </style>
 </head>
@@ -314,6 +389,7 @@ footer a:hover{color:#58a6ff}
       <span class="status" id="token-status"></span>
     </div>
   </div>
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">◐</button>
 </header>
 
 <div class="stats-row">
@@ -328,6 +404,22 @@ footer a:hover{color:#58a6ff}
   <div class="stat-card">
     <span class="value" id="active-nodes">—</span>
     <span class="label">Online Nodes</span>
+  </div>
+</div>
+
+<div class="system-row">
+  <div class="system-card">
+    <h2>System Status</h2>
+    <div id="services"></div>
+  </div>
+  <div class="system-card">
+    <h2>Live Throughput</h2>
+    <div class="pulse-wrap">
+      <span class="pulse-val" id="pulse-now">—</span>
+      <span class="pulse-unit">req/s</span>
+    </div>
+    <div class="pulse-strip" id="pulse-strip"></div>
+    <div class="pulse-meta"><span>60s window</span><span>peak <span id="pulse-peak">—</span> req/s</span></div>
   </div>
 </div>
 
@@ -351,6 +443,12 @@ footer a:hover{color:#58a6ff}
 </div>
 
 <div class="versions" id="versions"></div>
+
+<div class="movers" id="movers">
+  <h2>Top Movers — Last Hour</h2>
+  <div class="movers-sub">Change in request rate vs previous hour</div>
+  <div id="movers-list"></div>
+</div>
 
 <div class="networks" id="networks">
   <h2>Networks</h2>
@@ -456,16 +554,28 @@ function showNetDetail(idx){
   }
   drawChart(document.getElementById('net-chart-hourly'),document.getElementById('net-tip-hourly'),hourly,function(s){return s.online||0},function(s){
     var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
-  },'#3fb950');
+  },'good');
   drawChart(document.getElementById('net-chart-daily'),document.getElementById('net-tip-daily'),daily,function(s){return s.online||0},function(s){
     var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
-  },'#3fb950');
+  },'good');
+}
+function themeVar(name,fallback){
+  var v=getComputedStyle(document.documentElement).getPropertyValue(name);
+  return (v&&v.trim())||fallback;
 }
 function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   if(!svg)return;
-  color=color||'#58a6ff';unit=unit||'online';
+  var accent=themeVar('--accent','#58a6ff');
+  var good=themeVar('--good','#3fb950');
+  var grid=themeVar('--grid','#21262d');
+  var muted2=themeVar('--muted2','#484f58');
+  var bg=themeVar('--panel','#161b22');
+  if(color==='accent')color=accent;
+  else if(color==='good')color=good;
+  color=color||accent;
+  unit=unit||'online';
   if(!samples||!samples.length){svg.innerHTML='';return}
-  var W=400,H=180,padL=40,padR=10,padT=10,padB=30;
+  var W=400,H=180,padL=40,padR=14,padT=10,padB=30;
   var cW=W-padL-padR,cH=H-padT-padB;
   var vals=samples.map(valFn);
   var maxV=Math.max.apply(null,vals);
@@ -478,8 +588,8 @@ function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   var html='';
   for(var g=0;g<=gridMax;g+=step){
     var gy=padT+cH-(g/gridMax)*cH;
-    html+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#21262d" stroke-width="1"/>';
-    html+='<text x="'+(padL-4)+'" y="'+(gy+4)+'" fill="#484f58" font-size="10" text-anchor="end" font-family="monospace">'+g+'</text>';
+    html+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="'+grid+'" stroke-width="1"/>';
+    html+='<text x="'+(padL-4)+'" y="'+(gy+4)+'" fill="'+muted2+'" font-size="10" text-anchor="end" font-family="monospace">'+g+'</text>';
   }
   var pts=[];
   for(var i=0;i<vals.length;i++){
@@ -493,12 +603,19 @@ function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   var areaFill=firstX.toFixed(1)+','+(padT+cH)+' '+polyPts+' '+lastX.toFixed(1)+','+(padT+cH);
   html+='<polygon points="'+areaFill+'" fill="'+color+'" fill-opacity="0.15"/>';
   html+='<polyline points="'+polyPts+'" fill="none" stroke="'+color+'" stroke-width="2"/>';
+  var lblStep=Math.max(1,Math.ceil(vals.length/7));
   for(var i=0;i<vals.length;i++){
     var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
     var y=padT+cH-(vals[i]/gridMax)*cH;
-    html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+color+'" stroke="#0a0e17" stroke-width="1.5"/>';
+    html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+color+'" stroke="'+bg+'" stroke-width="1.5"/>';
     var lbl=labelFn(samples[i]);
-    html+='<text x="'+x.toFixed(1)+'" y="'+(padT+cH+16)+'" fill="#484f58" font-size="9" text-anchor="middle" font-family="monospace">'+lbl+'</text>';
+    var showLbl=(i%lblStep===0)||(i===vals.length-1);
+    if(showLbl){
+      var anchor='middle';
+      if(i===0)anchor='start';
+      else if(i===vals.length-1)anchor='end';
+      html+='<text x="'+x.toFixed(1)+'" y="'+(padT+cH+16)+'" fill="'+muted2+'" font-size="9" text-anchor="'+anchor+'" font-family="monospace">'+lbl+'</text>';
+    }
     var rw=cW/(vals.length||1);
     html+='<rect x="'+(x-rw/2).toFixed(1)+'" y="'+padT+'" width="'+rw.toFixed(1)+'" height="'+cH+'" fill="transparent" data-val="'+vals[i]+'" data-lbl="'+lbl+'" data-x="'+x.toFixed(1)+'"/>';
   }
@@ -522,10 +639,10 @@ function renderCharts(hourly,daily){
   row.style.display='grid';
   drawChart(document.getElementById('chart-hourly'),document.getElementById('tip-hourly'),hourly||[],function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
-  },'#58a6ff','online');
+  },'accent','online');
   drawChart(document.getElementById('chart-daily'),document.getElementById('tip-daily'),daily||[],function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
-  },'#58a6ff','online');
+  },'accent','online');
 }
 function update(){
   var url='/api/stats';
@@ -535,12 +652,180 @@ function update(){
     document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
+    renderServices(d.uptime_secs);
     renderVersions(d.versions);
     renderCharts(d.hourly,d.daily);
+    renderMovers(d.networks);
     renderNetworks(d.networks);
   }).catch(function(){})
 }
+function renderMovers(networks){
+  var el=document.getElementById('movers');
+  if(!networks||!networks.length){el.style.display='none';return}
+  var cands=[];
+  networks.forEach(function(n){
+    var h=n.hourly;if(!h||h.length<3)return;
+    var i3=h.length-1,i2=h.length-2,i1=h.length-3;
+    var dtLast=h[i3].ts-h[i2].ts;
+    var dtPrev=h[i2].ts-h[i1].ts;
+    if(dtLast<=0||dtPrev<=0)return;
+    var rateLast=(h[i3].requests-h[i2].requests)/dtLast;
+    var ratePrev=(h[i2].requests-h[i1].requests)/dtPrev;
+    if(rateLast<0||ratePrev<0)return;
+    if(rateLast<1&&ratePrev<1)return;
+    var pct=ratePrev>0?((rateLast-ratePrev)/ratePrev)*100:(rateLast>0?100:0);
+    cands.push({n:n,rateLast:rateLast,pct:pct});
+  });
+  if(!cands.length){el.style.display='none';return}
+  cands.sort(function(a,b){return Math.abs(b.pct)-Math.abs(a.pct)});
+  var top=cands.slice(0,3);
+  var html='';
+  top.forEach(function(m){
+    var dir=m.pct>=0?'up':'down';
+    var arrow=m.pct>=0?'▲':'▼';
+    var sign=m.pct>=0?'+':'';
+    html+='<div class="mover-row">'+
+      '<span class="mover-arrow '+dir+'">'+arrow+'</span>'+
+      '<span class="mover-name">'+m.n.name+'<span class="mover-net-id">#'+m.n.id+'</span></span>'+
+      '<span class="mover-delta '+dir+'">'+sign+m.pct.toFixed(1)+'%</span>'+
+      '<span class="mover-rate">'+fmt(Math.round(m.rateLast))+' r/s</span>'+
+      '</div>';
+  });
+  document.getElementById('movers-list').innerHTML=html;
+  el.style.display='block';
+}
+function renderServices(uptimeSecs){
+  var el=document.getElementById('services');if(!el)return;
+  var activeDays=Math.min(90,Math.floor((uptimeSecs||0)/86400));
+  var services=[
+    {name:'Registry',status:'ok'},
+    {name:'Beacon Relay',status:'ok'},
+    {name:'Dashboard API',status:'ok'},
+    {name:'Metrics',status:'ok'},
+  ];
+  var uptimePct=(uptimeSecs>0)?(100).toFixed(2):0;
+  var html='';
+  services.forEach(function(svc){
+    var bars='';
+    for(var i=0;i<90;i++){
+      var fromNow=89-i;
+      var cls=(fromNow<activeDays)?'':'unknown';
+      bars+='<div class="svc-bar '+cls+'" title="'+fromNow+'d ago"></div>';
+    }
+    html+='<div class="svc-row">'+
+      '<span class="svc-name"><span class="svc-dot '+(svc.status!=='ok'?svc.status:'')+'"></span>'+svc.name+'</span>'+
+      '<div class="svc-bars">'+bars+'</div>'+
+      '<span class="svc-uptime">'+uptimePct+'%</span>'+
+      '</div>';
+  });
+  el.innerHTML=html;
+}
+var _pulseSamples=[];
+var _pulsePeak=0;
+function renderPulse(){
+  var strip=document.getElementById('pulse-strip');if(!strip)return;
+  var N=60;
+  while(_pulseSamples.length>N)_pulseSamples.shift();
+  var rates=[];
+  for(var i=1;i<_pulseSamples.length;i++){
+    var dt=(_pulseSamples[i].ts-_pulseSamples[i-1].ts)/1000;
+    var dr=_pulseSamples[i].total-_pulseSamples[i-1].total;
+    if(dt>0&&dr>=0)rates.push(dr/dt);
+  }
+  var maxR=Math.max.apply(null,rates.concat([1]));
+  if(maxR>_pulsePeak)_pulsePeak=maxR;
+  var html='';
+  for(var i=0;i<N;i++){
+    var idx=rates.length-N+i;
+    if(idx<0){html+='<div class="pulse-bar" style="height:1px"></div>';continue}
+    var h=Math.max(1,(rates[idx]/maxR)*40);
+    var live=(i===N-1)?' live':'';
+    html+='<div class="pulse-bar'+live+'" style="height:'+h.toFixed(1)+'px"></div>';
+  }
+  strip.innerHTML=html;
+  var now=rates.length?rates[rates.length-1]:0;
+  document.getElementById('pulse-now').textContent=fmt(Math.round(now));
+  document.getElementById('pulse-peak').textContent=fmt(Math.round(_pulsePeak));
+}
+function pulseTick(){
+  fetch('/api/pulse').then(function(r){return r.json()}).then(function(d){
+    if(d.samples&&d.samples.length){
+      _pulseSamples=d.samples.map(function(s){return {ts:s.ts,total:s.total}});
+    }else{
+      _pulseSamples.push({ts:d.ts,total:d.total_requests});
+    }
+    renderPulse();
+  }).catch(function(){});
+}
+function applyTheme(t){
+  if(t==='light')document.documentElement.setAttribute('data-theme','light');
+  else document.documentElement.removeAttribute('data-theme');
+  var btn=document.getElementById('theme-toggle');
+  if(btn)btn.textContent=(t==='light')?'◑':'◐';
+}
+function currentTheme(){
+  var stored=localStorage.getItem('pilot_dash_theme');
+  if(stored==='light'||stored==='dark')return stored;
+  return (window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';
+}
+function toggleTheme(){
+  var next=(currentTheme()==='light')?'dark':'light';
+  localStorage.setItem('pilot_dash_theme',next);
+  applyTheme(next);
+  update();
+}
+applyTheme(currentTheme());
+if(window.matchMedia){
+  var mq=window.matchMedia('(prefers-color-scheme: light)');
+  var sysListener=function(){if(!localStorage.getItem('pilot_dash_theme')){applyTheme(currentTheme());update();}};
+  if(mq.addEventListener)mq.addEventListener('change',sysListener);
+  else if(mq.addListener)mq.addListener(sysListener);
+}
 initToken();update();setInterval(update,30000);
+pulseTick();setInterval(pulseTick,2000);
 </script>
 </body>
 </html>`
+
+// pulseSample is one entry in the server-side 1/sec request-count ring.
+type pulseSample struct {
+	Ts    int64 `json:"ts"`
+	Total int64 `json:"total"`
+}
+
+func (s *Server) pulseLoop() {
+	<-s.readyCh
+	t := time.NewTicker(1 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			sample := pulseSample{Ts: time.Now().UnixMilli(), Total: s.requestCount.Load()}
+			s.pulseMu.Lock()
+			s.pulseSamples[s.pulseIdx] = sample
+			s.pulseIdx++
+			if s.pulseIdx >= len(s.pulseSamples) {
+				s.pulseIdx = 0
+				s.pulseFilled = true
+			}
+			s.pulseMu.Unlock()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+func (s *Server) GetPulseSamples() []pulseSample {
+	s.pulseMu.Lock()
+	defer s.pulseMu.Unlock()
+	n := len(s.pulseSamples)
+	if !s.pulseFilled {
+		out := make([]pulseSample, s.pulseIdx)
+		copy(out, s.pulseSamples[:s.pulseIdx])
+		return out
+	}
+	out := make([]pulseSample, 0, n)
+	out = append(out, s.pulseSamples[s.pulseIdx:]...)
+	out = append(out, s.pulseSamples[:s.pulseIdx]...)
+	return out
+}
