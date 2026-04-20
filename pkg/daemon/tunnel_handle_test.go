@@ -329,7 +329,10 @@ func TestHandleEncryptedNoCryptoForPeerIsNoop(t *testing.T) {
 	if err := tm.EnableEncryption(); err != nil {
 		t.Fatalf("EnableEncryption: %v", err)
 	}
-	// Build valid-looking encrypted data but tm.crypto[42] is empty
+	// Build valid-looking encrypted data but tm.crypto[42] is empty.
+	// With no real UDP socket bound, maybeRequestRekey must bail out early
+	// rather than panicking in writeFrame; behaviour observable externally is
+	// still "no metrics move".
 	data := make([]byte, 4+12+16)
 	binary.BigEndian.PutUint32(data[0:4], 42)
 	before := atomic.LoadUint64(&tm.EncryptFail)
@@ -339,6 +342,61 @@ func TestHandleEncryptedNoCryptoForPeerIsNoop(t *testing.T) {
 	}
 	if atomic.LoadUint64(&tm.PktsRecv) != 0 {
 		t.Fatalf("PktsRecv should not advance when no crypto for peer")
+	}
+}
+
+// When an encrypted packet arrives for which we have no crypto context (e.g.
+// local restart wiped key, remote still uses stale keys), the receiver should
+// prompt a rekey by sending a fresh key-exchange to the sender. Rate-limited
+// per peer to prevent amplification.
+func TestHandleEncryptedNoCryptoTriggersRekeyRequest(t *testing.T) {
+	// Real UDP socket so sendKeyExchangeToNode can actually write.
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer conn.Close()
+
+	tm := NewTunnelManager()
+	tm.conn = conn
+	if err := tm.EnableEncryption(); err != nil {
+		t.Fatalf("EnableEncryption: %v", err)
+	}
+
+	// Peer "listener" — the remote that our rekey request should arrive at.
+	peerConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("peer listen: %v", err)
+	}
+	defer peerConn.Close()
+	peerAddr := peerConn.LocalAddr().(*net.UDPAddr)
+
+	peerNodeID := uint32(42)
+	data := make([]byte, 4+12+16)
+	binary.BigEndian.PutUint32(data[0:4], peerNodeID)
+
+	// First call: should send a key-exchange frame to peerAddr.
+	tm.handleEncrypted(data, peerAddr)
+	if err := peerConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	buf := make([]byte, 256)
+	n, _, err := peerConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("expected rekey frame at peer, got: %v", err)
+	}
+	// The frame should start with TunnelMagicKeyEx or TunnelMagicAuthEx.
+	if n < 4 {
+		t.Fatalf("rekey frame too short: %d bytes", n)
+	}
+
+	// Second call immediately after: rate-limiter should suppress it.
+	tm.handleEncrypted(data, peerAddr)
+	if err := peerConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	if _, _, err := peerConn.ReadFromUDP(buf); err == nil {
+		t.Fatalf("expected rate-limiter to suppress second rekey, got another frame")
 	}
 }
 
