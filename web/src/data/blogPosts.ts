@@ -613,7 +613,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "hipaa-compliant-agent-communication",
     title: "HIPAA-Compliant AI Agents Without Sending PHI to OpenAI or Anthropic",
-    description: "Run healthcare AI agents without a BAA with every model vendor. Self-hosted, end-to-end encrypted, audit-logged. Here's the architecture.",
+    description: "Run healthcare AI agents without a BAA with every model vendor. End-to-end encrypted, audit-logged, inside your compliance perimeter. Here's the architecture.",
     date: "Feb 20",
     category: "Security",
     tags: ["HIPAA", "healthcare"],
