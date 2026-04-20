@@ -8,8 +8,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
+
+// maxSendChunk is the largest payload we will pack into one cmdSend IPC
+// message. IPC messages are capped at ipcutil.MaxMessageSize; we reserve
+// 5 bytes for the cmdSend+conn_id header and leave a small safety margin.
+const maxSendChunk = ipcutil.MaxMessageSize - 64
 
 // Conn implements net.Conn over a Pilot Protocol stream.
 type Conn struct {
@@ -78,15 +84,23 @@ func (c *Conn) Write(b []byte) (int, error) {
 	}
 	c.mu.Unlock()
 
-	msg := make([]byte, 1+4+len(b))
-	msg[0] = cmdSend
-	binary.BigEndian.PutUint32(msg[1:5], c.id)
-	copy(msg[5:], b)
-
-	if err := c.ipc.send(msg); err != nil {
-		return 0, err
+	total := len(b)
+	written := 0
+	for written < total {
+		chunk := total - written
+		if chunk > maxSendChunk {
+			chunk = maxSendChunk
+		}
+		msg := make([]byte, 1+4+chunk)
+		msg[0] = cmdSend
+		binary.BigEndian.PutUint32(msg[1:5], c.id)
+		copy(msg[5:], b[written:written+chunk])
+		if err := c.ipc.send(msg); err != nil {
+			return written, err
+		}
+		written += chunk
 	}
-	return len(b), nil
+	return written, nil
 }
 
 func (c *Conn) Close() error {
