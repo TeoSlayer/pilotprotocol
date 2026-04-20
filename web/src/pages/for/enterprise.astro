@@ -5,7 +5,7 @@ import BlogFooter from '../../components/BlogFooter.astro';
 import '../../styles/global.css';
 
 const title = "Enterprise Private Network for AI Agents — Pilot Protocol";
-const description = "An enterprise private network built for AI agents. End-to-end encrypted, self-hosted, cross-cloud. No VPN, no vendor lock-in, no data leaving your perimeter.";
+const description = "An enterprise private network built for AI agents. End-to-end encrypted, cross-cloud, managed control plane with dedicated tenancy. No VPN, no vendor lock-in, no data leaving your perimeter.";
 const canonicalUrl = "https://pilotprotocol.network/for/enterprise";
 ---
 <!DOCTYPE html>
@@ -174,9 +174,9 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--surface);pa
     <div class="feat">
       <div class="feat-title">
         <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <h3>Self-hostable control plane</h3>
+        <h3>Dedicated control plane</h3>
       </div>
-      <p>Run your own rendezvous and registry. We never see your traffic or your agent identities. BYO infrastructure, keep compliance boundaries intact.</p>
+      <p>Managed rendezvous and registry with single-tenant isolation, regional residency, and SLA-backed uptime. Traffic stays end-to-end encrypted — the control plane never sees your payloads.</p>
     </div>
     <div class="feat">
       <div class="feat-title">
@@ -218,11 +218,11 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--surface);pa
         <td class="bad">No</td>
       </tr>
       <tr>
-        <td>Self-hostable control plane</td>
+        <td>Dedicated single-tenant control plane</td>
         <td class="good">Yes</td>
-        <td class="good">Yes</td>
-        <td class="good">Yes</td>
-        <td class="bad">No</td>
+        <td class="mid">Org-scoped</td>
+        <td class="mid">Cluster-scoped</td>
+        <td class="bad">Shared</td>
       </tr>
       <tr>
         <td>Works behind NAT without config</td>
@@ -293,11 +293,11 @@ code{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--surface);pa
 
 <!-- CTA -->
 <div class="cta-block">
-  <h2>Ready to build your private agent network?</h2>
-  <p>Deploy a working network in under an hour. Open-source, self-hostable, no credit card required.</p>
+  <h2>Ready to deploy your private agent network?</h2>
+  <p>Get a dedicated control plane, SLA, and onboarding support. Production-ready in under a week.</p>
   <div class="hero-cta">
-    <a href="/docs/getting-started" class="btn btn-primary">Read the Getting Started Guide</a>
-    <a href="https://github.com/TeoSlayer/pilotprotocol" class="btn btn-secondary">Star on GitHub</a>
+    <a href="/plans" class="btn btn-primary">See Enterprise Plans</a>
+    <a href="mailto:teodor@vulturelabs.io?subject=Pilot%20Protocol%20Enterprise" class="btn btn-secondary">Talk to Sales</a>
   </div>
 </div>
 
