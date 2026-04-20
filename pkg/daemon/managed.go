@@ -50,6 +50,27 @@ type managedSnapshot struct {
 	CycleNum  int                     `json:"cycle_num"`
 }
 
+// clonePeersLocked returns a deep copy of a peers map. Caller must hold the
+// owning mutex. The copy is safe to hand to json.Marshal after the lock is
+// released, because it shares no mutable state with the original.
+func clonePeersLocked(src map[uint32]*managedPeer) map[uint32]*managedPeer {
+	dst := make(map[uint32]*managedPeer, len(src))
+	for k, p := range src {
+		pc := *p
+		if p.Topics != nil {
+			pc.Topics = make(map[string]int, len(p.Topics))
+			for tk, tv := range p.Topics {
+				pc.Topics[tk] = tv
+			}
+		}
+		if p.Tags != nil {
+			pc.Tags = append([]string(nil), p.Tags...)
+		}
+		dst[k] = &pc
+	}
+	return dst
+}
+
 // NewManagedEngine creates a managed engine for a network.
 // It loads persisted state if available, or bootstraps from the member list.
 func NewManagedEngine(netID uint16, rules *registry.NetworkRules, d *Daemon) *ManagedEngine {
@@ -416,7 +437,7 @@ func (me *ManagedEngine) persist() {
 	me.mu.RLock()
 	snap := managedSnapshot{
 		NetworkID: me.netID,
-		Peers:     me.peers,
+		Peers:     clonePeersLocked(me.peers),
 		JoinedAt:  me.joinedAt.Format(time.RFC3339),
 	}
 	me.mu.RUnlock()

@@ -5755,7 +5755,9 @@ func (s *Server) flushSave() error {
 	nextNode := s.nextNode
 	nextNet := s.nextNet
 
-	// Copy node raw values (no encoding under lock)
+	// Copy node raw values (no encoding under lock). Slice fields that can be
+	// mutated in place elsewhere (Networks/Tags/LANAddrs are append-grown) are
+	// deep-copied so Phase 2 sees a stable snapshot after the lock is released.
 	rawNodes := make([]rawNodeCopy, 0, len(s.nodes))
 	for _, n := range s.nodes {
 		rawNodes = append(rawNodes, rawNodeCopy{
@@ -5763,27 +5765,71 @@ func (s *Server) flushSave() error {
 			owner:      n.Owner,
 			publicKey:  n.PublicKey,
 			realAddr:   n.RealAddr,
-			networks:   n.Networks,
+			networks:   append([]uint16(nil), n.Networks...),
 			lastSeen:   n.getLastSeen(),
 			public:     n.Public,
 			hostname:   n.Hostname,
-			tags:       n.Tags,
+			tags:       append([]string(nil), n.Tags...),
 			poloScore:  n.PoloScore,
 			taskExec:   n.TaskExec,
-			lanAddrs:   n.LANAddrs,
+			lanAddrs:   append([]string(nil), n.LANAddrs...),
 			keyMeta:    n.KeyMeta,
 			externalID: n.ExternalID,
 			version:    n.Version,
 		})
 	}
 
-	// Copy network data (Created.Format is the only costly op — defer it)
+	// Copy network data. Members/MemberRoles/MemberTags mutate in place
+	// (handleRegister/handleDeregister append-grow Members, map writes add/remove
+	// roles and tags), so Phase 2 must see deep copies rather than live pointers.
 	type rawNetCopy struct {
-		info *NetworkInfo
+		id           uint16
+		name         string
+		joinRule     string
+		token        string
+		members      []uint32
+		memberRoles  map[uint32]Role
+		memberTags   map[uint32][]string
+		adminToken   string
+		policy       NetworkPolicy
+		rules        *NetworkRules
+		exprPolicy   json.RawMessage
+		enterprise   bool
+		created      time.Time
+		requestCount int64
 	}
 	rawNets := make([]rawNetCopy, 0, len(s.networks))
 	for _, n := range s.networks {
-		rawNets = append(rawNets, rawNetCopy{info: n})
+		rc := rawNetCopy{
+			id:           n.ID,
+			name:         n.Name,
+			joinRule:     n.JoinRule,
+			token:        n.Token,
+			members:      append([]uint32(nil), n.Members...),
+			adminToken:   n.AdminToken,
+			policy:       n.Policy,
+			rules:        n.Rules,
+			exprPolicy:   n.ExprPolicy,
+			enterprise:   n.Enterprise,
+			created:      n.Created,
+			requestCount: n.requestCount.Load(),
+		}
+		if len(n.Policy.AllowedPorts) > 0 {
+			rc.policy.AllowedPorts = append([]uint16(nil), n.Policy.AllowedPorts...)
+		}
+		if len(n.MemberRoles) > 0 {
+			rc.memberRoles = make(map[uint32]Role, len(n.MemberRoles))
+			for k, v := range n.MemberRoles {
+				rc.memberRoles[k] = v
+			}
+		}
+		if len(n.MemberTags) > 0 {
+			rc.memberTags = make(map[uint32][]string, len(n.MemberTags))
+			for k, v := range n.MemberTags {
+				rc.memberTags[k] = append([]string(nil), v...)
+			}
+		}
+		rawNets = append(rawNets, rc)
 	}
 
 	// Copy index maps
@@ -5918,39 +5964,38 @@ func (s *Server) flushSave() error {
 		}
 	}
 
-	for _, rn := range rawNets {
-		n := rn.info
+	for i := range rawNets {
+		rn := &rawNets[i]
 		sn := &snapshotNet{
-			ID:           n.ID,
-			Name:         n.Name,
-			JoinRule:     n.JoinRule,
-			Token:        n.Token,
-			Members:      n.Members,
-			AdminToken:   n.AdminToken,
-			Enterprise:   n.Enterprise,
-			RequestCount: n.requestCount.Load(),
-			Created:      n.Created.Format(time.RFC3339),
+			ID:           rn.id,
+			Name:         rn.name,
+			JoinRule:     rn.joinRule,
+			Token:        rn.token,
+			Members:      rn.members,
+			AdminToken:   rn.adminToken,
+			Enterprise:   rn.enterprise,
+			RequestCount: rn.requestCount,
+			Created:      rn.created.Format(time.RFC3339),
 		}
-		if len(n.MemberRoles) > 0 {
-			sn.MemberRoles = make(map[string]string, len(n.MemberRoles))
-			for nodeID, role := range n.MemberRoles {
+		if len(rn.memberRoles) > 0 {
+			sn.MemberRoles = make(map[string]string, len(rn.memberRoles))
+			for nodeID, role := range rn.memberRoles {
 				sn.MemberRoles[fmt.Sprintf("%d", nodeID)] = string(role)
 			}
 		}
-		if len(n.MemberTags) > 0 {
-			sn.MemberTags = make(map[string][]string, len(n.MemberTags))
-			for nodeID, tags := range n.MemberTags {
+		if len(rn.memberTags) > 0 {
+			sn.MemberTags = make(map[string][]string, len(rn.memberTags))
+			for nodeID, tags := range rn.memberTags {
 				sn.MemberTags[fmt.Sprintf("%d", nodeID)] = tags
 			}
 		}
-		// Persist policy if any field is set
-		if n.Policy.MaxMembers != 0 || len(n.Policy.AllowedPorts) > 0 || n.Policy.Description != "" {
-			pol := n.Policy // copy
+		if rn.policy.MaxMembers != 0 || len(rn.policy.AllowedPorts) > 0 || rn.policy.Description != "" {
+			pol := rn.policy
 			sn.Policy = &pol
 		}
-		sn.Rules = n.Rules
-		sn.ExprPolicy = n.ExprPolicy
-		snap.Networks[fmt.Sprintf("%d", n.ID)] = sn
+		sn.Rules = rn.rules
+		sn.ExprPolicy = rn.exprPolicy
+		snap.Networks[fmt.Sprintf("%d", rn.id)] = sn
 	}
 
 	snap.PubKeyIdx = pubKeyIdx
