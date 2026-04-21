@@ -792,42 +792,46 @@ func (d *Daemon) monitorNewTasksForCancellation() {
 	}
 }
 
-// checkAndCancelExpiredNewTasks scans received tasks for NEW tasks past the accept timeout.
+// checkAndCancelExpiredNewTasks scans received and submitted tasks for NEW
+// tasks past the accept timeout. Both sides must scan independently — the
+// remote peer's auto-cancel only updates its own local files, so each
+// daemon is responsible for expiring its own NEW-state copies.
 func (d *Daemon) checkAndCancelExpiredNewTasks() {
 	tasksDir, err := getTasksDir()
 	if err != nil {
 		return
 	}
 
-	receivedDir := filepath.Join(tasksDir, "received")
-	entries, err := os.ReadDir(receivedDir)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(receivedDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		tf, err := tasksubmit.UnmarshalTaskFile(data)
+	for _, sub := range []string{"received", "submitted"} {
+		dir := filepath.Join(tasksDir, sub)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 
-		if tf.IsExpiredForAccept() {
-			slog.Info("tasksubmit: cancelling task due to accept timeout",
-				"task_id", tf.TaskID,
-				"created_at", tf.CreatedAt,
-			)
-			// Remove from queue if present
-			d.taskQueue.Remove(tf.TaskID)
-			// Cancel on both sides
-			if err := CancelTaskBothSides(tf.TaskID); err != nil {
-				slog.Warn("tasksubmit: failed to cancel task", "task_id", tf.TaskID, "error", err)
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			tf, err := tasksubmit.UnmarshalTaskFile(data)
+			if err != nil {
+				continue
+			}
+
+			if tf.IsExpiredForAccept() {
+				slog.Info("tasksubmit: cancelling task due to accept timeout",
+					"task_id", tf.TaskID,
+					"side", sub,
+					"created_at", tf.CreatedAt,
+				)
+				d.taskQueue.Remove(tf.TaskID)
+				if err := CancelTaskBothSides(tf.TaskID); err != nil {
+					slog.Warn("tasksubmit: failed to cancel task", "task_id", tf.TaskID, "error", err)
+				}
 			}
 		}
 	}
