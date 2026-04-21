@@ -222,7 +222,13 @@ func (gw *Gateway) listenPort(localIP net.IP, port uint16, pilotAddr protocol.Ad
 	addr := fmt.Sprintf("%s:%d", localIP, port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		slog.Debug("gateway listen failed (expected if IP not yet routable)", "addr", addr, "err", err)
+		// addLoopbackAlias is synchronous and the alias is routable before it returns,
+		// so "not yet routable" is never the real reason. Common causes: port already
+		// in use by another process, or permission denied for privileged ports (<1024)
+		// when the gateway is not run as root. Operators need to see this at default
+		// log levels — otherwise pilot-gateway reports "mapped" but silently fails to
+		// accept any traffic.
+		slog.Warn("gateway listen failed", "addr", addr, "err", err)
 		return
 	}
 
@@ -231,7 +237,7 @@ func (gw *Gateway) listenPort(localIP net.IP, port uint16, pilotAddr protocol.Ad
 	gw.listeners[key] = ln
 	gw.mu.Unlock()
 
-	slog.Debug("gateway proxy listening", "addr", addr)
+	slog.Info("gateway proxy listening", "addr", addr, "pilot_addr", pilotAddr)
 
 	for {
 		tcpConn, err := ln.Accept()
