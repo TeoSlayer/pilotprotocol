@@ -176,6 +176,27 @@ func NewTunnelManager() *TunnelManager {
 // Prevents amplification if a peer streams unreadable frames at us.
 const rekeyRequestInterval = 3 * time.Second
 
+// maxRekeyRequesters caps lastRekeyReq so a peer spraying unreadable frames
+// from rotated/spoofed node IDs cannot grow the map without bound. Real
+// networks never approach this; the bound exists to kill the DoS vector.
+const maxRekeyRequesters = 4096
+
+// pruneRekeyBudgetLocked deletes rate-limit entries whose window has already
+// elapsed (deleting them is safe — they'd be re-created on the next packet
+// from that peer anyway). Returns true if the map has room for a new entry
+// after pruning. Caller must hold rekeyMu.
+func (tm *TunnelManager) pruneRekeyBudgetLocked(now time.Time) bool {
+	if len(tm.lastRekeyReq) < maxRekeyRequesters {
+		return true
+	}
+	for id, t := range tm.lastRekeyReq {
+		if now.Sub(t) >= rekeyRequestInterval {
+			delete(tm.lastRekeyReq, id)
+		}
+	}
+	return len(tm.lastRekeyReq) < maxRekeyRequesters
+}
+
 // maybeRequestRekey conditionally sends a key-exchange to a peer that sent us
 // an encrypted packet we can't decrypt. Rate-limited per peer. Returns true if
 // we actually sent one.
@@ -184,9 +205,13 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 		return false
 	}
 	tm.rekeyMu.Lock()
-	last := tm.lastRekeyReq[peerNodeID]
+	last, known := tm.lastRekeyReq[peerNodeID]
 	now := time.Now()
-	if now.Sub(last) < rekeyRequestInterval {
+	if known && now.Sub(last) < rekeyRequestInterval {
+		tm.rekeyMu.Unlock()
+		return false
+	}
+	if !known && !tm.pruneRekeyBudgetLocked(now) {
 		tm.rekeyMu.Unlock()
 		return false
 	}
