@@ -652,6 +652,8 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	// reject unauthenticated exchange and respond with authenticated instead
 	tm.mu.RLock()
 	hasIdentity := tm.identity != nil
+	_, hadCryptoPre := tm.crypto[peerNodeID]
+	cryptoSize := len(tm.crypto)
 	tm.mu.RUnlock()
 	if hasIdentity {
 		expectedPubKey, err := tm.getPeerPubKey(peerNodeID)
@@ -660,6 +662,17 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 			tm.sendKeyExchangeToNode(peerNodeID)
 			return
 		}
+	}
+
+	// Budget check BEFORE the expensive scalar multiplication. Without this,
+	// an attacker spraying unauth key-exchange frames at us can force CPU
+	// burn even if the map-insert is later rejected. The TOCTOU here is
+	// benign: concurrent bursts may overshoot by a handful of entries, but
+	// the next call will see the raised count and reject.
+	if !hadCryptoPre && cryptoSize >= maxCryptoPeers {
+		slog.Warn("crypto peers cap reached, dropping unauth key exchange",
+			"peer_node_id", peerNodeID, "from", from)
+		return
 	}
 
 	// Derive shared secret
@@ -1141,6 +1154,15 @@ func (tm *TunnelManager) handlePunchCommand(data []byte) {
 // and emit a "tunnel.relay_activated" webhook per unique spoofed ID. Real
 // networks never approach this cap.
 const maxRelayPeers = 4096
+
+// maxCryptoPeers caps the crypto map for unauth key-exchange insertions.
+// handleAuthKeyExchange is implicitly bounded by the registry-verified pubkey
+// lookup, but handleKeyExchange (unauth) accepts any peerNodeID and performs
+// an X25519 scalar multiplication per packet. Without a cap, a peer spraying
+// unauth key-exchange frames with random node IDs can grow crypto to 2^32
+// entries while also burning CPU on derivation. Set high enough that real
+// deployments never hit it.
+const maxCryptoPeers = 16384
 
 // handleRelayDeliver processes a beacon relay delivery, extracting the inner tunnel frame.
 func (tm *TunnelManager) handleRelayDeliver(data []byte) {
