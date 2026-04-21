@@ -6527,20 +6527,37 @@ func (s *Server) load() error {
 		slog.Info("loaded audit log", "entries", len(snap.AuditLog))
 	}
 
-	// Restore enterprise config (IDP, audit export, RBAC pre-assignments)
+	// Restore enterprise config (IDP, audit export, RBAC pre-assignments).
+	// Validate the persisted URL even though the setter would have validated it
+	// at configuration time — snapshots predating the urlvalidate extraction
+	// (commit a318fe4) may contain URLs that would be rejected today, and a
+	// compromised primary in replication scenarios could write hostile values.
 	if snap.IDPConfig != nil {
-		s.idpConfig = snap.IDPConfig
-		s.identityWebhookURL = snap.IDPConfig.URL
-		slog.Info("loaded identity provider config", "type", snap.IDPConfig.Type)
+		if err := urlvalidate.Validate(snap.IDPConfig.URL); err != nil {
+			slog.Warn("skipping restored IDP config with invalid URL", "url", snap.IDPConfig.URL, "err", err)
+		} else {
+			s.idpConfig = snap.IDPConfig
+			s.identityWebhookURL = snap.IDPConfig.URL
+			slog.Info("loaded identity provider config", "type", snap.IDPConfig.Type)
+		}
 	}
 	if snap.AuditExportCfg != nil {
-		s.auditExportConfig = snap.AuditExportCfg
-		if s.auditExporter != nil {
-			s.auditExporter.Close()
+		acceptExport := true
+		if snap.AuditExportCfg.Format == "json" || snap.AuditExportCfg.Format == "splunk_hec" {
+			if err := urlvalidate.Validate(snap.AuditExportCfg.Endpoint); err != nil {
+				slog.Warn("skipping restored audit export with invalid endpoint", "endpoint", snap.AuditExportCfg.Endpoint, "err", err)
+				acceptExport = false
+			}
 		}
-		s.auditExporter = newAuditExporter(snap.AuditExportCfg)
-		slog.Info("loaded audit export config", "format", snap.AuditExportCfg.Format,
-			"endpoint", snap.AuditExportCfg.Endpoint)
+		if acceptExport {
+			s.auditExportConfig = snap.AuditExportCfg
+			if s.auditExporter != nil {
+				s.auditExporter.Close()
+			}
+			s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+			slog.Info("loaded audit export config", "format", snap.AuditExportCfg.Format,
+				"endpoint", snap.AuditExportCfg.Endpoint)
+		}
 	}
 	if len(snap.RBACPreAssign) > 0 {
 		s.rbacPreAssign = make(map[uint16][]BlueprintRole)
