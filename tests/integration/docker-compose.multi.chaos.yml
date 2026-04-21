@@ -1,0 +1,15 @@
+# Chaos-capable overlay. Stack with:
+#   docker compose -f docker-compose.multi.yml -f docker-compose.multi.chaos.yml up -d
+#
+# Grants NET_ADMIN so `tc qdisc` / `iptables` can run inside the agent
+# containers, enabling packet loss, delay, reorder, and partition tests.
+services:
+  agent-a:
+    cap_add:
+      - NET_ADMIN
+  agent-b:
+    cap_add:
+      - NET_ADMIN
+  rendezvous:
+    cap_add:
+      - NET_ADMIN
