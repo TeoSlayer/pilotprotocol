@@ -27,7 +27,7 @@ for i in $(seq 1 60); do
 done
 
 EP="http://127.0.0.1:8080"
-RIP="172.29.0.10:8080" # rendezvous bridge IP, reachable from agent-a
+RIP="${PILOT_SUBNET_PREFIX:-172.29.0}.10:8080" # rendezvous bridge IP, reachable from agent-a
 
 # ---- 1. Root HTML dashboard ----
 log_test "GET / returns HTML with 200"
