@@ -754,6 +754,16 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		if recvCounter < maxN && maxN-recvCounter >= replayWindowSize {
 			slog.Warn("tunnel packet outside replay window",
 				"peer_node_id", peerNodeID, "counter", recvCounter, "max", maxN)
+			// A counter that is dramatically smaller than our max strongly
+			// suggests the peer replaced their peerCrypto (e.g. after a
+			// half-rekey whose reply to us was lost) and is now sending from
+			// a fresh counter while our state is frozen at the old high
+			// max. Send a rate-limited key-exchange so the peer re-establishes
+			// symmetrically; on the reply we'll install a fresh peerCrypto
+			// ourselves and start accepting their new-session packets.
+			if recvCounter < 1024 {
+				tm.maybeRequestRekey(peerNodeID, from)
+			}
 		} else {
 			slog.Warn("tunnel nonce replay detected",
 				"peer_node_id", peerNodeID, "counter", recvCounter, "max", maxN)
