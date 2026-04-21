@@ -150,7 +150,7 @@ func NewTaskFile(taskID, taskDescription, fromAddr, toAddr string) *TaskFile {
 	return &TaskFile{
 		TaskID:              taskID,
 		TaskDescription:     taskDescription,
-		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339Nano),
 		Status:              TaskStatusNew,
 		StatusJustification: "A new task was created",
 		From:                fromAddr,
