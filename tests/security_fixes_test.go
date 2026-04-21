@@ -562,6 +562,11 @@ func TestValidateWebhookURL(t *testing.T) {
 		// Cloud metadata endpoints (SSRF)
 		{"gcp metadata", "http://metadata.google.internal/computeMetadata/v1/", true, "cloud metadata"},
 		{"gcp metadata alt", "http://metadata.google.com/computeMetadata/v1/", true, "cloud metadata"},
+
+		// DNS is case-insensitive — mixed-case must not bypass the blocklist.
+		{"gcp metadata mixed case", "http://Metadata.Google.Internal/", true, "cloud metadata"},
+		{"gcp metadata upper case", "http://METADATA.GOOGLE.INTERNAL/", true, "cloud metadata"},
+		{"gcp metadata alt mixed case", "http://Metadata.Google.Com/", true, "cloud metadata"},
 	}
 
 	for _, tc := range tests {

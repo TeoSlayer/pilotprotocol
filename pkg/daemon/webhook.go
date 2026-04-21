@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,8 +30,10 @@ func ValidateWebhookURL(rawURL string) error {
 			return fmt.Errorf("webhook URL cannot target link-local address %s", host)
 		}
 	}
-	// Block well-known cloud metadata hostnames
-	switch host {
+	// Block well-known cloud metadata hostnames. DNS is case-insensitive, so
+	// "Metadata.Google.Internal" resolves identically to "metadata.google.internal"
+	// — compare against the lowercased host so casing can't bypass the check.
+	switch strings.ToLower(host) {
 	case "metadata.google.internal", "metadata.google.com":
 		return fmt.Errorf("webhook URL cannot target cloud metadata endpoint %s", host)
 	}
