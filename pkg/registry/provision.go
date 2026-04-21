@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
 
 // NetworkBlueprint defines a declarative configuration for provisioning
@@ -133,6 +135,21 @@ func ValidateBlueprint(bp *NetworkBlueprint) error {
 		if bp.IdentityProvider.URL == "" {
 			return fmt.Errorf("identity_provider.url is required")
 		}
+		if err := urlvalidate.Validate(bp.IdentityProvider.URL); err != nil {
+			return fmt.Errorf("identity_provider.url: %w", err)
+		}
+	}
+	if bp.Webhooks != nil {
+		if bp.Webhooks.AuditURL != "" {
+			if err := urlvalidate.Validate(bp.Webhooks.AuditURL); err != nil {
+				return fmt.Errorf("webhooks.audit_url: %w", err)
+			}
+		}
+		if bp.Webhooks.IdentityURL != "" {
+			if err := urlvalidate.Validate(bp.Webhooks.IdentityURL); err != nil {
+				return fmt.Errorf("webhooks.identity_url: %w", err)
+			}
+		}
 	}
 	if bp.AuditExport != nil {
 		switch bp.AuditExport.Format {
@@ -142,6 +159,13 @@ func ValidateBlueprint(bp *NetworkBlueprint) error {
 		}
 		if bp.AuditExport.Endpoint == "" {
 			return fmt.Errorf("audit_export.endpoint is required")
+		}
+		// syslog_cef sinks accept raw host:port targets; only the HTTP(S)
+		// formats need SSRF validation.
+		if bp.AuditExport.Format == "json" || bp.AuditExport.Format == "splunk_hec" {
+			if err := urlvalidate.Validate(bp.AuditExport.Endpoint); err != nil {
+				return fmt.Errorf("audit_export.endpoint: %w", err)
+			}
 		}
 	}
 	if len(bp.ExprPolicy) > 0 {

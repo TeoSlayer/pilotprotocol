@@ -32,6 +32,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
 
 // hashOwner returns a truncated SHA-256 hash of the owner for safe logging.
@@ -2200,6 +2201,11 @@ func (s *Server) handleSetWebhook(msg map[string]interface{}) (map[string]interf
 		return nil, err
 	}
 	url, _ := msg["url"].(string)
+	if url != "" {
+		if err := urlvalidate.Validate(url); err != nil {
+			return nil, fmt.Errorf("set_webhook: %w", err)
+		}
+	}
 	s.SetWebhookURL(url)
 	status := "disabled"
 	if url != "" {
@@ -2277,6 +2283,11 @@ func (s *Server) handleSetIdentityWebhook(msg map[string]interface{}) (map[strin
 		return nil, err
 	}
 	url, _ := msg["url"].(string)
+	if url != "" {
+		if err := urlvalidate.Validate(url); err != nil {
+			return nil, fmt.Errorf("set_identity_webhook: %w", err)
+		}
+	}
 	s.SetIdentityWebhookURL(url)
 	status := "disabled"
 	if url != "" {
@@ -2366,6 +2377,15 @@ func (s *Server) handleSetAuditExport(msg map[string]interface{}) (map[string]in
 			"type":   "set_audit_export_ok",
 			"status": "disabled",
 		}, nil
+	}
+
+	// SSRF prevention: the syslog_cef format uses a raw host:port and is not
+	// covered here — only http(s) endpoints go through URL validation. The
+	// other two formats (json, splunk_hec) post to an HTTP(S) endpoint.
+	if format == "json" || format == "splunk_hec" {
+		if err := urlvalidate.Validate(endpoint); err != nil {
+			return nil, fmt.Errorf("set_audit_export: %w", err)
+		}
 	}
 
 	cfg := &BlueprintAuditExport{
