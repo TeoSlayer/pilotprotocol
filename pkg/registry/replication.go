@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
 
 // connWriter wraps a net.Conn with a write mutex to prevent interleaved writes
@@ -625,17 +627,32 @@ func (s *Server) applySnapshot(data []byte) error {
 		s.auditMu.Unlock()
 	}
 
-	// Restore enterprise config
+	// Restore enterprise config. Validate URLs received from the primary —
+	// a compromised primary should not be able to point standbys at SSRF
+	// targets (cloud metadata / link-local) by streaming a hostile snapshot.
 	if snap.IDPConfig != nil {
-		s.idpConfig = snap.IDPConfig
-		s.identityWebhookURL = snap.IDPConfig.URL
+		if err := urlvalidate.Validate(snap.IDPConfig.URL); err != nil {
+			slog.Warn("replica: skipping IDP config with invalid URL", "url", snap.IDPConfig.URL, "err", err)
+		} else {
+			s.idpConfig = snap.IDPConfig
+			s.identityWebhookURL = snap.IDPConfig.URL
+		}
 	}
 	if snap.AuditExportCfg != nil {
-		s.auditExportConfig = snap.AuditExportCfg
-		if s.auditExporter != nil {
-			s.auditExporter.Close()
+		acceptExport := true
+		if snap.AuditExportCfg.Format == "json" || snap.AuditExportCfg.Format == "splunk_hec" {
+			if err := urlvalidate.Validate(snap.AuditExportCfg.Endpoint); err != nil {
+				slog.Warn("replica: skipping audit export with invalid endpoint", "endpoint", snap.AuditExportCfg.Endpoint, "err", err)
+				acceptExport = false
+			}
 		}
-		s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+		if acceptExport {
+			s.auditExportConfig = snap.AuditExportCfg
+			if s.auditExporter != nil {
+				s.auditExporter.Close()
+			}
+			s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+		}
 	}
 	if len(snap.RBACPreAssign) > 0 {
 		s.rbacPreAssign = make(map[uint16][]BlueprintRole)
