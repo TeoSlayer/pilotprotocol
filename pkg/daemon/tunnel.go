@@ -1134,6 +1134,14 @@ func (tm *TunnelManager) handlePunchCommand(data []byte) {
 	slog.Info("NAT punch sent", "target", addr)
 }
 
+// maxRelayPeers caps the relayPeers map. The beacon relays packets to us with
+// a caller-supplied srcNodeID, so without a bound an attacker who can get the
+// beacon to forward frames to us — or who operates a hostile beacon — can
+// grow relayPeers indefinitely, pollute the peers map with beaconAddr aliases,
+// and emit a "tunnel.relay_activated" webhook per unique spoofed ID. Real
+// networks never approach this cap.
+const maxRelayPeers = 4096
+
 // handleRelayDeliver processes a beacon relay delivery, extracting the inner tunnel frame.
 func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 	// Format: [srcNodeID(4)][payload...]
@@ -1146,6 +1154,12 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 	// Mark this peer as relay-capable (they sent through relay, so they're behind NAT)
 	tm.mu.Lock()
 	wasRelay := tm.relayPeers[srcNodeID]
+	if !wasRelay && len(tm.relayPeers) >= maxRelayPeers {
+		// Budget exhausted — drop before side-effecting on spoofable input.
+		tm.mu.Unlock()
+		slog.Warn("relay peers cap reached, dropping relay packet", "src_node_id", srcNodeID)
+		return
+	}
 	tm.relayPeers[srcNodeID] = true
 	// Ensure we have a peer entry (use beacon addr as placeholder for relay peers)
 	if _, ok := tm.peers[srcNodeID]; !ok && tm.beaconAddr != nil {
