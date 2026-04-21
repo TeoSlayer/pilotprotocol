@@ -32,6 +32,8 @@ services:
     networks:
       pilot-p2p:
         ipv4_address: 172.29.0.20
+    environment:
+      PILOT_REGISTRY: "172.29.0.10:9000"
     command: >
       pilot-daemon
       -registry 172.29.0.10:9000
@@ -42,6 +44,7 @@ services:
       -endpoint 172.29.0.20:4000
       -listen :4000
       -public
+      -keepalive 5s
       -log-level info
 
   agent-b:
@@ -56,6 +59,8 @@ services:
     networks:
       pilot-p2p:
         ipv4_address: 172.29.0.21
+    environment:
+      PILOT_REGISTRY: "172.29.0.10:9000"
     command: >
       pilot-daemon
       -registry 172.29.0.10:9000
@@ -66,6 +71,7 @@ services:
       -endpoint 172.29.0.21:4000
       -listen :4000
       -public
+      -keepalive 5s
       -log-level info
 
   runner:
