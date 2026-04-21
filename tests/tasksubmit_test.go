@@ -555,7 +555,10 @@ func TestTaskFileSchema(t *testing.T) {
 func TestTaskFileTimeMetadataSchema(t *testing.T) {
 	tf := tasksubmit.NewTaskFile("test-id-456", "Test with time", "0:0000.0000.0001", "0:0000.0000.0002")
 
-	// Simulate accept (sets AcceptedAt and TimeIdleMs)
+	// Simulate accept (sets AcceptedAt and TimeIdleMs). Sleep first so
+	// the idle duration is non-zero under RFC3339Nano CreatedAt; otherwise
+	// the int64 rounds to 0 and omitempty drops the field.
+	time.Sleep(10 * time.Millisecond)
 	tf.CalculateTimeIdle()
 
 	// Simulate staged at queue head

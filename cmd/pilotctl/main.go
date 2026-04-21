@@ -2841,9 +2841,12 @@ func cmdTaskExecute(args []string) {
 
 	// FIFO by submission time: task IDs are random UUIDs, so directory
 	// iteration (alphabetical by filename) does not match arrival order.
-	// Sort by created_at (RFC3339 UTC) so the oldest ACCEPTED task runs first.
+	// Parse-based compare handles the mix of RFC3339 (old files) and
+	// RFC3339Nano (new files) that can co-exist after an upgrade.
 	sort.Slice(accepted, func(i, j int) bool {
-		return accepted[i].CreatedAt < accepted[j].CreatedAt
+		ti, _ := tasksubmit.ParseTime(accepted[i].CreatedAt)
+		tj, _ := tasksubmit.ParseTime(accepted[j].CreatedAt)
+		return ti.Before(tj)
 	})
 	taskToExecute := accepted[0]
 
@@ -3093,6 +3096,7 @@ func cmdTaskList(args []string) {
 		if err != nil {
 			return
 		}
+		var dirTasks []*tasksubmit.TaskFile
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 				continue
@@ -3105,6 +3109,14 @@ func cmdTaskList(args []string) {
 			if err != nil {
 				continue
 			}
+			dirTasks = append(dirTasks, tf)
+		}
+		sort.Slice(dirTasks, func(i, j int) bool {
+			ti, _ := tasksubmit.ParseTime(dirTasks[i].CreatedAt)
+			tj, _ := tasksubmit.ParseTime(dirTasks[j].CreatedAt)
+			return ti.Before(tj)
+		})
+		for _, tf := range dirTasks {
 			tasks = append(tasks, map[string]interface{}{
 				"task_id":              tf.TaskID,
 				"description":          tf.TaskDescription,
@@ -3165,7 +3177,7 @@ func cmdTaskQueue(args []string) {
 		fatalCode("internal_error", "failed to read tasks directory: %v", err)
 	}
 
-	var queuedTasks []map[string]interface{}
+	var acceptedTasks []*tasksubmit.TaskFile
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -3179,13 +3191,22 @@ func cmdTaskQueue(args []string) {
 			continue
 		}
 		if tf.Status == tasksubmit.TaskStatusAccepted {
-			queuedTasks = append(queuedTasks, map[string]interface{}{
-				"task_id":     tf.TaskID,
-				"description": tf.TaskDescription,
-				"from":        tf.From,
-				"created_at":  tf.CreatedAt,
-			})
+			acceptedTasks = append(acceptedTasks, tf)
 		}
+	}
+	sort.Slice(acceptedTasks, func(i, j int) bool {
+		ti, _ := tasksubmit.ParseTime(acceptedTasks[i].CreatedAt)
+		tj, _ := tasksubmit.ParseTime(acceptedTasks[j].CreatedAt)
+		return ti.Before(tj)
+	})
+	var queuedTasks []map[string]interface{}
+	for _, tf := range acceptedTasks {
+		queuedTasks = append(queuedTasks, map[string]interface{}{
+			"task_id":     tf.TaskID,
+			"description": tf.TaskDescription,
+			"from":        tf.From,
+			"created_at":  tf.CreatedAt,
+		})
 	}
 
 	if len(queuedTasks) == 0 {
