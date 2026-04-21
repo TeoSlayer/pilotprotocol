@@ -19,7 +19,9 @@ echo "=========================================="
 echo "Tasks & edge-case integration tests"
 echo "=========================================="
 
-# Ensure stack up
+# Ensure stack up (clean state — tests assert on task id lists so leftover
+# tasks from a prior run would pollute the assertions)
+$DC down -v >/dev/null 2>&1
 $DC up -d rendezvous agent-a agent-b >/dev/null 2>&1
 for i in $(seq 1 60); do
     COUNT=$($DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats 2>/dev/null | jq -r '.total_nodes // 0')
