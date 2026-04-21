@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
@@ -84,6 +85,12 @@ func (p pilotAddr) String() string {
 func (a *connAdapter) SetDeadline(t time.Time) error      { return nil }
 func (a *connAdapter) SetReadDeadline(t time.Time) error  { return nil }
 func (a *connAdapter) SetWriteDeadline(t time.Time) error { return nil }
+
+// inboxSeq produces a monotonically increasing suffix for inbox/received
+// filenames. ms-precision timestamps collide under burst load (multiple
+// messages arriving in the same millisecond), causing os.WriteFile to
+// overwrite and silently drop earlier messages.
+var inboxSeq uint64
 
 // startBuiltinServices starts all enabled built-in port services.
 func (d *Daemon) startBuiltinServices() {
@@ -218,12 +225,14 @@ func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	// Sanitize filename and add timestamp (with ms precision) to avoid overwrites
+	// Sanitize filename; add ms timestamp + monotonic seq so bursts in the
+	// same millisecond don't collide and overwrite each other.
 	safeName := filepath.Base(frame.Filename)
 	ts := time.Now().Format("20060102-150405.000")
+	seq := atomic.AddUint64(&inboxSeq, 1)
 	ext := filepath.Ext(safeName)
 	base := safeName[:len(safeName)-len(ext)]
-	destName := fmt.Sprintf("%s-%s%s", base, ts, ext)
+	destName := fmt.Sprintf("%s-%s-%06d%s", base, ts, seq, ext)
 	destPath := filepath.Join(dir, destName)
 
 	if err := os.WriteFile(destPath, frame.Payload, 0600); err != nil {
@@ -262,7 +271,8 @@ func (d *Daemon) saveInboxMessage(frame *dataexchange.Frame, from protocol.Addr)
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	filename := fmt.Sprintf("%s-%s.json", dataexchange.TypeName(frame.Type), ts.Format("20060102-150405.000"))
+	seq := atomic.AddUint64(&inboxSeq, 1)
+	filename := fmt.Sprintf("%s-%s-%06d.json", dataexchange.TypeName(frame.Type), ts.Format("20060102-150405.000"), seq)
 	destPath := filepath.Join(dir, filename)
 
 	if err := os.WriteFile(destPath, data, 0600); err != nil {
