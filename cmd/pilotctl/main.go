@@ -398,6 +398,7 @@ Task commands:
   pilotctl task decline --id <task_id> --justification <reason>
   pilotctl task execute
   pilotctl task send-results --id <task_id> --results <text> | --file <filepath>
+  pilotctl task result <task_id> [--out <filepath>]
   pilotctl task list [--type received|submitted]
   pilotctl task queue
 
@@ -577,7 +578,7 @@ func main() {
 	case "task":
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: pilotctl task submit | accept | decline | execute | send-results | list | queue",
+				"available: pilotctl task submit | accept | decline | execute | send-results | result | list | queue",
 				"missing subcommand")
 		}
 		switch cmdArgs[0] {
@@ -591,13 +592,15 @@ func main() {
 			cmdTaskExecute(cmdArgs[1:])
 		case "send-results":
 			cmdTaskSendResults(cmdArgs[1:])
+		case "result":
+			cmdTaskResult(cmdArgs[1:])
 		case "list":
 			cmdTaskList(cmdArgs[1:])
 		case "queue":
 			cmdTaskQueue(cmdArgs[1:])
 		default:
 			fatalHint("invalid_argument",
-				"available: submit, accept, decline, execute, send-results, list, queue",
+				"available: submit, accept, decline, execute, send-results, result, list, queue",
 				"unknown task subcommand: %s", cmdArgs[0])
 		}
 	case "subscribe":
@@ -2981,6 +2984,89 @@ func cmdTaskSendResults(args []string) {
 	}
 
 	outputOK(output)
+}
+
+func cmdTaskResult(args []string) {
+	flags, positional := parseFlags(args)
+
+	taskID := flagString(flags, "id", "")
+	if taskID == "" && len(positional) > 0 {
+		taskID = positional[0]
+	}
+	if taskID == "" {
+		fatalCode("invalid_argument", "usage: pilotctl task result <task_id> [--out <filepath>]")
+	}
+
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		fatalCode("internal_error", "failed to get tasks directory: %v", err)
+	}
+	resultsDir := filepath.Join(tasksDir, "results")
+
+	textPath := filepath.Join(resultsDir, taskID+"_result.txt")
+	if data, err := os.ReadFile(textPath); err == nil {
+		out := map[string]interface{}{
+			"task_id": taskID,
+			"type":    "text",
+			"content": string(data),
+			"path":    textPath,
+		}
+		outputOK(out)
+		return
+	}
+
+	entries, err := os.ReadDir(resultsDir)
+	if err != nil {
+		fatalHint("not_found",
+			"check pilotctl task list --type submitted",
+			"no results for task %s", taskID)
+	}
+	prefix := taskID + "_"
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || name == taskID+"_result.txt" {
+			continue
+		}
+		srcPath := filepath.Join(resultsDir, name)
+		origName := strings.TrimPrefix(name, prefix)
+
+		if outPath := flagString(flags, "out", ""); outPath != "" {
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				fatalCode("internal_error", "read result file: %v", err)
+			}
+			if err := os.WriteFile(outPath, data, 0o600); err != nil {
+				fatalCode("internal_error", "write result file: %v", err)
+			}
+			outputOK(map[string]interface{}{
+				"task_id":  taskID,
+				"type":     "file",
+				"filename": origName,
+				"written":  outPath,
+				"size":     len(data),
+			})
+			return
+		}
+
+		info, _ := e.Info()
+		var size int64
+		if info != nil {
+			size = info.Size()
+		}
+		outputOK(map[string]interface{}{
+			"task_id":  taskID,
+			"type":     "file",
+			"filename": origName,
+			"path":     srcPath,
+			"size":     size,
+			"hint":     "add --out <path> to copy the file locally",
+		})
+		return
+	}
+
+	fatalHint("not_found",
+		"check pilotctl task list --type submitted",
+		"no results for task %s", taskID)
 }
 
 func cmdTaskList(args []string) {
