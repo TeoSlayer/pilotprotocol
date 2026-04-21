@@ -70,6 +70,7 @@ type HandshakeManager struct {
 	trusted   map[uint32]*TrustRecord      // approved peers
 	pending   map[uint32]*PendingHandshake // incoming unapproved requests
 	outgoing  map[uint32]bool              // nodes we've sent requests to
+	revoked   map[uint32]time.Time         // peer → cooldown-until (blocks stale relayed approvals)
 	storePath string                       // path to persist trust state (empty = no persistence)
 	wg        sync.WaitGroup               // tracks background RPCs for clean shutdown
 	reapStop  chan struct{}                // signals replay reaper to stop
@@ -89,6 +90,7 @@ func NewHandshakeManager(d *Daemon) *HandshakeManager {
 		trusted:   make(map[uint32]*TrustRecord),
 		pending:   make(map[uint32]*PendingHandshake),
 		outgoing:  make(map[uint32]bool),
+		revoked:   make(map[uint32]time.Time),
 		replaySet: make(map[[32]byte]time.Time),
 	}
 
@@ -483,6 +485,16 @@ func (hm *HandshakeManager) handleAccept(msg *HandshakeMsg) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 
+	// Recently revoked? Drop the stale acceptance.
+	if until, ok := hm.revoked[peerNodeID]; ok {
+		if time.Now().Before(until) {
+			slog.Info("ignoring handshake acceptance from recently-revoked peer", "peer_node_id", peerNodeID)
+			delete(hm.outgoing, peerNodeID)
+			return
+		}
+		delete(hm.revoked, peerNodeID)
+	}
+
 	delete(hm.outgoing, peerNodeID)
 	hm.trusted[peerNodeID] = &TrustRecord{
 		NodeID:     peerNodeID,
@@ -659,6 +671,16 @@ func (hm *HandshakeManager) processRelayedApproval(fromNodeID uint32) {
 		return
 	}
 
+	// Recently revoked? Drop the stale relay rather than re-establishing trust.
+	if until, ok := hm.revoked[fromNodeID]; ok {
+		if time.Now().Before(until) {
+			slog.Info("ignoring relayed approval for recently-revoked peer", "peer_node_id", fromNodeID)
+			delete(hm.outgoing, fromNodeID)
+			return
+		}
+		delete(hm.revoked, fromNodeID)
+	}
+
 	delete(hm.outgoing, fromNodeID)
 	hm.trusted[fromNodeID] = &TrustRecord{
 		NodeID:     fromNodeID,
@@ -795,6 +817,10 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 	delete(hm.trusted, peerNodeID)
 	delete(hm.pending, peerNodeID)
 	delete(hm.outgoing, peerNodeID)
+	// Block stale relayed approvals still sitting in the registry inbox from
+	// re-establishing trust right after a local revoke. 5-minute cooldown covers
+	// the normal poll cycle many times over.
+	hm.revoked[peerNodeID] = time.Now().Add(5 * time.Minute)
 	if wasTrusted || wasPending {
 		hm.saveTrust()
 	}
@@ -809,29 +835,28 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 		"peer_node_id": peerNodeID,
 	})
 
-	// Tear down the tunnel to the revoked peer immediately
+	// Notify the peer BEFORE tearing down the tunnel — once we RemovePeer,
+	// the tunnel crypto is gone and the notify can't reach them.
+	pubKeyStr := ""
+	if hm.daemon.identity != nil {
+		pubKeyStr = crypto.EncodePublicKey(hm.daemon.identity.PublicKey)
+	}
+	msg := HandshakeMsg{
+		Type:      HandshakeRevoke,
+		NodeID:    hm.daemon.NodeID(),
+		PublicKey: pubKeyStr,
+		Reason:    "trust revoked",
+		Timestamp: time.Now().Unix(),
+	}
+	hm.sendMessage(peerNodeID, &msg) // best-effort, ignore error
+
+	// Tear down the tunnel to the revoked peer
 	hm.daemon.tunnels.RemovePeer(peerNodeID)
 
 	// Revoke the trust pair at the registry so resolve is blocked again
 	if hm.daemon.regConn != nil {
 		hm.goRPC(func() { hm.daemon.regConn.RevokeTrust(hm.daemon.NodeID(), peerNodeID) })
 	}
-
-	// Best-effort: notify the peer so they can remove us from their trusted set
-	hm.goRPC(func() {
-		pubKeyStr := ""
-		if hm.daemon.identity != nil {
-			pubKeyStr = crypto.EncodePublicKey(hm.daemon.identity.PublicKey)
-		}
-		msg := HandshakeMsg{
-			Type:      HandshakeRevoke,
-			NodeID:    hm.daemon.NodeID(),
-			PublicKey: pubKeyStr,
-			Reason:    "trust revoked",
-			Timestamp: time.Now().Unix(),
-		}
-		hm.sendMessage(peerNodeID, &msg)
-	})
 
 	return nil
 }
