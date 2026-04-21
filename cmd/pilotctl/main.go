@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -2816,7 +2817,7 @@ func cmdTaskExecute(args []string) {
 		fatalCode("internal_error", "failed to read tasks directory: %v", err)
 	}
 
-	var taskToExecute *tasksubmit.TaskFile
+	var accepted []*tasksubmit.TaskFile
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -2830,14 +2831,21 @@ func cmdTaskExecute(args []string) {
 			continue
 		}
 		if tf.Status == tasksubmit.TaskStatusAccepted {
-			taskToExecute = tf
-			break
+			accepted = append(accepted, tf)
 		}
 	}
 
-	if taskToExecute == nil {
+	if len(accepted) == 0 {
 		fatalCode("not_found", "no accepted tasks to execute")
 	}
+
+	// FIFO by submission time: task IDs are random UUIDs, so directory
+	// iteration (alphabetical by filename) does not match arrival order.
+	// Sort by created_at (RFC3339 UTC) so the oldest ACCEPTED task runs first.
+	sort.Slice(accepted, func(i, j int) bool {
+		return accepted[i].CreatedAt < accepted[j].CreatedAt
+	})
+	taskToExecute := accepted[0]
 
 	// Get staged time from queue before removing
 	stagedAt := daemon.GetQueueStagedAt(taskToExecute.TaskID)
