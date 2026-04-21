@@ -3,41 +3,21 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
 
 // ValidateWebhookURL checks that a webhook URL uses http(s) and does not
-// target cloud metadata or link-local endpoints (SSRF prevention).
+// target cloud metadata or link-local endpoints (SSRF prevention). Delegates
+// to pkg/urlvalidate so pkg/registry can share the same rules without
+// importing pkg/daemon.
 func ValidateWebhookURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid webhook URL: %w", err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("webhook URL must use http or https scheme, got %q", parsed.Scheme)
-	}
-	host := parsed.Hostname()
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("webhook URL cannot target link-local address %s", host)
-		}
-	}
-	// Block well-known cloud metadata hostnames. DNS is case-insensitive, so
-	// "Metadata.Google.Internal" resolves identically to "metadata.google.internal"
-	// — compare against the lowercased host so casing can't bypass the check.
-	switch strings.ToLower(host) {
-	case "metadata.google.internal", "metadata.google.com":
-		return fmt.Errorf("webhook URL cannot target cloud metadata endpoint %s", host)
-	}
-	return nil
+	return urlvalidate.Validate(rawURL)
 }
 
 // WebhookEvent is the JSON payload POSTed to the webhook endpoint.
