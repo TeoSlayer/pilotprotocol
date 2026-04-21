@@ -4443,6 +4443,21 @@ func cmdInbox(args []string) {
 		fatalCode("internal", "read directory: %v", err)
 	}
 
+	// Inbox filenames are {type}-{ts-ms}-{seq}.json. Plain alpha order
+	// groups by type (binary<json<text), which inverts chronological order
+	// whenever message types are mixed. Sort by the timestamp+seq portion
+	// so the display order matches the receive order.
+	sort.Slice(entries, func(i, j int) bool {
+		ni := entries[i].Name()
+		nj := entries[j].Name()
+		di := strings.Index(ni, "-")
+		dj := strings.Index(nj, "-")
+		if di < 0 || dj < 0 {
+			return ni < nj
+		}
+		return ni[di:] < nj[dj:]
+	})
+
 	var messages []map[string]interface{}
 	for _, e := range entries {
 		if e.IsDir() {

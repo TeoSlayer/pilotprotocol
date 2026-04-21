@@ -263,7 +263,7 @@ func (d *Daemon) saveInboxMessage(frame *dataexchange.Frame, from protocol.Addr)
 		"from":        from.String(),
 		"data":        string(frame.Payload),
 		"bytes":       len(frame.Payload),
-		"received_at": ts.Format(time.RFC3339),
+		"received_at": ts.Format(time.RFC3339Nano),
 	}
 
 	data, err := json.Marshal(msg)
