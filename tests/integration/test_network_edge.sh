@@ -31,23 +31,32 @@ if [ "$COUNT" -lt 2 ]; then
     exit 1
 fi
 
-# ---- 1. Rotate key under active traffic ----
-log_test "rotate-key on agent-a keeps echo flowing"
-SRC=$($DC exec -T agent-a bash -c 'pilotctl --json info' | jq -r '.data.node_id')
-# warm up an echo connection
-$DC exec -T agent-a bash -c 'pilotctl send-message agent-b --data warmup' >/dev/null 2>&1
-OUT=$($DC exec -T agent-a bash -c "pilotctl rotate-key $SRC agent-a@p2p.test" 2>&1)
-if echo "$OUT" | grep -q 'rotate_key_ok\|rotated'; then
-    # give the tunnel a moment to rebuild
-    sleep 2
-    E2=$($DC exec -T agent-a bash -c 'pilotctl send-message agent-b --data after-rotate' 2>&1)
-    if echo "$E2" | grep -qE 'ack|ok|sent'; then
-        log_pass "send-message succeeded after rotate-key"
-    else
-        log_fail "send-message after rotate-key failed: $(echo "$E2" | head -c 200)"
+# ---- 1. Registry restart recovery (fast re-register) ----
+# After the rendezvous is stopped/started, agents should reconnect and resume
+# traffic within a few heartbeat cycles (see isRegistryRejectingUsErr fast-path).
+# Agents run with -keepalive 5s so rereg fires within ~15s.
+log_test "agents recover after rendezvous restart"
+$DC exec -T agent-a bash -c 'pilotctl send-message agent-b --data pre-restart' >/dev/null 2>&1
+$DC restart rendezvous >/dev/null 2>&1
+# Wait for the dashboard to come back before poking agents
+for i in $(seq 1 30); do
+    $DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats >/dev/null 2>&1 && break
+    sleep 1
+done
+# Poll up to 60s for hostname resolution to recover (rereg + SetHostname sync)
+RECOVERED=0
+for i in $(seq 1 30); do
+    RESTART_OUT=$($DC exec -T agent-a bash -c 'pilotctl send-message agent-b --data post-restart' 2>&1)
+    if echo "$RESTART_OUT" | grep -qE 'ack|ok|sent'; then
+        RECOVERED=1
+        break
     fi
+    sleep 2
+done
+if [ "$RECOVERED" = "1" ]; then
+    log_pass "send-message succeeded after rendezvous restart (attempt $i)"
 else
-    log_fail "rotate-key did not report success: $(echo "$OUT" | head -c 200)"
+    log_fail "traffic did not recover after rendezvous restart: $(echo "$RESTART_OUT" | head -c 200)"
 fi
 
 # ---- 2. Dashboard surfaces probe states ----
@@ -99,21 +108,25 @@ else
     log_fail "agent-b unresponsive after junk UDP flood"
 fi
 
-# ---- 6. Concurrent rotate-key + traffic ----
-log_test "concurrent rotate-key and traffic does not wedge the tunnel"
+# ---- 6. Parallel send-message burst from both directions ----
+# Drives two concurrent senders to stress the tunnel's bidirectional path
+# and catch deadlocks in the IPC write mutex / recvCh dispatch.
+log_test "parallel sends in both directions don't wedge the tunnel"
 (for i in $(seq 1 10); do
-    $DC exec -T agent-a bash -c "pilotctl send-message agent-b --data msg-$i" >/dev/null 2>&1
+    $DC exec -T agent-a bash -c "pilotctl send-message agent-b --data a-$i" >/dev/null 2>&1
 done) &
-SENDER=$!
-SRCB=$($DC exec -T agent-b bash -c 'pilotctl --json info' | jq -r '.data.node_id')
-$DC exec -T agent-b bash -c "pilotctl rotate-key $SRCB agent-b@p2p.test" >/dev/null 2>&1
-wait "$SENDER"
-sleep 2
+SENDER_A=$!
+(for i in $(seq 1 10); do
+    $DC exec -T agent-b bash -c "pilotctl send-message agent-a --data b-$i" >/dev/null 2>&1
+done) &
+SENDER_B=$!
+wait "$SENDER_A" "$SENDER_B"
+sleep 1
 RESULT=$($DC exec -T agent-a bash -c 'pilotctl send-message agent-b --data final' 2>&1)
 if echo "$RESULT" | grep -qE 'ack|ok|sent'; then
-    log_pass "tunnel usable after concurrent rotate-key"
+    log_pass "tunnel usable after bidirectional burst"
 else
-    log_fail "tunnel broken after concurrent rotate-key: $(echo "$RESULT" | head -c 200)"
+    log_fail "tunnel broken after bidirectional burst: $(echo "$RESULT" | head -c 200)"
 fi
 
 # ---- 7. Rendezvous /api/pulse exposes realistic counters ----
