@@ -3098,13 +3098,14 @@ func cmdTaskList(args []string) {
 				continue
 			}
 			tasks = append(tasks, map[string]interface{}{
-				"task_id":     tf.TaskID,
-				"description": tf.TaskDescription,
-				"status":      tf.Status,
-				"from":        tf.From,
-				"to":          tf.To,
-				"created_at":  tf.CreatedAt,
-				"category":    category,
+				"task_id":              tf.TaskID,
+				"description":          tf.TaskDescription,
+				"status":               tf.Status,
+				"status_justification": tf.StatusJustification,
+				"from":                 tf.From,
+				"to":                   tf.To,
+				"created_at":           tf.CreatedAt,
+				"category":             category,
 			})
 		}
 	}
