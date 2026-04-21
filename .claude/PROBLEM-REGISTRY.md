@@ -485,6 +485,61 @@ Return error instead of nil when dropping. Or log at Warn level.
 
 ---
 
+## P1-010: Task Pipeline Stalls Under Packet Loss (Post-Chaos Lingering)
+
+**Status:** Open
+**Files:** Likely in `pkg/daemon/tasksubmit`-wire path + connection-state
+cache in `pkg/daemon/tunnel.go` or `pkg/daemon/ports.go`.
+
+### Problem
+
+Reproduced by `tests/integration/test_chaos_packet_loss.sh`. With 30%
+packet loss on agent-b's eth0 (via `tc qdisc add dev eth0 root netem
+loss 30%`):
+
+1. **Under chaos:** send-file still round-trips cleanly (4 KiB sample
+   matched by sha256). Task submit, however, does not complete within
+   60s — the submitted task never appears in agent-a's submitted list
+   even though pilotctl returned `accepted=true` with a task_id.
+2. **After chaos removed:** a *fresh* task submit (no netem) also
+   fails to complete. The connection state between a and b seems to
+   remain in a stuck half-state until a `compose down -v` clears it.
+
+send-file's retransmit/ACK loop apparently handles 30% loss fine. The
+task-submit pathway seems to have a weaker retry story, AND whatever
+it leaves behind after a failed attempt poisons subsequent clean
+submits.
+
+### Symptoms
+
+- `test_chaos_packet_loss.sh` passes tests 1-3, 5, 7, 9; fails 4 and 6
+  (task under chaos, task after chaos).
+- No panics/fatals in logs — state just doesn't progress.
+- 30% loss is well inside the range TCP-over-UDP retransmit should
+  handle; this suggests the retry is not wired in for the tasksubmit
+  frame type, or the retry is gated on connection state that was left
+  in a bad place.
+
+### Investigation Hooks
+
+- Run the chaos test, then inspect `$DC logs agent-a agent-b` at the
+  point the task stalls. Key questions:
+  - Does agent-a ever send the tasksubmit frame at all?
+  - Does agent-b receive it but not ACK?
+  - Does a tunnel rekey happen mid-sequence and drop state?
+- Compare to the dataexchange path in `pkg/dataexchange/dataexchange.go`
+  to see what retry/ACK behavior tasksubmit lacks.
+
+### Fix Strategy
+
+Pending root cause. Likely overlaps with P1-009 (both are
+task-pipeline-loses-frame class). A general fix might be to add a
+short-window ack-or-retry wrapper around tasksubmit frames, and make
+task client drop its cached connection on any wire error so the next
+submit redials fresh.
+
+---
+
 ## P1-009: Task-Result Lost Across Peer Restart (Rekey Window Race)
 
 **Status:** Open
