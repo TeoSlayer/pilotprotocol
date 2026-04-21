@@ -77,11 +77,14 @@ func ReadFrame(r io.Reader) (*Frame, error) {
 				return nil, fmt.Errorf("filename too long: %d bytes (max %d)", nameLen, maxFilenameLen)
 			}
 			name := string(payload[2 : 2+nameLen])
-			if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
+			if strings.ContainsAny(name, "/\\") {
 				return nil, fmt.Errorf("invalid filename: path traversal characters not allowed")
 			}
 			if name != "" {
 				f.Filename = filepath.Base(name)
+				if f.Filename == "." || f.Filename == ".." {
+					return nil, fmt.Errorf("invalid filename: path traversal name %q not allowed", f.Filename)
+				}
 			}
 			f.Payload = payload[2+nameLen:]
 		}

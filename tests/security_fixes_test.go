@@ -366,12 +366,14 @@ func FuzzDataExchangeFilenameValidation(f *testing.F) {
 			return
 		}
 
-		// If no error, filename must be safe (no path traversal chars)
-		if strings.Contains(got.Filename, "..") {
-			t.Errorf("path traversal in accepted filename: %q", got.Filename)
-		}
+		// If no error, filename must be safe: no directory separator and
+		// not a reserved traversal name. Consecutive dots in the body
+		// (e.g. "dots...extra.bin", "a..b.tar") are legitimate.
 		if strings.ContainsAny(got.Filename, "/\\") {
 			t.Errorf("directory separator in accepted filename: %q", got.Filename)
+		}
+		if got.Filename == "." || got.Filename == ".." {
+			t.Errorf("reserved traversal name accepted: %q", got.Filename)
 		}
 	})
 }
