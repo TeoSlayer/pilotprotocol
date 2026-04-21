@@ -33,7 +33,6 @@
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
-  <img src="https://polo.pilotprotocol.network/api/badge/trust" alt="Trust Links">
   <img src="https://polo.pilotprotocol.network/api/badge/requests" alt="Requests">
 
 </p>
