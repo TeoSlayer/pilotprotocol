@@ -16,9 +16,10 @@ log_test() { echo -e "[$(ts)] ${YELLOW}[TEST]${NC} $*"; }
 log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
-REGISTRY="172.29.0.10:9000"
-BEACON="172.29.0.10:9001"
-DASHBOARD="http://172.29.0.10:8080"
+PFX="${PILOT_SUBNET_PREFIX:-172.29.0}"
+REGISTRY="${PFX}.10:9000"
+BEACON="${PFX}.10:9001"
+DASHBOARD="http://${PFX}.10:8080"
 
 # pilotctl reads PILOT_REGISTRY for direct-to-registry commands (lookup,
 # register, rotate-key). Otherwise it defaults to the global registry.

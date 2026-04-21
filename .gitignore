@@ -81,6 +81,12 @@ AGENTS.md
 
 # Temporary
 tmp/
+.tmp
+.tmp/
+*.tmp
+
+# Local dev snapshots / logs
+pilot-local.*
 
 # Node / Astro (root-level Vite cache + web subdir)
 .astro/
@@ -152,3 +158,5 @@ TRUST_DECAY_PLAN.md
 # Root-level npm (tooling only)
 /package.json
 /package-lock.json
+tests/integration/logs/
+tests/integration/logs-run.out
