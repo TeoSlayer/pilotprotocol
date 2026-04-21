@@ -2460,6 +2460,16 @@ func (s *Server) handleSetIDPConfig(msg map[string]interface{}) (map[string]inte
 		}, nil
 	}
 
+	// SSRF prevention: the URL is used both as the identity-verification
+	// webhook target (identity.go verifyIdentityToken) and as the JWKS fetch
+	// endpoint (identity.go fetchJWKSKeys). Both must be blocked from cloud
+	// metadata / link-local targets. handleSetIdentityWebhook validates its
+	// own input; this handler previously did not — a gap that let admins
+	// pivot SSRF through the IDP config path.
+	if err := urlvalidate.Validate(url); err != nil {
+		return nil, fmt.Errorf("set_idp_config: %w", err)
+	}
+
 	cfg := &BlueprintIdentityProvider{
 		Type: idpType,
 		URL:  url,
