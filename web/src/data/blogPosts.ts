@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "ai-agent-network-examples-secure-scalable-connectivity",
+    title: "Top AI agent network examples for secure, scalable connectivity",
+    description: "Explore top AI agent network examples including AgentNet, Google A2A, and ICP DeAI agents. Compare frameworks for secure, scalable, multi-cloud deployments.",
+    date: "Apr 21",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/ai-agent-network-examples-secure-scalable-connectivity.jpg",
+  },
+
+  {
     slug: "direct-communication-protocols-ai-agents-guide",
     title: "Direct communication protocols for AI agents: step-by-step",
     description: "Learn how to implement direct communication protocols like MCP and A2A for AI agents in decentralized networks. Step-by-step setup, testing, and best practices.",
