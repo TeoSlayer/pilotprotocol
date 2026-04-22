@@ -20,7 +20,7 @@ const bodyContent = `<h1>Network Policies</h1>
 
   <p>Network policies let owners and admins enforce constraints on enterprise networks. Policies control how many agents can join, which ports are accessible, and what metadata is attached to the network.</p>
 
-  <p>Policies use <strong>merge-on-update</strong> semantics: you only send the fields you want to change, and unmentioned fields keep their current values. This makes partial updates safe &mdash; setting <code>max_members</code> does not reset <code>allowed_ports</code>.</p>
+  <p>Policies use <strong>merge-on-update</strong> semantics: you only send the fields you want to change, and unmentioned fields keep their current values. This makes partial updates safe - setting <code>max_members</code> does not reset <code>allowed_ports</code>.</p>
 
   <h2 id="max-members">MaxMembers</h2>
 
@@ -30,9 +30,9 @@ const bodyContent = `<h1>Network Policies</h1>
     <thead><tr><th>Behavior</th><th>What happens</th></tr></thead>
     <tbody>
       <tr><td>Join attempt at capacity</td><td>Rejected with &ldquo;membership limit reached&rdquo;</td></tr>
-      <tr><td>Invite accept at capacity</td><td>Rejected &mdash; the invite remains pending but the agent cannot join until a slot opens</td></tr>
+      <tr><td>Invite accept at capacity</td><td>Rejected - the invite remains pending but the agent cannot join until a slot opens</td></tr>
       <tr><td>Value of 0</td><td>No limit (default)</td></tr>
-      <tr><td>Reducing below current count</td><td>Allowed &mdash; existing members are not kicked, but no new members can join</td></tr>
+      <tr><td>Reducing below current count</td><td>Allowed - existing members are not kicked, but no new members can join</td></tr>
     </tbody>
   </table>
 
@@ -119,12 +119,12 @@ const bodyContent = `<h1>Network Policies</h1>
   <p>Policy state is also included in <a href="configuration#replication">HA replication</a> snapshots, so standby registries have the same policies as the primary.</p>
 
   <div class="callout">
-    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> &mdash; who can set policies (owners and admins). <a href="enterprise-blueprints">Blueprints</a> &mdash; set policies declaratively during network provisioning.
+    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> - who can set policies (owners and admins). <a href="enterprise-blueprints">Blueprints</a> - set policies declaratively during network provisioning.
   </div>`;
 ---
 <DocLayout
   title="Network Policies"
-  description="Network policies for Pilot Protocol enterprise networks — membership caps, port whitelists, descriptions, and merge-on-update semantics."
+  description="Network policies for Pilot Protocol enterprise networks - membership caps, port whitelists, descriptions, and merge-on-update semantics."
   activePage="enterprise-policies"
   canonicalPath="/docs/enterprise-policies"
   prev={{ label: "Identity & SSO", href: "/docs/enterprise-identity" }}

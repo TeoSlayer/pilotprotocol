@@ -1,11 +1,10 @@
 ---
 import BaseHead from '../components/BaseHead.astro';
-import IslandNavbar from '../components/IslandNavbar.astro';
-import BlogShader from '../components/BlogShader.astro';
-import BlogFooter from '../components/BlogFooter.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
 import { blogPosts } from '../data/blogPosts';
 import '../styles/global.css';
-import '../styles/blog.css';
+import '../styles/system.css';
 
 interface Props {
   title: string;
@@ -21,18 +20,15 @@ const cleanPath = canonicalPath ? canonicalPath.replace(/\.html$/, '') : undefin
 const canonicalUrl = cleanPath ? `https://pilotprotocol.network${cleanPath}` : undefined;
 const ogImage = bannerImage
   ? `https://pilotprotocol.network${bannerImage}`
-  : 'https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png';
+  : 'https://pilotprotocol.network/img/pilot.png';
 
-// Derive current slug from URL
 const pathParts = Astro.url.pathname.replace(/\/$/, '').split('/');
 const currentSlug = pathParts[pathParts.length - 1].replace('.html', '');
 const currentIndex = blogPosts.findIndex(p => p.slug === currentSlug);
 
-// Prev/Next navigation
 const prevPost = currentIndex > 0 ? blogPosts[currentIndex - 1] : null;
 const nextPost = currentIndex < blogPosts.length - 1 ? blogPosts[currentIndex + 1] : null;
 
-// Related posts: find posts sharing tags, exclude current, take up to 3
 const currentTags = new Set(tags.map(t => t.toLowerCase()));
 const related = blogPosts
   .filter(p => p.slug !== currentSlug)
@@ -55,7 +51,7 @@ const related = blogPosts
     "description": description,
     "image": ogImage,
     "author": {"@type": "Organization", "name": "Vulture Labs"},
-    "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png"}},
+    "publisher": {"@type": "Organization", "name": "Vulture Labs", "logo": {"@type": "ImageObject", "url": "https://pilotprotocol.network/img/pilot.png"}},
     "datePublished": date,
     "dateModified": date,
     "mainEntityOfPage": canonicalUrl
@@ -72,8 +68,7 @@ const related = blogPosts
 </head>
 <body>
   <div class="progress-bar" id="progress-bar"></div>
-  <BlogShader />
-  <IslandNavbar active="blog" />
+  <Nav active="blog" />
   <div class="article-layout">
     <article class="article">
       <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/blog/">Blog</a> <span class="sep">/</span> <span>{title}</span></nav>
@@ -132,7 +127,7 @@ const related = blogPosts
     </nav>
   )}
 
-  <BlogFooter />
+  <Footer />
 
   <button class="scroll-top" id="scroll-top" aria-label="Scroll to top">
     <svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
@@ -183,7 +178,6 @@ const related = blogPosts
     li.appendChild(a);
     list.appendChild(li);
   });
-  // Highlight current section
   var tocLinks = list.querySelectorAll('a');
   var observer = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
@@ -211,7 +205,6 @@ const related = blogPosts
         setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
       });
     });
-    pre.style.position = 'relative';
     pre.appendChild(btn);
   });
 })();

@@ -25,11 +25,11 @@ const bodyContent = `<h1>Pub/Sub</h1>
 
   <p>Every daemon runs an event stream broker on <strong>port 1002</strong>. Agents can subscribe to topics on any trusted peer and receive events in real time. Publishers send events to a topic, and the broker distributes them to all active subscribers.</p>
 
-  <p>Pub/sub is designed for fan-out scenarios where multiple consumers need the same data stream — monitoring, coordination, event-driven workflows. For one-to-one messaging, use <a href="messaging#connect">stream connections</a> or <a href="messaging#send-message">data exchange</a> instead.</p>
+  <p>Pub/sub is designed for fan-out scenarios where multiple consumers need the same data stream - monitoring, coordination, event-driven workflows. For one-to-one messaging, use <a href="messaging#connect">stream connections</a> or <a href="messaging#send-message">data exchange</a> instead.</p>
 
   <h2 id="architecture">Architecture</h2>
 
-  <p>Each daemon runs its own <strong>independent broker</strong> — there is no central message server. The broker lives inside the daemon process and manages subscriptions for that node only.</p>
+  <p>Each daemon runs its own <strong>independent broker</strong> - there is no central message server. The broker lives inside the daemon process and manages subscriptions for that node only.</p>
 
   <p>When you subscribe to topics on another agent, your daemon opens a connection to their event stream port (1002). The remote broker registers your subscription and pushes matching events over that connection. When you publish to another agent, your daemon sends the event to their broker, which fans it out to all active subscribers.</p>
 
@@ -37,8 +37,8 @@ const bodyContent = `<h1>Pub/Sub</h1>
   <ul>
     <li>Each node is both a potential publisher and broker</li>
     <li>Subscribers connect <strong>to the publisher</strong>, not to a shared server</li>
-    <li>No single point of failure — if one node goes down, other nodes' brokers continue operating independently</li>
-    <li>Subscriptions are per-connection — if the connection drops, the subscription is gone</li>
+    <li>No single point of failure - if one node goes down, other nodes' brokers continue operating independently</li>
+    <li>Subscriptions are per-connection - if the connection drops, the subscription is gone</li>
   </ul>
 
   <h2 id="subscribe">Subscribing</h2>
@@ -64,7 +64,7 @@ const bodyContent = `<h1>Pub/Sub</h1>
 
   <p>Use <code>*</code> as the topic to subscribe to all topics at once:</p>
   <pre><code><span class="cmd">pilotctl</span> subscribe other-agent "*" --count 10</code></pre>
-  <p><code>*</code> is a full wildcard — it matches every topic published on the target's event stream broker in a single subscription. It is not a prefix glob, so <code>events.*</code> is not valid syntax. There is no multi-level wildcard; <code>*</code> is the only wildcard form, and it always matches all topics.</p>
+  <p><code>*</code> is a full wildcard - it matches every topic published on the target's event stream broker in a single subscription. It is not a prefix glob, so <code>events.*</code> is not valid syntax. There is no multi-level wildcard; <code>*</code> is the only wildcard form, and it always matches all topics.</p>
 
   <h2 id="ndjson">NDJSON streaming</h2>
 
@@ -101,7 +101,7 @@ done</code></pre>
   <ul>
     <li><strong>Topic name:</strong> max 1024 bytes</li>
     <li><strong>Payload:</strong> max 16 MB per event</li>
-    <li><strong>Subscribers:</strong> no hard limit — bounded by available connections</li>
+    <li><strong>Subscribers:</strong> no hard limit - bounded by available connections</li>
   </ul>
 
   <h2 id="topics">Topic conventions</h2>
@@ -109,14 +109,14 @@ done</code></pre>
   <p>Topic names are arbitrary strings. There is no enforced hierarchy, but using dot-separated namespaces keeps things organized:</p>
 
   <ul>
-    <li><code>status</code> — agent status updates (online, processing, idle)</li>
-    <li><code>metrics.cpu</code> — CPU utilization metrics</li>
-    <li><code>metrics.memory</code> — memory usage metrics</li>
-    <li><code>task.completed</code> — task completion events</li>
-    <li><code>log.error</code> — error log stream</li>
+    <li><code>status</code> - agent status updates (online, processing, idle)</li>
+    <li><code>metrics.cpu</code> - CPU utilization metrics</li>
+    <li><code>metrics.memory</code> - memory usage metrics</li>
+    <li><code>task.completed</code> - task completion events</li>
+    <li><code>log.error</code> - error log stream</li>
   </ul>
 
-  <p>Keep topic names short and descriptive. Since <code>*</code> is the only wildcard and matches everything, prefix-based filtering (like <code>metrics.*</code>) is not supported — subscribe to the specific topic you need, or use <code>*</code> and filter client-side.</p>
+  <p>Keep topic names short and descriptive. Since <code>*</code> is the only wildcard and matches everything, prefix-based filtering (like <code>metrics.*</code>) is not supported - subscribe to the specific topic you need, or use <code>*</code> and filter client-side.</p>
 
   <h2 id="internals">How it works under the hood</h2>
 
@@ -128,7 +128,7 @@ done</code></pre>
     <li><strong>Wire format:</strong> each event is <code>[2-byte topic length][topic][4-byte payload length][payload]</code>.</li>
   </ol>
 
-  <p>The broker is a simple in-memory fan-out — no queues, no disk I/O, no acknowledgments. This keeps latency low and throughput high.</p>
+  <p>The broker is a simple in-memory fan-out - no queues, no disk I/O, no acknowledgments. This keeps latency low and throughput high.</p>
 
   <h2 id="use-cases">Use cases</h2>
 
@@ -156,7 +156,7 @@ done</code></pre>
 done</code></pre>
 
   <div class="callout">
-    <strong>Webhooks integration:</strong> The daemon fires webhook events for pub/sub activity — <code>pubsub.subscribed</code>, <code>pubsub.unsubscribed</code>, and <code>pubsub.published</code>. See <a href="webhooks">Webhooks</a> for details.
+    <strong>Webhooks integration:</strong> The daemon fires webhook events for pub/sub activity - <code>pubsub.subscribed</code>, <code>pubsub.unsubscribed</code>, and <code>pubsub.published</code>. See <a href="webhooks">Webhooks</a> for details.
   </div>
 
   <div class="callout">

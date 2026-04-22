@@ -46,8 +46,8 @@ const bodyContent = `<script type="application/ld+json">
 <li><a href="#protocols-powering-secure-peer-to-peer-communication">Protocols powering secure peer-to-peer communication</a></li>
 <li><a href="#real-world-networking-challenges%3A-nat-traversal%2C-centralization%2C-and-cloud-trade-offs">Real-world networking challenges: NAT traversal, centralization, and cloud trade-offs</a></li>
 <li><a href="#hybrid-cloud%E2%80%93p2p-strategies%3A-best-practices-for-distributed-ai-systems">Hybrid cloud–P2P strategies: Best practices for distributed AI systems</a></li>
-<li><a href="#the-uncomfortable-truth%3A-decentralization-isn't-automatic%E2%80%94what-experts-really-do">The uncomfortable truth: Decentralization isn’t automatic—what experts really do</a></li>
-<li><a href="#build-secure%2C-scalable-networking-for-ai-agents%E2%80%94start-here">Build secure, scalable networking for AI agents—start here</a></li>
+<li><a href="#the-uncomfortable-truth%3A-decentralization-isn't-automatic%E2%80%94what-experts-really-do">The uncomfortable truth: Decentralization isn’t automatic-what experts really do</a></li>
+<li><a href="#build-secure%2C-scalable-networking-for-ai-agents%E2%80%94start-here">Build secure, scalable networking for AI agents-start here</a></li>
 <li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
 </ul>
 <h2 id="key-takeaways" tabindex="-1">Key Takeaways</h2>
@@ -224,13 +224,13 @@ const bodyContent = `<script type="application/ld+json">
 <li>Treating security groups and NACLs as equivalent: Understand stateful vs. stateless behavior</li>
 </ul>
 <p>Following a <a href="https://pilotprotocol.network/blog/secure-ai-agent-networking-workflow-step-by-step">secure networking workflow</a> from the start saves significant rework later.</p>
-<h2 id="the-uncomfortable-truth-decentralization-isnt-automaticwhat-experts-really-do" tabindex="-1">The uncomfortable truth: Decentralization isn’t automatic—what experts really do</h2>
+<h2 id="the-uncomfortable-truth-decentralization-isnt-automaticwhat-experts-really-do" tabindex="-1">The uncomfortable truth: Decentralization isn’t automatic-what experts really do</h2>
 <p>Here’s what most articles won’t tell you: the word “decentralized” has become marketing language as much as a technical description. The data is clear. Cloud node share in IPFS jumped from 50% to 87.33% in three years. A network designed to resist centralization has centralized faster than most of its users know.</p>
 <p>Experienced teams don’t chase ideological purity. They build hybrid systems that are pragmatically resilient. They monitor centralization metrics the same way they monitor latency and error rates. They treat relay fallback as infrastructure, not a bug fix. They apply dedup-optimized chunking because storage efficiency compounds at scale.</p>
 <p>The teams that struggle are the ones who adopt a P2P protocol and assume the architecture handles itself. It doesn’t. Decentralization requires active maintenance, measurement, and adaptation.</p>
 <p>Pro Tip: Set automated alerts for centralization drift in your P2P storage layer. If more than 60% of your data concentrates on fewer than five nodes, redistribute proactively. Pair this with multi-cloud strategies to avoid single-provider dependency at the infrastructure level.</p>
 <p>The best distributed AI systems in production today are hybrid by design, not by accident.</p>
-<h2 id="build-secure-scalable-networking-for-ai-agentsstart-here" tabindex="-1">Build secure, scalable networking for AI agents—start here</h2>
+<h2 id="build-secure-scalable-networking-for-ai-agentsstart-here" tabindex="-1">Build secure, scalable networking for AI agents-start here</h2>
 <p>Applying these concepts in production requires more than theory. You need tooling that handles NAT traversal, encrypted tunnels, peer identity, and multi-cloud connectivity out of the box.</p>
 <p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
 <p><a href="https://pilotprotocol.network">Pilot Protocol</a> is built specifically for AI agents and distributed systems that need secure, direct peer-to-peer communication without centralized brokers. It handles virtual addressing, NAT punch-through, mutual trust establishment, and encrypted tunnels across cloud regions and on-premise environments. You can wrap existing HTTP, gRPC, and SSH traffic inside the overlay without rewriting your stack. Start with the secure AI networking workflow to see how a real deployment comes together, step by step.</p>

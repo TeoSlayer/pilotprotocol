@@ -24,7 +24,7 @@ const bodyContent = `<h1>Audit & Compliance</h1>
 
   <p>Every state change in the registry generates a structured audit event. Events are emitted via <code>slog</code> as SIEM-ingestible JSON, stored in an in-memory ring buffer for API queries, and optionally forwarded to external systems through the audit export pipeline.</p>
 
-  <p>The audit system runs at the registry level &mdash; it captures events across all networks, not just enterprise ones. Enterprise features add more event types (RBAC changes, policy updates, directory sync) but the core audit infrastructure is always active.</p>
+  <p>The audit system runs at the registry level - it captures events across all networks, not just enterprise ones. Enterprise features add more event types (RBAC changes, policy updates, directory sync) but the core audit infrastructure is always active.</p>
 
   <h2 id="events">Audit events</h2>
 
@@ -61,7 +61,7 @@ const bodyContent = `<h1>Audit & Compliance</h1>
       <tr><td><code>network.ownership_transferred</code></td><td>Network ownership is transferred to a new owner</td></tr>
       <tr><td><code>network.policy_changed</code></td><td>Network policy is updated</td></tr>
       <tr><td><code>network.provisioned</code></td><td>A network is provisioned via blueprint</td></tr>
-      <tr><td><code>network.owner_lost</code></td><td>Network owner deregistered &mdash; network has no owner</td></tr>
+      <tr><td><code>network.owner_lost</code></td><td>Network owner deregistered - network has no owner</td></tr>
       <tr><td><code>member.promoted</code></td><td>A member is promoted (member &rarr; admin)</td></tr>
       <tr><td><code>member.demoted</code></td><td>An admin is demoted (admin &rarr; member)</td></tr>
       <tr><td><code>member.kicked</code></td><td>A member is kicked from a network</td></tr>
@@ -108,7 +108,7 @@ const bodyContent = `<h1>Audit & Compliance</h1>
   "admin_token": "your-admin-token"
 }</code></pre>
 
-  <p>Returns: <code>entries</code> (array of audit events, newest first). The <code>network_id</code> filter is optional &mdash; omit it (or set to 0) to get all events.</p>
+  <p>Returns: <code>entries</code> (array of audit events, newest first). The <code>network_id</code> filter is optional - omit it (or set to 0) to get all events.</p>
 
   <p>The ring buffer is in-memory only and does not persist across registry restarts. For persistent audit trails, use <a href="#export">audit export</a>.</p>
 
@@ -187,7 +187,7 @@ const bodyContent = `<h1>Audit & Compliance</h1>
   "admin_token": "your-admin-token"
 }</code></pre>
 
-  <p>The payload is the audit event object as-is &mdash; the same structure returned by <code>get_audit_log</code>. Use this for custom integrations, log aggregators, or data pipelines.</p>
+  <p>The payload is the audit event object as-is - the same structure returned by <code>get_audit_log</code>. Use this for custom integrations, log aggregators, or data pipelines.</p>
 
   <h2 id="webhooks">Webhooks & DLQ</h2>
 
@@ -228,12 +228,12 @@ const bodyContent = `<h1>Audit & Compliance</h1>
   <p>Scrape these from the registry&rsquo;s metrics endpoint to set up alerts for delivery failures or DLQ growth.</p>
 
   <div class="callout">
-    <strong>See also:</strong> <a href="enterprise-blueprints">Blueprints</a> &mdash; configure audit export declaratively. <a href="webhooks">Webhooks</a> &mdash; general webhook concepts.
+    <strong>See also:</strong> <a href="enterprise-blueprints">Blueprints</a> - configure audit export declaratively. <a href="webhooks">Webhooks</a> - general webhook concepts.
   </div>`;
 ---
 <DocLayout
   title="Audit & Compliance"
-  description="Audit logging for Pilot Protocol — structured events, SIEM export (Splunk HEC, CEF, JSON), webhooks, dead-letter queues, and Prometheus metrics."
+  description="Audit logging for Pilot Protocol - structured events, SIEM export (Splunk HEC, CEF, JSON), webhooks, dead-letter queues, and Prometheus metrics."
   activePage="enterprise-audit"
   canonicalPath="/docs/enterprise-audit"
   prev={{ label: "Network Policies", href: "/docs/enterprise-policies" }}

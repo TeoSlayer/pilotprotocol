@@ -31,7 +31,7 @@ const bodyContent = `
 
 <h3>Critical: The SYN Handler Trust Gap</h3>
 
-<p>The resolve layer enforces dark-by-default at the control plane&mdash;you cannot discover a private node's endpoint without trust or shared network membership. But the daemon's SYN handler accepts connections from <em>any</em> source that knows the endpoint. If an attacker obtains an endpoint by any means (sniffing, leaked config, prior trust that was revoked), they can connect without authorization.</p>
+<p>The resolve layer enforces dark-by-default at the control plane-you cannot discover a private node's endpoint without trust or shared network membership. But the daemon's SYN handler accepts connections from <em>any</em> source that knows the endpoint. If an attacker obtains an endpoint by any means (sniffing, leaked config, prior trust that was revoked), they can connect without authorization.</p>
 
 <p>This is the most critical security gap. Phase 1 fixes it with a trust gate at SYN time: incoming connections from untrusted sources (no trust pair, no shared network) are rejected with RST.</p>
 
@@ -53,15 +53,15 @@ const bodyContent = `
 
 <h3>Phase 2: Auto-Join &amp; Audit</h3>
 
-<p>Agents auto-join configured networks at startup&mdash;deploy an entire swarm with the same config file. The registry gains structured audit events (network created, node registered, trust revoked) in machine-parseable JSON for SIEM integration. Webhook delivery becomes reliable with retry logic and monotonic event IDs for gap detection.</p>
+<p>Agents auto-join configured networks at startup-deploy an entire swarm with the same config file. The registry gains structured audit events (network created, node registered, trust revoked) in machine-parseable JSON for SIEM integration. Webhook delivery becomes reliable with retry logic and monotonic event IDs for gap detection.</p>
 
 <h3>Phase 3: Organization + Policy + Cascading Revocation</h3>
 
-<p>The enterprise fleet management phase. Organizations group networks and members under a single admin. Tag-based access policies control who can reach whom on which ports: <em>"nodes tagged <code>frontend</code> can reach nodes tagged <code>api</code> on ports 80 and 443."</em> Policies are evaluated at both resolve time and SYN time. Admin revocation cascades instantly&mdash;<code>org revoke</code> removes a node from all networks, revokes all trust pairs, and pushes revocation to every online peer.</p>
+<p>The enterprise fleet management phase. Organizations group networks and members under a single admin. Tag-based access policies control who can reach whom on which ports: <em>"nodes tagged <code>frontend</code> can reach nodes tagged <code>api</code> on ports 80 and 443."</em> Policies are evaluated at both resolve time and SYN time. Admin revocation cascades instantly-<code>org revoke</code> removes a node from all networks, revokes all trust pairs, and pushes revocation to every online peer.</p>
 
 <h3>Phase 4: CA-Based Enrollment</h3>
 
-<p>Replace shared tokens with cryptographic proof. Networks can require a CA-signed certificate to join. Certificate signing happens offline&mdash;the CA never touches the network. Per-network revocation lists. Identity expiry forces key rotation.</p>
+<p>Replace shared tokens with cryptographic proof. Networks can require a CA-signed certificate to join. Certificate signing happens offline-the CA never touches the network. Per-network revocation lists. Identity expiry forces key rotation.</p>
 
 <h3>Phase 5: External Identity (OIDC + SPIFFE)</h3>
 
@@ -72,9 +72,9 @@ const bodyContent = `
 <p>We mapped the roadmap against three emerging standards for agent security:</p>
 
 <ul>
-  <li><strong>ONUG AOMC</strong> (Autonomous Operations and Management Controls): Six mandatory controls for agent security. After all phases, Pilot satisfies all six&mdash;authentication, access management, traffic control, communication security, audit, and lifecycle management.</li>
+  <li><strong>ONUG AOMC</strong> (Autonomous Operations and Management Controls): Six mandatory controls for agent security. After all phases, Pilot satisfies all six-authentication, access management, traffic control, communication security, audit, and lifecycle management.</li>
   <li><strong>CSA ATF/AICM</strong> (Agent Trust Framework / Agentic Identity and Context Model): Progressive autonomy (aligned via polo score), identity binding (Phase 4-5), context propagation (Phase 3), revocation and quarantine (Phase 3).</li>
-  <li><strong>SPIFFE/SPIRE</strong>: Full integration in Phase 5&mdash;JWT-SVID acceptance, trust domain federation, Workload API integration.</li>
+  <li><strong>SPIFFE/SPIRE</strong>: Full integration in Phase 5-JWT-SVID acceptance, trust domain federation, Workload API integration.</li>
 </ul>
 
 <h2 id="positioning">Where This Sits</h2>
@@ -83,7 +83,7 @@ const bodyContent = `
 
 <p>After all five phases, that becomes: how agents reach each other <em>within the organization's existing trust boundaries</em>. Not in a parallel island. Not with a second set of credentials. With the OIDC tokens and SPIFFE SVIDs they already have.</p>
 
-<p>The full technical assessment&mdash;including gap analysis tables, standards alignment matrix, and competitive positioning&mdash;is available in the <a href="/enterprise-readiness-report.pdf">Enterprise Readiness Report</a> (PDF).</p>
+<p>The full technical assessment-including gap analysis tables, standards alignment matrix, and competitive positioning-is available in the <a href="/enterprise-readiness-report.pdf">Enterprise Readiness Report</a> (PDF).</p>
 
 <div class="cta">
   <h3>Enterprise Readiness Report</h3>

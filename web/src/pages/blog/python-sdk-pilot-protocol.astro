@@ -2,13 +2,13 @@
 import BlogLayout from "../../layouts/BlogLayout.astro";
 
 const bodyContent = `
-<p><span style="display:inline-block;padding:4px 14px;border-radius:6px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.85rem;font-weight:600">v0.1.1</span></p>
+<p><span class="tag accent">v0.1.1</span></p>
 
 <h2 id="why-python">Why a Python SDK</h2>
 
-<p>Pilot Protocol is written in Go — a single static binary, zero external dependencies. That's a strength for deployment but a friction point for the Python ecosystem. AI/ML engineers, data scientists, and agent framework developers overwhelmingly work in Python. Asking them to shell out to <code>pilotctl</code> and parse CLI output is not a real integration.</p>
+<p>Pilot Protocol is written in Go - a single static binary, zero external dependencies. That's a strength for deployment but a friction point for the Python ecosystem. AI/ML engineers, data scientists, and agent framework developers overwhelmingly work in Python. Asking them to shell out to <code>pilotctl</code> and parse CLI output is not a real integration.</p>
 
-<p>The Python SDK gives you a native <code>Driver</code> class with context managers, type hints, and Pythonic error handling. Under the hood it calls the same Go code through a <code>ctypes</code> FFI layer — same guarantees, no re-implementation.</p>
+<p>The Python SDK gives you a native <code>Driver</code> class with context managers, type hints, and Pythonic error handling. Under the hood it calls the same Go code through a <code>ctypes</code> FFI layer - same guarantees, no re-implementation.</p>
 
 <pre><code>pip install pilotprotocol</code></pre>
 
@@ -28,7 +28,7 @@ with Driver() as d:
         conn.write(b"Hello from Python!")
         print(conn.read(4096))</code></pre>
 
-<p>The <code>Driver</code> connects to the daemon's Unix socket at <code>/tmp/pilot.sock</code>. The <code>with</code> statement handles cleanup. <code>dial()</code> returns a <code>Conn</code> that supports <code>read()</code>, <code>write()</code>, and <code>close()</code> — exactly what you'd expect from a socket.</p>
+<p>The <code>Driver</code> connects to the daemon's Unix socket at <code>/tmp/pilot.sock</code>. The <code>with</code> statement handles cleanup. <code>dial()</code> returns a <code>Conn</code> that supports <code>read()</code>, <code>write()</code>, and <code>close()</code> - exactly what you'd expect from a socket.</p>
 
 <h2 id="high-level-api">High-Level API: Services Without Boilerplate</h2>
 
@@ -63,7 +63,7 @@ with Driver() as d:
             conn.write(data)  # Echo
             conn.close()</code></pre>
 
-<p>This gives you raw bidirectional streams over Pilot's encrypted tunnels. Every connection gets <a href="/blog/zero-dependency-encryption-x25519-aes-gcm">X25519 + AES-256-GCM encryption</a> automatically — no TLS configuration, no certificate management.</p>
+<p>This gives you raw bidirectional streams over Pilot's encrypted tunnels. Every connection gets <a href="/blog/zero-dependency-encryption-x25519-aes-gcm">X25519 + AES-256-GCM encryption</a> automatically - no TLS configuration, no certificate management.</p>
 
 <h2 id="architecture">Architecture: ctypes FFI to Go</h2>
 
@@ -76,10 +76,10 @@ with Driver() as d:
 
 <p>This means:</p>
 <ul>
-  <li><strong>Single source of truth</strong> — the SDK uses the exact same packet handling, encryption, and transport code as <code>pilotctl</code></li>
-  <li><strong>No drift</strong> — when the Go code gets a bug fix, the Python SDK gets it too (after a wheel rebuild)</li>
-  <li><strong>Memory safety</strong> — Go's GC manages allocations; the SDK handles cleanup of Go-allocated strings via <code>ctypes</code></li>
-  <li><strong>Opaque handles</strong> — connections and listeners are represented as integer handles, avoiding cross-language pointer issues</li>
+  <li><strong>Single source of truth</strong> - the SDK uses the exact same packet handling, encryption, and transport code as <code>pilotctl</code></li>
+  <li><strong>No drift</strong> - when the Go code gets a bug fix, the Python SDK gets it too (after a wheel rebuild)</li>
+  <li><strong>Memory safety</strong> - Go's GC manages allocations; the SDK handles cleanup of Go-allocated strings via <code>ctypes</code></li>
+  <li><strong>Opaque handles</strong> - connections and listeners are represented as integer handles, avoiding cross-language pointer issues</li>
 </ul>
 
 <h2 id="error-handling">Error Handling</h2>
@@ -94,7 +94,7 @@ with Driver() as d:
     except PilotError as e:
         print(f"Failed: {e}")  # "no route to host"</code></pre>
 
-<p>The SDK raises <code>PilotError</code> for protocol-level failures (unreachable peers, trust failures, timeouts), <code>FileNotFoundError</code> when the native library isn't found, and <code>ValueError</code> for invalid parameters. Standard Python exception hierarchy — catch what you need.</p>
+<p>The SDK raises <code>PilotError</code> for protocol-level failures (unreachable peers, trust failures, timeouts), <code>FileNotFoundError</code> when the native library isn't found, and <code>ValueError</code> for invalid parameters. Standard Python exception hierarchy - catch what you need.</p>
 
 <h2 id="type-hints">Full Type Hints</h2>
 
@@ -111,7 +111,7 @@ with Driver() as d:
 
 <p>The SDK is designed to integrate with existing Python agent frameworks. A few patterns:</p>
 
-<p><strong>With LangChain / LangGraph:</strong> Use the SDK as a tool — agents can send messages, transfer files, or delegate tasks to peers on the Pilot network as part of their tool chain.</p>
+<p><strong>With LangChain / LangGraph:</strong> Use the SDK as a tool - agents can send messages, transfer files, or delegate tasks to peers on the Pilot network as part of their tool chain.</p>
 
 <p><strong>With <a href="/blog/openclaw-meets-pilot-agent-networking-one-command">OpenClaw</a>:</strong> The SDK powers the Pilot skill on ClawHub. OpenClaw agents use it to discover peers, establish trust, and form <a href="/blog/multi-agent-pipelines-openclaw-encrypted-tunnels">multi-agent pipelines</a>.</p>
 
@@ -130,7 +130,7 @@ with Driver() as d:
 
 <div class="cta">
   <h3>Try the Python SDK</h3>
-  <p>Native Python bindings for Pilot Protocol. <code>pip install pilotprotocol</code> — context managers, type hints, and the same Go crypto under the hood.</p>
+  <p>Native Python bindings for Pilot Protocol. <code>pip install pilotprotocol</code> - context managers, type hints, and the same Go crypto under the hood.</p>
   <a href="https://pypi.org/project/pilotprotocol/">View on PyPI</a>
 </div>`;
 ---

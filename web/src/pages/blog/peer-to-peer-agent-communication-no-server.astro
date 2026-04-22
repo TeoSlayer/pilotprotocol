@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>Every mainstream agent communication pattern puts a server in the middle. API gateways, message brokers, cloud pub/sub, webhook relays — the agents do not talk to each other. They talk to infrastructure, and the infrastructure forwards their messages. This article explains why that is a problem and walks through Pilot Protocol's direct peer-to-peer model from install to data exchange.</p>
+const bodyContent = `<p>Every mainstream agent communication pattern puts a server in the middle. API gateways, message brokers, cloud pub/sub, webhook relays - the agents do not talk to each other. They talk to infrastructure, and the infrastructure forwards their messages. This article explains why that is a problem and walks through Pilot Protocol's direct peer-to-peer model from install to data exchange.</p>
 
   <section>
   <h2 id="the-problem-with-middlemen">The Problem With Middlemen</h2>
@@ -15,7 +15,7 @@ const bodyContent = `<p>Every mainstream agent communication pattern puts a serv
   <p><strong>3. The server sees everything.</strong> Even with TLS, the relay server terminates encryption. It can read, log, modify, or drop any message. For sensitive workloads (medical data, financial models, proprietary research), this is a compliance and trust problem.</p>
 
   <div class="callout">
-    <p><strong>The alternative:</strong> Agents connect directly. Data flows from Agent A to Agent B with zero servers in the path. The connection is end-to-end encrypted — no intermediary can read the data. If one agent goes offline, only its connections are affected.</p>
+    <p><strong>The alternative:</strong> Agents connect directly. Data flows from Agent A to Agent B with zero servers in the path. The connection is end-to-end encrypted - no intermediary can read the data. If one agent goes offline, only its connections are affected.</p>
   </div>
   </section>
 
@@ -43,7 +43,7 @@ const bodyContent = `<p>Every mainstream agent communication pattern puts a serv
   <p>Pilot solves this with three tiers of traversal, tried in order:</p>
 
   <p><strong>Tier 1: STUN Discovery (Full-Cone NAT)</strong></p>
-  <p>The agent sends a probe to a STUN server (built into the Pilot beacon). The STUN response reveals the agent's public-facing IP and port. For full-cone NAT, this endpoint is valid for all peers — any agent can send UDP packets to it directly.</p>
+  <p>The agent sends a probe to a STUN server (built into the Pilot beacon). The STUN response reveals the agent's public-facing IP and port. For full-cone NAT, this endpoint is valid for all peers - any agent can send UDP packets to it directly.</p>
 
   <pre><code>$ pilotctl status
 NAT type:  full-cone
@@ -60,7 +60,7 @@ Requesting hole-punch via beacon...
 ✓ Direct tunnel established. RTT: 34ms</code></pre>
 
   <p><strong>Tier 3: Relay (Symmetric NAT)</strong></p>
-  <p>Symmetric NAT assigns a different port for every destination — hole-punching cannot work. Pilot automatically falls back to relay through the beacon. The relay forwards opaque encrypted packets. It cannot read, modify, or log the content.</p>
+  <p>Symmetric NAT assigns a different port for every destination - hole-punching cannot work. Pilot automatically falls back to relay through the beacon. The relay forwards opaque encrypted packets. It cannot read, modify, or log the content.</p>
 
   <pre><code>$ pilotctl connect agent-c
 Discovering NAT type... symmetric
@@ -81,13 +81,13 @@ Hole-punch not possible. Switching to relay...
   <ul>
     <li>New agents are invisible on the network. They cannot be discovered, resolved, or connected to.</li>
     <li>Two agents must perform a mutual trust handshake before they can communicate.</li>
-    <li>Trust is bidirectional — both sides must agree. One-sided trust does nothing.</li>
+    <li>Trust is bidirectional - both sides must agree. One-sided trust does nothing.</li>
     <li>Trust can be revoked instantly. The connection drops and the agent becomes invisible to the former peer.</li>
   </ul>
 
   <pre><code># Agent A trusts Agent B
 pilotctl trust add agent-b
-# Nothing happens yet — Agent B must reciprocate
+# Nothing happens yet - Agent B must reciprocate
 
 # Agent B trusts Agent A
 pilotctl trust add agent-a
@@ -224,7 +224,7 @@ pip install pilotprotocol</code></pre>
 
   <p>One command. Zero config. Your agents are connected.</p>
 
-  <p><strong><a href="/for/p2p">Go direct — peer-to-peer for AI agents →</a></strong></p>
+  <p><strong><a href="/for/p2p">Go direct - peer-to-peer for AI agents →</a></strong></p>
   </section>`;
 ---
 <BlogLayout

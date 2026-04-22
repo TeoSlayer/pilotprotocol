@@ -21,14 +21,14 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   <p>The AI agent ecosystem has multiple protocols addressing different communication needs. They operate at different layers of the stack and are often complementary rather than competing:</p>
 
   <ul>
-    <li><strong>Pilot Protocol</strong> — A network-layer overlay that gives each agent a permanent virtual address, encrypted UDP tunnels, NAT traversal, and a trust model. Think of it as the "TCP/IP for agents."</li>
-    <li><strong>MCP (Model Context Protocol)</strong> — Anthropic's protocol for connecting LLMs to tools and data sources. It defines how a model calls external functions and retrieves context.</li>
-    <li><strong>A2A (Agent-to-Agent)</strong> — Google's protocol for agent interoperability. It defines agent cards, task lifecycle, and message exchange between agents.</li>
-    <li><strong>ACP (Agent Communication Protocol)</strong> — BeeAI's protocol for multi-agent orchestration. It defines how agents discover each other, exchange messages, and coordinate tasks within a runtime.</li>
+    <li><strong>Pilot Protocol</strong> - A network-layer overlay that gives each agent a permanent virtual address, encrypted UDP tunnels, NAT traversal, and a trust model. Think of it as the "TCP/IP for agents."</li>
+    <li><strong>MCP (Model Context Protocol)</strong> - Anthropic's protocol for connecting LLMs to tools and data sources. It defines how a model calls external functions and retrieves context.</li>
+    <li><strong>A2A (Agent-to-Agent)</strong> - Google's protocol for agent interoperability. It defines agent cards, task lifecycle, and message exchange between agents.</li>
+    <li><strong>ACP (Agent Communication Protocol)</strong> - BeeAI's protocol for multi-agent orchestration. It defines how agents discover each other, exchange messages, and coordinate tasks within a runtime.</li>
   </ul>
 
   <h2 id="vs-mcp">vs MCP (Model Context Protocol)</h2>
-  <p>MCP connects an LLM to tools and data sources — it answers "how does my model call this function?" Pilot Protocol connects agents to each other — it answers "how does my agent reach that agent?"</p>
+  <p>MCP connects an LLM to tools and data sources - it answers "how does my model call this function?" Pilot Protocol connects agents to each other - it answers "how does my agent reach that agent?"</p>
 
   <table>
     <thead><tr><th></th><th>Pilot Protocol</th><th>MCP</th></tr></thead>
@@ -48,7 +48,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   <p>Read more: <a href="/blog/mcp-plus-pilot-tools-and-network">MCP + Pilot: Tools and Network</a></p>
 
   <h2 id="vs-a2a">vs A2A (Agent-to-Agent)</h2>
-  <p>A2A defines the application-level contract between agents — agent cards, task lifecycle, and message schemas. Pilot Protocol provides the network-level connectivity that gets those messages from one agent to another.</p>
+  <p>A2A defines the application-level contract between agents - agent cards, task lifecycle, and message schemas. Pilot Protocol provides the network-level connectivity that gets those messages from one agent to another.</p>
 
   <table>
     <thead><tr><th></th><th>Pilot Protocol</th><th>A2A</th></tr></thead>
@@ -68,7 +68,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   <p>Read more: <a href="/blog/a2a-agent-cards-over-pilot-tunnels">A2A Agent Cards over Pilot Tunnels</a></p>
 
   <h2 id="vs-acp">vs ACP (Agent Communication Protocol)</h2>
-  <p>ACP focuses on multi-agent orchestration within a runtime — how agents discover peers, exchange messages, and coordinate workflows. Pilot Protocol focuses on the network layer beneath.</p>
+  <p>ACP focuses on multi-agent orchestration within a runtime - how agents discover peers, exchange messages, and coordinate workflows. Pilot Protocol focuses on the network layer beneath.</p>
 
   <table>
     <thead><tr><th></th><th>Pilot Protocol</th><th>ACP</th></tr></thead>
@@ -152,7 +152,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
   <p>These protocols are designed for different layers and combine naturally:</p>
 
   <h3>Pilot + MCP</h3>
-  <p>Run an MCP server on one machine. Expose it over a Pilot tunnel. Remote agents connect to the MCP server's Pilot address — no public IP needed, encrypted end-to-end, trust-gated access.</p>
+  <p>Run an MCP server on one machine. Expose it over a Pilot tunnel. Remote agents connect to the MCP server's Pilot address - no public IP needed, encrypted end-to-end, trust-gated access.</p>
   <pre><code><span class="comment"># Agent A runs an MCP server, exposed on Pilot port 80</span>
 <span class="comment"># Agent B connects from across the internet</span>
 <span class="cmd">pilotctl</span> connect &lt;agent-a-address&gt; 80
@@ -168,7 +168,7 @@ const bodyContent = `<h1>Pilot Protocol vs MCP vs A2A vs ACP</h1>
 }</code></pre>
 
   <h3>Pilot + ACP</h3>
-  <p>ACP runtimes on different machines connect via Pilot tunnels. Agents in runtime A can discover and communicate with agents in runtime B as if they were local — the Pilot tunnel handles routing, encryption, and NAT traversal.</p>
+  <p>ACP runtimes on different machines connect via Pilot tunnels. Agents in runtime A can discover and communicate with agents in runtime B as if they were local - the Pilot tunnel handles routing, encryption, and NAT traversal.</p>
 
   <div class="callout">
     <p><strong>The short version:</strong> MCP, A2A, and ACP define <em>what</em> agents say. Pilot Protocol defines <em>how</em> they reach each other. Use the right protocol at the right layer.</p>

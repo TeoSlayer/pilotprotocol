@@ -2,13 +2,13 @@
 import BlogLayout from "../../layouts/BlogLayout.astro";
 
 const bodyContent = `
-<p>Pilot Protocol now ships 99 features across 53 protocol commands, backed by 234 tests. This post catalogs everything the enterprise stack does today &mdash; identity providers, directory sync, declarative provisioning, SIEM-grade audit export, JWT validation, webhook reliability, per-network Prometheus metrics, and the security hardening that ties it all together. Every feature described here is implemented, tested, and running in production on the live registry.</p>
+<p>Pilot Protocol now ships 99 features across 53 protocol commands, backed by 234 tests. This post catalogs everything the enterprise stack does today - identity providers, directory sync, declarative provisioning, SIEM-grade audit export, JWT validation, webhook reliability, per-network Prometheus metrics, and the security hardening that ties it all together. Every feature described here is implemented, tested, and running in production on the live registry.</p>
 
 <h2 id="enterprise-gating">Enterprise Feature Gating</h2>
 
-<p>Enterprise features are opt-in at the network level. Set <code>enterprise: true</code> when creating a network, and the full enterprise stack activates for that network only. Non-enterprise networks are unaffected &mdash; zero overhead, zero behavior change. Toggling enterprise on mid-lifecycle initializes RBAC roles for all existing members.</p>
+<p>Enterprise features are opt-in at the network level. Set <code>enterprise: true</code> when creating a network, and the full enterprise stack activates for that network only. Non-enterprise networks are unaffected - zero overhead, zero behavior change. Toggling enterprise on mid-lifecycle initializes RBAC roles for all existing members.</p>
 
-<p>Seven registry handlers enforce the enterprise gate: promote, demote, kick, set policy, invite, respond to invite, and set key expiry. Each returns a clear <code>"enterprise feature"</code> error when called against a non-enterprise network. The gate check is a single function call at the top of each handler &mdash; no configuration, no flags, no environment variables.</p>
+<p>Seven registry handlers enforce the enterprise gate: promote, demote, kick, set policy, invite, respond to invite, and set key expiry. Each returns a clear <code>"enterprise feature"</code> error when called against a non-enterprise network. The gate check is a single function call at the top of each handler - no configuration, no flags, no environment variables.</p>
 
 <h2 id="identity">Identity Provider Integration</h2>
 
@@ -16,16 +16,16 @@ const bodyContent = `
 
 <h3>Built-in JWT Validation</h3>
 
-<p>For OIDC providers, the registry validates JWTs directly &mdash; no sidecar, no proxy, no external validator. Two signature algorithms are supported:</p>
+<p>For OIDC providers, the registry validates JWTs directly - no sidecar, no proxy, no external validator. Two signature algorithms are supported:</p>
 
 <ul>
-  <li><strong>RS256</strong> &mdash; RSA PKCS#1 v1.5 with SHA-256. Keys fetched from the provider's JWKS endpoint.</li>
-  <li><strong>HS256</strong> &mdash; HMAC-SHA256 with symmetric keys from JWKS.</li>
+  <li><strong>RS256</strong> - RSA PKCS#1 v1.5 with SHA-256. Keys fetched from the provider's JWKS endpoint.</li>
+  <li><strong>HS256</strong> - HMAC-SHA256 with symmetric keys from JWKS.</li>
 </ul>
 
 <p>Claims validated: <code>iss</code> (issuer), <code>aud</code> (audience, supports both string and array), <code>exp</code> (expiry), <code>nbf</code> (not-before). A 60-second clock skew tolerance prevents failures from minor time drift between the IDP and registry.</p>
 
-<p>Algorithm confusion attacks are blocked. The registry enforces that the JWKS key type matches the JWT header algorithm &mdash; an HS256 header with an RSA key, or an RS256 header with an oct key, is rejected before signature verification.</p>
+<p>Algorithm confusion attacks are blocked. The registry enforces that the JWKS key type matches the JWT header algorithm - an HS256 header with an RSA key, or an RS256 header with an oct key, is rejected before signature verification.</p>
 
 <h3>JWKS Caching</h3>
 
@@ -94,7 +94,7 @@ const bodyContent = `
 
 <h2 id="blueprint">Blueprint Provisioning</h2>
 
-<p>Declare an entire network configuration in a single JSON document. The <code>provision_network</code> command creates the network (or finds it by name), enables enterprise, applies policy, configures the identity provider, sets up webhooks, configures audit export, and stores RBAC pre-assignments &mdash; all in one atomic operation.</p>
+<p>Declare an entire network configuration in a single JSON document. The <code>provision_network</code> command creates the network (or finds it by name), enables enterprise, applies policy, configures the identity provider, sets up webhooks, configures audit export, and stores RBAC pre-assignments - all in one atomic operation.</p>
 
 <pre><code><span class="comment"># Blueprint: production network with full enterprise config</span>
 {
@@ -231,7 +231,7 @@ pilotctl network transfer-ownership 1 --to 686</code></pre>
   </tbody>
 </table>
 
-<p>Status gauges show configuration state at a glance: <code>pilot_idp_configured</code>, <code>pilot_webhook_configured</code>, <code>pilot_audit_export_active</code>. All metrics are zero-dependency &mdash; the Prometheus exposition format is implemented from scratch with custom counter, gauge, histogram, counterVec, and histogramVec types using atomic operations.</p>
+<p>Status gauges show configuration state at a glance: <code>pilot_idp_configured</code>, <code>pilot_webhook_configured</code>, <code>pilot_audit_export_active</code>. All metrics are zero-dependency - the Prometheus exposition format is implemented from scratch with custom counter, gauge, histogram, counterVec, and histogramVec types using atomic operations.</p>
 
 <h2 id="security">Security Hardening</h2>
 
@@ -295,32 +295,32 @@ pilotctl network transfer-ownership 1 --to 686</code></pre>
 <p>The full feature inventory spans:</p>
 
 <ul>
-  <li><strong>Core Protocol</strong> (10) &mdash; registration, lookup, resolve, heartbeat, deregister, hostname, tags, task exec, visibility, list nodes</li>
-  <li><strong>Network Management</strong> (8) &mdash; create, join, leave, delete, rename, enterprise toggle, list, broadcast</li>
-  <li><strong>Trust &amp; Handshake</strong> (6) &mdash; report, revoke, check, request handshake, poll, respond</li>
-  <li><strong>RBAC</strong> (8) &mdash; roles (owner/admin/member), promote, demote, kick, transfer ownership, per-network admin tokens, RBAC pre-assignments</li>
-  <li><strong>Policies</strong> (2) &mdash; max members, allowed ports</li>
-  <li><strong>Invites</strong> (3) &mdash; invite, poll, accept/reject with consent</li>
-  <li><strong>Identity &amp; SSO</strong> (8) &mdash; webhook verification, built-in JWT (RS256/HS256), JWKS caching, IDP config, external ID, token validation</li>
-  <li><strong>Directory Sync</strong> (2) &mdash; push sync, status query</li>
-  <li><strong>Blueprints</strong> (3) &mdash; provision, validate, status</li>
-  <li><strong>Key Lifecycle</strong> (3) &mdash; rotation, expiry, info</li>
-  <li><strong>Reputation</strong> (3) &mdash; polo score update, set, get</li>
-  <li><strong>Audit</strong> (6) &mdash; ring buffer, query API, Splunk HEC, CEF/Syslog, JSON export, async delivery</li>
-  <li><strong>Webhooks</strong> (4) &mdash; dispatch, retry + DLQ, status, DLQ query</li>
-  <li><strong>Observability</strong> (7) &mdash; 40+ Prometheus metrics, per-type histograms, per-network labels, enterprise counters, status gauges</li>
-  <li><strong>Dashboard</strong> (7) &mdash; HTML dashboard, stats API, health check, SVG badges, Prometheus /metrics, pprof, manual snapshot</li>
-  <li><strong>High Availability</strong> (4) &mdash; push-based replication, heartbeat, standby mode, full snapshot format</li>
-  <li><strong>Security</strong> (10) &mdash; Ed25519 signatures, rate limiting (per-IP + per-operation), connection limits, TLS + cert pinning, admin tokens, message size cap, idle timeout, address sanitization</li>
-  <li><strong>Persistence</strong> (1) &mdash; atomic JSON snapshots with debounced writes</li>
-  <li><strong>Beacon</strong> (2) &mdash; register, list</li>
-  <li><strong>NAT Traversal</strong> (1) &mdash; hole punch coordination</li>
-  <li><strong>Client SDK</strong> (1) &mdash; auto-reconnect client with 60+ methods, TLS pinning, signer support</li>
+  <li><strong>Core Protocol</strong> (10) - registration, lookup, resolve, heartbeat, deregister, hostname, tags, task exec, visibility, list nodes</li>
+  <li><strong>Network Management</strong> (8) - create, join, leave, delete, rename, enterprise toggle, list, broadcast</li>
+  <li><strong>Trust &amp; Handshake</strong> (6) - report, revoke, check, request handshake, poll, respond</li>
+  <li><strong>RBAC</strong> (8) - roles (owner/admin/member), promote, demote, kick, transfer ownership, per-network admin tokens, RBAC pre-assignments</li>
+  <li><strong>Policies</strong> (2) - max members, allowed ports</li>
+  <li><strong>Invites</strong> (3) - invite, poll, accept/reject with consent</li>
+  <li><strong>Identity &amp; SSO</strong> (8) - webhook verification, built-in JWT (RS256/HS256), JWKS caching, IDP config, external ID, token validation</li>
+  <li><strong>Directory Sync</strong> (2) - push sync, status query</li>
+  <li><strong>Blueprints</strong> (3) - provision, validate, status</li>
+  <li><strong>Key Lifecycle</strong> (3) - rotation, expiry, info</li>
+  <li><strong>Reputation</strong> (3) - polo score update, set, get</li>
+  <li><strong>Audit</strong> (6) - ring buffer, query API, Splunk HEC, CEF/Syslog, JSON export, async delivery</li>
+  <li><strong>Webhooks</strong> (4) - dispatch, retry + DLQ, status, DLQ query</li>
+  <li><strong>Observability</strong> (7) - 40+ Prometheus metrics, per-type histograms, per-network labels, enterprise counters, status gauges</li>
+  <li><strong>Dashboard</strong> (7) - HTML dashboard, stats API, health check, SVG badges, Prometheus /metrics, pprof, manual snapshot</li>
+  <li><strong>High Availability</strong> (4) - push-based replication, heartbeat, standby mode, full snapshot format</li>
+  <li><strong>Security</strong> (10) - Ed25519 signatures, rate limiting (per-IP + per-operation), connection limits, TLS + cert pinning, admin tokens, message size cap, idle timeout, address sanitization</li>
+  <li><strong>Persistence</strong> (1) - atomic JSON snapshots with debounced writes</li>
+  <li><strong>Beacon</strong> (2) - register, list</li>
+  <li><strong>NAT Traversal</strong> (1) - hole punch coordination</li>
+  <li><strong>Client SDK</strong> (1) - auto-reconnect client with 60+ methods, TLS pinning, signer support</li>
 </ul>
 
 <h2 id="whats-next">What Is Next</h2>
 
-<p>The enterprise stack is production-complete. What follows is the console control plane: a web UI for managing enterprise networks, nodes, policies, audit logs, and identity configuration &mdash; all backed by the protocol commands described here. The registry is the engine. The console is the dashboard.</p>
+<p>The enterprise stack is production-complete. Every capability above is available today through <code>pilotctl</code> and the JSON API - blueprint provisioning, directory sync, audit export, key lifecycle, and identity providers. Enterprise deployments are early access: we design the rollout with you.</p>
 
 <div class="cta">
   <h3>Try the Enterprise Stack</h3>
@@ -329,7 +329,7 @@ pilotctl network transfer-ownership 1 --to 686</code></pre>
   &nbsp;&middot;&nbsp;
   <a href="/docs/networks">Network Docs</a>
   &nbsp;&middot;&nbsp;
-  <a href="https://console.pilotprotocol.network">Open Console</a>
+  <a href="/plans">See Plans</a>
 </div>`;
 ---
 <BlogLayout

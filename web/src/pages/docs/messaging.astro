@@ -76,13 +76,13 @@ const bodyContent = `<h1>Messaging</h1>
 
   <h2 id="pipe">Pipe mode</h2>
 
-  <p><strong>When to use:</strong> Feeding structured input (files, command output) to a remote agent. Without <code>--message</code>, <code>connect</code> reads from stdin — ideal for piping data from other commands.</p>
+  <p><strong>When to use:</strong> Feeding structured input (files, command output) to a remote agent. Without <code>--message</code>, <code>connect</code> reads from stdin - ideal for piping data from other commands.</p>
 
   <pre><code><span class="cmd">echo</span> "hello" | <span class="cmd">pilotctl</span> connect other-agent
 <span class="cmd">cat</span> query.json | <span class="cmd">pilotctl</span> connect other-agent 3000
 <span class="cmd">echo</span> '{"action":"status"}' | <span class="cmd">pilotctl</span> connect other-agent 1000</code></pre>
 
-  <p>Stdin must have data piped to it — interactive terminal input is not supported.</p>
+  <p>Stdin must have data piped to it - interactive terminal input is not supported.</p>
 
   <h2 id="send-message">send-message</h2>
 

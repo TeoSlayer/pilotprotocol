@@ -1,0 +1,109 @@
+---
+// Docs-specific footer - minimal strip, no marketing copy.
+// Pulls the current Pilot release tag at build time for the version stamp.
+let version: string | null = null;
+try {
+  const headers: Record<string, string> = { 'User-Agent': 'pilotprotocol-web' };
+  if (import.meta.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${import.meta.env.GITHUB_TOKEN}`;
+  const res = await fetch('https://api.github.com/repos/TeoSlayer/pilotprotocol/releases/latest', { headers });
+  if (res.ok) {
+    const data: any = await res.json();
+    if (data && typeof data.tag_name === 'string') {
+      version = data.tag_name.replace(/^v/, '');
+    }
+  }
+} catch (e) {}
+---
+<footer class="docs-footer">
+  <div class="df-row">
+    <div class="df-brand">
+      <img src="/img/pilot.png" alt="" class="df-logo" width="18" height="18" />
+      <span>Pilot Protocol Docs</span>
+      {version && <span class="df-sep">·</span>}
+      {version && <span class="df-ver">v{version}</span>}
+    </div>
+    <nav class="df-links" aria-label="Docs footer">
+      <a href="/docs/getting-started">Getting started</a>
+      <a href="/docs/cli-reference">CLI</a>
+      <a href="/docs/concepts">Concepts</a>
+      <a href="/docs/research">Research</a>
+      <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+      <a href="https://polo.pilotprotocol.network">Polo</a>
+      <a href="/blog/">Blog</a>
+      <a href="/">Home</a>
+    </nav>
+  </div>
+  <div class="df-bottom">
+    <span>© {new Date().getFullYear()} Pilot Protocol</span>
+    <span class="df-sep">·</span>
+    <a href="https://github.com/TeoSlayer/pilotprotocol/issues/new">Report an issue</a>
+  </div>
+</footer>
+
+<style>
+  .docs-footer {
+    border-top: 1px solid var(--line);
+    padding: 28px 32px 32px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .df-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 16px;
+  }
+  .df-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .df-brand .df-logo {
+    width: 18px;
+    height: 18px;
+    display: block;
+    object-fit: contain;
+  }
+  .df-brand .df-ver { color: var(--ink-dim); font-weight: 400; }
+  .df-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: center;
+  }
+  .df-links a {
+    color: var(--ink-dim);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .df-links a:hover { color: var(--accent); }
+  .df-bottom {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink-dim);
+  }
+  .df-bottom a {
+    color: var(--ink-dim);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .df-bottom a:hover { color: var(--accent); }
+  .df-sep { color: var(--ink-faint); }
+  @media (max-width: 720px) {
+    .docs-footer { padding: 24px 20px 28px; }
+    .df-links { gap: 14px; }
+  }
+</style>
