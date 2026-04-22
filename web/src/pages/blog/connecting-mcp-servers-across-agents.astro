@@ -3,7 +3,7 @@ import BlogLayout from '../../layouts/BlogLayout.astro';
 
 const bodyContent = `<p>Your MCP server can query a database, call an API, read a file system. But the agent holding those results cannot send them to another agent without building your own transport layer. This is the networking gap in the MCP ecosystem.</p>
 
-  <p>Pilot Protocol fills that gap. It gives every agent a permanent virtual address, encrypted peer-to-peer tunnels, NAT traversal, and hostname-based discovery. This article walks through the concrete problem and shows you how to connect MCP-equipped agents across any network — with zero networking configuration.</p>
+  <p>Pilot Protocol fills that gap. It gives every agent a permanent virtual address, encrypted peer-to-peer tunnels, NAT traversal, and hostname-based discovery. This article walks through the concrete problem and shows you how to connect MCP-equipped agents across any network - with zero networking configuration.</p>
 
   <section>
   <h2 id="the-problem">The Problem: MCP Stops at the Agent Boundary</h2>
@@ -14,23 +14,23 @@ const bodyContent = `<p>Your MCP server can query a database, call an API, read 
 
   <p>Without a networking layer, your options are:</p>
   <ul>
-    <li><strong>HTTP webhooks</strong> — Agent B needs a public URL. Fails behind NAT. Requires a web server. No encryption by default.</li>
-    <li><strong>Message broker</strong> (Kafka, RabbitMQ, Redis) — Now you have infrastructure to manage, configuration to write, and a single point of failure.</li>
-    <li><strong>Shared database</strong> — Agent A writes results to a DB, Agent B polls for them. Latency. Complexity. Polling waste.</li>
-    <li><strong>Cloud pub/sub</strong> (SNS, Cloud Pub/Sub) — Vendor lock-in. API keys. Monthly bills. Egress charges.</li>
+    <li><strong>HTTP webhooks</strong> - Agent B needs a public URL. Fails behind NAT. Requires a web server. No encryption by default.</li>
+    <li><strong>Message broker</strong> (Kafka, RabbitMQ, Redis) - Now you have infrastructure to manage, configuration to write, and a single point of failure.</li>
+    <li><strong>Shared database</strong> - Agent A writes results to a DB, Agent B polls for them. Latency. Complexity. Polling waste.</li>
+    <li><strong>Cloud pub/sub</strong> (SNS, Cloud Pub/Sub) - Vendor lock-in. API keys. Monthly bills. Egress charges.</li>
   </ul>
 
   <p>Every one of these adds infrastructure, configuration, and failure modes. Every one requires Agent B to have a reachable endpoint or both agents to share a third-party service.</p>
 
   <div class="callout">
-    <p><strong>The core issue:</strong> MCP gives agents eyes and hands (access to data and tools). But it gives them no voice — no way to tell another agent what they found. Pilot provides that voice.</p>
+    <p><strong>The core issue:</strong> MCP gives agents eyes and hands (access to data and tools). But it gives them no voice - no way to tell another agent what they found. Pilot provides that voice.</p>
   </div>
   </section>
 
   <section>
   <h2 id="the-solution">The Solution: One Install, Direct Connection</h2>
 
-  <p>Pilot Protocol is a single binary that gives your agent a network identity, encrypted connections, and the ability to dial any other agent by hostname — regardless of NAT, firewall, or cloud provider.</p>
+  <p>Pilot Protocol is a single binary that gives your agent a network identity, encrypted connections, and the ability to dial any other agent by hostname - regardless of NAT, firewall, or cloud provider.</p>
 
   <p>Here is what the full flow looks like:</p>
 
@@ -60,7 +60,7 @@ pilotctl connect reporter-agent --message '{"rows":1842,"summary":"Q4 up 23%"}'<
 
   <p>Neither layer knows about the other. Your MCP configuration is unchanged. Your Pilot configuration is unchanged. At the application level, your agent code does both:</p>
 
-  <pre><code>// Go example: Agent A — query via MCP, deliver via Pilot
+  <pre><code>// Go example: Agent A - query via MCP, deliver via Pilot
 // 1. Query database through MCP
 results := mcpClient.CallTool("postgres", "query", map[string]any{
     "sql": "SELECT * FROM sales WHERE quarter = 'Q4'",
@@ -72,7 +72,7 @@ conn, _ := d.Dial("reporter-agent", 1001)
 conn.Write(results.JSON())
 conn.Close()</code></pre>
 
-  <pre><code># Python example: Agent A — query via MCP, deliver via Pilot
+  <pre><code># Python example: Agent A - query via MCP, deliver via Pilot
 import pilotprotocol as pilot
 import mcp
 
@@ -93,9 +93,9 @@ async with pilot.connect("reporter-agent", port=1001) as conn:
   <p>Pilot handles this transparently with three-tier traversal:</p>
 
   <ol>
-    <li><strong>STUN discovery</strong> — Determines your NAT type and public-facing endpoint.</li>
-    <li><strong>UDP hole-punching</strong> — For restricted and port-restricted cone NAT, the beacon coordinates simultaneous punches from both sides.</li>
-    <li><strong>Relay fallback</strong> — For symmetric NAT (unpredictable port mapping), data is relayed through the beacon. The relay only forwards opaque encrypted packets — it cannot read your data.</li>
+    <li><strong>STUN discovery</strong> - Determines your NAT type and public-facing endpoint.</li>
+    <li><strong>UDP hole-punching</strong> - For restricted and port-restricted cone NAT, the beacon coordinates simultaneous punches from both sides.</li>
+    <li><strong>Relay fallback</strong> - For symmetric NAT (unpredictable port mapping), data is relayed through the beacon. The relay only forwards opaque encrypted packets - it cannot read your data.</li>
   </ol>
 
   <p>All of this is automatic. Your code dials a hostname. Pilot figures out the traversal strategy.</p>
@@ -146,11 +146,11 @@ pilotctl trust add analyst-agent</code></pre>
 results = mcp_query("SELECT * FROM sales WHERE quarter = 'Q4'")
 analysis = mcp_run_python(f"analyze({results})")
 
-# Send to reporter — Pilot handles NAT, encryption, everything
+# Send to reporter - Pilot handles NAT, encryption, everything
 pilot_send("reporter-agent", port=1001, data=analysis.to_json())</code></pre>
 
   <p><strong>Step 5: Agent B receives and acts</strong></p>
-  <pre><code># Agent B's application code — listening on port 1001
+  <pre><code># Agent B's application code - listening on port 1001
 data = pilot_receive(port=1001)
 mcp_call("slack", "post_message", channel="#reports", text=data["summary"])
 mcp_call("email", "send", to="cfo@company.com", body=data["full_report"])</code></pre>
@@ -179,7 +179,7 @@ pilot_send("reporter", port=1001, data=insights)
 results = pilot_receive(port=1001)
 mcp_call("slack", "post_message", text=results["summary"])</code></pre>
 
-  <p>Every link in the pipeline is a direct encrypted tunnel. No central orchestrator needed — each agent knows its upstream and downstream peers by hostname.</p>
+  <p>Every link in the pipeline is a direct encrypted tunnel. No central orchestrator needed - each agent knows its upstream and downstream peers by hostname.</p>
   </section>
 
   <section>
@@ -208,13 +208,13 @@ pilotctl connect db-tool-server --port 80
 
   <p>This article focuses on the practical networking problem:</p>
   <ul>
-    <li><strong>NAT traversal</strong> — Concrete walkthrough of how agents behind different firewalls connect</li>
-    <li><strong>Zero configuration</strong> — Emphasis on one-command install, no infrastructure to manage</li>
-    <li><strong>Code examples</strong> — Go and Python examples you can copy and run</li>
-    <li><strong>Full scenario</strong> — Step-by-step from install to data flowing between agents</li>
+    <li><strong>NAT traversal</strong> - Concrete walkthrough of how agents behind different firewalls connect</li>
+    <li><strong>Zero configuration</strong> - Emphasis on one-command install, no infrastructure to manage</li>
+    <li><strong>Code examples</strong> - Go and Python examples you can copy and run</li>
+    <li><strong>Full scenario</strong> - Step-by-step from install to data flowing between agents</li>
   </ul>
 
-  <p>If you want the "why" — read the original post. If you want the "how" — you are in the right place.</p>
+  <p>If you want the "why" - read the original post. If you want the "how" - you are in the right place.</p>
   </section>
 
   <section>

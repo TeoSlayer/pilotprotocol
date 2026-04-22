@@ -60,7 +60,7 @@ const bodyContent = `<p>Building a reliable userspace transport stack from scrat
     }
 }</code></pre>
 
-<p>Scanning an array of several hundred inflight packets periodically is highly efficient in Go. In contrast, managing hundreds of individual timer objects places unnecessary strain on the heap. One goroutine, one ticker, one heap allocation for the timer itself — regardless of how many packets are in flight.</p>
+<p>Scanning an array of several hundred inflight packets periodically is highly efficient in Go. In contrast, managing hundreds of individual timer objects places unnecessary strain on the heap. One goroutine, one ticker, one heap allocation for the timer itself - regardless of how many packets are in flight.</p>
 </section>
 
 <section>
@@ -159,18 +159,18 @@ case <-dch:
 
 <p>Building a reliable transport layer in userspace is a rigorous technical challenge, but Go's standard library provided everything we needed out of the box. By combining the <code>crypto</code> packages for native security, the <code>time</code> and <code>sync</code> packages for efficient memory management, and the deep interface ecosystem of the <code>net</code> package, we built a high-performance overlay network without importing a single third-party dependency.</p>
 
-<p>If you are interested in networking, custom protocols, or how distributed AI agents will traverse firewalls to communicate in the future, dive into the Go standard library. You will find it is more powerful than you think. Explore the <a href="https://github.com/TeoSlayer/pilotprotocol">Pilot Protocol source on GitHub</a>, or read about <a href="/for/enterprise">running Pilot Protocol as an enterprise private network</a>.</p>
+<p>If you are interested in networking, custom protocols, or how distributed AI agents will traverse firewalls to communicate in the future, dive into the Go standard library. You will find it is more powerful than you think. Explore the <a href="https://github.com/TeoSlayer/pilotprotocol">Pilot Protocol source on GitHub</a>, or read the <a href="/docs/enterprise">enterprise deployment docs</a>.</p>
 </section>
 
 <div class="cta">
   <h3>Try Pilot Protocol</h3>
-  <p>A userspace transport, a 48-bit agent address space, NAT traversal, and end-to-end encryption — all in a single Go binary.</p>
+  <p>A userspace transport, a 48-bit agent address space, NAT traversal, and end-to-end encryption - all in a single Go binary.</p>
   <a href="/docs/getting-started">Get Started</a>
 </div>`;
 ---
 <BlogLayout
   title="Building a Userspace TCP-over-UDP Stack in Pure Go"
-  description="How we built a reliable transport layer in userspace for Pilot Protocol — sliding windows, Nagle, RTO, and AES-GCM — using only Go's standard library."
+  description="How we built a reliable transport layer in userspace for Pilot Protocol - sliding windows, Nagle, RTO, and AES-GCM - using only Go's standard library."
   date="April 19, 2026"
   tags={["go", "networking", "transport", "systems"]}
   canonicalPath="/blog/userspace-tcp-over-udp-stack-pure-go"

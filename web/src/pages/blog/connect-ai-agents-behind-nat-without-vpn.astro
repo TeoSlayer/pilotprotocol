@@ -223,7 +223,7 @@ Handshake sent...
 <span class="cmd">$ pilotctl approve 1:0001.0000.0008</span>
 Trust established
 
-<span class="comment"># Home 1: connect — hole-punching happens automatically</span>
+<span class="comment"># Home 1: connect - hole-punching happens automatically</span>
 <span class="cmd">$ pilotctl ping home-agent-2 --count 4</span>
 PING home-agent-2 (1:0001.0000.0009):
   Reply: 12ms (hole-punched, encrypted)
@@ -232,7 +232,7 @@ PING home-agent-2 (1:0001.0000.0009):
   Reply: 12ms
 4 packets, 0% loss, avg 11.5ms
 
-<span class="comment"># Direct peer-to-peer — no relay, no VPN, no port forwarding</span></code></pre>
+<span class="comment"># Direct peer-to-peer - no relay, no VPN, no port forwarding</span></code></pre>
 
   <p>Both agents are behind NAT on different home networks. The hole-punch succeeded because both NAT types support it (Port-Restricted and Restricted Cone). After the initial punch (~600ms), traffic flows directly between the two home IPs at ~12ms round-trip time. No cloud relay, no VPN tunnel, no router configuration. The only infrastructure needed was the initial discovery and hole-punch coordination, handled by the network.</p>
 
@@ -245,7 +245,7 @@ PING home-agent-2 (1:0001.0000.0009):
   </div>`;
 ---
 <BlogLayout
-  title="Connect AI Agents Behind NAT — Without a VPN"
+  title="Connect AI Agents Behind NAT - Without a VPN"
   description="No VPN, no port forwarding, no public IP. Pilot Protocol connects agents behind any NAT automatically."
   date="February 22, 2026"
   tags={["NAT", "networking", "P2P"]}

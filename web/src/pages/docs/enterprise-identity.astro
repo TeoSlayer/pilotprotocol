@@ -21,7 +21,7 @@ const bodyContent = `<h1>Identity & SSO</h1>
 
   <h2 id="overview">Overview</h2>
 
-  <p>Enterprise networks can integrate with external identity providers (IDPs) to centralize authentication. Instead of relying solely on Pilot&rsquo;s built-in Ed25519 keys, agents can present tokens from your organization&rsquo;s IDP &mdash; OIDC, SAML, Entra ID, LDAP, or a custom webhook &mdash; and the registry validates them before granting access.</p>
+  <p>Enterprise networks can integrate with external identity providers (IDPs) to centralize authentication. Instead of relying solely on Pilot&rsquo;s built-in Ed25519 keys, agents can present tokens from your organization&rsquo;s IDP - OIDC, SAML, Entra ID, LDAP, or a custom webhook - and the registry validates them before granting access.</p>
 
   <p>Identity integration is per-network. Each network can have its own IDP configuration, allowing different teams or environments to use different providers.</p>
 
@@ -30,11 +30,11 @@ const bodyContent = `<h1>Identity & SSO</h1>
   <table>
     <thead><tr><th>Provider</th><th>Type value</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><strong>OIDC</strong></td><td><code>oidc</code></td><td>OpenID Connect &mdash; standard JWT-based SSO. Works with Auth0, Okta, Google, etc.</td></tr>
-      <tr><td><strong>SAML</strong></td><td><code>saml</code></td><td>Security Assertion Markup Language &mdash; XML-based enterprise SSO.</td></tr>
-      <tr><td><strong>Entra ID</strong></td><td><code>entra_id</code></td><td>Microsoft Entra ID (Azure AD) &mdash; native integration for Microsoft environments.</td></tr>
-      <tr><td><strong>LDAP</strong></td><td><code>ldap</code></td><td>Lightweight Directory Access Protocol &mdash; on-premises directory servers.</td></tr>
-      <tr><td><strong>Webhook</strong></td><td><code>webhook</code></td><td>Custom HTTP callback &mdash; your own verification endpoint for non-standard systems.</td></tr>
+      <tr><td><strong>OIDC</strong></td><td><code>oidc</code></td><td>OpenID Connect - standard JWT-based SSO. Works with Auth0, Okta, Google, etc.</td></tr>
+      <tr><td><strong>SAML</strong></td><td><code>saml</code></td><td>Security Assertion Markup Language - XML-based enterprise SSO.</td></tr>
+      <tr><td><strong>Entra ID</strong></td><td><code>entra_id</code></td><td>Microsoft Entra ID (Azure AD) - native integration for Microsoft environments.</td></tr>
+      <tr><td><strong>LDAP</strong></td><td><code>ldap</code></td><td>Lightweight Directory Access Protocol - on-premises directory servers.</td></tr>
+      <tr><td><strong>Webhook</strong></td><td><code>webhook</code></td><td>Custom HTTP callback - your own verification endpoint for non-standard systems.</td></tr>
     </tbody>
   </table>
 
@@ -89,12 +89,12 @@ const bodyContent = `<h1>Identity & SSO</h1>
   <p>The validator checks:</p>
 
   <ul>
-    <li><strong>Signature</strong> &mdash; verified against the JWKS public key (RS256) or shared secret (HS256)</li>
-    <li><strong>Expiration</strong> (<code>exp</code>) &mdash; token must not be expired</li>
-    <li><strong>Not-before</strong> (<code>nbf</code>) &mdash; token must not be used before its valid time</li>
-    <li><strong>Issued-at</strong> (<code>iat</code>) &mdash; checked for reasonableness</li>
-    <li><strong>Issuer</strong> (<code>iss</code>) &mdash; must match the configured IDP URL</li>
-    <li><strong>Audience</strong> (<code>aud</code>) &mdash; must match the configured client ID</li>
+    <li><strong>Signature</strong> - verified against the JWKS public key (RS256) or shared secret (HS256)</li>
+    <li><strong>Expiration</strong> (<code>exp</code>) - token must not be expired</li>
+    <li><strong>Not-before</strong> (<code>nbf</code>) - token must not be used before its valid time</li>
+    <li><strong>Issued-at</strong> (<code>iat</code>) - checked for reasonableness</li>
+    <li><strong>Issuer</strong> (<code>iss</code>) - must match the configured IDP URL</li>
+    <li><strong>Audience</strong> (<code>aud</code>) - must match the configured client ID</li>
   </ul>
 
   <h2 id="jwks">JWKS caching</h2>
@@ -156,7 +156,7 @@ const bodyContent = `<h1>Identity & SSO</h1>
   "admin_token": "your-admin-token"
 }</code></pre>
 
-  <p>External IDs are free-form strings &mdash; email addresses, UPNs, LDAP DNs, or any identifier from your external system. They are stored in the registry and included in audit events. An <code>identity.external_id_set</code> audit event is emitted on change, recording both old and new values.</p>
+  <p>External IDs are free-form strings - email addresses, UPNs, LDAP DNs, or any identifier from your external system. They are stored in the registry and included in audit events. An <code>identity.external_id_set</code> audit event is emitted on change, recording both old and new values.</p>
 
   <h2 id="directory-sync">Directory sync</h2>
 
@@ -187,12 +187,12 @@ const bodyContent = `<h1>Identity & SSO</h1>
   <h3>What sync does</h3>
 
   <ol>
-    <li><strong>Matches entries</strong> &mdash; each entry is matched to a registered node by <code>node_id</code></li>
-    <li><strong>Joins to network</strong> &mdash; nodes not already in the network are added</li>
-    <li><strong>Maps roles</strong> &mdash; the <code>role</code> field sets the RBAC role (admin or member). Owner role cannot be assigned through sync.</li>
-    <li><strong>Sets external IDs</strong> &mdash; the <code>external_id</code> field is stored for identity mapping</li>
-    <li><strong>Applies tags</strong> &mdash; optional <code>tags</code> field sets the node&rsquo;s capability tags</li>
-    <li><strong>Removes unlisted</strong> &mdash; if <code>remove_unlisted</code> is true, members not in the entries list are kicked from the network</li>
+    <li><strong>Matches entries</strong> - each entry is matched to a registered node by <code>node_id</code></li>
+    <li><strong>Joins to network</strong> - nodes not already in the network are added</li>
+    <li><strong>Maps roles</strong> - the <code>role</code> field sets the RBAC role (admin or member). Owner role cannot be assigned through sync.</li>
+    <li><strong>Sets external IDs</strong> - the <code>external_id</code> field is stored for identity mapping</li>
+    <li><strong>Applies tags</strong> - optional <code>tags</code> field sets the node&rsquo;s capability tags</li>
+    <li><strong>Removes unlisted</strong> - if <code>remove_unlisted</code> is true, members not in the entries list are kicked from the network</li>
   </ol>
 
   <h3>RBAC pre-assignments</h3>
@@ -212,12 +212,12 @@ const bodyContent = `<h1>Identity & SSO</h1>
   <p>A <code>directory.synced</code> audit event is emitted after each sync, recording the network ID, number of entries added, removed, and role changes.</p>
 
   <div class="callout">
-    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> &mdash; role definitions and the permissions matrix. <a href="enterprise-blueprints">Blueprints</a> &mdash; include IDP configuration in declarative provisioning.
+    <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> - role definitions and the permissions matrix. <a href="enterprise-blueprints">Blueprints</a> - include IDP configuration in declarative provisioning.
   </div>`;
 ---
 <DocLayout
   title="Identity & SSO"
-  description="Identity provider integration for Pilot Protocol — OIDC, SAML, Entra ID, LDAP, JWT validation, JWKS caching, and directory sync."
+  description="Identity provider integration for Pilot Protocol - OIDC, SAML, Entra ID, LDAP, JWT validation, JWKS caching, and directory sync."
   activePage="enterprise-identity"
   canonicalPath="/docs/enterprise-identity"
   prev={{ label: "RBAC & Access Control", href: "/docs/enterprise-rbac" }}

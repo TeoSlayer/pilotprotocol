@@ -6,7 +6,7 @@ const bodyContent = `
 
 <h2 id="what-shipped">What Shipped</h2>
 
-<p>The registry now supports the full network lifecycle. An admin with a token can create isolated networks, add and remove members, list network membership, and delete networks entirely. These operations are gated by a cryptographic admin token &mdash; no token, no mutation.</p>
+<p>The registry now supports the full network lifecycle. An admin with a token can create isolated networks, add and remove members, list network membership, and delete networks entirely. These operations are gated by a cryptographic admin token - no token, no mutation.</p>
 
 <p>Here is what a session looks like from the admin CLI:</p>
 
@@ -32,16 +32,16 @@ pilot-admin -registry host:9000 -token $TOKEN remove-node \\
 pilot-admin -registry host:9000 -token $TOKEN delete-network \\
   -network 1</code></pre>
 
-<p>All operations persist to disk immediately. Deleting a network cleans up member references &mdash; no orphaned state.</p>
+<p>All operations persist to disk immediately. Deleting a network cleans up member references - no orphaned state.</p>
 
 <h2 id="join-rules">Three Join Rules</h2>
 
 <p>Networks support three access control models:</p>
 
 <ul>
-  <li><strong>Open</strong> &mdash; any registered node can join. Good for dev/test environments.</li>
-  <li><strong>Token</strong> &mdash; joining requires a shared secret. The token is set at network creation time. Suitable for team-level isolation where you can distribute a token out of band.</li>
-  <li><strong>Invite</strong> &mdash; an existing member must vouch for the new node. The strongest access control: membership spreads only through the trust graph.</li>
+  <li><strong>Open</strong> - any registered node can join. Good for dev/test environments.</li>
+  <li><strong>Token</strong> - joining requires a shared secret. The token is set at network creation time. Suitable for team-level isolation where you can distribute a token out of band.</li>
+  <li><strong>Invite</strong> - an existing member must vouch for the new node. The strongest access control: membership spreads only through the trust graph.</li>
 </ul>
 
 <h2 id="what-private-means">What "Private Network" Actually Means</h2>
@@ -68,7 +68,7 @@ pilot-admin -registry host:9000 -token $TOKEN delete-network \\
   <li><strong>Global reachability.</strong> Even within a private network, the actual UDP tunnel is established using backbone addressing. The private network provides <em>authorization</em> (who can connect), but the backbone provides <em>connectivity</em> (how to reach them).</li>
 </ul>
 
-<p>This means a node cannot exist <em>only</em> on a private network today. It always has a backbone presence. For many use cases this is fine &mdash; the node is private-by-default and invisible to anyone without trust or shared network membership. But for use cases where you want zero backbone footprint (a node that the registry itself only associates with a specific network), that requires deeper architectural work.</p>
+<p>This means a node cannot exist <em>only</em> on a private network today. It always has a backbone presence. For many use cases this is fine - the node is private-by-default and invisible to anyone without trust or shared network membership. But for use cases where you want zero backbone footprint (a node that the registry itself only associates with a specific network), that requires deeper architectural work.</p>
 
 <h2 id="whats-next">What Is Coming</h2>
 
@@ -76,7 +76,7 @@ pilot-admin -registry host:9000 -token $TOKEN delete-network \\
 
 <h3>Network-Scoped Registration (Phase 2)</h3>
 
-<p>Agents specify a target network at startup. The daemon auto-joins configured networks after registration, so deploying a fleet to a private network is a single config change &mdash; no manual <code>add-node</code> commands.</p>
+<p>Agents specify a target network at startup. The daemon auto-joins configured networks after registration, so deploying a fleet to a private network is a single config change - no manual <code>add-node</code> commands.</p>
 
 <h3>Backbone-Optional Nodes (Phase 3)</h3>
 
@@ -94,14 +94,14 @@ pilot-admin -registry host:9000 -token $TOKEN delete-network \\
 
 <p>Private networks are live on the production registry as of March 2026. The admin CLI runs on the registry host. We are testing network lifecycle operations under load and validating that trust semantics (auto-trust, SYN gating, resolve privacy) work correctly across all NAT configurations.</p>
 
-<p>If you are interested in trying private networks for your agent deployment, create an account on the <a href="https://console.pilotprotocol.network">Pilot Console</a> and set up your first network in minutes.</p>
+<p>If you are interested in trying private networks for your agent deployment, reach out - private networks are in early access and we onboard teams directly.</p>
 
 <div class="cta">
   <h3>Get Started</h3>
-  <p>Create an account on the Pilot Console and manage your agent networks from a browser.</p>
-  <a href="https://console.pilotprotocol.network">Open Console</a>
+  <p>Private networks are in early access. See <a href="/plans">plans</a> or talk to the team to set up your first network.</p>
+  <a href="mailto:founders@pilotprotocol.network?subject=Pilot%20Private%20Network%20(Early%20Access)">Contact Us</a>
   &nbsp;&middot;&nbsp;
-  <a href="/docs/console">Console Docs</a>
+  <a href="/plans">See Plans</a>
   &nbsp;&middot;&nbsp;
   <a href="/blog/enterprise-private-networks-roadmap">Full Enterprise Roadmap</a>
 </div>`;

@@ -47,8 +47,8 @@ const bodyContent = `<script type="application/ld+json">
 <li><a href="#example-2%3A-libp2p-%E2%80%93-modular-stack-for-secure-agent-communication">Example 2: libp2p – Modular stack for secure agent communication</a></li>
 <li><a href="#example-3%3A-ipfs-%E2%80%93-distributed-content-storage-and-retrieval-for-autonomy">Example 3: IPFS – Distributed content storage and retrieval for autonomy</a></li>
 <li><a href="#comparison-table%3A-bittorrent-vs-libp2p-vs-ipfs-for-ai-networking">Comparison table: BitTorrent vs libp2p vs IPFS for AI networking</a></li>
-<li><a href="#what-traditional-p2p-architecture-guides-miss%E2%80%94and-how-to-future-proof-your-design">What traditional P2P architecture guides miss—and how to future-proof your design</a></li>
-<li><a href="#scale-your-autonomous-agent-networking%E2%80%94next-steps-with-pilot-protocol">Scale your autonomous agent networking—next steps with Pilot Protocol</a></li>
+<li><a href="#what-traditional-p2p-architecture-guides-miss%E2%80%94and-how-to-future-proof-your-design">What traditional P2P architecture guides miss-and how to future-proof your design</a></li>
+<li><a href="#scale-your-autonomous-agent-networking%E2%80%94next-steps-with-pilot-protocol">Scale your autonomous agent networking-next steps with Pilot Protocol</a></li>
 <li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
 </ul>
 <h2 id="key-takeaways" tabindex="-1">Key Takeaways</h2>
@@ -219,13 +219,13 @@ const bodyContent = `<script type="application/ld+json">
 </tbody>
 </table>
 <p>DHT+PEX+Magnet links reduce time-to-first-byte by 4.1x versus tracker-only discovery, with 22% less RAM usage for peer discovery in modern clients. That kind of efficiency matters when you are managing hundreds of agent nodes.</p>
-<h2 id="what-traditional-p2p-architecture-guides-missand-how-to-future-proof-your-design" tabindex="-1">What traditional P2P architecture guides miss—and how to future-proof your design</h2>
+<h2 id="what-traditional-p2p-architecture-guides-missand-how-to-future-proof-your-design" tabindex="-1">What traditional P2P architecture guides miss-and how to future-proof your design</h2>
 <p>Most P2P architecture articles stop at the checklist. They tell you to use DHTs, enable encryption, and handle NAT. What they do not tell you is that production failures almost never come from missing these basics. They come from the operational layer nobody documented.</p>
 <p>We have seen AI agent mesh networks destabilized not by a protocol flaw, but by missed stream closures accumulating over days, eventually exhausting goroutine pools. Private IP ranges leaking into address announcements caused relay routing loops that were nearly impossible to trace without structured logging.</p>
 <p>The lesson: monitoring and observability are not optional extras. Build them in before your first production deploy. Log every connection event, stream lifecycle, and peer churn event from day one.</p>
 <p>For <a href="https://pilotprotocol.network/blog/openclaw-agents-behind-nat-zero-config">zero-config NAT traversal</a> scenarios, your fallback relay must be tested under load, not just in happy-path integration tests. Relay latency under congestion behaves very differently than in a dev environment.</p>
 <p>Future-proofing your design means building for modularity at every layer. If your transport is swappable, your security layer is pluggable, and your discovery mechanism is independent of your data exchange logic, you can upgrade each component without a full rewrite. Follow networking best practices to structure your system for long-term operational stability, not just initial correctness.</p>
-<h2 id="scale-your-autonomous-agent-networkingnext-steps-with-pilot-protocol" tabindex="-1">Scale your autonomous agent networking—next steps with Pilot Protocol</h2>
+<h2 id="scale-your-autonomous-agent-networkingnext-steps-with-pilot-protocol" tabindex="-1">Scale your autonomous agent networking-next steps with Pilot Protocol</h2>
 <p>The architectures above give you the building blocks. Pilot Protocol brings them together in a production-ready platform designed specifically for AI agent fleets and distributed systems.</p>
 <p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
 <p>With <a href="https://pilotprotocol.network">Pilot Protocol</a>, you get persistent virtual addresses, encrypted tunnels, automatic NAT punch-through, and trust establishment across multi-cloud and cross-region deployments. No central broker. No manual firewall rules. You can wrap your existing HTTP, gRPC, or SSH traffic inside Pilot Protocol’s overlay and connect agents that live in completely different network environments.</p>
@@ -246,7 +246,7 @@ const bodyContent = `<script type="application/ld+json">
 <li><a href="https://pilotprotocol.network/blog/ai-networking-best-practices-secure-scalable-systems">AI networking best practices for secure, scalable systems</a></li>
 <li><a href="https://pilotprotocol.network/blog/decentralized-networking-p2p-solutions-ai-architectures">Decentralized networking: P2P solutions for AI architectures</a></li>
 <li><a href="https://pilotprotocol.network/blog/ai-networking-terminology-a2a-mcp-anp-protocols">AI networking terminology explained: A2A, MCP, ANP protocols</a></li>
-<li><a href="https://pilotprotocol.network">Pilot Protocol — The network stack for AI agents</a></li>
+<li><a href="https://pilotprotocol.network">Pilot Protocol - The network stack for AI agents</a></li>
 </ul>`;
 ---
 <BlogLayout

@@ -2,7 +2,7 @@
 import DocLayout from "../../layouts/DocLayout.astro";
 
 const bodyContent = `<h1>Blueprints</h1>
-  <p class="subtitle">Declarative network provisioning &mdash; one JSON document, one command, full network setup.</p>
+  <p class="subtitle">Declarative network provisioning - one JSON document, one command, full network setup.</p>
 
   <div class="toc">
     <h4>On this page</h4>
@@ -80,16 +80,16 @@ const bodyContent = `<h1>Blueprints</h1>
   <p>When a blueprint is applied, the registry executes these steps in order:</p>
 
   <ol>
-    <li><strong>Find or create</strong> &mdash; look up the network by name. If it exists, use it. If not, create it with the specified join rule.</li>
-    <li><strong>Enable enterprise</strong> &mdash; if <code>enterprise: true</code> and the network is not yet enterprise, enable it.</li>
-    <li><strong>Set policies</strong> &mdash; apply the <code>policy</code> object using merge-on-update semantics.</li>
-    <li><strong>Configure IDP</strong> &mdash; set the identity provider configuration if specified.</li>
-    <li><strong>Configure audit export</strong> &mdash; set the audit export endpoint and format if specified.</li>
-    <li><strong>Configure webhooks</strong> &mdash; register webhook endpoints if specified.</li>
-    <li><strong>Assign roles</strong> &mdash; for each entry in <code>roles</code>, set the RBAC role. Nodes must already be members of the network.</li>
+    <li><strong>Find or create</strong> - look up the network by name. If it exists, use it. If not, create it with the specified join rule.</li>
+    <li><strong>Enable enterprise</strong> - if <code>enterprise: true</code> and the network is not yet enterprise, enable it.</li>
+    <li><strong>Set policies</strong> - apply the <code>policy</code> object using merge-on-update semantics.</li>
+    <li><strong>Configure IDP</strong> - set the identity provider configuration if specified.</li>
+    <li><strong>Configure audit export</strong> - set the audit export endpoint and format if specified.</li>
+    <li><strong>Configure webhooks</strong> - register webhook endpoints if specified.</li>
+    <li><strong>Assign roles</strong> - for each entry in <code>roles</code>, set the RBAC role. Nodes must already be members of the network.</li>
   </ol>
 
-  <p>Each step is independent &mdash; if a later step fails, earlier steps are not rolled back. The result includes which actions were taken and which failed.</p>
+  <p>Each step is independent - if a later step fails, earlier steps are not rolled back. The result includes which actions were taken and which failed.</p>
 
   <h2 id="idempotency">Idempotency</h2>
 
@@ -113,7 +113,7 @@ const bodyContent = `<h1>Blueprints</h1>
     <li><strong><code>policy.allowed_ports</code></strong> must have &le; 100 entries</li>
     <li><strong><code>policy.description</code></strong> must be &le; 256 characters</li>
     <li><strong><code>identity_provider.type</code></strong> must be a valid provider type (<code>oidc</code>, <code>saml</code>, <code>entra_id</code>, <code>ldap</code>, <code>webhook</code>)</li>
-    <li><strong><code>roles</code></strong> values must be <code>admin</code> or <code>member</code> (not <code>owner</code> &mdash; ownership is assigned to the creator)</li>
+    <li><strong><code>roles</code></strong> values must be <code>admin</code> or <code>member</code> (not <code>owner</code> - ownership is assigned to the creator)</li>
   </ul>
 
   <p>If validation fails, no changes are made and the error is returned immediately.</p>
@@ -173,12 +173,12 @@ result, err := client.ProvisionNetwork(bp, nodeID, adminToken)</code></pre>
   <p>Returns the network&rsquo;s current configuration as seen by the registry: enterprise status, policies, IDP config, webhook endpoints, audit export, and role assignments. Use this to verify that a blueprint was applied correctly or to diff the current state against a desired state.</p>
 
   <div class="callout">
-    <strong>See also:</strong> <a href="enterprise">Enterprise Overview</a> &mdash; the full enterprise feature set. <a href="enterprise-policies">Network Policies</a> &mdash; policy fields that blueprints configure. <a href="enterprise-audit#export">Audit Export</a> &mdash; export formats and delivery guarantees.
+    <strong>See also:</strong> <a href="enterprise">Enterprise Overview</a> - the full enterprise feature set. <a href="enterprise-policies">Network Policies</a> - policy fields that blueprints configure. <a href="enterprise-audit#export">Audit Export</a> - export formats and delivery guarantees.
   </div>`;
 ---
 <DocLayout
   title="Blueprints"
-  description="Blueprint provisioning for Pilot Protocol — declarative JSON documents that provision entire enterprise networks in one command."
+  description="Blueprint provisioning for Pilot Protocol - declarative JSON documents that provision entire enterprise networks in one command."
   activePage="enterprise-blueprints"
   canonicalPath="/docs/enterprise-blueprints"
   prev={{ label: "Audit & Compliance", href: "/docs/enterprise-audit" }}

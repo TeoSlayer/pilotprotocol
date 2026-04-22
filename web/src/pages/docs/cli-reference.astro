@@ -40,7 +40,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="context">Self-discovery</h3>
   <pre><code><span class="cmd">pilotctl</span> --json context</code></pre>
-  <p>Returns the full command schema — use this to discover capabilities at runtime.</p>
+  <p>Returns the full command schema - use this to discover capabilities at runtime.</p>
 
   <h2 id="bootstrap">Bootstrap</h2>
 
@@ -131,7 +131,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Listens for datagrams. Without <code>--count</code>: streams NDJSON indefinitely.</p>
   <p>Returns: <code>messages</code> [{<code>src_addr</code>, <code>src_port</code>, <code>data</code>, <code>bytes</code>}], <code>timeout</code> (bool)</p>
 
-  <h3 id="broadcast">broadcast <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(WIP — not yet available)</span></h3>
+  <h3 id="broadcast">broadcast <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(WIP - not yet available)</span></h3>
   <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
   <p>Will send a datagram to all members of a network. Returns <code>"not available yet"</code> in the current release.</p>
 
@@ -248,15 +248,15 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h2 id="service-agents">Service Agents</h2>
 
-  <p>High-level shortcuts for interacting with Gemini-powered service agents running on the overlay network. Replies are delivered via the inbox — the command blocks until the agent responds (default: 120 s timeout).</p>
+  <p>High-level shortcuts for interacting with Gemini-powered service agents running on the overlay network. Replies are delivered via the inbox - the command blocks until the agent responds (default: 120 s timeout).</p>
 
   <h3 id="ai">ai</h3>
   <pre><code><span class="cmd">pilotctl</span> ai "&lt;query&gt;" [--node &lt;address&gt;] [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
   <p>Sends a natural-language query to the <strong>pilot-agent</strong> AI assistant and waits for the reply.</p>
   <p>The target node is read from <code>~/.pilot/scriptorium.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
   <ul>
-    <li><code>--output-file &lt;path&gt;</code> — save reply to a file instead of printing; omit the path for a timestamped filename.</li>
-    <li><code>--timeout</code> — how long to wait for the reply (default: <code>120s</code>).</li>
+    <li><code>--output-file &lt;path&gt;</code> - save reply to a file instead of printing; omit the path for a timestamped filename.</li>
+    <li><code>--timeout</code> - how long to wait for the reply (default: <code>120s</code>).</li>
   </ul>
   <p>Returns: <code>reply</code> (human-readable text from the AI)</p>
   <pre><code><span class="comment"># Ask anything about pilotctl</span>
@@ -274,9 +274,9 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Sends an OpenClaw security audit request to the <strong>claw-audit</strong> agent and waits for the report.</p>
   <p>The target node is read from <code>~/.pilot/clawdit.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
   <ul>
-    <li><code>--file &lt;path&gt;</code> — path to an <code>openclaw.json</code> config to audit; when provided, the agent uses this file instead of reading from the remote machine's filesystem.</li>
-    <li><code>--output-file &lt;path&gt;</code> — save the audit report to a file.</li>
-    <li><code>--timeout</code> — how long to wait (default: <code>120s</code>; audits can be slow).</li>
+    <li><code>--file &lt;path&gt;</code> - path to an <code>openclaw.json</code> config to audit; when provided, the agent uses this file instead of reading from the remote machine's filesystem.</li>
+    <li><code>--output-file &lt;path&gt;</code> - save the audit report to a file.</li>
+    <li><code>--timeout</code> - how long to wait (default: <code>120s</code>; audits can be slow).</li>
   </ul>
   <p>Without a query, runs a full security audit by default.</p>
   <p>Returns: <code>reply</code> (formatted audit report)</p>
@@ -294,7 +294,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="scriptorium">scriptorium</h3>
   <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; [body] [--node &lt;address|hostname&gt;]</code></pre>
-  <p>Low-level command dispatcher. Sends <code>{"command":"&lt;name&gt;","body":"&lt;args&gt;"}</code> to a responder node and prints the transport ACK. Does <em>not</em> wait for a reply — use <code>pilotctl inbox</code> to read the response. Target node is read from <code>~/.pilot/scriptorium.yaml</code>.</p>
+  <p>Low-level command dispatcher. Sends <code>{"command":"&lt;name&gt;","body":"&lt;args&gt;"}</code> to a responder node and prints the transport ACK. Does <em>not</em> wait for a reply - use <code>pilotctl inbox</code> to read the response. Target node is read from <code>~/.pilot/scriptorium.yaml</code>.</p>
   <p>See <a href="/docs/service-agents">Service Agents</a> for the full dispatch flow and how to build your own agents.</p>
 
   <h2 id="diagnostics">Diagnostics</h2>
@@ -427,9 +427,9 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> audit-export &lt;get|set|disable&gt; [options]</code></pre>
   <p>Configure external audit log export. Subcommands:</p>
   <ul>
-    <li><code>get</code> — show current export config</li>
-    <li><code>set --format &lt;json|splunk_hec|syslog_cef&gt; --endpoint &lt;URL&gt;</code> — configure export</li>
-    <li><code>disable</code> — disable export</li>
+    <li><code>get</code> - show current export config</li>
+    <li><code>set --format &lt;json|splunk_hec|syslog_cef&gt; --endpoint &lt;URL&gt;</code> - configure export</li>
+    <li><code>disable</code> - disable export</li>
   </ul>
   <p>Requires admin token.</p>
 
@@ -445,8 +445,8 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> idp &lt;get|set&gt; [options]</code></pre>
   <p>Get or set the identity provider configuration. Subcommands:</p>
   <ul>
-    <li><code>get</code> — show current IdP config</li>
-    <li><code>set --type &lt;oidc|saml|entra_id|ldap|webhook&gt; --url &lt;URL&gt; [--issuer URL] [--client-id ID] [--tenant-id ID]</code> — configure IdP</li>
+    <li><code>get</code> - show current IdP config</li>
+    <li><code>set --type &lt;oidc|saml|entra_id|ldap|webhook&gt; --url &lt;URL&gt; [--issuer URL] [--client-id ID] [--tenant-id ID]</code> - configure IdP</li>
   </ul>
   <p>Requires admin token.</p>
 
@@ -480,7 +480,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="gateway-start">gateway start</h3>
   <pre><code><span class="cmd">pilotctl</span> gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
-  <p>Maps pilot addresses to local IPs on a private subnet (default: <code>10.4.0.0/16</code>). Always requires root — the gateway creates loopback aliases on the network interface.</p>
+  <p>Maps pilot addresses to local IPs on a private subnet (default: <code>10.4.0.0/16</code>). Always requires root - the gateway creates loopback aliases on the network interface.</p>
   <p>Returns: <code>pid</code>, <code>subnet</code>, <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}]</p>
 
   <h3 id="gateway-stop">gateway stop</h3>
@@ -501,7 +501,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 ---
 <DocLayout
   title="CLI Reference"
-  description="Complete reference for all pilotctl commands — syntax, flags, return values, and examples."
+  description="Complete reference for all pilotctl commands - syntax, flags, return values, and examples."
   activePage="cli-reference"
   canonicalPath="/docs/cli-reference"
   prev={{ label: "Core Concepts", href: "/docs/concepts" }}

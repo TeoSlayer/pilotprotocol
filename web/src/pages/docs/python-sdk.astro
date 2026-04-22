@@ -32,9 +32,9 @@ const bodyContent = `<h1>Python SDK</h1>
   <pre><code>pip install pilotprotocol</code></pre>
   <p>This installs:</p>
   <ul>
-    <li><strong>Python SDK</strong> — <code>pilotprotocol</code> module with <code>Driver</code> class</li>
-    <li><strong>CLI Tools</strong> — <code>pilotctl</code>, <code>pilot-daemon</code>, <code>pilot-gateway</code> executables</li>
-    <li><strong>Native Binaries</strong> — Platform-specific Go binaries bundled in the wheel</li>
+    <li><strong>Python SDK</strong> - <code>pilotprotocol</code> module with <code>Driver</code> class</li>
+    <li><strong>CLI Tools</strong> - <code>pilotctl</code>, <code>pilot-daemon</code>, <code>pilot-gateway</code> executables</li>
+    <li><strong>Native Binaries</strong> - Platform-specific Go binaries bundled in the wheel</li>
   </ul>
 
   <h2 id="quick-start">Quick Start</h2>
@@ -68,69 +68,69 @@ with Driver() as d:
   <pre><code class="language-python">driver = Driver(socket_path: str = "/tmp/pilot.sock")</code></pre>
   <p><strong>Parameters:</strong></p>
   <ul>
-    <li><code>socket_path</code> — Path to the daemon's Unix socket (default: <code>/tmp/pilot.sock</code>)</li>
+    <li><code>socket_path</code> - Path to the daemon's Unix socket (default: <code>/tmp/pilot.sock</code>)</li>
   </ul>
 
   <h4>Core Methods</h4>
 
-  <p><strong><code>info()</code></strong> — Returns agent information (address, hostname, public visibility, uptime).</p>
+  <p><strong><code>info()</code></strong> - Returns agent information (address, hostname, public visibility, uptime).</p>
   <pre><code class="language-python">d.info() -&gt; dict
 # {"address": "0:0000.0000.0042", "hostname": "my-agent", "public": false, "uptime": 3600}</code></pre>
 
-  <p><strong><code>dial()</code></strong> — Opens a stream connection to a peer. Returns a <code>Conn</code> object.</p>
+  <p><strong><code>dial()</code></strong> - Opens a stream connection to a peer. Returns a <code>Conn</code> object.</p>
   <pre><code class="language-python">with d.dial("other-agent:1000") as conn:
     conn.write(b"data")
     response = conn.read(1024)</code></pre>
 
-  <p><strong><code>listen()</code></strong> — Listens for incoming connections on a port. Returns a <code>Listener</code>.</p>
+  <p><strong><code>listen()</code></strong> - Listens for incoming connections on a port. Returns a <code>Listener</code>.</p>
   <pre><code class="language-python">with d.listen(5000) as listener:
     conn = listener.accept()
     data = conn.read(1024)</code></pre>
 
-  <p><strong><code>resolve_hostname()</code></strong> — Resolves a hostname to a virtual address.</p>
+  <p><strong><code>resolve_hostname()</code></strong> - Resolves a hostname to a virtual address.</p>
   <pre><code class="language-python">d.resolve_hostname("other-agent") -&gt; {"address": "0:0000.0000.0042"}</code></pre>
 
   <h4>High-Level Service Methods</h4>
 
-  <p><strong><code>send_message()</code></strong> — Send via data exchange service (port 1001).</p>
+  <p><strong><code>send_message()</code></strong> - Send via data exchange service (port 1001).</p>
   <pre><code class="language-python">result = d.send_message("other-agent", b"Hello!", "text")</code></pre>
 
-  <p><strong><code>send_file()</code></strong> — Send a file via data exchange (port 1001).</p>
+  <p><strong><code>send_file()</code></strong> - Send a file via data exchange (port 1001).</p>
   <pre><code class="language-python">result = d.send_file("other-agent", "/path/to/file.pdf")</code></pre>
 
-  <p><strong><code>publish_event()</code></strong> — Publish via event stream (port 1002).</p>
+  <p><strong><code>publish_event()</code></strong> - Publish via event stream (port 1002).</p>
   <pre><code class="language-python">d.publish_event("other-agent", "sensor/temp", b"23.5")</code></pre>
 
-  <p><strong><code>subscribe_event()</code></strong> — Subscribe to events. Use <code>*</code> as a wildcard for a single topic segment.</p>
+  <p><strong><code>subscribe_event()</code></strong> - Subscribe to events. Use <code>*</code> as a wildcard for a single topic segment.</p>
   <pre><code class="language-python">def on_event(topic, data):
     print(f"{topic}: {data}")
 
 d.subscribe_event("other-agent", "sensor/*", on_event)  # matches sensor/temp, sensor/humidity, etc.</code></pre>
 
-  <p><strong><code>submit_task()</code></strong> — Submit a task via task service (port 1003).</p>
+  <p><strong><code>submit_task()</code></strong> - Submit a task via task service (port 1003).</p>
   <pre><code class="language-python">result = d.submit_task("worker-agent", {"command": "process", "params": {"input": "data.txt"}})</code></pre>
 
   <h4>Administration Methods</h4>
   <ul>
-    <li><code>set_hostname(hostname: str)</code> — Set or update hostname</li>
-    <li><code>set_visibility(public: bool)</code> — Set public visibility</li>
-    <li><code>set_tags(tags: list[str])</code> — Set capability tags (max 3)</li>
-    <li><code>set_webhook(url: str)</code> — Set or clear webhook URL</li>
+    <li><code>set_hostname(hostname: str)</code> - Set or update hostname</li>
+    <li><code>set_visibility(public: bool)</code> - Set public visibility</li>
+    <li><code>set_tags(tags: list[str])</code> - Set capability tags (max 3)</li>
+    <li><code>set_webhook(url: str)</code> - Set or clear webhook URL</li>
   </ul>
 
   <h3 id="conn">Conn</h3>
   <p>Represents an active stream connection. Supports context management (<code>with</code> statement).</p>
   <ul>
-    <li><code>write(data: bytes) -&gt; int</code> — Write data, returns bytes written</li>
-    <li><code>read(size: int = 65536) -&gt; bytes</code> — Read data (blocks until data arrives)</li>
-    <li><code>close()</code> — Close the connection</li>
+    <li><code>write(data: bytes) -&gt; int</code> - Write data, returns bytes written</li>
+    <li><code>read(size: int = 65536) -&gt; bytes</code> - Read data (blocks until data arrives)</li>
+    <li><code>close()</code> - Close the connection</li>
   </ul>
 
   <h3 id="listener">Listener</h3>
   <p>Listens for incoming connections. Supports context management.</p>
   <ul>
-    <li><code>accept() -&gt; Conn</code> — Accept incoming connection (blocks)</li>
-    <li><code>close()</code> — Close the listener</li>
+    <li><code>accept() -&gt; Conn</code> - Accept incoming connection (blocks)</li>
+    <li><code>close()</code> - Close the listener</li>
   </ul>
 
   <h2 id="usage-examples">Usage Examples</h2>
@@ -189,36 +189,36 @@ with Driver() as d:
         print(f"Error: {e}")  # e.g., "no route to host"</code></pre>
   <p><strong>Common exceptions:</strong></p>
   <ul>
-    <li><code>PilotError</code> — Connection failures, protocol errors</li>
-    <li><code>FileNotFoundError</code> — Library or file not found</li>
-    <li><code>ValueError</code> — Invalid parameters</li>
+    <li><code>PilotError</code> - Connection failures, protocol errors</li>
+    <li><code>FileNotFoundError</code> - Library or file not found</li>
+    <li><code>ValueError</code> - Invalid parameters</li>
   </ul>
 
   <h2 id="cli-tools">CLI Tools</h2>
   <p>The package includes CLI wrappers for the Go binaries:</p>
   <ul>
-    <li><code>pilotctl</code> — Main CLI tool (equivalent to the Go binary)</li>
-    <li><code>pilot-daemon</code> — Start the daemon</li>
-    <li><code>pilot-gateway</code> — Start the IP gateway</li>
+    <li><code>pilotctl</code> - Main CLI tool (equivalent to the Go binary)</li>
+    <li><code>pilot-daemon</code> - Start the daemon</li>
+    <li><code>pilot-gateway</code> - Start the IP gateway</li>
   </ul>
   <p>These are standard Python console script entry points that execute the bundled binaries.</p>
 
   <h2 id="platform-support">Platform Support</h2>
   <p>The SDK provides platform-specific wheels for:</p>
   <ul>
-    <li><strong>Linux</strong> — x86_64 (manylinux)</li>
-    <li><strong>macOS</strong> — x86_64, ARM64 (Apple Silicon)</li>
+    <li><strong>Linux</strong> - x86_64 (manylinux)</li>
+    <li><strong>macOS</strong> - x86_64, ARM64 (Apple Silicon)</li>
   </ul>
   <p>Windows support is planned for a future release.</p>
 
   <h2 id="architecture">Architecture</h2>
   <p>The Python SDK uses <code>ctypes</code> to call Go functions exported via CGO:</p>
   <ul>
-    <li><strong>FFI Layer</strong> — <code>ctypes</code> bindings to <code>libpilot.so/.dylib</code></li>
-    <li><strong>Single Source of Truth</strong> — All SDK calls go through the same Go code the CLI uses</li>
-    <li><strong>Memory Management</strong> — Automatic cleanup of Go-allocated strings</li>
-    <li><strong>Handle Pattern</strong> — Opaque handles for connections and listeners</li>
-    <li><strong>Error Handling</strong> — Go errors converted to Python exceptions</li>
+    <li><strong>FFI Layer</strong> - <code>ctypes</code> bindings to <code>libpilot.so/.dylib</code></li>
+    <li><strong>Single Source of Truth</strong> - All SDK calls go through the same Go code the CLI uses</li>
+    <li><strong>Memory Management</strong> - Automatic cleanup of Go-allocated strings</li>
+    <li><strong>Handle Pattern</strong> - Opaque handles for connections and listeners</li>
+    <li><strong>Error Handling</strong> - Go errors converted to Python exceptions</li>
   </ul>
 
   <pre><code>┌─────────────┐    ctypes/FFI    ┌──────────────┐    Unix socket    ┌────────┐
@@ -239,7 +239,7 @@ with Driver() as d:
 ---
 <DocLayout
   title="Python SDK"
-  description="Complete Python SDK documentation for Pilot Protocol — installation, usage, API reference, and examples."
+  description="Complete Python SDK documentation for Pilot Protocol - installation, usage, API reference, and examples."
   activePage="python-sdk"
   canonicalPath="/docs/python-sdk"
   prev={{ label: "Go SDK", href: "/docs/go-sdk" }}

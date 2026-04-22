@@ -10,35 +10,35 @@ const bodyContent = `<p>You want to contribute to Pilot Protocol. You have clone
 
   <p>The repository follows standard Go project layout: <code>pkg/</code> for library packages, <code>cmd/</code> for binaries, <code>internal/</code> for private utilities, and <code>tests/</code> for integration tests. Here is what each package does and where the important files live.</p>
 
-  <h3>pkg/protocol &mdash; Addresses, Headers, CRC</h3>
+  <h3>pkg/protocol - Addresses, Headers, CRC</h3>
 
   <p>This is the foundation layer. It defines the 48-bit virtual address format (<code>[16-bit network][32-bit node]</code>, text format <code>N:NNNN.HHHH.LLLL</code>), the 34-byte packet header structure, and CRC32 checksum computation. Every other package imports <code>protocol</code>. If you are fixing a serialization bug or adding a new message type, this is where you start. The address parsing is strict: there is regex validation plus reserved word checks, and the text format must match exactly. The header includes fields for source/destination addresses, port numbers, sequence numbers, flags, window size, and checksum. All multi-byte fields are big-endian.</p>
 
-  <h3>pkg/daemon &mdash; The Core Engine</h3>
+  <h3>pkg/daemon - The Core Engine</h3>
 
   <p>The daemon is the heart of Pilot Protocol. It manages the UDP tunnel, handles NAT traversal, runs the port manager, processes IPC commands from the CLI, and coordinates encryption. This is the largest package and the one you will spend the most time reading. Key files handle tunnel read/write loops, connection state machines (SYN/ACK/FIN lifecycle), sliding window transport with AIMD congestion control, flow control with advertised receive windows, Nagle algorithm for small-packet coalescing, auto-segmentation for payloads larger than MTU, keepalive probes, idle timeouts, and graceful shutdown. The daemon also manages STUN discovery (which must happen before the tunnel read loop starts, since they share the UDP socket), trust state persistence, and the handshake relay through the registry for private nodes. If you are working on transport reliability, congestion behavior, or connection lifecycle, this is the package.</p>
 
-  <h3>pkg/registry &mdash; TCP Server, Node Lifecycle, Persistence</h3>
+  <h3>pkg/registry - TCP Server, Node Lifecycle, Persistence</h3>
 
   <p>The registry is the rendezvous server's brain. It handles node registration, hostname assignment, address resolution, network management, and hot-standby replication. The server accepts TCP connections and speaks a JSON-based protocol. Node lifecycle includes registration (with server-generated or client-provided identity), re-registration after disconnect, hostname assignment with collision detection, visibility toggling (public vs. private), network join/leave operations, and deregistration. Persistence uses atomic JSON snapshots: the entire registry state is serialized and written to a temp file, then atomically renamed over the previous snapshot. Hot-standby replication pushes these snapshots to a standby server on a 15-second heartbeat. If you are working on discovery, node management, or multi-server coordination, start here.</p>
 
-  <h3>pkg/beacon &mdash; STUN, Hole-Punch, Relay</h3>
+  <h3>pkg/beacon - STUN, Hole-Punch, Relay</h3>
 
   <p>The beacon handles all NAT traversal. It runs a STUN server for external address discovery, coordinates UDP hole-punching for restricted-cone NAT (sending <code>MsgPunchCommand</code> to both peers simultaneously), and provides relay forwarding for symmetric NAT where hole-punching fails. The relay wraps packets in <code>MsgRelay</code> frames with the format <code>[0x05][senderNodeID(4)][destNodeID(4)][payload...]</code>. The beacon also supports IPv6. The automatic NAT type detection and fallback chain (direct, hole-punch, relay) is the most complex state machine in the project, so changes here require careful testing against all NAT types.</p>
 
-  <h3>pkg/driver &mdash; IPC Client and Go SDK</h3>
+  <h3>pkg/driver - IPC Client and Go SDK</h3>
 
   <p>The driver is the Go SDK that applications use to talk to the daemon. It connects over a Unix domain socket (<code>/tmp/pilot.sock</code>) and provides a clean API for opening connections, sending data, subscribing to events, and managing trust. The driver handles IPC write concurrency with a mutex-protected connection wrapper (a hard-won fix after discovering that multiple goroutines writing the same conn interleave JSON messages). It also implements a pending-receive buffer to handle the race where <code>CmdRecv</code> arrives before the receive channel is registered. The <code>Conn</code> type implements <code>io.ReadWriter</code> with working <code>SetReadDeadline</code> (channel+timer implementation, not a no-op, which was critical for HTTP-over-Pilot to work). If you are building an application on Pilot, the driver is your entry point.</p>
 
-  <h3>cmd/pilotctl &mdash; The CLI</h3>
+  <h3>cmd/pilotctl - The CLI</h3>
 
   <p>The command-line interface. It wraps the driver with user-friendly commands: <code>info</code>, <code>connect</code>, <code>send</code>, <code>recv</code>, <code>trust</code>, <code>revoke</code>, <code>bench</code>, <code>resolve</code>, <code>data send</code>/<code>data recv</code>, <code>events publish</code>/<code>events subscribe</code>, <code>task submit</code>/<code>task accept</code>/<code>task send-results</code>, and more. Most commands are thin wrappers that parse flags, call the driver, and format output. Adding a new CLI command is one of the easiest contributions. Routes for <code>set-hostname</code>, <code>set-visibility</code>, and <code>deregister</code> go through the daemon IPC (not directly to the registry) because they require auth signing.</p>
 
-  <h3>cmd/rendezvous &mdash; The Server Binary</h3>
+  <h3>cmd/rendezvous - The Server Binary</h3>
 
   <p>The rendezvous server binary that runs the registry and beacon together. It parses configuration (JSON config files or CLI flags), starts both servers, and handles graceful shutdown. The flags changed from the early days: use <code>-registry-addr</code> and <code>-beacon-addr</code> (not <code>-listen</code> and <code>-beacon</code>). This binary is what you deploy on your rendezvous VM. It supports persistence paths, replication configuration, admin tokens, and structured logging output.</p>
 
-  <h3>internal/ &mdash; Crypto, Fsutil, Ratelimit</h3>
+  <h3>internal/ - Crypto, Fsutil, Ratelimit</h3>
 
   <p>Private packages that are not part of the public API. <code>internal/crypto</code> handles Ed25519 key generation, X25519 key exchange for tunnel encryption, AES-256-GCM encryption/decryption, identity persistence, and TLS certificate pinning with <code>DialTLSPinned</code>. Random nonce prefixes are generated per secure connection to prevent replay attacks. <code>internal/fsutil</code> provides atomic file writes (write to temp, rename over target) used by the registry persistence and trust state storage. <code>internal/pool</code> has buffer pooling. The <code>internal/ipcutil</code> package provides the IPC socket permission management. Because these are in <code>internal/</code>, they cannot be imported by external packages, so changes here only affect the project itself.</p>
 
@@ -46,7 +46,7 @@ const bodyContent = `<p>You want to contribute to Pilot Protocol. You have clone
 
   <p>These are the built-in services that run on well-known ports. <code>pkg/dataexchange</code> (port 1001) handles structured data transfer: file sends with metadata headers and chunked streaming. <code>pkg/eventstream</code> (port 1002) implements pub/sub with topic routing and wildcard subscriptions. <code>pkg/tasksubmit</code> (port 1003) manages the full task lifecycle: submit, accept, execute, return results, with polo score integration. <code>pkg/secure</code> (port 443) handles the X25519+AES-GCM encrypted channel on top of the tunnel encryption. The echo service runs on port 7 and is embedded in the daemon itself. Each service follows the same pattern: register a port handler with the daemon's PortManager, accept connections on that port, and implement the service protocol.</p>
 
-  <h3>tests/ &mdash; Integration Tests</h3>
+  <h3>tests/ - Integration Tests</h3>
 
   <p>The integration test suite uses <code>testenv.go</code> to spin up a full in-process environment: beacon, registry, and multiple daemons, all running in the same process with real UDP sockets. This gives you end-to-end testing without deploying anything. There are currently 226 tests (202 passing, 24 skipped for platform-specific reasons). The test files are organized by feature: <code>handshake_test.go</code>, <code>privacy_test.go</code>, <code>polo_score_test.go</code>, <code>tasksubmit_test.go</code>, <code>nat_traversal_test.go</code>, <code>gateway_test.go</code>, and so on. Every PR should include tests, and most features can be tested entirely through testenv without any external infrastructure.</p>
   </section>

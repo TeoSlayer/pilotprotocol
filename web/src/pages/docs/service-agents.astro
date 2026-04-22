@@ -2,7 +2,7 @@
 import DocLayout from "../../layouts/DocLayout.astro";
 
 const bodyContent = `<h1>Service Agents</h1>
-  <p class="subtitle">Always-on AI agents that live on a dedicated overlay network — callable by name, encrypted end-to-end, zero configuration.</p>
+  <p class="subtitle">Always-on AI agents that live on a dedicated overlay network - callable by name, encrypted end-to-end, zero configuration.</p>
 
   <div class="toc">
     <h4>On this page</h4>
@@ -20,30 +20,30 @@ const bodyContent = `<h1>Service Agents</h1>
 
   <h2 id="overview">Overview</h2>
 
-  <p>Service agents are AI-powered microservices that run on Pilot Protocol's overlay network. They expose capabilities — market intelligence, natural-language assistance, security auditing — to any node that can reach them. No public endpoints, no API keys, no load balancers. Just a node on the network that answers when called.</p>
+  <p>Service agents are AI-powered microservices that run on Pilot Protocol's overlay network. They expose capabilities - market intelligence, natural-language assistance, security auditing - to any node that can reach them. No public endpoints, no API keys, no load balancers. Just a node on the network that answers when called.</p>
 
-  <p>The standard mental model for AI agents is a process that takes requests and produces results. The standard mental model for services is an HTTP endpoint that takes requests and produces results. These are the same thing — and service agents treat them as such.</p>
+  <p>The standard mental model for AI agents is a process that takes requests and produces results. The standard mental model for services is an HTTP endpoint that takes requests and produces results. These are the same thing - and service agents treat them as such.</p>
 
   <p>Agents are:</p>
   <ul>
-    <li><strong>Location-transparent</strong> — callers use a name, not an IP address or port.</li>
-    <li><strong>Encrypted end-to-end</strong> — traffic travels over the X25519 + AES-256-GCM overlay tunnel.</li>
-    <li><strong>Trust-gated</strong> — the daemon only delivers messages from trusted peers.</li>
-    <li><strong>Network-isolated</strong> — service agents live on a dedicated network separate from your personal peer connections.</li>
-    <li><strong>Stateless or stateful</strong> — agents expose any HTTP API; the responder dispatches to them.</li>
+    <li><strong>Location-transparent</strong> - callers use a name, not an IP address or port.</li>
+    <li><strong>Encrypted end-to-end</strong> - traffic travels over the X25519 + AES-256-GCM overlay tunnel.</li>
+    <li><strong>Trust-gated</strong> - the daemon only delivers messages from trusted peers.</li>
+    <li><strong>Network-isolated</strong> - service agents live on a dedicated network separate from your personal peer connections.</li>
+    <li><strong>Stateless or stateful</strong> - agents expose any HTTP API; the responder dispatches to them.</li>
   </ul>
 
   <h2 id="network">The service agents network</h2>
 
-  <p>Service agents live on <strong>network 9</strong> — a dedicated overlay designed specifically for them. This network is separate from your personal peer connections and exists solely to host always-on services that any node can discover and call.</p>
+  <p>Service agents live on <strong>network 9</strong> - a dedicated overlay designed specifically for them. This network is separate from your personal peer connections and exists solely to host always-on services that any node can discover and call.</p>
 
   <p>Join the network:</p>
   <pre><code><span class="cmd">pilotctl</span> network join 9</code></pre>
 
-  <p>Once you join, every service agent on the network is immediately reachable. No manual handshakes, no gateway mappings, no IP addresses to remember. The network handles trust, discovery, and routing — you send commands and get results back through the same encrypted overlay.</p>
+  <p>Once you join, every service agent on the network is immediately reachable. No manual handshakes, no gateway mappings, no IP addresses to remember. The network handles trust, discovery, and routing - you send commands and get results back through the same encrypted overlay.</p>
 
   <div class="callout">
-    <strong>Why a separate network?</strong> Service agents run with automatic trust approval — any node on the network can call them immediately. Isolating them onto their own network means this open-trust policy does not affect your personal peer connections or other networks you belong to.
+    <strong>Why a separate network?</strong> Service agents run with automatic trust approval - any node on the network can call them immediately. Isolating them onto their own network means this open-trust policy does not affect your personal peer connections or other networks you belong to.
   </div>
 
   <h2 id="quickstart">Quick start</h2>
@@ -57,7 +57,7 @@ const bodyContent = `<h1>Service Agents</h1>
 
   <h2 id="list-agents">list-agents</h2>
 
-  <p>The <code>list-agents</code> service agent is your entrypoint to the network. It returns a directory of every service agent currently available — their names, what they do, and how to call them. New agents are added to the network over time, so <code>list-agents</code> is the canonical way to see what's available right now.</p>
+  <p>The <code>list-agents</code> service agent is your entrypoint to the network. It returns a directory of every service agent currently available - their names, what they do, and how to call them. New agents are added to the network over time, so <code>list-agents</code> is the canonical way to see what's available right now.</p>
 
   <pre><code><span class="cmd">pilotctl</span> send-message list-agents --data "list all agents"
 <span class="cmd">pilotctl</span> inbox</code></pre>
@@ -77,7 +77,7 @@ const bodyContent = `<h1>Service Agents</h1>
 <span class="cmd">pilotctl</span> inbox  <span class="comment"># read the reply</span></code></pre>
 
   <div class="callout">
-    <strong>Tip:</strong> Run <code>list-agents</code> periodically — the set of available agents grows as new services are deployed to the network.
+    <strong>Tip:</strong> Run <code>list-agents</code> periodically - the set of available agents grows as new services are deployed to the network.
   </div>
 
   <h2 id="responder">Responder</h2>
@@ -116,7 +116,7 @@ commands:
   <table>
     <thead><tr><th>Field</th><th>Required</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td><code>name</code></td><td>yes</td><td>Command name — must match what the caller sends in the JSON <code>command</code> field</td></tr>
+      <tr><td><code>name</code></td><td>yes</td><td>Command name - must match what the caller sends in the JSON <code>command</code> field</td></tr>
       <tr><td><code>link</code></td><td>yes</td><td>URL of the local HTTP service to forward the request to</td></tr>
       <tr><td><code>arg_regex</code></td><td>no</td><td>Regex to validate and parse the message body. Named capture groups are extracted as query parameters.</td></tr>
     </tbody>
@@ -138,7 +138,7 @@ commands:
     <li>Delete the processed message from the inbox</li>
   </ol>
 
-  <p>Startup fails immediately if <code>~/.pilot/endpoints.yaml</code> is missing or invalid — the responder cannot run without it.</p>
+  <p>Startup fails immediately if <code>~/.pilot/endpoints.yaml</code> is missing or invalid - the responder cannot run without it.</p>
 
   <h2 id="dispatch-flow">Dispatch flow</h2>
 
@@ -173,11 +173,11 @@ commands:
     <tbody>
       <tr><td><code>&lt;command&gt;</code></td><td>Endpoint name to invoke on the remote node (matches <code>endpoints.yaml</code>)</td></tr>
       <tr><td><code>&lt;body&gt;</code></td><td>Message body forwarded to the HTTP service as the <code>message</code> query parameter</td></tr>
-      <tr><td><code>--node &lt;addr&gt;</code></td><td>Target Pilot node address. Optional if on the service agents network — routing is automatic.</td></tr>
+      <tr><td><code>--node &lt;addr&gt;</code></td><td>Target Pilot node address. Optional if on the service agents network - routing is automatic.</td></tr>
     </tbody>
   </table>
 
-  <p><code>scriptorium</code> only waits for the transport ACK. To receive the reply you must poll the inbox separately — or use the higher-level commands which do this automatically.</p>
+  <p><code>scriptorium</code> only waits for the transport ACK. To receive the reply you must poll the inbox separately - or use the higher-level commands which do this automatically.</p>
 
   <pre><code><span class="comment"># Low-level: send and wait manually</span>
 <span class="cmd">pilotctl</span> scriptorium claw-audit "check port 22 exposure" --node 0:0000.0000.39A2
@@ -194,13 +194,13 @@ cd my-agent</code></pre>
 
   <p>The template includes:</p>
   <ul>
-    <li><code>start.sh</code> — creates a virtualenv, installs deps, starts the FastAPI server</li>
-    <li><code>requirements.txt</code> — Python dependencies</li>
-    <li><code>config.yaml</code> — agent name, port, and endpoint path</li>
-    <li><code>api/server.py</code> — FastAPI app (chat or stateless audit endpoint)</li>
-    <li><code>agent/gemini_agent.py</code> — Gemini AI agent base class</li>
-    <li><code>agent/prompts.py</code> — system prompt</li>
-    <li><code>agent/tools.py</code> — tool definitions</li>
+    <li><code>start.sh</code> - creates a virtualenv, installs deps, starts the FastAPI server</li>
+    <li><code>requirements.txt</code> - Python dependencies</li>
+    <li><code>config.yaml</code> - agent name, port, and endpoint path</li>
+    <li><code>api/server.py</code> - FastAPI app (chat or stateless audit endpoint)</li>
+    <li><code>agent/gemini_agent.py</code> - Gemini AI agent base class</li>
+    <li><code>agent/prompts.py</code> - system prompt</li>
+    <li><code>agent/tools.py</code> - tool definitions</li>
   </ul>
 
   <h3>2. Edit the system prompt and tools</h3>
@@ -230,7 +230,7 @@ You are MyAgent, a specialized assistant that...
   <p>For multi-turn conversation support, implement a <code>/sessions</code> API following the pattern in <code>service-agents/examples/claw-audit/api/server.py</code>.</p>
 
   <div class="callout">
-    <strong>Further reading:</strong> <a href="/blog/service-agents-overlay-network">Service Agents on Pilot Protocol: Market Data, AI, and Security Audits Over an Encrypted Overlay</a>
+    <strong>Further reading:</strong> <a href="/blog/http-services-over-encrypted-overlay">HTTP services over the encrypted overlay</a>
   </div>
 `;
 ---

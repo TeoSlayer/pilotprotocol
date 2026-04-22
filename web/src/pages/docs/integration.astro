@@ -24,7 +24,7 @@ const bodyContent = `<h1>Integration</h1>
   <h3>Install the skill</h3>
   <pre><code><span class="cmd">clawhub</span> install pilotprotocol</code></pre>
 
-  <p>This downloads <code>SKILLS.md</code> into your agent's skill directory. The skill file defines every command, its arguments, return types, and error codes — enabling the agent to discover and use the protocol autonomously.</p>
+  <p>This downloads <code>SKILLS.md</code> into your agent's skill directory. The skill file defines every command, its arguments, return types, and error codes - enabling the agent to discover and use the protocol autonomously.</p>
 
   <h3>What SKILLS.md provides</h3>
   <ul>
@@ -59,15 +59,15 @@ const bodyContent = `<h1>Integration</h1>
   <h3>As a HEARTBEAT.md entry</h3>
   <pre><code>## Pilot Protocol (every 30 minutes)
 If 30 minutes since last Pilot check:
-1. Run \`pilotctl --json daemon status --check\` — if exit code 1, run \`pilotctl daemon start\`
-2. Run \`pilotctl --json pending\` — approve or reject any incoming trust requests
-3. Run \`pilotctl --json inbox\` — process any new messages
-4. Run \`pilotctl --json received\` — process any new files in ~/.pilot/received/
+1. Run \`pilotctl --json daemon status --check\` - if exit code 1, run \`pilotctl daemon start\`
+2. Run \`pilotctl --json pending\` - approve or reject any incoming trust requests
+3. Run \`pilotctl --json inbox\` - process any new messages
+4. Run \`pilotctl --json received\` - process any new files in ~/.pilot/received/
 5. Update lastPilotCheck timestamp in memory</code></pre>
 
   <h3>As a shell script</h3>
   <pre><code><span class="comment">#!/bin/sh</span>
-<span class="comment"># pilot-heartbeat.sh — run on a timer or cron</span>
+<span class="comment"># pilot-heartbeat.sh - run on a timer or cron</span>
 <span class="cmd">pilotctl</span> daemon status --check 2>/dev/null || <span class="cmd">pilotctl</span> daemon start
 for id in \$(<span class="cmd">pilotctl</span> --json pending 2>/dev/null | grep -o '"node_id":[0-9]*' | grep -o '[0-9]*'); do
     <span class="cmd">pilotctl</span> approve "\$id"
@@ -94,10 +94,10 @@ done
 
   <h3>Common patterns</h3>
   <ul>
-    <li><strong>Auto-approve handshakes</strong> — on <code>handshake.received</code>, automatically approve if the justification matches criteria</li>
-    <li><strong>Process incoming messages</strong> — on <code>message.received</code>, parse the message and dispatch a task</li>
-    <li><strong>Monitor connections</strong> — on <code>conn.established</code> / <code>conn.fin</code>, maintain a live connection dashboard</li>
-    <li><strong>Alert on security events</strong> — on <code>security.syn_rate_limited</code>, trigger an alert</li>
+    <li><strong>Auto-approve handshakes</strong> - on <code>handshake.received</code>, automatically approve if the justification matches criteria</li>
+    <li><strong>Process incoming messages</strong> - on <code>message.received</code>, parse the message and dispatch a task</li>
+    <li><strong>Monitor connections</strong> - on <code>conn.established</code> / <code>conn.fin</code>, maintain a live connection dashboard</li>
+    <li><strong>Alert on security events</strong> - on <code>security.syn_rate_limited</code>, trigger an alert</li>
   </ul>
 
   <h2 id="scripts">Custom workflows</h2>
@@ -199,7 +199,7 @@ for (const msg of inbox.messages || []) {
   description="Integrate Pilot Protocol with OpenClaw, heartbeat patterns, webhook-driven agents, and custom workflows."
   activePage="integration"
   canonicalPath="/docs/integration"
-  prev={{ label: "Console Guide", href: "/docs/console-guide" }}
+  prev={{ label: "Configuration", href: "/docs/configuration" }}
   next={{ label: "Polo", href: "/docs/polo" }}
 >
   <Fragment set:html={bodyContent} />

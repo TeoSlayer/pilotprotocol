@@ -46,7 +46,7 @@ const bodyContent = `<script type="application/ld+json">
 <li><a href="#operational-advantages-in-decentralized%2C-multi-cloud-environments">Operational advantages in decentralized, multi-cloud environments</a></li>
 <li><a href="#performance-and-implementation-benefits-for-peer-to-peer-networking">Performance and implementation benefits for peer-to-peer networking</a></li>
 <li><a href="#potential-caveats-and-best-practices-for-encrypted-tunnels">Potential caveats and best practices for encrypted tunnels</a></li>
-<li><a href="#a-nuanced-take%3A-encrypted-tunnels-aren't-magic%E2%80%94context-is-everything">A nuanced take: Encrypted tunnels aren’t magic—context is everything</a></li>
+<li><a href="#a-nuanced-take%3A-encrypted-tunnels-aren't-magic%E2%80%94context-is-everything">A nuanced take: Encrypted tunnels aren’t magic-context is everything</a></li>
 <li><a href="#accelerate-secure-ai-networking-with-pilot-protocol">Accelerate secure AI networking with Pilot Protocol</a></li>
 <li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
 </ul>
@@ -208,7 +208,7 @@ const bodyContent = `<script type="application/ld+json">
 </ul>
 <p>For <a href="https://pilotprotocol.network/blog/how-pilot-protocol-works">peer IP mitigation</a> strategies in practice, and for <a href="https://pilotprotocol.network/blog/connect-ai-agents-behind-nat-without-vpn">NAT traversal strategies</a> that handle strict firewall environments, both resources give you implementation-level detail.</p>
 <p>Pro Tip: Combine your tunnel layer with an application-level identity check. Even if a peer establishes a valid tunnel, your agent should verify the peer’s identity token before processing any request. Defense in depth applies here.</p>
-<h2 id="a-nuanced-take-encrypted-tunnels-arent-magiccontext-is-everything" tabindex="-1">A nuanced take: Encrypted tunnels aren’t magic—context is everything</h2>
+<h2 id="a-nuanced-take-encrypted-tunnels-arent-magiccontext-is-everything" tabindex="-1">A nuanced take: Encrypted tunnels aren’t magic-context is everything</h2>
 <p>These practical caveats lead to a broader reflection: how should we actually think about encrypted tunnels in AI and agent worlds?</p>
 <p>There’s a tendency in distributed systems design to treat encrypted tunnels as a complete answer to agent security and reachability. They’re not. They solve a specific set of problems very well: confidentiality, integrity, authentication, and NAT traversal. But they don’t solve observability, they don’t handle highly restrictive enterprise firewalls without additional relay logic, and they don’t account for cloud provider variance in UDP handling.</p>
 <p>The teams that deploy agent networks most reliably treat tunnels as one layer in a modular stack. They pair tunnel encryption with application-level identity verification, build relay fallback in from day one, and instrument their tunnels with health metrics so they know when a connection degrades before an agent fails silently.</p>
@@ -217,7 +217,7 @@ const bodyContent = `<script type="application/ld+json">
 <p>If you want to implement what you’ve learned at scale, next-generation solutions can help bridge learning and action.</p>
 <p><a href="https://pilotprotocol.network">Pilot Protocol</a> is built specifically for AI agent networks. It handles encrypted tunnel management, NAT traversal, virtual addressing, and relay fallback out of the box, so your team focuses on agent logic rather than networking infrastructure.</p>
 <p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
-<p>With SDKs for Python and Go, a CLI, and a web console, you can connect agents across AWS, GCP, Azure, and edge environments without deploying or managing a central VPN. Pilot Protocol wraps your existing HTTP, gRPC, and SSH traffic inside its encrypted overlay, making integration with existing systems straightforward. Start building secure, autonomous agent fleets without the infrastructure overhead.</p>
+<p>With SDKs for Python and Go and a unified CLI, you can connect agents across AWS, GCP, Azure, and edge environments without deploying or managing a central VPN. Pilot Protocol wraps your existing HTTP, gRPC, and SSH traffic inside its encrypted overlay, making integration with existing systems straightforward. Start building secure, autonomous agent fleets without the infrastructure overhead.</p>
 <h2 id="frequently-asked-questions" tabindex="-1">Frequently asked questions</h2>
 <h3 id="what-is-an-encrypted-tunnel-in-peer-to-peer-agent-networks" tabindex="-1">What is an encrypted tunnel in peer-to-peer agent networks?</h3>
 <p>An encrypted tunnel is a secure communication channel that protects data privacy and integrity between peer agents, using modern cryptography to keep agent traffic encrypted across the open internet.</p>

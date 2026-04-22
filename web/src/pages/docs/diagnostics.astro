@@ -73,7 +73,7 @@ PING 0:0000.0000.037D
   <p>Returns: <code>target</code>, <code>sent_bytes</code>, <code>recv_bytes</code>, <code>send_duration_ms</code>, <code>total_duration_ms</code>, <code>send_mbps</code>, <code>total_mbps</code></p>
 
   <pre><code><span class="comment"># Example output</span>
-BENCH 0:0000.0000.037D — sending 1.0 MB via echo port
+BENCH 0:0000.0000.037D - sending 1.0 MB via echo port
   Sent:     1.0 MB in 3.7s (0.3 MB/s)
   Echoed:   1.0 MB in 12.6s (0.1 MB/s round-trip)</code></pre>
 
@@ -92,11 +92,11 @@ BENCH 0:0000.0000.037D — sending 1.0 MB via echo port
 
   <pre><code><span class="cmd">pilotctl</span> connections</code></pre>
 
-  <p>Returns detailed per-connection information: connection ID, local/remote port, state, bytes sent/received, segments, retransmissions, and transport diagnostics — CWND (congestion window: TCP send rate limit), SRTT (smoothed round-trip time), and SACK (selective acknowledgements) stats.</p>
+  <p>Returns detailed per-connection information: connection ID, local/remote port, state, bytes sent/received, segments, retransmissions, and transport diagnostics - CWND (congestion window: TCP send rate limit), SRTT (smoothed round-trip time), and SACK (selective acknowledgements) stats.</p>
 
   <h2 id="info">info</h2>
 
-  <p>Full daemon status — everything at a glance:</p>
+  <p>Full daemon status - everything at a glance:</p>
 
   <pre><code><span class="cmd">pilotctl</span> info</code></pre>
 

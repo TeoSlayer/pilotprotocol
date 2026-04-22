@@ -1,10 +1,11 @@
 ---
 import BaseHead from '../components/BaseHead.astro';
-import Topbar from '../components/Topbar.astro';
+import Nav from '../components/Nav.astro';
 import DocSidebar from '../components/DocSidebar.astro';
-import BlogFooter from '../components/BlogFooter.astro';
+import DocsFooter from '../components/DocsFooter.astro';
 import PageNav from '../components/PageNav.astro';
 import '../styles/global.css';
+import '../styles/system.css';
 import '../styles/docs.css';
 
 interface Props {
@@ -54,7 +55,7 @@ if (activePage !== 'index') {
   })}></script>
 </head>
 <body>
-  <Topbar variant="docs" />
+  <Nav active="docs" />
   <DocSidebar activePage={activePage} />
   <aside class="toc-sidebar" id="toc-sidebar"></aside>
   <div class="content">
@@ -70,7 +71,7 @@ if (activePage !== 'index') {
       {!hidePageNav && <PageNav prev={prev} next={next} />}
     </div>
   </div>
-  <div class="doc-footer-wrap"><BlogFooter /></div>
+  <div class="doc-footer-wrap"><DocsFooter /></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js" defer></script>

@@ -18,7 +18,7 @@ const bodyContent = `<h1>Webhooks</h1>
 
   <h2 id="overview">Overview</h2>
 
-  <p>When configured, the daemon POSTs a JSON event to your webhook URL every time something happens — connections, trust changes, messages received, pub/sub activity, and more. Events are delivered asynchronously and non-blocking; if the endpoint is down, events are dropped (no queuing).</p>
+  <p>When configured, the daemon POSTs a JSON event to your webhook URL every time something happens - connections, trust changes, messages received, pub/sub activity, and more. Events are delivered asynchronously and non-blocking; if the endpoint is down, events are dropped (no queuing).</p>
 
   <h2 id="configuration">Configuration</h2>
 
@@ -28,7 +28,7 @@ const bodyContent = `<h1>Webhooks</h1>
   <h3>At runtime</h3>
   <pre><code><span class="cmd">pilotctl</span> set-webhook http://localhost:8080/events</code></pre>
   <p>Persists to <code>~/.pilot/config.json</code> and applies immediately to the running daemon.</p>
-  <p>Returns: <code>webhook</code>, <code>applied</code> (bool — true if daemon is running and accepted the change)</p>
+  <p>Returns: <code>webhook</code>, <code>applied</code> (bool - true if daemon is running and accepted the change)</p>
 
   <h3>Clear webhook</h3>
   <pre><code><span class="cmd">pilotctl</span> clear-webhook</code></pre>
@@ -87,7 +87,7 @@ const bodyContent = `<h1>Webhooks</h1>
       <tr><td>handshake.pending</td><td>Handshake queued for approval</td></tr>
       <tr><td>handshake.approved</td><td>Handshake approved (by you)</td></tr>
       <tr><td>handshake.rejected</td><td>Handshake rejected (by you)</td></tr>
-      <tr><td>handshake.auto_approved</td><td>Mutual handshake — auto-approved</td></tr>
+      <tr><td>handshake.auto_approved</td><td>Mutual handshake - auto-approved</td></tr>
       <tr><td>trust.revoked</td><td>Trust revoked locally (you untrusted a peer)</td></tr>
       <tr><td>trust.revoked_by_peer</td><td>Trust revoked by a remote peer</td></tr>
     </tbody>
@@ -199,7 +199,7 @@ HTTPServer(("", 8080), Handler).serve_forever()</code></pre>
 
   <h2 id="hot-swap">Runtime hot-swap</h2>
 
-  <p>You can change the webhook URL while the daemon is running. The new URL takes effect immediately — no restart needed:</p>
+  <p>You can change the webhook URL while the daemon is running. The new URL takes effect immediately - no restart needed:</p>
 
   <pre><code><span class="comment"># Switch to a new endpoint</span>
 <span class="cmd">pilotctl</span> set-webhook http://localhost:9090/v2/events

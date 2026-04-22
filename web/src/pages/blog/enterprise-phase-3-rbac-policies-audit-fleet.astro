@@ -9,9 +9,9 @@ const bodyContent = `
 <p>Every network now has three roles: <strong>owner</strong>, <strong>admin</strong>, and <strong>member</strong>. The node that creates a network is automatically the owner. Nodes that join via token or accept an invite start as members.</p>
 
 <ul>
-  <li><strong>Owner</strong> &mdash; full control. Can promote, demote, kick, set policies, delete the network.</li>
-  <li><strong>Admin</strong> &mdash; can invite nodes, kick members, and manage settings. Cannot promote or demote other admins.</li>
-  <li><strong>Member</strong> &mdash; can communicate with all network peers. No management privileges.</li>
+  <li><strong>Owner</strong> - full control. Can promote, demote, kick, set policies, delete the network.</li>
+  <li><strong>Admin</strong> - can invite nodes, kick members, and manage settings. Cannot promote or demote other admins.</li>
+  <li><strong>Member</strong> - can communicate with all network peers. No management privileges.</li>
 </ul>
 
 <p>Authorization is checked on every mutation. The registry evaluates a three-step chain: global admin token, per-network admin token, then the node&rsquo;s RBAC role. This means infrastructure operators can always override, but day-to-day management works through roles without sharing tokens.</p>
@@ -25,16 +25,16 @@ pilotctl network demote 1 --node 686
 <span class="comment"># Kick a node from the network</span>
 pilotctl network kick 1 --node 687</code></pre>
 
-<p>Owners cannot be kicked. Admins cannot promote or demote &mdash; only owners can change roles. This prevents privilege escalation within the network.</p>
+<p>Owners cannot be kicked. Admins cannot promote or demote - only owners can change roles. This prevents privilege escalation within the network.</p>
 
 <h2 id="policies">Network Policies</h2>
 
 <p>Networks can now enforce policies that restrict membership and communication:</p>
 
 <ul>
-  <li><strong>MaxMembers</strong> &mdash; cap the number of nodes in a network. Once the limit is reached, join attempts fail with a clear error. Set to 0 for unlimited.</li>
-  <li><strong>AllowedPorts</strong> &mdash; restrict which ports are available within the network. Empty means all ports allowed.</li>
-  <li><strong>Description</strong> &mdash; human-readable policy metadata for dashboards and audit trails.</li>
+  <li><strong>MaxMembers</strong> - cap the number of nodes in a network. Once the limit is reached, join attempts fail with a clear error. Set to 0 for unlimited.</li>
+  <li><strong>AllowedPorts</strong> - restrict which ports are available within the network. Empty means all ports allowed.</li>
+  <li><strong>Description</strong> - human-readable policy metadata for dashboards and audit trails.</li>
 </ul>
 
 <p>Policies use merge-on-update semantics. Setting <code>MaxMembers</code> does not reset <code>AllowedPorts</code>. Partial updates are safe.</p>
@@ -58,7 +58,7 @@ pilotctl network set-policy 1 --allowed-ports 80,443,7</code></pre>
   <li>On acceptance, the node joins the network with <code>member</code> role.</li>
 </ol>
 
-<p>Invites are deduplicated (one per network per target), persisted across registry restarts, and capped at 100 per node. The old direct-join path for invite-only networks is blocked &mdash; attempting <code>JoinNetwork</code> on an invite-only network returns an error directing you to the consent flow.</p>
+<p>Invites are deduplicated (one per network per target), persisted across registry restarts, and capped at 100 per node. The old direct-join path for invite-only networks is blocked - attempting <code>JoinNetwork</code> on an invite-only network returns an error directing you to the consent flow.</p>
 
 <h2 id="audit">Structured Audit Trail</h2>
 
@@ -115,7 +115,7 @@ pilot-daemon -registry host:9000 -beacon host:9001 \\
 
 <ul>
   <li><strong>Monotonic event IDs.</strong> Every event gets a sequential <code>event_id</code>. Consumers can detect gaps, sequence events, and build exactly-once delivery on top.</li>
-  <li><strong>Retry with backoff.</strong> Failed deliveries (5xx or network errors) retry up to 3 times with exponential backoff (1s, 2s, 4s). Client errors (4xx) are not retried &mdash; those are permanent.</li>
+  <li><strong>Retry with backoff.</strong> Failed deliveries (5xx or network errors) retry up to 3 times with exponential backoff (1s, 2s, 4s). Client errors (4xx) are not retried - those are permanent.</li>
   <li><strong>Dropped counter.</strong> When the internal buffer is full, events are dropped and counted. The <code>Dropped()</code> accessor lets you monitor event loss without blocking the daemon.</li>
 </ul>
 
@@ -126,11 +126,11 @@ pilot-daemon -registry host:9000 -beacon host:9001 \\
 <p>Ed25519 identity keys now carry metadata:</p>
 
 <ul>
-  <li><strong>CreatedAt</strong> &mdash; when the key was first registered.</li>
-  <li><strong>RotatedAt</strong> &mdash; when the key was last rotated (zero if never).</li>
-  <li><strong>RotateCount</strong> &mdash; how many times the key has been rotated.</li>
-  <li><strong>ExpiresAt</strong> &mdash; optional expiration time. Expired keys are rejected at registration.</li>
-  <li><strong>KeyAgeDays</strong> &mdash; computed age for compliance dashboards.</li>
+  <li><strong>CreatedAt</strong> - when the key was first registered.</li>
+  <li><strong>RotatedAt</strong> - when the key was last rotated (zero if never).</li>
+  <li><strong>RotateCount</strong> - how many times the key has been rotated.</li>
+  <li><strong>ExpiresAt</strong> - optional expiration time. Expired keys are rejected at registration.</li>
+  <li><strong>KeyAgeDays</strong> - computed age for compliance dashboards.</li>
 </ul>
 
 <p>Nodes can set their own key expiry via a signature-verified command. This enables compliance policies like &ldquo;rotate keys every 90 days&rdquo; without requiring infrastructure-level enforcement.</p>
@@ -165,7 +165,7 @@ pilot-daemon -registry host:9000 -beacon host:9001 \\
 
 <h2 id="secure-channels">Secure Channel Authentication</h2>
 
-<p>Encrypted tunnels now verify identity during the ECDH handshake. Both sides present Ed25519 signatures, and the tunnel records the authenticated <code>PeerNodeID</code>. This binds the ephemeral X25519 session key to a persistent identity &mdash; you know who you are talking to, not just that the channel is encrypted.</p>
+<p>Encrypted tunnels now verify identity during the ECDH handshake. Both sides present Ed25519 signatures, and the tunnel records the authenticated <code>PeerNodeID</code>. This binds the ephemeral X25519 session key to a persistent identity - you know who you are talking to, not just that the channel is encrypted.</p>
 
 <p>Backward compatibility is preserved: peers that do not support authentication fall back to unauthenticated encryption. No flag day required.</p>
 
@@ -228,7 +228,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
 <p>The enterprise stack is the foundation. What follows:</p>
 
 <ul>
-  <li><strong>Console integration.</strong> The web console will expose RBAC, policies, invites, and audit logs through the dashboard.</li>
+  <li><strong>Management surface.</strong> RBAC, policies, invites, and audit logs are available through <code>pilotctl</code> and the JSON API for tooling integrations.</li>
   <li><strong>OIDC/SPIFFE identity.</strong> Bring your own identity provider. Map enterprise identities to Pilot nodes.</li>
   <li><strong>Cascading revocation.</strong> When an admin is removed, cascade the effect to nodes they invited.</li>
   <li><strong>Dedicated infrastructure.</strong> Private registry and beacon instances for organizations that need full isolation.</li>
@@ -241,7 +241,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | sh</code></pre>
   &nbsp;&middot;&nbsp;
   <a href="/docs/networks">Network Docs</a>
   &nbsp;&middot;&nbsp;
-  <a href="https://console.pilotprotocol.network">Open Console</a>
+  <a href="/plans">See Plans</a>
 </div>`;
 ---
 <BlogLayout

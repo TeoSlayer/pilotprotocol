@@ -1,4 +1,6 @@
 ---
+import '../styles/global.css';
+
 interface Props {
   title: string;
   description: string;
@@ -11,7 +13,7 @@ const {
   title,
   description,
   canonicalUrl,
-  ogImage = 'https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png',
+  ogImage = 'https://pilotprotocol.network/img/pilot.png',
   ogType = 'website',
 } = Astro.props;
 ---
@@ -19,6 +21,7 @@ const {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
 <meta name="description" content={description}>
+<meta name="robots" content="index,follow">
 {canonicalUrl && <link rel="canonical" href={canonicalUrl}>}
 <meta property="og:type" content={ogType}>
 <meta property="og:title" content={title}>
@@ -30,10 +33,27 @@ const {
 <meta name="twitter:title" content={title}>
 <meta name="twitter:description" content={description}>
 <meta name="twitter:image" content={ogImage}>
-<meta name="theme-color" content="#22c55e">
-<link rel="preconnect" href="https://raw.githubusercontent.com">
-<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
-<link rel="icon" href="https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/docs/media/pilot.png" type="image/png">
+<meta name="theme-color" content="#0b0b0a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fafaf7" media="(prefers-color-scheme: light)">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+
+<link rel="icon" href="/img/pilot.png" type="image/png">
+<link rel="alternate" type="application/rss+xml" title="Pilot Protocol Journal" href="/blog/feed.xml">
+
+<script is:inline>
+  (function () {
+    try {
+      var stored = localStorage.getItem('pilot-theme');
+      var prefers = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      var theme = stored || prefers;
+      if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    } catch (e) {}
+  })();
+</script>
+
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-EEWEKT0GW5"></script>
 <script is:inline>
   window.dataLayer = window.dataLayer || [];

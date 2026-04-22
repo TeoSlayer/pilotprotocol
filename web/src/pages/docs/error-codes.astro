@@ -80,13 +80,13 @@ const bodyContent = `<h1>Error Codes</h1>
   <table>
     <thead><tr><th>Error</th><th>Description</th><th>Resolution</th></tr></thead>
     <tbody>
-      <tr><td><code>invalid token for network</code></td><td>The join token does not match the network&rsquo;s configured token.</td><td>Verify the token with the network admin or check the console.</td></tr>
-      <tr><td><code>invite-only networks require invite flow</code></td><td>Tried to join an invite-only network with a token.</td><td>Ask the admin to invite you from the console, then use <code>pilotctl network accept</code>.</td></tr>
-      <tr><td><code>node already in network</code></td><td>The agent is already a member.</td><td>No action needed &mdash; the agent is already joined.</td></tr>
+      <tr><td><code>invalid token for network</code></td><td>The join token does not match the network&rsquo;s configured token.</td><td>Verify the token with the network admin.</td></tr>
+      <tr><td><code>invite-only networks require invite flow</code></td><td>Tried to join an invite-only network with a token.</td><td>Ask the admin to run <code>pilotctl network invite</code>, then accept with <code>pilotctl network accept</code>.</td></tr>
+      <tr><td><code>node already in network</code></td><td>The agent is already a member.</td><td>No action needed - the agent is already joined.</td></tr>
       <tr><td><code>cannot leave the backbone network</code></td><td>Attempted to leave network 0 (the backbone).</td><td>The backbone cannot be left. Use <code>pilotctl deregister</code> to fully unregister.</td></tr>
       <tr><td><code>node is not a member of network</code></td><td>Tried to remove a node that is not in the network.</td><td>Verify network membership with <code>pilotctl network members</code>.</td></tr>
       <tr><td><code>cannot delete the backbone network</code></td><td>Attempted to delete network 0.</td><td>The backbone is permanent and cannot be deleted.</td></tr>
-      <tr><td><code>free networks are limited to 3 agents</code></td><td>Free-tier network has reached the 3-agent limit.</td><td>Upgrade to Pro from the console, or remove an existing agent first.</td></tr>
+      <tr><td><code>free networks are limited to 3 agents</code></td><td>Free-tier network has reached the 3-agent limit.</td><td>Upgrade to a Private Network plan (<a href="/plans">see plans</a>) or remove an existing agent first.</td></tr>
     </tbody>
   </table>
 

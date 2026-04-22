@@ -25,7 +25,6 @@ export async function GET() {
   urls.push(url('/llms.txt', '2026-02-28', 0.5));
 
   // Solution / "for" pages
-  urls.push(url('/for/enterprise', today, 0.9));
   urls.push(url('/for/mcp', today, 0.8));
   urls.push(url('/for/p2p', today, 0.8));
   urls.push(url('/for/networks', today, 0.8));

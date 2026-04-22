@@ -1,0 +1,200 @@
+---
+// Full site footer - large display text + 4-column nav + fine print
+---
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="foot-big">
+      The internet<br/>
+      for <span class="a">agents.</span>
+    </div>
+    <div class="foot-cta">
+      <a href="/docs/getting-started" class="btn primary">Install Pilot <span class="arr">→</span></a>
+      <a href="/docs/research" class="btn">Read the spec</a>
+    </div>
+
+    <div class="foot-grid">
+      <div class="foot-about">
+        <div class="foot-brand">
+          <img src="/img/pilot.png" alt="" class="foot-logo" width="28" height="28" />
+          <h4>Pilot / Protocol</h4>
+        </div>
+        <p>Pilot. Where agents go.</p>
+      </div>
+      <div>
+        <h4>Protocol</h4>
+        <a href="/blog/ietf-internet-draft-pilot-protocol">Spec (IETF draft)</a>
+        <a href="https://github.com/TeoSlayer/pilotprotocol">GitHub</a>
+        <a href="/docs/">Documentation</a>
+        <a href="/docs/research">Research</a>
+      </div>
+      <div>
+        <h4>Network</h4>
+        <a href="/docs/networks">Backbone</a>
+        <a href="/docs/tags">Groups</a>
+        <a href="/docs/service-agents">Service agents</a>
+        <a href="/for/networks">Private networks</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="/plans">Plans</a>
+        <a href="/blog/">Blog</a>
+        <a href="mailto:founders@pilotprotocol.network">Contact</a>
+      </div>
+    </div>
+
+    <a class="foot-plain-band" href="/plain/" aria-label="Plain-text variant for AI agents">
+      <span class="fp-label">Plain text for agents</span>
+      <span class="fp-path">/plain</span>
+      <span class="fp-arrow">→</span>
+    </a>
+
+    <div class="foot-bottom">
+      <div>© {new Date().getFullYear()} Pilot Protocol · Built for agents</div>
+      <div class="foot-bottom-right">
+        <a class="foot-status" href="https://polo.pilotprotocol.network" aria-label="Network status - open Polo dashboard">pilot://0x00000000 · backbone · up</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    padding: 80px 0 40px;
+    border-top: 1px solid var(--line);
+    background: var(--bg-deep);
+  }
+
+  .foot-big {
+    font-family: var(--sans);
+    font-size: clamp(48px, 10vw, 180px);
+    line-height: 0.9;
+    letter-spacing: -0.05em;
+    font-weight: 500;
+    margin: 0 0 24px;
+    color: var(--ink);
+  }
+  .foot-big .a { color: var(--accent); }
+
+  .foot-sub {
+    color: var(--ink-dim);
+    font-size: 14px;
+    max-width: 40ch;
+    line-height: 1.5;
+    margin: 0 0 28px;
+  }
+
+  .foot-cta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 48px;
+  }
+
+  .foot-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 48px;
+    margin-bottom: 64px;
+  }
+
+  .foot-grid h4 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin: 0 0 16px;
+    font-weight: 500;
+  }
+  .foot-grid a {
+    display: block;
+    padding: 6px 0;
+    color: var(--ink);
+    font-size: 15px;
+  }
+  .foot-grid a:hover { color: var(--accent); }
+  .foot-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .foot-brand .foot-logo {
+    width: 28px;
+    height: 28px;
+    display: block;
+    object-fit: contain;
+  }
+  .foot-brand h4 { margin: 0; }
+
+  .foot-about p {
+    color: var(--ink-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 34ch;
+  }
+  .foot-about > h4 { margin: 0 0 16px; }
+
+  .foot-plain-band {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    padding: 28px 0;
+    margin-top: 24px;
+    margin-bottom: 24px;
+    border-top: 1px dashed var(--line);
+    border-bottom: 1px dashed var(--line);
+    text-decoration: none;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .foot-plain-band .fp-label { font-size: 14px; color: var(--ink); font-weight: 500; }
+  .foot-plain-band .fp-path { font-size: 12px; }
+  .foot-plain-band .fp-arrow { margin-left: auto; font-size: 18px; color: var(--accent); transition: transform 0.15s; }
+  .foot-plain-band:hover { color: var(--ink); border-color: var(--accent); }
+  .foot-plain-band:hover .fp-arrow { transform: translateX(4px); }
+
+  .foot-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 32px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .foot-status {
+    color: var(--ink-dim);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .foot-status:hover { color: var(--accent); }
+  .foot-bottom-right {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .foot-plain {
+    color: var(--ink-dim);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .foot-plain:hover { color: var(--accent); }
+
+  @media (max-width: 900px) {
+    .foot-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  }
+  @media (max-width: 480px) {
+    .foot-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
+    .site-footer { padding: 56px 0 32px; }
+  }
+</style>

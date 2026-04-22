@@ -31,23 +31,23 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>Addresses are displayed in hex format: <code>N:NNNN.HHHH.LLLL</code></p>
 
   <ul>
-    <li><strong>N</strong> — network ID in decimal (<code>0</code> = public backbone)</li>
-    <li><strong>NNNN</strong> — same network ID in hex (for readability)</li>
-    <li><strong>HHHH.LLLL</strong> — 32-bit node address (two groups of 4 hex digits) uniquely assigned by the registry on registration</li>
+    <li><strong>N</strong> - network ID in decimal (<code>0</code> = public backbone)</li>
+    <li><strong>NNNN</strong> - same network ID in hex (for readability)</li>
+    <li><strong>HHHH.LLLL</strong> - 32-bit node address (two groups of 4 hex digits) uniquely assigned by the registry on registration</li>
   </ul>
 
   <p>Examples:</p>
   <ul>
-    <li><code>0:0000.0000.0001</code> — node 1 on network 0</li>
-    <li><code>0:0000.0000.0005</code> — node 5 on network 0</li>
+    <li><code>0:0000.0000.0001</code> - node 1 on network 0</li>
+    <li><code>0:0000.0000.0005</code> - node 5 on network 0</li>
   </ul>
 
-  <p>Agents can also register <strong>hostnames</strong> — human-readable names like <code>my-agent</code>. Most commands accept either an address or a hostname.</p>
+  <p>Agents can also register <strong>hostnames</strong> - human-readable names like <code>my-agent</code>. Most commands accept either an address or a hostname.</p>
 
   <h3>Special addresses</h3>
   <ul>
-    <li><code>0:0000.0000.0000</code> — unassigned / wildcard</li>
-    <li><code>0:0000.FFFF.FFFF</code> — broadcast (all nodes on network 0)</li>
+    <li><code>0:0000.0000.0000</code> - unassigned / wildcard</li>
+    <li><code>0:0000.FFFF.FFFF</code> - broadcast (all nodes on network 0)</li>
   </ul>
 
   <h2 id="transport">Transport</h2>
@@ -55,22 +55,22 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>Pilot Protocol provides <strong>reliable streams</strong> (TCP-equivalent) over UDP tunnels. The transport layer includes:</p>
 
   <ul>
-    <li><strong>Sliding window</strong> — controls how many packets can be in-flight simultaneously</li>
-    <li><strong>Congestion control (AIMD)</strong> — additive-increase, multiplicative-decrease to avoid network congestion</li>
-    <li><strong>Flow control</strong> — advertised receive window prevents overwhelming slow receivers</li>
-    <li><strong>Nagle algorithm</strong> — coalesces small writes into larger packets for efficiency</li>
-    <li><strong>Auto segmentation</strong> — large sends are automatically split into MTU-sized segments</li>
-    <li><strong>Zero-window probing</strong> — detects when a receiver's window opens back up</li>
-    <li><strong>SACK</strong> — selective acknowledgments for efficient loss recovery</li>
+    <li><strong>Sliding window</strong> - controls how many packets can be in-flight simultaneously</li>
+    <li><strong>Congestion control (AIMD)</strong> - additive-increase, multiplicative-decrease to avoid network congestion</li>
+    <li><strong>Flow control</strong> - advertised receive window prevents overwhelming slow receivers</li>
+    <li><strong>Nagle algorithm</strong> - coalesces small writes into larger packets for efficiency</li>
+    <li><strong>Auto segmentation</strong> - large sends are automatically split into MTU-sized segments</li>
+    <li><strong>Zero-window probing</strong> - detects when a receiver's window opens back up</li>
+    <li><strong>SACK</strong> - selective acknowledgments for efficient loss recovery</li>
   </ul>
 
-  <p>The transport also supports <strong>datagrams</strong> — unreliable, unordered messages for scenarios where reliability isn't needed.</p>
+  <p>The transport also supports <strong>datagrams</strong> - unreliable, unordered messages for scenarios where reliability isn't needed.</p>
 
   <h3>Connection lifecycle</h3>
   <ul>
-    <li><strong>Keepalive probes</strong> — sent every 30 seconds to detect dead connections</li>
-    <li><strong>Idle timeout</strong> — connections without activity for 120 seconds are cleaned up</li>
-    <li><strong>Graceful shutdown</strong> — FIN packets ensure both sides know when a connection ends</li>
+    <li><strong>Keepalive probes</strong> - sent every 30 seconds to detect dead connections</li>
+    <li><strong>Idle timeout</strong> - connections without activity for 120 seconds are cleaned up</li>
+    <li><strong>Graceful shutdown</strong> - FIN packets ensure both sides know when a connection ends</li>
   </ul>
 
   <h2 id="encryption">Encryption</h2>
@@ -78,10 +78,10 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>Traffic is <strong>encrypted by default</strong>. The encryption stack:</p>
 
   <ul>
-    <li><strong>X25519</strong> — Diffie-Hellman key exchange for per-tunnel shared secrets</li>
-    <li><strong>AES-256-GCM</strong> — authenticated encryption for all tunnel traffic</li>
-    <li><strong>Ed25519</strong> — digital signatures for identity and trust operations</li>
-    <li><strong>Random nonce prefix</strong> — each secure connection uses a unique nonce prefix to prevent replay</li>
+    <li><strong>X25519</strong> - Diffie-Hellman key exchange for per-tunnel shared secrets</li>
+    <li><strong>AES-256-GCM</strong> - authenticated encryption for all tunnel traffic</li>
+    <li><strong>Ed25519</strong> - digital signatures for identity and trust operations</li>
+    <li><strong>Random nonce prefix</strong> - each secure connection uses a unique nonce prefix to prevent replay</li>
   </ul>
 
   <p>Every node has a persistent <strong>Ed25519 identity keypair</strong> stored at <code>~/.pilot/identity.json</code>. The public key is registered with the registry and used for trust handshake signing.</p>
@@ -91,10 +91,10 @@ import DocLayout from "../../layouts/DocLayout.astro";
   <p>The daemon automatically discovers its public endpoint and handles NAT traversal:</p>
 
   <ol>
-    <li><strong>STUN discovery</strong> — the daemon queries the beacon server to learn its public IP and port, and determines the NAT type</li>
-    <li><strong>Direct connection</strong> — for Full Cone NATs, the STUN-discovered endpoint works for all peers</li>
-    <li><strong>Hole-punching</strong> — for Restricted/Port-Restricted Cone NATs, the beacon coordinates simultaneous UDP packets from both peers to punch through the NAT</li>
-    <li><strong>Relay fallback</strong> — for Symmetric NATs (where each destination gets a different port mapping), traffic is relayed through the beacon server</li>
+    <li><strong>STUN discovery</strong> - the daemon queries the beacon server to learn its public IP and port, and determines the NAT type</li>
+    <li><strong>Direct connection</strong> - for Full Cone NATs, the STUN-discovered endpoint works for all peers</li>
+    <li><strong>Hole-punching</strong> - for Restricted/Port-Restricted Cone NATs, the beacon coordinates simultaneous UDP packets from both peers to punch through the NAT</li>
+    <li><strong>Relay fallback</strong> - for Symmetric NATs (where each destination gets a different port mapping), traffic is relayed through the beacon server</li>
   </ol>
 
   <p>NAT type is detected automatically. No configuration needed. Cloud VMs with static IPs can skip STUN with the <code>--endpoint host:port</code> flag.</p>
@@ -111,7 +111,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
     <li>Once both sides trust each other, they can communicate directly</li>
   </ol>
 
-  <p><strong>Auto-approval</strong>: if both agents independently send handshake requests to each other, trust is established automatically — no manual approval needed.</p>
+  <p><strong>Auto-approval</strong>: if both agents independently send handshake requests to each other, trust is established automatically - no manual approval needed.</p>
 
   <p>Trust persists across daemon restarts. You can revoke trust at any time with <code>untrust</code>.</p>
 
@@ -134,6 +134,6 @@ import DocLayout from "../../layouts/DocLayout.astro";
   </table>
 
   <div class="callout">
-    <strong>Further reading:</strong> <a href="/blog/how-pilot-protocol-works">How Pilot Protocol Works — Under the Hood</a>
+    <strong>Further reading:</strong> <a href="/blog/how-pilot-protocol-works">How Pilot Protocol Works - Under the Hood</a>
   </div>
 </DocLayout>
