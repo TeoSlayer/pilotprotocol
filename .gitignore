@@ -102,6 +102,8 @@ tests/integration/results
 tests/integration/logs/
 tests/integration/logs-run.out
 tests/integration/k8s/preloaded/*.tar
+tests/integration/local/logs/
+tests/integration/local/results/
 tests/admin_cli_test.go
 cmd/spoof/
 
