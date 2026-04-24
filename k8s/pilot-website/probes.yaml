@@ -1,0 +1,61 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: pilot-website
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  interval: 60s
+  scrapeTimeout: 15s
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.pilot-integration.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://pilotprotocol.network/
+        - https://pilotprotocol.network/docs/
+      labels:
+        surface: website
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: pilot-install-sh
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  interval: 60s
+  scrapeTimeout: 20s
+  module: install_sh
+  prober:
+    url: blackbox-exporter.pilot-integration.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://pilotprotocol.network/install.sh
+      labels:
+        surface: install
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: pilot-tls
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  interval: 5m
+  scrapeTimeout: 15s
+  module: tls_expiry
+  prober:
+    url: blackbox-exporter.pilot-integration.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://pilotprotocol.network/
+      labels:
+        surface: tls

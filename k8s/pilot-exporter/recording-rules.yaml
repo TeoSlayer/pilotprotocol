@@ -1,0 +1,48 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pilot-recording
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: pilot.recording
+      interval: 30s
+      rules:
+        # Per-second rates (instance-collapsed so downstream stays single-series)
+        - record: pilot:requests:rps_5m
+          expr: sum(rate(pilot_total_requests[5m]))
+        - record: pilot:requests:rps_1h
+          expr: sum(rate(pilot_total_requests[1h]))
+        - record: pilot:requests:per_day_derived
+          expr: sum(rate(pilot_total_requests[24h])) * 86400
+
+        # Growth deltas on the instance-free total
+        - record: pilot:nodes:growth_1h
+          expr: delta(max(pilot_total_nodes)[1h:30s])
+        - record: pilot:nodes:growth_24h
+          expr: delta(max(pilot_total_nodes)[24h:1m])
+        - record: pilot:nodes:growth_7d
+          expr: delta(max(pilot_total_nodes)[7d:5m])
+
+        - record: pilot:online:growth_1h
+          expr: delta(max(pilot_online_nodes)[1h:30s])
+        - record: pilot:online:growth_24h
+          expr: delta(max(pilot_online_nodes)[24h:1m])
+
+        - record: pilot:nodes:per_second_1h
+          expr: deriv(max(pilot_total_nodes)[1h:30s])
+
+        # Availability roll-ups (keep probe label, drop instance)
+        - record: pilot:probe:availability_30d
+          expr: max by (probe) (pilot_probe_availability_30d_ratio)
+        - record: pilot:probe:availability_30d_pct
+          expr: max by (probe) (pilot_probe_availability_30d_ratio) * 100
+
+        # Restart cadence
+        - record: pilot:rendezvous:restarts_24h
+          expr: changes(max(pilot_rendezvous_last_restart_timestamp_seconds)[24h:1m])
+        - record: pilot:rendezvous:restarts_7d
+          expr: changes(max(pilot_rendezvous_last_restart_timestamp_seconds)[7d:5m])

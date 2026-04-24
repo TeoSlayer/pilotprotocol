@@ -1,0 +1,159 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pilot-alerts
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: pilot.alerts
+      interval: 30s
+      rules:
+        - alert: PilotScraperDown
+          expr: max(pilot_scrape_success) == 0
+          for: 5m
+          labels: {severity: warning, component: pilot-exporter}
+          annotations:
+            summary: "pilot-exporter cannot reach rendezvous /api/stats"
+            description: "All exporter replicas have failed to parse rendezvous stats for 5m."
+
+        - alert: PilotRegistryDown
+          expr: max(pilot_probe_up{probe="registry"}) == 0
+          for: 2m
+          labels: {severity: critical, component: rendezvous}
+          annotations:
+            summary: "Rendezvous registry probe is DOWN"
+            description: "Peers cannot register or refresh for 2m+."
+
+        - alert: PilotBeaconDown
+          expr: max(pilot_probe_up{probe="beacon"}) == 0
+          for: 2m
+          labels: {severity: critical, component: beacon}
+          annotations:
+            summary: "Beacon probe is DOWN"
+            description: "NAT traversal and relay are impaired."
+
+        - alert: PilotOnlineNodesCrashed
+          expr: |
+            (max(pilot_online_nodes) < (avg_over_time(max(pilot_online_nodes)[24h:1m]) * 0.5))
+            and max(pilot_online_nodes) < 1000
+          for: 10m
+          labels: {severity: warning, component: rendezvous}
+          annotations:
+            summary: "Online node count dropped >50% below 24h average"
+            description: "online={{ $value }} is <50% of the 24h rolling average."
+
+        - alert: PilotRequestRateCollapse
+          expr: |
+            pilot:requests:rps_5m
+              < 0.5 * avg_over_time(pilot:requests:rps_1h[6h])
+          for: 15m
+          labels: {severity: warning, component: rendezvous}
+          annotations:
+            summary: "Request rate has collapsed vs 6h baseline"
+            description: "5m rate ({{ $value | humanize }} req/s) is <50% of the 6h baseline."
+
+        - alert: PilotNodeFleetShrinking
+          expr: pilot:nodes:growth_24h < 0
+          for: 3h
+          labels: {severity: warning, component: rendezvous}
+          annotations:
+            summary: "Total nodes shrinking over 24h window"
+            description: "delta(total_nodes[24h])={{ $value }} — fleet has been net-negative for 3h+."
+
+        - alert: PilotProbeStale
+          expr: max by (probe) (pilot_probe_staleness_seconds) > 120
+          for: 3m
+          labels: {severity: warning, component: rendezvous}
+          annotations:
+            summary: "Probe {{ $labels.probe }} stale (>120s since last success)"
+            description: "Staleness: {{ $value | humanizeDuration }}."
+
+        - alert: PilotRendezvousRestarted
+          expr: changes(max(pilot_rendezvous_last_restart_timestamp_seconds)[10m:30s]) > 0
+          for: 0m
+          labels: {severity: info, component: rendezvous}
+          annotations:
+            summary: "Rendezvous restarted within last 10m"
+            description: "Restart detected via restart_events in the snapshot."
+
+        - alert: PilotRendezvousFlapping
+          expr: changes(max(pilot_rendezvous_last_restart_timestamp_seconds)[1h:30s]) >= 3
+          for: 5m
+          labels: {severity: critical, component: rendezvous}
+          annotations:
+            summary: "Rendezvous restarted 3+ times in 1h"
+            description: "{{ $value }} restarts in the last hour — crashloop suspected."
+
+    - name: pilot.probe
+      interval: 30s
+      rules:
+        - alert: PilotProbeAgentUnreachable
+          expr: max by (agent, cmd) (pilot_probe_reachable) == 0
+          for: 5m
+          labels: {severity: critical, component: probe}
+          annotations:
+            summary: "Probe cannot reach {{ $labels.agent }} via {{ $labels.cmd }}"
+            description: "Synthetic probe has been unable to {{ $labels.cmd }} {{ $labels.agent }} for 5m+."
+
+        - alert: PilotProbeRttHigh
+          expr: max by (agent) (pilot_probe_rtt_ms) > 2000
+          for: 15m
+          labels: {severity: warning, component: probe}
+          annotations:
+            summary: "Probe RTT to {{ $labels.agent }} > 2s"
+            description: "Current avg RTT: {{ $value }}ms. Baseline for Jetson→GCP relay is 500–1000ms; over 2s suggests a real NAT/relay regression."
+
+        # 1-Mbps floor is only sensible once the bench baseline is characterized.
+        # Current measured throughput for agent-alpha over the GCP relay path is
+        # ~0.06 Mbps, so a naïve <1 Mbps threshold fires continuously. Re-enable
+        # with a baseline-aware expression (e.g. 50% below 24h median) once we
+        # have enough history to compute one.
+        # - alert: PilotProbeBenchLow
+        #   expr: min by (agent) (pilot_probe_bench_mbps) < 1
+        #   for: 15m
+
+        - alert: PilotProbeDaemonDown
+          expr: max(pilot_probe_daemon_up) == 0
+          for: 5m
+          labels: {severity: critical, component: probe}
+          annotations:
+            summary: "Probe's local pilot-daemon is not responsive"
+            description: "The probe pod cannot talk to its own daemon — probe is blind."
+
+        # PilotProbePodMissing intentionally omitted until the pilot-probe Deployment
+        # is rolled out. absent(pilot_probe_daemon_up) fires forever until the pod
+        # lands on the cluster — re-enable this rule once `kubectl apply
+        # -f k8s/pilot-probe/deployment.yaml` has been run and metrics are flowing.
+
+        - alert: PilotProbeDaemonStale
+          expr: max(pilot_probe_version_age_seconds) > 86400 and max(pilot_probe_version_matches_github) == 0
+          for: 1h
+          labels: {severity: warning, component: probe}
+          annotations:
+            summary: "Probe daemon version > 24h behind GitHub latest"
+            description: "pilot-updater likely broken — local daemon still on old release while newer one is published."
+
+        - alert: PilotInstallCanaryFailed
+          expr: |
+            sum(
+              max by (job_name) (
+                kube_job_failed{job_name=~"pilot-install-canary-.*", namespace="pilot-integration"}
+              )
+            ) >= 2
+          for: 10m
+          labels: {severity: warning, component: install}
+          annotations:
+            summary: "pilot-install-canary failed 2+ runs"
+            description: "{{ $value }} canary jobs in fail state — install.sh / release pipeline broken. Single-run blips (e.g. GitHub API rate limit) are tolerated; this means multiple runs failed."
+
+        - alert: PilotInstallCanaryStopped
+          expr: |
+            (time() - max by () (kube_cronjob_status_last_schedule_time{cronjob="pilot-install-canary", namespace="pilot-integration"})) > 7200
+          for: 15m
+          labels: {severity: warning, component: install}
+          annotations:
+            summary: "pilot-install-canary has not run in 2h+"
+            description: "Last run was {{ $value | humanizeDuration }} ago. CronJob suspended or cluster scheduling broken."

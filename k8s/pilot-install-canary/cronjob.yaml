@@ -1,0 +1,175 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-install-canary-script
+  namespace: pilot-integration
+data:
+  canary.sh: |
+    #!/bin/bash
+    # Fresh-install smoke test. Measures each phase and pushes timings to
+    # Pushgateway so we can track install.sh performance over time.
+    # Non-zero exit => kube_job_failed{} fires PilotInstallCanaryFailed.
+    set -euo pipefail
+
+    BIN="$HOME/.pilot/bin"
+    PG="${PUSHGATEWAY_URL:-http://pushgateway.pilot-integration.svc:9091}"
+    JOB="pilot-install-canary"
+    OUTCOME="fail"
+    DAEMON_READY_S="NaN"
+    INSTALL_S="NaN"
+    BINARIES_S="NaN"
+    VERSION_S="NaN"
+    TOTAL_S="NaN"
+    VERSION_LABEL="unknown"
+
+    push_metrics() {
+        # Collect a single snapshot and push it. Using the grouping key
+        # instance="canary" so successive runs overwrite, and we keep one
+        # sample per phase on the gauge timeline.
+        cat <<EOF | curl -s --data-binary @- "$PG/metrics/job/$JOB/instance/canary" || true
+    # TYPE pilot_install_canary_phase_seconds gauge
+    pilot_install_canary_phase_seconds{phase="install"} $INSTALL_S
+    pilot_install_canary_phase_seconds{phase="binaries_check"} $BINARIES_S
+    pilot_install_canary_phase_seconds{phase="version_check"} $VERSION_S
+    pilot_install_canary_phase_seconds{phase="daemon_ready"} $DAEMON_READY_S
+    pilot_install_canary_phase_seconds{phase="total"} $TOTAL_S
+    # TYPE pilot_install_canary_last_result gauge
+    pilot_install_canary_last_result{outcome="$OUTCOME"} 1
+    # TYPE pilot_install_canary_last_run_timestamp_seconds gauge
+    pilot_install_canary_last_run_timestamp_seconds $(date +%s)
+    # TYPE pilot_install_canary_version_info gauge
+    pilot_install_canary_version_info{version="$VERSION_LABEL"} 1
+    EOF
+    }
+    trap push_metrics EXIT
+
+    TOTAL_START=$(date +%s%N)
+
+    echo "[canary] downloading + running install.sh"
+    T0=$(date +%s%N)
+    curl -fsSL https://pilotprotocol.network/install.sh | \
+      PILOT_EMAIL="canary@vulturelabs.io" \
+      PILOT_HOSTNAME="pilot-install-canary-$(date +%s)" \
+      sh
+    INSTALL_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $T0) / 1e9}")
+    echo "[canary] install completed in ${INSTALL_S}s"
+
+    export PATH="$BIN:$PATH"
+
+    T0=$(date +%s%N)
+    for bin in pilot-daemon pilotctl pilot-gateway pilot-updater; do
+        if [ ! -x "$BIN/$bin" ]; then
+            echo "[canary] FAIL: $bin not installed at $BIN/$bin"
+            exit 2
+        fi
+    done
+    BINARIES_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $T0) / 1e9}")
+    echo "[canary] all four binaries present (${BINARIES_S}s)"
+
+    T0=$(date +%s%N)
+    VERSION=$(pilotctl version 2>&1 | head -1)
+    VERSION_LABEL=$(echo "$VERSION" | tr -cd 'A-Za-z0-9._-' | cut -c1-32)
+    VERSION_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $T0) / 1e9}")
+    echo "[canary] pilotctl version: $VERSION (${VERSION_S}s)"
+    [ -z "$VERSION" ] && { echo "[canary] FAIL: version empty"; exit 3; }
+
+    echo "[canary] starting daemon for liveness check"
+    rm -f /tmp/pilot.sock
+    "$BIN/pilot-daemon" \
+        -registry "${PILOT_REGISTRY:-34.71.57.205:9000}" \
+        -beacon "${PILOT_BEACON:-34.71.57.205:9001}" \
+        -listen :4000 \
+        -socket /tmp/pilot.sock \
+        -identity "$HOME/.pilot/identity.json" \
+        -email canary@vulturelabs.io \
+        -hostname pilot-install-canary \
+        -encrypt \
+        > /tmp/daemon.log 2>&1 &
+    DAEMON_PID=$!
+
+    # Clean shutdown on exit (kept as trap chain — push_metrics from outer trap still fires)
+    trap 'kill "$DAEMON_PID" 2>/dev/null || true; push_metrics' EXIT
+
+    T0=$(date +%s%N)
+    for i in $(seq 1 30); do
+        if pilotctl daemon status --check >/dev/null 2>&1; then
+            DAEMON_READY_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $T0) / 1e9}")
+            TOTAL_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $TOTAL_START) / 1e9}")
+            OUTCOME="pass"
+            echo "[canary] daemon responsive after ${DAEMON_READY_S}s (total ${TOTAL_S}s)"
+            pilotctl info | head -10 || true
+            echo "[canary] PASS"
+            exit 0
+        fi
+        sleep 1
+    done
+
+    DAEMON_READY_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $T0) / 1e9}")
+    TOTAL_S=$(awk "BEGIN {printf \"%.3f\", ($(date +%s%N) - $TOTAL_START) / 1e9}")
+    echo "[canary] FAIL: daemon never became responsive (${DAEMON_READY_S}s)"
+    tail -40 /tmp/daemon.log || true
+    exit 4
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pilot-install-canary
+  namespace: pilot-integration
+  labels:
+    app.kubernetes.io/name: pilot-install-canary
+    app.kubernetes.io/component: install-canary
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pilot-install-canary
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: canary
+              image: debian:12-slim
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
+              args:
+                - |
+                  apt-get update -qq
+                  apt-get install -y -qq --no-install-recommends curl ca-certificates tar
+                  exec /scripts/canary.sh
+              env:
+                - name: HOME
+                  value: /root
+                - name: PILOT_ALLOW_ROOT
+                  value: "1"
+                - name: PILOT_REGISTRY
+                  value: "34.71.57.205:9000"
+                - name: PILOT_BEACON
+                  value: "34.71.57.205:9001"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 96Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi
+          volumes:
+            - name: scripts
+              configMap:
+                name: pilot-install-canary-script
+                defaultMode: 0755
+            - name: tmp
+              emptyDir: {}

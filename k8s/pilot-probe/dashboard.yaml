@@ -1,0 +1,304 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-probe-dashboard
+  namespace: pilot-integration
+  labels:
+    grafana_dashboard: "1"
+data:
+  pilot-probe.json: |
+    {
+      "title": "Pilot Protocol — Synthetic Probe",
+      "uid": "pilot-probe",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-30m", "to": "now"},
+      "tags": ["pilot", "probe"],
+      "links": [
+        {
+          "title": "Pilot Overview",
+          "url": "/d/pilot-overview",
+          "type": "link",
+          "icon": "dashboard",
+          "targetBlank": false
+        },
+        {
+          "title": "Probe Alerts",
+          "url": "/alerting/list?search=PilotProbe",
+          "type": "link",
+          "icon": "bell",
+          "targetBlank": true
+        }
+      ],
+      "annotations": {
+        "list": [
+          {
+            "name": "Probe alerts firing",
+            "enable": true,
+            "iconColor": "red",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "ALERTS{alertname=~\"PilotProbe.*|PilotInstallCanary.*\", alertstate=\"firing\"}",
+            "titleFormat": "{{alertname}} FIRING",
+            "textFormat": "severity={{severity}}"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Probe Daemon",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "max(pilot_probe_daemon_up)", "refId": "A", "legendFormat": "daemon"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Version Matches GitHub",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "max(pilot_probe_version_matches_github)", "refId": "A", "legendFormat": "match"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "STALE", "color": "orange"}, "1": {"text": "CURRENT", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "orange", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Version Age",
+          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "max(pilot_probe_version_age_seconds)", "refId": "A", "legendFormat": "age"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 86400},
+              {"color": "red", "value": 259200}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Probe Iter / min",
+          "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "sum(rate(pilot_probe_iterations_total[5m])) * 60", "refId": "A", "legendFormat": "iter/min"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 1,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 0.5}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Error Rate (5m)",
+          "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "sum(rate(pilot_probe_errors_total[5m]))", "refId": "A", "legendFormat": "err/s"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 3,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 0.01},
+              {"color": "red", "value": 0.1}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Canary Last Run",
+          "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "time() - max(kube_cronjob_status_last_schedule_time{cronjob=\"pilot-install-canary\"})", "refId": "A", "legendFormat": "ago"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 3900},
+              {"color": "red", "value": 7200}
+            ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Reachability Matrix (current)",
+          "description": "Live OK/FAIL per agent × command. Rows = agent, columns = probe command.",
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+          "targets": [{"expr": "max by (agent, cmd) (pilot_probe_reachable)", "refId": "A", "instant": true, "format": "table"}],
+          "transformations": [
+            {"id": "filterFieldsByName", "options": {"include": {"names": ["agent", "cmd", "Value"]}}},
+            {"id": "groupingToMatrix", "options": {
+              "columnField": "cmd",
+              "rowField": "agent",
+              "valueField": "Value",
+              "emptyValue": "empty"
+            }}
+          ],
+          "fieldConfig": {"defaults": {
+            "custom": {"align": "center", "cellOptions": {"type": "color-background", "mode": "basic"}, "filterable": false, "minWidth": 70},
+            "mappings": [
+              {"type": "value", "options": {
+                "0": {"text": "FAIL", "color": "red", "index": 0},
+                "1": {"text": "OK", "color": "green", "index": 1}
+              }},
+              {"type": "special", "options": {"match": "empty", "result": {"text": "—", "color": "gray", "index": 2}}}
+            ],
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "transparent", "value": null}
+            ]},
+            "noValue": "NO DATA"
+          }, "overrides": [
+            {"matcher": {"id": "byName", "options": "agent\\cmd"}, "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "auto"}},
+              {"id": "custom.align", "value": "left"},
+              {"id": "custom.minWidth", "value": 140}
+            ]}
+          ]}
+        },
+        {
+          "id": 30,
+          "type": "status-history",
+          "title": "Reachability Over Time",
+          "description": "Historical OK/FAIL by agent × command. One row per (agent, cmd); time runs left → right.",
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+          "targets": [{"expr": "max by (agent, cmd) (pilot_probe_reachable)", "refId": "A", "legendFormat": "{{agent}} · {{cmd}}"}],
+          "options": {"showValue": "never", "rowHeight": 0.9, "colWidth": 0.9, "legend": {"displayMode": "list", "placement": "right", "showLegend": true}},
+          "fieldConfig": {"defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "FAIL", "color": "red"}, "1": {"text": "OK", "color": "green"}}}
+            ],
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]},
+            "noValue": "NO DATA"
+          }}
+        },
+
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Ping RTT (ms)",
+          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+          "targets": [{"expr": "max by (agent) (pilot_probe_rtt_ms)", "refId": "A", "legendFormat": "{{agent}}"}],
+          "fieldConfig": {"defaults": {"unit": "ms", "custom": {"fillOpacity": 10, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 250},
+              {"color": "red", "value": 500}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Ping Loss Ratio",
+          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+          "targets": [{"expr": "max by (agent) (pilot_probe_ping_loss_ratio)", "refId": "A", "legendFormat": "{{agent}}"}],
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "custom": {"fillOpacity": 10, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 0.05},
+              {"color": "red", "value": 0.2}
+            ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Bench Throughput (Mbps)",
+          "gridPos": {"x": 0, "y": 19, "w": 12, "h": 7},
+          "targets": [{"expr": "min by (agent) (pilot_probe_bench_mbps)", "refId": "A", "legendFormat": "{{agent}}"}],
+          "fieldConfig": {"defaults": {"unit": "Mbits", "custom": {"fillOpacity": 10, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 1},
+              {"color": "green", "value": 10}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Traceroute Sample (ms)",
+          "gridPos": {"x": 12, "y": 19, "w": 12, "h": 7},
+          "targets": [{"expr": "max by (agent) (pilot_probe_traceroute_sample_ms)", "refId": "A", "legendFormat": "{{agent}}"}],
+          "fieldConfig": {"defaults": {"unit": "ms", "custom": {"fillOpacity": 10, "lineWidth": 2}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Command Duration (s) — by agent × cmd",
+          "gridPos": {"x": 0, "y": 26, "w": 24, "h": 7},
+          "targets": [{"expr": "max by (agent, cmd) (pilot_probe_cmd_duration_seconds)", "refId": "A", "legendFormat": "{{agent}} / {{cmd}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 5, "lineWidth": 1}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Install Canary — Failed Jobs (rolling)",
+          "gridPos": {"x": 0, "y": 33, "w": 12, "h": 7},
+          "targets": [
+            {"expr": "sum(max by (job_name) (kube_job_failed{job_name=~\"pilot-install-canary-.*\", namespace=\"pilot-integration\"}))", "refId": "A", "legendFormat": "failed"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"fillOpacity": 15, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 1},
+              {"color": "red", "value": 2}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Probe Errors by Command (rate 5m)",
+          "gridPos": {"x": 12, "y": 33, "w": 12, "h": 7},
+          "targets": [{"expr": "sum by (cmd) (rate(pilot_probe_errors_total[5m]))", "refId": "A", "legendFormat": "{{cmd}}"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 4, "custom": {"fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "normal"}}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 18,
+          "type": "stat",
+          "title": "Probe Peers",
+          "gridPos": {"x": 0, "y": 40, "w": 6, "h": 4},
+          "targets": [{"expr": "max(pilot_probe_daemon_peers)", "refId": "A", "legendFormat": "peers"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "blue"}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 19,
+          "type": "stat",
+          "title": "Probe Connections",
+          "gridPos": {"x": 6, "y": 40, "w": 6, "h": 4},
+          "targets": [{"expr": "max(pilot_probe_daemon_connections)", "refId": "A", "legendFormat": "conns"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "purple"}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 20,
+          "type": "table",
+          "title": "Probe vs GitHub Version",
+          "gridPos": {"x": 12, "y": 40, "w": 12, "h": 4},
+          "targets": [
+            {"expr": "pilot_probe_daemon_version", "refId": "A", "instant": true, "format": "table", "legendFormat": "daemon"},
+            {"expr": "pilot_probe_github_latest_version", "refId": "B", "instant": true, "format": "table", "legendFormat": "github"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "job": true, "instance": true, "namespace": true, "endpoint": true, "service": true, "pod": true, "container": true, "Value #A": true, "Value #B": true}
+            }}
+          ]
+        }
+      ]
+    }

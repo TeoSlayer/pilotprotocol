@@ -1,0 +1,187 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-release-dashboard
+  namespace: pilot-integration
+  labels:
+    grafana_dashboard: "1"
+data:
+  pilot-release.json: |
+    {
+      "title": "Pilot Protocol — Release Pipeline",
+      "uid": "pilot-release",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "1m",
+      "time": {"from": "now-7d", "to": "now"},
+      "tags": ["pilot", "release", "ci"],
+      "links": [
+        {"title": "Pilot Overview", "url": "/d/pilot-overview", "type": "link", "icon": "dashboard"},
+        {"title": "Probe Dashboard", "url": "/d/pilot-probe", "type": "link", "icon": "dashboard"},
+        {"title": "Website Dashboard", "url": "/d/pilot-website", "type": "link", "icon": "dashboard"},
+        {"title": "Release Alerts", "url": "/alerting/list?search=PilotRelease,PilotActions,PilotHomebrew,PilotInstall", "type": "link", "icon": "bell", "targetBlank": true}
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Latest Release Age",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "pilot_release_latest_age_seconds", "refId": "A"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 604800},
+              {"color": "red", "value": 1209600}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Homebrew in Sync",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "1 - pilot_homebrew_tap_behind_latest", "refId": "A"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "BEHIND", "color": "orange"}, "1": {"text": "IN SYNC", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "orange", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "CI Workflows Green",
+          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "min(pilot_actions_last_run_success)", "refId": "A"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red"}, "1": {"text": "GREEN", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "GH API Rate Remaining",
+          "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "pilot_release_exporter_github_rate_remaining", "refId": "A"}],
+          "options": {"graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 10},
+              {"color": "green", "value": 30}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Install Total (last run)",
+          "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "pilot_install_canary_phase_seconds{phase=\"total\"}", "refId": "A"}],
+          "options": {"graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 60},
+              {"color": "red", "value": 120}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Canary Last Outcome",
+          "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "max by (outcome) (pilot_install_canary_last_result)", "refId": "A", "legendFormat": "{{outcome}}", "instant": true}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^outcome$/"}, "textMode": "name"},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"pass": {"text": "PASS", "color": "green"}, "fail": {"text": "FAIL", "color": "red"}}}
+          ], "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Install Phases (seconds)",
+          "gridPos": {"x": 0, "y": 4, "w": 16, "h": 8},
+          "targets": [{"expr": "pilot_install_canary_phase_seconds", "refId": "A", "legendFormat": "{{phase}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "none"}}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Canary Version History",
+          "gridPos": {"x": 16, "y": 4, "w": 8, "h": 8},
+          "targets": [{"expr": "pilot_install_canary_version_info", "refId": "A", "instant": true, "format": "table"}],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "job": true, "instance": true, "exported_job": true, "exported_instance": true, "namespace": true, "endpoint": true, "service": true, "pod": true, "container": true, "Value": true}
+            }}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"align": "left"}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 20,
+          "type": "state-timeline",
+          "title": "CI Workflow Status (per workflow)",
+          "gridPos": {"x": 0, "y": 12, "w": 24, "h": 6},
+          "targets": [{"expr": "pilot_actions_last_run_success", "refId": "A", "legendFormat": "{{workflow}}"}],
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "FAIL", "color": "red"}, "1": {"text": "PASS", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "CI Workflow Duration",
+          "gridPos": {"x": 0, "y": 18, "w": 12, "h": 7},
+          "targets": [{"expr": "pilot_actions_last_run_duration_seconds", "refId": "A", "legendFormat": "{{workflow}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 10, "lineWidth": 2}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "CI Workflow — Age of Last Run",
+          "gridPos": {"x": 12, "y": 18, "w": 12, "h": 7},
+          "targets": [{"expr": "pilot_actions_last_run_age_seconds", "refId": "A", "legendFormat": "{{workflow}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 10, "lineWidth": 2}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Release Age (seconds since last release)",
+          "gridPos": {"x": 0, "y": 25, "w": 12, "h": 7},
+          "targets": [{"expr": "pilot_release_latest_age_seconds", "refId": "A", "legendFormat": "age"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 15, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 604800},
+              {"color": "red", "value": 1209600}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 31,
+          "type": "table",
+          "title": "Release Tags (latest vs homebrew)",
+          "gridPos": {"x": 12, "y": 25, "w": 12, "h": 7},
+          "targets": [
+            {"expr": "pilot_release_latest", "refId": "A", "instant": true, "format": "table", "legendFormat": "github"},
+            {"expr": "pilot_homebrew_tap_version", "refId": "B", "instant": true, "format": "table", "legendFormat": "homebrew"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "job": true, "instance": true, "namespace": true, "endpoint": true, "service": true, "pod": true, "container": true, "Value #A": true, "Value #B": true}
+            }}
+          ]
+        }
+      ]
+    }

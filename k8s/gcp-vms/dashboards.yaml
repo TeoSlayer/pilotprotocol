@@ -1,0 +1,493 @@
+---
+# Fleet overview — all 15 VMs, role breakdown, entry points to specialized dashboards.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-fleet-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-fleet.json: |
+    {
+      "title": "Pilot GCP — Fleet Overview",
+      "uid": "pilot-gcp-fleet",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "gcp", "fleet"],
+      "links": [
+        {"title": "Registry / Rendezvous", "url": "/d/pilot-gcp-rendezvous", "type": "link"},
+        {"title": "Beacons", "url": "/d/pilot-gcp-beacons", "type": "link"},
+        {"title": "Swarm", "url": "/d/pilot-gcp-swarm", "type": "link"},
+        {"title": "Agents", "url": "/d/pilot-gcp-agents", "type": "link"},
+        {"title": "Scriptorium", "url": "/d/pilot-gcp-scriptorium", "type": "link"}
+      ],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "VMs Up",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{service=\"pilot-iap-scraper\"} == 1)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+           {"color": "red", "value": null}, {"color": "orange", "value": 13}, {"color": "green", "value": 15}
+         ]}, "noValue": "NO DATA"}}},
+        {"id": 2, "type": "stat", "title": "VMs Down",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{service=\"pilot-iap-scraper\"} == 0) OR on() vector(0)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+           {"color": "green", "value": null}, {"color": "red", "value": 1}
+         ]}}}},
+        {"id": 3, "type": "stat", "title": "Registry Online Nodes",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_online_nodes", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 4, "type": "stat", "title": "Registry Req / Day",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_req_per_day", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+        {"id": 5, "type": "stat", "title": "Fleet Net TX",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_network_transmit_bytes_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 6, "type": "stat", "title": "Fleet Net RX",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_network_receive_bytes_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 10, "type": "table", "title": "All VMs — Health Snapshot",
+         "gridPos": {"x": 0, "y": 4, "w": 24, "h": 9},
+         "targets": [
+           {"expr": "up{service=\"pilot-iap-scraper\"}", "refId": "up", "format": "table", "instant": true},
+           {"expr": "100 - avg by (vm,role) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",mode=\"idle\"}[5m]) * 100)", "refId": "cpu", "format": "table", "instant": true},
+           {"expr": "(node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\"} - node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\"}) / node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\"} * 100", "refId": "mem", "format": "table", "instant": true},
+           {"expr": "(1 - node_filesystem_avail_bytes{service=\"pilot-iap-scraper\",mountpoint=\"/\"} / node_filesystem_size_bytes{service=\"pilot-iap-scraper\",mountpoint=\"/\"}) * 100", "refId": "disk", "format": "table", "instant": true},
+           {"expr": "node_load1{service=\"pilot-iap-scraper\"}", "refId": "load", "format": "table", "instant": true},
+           {"expr": "node_time_seconds{service=\"pilot-iap-scraper\"} - node_boot_time_seconds{service=\"pilot-iap-scraper\"}", "refId": "uptime", "format": "table", "instant": true}
+         ],
+         "transformations": [
+           {"id": "merge", "options": {}},
+           {"id": "organize", "options": {"excludeByName": {"__name__": true, "Time": true, "container": true, "endpoint": true, "instance": true, "namespace": true, "pod": true, "service": true, "job": true}, "renameByName": {"Value #up": "up", "Value #cpu": "cpu%", "Value #mem": "mem%", "Value #disk": "disk%", "Value #load": "load1", "Value #uptime": "uptime"}}}
+         ],
+         "fieldConfig": {"defaults": {"custom": {"align": "left"}},
+           "overrides": [
+             {"matcher": {"id": "byName", "options": "cpu%"}, "properties": [{"id": "unit", "value": "percent"}, {"id": "decimals", "value": 1}, {"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}]},
+             {"matcher": {"id": "byName", "options": "mem%"}, "properties": [{"id": "unit", "value": "percent"}, {"id": "decimals", "value": 1}, {"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}]},
+             {"matcher": {"id": "byName", "options": "disk%"}, "properties": [{"id": "unit", "value": "percent"}, {"id": "decimals", "value": 1}, {"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}]},
+             {"matcher": {"id": "byName", "options": "uptime"}, "properties": [{"id": "unit", "value": "s"}]},
+             {"matcher": {"id": "byName", "options": "up"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "mappings", "value": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]}]}
+           ]}},
+        {"id": 20, "type": "timeseries", "title": "Net TX by Role (stacked)",
+         "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
+         "targets": [{"expr": "sum by (role) (rate(node_network_transmit_bytes_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{role}}"}],
+         "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"stacking": {"mode": "normal"}, "fillOpacity": 30, "lineWidth": 1}}}},
+        {"id": 21, "type": "timeseries", "title": "Net RX by Role (stacked)",
+         "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
+         "targets": [{"expr": "sum by (role) (rate(node_network_receive_bytes_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{role}}"}],
+         "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"stacking": {"mode": "normal"}, "fillOpacity": 30, "lineWidth": 1}}}},
+        {"id": 22, "type": "timeseries", "title": "CPU % by VM",
+         "gridPos": {"x": 0, "y": 21, "w": 12, "h": 8},
+         "targets": [{"expr": "100 - avg by (vm) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",mode=\"idle\"}[5m]) * 100)", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+        {"id": 23, "type": "timeseries", "title": "TCP ESTABLISHED by VM",
+         "gridPos": {"x": 12, "y": 21, "w": 12, "h": 8},
+         "targets": [{"expr": "node_netstat_Tcp_CurrEstab{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}}
+      ]
+    }
+---
+# Registry / Rendezvous monitor — single control-plane VM + registry aggregates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-rendezvous-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-rendezvous.json: |
+    {
+      "title": "Pilot GCP — Registry / Rendezvous",
+      "uid": "pilot-gcp-rendezvous",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-24h", "to": "now"},
+      "tags": ["pilot", "gcp", "rendezvous", "registry"],
+      "links": [{"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"}],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "Rendezvous VM",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "up{vm=\"pilot-rendezvous\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}}},
+        {"id": 2, "type": "stat", "title": "Online Nodes",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_online_nodes", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 3, "type": "stat", "title": "Total Nodes Seen",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_total_nodes", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 4, "type": "stat", "title": "Uptime Since Restart",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_rendezvous_time_since_last_restart_seconds", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "s"}}},
+        {"id": 5, "type": "stat", "title": "Req / Day",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "pilot_req_per_day", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 6, "type": "stat", "title": "Restarts (24h)",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "increase(pilot_rendezvous_restart_events[24h])", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}}}},
+        {"id": 10, "type": "timeseries", "title": "Registry: Online Nodes over Time",
+         "gridPos": {"x": 0, "y": 4, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "pilot_online_nodes", "refId": "A", "legendFormat": "online"},
+           {"expr": "pilot_total_nodes", "refId": "B", "legendFormat": "total seen"}
+         ]},
+        {"id": 11, "type": "timeseries", "title": "Registry: Request Rate (per 5m)",
+         "gridPos": {"x": 12, "y": 4, "w": 12, "h": 7},
+         "targets": [{"expr": "rate(pilot_total_requests[5m])", "refId": "A", "legendFormat": "req/s"}],
+         "fieldConfig": {"defaults": {"unit": "reqps"}}},
+        {"id": 20, "type": "timeseries", "title": "Rendezvous VM — CPU %",
+         "gridPos": {"x": 0, "y": 11, "w": 8, "h": 7},
+         "targets": [{"expr": "avg by (mode) (rate(node_cpu_seconds_total{vm=\"pilot-rendezvous\",mode!~\"idle|iowait\"}[5m])) * 100", "refId": "A", "legendFormat": "{{mode}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"stacking": {"mode": "normal"}}}}},
+        {"id": 21, "type": "timeseries", "title": "Rendezvous VM — Memory",
+         "gridPos": {"x": 8, "y": 11, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "node_memory_MemTotal_bytes{vm=\"pilot-rendezvous\"} - node_memory_MemAvailable_bytes{vm=\"pilot-rendezvous\"}", "refId": "used", "legendFormat": "used"},
+           {"expr": "node_memory_MemAvailable_bytes{vm=\"pilot-rendezvous\"}", "refId": "free", "legendFormat": "available"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"stacking": {"mode": "normal"}}}}},
+        {"id": 22, "type": "timeseries", "title": "Rendezvous VM — TCP Established",
+         "gridPos": {"x": 16, "y": 11, "w": 8, "h": 7},
+         "targets": [{"expr": "node_netstat_Tcp_CurrEstab{vm=\"pilot-rendezvous\"}", "refId": "A", "legendFormat": "TCP"}]},
+        {"id": 30, "type": "timeseries", "title": "Rendezvous VM — Network",
+         "gridPos": {"x": 0, "y": 18, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "sum(rate(node_network_receive_bytes_total{vm=\"pilot-rendezvous\",device=\"ens4\"}[5m]))", "refId": "rx", "legendFormat": "rx"},
+           {"expr": "-sum(rate(node_network_transmit_bytes_total{vm=\"pilot-rendezvous\",device=\"ens4\"}[5m]))", "refId": "tx", "legendFormat": "tx"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 31, "type": "timeseries", "title": "Probe Fleet Health (probes reaching rendezvous)",
+         "gridPos": {"x": 12, "y": 18, "w": 12, "h": 7},
+         "targets": [{"expr": "pilot_probe_up", "refId": "A", "legendFormat": "{{probe}}"}],
+         "fieldConfig": {"defaults": {"min": 0, "max": 1}}}
+      ]
+    }
+---
+# Beacon monitor — 6 beacons, LB symmetry, connection fan-out.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-beacons-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-beacons.json: |
+    {
+      "title": "Pilot GCP — Beacons (6-node MIG)",
+      "uid": "pilot-gcp-beacons",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "gcp", "beacon"],
+      "links": [{"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"}],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "Beacons Up",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{role=\"beacon\"} == 1)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 5}, {"color": "green", "value": 6}]}}}},
+        {"id": 2, "type": "stat", "title": "Aggregate TCP Connections",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(node_netstat_Tcp_CurrEstab{role=\"beacon\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 3, "type": "stat", "title": "Aggregate TX",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 4, "type": "stat", "title": "Aggregate RX",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_network_receive_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 5, "type": "stat", "title": "LB Imbalance (max/avg TX)",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "description": "Ratio of peak beacon TX to average. 1.0 = perfectly balanced. >1.5 = skewed iptables DNAT.",
+         "targets": [{"expr": "max(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])) / avg(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"decimals": 2, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1.5}, {"color": "red", "value": 2.5}]}}}},
+        {"id": 6, "type": "stat", "title": "Max Beacon CPU %",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "max(100 - avg by (vm) (rate(node_cpu_seconds_total{role=\"beacon\",mode=\"idle\"}[5m]) * 100))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}}},
+        {"id": 10, "type": "timeseries", "title": "TX per beacon (LB symmetry view)",
+         "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+         "description": "Overlay of all 6 beacon TX rates. Equal lines = balanced load.",
+         "targets": [{"expr": "sum by (vm) (rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 11, "type": "timeseries", "title": "RX per beacon",
+         "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+         "targets": [{"expr": "sum by (vm) (rate(node_network_receive_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 20, "type": "timeseries", "title": "TCP Established per beacon",
+         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "node_netstat_Tcp_CurrEstab{role=\"beacon\"}", "refId": "A", "legendFormat": "{{vm}}"}]},
+        {"id": 21, "type": "timeseries", "title": "CPU % per beacon",
+         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "100 - avg by (vm) (rate(node_cpu_seconds_total{role=\"beacon\",mode=\"idle\"}[5m]) * 100)", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+        {"id": 22, "type": "bargauge", "title": "Per-beacon TX Share (last 5m)",
+         "gridPos": {"x": 0, "y": 19, "w": 24, "h": 6},
+         "description": "Should be ~16.7% each for perfect 1/N distribution.",
+         "targets": [{"expr": "100 * sum by (vm) (rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])) / scalar(sum(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 40, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 10}, {"color": "green", "value": 14}, {"color": "orange", "value": 25}]}}},
+         "options": {"orientation": "horizontal", "displayMode": "gradient"}}
+      ]
+    }
+---
+# Swarm monitor — 2 swarm VMs, traffic shape (frozen at 4577 units, 300rps).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-swarm-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-swarm.json: |
+    {
+      "title": "Pilot GCP — Swarm",
+      "uid": "pilot-gcp-swarm",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "gcp", "swarm"],
+      "links": [{"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"}],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "Swarm VMs Up",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{role=\"swarm\"} == 1) OR on() vector(0)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 1}, {"color": "green", "value": 2}]}}}},
+        {"id": 2, "type": "stat", "title": "Aggregate TCP",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(node_netstat_Tcp_CurrEstab{role=\"swarm\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 3, "type": "stat", "title": "Aggregate Process Count",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "description": "Frozen fleet should sit near 4577 + base procs.",
+         "targets": [{"expr": "sum(node_procs_running{role=\"swarm\"}) + sum(node_procs_blocked{role=\"swarm\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 4, "type": "stat", "title": "Aggregate Packet Rate",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_network_transmit_packets_total{role=\"swarm\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 5, "type": "stat", "title": "Max Load (1m)",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "max(node_load1{role=\"swarm\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 8}, {"color": "red", "value": 16}]}}}},
+        {"id": 6, "type": "stat", "title": "Context Switches/s (aggregate)",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "description": "dbus saturates ~4577 units — watch for CS spikes.",
+         "targets": [{"expr": "sum(rate(node_context_switches_total{role=\"swarm\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 10, "type": "timeseries", "title": "Traffic Rate per swarm VM (packets/s)",
+         "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "sum by (vm) (rate(node_network_transmit_packets_total{role=\"swarm\",device=\"ens4\"}[5m]))", "refId": "tx", "legendFormat": "{{vm}} tx"},
+           {"expr": "sum by (vm) (rate(node_network_receive_packets_total{role=\"swarm\",device=\"ens4\"}[5m]))", "refId": "rx", "legendFormat": "{{vm}} rx"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 11, "type": "timeseries", "title": "Process Count per swarm VM",
+         "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+         "targets": [{"expr": "node_procs_running{role=\"swarm\"} + node_procs_blocked{role=\"swarm\"}", "refId": "A", "legendFormat": "{{vm}}"}]},
+        {"id": 20, "type": "timeseries", "title": "CPU % (by mode) per swarm VM",
+         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "100 - avg by (vm) (rate(node_cpu_seconds_total{role=\"swarm\",mode=\"idle\"}[5m]) * 100)", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+        {"id": 21, "type": "timeseries", "title": "Memory used per swarm VM",
+         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "node_memory_MemTotal_bytes{role=\"swarm\"} - node_memory_MemAvailable_bytes{role=\"swarm\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "bytes"}}}
+      ]
+    }
+---
+# Agent monitor — 5 agents split by role (public vs NAT).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-agents-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-agents.json: |
+    {
+      "title": "Pilot GCP — Agents (Public + NAT)",
+      "uid": "pilot-gcp-agents",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "gcp", "agent"],
+      "links": [{"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"}],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "Public Agents Up",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{role=\"public-agent\"} == 1) OR on() vector(0)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 1}, {"color": "green", "value": 2}]}}}},
+        {"id": 2, "type": "stat", "title": "NAT Agents Up",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "count(up{role=\"nat-agent\"} == 1) OR on() vector(0)", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 2}, {"color": "green", "value": 3}]}}}},
+        {"id": 3, "type": "stat", "title": "Agents TCP (public)",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(node_netstat_Tcp_CurrEstab{role=\"public-agent\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 4, "type": "stat", "title": "Agents TCP (nat)",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(node_netstat_Tcp_CurrEstab{role=\"nat-agent\"})", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 5, "type": "stat", "title": "UDP RX rate (all agents)",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "description": "Pilot daemons use UDP tunnel on :4000.",
+         "targets": [{"expr": "sum(rate(node_netstat_Udp_InDatagrams{role=~\"public-agent|nat-agent\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 6, "type": "stat", "title": "UDP TX rate (all agents)",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "sum(rate(node_netstat_Udp_OutDatagrams{role=~\"public-agent|nat-agent\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 10, "type": "timeseries", "title": "UDP datagram rate per agent",
+         "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+         "description": "UDP is the Pilot tunnel protocol. Spikes = traffic; flatline = dead daemon.",
+         "targets": [
+           {"expr": "sum by (vm) (rate(node_netstat_Udp_InDatagrams{role=~\"public-agent|nat-agent\"}[5m]))", "refId": "in", "legendFormat": "{{vm}} in"},
+           {"expr": "sum by (vm) (rate(node_netstat_Udp_OutDatagrams{role=~\"public-agent|nat-agent\"}[5m]))", "refId": "out", "legendFormat": "{{vm}} out"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 20, "type": "timeseries", "title": "Network TX per agent",
+         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "sum by (vm,role) (rate(node_network_transmit_bytes_total{role=~\"public-agent|nat-agent\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{vm}} ({{role}})"}],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 21, "type": "timeseries", "title": "Network RX per agent",
+         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "sum by (vm,role) (rate(node_network_receive_bytes_total{role=~\"public-agent|nat-agent\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{vm}} ({{role}})"}],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 30, "type": "timeseries", "title": "CPU % per agent",
+         "gridPos": {"x": 0, "y": 19, "w": 12, "h": 7},
+         "targets": [{"expr": "100 - avg by (vm,role) (rate(node_cpu_seconds_total{role=~\"public-agent|nat-agent\",mode=\"idle\"}[5m]) * 100)", "refId": "A", "legendFormat": "{{vm}} ({{role}})"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+        {"id": 31, "type": "timeseries", "title": "Memory used per agent",
+         "gridPos": {"x": 12, "y": 19, "w": 12, "h": 7},
+         "targets": [{"expr": "node_memory_MemTotal_bytes{role=~\"public-agent|nat-agent\"} - node_memory_MemAvailable_bytes{role=~\"public-agent|nat-agent\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "bytes"}}}
+      ]
+    }
+---
+# Scriptorium monitor — service-agents host; disk + inode focus (past incident).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-scriptorium-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-scriptorium.json: |
+    {
+      "title": "Pilot GCP — Scriptorium",
+      "uid": "pilot-gcp-scriptorium",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-24h", "to": "now"},
+      "tags": ["pilot", "gcp", "scriptorium"],
+      "links": [{"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"}],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "Scriptorium Up",
+         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "up{vm=\"scriptorium-server\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}}},
+        {"id": 2, "type": "stat", "title": "Disk Used",
+         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "(1 - node_filesystem_avail_bytes{vm=\"scriptorium-server\",mountpoint=\"/\"} / node_filesystem_size_bytes{vm=\"scriptorium-server\",mountpoint=\"/\"}) * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}}},
+        {"id": 3, "type": "stat", "title": "Inodes Used",
+         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+         "description": "Past incident: 100% inode exhaustion from .pilot/inbox message buildup.",
+         "targets": [{"expr": "(1 - node_filesystem_files_free{vm=\"scriptorium-server\",mountpoint=\"/\"} / node_filesystem_files{vm=\"scriptorium-server\",mountpoint=\"/\"}) * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 60}, {"color": "red", "value": 85}]}}}},
+        {"id": 4, "type": "stat", "title": "Disk Free",
+         "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "node_filesystem_avail_bytes{vm=\"scriptorium-server\",mountpoint=\"/\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "bytes"}}},
+        {"id": 5, "type": "stat", "title": "Inodes Free",
+         "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "node_filesystem_files_free{vm=\"scriptorium-server\",mountpoint=\"/\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+        {"id": 6, "type": "stat", "title": "Load (1m)",
+         "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+         "targets": [{"expr": "node_load1{vm=\"scriptorium-server\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 10, "type": "timeseries", "title": "Disk & Inode Usage (trend)",
+         "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+         "description": "Watch for creep — the cron at 00:00 UTC should keep inodes below 50%.",
+         "targets": [
+           {"expr": "(1 - node_filesystem_avail_bytes{vm=\"scriptorium-server\",mountpoint=\"/\"} / node_filesystem_size_bytes{vm=\"scriptorium-server\",mountpoint=\"/\"}) * 100", "refId": "disk", "legendFormat": "disk %"},
+           {"expr": "(1 - node_filesystem_files_free{vm=\"scriptorium-server\",mountpoint=\"/\"} / node_filesystem_files{vm=\"scriptorium-server\",mountpoint=\"/\"}) * 100", "refId": "inodes", "legendFormat": "inodes %"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}}},
+        {"id": 20, "type": "timeseries", "title": "Scriptorium — CPU %",
+         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+         "targets": [{"expr": "100 - avg by (mode) (rate(node_cpu_seconds_total{vm=\"scriptorium-server\",mode!~\"idle|iowait\"}[5m]) * 100)", "refId": "A", "legendFormat": "{{mode}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"stacking": {"mode": "normal"}}}}},
+        {"id": 21, "type": "timeseries", "title": "Scriptorium — Memory",
+         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_memory_MemTotal_bytes{vm=\"scriptorium-server\"} - node_memory_MemAvailable_bytes{vm=\"scriptorium-server\"}", "refId": "used", "legendFormat": "used"},
+           {"expr": "node_memory_Cached_bytes{vm=\"scriptorium-server\"}", "refId": "cache", "legendFormat": "cache"},
+           {"expr": "node_memory_MemAvailable_bytes{vm=\"scriptorium-server\"}", "refId": "free", "legendFormat": "available"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"stacking": {"mode": "normal"}}}}},
+        {"id": 30, "type": "timeseries", "title": "Scriptorium — Network",
+         "gridPos": {"x": 0, "y": 19, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "sum(rate(node_network_receive_bytes_total{vm=\"scriptorium-server\",device=\"ens4\"}[5m]))", "refId": "rx", "legendFormat": "rx"},
+           {"expr": "-sum(rate(node_network_transmit_bytes_total{vm=\"scriptorium-server\",device=\"ens4\"}[5m]))", "refId": "tx", "legendFormat": "tx"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 31, "type": "timeseries", "title": "Disk I/O",
+         "gridPos": {"x": 12, "y": 19, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_disk_read_bytes_total{vm=\"scriptorium-server\",device=\"sda\"}[5m])", "refId": "r", "legendFormat": "read"},
+           {"expr": "-rate(node_disk_written_bytes_total{vm=\"scriptorium-server\",device=\"sda\"}[5m])", "refId": "w", "legendFormat": "write"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}}
+      ]
+    }

@@ -1,0 +1,179 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-website-dashboard
+  namespace: pilot-integration
+  labels:
+    grafana_dashboard: "1"
+data:
+  pilot-website.json: |
+    {
+      "title": "Pilot Protocol — Website & Install",
+      "uid": "pilot-website",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "1m",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "website", "blackbox"],
+      "links": [
+        {"title": "Pilot Overview", "url": "/d/pilot-overview", "type": "link", "icon": "dashboard", "targetBlank": false},
+        {"title": "Website Alerts", "url": "/alerting/list?search=PilotWebsite,PilotInstallSh,PilotTLS", "type": "link", "icon": "bell", "targetBlank": true}
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Website Up",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "min(probe_success{surface=\"website\"})", "refId": "A"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "install.sh Up",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "min(probe_success{surface=\"install\"})", "refId": "A"}],
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ], "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null}, {"color": "green", "value": 1}
+          ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "TLS Days Remaining (min)",
+          "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "min((probe_ssl_earliest_cert_expiry - time()) / 86400)", "refId": "A"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "d", "decimals": 1,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 14},
+              {"color": "green", "value": 30}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Install.sh Latency (p95, 1h)",
+          "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "quantile_over_time(0.95, probe_duration_seconds{surface=\"install\"}[1h])", "refId": "A"}],
+          "options": {"graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 5},
+              {"color": "red", "value": 10}
+            ]}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "install.sh Content Size",
+          "gridPos": {"x": 16, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "avg(probe_http_content_length{surface=\"install\"})", "refId": "A"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "noValue": "NO DATA"}}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Website Availability (24h)",
+          "gridPos": {"x": 20, "y": 0, "w": 4, "h": 4},
+          "targets": [{"expr": "avg_over_time(probe_success{surface=\"website\"}[24h])", "refId": "A"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 0.99},
+              {"color": "green", "value": 0.999}
+            ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Probe Success (1=up, 0=down)",
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 7},
+          "targets": [{"expr": "probe_success", "refId": "A", "legendFormat": "{{instance}}"}],
+          "fieldConfig": {"defaults": {"min": 0, "max": 1, "custom": {"fillOpacity": 20, "lineWidth": 2, "drawStyle": "bars"}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Probe Duration (seconds)",
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 7},
+          "targets": [{"expr": "probe_duration_seconds", "refId": "A", "legendFormat": "{{instance}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 10, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 5},
+              {"color": "red", "value": 10}
+            ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "HTTP Phase Durations (install.sh)",
+          "gridPos": {"x": 0, "y": 11, "w": 12, "h": 7},
+          "targets": [{"expr": "probe_http_duration_seconds{surface=\"install\"}", "refId": "A", "legendFormat": "{{phase}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 10, "lineWidth": 2, "stacking": {"mode": "normal"}}, "noValue": "NO DATA"}}
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "HTTP Status Codes",
+          "gridPos": {"x": 12, "y": 11, "w": 12, "h": 7},
+          "targets": [{"expr": "probe_http_status_code", "refId": "A", "legendFormat": "{{instance}}"}],
+          "fieldConfig": {"defaults": {"custom": {"fillOpacity": 5, "lineWidth": 1, "drawStyle": "points"}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "TLS Certificate — Days Remaining",
+          "gridPos": {"x": 0, "y": 18, "w": 24, "h": 7},
+          "targets": [{"expr": "(probe_ssl_earliest_cert_expiry - time()) / 86400", "refId": "A", "legendFormat": "{{instance}}"}],
+          "fieldConfig": {"defaults": {"unit": "d", "custom": {"fillOpacity": 10, "lineWidth": 2},
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 14},
+              {"color": "green", "value": 30}
+            ]}, "noValue": "NO DATA"}}
+        },
+
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Last Probe Result",
+          "gridPos": {"x": 0, "y": 25, "w": 24, "h": 6},
+          "targets": [{"expr": "probe_success", "refId": "A", "instant": true, "format": "table"}],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "job": true, "namespace": true, "endpoint": true, "service": true, "pod": true, "container": true},
+              "indexByName": {"instance": 0, "surface": 1, "module": 2, "Value": 3}
+            }}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"align": "left"}},
+            "overrides": [
+              {"matcher": {"id": "byName", "options": "Value"},
+                "properties": [
+                  {"id": "mappings", "value": [
+                    {"type": "value", "options": {"0": {"text": "FAIL", "color": "red"}, "1": {"text": "OK", "color": "green"}}}
+                  ]},
+                  {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+                ]}
+            ]}
+        }
+      ]
+    }

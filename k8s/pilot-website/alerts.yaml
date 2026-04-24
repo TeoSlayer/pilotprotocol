@@ -1,0 +1,60 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pilot-website-alerts
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: pilot.website
+      interval: 60s
+      rules:
+        - alert: PilotWebsiteDown
+          expr: probe_success{surface="website"} == 0
+          for: 3m
+          labels: {severity: critical, component: website}
+          annotations:
+            summary: "Website {{ $labels.instance }} is DOWN"
+            description: "Blackbox probe against {{ $labels.instance }} has failed for 3m."
+
+        - alert: PilotWebsiteSlow
+          expr: probe_duration_seconds{surface="website"} > 5
+          for: 10m
+          labels: {severity: warning, component: website}
+          annotations:
+            summary: "Website {{ $labels.instance }} slow (>5s)"
+            description: "Page load took {{ $value | humanizeDuration }} for 10m+."
+
+        - alert: PilotInstallShDown
+          expr: probe_success{surface="install"} == 0
+          for: 3m
+          labels: {severity: critical, component: install}
+          annotations:
+            summary: "install.sh endpoint is DOWN"
+            description: "{{ $labels.instance }} failed blackbox probe (content match or HTTP) for 3m. Nobody new can install."
+
+        - alert: PilotInstallShSlow
+          expr: probe_duration_seconds{surface="install"} > 8
+          for: 15m
+          labels: {severity: warning, component: install}
+          annotations:
+            summary: "install.sh download slow (>8s)"
+            description: "Current fetch time: {{ $value | humanizeDuration }}."
+
+        - alert: PilotTLSExpiringSoon
+          expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+          for: 10m
+          labels: {severity: warning, component: tls}
+          annotations:
+            summary: "TLS cert for {{ $labels.instance }} expires in <14d"
+            description: "Days remaining: {{ $value | humanize }}. Renew before expiry."
+
+        - alert: PilotTLSExpiringCritical
+          expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 3
+          for: 10m
+          labels: {severity: critical, component: tls}
+          annotations:
+            summary: "TLS cert for {{ $labels.instance }} expires in <3d"
+            description: "Days remaining: {{ $value | humanize }}. Immediate action required."

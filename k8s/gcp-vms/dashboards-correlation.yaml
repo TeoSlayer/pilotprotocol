@@ -1,0 +1,199 @@
+---
+# Cross-stack correlation dashboard. Each row puts two related signals on the same
+# time axis so you can eyeball causation: restart-vs-nodes, softirq-vs-retrans, etc.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-correlation-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-correlation.json: |
+    {
+      "title": "Pilot GCP — Correlation (how things tie together)",
+      "uid": "pilot-gcp-correlation",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "tags": ["pilot", "gcp", "correlation"],
+      "links": [
+        {"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"},
+        {"title": "Diagnostics", "url": "/d/pilot-gcp-diagnostics", "type": "link"},
+        {"title": "VM Explorer", "url": "/d/pilot-gcp-vm-explorer", "type": "link"}
+      ],
+      "panels": [
+        {"id": 1, "type": "row", "title": "Rendezvous — control-plane cascade", "collapsed": false,
+         "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}},
+
+        {"id": 10, "type": "timeseries", "title": "Online nodes + restart events",
+         "description": "Drops in online_nodes that align with restart_events = the restart caused the drop.",
+         "gridPos": {"x": 0, "y": 1, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "pilot_online_nodes", "refId": "A", "legendFormat": "online"},
+           {"expr": "pilot_total_nodes", "refId": "B", "legendFormat": "total"},
+           {"expr": "pilot_rendezvous_restart_events", "refId": "C", "legendFormat": "restart count (cumul)"}
+         ]},
+
+        {"id": 11, "type": "timeseries", "title": "Rendezvous CPU softirq vs request rate",
+         "description": "Softirq time tracks packet processing. If softirq saturates but requests don't rise, we're bottlenecked on kernel networking.",
+         "gridPos": {"x": 12, "y": 1, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "sum(rate(node_cpu_seconds_total{vm=\"pilot-rendezvous\",mode=\"softirq\"}[5m]))", "refId": "A", "legendFormat": "softirq cores"},
+           {"expr": "rate(pilot_total_requests[5m])", "refId": "B", "legendFormat": "req/s"}
+         ]},
+
+        {"id": 12, "type": "timeseries", "title": "TCP ESTABLISHED vs conntrack entries (rendezvous)",
+         "description": "Rendezvous carries ~20k TCP. If conntrack climbs past connections, NAT/firewall churn is at play.",
+         "gridPos": {"x": 0, "y": 9, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "node_netstat_Tcp_CurrEstab{vm=\"pilot-rendezvous\"}", "refId": "A", "legendFormat": "TCP established"},
+           {"expr": "node_nf_conntrack_entries{vm=\"pilot-rendezvous\"}", "refId": "B", "legendFormat": "conntrack entries"},
+           {"expr": "node_filefd_allocated{vm=\"pilot-rendezvous\"}", "refId": "C", "legendFormat": "file descriptors"}
+         ]},
+
+        {"id": 13, "type": "timeseries", "title": "Rendezvous retrans + probe staleness",
+         "description": "If retrans climbs and probe_staleness climbs together = network to rendezvous is degrading.",
+         "gridPos": {"x": 12, "y": 9, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "rate(node_netstat_Tcp_RetransSegs{vm=\"pilot-rendezvous\"}[5m])", "refId": "A", "legendFormat": "rendezvous retrans /s"},
+           {"expr": "max by (probe) (pilot_probe_staleness_seconds)", "refId": "B", "legendFormat": "probe {{probe}} staleness"}
+         ]},
+
+        {"id": 20, "type": "row", "title": "Beacons — load-balancer symmetry", "collapsed": false,
+         "gridPos": {"x": 0, "y": 17, "w": 24, "h": 1}},
+
+        {"id": 21, "type": "timeseries", "title": "UDP pps per beacon (should overlap)",
+         "description": "Ideal: all 6 lines track together. Divergence = LB bias.",
+         "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_Udp_InDatagrams{role=\"beacon\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+
+        {"id": 22, "type": "timeseries", "title": "Network TX per beacon",
+         "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+
+        {"id": 23, "type": "bargauge", "title": "Beacon TX share now (even = 16.7%)",
+         "description": "Normalized share of total beacon TX. Uniform bars = symmetric LB.",
+         "gridPos": {"x": 0, "y": 26, "w": 12, "h": 6},
+         "targets": [{"expr": "sum by (vm) (rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])) / scalar(sum(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 0.5, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.3}, {"color": "red", "value": 0.4}]}}},
+         "options": {"displayMode": "basic", "orientation": "horizontal"}},
+
+        {"id": 24, "type": "stat", "title": "Beacon LB imbalance ratio (max/avg)",
+         "description": "1.0 = perfect balance. >2 = one beacon taking 2x its share.",
+         "gridPos": {"x": 12, "y": 26, "w": 6, "h": 6},
+         "targets": [{"expr": "max(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m])) / avg(rate(node_network_transmit_bytes_total{role=\"beacon\",device=\"ens4\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 2, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1.5}, {"color": "red", "value": 3}]}}}},
+
+        {"id": 25, "type": "stat", "title": "Beacon pps stddev",
+         "description": "σ across beacons. Low = balanced.",
+         "gridPos": {"x": 18, "y": 26, "w": 6, "h": 6},
+         "targets": [{"expr": "stddev(rate(node_netstat_Udp_InDatagrams{role=\"beacon\"}[5m]))", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}},
+
+        {"id": 30, "type": "row", "title": "Agents — RTT vs reachability vs CPU", "collapsed": false,
+         "gridPos": {"x": 0, "y": 32, "w": 24, "h": 1}},
+
+        {"id": 31, "type": "timeseries", "title": "Probe RTT vs agent CPU",
+         "description": "If RTT climbs when probe's agent CPU saturates, agent is the bottleneck, not the network.",
+         "gridPos": {"x": 0, "y": 33, "w": 12, "h": 8},
+         "targets": [
+           {"expr": "pilot_probe_rtt_ms", "refId": "A", "legendFormat": "RTT {{agent}} ms"},
+           {"expr": "100 - avg by (vm) (rate(node_cpu_seconds_total{vm=~\".*agent.*\",mode=\"idle\"}[5m])) * 100", "refId": "B", "legendFormat": "{{vm}} cpu%"}
+         ]},
+
+        {"id": 32, "type": "timeseries", "title": "Probe reachability by cmd",
+         "description": "Per-command reachability to the probe's agent. Drops = specific cmd broken.",
+         "gridPos": {"x": 12, "y": 33, "w": 12, "h": 8},
+         "targets": [{"expr": "pilot_probe_reachable", "refId": "A", "legendFormat": "{{agent}} / {{cmd}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}}},
+
+        {"id": 33, "type": "timeseries", "title": "NAT agents — TCP retrans (path health signal)",
+         "description": "All 3 NAT agents have high baseline retrans (~800/s). Spikes above baseline = path degradation to peers.",
+         "gridPos": {"x": 0, "y": 41, "w": 12, "h": 7},
+         "targets": [{"expr": "rate(node_netstat_Tcp_RetransSegs{role=\"nat-agent\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}]},
+
+        {"id": 34, "type": "timeseries", "title": "NAT agents — TIME_WAIT (conn churn)",
+         "description": "NAT agents churn ~2500 TW each. Climbing unbounded = outbound connections not closing cleanly.",
+         "gridPos": {"x": 12, "y": 41, "w": 12, "h": 7},
+         "targets": [{"expr": "node_sockstat_TCP_tw{role=\"nat-agent\"}", "refId": "A", "legendFormat": "{{vm}}"}]},
+
+        {"id": 40, "type": "row", "title": "Swarm — identity spoof footprint", "collapsed": false,
+         "gridPos": {"x": 0, "y": 48, "w": 24, "h": 1}},
+
+        {"id": 41, "type": "timeseries", "title": "UDP sockets + file descriptors (swarm-1)",
+         "description": "Each spoofed identity opens a UDP socket + file descriptors. Fleet size proxy.",
+         "gridPos": {"x": 0, "y": 49, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_sockstat_UDP_inuse{vm=~\"pilot-swarm-.*\"}", "refId": "A", "legendFormat": "{{vm}} UDP sockets"},
+           {"expr": "node_filefd_allocated{vm=~\"pilot-swarm-.*\"}", "refId": "B", "legendFormat": "{{vm}} fds"}
+         ]},
+
+        {"id": 42, "type": "timeseries", "title": "Context switches + TCP established (swarm)",
+         "description": "High context switches = traffic-generating goroutines active. TCP establish = connections they have open.",
+         "gridPos": {"x": 12, "y": 49, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_context_switches_total{vm=~\"pilot-swarm-.*\"}[5m])", "refId": "A", "legendFormat": "{{vm}} ctxsw /s"},
+           {"expr": "node_netstat_Tcp_CurrEstab{vm=~\"pilot-swarm-.*\"}", "refId": "B", "legendFormat": "{{vm}} TCP est"}
+         ]},
+
+        {"id": 50, "type": "row", "title": "Probe — agent path health over time", "collapsed": false,
+         "gridPos": {"x": 0, "y": 56, "w": 24, "h": 1}},
+
+        {"id": 51, "type": "timeseries", "title": "Bench throughput vs RTT",
+         "description": "Throughput should scale inversely with RTT (BDP). If both bad = congested link; just RTT bad = queue delay.",
+         "gridPos": {"x": 0, "y": 57, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "pilot_probe_bench_mbps * 100", "refId": "A", "legendFormat": "{{agent}} mbps×100"},
+           {"expr": "pilot_probe_rtt_ms", "refId": "B", "legendFormat": "{{agent}} RTT ms"}
+         ]},
+
+        {"id": 52, "type": "timeseries", "title": "Probe iteration + error rate",
+         "description": "Iterations /s = probe cadence. Errors /s = cmd failures. Ratio = error %.",
+         "gridPos": {"x": 12, "y": 57, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(pilot_probe_iterations_total[5m])", "refId": "A", "legendFormat": "iterations /s"},
+           {"expr": "rate(pilot_probe_errors_total[5m])", "refId": "B", "legendFormat": "errors /s"}
+         ]},
+
+        {"id": 53, "type": "timeseries", "title": "Ping loss ratio + cmd duration",
+         "description": "Packet loss with normal duration = lossy wifi. Loss with long duration = stalling.",
+         "gridPos": {"x": 0, "y": 64, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "pilot_probe_ping_loss_ratio", "refId": "A", "legendFormat": "{{agent}} loss"},
+           {"expr": "pilot_probe_cmd_duration_seconds", "refId": "B", "legendFormat": "{{agent}}/{{cmd}} dur"}
+         ]},
+
+        {"id": 54, "type": "timeseries", "title": "Daemon version age (auto-updater health)",
+         "description": "Age since probe daemon was built. Climbing without resets = auto-updater not updating.",
+         "gridPos": {"x": 12, "y": 64, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "pilot_probe_version_age_seconds", "refId": "A", "legendFormat": "age (s)"},
+           {"expr": "pilot_probe_version_matches_github", "refId": "B", "legendFormat": "matches github"}
+         ]},
+
+        {"id": 60, "type": "row", "title": "Scriptorium — disk/inode vs activity", "collapsed": false,
+         "gridPos": {"x": 0, "y": 71, "w": 24, "h": 1}},
+
+        {"id": 61, "type": "timeseries", "title": "Inodes free + disk write rate (scriptorium)",
+         "description": "Dropping inodes with sustained write rate = inbox accumulation. Cron at 00:00 should recover.",
+         "gridPos": {"x": 0, "y": 72, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_filesystem_files_free{vm=\"scriptorium-server\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "inodes free"},
+           {"expr": "sum(rate(node_disk_written_bytes_total{vm=\"scriptorium-server\"}[5m]))", "refId": "B", "legendFormat": "write B/s"}
+         ]},
+
+        {"id": 62, "type": "timeseries", "title": "Scriptorium TCP + UDP traffic",
+         "description": "Correlate traffic spikes with inbox growth.",
+         "gridPos": {"x": 12, "y": 72, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_netstat_Tcp_CurrEstab{vm=\"scriptorium-server\"}", "refId": "A", "legendFormat": "TCP est"},
+           {"expr": "rate(node_netstat_Udp_InDatagrams{vm=\"scriptorium-server\"}[5m])", "refId": "B", "legendFormat": "UDP in /s"}
+         ]}
+      ]
+    }

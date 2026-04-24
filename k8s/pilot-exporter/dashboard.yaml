@@ -1,0 +1,237 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-overview-dashboard
+  namespace: pilot-integration
+  labels:
+    grafana_dashboard: "1"
+data:
+  pilot-overview.json: |
+    {
+      "title": "Pilot Protocol — Overview",
+      "uid": "pilot-overview",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "5s",
+      "time": {"from": "now-30m", "to": "now"},
+      "tags": ["pilot", "rendezvous"],
+      "links": [
+        {
+          "title": "Pilot Alert Rules",
+          "url": "/alerting/list?search=Pilot",
+          "type": "link",
+          "icon": "bell",
+          "targetBlank": true,
+          "keepTime": false,
+          "includeVars": false
+        },
+        {
+          "title": "Pilot Alert Groups (Alertmanager)",
+          "url": "/alerting/groups?alertmanager=Alertmanager&queryString=alertname%3D~%22Pilot.%2A%22",
+          "type": "link",
+          "icon": "bell",
+          "targetBlank": true,
+          "keepTime": false,
+          "includeVars": false
+        },
+        {
+          "title": "Pilot Silences",
+          "url": "/alerting/silences?alertmanager=Alertmanager",
+          "type": "link",
+          "icon": "bell-slash",
+          "targetBlank": true
+        }
+      ],
+      "annotations": {
+        "list": [
+          {
+            "name": "Pilot alerts firing",
+            "enable": true,
+            "iconColor": "red",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "ALERTS{alertname=~\"Pilot.*\", alertstate=\"firing\"}",
+            "titleFormat": "{{alertname}} FIRING",
+            "textFormat": "severity={{severity}} component={{component}}"
+          },
+          {
+            "name": "Pilot alerts pending",
+            "enable": true,
+            "iconColor": "yellow",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "ALERTS{alertname=~\"Pilot.*\", alertstate=\"pending\"}",
+            "titleFormat": "{{alertname}} pending",
+            "textFormat": "severity={{severity}} component={{component}}"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 100,
+          "type": "stat",
+          "title": "Alerts Firing",
+          "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {"expr": "count(ALERTS{alertname=~\"Pilot.*\", alertstate=\"firing\"}) or vector(0)", "refId": "A", "legendFormat": "firing"}
+          ],
+          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]}}}
+        },
+        {
+          "id": 101,
+          "type": "stat",
+          "title": "Alerts Pending",
+          "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+          "targets": [
+            {"expr": "count(ALERTS{alertname=~\"Pilot.*\", alertstate=\"pending\"}) or vector(0)", "refId": "A", "legendFormat": "pending"}
+          ],
+          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1}
+            ]}}}
+        },
+        {
+          "id": 102,
+          "type": "table",
+          "title": "Active Pilot Alerts",
+          "gridPos": {"x": 8, "y": 0, "w": 16, "h": 8},
+          "targets": [
+            {"expr": "ALERTS{alertname=~\"Pilot.*\", alertstate=~\"firing|pending\"}", "refId": "A", "instant": true, "format": "table"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "endpoint": true, "service": true, "pod": true, "container": true, "probe": true},
+              "indexByName": {"alertname": 0, "alertstate": 1, "severity": 2, "component": 3}
+            }}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"align": "left"},
+            "links": [
+              {"title": "Open rule in Alerting", "url": "/alerting/list?search=${__data.fields.alertname}", "targetBlank": true}
+            ]},
+            "overrides": [
+              {"matcher": {"id": "byName", "options": "alertstate"},
+                "properties": [{"id": "mappings", "value": [
+                  {"type": "value", "options": {"firing": {"color": "red", "text": "FIRING"}, "pending": {"color": "yellow", "text": "pending"}}}
+                ]}, {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}]},
+              {"matcher": {"id": "byName", "options": "severity"},
+                "properties": [{"id": "mappings", "value": [
+                  {"type": "value", "options": {"critical": {"color": "red"}, "warning": {"color": "orange"}, "info": {"color": "blue"}}}
+                ]}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}]}
+            ]}
+        },
+
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Online Nodes",
+          "gridPos": {"x": 0, "y": 4, "w": 4, "h": 4},
+          "targets": [{"expr": "max(pilot_online_nodes)", "refId": "A", "legendFormat": "online"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "green"}}}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Total Registered",
+          "gridPos": {"x": 4, "y": 4, "w": 4, "h": 4},
+          "targets": [{"expr": "max(pilot_total_nodes)", "refId": "A", "legendFormat": "total"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "blue"}}}
+        },
+
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Requests / sec",
+          "gridPos": {"x": 0, "y": 8, "w": 6, "h": 5},
+          "targets": [{"expr": "sum(rate(pilot_total_requests[1m]))", "refId": "A", "legendFormat": "req/s"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "purple"}}}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Rendezvous Uptime",
+          "gridPos": {"x": 6, "y": 8, "w": 6, "h": 5},
+          "targets": [{"expr": "max(pilot_uptime_seconds)", "refId": "A", "legendFormat": "uptime"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "fixed", "fixedColor": "green"}}}
+        },
+        {
+          "id": 30,
+          "type": "stat",
+          "title": "Since Last Restart",
+          "gridPos": {"x": 12, "y": 8, "w": 6, "h": 5},
+          "targets": [{"expr": "min(pilot_rendezvous_time_since_last_restart_seconds)", "refId": "A", "legendFormat": "since"}],
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s",
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 300},
+              {"color": "green", "value": 3600}
+            ]}}}
+        },
+        {
+          "id": 32,
+          "type": "stat",
+          "title": "Scrape Latency",
+          "gridPos": {"x": 18, "y": 8, "w": 6, "h": 5},
+          "targets": [{"expr": "max(pilot_scrape_latency_seconds)", "refId": "A", "legendFormat": "latency"}],
+          "options": {"graphMode": "area", "colorMode": "value", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 3,
+            "thresholds": {"mode": "absolute", "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 0.5},
+              {"color": "red", "value": 2}
+            ]}}}
+        },
+
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Online Nodes",
+          "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
+          "targets": [{"expr": "max(pilot_online_nodes)", "refId": "A", "legendFormat": "online"}],
+          "fieldConfig": {"defaults": {"custom": {"fillOpacity": 15, "lineWidth": 2}, "color": {"mode": "fixed", "fixedColor": "green"}}}
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Request Rate (req/s)",
+          "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
+          "targets": [
+            {"expr": "sum(rate(pilot_total_requests[1m]))", "refId": "A", "legendFormat": "1m"},
+            {"expr": "sum(rate(pilot_total_requests[5m]))", "refId": "B", "legendFormat": "5m"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"fillOpacity": 10, "lineWidth": 2}}}
+        },
+
+        {
+          "id": 20,
+          "type": "state-timeline",
+          "title": "Probe Status",
+          "gridPos": {"x": 0, "y": 21, "w": 16, "h": 6},
+          "targets": [{"expr": "max by (probe) (pilot_probe_up)", "refId": "A", "legendFormat": "{{probe}}"}],
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "green", "value": 1}
+          ]}, "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ]}}
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Probe Staleness (s)",
+          "gridPos": {"x": 16, "y": 21, "w": 8, "h": 6},
+          "targets": [{"expr": "max by (probe) (pilot_probe_staleness_seconds)", "refId": "A", "legendFormat": "{{probe}}"}],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"fillOpacity": 5, "lineWidth": 2}}}
+        }
+      ]
+    }

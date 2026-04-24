@@ -1,0 +1,100 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pilot-probe
+  namespace: pilot-integration
+  labels:
+    app.kubernetes.io/name: pilot-probe
+    app.kubernetes.io/component: synthetic-probe
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-probe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pilot-probe
+        app.kubernetes.io/component: synthetic-probe
+    spec:
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: probe
+          image: pilot-probe:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PILOT_EMAIL
+              value: "probe@vulturelabs.io"
+            - name: PILOT_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PILOT_REGISTRY
+              value: "34.71.57.205:9000"
+            - name: PILOT_BEACON
+              value: "34.71.57.205:9001"
+            - name: PILOT_PROBE_TARGETS
+              value: "agent-alpha"
+            - name: PROBE_INTERVAL_SECONDS
+              value: "30"
+            - name: BENCH_SIZE_MB
+              value: "1"
+            - name: PING_COUNT
+              value: "3"
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/pilot
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pilot-probe
+  namespace: pilot-integration
+  labels:
+    app.kubernetes.io/name: pilot-probe
+spec:
+  selector:
+    app.kubernetes.io/name: pilot-probe
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics

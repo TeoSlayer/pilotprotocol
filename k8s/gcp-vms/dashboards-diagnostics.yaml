@@ -1,0 +1,247 @@
+---
+# Cross-VM diagnostic heatmaps and kernel-level signals.
+# Designed to surface subtle issues that role-specific dashboards hide.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-diagnostics-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-diagnostics.json: |
+    {
+      "title": "Pilot GCP — Diagnostics (kernel / net / sockets)",
+      "uid": "pilot-gcp-diagnostics",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "tags": ["pilot", "gcp", "diagnostics"],
+      "links": [
+        {"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"},
+        {"title": "VM Explorer", "url": "/d/pilot-gcp-vm-explorer", "type": "link"}
+      ],
+      "panels": [
+        {"id": 1, "type": "row", "title": "TCP reliability", "collapsed": false,
+         "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}},
+
+        {"id": 10, "type": "timeseries", "title": "TCP Retransmits /s (all VMs)",
+         "description": "High rate = lossy path, NAT churn, or struggling peers. NAT agents frequently show >500/s baseline.",
+         "gridPos": {"x": 0, "y": 1, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_Tcp_RetransSegs{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "custom": {"fillOpacity": 10}}}},
+
+        {"id": 11, "type": "timeseries", "title": "TCP SYN retransmits /s",
+         "description": "Failed outbound connection attempts. Spikes = remote down or NAT hole-punch failing.",
+         "gridPos": {"x": 12, "y": 1, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_TcpExt_TCPSynRetrans{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 12, "type": "timeseries", "title": "Listen drops /s",
+         "description": "Accept queue overflow. Nonzero = server can't keep up with SYN flood.",
+         "gridPos": {"x": 0, "y": 9, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_TcpExt_ListenDrops{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 13, "type": "timeseries", "title": "Listen overflows /s",
+         "description": "somaxconn hit. Nonzero = listen backlog too small.",
+         "gridPos": {"x": 12, "y": 9, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_TcpExt_ListenOverflows{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 20, "type": "row", "title": "TCP socket states", "collapsed": false,
+         "gridPos": {"x": 0, "y": 17, "w": 24, "h": 1}},
+
+        {"id": 21, "type": "timeseries", "title": "TCP ESTABLISHED",
+         "gridPos": {"x": 0, "y": 18, "w": 8, "h": 7},
+         "targets": [{"expr": "node_netstat_Tcp_CurrEstab{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 22, "type": "timeseries", "title": "TCP TIME_WAIT",
+         "description": "NAT agents stack 2500+ TW — symptom of outbound connect churn.",
+         "gridPos": {"x": 8, "y": 18, "w": 8, "h": 7},
+         "targets": [{"expr": "node_sockstat_TCP_tw{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 23, "type": "timeseries", "title": "TCP ORPHAN",
+         "description": "Closed-but-not-freed sockets. Growing = socket leak.",
+         "gridPos": {"x": 16, "y": 18, "w": 8, "h": 7},
+         "targets": [{"expr": "node_sockstat_TCP_orphan{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 24, "type": "timeseries", "title": "TCP mem (pages)",
+         "description": "Memory used by TCP buffers.",
+         "gridPos": {"x": 0, "y": 25, "w": 12, "h": 7},
+         "targets": [{"expr": "node_sockstat_TCP_mem{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 25, "type": "timeseries", "title": "UDP INUSE",
+         "description": "Open UDP sockets. Swarm-1 with 4k+ reveals spoof identity count.",
+         "gridPos": {"x": 12, "y": 25, "w": 12, "h": 7},
+         "targets": [{"expr": "node_sockstat_UDP_inuse{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 30, "type": "row", "title": "Kernel load signals", "collapsed": false,
+         "gridPos": {"x": 0, "y": 32, "w": 24, "h": 1}},
+
+        {"id": 31, "type": "timeseries", "title": "CPU softirq (network IRQ cost)",
+         "description": "Rendezvous + beacons dominate — packet processing cost. 1.0 = full core.",
+         "gridPos": {"x": 0, "y": 33, "w": 12, "h": 8},
+         "targets": [{"expr": "sum by (vm) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",mode=\"softirq\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}}},
+
+        {"id": 32, "type": "timeseries", "title": "Context switches /s",
+         "description": "Above 10k/s = heavy threading/IO. Both rendezvous and swarm-1 sustain 20k+.",
+         "gridPos": {"x": 12, "y": 33, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_context_switches_total{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 33, "type": "timeseries", "title": "CPU steal (noisy neighbor)",
+         "description": "Nonzero sustained = contention on shared GCP host.",
+         "gridPos": {"x": 0, "y": 41, "w": 12, "h": 7},
+         "targets": [{"expr": "sum by (vm) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",mode=\"steal\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 3}}},
+
+        {"id": 34, "type": "timeseries", "title": "CPU iowait",
+         "description": "Nonzero = blocked on disk. Scriptorium spikes = inbox churn.",
+         "gridPos": {"x": 12, "y": 41, "w": 12, "h": 7},
+         "targets": [{"expr": "sum by (vm) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",mode=\"iowait\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 3}}},
+
+        {"id": 40, "type": "row", "title": "Resource saturation", "collapsed": false,
+         "gridPos": {"x": 0, "y": 48, "w": 24, "h": 1}},
+
+        {"id": 41, "type": "timeseries", "title": "File descriptors allocated",
+         "description": "Swarm-1 at ~218k. Growing = fd leak.",
+         "gridPos": {"x": 0, "y": 49, "w": 12, "h": 7},
+         "targets": [{"expr": "node_filefd_allocated{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 42, "type": "timeseries", "title": "Conntrack entries",
+         "description": "Rendezvous at ~43k (of 262k). Approaching limit = dropped connections.",
+         "gridPos": {"x": 12, "y": 49, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_nf_conntrack_entries{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}} used"},
+           {"expr": "node_nf_conntrack_entries_limit{service=\"pilot-iap-scraper\"}", "refId": "B", "legendFormat": "{{vm}} limit"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 43, "type": "timeseries", "title": "Load average (1m)",
+         "gridPos": {"x": 0, "y": 56, "w": 12, "h": 7},
+         "targets": [{"expr": "node_load1{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 44, "type": "timeseries", "title": "Processes running / blocked",
+         "gridPos": {"x": 12, "y": 56, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_procs_running{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}} running"},
+           {"expr": "node_procs_blocked{service=\"pilot-iap-scraper\"}", "refId": "B", "legendFormat": "{{vm}} blocked"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 50, "type": "row", "title": "Packet path", "collapsed": false,
+         "gridPos": {"x": 0, "y": 63, "w": 24, "h": 1}},
+
+        {"id": 51, "type": "timeseries", "title": "UDP datagrams in /s (Pilot tunnel inbound)",
+         "description": "Beacons dominate — hole-punch + relay traffic. Asymmetric = LB imbalance.",
+         "gridPos": {"x": 0, "y": 64, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_Udp_InDatagrams{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+
+        {"id": 52, "type": "timeseries", "title": "UDP datagrams out /s",
+         "gridPos": {"x": 12, "y": 64, "w": 12, "h": 8},
+         "targets": [{"expr": "rate(node_netstat_Udp_OutDatagrams{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+
+        {"id": 53, "type": "timeseries", "title": "UDP receive errors /s",
+         "description": "InErrors = malformed/checksum fail. NoPorts = destined port not listening.",
+         "gridPos": {"x": 0, "y": 72, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Udp_InErrors{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}} errs"},
+           {"expr": "rate(node_netstat_Udp_NoPorts{service=\"pilot-iap-scraper\"}[5m])", "refId": "B", "legendFormat": "{{vm}} no-port"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 54, "type": "timeseries", "title": "UDP buffer errors /s",
+         "description": "SndbufErrors = send buffer full. RcvbufErrors = recv buffer full.",
+         "gridPos": {"x": 8, "y": 72, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Udp_SndbufErrors{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}} snd"},
+           {"expr": "rate(node_netstat_Udp_RcvbufErrors{service=\"pilot-iap-scraper\"}[5m])", "refId": "B", "legendFormat": "{{vm}} rcv"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 55, "type": "timeseries", "title": "Net device errors+drops /s",
+         "description": "Nonzero = NIC-level issue (driver, MTU, etc.).",
+         "gridPos": {"x": 16, "y": 72, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "sum by (vm) (rate(node_network_receive_errs_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "A", "legendFormat": "{{vm}} rx-err"},
+           {"expr": "sum by (vm) (rate(node_network_transmit_errs_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "B", "legendFormat": "{{vm}} tx-err"},
+           {"expr": "sum by (vm) (rate(node_network_receive_drop_total{service=\"pilot-iap-scraper\",device=\"ens4\"}[5m]))", "refId": "C", "legendFormat": "{{vm}} rx-drop"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 60, "type": "row", "title": "Memory pressure", "collapsed": false,
+         "gridPos": {"x": 0, "y": 79, "w": 24, "h": 1}},
+
+        {"id": 61, "type": "timeseries", "title": "Memory used %",
+         "gridPos": {"x": 0, "y": 80, "w": 12, "h": 8},
+         "targets": [{"expr": "(node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\"} - node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\"}) / node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\"} * 100", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+
+        {"id": 62, "type": "timeseries", "title": "Memory available bytes",
+         "description": "NAT agents sit at ~260MB — thin headroom.",
+         "gridPos": {"x": 12, "y": 80, "w": 12, "h": 8},
+         "targets": [{"expr": "node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "bytes"}}},
+
+        {"id": 63, "type": "timeseries", "title": "OOM kills (cumulative)",
+         "description": "Any increase = process was killed for memory.",
+         "gridPos": {"x": 0, "y": 88, "w": 12, "h": 7},
+         "targets": [{"expr": "node_vmstat_oom_kill{service=\"pilot-iap-scraper\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 64, "type": "timeseries", "title": "Page faults /s",
+         "gridPos": {"x": 12, "y": 88, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_vmstat_pgmajfault{service=\"pilot-iap-scraper\"}[5m])", "refId": "A", "legendFormat": "{{vm}} major"},
+           {"expr": "rate(node_vmstat_pgfault{service=\"pilot-iap-scraper\"}[5m])", "refId": "B", "legendFormat": "{{vm}} minor"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 70, "type": "row", "title": "Disk / filesystem", "collapsed": false,
+         "gridPos": {"x": 0, "y": 95, "w": 24, "h": 1}},
+
+        {"id": 71, "type": "timeseries", "title": "Disk used % (rootfs)",
+         "gridPos": {"x": 0, "y": 96, "w": 8, "h": 7},
+         "targets": [{"expr": "(1 - node_filesystem_avail_bytes{service=\"pilot-iap-scraper\",mountpoint=\"/\"} / node_filesystem_size_bytes{service=\"pilot-iap-scraper\",mountpoint=\"/\"}) * 100", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+
+        {"id": 72, "type": "timeseries", "title": "Inode used % (rootfs)",
+         "description": "Scriptorium the known inode hog — alexgodo inbox.",
+         "gridPos": {"x": 8, "y": 96, "w": 8, "h": 7},
+         "targets": [{"expr": "(1 - node_filesystem_files_free{service=\"pilot-iap-scraper\",mountpoint=\"/\"} / node_filesystem_files{service=\"pilot-iap-scraper\",mountpoint=\"/\"}) * 100", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+
+        {"id": 73, "type": "timeseries", "title": "Disk I/O utilization %",
+         "description": "Time spent doing I/O. 1.0 = saturated.",
+         "gridPos": {"x": 16, "y": 96, "w": 8, "h": 7},
+         "targets": [{"expr": "sum by (vm) (rate(node_disk_io_time_seconds_total{service=\"pilot-iap-scraper\"}[5m]))", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+
+        {"id": 74, "type": "timeseries", "title": "Disk read+write bytes /s",
+         "gridPos": {"x": 0, "y": 103, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "sum by (vm) (rate(node_disk_read_bytes_total{service=\"pilot-iap-scraper\"}[5m]))", "refId": "A", "legendFormat": "{{vm}} read"},
+           {"expr": "sum by (vm) (rate(node_disk_written_bytes_total{service=\"pilot-iap-scraper\"}[5m]))", "refId": "B", "legendFormat": "{{vm}} write"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+
+        {"id": 75, "type": "timeseries", "title": "Filesystem free files (inodes absolute)",
+         "description": "Hard number of free inodes. Scriptorium will trend here.",
+         "gridPos": {"x": 12, "y": 103, "w": 12, "h": 7},
+         "targets": [{"expr": "node_filesystem_files_free{service=\"pilot-iap-scraper\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "{{vm}}"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}}
+      ]
+    }

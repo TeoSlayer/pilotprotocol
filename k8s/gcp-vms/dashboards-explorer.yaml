@@ -1,0 +1,223 @@
+---
+# Single-VM drill-down. Pick a VM from the dropdown; every panel refilters.
+# This is the "zoom in on one host" view.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-gcp-vm-explorer-dashboard
+  namespace: monitoring
+  labels: {grafana_dashboard: "1"}
+  annotations: {grafana_folder: "Pilot GCP"}
+data:
+  pilot-gcp-vm-explorer.json: |
+    {
+      "title": "Pilot GCP — VM Explorer ($vm)",
+      "uid": "pilot-gcp-vm-explorer",
+      "schemaVersion": 38,
+      "timezone": "",
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "tags": ["pilot", "gcp", "explorer"],
+      "templating": {
+        "list": [
+          {"name": "vm", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"},
+           "query": "label_values(up{service=\"pilot-iap-scraper\"}, vm)",
+           "refresh": 1, "sort": 1, "includeAll": false, "multi": false,
+           "current": {"text": "pilot-rendezvous", "value": "pilot-rendezvous"}}
+        ]
+      },
+      "links": [
+        {"title": "Fleet", "url": "/d/pilot-gcp-fleet", "type": "link"},
+        {"title": "Diagnostics", "url": "/d/pilot-gcp-diagnostics", "type": "link"}
+      ],
+      "panels": [
+        {"id": 1, "type": "stat", "title": "up",
+         "gridPos": {"x": 0, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "up{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]}}},
+        {"id": 2, "type": "stat", "title": "uptime",
+         "gridPos": {"x": 3, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "node_time_seconds{service=\"pilot-iap-scraper\",vm=\"$vm\"} - node_boot_time_seconds{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": {"unit": "s"}}},
+        {"id": 3, "type": "stat", "title": "cpu %",
+         "gridPos": {"x": 6, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "100 - avg(rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",vm=\"$vm\",mode=\"idle\"}[5m])) * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}}},
+        {"id": 4, "type": "stat", "title": "mem %",
+         "gridPos": {"x": 9, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "(node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"} - node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"}) / node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"} * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}}},
+        {"id": 5, "type": "stat", "title": "disk %",
+         "gridPos": {"x": 12, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "(1 - node_filesystem_avail_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"} / node_filesystem_size_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"}) * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}}},
+        {"id": 6, "type": "stat", "title": "inode %",
+         "gridPos": {"x": 15, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "(1 - node_filesystem_files_free{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"} / node_filesystem_files{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"}) * 100", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+         "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 95}]}}}},
+        {"id": 7, "type": "stat", "title": "load1",
+         "gridPos": {"x": 18, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "node_load1{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A"}],
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}},
+        {"id": 8, "type": "stat", "title": "zone",
+         "gridPos": {"x": 21, "y": 0, "w": 3, "h": 3},
+         "targets": [{"expr": "up{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "{{zone}}"}],
+         "options": {"textMode": "name", "reduceOptions": {"calcs": ["lastNotNull"]}}},
+
+        {"id": 100, "type": "row", "title": "CPU", "collapsed": false,
+         "gridPos": {"x": 0, "y": 3, "w": 24, "h": 1}},
+        {"id": 101, "type": "timeseries", "title": "CPU by mode",
+         "gridPos": {"x": 0, "y": 4, "w": 12, "h": 7},
+         "targets": [{"expr": "sum by (mode) (rate(node_cpu_seconds_total{service=\"pilot-iap-scraper\",vm=\"$vm\",mode!=\"idle\"}[5m]))", "refId": "A", "legendFormat": "{{mode}}"}],
+         "fieldConfig": {"defaults": {"unit": "short", "custom": {"stacking": {"mode": "normal"}, "fillOpacity": 50}}}},
+        {"id": 102, "type": "timeseries", "title": "Load average",
+         "gridPos": {"x": 12, "y": 4, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_load1{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "1m"},
+           {"expr": "node_load5{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "5m"},
+           {"expr": "node_load15{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "C", "legendFormat": "15m"}
+         ]},
+
+        {"id": 200, "type": "row", "title": "Memory", "collapsed": false,
+         "gridPos": {"x": 0, "y": 11, "w": 24, "h": 1}},
+        {"id": 201, "type": "timeseries", "title": "Memory breakdown",
+         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_memory_MemTotal_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"} - node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"} - node_memory_Buffers_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"} - node_memory_Cached_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "used (app)"},
+           {"expr": "node_memory_Buffers_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "buffers"},
+           {"expr": "node_memory_Cached_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "C", "legendFormat": "cached"},
+           {"expr": "node_memory_MemAvailable_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "D", "legendFormat": "available"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"stacking": {"mode": "normal"}, "fillOpacity": 50}}}},
+        {"id": 202, "type": "timeseries", "title": "Page faults + OOM",
+         "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_vmstat_pgfault{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "pgfault"},
+           {"expr": "rate(node_vmstat_pgmajfault{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "pgmajfault"},
+           {"expr": "node_vmstat_oom_kill{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "C", "legendFormat": "oom_kill (cumulative)"}
+         ]},
+
+        {"id": 300, "type": "row", "title": "TCP", "collapsed": false,
+         "gridPos": {"x": 0, "y": 19, "w": 24, "h": 1}},
+        {"id": 301, "type": "timeseries", "title": "TCP state distribution",
+         "gridPos": {"x": 0, "y": 20, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_sockstat_TCP_inuse{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "inuse"},
+           {"expr": "node_sockstat_TCP_alloc{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "alloc"},
+           {"expr": "node_sockstat_TCP_tw{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "C", "legendFormat": "TIME_WAIT"},
+           {"expr": "node_sockstat_TCP_orphan{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "D", "legendFormat": "orphan"},
+           {"expr": "node_netstat_Tcp_CurrEstab{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "E", "legendFormat": "ESTABLISHED"}
+         ]},
+        {"id": 302, "type": "timeseries", "title": "TCP retransmits + SYN retrans",
+         "gridPos": {"x": 12, "y": 20, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Tcp_RetransSegs{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "retrans /s"},
+           {"expr": "rate(node_netstat_TcpExt_TCPSynRetrans{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "SYN retrans /s"},
+           {"expr": "rate(node_netstat_TcpExt_ListenDrops{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "C", "legendFormat": "listen drops /s"},
+           {"expr": "rate(node_netstat_TcpExt_ListenOverflows{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "D", "legendFormat": "listen overflows /s"}
+         ]},
+        {"id": 303, "type": "timeseries", "title": "TCP seg in/out /s",
+         "gridPos": {"x": 0, "y": 27, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Tcp_InSegs{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "in"},
+           {"expr": "rate(node_netstat_Tcp_OutSegs{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "out"}
+         ]},
+        {"id": 304, "type": "timeseries", "title": "TCP passive+active opens /s",
+         "gridPos": {"x": 12, "y": 27, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Tcp_PassiveOpens{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "passive (accepts)"},
+           {"expr": "rate(node_netstat_Tcp_ActiveOpens{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "active (connects)"}
+         ]},
+
+        {"id": 400, "type": "row", "title": "UDP (Pilot tunnel)", "collapsed": false,
+         "gridPos": {"x": 0, "y": 34, "w": 24, "h": 1}},
+        {"id": 401, "type": "timeseries", "title": "UDP datagrams in/out",
+         "gridPos": {"x": 0, "y": 35, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Udp_InDatagrams{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "in /s"},
+           {"expr": "rate(node_netstat_Udp_OutDatagrams{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "out /s"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "pps"}}},
+        {"id": 402, "type": "timeseries", "title": "UDP errors",
+         "gridPos": {"x": 12, "y": 35, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_netstat_Udp_InErrors{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "InErrors"},
+           {"expr": "rate(node_netstat_Udp_NoPorts{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "NoPorts"},
+           {"expr": "rate(node_netstat_Udp_SndbufErrors{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "C", "legendFormat": "SndbufErrors"},
+           {"expr": "rate(node_netstat_Udp_RcvbufErrors{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "D", "legendFormat": "RcvbufErrors"}
+         ]},
+        {"id": 403, "type": "timeseries", "title": "UDP sockets inuse + mem",
+         "gridPos": {"x": 0, "y": 42, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_sockstat_UDP_inuse{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "sockets"},
+           {"expr": "node_sockstat_UDP_mem{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "mem pages"}
+         ]},
+        {"id": 404, "type": "timeseries", "title": "Network device bytes/pkts",
+         "gridPos": {"x": 12, "y": 42, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_network_receive_bytes_total{service=\"pilot-iap-scraper\",vm=\"$vm\",device=\"ens4\"}[5m])", "refId": "A", "legendFormat": "rx B/s"},
+           {"expr": "rate(node_network_transmit_bytes_total{service=\"pilot-iap-scraper\",vm=\"$vm\",device=\"ens4\"}[5m])", "refId": "B", "legendFormat": "tx B/s"},
+           {"expr": "rate(node_network_receive_packets_total{service=\"pilot-iap-scraper\",vm=\"$vm\",device=\"ens4\"}[5m])", "refId": "C", "legendFormat": "rx pkt/s"},
+           {"expr": "rate(node_network_transmit_packets_total{service=\"pilot-iap-scraper\",vm=\"$vm\",device=\"ens4\"}[5m])", "refId": "D", "legendFormat": "tx pkt/s"}
+         ]},
+
+        {"id": 500, "type": "row", "title": "Disk", "collapsed": false,
+         "gridPos": {"x": 0, "y": 49, "w": 24, "h": 1}},
+        {"id": 501, "type": "timeseries", "title": "Disk I/O bytes",
+         "gridPos": {"x": 0, "y": 50, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "sum(rate(node_disk_read_bytes_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m]))", "refId": "A", "legendFormat": "read"},
+           {"expr": "sum(rate(node_disk_written_bytes_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m]))", "refId": "B", "legendFormat": "write"}
+         ],
+         "fieldConfig": {"defaults": {"unit": "Bps"}}},
+        {"id": 502, "type": "timeseries", "title": "Disk IOPS",
+         "gridPos": {"x": 8, "y": 50, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "sum(rate(node_disk_reads_completed_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m]))", "refId": "A", "legendFormat": "reads"},
+           {"expr": "sum(rate(node_disk_writes_completed_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m]))", "refId": "B", "legendFormat": "writes"}
+         ]},
+        {"id": 503, "type": "timeseries", "title": "Disk I/O utilization %",
+         "gridPos": {"x": 16, "y": 50, "w": 8, "h": 7},
+         "targets": [{"expr": "sum(rate(node_disk_io_time_seconds_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m]))", "refId": "A", "legendFormat": "busy"}],
+         "fieldConfig": {"defaults": {"unit": "short"}}},
+        {"id": 504, "type": "timeseries", "title": "Filesystem free bytes + inodes",
+         "gridPos": {"x": 0, "y": 57, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_filesystem_avail_bytes{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "bytes avail"},
+           {"expr": "node_filesystem_files_free{service=\"pilot-iap-scraper\",vm=\"$vm\",mountpoint=\"/\"}", "refId": "B", "legendFormat": "inodes free"}
+         ]},
+
+        {"id": 600, "type": "row", "title": "Kernel / resource limits", "collapsed": false,
+         "gridPos": {"x": 0, "y": 64, "w": 24, "h": 1}},
+        {"id": 601, "type": "timeseries", "title": "File descriptors open",
+         "gridPos": {"x": 0, "y": 65, "w": 8, "h": 7},
+         "targets": [{"expr": "node_filefd_allocated{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "allocated"}]},
+        {"id": 602, "type": "timeseries", "title": "Context switches /s",
+         "gridPos": {"x": 8, "y": 65, "w": 8, "h": 7},
+         "targets": [{"expr": "rate(node_context_switches_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A"}]},
+        {"id": 603, "type": "timeseries", "title": "Conntrack",
+         "gridPos": {"x": 16, "y": 65, "w": 8, "h": 7},
+         "targets": [
+           {"expr": "node_nf_conntrack_entries{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "entries"},
+           {"expr": "node_nf_conntrack_entries_limit{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "limit"}
+         ]},
+        {"id": 604, "type": "timeseries", "title": "Processes",
+         "gridPos": {"x": 0, "y": 72, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "node_procs_running{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "A", "legendFormat": "running"},
+           {"expr": "node_procs_blocked{service=\"pilot-iap-scraper\",vm=\"$vm\"}", "refId": "B", "legendFormat": "blocked"}
+         ]},
+        {"id": 605, "type": "timeseries", "title": "Interrupts + forks /s",
+         "gridPos": {"x": 12, "y": 72, "w": 12, "h": 7},
+         "targets": [
+           {"expr": "rate(node_intr_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "A", "legendFormat": "interrupts"},
+           {"expr": "rate(node_forks_total{service=\"pilot-iap-scraper\",vm=\"$vm\"}[5m])", "refId": "B", "legendFormat": "forks"}
+         ]}
+      ]
+    }

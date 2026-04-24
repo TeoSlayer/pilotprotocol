@@ -1,0 +1,90 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pilot-release-exporter
+  namespace: pilot-integration
+  labels:
+    app.kubernetes.io/name: pilot-release-exporter
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-release-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pilot-release-exporter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: exporter
+          image: pilot-release-exporter:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITHUB_REPO
+              value: "TeoSlayer/pilot"
+            - name: HOMEBREW_TAP_REPO
+              value: "TeoSlayer/homebrew-pilot"
+            - name: HOMEBREW_FORMULA_PATH
+              value: "Formula/pilotprotocol.rb"
+            - name: POLL_INTERVAL_SECONDS
+              value: "600"
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pilot-release-exporter-gh
+                  key: token
+                  optional: true
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 10m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pilot-release-exporter
+  namespace: pilot-integration
+  labels:
+    app.kubernetes.io/name: pilot-release-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: pilot-release-exporter
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pilot-release-exporter
+  namespace: pilot-integration
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [pilot-integration]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-release-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

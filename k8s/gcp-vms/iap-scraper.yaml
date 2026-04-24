@@ -1,0 +1,294 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-iap-scraper-targets
+  namespace: monitoring
+data:
+  targets.txt: |
+    # VM_NAME|ZONE|REMOTE_PORT|LOCAL_PORT
+    pilot-nat-agent-3|southamerica-east1-b|9100|9101
+    pilot-agent-a|us-east1-b|9100|9102
+    pilot-agent-b|europe-west1-b|9100|9103
+    pilot-nat-agent-1|us-west1-b|9100|9104
+    pilot-nat-agent-2|asia-east1-b|9100|9105
+    pilot-swarm-1|us-central1-b|9100|9106
+    pilot-swarm-3|us-central1-b|9100|9107
+    beacon-77hs|us-central1-a|9100|9108
+    beacon-hhjr|us-central1-a|9100|9109
+    beacon-hkvp|us-central1-a|9100|9110
+    beacon-kr39|us-central1-a|9100|9111
+    beacon-qmsn|us-central1-a|9100|9112
+    beacon-z9d6|us-central1-a|9100|9113
+    pilot-rendezvous|us-central1-a|9100|9114
+    scriptorium-server|us-central1-a|9100|9115
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pilot-iap-scraper-entrypoint
+  namespace: monitoring
+data:
+  run.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    export CLOUDSDK_CORE_PROJECT=vulture-vision-cloud
+    gcloud auth activate-service-account --key-file=/var/run/secrets/gcp/key.json
+    gcloud config set core/disable_usage_reporting true
+
+    pids=()
+    while IFS='|' read -r VM ZONE RPORT LPORT; do
+      [[ -z "$VM" || "$VM" =~ ^# ]] && continue
+      echo "[$(date -Is)] opening tunnel: $VM/$ZONE :$RPORT -> 0.0.0.0:$LPORT"
+      gcloud compute start-iap-tunnel "$VM" "$RPORT" \
+        --zone="$ZONE" \
+        --local-host-port="0.0.0.0:$LPORT" &
+      pids+=($!)
+    done < /config/targets.txt
+
+    trap 'kill "${pids[@]}" 2>/dev/null' EXIT TERM INT
+    wait -n
+    echo "[$(date -Is)] a tunnel died, exiting for k8s restart"
+    exit 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pilot-iap-scraper
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: pilot-iap-scraper
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-iap-scraper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pilot-iap-scraper
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: tunnel
+          image: pilot-iap-scraper:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/entrypoint/run.sh"]
+          volumeMounts:
+            - {name: sa-key, mountPath: /var/run/secrets/gcp, readOnly: true}
+            - {name: targets, mountPath: /config, readOnly: true}
+            - {name: entrypoint, mountPath: /entrypoint, readOnly: true}
+            - {name: gcloud-home, mountPath: /home/cloudsdk}
+          env:
+            - {name: HOME, value: /home/cloudsdk}
+            - {name: CLOUDSDK_CONFIG, value: /home/cloudsdk/.config/gcloud}
+          ports:
+            - {name: gcp01, containerPort: 9101}
+            - {name: gcp02, containerPort: 9102}
+            - {name: gcp03, containerPort: 9103}
+            - {name: gcp04, containerPort: 9104}
+            - {name: gcp05, containerPort: 9105}
+            - {name: gcp06, containerPort: 9106}
+            - {name: gcp07, containerPort: 9107}
+            - {name: gcp08, containerPort: 9108}
+            - {name: gcp09, containerPort: 9109}
+            - {name: gcp10, containerPort: 9110}
+            - {name: gcp11, containerPort: 9111}
+            - {name: gcp12, containerPort: 9112}
+            - {name: gcp13, containerPort: 9113}
+            - {name: gcp14, containerPort: 9114}
+            - {name: gcp15, containerPort: 9115}
+          readinessProbe:
+            tcpSocket: {port: 9101}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket: {port: 9101}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+      volumes:
+        - name: sa-key
+          secret:
+            secretName: pilot-iap-scraper-sa
+            defaultMode: 0400
+        - name: targets
+          configMap:
+            name: pilot-iap-scraper-targets
+        - name: entrypoint
+          configMap:
+            name: pilot-iap-scraper-entrypoint
+            defaultMode: 0555
+        - name: gcloud-home
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pilot-iap-scraper
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: pilot-iap-scraper
+spec:
+  selector:
+    app.kubernetes.io/name: pilot-iap-scraper
+  ports:
+    - {name: gcp01, port: 9101, targetPort: gcp01}
+    - {name: gcp02, port: 9102, targetPort: gcp02}
+    - {name: gcp03, port: 9103, targetPort: gcp03}
+    - {name: gcp04, port: 9104, targetPort: gcp04}
+    - {name: gcp05, port: 9105, targetPort: gcp05}
+    - {name: gcp06, port: 9106, targetPort: gcp06}
+    - {name: gcp07, port: 9107, targetPort: gcp07}
+    - {name: gcp08, port: 9108, targetPort: gcp08}
+    - {name: gcp09, port: 9109, targetPort: gcp09}
+    - {name: gcp10, port: 9110, targetPort: gcp10}
+    - {name: gcp11, port: 9111, targetPort: gcp11}
+    - {name: gcp12, port: 9112, targetPort: gcp12}
+    - {name: gcp13, port: 9113, targetPort: gcp13}
+    - {name: gcp14, port: 9114, targetPort: gcp14}
+    - {name: gcp15, port: 9115, targetPort: gcp15}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pilot-gcp-vms
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [monitoring]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-iap-scraper
+  endpoints:
+    - port: gcp01
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-nat-agent-3}
+        - {targetLabel: zone, replacement: southamerica-east1-b}
+        - {targetLabel: instance, replacement: pilot-nat-agent-3}
+        - {targetLabel: role, replacement: nat-agent}
+    - port: gcp02
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-agent-a}
+        - {targetLabel: zone, replacement: us-east1-b}
+        - {targetLabel: instance, replacement: pilot-agent-a}
+        - {targetLabel: role, replacement: public-agent}
+    - port: gcp03
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-agent-b}
+        - {targetLabel: zone, replacement: europe-west1-b}
+        - {targetLabel: instance, replacement: pilot-agent-b}
+        - {targetLabel: role, replacement: public-agent}
+    - port: gcp04
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-nat-agent-1}
+        - {targetLabel: zone, replacement: us-west1-b}
+        - {targetLabel: instance, replacement: pilot-nat-agent-1}
+        - {targetLabel: role, replacement: nat-agent}
+    - port: gcp05
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-nat-agent-2}
+        - {targetLabel: zone, replacement: asia-east1-b}
+        - {targetLabel: instance, replacement: pilot-nat-agent-2}
+        - {targetLabel: role, replacement: nat-agent}
+    - port: gcp06
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-swarm-1}
+        - {targetLabel: zone, replacement: us-central1-b}
+        - {targetLabel: instance, replacement: pilot-swarm-1}
+        - {targetLabel: role, replacement: swarm}
+    - port: gcp07
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-swarm-3}
+        - {targetLabel: zone, replacement: us-central1-b}
+        - {targetLabel: instance, replacement: pilot-swarm-3}
+        - {targetLabel: role, replacement: swarm}
+    - port: gcp08
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-77hs}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-77hs}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp09
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-hhjr}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-hhjr}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp10
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-hkvp}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-hkvp}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp11
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-kr39}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-kr39}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp12
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-qmsn}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-qmsn}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp13
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: beacon-z9d6}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: beacon-z9d6}
+        - {targetLabel: role, replacement: beacon}
+    - port: gcp14
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: pilot-rendezvous}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: pilot-rendezvous}
+        - {targetLabel: role, replacement: rendezvous}
+    - port: gcp15
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - {targetLabel: vm, replacement: scriptorium-server}
+        - {targetLabel: zone, replacement: us-central1-a}
+        - {targetLabel: instance, replacement: scriptorium-server}
+        - {targetLabel: role, replacement: scriptorium}
