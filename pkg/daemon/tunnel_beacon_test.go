@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -289,6 +291,12 @@ func TestHandleBeaconMessageRelayDeliverUpdatesRelayPeersAndDispatchesInnerFrame
 	data[0] = protocol.BeaconMsgRelayDeliver
 	binary.BigEndian.PutUint32(data[1:5], srcID)
 	copy(data[5:], inner)
+
+	// Issue #199: handleRelayDeliver only marks srcID as relay when we
+	// already have crypto context for it (beacon-supplied srcIDs are
+	// otherwise untrusted). Seed crypto state so this test exercises the
+	// known-peer path.
+	tm.crypto[srcID] = &peerCrypto{}
 
 	tm.handleBeaconMessage(data, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9001})
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -25,8 +27,22 @@ type PolicyRunner struct {
 
 	mu       sync.RWMutex
 	peers    map[uint32]*managedPeer // reuse managedPeer from managed.go
-	joinedAt time.Time
-	cycleNum int
+	// Peers that local evict / deny decisions removed from pr.peers.
+	// Reconciler's applyMembershipDiff refuses to re-add entries during
+	// the cooldown window — otherwise the next reconcile tick (5s)
+	// silently undoes evicts, which defeats the semantic.
+	recentlyEvicted map[uint32]time.Time
+	joinedAt        time.Time
+	cycleNum        int
+
+	// Cycle-scoped counters. Reset at the start of each runCycle, incremented
+	// by directive executors, and copied into the cycle result for
+	// observability (surfaced via `pilotctl managed cycle` output).
+	cycleEvicted     int
+	cyclePruned      int
+	cycleFilled      int
+	cyclePrunedTrust int
+	cycleFilledTrust int
 
 	stopCh chan struct{}
 	done   chan struct{}
@@ -47,14 +63,15 @@ func NewPolicyRunner(netID uint16, cp *policy.CompiledPolicy, d *Daemon) *Policy
 	path := filepath.Join(home, ".pilot", fmt.Sprintf("policy_%d.json", netID))
 
 	pr := &PolicyRunner{
-		netID:    netID,
-		compiled: cp,
-		daemon:   d,
-		peers:    make(map[uint32]*managedPeer),
-		joinedAt: time.Now(),
-		stopCh:   make(chan struct{}),
-		done:     make(chan struct{}),
-		path:     path,
+		netID:           netID,
+		compiled:        cp,
+		daemon:          d,
+		peers:           make(map[uint32]*managedPeer),
+		recentlyEvicted: make(map[uint32]time.Time),
+		joinedAt:        time.Now(),
+		stopCh:          make(chan struct{}),
+		done:            make(chan struct{}),
+		path:            path,
 	}
 
 	if err := pr.load(); err != nil {
@@ -94,24 +111,58 @@ func (pr *PolicyRunner) EvaluateGate(eventType policy.EventType, ctx map[string]
 		return true // fail open on error
 	}
 
-	// Execute side effects (score, tag, etc.) before the verdict
+	// Execute side effects (score, tag, etc.) before the verdict.
+	// verdict=0 means no explicit allow/deny; -1 deny, 1 allow.
+	verdict := 0
+	mutated := false
 	for _, d := range dirs {
 		switch d.Type {
 		case policy.DirectiveAllow:
-			return true
+			if verdict == 0 {
+				verdict = 1
+			}
 		case policy.DirectiveDeny:
-			return false
+			if verdict == 0 {
+				verdict = -1
+			}
 		case policy.DirectiveScore:
 			pr.executeScore(d, ctx)
+			mutated = true
 		case policy.DirectiveTag:
 			pr.executeTag(d, ctx)
+			mutated = true
 		case policy.DirectiveLog:
 			pr.executeLog(d)
 		case policy.DirectiveWebhook:
 			pr.executeWebhook(d)
 		}
 	}
+	if mutated {
+		pr.persist()
+	}
+	if verdict == -1 {
+		return false
+	}
 	return true // default allow
+}
+
+// evaluatePerPeerCycle runs cycle-event rules against a single peer's
+// context and applies only per-peer directives (score, tag). Fleet-level
+// directives (evict_where, prune, fill, etc.) are skipped here and run
+// once at fleet scope via EvaluateActions.
+func (pr *PolicyRunner) evaluatePerPeerCycle(ctx map[string]interface{}) {
+	dirs, err := pr.compiled.Evaluate(policy.EventCycle, ctx)
+	if err != nil {
+		return
+	}
+	for _, d := range dirs {
+		switch d.Type {
+		case policy.DirectiveScore:
+			pr.executeScore(d, ctx)
+		case policy.DirectiveTag:
+			pr.executeTag(d, ctx)
+		}
+	}
 }
 
 // EvaluateActions evaluates an action event (cycle, join, leave).
@@ -122,7 +173,7 @@ func (pr *PolicyRunner) EvaluateActions(eventType policy.EventType, ctx map[stri
 		return
 	}
 
-	for i, d := range dirs {
+	for _, d := range dirs {
 		switch d.Type {
 		case policy.DirectiveScore:
 			pr.executeScore(d, ctx)
@@ -131,7 +182,7 @@ func (pr *PolicyRunner) EvaluateActions(eventType policy.EventType, ctx map[stri
 		case policy.DirectiveEvict:
 			pr.executeEvict(ctx)
 		case policy.DirectiveEvictWhere:
-			pr.executeEvictWhere(d, i)
+			pr.executeEvictWhere(d, d.ActionIdx)
 		case policy.DirectivePrune:
 			pr.executePrune(d)
 		case policy.DirectiveFill:
@@ -218,6 +269,9 @@ func (pr *PolicyRunner) executeEvict(ctx map[string]interface{}) {
 	}
 	pr.mu.Lock()
 	delete(pr.peers, uint32(peerID))
+	if pr.recentlyEvicted != nil {
+		pr.recentlyEvicted[uint32(peerID)] = time.Now()
+	}
 	pr.mu.Unlock()
 }
 
@@ -244,13 +298,23 @@ func (pr *PolicyRunner) executeEvictWhere(d policy.Directive, actionIdx int) {
 		}
 	}
 
+	now := time.Now()
 	for _, id := range toEvict {
 		delete(pr.peers, id)
+		if pr.recentlyEvicted != nil {
+			pr.recentlyEvicted[id] = now
+		}
 	}
 	if len(toEvict) > 0 {
+		pr.cycleEvicted += len(toEvict)
 		slog.Info("policy: evicted peers", "network_id", pr.netID, "count", len(toEvict), "rule", d.Rule)
 	}
 }
+
+// evictCooldown bounds how long an evicted peer stays out of pr.peers
+// against the reconciler's automatic re-add. After this window the peer
+// can rejoin (and the policy will re-evaluate on next event / cycle).
+const evictCooldown = 60 * time.Second
 
 func (pr *PolicyRunner) executePrune(d policy.Directive) {
 	count := paramInt(d.Params, "count")
@@ -269,6 +333,7 @@ func (pr *PolicyRunner) executePrune(d policy.Directive) {
 		pruned++
 	}
 	if pruned > 0 {
+		pr.cyclePruned += pruned
 		slog.Info("policy: pruned peers", "network_id", pr.netID, "count", pruned, "rule", d.Rule)
 	}
 }
@@ -326,6 +391,7 @@ func (pr *PolicyRunner) executeFill(d policy.Directive) {
 		pr.peers[c.id] = &managedPeer{NodeID: c.id, AddedAt: now, Tags: c.tags}
 	}
 	if count > 0 {
+		pr.cycleFilled += count
 		slog.Info("policy: filled peers", "network_id", pr.netID, "count", count, "rule", d.Rule)
 	}
 }
@@ -387,6 +453,9 @@ func (pr *PolicyRunner) executePruneTrust(d policy.Directive) {
 		pruned++
 	}
 	if pruned > 0 {
+		pr.mu.Lock()
+		pr.cyclePrunedTrust += pruned
+		pr.mu.Unlock()
 		slog.Info("policy: pruned trust links", "network_id", pr.netID, "count", pruned, "rule", d.Rule)
 		pr.daemon.webhook.Emit("policy.prune_trust", map[string]interface{}{
 			"network_id": pr.netID,
@@ -476,6 +545,9 @@ func (pr *PolicyRunner) executeFillTrust(d policy.Directive) {
 		sent++
 	}
 	if sent > 0 {
+		pr.mu.Lock()
+		pr.cycleFilledTrust += sent
+		pr.mu.Unlock()
 		slog.Info("policy: sent trust requests", "network_id", pr.netID, "count", sent, "rule", d.Rule)
 		pr.daemon.webhook.Emit("policy.fill_trust", map[string]interface{}{
 			"network_id": pr.netID,
@@ -487,6 +559,11 @@ func (pr *PolicyRunner) executeFillTrust(d policy.Directive) {
 
 // --- Cycle loop ---
 
+// reconcileInterval is how often runners poll the registry for membership
+// diffs and fire EventJoin/EventLeave. Not configurable today; 5s is small
+// enough for interactive tests and large enough to not flood the registry.
+const reconcileInterval = 5 * time.Second
+
 func (pr *PolicyRunner) cycleLoop() {
 	defer close(pr.done)
 
@@ -497,28 +574,179 @@ func (pr *PolicyRunner) cycleLoop() {
 		slog.Warn("policy: bootstrap failed", "network_id", pr.netID, "err", err)
 	}
 
+	reconcileTicker := time.NewTicker(reconcileInterval)
+	defer reconcileTicker.Stop()
+
+	var cycleC <-chan time.Time
 	cycleStr, _ := pr.compiled.CycleDuration()
-	if cycleStr == "" {
-		// No cycle configured — just idle until stopped
-		<-pr.stopCh
-		return
+	if cycleStr != "" {
+		cycleDur, err := time.ParseDuration(cycleStr)
+		if err != nil {
+			slog.Warn("policy cycle: unparseable duration, defaulting to 24h",
+				"network_id", pr.netID, "cycle_string", cycleStr, "error", err)
+			cycleDur = 24 * time.Hour
+		} else if cycleDur < time.Second {
+			slog.Warn("policy cycle: duration below 1s minimum, promoting to 1s",
+				"network_id", pr.netID, "cycle_string", cycleStr, "requested", cycleDur)
+			cycleDur = time.Second
+		}
+		cycleTicker := time.NewTicker(cycleDur)
+		defer cycleTicker.Stop()
+		cycleC = cycleTicker.C
 	}
-
-	cycleDur, err := time.ParseDuration(cycleStr)
-	if err != nil || cycleDur < time.Minute {
-		cycleDur = 24 * time.Hour
-	}
-
-	ticker := time.NewTicker(cycleDur)
-	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-reconcileTicker.C:
+			pr.reconcileMembership()
+		case <-cycleC:
 			pr.runCycle()
 		case <-pr.stopCh:
 			return
 		}
+	}
+}
+
+// reconcileMembership polls the registry member list, diffs it against the
+// runner's tracked peers, and fires EventJoin/EventLeave for each delta.
+// EventJoin directives are evaluated as actions (score/tag/evict/log/webhook);
+// a matching deny verdict locally evicts the peer from this runner's view —
+// the registry retains the member, but this node's policy treats them as
+// untrusted. EventLeave always ends with the peer removed from pr.peers.
+func (pr *PolicyRunner) reconcileMembership() {
+	fetched := pr.fetchMembersWithTags()
+	if fetched == nil {
+		return
+	}
+	pr.applyMembershipDiff(fetched, pr.daemon.NodeID())
+}
+
+// applyMembershipDiff compares fetched members against pr.peers, fires
+// EventJoin/EventLeave for each delta, and updates pr.peers. Split from
+// reconcileMembership so unit tests can drive it without a live registry.
+func (pr *PolicyRunner) applyMembershipDiff(fetched []fetchedMember, myID uint32) {
+	currentIDs := make(map[uint32]struct{}, len(fetched))
+	tagMap := make(map[uint32][]string, len(fetched))
+	for _, f := range fetched {
+		if f.ID == myID {
+			continue
+		}
+		currentIDs[f.ID] = struct{}{}
+		tagMap[f.ID] = f.Tags
+	}
+
+	now := time.Now()
+	pr.mu.Lock()
+	// Sweep expired cooldowns so stale entries don't pin memory forever.
+	if pr.recentlyEvicted != nil {
+		for id, t := range pr.recentlyEvicted {
+			if now.Sub(t) > evictCooldown {
+				delete(pr.recentlyEvicted, id)
+			}
+		}
+	}
+	var joined, left []uint32
+	for id := range currentIDs {
+		if existing, ok := pr.peers[id]; ok {
+			// Peer already tracked — refresh tags from the registry so
+			// admin changes (set-tags, member-tags set) become visible to
+			// subsequent policy evaluations without waiting for the peer
+			// to rejoin.
+			existing.Tags = tagMap[id]
+			continue
+		}
+		// Honor eviction cooldown — skip re-adding peers we locally evicted
+		// in the last `evictCooldown` window.
+		if pr.recentlyEvicted != nil {
+			if _, blocked := pr.recentlyEvicted[id]; blocked {
+				continue
+			}
+		}
+		joined = append(joined, id)
+	}
+	for id := range pr.peers {
+		if _, ok := currentIDs[id]; !ok {
+			left = append(left, id)
+		}
+	}
+	pr.mu.Unlock()
+
+	members := len(currentIDs) + 1 // include self
+
+	for _, id := range joined {
+		pr.mu.Lock()
+		pr.peers[id] = &managedPeer{NodeID: id, AddedAt: time.Now(), Tags: tagMap[id]}
+		pr.mu.Unlock()
+
+		ctx := map[string]interface{}{
+			"peer_id":    int(id),
+			"network_id": int(pr.netID),
+			"members":    members,
+		}
+		dirs, err := pr.compiled.Evaluate(policy.EventJoin, ctx)
+		if err != nil {
+			slog.Warn("policy: join eval error", "network_id", pr.netID, "peer_id", id, "err", err)
+			continue
+		}
+		deny := false
+		for _, d := range dirs {
+			switch d.Type {
+			case policy.DirectiveDeny:
+				deny = true
+			case policy.DirectiveScore:
+				pr.executeScore(d, ctx)
+			case policy.DirectiveTag:
+				pr.executeTag(d, ctx)
+			case policy.DirectiveEvict:
+				pr.executeEvict(ctx)
+			case policy.DirectiveLog:
+				pr.executeLog(d)
+			case policy.DirectiveWebhook:
+				pr.executeWebhook(d)
+			}
+		}
+		if deny {
+			pr.mu.Lock()
+			delete(pr.peers, id)
+			if pr.recentlyEvicted != nil {
+				pr.recentlyEvicted[id] = time.Now()
+			}
+			pr.mu.Unlock()
+			slog.Info("policy: join denied, peer evicted locally",
+				"network_id", pr.netID, "peer_id", id)
+			pr.daemon.webhook.Emit("policy.join_denied", map[string]interface{}{
+				"network_id": pr.netID,
+				"peer_id":    id,
+			})
+		}
+	}
+
+	for _, id := range left {
+		ctx := map[string]interface{}{
+			"peer_id":    int(id),
+			"network_id": int(pr.netID),
+		}
+		if dirs, err := pr.compiled.Evaluate(policy.EventLeave, ctx); err == nil {
+			for _, d := range dirs {
+				switch d.Type {
+				case policy.DirectiveScore:
+					pr.executeScore(d, ctx)
+				case policy.DirectiveTag:
+					pr.executeTag(d, ctx)
+				case policy.DirectiveLog:
+					pr.executeLog(d)
+				case policy.DirectiveWebhook:
+					pr.executeWebhook(d)
+				}
+			}
+		}
+		pr.mu.Lock()
+		delete(pr.peers, id)
+		pr.mu.Unlock()
+	}
+
+	if len(joined) > 0 || len(left) > 0 {
+		pr.persist()
 	}
 }
 
@@ -527,6 +755,11 @@ func (pr *PolicyRunner) runCycle() map[string]interface{} {
 	pr.cycleNum++
 	peerCount := len(pr.peers)
 	cycleNum := pr.cycleNum
+	pr.cycleEvicted = 0
+	pr.cyclePruned = 0
+	pr.cycleFilled = 0
+	pr.cyclePrunedTrust = 0
+	pr.cycleFilledTrust = 0
 	pr.mu.Unlock()
 
 	trustedCount := len(pr.daemon.handshakes.TrustedPeers())
@@ -539,21 +772,59 @@ func (pr *PolicyRunner) runCycle() map[string]interface{} {
 		"trusted_count": trustedCount,
 	}
 
+	// Per-peer pass first: cycle `score` / `tag` directives only matter
+	// against a specific peer (executeScore bails when peer_id is 0). We
+	// fire EventCycle once per peer with the peer's id+score+age+tags in
+	// ctx so those directives land, then fall through to the global pass
+	// below for fleet-level directives (evict_where, prune, fill, ...).
+	pr.mu.RLock()
+	perPeerCtxs := make([]map[string]interface{}, 0, len(pr.peers))
+	for _, p := range pr.peers {
+		perPeerCtxs = append(perPeerCtxs, map[string]interface{}{
+			"network_id":    int(pr.netID),
+			"members":       peerCount,
+			"peer_count":    peerCount,
+			"cycle_num":     cycleNum,
+			"trusted_count": trustedCount,
+			"peer_id":       int(p.NodeID),
+			"peer_score":    p.Score,
+			"peer_age_s":    time.Since(p.AddedAt).Seconds(),
+			"peer_tags":     p.tags(),
+		})
+	}
+	pr.mu.RUnlock()
+	for _, pc := range perPeerCtxs {
+		pr.evaluatePerPeerCycle(pc)
+	}
+
 	pr.EvaluateActions(policy.EventCycle, ctx)
 
 	pr.persist()
 
 	pr.mu.RLock()
 	finalPeers := len(pr.peers)
+	evicted := pr.cycleEvicted
+	pruned := pr.cyclePruned
+	filled := pr.cycleFilled
+	prunedTrust := pr.cyclePrunedTrust
+	filledTrust := pr.cycleFilledTrust
 	pr.mu.RUnlock()
 
 	result := map[string]interface{}{
-		"network_id": pr.netID,
-		"cycle_num":  cycleNum,
-		"peers":      finalPeers,
+		"network_id":   pr.netID,
+		"cycle_num":    cycleNum,
+		"peers":        finalPeers,
+		"evicted":      evicted,
+		"pruned":       pruned,
+		"filled":       filled,
+		"pruned_trust": prunedTrust,
+		"filled_trust": filledTrust,
 	}
 
-	slog.Info("policy: cycle complete", "network_id", pr.netID, "cycle_num", cycleNum, "peers", finalPeers)
+	slog.Info("policy: cycle complete",
+		"network_id", pr.netID, "cycle_num", cycleNum, "peers", finalPeers,
+		"evicted", evicted, "pruned", pruned, "filled", filled,
+		"pruned_trust", prunedTrust, "filled_trust", filledTrust)
 	pr.daemon.webhook.Emit("policy.cycle", result)
 
 	return result
@@ -648,6 +919,14 @@ func (pr *PolicyRunner) ForceCycle() map[string]interface{} {
 	return pr.runCycle()
 }
 
+// ReconcileNow triggers a membership reconcile synchronously — same code
+// path as the periodic 5s reconciler, but on demand. Side-effect free
+// aside from adding/removing peers, firing EventJoin/EventLeave, and
+// updating tag metadata. No scoring / evict cycle runs.
+func (pr *PolicyRunner) ReconcileNow() {
+	pr.reconcileMembership()
+}
+
 // --- Internal helpers ---
 
 func (pr *PolicyRunner) bootstrap() error {
@@ -679,9 +958,11 @@ func (pr *PolicyRunner) bootstrap() error {
 
 	pr.mu.Lock()
 	now := time.Now()
+	var freshlyJoined []uint32
 	for _, id := range candidates[:limit] {
 		if _, exists := pr.peers[id]; !exists {
 			pr.peers[id] = &managedPeer{NodeID: id, AddedAt: now, Tags: tagMap[id]}
+			freshlyJoined = append(freshlyJoined, id)
 		} else {
 			pr.peers[id].Tags = tagMap[id]
 		}
@@ -689,8 +970,50 @@ func (pr *PolicyRunner) bootstrap() error {
 	peerCount := len(pr.peers)
 	pr.mu.Unlock()
 
+	// Fire EventJoin for peers that the bootstrap just added. This must
+	// honor the same directives as applyMembershipDiff — in particular
+	// `deny` has to evict the peer, otherwise a join-deny policy only
+	// applies to peers added after startup, not those present at boot.
+	for _, id := range freshlyJoined {
+		ctx := map[string]interface{}{
+			"peer_id":    int(id),
+			"network_id": int(pr.netID),
+			"members":    peerCount + 1, // include self
+		}
+		dirs, err := pr.compiled.Evaluate(policy.EventJoin, ctx)
+		if err != nil {
+			slog.Warn("policy: bootstrap join eval error", "network_id", pr.netID, "peer_id", id, "err", err)
+			continue
+		}
+		deny := false
+		for _, d := range dirs {
+			switch d.Type {
+			case policy.DirectiveDeny:
+				deny = true
+			case policy.DirectiveScore:
+				pr.executeScore(d, ctx)
+			case policy.DirectiveTag:
+				pr.executeTag(d, ctx)
+			case policy.DirectiveLog:
+				pr.executeLog(d)
+			case policy.DirectiveWebhook:
+				pr.executeWebhook(d)
+			}
+		}
+		if deny {
+			pr.mu.Lock()
+			delete(pr.peers, id)
+			if pr.recentlyEvicted != nil {
+				pr.recentlyEvicted[id] = time.Now()
+			}
+			pr.mu.Unlock()
+			slog.Info("policy: bootstrap join denied, peer evicted",
+				"network_id", pr.netID, "peer_id", id)
+		}
+	}
+
 	pr.persist()
-	slog.Info("policy: bootstrapped", "network_id", pr.netID, "peers", peerCount, "available", len(candidates))
+	slog.Info("policy: bootstrapped", "network_id", pr.netID, "peers", peerCount, "available", len(candidates), "fired_join", len(freshlyJoined))
 	return nil
 }
 
@@ -777,6 +1100,9 @@ func (pr *PolicyRunner) rankedPeers(by string) []*managedPeer {
 }
 
 func (pr *PolicyRunner) persist() {
+	if pr.path == "" {
+		return
+	}
 	pr.mu.RLock()
 	snap := policySnapshot{
 		NetworkID: pr.netID,

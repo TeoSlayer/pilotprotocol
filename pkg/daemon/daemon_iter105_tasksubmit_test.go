@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -112,10 +114,11 @@ func TestHandleTaskResultsTextResultSavesAndMarksCompleted(t *testing.T) {
 		t.Fatalf("result contents = %q, want '42'", string(data))
 	}
 
-	// Task status should be COMPLETED.
+	// Task status should be SUCCEEDED — receipt of a result message is the
+	// success terminal state.
 	loaded, _ := LoadSubmittedTaskFile("task-text-result")
-	if loaded.Status != tasksubmit.TaskStatusCompleted {
-		t.Fatalf("Status = %q, want COMPLETED", loaded.Status)
+	if loaded.Status != tasksubmit.TaskStatusSucceeded {
+		t.Fatalf("Status = %q, want SUCCEEDED", loaded.Status)
 	}
 }
 

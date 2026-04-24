@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -219,6 +221,129 @@ func TestPolicyRunnerEvaluateGateWithScoring(t *testing.T) {
 	}
 	if p.Topics["data"] != 5 {
 		t.Errorf("topic 'data' = %d, want 5", p.Topics["data"])
+	}
+}
+
+func TestPolicyRunnerApplyMembershipDiffJoinFiresScore(t *testing.T) {
+	t.Parallel()
+	// Policy that scores +10 on every join.
+	doc := &policy.PolicyDocument{
+		Version: 1,
+		Rules: []policy.Rule{
+			{Name: "score-join", On: policy.EventJoin, Match: "true", Actions: []policy.Action{
+				{Type: policy.ActionScore, Params: map[string]interface{}{"delta": 10}},
+			}},
+		},
+	}
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := &PolicyRunner{
+		netID:    1,
+		compiled: cp,
+		peers:    map[uint32]*managedPeer{},
+	}
+
+	// Myself=999; new members 42 and 43 joined.
+	fetched := []fetchedMember{
+		{ID: 999},
+		{ID: 42, Tags: []string{"blue"}},
+		{ID: 43},
+	}
+	pr.applyMembershipDiff(fetched, 999)
+
+	if len(pr.peers) != 2 {
+		t.Fatalf("peers = %d, want 2", len(pr.peers))
+	}
+	if pr.peers[42].Score != 10 {
+		t.Errorf("peer 42 score = %d, want 10", pr.peers[42].Score)
+	}
+	if pr.peers[43].Score != 10 {
+		t.Errorf("peer 43 score = %d, want 10", pr.peers[43].Score)
+	}
+	if len(pr.peers[42].Tags) != 1 || pr.peers[42].Tags[0] != "blue" {
+		t.Errorf("peer 42 tags = %v, want [blue]", pr.peers[42].Tags)
+	}
+}
+
+func TestPolicyRunnerApplyMembershipDiffLeaveFiresScoreAndRemoves(t *testing.T) {
+	t.Parallel()
+	// Policy that scores -5 on leave.
+	doc := &policy.PolicyDocument{
+		Version: 1,
+		Rules: []policy.Rule{
+			{Name: "score-leave", On: policy.EventLeave, Match: "true", Actions: []policy.Action{
+				{Type: policy.ActionScore, Params: map[string]interface{}{"delta": -5}},
+			}},
+		},
+	}
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := &PolicyRunner{
+		netID:    1,
+		compiled: cp,
+		peers: map[uint32]*managedPeer{
+			42: {NodeID: 42, Score: 20, AddedAt: time.Now()},
+			43: {NodeID: 43, Score: 10, AddedAt: time.Now()},
+		},
+	}
+
+	// 42 is gone; 43 is still there.
+	fetched := []fetchedMember{
+		{ID: 999},
+		{ID: 43},
+	}
+	pr.applyMembershipDiff(fetched, 999)
+
+	if _, ok := pr.peers[42]; ok {
+		t.Fatal("peer 42 should be removed after leave")
+	}
+	if _, ok := pr.peers[43]; !ok {
+		t.Fatal("peer 43 should remain")
+	}
+	// 43 didn't leave, so no score change.
+	if pr.peers[43].Score != 10 {
+		t.Errorf("peer 43 score = %d, want 10 (unchanged)", pr.peers[43].Score)
+	}
+}
+
+func TestPolicyRunnerApplyMembershipDiffJoinDenyEvictsPeer(t *testing.T) {
+	t.Parallel()
+	// Policy that denies every join.
+	doc := &policy.PolicyDocument{
+		Version:        1,
+		DefaultVerdict: "allow",
+		Rules: []policy.Rule{
+			{Name: "deny-join", On: policy.EventJoin, Match: "true", Actions: []policy.Action{
+				{Type: policy.ActionDeny},
+			}},
+		},
+	}
+	cp, err := policy.Compile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := &PolicyRunner{
+		netID:    1,
+		compiled: cp,
+		peers:    map[uint32]*managedPeer{},
+		daemon:   &Daemon{}, // nil webhook → Emit is a no-op
+	}
+
+	fetched := []fetchedMember{
+		{ID: 999},
+		{ID: 42},
+	}
+	pr.applyMembershipDiff(fetched, 999)
+
+	if _, ok := pr.peers[42]; ok {
+		t.Fatal("peer 42 should be evicted after deny-join")
 	}
 }
 

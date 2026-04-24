@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -10,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -88,6 +91,13 @@ type Config struct {
 	// Trust
 	TrustAutoApprove bool // automatically approve all incoming handshake requests
 
+	// PoloGateMin is the minimum polo score the receiver requires from
+	// a submitter for a task to be accepted. 0 = use the registry's
+	// default rule (submitter polo >= receiver polo). Positive values
+	// publish a "guarantee floor" — submitters must meet this even if
+	// the receiver itself scores lower.
+	PoloGateMin int
+
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
 	Networks   []uint16 // network IDs to auto-join at startup (empty = none)
@@ -132,6 +142,11 @@ const (
 const (
 	ZeroWinProbeInitial = 500 * time.Millisecond // initial zero-window probe interval
 	ZeroWinProbeMax     = 30 * time.Second       // max zero-window probe backoff
+	// P1-004: stop probing after this many attempts so a peer stuck at
+	// window=0 (crashed, deadlocked, or adversarial) doesn't leak a
+	// goroutine + timer + probe packets indefinitely. ~30 probes at the
+	// 30s cap is ~15 minutes of trying, which matches the idle sweep.
+	MaxZeroWindowProbes = 30
 )
 
 // RelayProbeInterval is how often we probe relay-flagged peers for direct connectivity.
@@ -171,11 +186,13 @@ type resolveEntry struct {
 }
 
 type Daemon struct {
-	config     Config
-	addrMu     sync.RWMutex // protects nodeID and addr (H6 fix)
-	nodeID     uint32
-	addr       protocol.Addr
-	identity   *crypto.Identity
+	config         Config
+	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
+	nodeID         uint32
+	addr           protocol.Addr
+	publicEndpoint string // host:port reported to the registry at registration
+	identityMu     sync.RWMutex // protects identity after hot rotate-key
+	identity       *crypto.Identity
 	regConn    *registry.Client
 	tunnels    *TunnelManager
 	ports      *PortManager
@@ -477,20 +494,38 @@ func (d *Daemon) Start() error {
 		}
 	}
 
-	// 4. Register with the registry (always with client-generated key)
+	// 4. Register with the registry (always with client-generated key).
+	// Retry the initial dial with bounded backoff: in real deployments the
+	// registry may not be listening yet at daemon startup (systemd ordering,
+	// DNAT rules that install a beat after the container starts, etc.). A
+	// hard fail here forces the supervisor to restart us; a short internal
+	// retry is cheaper and avoids a "connection refused" flap storm.
 	var rc *registry.Client
 	var err error
-	if d.config.RegistryTLS {
-		if d.config.RegistryFingerprint != "" {
+	const maxRegistryDialAttempts = 10
+	registryDialBackoff := 500 * time.Millisecond
+	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
+		if d.config.RegistryTLS {
+			if d.config.RegistryFingerprint == "" {
+				return fmt.Errorf("registry TLS requires RegistryFingerprint for certificate pinning")
+			}
 			rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
 		} else {
-			return fmt.Errorf("registry TLS requires RegistryFingerprint for certificate pinning")
+			rc, err = registry.Dial(d.config.RegistryAddr)
 		}
-	} else {
-		rc, err = registry.Dial(d.config.RegistryAddr)
-	}
-	if err != nil {
-		return fmt.Errorf("registry dial: %w", err)
+		if err == nil {
+			break
+		}
+		if attempt == maxRegistryDialAttempts {
+			return fmt.Errorf("registry dial (after %d attempts): %w", attempt, err)
+		}
+		slog.Warn("registry dial failed, retrying",
+			"attempt", attempt, "max", maxRegistryDialAttempts,
+			"backoff", registryDialBackoff, "error", err)
+		time.Sleep(registryDialBackoff)
+		if registryDialBackoff < 5*time.Second {
+			registryDialBackoff *= 2
+		}
 	}
 	d.regConn = rc
 
@@ -546,9 +581,24 @@ func (d *Daemon) Start() error {
 		d.tunnels.SetPeerVerifyFunc(d.lookupPeerPubKey)
 	}
 
+	// Stash the registration endpoint for Info() readers — used by tests
+	// and operators to confirm beacon discover round-trip succeeded.
+	d.addrMu.Lock()
+	d.publicEndpoint = registrationAddr
+	d.addrMu.Unlock()
+
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
 
-	// Initialize webhook client (no-op if URL is empty)
+	// Initialize webhook client (no-op if URL is empty).
+	// If no URL is configured, fall back to a persisted URL from a previous
+	// `pilotctl set-webhook` — that way node.registered/agent.registered on
+	// daemon restart still reaches the sink without re-issuing set-webhook.
+	webhookURL := d.config.WebhookURL
+	if webhookURL == "" {
+		if persisted, err := loadPersistedWebhookURL(); err == nil && persisted != "" {
+			webhookURL = persisted
+		}
+	}
 	var webhookOpts []WebhookOption
 	if d.config.WebhookHTTPTimeout > 0 {
 		webhookOpts = append(webhookOpts, WithHTTPTimeout(d.config.WebhookHTTPTimeout))
@@ -556,12 +606,17 @@ func (d *Daemon) Start() error {
 	if d.config.WebhookRetryBackoff > 0 {
 		webhookOpts = append(webhookOpts, WithRetryBackoff(d.config.WebhookRetryBackoff))
 	}
-	d.webhook = NewWebhookClient(d.config.WebhookURL, d.NodeID, webhookOpts...)
+	d.webhook = NewWebhookClient(webhookURL, d.NodeID, webhookOpts...)
 	d.tunnels.SetWebhook(d.webhook)
 	d.handshakes.SetWebhook(d.webhook)
 	d.webhook.Emit("node.registered", map[string]interface{}{
 		"address":  d.addr.String(),
 		"endpoint": registrationAddr,
+	})
+	d.webhook.Emit("agent.registered", map[string]interface{}{
+		"address":  d.addr.String(),
+		"endpoint": registrationAddr,
+		"node_id":  d.nodeID,
 	})
 
 	// Register with beacon using real nodeID for NAT traversal (punch/relay)
@@ -852,29 +907,13 @@ func (d *Daemon) doStop() {
 		d.handshakes.Stop()
 	}
 
-	// Graceful deregister: tell the registry we're going away so lookups
-	// fail immediately rather than waiting for heartbeat timeout.
-	// pubKeyIdx/ownerIdx entries are preserved server-side, so
-	// re-registration with the same key reclaims the same node ID.
-	// Timeout: regConn.Send() has no deadline (io.ReadFull can block forever
-	// if registry is unreachable), so run deregister in a goroutine with a
-	// 3-second deadline. regConn.Close() unblocks the stuck goroutine.
+	// Intentionally NOT calling Deregister on shutdown: deregister removes the
+	// node from every network.Members list, so a restarted daemon comes back
+	// with no network memberships — losing per-network policy state
+	// (including persisted deny/grudge lists). The 5-minute heartbeat TTL
+	// reaps truly-dead nodes; users who explicitly want to leave call
+	// `pilotctl deregister` via IPC (CmdDeregister) which is unaffected.
 	if d.regConn != nil {
-		if nid := d.NodeID(); nid != 0 {
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				if _, err := d.regConn.Deregister(nid); err != nil {
-					slog.Debug("deregister on shutdown", "err", err)
-				}
-			}()
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-				slog.Debug("deregister on shutdown timed out")
-			}
-			d.webhook.Emit("node.deregistered", nil)
-		}
 		d.regConn.Close()
 	}
 
@@ -1049,52 +1088,97 @@ func (d *Daemon) isPortAllowed(netID uint16, port uint16) bool {
 }
 
 // evaluatePortPolicy checks whether a protocol event is allowed by the policy
-// engine. If no policy runner exists for the network, falls back to the legacy
-// isPortAllowed check.
+// engine. The packet's destination network is the primary runner consulted;
+// in addition, any other runner this daemon owns that lists `peerNodeID` as
+// a member is also evaluated, so a policy loaded on overlay network N still
+// fires for traffic that arrives on the default network 0 — the test suite
+// frequently loads a policy on a managed network and then sends a
+// connect/datagram on the default tunnel between two members of that
+// network. Without the cross-network evaluation, the policy's score/tag
+// directives never apply.
+//
+// Combination rule: deny wins. If any consulted runner explicitly denies,
+// the event is rejected; otherwise allow. Side effects (score, tag, log,
+// webhook) execute on every matching runner so each network's view of the
+// peer reflects the activity.
 func (d *Daemon) evaluatePortPolicy(eventType policy.EventType, netID uint16, port uint16, peerNodeID uint32, payloadSize int, direction string) bool {
 	d.policyMu.Lock()
-	pr := d.policyRunners[netID]
+	primary := d.policyRunners[netID]
+	others := make([]*PolicyRunner, 0, len(d.policyRunners))
+	for nid, pr := range d.policyRunners {
+		if nid == netID || pr == nil {
+			continue
+		}
+		pr.mu.RLock()
+		_, member := pr.peers[peerNodeID]
+		pr.mu.RUnlock()
+		if member {
+			others = append(others, pr)
+		}
+	}
 	d.policyMu.Unlock()
 
-	if pr != nil {
-		ctx := map[string]interface{}{
-			"port":       int(port),
-			"peer_id":    int(peerNodeID),
-			"network_id": int(netID),
+	allow := true
+	consulted := 0
+
+	if primary != nil {
+		consulted++
+		if !d.runPolicyGate(primary, eventType, port, peerNodeID, netID, payloadSize, direction) {
+			allow = false
 		}
-		// Enrich local_tags from cached member tags
-		d.memberTagsMu.RLock()
-		if tags, ok := d.memberTags[netID]; ok {
-			ctx["local_tags"] = tags
-		} else {
-			ctx["local_tags"] = []string{}
+	}
+	for _, pr := range others {
+		consulted++
+		if !d.runPolicyGate(pr, eventType, port, peerNodeID, pr.netID, payloadSize, direction) {
+			allow = false
 		}
-		d.memberTagsMu.RUnlock()
-		// Enrich peer state for connect, dial, and datagram events
-		switch eventType {
-		case policy.EventConnect, policy.EventDial, policy.EventDatagram:
-			ctx["peer_score"] = 0
-			ctx["peer_tags"] = []string{}
-			ctx["peer_age_s"] = 0.0
-			ctx["members"] = 0
-			pr.mu.RLock()
-			if p, ok := pr.peers[peerNodeID]; ok {
-				ctx["peer_score"] = p.Score
-				ctx["peer_tags"] = p.tags()
-				ctx["peer_age_s"] = time.Since(p.AddedAt).Seconds()
-			}
-			ctx["members"] = len(pr.peers)
-			pr.mu.RUnlock()
-		}
-		if eventType == policy.EventDatagram {
-			ctx["size"] = payloadSize
-			ctx["direction"] = direction
-		}
-		return pr.EvaluateGate(eventType, ctx)
 	}
 
-	// Fallback: legacy port allowlist
-	return d.isPortAllowed(netID, port)
+	if consulted == 0 {
+		// Fallback: legacy port allowlist
+		return d.isPortAllowed(netID, port)
+	}
+	return allow
+}
+
+// runPolicyGate evaluates a single policy runner with the standard context
+// (peer score/age/tags, local tags, members). Returns the runner's
+// allow/deny verdict; side effects (score, tag, log, webhook) are applied
+// inside EvaluateGate.
+func (d *Daemon) runPolicyGate(pr *PolicyRunner, eventType policy.EventType, port uint16, peerNodeID uint32, netID uint16, payloadSize int, direction string) bool {
+	ctx := map[string]interface{}{
+		"port":       int(port),
+		"peer_id":    int(peerNodeID),
+		"network_id": int(netID),
+	}
+	d.memberTagsMu.RLock()
+	if tags, ok := d.memberTags[netID]; ok {
+		ctx["local_tags"] = tags
+	} else {
+		ctx["local_tags"] = []string{}
+	}
+	d.memberTagsMu.RUnlock()
+	switch eventType {
+	case policy.EventConnect, policy.EventDial, policy.EventDatagram:
+		ctx["peer_score"] = 0
+		ctx["peer_age_s"] = 0.0
+		ctx["members"] = 0
+		var localTags []string
+		pr.mu.RLock()
+		if p, ok := pr.peers[peerNodeID]; ok {
+			ctx["peer_score"] = p.Score
+			localTags = p.tags()
+			ctx["peer_age_s"] = time.Since(p.AddedAt).Seconds()
+		}
+		ctx["members"] = len(pr.peers)
+		pr.mu.RUnlock()
+		ctx["peer_tags"] = d.peerTagsFor(peerNodeID, localTags)
+	}
+	if eventType == policy.EventDatagram {
+		ctx["size"] = payloadSize
+		ctx["direction"] = direction
+	}
+	return pr.EvaluateGate(eventType, ctx)
 }
 
 // GetPolicyRunner returns the policy runner for a network, or nil.
@@ -1141,6 +1225,52 @@ func (d *Daemon) StopPolicyRunner(netID uint16) {
 	if ok {
 		pr.Stop()
 	}
+}
+
+// peerTagsFor returns the merged tag set for a peer as seen by the policy
+// evaluator: policy-runner local tags (assigned via the `tag` action) unioned
+// with the peer's global NodeInfo tags (assigned via `pilotctl set-tags`,
+// read from the registry resolve cache). De-duplicated, stable order:
+// NodeInfo first, then policy-local tags not already present.
+//
+// This is the canonical tag store for `has_tag(peer_tags, ...)` policies.
+// Without the NodeInfo merge, admin-assigned tags are invisible to the
+// policy engine even though they are the primary way operators classify
+// peers.
+func (d *Daemon) peerTagsFor(peerNodeID uint32, localTags []string) []string {
+	var nodeInfoTags []string
+	d.resolveCacheMu.RLock()
+	if e, ok := d.resolveCache[peerNodeID]; ok {
+		if raw, ok := e.resp["tags"].([]interface{}); ok {
+			for _, t := range raw {
+				if s, ok := t.(string); ok {
+					nodeInfoTags = append(nodeInfoTags, s)
+				}
+			}
+		}
+	}
+	d.resolveCacheMu.RUnlock()
+
+	if len(nodeInfoTags) == 0 && len(localTags) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(nodeInfoTags)+len(localTags))
+	merged := make([]string, 0, len(nodeInfoTags)+len(localTags))
+	for _, t := range nodeInfoTags {
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		merged = append(merged, t)
+	}
+	for _, t := range localTags {
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		merged = append(merged, t)
+	}
+	return merged
 }
 
 // SetMemberTags updates the cached member tags for the local node in a network.
@@ -1246,6 +1376,9 @@ func (d *Daemon) SetWebhookURL(url string) {
 	d.tunnels.SetWebhook(d.webhook)
 	d.handshakes.SetWebhook(d.webhook)
 	old.Close()
+	if err := savePersistedWebhookURL(url); err != nil {
+		slog.Warn("failed to persist webhook URL", "err", err)
+	}
 	if url != "" {
 		slog.Info("webhook updated", "url", url)
 	} else {
@@ -1254,7 +1387,68 @@ func (d *Daemon) SetWebhookURL(url string) {
 }
 
 // Identity returns the daemon's Ed25519 identity (may be nil if unset).
-func (d *Daemon) Identity() *crypto.Identity { return d.identity }
+func (d *Daemon) Identity() *crypto.Identity {
+	d.identityMu.RLock()
+	defer d.identityMu.RUnlock()
+	return d.identity
+}
+
+// RotateKey generates a new Ed25519 keypair, proves ownership of the current
+// key to the registry via a `rotate:<node_id>` signature, atomically swaps the
+// in-memory identity on success, and persists it to disk. Returns the
+// registry response on success.
+func (d *Daemon) RotateKey() (map[string]interface{}, error) {
+	d.identityMu.RLock()
+	current := d.identity
+	d.identityMu.RUnlock()
+	if current == nil {
+		return nil, fmt.Errorf("rotate_key: daemon has no identity")
+	}
+	if d.regConn == nil {
+		return nil, fmt.Errorf("rotate_key: registry connection unavailable")
+	}
+
+	newID, err := crypto.GenerateIdentity()
+	if err != nil {
+		return nil, fmt.Errorf("rotate_key: generate keypair: %w", err)
+	}
+
+	nodeID := d.NodeID()
+	newPubB64 := crypto.EncodePublicKey(newID.PublicKey)
+	// Bind new_public_key into the challenge so an on-the-wire attacker
+	// cannot substitute their own pubkey while reusing the signature.
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubB64)
+	sig := current.Sign([]byte(challenge))
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	resp, err := d.regConn.RotateKey(nodeID, sigB64, newPubB64)
+	if err != nil {
+		return nil, fmt.Errorf("rotate_key: registry: %w", err)
+	}
+
+	d.identityMu.Lock()
+	d.identity = newID
+	d.identityMu.Unlock()
+
+	d.tunnels.SetIdentity(newID)
+	d.regConn.SetSigner(func(c string) string {
+		return base64.StdEncoding.EncodeToString(newID.Sign([]byte(c)))
+	})
+
+	if d.config.IdentityPath != "" {
+		if err := crypto.SaveIdentity(d.config.IdentityPath, newID); err != nil {
+			slog.Warn("rotate_key: persist identity failed", "error", err)
+		}
+	}
+
+	d.webhook.Emit("key.rotated", map[string]interface{}{
+		"node_id":    nodeID,
+		"public_key": newPubB64,
+	})
+
+	slog.Info("rotated identity key", "node_id", nodeID)
+	return resp, nil
+}
 
 // TaskQueue returns the daemon's task queue.
 func (d *Daemon) TaskQueue() *TaskQueue { return d.taskQueue }
@@ -1282,6 +1476,7 @@ type NetworkMembership struct {
 type DaemonInfo struct {
 	NodeID                uint32
 	Address               string
+	Endpoint              string // host:port registered with the rendezvous (proves beacon discover succeeded)
 	Hostname              string
 	Uptime                time.Duration
 	Connections           int
@@ -1343,6 +1538,7 @@ func (d *Daemon) Info() *DaemonInfo {
 	nid := d.nodeID
 	addrStr := d.addr.String()
 	hostname := d.config.Hostname
+	endpoint := d.publicEndpoint
 	d.addrMu.RUnlock()
 
 	// Collect network memberships from registry
@@ -1361,6 +1557,7 @@ func (d *Daemon) Info() *DaemonInfo {
 	return &DaemonInfo{
 		NodeID:                nid,
 		Address:               addrStr,
+		Endpoint:              endpoint,
 		Hostname:              hostname,
 		Uptime:                time.Since(d.startTime).Round(time.Second),
 		Connections:           numConns,
@@ -1430,8 +1627,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		if existing := d.ports.FindConnection(pkt.DstPort, pkt.Src, pkt.SrcPort); existing != nil {
 			// Resend SYN-ACK for the existing connection
 			existing.Mu.Lock()
-			eSeq := existing.SendSeq
 			eAck := existing.RecvAck
+			// P1-001: prefer the recorded SYN-ACK sequence over `SendSeq-1`.
+			// Once data has been sent on this connection, SendSeq has drifted
+			// forward and `SendSeq-1` is no longer the original SYN-ACK seq.
+			var eSeq uint32
+			if existing.SynAckSeqSet {
+				eSeq = existing.SynAckSeq
+			} else {
+				eSeq = existing.SendSeq - 1 // pre-existing connections from older builds
+			}
 			existing.Mu.Unlock()
 			synack := &protocol.Packet{
 				Version:  protocol.Version,
@@ -1441,7 +1646,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				Dst:      pkt.Src,
 				SrcPort:  pkt.DstPort,
 				DstPort:  pkt.SrcPort,
-				Seq:      eSeq - 1, // original SYN-ACK seq
+				Seq:      eSeq,
 				Ack:      eAck,
 				Window:   existing.RecvWindow(),
 			}
@@ -1456,7 +1661,11 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			trusted := d.handshakes.IsTrusted(srcNode)
 			if !trusted && d.regConn != nil {
 				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
-				trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
+				var err error
+				trusted, err = d.regConn.CheckTrust(d.NodeID(), srcNode)
+				if err != nil {
+					slog.Warn("registry trust check failed (SYN)", "src_node", srcNode, "err", err)
+				}
 			}
 			if !trusted {
 				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
@@ -1544,6 +1753,8 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			Window:   conn.RecvWindow(),
 		}
 		d.tunnels.Send(pkt.Src.Node, synack)
+		conn.SynAckSeq = conn.SendSeq
+		conn.SynAckSeqSet = true
 		conn.SendSeq++
 		conn.State = StateEstablished
 		conn.Mu.Unlock()
@@ -1798,7 +2009,11 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 		srcNode := pkt.Src.Node
 		trusted := d.handshakes.IsTrusted(srcNode)
 		if !trusted && d.regConn != nil {
-			trusted, _ = d.regConn.CheckTrust(d.NodeID(), srcNode)
+			var err error
+			trusted, err = d.regConn.CheckTrust(d.NodeID(), srcNode)
+			if err != nil {
+				slog.Warn("registry trust check failed (datagram)", "src_node", srcNode, "err", err)
+			}
 		}
 		if !trusted {
 			slog.Warn("datagram rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
@@ -2093,6 +2308,7 @@ func (d *Daemon) sendDataImmediate(conn *Connection, data []byte) error {
 // Implements zero-window probing when the peer's receive window is 0.
 func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 	probeInterval := ZeroWinProbeInitial
+	probeCount := 0
 
 	// Wait for effective window to have space
 	probeTimer := time.NewTimer(probeInterval)
@@ -2109,6 +2325,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		select {
 		case <-conn.WindowCh:
 			probeInterval = ZeroWinProbeInitial
+			probeCount = 0
 			if !probeTimer.Stop() {
 				select {
 				case <-probeTimer.C:
@@ -2137,6 +2354,30 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 				Window:   conn.RecvWindow(),
 			}
 			d.tunnels.Send(conn.RemoteAddr.Node, probe)
+			probeCount++
+			// P1-004: give up after MaxZeroWindowProbes rather than
+			// probing a dead peer forever. RST the connection so the
+			// sender sees an error instead of an opaque hang.
+			if probeCount >= MaxZeroWindowProbes {
+				slog.Warn("zero-window probe limit reached, aborting connection",
+					"conn_id", conn.ID,
+					"peer_node_id", conn.RemoteAddr.Node,
+					"probes", probeCount)
+				rst := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagRST,
+					Protocol: protocol.ProtoStream,
+					Src:      conn.LocalAddr,
+					Dst:      conn.RemoteAddr,
+					SrcPort:  conn.LocalPort,
+					DstPort:  conn.RemotePort,
+				}
+				d.tunnels.Send(conn.RemoteAddr.Node, rst)
+				conn.Mu.Lock()
+				conn.State = StateClosed
+				conn.Mu.Unlock()
+				return protocol.ErrConnClosed
+			}
 			// Exponential backoff up to 30s
 			probeInterval = probeInterval * 2
 			if probeInterval > ZeroWinProbeMax {
@@ -2200,6 +2441,21 @@ func (d *Daemon) startRetxLoop(conn *Connection) {
 func (d *Daemon) retxLoop(conn *Connection) {
 	ticker := time.NewTicker(RetxCheckInterval)
 	defer ticker.Stop()
+	// P1-002: a panic inside retransmitUnacked would silently kill the
+	// retransmit goroutine, stranding the connection with unacked segments.
+	// Recover, log, and tear the connection down cleanly so callers see EOF
+	// instead of an opaque hang.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("retxLoop panic",
+				"conn_id", conn.ID,
+				"remote_node_id", conn.RemoteAddr.Node,
+				"recover", r,
+				"stack", string(debug.Stack()))
+			conn.CloseRecvBuf()
+			d.ports.RemoveConnection(conn.ID)
+		}
+	}()
 
 	for {
 		select {
@@ -2288,6 +2544,14 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 				if conn.RTO > 10*time.Second {
 					conn.RTO = 10 * time.Second
 				}
+				// P2-009: add 0-25% random jitter so many connections that
+				// started at the same time don't retransmit in lockstep
+				// under shared congestion. Cap still applies after jitter.
+				jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
+				conn.RTO += jitter
+				if conn.RTO > 10*time.Second {
+					conn.RTO = 10 * time.Second
+				}
 			}
 			// During recovery, retransmit without further RTO doubling
 
@@ -2352,7 +2616,17 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	conn.Mu.Lock()
 	st := conn.State
 	sendSeq := conn.SendSeq
+	remotePort := conn.RemotePort
+	remoteAddr := conn.RemoteAddr
+	connID := conn.ID
 	conn.Mu.Unlock()
+	if st == StateEstablished && remotePort == protocol.PortDataExchange {
+		d.webhook.Emit("file.delivered", map[string]interface{}{
+			"remote_addr": remoteAddr.String(),
+			"remote_port": remotePort,
+			"conn_id":     connID,
+		})
+	}
 	if st == StateEstablished {
 		finData := []byte{0} // 1-byte sentinel so retxEntry has non-zero length
 		fin := &protocol.Packet{
@@ -2374,6 +2648,12 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	}
 	conn.CloseRecvBuf()
 	conn.Mu.Lock()
+	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
+	// the connection is gone and queue an ACK for a dead peer.
+	if conn.ACKTimer != nil {
+		conn.ACKTimer.Stop()
+		conn.ACKTimer = nil
+	}
 	conn.State = StateFinWait
 	conn.LastActivity = time.Now()
 	conn.Mu.Unlock()
@@ -2384,6 +2664,14 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte) error {
 	// Enforce outbound port policy
 	if !d.evaluatePortPolicy(policy.EventDatagram, dstAddr.Network, dstPort, dstAddr.Node, len(data), "out") {
+		slog.Warn("datagram rejected: not allowed by network policy",
+			"direction", "out", "dst_node", dstAddr.Node, "dst_port", dstPort, "network", dstAddr.Network)
+		d.webhook.Emit("datagram.port_rejected", map[string]interface{}{
+			"direction":   "out",
+			"dst_node_id": dstAddr.Node,
+			"dst_port":    dstPort,
+			"network":     dstAddr.Network,
+		})
 		return fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
 	}
 
@@ -2731,6 +3019,11 @@ func (d *Daemon) reRegister() {
 	d.webhook.Emit("node.reregistered", map[string]interface{}{
 		"address": d.addr.String(),
 	})
+	d.webhook.Emit("agent.registered", map[string]interface{}{
+		"address":      d.addr.String(),
+		"node_id":      nodeID,
+		"reregistered": true,
+	})
 
 	if d.stopping() {
 		return
@@ -2877,9 +3170,12 @@ func (d *Daemon) relayProbeLoop() {
 		case <-ticker.C:
 			relayPeers := d.tunnels.RelayPeerIDs()
 			for _, nodeID := range relayPeers {
-				// Send a direct ping (control probe) bypassing relay.
-				// If the peer's NAT has changed and direct works now,
-				// the incoming ACK will arrive on the tunnel socket.
+				// P1-010 fix: send a targeted direct probe without flipping
+				// the relay flag. If the peer's direct path has recovered, the
+				// response will arrive on tm.conn from their real address;
+				// handleEncrypted auto-clears relay mode on a successful
+				// direct decrypt. Concurrent traffic (key exchange replies,
+				// retransmits) continues going via relay during the probe.
 				probe := &protocol.Packet{
 					Version:  protocol.Version,
 					Flags:    protocol.FlagACK,
@@ -2890,42 +3186,9 @@ func (d *Daemon) relayProbeLoop() {
 					DstPort:  protocol.PortPing,
 					Seq:      1,
 				}
-				// Send directly (not via relay) by temporarily clearing relay flag,
-				// sending, then re-setting it. Use SendDirect if available.
-				d.tunnels.SetRelayPeer(nodeID, false)
-				err := d.tunnels.Send(nodeID, probe)
-				if err != nil {
-					d.tunnels.SetRelayPeer(nodeID, true)
-					continue
+				if err := d.tunnels.SendDirectProbe(nodeID, probe); err != nil {
+					slog.Debug("relay direct-probe skipped", "node_id", nodeID, "error", err)
 				}
-				// Wait briefly for a response — if we get one, leave relay off
-				time.AfterFunc(2*time.Second, func() {
-					// If the peer is still in our tunnel cache and has no recent
-					// direct activity, re-enable relay
-					if d.tunnels.IsRelayPeer(nodeID) {
-						return // already re-flagged or cleared by packet handler
-					}
-					// Check if we got any packet from this peer recently
-					// by checking connection activity
-					conns := d.ports.AllConnections()
-					directOk := false
-					for _, c := range conns {
-						if c.RemoteAddr.Node == nodeID {
-							c.Mu.Lock()
-							lastAct := c.LastActivity
-							c.Mu.Unlock()
-							if time.Since(lastAct) < 3*time.Second {
-								directOk = true
-								break
-							}
-						}
-					}
-					if !directOk {
-						d.tunnels.SetRelayPeer(nodeID, true)
-					} else {
-						slog.Info("relay→direct fallback succeeded", "node_id", nodeID)
-					}
-				})
 			}
 		}
 	}

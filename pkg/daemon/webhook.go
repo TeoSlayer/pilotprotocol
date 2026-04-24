@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -5,12 +7,66 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
+
+// webhookURLPath is the file where the last-set webhook URL is persisted so
+// that `pilotctl set-webhook` survives daemon restarts and the first emit
+// after restart (node.registered / agent.registered) reaches the sink.
+func webhookURLPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".pilot", "webhook_url"), nil
+}
+
+// loadPersistedWebhookURL reads the previously-saved webhook URL. Returns
+// empty string if no file exists or the contents don't pass validation.
+func loadPersistedWebhookURL() (string, error) {
+	path, err := webhookURLPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	url := strings.TrimSpace(string(data))
+	if url == "" {
+		return "", nil
+	}
+	if err := ValidateWebhookURL(url); err != nil {
+		return "", err
+	}
+	return url, nil
+}
+
+// savePersistedWebhookURL writes the URL to ~/.pilot/webhook_url, or deletes
+// the file if url is empty.
+func savePersistedWebhookURL(url string) error {
+	path, err := webhookURLPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	if url == "" {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(path, []byte(url), 0600)
+}
 
 // ValidateWebhookURL checks that a webhook URL uses http(s) and does not
 // target cloud metadata or link-local endpoints (SSRF prevention). Delegates

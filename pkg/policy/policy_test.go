@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package policy
 
 import (
@@ -105,14 +107,14 @@ func TestValidateUnknownAction(t *testing.T) {
 func TestValidateCycleConfig(t *testing.T) {
 	doc := &PolicyDocument{
 		Version: 1,
-		Config:  map[string]interface{}{"cycle": "30s"},
+		Config:  map[string]interface{}{"cycle": "500ms"},
 		Rules:   []Rule{{Name: "r", On: "cycle", Match: "true", Actions: []Action{{Type: ActionLog, Params: map[string]interface{}{"message": "tick"}}}}},
 	}
 	if err := Validate(doc); err == nil {
-		t.Fatal("expected error for cycle < 1m")
+		t.Fatal("expected error for cycle < 1s")
 	}
 
-	doc.Config["cycle"] = "1h"
+	doc.Config["cycle"] = "5s"
 	if err := Validate(doc); err != nil {
 		t.Fatalf("unexpected error for valid cycle: %v", err)
 	}
@@ -225,6 +227,58 @@ func TestEvaluateGateDeny(t *testing.T) {
 	}
 	if verdict.Type != DirectiveDeny {
 		t.Fatalf("verdict = %d, want DirectiveDeny", verdict.Type)
+	}
+}
+
+func TestValidateDefaultVerdictInvalid(t *testing.T) {
+	doc := &PolicyDocument{
+		Version:        1,
+		DefaultVerdict: "maybe",
+		Rules: []Rule{
+			{Name: "r", On: "connect", Match: "true", Actions: []Action{{Type: ActionAllow}}},
+		},
+	}
+	if err := Validate(doc); err == nil {
+		t.Fatal("expected error for invalid default_verdict")
+	}
+}
+
+func TestEvaluateGateDefaultDeny(t *testing.T) {
+	// No rules match, default_verdict=deny → default deny
+	doc := &PolicyDocument{
+		Version:        1,
+		DefaultVerdict: "deny",
+		Rules: []Rule{
+			{Name: "allow-80", On: "connect", Match: "port == 80", Actions: []Action{{Type: ActionAllow}}},
+		},
+	}
+	cp, err := Compile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dirs, err := cp.Evaluate(EventConnect, map[string]interface{}{
+		"port":       999,
+		"peer_id":    1,
+		"network_id": 1,
+		"peer_score": 0,
+		"peer_tags":  []string{},
+		"peer_age_s": 0.0,
+		"members":    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	verdict := findVerdict(dirs)
+	if verdict == nil {
+		t.Fatal("expected default verdict")
+	}
+	if verdict.Type != DirectiveDeny {
+		t.Fatalf("verdict = %d, want DirectiveDeny (default-deny)", verdict.Type)
+	}
+	if verdict.Rule != "_default" {
+		t.Fatalf("rule = %q, want '_default'", verdict.Rule)
 	}
 }
 

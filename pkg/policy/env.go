@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package policy
 
 import (
@@ -35,8 +37,9 @@ func envOptions(eventType EventType) []expr.Option {
 		env["network_id"] = 0 // uint16 as int
 		env["peer_score"] = 0 // int
 		env["peer_tags"] = []string{}
-		env["peer_age_s"] = 0.0 // float64: seconds since peer added
-		env["members"] = 0      // int: member count
+		env["peer_age_s"] = 0.0    // float64: seconds since peer added
+		env["members"] = 0         // int: member count
+		env["sender_rating"] = 0.0 // float64: quality rating 0..1
 	case EventDial:
 		env["peer_id"] = 0
 		env["port"] = 0
@@ -45,6 +48,7 @@ func envOptions(eventType EventType) []expr.Option {
 		env["peer_tags"] = []string{}
 		env["peer_age_s"] = 0.0
 		env["members"] = 0
+		env["sender_rating"] = 0.0
 	case EventDatagram:
 		env["peer_id"] = 0
 		env["port"] = 0
@@ -55,12 +59,17 @@ func envOptions(eventType EventType) []expr.Option {
 		env["peer_tags"] = []string{}
 		env["peer_age_s"] = 0.0
 		env["members"] = 0
+		env["sender_rating"] = 0.0
 	case EventCycle:
 		env["network_id"] = 0
 		env["members"] = 0
 		env["peer_count"] = 0
 		env["cycle_num"] = 0
 		env["trusted_count"] = 0
+		env["peer_id"] = 0
+		env["peer_score"] = 0
+		env["peer_tags"] = []string{}
+		env["peer_age_s"] = 0.0
 	case EventJoin:
 		env["peer_id"] = 0
 		env["network_id"] = 0

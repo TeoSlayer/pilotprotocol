@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -236,6 +238,9 @@ func (d *Daemon) saveReceivedFile(frame *dataexchange.Frame) error {
 	destPath := filepath.Join(dir, destName)
 
 	if err := os.WriteFile(destPath, frame.Payload, 0600); err != nil {
+		// Clean up any partial file os.WriteFile may have left on disk
+		// (ENOSPC truncates rather than rolling back).
+		_ = os.Remove(destPath)
 		slog.Warn("save received file: write failed", "path", destPath, "err", err)
 		return fmt.Errorf("write: %w", err)
 	}
@@ -293,8 +298,8 @@ func (d *Daemon) startEventStreamService() error {
 		return err
 	}
 	broker := &eventBroker{
-		subs:    make(map[string][]*connAdapter),
-		webhook: d.webhook,
+		subs:   make(map[string][]*connAdapter),
+		daemon: d,
 	}
 	go func() {
 		for {
@@ -314,34 +319,102 @@ func (d *Daemon) startEventStreamService() error {
 	return nil
 }
 
+// Publish rate-limit constants. Issue #196: previously any single publisher
+// could fan out to every subscriber as fast as it could write, potentially
+// OOMing slow subscribers or saturating routeLoop. The cap is generous
+// (100 events/sec per publisher) but bounds worst-case abuse.
+const (
+	publishRatePerSecond = 100
+	publishBurstBudget   = 200
+)
+
 // eventBroker is an in-process pub/sub broker for the event stream service.
 type eventBroker struct {
-	mu      sync.RWMutex
-	subs    map[string][]*connAdapter // topic → subscribers
-	webhook *WebhookClient
+	mu     sync.RWMutex
+	subs   map[string][]*connAdapter // topic → subscribers
+	daemon *Daemon                   // hot-swap-safe webhook via d.webhook
+	rateMu sync.Mutex
+	// rate tracks publish tokens per publisher adapter. Token-bucket
+	// refill rate is publishRatePerSecond, capped at publishBurstBudget.
+	rate map[*connAdapter]*publishBucket
+}
+
+// webhook returns the current daemon webhook client — SetWebhookURL
+// hot-swaps d.webhook, so the broker must read through on each Emit
+// instead of caching the pointer at startup (otherwise emits routed
+// via the initial nil/empty webhook silently drop).
+func (b *eventBroker) webhook() *WebhookClient {
+	if b.daemon == nil {
+		return nil
+	}
+	return b.daemon.webhook
+}
+
+type publishBucket struct {
+	tokens     float64
+	lastRefill time.Time
+}
+
+// takeToken returns true if a publish token is available and deducts one.
+func (b *eventBroker) takeToken(adapter *connAdapter) bool {
+	b.rateMu.Lock()
+	defer b.rateMu.Unlock()
+	if b.rate == nil {
+		b.rate = make(map[*connAdapter]*publishBucket)
+	}
+	now := time.Now()
+	bucket, ok := b.rate[adapter]
+	if !ok {
+		bucket = &publishBucket{tokens: publishBurstBudget, lastRefill: now}
+		b.rate[adapter] = bucket
+	}
+	elapsed := now.Sub(bucket.lastRefill).Seconds()
+	if elapsed > 0 {
+		bucket.tokens += elapsed * publishRatePerSecond
+		if bucket.tokens > publishBurstBudget {
+			bucket.tokens = publishBurstBudget
+		}
+		bucket.lastRefill = now
+	}
+	if bucket.tokens < 1 {
+		return false
+	}
+	bucket.tokens--
+	return true
+}
+
+// forgetPublisher drops a publisher's token bucket when they disconnect.
+func (b *eventBroker) forgetPublisher(adapter *connAdapter) {
+	b.rateMu.Lock()
+	delete(b.rate, adapter)
+	b.rateMu.Unlock()
 }
 
 func (b *eventBroker) handleConn(adapter *connAdapter) {
 	var topic string
 	defer func() {
 		b.removeSub(adapter)
+		b.forgetPublisher(adapter)
 		adapter.Close()
 		if topic != "" {
-			b.webhook.Emit("pubsub.unsubscribed", map[string]interface{}{
+			b.webhook().Emit("pubsub.unsubscribed", map[string]interface{}{
 				"topic": topic, "remote": adapter.RemoteAddr().String(),
 			})
 		}
 	}()
 
+	slog.Info("eventstream broker: handleConn started", "remote", adapter.RemoteAddr().String())
 	// First event = subscription
 	subEvt, err := eventstream.ReadEvent(adapter)
 	if err != nil {
+		slog.Warn("eventstream broker: subscribe read failed", "remote", adapter.RemoteAddr().String(), "err", err)
 		return
 	}
+	slog.Info("eventstream broker: subscribe received", "remote", adapter.RemoteAddr().String(), "topic", subEvt.Topic)
 	topic = subEvt.Topic
 	b.addSub(topic, adapter)
 	slog.Debug("eventstream subscription", "remote", adapter.RemoteAddr(), "topic", topic)
-	b.webhook.Emit("pubsub.subscribed", map[string]interface{}{
+	b.webhook().Emit("pubsub.subscribed", map[string]interface{}{
 		"topic": topic, "remote": adapter.RemoteAddr().String(),
 	})
 
@@ -349,7 +422,21 @@ func (b *eventBroker) handleConn(adapter *connAdapter) {
 	for {
 		evt, err := eventstream.ReadEvent(adapter)
 		if err != nil {
+			slog.Info("eventstream broker: publish read done", "remote", adapter.RemoteAddr().String(), "err", err)
 			return
+		}
+		slog.Info("eventstream broker: publish received", "remote", adapter.RemoteAddr().String(), "topic", evt.Topic, "bytes", len(evt.Payload))
+		// Issue #196: rate-limit per publisher so a misbehaving client
+		// can't saturate routeLoop or overwhelm every subscriber.
+		if !b.takeToken(adapter) {
+			slog.Warn("pubsub publish dropped: rate limit",
+				"remote", adapter.RemoteAddr(),
+				"topic", evt.Topic,
+				"limit_per_sec", publishRatePerSecond)
+			b.webhook().Emit("pubsub.rate_limited", map[string]interface{}{
+				"topic": evt.Topic, "from": adapter.RemoteAddr().String(),
+			})
+			continue
 		}
 		b.publish(evt, adapter)
 	}
@@ -378,34 +465,39 @@ func (b *eventBroker) removeSub(adapter *connAdapter) {
 }
 
 func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
+	// P2-003: snapshot the subscriber list under the lock, then do the
+	// WriteEvent I/O after release. Holding RLock across network writes
+	// lets one slow subscriber block every concurrent publisher.
 	b.mu.RLock()
-	var dead []*connAdapter
+	targets := make([]*connAdapter, 0, len(b.subs[evt.Topic])+len(b.subs["*"]))
 	for _, conn := range b.subs[evt.Topic] {
 		if conn != sender {
-			if err := eventstream.WriteEvent(conn, evt); err != nil {
-				slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
-				dead = append(dead, conn)
-			}
+			targets = append(targets, conn)
 		}
 	}
 	if evt.Topic != "*" {
 		for _, conn := range b.subs["*"] {
 			if conn != sender {
-				if err := eventstream.WriteEvent(conn, evt); err != nil {
-					slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
-					dead = append(dead, conn)
-				}
+				targets = append(targets, conn)
 			}
 		}
 	}
 	b.mu.RUnlock()
 
+	var dead []*connAdapter
+	for _, conn := range targets {
+		if err := eventstream.WriteEvent(conn, evt); err != nil {
+			slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
+			dead = append(dead, conn)
+		}
+	}
+
 	// Clean up dead subscribers outside the read lock
 	for _, conn := range dead {
 		b.removeSub(conn)
 	}
-	slog.Debug("eventstream published", "topic", evt.Topic, "bytes", len(evt.Payload), "from", sender.RemoteAddr())
-	b.webhook.Emit("pubsub.published", map[string]interface{}{
+	slog.Info("eventstream published", "topic", evt.Topic, "bytes", len(evt.Payload), "from", sender.RemoteAddr(), "targets", len(targets))
+	b.webhook().Emit("pubsub.published", map[string]interface{}{
 		"topic": evt.Topic, "size": len(evt.Payload), "from": sender.RemoteAddr().String(),
 	})
 }
@@ -833,6 +925,19 @@ func (d *Daemon) checkAndCancelExpiredNewTasks() {
 					slog.Warn("tasksubmit: failed to cancel task", "task_id", tf.TaskID, "error", err)
 				}
 			}
+
+			// Submitter-side stall detection: if the receiver accepted but
+			// then went silent (e.g., crashed before send-results), the
+			// submitter must mark the task EXPIRED so callers don't see
+			// it stuck in ACCEPTED forever.
+			if sub == "submitted" && tf.IsAcceptedStalled() {
+				slog.Info("tasksubmit: expiring submitter task — receiver silent past stall timeout",
+					"task_id", tf.TaskID,
+					"accepted_at", tf.AcceptedAt,
+				)
+				_ = UpdateTaskStatus(tf.TaskID, tasksubmit.TaskStatusExpired,
+					"receiver did not return results within stall window", true)
+			}
 		}
 	}
 }
@@ -913,6 +1018,22 @@ func (d *Daemon) handleTaskSubmitRequest(adapter *connAdapter, conn *Connection,
 		return
 	}
 
+	// Issue #198: reject oversized task_description before we allocate,
+	// persist, or chain the polo-score lookup. Bounded allocation is a
+	// prerequisite for any remote-controlled submit path.
+	if err := tasksubmit.ValidateSubmitRequest(req); err != nil {
+		slog.Warn("tasksubmit: rejecting oversized submit", "task_id", req.TaskID, "error", err)
+		resp := &tasksubmit.SubmitResponse{
+			TaskID:  req.TaskID,
+			Status:  tasksubmit.StatusRejected,
+			Message: err.Error(),
+		}
+		if respFrame, merr := tasksubmit.MarshalSubmitResponse(resp); merr == nil {
+			_ = tasksubmit.WriteFrame(adapter, respFrame)
+		}
+		return
+	}
+
 	slog.Debug("tasksubmit: received task submission",
 		"task_id", req.TaskID,
 		"description", req.TaskDescription,
@@ -920,36 +1041,31 @@ func (d *Daemon) handleTaskSubmitRequest(adapter *connAdapter, conn *Connection,
 		"remote_node", conn.RemoteAddr.Node,
 	)
 
-	// Check polo scores: submitter's score must be >= receiver's score
+	// Polo gate: receiver asks the registry whether the submitter is
+	// authorized. Polo is private — daemons cannot read other nodes'
+	// scores. The registry compares internally (or against an optional
+	// per-receiver guarantee floor) and returns only allow/deny.
 	var accepted bool
 	var message string
 
 	if d.regConn != nil {
-		submitterScore, err := d.regConn.GetPoloScore(conn.RemoteAddr.Node)
+		minPolo := d.config.PoloGateMin
+		ok, reason, err := d.regConn.AuthorizeTaskSubmit(d.nodeID, conn.RemoteAddr.Node, d.nodeID, minPolo)
 		if err != nil {
-			slog.Warn("tasksubmit: failed to get submitter polo score", "error", err)
+			slog.Warn("tasksubmit: registry authorize failed", "error", err)
 			accepted = false
-			message = "Failed to verify polo score"
+			message = "Failed to authorize task"
+		} else if !ok {
+			accepted = false
+			message = "Task rejected by polo gate: " + reason
 		} else {
-			receiverScore, err := d.regConn.GetPoloScore(d.nodeID)
-			if err != nil {
-				slog.Warn("tasksubmit: failed to get receiver polo score", "error", err)
-				accepted = false
-				message = "Failed to verify polo score"
-			} else {
-				if submitterScore >= receiverScore {
-					accepted = true
-					message = "Task received with status NEW"
-				} else {
-					accepted = false
-					message = fmt.Sprintf("Polo score too low: submitter=%d, receiver=%d", submitterScore, receiverScore)
-				}
-			}
+			accepted = true
+			message = "Task received with status NEW"
 		}
 	} else {
-		// No registry connection — fail closed (cannot verify polo score)
+		// No registry connection — fail closed (cannot evaluate gate)
 		accepted = false
-		message = "Registry unavailable, cannot verify polo score"
+		message = "Registry unavailable, cannot verify polo gate"
 	}
 
 	var resp *tasksubmit.SubmitResponse
@@ -979,6 +1095,12 @@ func (d *Daemon) handleTaskSubmitRequest(adapter *connAdapter, conn *Connection,
 			"description", req.TaskDescription,
 			"submitter_node", conn.RemoteAddr.Node,
 		)
+		d.webhook.Emit("task.submitted", map[string]interface{}{
+			"task_id":        req.TaskID,
+			"description":    req.TaskDescription,
+			"from":           req.FromAddr,
+			"submitter_node": conn.RemoteAddr.Node,
+		})
 	} else {
 		resp = &tasksubmit.SubmitResponse{
 			TaskID:  req.TaskID,
@@ -1018,6 +1140,26 @@ func (d *Daemon) handleTaskStatusUpdate(adapter *connAdapter, conn *Connection, 
 		slog.Warn("tasksubmit: failed to update task status", "task_id", update.TaskID, "error", err)
 	}
 
+	// Stamp AcceptedAt on the submitter's copy so the stall-detector
+	// (IsAcceptedStalled) has a reliable clock reference. Receiver-side
+	// AcceptedAt isn't transmitted with the status update.
+	if update.Status == tasksubmit.TaskStatusAccepted {
+		tasksDir, err := getTasksDir()
+		if err == nil {
+			taskPath := filepath.Join(tasksDir, "submitted", update.TaskID+".json")
+			if data, rerr := os.ReadFile(taskPath); rerr == nil {
+				if tf, perr := tasksubmit.UnmarshalTaskFile(data); perr == nil {
+					if tf.AcceptedAt == "" {
+						tf.AcceptedAt = time.Now().UTC().Format(time.RFC3339)
+						if newData, merr := tasksubmit.MarshalTaskFile(tf); merr == nil {
+							_ = os.WriteFile(taskPath, newData, 0600)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	slog.Info("tasksubmit: task status updated",
 		"task_id", update.TaskID,
 		"status", update.Status,
@@ -1028,6 +1170,13 @@ func (d *Daemon) handleTaskResults(adapter *connAdapter, conn *Connection, frame
 	msg, err := tasksubmit.UnmarshalTaskResultMessage(frame)
 	if err != nil {
 		slog.Warn("tasksubmit: failed to unmarshal results", "error", err)
+		return
+	}
+
+	// Issue #198: reject oversized result payloads before touching the
+	// filesystem. Caller gets a decline so its task moves out of ACCEPTED.
+	if err := tasksubmit.ValidateTaskResultMessage(msg); err != nil {
+		slog.Warn("tasksubmit: rejecting oversized result", "task_id", msg.TaskID, "error", err)
 		return
 	}
 
@@ -1067,10 +1216,32 @@ func (d *Daemon) handleTaskResults(adapter *connAdapter, conn *Connection, frame
 		slog.Info("tasksubmit: result text saved", "task_id", msg.TaskID, "filename", filename)
 	}
 
-	// Update task status to COMPLETED
-	if err := UpdateTaskStatus(msg.TaskID, tasksubmit.TaskStatusCompleted, "Task completed with results", true); err != nil {
+	// Receipt of a result message is the success terminal — go straight to
+	// SUCCEEDED so callers don't see an intermediate COMPLETED state that
+	// then races with the explicit SendStatusUpdate from the receiver.
+	if err := UpdateTaskStatus(msg.TaskID, tasksubmit.TaskStatusSucceeded, "Task completed with results", true); err != nil {
 		slog.Warn("tasksubmit: failed to update task status", "task_id", msg.TaskID, "error", err)
+	} else {
+		// Read the just-updated task file, attach result fields, write back.
+		taskPath := filepath.Join(tasksDir, "submitted", msg.TaskID+".json")
+		if data, rerr := os.ReadFile(taskPath); rerr == nil {
+			if tf, perr := tasksubmit.UnmarshalTaskFile(data); perr == nil {
+				tf.ResultType = msg.ResultType
+				if msg.ResultType == "file" {
+					tf.Results = msg.Filename
+				} else {
+					tf.Results = msg.ResultText
+				}
+				if newData, merr := tasksubmit.MarshalTaskFile(tf); merr == nil {
+					_ = os.WriteFile(taskPath, newData, 0600)
+				}
+			}
+		}
 	}
+	d.webhook.Emit("task.completed", map[string]interface{}{
+		"task_id":     msg.TaskID,
+		"result_type": msg.ResultType,
+	})
 
 	// Update polo scores using weighted calculation
 	if d.regConn != nil {
@@ -1124,5 +1295,10 @@ func (d *Daemon) handleTaskResults(adapter *connAdapter, conn *Connection, frame
 		}
 
 		slog.Info("tasksubmit: polo scores updated", "task_id", msg.TaskID, "receiver_reward", reward)
+		d.webhook.Emit("polo.updated", map[string]interface{}{
+			"task_id":          msg.TaskID,
+			"submitter_delta":  -1,
+			"receiver_reward":  reward,
+		})
 	}
 }

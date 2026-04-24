@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tasksubmit
 
 import (
@@ -35,6 +37,11 @@ const (
 	TaskAcceptTimeout = 1 * time.Minute
 	// TaskQueueHeadTimeout is the maximum time a task can stay at the head of the queue before expiring
 	TaskQueueHeadTimeout = 1 * time.Hour
+	// TaskAcceptedStallTimeout bounds how long a submitter will wait for
+	// a result message after the task has been accepted by the receiver.
+	// If the receiver dies between accept and send-results, the submitter
+	// times out and marks the task EXPIRED so it doesn't appear stuck.
+	TaskAcceptedStallTimeout = 1 * time.Minute
 )
 
 // Frame types for task submission on port 1003.
@@ -44,6 +51,48 @@ const (
 	TypeStatusUpdate uint32 = 3 // Task status update (accept/decline/execute/complete)
 	TypeSendResults  uint32 = 4 // Send task results
 )
+
+// Submission-size bounds. Issue #198: without these the receiver allocates
+// whatever the sender sends, so a single hostile submit can OOM the daemon.
+// The frame reader already caps the whole frame at 16 MiB; these are
+// tighter semantic bounds checked before the content is persisted.
+const (
+	MaxTaskDescription     = 16 * 1024           // 16 KiB — any reasonable prompt/description
+	MaxTaskResultText      = 1 * 1024 * 1024     // 1 MiB — inline text results
+	MaxTaskResultFilename  = 256                 // filesystem-safe length cap
+	MaxTaskResultFileBytes = 15 * 1024 * 1024    // ~15 MiB; frame cap is 16 MiB
+	MaxTaskJustification   = 4 * 1024            // status/decline reasons
+)
+
+// ValidateSubmitRequest rejects submissions whose description exceeds the
+// server-side cap. Called before persisting the task to disk.
+func ValidateSubmitRequest(req *SubmitRequest) error {
+	if req == nil {
+		return fmt.Errorf("submit: nil request")
+	}
+	if len(req.TaskDescription) > MaxTaskDescription {
+		return fmt.Errorf("submit: task_description %d > %d bytes", len(req.TaskDescription), MaxTaskDescription)
+	}
+	return nil
+}
+
+// ValidateTaskResultMessage rejects result payloads that would blow past
+// the per-field caps.
+func ValidateTaskResultMessage(m *TaskResultMessage) error {
+	if m == nil {
+		return fmt.Errorf("result: nil message")
+	}
+	if len(m.ResultText) > MaxTaskResultText {
+		return fmt.Errorf("result: result_text %d > %d bytes", len(m.ResultText), MaxTaskResultText)
+	}
+	if len(m.Filename) > MaxTaskResultFilename {
+		return fmt.Errorf("result: filename %d > %d bytes", len(m.Filename), MaxTaskResultFilename)
+	}
+	if len(m.FileData) > MaxTaskResultFileBytes {
+		return fmt.Errorf("result: file_data %d > %d bytes", len(m.FileData), MaxTaskResultFileBytes)
+	}
+	return nil
+}
 
 // Allowed file extensions for results
 var AllowedResultExtensions = map[string]bool{
@@ -103,6 +152,10 @@ type TaskFile struct {
 	TimeIdleMs   int64 `json:"time_idle_ms,omitempty"`   // Time from creation to accept/decline
 	TimeStagedMs int64 `json:"time_staged_ms,omitempty"` // Time at head of queue before execute
 	TimeCpuMs    int64 `json:"time_cpu_ms,omitempty"`    // Time spent executing before sending results
+
+	// Result payload as received by the submitter.
+	ResultType string `json:"result_type,omitempty"` // "text" or "file"
+	Results    string `json:"results,omitempty"`     // text result body (or filename if file)
 }
 
 // TaskStatusUpdate represents a status change message.
@@ -250,6 +303,25 @@ func (tf *TaskFile) IsExpiredInQueue() bool {
 		return false
 	}
 	return dur > TaskQueueHeadTimeout
+}
+
+// IsAcceptedStalled checks (on the submitter side) whether an ACCEPTED
+// task has been waiting for results past TaskAcceptedStallTimeout. Used
+// to bound the task lifecycle when the receiver dies between accept
+// and send-results — without this the submitter would otherwise hold
+// the task in ACCEPTED forever.
+func (tf *TaskFile) IsAcceptedStalled() bool {
+	if tf.Status != TaskStatusAccepted {
+		return false
+	}
+	if tf.AcceptedAt == "" {
+		return false
+	}
+	accepted, err := ParseTime(tf.AcceptedAt)
+	if err != nil {
+		return false
+	}
+	return time.Since(accepted) > TaskAcceptedStallTimeout
 }
 
 // PoloScoreReward calculates the polo score reward for a successfully completed task.

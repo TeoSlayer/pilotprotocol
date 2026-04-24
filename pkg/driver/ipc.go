@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package driver
 
 import (
@@ -49,6 +51,10 @@ const (
 	cmdHealthOK          byte = 0x22
 	cmdManaged           byte = 0x23
 	cmdManagedOK         byte = 0x24
+	cmdRotateKey         byte = 0x25
+	cmdRotateKeyOK       byte = 0x26
+	cmdMyPolo            byte = 0x27
+	cmdMyPoloOK          byte = 0x28
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)
@@ -70,6 +76,7 @@ const (
 	subManagedCycle      byte = 0x04
 	subManagedPolicy     byte = 0x05
 	subManagedMemberTags byte = 0x06
+	subManagedReconcile  byte = 0x07
 )
 
 // Datagram represents a received unreliable datagram.

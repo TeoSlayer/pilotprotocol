@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -127,6 +129,11 @@ type Connection struct {
 	// Reliable delivery
 	SendSeq uint32
 	RecvAck uint32
+	// SynAckSeq: sequence number used on the original outbound SYN-ACK.
+	// P1-001 fix: retransmitted SYNs must receive the same seq, not a
+	// stale `SendSeq-1` that has drifted forward once data flowed.
+	SynAckSeq    uint32
+	SynAckSeqSet bool
 	SendBuf chan []byte
 	RecvBuf chan []byte
 	// Sliding window + retransmission (send side)

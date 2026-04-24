@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -128,6 +130,13 @@ type TunnelManager struct {
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
 
+	// lastDirectRecv tracks when each peer was last heard from on a direct
+	// (non-beacon) UDP path. Used by writeFrame to flip an established
+	// connection into relay mode when the direct path goes silent —
+	// covers the case where SYN succeeded directly but the data-plane
+	// path later dies (NAT-mapping refresh window, mid-flight partition).
+	lastDirectRecv map[uint32]time.Time
+
 	// Webhook
 	webhook *WebhookClient
 
@@ -138,6 +147,10 @@ type TunnelManager struct {
 	PktsRecv    uint64
 	EncryptOK   uint64
 	EncryptFail uint64
+	// P1-008: packets dropped from the per-peer pending queue while waiting
+	// for key exchange. Exposed so operators can tell a congested overlay
+	// apart from a silent crypto stall.
+	PendingDrops uint64
 }
 
 type IncomingPacket struct {
@@ -164,8 +177,9 @@ func NewTunnelManager() *TunnelManager {
 		crypto:       make(map[uint32]*peerCrypto),
 		peerPubKeys:  make(map[uint32]ed25519.PublicKey),
 		pending:      make(map[uint32][][]byte),
-		relayPeers:   make(map[uint32]bool),
-		lastRekeyReq: make(map[uint32]time.Time),
+		relayPeers:     make(map[uint32]bool),
+		lastDirectRecv: make(map[uint32]time.Time),
+		lastRekeyReq:   make(map[uint32]time.Time),
 		recvCh:       make(chan *IncomingPacket, RecvChSize),
 		done:         make(chan struct{}),
 	}
@@ -218,10 +232,22 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 	tm.lastRekeyReq[peerNodeID] = now
 	tm.rekeyMu.Unlock()
 
-	// Remember the peer's UDP endpoint so sendKeyExchangeToNode can reach them.
+	// Remember the peer's UDP endpoint so sendKeyExchangeToNode can reach
+	// them. If the un-decryptable packet arrived via the beacon (from ==
+	// beaconAddr), mark the peer as relay-reachable so the key-exchange
+	// we send back is wrapped in MsgRelay rather than sprayed at the
+	// beacon's listen port (where it would be silently dropped). This is
+	// how a freshly-restarted peer — with empty tunnel state — learns how
+	// to re-key a peer that's still speaking to us through relay.
 	tm.mu.Lock()
 	if _, ok := tm.peers[peerNodeID]; !ok && from != nil {
 		tm.peers[peerNodeID] = from
+	}
+	if tm.beaconAddr != nil && from != nil &&
+		from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port {
+		if _, capped := tm.relayPeers[peerNodeID]; !capped && len(tm.relayPeers) < maxRelayPeers {
+			tm.relayPeers[peerNodeID] = true
+		}
 	}
 	tm.mu.Unlock()
 
@@ -355,12 +381,36 @@ func (tm *TunnelManager) RequestHolePunch(targetNodeID uint32) {
 	}
 }
 
+// directBlackholeThreshold is how long a peer can go without a direct
+// recv before writeFrame auto-flips to relay. Tuned for force_relay_*
+// integration tests which sleep 10s after partitioning UDP between peers.
+const directBlackholeThreshold = 8 * time.Second
+
 // writeFrame sends a raw frame to a peer, using relay through the beacon if needed.
 func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
 	tm.mu.RLock()
 	relay := tm.relayPeers[nodeID]
 	bAddr := tm.beaconAddr
+	lastRecv, hasRecv := tm.lastDirectRecv[nodeID]
 	tm.mu.RUnlock()
+
+	// B1 relay regression fix: if we have a beacon and the peer's direct
+	// path has gone silent past the blackhole threshold, flip to relay.
+	// hasRecv check ensures we don't flip peers we've never heard from
+	// directly (those go through the standard DialConnection auto-switch
+	// at daemon.go:2097 instead).
+	if !relay && bAddr != nil && hasRecv && time.Since(lastRecv) > directBlackholeThreshold {
+		tm.mu.Lock()
+		// Re-check under write lock to avoid racing with clearRelayOnDirectLocked
+		if !tm.relayPeers[nodeID] {
+			tm.relayPeers[nodeID] = true
+			slog.Info("direct path silent, flipping to relay",
+				"peer_node_id", nodeID,
+				"silent_for", time.Since(lastRecv).String())
+		}
+		tm.mu.Unlock()
+		relay = true
+	}
 
 	if relay && bAddr != nil {
 		// MsgRelay: [0x05][senderNodeID(4)][destNodeID(4)][frame...]
@@ -608,6 +658,15 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 	tm.crypto[peerNodeID] = pc
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
+	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
+		// Issue #199: now that the signature verified, it is safe to
+		// install the beacon-addr placeholder. handleRelayDeliver no
+		// longer does this for unknown peers, so the first authenticated
+		// key-exchange is what opens the relay slot.
+		tm.peers[peerNodeID] = tm.beaconAddr
+		if len(tm.relayPeers) < maxRelayPeers {
+			tm.relayPeers[peerNodeID] = true
+		}
 	}
 	// Cache the peer's Ed25519 pubkey
 	tm.peerPubKeys[peerNodeID] = peerEd25519PubKey
@@ -690,6 +749,14 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	tm.crypto[peerNodeID] = pc
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
+	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
+		// Issue #199: unauth key exchange passed maxCryptoPeers gating,
+		// so we admit this peer via relay. handleRelayDeliver no longer
+		// populates peers eagerly, so this is the first safe moment.
+		tm.peers[peerNodeID] = tm.beaconAddr
+		if len(tm.relayPeers) < maxRelayPeers {
+			tm.relayPeers[peerNodeID] = true
+		}
 	}
 	tm.mu.Unlock()
 
@@ -793,6 +860,26 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	if err != nil {
 		slog.Error("tunnel unmarshal error after decrypt", "peer_node_id", peerNodeID, "error", err)
 		return
+	}
+
+	// P1-010 fix: a successfully-decrypted packet from a non-beacon address
+	// proves the direct path has recovered. Clear the relay flag so
+	// subsequent sends go direct (and the relay probe loop stops firing).
+	// Also record the timestamp so writeFrame can detect direct-path
+	// blackholes and flip to relay (B1 relay regression fix).
+	tm.mu.Lock()
+	cleared := tm.clearRelayOnDirectLocked(peerNodeID, from)
+	if from != nil {
+		fromBeacon := tm.beaconAddr != nil &&
+			from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port
+		if !fromBeacon {
+			tm.lastDirectRecv[peerNodeID] = time.Now()
+		}
+	}
+	tm.mu.Unlock()
+	if cleared {
+		slog.Info("relay→direct auto-cleared on direct packet receipt",
+			"peer_node_id", peerNodeID, "endpoint", from)
 	}
 
 	atomic.AddUint64(&tm.PktsRecv, 1)
@@ -988,6 +1075,79 @@ func (tm *TunnelManager) Send(nodeID uint32, pkt *protocol.Packet) error {
 	return tm.SendTo(addr, nodeID, pkt)
 }
 
+// SendDirectProbe sends an encrypted packet straight to the peer's last-known
+// direct UDP endpoint, bypassing the relay wrapping that Send/SendTo would
+// apply if relayPeers[nodeID] is true. Used by relayProbeLoop to test whether
+// the direct path has recovered without tearing down the relay flag for
+// concurrent traffic. Returns an error if no direct endpoint is known or if
+// the peer's stored addr is the beacon (meaning we never learned a real
+// direct addr for this peer).
+//
+// P1-010 fix: previously relayProbeLoop temporarily flipped SetRelayPeer
+// (nodeID, false), sent the probe via Send, then restored the flag after 2s.
+// During that window every concurrent send — including key-exchange replies
+// triggered by the peer's "no key" warnings — bypassed relay too. If the
+// direct path was still dead (e.g. symmetric NAT + stale mapping), those
+// replies were silently dropped, leaving crypto desynced indefinitely.
+// SendDirectProbe isolates the probe without disturbing other traffic.
+func (tm *TunnelManager) SendDirectProbe(nodeID uint32, pkt *protocol.Packet) error {
+	tm.mu.RLock()
+	addr := tm.peers[nodeID]
+	beacon := tm.beaconAddr
+	pc := tm.crypto[nodeID]
+	tm.mu.RUnlock()
+
+	if addr == nil {
+		return fmt.Errorf("no peer endpoint for node %d", nodeID)
+	}
+	if beacon != nil && addr.IP.Equal(beacon.IP) && addr.Port == beacon.Port {
+		return fmt.Errorf("stored endpoint for node %d is beacon placeholder", nodeID)
+	}
+
+	data, err := pkt.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	var frame []byte
+	if tm.encrypt {
+		if pc == nil || !pc.ready {
+			return fmt.Errorf("no crypto for node %d", nodeID)
+		}
+		frame = tm.encryptFrame(pc, data)
+	} else {
+		frame = make([]byte, 4+len(data))
+		copy(frame[0:4], protocol.TunnelMagic[:])
+		copy(frame[4:], data)
+	}
+
+	n, werr := tm.conn.WriteToUDP(frame, addr)
+	if werr == nil {
+		atomic.AddUint64(&tm.PktsSent, 1)
+		atomic.AddUint64(&tm.BytesSent, uint64(n))
+	}
+	return werr
+}
+
+// clearRelayOnDirectLocked clears the relay flag for a peer when a packet
+// arrives from a non-beacon UDP address. Called from handleEncrypted after
+// successful decryption. Must be called with tm.mu held for writing.
+//
+// P1-010 fix: when the direct path recovers (NAT mapping refreshed, peer
+// moved networks, etc.), the first successfully-decrypted direct packet
+// auto-downgrades us out of relay mode. This replaces the old 2-second
+// afterFunc in relayProbeLoop which raced with concurrent sends.
+func (tm *TunnelManager) clearRelayOnDirectLocked(peerNodeID uint32, from *net.UDPAddr) bool {
+	if from == nil || !tm.relayPeers[peerNodeID] {
+		return false
+	}
+	if tm.beaconAddr != nil && from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port {
+		return false
+	}
+	tm.relayPeers[peerNodeID] = false
+	return true
+}
+
 // SendTo sends a packet to a specific UDP address (relay-aware).
 func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.Packet) error {
 	data, err := pkt.Marshal()
@@ -1014,11 +1174,26 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 			return fmt.Errorf("too many pending key exchanges")
 		}
 		q := tm.pending[nodeID]
+		dropped := false
 		if len(q) >= maxPendingPerPeer {
-			q = q[1:] // drop oldest
+			// P1-008: queue full — drop oldest and surface the drop instead
+			// of silently masking loss. Callers see a non-fatal error so
+			// retx/application layers can react; the newest packet still
+			// gets queued because losing the freshest data would be worse.
+			q = q[1:]
+			dropped = true
+			atomic.AddUint64(&tm.PendingDrops, 1)
 		}
 		tm.pending[nodeID] = append(q, data)
+		qlen := len(tm.pending[nodeID])
 		tm.pendMu.Unlock()
+		if dropped {
+			slog.Warn("tunnel pending queue full; dropped oldest",
+				"peer_node_id", nodeID,
+				"queue_len", qlen,
+				"limit", maxPendingPerPeer)
+			return fmt.Errorf("pending queue full for node %d: oldest packet dropped", nodeID)
+		}
 		return nil // queued, will be sent encrypted after key exchange
 	}
 
@@ -1183,22 +1358,40 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 	srcNodeID := binary.BigEndian.Uint32(data[0:4])
 	payload := data[4:]
 
-	// Mark this peer as relay-capable (they sent through relay, so they're behind NAT)
+	// Issue #199: the beacon is not fully trusted — srcNodeID is
+	// caller-supplied and can be spoofed. Don't add *unknown* peers to the
+	// peers/relayPeers maps here; instead, delegate to the verified paths:
+	//
+	//   - TunnelMagicSecure    → handleEncrypted decrypts with an existing
+	//                            peer key; without one, we reply with a
+	//                            rate-limited rekey and return.
+	//   - TunnelMagicAuthEx    → handleAuthKeyExchange verifies the peer's
+	//                            ed25519 signature against their registered
+	//                            pubkey before inserting crypto state.
+	//   - TunnelMagicKeyEx     → unauth key exchange; handleKeyExchange
+	//                            applies maxCryptoPeers + identity-aware
+	//                            rejection.
+	//
+	// For peers we already have crypto context for, the beacon-addr
+	// placeholder is safe — they've proven their ID via prior key exchange.
+	// For unknown peers, the *crypto handler* is responsible for admitting
+	// them; we just pass the payload through.
 	tm.mu.Lock()
+	_, hadCrypto := tm.crypto[srcNodeID]
 	wasRelay := tm.relayPeers[srcNodeID]
-	if !wasRelay && len(tm.relayPeers) >= maxRelayPeers {
-		// Budget exhausted — drop before side-effecting on spoofable input.
-		tm.mu.Unlock()
-		slog.Warn("relay peers cap reached, dropping relay packet", "src_node_id", srcNodeID)
-		return
-	}
-	tm.relayPeers[srcNodeID] = true
-	// Ensure we have a peer entry (use beacon addr as placeholder for relay peers)
-	if _, ok := tm.peers[srcNodeID]; !ok && tm.beaconAddr != nil {
-		tm.peers[srcNodeID] = tm.beaconAddr
+	if hadCrypto {
+		if !wasRelay && len(tm.relayPeers) >= maxRelayPeers {
+			tm.mu.Unlock()
+			slog.Warn("relay peers cap reached, dropping relay packet", "src_node_id", srcNodeID)
+			return
+		}
+		tm.relayPeers[srcNodeID] = true
+		if _, ok := tm.peers[srcNodeID]; !ok && tm.beaconAddr != nil {
+			tm.peers[srcNodeID] = tm.beaconAddr
+		}
 	}
 	tm.mu.Unlock()
-	if !wasRelay {
+	if hadCrypto && !wasRelay {
 		tm.webhook.Emit("tunnel.relay_activated", map[string]interface{}{
 			"peer_node_id": srcNodeID,
 		})
@@ -1208,10 +1401,19 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 		return
 	}
 
-	// Get peer's stored address for packet handling
+	// Get peer's stored address for packet handling. For relay-delivered
+	// packets the *physical* source was the beacon; handleEncrypted's
+	// clearRelayOnDirectLocked uses `from` to decide whether the direct
+	// path has recovered, so we must report the beacon as the source
+	// rather than a stale peers[] entry (which on the dialer side is the
+	// direct endpoint returned by ensureTunnel). Passing a non-beacon
+	// `from` would incorrectly auto-clear the relay flag on the very
+	// first relay-delivered packet, causing subsequent sends to try
+	// direct again — fatal under dual-symmetric NAT.
 	tm.mu.RLock()
-	srcAddr := tm.peers[srcNodeID]
+	beaconAddr := tm.beaconAddr
 	tm.mu.RUnlock()
+	srcAddr := beaconAddr
 	if srcAddr == nil {
 		srcAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
 	}

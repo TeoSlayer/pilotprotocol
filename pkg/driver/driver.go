@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package driver
 
 import (
@@ -172,6 +174,19 @@ func (d *Driver) Info() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdInfo}, cmdInfoOK, "info")
 }
 
+// MyPoloScore returns this node's own polo score. Polo is private —
+// the registry only allows a node to read its own score.
+func (d *Driver) MyPoloScore() (int, error) {
+	resp, err := d.jsonRPC([]byte{cmdMyPolo}, cmdMyPoloOK, "my_polo")
+	if err != nil {
+		return 0, err
+	}
+	if v, ok := resp["polo_score"].(float64); ok {
+		return int(v), nil
+	}
+	return 0, fmt.Errorf("polo_score missing from response")
+}
+
 // Health returns a lightweight health check from the daemon.
 func (d *Driver) Health() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdHealth}, cmdHealthOK, "health")
@@ -284,6 +299,13 @@ func (d *Driver) SetWebhook(url string) (map[string]interface{}, error) {
 	return d.jsonRPC(msg, cmdSetWebhookOK, "set_webhook")
 }
 
+// RotateKey asks the daemon to rotate its Ed25519 identity at the registry.
+// The daemon generates a new keypair, signs proof of the current key, calls
+// registry.RotateKey, then atomically swaps and persists the new identity.
+func (d *Driver) RotateKey() (map[string]interface{}, error) {
+	return d.jsonRPC([]byte{cmdRotateKey}, cmdRotateKeyOK, "rotate_key")
+}
+
 // Disconnect closes a connection by ID. Used by administrative tools.
 func (d *Driver) Disconnect(connID uint32) error {
 	msg := make([]byte, 5)
@@ -390,6 +412,17 @@ func (d *Driver) ManagedForceCycle(networkID uint16) (map[string]interface{}, er
 	msg[1] = subManagedCycle
 	binary.BigEndian.PutUint16(msg[2:4], networkID)
 	return d.jsonRPC(msg, cmdManagedOK, "managed cycle")
+}
+
+// ManagedReconcile asks the daemon's policy runner for networkID to
+// poll the registry and refresh its peer set — without running a
+// policy cycle. Returns {network_id, peers}.
+func (d *Driver) ManagedReconcile(networkID uint16) (map[string]interface{}, error) {
+	msg := make([]byte, 4)
+	msg[0] = cmdManaged
+	msg[1] = subManagedReconcile
+	binary.BigEndian.PutUint16(msg[2:4], networkID)
+	return d.jsonRPC(msg, cmdManagedOK, "managed reconcile")
 }
 
 // PolicyGet retrieves the active policy for a network from the daemon.

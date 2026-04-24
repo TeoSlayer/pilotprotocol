@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -409,6 +411,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
 			"peer_node_id": peerNodeID, "reason": "mutual",
 		})
+		hm.webhook.Emit("trust.changed", map[string]interface{}{
+			"peer_node_id": peerNodeID, "state": "granted", "reason": "mutual",
+		})
 		hm.saveTrust()
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
@@ -430,6 +435,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
 			"peer_node_id": peerNodeID, "reason": "same_network",
 		})
+		hm.webhook.Emit("trust.changed", map[string]interface{}{
+			"peer_node_id": peerNodeID, "state": "granted", "reason": "same_network",
+		})
 		hm.saveTrust()
 		hm.sendAcceptLocked(peerNodeID)
 		// Report trust to registry
@@ -450,6 +458,9 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		slog.Info("handshake auto-approved (trust-auto-approve enabled)", "peer_node_id", peerNodeID)
 		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
 			"peer_node_id": peerNodeID, "reason": "auto_approve",
+		})
+		hm.webhook.Emit("trust.changed", map[string]interface{}{
+			"peer_node_id": peerNodeID, "state": "granted", "reason": "auto_approve",
 		})
 		hm.saveTrust()
 		hm.sendAcceptLocked(peerNodeID)
@@ -635,6 +646,9 @@ func (hm *HandshakeManager) processRelayedRequest(fromNodeID uint32, justificati
 		hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
 			"peer_node_id": fromNodeID, "reason": "auto_approve",
 		})
+		hm.webhook.Emit("trust.changed", map[string]interface{}{
+			"peer_node_id": fromNodeID, "state": "granted", "reason": "auto_approve_relayed",
+		})
 		hm.saveTrust()
 		if hm.daemon.regConn != nil {
 			nodeID, peerID := hm.daemon.NodeID(), fromNodeID
@@ -752,6 +766,9 @@ func (hm *HandshakeManager) ApproveHandshake(peerNodeID uint32) error {
 	hm.webhook.Emit("handshake.approved", map[string]interface{}{
 		"peer_node_id": peerNodeID,
 	})
+	hm.webhook.Emit("trust.changed", map[string]interface{}{
+		"peer_node_id": peerNodeID, "state": "granted", "reason": "approved",
+	})
 
 	// Report trust to registry (creates the trust pair for resolve authorization)
 	if hm.daemon.regConn != nil {
@@ -834,6 +851,9 @@ func (hm *HandshakeManager) RevokeTrust(peerNodeID uint32) error {
 	hm.webhook.Emit("trust.revoked", map[string]interface{}{
 		"peer_node_id": peerNodeID,
 	})
+	hm.webhook.Emit("trust.changed", map[string]interface{}{
+		"peer_node_id": peerNodeID, "state": "revoked", "reason": "local",
+	})
 
 	// Notify the peer BEFORE tearing down the tunnel — once we RemovePeer,
 	// the tunnel crypto is gone and the notify can't reach them.
@@ -867,6 +887,9 @@ func (hm *HandshakeManager) handleRevokeMsg(msg *HandshakeMsg) {
 	slog.Info("trust revoked by peer", "peer_node_id", peerNodeID)
 	hm.webhook.Emit("trust.revoked_by_peer", map[string]interface{}{
 		"peer_node_id": peerNodeID,
+	})
+	hm.webhook.Emit("trust.changed", map[string]interface{}{
+		"peer_node_id": peerNodeID, "state": "revoked", "reason": "by_peer",
 	})
 
 	hm.mu.Lock()

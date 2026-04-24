@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -219,8 +221,12 @@ func TestRetransmitUnackedTimedOutSendsACKPacketAndEntersRecovery(t *testing.T) 
 	if !conn.InRecovery {
 		t.Fatal("InRecovery should be true after timeout")
 	}
-	if conn.RTO != prevRTO*2 && conn.RTO != 10*time.Second {
-		t.Fatalf("RTO = %v, want 2x=%v or clamped=10s", conn.RTO, prevRTO*2)
+	// P2-009: RTO doubles then has 0-25% jitter added, capped at 10s.
+	// Accept either the jittered [2x, 2.5x] range or the 10s clamp.
+	minRTO := prevRTO * 2
+	maxRTO := prevRTO*2 + prevRTO*2/4
+	if conn.RTO != 10*time.Second && (conn.RTO < minRTO || conn.RTO > maxRTO) {
+		t.Fatalf("RTO = %v, want [%v, %v] (2x+jitter) or clamped=10s", conn.RTO, minRTO, maxRTO)
 	}
 	if conn.Stats.Retransmits != 1 {
 		t.Fatalf("Stats.Retransmits = %d, want 1", conn.Stats.Retransmits)
