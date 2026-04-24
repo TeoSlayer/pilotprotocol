@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package dataexchange
 
 import (
@@ -18,6 +20,11 @@ const (
 
 // maxFilenameLen limits filename length to prevent abuse.
 const maxFilenameLen = 255
+
+// MaxFrameSize caps a single data-exchange frame at 256 MiB. Sized to fit
+// the test fleet's 100 MiB file payloads with margin while still rejecting
+// pathological 500 MiB+ frames that would dominate memory.
+const MaxFrameSize = 1 << 28
 
 // Frame is a typed data unit exchanged between agents.
 // Wire format: [4-byte type][4-byte length][payload]
@@ -59,8 +66,8 @@ func ReadFrame(r io.Reader) (*Frame, error) {
 
 	ftype := binary.BigEndian.Uint32(hdr[0:4])
 	length := binary.BigEndian.Uint32(hdr[4:8])
-	if length > 1<<24 { // 16MB max
-		return nil, fmt.Errorf("frame too large: %d", length)
+	if length > MaxFrameSize {
+		return nil, fmt.Errorf("frame too large: %d (max %d)", length, MaxFrameSize)
 	}
 
 	payload := make([]byte, length)

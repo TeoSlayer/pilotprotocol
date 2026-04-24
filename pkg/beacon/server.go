@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package beacon
 
 import (
@@ -187,6 +189,18 @@ func (s *Server) Close() error {
 	}
 	return nil
 }
+
+// RelayForwarded returns the count of relay packets the beacon
+// has forwarded since startup. Used by /api/stats to surface
+// observable evidence that the relay path is live.
+func (s *Server) RelayForwarded() uint64 { return s.relayForwarded.Load() }
+
+// RelayDropped returns the count of relay packets dropped (capacity / errors).
+func (s *Server) RelayDropped() uint64 { return s.relayDropped.Load() }
+
+// RelayNotFound returns the count of relay packets dropped because the destination
+// node was not registered with the beacon.
+func (s *Server) RelayNotFound() uint64 { return s.relayNotFound.Load() }
 
 func (s *Server) handlePacket(data []byte, remote *net.UDPAddr) {
 	msgType := data[0]
