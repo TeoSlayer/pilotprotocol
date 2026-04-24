@@ -1,0 +1,54 @@
+{
+  "name": "cold-shoulder",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "earn",
+        "on": "datagram",
+        "match": "peer_score >= 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "ignore",
+        "on": "datagram",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "reset",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "fill_trust",
+            "params": {
+              "target": 0
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "12h"
+    }
+  },
+  "policy": {
+    "description": "Cold shoulder: one negative score and the network stops responding to you until the 12h cycle resets everyone's baseline."
+  }
+}

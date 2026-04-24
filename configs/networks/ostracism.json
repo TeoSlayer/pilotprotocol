@@ -1,0 +1,54 @@
+{
+  "name": "ostracism",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "normal",
+        "on": "datagram",
+        "match": "peer_score >= 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "shunned",
+        "on": "datagram",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "banish",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < 0"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "6h"
+    }
+  },
+  "policy": {
+    "description": "Ostracism: drop below zero score and you're muted immediately and banished on the next 6h cycle."
+  }
+}

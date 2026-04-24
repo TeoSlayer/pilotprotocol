@@ -1,0 +1,63 @@
+{
+  "name": "stable-state",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "open",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "connect",
+        "on": "connect",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "trim",
+        "on": "cycle",
+        "match": "trusted_count > 200",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 2,
+              "min": 200,
+              "by": "age"
+            }
+          }
+        ]
+      },
+      {
+        "name": "refill",
+        "on": "cycle",
+        "match": "trusted_count < 200",
+        "actions": [
+          {
+            "type": "fill_trust",
+            "params": {
+              "target": 200
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Stable state: no score, no drama \u2014 target is 200 members, with just 2% gentle aging per day to keep the mesh slowly refreshed."
+  }
+}

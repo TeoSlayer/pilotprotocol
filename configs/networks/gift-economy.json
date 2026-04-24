@@ -1,0 +1,54 @@
+{
+  "name": "gift-economy",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "receive",
+        "on": "datagram",
+        "match": "direction == \"in\"",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "send-free",
+        "on": "datagram",
+        "match": "direction == \"out\"",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "evict-takers",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < 5 && peer_age_s > 86400"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Gift economy: you score only by receiving from others; silent listeners with no one giving to them are evicted after 24h."
+  }
+}

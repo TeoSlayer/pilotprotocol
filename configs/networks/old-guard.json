@@ -1,0 +1,48 @@
+{
+  "name": "old-guard",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "elder-dial",
+        "on": "dial",
+        "match": "peer_age_s >= 86400",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "youth-deny",
+        "on": "dial",
+        "match": "true",
+        "actions": [
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "datagrams-ok",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      }
+    ]
+  },
+  "policy": {
+    "description": "Old guard: peers must be older than 24h to initiate dials; everyone may send datagrams, but the network's direction is set by elders."
+  }
+}

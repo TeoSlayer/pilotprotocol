@@ -1,0 +1,54 @@
+{
+  "name": "two-strikes",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "good",
+        "on": "datagram",
+        "match": "peer_score >= 0",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "strike",
+        "on": "datagram",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -1
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "out",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score <= -2"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "12h"
+    }
+  },
+  "policy": {
+    "description": "Two strikes: one denied datagram takes you to -1; the next drops you to -2 and the 12h cycle evicts you. Mistakes compound."
+  }
+}

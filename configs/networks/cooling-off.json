@@ -1,0 +1,42 @@
+{
+  "name": "cooling-off",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "silent",
+        "on": "datagram",
+        "match": "peer_age_s < 3600 && direction == \"out\"",
+        "actions": [
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "listen",
+        "on": "datagram",
+        "match": "direction == \"in\"",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "speak",
+        "on": "datagram",
+        "match": "peer_age_s >= 3600 && direction == \"out\"",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      }
+    ]
+  },
+  "policy": {
+    "description": "Cooling off: fresh peers can receive traffic but can't send for their first hour in the network \u2014 observe the room before you talk."
+  }
+}

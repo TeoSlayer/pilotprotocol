@@ -1,0 +1,61 @@
+{
+  "name": "meritocracy",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "elite",
+        "on": "dial",
+        "match": "peer_score >= 100",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "middle",
+        "on": "dial",
+        "match": "peer_score >= 25",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "bottom",
+        "on": "dial",
+        "match": "true",
+        "actions": [
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "anyone",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Meritocracy: everyone may send datagrams and earn score, but dialing requires 25+ (working class) and sustained dialing requires 100+ (elite)."
+  }
+}
