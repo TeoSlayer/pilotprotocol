@@ -98,7 +98,7 @@ jobs:
           python -m twine check dist/*
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}
           path: sdk/python/dist/*.whl
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload sdist artifact (Linux only)
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: sdk/python/dist/*.tar.gz
