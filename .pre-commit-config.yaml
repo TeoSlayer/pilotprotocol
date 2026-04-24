@@ -1,4 +1,21 @@
 repos:
+  # Secret scanning — fails the commit if API keys, tokens, or private keys
+  # are detected in staged diffs.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # Catch the obvious cases even if gitleaks isn't available.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
   - repo: local
     hooks:
       - id: go-fmt

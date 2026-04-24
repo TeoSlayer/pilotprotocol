@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package main
 
 import (
@@ -55,6 +57,7 @@ func main() {
 
 	// Start registry
 	r := registry.NewWithStore(*beaconAddr, *storePath)
+	r.SetBeaconStats(b)
 	if *adminToken != "" {
 		r.SetAdminToken(*adminToken)
 	}
@@ -77,6 +80,7 @@ func main() {
 	}()
 
 	if *httpAddr != "" {
+		r.SetDashboardHTTPAddr(*httpAddr)
 		go func() {
 			if err := r.ServeDashboard(*httpAddr); err != nil {
 				log.Fatalf("dashboard: %v", err)

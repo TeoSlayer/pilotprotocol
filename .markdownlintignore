@@ -1,0 +1,5 @@
+.github/CODEOWNERS
+.github/ISSUE_TEMPLATE/
+node_modules/
+web/.astro/
+web/dist/

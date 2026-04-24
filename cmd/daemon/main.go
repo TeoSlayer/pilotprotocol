@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package main
 
 import (
@@ -20,8 +22,16 @@ var version = "dev"
 
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
-	registryAddr := flag.String("registry", "34.71.57.205:9000", "registry server address")
-	beaconAddr := flag.String("beacon", "34.71.57.205:9001", "beacon server address")
+	registryDefault := "34.71.57.205:9000"
+	if v := os.Getenv("PILOT_REGISTRY"); v != "" {
+		registryDefault = v
+	}
+	beaconDefault := "34.71.57.205:9001"
+	if v := os.Getenv("PILOT_BEACON"); v != "" {
+		beaconDefault = v
+	}
+	registryAddr := flag.String("registry", registryDefault, "registry server address (or $PILOT_REGISTRY)")
+	beaconAddr := flag.String("beacon", beaconDefault, "beacon server address (or $PILOT_BEACON)")
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
 	socketPath := flag.String("socket", "/tmp/pilot.sock", "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")

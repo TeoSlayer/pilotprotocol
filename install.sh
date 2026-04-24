@@ -8,10 +8,19 @@ set -e
 #   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
 
 REPO="TeoSlayer/pilotprotocol"
-REGISTRY="34.71.57.205:9000"
-BEACON="34.71.57.205:9001"
+REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"
+BEACON="${PILOT_BEACON:-34.71.57.205:9001}"
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
+
+# Refuse to run as root — daemon must run as the invoking user so identity.json
+# and received files land under that user's home, not /root.
+if [ "${1:-}" != "uninstall" ] && [ "$(id -u)" = "0" ] && [ -z "${PILOT_ALLOW_ROOT:-}" ]; then
+    echo "Error: refusing to install as root."
+    echo "       Run as a regular user; the installer uses sudo only when needed."
+    echo "       Set PILOT_ALLOW_ROOT=1 to override (not recommended)."
+    exit 1
+fi
 
 # --- Uninstall ---
 
@@ -48,7 +57,8 @@ if [ "${1}" = "uninstall" ]; then
         fi
     fi
     if [ "$OS" = "darwin" ]; then
-        for label in com.vulturelabs.pilot-daemon com.vulturelabs.pilot-updater; do
+        # New labels + legacy labels (migration cleanup from earlier installs)
+        for label in network.pilotprotocol.pilot-daemon network.pilotprotocol.pilot-updater com.vulturelabs.pilot-daemon com.vulturelabs.pilot-updater; do
             PLIST="$HOME/Library/LaunchAgents/${label}.plist"
             if [ -f "$PLIST" ]; then
                 launchctl unload "$PLIST" 2>/dev/null || true
@@ -144,8 +154,29 @@ fi
 if [ -n "$TAG" ]; then
     ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
     URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
+    CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
     echo "Downloading ${TAG}..."
     if curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE" 2>/dev/null; then
+        # Verify SHA-256 against release checksums.txt when available
+        if curl -fsSL "$CHECKSUMS_URL" -o "$TMPDIR/checksums.txt" 2>/dev/null; then
+            EXPECTED=$(grep " ${ARCHIVE}\$" "$TMPDIR/checksums.txt" | awk '{print $1}')
+            if [ -n "$EXPECTED" ]; then
+                if command -v shasum >/dev/null 2>&1; then
+                    ACTUAL=$(shasum -a 256 "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+                elif command -v sha256sum >/dev/null 2>&1; then
+                    ACTUAL=$(sha256sum "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+                else
+                    ACTUAL=""
+                fi
+                if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
+                    echo "Error: checksum mismatch for ${ARCHIVE}"
+                    echo "  expected: $EXPECTED"
+                    echo "  actual:   $ACTUAL"
+                    exit 1
+                fi
+                [ -n "$ACTUAL" ] && echo "  Verified SHA-256"
+            fi
+        fi
         tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
     else
         TAG=""
@@ -317,7 +348,7 @@ fi
 
 if [ "$OS" = "darwin" ]; then
     PLIST_DIR="$HOME/Library/LaunchAgents"
-    PLIST="$PLIST_DIR/com.vulturelabs.pilot-daemon.plist"
+    PLIST="$PLIST_DIR/network.pilotprotocol.pilot-daemon.plist"
     mkdir -p "$PLIST_DIR"
     EXTRA_ARGS=""
     if [ -n "$PILOT_HOSTNAME" ]; then
@@ -335,7 +366,7 @@ if [ "$OS" = "darwin" ]; then
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.vulturelabs.pilot-daemon</string>
+    <string>network.pilotprotocol.pilot-daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>${BIN_DIR}/pilot-daemon</string>
@@ -354,7 +385,7 @@ if [ "$OS" = "darwin" ]; then
         <string>-encrypt</string>
 ${EXTRA_ARGS}    </array>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
     <key>KeepAlive</key>
     <dict>
         <key>SuccessfulExit</key>
@@ -369,14 +400,14 @@ ${EXTRA_ARGS}    </array>
 PLIST
     # Auto-updater LaunchAgent
     if [ -f "$BIN_DIR/pilot-updater" ]; then
-        UPLIST="$PLIST_DIR/com.vulturelabs.pilot-updater.plist"
+        UPLIST="$PLIST_DIR/network.pilotprotocol.pilot-updater.plist"
         cat > "$UPLIST" <<UPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.vulturelabs.pilot-updater</string>
+    <string>network.pilotprotocol.pilot-updater</string>
     <key>ProgramArguments</key>
     <array>
         <string>${BIN_DIR}/pilot-updater</string>
@@ -396,8 +427,8 @@ PLIST
 UPLIST
     fi
 
-    echo "  Service: com.vulturelabs.pilot-daemon"
-    echo "  Service: com.vulturelabs.pilot-updater (auto-updates)"
+    echo "  Service: network.pilotprotocol.pilot-daemon"
+    echo "  Service: network.pilotprotocol.pilot-updater (auto-updates)"
     echo "  Start:   launchctl load $PLIST"
     echo "  Stop:    launchctl unload $PLIST"
 fi
