@@ -310,7 +310,7 @@ make publish-test     # Publish to TestPyPI
 - **Examples:** `examples/python_sdk/README.md`
 - **CLI Reference:** `examples/cli/BASIC_USAGE.md`
 - **Protocol Spec:** `docs/SPEC.md`
-- **Agent Skills:** `docs/SKILLS.md`
+- **Agent Skills:** https://github.com/TeoSlayer/pilot-skills
 
 ## License
 

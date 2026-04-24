@@ -211,4 +211,4 @@ except PilotError as e:
 - **SDK Reference:** `sdk/python/README.md`
 - **CLI Reference:** `examples/cli/BASIC_USAGE.md`
 - **Protocol Spec:** `docs/SPEC.md`
-- **Agent Skills:** `docs/SKILLS.md`
+- **Agent Skills:** https://github.com/TeoSlayer/pilot-skills
