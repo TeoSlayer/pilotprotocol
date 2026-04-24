@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "astro": "^5.7.10",
-    "puppeteer": "^24.39.0"
+    "puppeteer": "^24.42.0"
   }
 }
