@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package main
 
 import (
@@ -86,6 +88,7 @@ func fatalCode(code string, format string, args ...interface{}) {
 			"status":  "error",
 			"code":    code,
 			"message": msg,
+			"error":   msg,
 		})
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
@@ -102,6 +105,7 @@ func fatalHint(code, hint, format string, args ...interface{}) {
 			"status":  "error",
 			"code":    code,
 			"message": msg,
+			"error":   msg,
 			"hint":    hint,
 		})
 		fmt.Fprintln(os.Stderr, string(b))
@@ -370,7 +374,7 @@ Daemon lifecycle:
 Registry commands:
   pilotctl register [listen_addr]
   pilotctl lookup <node_id>
-  pilotctl rotate-key <node_id> <email>
+  pilotctl rotate-key
   pilotctl set-public
   pilotctl set-private
   pilotctl deregister
@@ -570,6 +574,8 @@ func main() {
 		cmdConnect(cmdArgs)
 	case "send":
 		cmdSend(cmdArgs)
+	case "dgram":
+		cmdDgram(cmdArgs)
 	case "recv":
 		cmdRecv(cmdArgs)
 	case "send-file":
@@ -686,9 +692,11 @@ func main() {
 			cmdManagedRankings(cmdArgs[1:])
 		case "cycle":
 			cmdManagedCycle(cmdArgs[1:])
+		case "reconcile":
+			cmdManagedReconcile(cmdArgs[1:])
 		default:
 			fatalHint("invalid_argument",
-				"available: score, status, rankings, cycle",
+				"available: score, status, rankings, cycle, reconcile",
 				"unknown managed subcommand: %s", cmdArgs[0])
 		}
 
@@ -757,6 +765,8 @@ func main() {
 	// Diagnostics
 	case "info":
 		cmdInfo()
+	case "my-polo":
+		cmdMyPolo()
 	case "health":
 		cmdHealth()
 	case "peers":
@@ -1056,9 +1066,9 @@ func cmdContext() {
 				"returns":     "network_id, message",
 			},
 			"rotate-key": map[string]interface{}{
-				"args":        []string{"<node_id>", "<email>"},
-				"description": "Rotate keypair via email recovery",
-				"returns":     "node_id, new public_key",
+				"args":        []string{},
+				"description": "Rotate this daemon's Ed25519 identity at the registry",
+				"returns":     "node_id, address, new public_key",
 			},
 			"set-public": map[string]interface{}{
 				"args":        []string{},
@@ -1895,14 +1905,10 @@ func cmdLookup(args []string) {
 }
 
 func cmdRotateKey(args []string) {
-	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl rotate-key <node_id> <email>")
-	}
-	nodeID := parseNodeID(args[0])
-	email := args[1]
-	rc := connectRegistry()
-	defer rc.Close()
-	resp, err := rc.RotateKey(nodeID, "", email)
+	_ = args
+	d := connectDriver()
+	defer d.Close()
+	resp, err := d.RotateKey()
 	if err != nil {
 		fatalCode("connection_failed", "rotate-key: %v", err)
 	}
@@ -2494,6 +2500,45 @@ func cmdRecv(args []string) {
 	}
 }
 
+func cmdDgram(args []string) {
+	flags, pos := parseFlags(args)
+	if len(pos) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl dgram <address|hostname> <port> --data <msg>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	target, err := parseAddrOrHostname(d, pos[0])
+	if err != nil {
+		fatalCode("not_found", "%v", err)
+	}
+	p, err := strconv.ParseUint(pos[1], 10, 16)
+	if err != nil {
+		fatalCode("invalid_argument", "invalid port %q: %v", pos[1], err)
+	}
+	port := uint16(p)
+
+	data := flagString(flags, "data", "")
+	if data == "" {
+		fatalCode("invalid_argument", "--data is required")
+	}
+
+	if err := d.SendTo(target, port, []byte(data)); err != nil {
+		fatalCode("connection_failed", "sendto: %v", err)
+	}
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"target": target.String(),
+			"port":   port,
+			"bytes":  len(data),
+		})
+	} else {
+		fmt.Printf("sent %d byte(s) to %s port %d\n", len(data), target, port)
+	}
+}
+
 func cmdSendFile(args []string) {
 	if len(args) < 2 {
 		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath>")
@@ -2519,6 +2564,14 @@ func cmdSendFile(args []string) {
 		fatalCode("internal", "read file: %v", err)
 	}
 
+	// Reject files that would exceed the data-exchange frame cap before
+	// opening the connection — keeps the failure path clean and avoids
+	// streaming a quarter-gigabyte just to have the receiver close.
+	if len(data) > dataexchange.MaxFrameSize {
+		fatalCode("invalid_argument",
+			"file too large: %d bytes (max %d)", len(data), dataexchange.MaxFrameSize)
+	}
+
 	filename := filepath.Base(filePath)
 
 	client, err := dataexchange.Dial(d, target)
@@ -2536,8 +2589,12 @@ func cmdSendFile(args []string) {
 	// Read ACK
 	ack, err := client.Recv()
 	if err != nil {
-		// ACK is best-effort; file was sent successfully
-		slog.Debug("send-file ACK read failed", "err", err)
+		// Sender wrote all bytes but never got the receiver's ACK back
+		// (likely receiver crashed or restarted mid-transfer). That's
+		// not a silent success — surface as a loud error so callers
+		// don't mistake it for full delivery.
+		fatalCode("connection_failed",
+			"send wrote all bytes but no ACK from receiver: %v", err)
 	}
 
 	result := map[string]interface{}{
@@ -2546,7 +2603,14 @@ func cmdSendFile(args []string) {
 		"destination": target.String(),
 	}
 	if ack != nil {
-		result["ack"] = string(ack.Payload)
+		ackText := string(ack.Payload)
+		result["ack"] = ackText
+		// Receiver-side errors arrive as a TEXT frame whose body starts
+		// with "ERR " — surface them as a real failure instead of
+		// claiming success (e.g. disk-full, save permission denied).
+		if strings.HasPrefix(ackText, "ERR ") {
+			fatalCode("internal", "receiver rejected file: %s", ackText)
+		}
 	}
 	outputOK(result)
 }
@@ -3117,7 +3181,7 @@ func cmdTaskList(args []string) {
 			return ti.Before(tj)
 		})
 		for _, tf := range dirTasks {
-			tasks = append(tasks, map[string]interface{}{
+			entry := map[string]interface{}{
 				"task_id":              tf.TaskID,
 				"description":          tf.TaskDescription,
 				"status":               tf.Status,
@@ -3126,7 +3190,12 @@ func cmdTaskList(args []string) {
 				"to":                   tf.To,
 				"created_at":           tf.CreatedAt,
 				"category":             category,
-			})
+			}
+			if tf.Results != "" {
+				entry["results"] = tf.Results
+				entry["result_type"] = tf.ResultType
+			}
+			tasks = append(tasks, entry)
 		}
 	}
 
@@ -3687,6 +3756,23 @@ func cmdDisconnect(args []string) {
 
 // ===================== DIAGNOSTICS =====================
 
+// cmdMyPolo asks the local daemon for this node's own polo score.
+// Polo is private — there is no command to read another node's polo.
+func cmdMyPolo() {
+	d := connectDriver()
+	defer d.Close()
+
+	score, err := d.MyPoloScore()
+	if err != nil {
+		fatalCode("internal", "my-polo: %v", err)
+	}
+	if jsonOutput {
+		output(map[string]interface{}{"polo_score": score})
+		return
+	}
+	fmt.Printf("My polo score: %d\n", score)
+}
+
 func cmdInfo() {
 	d := connectDriver()
 	defer d.Close()
@@ -3941,11 +4027,19 @@ func cmdPing(args []string) {
 	}
 
 	var results []map[string]interface{}
-	deadline := time.After(timeout)
+	overall := time.NewTimer(timeout)
+	defer overall.Stop()
+	// Per-attempt budget so a single dial against a ghost peer cannot
+	// blow past the user's --timeout. Split evenly across remaining count
+	// with a 4s floor so legitimate handshakes still have room.
+	perAttempt := timeout / time.Duration(count)
+	if perAttempt < 4*time.Second {
+		perAttempt = 4 * time.Second
+	}
 
 	for i := 0; i < count; i++ {
 		select {
-		case <-deadline:
+		case <-overall.C:
 			if jsonOutput {
 				output(map[string]interface{}{
 					"target":  target.String(),
@@ -3960,7 +4054,32 @@ func cmdPing(args []string) {
 		}
 
 		start := time.Now()
-		conn, err := d.DialAddr(target, protocol.PortEcho)
+		// Bound DialAddr by perAttempt — a goroutine + timer cap is the
+		// minimum-invasive way without plumbing context through Driver.
+		type dialResult struct {
+			conn *driver.Conn
+			err  error
+		}
+		ch := make(chan dialResult, 1)
+		go func() {
+			c, e := d.DialAddr(target, protocol.PortEcho)
+			ch <- dialResult{c, e}
+		}()
+		var conn *driver.Conn
+		select {
+		case dr := <-ch:
+			conn, err = dr.conn, dr.err
+		case <-time.After(perAttempt):
+			err = fmt.Errorf("dial timeout after %s", perAttempt)
+			conn = nil
+			// Drain the goroutine asynchronously so it doesn't leak FDs;
+			// the daemon-side dial will eventually fail.
+			go func() {
+				if dr := <-ch; dr.conn != nil {
+					dr.conn.Close()
+				}
+			}()
+		}
 		if err != nil {
 			r := map[string]interface{}{"seq": i, "error": err.Error()}
 			results = append(results, r)
@@ -4001,12 +4120,25 @@ func cmdPing(args []string) {
 		}
 	}
 
+	// Exit non-zero if every attempt failed (rc lets shell scripts
+	// distinguish "ping worked" from "all attempts failed under
+	// partition").
+	allFailed := len(results) > 0
+	for _, r := range results {
+		if _, hasErr := r["error"]; !hasErr {
+			allFailed = false
+			break
+		}
+	}
 	if jsonOutput {
 		output(map[string]interface{}{
 			"target":  target.String(),
 			"results": results,
 			"timeout": false,
 		})
+	}
+	if allFailed {
+		os.Exit(1)
 	}
 }
 
@@ -5464,6 +5596,27 @@ func cmdManagedCycle(args []string) {
 	} else {
 		fmt.Printf("cycle complete: pruned=%v filled=%v peers=%v\n",
 			resp["pruned"], resp["filled"], resp["peers"])
+	}
+}
+
+func cmdManagedReconcile(args []string) {
+	flags, _ := parseFlags(args)
+	netID := uint16(flagInt(flags, "net", 0))
+	if netID == 0 {
+		fatalCode("invalid_argument", "usage: pilotctl managed reconcile --net <id>")
+	}
+
+	d := connectDriver()
+	defer d.Close()
+
+	resp, err := d.ManagedReconcile(netID)
+	if err != nil {
+		fatalCode("connection_failed", "managed reconcile: %v", err)
+	}
+	if jsonOutput {
+		output(resp)
+	} else {
+		fmt.Printf("reconciled: peers=%v\n", resp["peers"])
 	}
 }
 

@@ -1,0 +1,16 @@
+.git
+.github
+abpn
+node_modules
+**/node_modules
+*.log
+coverage
+cover.html
+build
+dist
+**/*.test
+
+# k8s integration preloaded tarballs — mounted at runtime from a
+# Longhorn RWX PVC (populated by scripts/seed-preloaded.sh), never
+# baked into the runner image. 383 MB savings.
+tests/integration/k8s/preloaded

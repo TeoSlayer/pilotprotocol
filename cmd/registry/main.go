@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package main
 
 import (
 	"flag"
 	"log"
+	"os"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
@@ -12,7 +15,11 @@ import (
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
 	addr := flag.String("addr", ":9000", "listen address")
-	beacon := flag.String("beacon", "34.71.57.205:9001", "beacon server address")
+	beaconDefault := "34.71.57.205:9001"
+	if v := os.Getenv("PILOT_BEACON"); v != "" {
+		beaconDefault = v
+	}
+	beacon := flag.String("beacon", beaconDefault, "beacon server address (or $PILOT_BEACON)")
 	storePath := flag.String("store", "", "path to persist registry state (JSON snapshot)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (empty = auto self-signed)")
 	tlsKey := flag.String("tls-key", "", "TLS key file")

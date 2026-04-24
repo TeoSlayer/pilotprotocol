@@ -1,0 +1,5 @@
+# Canonicalize author identities. Format: <proper> <commit>
+# See: https://git-scm.com/docs/gitmailmap
+
+Teodor Calin <teodor@vulturelabs.io> Calin Teodor <t.calin@student.vu.nl>
+Alex Godoroja <alex@vulturelabs.io> Alex Godoroja <50743382+Alexgodoroja@users.noreply.github.com>

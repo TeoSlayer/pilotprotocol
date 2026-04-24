@@ -1,15 +1,15 @@
-# Compiled binaries
+# =============================================================================
+# Build artifacts
+# =============================================================================
 bin/
 build/
-_obj/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Cross-compiled Linux binaries (root level artifacts)
 *-linux
+jetson
 
 # Root-level Go build outputs
 /daemon
@@ -20,47 +20,17 @@ _obj/
 /nameserver
 /gateway
 /updater
-# caches
-__pycache__
-.venv
-venv
-# Test binary, built with `go test -c`
-*.test
-
-tests/end-to-end/results
-tests/integration/results
-tests/developement-versions
-
-# Output of the go coverage tool
-*.out
-*.prof
-coverage/
-!coverage/badge.svg
 
 # Go workspace
 go.work
 go.work.sum
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Docs — only track .tex, .pdf, SPEC.md, SKILLS.md, media/, ietf/, and research/
-docs/*
-!docs/*.tex
-!docs/*.pdf
-!docs/SPEC.md
-!docs/SKILLS.md
-!docs/media/
-!docs/research/
-!docs/ietf/
+# Go coverage / test artifacts
+*.test
+*.out
+*.prof
+coverage/
+!coverage/badge.svg
 
 # LaTeX build artifacts
 *.aux
@@ -70,25 +40,15 @@ docs/*
 *.fdb_latexmk
 *.synctex.gz
 
-.claude
-AGENTS.md
+# =============================================================================
+# Dependency caches
+# =============================================================================
+# Python
+__pycache__
+.venv
+venv
 
-# Daemon socket
-*.sock
-
-# Identity keys
-*.key
-
-# Temporary
-tmp/
-.tmp
-.tmp/
-*.tmp
-
-# Local dev snapshots / logs
-pilot-local.*
-
-# Node / Astro (root-level Vite cache + web subdir)
+# Node / Astro
 .astro/
 node_modules/
 web/node_modules/
@@ -96,67 +56,100 @@ web/dist/
 web/.astro/
 web/.wrangler/
 
-# Internal tooling
-cmd/spoof/
-cmd/pilot-admin/
+# Root-level npm tooling (not the main module)
+/package.json
+/package-lock.json
+
+# =============================================================================
+# IDE / OS
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# Runtime data & secrets
+# =============================================================================
+# Daemon sockets
+*.sock
+# Identity / private keys
+*.key
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+pilot-graph.db.backup-*
+
+# =============================================================================
+# Temp / scratch
+# =============================================================================
+tmp/
+.tmp
+.tmp/
+*.tmp
+pilot-local.*
+
+# =============================================================================
+# Tests (ephemeral outputs + internal test-only tools)
+# =============================================================================
+tests/end-to-end/results
+tests/integration/results
+tests/integration/logs/
+tests/integration/logs-run.out
+tests/integration/k8s/preloaded/*.tar
 tests/admin_cli_test.go
+cmd/spoof/
 
-# Blog messaging (internal)
+# =============================================================================
+# Docs (allowlist — only track .tex, .pdf, SPEC.md, media/, ietf/, research/)
+# =============================================================================
+docs/*
+!docs/*.tex
+!docs/*.pdf
+!docs/SPEC.md
+!docs/media/
+!docs/research/
+!docs/ietf/
+
+# =============================================================================
+# Private / internal (not open-source)
+# =============================================================================
+.claude
+AGENTS.md
+.mcp.json
+cmd/pilot-admin/
+cmd/console/
+console
+console-ui/
+pkg/console/
+newsletter/
 web/MESSAGING.md
+scripts/publish-worker/src/webhook.ts
+scripts/publish-worker/test/webhook.test.ts
 
-# Stale pre-compiled HTML (Astro generates these at build time)
+# =============================================================================
+# Web: stale Astro outputs (regenerated at build time)
+# =============================================================================
 web/blog/*.html
 web/blog/style.css
 web/docs/*.html
 web/docs/style.css
 
-# Banner source copies (single source of truth: web/public/blog/banners/)
+# =============================================================================
+# Web: duplicate assets (source of truth: web/public/)
+# =============================================================================
 web/blog/banners/
-
-# Duplicate assets (source of truth: web/public/)
 web/img/
 web/research/
 
-# Newsletter worker
-newsletter/
-
-# BabyLoveGrowth webhook integration (deployment-only)
-scripts/publish-worker/src/webhook.ts
-scripts/publish-worker/test/webhook.test.ts
-
-# Console & admin (private — not public)
-console
-console-ui/
-cmd/console/
-cmd/pilot-admin/
-pkg/console/
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-
-# Graph server (architecture tooling, not shipped)
-docs/architecture/
-pilot-graph.db.backup-*
-
-# MCP config
-.mcp.json
-
-# Survey / research scripts & outputs (ephemeral)
+# =============================================================================
+# Ephemeral one-off research / survey outputs
+# =============================================================================
 survey*.mjs
 *-results.jsonl
-results.jsonl
 *-dashboard.html
-dashboard.html
-highlights.json
-profiles.json
-summary.json
-
-# Plans (ephemeral)
-TRUST_DECAY_PLAN.md
-
-# Root-level npm (tooling only)
-/package.json
-/package-lock.json
-tests/integration/logs/
-tests/integration/logs-run.out
