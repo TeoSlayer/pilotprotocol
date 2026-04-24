@@ -147,7 +147,18 @@ func TestDataExchangeLargePayload(t *testing.T) {
 	srv := dataexchange.NewServer(a.Driver, handler)
 	go srv.ListenAndServe()
 
-	c, err := dataexchange.Dial(b.Driver, a.Daemon.Addr())
+	// srv.ListenAndServe spins up the bind async; on slower CI runners
+	// (macOS-latest) Dial can fire before the listener is accepting.
+	// Retry briefly.
+	var c *dataexchange.Client
+	var err error
+	for i := 0; i < 20; i++ {
+		c, err = dataexchange.Dial(b.Driver, a.Daemon.Addr())
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
