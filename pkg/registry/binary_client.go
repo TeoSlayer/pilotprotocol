@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package registry
 
 import (
@@ -123,7 +125,9 @@ func (c *BinaryClient) heartbeatLocked(nodeID uint32, sig []byte) (int64, bool, 
 		return 0, false, fmt.Errorf("send heartbeat: %w", err)
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	msgType, payload, err := wireReadFrame(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return 0, false, fmt.Errorf("recv heartbeat: %w", err)
 	}
@@ -158,7 +162,9 @@ func (c *BinaryClient) lookupLocked(nodeID uint32) (*WireLookupResult, error) {
 		return nil, fmt.Errorf("send lookup: %w", err)
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	msgType, payload, err := wireReadFrame(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return nil, fmt.Errorf("recv lookup: %w", err)
 	}
@@ -197,7 +203,9 @@ func (c *BinaryClient) resolveLocked(nodeID, requesterID uint32, sig []byte) (*W
 		return nil, fmt.Errorf("send resolve: %w", err)
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	msgType, payload, err := wireReadFrame(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return nil, fmt.Errorf("recv resolve: %w", err)
 	}
@@ -242,7 +250,9 @@ func (c *BinaryClient) sendJSONLocked(msg map[string]interface{}) (map[string]in
 		return nil, fmt.Errorf("send: %w", err)
 	}
 
+	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	msgType, payload, readErr := wireReadFrame(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
 	if readErr != nil {
 		return nil, fmt.Errorf("recv: %w", readErr)
 	}

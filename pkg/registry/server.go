@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package registry
 
 import (
@@ -307,6 +309,11 @@ type Server struct {
 	adminToken     string // required for create_network; empty = creation disabled
 	dashboardToken string // token for per-network stats on dashboard; empty = public-only
 
+	// Optional pluggable beacon stats provider — set by the host
+	// (cmd/rendezvous) so /api/stats can surface relay forward counters
+	// without coupling the registry directly to pkg/beacon.
+	beaconStats BeaconStatsProvider
+
 	// Delta log for incremental replication
 	deltaLog *deltaLog
 
@@ -318,6 +325,9 @@ type Server struct {
 
 	// Prometheus metrics
 	metrics *registryMetrics
+
+	// GitHub release poller (nil when disabled)
+	releasePoller *releasePoller
 
 	// Webhook dispatcher (nil = disabled)
 	webhook *registryWebhook
@@ -489,6 +499,14 @@ func (rl *RateLimiter) SetClock(fn func() time.Time) {
 // Allow checks if a request from the given IP is allowed.
 // Uses a sliding window: tokens refill proportionally to elapsed time.
 func (rl *RateLimiter) Allow(ip string) bool {
+	// Test-mode bypass: PILOT_REGISTRY_NORATELIMIT=1 disables registry
+	// rate limiting entirely. Used by burst tests (sec_sybil,
+	// flash_crowd) where the test deliberately exceeds normal rates.
+	// Never set this in production.
+	if os.Getenv("PILOT_REGISTRY_NORATELIMIT") == "1" {
+		return true
+	}
+
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -783,11 +801,14 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		}
 	}
 
+	s.releasePoller = newReleasePoller("TeoSlayer/pilotprotocol")
+
 	go s.saveLoop()
 	go s.statsCollectorLoop()
 	go s.pulseLoop()
 	go s.heartbeatLoop()
 	go s.probeLoop()
+	go s.releasePoller.run(s.done)
 
 	// Try loading from disk
 	if storePath != "" {
@@ -1746,6 +1767,8 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 		return s.handleSetPoloScore(msg)
 	case "get_polo_score":
 		return s.handleGetPoloScore(msg)
+	case "authorize_task_submit":
+		return s.handleAuthorizeTaskSubmit(msg)
 	case "deregister":
 		return s.handleDeregister(msg)
 	case "set_visibility":
@@ -1957,8 +1980,9 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 }
 
 // handleRotateKey rotates the Ed25519 keypair for a node.
-// The caller must prove ownership by signing "rotate:<node_id>" with the current private key
-// and provide the new_public_key to replace the old one.
+// The caller must prove ownership by signing "rotate:<node_id>:<new_public_key>"
+// with the current private key. Binding new_public_key into the challenge
+// prevents a MITM from substituting their own key while reusing the signature.
 func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	sigB64, _ := msg["signature"].(string)
@@ -1984,8 +2008,9 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 
-	// Verify signature: message = "rotate:<node_id>"
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	// Verify signature: message = "rotate:<node_id>:<new_public_key_b64>".
+	// The new pubkey is part of the signed challenge so a MITM cannot swap it.
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig, err := base64Decode(sigB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature encoding: %w", err)
@@ -2618,10 +2643,9 @@ func (s *Server) handleUpdatePoloScore(msg map[string]interface{}) (map[string]i
 	s.audit("polo_score.updated", "node_id", nodeID, "delta", int(delta), "new_score", node.PoloScore)
 
 	return map[string]interface{}{
-		"type":       "update_polo_score_ok",
-		"node_id":    nodeID,
-		"address":    addr.String(),
-		"polo_score": node.PoloScore,
+		"type":    "update_polo_score_ok",
+		"node_id": nodeID,
+		"address": addr.String(),
 	}, nil
 }
 
@@ -2656,33 +2680,135 @@ func (s *Server) handleSetPoloScore(msg map[string]interface{}) (map[string]inte
 	addr := protocol.Addr{Network: 0, Node: nodeID}
 
 	return map[string]interface{}{
-		"type":       "set_polo_score_ok",
-		"node_id":    nodeID,
-		"address":    addr.String(),
-		"polo_score": node.PoloScore,
+		"type":    "set_polo_score_ok",
+		"node_id": nodeID,
+		"address": addr.String(),
 	}, nil
 }
 
-// handleGetPoloScore retrieves the polo score for a node.
+// handleGetPoloScore retrieves a node's polo score.
+//
+// Polo is treated like a credit score: a node may read its OWN score,
+// but never another node's. Callers must include caller_node_id and a
+// signed challenge proving they own that node. The registry compares
+// caller_node_id to the requested node_id and refuses cross-reads.
+//
+// Task-submit gating that needs to compare two nodes' polos must use
+// the registry-side authorize_task_submit endpoint instead — that path
+// keeps polo internal to the registry and returns only an allow/deny
+// verdict.
 func (s *Server) handleGetPoloScore(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
+	callerID := jsonUint32(msg, "caller_node_id")
+	if callerID == 0 || callerID != nodeID {
+		return nil, fmt.Errorf("polo score is private — callers may only read their own score")
+	}
+
+	s.mu.RLock()
+	caller, ok := s.nodes[callerID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("caller node %d not registered", callerID)
+	}
+	if err := s.verifyNodeSignature(caller, msg, fmt.Sprintf("get_polo_score:%d", callerID)); err != nil {
+		return nil, fmt.Errorf("polo score: signature verification failed")
+	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 	node, exists := s.nodes[nodeID]
 	if !exists {
 		return nil, fmt.Errorf("node %d not found", nodeID)
 	}
-
 	addr := protocol.Addr{Network: 0, Node: nodeID}
-
 	return map[string]interface{}{
 		"type":       "get_polo_score_ok",
 		"node_id":    nodeID,
 		"address":    addr.String(),
 		"polo_score": node.PoloScore,
 	}, nil
+}
+
+// handleAuthorizeTaskSubmit decides whether `submitter_node_id` may
+// submit a task to `receiver_node_id`. The receiver may include
+// `min_polo` to require submitters to meet a guarantee floor (their
+// polo must be >= the floor). When omitted, the gate falls back to
+// the historical "submitter polo >= receiver polo" rule.
+//
+// This is the registry-side replacement for daemon code that used to
+// call GetPoloScore on both nodes and compare locally — under the new
+// privacy model the daemon is not allowed to read another node's
+// polo, so the comparison runs entirely inside the registry and only
+// the verdict (allow / deny + reason) crosses the boundary.
+//
+// The caller (typically the receiver's daemon, which evaluates this
+// when an inbound submit lands) must include caller_node_id and a
+// signed challenge proving they own that node.
+func (s *Server) handleAuthorizeTaskSubmit(msg map[string]interface{}) (map[string]interface{}, error) {
+	submitterID := jsonUint32(msg, "submitter_node_id")
+	receiverID := jsonUint32(msg, "receiver_node_id")
+	callerID := jsonUint32(msg, "caller_node_id")
+	if submitterID == 0 || receiverID == 0 || callerID == 0 {
+		return nil, fmt.Errorf("authorize_task_submit: submitter/receiver/caller node_id required")
+	}
+	if callerID != receiverID && callerID != submitterID {
+		return nil, fmt.Errorf("authorize_task_submit: caller must be either the submitter or the receiver")
+	}
+
+	s.mu.RLock()
+	caller, ok := s.nodes[callerID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("caller node %d not registered", callerID)
+	}
+	challenge := fmt.Sprintf("authorize_task_submit:%d:%d:%d", callerID, submitterID, receiverID)
+	if err := s.verifyNodeSignature(caller, msg, challenge); err != nil {
+		return nil, fmt.Errorf("authorize_task_submit: signature verification failed")
+	}
+
+	s.mu.RLock()
+	submitter, sOk := s.nodes[submitterID]
+	receiver, rOk := s.nodes[receiverID]
+	s.mu.RUnlock()
+	if !sOk {
+		return nil, fmt.Errorf("submitter node %d not registered", submitterID)
+	}
+	if !rOk {
+		return nil, fmt.Errorf("receiver node %d not registered", receiverID)
+	}
+
+	var minPolo *int
+	if minRaw, ok := msg["min_polo"].(float64); ok {
+		m := int(minRaw)
+		minPolo = &m
+	}
+	allowed, reason := decidePoloGate(submitter.PoloScore, receiver.PoloScore, minPolo)
+
+	resp := map[string]interface{}{
+		"type":       "authorize_task_submit_ok",
+		"authorized": allowed,
+	}
+	if !allowed {
+		resp["reason"] = reason
+	}
+	return resp, nil
+}
+
+// decidePoloGate is the pure gate decision — given submitter and receiver
+// polo scores and an optional guarantee floor, returns (allowed, reason).
+// Kept independent of signature / persistence so unit tests can drive
+// the logic without spinning up a signed registry handler.
+func decidePoloGate(submitterPolo, receiverPolo int, minPolo *int) (bool, string) {
+	if minPolo != nil {
+		if submitterPolo >= *minPolo {
+			return true, ""
+		}
+		return false, fmt.Sprintf("submitter polo below guarantee floor (min=%d)", *minPolo)
+	}
+	if submitterPolo >= receiverPolo {
+		return true, ""
+	}
+	return false, "submitter polo below receiver polo"
 }
 
 // setNodeHostname sets the hostname on a node atomically. Must be called with s.mu held.
@@ -3443,7 +3569,6 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 		"networks":   node.Networks,
 		"public_key": crypto.EncodePublicKey(node.PublicKey),
 		"public":     node.Public,
-		"polo_score": node.PoloScore,
 	}
 	if node.Hostname != "" {
 		resp["hostname"] = node.Hostname
@@ -3456,6 +3581,7 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 	}
 	if node.Public {
 		resp["real_addr"] = node.RealAddr
+		resp["endpoint"] = node.RealAddr // alias — clients commonly query for this name
 	}
 	if node.ExternalID != "" {
 		resp["external_id"] = node.ExternalID
@@ -6654,7 +6780,7 @@ type StatsSample struct {
 	Timestamp     int64 `json:"ts"`
 	TotalNodes    int   `json:"total_nodes"`
 	OnlineNodes   int   `json:"online_nodes"`
-	TrustLinks    int   `json:"trust_links"`
+	TrustLinks    int   `json:"trust_links,omitempty"`
 	TotalRequests int64 `json:"total_requests"`
 }
 
@@ -6715,20 +6841,40 @@ type NetworkSampleEntry struct {
 }
 
 // DashboardStats is the public-safe data returned by the dashboard API.
+// BeaconStatsProvider exposes the relay counters the dashboard surfaces
+// in /api/stats. Implemented by pkg/beacon.Server.
+type BeaconStatsProvider interface {
+	RelayForwarded() uint64
+	RelayDropped() uint64
+	RelayNotFound() uint64
+}
+
+// SetBeaconStats wires a BeaconStatsProvider into the registry so
+// /api/stats can return relay-forward counts.
+func (s *Server) SetBeaconStats(b BeaconStatsProvider) {
+	s.mu.Lock()
+	s.beaconStats = b
+	s.mu.Unlock()
+}
+
 type DashboardStats struct {
 	TotalNodes      int            `json:"total_nodes"`
 	ActiveNodes     int            `json:"active_nodes"`
-	TotalTrustLinks int            `json:"total_trust_links"`
+	TotalTrustLinks int            `json:"-"`
 	TotalRequests   int64          `json:"total_requests"`
+	RelayForwarded  uint64         `json:"relay_forwarded,omitempty"`
+	RelayDropped    uint64         `json:"relay_dropped,omitempty"`
+	RelayNotFound   uint64         `json:"relay_not_found,omitempty"`
 	ReqPerDay       int64          `json:"req_per_day"`
 	UptimeSecs      int64          `json:"uptime_secs"`
-	Versions        map[string]int `json:"versions"`
+	Versions        map[string]int `json:"versions,omitempty"`
 	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
 	Hourly          []StatsSample  `json:"hourly,omitempty"`
 	Daily           []StatsSample  `json:"daily,omitempty"`
 	RestartEvents     []int64                `json:"restart_events,omitempty"`
 	DowntimeIntervals [][2]int64             `json:"downtime_intervals,omitempty"`
 	Probes            map[string]*ProbeState `json:"probes,omitempty"`
+	ReleaseBanner     *ReleaseBanner         `json:"release_banner,omitempty"`
 }
 
 // NetworkStats holds per-network statistics for the authenticated dashboard view.
@@ -6738,7 +6884,7 @@ type NetworkStats struct {
 	Members    int                 `json:"members"`
 	Online     int                 `json:"online"`
 	Requests   int64               `json:"requests"`
-	TrustLinks int                 `json:"trust_links"`
+	TrustLinks int                 `json:"-"`
 	Hourly     []NetworkSampleEntry `json:"hourly,omitempty"`
 	Daily      []NetworkSampleEntry `json:"daily,omitempty"`
 }
@@ -6768,7 +6914,12 @@ func (s *Server) GetDashboardStats() DashboardStats {
 
 	reqPerDay := s.computeDeltas()
 
-	return DashboardStats{
+	var banner *ReleaseBanner
+	if s.releasePoller != nil {
+		banner = s.releasePoller.current()
+	}
+
+	stats := DashboardStats{
 		TotalNodes:      int(s.nextNode - 1),
 		ActiveNodes:     activeCount,
 		TotalTrustLinks: len(s.trustPairs),
@@ -6776,7 +6927,14 @@ func (s *Server) GetDashboardStats() DashboardStats {
 		ReqPerDay:       reqPerDay,
 		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
 		Versions:        versions,
+		ReleaseBanner:   banner,
 	}
+	if s.beaconStats != nil {
+		stats.RelayForwarded = s.beaconStats.RelayForwarded()
+		stats.RelayDropped = s.beaconStats.RelayDropped()
+		stats.RelayNotFound = s.beaconStats.RelayNotFound()
+	}
+	return stats
 }
 
 // deduplicateSamples keeps only the latest sample per time bucket.
@@ -6901,11 +7059,24 @@ func (s *Server) computeDeltas() (reqPerDay int64) {
 }
 
 // GetDashboardStatsWithHistory returns aggregate statistics plus history charts.
+// Used on the unauthenticated public endpoint — version distribution is omitted
+// to avoid advertising what clients run.
 func (s *Server) GetDashboardStatsWithHistory() DashboardStats {
 	stats := s.GetDashboardStats()
+	stats.Versions = nil
+	stats.TotalTrustLinks = 0
 	s.mu.RLock()
 	stats.Hourly, stats.Daily = s.readHistory()
 	s.mu.RUnlock()
+	if len(stats.Daily) > 7 {
+		stats.Daily = stats.Daily[len(stats.Daily)-7:]
+	}
+	for i := range stats.Hourly {
+		stats.Hourly[i].TrustLinks = 0
+	}
+	for i := range stats.Daily {
+		stats.Daily[i].TrustLinks = 0
+	}
 	s.restartMu.Lock()
 	if len(s.restartEvents) > 0 {
 		stats.RestartEvents = append([]int64(nil), s.restartEvents...)

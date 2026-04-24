@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package registry
 
 import (
@@ -16,8 +18,8 @@ func TestHashOwnerEmptyReturnsEmpty(t *testing.T) {
 }
 
 func TestHashOwnerDeterministic(t *testing.T) {
-	a := hashOwner("teodor@vulturelabs.io")
-	b := hashOwner("teodor@vulturelabs.io")
+	a := hashOwner("teodor@pilotprotocol.network")
+	b := hashOwner("teodor@pilotprotocol.network")
 	if a != b {
 		t.Fatalf("non-deterministic: %q vs %q", a, b)
 	}

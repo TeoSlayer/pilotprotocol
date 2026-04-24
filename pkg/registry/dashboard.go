@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package registry
 
 import (
+	"context"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,6 +13,8 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // ServeDashboard starts an HTTP server serving the dashboard UI and stats API.
@@ -41,6 +47,39 @@ func (s *Server) ServeDashboard(addr string) error {
 			stats = s.GetDashboardStatsWithHistory()
 		}
 		_ = json.NewEncoder(w).Encode(stats)
+	})
+
+	mux.HandleFunc("/api/nodes", func(w http.ResponseWriter, r *http.Request) {
+		remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		clientIP := remoteIP
+		if remoteIP == "127.0.0.1" || remoteIP == "::1" || remoteIP == "localhost" {
+			if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+				clientIP = realIP
+			}
+		}
+		if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		s.mu.RLock()
+		nodes := make([]map[string]interface{}, 0, len(s.nodes))
+		for _, node := range s.nodes {
+			entry := map[string]interface{}{
+				"node_id": node.ID,
+				"address": protocol.Addr{Network: 0, Node: node.ID}.String(),
+			}
+			if node.Hostname != "" {
+				entry["hostname"] = node.Hostname
+			}
+			entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
+			nodes = append(nodes, entry)
+		}
+		s.mu.RUnlock()
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"nodes": nodes,
+			"count": len(nodes),
+		})
 	})
 
 	mux.HandleFunc("/api/pulse", func(w http.ResponseWriter, r *http.Request) {
@@ -144,15 +183,6 @@ func (s *Server) ServeDashboard(addr string) error {
 			c = "#9f9f9f"
 		}
 		serveBadge(w, "online nodes", fmtCount(stats.ActiveNodes), c)
-	})
-
-	mux.HandleFunc("/api/badge/trust", func(w http.ResponseWriter, r *http.Request) {
-		stats := s.GetDashboardStats()
-		c := "#58a6ff"
-		if stats.TotalTrustLinks == 0 {
-			c = "#9f9f9f"
-		}
-		serveBadge(w, "trust links", fmtCount(stats.TotalTrustLinks), c)
 	})
 
 	mux.HandleFunc("/api/badge/requests", func(w http.ResponseWriter, r *http.Request) {
@@ -266,6 +296,17 @@ a:hover{text-decoration:underline}
 header{padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .uptime{font-size:12px;color:var(--muted);margin-top:4px}
+.svc-bar-wrap{position:relative;display:inline-block}
+.svc-bar-tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--border2);border-radius:4px;padding:6px 9px;font-size:11px;color:var(--text);white-space:nowrap;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.3);pointer-events:none;display:none}
+.svc-bar-wrap:hover .svc-bar-tip{display:block}
+.svc-bar-tip .v{color:var(--text2);font-variant-numeric:tabular-nums}
+.svc-bar.partial{background:#f59e0b;opacity:0.85}
+.svc-bar.down{background:#ef4444;opacity:0.9}
+.svc-bar.inactive{background:var(--border);opacity:0.4}
+.release-banner{background:linear-gradient(90deg,rgba(88,166,255,0.12),rgba(88,166,255,0.04));border:1px solid rgba(88,166,255,0.4);border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:10px}
+.release-banner .rb-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);flex-shrink:0;animation:rbPulse 2s ease-in-out infinite}
+.release-banner .rb-ver{color:var(--text2);font-weight:600}
+@keyframes rbPulse{0%,100%{opacity:1}50%{opacity:0.45}}
 .theme-toggle{background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer;line-height:1}
 .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
@@ -319,11 +360,12 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .svc-dot.degraded{background:#f59e0b;box-shadow:0 0 6px #f59e0b}
 .svc-dot.down{background:#ef4444;box-shadow:0 0 6px #ef4444}
 .svc-bars{display:flex;gap:1px;height:28px}
-.svc-bar{flex:1;background:var(--good);border-radius:1px;opacity:0.85;transition:opacity 0.2s}
-.svc-bar:hover{opacity:1}
+.svc-bar-wrap{flex:1;position:relative;display:block;height:100%}
+.svc-bar{display:block;width:100%;height:100%;background:var(--good);border-radius:1px;opacity:0.85;transition:opacity 0.2s}
+.svc-bar-wrap:hover .svc-bar{opacity:1}
 .svc-bar.unknown{background:var(--border2);opacity:0.4}
 .svc-bar.degraded{background:#f59e0b}
-.svc-bar.down{background:#ef4444}
+.svc-bar.blip{background:#f59e0b;opacity:1;box-shadow:0 0 5px rgba(245,158,11,0.7)}
 .svc-uptime{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:60px;text-align:right}
 
 .pulse-wrap{display:flex;align-items:baseline;gap:6px;margin-bottom:8px}
@@ -354,14 +396,15 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .mover-delta.down{color:#ef4444}
 .mover-rate{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:90px;text-align:right}
 
-.charts-row{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
 .chart-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px}
+.chart-card.full{grid-column:1/-1}
 .chart-card h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
 .chart-card .disclaimer{font-size:11px;color:var(--muted2);margin-bottom:8px}
 .chart-card svg{width:100%;display:block}
 .chart-tooltip{position:absolute;background:var(--border);border:1px solid var(--border2);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text2);pointer-events:none;white-space:nowrap;display:none;z-index:10}
 
-@media(max-width:640px){
+@media(max-width:900px){
   .charts-row{grid-template-columns:1fr}
 }
 
@@ -378,6 +421,8 @@ footer a:hover{color:var(--accent)}
 </head>
 <body>
 <div class="container">
+
+<div class="release-banner" id="release-banner" style="display:none"></div>
 
 <header>
   <div>
@@ -436,8 +481,8 @@ footer a:hover{color:var(--accent)}
     <h2>Online Nodes — Last 7 Days</h2>
     <div class="disclaimer">Since last registry restart</div>
     <div style="position:relative">
-      <svg id="chart-daily" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
-      <div class="chart-tooltip" id="tip-daily"></div>
+      <svg id="chart-weekly" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="chart-tooltip" id="tip-weekly"></div>
     </div>
   </div>
 </div>
@@ -488,6 +533,14 @@ footer a:hover{color:var(--accent)}
 <script>
 function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);var p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ')}
+function fmtDateTime(ms){var d=new Date(ms);var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var pad=function(n){return n<10?'0'+n:''+n};return M[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
+function renderBanner(b){
+  var el=document.getElementById('release-banner');
+  if(!el)return;
+  if(!b||!b.version){el.style.display='none';return}
+  el.innerHTML='<span class="rb-dot"></span><span>Update <span class="rb-ver">'+b.version+'</span> propagating across network, peers may be unreachable.</span>';
+  el.style.display='flex';
+}
 function renderVersions(versions){
   var el=document.getElementById('versions');
   if(!versions||!Object.keys(versions).length){el.innerHTML='';return}
@@ -563,7 +616,7 @@ function themeVar(name,fallback){
   var v=getComputedStyle(document.documentElement).getPropertyValue(name);
   return (v&&v.trim())||fallback;
 }
-function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
+function drawChart(svg,tip,samples,valFn,labelFn,color,unit,zoomY){
   if(!svg)return;
   var accent=themeVar('--accent','#58a6ff');
   var good=themeVar('--good','#3fb950');
@@ -575,26 +628,40 @@ function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   color=color||accent;
   unit=unit||'online';
   if(!samples||!samples.length){svg.innerHTML='';return}
-  var W=400,H=180,padL=40,padR=14,padT=10,padB=30;
+  var vb=(svg.getAttribute('viewBox')||'0 0 400 180').split(/\s+/);
+  var W=parseFloat(vb[2])||400,H=parseFloat(vb[3])||180;
+  var padL=40,padR=14,padT=10,padB=30;
   var cW=W-padL-padR,cH=H-padT-padB;
   var vals=samples.map(valFn);
   var maxV=Math.max.apply(null,vals);
+  var minV=Math.min.apply(null,vals);
   if(maxV===0)maxV=1;
-  var step=Math.pow(10,Math.floor(Math.log10(maxV||1)));
-  if(maxV/step<2)step=step/4;
-  else if(maxV/step<5)step=step/2;
-  var gridMax=Math.ceil(maxV/step)*step;
-  if(gridMax===0)gridMax=1;
+  var gridMin=0,gridMax,step;
+  if(zoomY&&maxV>minV){
+    var gridSpan=maxV-minV;
+    step=Math.pow(10,Math.floor(Math.log10(gridSpan||1)));
+    if(gridSpan/step<2)step=step/4;
+    else if(gridSpan/step<5)step=step/2;
+    gridMin=Math.floor(minV/step)*step;
+    gridMax=Math.ceil(maxV/step)*step;
+  }else{
+    step=Math.pow(10,Math.floor(Math.log10(maxV||1)));
+    if(maxV/step<2)step=step/4;
+    else if(maxV/step<5)step=step/2;
+    gridMax=Math.ceil(maxV/step)*step;
+  }
+  if(gridMax<=gridMin)gridMax=gridMin+1;
+  var range=gridMax-gridMin;
   var html='';
-  for(var g=0;g<=gridMax;g+=step){
-    var gy=padT+cH-(g/gridMax)*cH;
+  for(var g=gridMin;g<=gridMax+step*0.001;g+=step){
+    var gy=padT+cH-((g-gridMin)/range)*cH;
     html+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="'+grid+'" stroke-width="1"/>';
     html+='<text x="'+(padL-4)+'" y="'+(gy+4)+'" fill="'+muted2+'" font-size="10" text-anchor="end" font-family="monospace">'+g+'</text>';
   }
   var pts=[];
   for(var i=0;i<vals.length;i++){
     var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
-    var y=padT+cH-(vals[i]/gridMax)*cH;
+    var y=padT+cH-((vals[i]-gridMin)/range)*cH;
     pts.push(x.toFixed(1)+','+y.toFixed(1));
   }
   var polyPts=pts.join(' ');
@@ -606,7 +673,7 @@ function drawChart(svg,tip,samples,valFn,labelFn,color,unit){
   var lblStep=Math.max(1,Math.ceil(vals.length/7));
   for(var i=0;i<vals.length;i++){
     var x=padL+(vals.length>1?i/(vals.length-1):0.5)*cW;
-    var y=padT+cH-(vals[i]/gridMax)*cH;
+    var y=padT+cH-((vals[i]-gridMin)/range)*cH;
     html+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3" fill="'+color+'" stroke="'+bg+'" stroke-width="1.5"/>';
     var lbl=labelFn(samples[i]);
     var showLbl=(i%lblStep===0)||(i===vals.length-1);
@@ -639,10 +706,11 @@ function renderCharts(hourly,daily){
   row.style.display='grid';
   drawChart(document.getElementById('chart-hourly'),document.getElementById('tip-hourly'),hourly||[],function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
-  },'accent','online');
-  drawChart(document.getElementById('chart-daily'),document.getElementById('tip-daily'),daily||[],function(s){return s.online_nodes||0},function(s){
+  },'accent','online',true);
+  var d7=(daily||[]).slice(-7);
+  drawChart(document.getElementById('chart-weekly'),document.getElementById('tip-weekly'),d7,function(s){return s.online_nodes||0},function(s){
     var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
-  },'accent','online');
+  },'accent','online',true);
 }
 function update(){
   var url='/api/stats';
@@ -652,7 +720,8 @@ function update(){
     document.getElementById('total-nodes').textContent=fmt(d.total_nodes||0);
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
-    renderServices(d.uptime_secs);
+    renderServices(d.uptime_secs,d.restart_events,d.probes||{});
+    renderBanner(d.release_banner);
     renderVersions(d.versions);
     renderCharts(d.hourly,d.daily);
     renderMovers(d.networks);
@@ -694,31 +763,96 @@ function renderMovers(networks){
   document.getElementById('movers-list').innerHTML=html;
   el.style.display='block';
 }
-function renderServices(uptimeSecs){
+function renderServices(uptimeSecs,restartEvents,probes){
   var el=document.getElementById('services');if(!el)return;
-  var activeDays=Math.min(90,Math.floor((uptimeSecs||0)/86400));
   var services=[
-    {name:'Registry',status:'ok'},
-    {name:'Beacon Relay',status:'ok'},
-    {name:'Dashboard API',status:'ok'},
-    {name:'Metrics',status:'ok'},
+    {key:'registry',name:'Registry'},
+    {key:'beacon',name:'Beacon Relay'},
+    {key:'dashboard',name:'Dashboard API'},
+    {key:'metrics',name:'Metrics'},
   ];
-  var uptimePct=(uptimeSecs>0)?(100).toFixed(2):0;
+  var now=Date.now();
+  var processStart=now-(uptimeSecs||0)*1000;
+  var retention=30*86400000;
+  var earliestGlobal=processStart;
+  (restartEvents||[]).forEach(function(t){if(t<earliestGlobal)earliestGlobal=t});
+  if(earliestGlobal<now-retention)earliestGlobal=now-retention;
+  var startOfToday=new Date();startOfToday.setHours(0,0,0,0);
+  var startToday=startOfToday.getTime();
+  var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var restartDownMs=5000;
+  var restartIntervals=(restartEvents||[]).map(function(t){return [t-restartDownMs/2,t+restartDownMs/2]});
+  function computeDays(ps){
+    var intervals=((ps&&ps.downtime_intervals)||[]).concat(restartIntervals);
+    if(ps&&ps.current_down_start>0){
+      intervals=intervals.concat([[ps.current_down_start,now]]);
+    }
+    var earliest=earliestGlobal;
+    if(ps&&ps.last_success>0&&ps.last_success<earliest)earliest=ps.last_success;
+    var days=[],totalDownMs=0,totalCoverMs=0;
+    for(var d=29;d>=0;d--){
+      var dayStart=startToday-d*86400000;
+      var dayEnd=dayStart+86400000;
+      var coverStart=Math.max(dayStart,earliest);
+      var coverEnd=Math.min(dayEnd,now);
+      var coverMs=Math.max(0,coverEnd-coverStart);
+      if(coverMs<=0){
+        days.push({dayStart:dayStart,state:'inactive',upPct:null,downMs:0,coverMs:0,restarts:0});
+        continue;
+      }
+      var downMs=0;
+      intervals.forEach(function(iv){
+        if(!iv||iv.length!==2)return;
+        var a=Math.max(coverStart,iv[0]);
+        var b=Math.min(coverEnd,iv[1]);
+        if(b>a)downMs+=(b-a);
+      });
+      if(downMs>coverMs)downMs=coverMs;
+      var upPct=(coverMs-downMs)/coverMs*100;
+      var restartsOnDay=0;
+      (restartEvents||[]).forEach(function(t){if(t>=dayStart&&t<dayEnd)restartsOnDay++});
+      var state='ok';
+      if(upPct<95)state='down';
+      else if(upPct<100||restartsOnDay>0)state='partial';
+      days.push({dayStart:dayStart,state:state,upPct:upPct,downMs:downMs,coverMs:coverMs,restarts:restartsOnDay});
+      totalDownMs+=downMs;totalCoverMs+=coverMs;
+    }
+    var pct=totalCoverMs>0?((totalCoverMs-totalDownMs)/totalCoverMs*100):100;
+    return {days:days,pct:pct};
+  }
   var html='';
   services.forEach(function(svc){
+    var ps=(probes&&probes[svc.key])||null;
+    var r=computeDays(ps);
     var bars='';
-    for(var i=0;i<90;i++){
-      var fromNow=89-i;
-      var cls=(fromNow<activeDays)?'':'unknown';
-      bars+='<div class="svc-bar '+cls+'" title="'+fromNow+'d ago"></div>';
-    }
+    r.days.forEach(function(day){
+      var cls=day.state==='ok'?'':day.state;
+      var dt=new Date(day.dayStart);
+      var dateStr=months[dt.getMonth()]+' '+dt.getDate();
+      var tip='';
+      if(day.state==='inactive'){
+        tip='<div class="v">'+dateStr+'</div><div>no data</div>';
+      }else{
+        tip='<div class="v">'+dateStr+'</div><div>uptime: <span class="v">'+day.upPct.toFixed(2)+'%</span></div>';
+        if(day.downMs>0)tip+='<div>downtime: <span class="v">'+fmtDur(day.downMs)+'</span></div>';
+        if(day.restarts>0)tip+='<div>restarts: <span class="v">'+day.restarts+'</span></div>';
+      }
+      bars+='<span class="svc-bar-wrap"><span class="svc-bar '+cls+'"></span><span class="svc-bar-tip">'+tip+'</span></span>';
+    });
+    var live=ps&&ps.current_down_start>0?'down':'ok';
     html+='<div class="svc-row">'+
-      '<span class="svc-name"><span class="svc-dot '+(svc.status!=='ok'?svc.status:'')+'"></span>'+svc.name+'</span>'+
+      '<span class="svc-name"><span class="svc-dot '+(live!=='ok'?live:'')+'"></span>'+svc.name+'</span>'+
       '<div class="svc-bars">'+bars+'</div>'+
-      '<span class="svc-uptime">'+uptimePct+'%</span>'+
+      '<span class="svc-uptime">'+r.pct.toFixed(2)+'%</span>'+
       '</div>';
   });
   el.innerHTML=html;
+}
+function fmtDur(ms){
+  if(ms<60000)return Math.round(ms/1000)+'s';
+  if(ms<3600000)return Math.round(ms/60000)+'m';
+  if(ms<86400000)return (ms/3600000).toFixed(1)+'h';
+  return (ms/86400000).toFixed(1)+'d';
 }
 var _pulseSamples=[];
 var _pulsePeak=0;
@@ -810,6 +944,177 @@ func (s *Server) pulseLoop() {
 			}
 			s.pulseMu.Unlock()
 		case <-s.done:
+			return
+		}
+	}
+}
+
+// ProbeState holds the health history for a single named probe.
+type ProbeState struct {
+	LastSuccess       int64      `json:"last_success,omitempty"`       // millis
+	DowntimeIntervals [][2]int64 `json:"downtime_intervals,omitempty"` // pruned to 30d
+	CurrentDownStart  int64      `json:"current_down_start,omitempty"` // 0 when up
+}
+
+// SetDashboardHTTPAddr records the dashboard HTTP listen address so the probe
+// loop knows where to dial for the dashboard + metrics probes.
+func (s *Server) SetDashboardHTTPAddr(addr string) {
+	s.probeMu.Lock()
+	s.httpProbeAddr = addr
+	s.probeMu.Unlock()
+}
+
+var probeNames = []string{"registry", "beacon", "dashboard", "metrics"}
+
+const probeRetention = 30 * 24 * time.Hour
+
+func (s *Server) runProbe(name string, ok bool) {
+	now := time.Now().UnixMilli()
+	cutoff := time.Now().Add(-probeRetention).UnixMilli()
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if s.probeStates == nil {
+		s.probeStates = map[string]*ProbeState{}
+	}
+	p := s.probeStates[name]
+	if p == nil {
+		p = &ProbeState{}
+		s.probeStates[name] = p
+	}
+	// Prune intervals older than the retention window.
+	if len(p.DowntimeIntervals) > 0 {
+		kept := p.DowntimeIntervals[:0]
+		for _, iv := range p.DowntimeIntervals {
+			if iv[1] >= cutoff {
+				kept = append(kept, iv)
+			}
+		}
+		p.DowntimeIntervals = kept
+	}
+	if ok {
+		p.LastSuccess = now
+		if p.CurrentDownStart > 0 {
+			p.DowntimeIntervals = append(p.DowntimeIntervals, [2]int64{p.CurrentDownStart, now})
+			p.CurrentDownStart = 0
+		}
+	} else {
+		if p.CurrentDownStart == 0 {
+			p.CurrentDownStart = now
+		}
+	}
+}
+
+func (s *Server) probeRegistry() bool {
+	if s.listener == nil {
+		return false
+	}
+	addr := s.listener.Addr().String()
+	c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+func (s *Server) probeBeacon() bool {
+	if s.beaconAddr == "" {
+		return false
+	}
+	target, err := net.ResolveUDPAddr("udp", s.beaconAddr)
+	if err != nil {
+		return false
+	}
+	c, err := net.DialUDP("udp", nil, target)
+	if err != nil {
+		return false
+	}
+	defer c.Close()
+	// Reserved probe nodeID — kept high so it doesn't collide with real nodes.
+	msg := make([]byte, 5)
+	msg[0] = protocol.BeaconMsgDiscover
+	binary.BigEndian.PutUint32(msg[1:], 0xFFFFFFFE)
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := c.Write(msg); err != nil {
+		return false
+	}
+	buf := make([]byte, 64)
+	n, err := c.Read(buf)
+	if err != nil || n < 1 || buf[0] != protocol.BeaconMsgDiscoverReply {
+		return false
+	}
+	return true
+}
+
+func (s *Server) probeHTTP(path string) bool {
+	s.probeMu.Lock()
+	addr := s.httpProbeAddr
+	s.probeMu.Unlock()
+	if addr == "" {
+		return false
+	}
+	if addr[0] == ':' {
+		addr = "127.0.0.1" + addr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+addr+path, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 500
+}
+
+// probeLoop runs the 4 component probes at a steady cadence. Each probe records
+// its own success/failure into probeStates; downtime intervals are persisted in
+// the snapshot so restarts carry history forward.
+func (s *Server) probeLoop() {
+	<-s.readyCh
+	// Give listeners a moment to bind before first probe.
+	time.Sleep(500 * time.Millisecond)
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	tick := func() {
+		s.runProbe("registry", s.probeRegistry())
+		s.runProbe("beacon", s.probeBeacon())
+		s.runProbe("dashboard", s.probeHTTP("/healthz"))
+		s.runProbe("metrics", s.probeHTTP("/metrics"))
+		s.save()
+	}
+	tick()
+	for {
+		select {
+		case <-t.C:
+			tick()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// heartbeatLoop persists a "last alive" timestamp at a steady cadence so that,
+// after a crash or restart, the gap between the last persisted heartbeat and
+// the new process start can be recorded as a real downtime interval.
+func (s *Server) heartbeatLoop() {
+	<-s.readyCh
+	// Initial tick so a fresh process immediately has a baseline.
+	s.lastHeartbeatMs.Store(time.Now().UnixMilli())
+	s.save()
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			s.lastHeartbeatMs.Store(time.Now().UnixMilli())
+			s.save()
+		case <-s.done:
+			s.lastHeartbeatMs.Store(time.Now().UnixMilli())
 			return
 		}
 	}
