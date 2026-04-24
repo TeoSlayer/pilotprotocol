@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package urlvalidate provides SSRF-prevention checks shared across packages
 // that accept operator-supplied URLs (webhook endpoints, audit export sinks,
 // identity provider verification callbacks, etc.).

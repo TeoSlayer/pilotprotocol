@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package registry
 
 import (
@@ -159,7 +161,9 @@ func (c *Client) sendLocked(msg map[string]interface{}) (map[string]interface{},
 	if err := writeMessage(c.conn, msg); err != nil {
 		return nil, fmt.Errorf("send: %w", err)
 	}
+	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	resp, err := readMessage(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		return nil, fmt.Errorf("recv: %w", err)
 	}
@@ -575,12 +579,20 @@ func (c *Client) SetPoloScore(nodeID uint32, poloScore int) (map[string]interfac
 	})
 }
 
-// GetPoloScore retrieves the current polo score for a node.
+// GetPoloScore retrieves the polo score for a node. Polo is private —
+// callers may only read their OWN polo. The registry rejects cross-reads.
+// callerNodeID identifies the requester (must equal nodeID); the request
+// is signed via c.sign so the registry can verify ownership.
 func (c *Client) GetPoloScore(nodeID uint32) (int, error) {
-	resp, err := c.Send(map[string]interface{}{
-		"type":    "get_polo_score",
-		"node_id": nodeID,
-	})
+	msg := map[string]interface{}{
+		"type":           "get_polo_score",
+		"node_id":        nodeID,
+		"caller_node_id": nodeID,
+	}
+	if sig := c.sign(fmt.Sprintf("get_polo_score:%d", nodeID)); sig != "" {
+		msg["signature"] = sig
+	}
+	resp, err := c.Send(msg)
 	if err != nil {
 		return 0, err
 	}
@@ -588,6 +600,33 @@ func (c *Client) GetPoloScore(nodeID uint32) (int, error) {
 		return int(poloScore), nil
 	}
 	return 0, fmt.Errorf("polo_score not found in response")
+}
+
+// AuthorizeTaskSubmit asks the registry to decide whether `submitter`
+// may submit a task to `receiver`. The registry compares polos
+// internally and returns only the verdict — daemons never see another
+// node's polo. Optionally pass a guarantee floor via minPolo (>0) so
+// the receiver can require submitters to meet a minimum score.
+func (c *Client) AuthorizeTaskSubmit(callerNodeID, submitter, receiver uint32, minPolo int) (bool, string, error) {
+	msg := map[string]interface{}{
+		"type":              "authorize_task_submit",
+		"caller_node_id":    callerNodeID,
+		"submitter_node_id": submitter,
+		"receiver_node_id":  receiver,
+	}
+	if minPolo > 0 {
+		msg["min_polo"] = float64(minPolo)
+	}
+	if sig := c.sign(fmt.Sprintf("authorize_task_submit:%d:%d:%d", callerNodeID, submitter, receiver)); sig != "" {
+		msg["signature"] = sig
+	}
+	resp, err := c.Send(msg)
+	if err != nil {
+		return false, "", err
+	}
+	authorized, _ := resp["authorized"].(bool)
+	reason, _ := resp["reason"].(string)
+	return authorized, reason, nil
 }
 
 // InviteToNetwork stores a pending invite for a target node to join an invite-only network.
