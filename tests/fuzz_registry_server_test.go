@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -252,7 +254,8 @@ func TestRegistryServerDashboardBadges(t *testing.T) {
 	go s.ServeDashboard(dashAddr)
 	time.Sleep(100 * time.Millisecond)
 
-	badges := []string{"nodes", "trust", "requests"}
+	// /api/badge/trust was removed (trust-link counts are not exposed).
+	badges := []string{"nodes", "requests"}
 	for _, badge := range badges {
 		resp, err := http.Get("http://" + dashAddr + "/api/badge/" + badge)
 		if err != nil {

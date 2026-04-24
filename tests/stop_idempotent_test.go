@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
@@ -199,17 +202,20 @@ func TestFlushSaveChecksumRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Deregister on shutdown (integration)
+// Explicit deregister via IPC (pilotctl deregister path)
 // ---------------------------------------------------------------------------
 
-func TestDeregisterOnShutdown(t *testing.T) {
+// TestExplicitDeregister exercises the user-facing deregister path:
+// CmdDeregister over IPC (what `pilotctl deregister` issues). Daemon.Stop()
+// intentionally does not deregister — see daemon.go shutdown comment.
+func TestExplicitDeregister(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	d, _ := env.AddDaemonOnly()
+	d, sockPath := env.AddDaemonOnly()
+	defer d.Stop()
 	nodeID := d.NodeID()
 
-	// Confirm node is registered
 	rc, err := registry.Dial(env.RegistryAddr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -218,25 +224,31 @@ func TestDeregisterOnShutdown(t *testing.T) {
 
 	resp, err := rc.Lookup(nodeID)
 	if err != nil {
-		t.Fatalf("lookup before stop: %v", err)
+		t.Fatalf("lookup before deregister: %v", err)
 	}
 	if resp["type"] != "lookup_ok" {
 		t.Fatalf("expected lookup_ok, got %v", resp["type"])
 	}
 
-	// Stop should deregister
-	d.Stop()
+	drv, err := driver.Connect(sockPath)
+	if err != nil {
+		t.Fatalf("driver connect: %v", err)
+	}
+	defer drv.Close()
 
-	// Verify deregistered (lookup returns error when node not found)
+	if _, err := drv.Deregister(); err != nil {
+		t.Fatalf("driver deregister: %v", err)
+	}
+
 	deadline := time.After(3 * time.Second)
 	for {
 		_, lookupErr := rc.Lookup(nodeID)
 		if lookupErr != nil {
-			break
+			return
 		}
 		select {
 		case <-deadline:
-			t.Fatal("node not deregistered within 3s after Stop()")
+			t.Fatal("node not deregistered within 3s after driver.Deregister()")
 		case <-time.After(10 * time.Millisecond):
 		}
 	}

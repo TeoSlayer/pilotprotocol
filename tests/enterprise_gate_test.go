@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -495,12 +497,9 @@ func TestPoloScoreConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Final score should be exactly 50
-	score, err := rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get final score: %v", err)
-	}
-	if score != workers {
+	// Final score should be exactly 50 — use in-process helper
+	// since over-the-wire GetPoloScore is now self-only + signed.
+	if score := reg.GetPoloScoreForTest(nodeID); score != workers {
 		t.Errorf("expected polo score %d after %d concurrent +1 updates, got %d", workers, workers, score)
 	}
 }
@@ -747,7 +746,7 @@ func TestDeleteNetworkCleansInvites(t *testing.T) {
 func TestPoloScoreBounds(t *testing.T) {
 	t.Parallel()
 
-	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	rc, reg, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
 	nodeID, _ := registerTestNode(t, rc)
@@ -763,16 +762,12 @@ func TestPoloScoreBounds(t *testing.T) {
 		t.Error("expected error setting polo score below min")
 	}
 
-	// Setting within bounds should work
+	// Setting within bounds should work — readback via in-process helper
+	// since wire GetPoloScore is now self-only + signed.
 	if _, err := rc.SetPoloScore(nodeID, 999_999); err != nil {
 		t.Fatalf("set polo score within bounds: %v", err)
 	}
-
-	score, err := rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo score: %v", err)
-	}
-	if score != 999_999 {
+	if score := reg.GetPoloScoreForTest(nodeID); score != 999_999 {
 		t.Errorf("polo score = %d, want 999999", score)
 	}
 
@@ -780,14 +775,10 @@ func TestPoloScoreBounds(t *testing.T) {
 	if _, err := rc.UpdatePoloScore(nodeID, 500_000); err != nil {
 		t.Fatalf("update polo score: %v", err)
 	}
-	score, err = rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo score after delta: %v", err)
-	}
+	score := reg.GetPoloScoreForTest(nodeID)
 	if score != 1_000_000 {
 		t.Errorf("polo score should clamp to 1000000, got %d", score)
 	}
-
 	t.Logf("polo score bounds: clamping works correctly, max=%d", score)
 }
 
@@ -1432,10 +1423,10 @@ func TestKeyRotationPreservesExpiry(t *testing.T) {
 
 	// Rotate key
 	newID, _ := crypto.GenerateIdentity()
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig := id.Sign([]byte(challenge))
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
-	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
 
 	_, err = rc.RotateKey(nodeID, sigB64, newPubKeyB64)
 	if err != nil {

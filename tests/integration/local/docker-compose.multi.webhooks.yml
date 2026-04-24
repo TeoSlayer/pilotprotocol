@@ -1,0 +1,54 @@
+# Overlay on top of docker-compose.multi.yml that adds a webhook-sink
+# service. Each agent's daemon can be configured to POST to
+# http://webhook-sink:18080/<event>; the sink appends every request as
+# a JSON line to the shared webhook_log volume at /var/log/webhooks.jsonl.
+#
+# Use:
+#   docker compose -f docker-compose.multi.yml -f docker-compose.multi.webhooks.yml up -d
+#
+# Tests should:
+#   1. Bring the stack up with this overlay.
+#   2. Run `pilotctl set-webhook http://webhook-sink:18080/<event>` inside
+#      each agent that should emit webhooks.
+#   3. Perform the operation under test.
+#   4. Read /var/log/webhooks.jsonl from any service that mounts webhook_log
+#      (the sink itself, or any agent that also mounts it) and jq-filter by
+#      .body.event to assert cardinality.
+services:
+  webhook-sink:
+    image: python:3.12-slim
+    hostname: webhook-sink
+    # Start ASAP — sink has no dependency on the network; do not gate
+    # behind rendezvous healthcheck (that cascaded timeouts under -j 10).
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.29.0}.40
+    volumes:
+      - ./webhook_sink.py:/webhook_sink.py:ro
+      - webhook_log:/var/log
+    # Run python inline (no -u so startup is fast); tight bind to loopback
+    # plus wildcard works because the listen is on 0.0.0.0 by the script.
+    command: ["python3", "/webhook_sink.py", "--port", "18080", "--log", "/var/log/webhooks.jsonl"]
+    # Generous healthcheck — python:3.12-slim first-boot cold-start can
+    # take 5-8s before the HTTP server is accepting.
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:18080/').read()\" || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  # Mount the same log volume into agent-a, agent-b, and the rendezvous
+  # so tests can read /var/log/webhooks.jsonl without shelling into the sink.
+  agent-a:
+    volumes:
+      - webhook_log:/var/log/webhooks
+  agent-b:
+    volumes:
+      - webhook_log:/var/log/webhooks
+  rendezvous:
+    volumes:
+      - webhook_log:/var/log/webhooks
+
+volumes:
+  webhook_log:

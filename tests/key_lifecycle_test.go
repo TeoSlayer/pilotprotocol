@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -101,10 +103,10 @@ func TestKeyInfoOnRotate(t *testing.T) {
 
 	// Rotate key
 	newID, _ := crypto.GenerateIdentity()
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig := id.Sign([]byte(challenge))
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
-	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
 
 	beforeRotate := time.Now().Add(-1 * time.Second)
 
@@ -144,10 +146,10 @@ func TestKeyInfoOnRotate(t *testing.T) {
 
 	// Rotate again with new identity
 	newID2, _ := crypto.GenerateIdentity()
-	challenge2 := fmt.Sprintf("rotate:%d", nodeID)
+	newPubKeyB642 := crypto.EncodePublicKey(newID2.PublicKey)
+	challenge2 := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB642)
 	sig2 := newID.Sign([]byte(challenge2))
 	sigB642 := base64.StdEncoding.EncodeToString(sig2)
-	newPubKeyB642 := crypto.EncodePublicKey(newID2.PublicKey)
 
 	_, err = rc.RotateKey(nodeID, sigB642, newPubKeyB642)
 	if err != nil {
@@ -417,10 +419,10 @@ func TestKeyInfoPersistence(t *testing.T) {
 
 	// Rotate key
 	newID, _ := crypto.GenerateIdentity()
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig := id.Sign([]byte(challenge))
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
-	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
 
 	_, err = rc.RotateKey(nodeID, sigB64, newPubKeyB64)
 	if err != nil {

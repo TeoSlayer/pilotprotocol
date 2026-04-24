@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "config": {"cycle": "1m"},
+  "rules": [
+    {
+      "name": "allow-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "fill-trust-on-cycle",
+      "on": "cycle",
+      "match": "trusted_count < 10",
+      "actions": [{"type": "fill_trust", "params": {"target": 10}}]
+    }
+  ]
+}

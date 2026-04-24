@@ -1,0 +1,129 @@
+# Carrier-grade NAT (double NAT) overlay. agent-a sits behind a "home"
+# NAT, which itself sits behind a "CGN" NAT. Common on mobile / some
+# residential ISP deployments.
+#
+#   agent-a -> nat-gw-home -> nat-gw-cgn -> public (rendezvous, agent-b)
+#
+# Subnet prefixes templated via NAT_PUB / NAT_CGN / NAT_PRV (two-octet
+# form). Defaults preserve the semantics noted below.
+# 100.64.0.0/10 is RFC6598 CGN shared address space; Go's IsPrivate()
+# treats it as private, so the daemon will register based on the CGN's
+# mapped public endpoint.
+services:
+  rendezvous:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: rendezvous
+    networks:
+      public: {ipv4_address: "${NAT_PUB:-192.0.2}.10"}
+    command: >
+      pilot-rendezvous -registry-addr 0.0.0.0:9000 -beacon-addr 0.0.0.0:9001
+      -http 0.0.0.0:8080 -log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  nat-gw-cgn:
+    build: {context: ., dockerfile: Dockerfile.nat-gw}
+    hostname: nat-gw-cgn
+    cap_add: [NET_ADMIN]
+    sysctls: [net.ipv4.ip_forward=1]
+    environment:
+      NAT_MODE: "cone"
+      PUBLIC_SUBNET: "${NAT_PUB:-192.0.2}"
+      PRIVATE_SUBNET: "${NAT_CGN:-100.64.0}"
+    networks:
+      cgn: {ipv4_address: "${NAT_CGN:-100.64.0}.2"}
+      public: {ipv4_address: "${NAT_PUB:-192.0.2}.30"}
+    command: ["/bin/bash", "/nat-gw.sh"]
+
+  nat-gw-home:
+    build: {context: ., dockerfile: Dockerfile.nat-gw}
+    hostname: nat-gw-home
+    cap_add: [NET_ADMIN]
+    sysctls: [net.ipv4.ip_forward=1]
+    environment:
+      NAT_MODE: "cone"
+      PUBLIC_SUBNET: "${NAT_CGN:-100.64.0}"
+      PRIVATE_SUBNET: "${NAT_PRV:-10.0.0}"
+      NAT_CGN: "${NAT_CGN:-100.64.0}"
+    networks:
+      private-a: {ipv4_address: "${NAT_PRV:-10.0.0}.2"}
+      cgn: {ipv4_address: "${NAT_CGN:-100.64.0}.20"}
+    depends_on:
+      nat-gw-cgn: {condition: service_started}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        ip route del default 2>/dev/null || true
+        ip route add default via $${NAT_CGN}.2
+        exec /bin/bash /nat-gw.sh
+
+  agent-b:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: agent-b
+    depends_on:
+      rendezvous: {condition: service_healthy}
+    networks:
+      public: {ipv4_address: "${NAT_PUB:-192.0.2}.21"}
+    environment:
+      PILOT_REGISTRY: "${NAT_PUB:-192.0.2}.10:9000"
+      NAT_PUB: "${NAT_PUB:-192.0.2}"
+    command:
+      - /bin/bash
+      - -c
+      - |
+        exec pilot-daemon \
+          -registry $${NAT_PUB}.10:9000 -beacon $${NAT_PUB}.10:9001 \
+          -hostname agent-b -identity /root/.pilot/identity.json \
+          -email agent-b@cgn.test -endpoint $${NAT_PUB}.21:4000 -listen :4000 \
+          -public -keepalive 5s -log-level info
+
+  agent-a:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: agent-a
+    depends_on:
+      rendezvous: {condition: service_healthy}
+      nat-gw-home: {condition: service_started}
+    cap_add: [NET_ADMIN]
+    networks:
+      private-a: {ipv4_address: "${NAT_PRV:-10.0.0}.20"}
+    environment:
+      PILOT_REGISTRY: "${NAT_PUB:-192.0.2}.10:9000"
+      NAT_PUB: "${NAT_PUB:-192.0.2}"
+      NAT_PRV: "${NAT_PRV:-10.0.0}"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        ip route del default 2>/dev/null || true
+        ip route add default via $${NAT_PRV}.2
+        exec pilot-daemon \
+          -registry $${NAT_PUB}.10:9000 -beacon $${NAT_PUB}.10:9001 \
+          -hostname agent-a -identity /root/.pilot/identity.json \
+          -email agent-a@cgn.test -listen :4000 -keepalive 5s -log-level info
+    command: []
+
+networks:
+  public:
+    driver: bridge
+    ipam: {config: [{subnet: "${NAT_PUB:-192.0.2}.0/24"}]}
+  cgn:
+    driver: bridge
+    ipam: {config: [{subnet: "${NAT_CGN:-100.64.0}.0/24"}]}
+  private-a:
+    driver: bridge
+    ipam: {config: [{subnet: "${NAT_PRV:-10.0.0}.0/24"}]}
