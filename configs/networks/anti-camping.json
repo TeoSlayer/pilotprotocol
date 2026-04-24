@@ -1,0 +1,57 @@
+{
+  "name": "anti-camping",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "earn",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "bleed",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -1
+            }
+          }
+        ]
+      },
+      {
+        "name": "flush",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < -10"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "1h"
+    }
+  },
+  "policy": {
+    "description": "Anti-camping: each hour silently deducts 1 score; peers who don't participate bleed into the red and get flushed at -10."
+  }
+}

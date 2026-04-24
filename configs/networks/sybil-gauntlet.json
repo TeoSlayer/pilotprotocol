@@ -1,0 +1,60 @@
+{
+  "name": "sybil-gauntlet",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "gatekeep",
+        "on": "datagram",
+        "match": "peer_score < 10",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "vouched",
+        "on": "datagram",
+        "match": "peer_score >= 10",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "slow-start",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < 10 && peer_age_s > 3600"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "30m"
+    }
+  },
+  "policy": {
+    "description": "Sybil gauntlet: new peers bank score from incoming connects but can't send until they cross 10; stall out for over an hour and you're gone."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "last-in-first-out",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "open",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "new-out",
+        "on": "cycle",
+        "match": "trusted_count > 100",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_age_s < 43200"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "12h"
+    }
+  },
+  "policy": {
+    "description": "LIFO gatekeeping: peers younger than 12h are swept every cycle once the mesh is full; survive a day and you're home."
+  }
+}

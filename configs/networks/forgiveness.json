@@ -1,0 +1,60 @@
+{
+  "name": "forgiveness",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "earn",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "strike",
+        "on": "datagram",
+        "match": "peer_score < -5",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -1
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "absolve",
+        "on": "cycle",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 5
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "12h"
+    }
+  },
+  "policy": {
+    "description": "Forgiveness: bad behavior still costs, but every 12h negative scores get a +5 boost toward zero \u2014 nobody stays down forever."
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "first-in-first-out",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "open",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "age-out",
+        "on": "cycle",
+        "match": "trusted_count > 100",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 10,
+              "min": 100,
+              "by": "age"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "FIFO cohort: the oldest 10% rotate out nightly once the mesh exceeds 100; long-timers are gently aged off to make room."
+  }
+}

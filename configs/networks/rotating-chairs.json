@@ -1,0 +1,53 @@
+{
+  "name": "rotating-chairs",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "open",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "rotate",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 25,
+              "min": 20,
+              "by": "age"
+            }
+          }
+        ]
+      },
+      {
+        "name": "refill",
+        "on": "cycle",
+        "match": "trusted_count < 100",
+        "actions": [
+          {
+            "type": "fill_trust",
+            "params": {
+              "target": 100
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "1h"
+    }
+  },
+  "policy": {
+    "description": "Rotating chairs: every hour the oldest 25% are pruned and the seats refill to 100 \u2014 constant turnover, no one holds their spot for long."
+  }
+}

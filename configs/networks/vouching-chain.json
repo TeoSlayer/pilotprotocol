@@ -1,0 +1,44 @@
+{
+  "name": "vouching-chain",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "vouch",
+        "on": "connect",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "unvouched",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < 3 && peer_age_s > 21600"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "6h"
+    }
+  },
+  "policy": {
+    "description": "Vouching chain: each successful connect is a vouch (+1); peers who don't gather 3 vouches within 6h are evicted as strangers."
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "dunbar-150",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "activity",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "trim",
+        "on": "cycle",
+        "match": "trusted_count > 150",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 10,
+              "min": 150,
+              "by": "score"
+            }
+          }
+        ]
+      },
+      {
+        "name": "fill",
+        "on": "cycle",
+        "match": "trusted_count < 150",
+        "actions": [
+          {
+            "type": "fill_trust",
+            "params": {
+              "target": 150
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "12h"
+    }
+  },
+  "policy": {
+    "description": "Dunbar's 150: every 12h prune the quietest 10% once over 150 members and auto-refill back to 150; caps at a single human tribe."
+  }
+}

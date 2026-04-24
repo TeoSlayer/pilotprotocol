@@ -1,0 +1,92 @@
+{
+  "name": "grudge-match",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "grudge-connect",
+        "on": "connect",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -5
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "grudge-datagram",
+        "on": "datagram",
+        "match": "peer_score < 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -5
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "first-strike-datagram",
+        "on": "datagram",
+        "match": "port != 7 && direction == 'in'",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -10
+            }
+          },
+          {
+            "type": "deny"
+          }
+        ]
+      },
+      {
+        "name": "civil",
+        "on": "connect",
+        "match": "port == 7 && peer_score >= 0",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "exile",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score <= -30"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Grudge match: off-port traffic (connect or datagram) is treated as a violation (-10, deny); once peer_score < 0 the peer is grudged and every retry deepens the grudge (-5) and is denied; exile arrives at -30. Peer score is persisted across daemon restarts so the grudge never forgets."
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "lottery",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "open",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "random",
+        "on": "cycle",
+        "match": "trusted_count > 50",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 5,
+              "min": 50,
+              "by": "age"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "1h"
+    }
+  },
+  "policy": {
+    "description": "Lottery: once above 50 members, 5% are pruned every hour \u2014 membership is temporary regardless of reputation or behavior."
+  }
+}

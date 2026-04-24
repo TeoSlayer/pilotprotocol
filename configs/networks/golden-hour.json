@@ -1,0 +1,62 @@
+{
+  "name": "golden-hour",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "newcomer",
+        "on": "datagram",
+        "match": "peer_age_s < 3600",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 5
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "veteran",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": 1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "cull",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "prune_trust",
+            "params": {
+              "percent": 10,
+              "min": 50,
+              "by": "score"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Golden hour: peers in their first hour earn 5x score per datagram, so eager newcomers sprint ahead of established members before settling."
+  }
+}

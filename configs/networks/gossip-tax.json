@@ -1,0 +1,54 @@
+{
+  "name": "gossip-tax",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "speak",
+        "on": "datagram",
+        "match": "direction == \"out\"",
+        "actions": [
+          {
+            "type": "score",
+            "params": {
+              "delta": -1
+            }
+          },
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "listen",
+        "on": "datagram",
+        "match": "direction == \"in\"",
+        "actions": [
+          {
+            "type": "allow"
+          }
+        ]
+      },
+      {
+        "name": "silence",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {
+              "match": "peer_score < -50"
+            }
+          }
+        ]
+      }
+    ],
+    "config": {
+      "cycle": "24h"
+    }
+  },
+  "policy": {
+    "description": "Gossip tax: every outbound datagram costs 1 score; chronic over-talkers drop past -50 and are evicted at the daily cycle."
+  }
+}

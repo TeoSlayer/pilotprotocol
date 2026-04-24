@@ -1,0 +1,51 @@
+{
+  "name": "meritocracy-rating",
+  "join_rule": "open",
+  "expr_policy": {
+    "version": 1,
+    "rules": [
+      {
+        "name": "reward-quality",
+        "on": "datagram",
+        "match": "sender_rating > 0.75",
+        "actions": [
+          {"type": "score", "params": {"delta": 2}},
+          {"type": "allow"}
+        ]
+      },
+      {
+        "name": "penalize-slop",
+        "on": "datagram",
+        "match": "sender_rating > 0 && sender_rating < 0.5",
+        "actions": [
+          {"type": "score", "params": {"delta": -1}},
+          {"type": "allow"}
+        ]
+      },
+      {
+        "name": "baseline",
+        "on": "datagram",
+        "match": "true",
+        "actions": [
+          {"type": "score", "params": {"delta": 1}},
+          {"type": "allow"}
+        ]
+      },
+      {
+        "name": "banish-slop",
+        "on": "cycle",
+        "match": "true",
+        "actions": [
+          {
+            "type": "evict_where",
+            "params": {"match": "peer_score < -20 && peer_age_s > 1800"}
+          }
+        ]
+      }
+    ],
+    "config": {"cycle": "1h"}
+  },
+  "policy": {
+    "description": "Capability-gated meritocracy: sender_rating above 0.75 earns double score; sender_rating below 0.5 loses score. Underperformers with sustained negative score get evicted each hour. Demonstrates backend-tier selection pressure (Layer 1.5)."
+  }
+}
