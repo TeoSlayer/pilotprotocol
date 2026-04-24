@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -55,19 +57,18 @@ func TestPoloScoreDefault(t *testing.T) {
 	}
 	nodeID := uint32(resp["node_id"].(float64))
 
-	// Lookup node and verify default polo score is 0
+	// Default polo is 0 — verify via in-process test helper since
+	// lookup no longer exposes polo_score (privacy redesign).
+	if got := reg.GetPoloScoreForTest(nodeID); got != 0 {
+		t.Errorf("expected default polo=0, got %d", got)
+	}
+	// Lookup must NOT include polo_score.
 	lookup, err := rc.Lookup(nodeID)
 	if err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
-
-	poloScore, ok := lookup["polo_score"].(float64)
-	if !ok {
-		t.Fatal("polo_score not found in lookup response")
-	}
-
-	if int(poloScore) != 0 {
-		t.Errorf("expected default polo_score=0, got %d", int(poloScore))
+	if _, leaked := lookup["polo_score"]; leaked {
+		t.Errorf("lookup leaks polo_score: %v", lookup["polo_score"])
 	}
 }
 
@@ -115,44 +116,33 @@ func TestPoloScoreUpdate(t *testing.T) {
 	}
 	nodeID := uint32(resp["node_id"].(float64))
 
-	// Test positive delta
-	updateResp, err := rc.UpdatePoloScore(nodeID, 10)
-	if err != nil {
+	// Polo is now write-only externally — UpdatePoloScore no longer
+	// echoes the new score. Readback goes through a separate path
+	// (self-read GetPoloScore) or through the gate's observable
+	// behavior. We verify the mutations land by reading directly
+	// from the server's state since this test runs in-process.
+	if _, err := rc.UpdatePoloScore(nodeID, 10); err != nil {
 		t.Fatalf("update polo (+10): %v", err)
 	}
-
-	if updateResp["polo_score"].(float64) != 10 {
-		t.Errorf("expected polo_score=10 after +10, got %v", updateResp["polo_score"])
-	}
-
-	// Test another positive delta
-	updateResp, err = rc.UpdatePoloScore(nodeID, 5)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(nodeID, 5); err != nil {
 		t.Fatalf("update polo (+5): %v", err)
 	}
-
-	if updateResp["polo_score"].(float64) != 15 {
-		t.Errorf("expected polo_score=15 after +5, got %v", updateResp["polo_score"])
-	}
-
-	// Test negative delta
-	updateResp, err = rc.UpdatePoloScore(nodeID, -8)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(nodeID, -8); err != nil {
 		t.Fatalf("update polo (-8): %v", err)
 	}
 
-	if updateResp["polo_score"].(float64) != 7 {
-		t.Errorf("expected polo_score=7 after -8, got %v", updateResp["polo_score"])
+	// Readback via server-state introspection (same process).
+	if got := reg.GetPoloScoreForTest(nodeID); got != 7 {
+		t.Errorf("after +10+5-8, expected polo=7, got %d", got)
 	}
 
-	// Verify via lookup
+	// Lookup must NOT expose polo_score — privacy invariant.
 	lookup, err := rc.Lookup(nodeID)
 	if err != nil {
 		t.Fatalf("lookup: %v", err)
 	}
-
-	if lookup["polo_score"].(float64) != 7 {
-		t.Errorf("lookup: expected polo_score=7, got %v", lookup["polo_score"])
+	if _, leaked := lookup["polo_score"]; leaked {
+		t.Errorf("lookup leaks polo_score: %v", lookup["polo_score"])
 	}
 }
 
@@ -201,43 +191,25 @@ func TestPoloScoreSet(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	// Set polo to 100
-	setResp, err := rc.SetPoloScore(nodeID, 100)
-	if err != nil {
+	if _, err := rc.SetPoloScore(nodeID, 100); err != nil {
 		t.Fatalf("set polo (100): %v", err)
 	}
-
-	if setResp["polo_score"].(float64) != 100 {
-		t.Errorf("expected polo_score=100, got %v", setResp["polo_score"])
+	if got := reg.GetPoloScoreForTest(nodeID); got != 100 {
+		t.Errorf("after set=100, got polo=%d", got)
 	}
 
-	// Set polo to -50
-	setResp, err = rc.SetPoloScore(nodeID, -50)
-	if err != nil {
+	if _, err := rc.SetPoloScore(nodeID, -50); err != nil {
 		t.Fatalf("set polo (-50): %v", err)
 	}
-
-	if setResp["polo_score"].(float64) != -50 {
-		t.Errorf("expected polo_score=-50, got %v", setResp["polo_score"])
+	if got := reg.GetPoloScoreForTest(nodeID); got != -50 {
+		t.Errorf("after set=-50, got polo=%d", got)
 	}
 
-	// Set polo to 0
-	setResp, err = rc.SetPoloScore(nodeID, 0)
-	if err != nil {
+	if _, err := rc.SetPoloScore(nodeID, 0); err != nil {
 		t.Fatalf("set polo (0): %v", err)
 	}
-
-	if setResp["polo_score"].(float64) != 0 {
-		t.Errorf("expected polo_score=0, got %v", setResp["polo_score"])
-	}
-
-	// Verify via GetPoloScore
-	polo, err := rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo: %v", err)
-	}
-
-	if polo != 0 {
-		t.Errorf("GetPoloScore: expected 0, got %d", polo)
+	if got := reg.GetPoloScoreForTest(nodeID); got != 0 {
+		t.Errorf("after set=0, got polo=%d", got)
 	}
 }
 
@@ -285,29 +257,18 @@ func TestPoloScoreGet(t *testing.T) {
 	}
 	nodeID := uint32(resp["node_id"].(float64))
 
-	// Get default polo
-	polo, err := rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo: %v", err)
+	// Verify default and post-update polo via the in-process test
+	// helper. Over-the-wire GetPoloScore requires caller == target
+	// with a signed challenge, which this test's bare registry
+	// client doesn't set up.
+	if got := reg.GetPoloScoreForTest(nodeID); got != 0 {
+		t.Errorf("expected default polo=0, got %d", got)
 	}
-
-	if polo != 0 {
-		t.Errorf("expected default polo=0, got %d", polo)
-	}
-
-	// Update and get again
-	_, err = rc.UpdatePoloScore(nodeID, 42)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(nodeID, 42); err != nil {
 		t.Fatalf("update polo: %v", err)
 	}
-
-	polo, err = rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo after update: %v", err)
-	}
-
-	if polo != 42 {
-		t.Errorf("expected polo=42, got %d", polo)
+	if got := reg.GetPoloScoreForTest(nodeID); got != 42 {
+		t.Errorf("expected polo=42, got %d", got)
 	}
 }
 
@@ -393,14 +354,10 @@ func TestPoloScorePersistence(t *testing.T) {
 	}
 	defer rc2.Close()
 
-	// Verify polo score persisted
-	polo, err := rc2.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo after restart: %v", err)
-	}
-
-	if polo != 77 {
-		t.Errorf("polo not persisted: expected 77, got %d", polo)
+	// Polo is private — cross-node reads are rejected. Use the
+	// in-process test helper to verify the stored value survived.
+	if got := reg2.GetPoloScoreForTest(nodeID); got != 77 {
+		t.Errorf("polo not persisted: expected 77, got %d", got)
 	}
 }
 
@@ -500,53 +457,30 @@ func TestPoloScoreEdgeCases(t *testing.T) {
 	}
 	nodeID := uint32(resp["node_id"].(float64))
 
-	// Test very large positive value
-	_, err = rc.SetPoloScore(nodeID, 1000000)
-	if err != nil {
+	// Large positive — readback via in-process helper (cross-read denied over wire).
+	if _, err := rc.SetPoloScore(nodeID, 1000000); err != nil {
 		t.Fatalf("set large positive polo: %v", err)
 	}
-
-	polo, err := rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo: %v", err)
+	if got := reg.GetPoloScoreForTest(nodeID); got != 1000000 {
+		t.Errorf("expected polo=1000000, got %d", got)
 	}
 
-	if polo != 1000000 {
-		t.Errorf("expected polo=1000000, got %d", polo)
-	}
-
-	// Test very large negative value
-	_, err = rc.SetPoloScore(nodeID, -1000000)
-	if err != nil {
+	// Large negative.
+	if _, err := rc.SetPoloScore(nodeID, -1000000); err != nil {
 		t.Fatalf("set large negative polo: %v", err)
 	}
-
-	polo, err = rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo: %v", err)
+	if got := reg.GetPoloScoreForTest(nodeID); got != -1000000 {
+		t.Errorf("expected polo=-1000000, got %d", got)
 	}
 
-	if polo != -1000000 {
-		t.Errorf("expected polo=-1000000, got %d", polo)
-	}
-
-	// Test clamping: start at max and add more — should clamp to maxPoloScore (1000000)
-	_, err = rc.SetPoloScore(nodeID, 1000000)
-	if err != nil {
+	// Clamping: max + 500000 → clamped to maxPoloScore (1_000_000).
+	if _, err := rc.SetPoloScore(nodeID, 1000000); err != nil {
 		t.Fatalf("set polo: %v", err)
 	}
-
-	_, err = rc.UpdatePoloScore(nodeID, 500000)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(nodeID, 500000); err != nil {
 		t.Fatalf("update polo: %v", err)
 	}
-
-	polo, err = rc.GetPoloScore(nodeID)
-	if err != nil {
-		t.Fatalf("get polo: %v", err)
-	}
-
-	if polo != 1000000 {
-		t.Errorf("expected polo=1000000 (clamped), got %d", polo)
+	if got := reg.GetPoloScoreForTest(nodeID); got != 1000000 {
+		t.Errorf("expected polo=1000000 (clamped), got %d", got)
 	}
 }

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "allow-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-join",
+      "on": "join",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -300,17 +302,17 @@ func TestCmdRotateKey(t *testing.T) {
 		t.Fatal("daemon should have an identity")
 	}
 
-	// Sign rotation challenge with current key
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
-	sig := identity.Sign([]byte(challenge))
-	sigB64 := base64.StdEncoding.EncodeToString(sig)
-
 	// Generate new keypair for the test
 	newIdentity, err := newTestIdentity()
 	if err != nil {
 		t.Fatalf("generate identity: %v", err)
 	}
 	newPubKeyB64 := icrypto.EncodePublicKey(newIdentity.PublicKey)
+
+	// Sign rotation challenge with current key, binding new pubkey
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
+	sig := identity.Sign([]byte(challenge))
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
 
 	resp, err := rc.RotateKey(nodeID, sigB64, newPubKeyB64)
 	if err != nil {

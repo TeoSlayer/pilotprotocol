@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "tag-connecting-peer",
+      "on": "connect",
+      "match": "true",
+      "actions": [
+        {"type": "tag", "params": {"add": ["seen"]}},
+        {"type": "allow"}
+      ]
+    },
+    {
+      "name": "allow-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    }
+  ]
+}

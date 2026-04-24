@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -607,12 +609,9 @@ func TestReplicationEnterpriseData(t *testing.T) {
 		t.Error("standby: node 1 public flag not replicated")
 	}
 
-	// Verify polo score
-	score, err := sc.GetPoloScore(nodeID1)
-	if err != nil {
-		t.Fatalf("standby get polo score: %v", err)
-	}
-	if score != 42 {
+	// Verify polo replicated — readback via in-process helper since
+	// GetPoloScore is now self-only + signed over the wire.
+	if score := standby.GetPoloScoreForTest(nodeID1); score != 42 {
 		t.Errorf("standby: polo score = %d, want 42", score)
 	}
 
@@ -710,12 +709,9 @@ func TestReplicationEnterpriseData(t *testing.T) {
 	}
 	defer pc.Close()
 
-	// Verify enterprise data survived failover + promotion
-	pScore, err := pc.GetPoloScore(nodeID1)
-	if err != nil {
-		t.Fatalf("promoted get polo score: %v", err)
-	}
-	if pScore != 42 {
+	// Verify enterprise data survived failover + promotion — polo via
+	// in-process helper (wire GetPoloScore is self-only + signed).
+	if pScore := promoted.GetPoloScoreForTest(nodeID1); pScore != 42 {
 		t.Errorf("promoted: polo score = %d, want 42", pScore)
 	}
 

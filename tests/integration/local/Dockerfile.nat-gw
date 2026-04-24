@@ -1,0 +1,25 @@
+FROM alpine:3.20
+RUN apk add --no-cache iptables iptables-legacy ip6tables iproute2 bash tcpdump conntrack-tools
+
+# Force iptables-legacy. Alpine's default iptables is the nf_tables
+# backend (iptables-nft), which needs nft_nat / nft_chain_nat kernel
+# modules. The Jetson Tegra kernel (5.15.148-tegra) ships netfilter NAT
+# only via the legacy xtables path (xt_MASQUERADE, iptable_nat, nf_nat)
+# and omits nft_* NAT modules, so rules installed by iptables-nft fail
+# with "CHAIN_ADD failed: chain POSTROUTING". Swap the defaults so
+# nat-gw.sh's rules land in the legacy tables the kernel actually has.
+RUN ln -sf /sbin/iptables-legacy         /sbin/iptables && \
+    ln -sf /sbin/iptables-legacy-save    /sbin/iptables-save && \
+    ln -sf /sbin/iptables-legacy-restore /sbin/iptables-restore && \
+    ln -sf /sbin/ip6tables-legacy         /sbin/ip6tables && \
+    ln -sf /sbin/ip6tables-legacy-save    /sbin/ip6tables-save && \
+    ln -sf /sbin/ip6tables-legacy-restore /sbin/ip6tables-restore
+
+# Entrypoint is supplied per-compose-service via `command:` — the gateway
+# containers set up masquerading rules keyed to a `NAT_MODE` env var:
+#   - cone       : stateful NAT (Linux default; behaves ~ port-restricted cone)
+#   - symmetric  : force per-destination source-port randomisation
+# Usage (from compose):
+#   command: ["/bin/bash", "/nat-gw.sh"]
+COPY nat-gw.sh /nat-gw.sh
+RUN chmod +x /nat-gw.sh

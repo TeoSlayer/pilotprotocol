@@ -1,0 +1,39 @@
+{{/*
+Emits two TSV-ish files (pipe-separated so the tab character doesn't get
+lost to Helm whitespace trimming): one row per test, in deterministic
+order, grouped by isolation. Pods in the indexed Job look up their row
+by $JOB_COMPLETION_INDEX.
+
+Format per row: <name>|<script>|<category>
+*/}}
+{{- $dind := list -}}
+{{- $dood := list -}}
+{{- range .Values.tests -}}
+{{- $iso := .isolation | default $.Values.defaultIsolation | default "dood" -}}
+{{- $should := include "pilot-integration.shouldRun" (dict "only" $.Values.only "name" .name "script" .script) -}}
+{{- if eq (trim $should) "true" -}}
+{{- if eq $iso "dind" -}}
+{{- $dind = append $dind (printf "%s|%s|%s" .name .script (.category | default "misc")) -}}
+{{- else -}}
+{{- $dood = append $dood (printf "%s|%s|%s" .name .script (.category | default "misc")) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-tests" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pilot-integration.namespace" . }}
+  labels:
+    {{- include "pilot-integration.labels" . | nindent 4 }}
+data:
+  dind-tests.psv: |
+{{- range $dind }}
+    {{ . }}
+{{- end }}
+  dood-tests.psv: |
+{{- range $dood }}
+    {{ . }}
+{{- end }}
+  dind-count: {{ len $dind | quote }}
+  dood-count: {{ len $dood | quote }}

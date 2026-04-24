@@ -1,0 +1,60 @@
+# Job-pod image for the k8s paradigm.
+#
+# A single image that contains:
+#   - the full repo (so docker compose build inside dockerd has context)
+#   - tests/integration/local/ scripts + helpers + compose files
+#   - dockerd + docker CLI + compose plugin (DinD)
+#
+# The Job pod runs privileged, starts dockerd inside the container, and
+# executes the chosen test_*.sh against that dockerd. Each Job is
+# isolated — no cross-Job contamination — and `ttlSecondsAfterFinished`
+# on the Job resource deletes the pod + logs on schedule.
+#
+# Built and pushed by tests/integration/k8s/scripts/build-and-push.sh.
+
+FROM docker:27-dind
+
+RUN apk add --no-cache \
+        bash \
+        curl \
+        jq \
+        git \
+        iproute2 \
+        iptables \
+        iptables-legacy \
+        ip6tables \
+        conntrack-tools \
+        python3 \
+        py3-pip \
+        docker-cli-compose
+
+# Force iptables-legacy — the Jetson Tegra kernel lacks the nftables
+# modules DOCKER-ISOLATION-STAGE-1 needs, so dockerd's bridge network
+# setup fails with nf_tables. Legacy uses xt_iptables which is present.
+RUN ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/iptables && \
+    ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/iptables-save && \
+    ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/iptables-restore && \
+    ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/ip6tables && \
+    ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/ip6tables-save && \
+    ln -sf /usr/sbin/xtables-legacy-multi /usr/sbin/ip6tables-restore
+
+# Point the in-pod dockerd at the cluster's pull-through proxy
+# (registry:2 with REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io,
+# exposed on every node via NodePort 30500). 21 parallel DinD pods
+# otherwise share the cluster egress IP and trip Docker Hub's anonymous
+# pull rate-limit; with the mirror, each upstream image:tag is fetched
+# once and served from cache for every subsequent pod.
+RUN mkdir -p /etc/docker && printf '%s\n' \
+    '{' \
+    '  "registry-mirrors": ["http://192.168.5.67:30500"],' \
+    '  "insecure-registries": ["192.168.5.67:30500"]' \
+    '}' > /etc/docker/daemon.json
+
+WORKDIR /workspace
+COPY . /workspace
+
+# Strip .git to keep the image slim (the tests don't need it at runtime).
+RUN rm -rf /workspace/.git
+
+# The tests expect to run with /workspace/tests/integration/local as cwd.
+WORKDIR /workspace/tests/integration/local

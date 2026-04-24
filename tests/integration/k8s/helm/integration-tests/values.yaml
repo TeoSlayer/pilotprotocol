@@ -1,0 +1,934 @@
+# Pilot Protocol integration tests — Helm values.
+#
+# Each test in `tests` becomes a Kubernetes Job. Jobs run in parallel,
+# bounded by `parallelism`. Every Job self-destructs after
+# `ttlSecondsAfterFinished` seconds (cleanup as policy).
+#
+# The Job image must already contain the test scripts. Build it with:
+#   bash ../../scripts/build-and-push.sh
+# or set `image.repository`/`image.tag` to your own.
+
+image:
+  repository: localhost:5000/pilot-integration
+  tag: iter8
+  pullPolicy: IfNotPresent
+
+# Cluster-wide cap on concurrent DooD pods. Applied to the DooD
+# indexed Job's .spec.parallelism — a real K8s concurrency gate now
+# (iter11 through iter15 set this but the chart ignored it, because
+# every test became its own parallelism=1 Job and 231 of them launched
+# together). 16 ≈ 4 per node, which the shared node-docker DaemonSet
+# handles cleanly; above that we see compose-project contention on
+# /var/lib/pilot-docker overlay2.
+parallelism: 16
+
+# Cluster-wide cap on concurrent DinD pods. Applied to the DinD
+# indexed Job. 4 keeps one privileged dockerd per node, which is
+# the containerd boltdb ceiling observed in iter7/iter8 (~5/node
+# consistently hung on boltdb-open contention past that).
+dindParallelism: 4
+
+# Clean up a finished Job (whether success or fail) after this many
+# seconds. Set to 0 to delete immediately, -1 to disable. 300s keeps the
+# pod around long enough to grab logs post-mortem without hogging the
+# Longhorn ephemeral PVC (freed when the pod terminates).
+ttlSecondsAfterFinished: 60
+
+# Per-Job timeout (seconds) — maps to Job.spec.activeDeadlineSeconds.
+# Bumped to 3600s (was 1800) because at max concurrency all 200+ jobs
+# land on 4 nodes simultaneously; DinD + policy tests routinely take
+# 20–30 min under that pressure, leaving zero margin. 108 iter7 jobs
+# hit DeadlineExceeded together at the 30-min mark.
+activeDeadlineSeconds: 7200
+
+# Restart policy for the Pod. `Never` means a failing test shows up as a
+# failed Job. backoffLimit: 1 allows one retry — transient
+# FailedAttachVolume / FailedMount errors under storage churn usually
+# succeed on the second try.
+restartPolicy: Never
+backoffLimit: 1
+
+# Privileged: controlled per-Job via `isolation`. DinD-tagged tests
+# (NAT suite) get privileged: true automatically; DooD tests rely on
+# the privileged node-docker DaemonSet and run unprivileged.
+# This field is retained only for compatibility with external
+# tooling that reads it — it is NOT referenced by templates.
+privileged: true
+
+# Default isolation mode for tests that don't specify `isolation`.
+# - "dood": Docker-outside-of-Docker via the node-docker DaemonSet
+#           socket. ~210 tests. Cheap to start, shared daemon per node.
+# - "dind": Docker-in-Docker inside a privileged pod. ~21 NAT tests
+#           that manipulate iptables/conntrack state and MUST have a
+#           private netns; host-level iptables collisions under DooD
+#           would cross-contaminate parallel NAT runs.
+# Override per-test by setting `isolation: dind` on the entry below.
+defaultIsolation: dood
+
+# node-docker DaemonSet — long-lived dockerd + compose per node. Every
+# DooD-mode Job on a node talks to this pod's socket via hostPath
+# /run/pilot-docker/docker.sock. Disable to fall back to all-DinD
+# (every Job boots its own dockerd).
+nodeDocker:
+  enabled: true
+  image:
+    # Reuses the integration image (which already bundles dockerd +
+    # compose + iptables-legacy symlinks). Same tag as the runner, so
+    # node-docker rollouts stay in lockstep with the test payload.
+    repository: localhost:5000/pilot-integration
+    tag: iter8
+    pullPolicy: IfNotPresent
+  # Schedule one Pod per node. Empty selector = every node.
+  nodeSelector: {}
+  # dockerd data-root. Defaults to NVMe because eMMC root on Jetson
+  # (57G) fills under ~50 concurrent DooD compose projects and the
+  # kubelet evicts pods with DiskPressure before image-GC catches up
+  # (see PROBLEM-REGISTRY P0-000, iter10 abort 2026-04-22).
+  dataRoot: /mnt/nvme/pilot-docker
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+# Host dir into which the DaemonSet seeds a read-only source tree for
+# DooD Jobs. Each Job hardlink-copies /source → /tests/<name>/ before
+# running so compose bind-mount paths resolve identically in the
+# runner pod and on the host side of the docker socket.
+workspaceHostPath:
+  path: /mnt/nvme/pilot-workspace
+
+# Filter. If `only` is set, only tests matching that glob run.
+# Examples:
+#   only: test_nat_full_cone       (single test, no extension)
+#   only: "test_nat_*"             (glob)
+# Leave empty to run every test listed below.
+only: ""
+
+# Resource requests. Override per-Job if a scenario needs more.
+# Sized so the scheduler caps concurrency at ~32 cluster-wide
+# (4 nodes × 12 CPU / 1500m = 32 slots). Longhorn CSI saturates
+# past ~10 concurrent attaches per node and triggers
+# FailedAttachVolume cascades; this cap is the ceiling that keeps
+# the attach queue smooth. Measured steady state per pod: ~7m CPU,
+# ~275 MiB mem; peak ~350m CPU, ~500 MiB mem — requests are
+# deliberately above observed to reserve slots.
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# Namespace. Leave empty to deploy into the install namespace.
+namespace: ""
+
+# Pin Jobs to a specific node. Useful when the image was imported
+# directly into a single node's containerd (pullPolicy: Never workflow).
+# Leave empty to let the scheduler pick.
+nodeSelector: {}
+
+# DinD's /var/lib/docker is a generic ephemeral PVC, one per pod,
+# auto-deleted when the Job's pod terminates. Default: Longhorn
+# (NVMe-backed), RWO, 10Gi. Keeps the pod's docker graph off the
+# node's 57G eMMC root fs where ephemeral-storage eviction lives.
+dindStorage:
+  storageClassName: local-path
+  size: 2Gi
+
+# Shared read-only volume holding preloaded Docker image tarballs.
+# Populated once (see scripts/seed-preloaded-hostpath.sh) into a hostPath
+# dir on every node; every Job pod mounts it at /preloaded so the DinD
+# daemon can `docker load` common base images + pilot-multi without
+# rebuilding or pulling. hostPath is used instead of a Longhorn RWX PVC
+# because Longhorn v2 data-engine is disabled on this cluster.
+# Set `preloadedHostPath.path: ""` to disable the mount.
+preloadedHostPath:
+  path: /var/lib/pilot-preloaded
+
+# Legacy PVC-based preload — kept for reference, now unused on Jetson.
+# NOTE: Jetson cluster has no RWX SC (Longhorn is disabled, local-path is RWO
+# only), so this path is not functional there. hostPath path above is the
+# supported mechanism. Value left as local-path for non-Jetson clusters.
+preloadedPVC:
+  claimName: ""
+  storageClassName: local-path
+  size: 2Gi
+
+# The canonical list of integration tests. Each entry becomes a Job.
+# Add new tests here after dropping the script into tests/integration/local/.
+# `category` groups tests by chunk for easier filtering in reports.
+tests:
+
+  # --- nat (21 tests) ---
+  - name: nat-address-restricted
+    script: test_nat_address_restricted.sh
+    category: nat
+    isolation: dind
+  - name: nat-asymmetric-routing
+    script: test_nat_asymmetric_routing.sh
+    category: nat
+    isolation: dind
+  - name: nat-cgn
+    script: test_nat_cgn.sh
+    category: nat
+    isolation: dind
+  - name: nat-conntrack-timeout
+    script: test_nat_conntrack_timeout.sh
+    category: nat
+    isolation: dind
+  - name: nat-dual-symmetric
+    script: test_nat_dual_symmetric.sh
+    category: nat
+    isolation: dind
+  - name: nat-egress-443-only
+    script: test_nat_egress_443_only.sh
+    category: nat
+    isolation: dind
+  - name: nat-full-cone
+    script: test_nat_full_cone.sh
+    category: nat
+    isolation: dind
+  - name: nat-hairpin
+    script: test_nat_hairpin.sh
+    category: nat
+    isolation: dind
+  - name: nat-ipv6-only
+    script: test_nat_ipv6_only.sh
+    category: nat
+    isolation: dind
+  - name: nat-multihomed
+    script: test_nat_multihomed.sh
+    category: nat
+    isolation: dind
+  - name: nat-partition-post-reg
+    script: test_nat_partition_post_reg.sh
+    category: nat
+    isolation: dind
+  - name: nat-plus-bandwidth
+    script: test_nat_plus_bandwidth.sh
+    category: nat
+    isolation: dind
+  - name: nat-plus-latency
+    script: test_nat_plus_latency.sh
+    category: nat
+    isolation: dind
+  - name: nat-plus-loss
+    script: test_nat_plus_loss.sh
+    category: nat
+    isolation: dind
+  - name: nat-plus-mtu
+    script: test_nat_plus_mtu.sh
+    category: nat
+    isolation: dind
+  - name: nat-plus-reorder
+    script: test_nat_plus_reorder.sh
+    category: nat
+    isolation: dind
+  - name: nat-rendezvous-natted
+    script: test_nat_rendezvous_natted.sh
+    category: nat
+    isolation: dind
+  - name: nat-restricted-cone
+    script: test_nat_restricted_cone.sh
+    category: nat
+    isolation: dind
+  - name: nat-stateful-firewall
+    script: test_nat_stateful_firewall.sh
+    category: nat
+    isolation: dind
+  - name: nat-symmetric
+    script: test_nat_symmetric.sh
+    category: nat
+    isolation: dind
+  - name: nat-udp-blocked
+    script: test_nat_udp_blocked.sh
+    category: nat
+    isolation: dind
+
+  # --- chaos (14 tests) ---
+  - name: chaos-delay200-all-ops
+    script: test_chaos_delay200_all_ops.sh
+    category: chaos
+  - name: chaos-loss10-all-ops
+    script: test_chaos_loss10_all_ops.sh
+    category: chaos
+  - name: chaos-loss30-all-ops
+    script: test_chaos_loss30_all_ops.sh
+    category: chaos
+  - name: chaos-packet-loss
+    script: test_chaos_packet_loss.sh
+    category: chaos
+  - name: chaos-reorder-all-ops
+    script: test_chaos_reorder_all_ops.sh
+    category: chaos
+  - name: clock-rollback
+    script: test_clock_rollback.sh
+    category: chaos
+  - name: clock-skew-receiver
+    script: test_clock_skew_receiver.sh
+    category: chaos
+  - name: disk-full-receiver
+    script: test_disk_full_receiver.sh
+    category: chaos
+  - name: partition-heal
+    script: test_partition_heal.sh
+    category: chaos
+  - name: partition-midflight
+    script: test_partition_midflight.sh
+    category: chaos
+  - name: rotate-key
+    script: test_rotate_key.sh
+    category: chaos
+  - name: rotate-key-hot-path
+    script: test_rotate_key_hot_path.sh
+    category: chaos
+  - name: splitbrain-divergence
+    script: test_splitbrain_divergence.sh
+    category: chaos
+  - name: splitbrain-heal
+    script: test_splitbrain_heal.sh
+    category: chaos
+    # test_splitbrain_heal.sh uses `docker run --name healed-agent-c/d`
+    # directly (bypassing compose + COMPOSE_PROJECT_NAME), so two
+    # concurrent runs would collide on those names against a shared
+    # host dockerd. DinD keeps each attempt in its own dockerd, which
+    # is cheaper than rewriting the test to use unique names.
+    isolation: dind
+
+  # --- trust (3 tests) ---
+  - name: trust-grant-already-connected
+    script: test_trust_grant_already_connected.sh
+    category: trust
+  - name: trust-grant-fresh
+    script: test_trust_grant_fresh.sh
+    category: trust
+  - name: trust-revoke
+    script: test_trust_revoke.sh
+    category: trust
+
+  # --- net (42 tests) ---
+  - name: net-all-shipped-configs-load
+    script: test_net_all_shipped_configs_load.sh
+    category: net
+  - name: net-anti-camping-shipped
+    script: test_net_anti_camping_shipped.sh
+    category: net
+  - name: net-aristocracy-shipped
+    script: test_net_aristocracy_shipped.sh
+    category: net
+  - name: net-burnout-shipped
+    script: test_net_burnout_shipped.sh
+    category: net
+  - name: net-cold-shoulder-shipped
+    script: test_net_cold_shoulder_shipped.sh
+    category: net
+  - name: net-cooling-off-shipped
+    script: test_net_cooling_off_shipped.sh
+    category: net
+  - name: net-cross-network-traffic-allowed
+    script: test_net_cross_network_traffic_allowed.sh
+    category: net
+  - name: net-cross-network-traffic-denied
+    script: test_net_cross_network_traffic_denied.sh
+    category: net
+  - name: net-data-exchange-policy-shipped
+    script: test_net_data_exchange_policy_shipped.sh
+    category: net
+  - name: net-dunbar-150-shipped
+    script: test_net_dunbar_150_shipped.sh
+    category: net
+  - name: net-fifo-shipped
+    script: test_net_fifo_shipped.sh
+    category: net
+  - name: net-forgiveness-shipped
+    script: test_net_forgiveness_shipped.sh
+    category: net
+  - name: net-gift-economy-shipped
+    script: test_net_gift_economy_shipped.sh
+    category: net
+  - name: net-golden-hour-shipped
+    script: test_net_golden_hour_shipped.sh
+    category: net
+  - name: net-gossip-tax-shipped
+    script: test_net_gossip_tax_shipped.sh
+    category: net
+  - name: net-grudge-match-shipped
+    script: test_net_grudge_match_shipped.sh
+    category: net
+  - name: net-half-life-shipped
+    script: test_net_half_life_shipped.sh
+    category: net
+  - name: net-high-trust-society-shipped
+    script: test_net_high_trust_society_shipped.sh
+    category: net
+  - name: net-isolation-policy-scoping
+    script: test_net_isolation_policy_scoping.sh
+    category: net
+  - name: net-join-allow-per-network
+    script: test_net_join_allow_per_network.sh
+    category: net
+  - name: net-join-deny-per-network
+    script: test_net_join_deny_per_network.sh
+    category: net
+  - name: net-karma-ledger-shipped
+    script: test_net_karma_ledger_shipped.sh
+    category: net
+  - name: net-lifo-shipped
+    script: test_net_lifo_shipped.sh
+    category: net
+  - name: net-lottery-shipped
+    script: test_net_lottery_shipped.sh
+    category: net
+  - name: net-meritocracy-rating-shipped
+    script: test_net_meritocracy_rating_shipped.sh
+    category: net
+  - name: net-meritocracy-shipped
+    script: test_net_meritocracy_shipped.sh
+    category: net
+  - name: net-mutual-admiration-shipped
+    script: test_net_mutual_admiration_shipped.sh
+    category: net
+  - name: net-old-guard-shipped
+    script: test_net_old_guard_shipped.sh
+    category: net
+  - name: net-ostracism-shipped
+    script: test_net_ostracism_shipped.sh
+    category: net
+  - name: net-pay-it-forward-shipped
+    script: test_net_pay_it_forward_shipped.sh
+    category: net
+  - name: net-polo-scoped-per-network
+    script: test_net_polo_scoped_per_network.sh
+    category: net
+  - name: net-rotating-chairs-shipped
+    script: test_net_rotating_chairs_shipped.sh
+    category: net
+  - name: net-seniority-shipped
+    script: test_net_seniority_shipped.sh
+    category: net
+  - name: net-small-circle-shipped
+    script: test_net_small_circle_shipped.sh
+    category: net
+  - name: net-stable-state-shipped
+    script: test_net_stable_state_shipped.sh
+    category: net
+  - name: net-sybil-gauntlet-shipped
+    script: test_net_sybil_gauntlet_shipped.sh
+    category: net
+  - name: net-tithe-shipped
+    script: test_net_tithe_shipped.sh
+    category: net
+  - name: net-trust-decay-shipped
+    script: test_net_trust_decay_shipped.sh
+    category: net
+  - name: net-trust-scoped-per-network
+    script: test_net_trust_scoped_per_network.sh
+    category: net
+  - name: net-two-strikes-shipped
+    script: test_net_two_strikes_shipped.sh
+    category: net
+  - name: net-vouching-chain-shipped
+    script: test_net_vouching_chain_shipped.sh
+    category: net
+  - name: net-whale-hunt-shipped
+    script: test_net_whale_hunt_shipped.sh
+    category: net
+
+  # --- policy (15 tests) ---
+  - name: policy-connect-allow
+    script: test_policy_connect_allow.sh
+    category: policy
+  - name: policy-connect-deny
+    script: test_policy_connect_deny.sh
+    category: policy
+  - name: policy-connect-score
+    script: test_policy_connect_score.sh
+    category: policy
+  - name: policy-connect-tag
+    script: test_policy_connect_tag.sh
+    category: policy
+  - name: policy-cycle-evict
+    script: test_policy_cycle_evict.sh
+    category: policy
+  - name: policy-cycle-fill-trust
+    script: test_policy_cycle_fill_trust.sh
+    category: policy
+  - name: policy-cycle-prune-trust
+    script: test_policy_cycle_prune_trust.sh
+    category: policy
+  - name: policy-cycle-webhook
+    script: test_policy_cycle_webhook.sh
+    category: policy
+  - name: policy-datagram-allow
+    script: test_policy_datagram_allow.sh
+    category: policy
+  - name: policy-datagram-deny
+    script: test_policy_datagram_deny.sh
+    category: policy
+  - name: policy-datagram-score
+    script: test_policy_datagram_score.sh
+    category: policy
+  - name: policy-join-allow
+    script: test_policy_join_allow.sh
+    category: policy
+  - name: policy-join-deny
+    script: test_policy_join_deny.sh
+    category: policy
+  - name: policy-join-score
+    script: test_policy_join_score.sh
+    category: policy
+  - name: policy-shipped-configs
+    script: test_policy_shipped_configs.sh
+    category: policy
+
+  # --- webhook (10 tests) ---
+  - name: webhook-agent-registered
+    script: test_webhook_agent_registered.sh
+    category: webhook
+  - name: webhook-exactly-once-on-restart
+    script: test_webhook_exactly_once_on_restart.sh
+    category: webhook
+  - name: webhook-file-delivered
+    script: test_webhook_file_delivered.sh
+    category: webhook
+  - name: webhook-message-received
+    script: test_webhook_message_received.sh
+    category: webhook
+  - name: webhook-polo-updated
+    script: test_webhook_polo_updated.sh
+    category: webhook
+  - name: webhook-pubsub-published
+    script: test_webhook_pubsub_published.sh
+    category: webhook
+  - name: webhook-task-completed
+    script: test_webhook_task_completed.sh
+    category: webhook
+  - name: webhook-task-submitted
+    script: test_webhook_task_submitted.sh
+    category: webhook
+  - name: webhook-trust-changed
+    script: test_webhook_trust_changed.sh
+    category: webhook
+  - name: webhook-tunnel-established
+    script: test_webhook_tunnel_established.sh
+    category: webhook
+
+  # --- sec (11 tests) ---
+  - name: sec-beacon-amplification
+    script: test_sec_beacon_amplification.sh
+    category: sec
+  - name: sec-ipc-exhaustion
+    script: test_sec_ipc_exhaustion.sh
+    category: sec
+  - name: sec-malformed-frame
+    script: test_sec_malformed_frame.sh
+    category: sec
+  - name: sec-oversized-payload
+    script: test_sec_oversized_payload.sh
+    category: sec
+  - name: sec-pubsub-spam
+    script: test_sec_pubsub_spam.sh
+    category: sec
+  - name: sec-rekey-flood
+    script: test_sec_rekey_flood.sh
+    category: sec
+  - name: sec-replay-after-rekey
+    script: test_sec_replay_after_rekey.sh
+    category: sec
+  - name: sec-spoofed-node-id
+    script: test_sec_spoofed_node_id.sh
+    category: sec
+  - name: sec-sybil-reputation
+    script: test_sec_sybil_reputation.sh
+    category: sec
+  - name: sec-sym-nat-spoof
+    script: test_sec_sym_nat_spoof.sh
+    category: sec
+  - name: sec-trust-grant-forgery
+    script: test_sec_trust_grant_forgery.sh
+    category: sec
+
+  # --- task (19 tests) ---
+  - name: task-accept-expiry
+    script: test_task_accept_expiry.sh
+    category: task
+  - name: task-accepted-restart-recovery
+    script: test_task_accepted_restart_recovery.sh
+    category: task
+  - name: task-bidirectional-services
+    script: test_task_bidirectional_services.sh
+    category: task
+  - name: task-concurrent-workers
+    script: test_task_concurrent_workers.sh
+    category: task
+  - name: task-decline
+    script: test_task_decline.sh
+    category: task
+  - name: task-description-integrity
+    script: test_task_description_integrity.sh
+    category: task
+  - name: task-execute-fifo
+    script: test_task_execute_fifo.sh
+    category: task
+  - name: task-execute-flow
+    script: test_task_execute_flow.sh
+    category: task
+  - name: task-executor
+    script: test_task_executor.sh
+    category: task
+  - name: task-file-results
+    script: test_task_file_results.sh
+    category: task
+  - name: task-invalid-states
+    script: test_task_invalid_states.sh
+    category: task
+  - name: task-list-ordering
+    script: test_task_list_ordering.sh
+    category: task
+  - name: task-message-chain
+    script: test_task_message_chain.sh
+    category: task
+  - name: task-persistence-restart
+    script: test_task_persistence_restart.sh
+    category: task
+  - name: task-policy-decline
+    script: test_task_policy_decline.sh
+    category: task
+  - name: task-polo-gate
+    script: test_task_polo_gate.sh
+    category: task
+  - name: task-progress-events
+    script: test_task_progress_events.sh
+    category: task
+  - name: task-result-integrity
+    script: test_task_result_integrity.sh
+    category: task
+  - name: task-sequential-burst
+    script: test_task_sequential_burst.sh
+    category: task
+
+  # --- pubsub (6 tests) ---
+  - name: pubsub-fanout
+    script: test_pubsub_fanout.sh
+    category: pubsub
+  - name: pubsub-multi-publisher
+    script: test_pubsub_multi_publisher.sh
+    category: pubsub
+  - name: pubsub-publish-to-empty-topic
+    script: test_pubsub_publish_to_empty_topic.sh
+    category: pubsub
+  - name: pubsub-service-agent
+    script: test_pubsub_service_agent.sh
+    category: pubsub
+  - name: pubsub-subscribe-before-publisher
+    script: test_pubsub_subscribe_before_publisher.sh
+    category: pubsub
+  - name: pubsub-topic-fifo
+    script: test_pubsub_topic_fifo.sh
+    category: pubsub
+
+  # --- race (8 tests) ---
+  - name: race-polo-read-write
+    script: test_race_polo_read_write.sh
+    category: race
+  - name: race-pubsub-late-sub
+    script: test_race_pubsub_late_sub.sh
+    category: race
+  - name: race-register-lookup
+    script: test_race_register_lookup.sh
+    category: race
+  - name: race-sendfile-rekey
+    script: test_race_sendfile_rekey.sh
+    category: race
+  - name: race-submit-accept
+    script: test_race_submit_accept.sh
+    category: race
+  - name: race-submit-rekey
+    script: test_race_submit_rekey.sh
+    category: race
+  - name: race-topic-delete-publish
+    script: test_race_topic_delete_publish.sh
+    category: race
+  - name: race-trust-grant-revoke
+    script: test_race_trust_grant_revoke.sh
+    category: race
+
+  # --- size (7 tests) ---
+  - name: size-file-100mb
+    script: test_size_file_100mb.sh
+    category: size
+  - name: size-file-10mb
+    script: test_size_file_10mb.sh
+    category: size
+  - name: size-file-500mb-reject
+    script: test_size_file_500mb_reject.sh
+    category: size
+  - name: size-file-50mb
+    script: test_size_file_50mb.sh
+    category: size
+  - name: size-message-10mb-reject
+    script: test_size_message_10mb_reject.sh
+    category: size
+  - name: size-pubsub-large
+    script: test_size_pubsub_large.sh
+    category: size
+  - name: size-task-result-10mb
+    script: test_size_task_result_10mb.sh
+    category: size
+
+  # --- send-file (4 tests) ---
+  - name: send-file-bidirectional-transform
+    script: test_send_file_bidirectional_transform.sh
+    category: send-file
+  - name: send-file-concurrent
+    script: test_send_file_concurrent.sh
+    category: send-file
+  - name: send-file-hostile-names
+    script: test_send_file_hostile_names.sh
+    category: send-file
+  - name: send-file-integrity
+    script: test_send_file_integrity.sh
+    category: send-file
+
+  # --- relay (4 tests) ---
+  - name: force-relay-pubsub
+    script: test_force_relay_pubsub.sh
+    category: relay
+  - name: force-relay-send-file
+    script: test_force_relay_send_file.sh
+    category: relay
+  - name: force-relay-send-message
+    script: test_force_relay_send_message.sh
+    category: relay
+  - name: force-relay-task
+    script: test_force_relay_task.sh
+    category: relay
+
+  # --- gateway (12 tests) ---
+  - name: gateway-file
+    script: test_gateway_file.sh
+    category: gateway
+  - name: gateway-http-message
+    script: test_gateway_http_message.sh
+    category: gateway
+  - name: gateway-lookup
+    script: test_gateway_lookup.sh
+    category: gateway
+  - name: gateway-ping
+    script: test_gateway_ping.sh
+    category: gateway
+  - name: gateway-polo-read
+    script: test_gateway_polo_read.sh
+    category: gateway
+  - name: gateway-pubsub-pub
+    script: test_gateway_pubsub_pub.sh
+    category: gateway
+  - name: gateway-pubsub-sub
+    script: test_gateway_pubsub_sub.sh
+    category: gateway
+  - name: gateway-register
+    script: test_gateway_register.sh
+    category: gateway
+  - name: gateway-rotate-key
+    script: test_gateway_rotate_key.sh
+    category: gateway
+  - name: gateway-task-result
+    script: test_gateway_task_result.sh
+    category: gateway
+  - name: gateway-task-submit
+    script: test_gateway_task_submit.sh
+    category: gateway
+  - name: gateway-trust-grant
+    script: test_gateway_trust_grant.sh
+    category: gateway
+
+  # --- rekey (4 tests) ---
+  - name: midrekey-send-file
+    script: test_midrekey_send_file.sh
+    category: rekey
+  - name: midrekey-send-message
+    script: test_midrekey_send_message.sh
+    category: rekey
+  - name: midrekey-task-results
+    script: test_midrekey_task_results.sh
+    category: rekey
+  - name: midrekey-task-submit
+    script: test_midrekey_task_submit.sh
+    category: rekey
+
+  # --- durability (6 tests) ---
+  - name: dur-idle-10min
+    script: test_dur_idle_10min.sh
+    category: durability
+  - name: dur-idle-60s
+    script: test_dur_idle_60s.sh
+    category: durability
+  - name: dur-periodic-60s
+    script: test_dur_periodic_60s.sh
+    category: durability
+  - name: dur-shortcycle-policy-1m
+    script: test_dur_shortcycle_policy_1m.sh
+    category: durability
+  - name: dur-steady-10min
+    script: test_dur_steady_10min.sh
+    category: durability
+  - name: dur-steady-compressed-24h
+    script: test_dur_steady_compressed_24h.sh
+    category: durability
+
+  # --- observability (4 tests) ---
+  - name: obs-dashboard-polo-truth
+    script: test_obs_dashboard_polo_truth.sh
+    category: observability
+  - name: obs-log-peer-rekeyed
+    script: test_obs_log_peer_rekeyed.sh
+    category: observability
+  - name: obs-metric-encrypt-ok
+    script: test_obs_metric_encrypt_ok.sh
+    category: observability
+  - name: obs-tasklist-vs-disk
+    script: test_obs_tasklist_vs_disk.sh
+    category: observability
+
+  # --- chain (2 tests) ---
+  - name: chain-abc-message
+    script: test_chain_abc_message.sh
+    category: chain
+  - name: chain-abc-task
+    script: test_chain_abc_task.sh
+    category: chain
+
+  # --- fanout (5 tests) ---
+  - name: fanin-3agents-tasks
+    script: test_fanin_3agents_tasks.sh
+    category: fanout
+  - name: fanout-3agents-file
+    script: test_fanout_3agents_file.sh
+    category: fanout
+  - name: fanout-3agents-pubsub
+    script: test_fanout_3agents_pubsub.sh
+    category: fanout
+  - name: fanout-5agents-pubsub
+    script: test_fanout_5agents_pubsub.sh
+    category: fanout
+  - name: flash-crowd-10agents-register
+    script: test_flash_crowd_10agents_register.sh
+    category: fanout
+
+  # --- topology (4 tests) ---
+  - name: mesh-3agents-crosstraffic
+    script: test_mesh_3agents_crosstraffic.sh
+    category: topology
+  - name: ring4-routing
+    script: test_ring4_routing.sh
+    category: topology
+  - name: star5-hub-fanin
+    script: test_star5_hub_fanin.sh
+    category: topology
+  - name: star5-hub-fanout
+    script: test_star5_hub_fanout.sh
+    category: topology
+
+  # --- discovery (4 tests) ---
+  - name: beacon-ping
+    script: test_beacon_ping.sh
+    category: discovery
+  - name: beacon-restart-midflight
+    script: test_beacon_restart_midflight.sh
+    category: discovery
+  - name: rendezvous-beacon-split
+    script: test_rendezvous_beacon_split.sh
+    category: discovery
+  - name: rendezvous-restart-midflight
+    script: test_rendezvous_restart_midflight.sh
+    category: discovery
+
+  # --- crash (4 tests) ---
+  - name: receiver-sigkill-midfile
+    script: test_receiver_sigkill_midfile.sh
+    category: crash
+  - name: receiver-sigkill-midtask
+    script: test_receiver_sigkill_midtask.sh
+    category: crash
+  - name: sender-clean-restart-midflight
+    script: test_sender_clean_restart_midflight.sh
+    category: crash
+  - name: sender-sigkill-midfile
+    script: test_sender_sigkill_midfile.sh
+    category: crash
+
+  # --- restart (4 tests) ---
+  - name: peer-restarted-pubsub-sub
+    script: test_peer_restarted_pubsub_sub.sh
+    category: restart
+  - name: peer-restarted-send-file
+    script: test_peer_restarted_send_file.sh
+    category: restart
+  - name: peer-restarted-send-message
+    script: test_peer_restarted_send_message.sh
+    category: restart
+  - name: register-identity-new-endpoint
+    script: test_register_identity_new_endpoint.sh
+    category: restart
+
+  # --- p2p (4 tests) ---
+  - name: bidirectional
+    script: test_bidirectional.sh
+    category: p2p
+  - name: inbox-ordering
+    script: test_inbox_ordering.sh
+    category: p2p
+  - name: p2p
+    script: test_p2p.sh
+    category: p2p
+  - name: ping-ghost-peer
+    script: test_ping_ghost_peer.sh
+    category: p2p
+
+  # --- misc (14 tests) ---
+  - name: 3agent-lookup-propagation
+    script: test_3agent_lookup_propagation.sh
+    category: misc
+  - name: cli
+    script: test_cli.sh
+    category: misc
+  - name: dashboard
+    script: test_dashboard.sh
+    category: misc
+  - name: message-payload-integrity
+    script: test_message_payload_integrity.sh
+    category: misc
+  - name: mixed-traffic-burst
+    script: test_mixed_traffic_burst.sh
+    category: misc
+  - name: network-edge
+    script: test_network_edge.sh
+    category: misc
+  - name: polo-persistence-restart
+    script: test_polo_persistence_restart.sh
+    category: misc
+  - name: resilience
+    script: test_resilience.sh
+    category: misc
+  - name: results-after-submitter-died
+    script: test_results_after_submitter_died.sh
+    category: misc
+  - name: service-agent
+    script: test_service_agent.sh
+    category: misc
+  - name: stress-edge
+    script: test_stress_edge.sh
+    category: misc
+  - name: submit-to-unregistered-peer
+    script: test_submit_to_unregistered_peer.sh
+    category: misc
+  - name: tasks-and-edge
+    script: test_tasks_and_edge.sh
+    category: misc
+  - name: type-routed-service
+    script: test_type_routed_service.sh
+    category: misc

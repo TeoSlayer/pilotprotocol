@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -6,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -341,35 +342,6 @@ func TestWebhook_ConnectionEvents(t *testing.T) {
 	if _, ok := collector.WaitFor("tunnel.peer_added", 3*time.Second); !ok {
 		t.Error("missing tunnel.peer_added event")
 	}
-}
-
-func TestWebhook_NodeDeregistered(t *testing.T) {
-	t.Parallel()
-	if os.Getenv("CI") != "" {
-		t.Skip("skipping in CI: webhook delivery timing unreliable on constrained runners")
-	}
-	collector := newWebhookCollector()
-	// Don't defer collector.Close() — we need it alive during d.Stop()
-
-	env := NewTestEnv(t)
-	d, _ := env.AddDaemonOnly(func(cfg *daemon.Config) {
-		cfg.WebhookURL = collector.URL()
-	})
-
-	// Verify registration happened
-	if _, ok := collector.WaitFor("node.registered", 3*time.Second); !ok {
-		t.Fatal("timed out waiting for node.registered")
-	}
-
-	// Stop daemon triggers deregistration
-	d.Stop()
-
-	// Check for deregistration event
-	if _, ok := collector.WaitFor("node.deregistered", 3*time.Second); !ok {
-		t.Error("missing node.deregistered event")
-	}
-
-	collector.Close()
 }
 
 func TestWebhook_EventPayloadFormat(t *testing.T) {

@@ -1,0 +1,351 @@
+{{/*
+Two indexed Jobs — one for DinD (privileged, per-pod /var/lib/docker),
+one for DooD (shared node-docker DaemonSet socket). Each pod selects
+its test at runtime by its $JOB_COMPLETION_INDEX, looking up a row in
+the tests ConfigMap. Compared to the old one-Job-per-test layout this
+gets us:
+
+  - real cluster-wide concurrency cap (parallelism on the Job object,
+    enforced by the controller — not a values.yaml field the chart
+    ignored)
+  - scheduler spreads pods across nodes respecting resource requests;
+    no more 200+ pods racing onto 4 nodes at once and oom-killing
+  - a single Job object per isolation tier instead of 231 — monitoring,
+    log collection, and cleanup all simplify
+
+JOB_COMPLETION_INDEX is injected by the Job controller into every
+indexed pod (KEP-2214, GA in k8s 1.24). psv = pipe-separated values.
+*/}}
+{{- $dindNames := list -}}
+{{- $doodNames := list -}}
+{{- range .Values.tests -}}
+{{- $iso := .isolation | default $.Values.defaultIsolation | default "dood" -}}
+{{- $should := include "pilot-integration.shouldRun" (dict "only" $.Values.only "name" .name "script" .script) -}}
+{{- if eq (trim $should) "true" -}}
+{{- if eq $iso "dind" -}}
+{{- $dindNames = append $dindNames .name -}}
+{{- else -}}
+{{- $doodNames = append $doodNames .name -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $dindCount := len $dindNames -}}
+{{- $doodCount := len $doodNames -}}
+{{- $doodParallelism := .Values.parallelism | default 16 -}}
+{{- $dindParallelism := .Values.dindParallelism | default 4 -}}
+{{- $cmName := printf "%s-tests" .Release.Name | trunc 63 | trimSuffix "-" -}}
+
+{{- if gt $dindCount 0 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-dind" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pilot-integration.namespace" . }}
+  labels:
+    {{- include "pilot-integration.labels" . | nindent 4 }}
+    pilot-integration/isolation: dind
+spec:
+  completionMode: Indexed
+  completions: {{ $dindCount }}
+  parallelism: {{ $dindParallelism }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  # In indexed Jobs, `backoffLimit` is global across all indices — with
+  # 200+ completions any real failure rate trips it in seconds and TTL
+  # sweeps the whole Job. Use per-index limits (GA in k8s 1.28) so
+  # retries are scoped to the failing test, not the whole suite.
+  backoffLimit: {{ add (mul $dindCount 2) 10 }}
+  backoffLimitPerIndex: {{ .Values.backoffLimit | default 1 }}
+  maxFailedIndexes: {{ $dindCount }}
+  template:
+    metadata:
+      labels:
+        {{- include "pilot-integration.labels" . | nindent 8 }}
+        pilot-integration/isolation: dind
+    spec:
+      restartPolicy: {{ .Values.restartPolicy }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ISOLATION
+              value: "dind"
+            - name: PILOT_TEST_WAIT_MULT
+              value: "3"
+            - name: TESTS_FILE
+              value: /config/dind-tests.psv
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              # Pick our row out of the shared test list. AWK's NR is
+              # 1-indexed, JOB_COMPLETION_INDEX is 0-indexed.
+              ROW=$(awk -F'|' -v i="$((JOB_COMPLETION_INDEX + 1))" 'NR==i' "$TESTS_FILE")
+              if [ -z "$ROW" ]; then
+                echo "[runner] FATAL: no row at index $JOB_COMPLETION_INDEX in $TESTS_FILE"
+                exit 2
+              fi
+              TEST_NAME="${ROW%%|*}"
+              REST="${ROW#*|}"
+              TEST_SCRIPT="${REST%%|*}"
+              CATEGORY="${REST#*|}"
+              # Stash TEST_NAME for preStop — env vars don't cross into
+              # a lifecycle hook from env:, but a file on the pod fs does.
+              echo -n "$TEST_NAME" > /tmp/test-name
+              mkdir -p /var/lib/pilot-workspace/logs 2>/dev/null || true
+              LOGFILE="/var/lib/pilot-workspace/logs/${TEST_NAME}.log"
+              exec > >(tee -a "$LOGFILE") 2>&1
+              echo "[runner] === $(date -Iseconds) starting $TEST_NAME ($TEST_SCRIPT) isolation=dind idx=$JOB_COMPLETION_INDEX ==="
+              cd /workspace/tests/integration/local
+              # Jitter 0-60s so concurrent DinD pods don't all hit containerd
+              # init simultaneously and starve each other on IO. Containerd's
+              # boltdb open has a hard 10s timeout; if IO is saturated past
+              # that the nested containerd dies. Jitter is the only real
+              # mitigation. We retry dockerd-entrypoint up to 3x in case
+              # the first start lost the boltdb race.
+              sleep $((RANDOM % 60))
+              for attempt in 1 2 3; do
+                dockerd-entrypoint.sh &>/var/log/dockerd.log &
+                DOCKERD_PID=$!
+                for i in $(seq 1 180); do
+                  docker info >/dev/null 2>&1 && break
+                  sleep 1
+                done
+                if docker info >/dev/null 2>&1; then
+                  echo "[runner] dockerd up on attempt $attempt"
+                  break
+                fi
+                echo "[runner] dockerd start attempt $attempt failed, retrying"
+                kill -9 $DOCKERD_PID 2>/dev/null || true
+                pkill -9 -f dockerd 2>/dev/null || true
+                pkill -9 -f containerd 2>/dev/null || true
+                sleep $((5 + RANDOM % 10))
+              done
+              if ! docker info >/dev/null 2>&1; then
+                echo "[runner] FATAL: dockerd did not come up after 3 attempts"
+                tail -60 /var/log/dockerd.log 2>/dev/null
+                exit 2
+              fi
+              sed -i 's/seq 1 60/seq 1 180/g' ./test_*.sh 2>/dev/null || true
+              sed -i -E 's/\[ "\$(COUNT|NEW_COUNT)" /[ "${\1:-0}" /g' ./test_*.sh 2>/dev/null || true
+              if [ -d /preloaded ]; then
+                for tar in /preloaded/*.tar; do
+                  [ -f "$tar" ] || continue
+                  echo "[runner] docker load $tar"
+                  docker load -i "$tar" 2>&1 | tail -1
+                done
+              fi
+              bash "./$TEST_SCRIPT"
+              rc=$?
+              echo "[runner] test exited rc=$rc"
+              echo "[runner] ===== dockerd.log (last 80) ====="
+              tail -80 /var/log/dockerd.log 2>/dev/null || true
+              exit $rc
+          securityContext:
+            privileged: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: dind-storage
+              mountPath: /var/lib/docker
+            - name: workspace
+              mountPath: /var/lib/pilot-workspace
+            - name: tests-config
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.preloadedHostPath.path }}
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+            {{- else if .Values.preloadedPVC.claimName }}
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+            {{- end }}
+      volumes:
+        # Per-pod ephemeral PVC for /var/lib/docker. One PVC per pod,
+        # auto-deleted when the pod terminates.
+        - name: dind-storage
+          ephemeral:
+            volumeClaimTemplate:
+              metadata:
+                labels:
+                  {{- include "pilot-integration.labels" . | nindent 18 }}
+                  pilot-integration/isolation: dind
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                storageClassName: {{ .Values.dindStorage.storageClassName | default "local-path" }}
+                resources:
+                  requests:
+                    storage: {{ .Values.dindStorage.size | default "2Gi" | quote }}
+        - name: workspace
+          hostPath:
+            path: {{ .Values.workspaceHostPath.path | default "/var/lib/pilot-workspace" | quote }}
+            type: DirectoryOrCreate
+        - name: tests-config
+          configMap:
+            name: {{ $cmName }}
+        {{- if .Values.preloadedHostPath.path }}
+        - name: preloaded
+          hostPath:
+            path: {{ .Values.preloadedHostPath.path | quote }}
+            type: Directory
+        {{- else if .Values.preloadedPVC.claimName }}
+        - name: preloaded
+          persistentVolumeClaim:
+            claimName: {{ .Values.preloadedPVC.claimName | quote }}
+            readOnly: true
+        {{- end }}
+{{- end }}
+
+{{- if gt $doodCount 0 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-dood" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pilot-integration.namespace" . }}
+  labels:
+    {{- include "pilot-integration.labels" . | nindent 4 }}
+    pilot-integration/isolation: dood
+spec:
+  completionMode: Indexed
+  completions: {{ $doodCount }}
+  parallelism: {{ $doodParallelism }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  backoffLimit: {{ add (mul $doodCount 2) 10 }}
+  backoffLimitPerIndex: {{ .Values.backoffLimit | default 1 }}
+  maxFailedIndexes: {{ $doodCount }}
+  template:
+    metadata:
+      labels:
+        {{- include "pilot-integration.labels" . | nindent 8 }}
+        pilot-integration/isolation: dood
+    spec:
+      restartPolicy: {{ .Values.restartPolicy }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ISOLATION
+              value: "dood"
+            - name: PILOT_TEST_WAIT_MULT
+              value: "3"
+            - name: TESTS_FILE
+              value: /config/dood-tests.psv
+            - name: DOCKER_HOST
+              value: "unix:///run/pilot-docker/docker.sock"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              ROW=$(awk -F'|' -v i="$((JOB_COMPLETION_INDEX + 1))" 'NR==i' "$TESTS_FILE")
+              if [ -z "$ROW" ]; then
+                echo "[runner] FATAL: no row at index $JOB_COMPLETION_INDEX in $TESTS_FILE"
+                exit 2
+              fi
+              TEST_NAME="${ROW%%|*}"
+              REST="${ROW#*|}"
+              TEST_SCRIPT="${REST%%|*}"
+              CATEGORY="${REST#*|}"
+              echo -n "$TEST_NAME" > /tmp/test-name
+              # COMPOSE_PROJECT_NAME must be set per-pod from the looked-up
+              # TEST_NAME; exporting here propagates to child processes.
+              export COMPOSE_PROJECT_NAME="$TEST_NAME"
+              mkdir -p /var/lib/pilot-workspace/logs 2>/dev/null || true
+              LOGFILE="/var/lib/pilot-workspace/logs/${TEST_NAME}.log"
+              exec > >(tee -a "$LOGFILE") 2>&1
+              echo "[runner] === $(date -Iseconds) starting $TEST_NAME ($TEST_SCRIPT) isolation=dood idx=$JOB_COMPLETION_INDEX ==="
+              # Wait for the node-docker DaemonSet socket on this node.
+              for i in $(seq 1 180); do
+                [ -S /run/pilot-docker/docker.sock ] && \
+                  docker info >/dev/null 2>&1 && break
+                sleep 1
+              done
+              if ! docker info >/dev/null 2>&1; then
+                echo "[runner] FATAL: node-docker socket /run/pilot-docker/docker.sock never ready"
+                ls -la /run/pilot-docker 2>&1 || true
+                exit 2
+              fi
+              WS=/var/lib/pilot-workspace/tests/$TEST_NAME
+              rm -rf "$WS"
+              mkdir -p "$WS"
+              if ! cp -al /var/lib/pilot-workspace/source/. "$WS/" 2>/dev/null; then
+                cp -a /var/lib/pilot-workspace/source/. "$WS/"
+              fi
+              cd "$WS/tests/integration/local"
+              sed -i 's/seq 1 60/seq 1 180/g' ./test_*.sh 2>/dev/null || true
+              sed -i -E 's/\[ "\$(COUNT|NEW_COUNT)" /[ "${\1:-0}" /g' ./test_*.sh 2>/dev/null || true
+              trap 'echo "[runner] cleanup $WS"; docker compose -p "$TEST_NAME" down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$WS" 2>/dev/null || true' EXIT
+              bash "./$TEST_SCRIPT"
+              rc=$?
+              echo "[runner] test exited rc=$rc"
+              exit $rc
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    NAME=$(cat /tmp/test-name 2>/dev/null || echo unknown)
+                    docker compose -p "$NAME" down -v --remove-orphans --timeout 5 >/dev/null 2>&1 || true
+                    rm -rf "/var/lib/pilot-workspace/tests/$NAME" 2>/dev/null || true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: docker-run
+              mountPath: /run/pilot-docker
+            - name: workspace
+              mountPath: /var/lib/pilot-workspace
+            - name: tests-config
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.preloadedHostPath.path }}
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+            {{- else if .Values.preloadedPVC.claimName }}
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: docker-run
+          hostPath:
+            path: /run/pilot-docker
+            type: Directory
+        - name: workspace
+          hostPath:
+            path: {{ .Values.workspaceHostPath.path | default "/var/lib/pilot-workspace" | quote }}
+            type: Directory
+        - name: tests-config
+          configMap:
+            name: {{ $cmName }}
+        {{- if .Values.preloadedHostPath.path }}
+        - name: preloaded
+          hostPath:
+            path: {{ .Values.preloadedHostPath.path | quote }}
+            type: Directory
+        {{- else if .Values.preloadedPVC.claimName }}
+        - name: preloaded
+          persistentVolumeClaim:
+            claimName: {{ .Values.preloadedPVC.claimName | quote }}
+            readOnly: true
+        {{- end }}
+{{- end }}

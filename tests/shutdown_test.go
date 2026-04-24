@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -10,11 +11,12 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
+// TestGracefulShutdown verifies the documented shutdown contract: Stop()
+// leaves the node's registry record intact so a restarted daemon keeps its
+// per-network memberships and policy state (see daemon.go shutdown comment).
+// Explicit removal is reserved for pilotctl deregister / CmdDeregister.
 func TestGracefulShutdown(t *testing.T) {
 	t.Parallel()
-	if os.Getenv("CI") != "" {
-		t.Skip("skipping in CI: timing-sensitive deregister race on constrained runners")
-	}
 	env := NewTestEnv(t)
 
 	// Start daemon A (server) — AddDaemonOnly since we stop it mid-test
@@ -85,26 +87,25 @@ func TestGracefulShutdown(t *testing.T) {
 
 	// Graceful shutdown of daemon A
 	t.Log("stopping daemon A...")
+	nodeA := daemonA.NodeID()
 	daemonA.Stop()
 
-	// Poll until node is deregistered from the registry
-	deadline := time.After(5 * time.Second)
+	// Registry record must SURVIVE Stop() — Stop is not a deregister.
+	// Sample over a short window to rule out any async teardown quietly
+	// removing the record.
+	deadline := time.After(2 * time.Second)
 	for {
-		_, lookupErr := rc.Lookup(daemonA.NodeID())
-		if lookupErr != nil {
-			t.Logf("node A correctly deregistered: %v", lookupErr)
-			break
+		if _, lookupErr := rc.Lookup(nodeA); lookupErr != nil {
+			t.Errorf("node A should remain in registry after Stop(); lookup failed: %v", lookupErr)
+			return
 		}
 		select {
 		case <-deadline:
-			t.Error("lookup after shutdown should fail — node should be deregistered")
-			goto shutdownDone
-		case <-time.After(10 * time.Millisecond):
+			t.Log("registry record intact after Stop — design preserved")
+			return
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
-shutdownDone:
-
-	t.Log("graceful shutdown test passed")
 }
 
 func TestConnectionCleanupOnShutdown(t *testing.T) {

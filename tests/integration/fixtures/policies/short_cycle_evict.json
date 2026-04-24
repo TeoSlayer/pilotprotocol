@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "config": {"cycle": "1m"},
+  "rules": [
+    {
+      "name": "allow-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [
+        {"type": "tag", "params": {"add": ["stale"]}},
+        {"type": "allow"}
+      ]
+    },
+    {
+      "name": "allow-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "evict-stale-peers",
+      "on": "cycle",
+      "match": "peer_count > 0",
+      "actions": [
+        {"type": "evict_where", "params": {"match": "has_tag(peer_tags, \"stale\")"}}
+      ]
+    }
+  ]
+}

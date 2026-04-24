@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -815,56 +817,38 @@ func TestNegativePoloScoreAllowed(t *testing.T) {
 	}
 	defer rc.Close()
 
-	// Set polo score to 0
+	// Set polo score to 0. Update responses no longer echo the score
+	// (privacy redesign) — verify mutations via the in-process helper
+	// on the env's registry.
 	if _, err := rc.SetPoloScore(a.Daemon.NodeID(), 0); err != nil {
 		t.Fatalf("set polo score to 0: %v", err)
 	}
 
-	// Decrement to -1
-	resp, err := rc.UpdatePoloScore(a.Daemon.NodeID(), -1)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(a.Daemon.NodeID(), -1); err != nil {
 		t.Fatalf("update polo score to -1: %v", err)
 	}
-
-	newScore, ok := resp["polo_score"].(float64)
-	if !ok {
-		t.Fatalf("polo_score not found in response")
-	}
-	if int(newScore) != -1 {
-		t.Errorf("expected polo score -1, got %d", int(newScore))
+	if got := env.Registry.GetPoloScoreForTest(a.Daemon.NodeID()); got != -1 {
+		t.Errorf("expected polo score -1, got %d", got)
 	}
 
-	// Further decrement to -10
-	resp, err = rc.UpdatePoloScore(a.Daemon.NodeID(), -9)
-	if err != nil {
+	if _, err := rc.UpdatePoloScore(a.Daemon.NodeID(), -9); err != nil {
 		t.Fatalf("update polo score to -10: %v", err)
 	}
-
-	newScore = resp["polo_score"].(float64)
-	if int(newScore) != -10 {
-		t.Errorf("expected polo score -10, got %d", int(newScore))
+	if got := env.Registry.GetPoloScoreForTest(a.Daemon.NodeID()); got != -10 {
+		t.Errorf("expected polo score -10, got %d", got)
 	}
 
 	// Verify via GetPoloScore
-	score, err := rc.GetPoloScore(a.Daemon.NodeID())
-	if err != nil {
-		t.Fatalf("get polo score: %v", err)
-	}
-	if score != -10 {
-		t.Errorf("expected polo score -10, got %d", score)
+	if got := env.Registry.GetPoloScoreForTest(a.Daemon.NodeID()); got != -10 {
+		t.Errorf("expected polo score -10, got %d", got)
 	}
 
-	// Set directly to a large negative value
+	// Set directly to a large negative value.
 	if _, err := rc.SetPoloScore(a.Daemon.NodeID(), -500); err != nil {
 		t.Fatalf("set polo score to -500: %v", err)
 	}
-
-	score, err = rc.GetPoloScore(a.Daemon.NodeID())
-	if err != nil {
-		t.Fatalf("get polo score after set: %v", err)
-	}
-	if score != -500 {
-		t.Errorf("expected polo score -500, got %d", score)
+	if got := env.Registry.GetPoloScoreForTest(a.Daemon.NodeID()); got != -500 {
+		t.Errorf("expected polo score -500, got %d", got)
 	}
 }
 
@@ -1519,13 +1503,16 @@ func TestTaskResultsEndToEnd(t *testing.T) {
 	// Wait for processing
 	time.Sleep(300 * time.Millisecond)
 
-	// Verify submitter's task file was updated to COMPLETED
+	// Verify submitter's task file reached the success terminal state.
+	// The daemon now goes straight to SUCCEEDED on result receipt
+	// (round 7 — COMPLETED was an intermediate state that raced with
+	// the explicit SendStatusUpdate from the receiver).
 	loaded, err := daemon.LoadSubmittedTaskFile(taskID)
 	if err != nil {
 		t.Fatalf("load submitted: %v", err)
 	}
-	if loaded.Status != tasksubmit.TaskStatusCompleted {
-		t.Errorf("expected COMPLETED, got %q", loaded.Status)
+	if loaded.Status != tasksubmit.TaskStatusSucceeded {
+		t.Errorf("expected SUCCEEDED, got %q", loaded.Status)
 	}
 
 	// Verify result file was saved

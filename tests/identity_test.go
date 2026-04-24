@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -186,17 +188,17 @@ func TestKeyRotationViaSignature(t *testing.T) {
 		t.Fatalf("load identity: %v", err)
 	}
 
-	// Sign the challenge "rotate:<node_id>"
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
-	signature := id.Sign([]byte(challenge))
-	sigB64 := base64.StdEncoding.EncodeToString(signature)
-
 	// Generate a new keypair for rotation (client-side)
 	newID, err := crypto.GenerateIdentity()
 	if err != nil {
 		t.Fatalf("generate new identity: %v", err)
 	}
 	newPubKeyB64 := crypto.EncodePublicKey(newID.PublicKey)
+
+	// Sign the challenge "rotate:<node_id>:<new_public_key>" (binds new pubkey)
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
+	signature := id.Sign([]byte(challenge))
+	sigB64 := base64.StdEncoding.EncodeToString(signature)
 
 	// Rotate key via registry client
 	rc, err := registry.Dial(env.RegistryAddr)

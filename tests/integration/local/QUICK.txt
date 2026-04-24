@@ -1,0 +1,117 @@
+# QUICK integration tier — tests that finish in ≤30s under -j 10 and
+# genuinely exercise live cross-process behavior (multi-daemon networking,
+# docker networking, NAT, partition, gateway proxy, etc.) that cannot be
+# covered by pkg/ unit tests.
+#
+# Excludes:
+#   - long-running durability (dur_*_10min, compressed_24h)
+#   - chaos resilience (chaos_loss30, chaos_packet_loss full runs)
+#   - multi-agent topology (star5, resilience)
+#   - external-deps (cli → agent-alpha)
+#
+# To promote a test: add its filename below, one per line. Comment lines
+# start with `#`. Blank lines ignored.
+#
+# Generated baseline from rerun5 (tests ≤30s duration).
+
+# Core daemon smoke
+test_beacon_ping.sh
+test_bidirectional.sh
+test_clock_rollback.sh
+test_clock_skew_receiver.sh
+test_dashboard.sh
+test_p2p.sh
+
+# Lookup / handshake / trust (basic wire behavior)
+test_handshake_bidirectional.sh
+test_handshake_cross_agent.sh
+test_handshake_reject_invalid.sh
+test_handshake_trust_visibility.sh
+test_trust_approve_cycle.sh
+test_trust_mutual.sh
+test_untrust_visibility.sh
+
+# Data-plane primitives
+test_message_text.sh
+test_message_json.sh
+test_message_binary.sh
+test_pubsub_fanout.sh
+test_pubsub_topic_filter.sh
+test_pubsub_topic_fifo.sh
+test_pubsub_multi_publisher.sh
+test_size_pubsub_large.sh
+test_size_message_10mb_reject.sh
+
+# Tasks (short-form)
+test_task_execute_flow.sh
+test_task_execute_fifo.sh
+test_task_file_results.sh
+test_task_message_chain.sh
+test_task_decline.sh
+test_task_polo_gate.sh
+test_task_polo_guarantee.sh
+test_task_description_integrity.sh
+test_task_priority_queue.sh
+test_task_queue_send_limit.sh
+
+# Policy (short)
+test_policy_connect_deny.sh
+test_policy_connect_score.sh
+test_policy_connect_tag.sh
+test_policy_datagram_deny.sh
+test_policy_datagram_score.sh
+test_policy_join_allow.sh
+test_policy_join_score.sh
+test_policy_cycle_evict.sh
+test_policy_cycle_fill_trust.sh
+test_policy_cycle_webhook.sh
+
+# Networks (short shipped-net subset)
+test_net_high_trust_society_shipped.sh
+test_net_data_exchange_policy_shipped.sh
+test_net_cold_shoulder_shipped.sh
+test_net_cooling_off_shipped.sh
+test_net_karma_ledger_shipped.sh
+test_net_meritocracy_shipped.sh
+test_net_stable_state_shipped.sh
+test_net_gift_economy_shipped.sh
+
+# Gateway (short — excludes gateway_http_message which takes 90s)
+test_gateway_file.sh
+test_gateway_lookup.sh
+test_gateway_message.sh
+test_gateway_ping.sh
+test_gateway_polo_read.sh
+test_gateway_pubsub_pub.sh
+test_gateway_pubsub_sub.sh
+test_gateway_register.sh
+test_gateway_rotate_key.sh
+test_gateway_task_result.sh
+test_gateway_task_submit.sh
+test_gateway_trust_grant.sh
+
+# Observability + security (short)
+test_obs_log_peer_rekeyed.sh
+test_obs_tasklist_vs_disk.sh
+test_sec_ipc_exhaustion.sh
+test_sec_pubsub_spam.sh
+test_sec_trust_grant_forgery.sh
+test_webhook_agent_registered.sh
+test_webhook_file_delivered.sh
+test_webhook_message_received.sh
+test_webhook_polo_updated.sh
+test_webhook_pubsub_published.sh
+test_webhook_task_completed.sh
+test_webhook_task_submitted.sh
+test_webhook_trust_changed.sh
+test_webhook_tunnel_established.sh
+
+# Race / edge (short-form)
+test_race_pubsub_late_sub.sh
+test_race_submit_accept.sh
+test_race_topic_delete_publish.sh
+test_register_identity_new_endpoint.sh
+test_partition_midflight.sh
+test_ping_ghost_peer.sh
+test_polo_persistence_restart.sh
+test_tasks_and_edge.sh

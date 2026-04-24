@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package tests
 
 import (
@@ -525,8 +527,8 @@ func TestAuditKeyRotated(t *testing.T) {
 	newIdentity, _ := crypto.GenerateIdentity()
 	newPubKeyB64 := crypto.EncodePublicKey(newIdentity.PublicKey)
 
-	// Sign the rotation challenge with the OLD key
-	challenge := fmt.Sprintf("rotate:%d", nodeID)
+	// Sign the rotation challenge with the OLD key, binding new pubkey
+	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig := signChallenge(identity, challenge)
 
 	_, err = rc.RotateKey(nodeID, sig, newPubKeyB64)

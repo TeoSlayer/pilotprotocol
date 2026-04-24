@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package pilot_dashboard
 
 import (
@@ -23,6 +25,9 @@ import (
 func TestRunDashboardWithSeed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping manual dashboard test in short mode")
+	}
+	if os.Getenv("PILOT_MANUAL_DASHBOARD") == "" {
+		t.Skip("manual-only: set PILOT_MANUAL_DASHBOARD=1 to run (blocks on SIGINT)")
 	}
 
 	log.Println("Starting rendezvous server with dashboard...")

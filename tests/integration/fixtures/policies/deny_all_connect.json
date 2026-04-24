@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "deny-all-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    },
+    {
+      "name": "deny-all-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    },
+    {
+      "name": "deny-all-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "deny"}]
+    }
+  ]
+}

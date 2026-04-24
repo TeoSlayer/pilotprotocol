@@ -1,0 +1,19 @@
+Pilot Protocol integration tests have been scheduled as Kubernetes Jobs.
+
+Watch progress:
+  kubectl -n {{ include "pilot-integration.namespace" . }} get jobs -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Tail a specific test's logs:
+  kubectl -n {{ include "pilot-integration.namespace" . }} logs -l pilot-integration/test=nat-full-cone --tail=200 -f
+
+Roll up a pass/fail summary (once all Jobs finish):
+  kubectl -n {{ include "pilot-integration.namespace" . }} get jobs -l app.kubernetes.io/instance={{ .Release.Name }} \
+      -o custom-columns=NAME:.metadata.name,SUCCEEDED:.status.succeeded,FAILED:.status.failed
+
+Cleanup is automatic — every Job has ttlSecondsAfterFinished={{ .Values.ttlSecondsAfterFinished }}.
+Force an early sweep:
+  helm uninstall {{ .Release.Name }} -n {{ include "pilot-integration.namespace" . }}
+
+Filter which tests run with --set only=<name-or-glob>:
+  helm install {{ .Release.Name }} . --set only=nat-full-cone
+  helm install {{ .Release.Name }} . --set only="nat-*"

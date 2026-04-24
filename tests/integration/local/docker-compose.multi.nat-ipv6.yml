@@ -1,0 +1,66 @@
+# IPv6-only overlay. Requires Docker Desktop IPv6 experimental feature
+# enabled ("ipv6": true, "fixed-cidr-v6" set in daemon.json). If IPv6
+# isn't available, the compose up will fail and the test will skip.
+services:
+  rendezvous:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: rendezvous
+    networks:
+      public-v6: {ipv6_address: "2001:db8:1::10"}
+    command: >
+      pilot-rendezvous -registry-addr "[::]:9000" -beacon-addr "[::]:9001"
+      -http "[::]:8080" -log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://[::1]:8080/api/stats >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  agent-a:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: agent-a
+    depends_on:
+      rendezvous: {condition: service_healthy}
+    networks:
+      public-v6: {ipv6_address: "2001:db8:1::20"}
+    environment:
+      PILOT_REGISTRY: "[2001:db8:1::10]:9000"
+    command: >
+      pilot-daemon
+      -registry "[2001:db8:1::10]:9000" -beacon "[2001:db8:1::10]:9001"
+      -hostname agent-a -identity /root/.pilot/identity.json
+      -email agent-a@v6.test -endpoint "[2001:db8:1::20]:4000" -listen "[::]:4000"
+      -public -keepalive 5s -log-level info
+
+  agent-b:
+    image: pilot-multi:latest
+    build:
+      context: ../../..
+      dockerfile: tests/integration/local/Dockerfile.multi
+    hostname: agent-b
+    depends_on:
+      rendezvous: {condition: service_healthy}
+    networks:
+      public-v6: {ipv6_address: "2001:db8:1::21"}
+    environment:
+      PILOT_REGISTRY: "[2001:db8:1::10]:9000"
+    command: >
+      pilot-daemon
+      -registry "[2001:db8:1::10]:9000" -beacon "[2001:db8:1::10]:9001"
+      -hostname agent-b -identity /root/.pilot/identity.json
+      -email agent-b@v6.test -endpoint "[2001:db8:1::21]:4000" -listen "[::]:4000"
+      -public -keepalive 5s -log-level info
+
+networks:
+  public-v6:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "2001:db8:1::/64"

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "score-every-connect",
+      "on": "connect",
+      "match": "true",
+      "actions": [
+        {"type": "score", "params": {"delta": 5}},
+        {"type": "allow"}
+      ]
+    },
+    {
+      "name": "allow-dial",
+      "on": "dial",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    },
+    {
+      "name": "allow-datagram",
+      "on": "datagram",
+      "match": "true",
+      "actions": [{"type": "allow"}]
+    }
+  ]
+}

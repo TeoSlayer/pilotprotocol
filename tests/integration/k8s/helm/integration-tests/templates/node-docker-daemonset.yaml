@@ -1,0 +1,278 @@
+{{- if .Values.nodeDocker.enabled }}
+# Per-node long-lived dockerd + compose. One Pod per node, shares its
+# docker socket to every DooD test Job on that node via hostPath.
+#
+# Why a DaemonSet instead of per-Job DinD:
+#   - iter8 showed containerd's boltdb-open races when many dockerds
+#     per node boot concurrently; at parallelism=48 this manifested
+#     as Class-A FATAL boot timeouts (see DIAGNOSIS.md).
+#   - One daemon per node amortises the boot cost across every test
+#     that ever runs on that node (pay once, not 50+ times).
+#   - `docker compose -p $TEST_NAME` (COMPOSE_PROJECT_NAME env) gives
+#     per-test isolation: container names, network names, and named
+#     volumes are all prefixed by project. Two tests with the same
+#     compose file cannot clash.
+#
+# NAT tests (5 compose files) are NOT served by this daemon — they
+# manipulate kernel iptables/conntrack state via `cap_add: NET_ADMIN`
+# on their nat-gw containers. Under DooD those rules would land on
+# the host kernel netns and two concurrent nat tests would collide
+# (DNAT/SNAT for 192.0.2.x/198.51.100.x overlapping). Those tests
+# keep the DinD path so their nat-gw runs inside a private pod netns
+# where iptables state is isolated. See `isolation: dind` in
+# values.yaml; ~21 tests carry that tag.
+#
+# Non-NAT chaos tests (17 files with `cap_add: NET_ADMIN`, e.g. tc
+# netem for latency/loss) are safe under DooD: tc qdisc rules are
+# scoped to the per-container netns that host-dockerd creates, so
+# parallel chaos tests don't cross-contaminate. No special cap grant
+# needed at the Job level — dockerd is privileged and honours each
+# compose file's declared caps.
+#
+# Image seeding: the image-seeder sidecar loads every /preloaded/*.tar
+# into this daemon once it's healthy. Compose files reference
+# `localhost:5000/pilot-*:iter8` via the cluster mirror; once loaded
+# into this daemon, those tags resolve without network.
+#
+# Workspace seeding: the seed-workspace init container runs the full
+# integration image (which has /workspace baked in) and copies its
+# /workspace → hostPath /var/lib/pilot-workspace/source. DooD Jobs
+# then `cp -al` (hardlink) that source into a per-test subdir before
+# running — keeps compose bind-mount paths (./results, etc.) valid
+# both inside the runner and on the host side of the socket.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ printf "%s-node-docker" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "pilot-integration.namespace" . }}
+  labels:
+    {{- include "pilot-integration.labels" . | nindent 4 }}
+    pilot-integration/component: node-docker
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pilot-integration
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      pilot-integration/component: node-docker
+  template:
+    metadata:
+      labels:
+        {{- include "pilot-integration.labels" . | nindent 8 }}
+        pilot-integration/component: node-docker
+    spec:
+      hostNetwork: false
+      hostPID: false
+      {{- with .Values.nodeDocker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        # Wipe any stale socket/PID from a previous pod-crash — a
+        # leftover /run/pilot-docker/docker.sock makes dockerd exit
+        # with "address already in use" before readiness ever fires.
+        # Also wipes the per-node dockerd graveyard and per-test
+        # workspaces from prior runs so every iter starts with a
+        # clean NVMe. Logs under .../logs are preserved.
+        - name: clean-node-state
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              rm -f /run/pilot-docker/docker.sock /run/pilot-docker/docker.pid || true
+              # dockerd graveyard from prior iter (overlay2 + containers + volumes).
+              rm -rf /host-docker-root 2>/dev/null || true
+              mkdir -p /host-docker-root || true
+              # Per-test workspace graveyard (under tests/), but NEVER touch
+              # logs/ — that is the only persistent artefact across runs.
+              rm -rf /host-workspace/tests 2>/dev/null || true
+              mkdir -p /host-workspace/tests /host-workspace/logs || true
+              echo "[clean-node-state] wiped graveyards, logs preserved"
+          volumeMounts:
+            - name: docker-run
+              mountPath: /run/pilot-docker
+            - name: docker-graph
+              mountPath: /host-docker-root
+            - name: workspace
+              mountPath: /host-workspace
+          securityContext:
+            privileged: true
+        # Seed the workspace onto the host so DooD test Jobs can
+        # hardlink-copy per-test dirs. Runs the full integration
+        # image which has /workspace baked in; cp -a preserves modes
+        # and symlinks. Idempotent via `rsync` semantics — if source/
+        # already matches /workspace, this is cheap. We rsync-delete
+        # so stale files from a previous image don't linger.
+        - name: seed-workspace
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /host-workspace/source /host-workspace/tests
+              # Use rsync if present for incremental re-seeds across
+              # rollouts; fall back to cp -a on the first boot of a
+              # fresh image. Tests write under .../tests/$TEST_NAME
+              # (separate subdir), so /source can stay untouched.
+              if command -v rsync >/dev/null 2>&1; then
+                rsync -a --delete /workspace/ /host-workspace/source/
+              else
+                rm -rf /host-workspace/source
+                mkdir -p /host-workspace/source
+                cp -a /workspace/. /host-workspace/source/
+              fi
+              echo "[seed-workspace] source seeded at /host-workspace/source"
+              ls /host-workspace/source | head
+          volumeMounts:
+            - name: workspace
+              mountPath: /host-workspace
+      containers:
+        - name: dockerd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /etc/docker /run/pilot-docker
+              # daemon.json omits `hosts` so it never collides with the
+              # -H flag below. dockerd refuses to start if a directive
+              # is set both on the CLI and in the config file, and the
+              # stock dockerd-entrypoint.sh bakes `-H tcp://...` + `-H
+              # unix:///var/run/docker.sock` into its invocation — so
+              # we bypass the entrypoint and run dockerd directly.
+              cat > /etc/docker/daemon.json <<'JSON'
+              {
+                "registry-mirrors": ["http://192.168.5.67:30500"],
+                "insecure-registries": ["192.168.5.67:30500", "localhost:5000"],
+                "data-root": "/var/lib/pilot-docker",
+                "iptables": true,
+                "ip-forward": true,
+                "storage-driver": "overlay2",
+                "default-address-pools": [
+                  {"base": "10.100.0.0/16", "size": 24}
+                ]
+              }
+              JSON
+              # modprobe pass-through — dockerd shells out to modprobe
+              # for br_netfilter etc.; on the Jetson host those are
+              # already loaded, but the container's PATH lacks a usable
+              # modprobe. A no-op shim keeps dockerd's init from bailing.
+              if [ ! -x /sbin/modprobe ]; then
+                printf '#!/bin/sh\nexit 0\n' > /sbin/modprobe
+                chmod +x /sbin/modprobe
+              fi
+              exec dockerd \
+                --config-file /etc/docker/daemon.json \
+                -H unix:///run/pilot-docker/docker.sock
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - docker -H unix:///run/pilot-docker/docker.sock info >/dev/null 2>&1
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - docker -H unix:///run/pilot-docker/docker.sock info >/dev/null 2>&1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.nodeDocker.resources | nindent 12 }}
+          volumeMounts:
+            - name: docker-run
+              mountPath: /run/pilot-docker
+            - name: docker-graph
+              mountPath: /var/lib/pilot-docker
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+        # Loads every /preloaded/*.tar into this daemon after the main
+        # container's readiness probe passes. Sleeps forever afterward
+        # so container status stays Running (Completed would trip the
+        # Pod-level restart semantics for a `Never`-restart kind).
+        - name: image-seeder
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              for i in $(seq 1 120); do
+                [ -S /run/pilot-docker/docker.sock ] && \
+                  docker -H unix:///run/pilot-docker/docker.sock info >/dev/null 2>&1 && break
+                sleep 2
+              done
+              if ! docker -H unix:///run/pilot-docker/docker.sock info >/dev/null 2>&1; then
+                echo "[seeder] dockerd never came up, sleeping"
+                exec sleep infinity
+              fi
+              if [ -d /preloaded ]; then
+                for tar in /preloaded/*.tar; do
+                  [ -f "$tar" ] || continue
+                  echo "[seeder] docker load $tar"
+                  docker -H unix:///run/pilot-docker/docker.sock load -i "$tar" 2>&1 | tail -1
+                done
+              fi
+              echo "[seeder] preload complete"
+              exec sleep infinity
+          volumeMounts:
+            - name: docker-run
+              mountPath: /run/pilot-docker
+            - name: preloaded
+              mountPath: /preloaded
+              readOnly: true
+      volumes:
+        - name: docker-run
+          hostPath:
+            path: /run/pilot-docker
+            type: DirectoryOrCreate
+        - name: docker-graph
+          hostPath:
+            # Dockerd's overlay2 graph. On Jetson, eMMC root (/) is
+            # 57G and fills under concurrent DooD load (iter10 abort:
+            # node-2 hit DiskPressure at 91%). NVMe mount at /mnt/nvme
+            # is 79G–1.8T. Override via nodeDocker.dataRoot if your
+            # cluster lays out differently.
+            path: {{ .Values.nodeDocker.dataRoot | default "/mnt/nvme/pilot-docker" | quote }}
+            type: DirectoryOrCreate
+        # Workspace source tree shared with every DooD test Job on
+        # this node. Same host path mounted at the same mountPath
+        # inside the Job runner, so compose's resolved bind-mount
+        # paths (e.g. /var/lib/pilot-workspace/tests/$TEST_NAME/
+        # tests/integration/local/results) exist on both sides of
+        # the socket boundary.
+        - name: workspace
+          hostPath:
+            path: {{ .Values.workspaceHostPath.path | default "/var/lib/pilot-workspace" | quote }}
+            type: DirectoryOrCreate
+        - name: preloaded
+          hostPath:
+            path: {{ .Values.preloadedHostPath.path | default "/var/lib/pilot-preloaded" | quote }}
+            type: Directory
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+{{- end }}
