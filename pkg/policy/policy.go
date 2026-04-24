@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package policy
 
 import (
@@ -70,10 +72,14 @@ type Rule struct {
 }
 
 // PolicyDocument is the top-level policy structure stored as JSON.
+// DefaultVerdict controls gate-event behavior when no rule produces a
+// verdict. Valid values: "allow" (default, backwards-compatible) or "deny"
+// (default-deny; write explicit allow rules).
 type PolicyDocument struct {
-	Version int                    `json:"version"`
-	Config  map[string]interface{} `json:"config,omitempty"`
-	Rules   []Rule                 `json:"rules"`
+	Version        int                    `json:"version"`
+	DefaultVerdict string                 `json:"default_verdict,omitempty"`
+	Config         map[string]interface{} `json:"config,omitempty"`
+	Rules          []Rule                 `json:"rules"`
 }
 
 // DirectiveType identifies the kind of directive returned by evaluation.
@@ -96,9 +102,10 @@ const (
 
 // Directive is an instruction produced by evaluating a rule.
 type Directive struct {
-	Type   DirectiveType
-	Rule   string                 // source rule name
-	Params map[string]interface{} // action parameters
+	Type      DirectiveType
+	Rule      string                 // source rule name
+	ActionIdx int                    // index of this action within the rule's Actions list (for peerProgram lookup)
+	Params    map[string]interface{} // action parameters
 }
 
 // Parse unmarshals and validates a policy document from JSON.
@@ -118,6 +125,12 @@ func Parse(data []byte) (*PolicyDocument, error) {
 func Validate(doc *PolicyDocument) error {
 	if doc.Version != Version {
 		return fmt.Errorf("policy: unsupported version %d (want %d)", doc.Version, Version)
+	}
+	switch doc.DefaultVerdict {
+	case "", "allow", "deny":
+		// valid
+	default:
+		return fmt.Errorf("policy: default_verdict must be \"allow\" or \"deny\" (got %q)", doc.DefaultVerdict)
 	}
 	if len(doc.Rules) == 0 {
 		return fmt.Errorf("policy: at least one rule is required")
@@ -166,8 +179,8 @@ func Validate(doc *PolicyDocument) error {
 			if err != nil {
 				return fmt.Errorf("policy: config.cycle: %w", err)
 			}
-			if d < 1*time.Minute {
-				return fmt.Errorf("policy: config.cycle must be >= 1m")
+			if d < 1*time.Second {
+				return fmt.Errorf("policy: config.cycle must be >= 1s")
 			}
 		}
 	}

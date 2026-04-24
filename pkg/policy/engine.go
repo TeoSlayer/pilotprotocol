@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package policy
 
 import (
@@ -115,9 +117,14 @@ func (cp *CompiledPolicy) evaluateGate(eventType EventType, ctx map[string]inter
 		sideEffects = append(sideEffects, directives...)
 	}
 
-	// No verdict rule matched — default allow + any accumulated side effects
+	// No verdict rule matched — fall through to default_verdict (policy-level,
+	// default "allow" for backwards compatibility).
+	defaultType := DirectiveAllow
+	if cp.Doc.DefaultVerdict == "deny" {
+		defaultType = DirectiveDeny
+	}
 	result := append(sideEffects, Directive{
-		Type: DirectiveAllow,
+		Type: defaultType,
 		Rule: "_default",
 	})
 	return result, nil
@@ -241,15 +248,16 @@ var actionTypeToDirective = map[ActionType]DirectiveType{
 
 func toDirectives(rule Rule) []Directive {
 	directives := make([]Directive, 0, len(rule.Actions))
-	for _, a := range rule.Actions {
+	for i, a := range rule.Actions {
 		dt, ok := actionTypeToDirective[a.Type]
 		if !ok {
 			continue
 		}
 		directives = append(directives, Directive{
-			Type:   dt,
-			Rule:   rule.Name,
-			Params: a.Params,
+			Type:      dt,
+			Rule:      rule.Name,
+			ActionIdx: i,
+			Params:    a.Params,
 		})
 	}
 	return directives

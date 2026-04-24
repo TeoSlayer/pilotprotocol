@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -342,4 +344,65 @@ func TestStopPolicyRunnersStopsAllRegisteredRunners(t *testing.T) {
 	// Map is not cleared, but runners are stopped; explicit StopPolicyRunner is idempotent.
 	d.StopPolicyRunner(400)
 	d.StopPolicyRunner(401)
+}
+
+// --- peerTagsFor (canonical peer-tag merge for policy evaluator) ---
+
+func TestPeerTagsForReturnsEmptyWhenNoSources(t *testing.T) {
+	d := New(Config{})
+	t.Cleanup(func() { d.handshakes.Stop() })
+	got := d.peerTagsFor(42, nil)
+	if len(got) != 0 {
+		t.Fatalf("peerTagsFor with no sources = %v, want empty", got)
+	}
+}
+
+func TestPeerTagsForMergesNodeInfoAndLocal(t *testing.T) {
+	d := New(Config{})
+	t.Cleanup(func() { d.handshakes.Stop() })
+	d.cacheResolve(42, map[string]interface{}{
+		"tags": []interface{}{"service", "prod"},
+	})
+	got := d.peerTagsFor(42, []string{"vip"})
+	want := []string{"service", "prod", "vip"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("peerTagsFor = %v, want %v", got, want)
+	}
+}
+
+func TestPeerTagsForDedupsAcrossSources(t *testing.T) {
+	d := New(Config{})
+	t.Cleanup(func() { d.handshakes.Stop() })
+	d.cacheResolve(42, map[string]interface{}{
+		"tags": []interface{}{"service", "shared"},
+	})
+	got := d.peerTagsFor(42, []string{"shared", "vip"})
+	want := []string{"service", "shared", "vip"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("peerTagsFor dedup = %v, want %v", got, want)
+	}
+}
+
+func TestPeerTagsForReturnsNodeInfoOnlyWhenNoLocal(t *testing.T) {
+	d := New(Config{})
+	t.Cleanup(func() { d.handshakes.Stop() })
+	d.cacheResolve(42, map[string]interface{}{
+		"tags": []interface{}{"service"},
+	})
+	got := d.peerTagsFor(42, nil)
+	if !reflect.DeepEqual(got, []string{"service"}) {
+		t.Fatalf("peerTagsFor NodeInfo-only = %v, want [service]", got)
+	}
+}
+
+func TestPeerTagsForIgnoresNonStringTagEntries(t *testing.T) {
+	d := New(Config{})
+	t.Cleanup(func() { d.handshakes.Stop() })
+	d.cacheResolve(42, map[string]interface{}{
+		"tags": []interface{}{"service", 12345, nil, "prod"},
+	})
+	got := d.peerTagsFor(42, nil)
+	if !reflect.DeepEqual(got, []string{"service", "prod"}) {
+		t.Fatalf("peerTagsFor skip non-string = %v, want [service prod]", got)
+	}
 }

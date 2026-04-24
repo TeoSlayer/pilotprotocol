@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -18,8 +20,7 @@ import (
 
 func TestEventBrokerAddSubAndRemoveSub(t *testing.T) {
 	b := &eventBroker{
-		subs:    make(map[string][]*connAdapter),
-		webhook: nil,
+		subs: make(map[string][]*connAdapter),
 	}
 	a1 := &connAdapter{}
 	a2 := &connAdapter{}
@@ -62,8 +63,7 @@ func TestEventBrokerAddSubAndRemoveSub(t *testing.T) {
 
 func TestEventBrokerPublishSkipsSenderAndFansToWildcard(t *testing.T) {
 	b := &eventBroker{
-		subs:    make(map[string][]*connAdapter),
-		webhook: nil,
+		subs: make(map[string][]*connAdapter),
 	}
 	// publish iterates subs under RLock and calls eventstream.WriteEvent(conn, evt).
 	// With zero subs registered, publish should no-op cleanly (covers empty-loop branch).

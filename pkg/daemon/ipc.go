@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package daemon
 
 import (
@@ -52,6 +54,10 @@ const (
 	CmdHealthOK          byte = 0x22
 	CmdManaged           byte = 0x23
 	CmdManagedOK         byte = 0x24
+	CmdRotateKey         byte = 0x25
+	CmdRotateKeyOK       byte = 0x26
+	CmdMyPolo            byte = 0x27
+	CmdMyPoloOK          byte = 0x28
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -73,6 +79,7 @@ const (
 	SubManagedCycle      byte = 0x04
 	SubManagedPolicy     byte = 0x05 // get/set expr policy
 	SubManagedMemberTags byte = 0x06 // get/set member tags
+	SubManagedReconcile  byte = 0x07 // poll registry & refresh peer set
 )
 
 // ipcConn wraps a net.Conn with a write mutex for goroutine safety.
@@ -84,6 +91,18 @@ type ipcConn struct {
 	ports []uint16 // ports bound by this client
 	conns []uint32 // connection IDs owned by this client
 }
+
+// MaxIPCClients caps the total number of concurrent IPC socket
+// connections to the daemon (P2-002). Without this cap a misbehaving or
+// malicious local client could exhaust the daemon's FD table by opening
+// thousands of IPC sockets, breaking the dashboard, webhooks, and
+// tunnel manager.
+const MaxIPCClients = 1024
+
+// MaxConnsPerIPCClient caps how many overlay connections a single IPC
+// client may own at once. P2-002: without this, a rogue or buggy client
+// could exhaust the 65536-slot connection table and DoS the daemon.
+const MaxConnsPerIPCClient = 4096
 
 func (c *ipcConn) ipcWrite(data []byte) error {
 	c.wmu.Lock()
@@ -101,6 +120,13 @@ func (c *ipcConn) trackConn(connID uint32) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
 	c.conns = append(c.conns, connID)
+}
+
+// connCount returns the number of connections currently owned by this client.
+func (c *ipcConn) connCount() int {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	return len(c.conns)
 }
 
 // IPCServer handles connections from local drivers over Unix socket.
@@ -156,15 +182,27 @@ func (s *IPCServer) Close() error {
 
 func (s *IPCServer) acceptLoop() {
 	for {
+		// P2-002: always accept then immediately reject-and-close when
+		// the active client set is at the cap. Leaving accepts in the
+		// listen backlog lets the kernel silently expand SOMAXCONN and
+		// defeats the cap — docker typically has somaxconn=4096, so
+		// relying on the backlog lets ~4k connections through. Closing
+		// post-accept gives each excess client a clean EOF on read.
 		conn, err := s.listener.Accept()
 		if err != nil {
 			return
 		}
-		ic := &ipcConn{Conn: conn}
 		s.mu.Lock()
-		s.clients[ic] = true
+		full := len(s.clients) >= MaxIPCClients
+		if !full {
+			ic := &ipcConn{Conn: conn}
+			s.clients[ic] = true
+			s.mu.Unlock()
+			go s.handleClient(ic)
+			continue
+		}
 		s.mu.Unlock()
-		go s.handleClient(ic)
+		conn.Close()
 	}
 }
 
@@ -219,6 +257,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleSendTo(conn, payload)
 		case CmdInfo:
 			s.handleInfo(conn)
+		case CmdMyPolo:
+			s.handleMyPolo(conn)
 		case CmdHandshake:
 			s.handleHandshake(conn, payload)
 		case CmdResolveHostname:
@@ -241,6 +281,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleHealth(conn)
 		case CmdManaged:
 			s.handleManaged(conn, payload)
+		case CmdRotateKey:
+			s.handleRotateKey(conn)
 		default:
 			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
 		}
@@ -295,6 +337,14 @@ func (s *IPCServer) handleBind(conn *ipcConn, payload []byte) {
 func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 	if len(payload) < protocol.AddrSize+2 {
 		s.sendError(conn, "dial: missing address/port")
+		return
+	}
+
+	// P2-002: reject dial if this client already owns MaxConnsPerIPCClient
+	// connections. Avoids the single-client DoS where one buggy driver
+	// exhausts the global connection table.
+	if n := conn.connCount(); n >= MaxConnsPerIPCClient {
+		s.sendError(conn, fmt.Sprintf("dial: per-client connection quota (%d) reached", MaxConnsPerIPCClient))
 		return
 	}
 
@@ -375,6 +425,28 @@ func (s *IPCServer) handleSendTo(conn *ipcConn, payload []byte) {
 	}
 }
 
+// handleMyPolo asks the registry for this daemon's own polo score.
+// Polo is private — only self-read is permitted, and the request is
+// signed by regConn so the registry can verify ownership.
+func (s *IPCServer) handleMyPolo(conn *ipcConn) {
+	if s.daemon.regConn == nil {
+		s.sendError(conn, "my_polo: registry not available")
+		return
+	}
+	score, err := s.daemon.regConn.GetPoloScore(s.daemon.NodeID())
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("my_polo: %v", err))
+		return
+	}
+	data, _ := json.Marshal(map[string]interface{}{"polo_score": score})
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdMyPoloOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC my_polo reply failed", "err", err)
+	}
+}
+
 func (s *IPCServer) handleInfo(conn *ipcConn) {
 	info := s.daemon.Info()
 
@@ -423,6 +495,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 	data, err := json.Marshal(map[string]interface{}{
 		"node_id":                   info.NodeID,
 		"address":                   info.Address,
+		"endpoint":                  info.Endpoint,
 		"hostname":                  info.Hostname,
 		"uptime_secs":               info.Uptime.Seconds(),
 		"connections":               info.Connections,
@@ -603,6 +676,25 @@ func (s *IPCServer) handleSetTags(conn *ipcConn, payload []byte) {
 	copy(resp[1:], data)
 	if err := conn.ipcWrite(resp); err != nil {
 		slog.Debug("IPC set_tags reply failed", "err", err)
+	}
+}
+
+func (s *IPCServer) handleRotateKey(conn *ipcConn) {
+	result, err := s.daemon.RotateKey()
+	if err != nil {
+		s.sendError(conn, err.Error())
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("rotate_key marshal: %v", err))
+		return
+	}
+	resp := make([]byte, 1+len(data))
+	resp[0] = CmdRotateKeyOK
+	copy(resp[1:], data)
+	if err := conn.ipcWrite(resp); err != nil {
+		slog.Debug("IPC rotate_key reply failed", "err", err)
 	}
 }
 
@@ -994,10 +1086,16 @@ func (s *IPCServer) DeliverDatagram(srcAddr protocol.Addr, srcPort uint16, dstPo
 	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize+2:], dstPort)
 	copy(msg[1+protocol.AddrSize+4:], data)
 
+	// P2-004: fan out writes to each client in a dedicated goroutine so a
+	// slow IPC peer can't wedge routeLoop for every other peer. ipcWrite
+	// already serializes per-connection via wmu, so concurrency is safe.
 	for _, conn := range clients {
-		if err := conn.ipcWrite(msg); err != nil {
-			slog.Debug("IPC datagram delivery failed", "err", err)
-		}
+		conn := conn
+		go func() {
+			if err := conn.ipcWrite(msg); err != nil {
+				slog.Debug("IPC datagram delivery failed", "err", err)
+			}
+		}()
 	}
 }
 
@@ -1024,14 +1122,16 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 			topic = string(rest[10:])
 		}
 
-		me := s.daemon.GetManagedEngine(netID)
-		if me != nil {
-			if err := me.Score(nodeID, delta, topic); err != nil {
+		// Prefer the PolicyRunner when present — a manual score increment
+		// should land in the same store the policy engine reads from
+		// (see SubManagedRankings comment).
+		if pr := s.daemon.GetPolicyRunner(netID); pr != nil {
+			if err := pr.Score(nodeID, delta, topic); err != nil {
 				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
 				return
 			}
-		} else if pr := s.daemon.GetPolicyRunner(netID); pr != nil {
-			if err := pr.Score(nodeID, delta, topic); err != nil {
+		} else if me := s.daemon.GetManagedEngine(netID); me != nil {
+			if err := me.Score(nodeID, delta, topic); err != nil {
 				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
 				return
 			}
@@ -1055,11 +1155,11 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 			netID = binary.BigEndian.Uint16(rest[0:2])
 		}
 
-		if me := s.findManagedEngine(netID); me != nil {
-			data, _ := json.Marshal(me.Status())
-			s.ipcWriteManagedOK(conn, data)
-		} else if pr := s.findPolicyRunner(netID); pr != nil {
+		if pr := s.findPolicyRunner(netID); pr != nil {
 			data, _ := json.Marshal(pr.Status())
+			s.ipcWriteManagedOK(conn, data)
+		} else if me := s.findManagedEngine(netID); me != nil {
+			data, _ := json.Marshal(me.Status())
 			s.ipcWriteManagedOK(conn, data)
 		} else {
 			s.sendError(conn, "managed: no active managed networks")
@@ -1072,11 +1172,17 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 			netID = binary.BigEndian.Uint16(rest[0:2])
 		}
 
+		// Prefer the PolicyRunner when present: when both a policy and
+		// rules are attached to a network, the policy drives per-peer
+		// scoring (executeScore on connect/dial/datagram), so the
+		// runner's peer state is authoritative. ManagedEngine.peers only
+		// gets scored via manual `pilotctl managed score` and would
+		// otherwise shadow the live policy-driven view with stale zeros.
 		var rankings []map[string]interface{}
-		if me := s.findManagedEngine(netID); me != nil {
-			rankings = me.Rankings()
-		} else if pr := s.findPolicyRunner(netID); pr != nil {
+		if pr := s.findPolicyRunner(netID); pr != nil {
 			rankings = pr.Rankings()
+		} else if me := s.findManagedEngine(netID); me != nil {
+			rankings = me.Rankings()
 		} else {
 			s.sendError(conn, "managed: no active managed networks")
 			return
@@ -1096,16 +1202,39 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 		}
 
 		var result map[string]interface{}
-		if me := s.findManagedEngine(netID); me != nil {
-			result = me.ForceCycle()
-		} else if pr := s.findPolicyRunner(netID); pr != nil {
+		if pr := s.findPolicyRunner(netID); pr != nil {
 			result = pr.ForceCycle()
+		} else if me := s.findManagedEngine(netID); me != nil {
+			result = me.ForceCycle()
 		} else {
 			s.sendError(conn, "managed: no active managed networks")
 			return
 		}
 
 		data, _ := json.Marshal(result)
+		s.ipcWriteManagedOK(conn, data)
+
+	case SubManagedReconcile:
+		// [2-byte netID]. Poll the registry for the network's member list
+		// and refresh the runner's peer set — without running a policy
+		// cycle (no score/evict side effects). This is useful for tests
+		// and operators who want a clean "my peer view matches the
+		// registry" primitive.
+		netID := uint16(0)
+		if len(rest) >= 2 {
+			netID = binary.BigEndian.Uint16(rest[0:2])
+		}
+		pr := s.findPolicyRunner(netID)
+		if pr == nil {
+			s.sendError(conn, "managed: no active policy runner for network")
+			return
+		}
+		pr.ReconcileNow()
+		data, _ := json.Marshal(map[string]interface{}{
+			"type":       "managed_reconcile_ok",
+			"network_id": netID,
+			"peers":      len(pr.Rankings()),
+		})
 		s.ipcWriteManagedOK(conn, data)
 
 	case SubManagedPolicy:
