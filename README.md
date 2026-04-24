@@ -18,7 +18,7 @@
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html"><strong>IETF Draft</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
-  <a href="docs/SKILLS.md"><strong>Agent Skills</strong></a>
+  <a href="https://github.com/TeoSlayer/pilot-skills"><strong>Agent Skills</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://polo.pilotprotocol.network"><strong>Polo (Live Dashboard)</strong></a>
 </p>
@@ -27,9 +27,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/lang-Go-00ADD8?logo=go&logoColor=white" alt="Go">
-  <img src="https://img.shields.io/badge/deps-stdlib_only-brightgreen" alt="Standard Library Only">
+  <img src="https://img.shields.io/badge/core-stdlib-brightgreen" alt="Core uses Go standard library only">
   <img src="https://img.shields.io/badge/encryption-AES--256--GCM-blueviolet" alt="Encryption">
-  <img src="https://img.shields.io/badge/tests-1047%20pass-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1048%20pass-success" alt="Tests">
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html"><img src="https://img.shields.io/badge/IETF-Internet--Draft-blue" alt="IETF Internet-Draft"></a>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
   <img src="https://polo.pilotprotocol.network/api/badge/nodes" alt="Online Nodes">
@@ -84,42 +84,25 @@ graph LR
 
 ## What agents get
 
-<table>
-<tr>
-<td width="50%" valign="top">
+```bash
+pilotctl info                          # show your address, hostname, peer count
+pilotctl set-hostname my-agent         # claim a name other agents can resolve
+pilotctl find agent-alpha              # resolve a public demo peer
+pilotctl ping agent-alpha              # round-trip over the encrypted tunnel
+pilotctl bench agent-alpha             # 1 MB echo benchmark
+```
 
-**Via CLI**
+Once you have a trusted peer of your own, you can send and receive messages on any port:
 
 ```bash
-pilotctl info
-pilotctl set-hostname my-agent
-pilotctl find other-agent
+# on the sender
 pilotctl send other-agent 1000 --data "hello"
+
+# on the receiver
 pilotctl recv 1000 --count 5 --timeout 30s
 ```
 
-</td>
-<td width="50%" valign="top">
-
-**Via Python SDK**
-
-```python
-from pilotprotocol import Driver
-
-with Driver() as d:
-    info = d.info()
-    d.set_hostname("my-agent")
-    peer = d.resolve_hostname("other-agent")
-    with d.dial("other-agent:1000") as conn:
-        conn.write(b"hello")
-        data = conn.read(4096)
-```
-
-</td>
-</tr>
-</table>
-
-Every CLI command supports `--json` for structured output. The Python SDK wraps the Go driver via ctypes FFI. See [`examples/python_sdk/`](examples/python_sdk/) for PydanticAI integration and more.
+Every CLI command supports `--json` for structured output — see the [CLI reference](https://pilotprotocol.network/docs/cli-reference) for the full surface area.
 
 <details>
 <summary><strong>Example JSON output</strong></summary>
@@ -135,7 +118,7 @@ $ pilotctl --json recv 1000 --count 1
 {"status":"ok","data":{"messages":[{"seq":0,"port":1000,"data":"hello","bytes":5}]}}
 
 $ pilotctl --json find nonexistent
-{"status":"error","code":"not_found","message":"hostname not found: nonexistent","hint":"check the hostname and ensure mutual trust exists"}
+{"status":"error","code":"not_found","message":"cannot find \"nonexistent\" — hostname not found or no mutual trust","hint":"establish trust first: pilotctl handshake nonexistent \"reason\""}
 ```
 
 </details>
@@ -170,6 +153,7 @@ $ pilotctl --json find nonexistent
 - Mutual trust handshake protocol (signed, relay via registry)
 
 **Operations**
+- Core protocol: Go standard library only
 - Single daemon binary with built-in services
 - Structured JSON logging (`slog`)
 - Atomic persistence for all state
@@ -279,17 +263,9 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 **Uninstall:** `curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall`
 
-**From source:** `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
+**From source** (requires Go 1.25+): `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
 
 </details>
-
-### Python SDK
-
-```bash
-pip install pilotprotocol
-```
-
-See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk) for the full API reference.
 
 ---
 
@@ -299,7 +275,7 @@ See the [Python SDK documentation](https://pilotprotocol.network/docs/python-sdk
 go test -parallel 4 -count=1 ./tests/
 ```
 
-1047 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+1048 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 
@@ -312,9 +288,13 @@ go test -parallel 4 -count=1 ./tests/
 | **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
 | **[IETF Problem Statement](https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-01.html)** | Internet-Draft: why agents need network-layer infrastructure |
 | **[IETF Protocol Specification](https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html)** | Internet-Draft: full protocol spec in IETF format |
-| **[Agent Skills](docs/SKILLS.md)** | Machine-readable skill definition for AI agent integration |
+| **[Agent Skills](https://github.com/TeoSlayer/pilot-skills)** | Installable agent skill catalog for Pilot Protocol |
 | **[Polo Dashboard](https://polo.pilotprotocol.network)** | Live network stats, node directory, and tag search |
 | **[Contributing](CONTRIBUTING.md)** | Guidelines for contributing to the project |
+| **[Governance](GOVERNANCE.md)** | Maintainers, decision-making, and project stewardship |
+| **[Security Policy](SECURITY.md)** | How to report vulnerabilities |
+| **[Third-Party Licenses](THIRD_PARTY_LICENSES.md)** | Attribution for third-party code |
+| **[Changelog](CHANGELOG.md)** | Release history |
 
 ---
 
@@ -323,7 +303,6 @@ go test -parallel 4 -count=1 ./tests/
 Have questions, want a private network, or interested in enterprise support?
 
 - **Email:** [founders@pilotprotocol.network](mailto:founders@pilotprotocol.network)
-- **Slack:** [Join our community](https://join.slack.com/t/pilotprotocol/shared_invite/zt-3uakfp62r-72XLHnu0snAoU2Kv70BtgA)
 
 ---
 
@@ -335,8 +314,8 @@ Pilot Protocol is licensed under the [GNU Affero General Public License v3.0](LI
 
 <p align="center">
   <br>
-  <a href="https://vulturelabs.com">
-    <strong>Vulture Labs</strong>
+  <a href="https://pilotprotocol.network">
+    <strong>Pilot Protocol</strong>
   </a>
   <br>
   <sub>Built for agents, by humans.</sub>

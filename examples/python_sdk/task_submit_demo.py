@@ -308,7 +308,7 @@ def main() -> None:
             print("\nNext Steps:")
             print("  - Check task status: pilotctl task list --type submitted")
             print("  - Monitor polo score: pilotctl info")
-            print("  - See complete workflow in docs/SKILLS.md")
+            print("  - Agent skills: https://github.com/TeoSlayer/pilot-skills")
 
     except PilotError as e:
         print(f"\n✗ Pilot error: {e}")

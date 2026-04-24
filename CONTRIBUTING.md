@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Pilot Protocol. This document cov
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - Git
 
 ### Setup
@@ -79,7 +79,6 @@ tests/                  # Integration tests (39 test files, 202+ passing)
 docs/                   # Documentation
   SPEC.md               # Wire specification
   WHITEPAPER.pdf        # Protocol whitepaper (LaTeX source: WHITEPAPER.tex)
-  SKILLS.md             # Agent skill definition
 ```
 
 ## Contributing to the Python SDK

@@ -684,8 +684,8 @@ pilotctl bench target-node 10
 
 ## Need More Details?
 
-- **Full agent documentation:** `docs/SKILLS.md`
 - **Protocol specification:** `docs/SPEC.md`
+- **Agent skills catalog:** https://github.com/TeoSlayer/pilot-skills
 - **Go examples:** `examples/go/`
 - **Python SDK examples:** `examples/python_sdk/`
 - **Online docs:** https://pilotprotocol.network/docs/

@@ -16,7 +16,7 @@ try {
   });
   if (res.ok) {
     const s: any = await res.json();
-    const n = typeof s.active_nodes === 'number' ? s.active_nodes : (typeof s.total_nodes === 'number' ? s.total_nodes : null);
+    const n = typeof s.total_nodes === 'number' ? s.total_nodes : (typeof s.active_nodes === 'number' ? s.active_nodes : null);
     if (n != null) {
       if (n >= 1_000_000) backboneCount = `~${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
       else if (n >= 10_000) backboneCount = `~${Math.round(n / 1000)}K`;

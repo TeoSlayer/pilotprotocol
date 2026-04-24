@@ -81,8 +81,7 @@
 {\large Version 1.0 --- March 2026\\[3em]}
 
 {\Large Teodor-Ioan Calin\\[0.5em]}
-{\large Vulture Labs\\[0.3em]}
-{\small \url{https://vulturelabs.com}\\[1em]}
+{\small \url{https://pilotprotocol.network}\\[1em]}
 
 \vfill
 
@@ -110,7 +109,7 @@ Four protocols have emerged to address this need:
     \item \textbf{MCP} (Model Context Protocol), created by Anthropic in November 2024 and donated to the AI Alliance and Linux Foundation in December 2025, standardizes how language models connect to external tools and data sources.
     \item \textbf{A2A} (Agent-to-Agent Protocol), created by Google in April 2025 and donated to the Linux Foundation in June 2025, defines how opaque agents delegate tasks to each other over HTTP.
     \item \textbf{ANP} (Agent Network Protocol), created by Gaowei Chang in 2024 and released under the MIT license, proposes a decentralized identity and meta-protocol negotiation layer for open internet agent communication.
-    \item \textbf{Pilot Protocol}, created by Vulture Labs in 2025 and released under AGPL-3.0, provides a complete L3/L4 network stack---virtual addresses, ports, encrypted tunnels, NAT traversal---for agents.
+    \item \textbf{Pilot Protocol}, released in 2025 under AGPL-3.0, provides a complete L3/L4 network stack---virtual addresses, ports, encrypted tunnels, NAT traversal---for agents.
 \end{itemize}
 
 These protocols are frequently discussed as if they are competing standards vying for the same niche. They are not. They operate at fundamentally different layers of the communication stack and solve fundamentally different problems. MCP connects a model to its tools. A2A orchestrates tasks between agents. ANP establishes decentralized identity and negotiation. Pilot Protocol provides the underlying network infrastructure that makes agents reachable in the first place.
@@ -168,7 +167,7 @@ ANP has submitted an IETF Internet-Draft (``Framework for AI Agent Networks,'' d
 
 \subsection{Pilot Protocol}
 
-Pilot Protocol, created by Vulture Labs in 2025, takes a fundamentally different approach from the preceding protocols: rather than defining application-layer semantics for what agents say to each other, it provides the network infrastructure that makes agents reachable \cite{pilot-whitepaper}.
+Pilot Protocol, first released in 2025, takes a fundamentally different approach from the preceding protocols: rather than defining application-layer semantics for what agents say to each other, it provides the network infrastructure that makes agents reachable \cite{pilot-whitepaper}.
 
 Pilot Protocol is a complete L3/L4 overlay network stack layered on top of IP/UDP. Its core primitives mirror those of the internet itself:
 
@@ -473,7 +472,7 @@ Streaming & SSE & SSE + webhooks & --- & Native (flow ctl) \\
 Offline/async & No & Polling & --- & Inbox queuing \\
 Dependencies & SDK & HTTP stack & HTTP + DID libs & Zero \\
 License & Open & Open & MIT & AGPL-3.0 \\
-Governance & Linux Foundation & Linux Foundation & Community & Vulture Labs \\
+Governance & Linux Foundation & Linux Foundation & Community & Maintainer-led \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -552,7 +551,7 @@ arXiv:2508.00007, July 2025.
 \bibitem{pilot-whitepaper}
 T.-I. Calin.
 \textit{Pilot Protocol: A Network Stack for Autonomous Agents}.
-Version 1.8, Vulture Labs, 2026.
+Version 1.8, 2026.
 \url{https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/WHITEPAPER.pdf}
 
 \bibitem{nat-stats}

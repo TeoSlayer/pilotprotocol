@@ -38,12 +38,12 @@
   "license": "AGPL-3.0-or-later",
   "author": {
     "name": "Alexandru Godoroja",
-    "email": "alex@vulturelabs.com"
+    "email": "alex@pilotprotocol.network"
   },
   "contributors": [
     {
       "name": "Teodor Calin",
-      "email": "teodor@vulturelabs.com"
+      "email": "teodor@pilotprotocol.network"
     }
   ],
   "repository": {

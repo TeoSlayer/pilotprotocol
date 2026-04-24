@@ -20,11 +20,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "AGPL-3.0-or-later"}
 authors = [
-    {name = "Alexandru Godoroja", email = "alex@vulturelabs.com"}
+    {name = "Alexandru Godoroja", email = "alex@pilotprotocol.network"}
 ]
 maintainers = [
-    {name = "Alexandru Godoroja", email = "alex@vulturelabs.com"},
-    {name = "Teodor Calin", email = "teodor@vulturelabs.com"}
+    {name = "Alexandru Godoroja", email = "alex@pilotprotocol.network"},
+    {name = "Teodor Calin", email = "teodor@pilotprotocol.network"}
 ]
 keywords = [
     "pilot-protocol",
