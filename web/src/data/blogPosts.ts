@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "openanp-ai-alternatives-6",
+    title: "Top 6 openanp.ai Alternatives 2026",
+    description: "Discover 6 openanp.ai alternatives for efficient AI communication solutions and comparison benefits in 2026.",
+    date: "Apr 25",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/openanp-ai-alternatives-6.jpg",
+  },
+
+  {
     slug: "github-com-alternatives-6",
     title: "Top 6 GitHub.com Alternatives 2026",
     description: "Discover 6 GitHub.com alternatives for secure collaboration in multi-cloud environments. Compare top options for effective development.",
@@ -63,7 +73,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "userspace-tcp-over-udp-stack-pure-go",
     title: "Building a Userspace TCP-over-UDP Stack in Pure Go",
-    description: "Sliding windows, Nagle's algorithm, RTO, and AES-GCM Ã¢ÂÂ all in userspace, with zero third-party dependencies. How Pilot Protocol's transport layer works.",
+    description: "Sliding windows, Nagle's algorithm, RTO, and AES-GCM ÃÂ¢ÃÂÃÂ all in userspace, with zero third-party dependencies. How Pilot Protocol's transport layer works.",
     date: "Apr 19",
     category: "Engineering",
     tags: ["go", "networking", "transport", "systems"],
@@ -243,7 +253,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief Ã¢ÂÂ 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂ¢ÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -338,7 +348,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing Ã¢ÂÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂ¢ÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
