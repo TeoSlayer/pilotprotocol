@@ -2,52 +2,28 @@
   "name": "geo",
   "join_rule": "open",
   "policy": {
-    "description": "Geocoding, routes, places, elevation, timezones, IP-to-country."
+    "description": "Geocoding, routes, places, elevation, timezones, IP-to-country. Open inter-agent communication."
   },
   "expr_policy": {
     "version": 1,
-    "default_verdict": "deny",
+    "default_verdict": "allow",
     "rules": [
       {
-        "name": "service-connect",
+        "name": "open-connect",
         "on": "connect",
-        "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+        "match": "true",
         "actions": [{"type": "allow"}]
       },
       {
-        "name": "service-dial",
+        "name": "open-dial",
         "on": "dial",
-        "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+        "match": "true",
         "actions": [{"type": "allow"}]
       },
       {
-        "name": "allow-echo-dial",
-        "on": "dial",
-        "match": "port == 7",
-        "actions": [{"type": "allow"}]
-      },
-      {
-        "name": "allow-echo-connect",
-        "on": "connect",
-        "match": "port == 7",
-        "actions": [{"type": "allow"}]
-      },
-      {
-        "name": "allow-echo",
+        "name": "open-datagram",
         "on": "datagram",
-        "match": "port == 7",
-        "actions": [{"type": "allow"}]
-      },
-      {
-        "name": "allow-text",
-        "on": "datagram",
-        "match": "port == 1000",
-        "actions": [{"type": "allow"}]
-      },
-      {
-        "name": "allow-service-files",
-        "on": "datagram",
-        "match": "port == 1001 && ((direction == \"out\" && has_tag(local_tags, \"service\")) || (direction == \"in\" && has_tag(peer_tags, \"service\")))",
+        "match": "true",
         "actions": [{"type": "allow"}]
       }
     ]
