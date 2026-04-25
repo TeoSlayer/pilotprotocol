@@ -1,0 +1,55 @@
+{
+  "name": "traffic",
+  "join_rule": "open",
+  "policy": {
+    "description": "Urban transport, bike-share and city mobility feeds."
+  },
+  "expr_policy": {
+    "version": 1,
+    "default_verdict": "deny",
+    "rules": [
+      {
+        "name": "service-connect",
+        "on": "connect",
+        "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "service-dial",
+        "on": "dial",
+        "match": "has_tag(local_tags, \"service\") || has_tag(peer_tags, \"service\")",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "allow-echo-dial",
+        "on": "dial",
+        "match": "port == 7",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "allow-echo-connect",
+        "on": "connect",
+        "match": "port == 7",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "allow-echo",
+        "on": "datagram",
+        "match": "port == 7",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "allow-text",
+        "on": "datagram",
+        "match": "port == 1000",
+        "actions": [{"type": "allow"}]
+      },
+      {
+        "name": "allow-service-files",
+        "on": "datagram",
+        "match": "port == 1001 && ((direction == \"out\" && has_tag(local_tags, \"service\")) || (direction == \"in\" && has_tag(peer_tags, \"service\")))",
+        "actions": [{"type": "allow"}]
+      }
+    ]
+  }
+}
