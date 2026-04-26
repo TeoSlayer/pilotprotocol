@@ -17,7 +17,7 @@ jobs:
         working-directory: sdk/node
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: npm ci
@@ -58,7 +58,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
@@ -103,7 +103,7 @@ jobs:
           path: sdk/node-linux
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
@@ -156,7 +156,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
