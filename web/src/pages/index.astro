@@ -138,6 +138,9 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 <!-- HERO -->
 <section class="hero">
   <div class="gridbg" aria-hidden="true"></div>
+  <svg class="hero-boids" id="hero-boids" aria-hidden="true" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+    <g class="hero-boids-flock"></g>
+  </svg>
   <div class="wrap">
     <div class="hero-top">
       <div class="chip" id="exchange-chip" aria-live="polite">
@@ -512,7 +515,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
       <div class="chart-head">
         <div>
           <div class="num">Agents · weekly</div>
-          <div class="title">The network, <span class="accent"><span data-live="agents-long">{liveAgents}</span> agents</span> in {weeksLabel} weeks</div>
+          <div class="title">The network, <span class="accent"><span data-live="agents-long">{liveAgents}</span> agents</span> in <span data-live="weeks">{weeksLabel}</span> weeks</div>
         </div>
         <div class="legend">
           <span><span class="swatch sw-a"></span>Pilot agents</span>
@@ -803,6 +806,92 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
   setInterval(shootPacket, 260);
 })();
 
+// Hero boids - decorative flock of triangle-shaped boids drifting behind the
+// headline. Reynolds separation/alignment/cohesion in a 1200x600 viewBox with
+// a soft edge cushion. Reduced-motion renders a static frame.
+(function(){
+  var svg = document.getElementById('hero-boids');
+  if (!svg) return;
+  var flockG = svg.querySelector('.hero-boids-flock');
+  var W = 1200, H = 600;
+  var TRI_POINTS = '-5,-3.2 -5,3.2 8.5,0';
+
+  var seed = 7;
+  function rand(){ seed = (seed*9301 + 49297) % 233280; return seed/233280; }
+
+  var N = 50;
+  var boids = [];
+  for (var i = 0; i < N; i++) {
+    var ang0 = rand() * Math.PI * 2;
+    var sp0 = 0.8 + rand() * 0.6;
+    boids.push({
+      x: rand() * W,
+      y: rand() * H,
+      vx: Math.cos(ang0) * sp0,
+      vy: Math.sin(ang0) * sp0,
+      scale: 0.7 + rand() * 0.8
+    });
+  }
+
+  var tris = boids.map(function(b){
+    var t = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    t.setAttribute('points', TRI_POINTS);
+    flockG.appendChild(t);
+    return t;
+  });
+
+  function paint(){
+    for (var i = 0; i < boids.length; i++) {
+      var b = boids[i];
+      var ang = Math.atan2(b.vy, b.vx) * 180 / Math.PI;
+      tris[i].setAttribute('transform', 'translate('+b.x.toFixed(1)+' '+b.y.toFixed(1)+') rotate('+ang.toFixed(1)+') scale('+b.scale.toFixed(2)+')');
+    }
+  }
+  paint();
+
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var SEP_R = 28, ALIGN_R = 70, COH_R = 110;
+  var SEP_W = 0.10, ALIGN_W = 0.05, COH_W = 0.00025;
+  var EDGE_MARGIN = 80, EDGE_W = 0.0028;
+  var MAX_SPEED = 1.5, MIN_SPEED = 0.55;
+
+  function tick(){
+    for (var i = 0; i < boids.length; i++) {
+      var b = boids[i];
+      var sx = 0, sy = 0;
+      var ax = 0, ay = 0, an = 0;
+      var cx = 0, cy = 0, cn = 0;
+      for (var j = 0; j < boids.length; j++) {
+        if (i === j) continue;
+        var o = boids[j];
+        var dx = o.x - b.x, dy = o.y - b.y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 < 0.01) continue;
+        if (d2 < SEP_R * SEP_R) { var d = Math.sqrt(d2); sx -= dx / d; sy -= dy / d; }
+        if (d2 < ALIGN_R * ALIGN_R) { ax += o.vx; ay += o.vy; an++; }
+        if (d2 < COH_R * COH_R)     { cx += o.x;  cy += o.y;  cn++; }
+      }
+      var fx = sx * SEP_W, fy = sy * SEP_W;
+      if (an > 0) { fx += (ax / an - b.vx) * ALIGN_W; fy += (ay / an - b.vy) * ALIGN_W; }
+      if (cn > 0) { fx += (cx / cn - b.x)  * COH_W;   fy += (cy / cn - b.y)  * COH_W;   }
+      if (b.x < EDGE_MARGIN)          fx += (EDGE_MARGIN - b.x) * EDGE_W;
+      else if (b.x > W - EDGE_MARGIN) fx -= (b.x - (W - EDGE_MARGIN)) * EDGE_W;
+      if (b.y < EDGE_MARGIN)          fy += (EDGE_MARGIN - b.y) * EDGE_W;
+      else if (b.y > H - EDGE_MARGIN) fy -= (b.y - (H - EDGE_MARGIN)) * EDGE_W;
+
+      b.vx += fx; b.vy += fy;
+      var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      if (sp > MAX_SPEED)         { b.vx = b.vx / sp * MAX_SPEED; b.vy = b.vy / sp * MAX_SPEED; }
+      else if (sp < MIN_SPEED && sp > 0) { b.vx = b.vx / sp * MIN_SPEED; b.vy = b.vy / sp * MIN_SPEED; }
+      b.x += b.vx; b.y += b.vy;
+    }
+    paint();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+
 // Live exchange counter - today's exchange volume on the network.
 // Purely local simulation: derives today's baseline from wall-clock and
 // drifts it forward in-page. No server calls. Tick interval intentionally
@@ -833,6 +922,14 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 // Live stats refresh - fetches polo on page load and every 60s so numbers
 // stay current between site deploys. Build-time values are the fallback.
 (function(){
+  var LAUNCH_TS = new Date('2026-02-09T00:00:00Z').getTime() / 1000;
+  var TICKS = 10, EXP_K = 4.2;
+  var SVG_W = 1200, PAD_L = 60, PAD_R = 60, PAD_T = 40, PAD_B = 40;
+  var SVG_H = 360;
+  var PLOT_W = SVG_W - PAD_L - PAD_R;
+  var PLOT_H = SVG_H - PAD_T - PAD_B;
+  var WORDS = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty'];
+
   function fmtAgentsLong(n){
     if (n >= 1_000_000) return '~' + (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
     if (n >= 10_000)    return '~' + Math.round(n / 1000) + ',000';
@@ -843,6 +940,11 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
     if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B+';
     if (n >= 1_000_000)     return Math.round(n / 1_000_000) + 'M+';
     return String(n);
+  }
+  function fmtAxis(v){
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (v >= 1_000) return (v / 1000).toFixed(v >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(v));
   }
   function growth7d(daily){
     if (!Array.isArray(daily) || daily.length < 2) return null;
@@ -863,6 +965,76 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
   function setAll(sel, value){
     document.querySelectorAll(sel).forEach(function(el){ el.textContent = value; });
   }
+  function rebuildChart(finalVal){
+    if (!Number.isFinite(finalVal) || finalVal <= 0) return;
+    var svg = document.querySelector('.chart-wrap svg');
+    if (!svg) return;
+
+    var weeksSinceLaunch = Math.max(1, Math.round((Date.now() / 1000 - LAUNCH_TS) / (7 * 86400)));
+    var expDenom = Math.exp(EXP_K) - 1;
+    var pts = [];
+    for (var i = 0; i < TICKS; i++) {
+      var t = i / (TICKS - 1);
+      var v = finalVal * (Math.exp(EXP_K * t) - 1) / expDenom;
+      var label = i === TICKS - 1 ? 'NOW' : ('W' + (1 + Math.round(((weeksSinceLaunch - 1) * i) / (TICKS - 1))));
+      pts.push({ label: label, value: Math.round(v) });
+    }
+    var chartMax = pts[pts.length - 1].value || 1;
+    var xFor = function(i){ return PAD_L + (i / (pts.length - 1)) * PLOT_W; };
+    var yFor = function(v){ return PAD_T + (1 - v / chartMax) * PLOT_H; };
+    var coords = pts.map(function(p, i){ return { x: xFor(i), y: yFor(p.value), label: p.label, value: p.value }; });
+
+    var SAMPLES = 200;
+    var linePath = '';
+    for (var j = 0; j < SAMPLES; j++) {
+      var tt = j / (SAMPLES - 1);
+      var xx = PAD_L + tt * PLOT_W;
+      var vv = finalVal * (Math.exp(EXP_K * tt) - 1) / expDenom;
+      var yy = yFor(vv);
+      linePath += (j === 0 ? 'M' : ' L') + xx.toFixed(1) + ' ' + yy.toFixed(1);
+    }
+    var areaPath = linePath + ' L ' + (PAD_L + PLOT_W).toFixed(1) + ' ' + (PAD_T + PLOT_H).toFixed(1) + ' L ' + PAD_L.toFixed(1) + ' ' + (PAD_T + PLOT_H).toFixed(1) + ' Z';
+
+    var yTicks = [1.0, 0.5, 0.2, 0.05].map(function(frac){
+      var v = chartMax * frac;
+      return { label: fmtAxis(v), y: yFor(v) };
+    });
+
+    var grid = svg.querySelector('.chart-grid');
+    if (grid) grid.innerHTML = yTicks.map(function(t){ return '<line x1="0" y1="'+t.y+'" x2="1200" y2="'+t.y+'"></line>'; }).join('');
+
+    var area = svg.querySelector('.chart-area');
+    if (area) area.setAttribute('d', areaPath);
+    var line = svg.querySelector('.chart-line');
+    if (line) line.setAttribute('d', linePath);
+
+    var dots = svg.querySelector('.chart-dots');
+    if (dots) dots.innerHTML = coords.map(function(c, i){
+      var isLast = i === coords.length - 1;
+      return '<circle cx="'+c.x+'" cy="'+c.y+'" r="'+(isLast ? 4 : 3)+'"' + (isLast ? ' class="chart-dot-now"' : '') + '></circle>';
+    }).join('');
+
+    var labels = svg.querySelector('.chart-labels');
+    if (labels) labels.innerHTML = coords.map(function(c, i){
+      var anchor = i === 0 ? 'start' : (i === coords.length - 1 ? 'end' : 'middle');
+      return '<text x="'+c.x+'" y="335" text-anchor="'+anchor+'">'+c.label+'</text>';
+    }).join('');
+
+    var yaxis = svg.querySelector('.chart-yaxis');
+    if (yaxis) yaxis.innerHTML = yTicks.map(function(t){
+      return '<text x="12" y="'+(t.y + 4)+'" text-anchor="start">'+t.label+'</text>';
+    }).join('');
+
+    var finalDot = coords[coords.length - 1];
+    var finalLabel = svg.querySelector('[data-live-chart-label]');
+    if (finalLabel) {
+      finalLabel.setAttribute('x', String(finalDot.x - 10));
+      finalLabel.setAttribute('y', String(finalDot.y - 14));
+    }
+
+    var weeksWord = WORDS[weeksSinceLaunch] || String(weeksSinceLaunch);
+    setAll('[data-live="weeks"]', weeksWord);
+  }
   function refresh(){
     fetch('https://polo.pilotprotocol.network/api/stats', { cache: 'no-store' })
       .then(function(r){ return r.ok ? r.json() : null; })
@@ -877,6 +1049,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
           document.querySelectorAll('[data-live-chart-label]').forEach(function(el){
             el.textContent = longStr + ' agents';
           });
+          rebuildChart(activeN);
         }
         if (typeof s.total_requests === 'number') {
           setAll('[data-live="requests"]', fmtRequests(s.total_requests));

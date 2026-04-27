@@ -155,6 +155,21 @@ h1.display,
   -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black, transparent 70%);
 }
 
+.hero-boids {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  color: var(--accent);
+  opacity: 0.14;
+  mask-image: radial-gradient(ellipse at 50% 35%, black 25%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 35%, black 25%, transparent 80%);
+}
+[data-theme="light"] .hero-boids { opacity: 0.09; }
+.hero-boids-flock polygon { fill: currentColor; }
+.hero .wrap { position: relative; z-index: 1; }
+
 /* ============================================================
    THESIS
    ============================================================ */
