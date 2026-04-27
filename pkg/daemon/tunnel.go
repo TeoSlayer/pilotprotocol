@@ -54,9 +54,14 @@ type salvageEntry struct {
 	when      time.Time
 }
 
-// salvageMaxEntries bounds memory: 32 × ~1500 bytes ≈ 48 KiB per peer.
-// At maxCryptoPeers (1024) that's a 48 MiB worst-case bound.
-const salvageMaxEntries = 32
+// salvageMaxEntries bounds memory + replay-storm size. Originally 32,
+// but a 32-frame burst replayed on rekey caused receiver-side nonce
+// confusion (concurrent dataexchange retransmits filling salvage +
+// out-of-order delivery on the wire). 4 covers the typical "task
+// submit + send-results + a couple of retries" without overwhelming
+// the receiver. Memory at max: 4 × ~1500 B = 6 KiB / peer, ~6 MiB
+// across maxCryptoPeers (1024).
+const salvageMaxEntries = 4
 
 // salvageMaxAge is how far back we replay sends after a rekey. The rekey
 // round-trip itself is ~1 RTT plus the rate-limit window (3 s); 5 s gives
