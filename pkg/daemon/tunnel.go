@@ -147,6 +147,16 @@ type TunnelManager struct {
 	rekeyMu       sync.Mutex
 	lastRekeyReq  map[uint32]time.Time
 
+	// P1-010 tunnel-state half: track in-flight key exchanges so a single
+	// dropped reply under packet loss doesn't leave the tunnel wedged for
+	// 5 min until the next relayProbeLoop tick. Sweeper goroutine
+	// rekeyRetransmitLoop retransmits stale entries every
+	// rekeyRetransmitInterval up to maxRekeyAttempts. Cleared on first
+	// successful inbound decrypt from peer.
+	rkPendingMu        sync.Mutex
+	pendingRekey       map[uint32]*pendingRekeyState
+	lastInboundDecrypt map[uint32]time.Time
+
 	// NAT traversal: beacon-coordinated hole-punching and relay
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
@@ -194,17 +204,49 @@ const RecvChSize = 8192
 
 func NewTunnelManager() *TunnelManager {
 	return &TunnelManager{
-		peers:        make(map[uint32]*net.UDPAddr),
-		crypto:       make(map[uint32]*peerCrypto),
-		peerPubKeys:  make(map[uint32]ed25519.PublicKey),
-		pending:      make(map[uint32][][]byte),
-		relayPeers:     make(map[uint32]bool),
-		lastDirectRecv: make(map[uint32]time.Time),
-		lastRekeyReq:   make(map[uint32]time.Time),
-		recvCh:       make(chan *IncomingPacket, RecvChSize),
-		done:         make(chan struct{}),
+		peers:              make(map[uint32]*net.UDPAddr),
+		crypto:             make(map[uint32]*peerCrypto),
+		peerPubKeys:        make(map[uint32]ed25519.PublicKey),
+		pending:            make(map[uint32][][]byte),
+		relayPeers:         make(map[uint32]bool),
+		lastDirectRecv:     make(map[uint32]time.Time),
+		lastRekeyReq:       make(map[uint32]time.Time),
+		pendingRekey:       make(map[uint32]*pendingRekeyState),
+		lastInboundDecrypt: make(map[uint32]time.Time),
+		recvCh:             make(chan *IncomingPacket, RecvChSize),
+		done:               make(chan struct{}),
 	}
 }
+
+// pendingRekeyState tracks a key-exchange we sent and are waiting on.
+// Cleared when handleEncrypted records a successful decrypt from peer
+// (proof their crypto matches ours). The retransmit loop bumps lastSentAt
+// and attempts on each retry; gives up after maxRekeyAttempts to avoid
+// hammering a peer that's just gone.
+type pendingRekeyState struct {
+	firstSentAt time.Time
+	lastSentAt  time.Time
+	attempts    int
+}
+
+const (
+	// rekeyRetransmitInterval is how long we wait for an inbound encrypted
+	// packet to confirm the peer received our key_exchange. After this we
+	// retransmit on the assumption either our key_exchange or the peer's
+	// reply was dropped.
+	rekeyRetransmitInterval = 4 * time.Second
+
+	// maxRekeyAttempts caps the retransmit loop. The first send + this
+	// many retries = 1 + maxRekeyAttempts total attempts. After that we
+	// give up — peer is presumed gone.
+	maxRekeyAttempts = 5
+
+	// keyExchangeReplyStaleThreshold: when an auth_key_exchange arrives
+	// and we already have crypto for the peer with no inbound traffic in
+	// this window, reply with our key_exchange too (in case our previous
+	// reply was dropped). Loosens handleAuthKeyExchange's "send back" gate.
+	keyExchangeReplyStaleThreshold = 6 * time.Second
+)
 
 // rekeyRequestInterval is the minimum interval between unsolicited key-exchange
 // requests triggered by "encrypted packet but no key" events for the same peer.
@@ -500,6 +542,11 @@ func (tm *TunnelManager) Listen(addr string) error {
 
 	tm.readWg.Add(1)
 	go tm.readLoop()
+	// P1-010 tunnel-state half: retransmit pending key exchanges if peer
+	// hasn't responded within rekeyRetransmitInterval. Without this, a
+	// single dropped reply leaves the tunnel wedged until the next
+	// 5-minute relay probe.
+	go tm.rekeyRetransmitLoop()
 	return nil
 }
 
@@ -903,6 +950,13 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		return
 	}
 
+	// P1-010 tunnel-state half: successful decrypt = peer has matching
+	// crypto. Clear any pending rekey state so rekeyRetransmitLoop stops
+	// hammering. Update the lastInboundDecrypt timestamp for the
+	// handleAuthKeyExchange "stale reply" gate.
+	tm.recordInboundDecrypt(peerNodeID)
+	tm.clearPendingRekey(peerNodeID)
+
 	// P1-010 fix: a successfully-decrypted packet from a non-beacon address
 	// proves the direct path has recovered. Clear the relay flag so
 	// subsequent sends go direct (and the relay probe loop stops firing).
@@ -1009,6 +1063,125 @@ func (tm *TunnelManager) sendKeyExchangeToNode(peerNodeID uint32) {
 
 	if err := tm.writeFrame(peerNodeID, addr, frame); err != nil {
 		slog.Error("send key exchange failed", "peer_node_id", peerNodeID, "error", err)
+		return
+	}
+
+	// P1-010 tunnel-state half: register that we're waiting on a reply,
+	// so rekeyRetransmitLoop can retransmit if the peer's response (or
+	// our request) was dropped under loss.
+	tm.markPendingRekey(peerNodeID)
+}
+
+// markPendingRekey records that we sent a key_exchange to peerNodeID and
+// are awaiting confirmation (a successful decrypt from peer). Idempotent —
+// re-calls bump lastSentAt and attempts but preserve firstSentAt.
+func (tm *TunnelManager) markPendingRekey(peerNodeID uint32) {
+	now := time.Now()
+	tm.rkPendingMu.Lock()
+	st, ok := tm.pendingRekey[peerNodeID]
+	if !ok {
+		st = &pendingRekeyState{firstSentAt: now}
+		tm.pendingRekey[peerNodeID] = st
+	}
+	st.lastSentAt = now
+	st.attempts++
+	tm.rkPendingMu.Unlock()
+}
+
+// clearPendingRekey is called after a successful decrypt from peer — proves
+// peer has matching crypto, so any in-flight key_exchange is no longer
+// pending.
+func (tm *TunnelManager) clearPendingRekey(peerNodeID uint32) {
+	tm.rkPendingMu.Lock()
+	delete(tm.pendingRekey, peerNodeID)
+	tm.rkPendingMu.Unlock()
+}
+
+// recordInboundDecrypt updates the per-peer last-decrypt timestamp. Used
+// by handleAuthKeyExchange to gate its "reply with our key_exchange too"
+// loosening (don't reply if we just decrypted from peer — they have a
+// matching key).
+func (tm *TunnelManager) recordInboundDecrypt(peerNodeID uint32) {
+	tm.rkPendingMu.Lock()
+	tm.lastInboundDecrypt[peerNodeID] = time.Now()
+	tm.rkPendingMu.Unlock()
+}
+
+// inboundDecryptStale returns true if we haven't successfully decrypted
+// any packet from peerNodeID within the staleness window. Used to decide
+// whether to re-reply with our key_exchange when peer keeps sending us
+// theirs (suggests our previous reply was dropped).
+func (tm *TunnelManager) inboundDecryptStale(peerNodeID uint32) bool {
+	tm.rkPendingMu.Lock()
+	t, ok := tm.lastInboundDecrypt[peerNodeID]
+	tm.rkPendingMu.Unlock()
+	if !ok {
+		return true
+	}
+	return time.Since(t) > keyExchangeReplyStaleThreshold
+}
+
+// rekeyRetransmitLoop runs every rekeyRetransmitInterval, scans
+// pendingRekey, and retransmits stale entries. Caps retries at
+// maxRekeyAttempts to avoid hammering an unreachable peer indefinitely.
+// Exits on tm.done.
+func (tm *TunnelManager) rekeyRetransmitLoop() {
+	t := time.NewTicker(rekeyRetransmitInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-tm.done:
+			return
+		case <-t.C:
+			tm.rekeyRetransmitTick()
+		}
+	}
+}
+
+// rekeyRetransmitTick is the per-tick body of rekeyRetransmitLoop, split
+// out so it's directly testable without a real ticker.
+func (tm *TunnelManager) rekeyRetransmitTick() {
+	now := time.Now()
+	type retry struct {
+		peerNodeID uint32
+		attempts   int
+	}
+	var toRetry []retry
+	var toGiveUp []uint32
+
+	tm.rkPendingMu.Lock()
+	for peerNodeID, st := range tm.pendingRekey {
+		if st.attempts >= maxRekeyAttempts+1 {
+			toGiveUp = append(toGiveUp, peerNodeID)
+			continue
+		}
+		if now.Sub(st.lastSentAt) < rekeyRetransmitInterval {
+			continue
+		}
+		toRetry = append(toRetry, retry{peerNodeID: peerNodeID, attempts: st.attempts})
+	}
+	for _, id := range toGiveUp {
+		delete(tm.pendingRekey, id)
+	}
+	tm.rkPendingMu.Unlock()
+
+	for _, r := range toRetry {
+		slog.Info("rekey retransmit",
+			"peer_node_id", r.peerNodeID,
+			"attempt", r.attempts+1,
+			"max", maxRekeyAttempts+1)
+		// sendKeyExchangeToNode calls markPendingRekey, which bumps the
+		// counter and lastSentAt — we don't need to do that ourselves.
+		tm.sendKeyExchangeToNode(r.peerNodeID)
+	}
+	for _, id := range toGiveUp {
+		slog.Warn("rekey retransmit gave up after maxRekeyAttempts",
+			"peer_node_id", id, "max", maxRekeyAttempts+1)
+		if tm.webhook != nil {
+			tm.webhook.Emit("tunnel.rekey_gave_up", map[string]interface{}{
+				"peer_node_id": id,
+			})
+		}
 	}
 }
 
