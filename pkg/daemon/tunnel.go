@@ -40,7 +40,28 @@ type peerCrypto struct {
 	ready         bool                          // true once key exchange is complete
 	authenticated bool                          // true if peer proved Ed25519 identity
 	peerX25519Key [32]byte                      // peer's X25519 public key (for detecting rekeying)
+
+	// P1-010 desync salvage: ring buffer of recent plaintext sent with this
+	// key. On a peer-initiated rekey (keyChanged in handleAuthKeyExchange),
+	// these are re-encrypted with the new key and re-sent — recovering the
+	// data that was vaporized when the peer dropped our stale-keyed frames.
+	salvageMu sync.Mutex
+	salvage   []salvageEntry
 }
+
+type salvageEntry struct {
+	plaintext []byte
+	when      time.Time
+}
+
+// salvageMaxEntries bounds memory: 32 × ~1500 bytes ≈ 48 KiB per peer.
+// At maxCryptoPeers (1024) that's a 48 MiB worst-case bound.
+const salvageMaxEntries = 32
+
+// salvageMaxAge is how far back we replay sends after a rekey. The rekey
+// round-trip itself is ~1 RTT plus the rate-limit window (3 s); 5 s gives
+// margin for slow handshakes under loss.
+const salvageMaxAge = 5 * time.Second
 
 // checkAndRecordNonce returns true if the nonce is valid (not replayed, not too old).
 // Must be called with replayMu held.
@@ -686,6 +707,18 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 		tm.sendKeyExchangeToNode(peerNodeID)
 	}
 
+	// P1-010 desync salvage: if the rekey REPLACED an existing crypto
+	// context (peer restarted or rekeyed mid-flight), data we sent under
+	// the old key was dropped by the peer. Replay the recent-send ring
+	// buffer with the new key so application-layer fire-and-forget paths
+	// (task submit, send-results) actually deliver.
+	if keyChanged && oldPC != nil {
+		tm.mu.RLock()
+		replayAddr := tm.peers[peerNodeID]
+		tm.mu.RUnlock()
+		tm.replaySalvage(oldPC, pc, peerNodeID, replayAddr)
+	}
+
 	tm.flushPending(peerNodeID)
 }
 
@@ -773,6 +806,14 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	// Respond with our key if this is a new peer or the peer rekeyed
 	if !hadCrypto || keyChanged {
 		tm.sendKeyExchangeToNode(peerNodeID)
+	}
+
+	// P1-010 desync salvage: see handleAuthKeyExchange for rationale.
+	if keyChanged && oldPC != nil {
+		tm.mu.RLock()
+		replayAddr := tm.peers[peerNodeID]
+		tm.mu.RUnlock()
+		tm.replaySalvage(oldPC, pc, peerNodeID, replayAddr)
 	}
 
 	// Flush any pending packets now that encryption is ready
@@ -1010,6 +1051,77 @@ func (tm *TunnelManager) buildKeyExchangeFrame() []byte {
 	return frame
 }
 
+// recordSalvage stashes a plaintext send into the per-peerCrypto ring buffer.
+// On a subsequent peer-initiated rekey, replaySalvage will re-encrypt with the
+// new key and re-send — recovering data that the peer dropped because our
+// frame was keyed under their now-stale crypto context.
+//
+// Bounded by salvageMaxEntries and salvageMaxAge. The plaintext is copied,
+// not referenced — caller can reuse its buffer.
+func (tm *TunnelManager) recordSalvage(pc *peerCrypto, plaintext []byte) {
+	if pc == nil {
+		return
+	}
+	now := time.Now()
+	cutoff := now.Add(-salvageMaxAge)
+	pc.salvageMu.Lock()
+	// Trim aged entries from the head.
+	for len(pc.salvage) > 0 && pc.salvage[0].when.Before(cutoff) {
+		pc.salvage = pc.salvage[1:]
+	}
+	// Bound size — drop oldest.
+	if len(pc.salvage) >= salvageMaxEntries {
+		pc.salvage = pc.salvage[1:]
+	}
+	cp := make([]byte, len(plaintext))
+	copy(cp, plaintext)
+	pc.salvage = append(pc.salvage, salvageEntry{plaintext: cp, when: now})
+	pc.salvageMu.Unlock()
+}
+
+// replaySalvage re-encrypts plaintext from oldPC's ring buffer with newPC's
+// key and ships it via writeFrame. Called when handleAuthKeyExchange or
+// handleKeyExchange installs a fresh crypto context that replaces a previous
+// one (keyChanged=true). This is the data-recovery half of the P1-010 fix —
+// the rekey itself was already in place, but the data sent under the stale
+// key was being lost.
+func (tm *TunnelManager) replaySalvage(oldPC, newPC *peerCrypto, peerNodeID uint32, addr *net.UDPAddr) {
+	if oldPC == nil || newPC == nil || addr == nil {
+		return
+	}
+	oldPC.salvageMu.Lock()
+	entries := oldPC.salvage
+	oldPC.salvage = nil
+	oldPC.salvageMu.Unlock()
+	if len(entries) == 0 {
+		return
+	}
+	cutoff := time.Now().Add(-salvageMaxAge)
+	replayed := 0
+	for _, e := range entries {
+		if e.when.Before(cutoff) {
+			continue
+		}
+		encrypted := tm.encryptFrame(newPC, e.plaintext)
+		if err := tm.writeFrame(peerNodeID, addr, encrypted); err != nil {
+			slog.Debug("desync salvage replay write failed",
+				"peer_node_id", peerNodeID, "error", err)
+			continue
+		}
+		replayed++
+	}
+	if replayed > 0 {
+		slog.Info("desync salvage replayed",
+			"peer_node_id", peerNodeID, "count", replayed)
+		if tm.webhook != nil {
+			tm.webhook.Emit("tunnel.desync_salvage", map[string]interface{}{
+				"peer_node_id": peerNodeID,
+				"replayed":     replayed,
+			})
+		}
+	}
+}
+
 // flushPending sends any queued packets for a peer now that encryption is ready.
 func (tm *TunnelManager) flushPending(nodeID uint32) {
 	tm.pendMu.Lock()
@@ -1162,6 +1274,12 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		tm.mu.RUnlock()
 
 		if pc != nil && pc.ready {
+			// Record plaintext for desync salvage BEFORE encrypting. If the
+			// peer has lost their key (silent restart, packet-loss-induced
+			// rekey), they'll drop this frame and send us a rekey request;
+			// handleAuthKeyExchange will replay the salvage with the new
+			// key. See P1-010.
+			tm.recordSalvage(pc, data)
 			frame := tm.encryptFrame(pc, data)
 			return tm.writeFrame(nodeID, addr, frame)
 		}
