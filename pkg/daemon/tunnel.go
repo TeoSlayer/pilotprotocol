@@ -728,7 +728,18 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 	oldPC := tm.crypto[peerNodeID]
 	hadCrypto := oldPC != nil
 	keyChanged := hadCrypto && oldPC.peerX25519Key != pc.peerX25519Key
-	tm.crypto[peerNodeID] = pc
+	// Only replace tm.crypto when there is no existing entry OR the
+	// peer's X25519 ephemeral key actually changed. Replacing on a
+	// duplicate key_exchange (same pubkey — common under our retransmit
+	// loop or a peer's reply crossing on the wire) would reset the
+	// nonce counter and replay-window bitmap, causing our subsequent
+	// encrypted sends and any in-flight peer packets to look wrong on
+	// the wire. The shared secret derived from the same pubkey is
+	// identical; the existing peerCrypto is the correct one.
+	// Pinned by TestHandleKeyExchangeDuplicatePreservesCryptoState.
+	if !hadCrypto || keyChanged {
+		tm.crypto[peerNodeID] = pc
+	}
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
 	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
@@ -831,7 +842,12 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	hadCrypto := oldPC != nil
 	// Detect rekeying: peer restarted with a new keypair
 	keyChanged := hadCrypto && oldPC.peerX25519Key != pc.peerX25519Key
-	tm.crypto[peerNodeID] = pc
+	// Same rationale as handleAuthKeyExchange: don't replace on a
+	// duplicate key_exchange (same pubkey) — the nonce counter +
+	// replay-window reset would invalidate in-flight ciphertexts.
+	if !hadCrypto || keyChanged {
+		tm.crypto[peerNodeID] = pc
+	}
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
 	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
