@@ -44,8 +44,10 @@ const totalAgents = catalog.setups.reduce((sum: number, s: any) => sum + s.agent
       sync, incident response.
     </p>
     <div class="head-cta">
-      <a class="btn primary" href="/for/skills">Browse skills <span class="arr">→</span></a>
-      <a class="btn" href="/docs/getting-started">Getting started</a>
+      <a class="btn primary" href="/for/skills"
+         data-track="cta_click" data-track-target="skills" data-track-location="setups_head">Browse skills <span class="arr">→</span></a>
+      <a class="btn" href="/docs/getting-started"
+         data-track="cta_click" data-track-target="install" data-track-location="setups_head">Getting started</a>
     </div>
   </div>
 </section>

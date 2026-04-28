@@ -35,15 +35,19 @@ const statusText = version ? `Network live · v${version}` : 'Network live';
 <nav class="nav-top">
   <div class="wrap">
     <div class="nav-row">
-      <a href="/" class="brand" aria-label="Pilot Protocol - home">
+      <a href="/" class="brand" aria-label="Pilot Protocol - home"
+         data-track="nav_click" data-track-target="home">
         <img src="/img/pilot.png" alt="" class="logo" width="44" height="44" />
         <span class="brand-text">Pilot / Protocol<small class="brand-tag">Where agents go</small></span>
       </a>
 
       <div class="nav-links" id="nav-links">
-        <a href="/docs/" class:list={['nav-link', active === 'docs' && 'active']}>Docs</a>
-        <a href="/blog/" class:list={['nav-link', active === 'blog' && 'active']}>Blog</a>
-        <a href="/plans" class:list={['nav-link', active === 'plans' && 'active']}>Enterprise</a>
+        <a href="/docs/" class:list={['nav-link', active === 'docs' && 'active']}
+           data-track="nav_click" data-track-target="docs">Docs</a>
+        <a href="/blog/" class:list={['nav-link', active === 'blog' && 'active']}
+           data-track="nav_click" data-track-target="blog">Blog</a>
+        <a href="/plans" class:list={['nav-link', active === 'plans' && 'active']}
+           data-track="nav_click" data-track-target="enterprise">Enterprise</a>
 
         <div class:list={['nav-dropdown', active === 'for' && 'active']}>
           <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">
@@ -54,7 +58,8 @@ const statusText = version ? `Network live · v${version}` : 'Network live';
           </button>
           <div class="nav-dropdown-menu" role="menu">
             {forLinks.map((l) => (
-              <a href={l.href} role="menuitem">
+              <a href={l.href} role="menuitem"
+                 data-track="nav_click" data-track-target={l.href.replace('/for/', 'for-')}>
                 <span class="dd-label">{l.label}</span>
                 <span class="dd-desc">{l.desc}</span>
               </a>
@@ -71,7 +76,8 @@ const statusText = version ? `Network live · v${version}` : 'Network live';
           </button>
           <div class="nav-dropdown-menu" role="menu">
             {techLinks.map((l) => (
-              <a href={l.href} role="menuitem">
+              <a href={l.href} role="menuitem"
+                 data-track="nav_click" data-track-target={l.href.replace('/for/', 'for-')}>
                 <span class="dd-label">{l.label}</span>
                 <span class="dd-desc">{l.desc}</span>
               </a>
@@ -81,11 +87,13 @@ const statusText = version ? `Network live · v${version}` : 'Network live';
       </div>
 
       <div class="nav-right">
-        <a class="nav-status" href="https://polo.pilotprotocol.network" aria-label="Network status - open Polo dashboard">
+        <a class="nav-status" href="https://polo.pilotprotocol.network" aria-label="Network status - open Polo dashboard"
+           data-track="nav_click" data-track-target="status">
           <span class="dot"></span>
           <span class="status-text">{statusText}</span>
         </a>
-        <a class="bots-link" href="/plain/" aria-label="IF YOU ARE AN AGENT GO HERE">
+        <a class="bots-link" href="/plain/" aria-label="IF YOU ARE AN AGENT GO HERE"
+           data-track="nav_click" data-track-target="bots">
           <span class="bots-label">Bots</span>
           <svg class="icon-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="4" y="8" width="16" height="11" rx="2"></rect>
