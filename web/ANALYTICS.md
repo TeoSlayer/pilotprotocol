@@ -133,37 +133,23 @@ The GA4 data lives in property `530680522`. For programmatic access (Looker
 Studio, scripts, CI), use the service-account key at
 `~/.config/gcp-keys/ga-reader-key.json`. Don't commit it.
 
-## Privacy & consent
+## Privacy
 
-Two layers ship today:
+Two layers ship today, both anonymous, both no-banner:
 
-1. **GA4** (loaded sitewide, no banner). IP anonymization on, no PII, no
-   cross-site identifiers. The custom events above carry only the params
-   the docs declare — no free-form text, no form contents, no path-with-PII.
-2. **PostHog** (opt-in, gated on the consent banner). Session recordings
-   and heatmaps. Only loads when the user clicked **Allow** on the banner
-   in `src/components/ConsentBanner.astro`. Loaded with
-   `person_profiles: 'never'` (anonymous mode), `maskAllInputs: true`, and
-   any element marked `[data-private]` is masked in recordings.
+1. **GA4** (loaded sitewide). IP anonymization on, no PII, no cross-site
+   identifiers. The custom events above carry only the params the docs
+   declare — no free-form text, no form contents, no path-with-PII.
+2. **PostHog** (loaded sitewide when `PUBLIC_POSTHOG_KEY` is set). Session
+   recordings and heatmaps in `person_profiles: 'never'` (anonymous mode),
+   `maskAllInputs: true`. Anything marked `[data-private]` is masked in
+   recordings.
 
-The banner shows once per device (persisted in `localStorage` as
-`pilot-analytics-consent` ∈ `accepted | declined`). Cleared the
-choice? The banner reappears on next visit.
-
-PostHog only initialises when **both** conditions hold:
-- `localStorage['pilot-analytics-consent'] === 'accepted'`, AND
-- `PUBLIC_POSTHOG_KEY` is defined (set in your `.env` or Cloudflare Pages
-  environment vars).
-
-If the key is unset, the consent banner is decorative — clicking Allow does
-nothing harmful, just no recordings happen. To turn PostHog on for real:
+PostHog is the kill switch — unset `PUBLIC_POSTHOG_KEY` and nothing loads.
 
 ```bash
 # Sign up at https://posthog.com/, create a project, copy the API key.
-# Then in the Cloudflare Pages project settings:
+# In the Cloudflare Pages project settings:
 PUBLIC_POSTHOG_KEY=phc_xxxxxxxxxxxxxxxxxxxxxx
 PUBLIC_POSTHOG_HOST=https://us.i.posthog.com   # or eu.i.posthog.com
 ```
-
-To turn it off: unset the env var. The banner can stay; without a key,
-nothing loads.

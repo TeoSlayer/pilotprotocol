@@ -22,7 +22,6 @@ declare global {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
     pilotTrack?: (event: string, params?: Record<string, string | number | undefined>) => void;
-    pilotInitPostHog?: () => void;
   }
 }
 
@@ -46,52 +45,36 @@ function track(event: string, params: GtagParams = {}): void {
 
 window.pilotTrack = track;
 
-// --- PostHog (heatmaps + session recordings, gated on consent + key) ----
+// --- PostHog (heatmaps + session recordings, gated on key only) --------
 const POSTHOG_KEY = (import.meta as { env?: Record<string, string | undefined> }).env
   ?.PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST =
   (import.meta as { env?: Record<string, string | undefined> }).env?.PUBLIC_POSTHOG_HOST ||
   'https://us.i.posthog.com';
 
-let posthogStarted = false;
-
-async function initPostHog(): Promise<void> {
-  if (posthogStarted || !POSTHOG_KEY) return;
-  posthogStarted = true;
-  try {
-    const mod = await import('posthog-js');
-    const ph = (mod as { default: typeof mod }).default || mod;
-    (ph as unknown as { init: (k: string, opts: Record<string, unknown>) => void }).init(
-      POSTHOG_KEY,
-      {
-        api_host: POSTHOG_HOST,
-        person_profiles: 'never',
-        capture_pageview: true,
-        autocapture: true,
-        persistence: 'localStorage',
-        session_recording: {
-          maskAllInputs: true,
-          maskTextSelector: '[data-private]',
+if (POSTHOG_KEY) {
+  import('posthog-js')
+    .then((mod) => {
+      const ph = (mod as { default: typeof mod }).default || mod;
+      (ph as unknown as { init: (k: string, opts: Record<string, unknown>) => void }).init(
+        POSTHOG_KEY,
+        {
+          api_host: POSTHOG_HOST,
+          person_profiles: 'never',
+          capture_pageview: true,
+          autocapture: true,
+          persistence: 'localStorage',
+          session_recording: {
+            maskAllInputs: true,
+            maskTextSelector: '[data-private]',
+          },
         },
-      },
-    );
-  } catch (err) {
-    posthogStarted = false;
-    // Silent - PostHog is opt-in additive signal; failure must not break GA4.
-    console.warn('[analytics] posthog init failed', err);
-  }
-}
-
-window.pilotInitPostHog = initPostHog;
-
-if (typeof localStorage !== 'undefined') {
-  try {
-    if (localStorage.getItem('pilot-analytics-consent') === 'accepted') {
-      initPostHog();
-    }
-  } catch {
-    // localStorage may throw in privacy mode - skip silently
-  }
+      );
+    })
+    .catch((err) => {
+      // PostHog is additive; failure must not break GA4.
+      console.warn('[analytics] posthog init failed', err);
+    });
 }
 
 // --- Click delegation (incl. outbound, blog→docs handoff, dead_click) ---
