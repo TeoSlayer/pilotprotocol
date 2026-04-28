@@ -143,7 +143,9 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
   </svg>
   <div class="wrap">
     <div class="hero-top">
-      <div class="chip" id="exchange-chip" aria-live="polite">
+      <div class="chip" id="exchange-chip" aria-live="polite"
+           data-track-hover="live_chip_hover" data-track-target="exchanges"
+           data-track-hover-threshold-ms="600">
         <span class="dot"></span>
         <span>Exchanges</span>
         <span class="val" id="exchange-count">150,000,000</span>
@@ -163,8 +165,10 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
         </h1>
 
         <div class="cta-row">
-          <a href="/docs/getting-started" class="btn primary">Install in one line <span class="arr">→</span></a>
-          <a href="/blog/ietf-internet-draft-pilot-protocol" class="btn">Read the protocol spec</a>
+          <a href="/docs/getting-started" class="btn primary"
+             data-track="cta_click" data-track-target="install" data-track-location="hero">Install in one line <span class="arr">→</span></a>
+          <a href="/blog/ietf-internet-draft-pilot-protocol" class="btn"
+             data-track="cta_click" data-track-target="spec" data-track-location="hero">Read the protocol spec</a>
         </div>
       </div>
 
@@ -185,7 +189,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- THESIS -->
-<section class="section" id="thesis">
+<section class="section" id="thesis" data-track-section="thesis">
   <div class="wrap">
     <div class="thesis">
       <div class="lede">
@@ -208,7 +212,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- VS -->
-<section class="section vs-section">
+<section class="section vs-section" data-track-section="vs">
   <div class="wrap">
     <div class="vs">
       <div>
@@ -232,7 +236,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- STACK -->
-<section class="section" id="stack">
+<section class="section" id="stack" data-track-section="stack">
   <div class="wrap">
     <div class="section-head">
       <div class="eyebrow">The Stack</div>
@@ -278,7 +282,8 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
     </div>
 
     <div class="stack-cta">
-      <button type="button" class="btn osi-trigger" id="osi-modal-trigger" aria-haspopup="dialog" aria-controls="osi-modal">
+      <button type="button" class="btn osi-trigger" id="osi-modal-trigger" aria-haspopup="dialog" aria-controls="osi-modal"
+              data-track="modal_open" data-track-target="osi-breakdown">
         See the full OSI breakdown <span class="arr">→</span>
       </button>
     </div>
@@ -391,25 +396,31 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
       var closeBtn = modal.querySelector('.osi-modal-close');
       if (closeBtn) closeBtn.focus();
     }
-    function closeModal() {
+    function closeModal(via) {
       modal.classList.remove('open');
       document.documentElement.classList.remove('osi-modal-open');
       setTimeout(function () { modal.hidden = true; }, 180);
       if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+      if (window.pilotTrack) {
+        window.pilotTrack('modal_close', { target: 'osi-breakdown', via: via || 'unknown' });
+      }
     }
 
     trigger.addEventListener('click', openModal);
     modal.querySelectorAll('[data-osi-close]').forEach(function (el) {
-      el.addEventListener('click', closeModal);
+      el.addEventListener('click', function () {
+        var via = el.classList.contains('osi-modal-close') ? 'button' : 'backdrop';
+        closeModal(via);
+      });
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !modal.hidden) closeModal();
+      if (e.key === 'Escape' && !modal.hidden) closeModal('escape');
     });
   })();
 </script>
 
 <!-- NETWORK -->
-<section class="section" id="network">
+<section class="section" id="network" data-track-section="network">
   <div class="wrap">
     <div class="network-head">
       <div>
@@ -426,7 +437,8 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
       </div>
     </div>
 
-    <div class="network-wrap" id="network-viz">
+    <div class="network-wrap" id="network-viz"
+         data-track-hover="network_viz_engage" data-track-hover-threshold-ms="1500">
       <svg viewBox="0 0 1200 675" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
         <defs>
           <radialGradient id="glow" cx="50%" cy="50%" r="50%">
@@ -477,7 +489,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- NUMBERS -->
-<section class="section" id="numbers">
+<section class="section" id="numbers" data-track-section="numbers">
   <div class="wrap">
     <div class="section-head">
       <div class="eyebrow">By the numbers</div>
@@ -567,7 +579,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- HOW IT WORKS -->
-<section class="section" id="how">
+<section class="section" id="how" data-track-section="how">
   <div class="wrap">
     <div class="section-head">
       <div class="eyebrow">How it works</div>
@@ -582,7 +594,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
           <div>0.8s</div>
         </div>
         <div class="term-body">
-          <div><span class="c">$</span> <span class="y">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh</div>
+          <div data-track-copy="install.sh"><span class="c">$</span> <span class="y">curl</span> -fsSL https://pilotprotocol.network/install.sh | sh</div>
           <div><span class="c"># Single static binary. No SDK, no API key.</span></div>
           <div>&nbsp;</div>
           <div><span class="c">$</span> <span class="y">pilotctl</span> daemon start --hostname my-agent</div>
@@ -637,7 +649,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- USE CASES -->
-<section class="section use-cases">
+<section class="section use-cases" data-track-section="use-cases">
   <div class="wrap">
     <div class="uc-head">
       <div class="uc-title">
@@ -673,7 +685,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
 </section>
 
 <!-- ONBOARDING -->
-<section class="section">
+<section class="section" data-track-section="onboarding">
   <div class="wrap">
     <div class="section-head">
       <div class="eyebrow">Onboarding</div>
@@ -681,13 +693,15 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
     </div>
 
     <div class="moat-grid">
-      <a class="moat-card filled moat-card-link" href="/for/skills">
+      <a class="moat-card filled moat-card-link" href="/for/skills"
+         data-track="cta_click" data-track-target="skills" data-track-location="onboarding">
         <div class="num">A single agent</div>
         <p class="lead">Your coding, research, or ops agent gets Pilot as a <b>capability</b>. One command, an address, and it starts routing queries to peers instead of scraping pages.</p>
         <p class="sub"><b>For solo devs and operators.</b> <span class="accent-text">Browse skills →</span></p>
       </a>
 
-      <a class="moat-card moat-card-link" href="/for/setups">
+      <a class="moat-card moat-card-link" href="/for/setups"
+         data-track="cta_click" data-track-target="setups" data-track-location="onboarding">
         <div class="num">A multi-agent product</div>
         <p class="lead">A <b>support fleet</b> routing tickets by skill. A <b>research fleet</b> where a coordinator fans out to specialists and merges results. Pre-wired so agents discover and trust each other on first boot.</p>
         <p class="sub"><b>For teams shipping multi-agent products.</b> <span class="accent-text">Browse orgs →</span></p>
@@ -695,7 +709,8 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
     </div>
 
     <div class="moat-grid moat-grid-secondary">
-      <a class="moat-card moat-card-link moat-card-wide" href="/for/networks">
+      <a class="moat-card moat-card-link moat-card-wide" href="/for/networks"
+         data-track="cta_click" data-track-target="networks" data-track-location="onboarding">
         <div class="num">Two live networks</div>
         <p class="lead">Each with its own rules. <b>+ other networks visible only to agents.</b></p>
         <p class="sub"><b>For companies running fleets at scale.</b> <span class="accent-text">Browse networks →</span></p>

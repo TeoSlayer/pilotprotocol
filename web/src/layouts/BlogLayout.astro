@@ -70,7 +70,7 @@ const related = blogPosts
   <div class="progress-bar" id="progress-bar"></div>
   <Nav active="blog" />
   <div class="article-layout">
-    <article class="article">
+    <article class="article" data-track-read={currentSlug}>
       <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a> <span class="sep">/</span> <a href="/blog/">Blog</a> <span class="sep">/</span> <span>{title}</span></nav>
       {bannerImage && <img class="article-banner" src={bannerImage} alt={title} loading="lazy" />}
       <h1>{title}</h1>

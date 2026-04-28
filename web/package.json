@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "astro": "^5.7.10",
+    "posthog-js": "^1.372.3",
     "puppeteer": "^24.39.0"
   }
 }
