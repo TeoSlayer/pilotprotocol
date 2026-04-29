@@ -1,0 +1,296 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `<script type="application/ld+json">
+      {
+  "@type": "Article",
+  "image": {
+    "url": "https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777424313744_Cybersecurity-engineer-working-at-networked-desk.jpeg",
+    "@type": "ImageObject",
+    "caption": "Cybersecurity engineer working at networked desk"
+  },
+  "author": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "@context": "https://schema.org",
+  "headline": "Network security checklist for decentralized P2P AI systems",
+  "publisher": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "inLanguage": "en-US",
+  "articleBody": "",
+  "description": "Ensure your decentralized AI systems are secure with our comprehensive network security checklist. Protect against dynamic threats effectively!",
+  "datePublished": "2026-04-29T00:58:40.231Z"
+}
+      </script>
+    <h1 id="network-security-checklist-for-decentralized-p2p-ai-systems" tabindex="-1">Network security checklist for decentralized P2P AI systems</h1>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777424313744_Cybersecurity-engineer-working-at-networked-desk.jpeg" alt="Cybersecurity engineer working at networked desk"></p>
+<hr>
+<blockquote>
+<p><strong>TL;DR:</strong></p>
+<ul>
+<li>Building secure decentralized AI networks requires end-to-end encryption, cryptographic authentication, and threat modeling.</li>
+<li>Host hardening, rigorous key management, and peer verification are essential for defending against attacks.</li>
+<li>Implementing zero trust architecture with microsegmentation minimizes lateral movement and enhances overall security.</li>
+</ul>
+</blockquote>
+<hr>
+<p>Building secure decentralized AI networks is not the same as locking down a traditional enterprise stack. When your agents operate across dynamic peer-to-peer topologies, the attack surface shifts constantly, trust boundaries blur, and standard perimeter defenses simply do not apply. <a href="https://www.comparitech.com/net-admin/p2p-network-security/" rel="nofollow noopener noreferrer" target="_blank">P2P networks require</a> end-to-end encryption, cryptographic hashing, digital signatures, reputation systems, and DDoS protection working together. This checklist gives you a structured, actionable framework covering threat modeling, encryption, node hardening, peer verification, and zero trust architecture, specifically designed for multi-agent, decentralized deployments.</p>
+<hr>
+<h2 id="table-of-contents" tabindex="-1">Table of Contents</h2>
+<ul>
+<li><a href="#threat-modeling-and-key-management-for-peer-to-peer-ai">Threat modeling and key management for peer-to-peer AI</a></li>
+<li><a href="#checklist-item-1%3A-encryption%2C-authentication%2C-and-data-integrity">Checklist item 1: Encryption, authentication, and data integrity</a></li>
+<li><a href="#checklist-item-2%3A-node/host-hardening-and-intrusion-prevention">Checklist item 2: Node/host hardening and intrusion prevention</a></li>
+<li><a href="#checklist-item-3%3A-bootnode%2C-sybil%2C-and-peer-verification-controls">Checklist item 3: Bootnode, sybil, and peer verification controls</a></li>
+<li><a href="#checklist-item-4%3A-zero-trust-and-microsegmentation-for-agentic-environments">Checklist item 4: Zero trust and microsegmentation for agentic environments</a></li>
+<li><a href="#our-perspective%3A-security-architecture-is-a-product-decision%2C-not-just-an-ops-task">Our perspective: Security architecture is a product decision, not just an ops task</a></li>
+<li><a href="#build-your-secure-p2p-agent-network-with-pilot-protocol">Build your secure P2P agent network with Pilot Protocol</a></li>
+<li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
+</ul>
+<h2 id="key-takeaways" tabindex="-1">Key Takeaways</h2>
+<table>
+<thead>
+<tr>
+<th>Point</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prioritize threat modeling</td>
+<td>Understanding threats and managing cryptographic keys safely is the first line of defense for P2P AI systems.</td>
+</tr>
+<tr>
+<td>Encrypt every connection</td>
+<td>Always use end-to-end encryption and digital signatures between agents and network nodes.</td>
+</tr>
+<tr>
+<td>Harden all nodes</td>
+<td>Secure hosts using SSH keys, firewalls, and regular updates to prevent intrusions.</td>
+</tr>
+<tr>
+<td>Verify peers and bootnodes</td>
+<td>Employ reputation, canary probes, and strong bootnode security to block Sybil and eclipse attacks.</td>
+</tr>
+<tr>
+<td>Adopt zero trust principles</td>
+<td>Segment access and verify all agent activity continuously to limit lateral threats in decentralized environments.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="threat-modeling-and-key-management-for-peer-to-peer-ai" tabindex="-1">Threat modeling and key management for peer-to-peer AI</h2>
+<p>Every secure system starts with a clear picture of what you are defending and who might attack it. In decentralized AI networks, that picture is more complex than in traditional architectures. Agents join and leave dynamically, data flows across untrusted nodes, and there is no central authority to enforce policy.</p>
+<p><strong>Start with a structured threat model.</strong> Map your attack surface by listing every component: agents, bootnodes, relay nodes, APIs, and storage layers. Identify threat actors, from external attackers probing for open ports to compromised internal agents, and define realistic attack scenarios for each.</p>
+<p><a href="https://bittorrent.site/bad-actors-weak-tools-stronger-defenses-a-security-playbook-" rel="nofollow noopener noreferrer" target="_blank">Threat modeling for P2P systems</a> emphasizes key management with hardware-backed storage, access segmentation, contextual RBAC, and playbooks for leaks and compromises. That means your threat model is not just a diagram. It directly informs your key management strategy.</p>
+<p><strong>Key management essentials for P2P AI:</strong></p>
+<ul>
+<li>Store private keys in hardware security modules (HSMs) or trusted platform modules (TPMs) to prevent software-side extraction</li>
+<li>Implement automated key rotation on a fixed schedule, monthly at minimum, and immediately after any suspected compromise</li>
+<li>Use contextual role-based access control (RBAC) so each agent only holds keys for the resources it actively needs</li>
+<li>Maintain encrypted, geographically distributed key backups with strict access logs</li>
+<li>Write and rehearse incident playbooks for key compromise scenarios before you need them</li>
+</ul>
+<p>Access segmentation is especially important in agentic systems. A single compromised agent should not be able to access keys belonging to other agents or escalate privileges across the cluster. Review <a href="https://pilotprotocol.network/blog/peer-to-peer-networking-examples-ai-engineers">P2P networking security examples</a> to see how segmentation applies in real deployments.</p>
+<blockquote>
+<p>“The most dangerous assumption in decentralized systems is that a node you provisioned yesterday is still trustworthy today. Key rotation and access segmentation are your primary defenses against slow-burn compromise.”</p>
+</blockquote>
+<p>Understanding <a href="https://pilotprotocol.network/blog/decentralized-networking-p2p-solutions-ai-architectures">decentralized networking best practices</a> early shapes every architectural decision that follows. Getting <a href="https://ibrand.media/cybersecurity-basics-small-business" target="_blank" rel="noopener">cybersecurity basics</a> right at this stage prevents costly redesigns later.</p>
+<p>Pro Tip: Use hardware-backed key storage even in development environments. Software key stores are convenient but create habits and configurations that often leak into production.</p>
+<hr>
+<h2 id="checklist-item-1-encryption-authentication-and-data-integrity" tabindex="-1">Checklist item 1: Encryption, authentication, and data integrity</h2>
+<p>With your threat model in place and key management defined, the next step is making sure every byte of agent communication is protected in transit and verifiable on arrival.</p>
+<p>P2P networks require end-to-end encryption, cryptographic hashing, and digital signatures for data integrity and authentication. In multi-agent systems, you cannot treat any hop as implicitly safe, even hops within your own infrastructure.</p>
+<p><strong>Core controls to implement:</strong></p>
+<ul>
+<li>Enforce TLS 1.3 or higher on every agent-to-agent connection, with no fallback to older versions</li>
+<li>Use mutual TLS (mTLS) so both sides of every connection authenticate before exchanging data</li>
+<li>Sign all agent messages with the sender’s private key and verify signatures before processing</li>
+<li>Hash all data payloads at the point of creation and re-verify hashes at the point of consumption</li>
+<li>Reject any message that fails signature or hash verification immediately, log the event, and alert</li>
+</ul>
+<p><strong>Why every control matters:</strong></p>
+<p>Encryption without authentication means you are protecting traffic from eavesdroppers but not from impersonators. Authentication without integrity checks means a man-in-the-middle can modify payloads even if they cannot read them. You need all three layers working together.</p>
+<p>A useful data point: 14.74% of Monero P2P peers show anomalous or potentially malicious behavior. In a live P2P network, nearly one in seven nodes may be acting in bad faith. Never assume a node is benign simply because it passed initial authentication.</p>
+<p>Review <a href="https://pilotprotocol.network/blog/encrypted-tunnel-advantages-peer-to-peer-ai-networks">encryption for AI P2P networks</a> to understand how encrypted tunnels reduce exposure across multi-hop agent paths. Pairing that with <a href="https://pilotprotocol.network/blog/secure-communication-protocols-distributed-ai-systems">secure communication protocols</a> gives you a complete picture of protocol-level defenses.</p>
+<p>Sybil and eclipse attacks in P2P networks are real and well-documented. Cryptographic authentication is your first line of defense against both.</p>
+<p>Pro Tip: Layer cryptographic proofs with mutual TLS for defense-in-depth. mTLS handles transport-layer authentication while message-level signatures protect against compromised relay nodes that could strip or modify payloads mid-path.</p>
+<hr>
+<h2 id="checklist-item-2-nodehost-hardening-and-intrusion-prevention" tabindex="-1">Checklist item 2: Node/host hardening and intrusion prevention</h2>
+<p>Securing the communication layer is necessary but not sufficient. If the host running your agent is compromised, an attacker can bypass every cryptographic control you have put in place. Host hardening closes that gap.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777424305524_IT-specialist-inspecting-server-room-security.jpeg" alt="IT specialist inspecting server room security"></p>
+<p><a href="https://old-docs.ton.org/v3/guidelines/nodes/running-nodes/secure-guidelines" rel="nofollow noopener noreferrer" target="_blank">Node security in decentralized networks</a> includes SSH key authentication, firewall restrictions, Fail2Ban, regular updates, SELinux or AppArmor enforcement, and log monitoring. Each control addresses a distinct attack vector.</p>
+<p><strong>Step-by-step node hardening checklist:</strong></p>
+<ol>
+<li>Disable password-based SSH authentication. Use key-based authentication only, with keys stored securely and rotated regularly.</li>
+<li>Configure UFW or iptables to allow only the ports your agents actually use. Deny all inbound traffic by default.</li>
+<li>Install and configure Fail2Ban to block IPs after repeated failed authentication attempts. Set thresholds appropriate for your traffic volume.</li>
+<li>Apply OS and dependency updates on a defined schedule. Unpatched software is the most common entry point for host compromise.</li>
+<li>Enable SELinux or AppArmor and write profiles that restrict agent processes to only the files and syscalls they require.</li>
+<li>Centralize logs and set up alerts for anomalous patterns: unexpected outbound connections, privilege escalation attempts, and unusual file access.</li>
+</ol>
+<p><strong>Why each control matters:</strong></p>
+<ul>
+<li>SSH key auth eliminates brute-force credential attacks</li>
+<li>Firewall rules reduce the attack surface to only necessary services</li>
+<li>Fail2Ban limits automated scanning and credential stuffing</li>
+<li>Patch management closes known vulnerabilities before attackers exploit them</li>
+<li>Mandatory access controls (SELinux/AppArmor) contain damage if an agent process is exploited</li>
+<li>Log monitoring enables detection and response before damage spreads</li>
+</ul>
+<blockquote>
+<p>“Timing side-channels allow state inference in P2P systems with up to 91% accuracy, meaning an attacker who can observe network timing patterns can reconstruct internal state without ever breaking encryption.”</p>
+</blockquote>
+<p>That finding underscores why host hardening matters beyond the obvious. An attacker with access to a node’s timing data can infer agent behavior, coordination patterns, and even private state. Zombie agents and persistent backdoors become possible when host security is treated as optional. Review <a href="https://wafaicloud.com/blog/linux-secure-p2p-communication-hardening-techniques/" rel="nofollow noopener noreferrer" target="_blank">Linux P2P hardening</a> techniques for platform-specific implementation details.</p>
+<p>Follow <a href="https://pilotprotocol.network/blog/ai-networking-best-practices-secure-scalable-systems">best practices for AI network security</a> to align your host hardening with broader agent fleet security requirements.</p>
+<hr>
+<h2 id="checklist-item-3-bootnode-sybil-and-peer-verification-controls" tabindex="-1">Checklist item 3: Bootnode, sybil, and peer verification controls</h2>
+<p>Your agents are hardened and communicating securely. Now the question is: how do they safely join the network and verify the peers they connect to?</p>
+<p>Bootnodes are the entry points of your P2P network. If they are compromised or manipulated, an attacker can redirect new agents to malicious peers before any other security control has a chance to act.</p>
+<p><strong>Bootnode security best practices:</strong></p>
+<ul>
+<li>Restrict bootnode access to authenticated, rate-limited requests only</li>
+<li>Encrypt all bootnode keys and store them in hardware-backed storage</li>
+<li>Distribute bootnodes across multiple geographic regions to prevent single-point eclipse attacks</li>
+<li>Monitor bootnode logs continuously for unusual connection patterns or repeated failed requests</li>
+<li>Rotate bootnode credentials on a regular schedule and after any suspected incident</li>
+</ul>
+<p><a href="https://dev.to/soniarotglam/bootnode-security-6-essential-hardening-layers-to-protect-your-web3-network-2jj4" rel="nofollow noopener noreferrer" target="_blank">Bootnodes need</a> UDP rate limiting, key encryption, geo-distribution, and monitoring to defend against Sybil and eclipse attacks. These are not optional hardening steps. They are baseline requirements for any production P2P AI deployment.</p>
+<p><strong>Sybil countermeasures vs. bootnode and eclipse attack defenses:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Attack type</th>
+<th>Primary countermeasure</th>
+<th>Secondary countermeasure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sybil attack</td>
+<td>Reputation scoring per peer</td>
+<td>Proof-of-work or stake tokens</td>
+</tr>
+<tr>
+<td>Eclipse attack</td>
+<td>Geo-distributed bootnodes</td>
+<td>Diverse peer selection algorithms</td>
+</tr>
+<tr>
+<td>Bootnode hijack</td>
+<td>Key encryption and HSM storage</td>
+<td>Rate limiting and access controls</td>
+</tr>
+<tr>
+<td>Peer impersonation</td>
+<td>Cryptographic attestation</td>
+<td>Canary probes</td>
+</tr>
+<tr>
+<td>Spam/flooding</td>
+<td>Rate limiting per peer ID</td>
+<td>Behavioral anomaly detection</td>
+</tr>
+</tbody>
+</table>
+<p><a href="https://arxiv.org/html/2603.03753v1" rel="nofollow noopener noreferrer" target="_blank">Tiered peer verification</a> separates low-risk peers (reputation-based checks), medium-risk peers (canary probes), and high-risk peers (full cryptographic attestation). This approach scales well because you are not running expensive cryptographic proofs on every connection. You apply the level of verification that matches the assessed risk.</p>
+<p>Implement <a href="https://pilotprotocol.network/blog/peer-to-peer-agent-communication-no-server">multilayer agent verification</a> to build trust progressively as agents interact over time, rather than making binary trust decisions at connection time.</p>
+<p>Pro Tip: Proof-of-work or proof-of-stake tokens raise the cost of Sybil attacks significantly. An attacker who needs to provision thousands of fake identities will find it economically impractical if each identity requires a non-trivial resource commitment.</p>
+<hr>
+<h2 id="checklist-item-4-zero-trust-and-microsegmentation-for-agentic-environments" tabindex="-1">Checklist item 4: Zero trust and microsegmentation for agentic environments</h2>
+<p>Even with strong peer verification and host hardening, lateral movement remains a risk. If one agent is compromised, how do you prevent the attacker from pivoting to other agents, data stores, or control planes?</p>
+<p>Zero trust architecture answers that question. <a href="https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.1800-35.pdf" rel="nofollow noopener noreferrer" target="_blank">NIST recommends zero trust</a> for distributed resources: continuous verification, policy enforcement points, and microsegmentation. In decentralized agent systems, this means no agent is trusted by default, regardless of where it sits in the network.</p>
+<p><strong>Steps to implement zero trust in your agent network:</strong></p>
+<ol>
+<li>Establish a strong identity for every agent. Use cryptographic certificates tied to hardware or a trusted certificate authority.</li>
+<li>Segment access by function. Agents responsible for data collection should not have access to orchestration APIs, and vice versa.</li>
+<li>Define and enforce policies at every interaction point. Use policy enforcement points (PEPs) that evaluate identity, context, and behavior before granting access.</li>
+<li>Monitor continuously. Log every access decision, flag anomalies in real time, and feed data into your incident response pipeline.</li>
+<li>Review and tighten policies regularly. Zero trust is not a configuration you set once. It requires ongoing governance as your agent fleet evolves.</li>
+</ol>
+<p><strong>Classic perimeter security vs. zero trust for decentralized P2P:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Classic perimeter security</th>
+<th>Zero trust for decentralized P2P</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trust model</td>
+<td>Implicit trust inside the perimeter</td>
+<td>Continuous verification for every agent</td>
+</tr>
+<tr>
+<td>Access control</td>
+<td>Network-level, coarse-grained</td>
+<td>Identity-based, fine-grained</td>
+</tr>
+<tr>
+<td>Lateral movement risk</td>
+<td>High once perimeter is breached</td>
+<td>Contained by microsegmentation</td>
+</tr>
+<tr>
+<td>Discovery</td>
+<td>Centralized DNS or broker</td>
+<td>Cryptographic identity and peer lookup</td>
+</tr>
+<tr>
+<td>Policy enforcement</td>
+<td>Firewall rules at the edge</td>
+<td>Distributed PEPs at every interaction</td>
+</tr>
+<tr>
+<td>Monitoring</td>
+<td>Perimeter logs</td>
+<td>Per-agent behavioral telemetry</td>
+</tr>
+</tbody>
+</table>
+<p>Microsegmentation in distributed agent clusters means each agent or agent group operates in its own logical segment with explicit, minimal permissions to communicate with other segments. A compromised data-ingestion agent cannot reach your model inference agents without crossing a policy enforcement boundary that will detect and block the attempt.</p>
+<p>Review the <a href="https://pilotprotocol.network/blog/trust-model-agents-invisible-by-default">zero trust visibility model</a> for a practical approach to making agents invisible by default and visible only to verified peers. Combine that with <a href="https://pilotprotocol.network/blog/trust-network-protocols-secure-decentralized-systems">protocol-level zero trust</a> to enforce trust at the protocol layer rather than relying solely on network topology.</p>
+<p>Meeting <a href="https://mosaicsafety.com.sg/singapore-cyber-trust-mark-essential-standard-for-digital-credibility-beyond-traditional-security-measures" target="_blank" rel="noopener">digital credibility standards</a> increasingly requires demonstrating zero trust architecture in your security documentation, especially for enterprise and regulated deployments.</p>
+<hr>
+<h2 id="our-perspective-security-architecture-is-a-product-decision-not-just-an-ops-task" tabindex="-1">Our perspective: Security architecture is a product decision, not just an ops task</h2>
+<p>Most teams treat network security as something the infrastructure team handles after the architecture is finalized. That approach consistently produces systems that are expensive to harden retroactively and fragile under real-world attack conditions.</p>
+<p>The teams that build the most resilient decentralized AI systems treat security as a first-class product requirement. They make key management decisions before writing agent communication code. They define zero trust policies before deploying the first node. They test bootnode security before onboarding any external peers.</p>
+<p>There is also a practical reality that is easy to overlook: in multi-agent systems, the blast radius of a single compromise scales with the number of agents that implicitly trust the compromised node. A flat trust model in a 500-agent fleet means one bad actor can potentially reach all 500. Microsegmentation and tiered verification reduce that blast radius to a handful of agents at most.</p>
+<p>The checklist in this article is not a one-time exercise. Threat landscapes shift, agent fleets grow, and new attack techniques emerge. The teams that stay ahead of those changes treat this checklist as a living document, reviewed and updated with every major architecture change or security incident. That discipline is what separates resilient systems from ones that fail quietly until they fail catastrophically.</p>
+<hr>
+<h2 id="build-your-secure-p2p-agent-network-with-pilot-protocol" tabindex="-1">Build your secure P2P agent network with Pilot Protocol</h2>
+<p>If you are ready to put this checklist into practice, Pilot Protocol gives you the infrastructure to do it without building every security primitive from scratch.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
+<p>Pilot Protocol provides encrypted tunnels, NAT traversal, persistent virtual addresses, and mutual trust establishment for AI agent fleets, all in a platform built specifically for decentralized, multi-agent deployments. You get mTLS by default, cryptographic peer identity, and cross-cloud connectivity that wraps your existing HTTP, gRPC, and SSH protocols. Whether you are hardening a small agent cluster or orchestrating a large autonomous fleet across regions, <a href="https://pilotprotocol.network">Pilot Protocol</a> gives you the secure P2P networking layer your agents need. Start building at pilotprotocol.network.</p>
+<hr>
+<h2 id="frequently-asked-questions" tabindex="-1">Frequently asked questions</h2>
+<h3 id="whats-the-most-critical-first-step-in-securing-a-decentralized-p2p-ai-network" tabindex="-1">What’s the most critical first step in securing a decentralized P2P AI network?</h3>
+<p>Build a robust threat model and implement strong key management before designing protocols or deploying agents. Threat modeling for P2P systems emphasizes hardware-backed key storage as the foundation all other controls depend on.</p>
+<h3 id="how-can-sybil-and-eclipse-attacks-be-prevented-in-multi-agent-systems" tabindex="-1">How can Sybil and eclipse attacks be prevented in multi-agent systems?</h3>
+<p>Combine reputation systems, rate-limiting, bootnode geo-distribution, and strong peer verification protocols to deter these attacks. Bootnodes require geo-distribution and continuous monitoring as baseline defenses against both attack types.</p>
+<h3 id="what-does-zero-trust-mean-for-decentralized-agents" tabindex="-1">What does “zero trust” mean for decentralized agents?</h3>
+<p>Each agent’s identity and actions must be continuously verified, with no implicit trust based on network position or prior contact. NIST recommends continuous verification, policy enforcement points, and microsegmentation as the core components of zero trust for distributed systems.</p>
+<h2 id="recommended" tabindex="-1">Recommended</h2>
+<ul>
+<li><a href="https://pilotprotocol.network/blog/cloud-networking-secure-peer-to-peer-distributed-ai">Cloud networking: Secure peer-to-peer for distributed AI</a></li>
+<li><a href="https://pilotprotocol.network/blog/ai-networking-best-practices-secure-scalable-systems">AI networking best practices for secure, scalable systems</a></li>
+<li><a href="https://pilotprotocol.network/blog/peer-to-peer-networking-examples-ai-engineers">Peer-to-peer networking examples every AI engineer should know</a></li>
+<li><a href="https://pilotprotocol.network/blog/decentralized-networking-p2p-solutions-ai-architectures">Decentralized networking: P2P solutions for AI architectures</a></li>
+</ul>`;
+---
+<BlogLayout
+  title="Network security checklist for decentralized P2P AI systems"
+  description="Ensure your decentralized AI systems are secure with our comprehensive network security checklist. Protect against dynamic threats effectively!"
+  date="April 29, 2026"
+  tags={["blog"]}
+  canonicalPath="/blog/network-security-checklist-for-decentralized-p2p-ai-systems"
+  bannerImage="/blog/banners/network-security-checklist-for-decentralized-p2p-ai-systems.jpg"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>
