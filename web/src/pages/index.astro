@@ -8,7 +8,7 @@ import '../styles/system.css';
 let liveAgents = '~35,000';
 let liveAgentsExact = '34,812';
 let liveRequests = '5B+';
-let growthPct = '+100%';
+let growthPct = '+50%';
 
 // Chart - synthetic exponential curve, W1=0 → NOW=liveAgents. Always 10 ticks.
 const LAUNCH_TS = new Date('2026-02-09T00:00:00Z').getTime() / 1000;
@@ -49,8 +49,14 @@ try {
         const d = Math.abs(Number(e?.ts) - targetTs);
         if (Number.isFinite(d) && d < bestDelta) { bestDelta = d; ref = e; }
       }
-      const a = Number(ref?.total_nodes);
-      const b = Number(last?.total_nodes);
+      // Per-day rows in polo carry `online_nodes` (not `total_nodes`); fall back to
+      // current top-level total_nodes as the latest if the last row is missing it.
+      const aField = (e: any) => Number(e?.online_nodes ?? e?.total_nodes);
+      const a = aField(ref);
+      const bRaw = aField(last);
+      const b = Number.isFinite(bRaw) && bRaw > 0
+        ? bRaw
+        : (typeof s.total_nodes === 'number' ? s.total_nodes : NaN);
       if (Number.isFinite(a) && Number.isFinite(b) && a > 0) {
         const pct = ((b - a) / a) * 100;
         if (Number.isFinite(pct) && pct > 0) growthPct = `+${Math.round(pct)}%`;
@@ -961,7 +967,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
     if (v >= 1_000) return (v / 1000).toFixed(v >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'K';
     return String(Math.round(v));
   }
-  function growth7d(daily){
+  function growth7d(daily, fallbackTotal){
     if (!Array.isArray(daily) || daily.length < 2) return null;
     var last = daily[daily.length - 1];
     var targetTs = Number(last && last.ts) - 7 * 86400;
@@ -971,8 +977,12 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
       var d = Math.abs(Number(daily[i] && daily[i].ts) - targetTs);
       if (Number.isFinite(d) && d < best) { best = d; ref = daily[i]; }
     }
-    var a = Number(ref && ref.total_nodes);
-    var b = Number(last && last.total_nodes);
+    // Per-day rows in polo carry `online_nodes` (not `total_nodes`); fall back to
+    // the top-level total_nodes for the latest if the last row is missing it.
+    var fieldOf = function(e){ if (!e) return NaN; var v = e.online_nodes; return Number.isFinite(v) ? Number(v) : Number(e.total_nodes); };
+    var a = fieldOf(ref);
+    var bRaw = fieldOf(last);
+    var b = Number.isFinite(bRaw) && bRaw > 0 ? bRaw : Number(fallbackTotal);
     if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) return null;
     var pct = ((b - a) / a) * 100;
     return Number.isFinite(pct) && pct > 0 ? ('+' + Math.round(pct) + '%') : null;
@@ -1069,7 +1079,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
         if (typeof s.total_requests === 'number') {
           setAll('[data-live="requests"]', fmtRequests(s.total_requests));
         }
-        var g = growth7d(s.daily);
+        var g = growth7d(s.daily, s.total_nodes);
         if (g) setAll('[data-live="growth"]', g);
       })
       .catch(function(){});
