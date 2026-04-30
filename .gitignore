@@ -56,6 +56,9 @@ web/dist/
 web/.astro/
 web/.wrangler/
 
+# Personal analytics scripts + their reports - never commit
+web/scripts/local/
+
 # Root-level npm tooling (not the main module)
 /package.json
 /package-lock.json
@@ -155,3 +158,13 @@ web/research/
 survey*.mjs
 *-results.jsonl
 *-dashboard.html
+
+# Operational manifests — kept local, never committed
+k8s/
+
+# Test rerun outputs — should never have been committed
+tests/integration/local/logs.rerun*
+
+# Untracked sandboxes / personal scratch — never commit
+abpn/
+scripts/pilot-geo-exporter/
