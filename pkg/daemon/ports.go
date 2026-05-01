@@ -824,21 +824,26 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		c.CongWin = c.SSThresh
 	}
 
-	// Congestion window growth (Appropriate Byte Counting, RFC 3465)
+	// Congestion window growth (Appropriate Byte Counting, RFC 3465).
 	// Grow based on bytes ACKed, not number of ACKs — avoids delayed ACK penalty.
-	if c.CongWin < c.SSThresh {
-		// Slow start: grow by acked bytes (exponential)
-		c.CongWin += bytesAcked
-	} else {
-		// Congestion avoidance: grow by ~MSS per RTT (AIMD)
-		increment := MaxSegmentSize * bytesAcked / c.CongWin
-		if increment < 1 {
-			increment = 1
+	// Skip entirely when bytesAcked==0 (all covered segments were already SACKed):
+	// no new data was delivered, so no AIMD reward is due, and the CA "< 1 → 1"
+	// minimum must not fire for a zero-delivery ACK.
+	if bytesAcked > 0 {
+		if c.CongWin < c.SSThresh {
+			// Slow start: grow by acked bytes (exponential)
+			c.CongWin += bytesAcked
+		} else {
+			// Congestion avoidance: grow by ~MSS per RTT (AIMD)
+			increment := MaxSegmentSize * bytesAcked / c.CongWin
+			if increment < 1 {
+				increment = 1
+			}
+			c.CongWin += increment
 		}
-		c.CongWin += increment
-	}
-	if c.CongWin > MaxCongWin {
-		c.CongWin = MaxCongWin
+		if c.CongWin > MaxCongWin {
+			c.CongWin = MaxCongWin
+		}
 	}
 
 	// Signal that window opened up
