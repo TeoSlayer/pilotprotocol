@@ -1079,9 +1079,12 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 	}
 	blocks = append(blocks, cur)
 
-	// Limit to 4 blocks (most recent/important first is fine since they're sorted by seq)
+	// Limit to 4 blocks, keeping the 4 highest-seq blocks (RFC 2018 §4 prefers
+	// most-recently-received first; highest seq approximates most recently added
+	// in a seq-sorted OOO buffer).  blocks[:4] would keep the lowest 4 and silently
+	// drop the highest block, causing the sender to retransmit it every RTT.
 	if len(blocks) > 4 {
-		blocks = blocks[:4]
+		blocks = blocks[len(blocks)-4:]
 	}
 	return blocks
 }
