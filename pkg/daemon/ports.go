@@ -846,8 +846,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// Slow start: grow by acked bytes (exponential)
 			c.CongWin += bytesAcked
 		} else {
-			// Congestion avoidance: grow by ~MSS per RTT (AIMD)
-			increment := MaxSegmentSize * bytesAcked / c.CongWin
+			// Congestion avoidance: grow by ~MSS per RTT (AIMD, RFC 3465 §2.2).
+			// Cap the effective bytes at SMSS: when bytes_acked > SMSS (e.g. a
+			// delayed ACK covering multiple segments), use SMSS*SMSS/cwnd, not
+			// SMSS*bytes_acked/cwnd — the latter grows faster than one full
+			// segment per RTT which is the RFC-defined CA rate.
+			eff := bytesAcked
+			if eff > MaxSegmentSize {
+				eff = MaxSegmentSize
+			}
+			increment := MaxSegmentSize * eff / c.CongWin
 			if increment < 1 {
 				increment = 1
 			}
