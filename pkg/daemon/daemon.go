@@ -2893,9 +2893,16 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	// Capture every conn field this function reads under Mu; reading them
 	// post-unlock would race with concurrent state mutations from
 	// handleStreamPacket / sendDelayedACK / sendSegment paths.
+	// v1.9.1: pre-increment SendSeq inside this critical section so that a
+	// concurrent sendSegment cannot read the same value and produce a data
+	// segment with the same seq as the FIN sentinel (iter 24 fix, same
+	// pattern as the sendSegment pre-increment fix in iter 23).
 	conn.Mu.Lock()
 	st := conn.State
 	sendSeq := conn.SendSeq
+	if st == StateEstablished {
+		conn.SendSeq++ // reserve FIN seq atomically with the read
+	}
 	localAddr := conn.LocalAddr
 	localPort := conn.LocalPort
 	remoteAddr := conn.RemoteAddr
@@ -2924,9 +2931,6 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 		d.tunnels.Send(remoteAddr.Node, fin)
 		// Track FIN in retransmission buffer so the retxLoop retries it
 		conn.TrackSend(sendSeq, finData)
-		conn.Mu.Lock()
-		conn.SendSeq++
-		conn.Mu.Unlock()
 	}
 	conn.CloseRecvBuf()
 	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
