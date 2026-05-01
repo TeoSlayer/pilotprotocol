@@ -691,8 +691,10 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		// Duplicate ACK (pure ACK only)
 		c.DupAckCount++
 		dupAcks++
-		if c.DupAckCount == 3 {
-			// Fast retransmit (RFC 5681)
+		if c.DupAckCount == 3 && len(c.Unacked) > 0 {
+			// Fast retransmit (RFC 5681). Only when there is data in flight:
+			// keepalive probes and other spurious dup-ACKs with an empty Unacked
+			// must not trigger congestion reduction (FlightSize == 0).
 			c.fastRetransmit(recvAck)
 			fastRetx++
 			// Multiplicative decrease
@@ -701,8 +703,8 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				c.SSThresh = MaxSegmentSize
 			}
 			c.CongWin = c.SSThresh + 3*MaxSegmentSize
-		} else if c.DupAckCount > 3 {
-			// Inflate window for each additional dup ACK
+		} else if c.DupAckCount > 3 && len(c.Unacked) > 0 {
+			// Inflate window for each additional dup ACK (only in recovery)
 			c.CongWin += MaxSegmentSize
 			if c.CongWin > MaxCongWin {
 				c.CongWin = MaxCongWin
