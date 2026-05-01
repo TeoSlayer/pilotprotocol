@@ -2869,10 +2869,11 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 				conn.InRecovery = true
 				conn.RecoveryPoint = sendSeq
 			}
-			// Timeout always resets to slow start, even when InRecovery was
-			// already set by fast retransmit.  The inflated fast-recovery
-			// CongWin (SSThresh+k*MSS) must be torn down to InitialCongWin.
-			conn.CongWin = InitialCongWin
+			// Timeout resets to slow start per RFC 5681 §3.1 (LW = 1 SMSS).
+			// InitialCongWin (RFC 6928, 10*SMSS) applies only at connection
+			// startup; post-timeout cwnd must be 1 SMSS so the connection
+			// re-enters slow start rather than jumping directly to CA.
+			conn.CongWin = MaxSegmentSize
 
 			// RFC 6298 §5.5–5.6: double RTO on every timeout expiry, not only
 			// the first one.  Window reduction above is once-per-loss-event, but

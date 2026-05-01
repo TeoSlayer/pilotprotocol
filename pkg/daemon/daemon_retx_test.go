@@ -206,10 +206,11 @@ func TestRetransmitUnackedTimedOutSendsACKPacketAndEntersRecovery(t *testing.T) 
 	if conn.Unacked[0].attempts != 2 {
 		t.Fatalf("attempts = %d, want 2", conn.Unacked[0].attempts)
 	}
-	// CongWin collapsed to InitialCongWin, SSThresh = max(FlightSize/2, 2*SMSS).
-	// FlightSize = len("retx-me") = 7; FlightSize/2 = 3 < 2*MSS = 8192 → floor.
-	if conn.CongWin != InitialCongWin {
-		t.Fatalf("CongWin = %d, want InitialCongWin=%d", conn.CongWin, InitialCongWin)
+	// RFC 5681 §3.1: cwnd = LW = 1*SMSS after timeout.
+	// SSThresh = max(FlightSize/2, 2*SMSS); FlightSize=len("retx-me")=7 → floor.
+	if conn.CongWin != MaxSegmentSize {
+		t.Fatalf("CongWin = %d, want MaxSegmentSize=%d (RFC 5681 §3.1 LW=1*SMSS)",
+			conn.CongWin, MaxSegmentSize)
 	}
 	wantSSThresh := 2 * MaxSegmentSize // max(7/2=3, 2*MSS=8192) = 8192
 	if conn.SSThresh != wantSSThresh {
