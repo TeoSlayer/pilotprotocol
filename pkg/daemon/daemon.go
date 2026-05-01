@@ -2891,11 +2891,12 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			conn.Mu.Lock()
 			conn.Stats.Retransmits++
 			conn.Mu.Unlock()
-			// Timeout supersedes fast-recovery dup-ACK state: reset DupAckCount so
-			// the next new ACK does not execute the fast-recovery-exit path
-			// (CongWin = SSThresh), which would override the timeout's
-			// CongWin = InitialCongWin reduction.
+			// Timeout supersedes fast-recovery dup-ACK state: reset DupAckCount and
+			// FastRecovery so the next new ACK does not execute the fast-recovery-exit
+			// path (CongWin = SSThresh), which would override the timeout's
+			// CongWin = MaxSegmentSize reduction.
 			conn.DupAckCount = 0
+			conn.FastRecovery = false
 			conn.LastRetxTime = now
 
 			conn.Mu.Lock()

@@ -202,6 +202,7 @@ type Connection struct {
 	CongWin       int                    // congestion window in bytes
 	SSThresh      int                    // slow-start threshold
 	InRecovery    bool                   // true during timeout loss recovery
+	FastRecovery  bool                   // true when recovery was entered via fast retransmit (not timeout)
 	RecoveryPoint uint32                 // highest seq sent when entering recovery
 	RetxStop      chan struct{}          // closed to stop retx goroutine
 	RetxSend      func(*protocol.Packet) // callback to send retransmitted packets
@@ -737,6 +738,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 					c.InRecovery = true
 					c.RecoveryPoint = sendSeq
 				}
+				// Track that recovery was entered via fast retransmit (not timeout),
+				// so that subsequent partial ACKs within this episode trigger RFC 6582
+				// §3 step 6 retransmit + deflation even when DupAckCount was reset
+				// to 0 by a prior partial ACK.
+				c.FastRecovery = true
 				// Fast-recovery CW inflation always applies: entering fast recovery
 				// from either a new episode (!InRecovery) or continuing one (e.g.
 				// dup ACKs after a timeout) inflates CongWin to SSThresh + 3*MSS.
@@ -789,14 +795,20 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	c.DupAckCount = 0
 	c.LastRetxTime = time.Time{} // reset retransmit guard so ACK-driven recovery can proceed
 
-	// Capture before the recovery-exit check below clears it: needed by the
-	// deflation guard so that "oldDupAckCount >= 3" is not sufficient on its own
-	// (after iter-57, DupAckCount can reach 3+ without recovery being entered).
+	// Capture both flags before the recovery-exit check below may clear them.
+	// wasInRecovery: needed by the deflation guard so that "oldDupAckCount >= 3"
+	// is not sufficient on its own (after iter-57, DupAckCount can reach 3+
+	// without recovery being entered).
+	// wasFastRecovery: needed so subsequent partial ACKs (with DupAckCount < 3
+	// after the first partial ACK reset it to 0) still trigger RFC 6582 §3
+	// step 6 retransmit + deflation unconditionally while in fast recovery.
 	wasInRecovery := c.InRecovery
+	wasFastRecovery := c.FastRecovery
 
-	// Exit timeout recovery when all loss-window data is acked
+	// Exit recovery when all loss-window data is acked.
 	if c.InRecovery && seqAfterOrEqual(ack, c.RecoveryPoint) {
 		c.InRecovery = false
+		c.FastRecovery = false
 	}
 
 	// Remove acked entries and update RTT from the first once-sent segment.
@@ -849,11 +861,22 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 	}
 
-	// Congestion-window deflation on the first new ACK in/after fast recovery
-	// (RFC 6582 §3). Guard with wasInRecovery: after iter-57/58 DupAckCount can
-	// reach 3+ without recovery being entered (no-op fastRetransmit), so
-	// deflating then would incorrectly lower a never-inflated CongWin.
-	if oldDupAckCount >= 3 && wasInRecovery {
+	// Congestion-window deflation and fast-retransmit on ACKs in/after fast
+	// recovery (RFC 6582 §3).
+	//
+	// Two guards combine:
+	//  1. wasInRecovery: prevents deflation when recovery was never entered
+	//     (no-op fastRetransmit case after iter-57/58).
+	//  2. (oldDupAckCount >= 3 || wasFastRecovery): ensures step 6 fires for
+	//     EVERY partial ACK during fast recovery, not only the first one.
+	//     After the first partial ACK resets DupAckCount=0, subsequent partial
+	//     ACKs may arrive when DupAckCount < 3.  wasFastRecovery (captured
+	//     before the recovery-exit check) records that we entered via fast
+	//     retransmit (not timeout), so step 6 repeats per RFC 6582 §3:
+	//     "As partial ACKs come in, this process repeats."
+	//     For timeout-based recovery: retransmitUnacked clears FastRecovery, so
+	//     wasFastRecovery=false and DupAckCount=0 — step 6 correctly skips.
+	if (oldDupAckCount >= 3 || wasFastRecovery) && wasInRecovery {
 		if !c.InRecovery {
 			// Full ACK exit (RFC 6582 §3 case 2): ack covers RecoveryPoint —
 			// deflate to ssthresh so we re-enter CA from a safe baseline.

@@ -72,14 +72,15 @@ func TestSecondPartialAckInFastRecoveryRetransmitsFirstUnacked(t *testing.T) {
 	c.RetxSend = cs.send
 
 	// Simulate state AFTER the first partial ACK has already fired step 6:
-	//   - Fast retransmit entered at DupAckCount=3 (entry point not shown here)
+	//   - Fast retransmit entered at DupAckCount=3 → FastRecovery=true was set
 	//   - First partial ACK (ack=seqB) removed seqA, reset DupAckCount=0, called fastRetransmit
 	//   - 1 dup ACK arrived → DupAckCount=1
 	//
-	// Critically: FastRecovery should be true (we entered via fast retransmit).
-	// Without the fix (no FastRecovery field), the second partial ACK has
-	// oldDupAckCount=1 < 3 and step 6 is skipped.
+	// Critically: FastRecovery=true because we entered via fast retransmit.
+	// The bug: without wasFastRecovery in the step 6 guard, the second partial
+	// ACK has oldDupAckCount=1 < 3 and step 6 is skipped.
 	c.InRecovery = true
+	c.FastRecovery = true // set by fast retransmit entry (ProcessAck DupAckCount==3 path)
 	c.RecoveryPoint = seqD
 	c.DupAckCount = 1     // only 1 dup ACK between partial ACKs (< 3 threshold)
 	c.SSThresh = 5 * MaxSegmentSize
