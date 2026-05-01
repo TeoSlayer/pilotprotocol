@@ -127,12 +127,13 @@ func (ln *Listener) close() {
 
 // retxEntry is a sent-but-unacknowledged data segment.
 type retxEntry struct {
-	data     []byte
-	seq      uint32
-	sentAt   time.Time
-	attempts int
-	sacked   bool // true if covered by a SACK block (don't retransmit)
-	isFIN    bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
+	data       []byte
+	seq        uint32
+	sentAt     time.Time // timer anchor; reset by RFC 6298 §5.3 and on retransmit
+	origSentAt time.Time // original send time for RTT measurement; never reset
+	attempts   int
+	sacked     bool // true if covered by a SACK block (don't retransmit)
+	isFIN      bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
 }
 
 // recvSegment is an out-of-order received segment waiting for reassembly.
