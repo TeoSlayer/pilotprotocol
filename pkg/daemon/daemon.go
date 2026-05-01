@@ -1859,7 +1859,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		winOpened := prevWin == 0 && conn.PeerRecvWin > 0
+		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if winOpened && conn.WindowCh != nil {
 			select {
@@ -1945,7 +1945,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		winOpened := prevWin == 0 && conn.PeerRecvWin > 0
+		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if winOpened && conn.WindowCh != nil {
 			select {
@@ -2059,7 +2059,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevPeerWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		peerWinOpened := prevPeerWin == 0 && conn.PeerRecvWin > 0
+		peerWinOpened := conn.PeerRecvWin > prevPeerWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if peerWinOpened && conn.WindowCh != nil {
 			select {
