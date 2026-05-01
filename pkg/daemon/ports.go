@@ -731,20 +731,25 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		c.InRecovery = false
 	}
 
-	// Remove acked entries and update RTT from the first one
+	// Remove acked entries and update RTT from the first once-sent segment.
+	// RFC 6298 §2 requires at most one RTT sample per ACK event; taking a
+	// sample per segment biases SRTT toward short-RTT late-in-batch entries
+	// and inflates RTTVAR with within-batch variance that is not path-level.
 	var remaining []*retxEntry
+	rttUpdated := false
 	for _, e := range c.Unacked {
 		endSeq := e.seq + uint32(len(e.data))
 		if seqAfterOrEqual(ack, endSeq) {
-			// This segment is fully acked — update RTT if sent exactly once.
+			// This segment is fully acked — update RTT from the first one only.
 			// Karn's algorithm: skip retransmitted segments (attempts > 1).
 			// SACK state is not excluded: a once-sent segment is a valid RTT
 			// sample per RFC 6298 regardless of whether it was previously
 			// reported via SACK (the cumulative ACK time is a conservative
 			// upper bound that the EWMA smooths out).
-			if e.attempts == 1 {
+			if e.attempts == 1 && !rttUpdated {
 				rtt := time.Since(e.sentAt)
 				c.updateRTT(rtt)
+				rttUpdated = true
 			}
 		} else {
 			// Reset sacked flag for segments that are still unacked
