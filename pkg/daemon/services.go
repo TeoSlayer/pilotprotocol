@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -61,11 +62,48 @@ func (a *connAdapter) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// connAdapterWriteDeadline caps how long Write will retry against a
+// persistently-full NagleBuf. Beyond this, the slow peer is treated as
+// unrecoverable and ErrSendBufFull is surfaced to the caller. Set high
+// enough that a normal cwnd-pause (a few RTTs) doesn't time out, but
+// short enough that a wedged peer doesn't hang the application forever.
+var connAdapterWriteDeadline = 30 * time.Second
+
 func (a *connAdapter) Write(p []byte) (int, error) {
-	if err := a.daemon.SendData(a.conn, p); err != nil {
-		return 0, err
+	// v1.9.1 fix: don't surface ErrSendBufFull to net.Conn callers.
+	// Iter 4 capped NagleBuf at 32 KB to bound memory under slow peers,
+	// but propagating the error directly broke http.ServeConn / io.Copy
+	// / bufio — they treat any non-nil Write error as a fatal connection
+	// failure. ErrSendBufFull is transient back-pressure (just like a
+	// kernel TCP send buffer being full), so block-and-retry until the
+	// flush goroutine drains the buffer.
+	backoff := 5 * time.Millisecond
+	const maxBackoff = 100 * time.Millisecond
+	deadline := time.Now().Add(connAdapterWriteDeadline)
+	for {
+		err := a.daemon.SendData(a.conn, p)
+		if err == nil {
+			return len(p), nil
+		}
+		if !errors.Is(err, ErrSendBufFull) {
+			return 0, err
+		}
+		// Bail if the connection itself moved out of Established —
+		// retrying would loop forever against a half-closed conn.
+		a.conn.Mu.Lock()
+		st := a.conn.State
+		a.conn.Mu.Unlock()
+		if st != StateEstablished {
+			return 0, fmt.Errorf("connection no longer established (state=%v)", st)
+		}
+		if time.Now().After(deadline) {
+			return 0, err
+		}
+		time.Sleep(backoff)
+		if backoff < maxBackoff {
+			backoff *= 2
+		}
 	}
-	return len(p), nil
 }
 
 func (a *connAdapter) Close() error {
