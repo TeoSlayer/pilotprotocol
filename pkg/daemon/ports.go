@@ -765,6 +765,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	c.DupAckCount = 0
 	c.LastRetxTime = time.Time{} // reset retransmit guard so ACK-driven recovery can proceed
 
+	// Capture before the recovery-exit check below clears it: needed by the
+	// deflation guard so that "oldDupAckCount >= 3" is not sufficient on its own
+	// (after iter-57, DupAckCount can reach 3+ without recovery being entered).
+	wasInRecovery := c.InRecovery
+
 	// Exit timeout recovery when all loss-window data is acked
 	if c.InRecovery && seqAfterOrEqual(ack, c.RecoveryPoint) {
 		c.InRecovery = false
@@ -803,7 +808,10 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// ACKs), deflate CongWin back to SSThresh before AIMD growth. Without this,
 	// CongWin stays at the inflated fast-recovery value (SSThresh + k*MSS) and
 	// grows from there — re-entering the burst that caused the loss event.
-	if oldDupAckCount >= 3 {
+	// Guard with wasInRecovery: after iter-57/58, DupAckCount can reach 3+
+	// without recovery being entered (no-op fastRetransmit). Deflating when
+	// CongWin was never inflated would incorrectly raise CongWin to SSThresh.
+	if oldDupAckCount >= 3 && wasInRecovery {
 		c.CongWin = c.SSThresh
 	}
 

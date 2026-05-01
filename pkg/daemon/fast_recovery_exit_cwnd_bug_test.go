@@ -58,6 +58,11 @@ func TestFastRecoveryExitDeflatesCongWin(t *testing.T) {
 	conn.DupAckCount = 4 // 3 dup ACKs fired retransmit, 1 additional
 	conn.SSThresh = ssthresh
 	conn.CongWin = inflatedCongWin
+	// Fast retransmit DID fire at DupAckCount==3, so InRecovery must be true.
+	// iter-59 gates the deflation on wasInRecovery; without this field the
+	// test setup misrepresents the state and the deflation would not fire.
+	conn.InRecovery = true
+	conn.RecoveryPoint = 1000 + MaxSegmentSize // new ACK will reach this and clear it
 	// Put one unacked entry so ProcessAck has something to remove when ack > LastAck
 	conn.Unacked = []*retxEntry{
 		{seq: 1000, data: make([]byte, MaxSegmentSize), attempts: 2, sentAt: time.Now()},
