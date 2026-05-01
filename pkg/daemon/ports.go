@@ -848,10 +848,10 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// deflate to ssthresh so we re-enter CA from a safe baseline.
 			c.CongWin = c.SSThresh
 		} else {
-			// Partial ACK (RFC 6582 §3 step 6a): ack below RecoveryPoint —
-			// partial-window deflation keeps the fast-recovery window open.
-			// cwnd -= bytesAcked; add back SMSS when bytesAcked >= SMSS so
-			// that a 1-SMSS partial ACK is neutral, and cwnd never falls
+			// Partial ACK (RFC 6582 §3 step 6a+6b): ack below RecoveryPoint —
+			// step 6b: partial-window deflation keeps the fast-recovery window
+			// open. cwnd -= bytesAcked; add back SMSS when bytesAcked >= SMSS
+			// so that a 1-SMSS partial ACK is neutral, and cwnd never falls
 			// below ssthresh.
 			c.CongWin -= bytesAcked
 			if bytesAcked >= MaxSegmentSize {
@@ -860,6 +860,10 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			if c.CongWin < c.SSThresh {
 				c.CongWin = c.SSThresh
 			}
+			// step 6a: retransmit the first unacknowledged segment immediately.
+			// Without this, the next lost segment is not retransmitted until
+			// the 100ms RTO tick — up to one full RTO of unnecessary delay.
+			c.fastRetransmit(recvAck)
 		}
 	}
 
