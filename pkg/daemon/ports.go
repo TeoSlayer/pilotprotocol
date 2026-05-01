@@ -758,8 +758,17 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		return
 	}
 
-	// New ACK — advance
-	bytesAcked := int(ack - c.LastAck)
+	// New ACK — advance.
+	// Count only non-sacked bytes for AIMD (RFC 3465 §2: "newly acknowledged
+	// bytes").  SACKed segments are already at the peer and excluded from
+	// BytesInFlight(); counting them again here would inflate AIMD growth by
+	// ~1 MSS per sacked entry covered by the cumulative ACK.
+	bytesAcked := 0
+	for _, e := range c.Unacked {
+		if seqAfterOrEqual(ack, e.seq+uint32(len(e.data))) && !e.sacked {
+			bytesAcked += len(e.data)
+		}
+	}
 	c.LastAck = ack
 	oldDupAckCount := c.DupAckCount
 	c.DupAckCount = 0
