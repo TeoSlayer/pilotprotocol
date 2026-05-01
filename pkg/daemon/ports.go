@@ -717,6 +717,9 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// congestion-state adjustments — no recovery was entered.
 			if c.fastRetransmit(recvAck) {
 				fastRetx++
+				// Capture whether recovery was already active before this dup-ACK
+				// episode.  Used below to guard RFC 6582 §3 CongWin inflation.
+				prevInRecovery := c.InRecovery
 				// Multiplicative decrease — guarded by !InRecovery so that dup ACKs
 				// arriving during an existing recovery (e.g. after a timeout for the
 				// same segment) do not halve SSThresh a second time for the same loss
@@ -743,16 +746,22 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				// §3 step 6 retransmit + deflation even when DupAckCount was reset
 				// to 0 by a prior partial ACK.
 				c.FastRecovery = true
-				// Fast-recovery CW inflation always applies: entering fast recovery
-				// from either a new episode (!InRecovery) or continuing one (e.g.
-				// dup ACKs after a timeout) inflates CongWin to SSThresh + 3*MSS.
-				c.CongWin = c.SSThresh + 3*MaxSegmentSize
-				// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
-				// the window may have opened.  Signal the sender so it doesn't stall.
-				if c.WindowCh != nil && c.WindowAvailable() {
-					select {
-					case c.WindowCh <- struct{}{}:
-					default:
+				// RFC 6582 §3 recover guard: only inflate CongWin when entering a NEW
+				// recovery episode.  If recovery was already active (prevInRecovery)
+				// AND sendSeq has not advanced beyond the existing RecoveryPoint, this
+				// is the same loss window — re-inflation would undo the timeout's
+				// RFC 5681 §3.1 slow-start reset (CongWin=1 MSS → SSThresh+3*MSS).
+				// Allow re-entry only when sendSeq > RecoveryPoint (new data exists
+				// beyond the prior recovery window, indicating a distinct loss event).
+				if !prevInRecovery || seqAfter(sendSeq, c.RecoveryPoint) {
+					c.CongWin = c.SSThresh + 3*MaxSegmentSize
+					// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
+					// the window may have opened.  Signal the sender so it doesn't stall.
+					if c.WindowCh != nil && c.WindowAvailable() {
+						select {
+						case c.WindowCh <- struct{}{}:
+						default:
+						}
 					}
 				}
 			}
