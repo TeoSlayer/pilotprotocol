@@ -717,19 +717,21 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// congestion-state adjustments — no recovery was entered.
 			if c.fastRetransmit(recvAck) {
 				fastRetx++
-				// Capture whether recovery was already active before this dup-ACK
-				// episode.  Used below to guard RFC 6582 §3 CongWin inflation.
-				prevInRecovery := c.InRecovery
-				// Multiplicative decrease — guarded by !InRecovery so that dup ACKs
-				// arriving during an existing recovery (e.g. after a timeout for the
-				// same segment) do not halve SSThresh a second time for the same loss
-				// episode (RFC 5681 §3.2: one reduction per episode).
-				if !c.InRecovery {
+				// RFC 6582 §3: enter a new recovery episode only when the highest
+				// sequence number transmitted is above the current recover variable
+				// (our RecoveryPoint).  This covers two cases:
+				//   • Not in recovery at all (fresh new episode).
+				//   • Already in timeout recovery AND new data was sent beyond the
+				//     prior recovery window — a second, distinct loss event that
+				//     requires its own multiplicative decrease.
+				// Same-episode dup ACKs (InRecovery && sendSeq <= RecoveryPoint)
+				// are excluded: they must not re-halve SSThresh or set FastRecovery.
+				newEpisode := !c.InRecovery || seqAfter(sendSeq, c.RecoveryPoint)
+				if newEpisode {
 					// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
 					// FlightSize = bytes sent but not yet cumulatively acknowledged =
 					// SND.NXT − SND.UNA = sum of ALL Unacked entry lengths (including
 					// SACK'd entries that have not been covered by a cumulative ACK).
-					// Using CongWin overestimates when CongWin >> actual bytes in flight.
 					var flightSize int
 					for _, e := range c.Unacked {
 						flightSize += len(e.data)
@@ -740,14 +742,6 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 					}
 					c.InRecovery = true
 					c.RecoveryPoint = sendSeq
-				}
-				// RFC 6582 §3 recover guard: only enter fast recovery (set FastRecovery,
-				// inflate CongWin) when this is a NEW loss episode.  Same-episode dup
-				// ACKs (prevInRecovery && sendSeq <= RecoveryPoint) must not set
-				// FastRecovery — doing so causes wasFastRecovery=true on the next new
-				// ACK, which triggers step-6's SSThresh floor and inflates CongWin
-				// from the timeout's 1 MSS to SSThresh (5× too large).
-				if !prevInRecovery || seqAfter(sendSeq, c.RecoveryPoint) {
 					// Track that recovery was entered via fast retransmit (not timeout),
 					// so that subsequent partial ACKs within this episode trigger RFC 6582
 					// §3 step 6 retransmit + deflation even when DupAckCount was reset
