@@ -708,30 +708,34 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// Fast retransmit (RFC 5681). Only when there is data in flight:
 			// keepalive probes and other spurious dup-ACKs with an empty Unacked
 			// must not trigger congestion reduction (FlightSize == 0).
-			c.fastRetransmit(recvAck)
-			fastRetx++
-			// Multiplicative decrease — guarded by !InRecovery so that dup ACKs
-			// arriving during an existing recovery (e.g. after a timeout for the
-			// same segment) do not halve SSThresh a second time for the same loss
-			// episode (RFC 5681 §3.2: one reduction per episode).
-			if !c.InRecovery {
-				c.SSThresh = c.CongWin / 2
-				if c.SSThresh < MaxSegmentSize {
-					c.SSThresh = MaxSegmentSize
+			// fastRetransmit returns true only when a packet was actually sent.
+			// When it returns false (e.g. MaxRetxAttempts guard), skip all
+			// congestion-state adjustments — no recovery was entered.
+			if c.fastRetransmit(recvAck) {
+				fastRetx++
+				// Multiplicative decrease — guarded by !InRecovery so that dup ACKs
+				// arriving during an existing recovery (e.g. after a timeout for the
+				// same segment) do not halve SSThresh a second time for the same loss
+				// episode (RFC 5681 §3.2: one reduction per episode).
+				if !c.InRecovery {
+					c.SSThresh = c.CongWin / 2
+					if c.SSThresh < MaxSegmentSize {
+						c.SSThresh = MaxSegmentSize
+					}
+					c.InRecovery = true
+					c.RecoveryPoint = sendSeq
 				}
-				c.InRecovery = true
-				c.RecoveryPoint = sendSeq
-			}
-			// Fast-recovery CW inflation always applies: entering fast recovery
-			// from either a new episode (!InRecovery) or continuing one (e.g.
-			// dup ACKs after a timeout) inflates CongWin to SSThresh + 3*MSS.
-			c.CongWin = c.SSThresh + 3*MaxSegmentSize
-			// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
-			// the window may have opened.  Signal the sender so it doesn't stall.
-			if c.WindowCh != nil && c.WindowAvailable() {
-				select {
-				case c.WindowCh <- struct{}{}:
-				default:
+				// Fast-recovery CW inflation always applies: entering fast recovery
+				// from either a new episode (!InRecovery) or continuing one (e.g.
+				// dup ACKs after a timeout) inflates CongWin to SSThresh + 3*MSS.
+				c.CongWin = c.SSThresh + 3*MaxSegmentSize
+				// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
+				// the window may have opened.  Signal the sender so it doesn't stall.
+				if c.WindowCh != nil && c.WindowAvailable() {
+					select {
+					case c.WindowCh <- struct{}{}:
+					default:
+					}
 				}
 			}
 		} else if c.DupAckCount > 3 && len(c.Unacked) > 0 {
@@ -845,9 +849,13 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 // acquiring RetxMu, so we don't have to take Mu here (which would re-introduce
 // the Mu↔RetxMu inversion that the rest of ProcessAck went out of its way
 // to avoid).
-func (c *Connection) fastRetransmit(recvAck uint32) {
+// fastRetransmit returns true if a packet was sent, false if it was a no-op
+// (empty/all-sacked Unacked, nil RetxSend, or MaxRetxAttempts guard).
+// The caller gates all congestion-state adjustments on the return value so
+// that a no-op does not produce phantom fast-recovery state.
+func (c *Connection) fastRetransmit(recvAck uint32) bool {
 	if len(c.Unacked) == 0 || c.RetxSend == nil {
-		return
+		return false
 	}
 
 	// Find the first unacked segment that hasn't been SACKed
@@ -858,7 +866,7 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 		// Mirror retransmitUnacked's guard: don't send if the retry budget is
 		// exhausted.  retransmitUnacked will fire RST on the next RTO tick.
 		if e.attempts >= MaxRetxAttempts {
-			return
+			return false
 		}
 		e.attempts++
 		e.sentAt = time.Now()
@@ -885,8 +893,9 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 			Payload:  payload,
 		}
 		c.RetxSend(pkt)
-		return
+		return true
 	}
+	return false
 }
 
 func (c *Connection) updateRTT(rtt time.Duration) {
