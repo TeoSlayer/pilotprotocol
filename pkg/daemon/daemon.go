@@ -1736,10 +1736,15 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return
 		}
 
-		// Check for retransmitted SYN (connection already exists for this 4-tuple)
+		// Check for retransmitted SYN (connection already exists for this 4-tuple).
+		// Only replay SYN-ACK for active connections (SynReceived or Established).
+		// TIME_WAIT and CLOSED connections are ineligible: the peer's source port
+		// was reused for a new connection, not a retransmit of the old one. Treating
+		// them as retransmits resends a stale SYN-ACK seq that the new client rejects,
+		// blocking the new connection for up to TimeWaitDuration + IdleSweepInterval.
 		if existing := d.ports.FindConnection(pkt.DstPort, pkt.Src, pkt.SrcPort); existing != nil {
-			// Resend SYN-ACK for the existing connection
 			existing.Mu.Lock()
+			st := existing.State
 			eAck := existing.RecvAck
 			// P1-001: prefer the recorded SYN-ACK sequence over `SendSeq-1`.
 			// Once data has been sent on this connection, SendSeq has drifted
@@ -1751,20 +1756,24 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				eSeq = existing.SendSeq - 1 // pre-existing connections from older builds
 			}
 			existing.Mu.Unlock()
-			synack := &protocol.Packet{
-				Version:  protocol.Version,
-				Flags:    protocol.FlagSYN | protocol.FlagACK,
-				Protocol: protocol.ProtoStream,
-				Src:      pkt.Dst,
-				Dst:      pkt.Src,
-				SrcPort:  pkt.DstPort,
-				DstPort:  pkt.SrcPort,
-				Seq:      eSeq,
-				Ack:      eAck,
-				Window:   existing.RecvWindow(),
+			if st == StateSynReceived || st == StateEstablished {
+				// Active connection — resend SYN-ACK (genuine retransmit dedup).
+				synack := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagSYN | protocol.FlagACK,
+					Protocol: protocol.ProtoStream,
+					Src:      pkt.Dst,
+					Dst:      pkt.Src,
+					SrcPort:  pkt.DstPort,
+					DstPort:  pkt.SrcPort,
+					Seq:      eSeq,
+					Ack:      eAck,
+					Window:   existing.RecvWindow(),
+				}
+				d.tunnels.Send(pkt.Src.Node, synack)
+				return
 			}
-			d.tunnels.Send(pkt.Src.Node, synack)
-			return
+			// TIME_WAIT or CLOSED — source port reuse: fall through to create new connection.
 		}
 
 		// Trust gate: private nodes only accept SYN from trusted or same-network peers.
