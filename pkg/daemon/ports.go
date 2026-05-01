@@ -766,6 +766,14 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				}
 			}
 		} else if c.DupAckCount > 3 && c.InRecovery && len(c.Unacked) > 0 {
+			// RFC 6582 §3 recover guard: skip per-dup-ACK inflation when
+			// sendSeq <= RecoveryPoint (no new data beyond the recovery window).
+			// Same-episode dup ACKs (e.g. from timeout recovery) must not inflate
+			// cwnd; the RFC 5681 §3.2 step 5 inflation only applies when fast
+			// recovery was entered for a NEW loss event (sendSeq > recover).
+			if !seqAfter(sendSeq, c.RecoveryPoint) {
+				return
+			}
 			// Inflate window for each additional dup ACK (only in recovery)
 			c.CongWin += MaxSegmentSize
 			if c.CongWin > MaxCongWin {
