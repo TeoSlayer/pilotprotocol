@@ -48,6 +48,7 @@ func main() {
 	maxConnsTotal := flag.Int("max-conns-total", 0, "max total connections (default 4096)")
 	timeWait := flag.Duration("time-wait", 0, "TIME_WAIT duration (default 10s)")
 	public := flag.Bool("public", false, "make this node's endpoint publicly visible (default: private)")
+	relayOnly := flag.Bool("relay-only", false, "hide real_addr from peers; reach this node only via beacon-relay path. Privacy stance: peers cannot enumerate this daemon's public IP. Trade-off: relay adds one beacon hop. Default false (current direct-first behavior).")
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
@@ -96,6 +97,7 @@ func main() {
 		MaxTotalConnections:   *maxConnsTotal,
 		TimeWaitDuration:      *timeWait,
 		Public:                *public,
+		RelayOnly:             *relayOnly,
 		Hostname:              *hostname,
 		DisableEcho:           *noEcho,
 		DisableDataExchange:   *noDataExchange,

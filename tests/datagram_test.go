@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
@@ -62,7 +62,7 @@ func TestBroadcastExcludesSender(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	a := env.AddDaemon()
+	a := env.AddDaemon(func(c *daemon.Config) { c.AdminToken = env.AdminToken })
 	b := env.AddDaemon()
 
 	// Create network and join both
@@ -107,8 +107,7 @@ func TestBroadcastExcludesSender(t *testing.T) {
 	ready.Wait()
 
 	// A broadcasts
-	bcastAddr := protocol.BroadcastAddr(netID)
-	if err := a.Driver.SendTo(bcastAddr, 5000, []byte("broadcast msg")); err != nil {
+	if err := a.Driver.Broadcast(netID, 5000, []byte("broadcast msg"), env.AdminToken); err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
 

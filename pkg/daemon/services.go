@@ -29,6 +29,14 @@ type connAdapter struct {
 	conn   *Connection
 	daemon *Daemon
 	buf    []byte // leftover from previous RecvBuf read
+
+	// publishFailures counts consecutive WriteEvent failures observed by
+	// the eventBroker for THIS subscriber. A subscriber is only removed
+	// from broker.subs after maxConsecutivePublishFailures in a row, so a
+	// single transient tunnel blip doesn't kill the subscription. Reset
+	// to 0 on the first successful WriteEvent. Atomic because publish()
+	// runs concurrently across publishers without holding a write lock.
+	publishFailures atomic.Uint32
 }
 
 func newConnAdapter(d *Daemon, conn *Connection) *connAdapter {
@@ -328,6 +336,20 @@ const (
 	publishBurstBudget   = 200
 )
 
+// Pubsub resilience constants. Previously a single transient WriteEvent
+// failure (e.g., a momentary tunnel blip) immediately removed the
+// subscriber, dropping every subsequent event. The integration suite
+// documented `test_pubsub_multi_publisher` flakiness directly because of
+// this. We now:
+//   - retry the failed WriteEvent once after a brief backoff (handles ms-
+//     scale glitches like a queue that just hadn't drained yet);
+//   - track consecutive failures per subscriber and only remove after
+//     maxConsecutivePublishFailures in a row.
+const (
+	publishRetryBackoff           = 20 * time.Millisecond
+	maxConsecutivePublishFailures = 3
+)
+
 // eventBroker is an in-process pub/sub broker for the event stream service.
 type eventBroker struct {
 	mu     sync.RWMutex
@@ -464,7 +486,36 @@ func (b *eventBroker) removeSub(adapter *connAdapter) {
 	}
 }
 
+// eventWriter abstracts the act of delivering an event to a subscriber.
+// Production uses eventstream.WriteEvent; tests inject a fake to exercise
+// retry / failure-counter behavior without spinning up real tunnels.
+type eventWriter func(conn *connAdapter, evt *eventstream.Event) error
+
+func defaultEventWriter(conn *connAdapter, evt *eventstream.Event) error {
+	return eventstream.WriteEvent(conn, evt)
+}
+
 func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
+	b.publishWith(evt, sender, defaultEventWriter)
+}
+
+// publishWith delivers evt to all subscribers of evt.Topic plus the wildcard
+// "*" topic, skipping the sender. write is the per-subscriber delivery
+// function — production uses eventstream.WriteEvent; tests can inject a
+// fake to exercise retry + failure-counter behavior.
+//
+// Resilience contract:
+//   - First WriteEvent error → retry once after publishRetryBackoff.
+//     Handles ms-scale tunnel hiccups that resolve on their own.
+//   - Each retry failure increments conn.publishFailures.
+//   - Subscriber is only removed once publishFailures reaches
+//     maxConsecutivePublishFailures (default 3).
+//   - First success resets the counter to 0.
+//
+// Before this change, a single transient failure permanently removed the
+// subscriber; downstream events were silently dropped, which was the root
+// cause of `test_pubsub_multi_publisher` flakiness.
+func (b *eventBroker) publishWith(evt *eventstream.Event, sender *connAdapter, write eventWriter) {
 	// P2-003: snapshot the subscriber list under the lock, then do the
 	// WriteEvent I/O after release. Holding RLock across network writes
 	// lets one slow subscriber block every concurrent publisher.
@@ -486,9 +537,33 @@ func (b *eventBroker) publish(evt *eventstream.Event, sender *connAdapter) {
 
 	var dead []*connAdapter
 	for _, conn := range targets {
-		if err := eventstream.WriteEvent(conn, evt); err != nil {
-			slog.Debug("eventstream write failed, removing subscriber", "remote", conn.RemoteAddr(), "error", err)
+		err := write(conn, evt)
+		if err != nil {
+			// Retry once with a short backoff to absorb transient
+			// network/tunnel hiccups. The backoff is small enough that
+			// the publisher's wall-clock impact is negligible even when
+			// most writes succeed first try.
+			time.Sleep(publishRetryBackoff)
+			err = write(conn, evt)
+		}
+
+		if err == nil {
+			conn.publishFailures.Store(0)
+			continue
+		}
+
+		failureCount := conn.publishFailures.Add(1)
+		if failureCount >= maxConsecutivePublishFailures {
+			slog.Debug("eventstream subscriber removed after consecutive failures",
+				"remote", conn.RemoteAddr(),
+				"consecutive_failures", failureCount,
+				"last_error", err)
 			dead = append(dead, conn)
+		} else {
+			slog.Debug("eventstream write failed, retaining subscriber",
+				"remote", conn.RemoteAddr(),
+				"consecutive_failures", failureCount,
+				"error", err)
 		}
 	}
 

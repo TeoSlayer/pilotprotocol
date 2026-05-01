@@ -658,7 +658,7 @@ func TestFastRetransmitResendsFirstNonSackedEntry(t *testing.T) {
 	c.RecvBuf = make(chan []byte, 1)
 
 	c.RetxMu.Lock()
-	c.fastRetransmit()
+	c.fastRetransmit(0)
 	c.RetxMu.Unlock()
 
 	if captured == nil {
@@ -676,6 +676,6 @@ func TestFastRetransmitNoUnackedIsNoop(t *testing.T) {
 	c := &Connection{}
 	// Should not panic.
 	c.RetxMu.Lock()
-	c.fastRetransmit()
+	c.fastRetransmit(0)
 	c.RetxMu.Unlock()
 }

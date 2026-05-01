@@ -114,7 +114,7 @@ func itoa(n int) string {
 func TestBroadcastDatagramMemberDeliversToOnePeer(t *testing.T) {
 	fx := setupBroadcastFixture(t, 1)
 
-	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("hello-broadcast"))
+	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("hello-broadcast"), "")
 	if err != nil {
 		t.Fatalf("broadcastDatagram: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestBroadcastDatagramSkipsSelf(t *testing.T) {
 	// Since ensureTunnel for self would need a registered endpoint + AddPeer to
 	// self-loop UDP, we don't add such a peer — instead we rely on the explicit
 	// `if nodeID == d.NodeID() { continue }` branch in broadcastDatagram.
-	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("no-self"))
+	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("no-self"), "")
 	if err != nil {
 		t.Fatalf("broadcastDatagram: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestBroadcastDatagramPolicyDeniedPerPeerSkipped(t *testing.T) {
 	fx.d.netPolicies[fx.netID] = []uint16{80} // allow only 80
 	fx.d.netPolicyMu.Unlock()
 
-	if err := fx.d.broadcastDatagram(fx.netID, 1000, 9999, []byte("denied")); err != nil {
+	if err := fx.d.broadcastDatagram(fx.netID, 1000, 9999, []byte("denied"), ""); err != nil {
 		t.Fatalf("broadcastDatagram: %v", err)
 	}
 
@@ -195,7 +195,7 @@ func TestBroadcastDatagramNilNodesSliceReturnsNilNoPanic(t *testing.T) {
 	// member self — verify no panic and no errors.
 	fx := setupBroadcastFixture(t, 0)
 
-	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("alone"))
+	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("alone"), "")
 	if err != nil {
 		t.Fatalf("broadcastDatagram with only self member: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestBroadcastDatagramNilNodesSliceReturnsNilNoPanic(t *testing.T) {
 func TestBroadcastDatagramMultiplePeersAllReceive(t *testing.T) {
 	fx := setupBroadcastFixture(t, 3)
 
-	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("fan-out"))
+	err := fx.d.broadcastDatagram(fx.netID, 1000, 80, []byte("fan-out"), "")
 	if err != nil {
 		t.Fatalf("broadcastDatagram: %v", err)
 	}
@@ -225,5 +225,123 @@ func TestBroadcastDatagramMultiplePeersAllReceive(t *testing.T) {
 		if !seen[pid] {
 			t.Fatalf("peer %d (expected recipient) not seen in dst nodes", pid)
 		}
+	}
+}
+
+// --- BroadcastDatagram (public, admin-token gated) ---
+
+func TestBroadcastDatagramTokenEmptyConfigDenied(t *testing.T) {
+	fx := setupBroadcastFixture(t, 1)
+	// Daemon has Config.AdminToken == "" — broadcast must be denied even
+	// when the caller passes a non-empty token.
+	err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("x"), "anything")
+	if err == nil {
+		t.Fatal("expected denial when daemon has no admin token configured")
+	}
+	if pkt := readPacket(t, fx.peerConns[0], 100*time.Millisecond); pkt != nil {
+		t.Fatalf("no packet should have been delivered: %v", pkt.Payload)
+	}
+}
+
+func TestBroadcastDatagramTokenMismatchDenied(t *testing.T) {
+	fx := setupBroadcastFixture(t, 1)
+	fx.d.config.AdminToken = "real-token"
+	if err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("x"), "wrong-token"); err == nil {
+		t.Fatal("expected denial on token mismatch")
+	}
+	if pkt := readPacket(t, fx.peerConns[0], 100*time.Millisecond); pkt != nil {
+		t.Fatalf("no packet should have been delivered: %v", pkt.Payload)
+	}
+}
+
+func TestBroadcastDatagramTokenEmptyCallerDenied(t *testing.T) {
+	fx := setupBroadcastFixture(t, 1)
+	fx.d.config.AdminToken = "real-token"
+	if err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("x"), ""); err == nil {
+		t.Fatal("expected denial on empty caller token")
+	}
+}
+
+func TestBroadcastDatagramTokenValidDelivers(t *testing.T) {
+	fx := setupBroadcastFixture(t, 2)
+	fx.d.config.AdminToken = "secret"
+	if err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("auth-ok"), "secret"); err != nil {
+		t.Fatalf("BroadcastDatagram with valid token: %v", err)
+	}
+	for i, pc := range fx.peerConns {
+		pkt := readPacket(t, pc, 500*time.Millisecond)
+		if pkt == nil {
+			t.Fatalf("peer %d did not receive auth-gated broadcast", i)
+		}
+		if string(pkt.Payload) != "auth-ok" {
+			t.Fatalf("peer %d payload = %q", i, pkt.Payload)
+		}
+	}
+}
+
+// Network 0 (backbone) was previously hard-blocked. With admin-token
+// gating, it is permitted.
+func TestBroadcastDatagramNetworkZeroAllowedWithToken(t *testing.T) {
+	reg, rc := startTestRegistry(t)
+	t.Cleanup(func() { reg.Close() })
+	t.Cleanup(func() { rc.Close() })
+	// Backbone listing is admin-gated at the registry. Daemon's
+	// Config.AdminToken must match the registry's admin token so the
+	// list_nodes(0) call is unlocked.
+	reg.SetAdminToken("secret")
+
+	// Register self + a peer; the peer is automatically a member of
+	// network 0 (backbone) by virtue of being registered.
+	selfID, _ := crypto.GenerateIdentity()
+	selfResp, err := rc.RegisterWithKey("127.0.0.1:5000", crypto.EncodePublicKey(selfID.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("self register: %v", err)
+	}
+	selfNodeID := uint32(selfResp["node_id"].(float64))
+
+	peerID, _ := crypto.GenerateIdentity()
+	pResp, err := rc.RegisterWithKey("127.0.0.1:5001", crypto.EncodePublicKey(peerID.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("peer register: %v", err)
+	}
+	peerNodeID := uint32(pResp["node_id"].(float64))
+
+	d := New(Config{AdminToken: "secret"})
+	d.regConn = rc
+	d.setNodeID_testhelper(selfNodeID)
+	if err := d.tunnels.Listen("127.0.0.1:0"); err != nil {
+		t.Fatalf("tunnels.Listen: %v", err)
+	}
+	t.Cleanup(func() { d.tunnels.Close() })
+
+	pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("peer UDP listen: %v", err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	d.AddTunnelPeer(peerNodeID, pc.LocalAddr().(*net.UDPAddr))
+
+	if err := d.BroadcastDatagram(0, 80, []byte("backbone"), "secret"); err != nil {
+		t.Fatalf("backbone broadcast with token: %v", err)
+	}
+	if pkt := readPacket(t, pc, 500*time.Millisecond); pkt == nil {
+		t.Fatal("peer did not receive backbone broadcast")
+	}
+}
+
+// Admin token bypasses sender-membership: a node not in the network can
+// still broadcast to it as long as it presents a valid token.
+func TestBroadcastDatagramNonMemberAllowedWithToken(t *testing.T) {
+	fx := setupBroadcastFixture(t, 1)
+	fx.d.config.AdminToken = "secret"
+	// Pretend this daemon is some other node entirely — definitely not a
+	// member of fx.netID.
+	fx.d.setNodeID_testhelper(0xDEAD0000)
+
+	if err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("admin-override"), "secret"); err != nil {
+		t.Fatalf("non-member admin broadcast: %v", err)
+	}
+	if pkt := readPacket(t, fx.peerConns[0], 500*time.Millisecond); pkt == nil {
+		t.Fatal("peer did not receive admin-override broadcast")
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
 )
 
@@ -15,7 +15,9 @@ func TestBroadcast(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	a := env.AddDaemon()
+	// Sender daemon needs AdminToken set so its own BroadcastDatagram
+	// call accepts the token we pass through Driver.Broadcast.
+	a := env.AddDaemon(func(c *daemon.Config) { c.AdminToken = env.AdminToken })
 	b := env.AddDaemon()
 	c := env.AddDaemon()
 
@@ -67,8 +69,7 @@ func TestBroadcast(t *testing.T) {
 	recvReady.Wait()
 
 	// A broadcasts to the network
-	bcastAddr := protocol.BroadcastAddr(netID)
-	if err := a.Driver.SendTo(bcastAddr, 5000, []byte("hello network")); err != nil {
+	if err := a.Driver.Broadcast(netID, 5000, []byte("hello network"), env.AdminToken); err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
 	t.Log("broadcast sent")

@@ -23,6 +23,21 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
+// LOCK ORDERING INVARIANTS — daemon side. See pkg/registry/server.go for the
+// full invariants doc; the daemon-specific rules:
+//
+//   policyMu  >  pr.mu (per-runner) — never reverse.
+//   memberTagsMu — independent; nested under nothing else.
+//   tunnel:  pendMu, rkPendingMu, salvageMu — all isolated, never nested.
+//   conn:    Mu, RetxMu, NagleMu, RecvMu, AckMu — five separate per-conn
+//            mutexes; ordering between them is currently safe but acquiring
+//            two simultaneously is a smell. ProcessAck/ProcessSACK use the
+//            documented Mu → RetxMu order; do not introduce reverse paths.
+//
+// CORRECTNESS RULE — same as registry side:
+//   No signature verify, no encoding/decoding, no network I/O while holding
+//   any mutex. CPU work goes outside the lock.
+
 // replayWindowSize is the number of nonces tracked in the sliding window bitmap
 // for replay detection (H8 fix). Nonces within [maxNonce-replayWindowSize, maxNonce]
 // are tracked; nonces below the window are rejected.

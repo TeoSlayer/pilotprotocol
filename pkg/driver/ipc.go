@@ -55,6 +55,8 @@ const (
 	cmdRotateKeyOK       byte = 0x26
 	cmdMyPolo            byte = 0x27
 	cmdMyPoloOK          byte = 0x28
+	cmdBroadcast         byte = 0x29
+	cmdBroadcastOK       byte = 0x2A
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)

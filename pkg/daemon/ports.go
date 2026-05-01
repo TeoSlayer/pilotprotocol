@@ -170,6 +170,13 @@ type Connection struct {
 	// Close
 	CloseOnce  sync.Once // ensures RecvBuf is closed exactly once
 	RecvClosed bool      // true after RecvBuf is closed (guarded by RecvMu)
+	// recvSenders tracks in-flight Phase 2 senders into RecvBuf so CloseRecvBuf
+	// can wait for them to drain before close()ing the channel. Without this,
+	// `chansend1` and the close() race per the runtime data-race detector even
+	// though Go's runtime makes it well-defined (close-then-send panics, the
+	// Phase 2 defer recover()s — but the race detector still flags the
+	// concurrent close-vs-send on the channel's internal state).
+	recvSenders sync.WaitGroup
 	// Retransmit state
 	LastRetxTime time.Time // when last RTO retransmission fired (prevents cascading)
 	// Per-connection statistics
@@ -569,7 +576,32 @@ func (c *Connection) TrackSend(seq uint32, data []byte) {
 // If pureACK is true, duplicate ACK detection is enabled. Data packets
 // with piggybacked ACKs should pass pureACK=false to avoid false
 // fast retransmits (RFC 5681 Section 3.2).
+//
+// Lock-order note: Stats fields are guarded by Mu, but the rest of this
+// function's state (Unacked, RTT, CongWin, etc.) is guarded by RetxMu.
+// To avoid an Mu↔RetxMu inversion (a concurrent Stats() reader holds Mu
+// then needs RetxMu, while we hold RetxMu and need Mu), we accumulate
+// stats deltas locally and apply them under Mu AFTER RetxMu is released.
 func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
+	// Capture RecvAck under Mu BEFORE taking RetxMu so fastRetransmit can
+	// run lock-order-safe. RecvAck only advances forward (or stays equal),
+	// so a slightly stale read is safe — a fresher one would cause us to
+	// retransmit data the peer would discard, harmless.
+	c.Mu.Lock()
+	recvAck := c.RecvAck
+	c.Mu.Unlock()
+
+	var dupAcks, fastRetx uint64
+	defer func() {
+		if dupAcks == 0 && fastRetx == 0 {
+			return
+		}
+		c.Mu.Lock()
+		c.Stats.DupACKs += dupAcks
+		c.Stats.FastRetx += fastRetx
+		c.Mu.Unlock()
+	}()
+
 	c.RetxMu.Lock()
 	defer c.RetxMu.Unlock()
 
@@ -583,15 +615,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 		// Duplicate ACK (pure ACK only)
 		c.DupAckCount++
-		c.Mu.Lock()
-		c.Stats.DupACKs++
-		c.Mu.Unlock()
+		dupAcks++
 		if c.DupAckCount == 3 {
 			// Fast retransmit (RFC 5681)
-			c.fastRetransmit()
-			c.Mu.Lock()
-			c.Stats.FastRetx++
-			c.Mu.Unlock()
+			c.fastRetransmit(recvAck)
+			fastRetx++
 			// Multiplicative decrease
 			c.SSThresh = c.CongWin / 2
 			if c.SSThresh < MaxSegmentSize {
@@ -673,15 +701,14 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 }
 
 // fastRetransmit resends the first unacked-and-not-SACKed segment immediately.
-// Must be called with RetxMu held.
-func (c *Connection) fastRetransmit() {
+// Must be called with RetxMu held. recvAck is captured by the caller BEFORE
+// acquiring RetxMu, so we don't have to take Mu here (which would re-introduce
+// the Mu↔RetxMu inversion that the rest of ProcessAck went out of its way
+// to avoid).
+func (c *Connection) fastRetransmit(recvAck uint32) {
 	if len(c.Unacked) == 0 || c.RetxSend == nil {
 		return
 	}
-	// Read RecvAck under Mu (L1 fix — RecvAck is protected by Mu, not RetxMu)
-	c.Mu.Lock()
-	recvAck := c.RecvAck
-	c.Mu.Unlock()
 
 	// Find the first unacked segment that hasn't been SACKed
 	for _, e := range c.Unacked {
@@ -810,6 +837,10 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 	}
 	// seq before ExpectedSeq means it's a duplicate — ignore
 
+	// Hold a recvSenders slot for the entire Phase 2 so CloseRecvBuf has a
+	// well-defined "no in-flight senders" point to wait on before close().
+	// Take it under RecvMu so CloseRecvBuf's check-then-wait is atomic.
+	c.recvSenders.Add(1)
 	c.RecvMu.Unlock()
 
 	// Phase 2: Deliver outside the lock to prevent deadlocking routeLoop
@@ -831,6 +862,7 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 		}
 		delivered++
 	}
+	c.recvSenders.Done()
 
 	// Phase 3: Commit — advance ExpectedSeq only for successfully delivered
 	// segments. Re-buffer any OOO segments that couldn't be delivered.
@@ -851,13 +883,18 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 	return expectedSeq
 }
 
-// CloseRecvBuf safely closes RecvBuf exactly once. Both the flag set and
-// channel close happen under RecvMu so DeliverInOrder can never send to a
-// closed channel.
+// CloseRecvBuf safely closes RecvBuf exactly once. Sets RecvClosed first so
+// new Phase 2 senders bail in DeliverInOrder, then waits for in-flight
+// senders to drain (recvSenders WG), then closes the channel. This ordering
+// keeps `go test -race` clean — concurrent close-vs-send was previously
+// flagged even though the runtime made it safe via defer recover().
 func (c *Connection) CloseRecvBuf() {
 	c.CloseOnce.Do(func() {
 		c.RecvMu.Lock()
 		c.RecvClosed = true
+		c.RecvMu.Unlock()
+		c.recvSenders.Wait()
+		c.RecvMu.Lock()
 		close(c.RecvBuf)
 		c.RecvMu.Unlock()
 	})
@@ -926,13 +963,22 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 
 // ProcessSACK marks unacked segments that are covered by SACK blocks.
 // This prevents unnecessary retransmission of segments the peer already has.
+//
+// Lock-order note: see ProcessAck. Stats writes are deferred out of the
+// RetxMu hold to avoid an Mu↔RetxMu inversion.
 func (c *Connection) ProcessSACK(blocks []SACKBlock) {
+	sackRecv := uint64(len(blocks))
+	defer func() {
+		if sackRecv == 0 {
+			return
+		}
+		c.Mu.Lock()
+		c.Stats.SACKRecv += sackRecv
+		c.Mu.Unlock()
+	}()
+
 	c.RetxMu.Lock()
 	defer c.RetxMu.Unlock()
-
-	c.Mu.Lock()
-	c.Stats.SACKRecv += uint64(len(blocks))
-	c.Mu.Unlock()
 
 	for _, e := range c.Unacked {
 		segEnd := e.seq + uint32(len(e.data))

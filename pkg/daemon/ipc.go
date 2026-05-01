@@ -5,12 +5,15 @@ package daemon
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
+	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
@@ -58,6 +61,8 @@ const (
 	CmdRotateKeyOK       byte = 0x26
 	CmdMyPolo            byte = 0x27
 	CmdMyPoloOK          byte = 0x28
+	CmdBroadcast         byte = 0x29
+	CmdBroadcastOK       byte = 0x2A
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -82,15 +87,56 @@ const (
 	SubManagedReconcile  byte = 0x07 // poll registry & refresh peer set
 )
 
-// ipcConn wraps a net.Conn with a write mutex for goroutine safety.
-// It also tracks ports and connections owned by this client for cleanup.
+// ipcConn wraps a net.Conn with an asynchronous writer goroutine that
+// serializes outbound messages from a buffered channel. This decouples
+// caller goroutines from the underlying socket write — under the previous
+// synchronous-write design, a slow IPC client (Dashboard, webhook
+// subscriber) could pin daemon goroutines for the duration of each write,
+// and observed CPU profiles attributed 96.7% of mutex-wait time during
+// stress to (*ipcConn).ipcWrite. See [[X-Tasks/backlog/26-ipc-write-mutex-contention]]
+// and [[X-Tasks/backlog/30-mutex-risk-map]] § fix #4.
+//
+// Concurrency model:
+//   - sendCh has capacity ipcSendBuffer (256). Producers (handleBind,
+//     handleHealth, etc.) push to it via ipcWrite.
+//   - A single writer goroutine drains sendCh in order. Per-client message
+//     ordering is preserved (the same guarantee the old mutex provided).
+//   - If sendCh is full, ipcWrite blocks up to ipcWriteBackpressureTimeout
+//     (100ms) then returns ErrIPCBackpressure rather than waiting forever.
+//     Callers already handle write errors by dropping the conn.
+//   - Close() is idempotent and races-safe; once invoked, ipcWrite returns
+//     ErrIPCClosed. The writer drains queued messages best-effort before
+//     the underlying net.Conn is closed.
 type ipcConn struct {
 	net.Conn
-	wmu   sync.Mutex
-	rmu   sync.Mutex
-	ports []uint16 // ports bound by this client
-	conns []uint32 // connection IDs owned by this client
+	rmu       sync.Mutex
+	ports     []uint16 // ports bound by this client
+	conns     []uint32 // connection IDs owned by this client
+	sendCh    chan []byte
+	done      chan struct{} // closed by Close() to signal shutdown to ipcWrite + writeLoop
+	closeOnce sync.Once
+	writeDone chan struct{}
 }
+
+// ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
+// enough to absorb a transient burst (binds + first packet replays) while
+// small enough to keep memory bounded across MaxIPCClients (1024 × 256 ×
+// avg 256B/msg ≈ 64 MB worst case).
+const ipcSendBuffer = 256
+
+// ipcWriteBackpressureTimeout caps how long ipcWrite waits to enqueue when
+// the buffer is full. After this elapses the client gets ErrIPCBackpressure
+// — signaling the daemon that this client cannot keep up; callers close
+// the conn rather than wait forever (which is what the synchronous mutex
+// effectively did).
+const ipcWriteBackpressureTimeout = 100 * time.Millisecond
+
+// ErrIPCBackpressure is returned when ipcWrite cannot enqueue within
+// ipcWriteBackpressureTimeout. Indicates a stuck or too-slow IPC client.
+var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
+
+// ErrIPCClosed is returned when ipcWrite is called after Close.
+var ErrIPCClosed = errors.New("ipc: connection closed")
 
 // MaxIPCClients caps the total number of concurrent IPC socket
 // connections to the daemon (P2-002). Without this cap a misbehaving or
@@ -104,10 +150,96 @@ const MaxIPCClients = 1024
 // could exhaust the 65536-slot connection table and DoS the daemon.
 const MaxConnsPerIPCClient = 4096
 
+// newIPCConn wraps a net.Conn and starts the per-conn writer goroutine.
+// All callers must use this constructor (not &ipcConn{...}) so the writer
+// is properly initialized.
+func newIPCConn(c net.Conn) *ipcConn {
+	ic := &ipcConn{
+		Conn:      c,
+		sendCh:    make(chan []byte, ipcSendBuffer),
+		done:      make(chan struct{}),
+		writeDone: make(chan struct{}),
+	}
+	go ic.writeLoop()
+	return ic
+}
+
+// writeLoop is the sole writer to c.Conn. It exits when c.done is closed
+// (clean shutdown) or when ipcutil.Write fails (broken socket).
+//
+// We never close sendCh — concurrent ipcWrite calls would race with the
+// close per Go's channel semantics (and the race detector flags it). The
+// done-channel pattern lets multiple producers coordinate with a single
+// closer without sharing a "send vs. close" race surface.
+func (c *ipcConn) writeLoop() {
+	defer close(c.writeDone)
+	for {
+		select {
+		case msg := <-c.sendCh:
+			if err := ipcutil.Write(c.Conn, msg); err != nil {
+				c.Conn.Close()
+				return
+			}
+		case <-c.done:
+			// Best-effort drain of pending messages so callers that already
+			// pushed before Close() don't lose their data.
+			for {
+				select {
+				case msg := <-c.sendCh:
+					if err := ipcutil.Write(c.Conn, msg); err != nil {
+						c.Conn.Close()
+						return
+					}
+				default:
+					c.Conn.Close()
+					return
+				}
+			}
+		}
+	}
+}
+
+// ipcWrite queues a message for asynchronous writing. Returns:
+//   - nil on successful enqueue (write may still happen later)
+//   - ErrIPCClosed if the conn has been Close()d (or is being closed)
+//   - ErrIPCBackpressure if the buffer stays full for
+//     ipcWriteBackpressureTimeout
 func (c *ipcConn) ipcWrite(data []byte) error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	return ipcutil.Write(c.Conn, data)
+	// Fast-fail if already closed — avoids allocating a timer below.
+	select {
+	case <-c.done:
+		return ErrIPCClosed
+	default:
+	}
+	// Fast path: try non-blocking enqueue.
+	select {
+	case c.sendCh <- data:
+		return nil
+	case <-c.done:
+		return ErrIPCClosed
+	default:
+	}
+	// Slow path: backpressure timer.
+	timer := time.NewTimer(ipcWriteBackpressureTimeout)
+	defer timer.Stop()
+	select {
+	case c.sendCh <- data:
+		return nil
+	case <-c.done:
+		return ErrIPCClosed
+	case <-timer.C:
+		return ErrIPCBackpressure
+	}
+}
+
+// Close is idempotent. It signals the writer goroutine to drain and exit,
+// at which point the underlying net.Conn is closed. Subsequent ipcWrite
+// calls return ErrIPCClosed.
+func (c *ipcConn) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.done)
+	})
+	return nil
 }
 
 func (c *ipcConn) trackPort(port uint16) {
@@ -195,7 +327,7 @@ func (s *IPCServer) acceptLoop() {
 		s.mu.Lock()
 		full := len(s.clients) >= MaxIPCClients
 		if !full {
-			ic := &ipcConn{Conn: conn}
+			ic := newIPCConn(conn)
 			s.clients[ic] = true
 			s.mu.Unlock()
 			go s.handleClient(ic)
@@ -207,6 +339,16 @@ func (s *IPCServer) acceptLoop() {
 }
 
 func (s *IPCServer) handleClient(conn *ipcConn) {
+	// Outermost defer: swallow panics so a buggy IPC handler doesn't kill
+	// the daemon. The other deferred cleanup (ports/conns/registry) still
+	// runs first because defers are LIFO.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("IPC handler panic recovered",
+				"recover", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 	defer func() {
 		// Clean up ports and connections owned by this client
 		conn.rmu.Lock()
@@ -255,6 +397,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			s.handleClose(conn, payload)
 		case CmdSendTo:
 			s.handleSendTo(conn, payload)
+		case CmdBroadcast:
+			s.handleBroadcast(conn, payload)
 		case CmdInfo:
 			s.handleInfo(conn)
 		case CmdMyPolo:
@@ -422,6 +566,38 @@ func (s *IPCServer) handleSendTo(conn *ipcConn, payload []byte) {
 
 	if err := s.daemon.SendDatagram(dstAddr, dstPort, data); err != nil {
 		s.sendError(conn, fmt.Sprintf("sendto: %v", err))
+	}
+}
+
+// handleBroadcast services CmdBroadcast — admin-token-gated fan-out to a
+// whole network. Wire payload:
+//
+//	[netID(2)][dstPort(2)][tokenLen(2)][token...][data...]
+//
+// On success, replies with CmdBroadcastOK (no body). On failure, replies
+// with CmdError carrying the daemon error message — typically "daemon has
+// no admin token configured" or "invalid admin token".
+func (s *IPCServer) handleBroadcast(conn *ipcConn, payload []byte) {
+	if len(payload) < 6 {
+		s.sendError(conn, "broadcast: missing header")
+		return
+	}
+	netID := binary.BigEndian.Uint16(payload[0:2])
+	dstPort := binary.BigEndian.Uint16(payload[2:4])
+	tokenLen := binary.BigEndian.Uint16(payload[4:6])
+	if len(payload) < 6+int(tokenLen) {
+		s.sendError(conn, "broadcast: truncated token")
+		return
+	}
+	token := string(payload[6 : 6+tokenLen])
+	data := payload[6+tokenLen:]
+
+	if err := s.daemon.BroadcastDatagram(netID, dstPort, data, token); err != nil {
+		s.sendError(conn, fmt.Sprintf("broadcast: %v", err))
+		return
+	}
+	if err := conn.ipcWrite([]byte{CmdBroadcastOK}); err != nil {
+		slog.Debug("IPC broadcast reply failed", "err", err)
 	}
 }
 

@@ -170,8 +170,9 @@ func TestReapStaleNodes(t *testing.T) {
 		t.Fatalf("lookup before reap: %v", err)
 	}
 
-	// Advance clock past stale threshold (5 minutes)
-	clk.Advance(6 * time.Minute)
+	// Advance clock past stale threshold (currently 30 min — bumped from 5 min
+	// during 2026-04-28 rendezvous-migration tuning; see backlog/27).
+	clk.Advance(31 * time.Minute)
 
 	// Trigger reap
 	reg.Reap()

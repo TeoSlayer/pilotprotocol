@@ -16,13 +16,15 @@ import (
 )
 
 // newIPCTestConn returns (serverConn, clientConn). Wrap serverConn in ipcConn
-// and pass to handlers; read replies from clientConn.
+// and pass to handlers; read replies from clientConn. Uses newIPCConn so the
+// async writer goroutine is properly started — handlers' ipcWrite calls
+// would block indefinitely on a zero-value sendCh otherwise.
 func newIPCTestConn(t *testing.T) (*ipcConn, net.Conn) {
 	t.Helper()
 	server, client := net.Pipe()
-	ic := &ipcConn{Conn: server}
+	ic := newIPCConn(server)
 	t.Cleanup(func() {
-		_ = server.Close()
+		_ = ic.Close() // signals writer goroutine to drain + exit
 		_ = client.Close()
 	})
 	return ic, client

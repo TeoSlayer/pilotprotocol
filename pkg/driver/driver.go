@@ -149,15 +149,38 @@ func (d *Driver) Listen(port uint16) (*Listener, error) {
 	}, nil
 }
 
-// SendTo sends an unreliable datagram to the given address:port.
-// Use with broadcast addresses (Node=0xFFFFFFFF) to send to all network members.
+// SendTo sends an unreliable unicast datagram to the given address:port.
+// Broadcast addresses (Node=0xFFFFFFFF) are not accepted on this path; use
+// Broadcast, which requires the daemon's admin token.
 func (d *Driver) SendTo(dst protocol.Addr, port uint16, data []byte) error {
+	if dst.IsBroadcast() {
+		return fmt.Errorf("broadcast address requires admin token: use Driver.Broadcast")
+	}
 	msg := make([]byte, 1+protocol.AddrSize+2+len(data))
 	msg[0] = cmdSendTo
 	dst.MarshalTo(msg, 1)
 	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize:], port)
 	copy(msg[1+protocol.AddrSize+2:], data)
 	return d.ipc.send(msg)
+}
+
+// Broadcast fans an unreliable datagram out to every member of a network.
+// The admin token must match the daemon's configured Config.AdminToken; an
+// empty token or mismatched token is rejected. Permitted on every network
+// including network 0 (backbone). Sender membership is not required.
+func (d *Driver) Broadcast(netID uint16, port uint16, data []byte, adminToken string) error {
+	tokenBytes := []byte(adminToken)
+	msg := make([]byte, 1+2+2+2+len(tokenBytes)+len(data))
+	msg[0] = cmdBroadcast
+	binary.BigEndian.PutUint16(msg[1:3], netID)
+	binary.BigEndian.PutUint16(msg[3:5], port)
+	binary.BigEndian.PutUint16(msg[5:7], uint16(len(tokenBytes)))
+	copy(msg[7:7+len(tokenBytes)], tokenBytes)
+	copy(msg[7+len(tokenBytes):], data)
+	if _, err := d.ipc.sendAndWait(msg, cmdBroadcastOK); err != nil {
+		return err
+	}
+	return nil
 }
 
 // RecvFrom receives the next incoming datagram.

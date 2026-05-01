@@ -187,22 +187,17 @@ func (d *Daemon) setNodeID_testhelper(id uint32) {
 	d.addrMu.Unlock()
 }
 
-// --- broadcastDatagram ---
+// --- broadcastDatagram / BroadcastDatagram ---
 
-func TestBroadcastDatagramBackboneNetworkZeroRejected(t *testing.T) {
+// SendDatagram now rejects every broadcast address regardless of network —
+// callers must use BroadcastDatagram (admin-token gated).
+func TestSendDatagramRejectsBroadcastAddr(t *testing.T) {
 	d := New(Config{})
-	err := d.broadcastDatagram(0, 1000, 80, []byte("x"))
-	if err == nil {
-		t.Fatal("broadcast on network 0 should be rejected")
-	}
-}
-
-func TestSendDatagramBroadcastOnNetworkZeroRejected(t *testing.T) {
-	d := New(Config{})
-	dst := protocol.BroadcastAddr(0)
-	err := d.SendDatagram(dst, 80, []byte("x"))
-	if err == nil {
-		t.Fatal("broadcast SendDatagram on network 0 should return an error")
+	for _, n := range []uint16{0, 5} {
+		dst := protocol.BroadcastAddr(n)
+		if err := d.SendDatagram(dst, 80, []byte("x")); err == nil {
+			t.Fatalf("network %d: expected SendDatagram to reject broadcast addr", n)
+		}
 	}
 }
 
@@ -214,34 +209,10 @@ func TestBroadcastDatagramRegistryClosedReturnsError(t *testing.T) {
 	d := New(Config{})
 	d.regConn = rc
 
-	err := d.broadcastDatagram(5, 1000, 80, []byte("x"))
+	err := d.broadcastDatagram(5, 1000, 80, []byte("x"), "")
 	if err == nil {
 		t.Fatal("expected error when registry is closed")
 	}
-}
-
-func TestBroadcastDatagramNonMemberDenied(t *testing.T) {
-	reg, rc := startTestRegistry(t)
-	defer reg.Close()
-	defer rc.Close()
-
-	// Register a different node (not us) into network 5.
-	otherID, _ := crypto.GenerateIdentity()
-	resp, err := rc.RegisterWithKey("127.0.0.1:5000", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
-	if err != nil {
-		t.Fatalf("register other: %v", err)
-	}
-	otherNodeID := uint32(resp["node_id"].(float64))
-
-	d := New(Config{})
-	d.regConn = rc
-	d.setNodeID_testhelper(0xDEAD0000) // our node is NOT in the registry at all
-
-	err = d.broadcastDatagram(5, 1000, 80, []byte("x"))
-	if err == nil {
-		t.Fatal("expected non-member denial error")
-	}
-	_ = otherNodeID
 }
 
 // --- lookupPeerPubKey ---

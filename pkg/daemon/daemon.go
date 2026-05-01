@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -77,11 +78,19 @@ type Config struct {
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
 
+	// RelayOnly hides this node's real_addr from peer resolve/lookup
+	// responses. Peers reach this node only via the beacon-relay path,
+	// so this node's public IP is never exposed to other daemons.
+	// Default false (current behavior). Task 32 — once the fleet is on a
+	// new-enough binary, the operator default will flip to true.
+	RelayOnly bool
+
 	// Built-in services
 	DisableEcho         bool // disable built-in echo service (port 7)
 	DisableDataExchange bool // disable built-in data exchange service (port 1001)
 	DisableEventStream  bool // disable built-in event stream service (port 1002)
 	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
+	DisablePolicyRunner bool // skip loading expr policy runners and joining networks at startup
 
 	// Webhook
 	WebhookURL          string        // HTTP(S) endpoint for event notifications (empty = disabled)
@@ -193,15 +202,16 @@ type Daemon struct {
 	publicEndpoint string // host:port reported to the registry at registration
 	identityMu     sync.RWMutex // protects identity after hot rotate-key
 	identity       *crypto.Identity
-	regConn    *registry.Client
-	tunnels    *TunnelManager
-	ports      *PortManager
-	ipc        *IPCServer
-	handshakes *HandshakeManager
-	webhook    *WebhookClient
-	taskQueue  *TaskQueue
-	startTime  time.Time
-	stopCh     chan struct{} // closed on Stop() to signal goroutines
+	regConn        *registry.Client
+	tunnels        *TunnelManager
+	ports          *PortManager
+	ipc            *IPCServer
+	handshakes     *HandshakeManager
+	webhook        *WebhookClient
+	taskQueue      *TaskQueue
+	startTime      time.Time
+	stopCh         chan struct{} // closed on Stop() to signal goroutines
+	beaconSelection *beaconSelectionState // multi-beacon discovery state
 	stopOnce   sync.Once     // ensures stopCh is closed exactly once
 	lanAddrs   []string      // LAN addresses for same-network peer detection
 
@@ -423,8 +433,13 @@ func (d *Daemon) Start() error {
 		slog.Info("using fixed endpoint", "endpoint", registrationAddr)
 	} else {
 		registrationAddr = resolveLocalAddr(d.config.ListenAddr)
-		if d.config.BeaconAddr != "" {
-			pubAddr, err := discoverWithTempSocket(d.config.BeaconAddr, d.config.ListenAddr)
+		// Identity isn't loaded yet; STUN reflection is identical regardless
+		// of which beacon we hit, so use the first entry of the parsed list.
+		// Once identity is loaded later, the post-registration beacon set
+		// uses hash-of-pubkey for sticky load distribution across the mesh.
+		stunBeacon := firstBeacon(d.config.BeaconAddr)
+		if stunBeacon != "" {
+			pubAddr, err := discoverWithTempSocket(stunBeacon, d.config.ListenAddr)
 			if err != nil {
 				slog.Warn("beacon discover failed, using local addr", "error", err)
 			} else if isPrivateAddr(pubAddr) {
@@ -539,7 +554,14 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := rc.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs, d.config.Version)
+	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
+		ListenAddr: registrationAddr,
+		PublicKey:  pubKeyB64,
+		Owner:      d.config.Owner,
+		LANAddrs:   d.lanAddrs,
+		Version:    d.config.Version,
+		RelayOnly:  d.config.RelayOnly, // task 32 — hide real_addr from peers
+	})
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
 	}
@@ -619,12 +641,44 @@ func (d *Daemon) Start() error {
 		"node_id":  d.nodeID,
 	})
 
-	// Register with beacon using real nodeID for NAT traversal (punch/relay)
+	// Register with beacon using real nodeID for NAT traversal (punch/relay).
+	//
+	// Multi-beacon support (back-compat): -beacon may be a single addr
+	// (current behavior) OR a comma-separated list. With a list, hash the
+	// daemon's identity public key to pick ONE beacon stably. The relay
+	// path uses a single beaconAddr; the beacon-mesh Tier 2 forwarding
+	// transparently routes to whichever beacon owns the destination node.
 	if d.config.BeaconAddr != "" {
-		if err := d.tunnels.SetBeaconAddr(d.config.BeaconAddr); err != nil {
-			slog.Warn("failed to set beacon addr", "error", err)
-		} else {
-			d.tunnels.RegisterWithBeacon()
+		beaconList := parseBeaconList(d.config.BeaconAddr)
+		// Initialize the beaconSelection state so the refresh loop has
+		// something to merge against from tick #0.
+		d.beaconSelection = newBeaconSelectionState(beaconList)
+		var picked string
+		if d.identity != nil {
+			picked = pickBeacon(beaconList, d.identity.PublicKey)
+		} else if len(beaconList) > 0 {
+			// Defensive: if identity is somehow nil here, fall through to
+			// the first beacon. Should never happen in normal startup.
+			picked = beaconList[0]
+		}
+		if picked != "" {
+			if err := d.tunnels.SetBeaconAddr(picked); err != nil {
+				slog.Warn("failed to set beacon addr", "error", err, "picked", picked)
+			} else {
+				if len(beaconList) > 1 {
+					slog.Info("beacon selected from multi-beacon list",
+						"picked", picked,
+						"available", len(beaconList))
+				}
+				// Record the initial pick into selection state so the
+				// refresh loop's swap-detection sees the right baseline.
+				d.beaconSelection.applyRefreshDecision(refreshDecision{
+					NewList:    beaconList,
+					NewPick:    picked,
+					ShouldSwap: true,
+				})
+				d.tunnels.RegisterWithBeacon()
+			}
 		}
 	}
 
@@ -656,7 +710,9 @@ func (d *Daemon) Start() error {
 	d.loadNetworkPolicies()
 
 	// Load expr-based policy runners for joined networks
-	d.loadPolicyRunners()
+	if !d.config.DisablePolicyRunner {
+		d.loadPolicyRunners()
+	}
 
 	// Detect managed networks and start engines
 	d.startManaged()
@@ -690,6 +746,15 @@ func (d *Daemon) Start() error {
 
 	// 11. Start network sync (refreshes memberships/policies every 5 min)
 	go d.networkSyncLoop()
+
+	// 12. Start beacon discovery refresh loop. Refreshes the beacon list
+	// from the registry every 60s ± jitter so MIG autoscale events
+	// (instances added/removed) propagate to the daemon's pick within a
+	// minute. Bootstrap-only daemons (-beacon HOST:PORT, no comma) still
+	// benefit: if the registry knows about additional beacons, this
+	// daemon will discover them and may migrate to a different one if
+	// hash-pick lands on a fresher beacon.
+	go d.beaconRefreshLoop()
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
@@ -1830,7 +1895,14 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			wasFinWait := conn.State == StateFinWait
 			wasTimeWait := conn.State == StateTimeWait
 			conn.State = StateTimeWait
-			conn.LastActivity = time.Now()
+			// Only refresh LastActivity on the FIRST FIN. A peer's FIN-ACK
+			// reply has FlagFIN set too; if we refresh on every FIN we keep
+			// idleSweepLoop from reaping this conn, which combined with the
+			// guarded send below would have created a packet-amplification
+			// loop (storm) at line rate.
+			if !wasTimeWait {
+				conn.LastActivity = time.Now()
+			}
 			conn.KeepaliveUnacked = 0
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
@@ -1848,19 +1920,23 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			}
 			// Connection will be reaped by idleSweepLoop after TimeWaitDuration
 
-			// Send FIN-ACK
-			finack := &protocol.Packet{
-				Version:  protocol.Version,
-				Flags:    protocol.FlagFIN | protocol.FlagACK,
-				Protocol: protocol.ProtoStream,
-				Src:      conn.LocalAddr,
-				Dst:      pkt.Src,
-				SrcPort:  pkt.DstPort,
-				DstPort:  pkt.SrcPort,
-				Seq:      sendSeq,
-				Ack:      pkt.Seq + 1,
+			// Send FIN-ACK once, only on the FIRST FIN. Subsequent FINs are
+			// our peer's FIN-ACK reply (or duplicates); echoing them back
+			// triggers a storm because FIN-ACK has FlagFIN set.
+			if !wasTimeWait {
+				finack := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagFIN | protocol.FlagACK,
+					Protocol: protocol.ProtoStream,
+					Src:      conn.LocalAddr,
+					Dst:      pkt.Src,
+					SrcPort:  pkt.DstPort,
+					DstPort:  pkt.SrcPort,
+					Seq:      sendSeq,
+					Ack:      pkt.Seq + 1,
+				}
+				d.tunnels.Send(pkt.Src.Node, finack)
 			}
-			d.tunnels.Send(pkt.Src.Node, finack)
 		}
 		return
 	}
@@ -2047,6 +2123,16 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 
 func (d *Daemon) handleControlPacket(pkt *protocol.Packet) {
 	if pkt.DstPort == protocol.PortPing {
+		// Don't reply to a peer's pong: that would be a packet-amplification
+		// loop. The pong's SrcPort is PortPing too (so DstPort==PortPing on
+		// the receiver), so we have to differentiate by the FlagACK bit:
+		// a request (echo) has Ack==0 + no FlagACK; a reply has FlagACK set.
+		// relayProbeLoop emits probes with FlagACK already set + Seq=1 to
+		// the same effect — a probe is its own pong, no further reply is
+		// expected. See pkg/daemon/daemon.go:3175-3194 (relayProbeLoop).
+		if pkt.HasFlag(protocol.FlagACK) {
+			return
+		}
 		// Ping request — send pong back
 		pong := &protocol.Packet{
 			Version:  protocol.Version,
@@ -2613,11 +2699,16 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 // handles it. When FIN-ACK is received the connection moves to TIME_WAIT and
 // is eventually reaped by idleSweepLoop.
 func (d *Daemon) CloseConnection(conn *Connection) {
+	// Capture every conn field this function reads under Mu; reading them
+	// post-unlock would race with concurrent state mutations from
+	// handleStreamPacket / sendDelayedACK / sendSegment paths.
 	conn.Mu.Lock()
 	st := conn.State
 	sendSeq := conn.SendSeq
-	remotePort := conn.RemotePort
+	localAddr := conn.LocalAddr
+	localPort := conn.LocalPort
 	remoteAddr := conn.RemoteAddr
+	remotePort := conn.RemotePort
 	connID := conn.ID
 	conn.Mu.Unlock()
 	if st == StateEstablished && remotePort == protocol.PortDataExchange {
@@ -2633,13 +2724,13 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 			Version:  protocol.Version,
 			Flags:    protocol.FlagFIN,
 			Protocol: protocol.ProtoStream,
-			Src:      conn.LocalAddr,
-			Dst:      conn.RemoteAddr,
-			SrcPort:  conn.LocalPort,
-			DstPort:  conn.RemotePort,
+			Src:      localAddr,
+			Dst:      remoteAddr,
+			SrcPort:  localPort,
+			DstPort:  remotePort,
 			Seq:      sendSeq,
 		}
-		d.tunnels.Send(conn.RemoteAddr.Node, fin)
+		d.tunnels.Send(remoteAddr.Node, fin)
 		// Track FIN in retransmission buffer so the retxLoop retries it
 		conn.TrackSend(sendSeq, finData)
 		conn.Mu.Lock()
@@ -2647,21 +2738,30 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 		conn.Mu.Unlock()
 	}
 	conn.CloseRecvBuf()
-	conn.Mu.Lock()
 	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
-	// the connection is gone and queue an ACK for a dead peer.
+	// the connection is gone and queue an ACK for a dead peer. ACKTimer
+	// is guarded by AckMu (see Connection field comment), NOT Mu — taking
+	// Mu here would have raced with handleStreamPacket's delayed-ACK
+	// scheduler (data race flagged by go test -race).
+	conn.AckMu.Lock()
 	if conn.ACKTimer != nil {
 		conn.ACKTimer.Stop()
 		conn.ACKTimer = nil
 	}
+	conn.AckMu.Unlock()
+	conn.Mu.Lock()
 	conn.State = StateFinWait
 	conn.LastActivity = time.Now()
 	conn.Mu.Unlock()
 }
 
-// SendDatagram sends an unreliable packet.
-// If the destination is a broadcast address, sends to all members of that network.
+// SendDatagram sends an unreliable unicast packet. Broadcast addresses
+// (Node=0xFFFFFFFF) are rejected — use BroadcastDatagram, which requires
+// an admin token.
 func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte) error {
+	if dstAddr.IsBroadcast() {
+		return fmt.Errorf("broadcast address requires admin token: use BroadcastDatagram")
+	}
 	// Enforce outbound port policy
 	if !d.evaluatePortPolicy(policy.EventDatagram, dstAddr.Network, dstPort, dstAddr.Node, len(data), "out") {
 		slog.Warn("datagram rejected: not allowed by network policy",
@@ -2676,10 +2776,6 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	}
 
 	srcPort := d.ports.AllocEphemeralPort()
-
-	if dstAddr.IsBroadcast() {
-		return d.broadcastDatagram(dstAddr.Network, srcPort, dstPort, data)
-	}
 
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
 		return err
@@ -2698,14 +2794,37 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	return d.tunnels.Send(dstAddr.Node, pkt)
 }
 
-// broadcastDatagram sends a datagram to all members of a network.
-// Only network members are allowed to broadcast. Backbone (network 0) is blocked.
-func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data []byte) error {
-	if netID == 0 {
-		return fmt.Errorf("broadcast on backbone network is not permitted")
+// BroadcastDatagram is the admin-gated entry point for sending a datagram
+// to every member of a network. The admin token must be non-empty and equal
+// to the daemon's configured Config.AdminToken (constant-time compare). With
+// a valid token, broadcast is permitted on every network including the
+// backbone (network 0); membership of the sender is NOT required — admin
+// tokens are root-level. Per-recipient outbound port policy still applies.
+func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, adminToken string) error {
+	if d.config.AdminToken == "" {
+		return fmt.Errorf("broadcast denied: daemon has no admin token configured")
 	}
+	if subtle.ConstantTimeCompare([]byte(adminToken), []byte(d.config.AdminToken)) != 1 {
+		return fmt.Errorf("broadcast denied: invalid admin token")
+	}
+	srcPort := d.ports.AllocEphemeralPort()
+	return d.broadcastDatagram(netID, srcPort, dstPort, data, adminToken)
+}
 
-	resp, err := d.regConn.ListNodes(netID)
+// broadcastDatagram performs the per-peer fanout. Authentication is the
+// caller's responsibility — exported callers must go through
+// BroadcastDatagram, which enforces the admin-token check. Network 0 is
+// permitted; sender membership is not checked. Per-recipient outbound port
+// policy is still evaluated. The admin token (when non-empty) is forwarded
+// to the registry so backbone enumeration (network 0) is unlocked.
+func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data []byte, adminToken string) error {
+	var resp map[string]interface{}
+	var err error
+	if adminToken != "" {
+		resp, err = d.regConn.ListNodes(netID, adminToken)
+	} else {
+		resp, err = d.regConn.ListNodes(netID)
+	}
 	if err != nil {
 		return fmt.Errorf("list nodes for broadcast: %w", err)
 	}
@@ -2713,22 +2832,6 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 	nodesRaw, ok := resp["nodes"].([]interface{})
 	if !ok {
 		return nil // no nodes
-	}
-
-	// Verify sender is a member of the network
-	isMember := false
-	for _, n := range nodesRaw {
-		nodeMap, ok := n.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if nid, ok := nodeMap["node_id"].(float64); ok && uint32(nid) == d.NodeID() {
-			isMember = true
-			break
-		}
-	}
-	if !isMember {
-		return fmt.Errorf("broadcast denied: node %d is not a member of network %d", d.NodeID(), netID)
 	}
 
 	for _, n := range nodesRaw {
@@ -2891,6 +2994,20 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 		return fmt.Errorf("resolve %s: %w", targetAddr, err)
 	}
 
+	// Task 32 — relay-by-default hint: if the registry indicates the
+	// target is RelayOnly, skip the NAT punch request (which would make
+	// the beacon reveal the peer's real IP via PunchCommand back to us)
+	// and flip the peer's relay flag immediately. This closes the
+	// punch-coordination leak: A learns nothing about B's IP, and packets
+	// flow A → beacon → B as MsgRelay frames.
+	relayOnly, _ := resp["relay_only"].(bool)
+	if relayOnly {
+		d.tunnels.SetRelayPeer(nodeID, true)
+		d.tunnels.AddPeer(nodeID, udpAddr) // udpAddr is already the beacon (substituted by registry)
+		slog.Debug("peer is RelayOnly, skipping hole punch", "node_id", nodeID)
+		return nil
+	}
+
 	// Only request hole-punching if NOT using LAN address
 	if targetAddr == realAddr && d.config.BeaconAddr != "" {
 		d.tunnels.RequestHolePunch(nodeID)
@@ -2983,7 +3100,14 @@ func (d *Daemon) reRegister() {
 
 	// Always re-register with client-generated key
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	resp, err := d.regConn.RegisterWithKey(registrationAddr, pubKeyB64, d.config.Owner, d.lanAddrs, d.config.Version)
+	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
+		ListenAddr: registrationAddr,
+		PublicKey:  pubKeyB64,
+		Owner:      d.config.Owner,
+		LANAddrs:   d.lanAddrs,
+		Version:    d.config.Version,
+		RelayOnly:  d.config.RelayOnly, // task 32
+	})
 	if err != nil {
 		slog.Error("re-registration failed", "error", err)
 		return
@@ -3277,7 +3401,9 @@ func (d *Daemon) syncNetworks() {
 	}
 
 	// 7. Start policy runners for new networks that have expr policies.
-	d.syncPolicyRunners(newNets, networkList)
+	if !d.config.DisablePolicyRunner {
+		d.syncPolicyRunners(newNets, networkList)
+	}
 
 	// 8. Start managed engines for new networks that have rules.
 	d.syncManagedEngines(newNets, networkList)

@@ -386,13 +386,20 @@ func TestEventBrokerPublishPrunesDeadSubscriber(t *testing.T) {
 		subs: map[string][]*connAdapter{"news": {sender, deadSub}},
 	}
 	evt := &eventstream.Event{Topic: "news", Payload: []byte("headline")}
-	b.publish(evt, sender)
+	// New resilience contract (Phase 4): a subscriber is only removed
+	// after maxConsecutivePublishFailures in a row, so a single transient
+	// blip doesn't kill long-lived subscriptions. Publish enough times to
+	// exceed the threshold and confirm pruning still happens.
+	for i := 0; i < maxConsecutivePublishFailures; i++ {
+		b.publish(evt, sender)
+	}
 
-	// deadSub's WriteEvent failed (SendData errors with State=0) → added to dead →
-	// cleaned up via removeSub outside the read lock. Sender stays.
+	// deadSub's writes consistently fail (SendData errors with State=0) →
+	// after threshold consecutive failures it's added to dead → cleaned
+	// up via removeSub outside the read lock. Sender stays.
 	subs := b.subs["news"]
 	if len(subs) != 1 {
-		t.Fatalf("subs[news] len = %d, want 1 (dead pruned, sender kept)", len(subs))
+		t.Fatalf("subs[news] len = %d, want 1 (dead pruned after %d failures, sender kept)", len(subs), maxConsecutivePublishFailures)
 	}
 	if subs[0] != sender {
 		t.Fatalf("subs[news][0] = %p, want sender %p", subs[0], sender)
@@ -422,11 +429,14 @@ func TestEventBrokerPublishFanOutsToWildcardSubscribers(t *testing.T) {
 		},
 	}
 	evt := &eventstream.Event{Topic: "updates", Payload: []byte("u1")}
-	b.publish(evt, sender)
+	// Resilience contract: prune only after threshold consecutive failures.
+	for i := 0; i < maxConsecutivePublishFailures; i++ {
+		b.publish(evt, sender)
+	}
 
-	// wildSub's write also fails (State=0) → pruned from "*".
+	// wildSub's write also fails (State=0) → pruned from "*" after threshold.
 	if len(b.subs["*"]) != 0 {
-		t.Fatalf(`subs["*"] len = %d, want 0 (dead wildcard pruned)`, len(b.subs["*"]))
+		t.Fatalf(`subs["*"] len = %d, want 0 (dead wildcard pruned after %d failures)`, len(b.subs["*"]), maxConsecutivePublishFailures)
 	}
 	// "updates" keeps the sender (never attempted to write).
 	if len(b.subs["updates"]) != 1 {
@@ -456,7 +466,10 @@ func TestEventBrokerPublishWildcardTopicDoesNotSelfDispatch(t *testing.T) {
 		subs: map[string][]*connAdapter{"*": {sub}},
 	}
 	evt := &eventstream.Event{Topic: "*", Payload: []byte("broadcast")}
-	b.publish(evt, sender)
+	// Resilience contract: prune only after threshold consecutive failures.
+	for i := 0; i < maxConsecutivePublishFailures; i++ {
+		b.publish(evt, sender)
+	}
 
 	// sub is pruned (write failed) — map key removed when slice empty.
 	if _, exists := b.subs["*"]; exists {
