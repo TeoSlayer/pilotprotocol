@@ -47,8 +47,9 @@ func TestChunkedReap(t *testing.T) {
 		nodeIDs = append(nodeIDs, uint32(resp["node_id"].(float64)))
 	}
 
-	// Advance past stale threshold (5 minutes)
-	clk.Advance(6 * time.Minute)
+	// Advance past stale threshold (currently 30 min — bumped from 5 min
+	// during 2026-04-28 rendezvous-migration tuning; see backlog/27).
+	clk.Advance(31 * time.Minute)
 
 	// Multiple reap calls — chunked reap processes a subset each time
 	for i := 0; i < 10; i++ {
