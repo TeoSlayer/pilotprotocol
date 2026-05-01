@@ -118,12 +118,19 @@ type ipcConn struct {
 	closeOnce sync.Once
 	writeDone chan struct{}
 
-	// dialCancels holds cancel funcs for in-flight DialConnection
-	// goroutines this client started. On Close() we fire them all so
-	// the daemon's dial loops bail out immediately instead of grinding
-	// to their full retry budget (~14-31 s) leaving orphan SYN_SENT
-	// entries behind. Tied to ipcConn lifetime; no separate plumbing.
-	dialCancels []context.CancelFunc
+	// dialCancels holds cancel funcs for in-flight DialConnection calls
+	// this client started. On Close() we fire them all so the daemon's
+	// dial loops bail out immediately instead of grinding to their full
+	// retry budget (~14-31 s) leaving orphan SYN_SENT entries.
+	//
+	// v1.9.1 fix: changed from []CancelFunc to map[uint64]CancelFunc.
+	// addDialCancel returns an ID; removeDialCancel(id) deletes the entry
+	// in O(1) so completed dials don't accumulate dead cancel funcs.
+	// A []CancelFunc that was never pruned would grow by one entry per
+	// completed dial — at 1000 dials/s over 8 h that was ~2.3 GB leaked
+	// per IPC connection.
+	dialCancels  map[uint64]context.CancelFunc
+	nextCancelID uint64
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -163,10 +170,11 @@ const MaxConnsPerIPCClient = 4096
 // is properly initialized.
 func newIPCConn(c net.Conn) *ipcConn {
 	ic := &ipcConn{
-		Conn:      c,
-		sendCh:    make(chan []byte, ipcSendBuffer),
-		done:      make(chan struct{}),
-		writeDone: make(chan struct{}),
+		Conn:        c,
+		sendCh:      make(chan []byte, ipcSendBuffer),
+		done:        make(chan struct{}),
+		writeDone:   make(chan struct{}),
+		dialCancels: make(map[uint64]context.CancelFunc),
 	}
 	go ic.writeLoop()
 	return ic
@@ -252,7 +260,7 @@ func (c *ipcConn) Close() error {
 		// from the daemon's conn table within milliseconds.
 		c.rmu.Lock()
 		cancels := c.dialCancels
-		c.dialCancels = nil
+		c.dialCancels = make(map[uint64]context.CancelFunc)
 		c.rmu.Unlock()
 		for _, cancel := range cancels {
 			cancel()
@@ -261,16 +269,28 @@ func (c *ipcConn) Close() error {
 	return nil
 }
 
-// addDialCancel registers a context.CancelFunc tied to an in-flight
-// DialConnection started by this IPC client. Called from handleDial
-// before the dial blocks; the cancel fires on ipcConn.Close().
-func (c *ipcConn) addDialCancel(cancel context.CancelFunc) {
+// addDialCancel registers a context.CancelFunc for an in-flight dial.
+// Returns an opaque ID that the caller passes to removeDialCancel when
+// the dial completes, keeping dialCancels bounded to in-flight dials only.
+func (c *ipcConn) addDialCancel(cancel context.CancelFunc) uint64 {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
-	c.dialCancels = append(c.dialCancels, cancel)
+	c.nextCancelID++
+	id := c.nextCancelID
+	c.dialCancels[id] = cancel
+	return id
 }
 
-// dialCancelCount returns the number of entries in dialCancels (for testing).
+// removeDialCancel removes the cancel registered under id. Called after
+// a dial completes (success or error) to prevent dead cancel funcs from
+// accumulating in the map for the lifetime of the IPC connection.
+func (c *ipcConn) removeDialCancel(id uint64) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	delete(c.dialCancels, id)
+}
+
+// dialCancelCount returns the number of in-flight dial cancel funcs (for testing).
 func (c *ipcConn) dialCancelCount() int {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -552,8 +572,11 @@ func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 	// cancel and the dial loop exits inside its select instead of grinding
 	// through the full 14-31 s retry budget leaving an orphaned SYN_SENT.
 	dialCtx, dialCancel := context.WithCancel(context.Background())
-	conn.addDialCancel(dialCancel)
-	defer dialCancel() // also fires on normal completion
+	cancelID := conn.addDialCancel(dialCancel)
+	defer func() {
+		dialCancel()
+		conn.removeDialCancel(cancelID) // keep map bounded to in-flight dials
+	}()
 
 	c, err := s.daemon.DialConnectionContext(dialCtx, dstAddr, dstPort)
 	if err != nil {

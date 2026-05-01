@@ -8,33 +8,23 @@ import (
 	"testing"
 )
 
-// TestIPCDialCancelsLeakOnCompletedDials reproduces the
-// "dialCancels slice grows unboundedly after completed dials" memory leak.
+// TestIPCDialCancelsLeakOnCompletedDials verifies that dialCancels stays
+// bounded to currently-in-flight dials after completed dials are removed.
 //
-// Symptom: ipcConn.dialCancels is a []context.CancelFunc that grows by one
-// entry on every handleDial call — addDialCancel appends before the dial,
-// and the entry is never removed after the dial completes. The defer in
-// handleDial fires dialCancel() (making the context cancel a no-op), but
-// the slice entry remains. Close() only empties the slice at IPC connection
-// teardown.
+// Bug (pre-v1.9.1): ipcConn.dialCancels was a []context.CancelFunc that
+// grew by one per handleDial call. addDialCancel appended before the dial;
+// the defer in handleDial fired dialCancel() (making future calls a no-op)
+// but never removed the entry. After N dials, dialCancels held N dead cancel
+// funcs. At 1000 dials/s over 8h: 28.8M entries, ~2.3 GB wasted memory per
+// IPC connection released only on socket close.
 //
-// For a long-lived IPC connection making many sequential dials (a gateway
-// proxying HTTP requests, a service continuously dialing backends), the
-// slice grows proportionally to the number of historical dials:
+// Fix (v1.9.1): dialCancels is now map[uint64]context.CancelFunc; addDialCancel
+// returns an opaque ID; removeDialCancel(id) deletes the entry in O(1).
+// handleDial's defer calls both dialCancel() and removeDialCancel(id), so
+// completed dials don't leave dead entries in the map.
 //
-//	N dials × ~80 bytes per context.cancelCtx ≈ N × 80 B
-//
-// At 1000 dials/s over 8 hours: 28.8 M entries, ~2.3 GB of wasted memory.
-// Memory is only reclaimed when the IPC connection closes.
-//
-// What v1.9.1's fix should change: after each dial completes (or errors),
-// the cancel func must be removed from dialCancels. addDialCancel should
-// return an opaque ID; removeDialCancel(id) deletes the entry by key
-// (O(1) with a map, not O(n) with a slice scan).
-//
-// This test pins the CURRENT (buggy) behavior: N addDialCancel calls
-// followed by N cancel calls leave the slice at length N. After GREEN the
-// assertion flips: dialCancels is empty after N remove calls.
+// GREEN assertion: after N add+cancel+remove cycles, dialCancelCount must be 0.
+// Against unpatched code (slice with no remove), dialCancelCount returns N.
 func TestIPCDialCancelsLeakOnCompletedDials(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() { clientConn.Close(); serverConn.Close() })
@@ -44,23 +34,21 @@ func TestIPCDialCancelsLeakOnCompletedDials(t *testing.T) {
 
 	const N = 1000
 
-	// Simulate N completed dial lifecycles: each dial registers a cancel,
-	// then fires it (defer dialCancel() in handleDial) but never removes it.
+	// Simulate N completed dial lifecycles using the new API: each dial
+	// registers a cancel (addDialCancel returns ID), fires it, and removes
+	// it (removeDialCancel). This mirrors what the fixed handleDial defer does.
 	for i := 0; i < N; i++ {
 		_, cancel := context.WithCancel(context.Background())
-		ic.addDialCancel(cancel)
-		cancel() // simulate defer dialCancel() firing on handleDial return
-		// BUG: the entry stays in dialCancels — cancel is not removed
+		id := ic.addDialCancel(cancel)
+		cancel()                  // simulate defer dialCancel()
+		ic.removeDialCancel(id)  // v1.9.1 fix: remove after dial completes
 	}
 
 	got := ic.dialCancelCount()
 
-	// CURRENT (buggy) behavior: dialCancels retains all N dead cancel funcs.
-	if got != N {
-		if got == 0 {
-			t.Fatalf("BUG NOT REPRODUCED: dialCancelCount=0 after %d dials (fix may be in place); GREEN flips this", N)
-		}
-		t.Fatalf("unexpected dialCancelCount %d (expected %d from stale slice)", got, N)
+	// FIXED: map is empty — no dead cancel funcs retained.
+	if got != 0 {
+		t.Errorf("dialCancelCount=%d after %d completed dials; expected 0 — dead entries not pruned (fix not applied)",
+			got, N)
 	}
-	t.Logf("dialCancels has %d dead entries after %d completed dials — memory leak", got, N)
 }
