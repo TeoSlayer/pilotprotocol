@@ -2838,8 +2838,7 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
 
-			isNewLossEvent := !conn.InRecovery
-			if isNewLossEvent {
+			if !conn.InRecovery {
 				// New loss event: reduce window, enter recovery
 				conn.SSThresh = conn.CongWin / 2
 				if conn.SSThresh < MaxSegmentSize {
@@ -2848,22 +2847,23 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 				conn.CongWin = InitialCongWin
 				conn.InRecovery = true
 				conn.RecoveryPoint = sendSeq
-
-				// Double RTO for first timeout in this loss event
-				conn.RTO = conn.RTO * 2
-				if conn.RTO > 10*time.Second {
-					conn.RTO = 10 * time.Second
-				}
-				// P2-009: add 0-25% random jitter so many connections that
-				// started at the same time don't retransmit in lockstep
-				// under shared congestion. Cap still applies after jitter.
-				jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
-				conn.RTO += jitter
-				if conn.RTO > 10*time.Second {
-					conn.RTO = 10 * time.Second
-				}
 			}
-			// During recovery, retransmit without further RTO doubling
+
+			// RFC 6298 §5.5–5.6: double RTO on every timeout expiry, not only
+			// the first one.  Window reduction above is once-per-loss-event, but
+			// the backoff applies each time the timer fires without an ACK.
+			conn.RTO = conn.RTO * 2
+			if conn.RTO > 10*time.Second {
+				conn.RTO = 10 * time.Second
+			}
+			// P2-009: add 0-25% random jitter so many connections that
+			// started at the same time don't retransmit in lockstep
+			// under shared congestion. Cap still applies after jitter.
+			jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
+			conn.RTO += jitter
+			if conn.RTO > 10*time.Second {
+				conn.RTO = 10 * time.Second
+			}
 
 			e.attempts++
 			e.sentAt = now
