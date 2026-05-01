@@ -662,12 +662,13 @@ func (c *Connection) TrackSend(seq uint32, data []byte) {
 // then needs RetxMu, while we hold RetxMu and need Mu), we accumulate
 // stats deltas locally and apply them under Mu AFTER RetxMu is released.
 func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
-	// Capture RecvAck under Mu BEFORE taking RetxMu so fastRetransmit can
-	// run lock-order-safe. RecvAck only advances forward (or stays equal),
-	// so a slightly stale read is safe — a fresher one would cause us to
-	// retransmit data the peer would discard, harmless.
+	// Capture RecvAck and SendSeq under Mu BEFORE taking RetxMu.
+	// RecvAck: needed by fastRetransmit (lock-order-safe read).
+	// SendSeq: needed to set RecoveryPoint when fast retransmit enters recovery.
+	// Both advance monotonically; a slightly stale read is harmless.
 	c.Mu.Lock()
 	recvAck := c.RecvAck
+	sendSeq := c.SendSeq
 	c.Mu.Unlock()
 
 	var dupAcks, fastRetx uint64
@@ -714,6 +715,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				c.SSThresh = MaxSegmentSize
 			}
 			c.CongWin = c.SSThresh + 3*MaxSegmentSize
+			// Mark this loss episode so a subsequent timeout retransmit does not
+			// halve SSThresh a second time for the same un-ACKed segment.
+			// retransmitUnacked guards SSThresh reduction with !InRecovery; without
+			// this, it would fire again and use the inflated fast-recovery CongWin
+			// (SSThresh+3*MSS) as the input, driving SSThresh well below the RFC
+			// 5681 §3.2 intended value (one multiplicative decrease per episode).
+			if !c.InRecovery {
+				c.InRecovery = true
+				c.RecoveryPoint = sendSeq
+			}
 			// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
 			// the window may have opened.  Signal the sender so it doesn't stall.
 			if c.WindowCh != nil && c.WindowAvailable() {

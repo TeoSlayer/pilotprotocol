@@ -2852,15 +2852,20 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			conn.Mu.Unlock()
 
 			if !conn.InRecovery {
-				// New loss event: reduce window, enter recovery
+				// New loss episode: halve SSThresh once (RFC 5681 §3.1).
+				// Guarded so repeated timeouts or a timeout after fast retransmit
+				// (which already halved SSThresh) do not reduce it again.
 				conn.SSThresh = conn.CongWin / 2
 				if conn.SSThresh < MaxSegmentSize {
 					conn.SSThresh = MaxSegmentSize
 				}
-				conn.CongWin = InitialCongWin
 				conn.InRecovery = true
 				conn.RecoveryPoint = sendSeq
 			}
+			// Timeout always resets to slow start, even when InRecovery was
+			// already set by fast retransmit.  The inflated fast-recovery
+			// CongWin (SSThresh+k*MSS) must be torn down to InitialCongWin.
+			conn.CongWin = InitialCongWin
 
 			// RFC 6298 §5.5–5.6: double RTO on every timeout expiry, not only
 			// the first one.  Window reduction above is once-per-loss-event, but
