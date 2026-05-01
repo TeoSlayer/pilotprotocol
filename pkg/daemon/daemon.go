@@ -3528,6 +3528,7 @@ func (d *Daemon) idleSweepLoop() {
 					DstPort:  conn.RemotePort,
 					Seq:      sendSeq,
 					Ack:      recvAck,
+					Window:   conn.RecvWindow(),
 				}
 				d.tunnels.Send(conn.RemoteAddr.Node, probe)
 			}
