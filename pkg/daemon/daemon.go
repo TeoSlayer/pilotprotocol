@@ -2045,18 +2045,21 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Unlock()
 
 		// Process ACK for retransmission tracking.
-		// Only count as pure ACK for dup detection if no data payload.
 		// v1.9.1: removed the 'pkt.Ack > 0' guard — Ack=0 is the legitimate
 		// cumulative ACK value after a 4 GiB uint32 sequence-space wraparound.
-		// ProcessAck's seqAfter and uint32 arithmetic already handle Ack=0
-		// correctly for both wraparound and fresh connections.
+		// Decode SACK payload first so we can set isPureACK correctly: a packet
+		// whose payload is only SACK blocks carries no user data and is a pure
+		// ACK for dup-ACK detection purposes. Computing isPureACK as
+		// len(pkt.Payload)==0 alone wrongly marks SACK-carrying ACKs as
+		// non-pure, suppressing DupAckCount and blocking fast retransmit.
+		sackBlocks, isSACK := DecodeSACK(pkt.Payload)
 		{
-			isPureACK := len(pkt.Payload) == 0
+			isPureACK := len(pkt.Payload) == 0 || isSACK
 			conn.ProcessAck(pkt.Ack, isPureACK)
 		}
 
 		// Check if payload is SACK info (not user data)
-		if sackBlocks, ok := DecodeSACK(pkt.Payload); ok {
+		if isSACK {
 			conn.ProcessSACK(sackBlocks)
 		} else if len(pkt.Payload) > 0 {
 			conn.Mu.Lock()
