@@ -2539,9 +2539,12 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 			continue
 		}
 
-		// Sub-MSS data: check if we can send now (check under NagleMu)
+		// Sub-MSS data: check if we can send now (check under NagleMu).
+		// Use BytesInFlight() rather than len(Unacked): SACKed entries
+		// stay in Unacked until cumulative ACK removes them, but they
+		// are already at the peer and should not delay a flush.
 		conn.RetxMu.Lock()
-		hasUnacked := len(conn.Unacked) > 0
+		hasUnacked := conn.BytesInFlight() > 0
 		conn.RetxMu.Unlock()
 
 		if !hasUnacked {
