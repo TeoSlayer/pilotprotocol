@@ -728,8 +728,13 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	for _, e := range c.Unacked {
 		endSeq := e.seq + uint32(len(e.data))
 		if seqAfterOrEqual(ack, endSeq) {
-			// This segment is fully acked — update RTT if first attempt and not SACKed
-			if e.attempts == 1 && !e.sacked {
+			// This segment is fully acked — update RTT if sent exactly once.
+			// Karn's algorithm: skip retransmitted segments (attempts > 1).
+			// SACK state is not excluded: a once-sent segment is a valid RTT
+			// sample per RFC 6298 regardless of whether it was previously
+			// reported via SACK (the cumulative ACK time is a conservative
+			// upper bound that the EWMA smooths out).
+			if e.attempts == 1 {
 				rtt := time.Since(e.sentAt)
 				c.updateRTT(rtt)
 			}
