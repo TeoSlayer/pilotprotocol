@@ -816,8 +816,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 	}
 
-	// Signal Nagle flush if all data acknowledged
-	if len(c.Unacked) == 0 && c.NagleCh != nil {
+	// Signal Nagle flush when no data is genuinely in flight.
+	// Use BytesInFlight()==0 rather than len(c.Unacked)==0: after iter-49,
+	// sacked entries remain in Unacked across partial ACKs, so len>0 even
+	// when the peer already has every outstanding byte.
+	if c.BytesInFlight() == 0 && c.NagleCh != nil {
 		select {
 		case c.NagleCh <- struct{}{}:
 		default:
