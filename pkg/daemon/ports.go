@@ -825,6 +825,19 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	}
 	c.Unacked = remaining
 
+	// RFC 6298 §5.3: restart retransmit timer for the new oldest unacked segment
+	// when SND.UNA advances. In our per-entry model the "timer" is each entry's
+	// sentAt. Resetting sentAt for the first non-sacked remaining entry gives it
+	// a fresh RTO window from the ACK arrival time, preventing spurious retransmits
+	// when SND.UNA just advanced (path is demonstrably active).
+	ackNow := time.Now()
+	for _, e := range c.Unacked {
+		if !e.sacked {
+			e.sentAt = ackNow
+			break
+		}
+	}
+
 	// Congestion-window deflation on the first new ACK in/after fast recovery
 	// (RFC 6582 §3). Guard with wasInRecovery: after iter-57/58 DupAckCount can
 	// reach 3+ without recovery being entered (no-op fastRetransmit), so
