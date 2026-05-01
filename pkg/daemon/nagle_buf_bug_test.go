@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -59,69 +60,62 @@ func TestSendDataNagleBufGrowsUnbounded(t *testing.T) {
 	conn.PeerRecvWin = 1 << 20 // advertise 1 MB receive window so cwnd is the binding constraint
 	conn.Mu.Unlock()
 
-	// Kick off a 5 MiB write in a goroutine. It'll block in nagleFlush →
-	// sendSegment after IW10 (10 segments × 4 KB MSS = 40 KB) when cwnd
-	// fills up with no incoming ACKs to retire.
+	// FIXED (v1.9.1): SendData now rejects an oversized write up-front
+	// instead of appending it to NagleBuf. The 5 MiB write should
+	// return ErrSendBufFull immediately and NagleBuf should remain
+	// at 0 (not grow at all). MaxNagleBuf = 8 * MaxSegmentSize = 32 KB.
 	const payloadSize = 5 * 1024 * 1024
 	payload := make([]byte, payloadSize)
 	for i := range payload {
 		payload[i] = byte(i)
 	}
-	done := make(chan error, 1)
-	go func() { done <- d.SendData(conn, payload) }()
-
-	// Give nagleFlush time to push the initial cwnd of segments and
-	// block on the next sendSegment call.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		conn.NagleMu.Lock()
-		bufLen := len(conn.NagleBuf)
-		conn.NagleMu.Unlock()
-		// Once the buffer has more than 1 MiB queued, we've reproduced
-		// the unbounded-growth condition.
-		if bufLen > 1<<20 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	err := d.SendData(conn, payload)
+	if !errors.Is(err, ErrSendBufFull) {
+		t.Fatalf("expected ErrSendBufFull on 5 MiB oversized write; got %v", err)
 	}
 
 	conn.NagleMu.Lock()
 	bufLen := len(conn.NagleBuf)
 	conn.NagleMu.Unlock()
-
-	// CURRENT BUG: NagleBuf holds nearly all 5 MiB minus the cwnd that
-	// already went out. There is no cap.
-	if bufLen <= 1<<20 {
-		t.Errorf("expected NagleBuf > 1 MiB (current bug — no cap); got %d bytes", bufLen)
+	if bufLen != 0 {
+		t.Errorf("NagleBuf should be empty after rejected oversized write; got %d bytes", bufLen)
 	}
 
-	// POST-FIX: replace the assertion above with
-	//   if bufLen > MaxNagleBuf {
-	//       t.Errorf("NagleBuf exceeded cap %d; got %d", MaxNagleBuf, bufLen)
-	//   }
-	// And add a follow-up assertion that SendData returned
-	// ErrSendBufFull on the original oversized write:
-	//   select {
-	//   case err := <-done:
-	//       if !errors.Is(err, ErrSendBufFull) {
-	//           t.Errorf("expected ErrSendBufFull on oversized write; got %v", err)
-	//       }
-	//   case <-time.After(500 * time.Millisecond):
-	//       t.Errorf("SendData did not return within 500 ms after cap rejection")
-	//   }
+	// Cap is invariant: a sequence of small writes that, in aggregate,
+	// would exceed the cap also rejects the offending one. Send up
+	// to the cap, then attempt one more small write — it must reject.
+	smallChunk := make([]byte, MaxSegmentSize) // 4 KB
+	for i := 0; i < 8; i++ {
+		// nagleFlush will drain the initial cwnd's worth into Unacked, so
+		// these don't pile up in NagleBuf in steady state. We're only
+		// asserting that no individual write violates the cap; runtime
+		// flow control (cwnd) handles the steady-state queue depth.
+		_ = d.SendData(conn, smallChunk)
+	}
+	// Now manually fill NagleBuf to MaxNagleBuf - 1 to test the boundary
+	// (bypassing the loop above's interaction with nagleFlush + cwnd).
+	conn.NagleMu.Lock()
+	conn.NagleBuf = make([]byte, MaxNagleBuf-1)
+	conn.NagleMu.Unlock()
 
-	// Cleanup: tear down the goroutine. The simplest abort path is to
-	// close the tunnels (writes in nagleFlush will fail) and remove
-	// the connection. The goroutine returns within ~1 RTO check tick.
+	// A 2-byte write would push us to MaxNagleBuf+1 — must reject.
+	if err := d.SendData(conn, []byte{0, 0}); !errors.Is(err, ErrSendBufFull) {
+		t.Errorf("boundary case: expected ErrSendBufFull when (MaxNagleBuf-1)+2 > MaxNagleBuf; got %v", err)
+	}
+
+	// And confirm NagleBuf still didn't grow past the cap.
+	conn.NagleMu.Lock()
+	bufLen = len(conn.NagleBuf)
+	conn.NagleMu.Unlock()
+	if bufLen > MaxNagleBuf {
+		t.Errorf("NagleBuf grew past cap %d; got %d", MaxNagleBuf, bufLen)
+	}
+
+	// Cleanup.
 	d.tunnels.Close()
 	conn.Mu.Lock()
 	conn.State = StateClosed
 	conn.Mu.Unlock()
 	d.ports.RemoveConnection(conn.ID)
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Log("SendData goroutine did not exit cleanly within 5s — may need a stronger abort path; this is OK for the bug-pin test")
-	}
+	_ = time.Millisecond // keep `time` import live regardless of what's in cleanup
 }

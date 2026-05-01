@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -2365,6 +2366,16 @@ const DelayedACKThreshold = 2
 // SendData sends data over an established connection.
 // Implements Nagle's algorithm: small writes are coalesced into MSS-sized
 // segments unless NoDelay is set. Large writes (>= MSS) are sent immediately.
+// ErrSendBufFull is returned by SendData when the per-connection
+// NagleBuf would exceed MaxNagleBuf if the caller's write were
+// appended. Callers must back off and retry — typically by waiting
+// for a webhook or polling the connection's send-buffer state.
+//
+// This error replaces the silent unbounded-growth behavior that
+// could OOM the daemon when an application wrote faster than the
+// network drained. Pinned by TestSendDataNagleBufGrowsUnbounded.
+var ErrSendBufFull = errors.New("send buffer full")
+
 func (d *Daemon) SendData(conn *Connection, data []byte) error {
 	conn.Mu.Lock()
 	st := conn.State
@@ -2379,6 +2390,15 @@ func (d *Daemon) SendData(conn *Connection, data []byte) error {
 	}
 
 	conn.NagleMu.Lock()
+	// v1.9.1: cap NagleBuf at MaxNagleBuf. Without this, slow peers /
+	// full cwnd / packet loss caused the buffer to grow without bound,
+	// linearly with offered-but-undeliverable load. ErrSendBufFull is
+	// the application's signal to stop pushing — retry once buffer
+	// drains. Caller-side: dataexchange.WriteFrame propagates this up.
+	if len(conn.NagleBuf)+len(data) > MaxNagleBuf {
+		conn.NagleMu.Unlock()
+		return ErrSendBufFull
+	}
 	conn.NagleBuf = append(conn.NagleBuf, data...)
 	conn.NagleMu.Unlock()
 
