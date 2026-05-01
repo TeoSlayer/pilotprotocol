@@ -1891,9 +1891,9 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// dedicated webhook event so operators can detect overflow.
 		// Without this signal, slow-Accept applications silently lose
 		// inbound connections.
-		select {
-		case ln.AcceptCh <- conn:
-		default:
+		// v1.9.1: TrySend is safe after Unbind — returns false instead of
+		// panicking on a closed AcceptCh (bare send would crash routeLoop).
+		if !ln.TrySend(conn) {
 			drops := atomic.AddUint64(&d.AcceptQueueDrops, 1)
 			slog.Warn("accept queue full after SYN-ACK, closing connection",
 				"port", pkt.DstPort, "src_addr", pkt.Src, "drops_total", drops)

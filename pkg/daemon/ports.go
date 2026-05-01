@@ -85,20 +85,43 @@ type PortManager struct {
 type Listener struct {
 	Port     uint16
 	AcceptCh chan *Connection
+	mu       sync.Mutex
+	closed   bool
 }
 
 // TrySend attempts a non-blocking push of conn to AcceptCh.
-// Returns true if the connection was queued, false if the queue was full.
+// Returns true if the connection was queued, false if the queue was full or
+// the listener has been closed (via Unbind). Safe to call after Unbind —
+// never panics even if AcceptCh is already closed.
 //
-// BUG (pre-v1.9.1): this implementation is not safe to call after Unbind —
-// if AcceptCh is closed, the send panics. The fix (v1.9.1) adds a
-// mutex-protected closed flag so TrySend returns false instead of panicking.
+// v1.9.1 fix: the closed flag is checked under mu before the channel send,
+// eliminating the window where Unbind()'s close(AcceptCh) races with
+// handleStreamPacket's send. Without this guard, a concurrent Unbind could
+// close AcceptCh between GetListener's return and the send, causing a
+// "send on closed channel" panic that killed routeLoop.
 func (ln *Listener) TrySend(conn *Connection) bool {
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+	if ln.closed {
+		return false
+	}
 	select {
 	case ln.AcceptCh <- conn:
 		return true
 	default:
 		return false
+	}
+}
+
+// close marks the listener as closed and drains + closes AcceptCh.
+// Called by Unbind under pm.mu to ensure Listener.TrySend sees the closed
+// flag atomically — no send can slip between closed=true and close(AcceptCh).
+func (ln *Listener) close() {
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+	if !ln.closed {
+		ln.closed = true
+		close(ln.AcceptCh)
 	}
 }
 
@@ -291,7 +314,7 @@ func (pm *PortManager) Unbind(port uint16) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if ln, ok := pm.listeners[port]; ok {
-		close(ln.AcceptCh)
+		ln.close() // sets closed=true + close(AcceptCh) under ln.mu
 		delete(pm.listeners, port)
 	}
 }
