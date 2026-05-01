@@ -188,6 +188,21 @@ type TunnelManager struct {
 	// path later dies (NAT-mapping refresh window, mid-flight partition).
 	lastDirectRecv map[uint32]time.Time
 
+	// blackholeMissCount counts consecutive writeFrame observations of
+	// "lastDirectRecv stale" per peer. The flip to relay only fires once
+	// the count reaches blackholeMissesRequired (3) — single transient
+	// ACK gaps caused by GC pauses, scheduler jitter, or brief packet
+	// reordering no longer flap the entire tunnel onto the relay path.
+	// Resets to 0 on any direct packet receipt (see clearRelayOnDirect
+	// path) and on a successful flip.
+	//
+	// directClearCount is the symmetric counter for the relay→direct
+	// auto-clear path: clearing the relay flag now requires
+	// directClearsRequired (3) consecutive direct-from-peer packets, so
+	// a brief direct burst during a relay stretch can't bounce us back.
+	blackholeMissCount map[uint32]int
+	directClearCount   map[uint32]int
+
 	// Webhook
 	webhook *WebhookClient
 
@@ -230,6 +245,8 @@ func NewTunnelManager() *TunnelManager {
 		pending:            make(map[uint32][][]byte),
 		relayPeers:         make(map[uint32]bool),
 		lastDirectRecv:     make(map[uint32]time.Time),
+		blackholeMissCount: make(map[uint32]int),
+		directClearCount:   make(map[uint32]int),
 		lastRekeyReq:       make(map[uint32]time.Time),
 		pendingRekey:       make(map[uint32]*pendingRekeyState),
 		lastInboundDecrypt: make(map[uint32]time.Time),
@@ -469,6 +486,23 @@ func (tm *TunnelManager) RequestHolePunch(targetNodeID uint32) {
 // integration tests which sleep 10s after partitioning UDP between peers.
 const directBlackholeThreshold = 8 * time.Second
 
+// blackholeMissesRequired is the number of consecutive writeFrame
+// observations of "direct path silent for >threshold" needed before
+// the tunnel flips to relay. With a single window check, transient
+// ACK gaps (GC pauses, OS scheduler jitter, brief loss bursts) flapped
+// the entire tunnel onto the relay path mid-transfer — observed in
+// the autoscale bench as 4 MB/s ↔ 0.06 MB/s bimodality. Three
+// consecutive misses ≈ 24+ s of legitimate silence before fail-over,
+// which still beats the application-layer 30+ s retransmit budget.
+const blackholeMissesRequired = 3
+
+// directClearsRequired is the symmetric hysteresis on the relay→direct
+// auto-clear path. Clearing the relay flag now requires N consecutive
+// direct-from-peer packets so a single direct burst during a relay
+// stretch (e.g. one stray packet from a brief NAT path opening) can't
+// bounce us back to direct only to flap immediately.
+const directClearsRequired = 3
+
 // writeFrame sends a raw frame to a peer, using relay through the beacon if needed.
 func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
 	tm.mu.RLock()
@@ -477,8 +511,11 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	lastRecv, hasRecv := tm.lastDirectRecv[nodeID]
 	tm.mu.RUnlock()
 
-	// B1 relay regression fix: if we have a beacon and the peer's direct
-	// path has gone silent past the blackhole threshold, flip to relay.
+	// Direct-blackhole detection with hysteresis (v1.9.1).
+	// A single 8 s gap is no longer enough — the heuristic now requires
+	// blackholeMissesRequired consecutive observations of staleness
+	// before flipping. The miss counter resets to 0 on any direct
+	// packet receipt (clearRelayOnDirectLocked) and on the flip itself.
 	// hasRecv check ensures we don't flip peers we've never heard from
 	// directly (those go through the standard DialConnection auto-switch
 	// at daemon.go:2097 instead).
@@ -486,13 +523,19 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 		tm.mu.Lock()
 		// Re-check under write lock to avoid racing with clearRelayOnDirectLocked
 		if !tm.relayPeers[nodeID] {
-			tm.relayPeers[nodeID] = true
-			slog.Info("direct path silent, flipping to relay",
-				"peer_node_id", nodeID,
-				"silent_for", time.Since(lastRecv).String())
+			tm.blackholeMissCount[nodeID]++
+			misses := tm.blackholeMissCount[nodeID]
+			if misses >= blackholeMissesRequired {
+				tm.relayPeers[nodeID] = true
+				tm.blackholeMissCount[nodeID] = 0 // reset for next cycle
+				slog.Info("direct path silent, flipping to relay",
+					"peer_node_id", nodeID,
+					"silent_for", time.Since(lastRecv).String(),
+					"misses", misses)
+				relay = true
+			}
 		}
 		tm.mu.Unlock()
-		relay = true
 	}
 
 	if relay && bAddr != nil {
@@ -1454,18 +1497,36 @@ func (tm *TunnelManager) SendDirectProbe(nodeID uint32, pkt *protocol.Packet) er
 // arrives from a non-beacon UDP address. Called from handleEncrypted after
 // successful decryption. Must be called with tm.mu held for writing.
 //
-// P1-010 fix: when the direct path recovers (NAT mapping refreshed, peer
-// moved networks, etc.), the first successfully-decrypted direct packet
-// auto-downgrades us out of relay mode. This replaces the old 2-second
-// afterFunc in relayProbeLoop which raced with concurrent sends.
+// v1.9.1: hysteresis applied. Clearing now requires directClearsRequired
+// consecutive direct-from-peer packets so a single direct burst during a
+// relay stretch (a stray packet from a brief NAT path opening) doesn't
+// bounce us back to direct only to flap immediately. Each non-beacon
+// receipt also resets the blackholeMissCount so writeFrame's flip
+// counter accurately tracks "consecutive misses since the last
+// confirmed direct packet."
 func (tm *TunnelManager) clearRelayOnDirectLocked(peerNodeID uint32, from *net.UDPAddr) bool {
-	if from == nil || !tm.relayPeers[peerNodeID] {
+	if from == nil {
 		return false
 	}
 	if tm.beaconAddr != nil && from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port {
 		return false
 	}
+	// A direct packet just arrived. Reset blackholeMissCount unconditionally
+	// — the writeFrame heuristic should restart its counter on every fresh
+	// direct receipt, regardless of whether we're in relay mode.
+	tm.blackholeMissCount[peerNodeID] = 0
+
+	if !tm.relayPeers[peerNodeID] {
+		// Not in relay; nothing to clear. Counter reset above is sufficient.
+		return false
+	}
+	// In relay; require N consecutive direct receipts before clearing.
+	tm.directClearCount[peerNodeID]++
+	if tm.directClearCount[peerNodeID] < directClearsRequired {
+		return false
+	}
 	tm.relayPeers[peerNodeID] = false
+	tm.directClearCount[peerNodeID] = 0
 	return true
 }
 
