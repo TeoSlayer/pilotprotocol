@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
@@ -33,6 +36,11 @@ func main() {
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	adminToken := flag.String("admin-token", "", "admin token for network creation (empty = creation disabled)")
 	dashboardToken := flag.String("dashboard-token", "", "token for per-network stats on dashboard (empty = public-only)")
+	maintenanceBanner := flag.String("maintenance-banner", "", "free-form notice rendered on the dashboard (empty = no banner)")
+	replToken := flag.String("repl-token", "", "shared token required for hot-standby replication (empty = replication disabled)")
+	staleThreshold := flag.Duration("stale-threshold", 30*time.Minute, "how long since last heartbeat before a node is considered stale on the dashboard (e.g. 30m, 5m). Default 30m tolerates spoof reconnect storms; smaller values give faster dashboard reflection of disconnects.")
+	mutexProfileFraction := flag.Int("mutex-profile-fraction", 1000, "rate for runtime mutex contention profiling (1/N events sampled; 0 = off). Always-on at low overhead so future incidents have profile data ready without scrambling.")
+	blockProfileRate := flag.Int("block-profile-rate", 10000, "rate for runtime blocking profile in nanoseconds (0 = off). Captures goroutines blocked on chan/select/Cond — same rationale as -mutex-profile-fraction.")
 	flag.Parse()
 
 	if *configPath != "" {
@@ -44,6 +52,16 @@ func main() {
 	}
 
 	logging.Setup(*logLevel, *logFormat)
+
+	// Enable mutex + block profiling early so contention from startup paths
+	// is captured. Net runtime cost at the chosen rates is ~1% CPU; the
+	// rendezvous endpoint exposes /debug/pprof/{mutex,block} via DefaultServeMux.
+	if *mutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(*mutexProfileFraction)
+	}
+	if *blockProfileRate > 0 {
+		runtime.SetBlockProfileRate(*blockProfileRate)
+	}
 
 	slog.Info("starting rendezvous server", "version", version)
 
@@ -57,12 +75,28 @@ func main() {
 
 	// Start registry
 	r := registry.NewWithStore(*beaconAddr, *storePath)
+	r.SetStaleNodeThreshold(*staleThreshold)
 	r.SetBeaconStats(b)
 	if *adminToken != "" {
 		r.SetAdminToken(*adminToken)
 	}
 	if *dashboardToken != "" {
 		r.SetDashboardToken(*dashboardToken)
+	}
+	// Banner persistence: derive sibling path from the registry store dir
+	// so PUT /api/banner survives restarts. SetBannerPath reads the file
+	// if present, overriding the flag default with the runtime value.
+	if *storePath != "" {
+		bp := filepath.Join(filepath.Dir(*storePath), "banner.txt")
+		if *maintenanceBanner != "" {
+			r.SetMaintenanceBanner(*maintenanceBanner) // flag-default first
+		}
+		r.SetBannerPath(bp) // then override from disk if file exists
+	} else if *maintenanceBanner != "" {
+		r.SetMaintenanceBanner(*maintenanceBanner)
+	}
+	if *replToken != "" {
+		r.SetReplicationToken(*replToken)
 	}
 	if *enableTLS {
 		if err := r.SetTLS(*tlsCert, *tlsKey); err != nil {

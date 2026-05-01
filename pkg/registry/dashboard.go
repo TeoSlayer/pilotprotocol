@@ -8,14 +8,33 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
+
+// readSmallBody reads up to maxBytes of the request body and trims trailing
+// whitespace. Used by admin write endpoints whose payloads are short text.
+func readSmallBody(r *http.Request, maxBytes int64) (string, error) {
+	if r.Body == nil {
+		return "", nil
+	}
+	defer r.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > maxBytes {
+		return "", fmt.Errorf("body too large (max %d bytes)", maxBytes)
+	}
+	return strings.TrimRight(string(data), "\r\n\t "), nil
+}
 
 // ServeDashboard starts an HTTP server serving the dashboard UI and stats API.
 func (s *Server) ServeDashboard(addr string) error {
@@ -33,20 +52,16 @@ func (s *Server) ServeDashboard(addr string) error {
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		var stats DashboardStats
+		authenticated := false
 		if token := r.URL.Query().Get("token"); token != "" {
 			s.mu.RLock()
 			dt := s.dashboardToken
 			s.mu.RUnlock()
 			if dt != "" && subtle.ConstantTimeCompare([]byte(token), []byte(dt)) == 1 {
-				stats = s.GetDashboardStatsExtended()
-			} else {
-				stats = s.GetDashboardStatsWithHistory()
+				authenticated = true
 			}
-		} else {
-			stats = s.GetDashboardStatsWithHistory()
 		}
-		_ = json.NewEncoder(w).Encode(stats)
+		_ = json.NewEncoder(w).Encode(s.buildDashboardResponse(authenticated))
 	})
 
 	mux.HandleFunc("/api/nodes", func(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +97,48 @@ func (s *Server) ServeDashboard(addr string) error {
 		})
 	})
 
+	// /api/banner — admin-only management endpoint for the dashboard
+	// notice. Both GET and PUT require the admin token (header
+	// `X-Admin-Token` or query `?admin_token=`); the public can still
+	// read the rendered banner via `/api/stats.maintenance_banner` and
+	// the dashboard HTML — this endpoint is for operator tooling only.
+	// PUT body is the new banner text (empty string clears it).
+	mux.HandleFunc("/api/banner", func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("X-Admin-Token")
+		if token == "" {
+			token = r.URL.Query().Get("admin_token")
+		}
+		s.mu.RLock()
+		adminToken := s.adminToken
+		s.mu.RUnlock()
+		if adminToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"banner": s.MaintenanceBanner(),
+			})
+		case http.MethodPut, http.MethodPost:
+			body, err := readSmallBody(r, 8192)
+			if err != nil {
+				http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			s.SetMaintenanceBanner(body)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":     true,
+				"banner": body,
+			})
+		default:
+			w.Header().Set("Allow", "GET, PUT, POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/api/pulse", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -99,11 +156,12 @@ func (s *Server) ServeDashboard(addr string) error {
 		s.mu.RUnlock()
 
 		now := time.Now()
-		onlineThreshold := now.Add(-staleNodeThreshold)
+		onlineThreshold := now.Add(-s.StaleNodeThreshold())
 		s.mu.RLock()
 		online := 0
 		for _, node := range s.nodes {
-			if node.LastSeen.After(onlineThreshold) {
+			// Atomic-aware: heartbeat hot path only updates lastSeenNano.
+			if node.getLastSeen().After(onlineThreshold) {
 				online++
 			}
 		}
@@ -303,9 +361,13 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .svc-bar.partial{background:#f59e0b;opacity:0.85}
 .svc-bar.down{background:#ef4444;opacity:0.9}
 .svc-bar.inactive{background:var(--border);opacity:0.4}
-.release-banner{background:linear-gradient(90deg,rgba(88,166,255,0.12),rgba(88,166,255,0.04));border:1px solid rgba(88,166,255,0.4);border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:10px}
+.banner-stack{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.release-banner{background:linear-gradient(90deg,rgba(88,166,255,0.12),rgba(88,166,255,0.04));border:1px solid rgba(88,166,255,0.4);border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:10px}
+.release-banner.maintenance{background:linear-gradient(90deg,rgba(245,158,11,0.14),rgba(245,158,11,0.04));border:1px solid rgba(245,158,11,0.45);border-left:3px solid #f59e0b}
 .release-banner .rb-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);flex-shrink:0;animation:rbPulse 2s ease-in-out infinite}
+.release-banner.maintenance .rb-dot{background:#f59e0b;box-shadow:0 0 8px #f59e0b}
 .release-banner .rb-ver{color:var(--text2);font-weight:600}
+.release-banner .rb-label{font-weight:600;margin-right:4px}
 @keyframes rbPulse{0%,100%{opacity:1}50%{opacity:0.45}}
 .theme-toggle{background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 10px;font-family:inherit;font-size:12px;cursor:pointer;line-height:1}
 .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
@@ -314,14 +376,6 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;text-align:center}
 .stat-card .value{font-size:32px;font-weight:700;color:var(--text2);display:block}
 .stat-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px}
-
-.versions{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:32px}
-.versions h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
-.ver-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.ver-label{min-width:120px;font-size:13px;color:var(--text)}
-.ver-bar-bg{flex:1;height:20px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--border)}
-.ver-bar{height:100%;border-radius:4px;transition:width 0.3s}
-.ver-count{min-width:60px;text-align:right;font-size:13px;color:var(--muted)}
 
 .token-bar{display:flex;align-items:center;gap:8px;margin-top:8px}
 .token-bar input{background:var(--panel2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-family:inherit;font-size:12px;width:180px}
@@ -338,16 +392,6 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
 .networks td{font-size:13px;color:var(--text);padding:6px 8px;border-bottom:1px solid var(--panel)}
 .networks tr:hover td{background:var(--panel2)}
 .net-id{color:var(--muted);font-size:11px}
-.networks tr{cursor:pointer}
-.networks tr.active td{background:var(--panel2)}
-
-.net-detail{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-top:12px;display:none}
-.net-detail h3{font-size:14px;font-weight:600;color:var(--text2);margin-bottom:4px}
-.net-detail .disclaimer{font-size:11px;color:var(--muted2);margin-bottom:12px}
-.net-detail .net-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-.net-detail .net-chart-wrap{position:relative}
-.net-detail .net-chart-label{font-size:12px;color:var(--muted);margin-bottom:6px}
-.net-detail svg{width:100%;display:block}
 
 .system-row{display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-bottom:32px}
 .system-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px}
@@ -381,20 +425,6 @@ header h1{font-size:20px;font-weight:600;color:var(--text2)}
   .system-row{grid-template-columns:1fr}
 }
 
-.movers{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:32px;display:none}
-.movers h2{font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
-.movers-sub{font-size:11px;color:var(--muted2);margin-bottom:12px}
-.mover-row{display:grid;grid-template-columns:24px 1fr auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
-.mover-row:last-child{border-bottom:none}
-.mover-arrow{font-size:16px;line-height:1;text-align:center}
-.mover-arrow.up{color:var(--good)}
-.mover-arrow.down{color:#ef4444}
-.mover-name{font-size:14px;color:var(--text)}
-.mover-net-id{font-size:11px;color:var(--muted);margin-left:6px}
-.mover-delta{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;min-width:80px;text-align:right}
-.mover-delta.up{color:var(--good)}
-.mover-delta.down{color:#ef4444}
-.mover-rate{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:90px;text-align:right}
 
 .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
 .chart-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px}
@@ -422,7 +452,7 @@ footer a:hover{color:var(--accent)}
 <body>
 <div class="container">
 
-<div class="release-banner" id="release-banner" style="display:none"></div>
+<div class="banner-stack" id="banner-stack" style="display:none"></div>
 
 <header>
   <div>
@@ -487,13 +517,6 @@ footer a:hover{color:var(--accent)}
   </div>
 </div>
 
-<div class="versions" id="versions"></div>
-
-<div class="movers" id="movers">
-  <h2>Top Movers — Last Hour</h2>
-  <div class="movers-sub">Change in request rate vs previous hour</div>
-  <div id="movers-list"></div>
-</div>
 
 <div class="networks" id="networks">
   <h2>Networks</h2>
@@ -501,26 +524,6 @@ footer a:hover{color:var(--accent)}
     <thead><tr><th>Network</th><th>Members</th><th>Online</th><th>Requests</th></tr></thead>
     <tbody id="net-tbody"></tbody>
   </table>
-  <div class="net-detail" id="net-detail">
-    <h3 id="net-detail-title"></h3>
-    <div class="disclaimer">Since last registry restart</div>
-    <div class="net-charts">
-      <div class="net-chart-wrap">
-        <div class="net-chart-label">Online Members — Last 24 Hours</div>
-        <div style="position:relative">
-          <svg id="net-chart-hourly" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
-          <div class="chart-tooltip" id="net-tip-hourly"></div>
-        </div>
-      </div>
-      <div class="net-chart-wrap">
-        <div class="net-chart-label">Online Members — Last 7 Days</div>
-        <div style="position:relative">
-          <svg id="net-chart-daily" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid meet"></svg>
-          <div class="chart-tooltip" id="net-tip-daily"></div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <footer>
@@ -534,26 +537,20 @@ footer a:hover{color:var(--accent)}
 function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n.toString()}
 function uptimeStr(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);var p=[];if(d)p.push(d+'d');if(h)p.push(h+'h');p.push(m+'m');return p.join(' ')}
 function fmtDateTime(ms){var d=new Date(ms);var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var pad=function(n){return n<10?'0'+n:''+n};return M[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
-function renderBanner(b){
-  var el=document.getElementById('release-banner');
-  if(!el)return;
-  if(!b||!b.version){el.style.display='none';return}
-  el.innerHTML='<span class="rb-dot"></span><span>Update <span class="rb-ver">'+b.version+'</span> propagating across network, peers may be unreachable.</span>';
-  el.style.display='flex';
-}
-function renderVersions(versions){
-  var el=document.getElementById('versions');
-  if(!versions||!Object.keys(versions).length){el.innerHTML='';return}
-  var sorted=Object.entries(versions).sort(function(a,b){return b[1]-a[1]});
-  var max=sorted[0][1];
-  var colors=['#58a6ff','#3fb950','#a855f7','#f59e0b','#f97316','#ef4444','#8b949e'];
-  var html='<h2>Client Versions</h2>';
-  sorted.forEach(function(e,i){
-    var pct=Math.max(2,Math.round(e[1]/max*100));
-    var c=colors[i%colors.length];
-    html+='<div class="ver-row"><span class="ver-label">'+e[0]+'</span><div class="ver-bar-bg"><div class="ver-bar" style="width:'+pct+'%;background:'+c+'"></div></div><span class="ver-count">'+fmt(e[1])+'</span></div>';
-  });
-  el.innerHTML=html;
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function renderBanner(b,maint){
+  var stack=document.getElementById('banner-stack');
+  if(!stack)return;
+  var html='';
+  if(maint){
+    html+='<div class="release-banner maintenance"><span class="rb-dot"></span><span>'+escapeHtml(maint)+'</span></div>';
+  }
+  if(b&&b.version){
+    html+='<div class="release-banner"><span class="rb-dot"></span><span>Update <span class="rb-ver">'+escapeHtml(b.version)+'</span> propagating across network, peers may be unreachable.</span></div>';
+  }
+  if(!html){stack.style.display='none';stack.innerHTML='';return}
+  stack.innerHTML=html;
+  stack.style.display='flex';
 }
 function getToken(){return localStorage.getItem('pilot_dash_token')||''}
 function setToken(t){if(t)localStorage.setItem('pilot_dash_token',t);else localStorage.removeItem('pilot_dash_token')}
@@ -568,49 +565,17 @@ function initToken(){
   var t=getToken();
   if(t){document.getElementById('token-input').value=t;document.getElementById('token-btn').textContent='Lock'}
 }
-var _netData=[];
-var _selectedNet=-1;
 function renderNetworks(networks){
   var wrap=document.getElementById('networks');
   var tbody=document.getElementById('net-tbody');
-  if(!networks||!networks.length){wrap.style.display='none';document.getElementById('net-detail').style.display='none';var st=document.getElementById('token-status');if(getToken()){st.textContent='invalid token';st.className='status'}return}
+  if(!networks||!networks.length){wrap.style.display='none';var st=document.getElementById('token-status');if(getToken()){st.textContent='invalid token';st.className='status'}return}
   wrap.style.display='block';
-  _netData=networks;
   var st=document.getElementById('token-status');st.textContent='authenticated';st.className='status ok';
   var html='';
-  networks.forEach(function(n,i){
-    var cls=n.id===_selectedNet?' class="active"':'';
-    html+='<tr'+cls+' data-idx="'+i+'" onclick="showNetDetail('+i+')"><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td></tr>';
+  networks.forEach(function(n){
+    html+='<tr><td>'+n.name+' <span class="net-id">#'+n.id+'</span></td><td>'+fmt(n.members)+'</td><td>'+fmt(n.online)+'</td><td>'+fmt(n.requests)+'</td></tr>';
   });
   tbody.innerHTML=html;
-  if(_selectedNet>=0){
-    var found=false;
-    for(var i=0;i<networks.length;i++){if(networks[i].id===_selectedNet){showNetDetail(i);found=true;break}}
-    if(!found)document.getElementById('net-detail').style.display='none';
-  }
-}
-function showNetDetail(idx){
-  var n=_netData[idx];if(!n)return;
-  _selectedNet=n.id;
-  var rows=document.getElementById('net-tbody').querySelectorAll('tr');
-  rows.forEach(function(r){r.classList.remove('active')});
-  rows[idx].classList.add('active');
-  document.getElementById('net-detail-title').textContent=n.name+' (#'+n.id+')';
-  var panel=document.getElementById('net-detail');
-  panel.style.display='block';
-  var hourly=n.hourly||[];
-  var daily=n.daily||[];
-  if(!hourly.length&&!daily.length){
-    document.getElementById('net-chart-hourly').innerHTML='<text x="200" y="90" fill="#484f58" font-size="12" text-anchor="middle" font-family="monospace">No history yet</text>';
-    document.getElementById('net-chart-daily').innerHTML='<text x="200" y="90" fill="#484f58" font-size="12" text-anchor="middle" font-family="monospace">No history yet</text>';
-    return;
-  }
-  drawChart(document.getElementById('net-chart-hourly'),document.getElementById('net-tip-hourly'),hourly,function(s){return s.online||0},function(s){
-    var d=new Date(s.ts*1000);return ('0'+d.getHours()).slice(-2)+':00';
-  },'good');
-  drawChart(document.getElementById('net-chart-daily'),document.getElementById('net-tip-daily'),daily,function(s){return s.online||0},function(s){
-    var d=new Date(s.ts*1000);return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate();
-  },'good');
 }
 function themeVar(name,fallback){
   var v=getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -721,47 +686,10 @@ function update(){
     document.getElementById('active-nodes').textContent=fmt(d.active_nodes||0);
     document.getElementById('uptime').textContent=uptimeStr(d.uptime_secs);
     renderServices(d.uptime_secs,d.restart_events,d.probes||{});
-    renderBanner(d.release_banner);
-    renderVersions(d.versions);
+    renderBanner(d.release_banner,d.maintenance_banner);
     renderCharts(d.hourly,d.daily);
-    renderMovers(d.networks);
     renderNetworks(d.networks);
   }).catch(function(){})
-}
-function renderMovers(networks){
-  var el=document.getElementById('movers');
-  if(!networks||!networks.length){el.style.display='none';return}
-  var cands=[];
-  networks.forEach(function(n){
-    var h=n.hourly;if(!h||h.length<3)return;
-    var i3=h.length-1,i2=h.length-2,i1=h.length-3;
-    var dtLast=h[i3].ts-h[i2].ts;
-    var dtPrev=h[i2].ts-h[i1].ts;
-    if(dtLast<=0||dtPrev<=0)return;
-    var rateLast=(h[i3].requests-h[i2].requests)/dtLast;
-    var ratePrev=(h[i2].requests-h[i1].requests)/dtPrev;
-    if(rateLast<0||ratePrev<0)return;
-    if(rateLast<1&&ratePrev<1)return;
-    var pct=ratePrev>0?((rateLast-ratePrev)/ratePrev)*100:(rateLast>0?100:0);
-    cands.push({n:n,rateLast:rateLast,pct:pct});
-  });
-  if(!cands.length){el.style.display='none';return}
-  cands.sort(function(a,b){return Math.abs(b.pct)-Math.abs(a.pct)});
-  var top=cands.slice(0,3);
-  var html='';
-  top.forEach(function(m){
-    var dir=m.pct>=0?'up':'down';
-    var arrow=m.pct>=0?'▲':'▼';
-    var sign=m.pct>=0?'+':'';
-    html+='<div class="mover-row">'+
-      '<span class="mover-arrow '+dir+'">'+arrow+'</span>'+
-      '<span class="mover-name">'+m.n.name+'<span class="mover-net-id">#'+m.n.id+'</span></span>'+
-      '<span class="mover-delta '+dir+'">'+sign+m.pct.toFixed(1)+'%</span>'+
-      '<span class="mover-rate">'+fmt(Math.round(m.rateLast))+' r/s</span>'+
-      '</div>';
-  });
-  document.getElementById('movers-list').innerHTML=html;
-  el.style.display='block';
 }
 function renderServices(uptimeSecs,restartEvents,probes){
   var el=document.getElementById('services');if(!el)return;
@@ -921,6 +849,91 @@ pulseTick();setInterval(pulseTick,2000);
 </body>
 </html>`
 
+// dashboardResponse is the JSON payload served by /api/stats. It exposes only
+// the fields the dashboard UI actually renders — top counters, the online-nodes
+// curve, system-status probes, and (when authenticated) the per-network table.
+// Internal series like full StatsSample/NetworkSampleEntry history, version
+// distribution, relay counters, and req/day deltas are never serialized here.
+type dashboardResponse struct {
+	TotalRequests     int64                  `json:"total_requests"`
+	TotalNodes        int                    `json:"total_nodes"`
+	ActiveNodes       int                    `json:"active_nodes"`
+	UptimeSecs        int64                  `json:"uptime_secs"`
+	RestartEvents     []int64                `json:"restart_events,omitempty"`
+	Probes            map[string]*ProbeState `json:"probes,omitempty"`
+	ReleaseBanner     *ReleaseBanner         `json:"release_banner,omitempty"`
+	MaintenanceBanner string                 `json:"maintenance_banner,omitempty"`
+	Hourly            []dashboardSample      `json:"hourly,omitempty"`
+	Daily             []dashboardSample      `json:"daily,omitempty"`
+	Networks          []dashboardNetwork     `json:"networks,omitempty"`
+}
+
+// dashboardSample carries the single curve plotted by the chart: the online-nodes
+// count at a point in time. Total requests / total nodes / trust links from the
+// underlying StatsSample are intentionally omitted.
+type dashboardSample struct {
+	Ts          int64 `json:"ts"`
+	OnlineNodes int   `json:"online_nodes"`
+}
+
+// dashboardNetwork mirrors the columns of the dashboard's networks table.
+// Per-network hourly/daily history rings are not exposed here.
+type dashboardNetwork struct {
+	ID       uint16 `json:"id"`
+	Name     string `json:"name"`
+	Members  int    `json:"members"`
+	Online   int    `json:"online"`
+	Requests int64  `json:"requests"`
+}
+
+// buildDashboardResponse assembles the slim /api/stats payload. Authenticated
+// callers additionally receive the per-network table; everyone gets the chart
+// curve (online_nodes only) plus the system-status probe history needed to
+// render the 30-day uptime bars.
+func (s *Server) buildDashboardResponse(authenticated bool) dashboardResponse {
+	var src DashboardStats
+	if authenticated {
+		src = s.GetDashboardStatsExtended()
+	} else {
+		src = s.GetDashboardStatsWithHistory()
+	}
+	out := dashboardResponse{
+		TotalRequests:     src.TotalRequests,
+		TotalNodes:        src.TotalNodes,
+		ActiveNodes:       src.ActiveNodes,
+		UptimeSecs:        src.UptimeSecs,
+		RestartEvents:     src.RestartEvents,
+		Probes:            src.Probes,
+		ReleaseBanner:     src.ReleaseBanner,
+		MaintenanceBanner: s.MaintenanceBanner(),
+	}
+	if len(src.Hourly) > 0 {
+		out.Hourly = make([]dashboardSample, len(src.Hourly))
+		for i, sample := range src.Hourly {
+			out.Hourly[i] = dashboardSample{Ts: sample.Timestamp, OnlineNodes: sample.OnlineNodes}
+		}
+	}
+	if len(src.Daily) > 0 {
+		out.Daily = make([]dashboardSample, len(src.Daily))
+		for i, sample := range src.Daily {
+			out.Daily[i] = dashboardSample{Ts: sample.Timestamp, OnlineNodes: sample.OnlineNodes}
+		}
+	}
+	if authenticated && len(src.Networks) > 0 {
+		out.Networks = make([]dashboardNetwork, len(src.Networks))
+		for i, n := range src.Networks {
+			out.Networks[i] = dashboardNetwork{
+				ID:       n.ID,
+				Name:     n.Name,
+				Members:  n.Members,
+				Online:   n.Online,
+				Requests: n.Requests,
+			}
+		}
+	}
+	return out
+}
+
 // pulseSample is one entry in the server-side 1/sec request-count ring.
 type pulseSample struct {
 	Ts    int64 `json:"ts"`
@@ -928,6 +941,7 @@ type pulseSample struct {
 }
 
 func (s *Server) pulseLoop() {
+	defer recoverHandler("pulseLoop", nil)
 	<-s.readyCh
 	t := time.NewTicker(1 * time.Second)
 	defer t.Stop()
@@ -1075,6 +1089,7 @@ func (s *Server) probeHTTP(path string) bool {
 // its own success/failure into probeStates; downtime intervals are persisted in
 // the snapshot so restarts carry history forward.
 func (s *Server) probeLoop() {
+	defer recoverHandler("probeLoop", nil)
 	<-s.readyCh
 	// Give listeners a moment to bind before first probe.
 	time.Sleep(500 * time.Millisecond)
@@ -1102,6 +1117,7 @@ func (s *Server) probeLoop() {
 // after a crash or restart, the gap between the last persisted heartbeat and
 // the new process start can be recorded as a real downtime interval.
 func (s *Server) heartbeatLoop() {
+	defer recoverHandler("heartbeatLoop", nil)
 	<-s.readyCh
 	// Initial tick so a fresh process immediately has a baseline.
 	s.lastHeartbeatMs.Store(time.Now().UnixMilli())
