@@ -132,6 +132,7 @@ type retxEntry struct {
 	sentAt   time.Time
 	attempts int
 	sacked   bool // true if covered by a SACK block (don't retransmit)
+	isFIN    bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
 }
 
 // recvSegment is an out-of-order received segment waiting for reassembly.

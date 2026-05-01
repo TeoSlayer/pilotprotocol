@@ -268,6 +268,7 @@ func TestRetransmitUnackedFinWaitSendsFIN(t *testing.T) {
 		seq:      600,
 		sentAt:   time.Now().Add(-2 * InitialRTO),
 		attempts: 1,
+		isFIN:    true,
 	}}
 	d.retransmitUnacked(conn)
 

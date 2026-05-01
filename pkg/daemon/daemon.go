@@ -2897,12 +2897,13 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 
 			conn.Mu.Lock()
 			recvAck := conn.RecvAck
-			st := conn.State
 			conn.Mu.Unlock()
 
-			// FIN retransmit: when in FIN_WAIT, the tracked entry is a
-			// FIN sentinel — resend with FlagFIN instead of data.
-			if st == StateFinWait {
+			// FIN retransmit: use e.isFIN (set by CloseConnection) rather than
+			// state==FinWait. A data entry can time out before the FIN entry
+			// reaches its RTO; using state would misidentify the data entry as
+			// the FIN and send FlagFIN with the wrong sequence number.
+			if e.isFIN {
 				pkt := &protocol.Packet{
 					Version:  protocol.Version,
 					Flags:    protocol.FlagFIN,
@@ -2988,8 +2989,19 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 			Seq:      sendSeq,
 		}
 		d.tunnels.Send(remoteAddr.Node, fin)
-		// Track FIN in retransmission buffer so the retxLoop retries it
-		conn.TrackSend(sendSeq, finData)
+		// Track FIN in retransmission buffer so the retxLoop retries it.
+		// Use isFIN=true so retransmitUnacked can distinguish the FIN entry
+		// from regular data entries (which must be retransmitted as data even
+		// when the connection is in StateFinWait).
+		conn.RetxMu.Lock()
+		conn.Unacked = append(conn.Unacked, &retxEntry{
+			data:     finData,
+			seq:      sendSeq,
+			sentAt:   time.Now(),
+			attempts: 1,
+			isFIN:    true,
+		})
+		conn.RetxMu.Unlock()
 	}
 	conn.CloseRecvBuf()
 	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
