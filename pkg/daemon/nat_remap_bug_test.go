@@ -59,9 +59,11 @@ import (
 //     rule: update unconditionally when from != beacon, since the only
 //     way `from` can be non-beacon is the peer reached us directly.
 //
-// This test pins the CURRENT (buggy) behavior so the fix has a concrete
-// regression target. After the fix, the assertion below flips to assert
-// that `tm.peers[peerNodeID]` equals the NEW from-addr.
+// FIXED (v1.9.1): handleEncrypted now atomically updates
+// `tm.peers[peerNodeID] = from` on every authenticated direct decrypt
+// (skipping the beacon-source case to preserve relay→direct probing).
+// This test asserts the post-fix behavior: a NAT remap is learned within
+// ONE inbound encrypted packet, with no key_exchange dependency.
 func TestPeerNATRemapNotLearnedOnDecrypt(t *testing.T) {
 	tm := NewTunnelManager()
 	t.Cleanup(func() { tm.Close() })
@@ -117,23 +119,106 @@ func TestPeerNATRemapNotLearnedOnDecrypt(t *testing.T) {
 
 	tm.handleEncrypted(frame, addrNew)
 
-	// CURRENT (buggy) behavior: handleEncrypted recorded lastDirectRecv but
-	// did NOT update tm.peers — subsequent tm.Send still targets addrOld,
-	// which is a dead NAT mapping the peer's network no longer accepts.
+	// FIXED (v1.9.1): handleEncrypted now atomically updates
+	// tm.peers[peerNodeID] = from on every authenticated direct decrypt
+	// (skipping beacon-source case). Subsequent tm.Send goes to the new
+	// addr, no longer black-holing on the stale NAT mapping.
 	tm.mu.RLock()
 	stored := tm.peers[peerNodeID]
 	tm.mu.RUnlock()
 
 	if stored == nil {
-		t.Fatalf("peer was removed from tm.peers; expected stale-but-present entry")
+		t.Fatalf("peer disappeared from tm.peers after decrypt")
 	}
-	if stored.Port != addrOld.Port {
-		t.Fatalf("BUG NOT REPRODUCED: peer addr already updates on decrypt — expected stale port %d, got %d",
-			addrOld.Port, stored.Port)
+	if stored.Port != addrNew.Port || !stored.IP.Equal(addrNew.IP) {
+		t.Errorf("address-learning failed: expected peer addr %v after decrypt, got %v",
+			addrNew, stored)
 	}
-	// Pin the bug: we still believe the peer is at the old port.
-	if stored.Port == addrNew.Port {
-		t.Errorf("address-learning regression target: tm.peers should still be stale (=%d) before fix; got %d",
-			addrOld.Port, stored.Port)
+
+	// Symmetry: a SECOND remap (NAT churns again) should also be learned.
+	addrNewer := &net.UDPAddr{IP: net.ParseIP("203.0.113.10"), Port: 51200}
+	binary.BigEndian.PutUint64(nonce[4:12], 2)
+	ct2 := pc.aead.Seal(nil, nonce, plaintext, aad)
+	frame2 := make([]byte, 4+12+len(ct2))
+	binary.BigEndian.PutUint32(frame2[0:4], peerNodeID)
+	copy(frame2[4:16], nonce)
+	copy(frame2[16:], ct2)
+	tm.handleEncrypted(frame2, addrNewer)
+
+	tm.mu.RLock()
+	stored = tm.peers[peerNodeID]
+	tm.mu.RUnlock()
+	if stored.Port != addrNewer.Port {
+		t.Errorf("second remap not learned: expected port %d, got %d",
+			addrNewer.Port, stored.Port)
+	}
+}
+
+// TestPeerNATRemapDoesNotPinToBeaconAddr pins the symmetric guard:
+// when a frame arrives via beacon relay (from == beaconAddr), the
+// address-learning path must NOT overwrite tm.peers[peerNodeID] with
+// the beacon's address. Doing so would replace the peer's true direct
+// endpoint with the beacon's listen port and break the relay→direct
+// recovery probe (which checks for `addr != beacon`).
+func TestPeerNATRemapDoesNotPinToBeaconAddr(t *testing.T) {
+	tm := NewTunnelManager()
+	t.Cleanup(func() { tm.Close() })
+
+	if err := tm.EnableEncryption(); err != nil {
+		t.Fatalf("EnableEncryption: %v", err)
+	}
+	tm.SetNodeID(0xCAFEBABE)
+
+	const peerNodeID uint32 = 0x87654321
+	addrDirect := &net.UDPAddr{IP: net.ParseIP("198.51.100.5"), Port: 4000}
+	beaconAddr := &net.UDPAddr{IP: net.ParseIP("203.0.113.99"), Port: 9001}
+
+	if err := tm.SetBeaconAddr(beaconAddr.String()); err != nil {
+		t.Fatalf("SetBeaconAddr: %v", err)
+	}
+
+	curve := ecdh.X25519()
+	peerPriv, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("peer keygen: %v", err)
+	}
+	pc, err := tm.deriveSecret(peerPriv.PublicKey().Bytes())
+	if err != nil {
+		t.Fatalf("deriveSecret: %v", err)
+	}
+	tm.mu.Lock()
+	tm.peers[peerNodeID] = addrDirect
+	tm.crypto[peerNodeID] = pc
+	tm.mu.Unlock()
+
+	pkt := newPacket("relay-decrypted-payload")
+	plaintext, err := pkt.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	nonce := make([]byte, pc.aead.NonceSize())
+	copy(nonce[0:4], pc.noncePrefix[:])
+	binary.BigEndian.PutUint64(nonce[4:12], 1)
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, peerNodeID)
+	ct := pc.aead.Seal(nil, nonce, plaintext, aad)
+
+	frame := make([]byte, 4+12+len(ct))
+	binary.BigEndian.PutUint32(frame[0:4], peerNodeID)
+	copy(frame[4:16], nonce)
+	copy(frame[16:], ct)
+
+	// Deliver "from" the beacon — this is what handleRelayDeliver does
+	// when forwarding a relayed frame. The address-learning path must
+	// reject this and keep the direct addr intact.
+	tm.handleEncrypted(frame, beaconAddr)
+
+	tm.mu.RLock()
+	stored := tm.peers[peerNodeID]
+	tm.mu.RUnlock()
+
+	if stored == nil || !stored.IP.Equal(addrDirect.IP) || stored.Port != addrDirect.Port {
+		t.Errorf("beacon-source decrypt overwrote direct peer addr: expected %v, got %v",
+			addrDirect, stored)
 	}
 }

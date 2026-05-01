@@ -1041,6 +1041,16 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	// subsequent sends go direct (and the relay probe loop stops firing).
 	// Also record the timestamp so writeFrame can detect direct-path
 	// blackholes and flip to relay (B1 relay regression fix).
+	//
+	// v1.9.1 NAT-remap address learning: also update tm.peers[peerNodeID]
+	// to the source addr of every authenticated direct decrypt. Symmetric
+	// or port-restricted NATs rotate source ports (idle timeout, NAT box
+	// reboot, CGNAT churn). Without this, our cached peers[] entry stays
+	// stuck at the pre-rotation addr until the peer happens to send a
+	// fresh key_exchange — silently black-holing every outbound send in
+	// between. Skipping the beacon-source case prevents pinning the peer
+	// to the beacon's listen port (relay traffic carries the original
+	// from=beaconAddr, which is not the peer's real direct addr).
 	tm.mu.Lock()
 	cleared := tm.clearRelayOnDirectLocked(peerNodeID, from)
 	if from != nil {
@@ -1048,6 +1058,7 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 			from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port
 		if !fromBeacon {
 			tm.lastDirectRecv[peerNodeID] = time.Now()
+			tm.peers[peerNodeID] = from
 		}
 	}
 	tm.mu.Unlock()
