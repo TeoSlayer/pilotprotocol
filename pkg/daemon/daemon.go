@@ -213,6 +213,13 @@ type Daemon struct {
 	stopCh         chan struct{} // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
 	stopOnce   sync.Once     // ensures stopCh is closed exactly once
+
+	// In-flight dial dedup: concurrent DialConnection calls to the same
+	// (peer_node, dst_port) park on the first dialer's done channel
+	// instead of allocating their own SYN_SENT entry. Eliminates the
+	// "3 stuck SYN_SENT to same peer" pattern visible in `pilotctl info`
+	// when multiple commands race against a cold peer.
+	dialFlight sync.Map // key: dialKey, value: *dialInFlight
 	lanAddrs   []string      // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
@@ -2163,8 +2170,51 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 	d.tunnels.Send(orig.Src.Node, rst)
 }
 
+// dialKey identifies an in-flight dial attempt for dedup.
+type dialKey struct {
+	peerNode uint32
+	dstPort  uint16
+}
+
+// dialInFlight tracks a single in-flight DialConnection so concurrent
+// callers to the same (peer, dport) can park on its result instead of
+// allocating their own SYN_SENT.
+type dialInFlight struct {
+	done chan struct{}
+	conn *Connection
+	err  error
+}
+
 // DialConnection initiates a connection to a remote address:port.
+//
+// Concurrent dials to the same (peer_node, dst_port) are deduplicated:
+// the first call drives the SYN; subsequent callers park on its done
+// channel and return the same (*Connection, error) tuple. Eliminates
+// the "3 stuck SYN_SENT to same peer" pattern from `pilotctl info`.
 func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	key := dialKey{peerNode: dstAddr.Node, dstPort: dstPort}
+	flight := &dialInFlight{done: make(chan struct{})}
+	if existing, loaded := d.dialFlight.LoadOrStore(key, flight); loaded {
+		// Another dialer is already in flight for this peer/port. Wait
+		// for its result. They get the same Connection (or error) we
+		// would have produced — no parallel SYN_SENT.
+		ex := existing.(*dialInFlight)
+		<-ex.done
+		return ex.conn, ex.err
+	}
+	// We are the leader: do the actual dial, then signal followers.
+	defer func() {
+		d.dialFlight.Delete(key)
+		close(flight.done)
+	}()
+	flight.conn, flight.err = d.dialConnectionLocked(dstAddr, dstPort)
+	return flight.conn, flight.err
+}
+
+// dialConnectionLocked is the original DialConnection body, run by the
+// leader of a (peer, dport) dial group. Followers wait on the leader's
+// done channel and never reach this function.
+func (d *Daemon) dialConnectionLocked(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
 	// Enforce outbound port policy: prevent dialing ports blocked by the network
 	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
 		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)

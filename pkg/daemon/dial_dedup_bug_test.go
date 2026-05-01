@@ -87,20 +87,13 @@ func TestDialConcurrentToSamePeerCreatesIndependentSynSent(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// CURRENT BEHAVIOR (the bug): every concurrent dial gets its own
-	// SYN_SENT connection. There is no in-flight-dial dedup map.
-	if synSentCount != N {
-		t.Errorf("expected %d independent SYN_SENT connections (no dedup today); got %d",
-			N, synSentCount)
+	// FIXED (v1.9.1): the dialFlight sync.Map deduplicates concurrent
+	// dials to the same (peer, dport). The first caller drives the SYN;
+	// the other N-1 park on its done channel. Exactly 1 SYN_SENT is
+	// outstanding regardless of how many goroutines called Dial.
+	if synSentCount != 1 {
+		t.Errorf("expected dedup → exactly 1 SYN_SENT in flight (v1.9.1 dialFlight map), got %d", synSentCount)
 	}
-
-	// POST-FIX: when v1.9.1 lands, replace the assertion above with
-	//   if synSentCount != 1 {
-	//       t.Errorf("expected dedup → 1 SYN_SENT in flight, got %d", synSentCount)
-	//   }
-	// and add a follow-up assertion that all N goroutines returned the
-	// same Connection pointer (or that N-1 of them returned without
-	// allocating their own conn ID).
 
 	// Teardown: closing tunnels makes subsequent retries fail and lets
 	// the dial loops exit on their next retry tick. Bound the wait so
