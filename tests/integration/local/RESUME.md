@@ -17,7 +17,7 @@
 - Pilot daemon: 48-bit addresses `[16-bit network][32-bit node]`, text format `N:NNNN.HHHH.LLLL`
 - 34-byte packet header w/ CRC32; tunnel magic `0x50494C54` ("PILT")
 - Tunnel relay format: `[0x05][senderID(4)][destID(4)][payload...]` via beacon
-- Tests at `/Users/calinteodor/Development/web4/tests/integration/local/`
+- Tests at `tests/integration/local/` (relative to repo root)
 - Run with `bash run-all.sh -j 6` — uses NAT mutex + splitbrain mutex (added in rerun5 staging)
 
 ## Bucket Status (from PROBLEM-REGISTRY.md)
@@ -37,7 +37,7 @@
 ## Validation pending — REBUILD DOCKER FIRST
 Quick path to validate everything landed this session:
 ```
-cd /Users/calinteodor/Development/web4/tests/integration/local
+cd tests/integration/local   # from repo root
 docker compose -f docker-compose.multi.yml build  # 5-10 min, ~3-5GB
 rm -rf logs && mkdir -p logs
 nohup bash ./run-all.sh -j 6 > logs/run-all.out 2>&1 &

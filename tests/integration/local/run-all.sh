@@ -131,16 +131,22 @@ QUEUE="$LOGDIR/.queue"
 RESULTS="$LOGDIR/.results"
 TIMING="$LOGDIR/.timing.tsv"
 LOCKDIR="$LOGDIR/.lock.d"
-# NAT semaphore: 3 "lanes" — each lane owns a distinct pair of
-# non-routable /24s so up to 3 NAT tests can run at the same time.
-# Without this, all 12 test_nat_* serialize behind one mutex.
+# NAT semaphore: 5 "lanes" — each lane owns a distinct pair of
+# non-routable /24s so up to 5 NAT tests can run at the same time.
+# Without enough lanes, NAT tests serialize behind a too-small mutex
+# and Docker IPAM occasionally refuses overlapping subnet creation
+# when lanes get reused before their previous tests fully tore down.
+# Bumped from 3 to 5 — eliminates the "compose up failed" / "only 1
+# registered" flakes on test_nat_dual_symmetric and friends.
 NATLANE0="$LOGDIR/.natlane0.d"
 NATLANE1="$LOGDIR/.natlane1.d"
 NATLANE2="$LOGDIR/.natlane2.d"
+NATLANE3="$LOGDIR/.natlane3.d"
+NATLANE4="$LOGDIR/.natlane4.d"
 printf '%s\n' "$TESTS" >"$QUEUE"
 : >"$RESULTS"
 : >"$TIMING"
-rmdir "$LOCKDIR" "$NATLANE0" "$NATLANE1" "$NATLANE2" 2>/dev/null || true
+rmdir "$LOCKDIR" "$NATLANE0" "$NATLANE1" "$NATLANE2" "$NATLANE3" "$NATLANE4" 2>/dev/null || true
 
 # Portable mutex (macOS lacks flock). mkdir is atomic on POSIX fs.
 acquire_lock() {
@@ -157,12 +163,14 @@ release_lock() {
 # caller via NAT_PUB / NAT_PRV env before running the test.
 acquire_nat_lane() {
     while true; do
-        for lane in 0 1 2; do
+        for lane in 0 1 2 3 4; do
             local dir
             case "$lane" in
                 0) dir="$NATLANE0" ;;
                 1) dir="$NATLANE1" ;;
                 2) dir="$NATLANE2" ;;
+                3) dir="$NATLANE3" ;;
+                4) dir="$NATLANE4" ;;
             esac
             if mkdir "$dir" 2>/dev/null; then
                 echo "$lane"
@@ -178,11 +186,21 @@ release_nat_lane() {
         0) rmdir "$NATLANE0" 2>/dev/null ;;
         1) rmdir "$NATLANE1" 2>/dev/null ;;
         2) rmdir "$NATLANE2" 2>/dev/null ;;
+        3) rmdir "$NATLANE3" 2>/dev/null ;;
+        4) rmdir "$NATLANE4" 2>/dev/null ;;
     esac
 }
 
-echo "==> $NTESTS tests, $JOBS parallel workers, 3 NAT lanes"
+echo "==> $NTESTS tests, $JOBS parallel workers, 5 NAT lanes"
 RUN_START=$(date +%s)
+
+# Pre-pull images that the webhook overlay depends on. Without this,
+# 8 parallel workers race to pull `python:3.12-slim` on first use,
+# stretching the cold-start past the webhook-sink healthcheck budget
+# and producing 4-5 spurious failures per run. Single-shot pull here
+# warms the local image cache so every test starts the container
+# instantly.
+docker pull -q python:3.12-slim >/dev/null 2>&1 || true
 
 # Worker: pops tests one at a time from $QUEUE under lock. Each test
 # runs with a worker-scoped compose project + subnet so parallel workers
@@ -224,6 +242,8 @@ worker() {
                 0) export NAT_PUB="192.0.2";  export NAT_PRV="198.51.100" ;;
                 1) export NAT_PUB="198.18.0"; export NAT_PRV="198.18.1"  ;;
                 2) export NAT_PUB="198.18.2"; export NAT_PRV="198.18.3"  ;;
+                3) export NAT_PUB="198.18.4"; export NAT_PRV="198.18.5"  ;;
+                4) export NAT_PUB="198.18.6"; export NAT_PRV="198.18.7"  ;;
             esac
             # nat-gw.sh reads these names; export both spellings for compat.
             export PUBLIC_SUBNET="$NAT_PUB"

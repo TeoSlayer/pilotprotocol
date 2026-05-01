@@ -38,10 +38,12 @@ cleanup() {
     $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
+source ./webhook_helpers.sh
 trap cleanup EXIT
 
 $DC down -v >/dev/null 2>&1
-$DC up -d rendezvous webhook-sink agent-a agent-b >/dev/null 2>&1
+ensure_webhook_sink_ready || { log_fail "webhook-sink never came up"; exit 1; }
+$DC up -d agent-a agent-b >/dev/null 2>&1
 # Under run-all.sh -j 10 parallelism, docker exec round-trips against a
 # busy daemon stretch the effective wall-clock — 60 iterations can land
 # in <30s of real registration polling. Use 120 to give registration

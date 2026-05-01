@@ -28,28 +28,12 @@ SINK="http://webhook-sink:18080"
 LOG="/var/log/webhooks.jsonl"
 
 cd "$(dirname "$0")" || exit 1
+source ./webhook_helpers.sh
 cleanup() { $DC down -v >/dev/null 2>&1; }
 trap cleanup EXIT
 
 $DC down -v >/dev/null 2>&1
-$DC up -d rendezvous webhook-sink >/dev/null 2>&1
-# Under run-all.sh parallelism the first up-d can silently stop webhook-sink
-# (IPAM contention; volume race). Poll for the container to actually be
-# running and retry the up-d once if it's gone.
-for _ in $(seq 1 20); do
-    STATE=$($DC ps --format '{{.Service}}\t{{.State}}' 2>/dev/null | awk -F'\t' '$1=="webhook-sink"{print $2}')
-    [ "$STATE" = "running" ] && break
-    sleep 1
-done
-if [ "$STATE" != "running" ]; then
-    $DC up -d rendezvous webhook-sink >/dev/null 2>&1
-    for _ in $(seq 1 30); do
-        STATE=$($DC ps --format '{{.Service}}\t{{.State}}' 2>/dev/null | awk -F'\t' '$1=="webhook-sink"{print $2}')
-        [ "$STATE" = "running" ] && break
-        sleep 1
-    done
-fi
-[ "$STATE" = "running" ] || { log_fail "webhook-sink never came up"; exit 1; }
+ensure_webhook_sink_ready || { log_fail "webhook-sink never came up"; exit 1; }
 
 # Configure both agents to emit their node.registered webhook to the sink.
 # Each daemon emits "node.registered" for itself at startup, so we bring

@@ -28,10 +28,12 @@ cleanup() {
     $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
+source ./webhook_helpers.sh
 trap cleanup EXIT
 
 $DC down -v >/dev/null 2>&1
-$DC up -d rendezvous webhook-sink agent-a agent-b >/dev/null 2>&1
+ensure_webhook_sink_ready || { log_fail "webhook-sink never came up"; exit 1; }
+$DC up -d agent-a agent-b >/dev/null 2>&1
 for _ in $(seq 1 $((60 * ${PILOT_TEST_WAIT_MULT:-1}))); do
     COUNT=$($DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats 2>/dev/null | jq -r '.total_nodes // 0')
     [ "$COUNT" -ge 2 ] && break

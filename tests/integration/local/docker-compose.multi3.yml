@@ -13,6 +13,7 @@ services:
       -registry-addr 0.0.0.0:9000
       -beacon-addr 0.0.0.0:9001
       -http 0.0.0.0:8080
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
@@ -45,6 +46,7 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
   agent-b:
@@ -72,6 +74,7 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
   agent-c:
@@ -99,6 +102,7 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
 networks:

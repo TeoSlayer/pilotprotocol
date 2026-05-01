@@ -104,17 +104,19 @@ fi
 
 # ----- task submit -----
 # Under 30% loss, the submit RPC may exhaust its internal retry window
-# before the polo-gate response makes it back. Retry up to 3 times.
+# before the polo-gate response makes it back. P(any 3-RTT op succeeds)
+# at 30% loss ≈ 0.7³ ≈ 34%; with N retries, P(any succeeds) = 1-0.66^N.
+# Bumped from 3 → 6 retries: 1-0.66^6 ≈ 92%, comfortable margin.
 log_test "task submit a->b under 30% loss (120s)"
 TID=""
-for try in 1 2 3; do
+for try in 1 2 3 4 5 6; do
     S=$($DC exec -T agent-a timeout 60 pilotctl --json task submit agent-b --task "loss30-task-$try" 2>&1)
     TID=$(echo "$S" | jq -r '.data.task_id // empty')
     [ -n "$TID" ] && break
     sleep 2
 done
 if [ -z "$TID" ]; then
-    log_fail "submit did not return id after 3 retries"
+    log_fail "submit did not return id after 6 retries"
 else
     STA=""
     for _ in $(seq 1 120); do

@@ -13,9 +13,30 @@ trap cleanup_nat EXIT
 $DC down -v >/dev/null 2>&1
 log_test "boot dual-symmetric compose"
 if ! $DC up -d --build rendezvous nat-gw-a nat-gw-b agent-a agent-b >/tmp/nat.dual.up.log 2>&1; then
-    log_fail "compose up failed"
-    tail -40 /tmp/nat.dual.up.log | sed 's/^/    /'
-    exit 1
+    # Same IPAM-retry as boot_nat_stack: under parallel pressure, the
+    # lane's subnet (NAT_PUB / NAT_PRV) can still be held by a sibling
+    # worker's torn-down-but-not-released docker network.
+    if grep -qi "pool overlaps" /tmp/nat.dual.up.log; then
+        log_test "retry after sweeping overlapping docker networks"
+        for n in $(docker network ls --format '{{.Name}}' 2>/dev/null); do
+            cidr=$(docker network inspect "$n" 2>/dev/null \
+                | jq -r '.[0].IPAM.Config[0].Subnet // empty' 2>/dev/null)
+            case "$cidr" in
+                "${NAT_PUB:-x}".0/24|"${NAT_PRV:-x}".0/24)
+                    docker network rm "$n" >/dev/null 2>&1 || true
+                    ;;
+            esac
+        done
+        if ! $DC up -d --build rendezvous nat-gw-a nat-gw-b agent-a agent-b >/tmp/nat.dual.up.log 2>&1; then
+            log_fail "compose up failed (after retry)"
+            tail -40 /tmp/nat.dual.up.log | sed 's/^/    /'
+            exit 1
+        fi
+    else
+        log_fail "compose up failed"
+        tail -40 /tmp/nat.dual.up.log | sed 's/^/    /'
+        exit 1
+    fi
 fi
 
 log_test "both agents register"

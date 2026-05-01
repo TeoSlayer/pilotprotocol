@@ -1,0 +1,14 @@
+# Bench overlay. Adds NET_ADMIN (so iptables partition rules work to
+# simulate the relay-only path) WITHOUT the chaos overlay's 4 MiB
+# tmpfs cap on /root/.pilot/received — that cap is meant for
+# disk-full tests and would otherwise crash any send-file >4 MiB.
+services:
+  agent-a:
+    cap_add:
+      - NET_ADMIN
+  agent-b:
+    cap_add:
+      - NET_ADMIN
+  rendezvous:
+    cap_add:
+      - NET_ADMIN
