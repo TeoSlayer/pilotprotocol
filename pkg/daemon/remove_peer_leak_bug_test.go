@@ -47,9 +47,11 @@ import (
 // under rkPendingMu (a separate mutex) so a second lock acquisition is
 // required.
 //
-// This test pins the CURRENT (buggy) behavior: pre-populate all
-// per-peer maps, call RemovePeer, observe that several remain. After
-// GREEN, the assertion flips: all maps are empty for that nodeID.
+// FIXED (v1.9.1): RemovePeer now clears all eleven per-peer maps.
+// The first nine live under tm.mu (peers, crypto, lastOutboundSend,
+// sendErrCount, lastDirectRecv, blackholeMissCount, directClearCount,
+// relayPeers, peerPubKeys); the last two (pendingRekey,
+// lastInboundDecrypt) require a second acquisition of rkPendingMu.
 func TestRemovePeerLeavesPerPeerMetadataMapsStale(t *testing.T) {
 	tm := NewTunnelManager()
 	t.Cleanup(func() { tm.Close() })
@@ -77,10 +79,18 @@ func TestRemovePeerLeavesPerPeerMetadataMapsStale(t *testing.T) {
 
 	tm.RemovePeer(peerNodeID)
 
-	// CURRENT (buggy) behavior: RemovePeer cleans up peers, crypto,
-	// lastOutboundSend, sendErrCount; leaves the rest stale.
+	// FIXED: every per-peer map entry is cleared.
 	tm.mu.RLock()
 	leaked := []string{}
+	if _, ok := tm.peers[peerNodeID]; ok {
+		leaked = append(leaked, "peers")
+	}
+	if _, ok := tm.lastOutboundSend[peerNodeID]; ok {
+		leaked = append(leaked, "lastOutboundSend")
+	}
+	if _, ok := tm.sendErrCount[peerNodeID]; ok {
+		leaked = append(leaked, "sendErrCount")
+	}
 	if _, ok := tm.lastDirectRecv[peerNodeID]; ok {
 		leaked = append(leaked, "lastDirectRecv")
 	}
@@ -107,18 +117,7 @@ func TestRemovePeerLeavesPerPeerMetadataMapsStale(t *testing.T) {
 	}
 	tm.rkPendingMu.Unlock()
 
-	if len(leaked) == 0 {
-		t.Fatalf("BUG NOT REPRODUCED: RemovePeer already cleans all per-peer maps; GREEN flips this assertion (expect leaked == empty)")
-	}
-	t.Logf("RemovePeer leaked %d per-peer map entries: %v", len(leaked), leaked)
-
-	// Sanity: the maps RemovePeer DID clean are gone.
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	if _, ok := tm.peers[peerNodeID]; ok {
-		t.Errorf("setup invariant: tm.peers[peer] should be cleared by RemovePeer")
-	}
-	if _, ok := tm.lastOutboundSend[peerNodeID]; ok {
-		t.Errorf("setup invariant: lastOutboundSend[peer] should be cleared")
+	if len(leaked) > 0 {
+		t.Errorf("RemovePeer left %d per-peer map(s) populated: %v", len(leaked), leaked)
 	}
 }

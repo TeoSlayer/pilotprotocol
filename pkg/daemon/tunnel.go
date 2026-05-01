@@ -1837,14 +1837,32 @@ func (tm *TunnelManager) AddPeer(nodeID uint32, addr *net.UDPAddr) {
 	}
 }
 
-// RemovePeer removes a peer.
+// RemovePeer removes a peer and all per-peer metadata. Long-running
+// daemons with peer churn (handshake revocations, network leaves)
+// previously leaked entries in lastDirectRecv, blackholeMissCount,
+// directClearCount, relayPeers, peerPubKeys, pendingRekey, and
+// lastInboundDecrypt — none of which had any other deletion path.
+// A reused nodeID would also inherit stale state (e.g. trip the relay
+// flip on the third miss because blackholeMissCount=2 from the
+// previous tenant).
 func (tm *TunnelManager) RemovePeer(nodeID uint32) {
 	tm.mu.Lock()
 	delete(tm.peers, nodeID)
 	delete(tm.crypto, nodeID)
 	delete(tm.lastOutboundSend, nodeID)
 	delete(tm.sendErrCount, nodeID)
+	delete(tm.lastDirectRecv, nodeID)
+	delete(tm.blackholeMissCount, nodeID)
+	delete(tm.directClearCount, nodeID)
+	delete(tm.relayPeers, nodeID)
+	delete(tm.peerPubKeys, nodeID)
 	tm.mu.Unlock()
+
+	// pendingRekey + lastInboundDecrypt live under a separate mutex.
+	tm.rkPendingMu.Lock()
+	delete(tm.pendingRekey, nodeID)
+	delete(tm.lastInboundDecrypt, nodeID)
+	tm.rkPendingMu.Unlock()
 }
 
 // HasPeer checks if we have a tunnel to a node.
