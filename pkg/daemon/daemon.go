@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/subtle"
 	"encoding/base64"
@@ -2186,35 +2187,55 @@ type dialInFlight struct {
 }
 
 // DialConnection initiates a connection to a remote address:port.
+// Wraps DialConnectionContext with context.Background() for callers
+// that don't have cancellation semantics (handshake bootstrap,
+// internal probes, tests). New code should prefer DialConnectionContext.
+func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	return d.DialConnectionContext(context.Background(), dstAddr, dstPort)
+}
+
+// DialConnectionContext is the cancellable variant of DialConnection.
+// Used by the IPC handler so a dial started on behalf of a pilotctl
+// command is aborted (and its SYN_SENT entry removed) the moment the
+// IPC client disconnects — no more orphan SYN_SENTs from Ctrl+C'd
+// commands grinding through the full retry budget.
 //
 // Concurrent dials to the same (peer_node, dst_port) are deduplicated:
 // the first call drives the SYN; subsequent callers park on its done
-// channel and return the same (*Connection, error) tuple. Eliminates
-// the "3 stuck SYN_SENT to same peer" pattern from `pilotctl info`.
-func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+// channel and return the same (*Connection, error) tuple. The follower
+// path also respects ctx — if the follower's caller cancels while the
+// leader is still dialing, the follower returns ctx.Err() without
+// affecting the leader (whose own ctx may still be live).
+func (d *Daemon) DialConnectionContext(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
 	key := dialKey{peerNode: dstAddr.Node, dstPort: dstPort}
 	flight := &dialInFlight{done: make(chan struct{})}
 	if existing, loaded := d.dialFlight.LoadOrStore(key, flight); loaded {
-		// Another dialer is already in flight for this peer/port. Wait
-		// for its result. They get the same Connection (or error) we
-		// would have produced — no parallel SYN_SENT.
+		// Follower: wait for leader's result OR for our own ctx to
+		// cancel. We do NOT cancel the leader — they may have other
+		// followers and a live ctx of their own.
 		ex := existing.(*dialInFlight)
-		<-ex.done
-		return ex.conn, ex.err
+		select {
+		case <-ex.done:
+			return ex.conn, ex.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
-	// We are the leader: do the actual dial, then signal followers.
+	// Leader: do the dial, then signal followers.
 	defer func() {
 		d.dialFlight.Delete(key)
 		close(flight.done)
 	}()
-	flight.conn, flight.err = d.dialConnectionLocked(dstAddr, dstPort)
+	flight.conn, flight.err = d.dialConnectionLocked(ctx, dstAddr, dstPort)
 	return flight.conn, flight.err
 }
 
-// dialConnectionLocked is the original DialConnection body, run by the
-// leader of a (peer, dport) dial group. Followers wait on the leader's
-// done channel and never reach this function.
-func (d *Daemon) dialConnectionLocked(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+// dialConnectionLocked is the leader's dial body. Followers in the
+// dialFlight map wait on the leader's done channel and never reach
+// this function. The ctx here is the leader's caller's context;
+// cancellation tears down the in-flight SYN_SENT and returns
+// ctx.Err() to followers via flight.err.
+func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
 	// Enforce outbound port policy: prevent dialing ports blocked by the network
 	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
 		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
@@ -2227,8 +2248,16 @@ func (d *Daemon) dialConnectionLocked(dstAddr protocol.Addr, dstPort uint16) (*C
 
 	localPort := d.ports.AllocEphemeralPort()
 	conn := d.ports.NewConnection(localPort, dstAddr, dstPort)
+	// Guard the initial state-mutation under conn.Mu — observers (test
+	// helpers, idleSweepLoop, the IPC handler walking the conn table)
+	// take conn.Mu before reading State; without the lock here, the
+	// race detector flags the write/read pair. Pre-existing race that
+	// was hidden until the v1.9.1 dedup test started observing
+	// SYN_SENT entries from another goroutine.
+	conn.Mu.Lock()
 	conn.LocalAddr = protocol.Addr{Network: dstAddr.Network, Node: d.NodeID()}
 	conn.State = StateSynSent
+	conn.Mu.Unlock()
 
 	// Send SYN with our receive window
 	syn := &protocol.Packet{
@@ -2270,6 +2299,14 @@ func (d *Daemon) dialConnectionLocked(dstAddr protocol.Addr, dstPort uint16) (*C
 
 	for {
 		select {
+		case <-ctx.Done():
+			// Caller (typically the IPC client) gave up. Tear down the
+			// half-open connection so it doesn't sit in SYN_SENT for the
+			// rest of the retry budget. Counter-symptom: the
+			// "ID 13/14/15 SYN_SENT" orphan rows in `pilotctl info`
+			// after Ctrl+C — gone within ~1 ms of the cancel.
+			d.ports.RemoveConnection(conn.ID)
+			return nil, ctx.Err()
 		case <-check.C:
 			conn.Mu.Lock()
 			st := conn.State

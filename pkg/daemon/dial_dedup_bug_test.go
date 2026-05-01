@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -108,24 +109,17 @@ func TestDialConcurrentToSamePeerCreatesIndependentSynSent(t *testing.T) {
 	}
 }
 
-// TestDialAbandonedGoroutineLeavesOrphanSynSent reproduces the
-// related "Ctrl+C on pilotctl leaves orphaned SYN_SENT" bug.
+// TestDialAbandonedGoroutineLeavesOrphanSynSent (post-fix) verifies the
+// "Ctrl+C clears SYN_SENT immediately" property. The fix is a context
+// parameter on DialConnectionContext: when the caller cancels (in
+// production: when the IPC client disconnects), the dial loop's select
+// hits ctx.Done(), removes the in-flight conn, and returns
+// context.Canceled. No more orphans grinding through the 14-31 s
+// retry budget.
 //
-// User-visible: pressing Ctrl+C on `pilotctl ping <peer>` while the
-// dial is still in flight kills the pilotctl process. The daemon's
-// IPC handler goroutine eventually notices the IPC connection dropped
-// — but the dial it had already started inside DialConnection keeps
-// running for the full 14–31 s retry budget. The connection sits in
-// SYN_SENT the whole time, visible in `pilotctl info` as an orphan.
-//
-// What v1.9.1's cancellable-dial fix will change:
-//   DialConnection takes context.Context; when the IPC handler's
-//   ctx fires Done (because the IPC connection closed), the dial
-//   loop exits immediately, removes the conn, and returns
-//   context.Canceled.
-//
-// This test pins the CURRENT behavior (orphan persists for >5 s).
-// After the fix, the assertion flips: orphan is gone within 200 ms.
+// Pre-fix: this test asserted "orphan persists 5 s after caller
+// abandoned". v1.9.1 commit on `v1.9.1-tunnel-reliability` flipped the
+// assertion to expect the orphan gone within 200 ms.
 func TestDialAbandonedGoroutineLeavesOrphanSynSent(t *testing.T) {
 	d := New(Config{})
 	t.Cleanup(func() { d.tunnels.Close() })
@@ -139,10 +133,15 @@ func TestDialAbandonedGoroutineLeavesOrphanSynSent(t *testing.T) {
 	dst := protocol.Addr{Network: 0, Node: peerNode}
 	const dport uint16 = 1001
 
-	// Spawn the dial. We never wait for it (simulating pilotctl Ctrl+C
-	// → IPC handler's caller goroutine is detached/abandoned from the
-	// test's perspective, but DialConnection itself keeps grinding).
-	go func() { _, _ = d.DialConnection(dst, dport) }()
+	// Cancellable context simulates the IPC handler's per-dial context.
+	// In production, ipcConn.Close fires its registered cancels when
+	// the client disconnects.
+	ctx, cancel := context.WithCancel(context.Background())
+	dialDone := make(chan error, 1)
+	go func() {
+		_, err := d.DialConnectionContext(ctx, dst, dport)
+		dialDone <- err
+	}()
 
 	// Wait until the connection appears in SYN_SENT.
 	deadline := time.Now().Add(2 * time.Second)
@@ -157,24 +156,31 @@ func TestDialAbandonedGoroutineLeavesOrphanSynSent(t *testing.T) {
 			countSynSentTo(d, peerNode))
 	}
 
-	// CURRENT BEHAVIOR: 5 s after we "abandoned" the dial, the orphan
-	// is STILL in SYN_SENT — DialConnection has no way to know the
-	// caller is gone.
-	time.Sleep(5 * time.Second)
-	if got := countSynSentTo(d, peerNode); got != 1 {
-		t.Errorf("expected orphan SYN_SENT still present 5 s after caller abandoned (current bug); got %d", got)
+	// FIXED: cancel the context. The dial loop's select must pick up
+	// ctx.Done(), remove the conn from PortManager, and return
+	// context.Canceled — all within ~1 RTO check tick (10 ms) plus a
+	// generous slack budget. Pinning at 200 ms.
+	cancel()
+	deadline = time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if countSynSentTo(d, peerNode) == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := countSynSentTo(d, peerNode); got != 0 {
+		t.Errorf("expected orphan SYN_SENT removed within 200 ms of cancel; got %d", got)
 	}
 
-	// POST-FIX: replace the block above with
-	//   cancel()  // the context the test passed into DialConnection
-	//   time.Sleep(200 * time.Millisecond)
-	//   if got := countSynSentTo(d, peerNode); got != 0 {
-	//       t.Errorf("expected orphan removed within 200 ms; got %d", got)
-	//   }
-
-	// Tear down the orphan so the test exits cleanly.
-	d.tunnels.Close()
-	time.Sleep(100 * time.Millisecond)
+	// And the goroutine itself should have returned context.Canceled.
+	select {
+	case err := <-dialDone:
+		if err != context.Canceled {
+			t.Errorf("dial goroutine returned %v, want context.Canceled", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("dial goroutine did not exit within 500 ms of cancel")
+	}
 }
 
 // countSynSentTo walks the daemon's connection table and counts entries

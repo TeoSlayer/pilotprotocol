@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -116,6 +117,13 @@ type ipcConn struct {
 	done      chan struct{} // closed by Close() to signal shutdown to ipcWrite + writeLoop
 	closeOnce sync.Once
 	writeDone chan struct{}
+
+	// dialCancels holds cancel funcs for in-flight DialConnection
+	// goroutines this client started. On Close() we fire them all so
+	// the daemon's dial loops bail out immediately instead of grinding
+	// to their full retry budget (~14-31 s) leaving orphan SYN_SENT
+	// entries behind. Tied to ipcConn lifetime; no separate plumbing.
+	dialCancels []context.CancelFunc
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -238,8 +246,28 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 func (c *ipcConn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)
+		// Cancel any in-flight dials this client started so the daemon
+		// doesn't keep grinding through retry budgets after the caller
+		// has already disconnected. Each cancel removes its connection
+		// from the daemon's conn table within milliseconds.
+		c.rmu.Lock()
+		cancels := c.dialCancels
+		c.dialCancels = nil
+		c.rmu.Unlock()
+		for _, cancel := range cancels {
+			cancel()
+		}
 	})
 	return nil
+}
+
+// addDialCancel registers a context.CancelFunc tied to an in-flight
+// DialConnection started by this IPC client. Called from handleDial
+// before the dial blocks; the cancel fires on ipcConn.Close().
+func (c *ipcConn) addDialCancel(cancel context.CancelFunc) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	c.dialCancels = append(c.dialCancels, cancel)
 }
 
 func (c *ipcConn) trackPort(port uint16) {
@@ -495,7 +523,15 @@ func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize:])
 
-	c, err := s.daemon.DialConnection(dstAddr, dstPort)
+	// Per-dial cancellable context tied to this IPC connection's lifetime.
+	// When the IPC client closes (Ctrl+C, crash), ipcConn.Close fires this
+	// cancel and the dial loop exits inside its select instead of grinding
+	// through the full 14-31 s retry budget leaving an orphaned SYN_SENT.
+	dialCtx, dialCancel := context.WithCancel(context.Background())
+	conn.addDialCancel(dialCancel)
+	defer dialCancel() // also fires on normal completion
+
+	c, err := s.daemon.DialConnectionContext(dialCtx, dstAddr, dstPort)
 	if err != nil {
 		s.sendError(conn, err.Error())
 		return
