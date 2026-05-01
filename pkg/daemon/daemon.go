@@ -3073,6 +3073,19 @@ func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
 	d.resolveCacheMu.Unlock()
 }
 
+// forgetPeerResolution invalidates the registry resolve cache and the
+// fallback endpoint cache for a peer. Called when there is strong
+// evidence the cached endpoint is wrong (dial timeout reached, ICMP
+// unreachable threshold flipped to relay, peer explicitly removed).
+// Without this, ensureTunnel keeps reusing a stale entry for up to
+// ResolveCacheTTL (60 s) — silent dial failures against a dead address.
+//
+// NOTE (v1.9.1 RED #13): currently a stub that does nothing. The GREEN
+// phase will implement the body and wire into call sites.
+func (d *Daemon) forgetPeerResolution(nodeID uint32) {
+	_ = nodeID
+}
+
 // ensureTunnel makes sure we have a route to the given node.
 // Requests beacon hole-punching for NAT traversal when beacon is configured.
 // Uses a resolve cache (60s TTL) to avoid repeated registry calls during
