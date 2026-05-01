@@ -403,6 +403,11 @@ func TestProcessAckBehindLastAckIsNoop(t *testing.T) {
 func TestProcessAckDupAckOnlyCountsOnPureACK(t *testing.T) {
 	c := newAckTestConn(t)
 	c.LastAck = 1000
+	// Dup-ACK counting requires data in flight (RFC 5681 §3.2); add an unacked
+	// segment so the dup-ACK path is active.
+	c.Unacked = []*retxEntry{
+		{seq: 1000, data: make([]byte, 100), attempts: 1, sentAt: time.Now()},
+	}
 
 	// pureACK=false — should NOT increment dup count
 	c.ProcessAck(1000, false)

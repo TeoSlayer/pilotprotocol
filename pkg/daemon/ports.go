@@ -688,7 +688,13 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		if !pureACK {
 			return // data packets don't count as dup ACKs
 		}
-		// Duplicate ACK (pure ACK only)
+		// Dup-ACK counting is only meaningful when data is in flight (RFC 5681 §3.2).
+		// With an empty Unacked there is nothing to detect loss on; skip the increment
+		// so oldDupAckCount never reaches 3 and the fast-recovery exit deflation
+		// (CongWin = SSThresh) cannot fire spuriously on the next new ACK.
+		if len(c.Unacked) == 0 {
+			return
+		}
 		c.DupAckCount++
 		dupAcks++
 		if c.DupAckCount == 3 && len(c.Unacked) > 0 {
