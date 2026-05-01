@@ -713,6 +713,7 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// New ACK — advance
 	bytesAcked := int(ack - c.LastAck)
 	c.LastAck = ack
+	oldDupAckCount := c.DupAckCount
 	c.DupAckCount = 0
 	c.LastRetxTime = time.Time{} // reset retransmit guard so ACK-driven recovery can proceed
 
@@ -739,6 +740,14 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 	}
 	c.Unacked = remaining
+
+	// RFC 5681 §3.2 step 6: on fast-recovery exit (first new ACK after 3+ dup
+	// ACKs), deflate CongWin back to SSThresh before AIMD growth. Without this,
+	// CongWin stays at the inflated fast-recovery value (SSThresh + k*MSS) and
+	// grows from there — re-entering the burst that caused the loss event.
+	if oldDupAckCount >= 3 {
+		c.CongWin = c.SSThresh
+	}
 
 	// Congestion window growth (Appropriate Byte Counting, RFC 3465)
 	// Grow based on bytes ACKed, not number of ACKs — avoids delayed ACK penalty.
