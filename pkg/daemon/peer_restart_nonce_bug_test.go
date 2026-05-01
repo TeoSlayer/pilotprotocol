@@ -49,9 +49,11 @@ import (
 // A real replay attack would carry a HIGH counter (captured from an
 // active session); only a peer that just restarted starts at 1.
 //
-// This test pins the CURRENT (buggy) behavior so the fix has a concrete
-// regression target. After the fix, the assertion below flips: the
-// replayed-low-counter packet must trigger a rekey (lastRekeyReq is set).
+// FIXED (v1.9.1): the "replay detected" branch now also triggers a
+// rate-limited rekey when recvCounter is in the low-counter zone
+// (< 1024). The post-fix assertion below verifies that one inbound
+// low-counter "replay" (peer just restarted) brings the tunnel back
+// without waiting for connection-layer retransmit timeout.
 func TestPeerRestartLowMaxNDeadlock(t *testing.T) {
 	tm := NewTunnelManager()
 	t.Cleanup(func() { tm.Close() })
@@ -127,21 +129,21 @@ func TestPeerRestartLowMaxNDeadlock(t *testing.T) {
 	// FIRST and falls into the "replay detected" branch. No rekey fires.
 	tm.handleEncrypted(build(1), peerAddr)
 
-	// CURRENT (buggy) behavior: handleEncrypted's "replay detected"
-	// branch does NOT trigger maybeRequestRekey. The peer is silently
-	// stuck — they will keep sending counter=2, 3, 4, ... and we will
-	// reject every one as "replay detected" (their fresh counter sequence
-	// hits a replay bitmap that's still warm from the pre-restart session).
-	// Recovery requires either a rekey scheduled by the peer (rare) or
-	// our connection layer's retransmit timeout closing the conn.
+	// FIXED (v1.9.1): the "replay detected" branch now triggers a
+	// rate-limited rekey when recvCounter is < 1024. The peer's fresh
+	// post-restart counter is in this zone, so one inbound packet is
+	// enough to start the recovery cycle (we send key_exchange, peer
+	// installs new pc on receipt, peer's next send carries the new key
+	// which AEADs cleanly).
 	tm.rekeyMu.Lock()
-	_, ok := tm.lastRekeyReq[peerNodeID]
+	last, ok := tm.lastRekeyReq[peerNodeID]
 	tm.rekeyMu.Unlock()
-	if ok {
-		t.Fatalf("BUG NOT REPRODUCED: rekey already fires on low-counter replay; if this is intentional, flip the assertion to GREEN")
+	if !ok {
+		t.Fatalf("expected rekey to fire on low-counter replay (peer-restart resync); lastRekeyReq not set")
 	}
-	// Pin the bug: rekey IS NOT triggered today.
-	_ = time.Since // keep `time` import live until GREEN flips this branch
+	if time.Since(last) > 500*time.Millisecond {
+		t.Errorf("lastRekeyReq is stale (%v ago), should be fresh from this handler call", time.Since(last))
+	}
 }
 
 // TestPeerRestartHighCounterReplayDoesNotTriggerRekey pins the symmetric

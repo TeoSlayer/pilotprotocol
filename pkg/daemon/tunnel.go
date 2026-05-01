@@ -1004,6 +1004,19 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 			tm.webhook.Emit("security.nonce_replay", map[string]interface{}{
 				"peer_node_id": peerNodeID, "counter": recvCounter,
 			})
+			// v1.9.1 peer-restart resync: a "replay" with a counter in the
+			// low-counter zone (< 1024) is far more likely to be a peer
+			// that just restarted and resumed from 1 than a real replay
+			// attack. Real attacks reuse a HIGH counter captured from the
+			// active session — the attacker has no way to lower their
+			// own counter without our private key. Trigger a rate-limited
+			// rekey so the peer (still alive on the wire) can re-establish
+			// crypto. Rate limiting (rekeyRequestInterval) prevents
+			// amplification if a real attacker tries to force key rotation
+			// by spraying low-counter ciphertexts.
+			if recvCounter < 1024 {
+				tm.maybeRequestRekey(peerNodeID, from)
+			}
 		}
 		return
 	}
