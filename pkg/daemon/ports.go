@@ -715,6 +715,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			if c.CongWin > MaxCongWin {
 				c.CongWin = MaxCongWin
 			}
+			// RFC 5681 §3.2 step 5: the inflation may open the window for the
+			// sender. Signal WindowCh so a sendSegment blocked on a full cwnd
+			// can wake up immediately rather than waiting for the probe timer
+			// (ZeroWinProbeInitial = 500 ms).
+			if c.WindowCh != nil && c.WindowAvailable() {
+				select {
+				case c.WindowCh <- struct{}{}:
+				default:
+				}
+			}
 		}
 		return
 	}
