@@ -825,15 +825,29 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	}
 	c.Unacked = remaining
 
-	// RFC 5681 §3.2 step 6: on fast-recovery exit (first new ACK after 3+ dup
-	// ACKs), deflate CongWin back to SSThresh before AIMD growth. Without this,
-	// CongWin stays at the inflated fast-recovery value (SSThresh + k*MSS) and
-	// grows from there — re-entering the burst that caused the loss event.
-	// Guard with wasInRecovery: after iter-57/58, DupAckCount can reach 3+
-	// without recovery being entered (no-op fastRetransmit). Deflating when
-	// CongWin was never inflated would incorrectly raise CongWin to SSThresh.
+	// Congestion-window deflation on the first new ACK in/after fast recovery
+	// (RFC 6582 §3). Guard with wasInRecovery: after iter-57/58 DupAckCount can
+	// reach 3+ without recovery being entered (no-op fastRetransmit), so
+	// deflating then would incorrectly lower a never-inflated CongWin.
 	if oldDupAckCount >= 3 && wasInRecovery {
-		c.CongWin = c.SSThresh
+		if !c.InRecovery {
+			// Full ACK exit (RFC 6582 §3 case 2): ack covers RecoveryPoint —
+			// deflate to ssthresh so we re-enter CA from a safe baseline.
+			c.CongWin = c.SSThresh
+		} else {
+			// Partial ACK (RFC 6582 §3 step 6a): ack below RecoveryPoint —
+			// partial-window deflation keeps the fast-recovery window open.
+			// cwnd -= bytesAcked; add back SMSS when bytesAcked >= SMSS so
+			// that a 1-SMSS partial ACK is neutral, and cwnd never falls
+			// below ssthresh.
+			c.CongWin -= bytesAcked
+			if bytesAcked >= MaxSegmentSize {
+				c.CongWin += MaxSegmentSize
+			}
+			if c.CongWin < c.SSThresh {
+				c.CongWin = c.SSThresh
+			}
+		}
 	}
 
 	// Congestion window growth (Appropriate Byte Counting, RFC 3465).
