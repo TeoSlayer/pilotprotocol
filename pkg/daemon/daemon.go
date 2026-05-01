@@ -2997,12 +2997,14 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 		// from regular data entries (which must be retransmitted as data even
 		// when the connection is in StateFinWait).
 		conn.RetxMu.Lock()
+		now := time.Now()
 		conn.Unacked = append(conn.Unacked, &retxEntry{
-			data:     finData,
-			seq:      sendSeq,
-			sentAt:   time.Now(),
-			attempts: 1,
-			isFIN:    true,
+			data:       finData,
+			seq:        sendSeq,
+			sentAt:     now,
+			origSentAt: now,
+			attempts:   1,
+			isFIN:      true,
 		})
 		conn.RetxMu.Unlock()
 	}

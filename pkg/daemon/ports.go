@@ -643,11 +643,13 @@ func (c *Connection) TrackSend(seq uint32, data []byte) {
 	defer c.RetxMu.Unlock()
 	saved := make([]byte, len(data))
 	copy(saved, data)
+	now := time.Now()
 	c.Unacked = append(c.Unacked, &retxEntry{
-		data:     saved,
-		seq:      seq,
-		sentAt:   time.Now(),
-		attempts: 1,
+		data:       saved,
+		seq:        seq,
+		sentAt:     now,
+		origSentAt: now,
+		attempts:   1,
 	})
 }
 
@@ -813,7 +815,15 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// reported via SACK (the cumulative ACK time is a conservative
 			// upper bound that the EWMA smooths out).
 			if e.attempts == 1 && !rttUpdated {
-				rtt := time.Since(e.sentAt)
+				// Use origSentAt (original send time, never overwritten by
+				// RFC 6298 §5.3 timer restarts) so that the RTT sample
+				// reflects actual path latency, not the inter-ACK interval.
+				// Fall back to sentAt for test fixtures that pre-date this field.
+				rttAnchor := e.origSentAt
+				if rttAnchor.IsZero() {
+					rttAnchor = e.sentAt
+				}
+				rtt := time.Since(rttAnchor)
 				c.updateRTT(rtt)
 				rttUpdated = true
 			}
