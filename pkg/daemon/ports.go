@@ -855,6 +855,11 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 		if e.sacked {
 			continue
 		}
+		// Mirror retransmitUnacked's guard: don't send if the retry budget is
+		// exhausted.  retransmitUnacked will fire RST on the next RTO tick.
+		if e.attempts >= MaxRetxAttempts {
+			return
+		}
 		e.attempts++
 		e.sentAt = time.Now()
 		// FIN entries must be resent as FlagFIN with no payload; data entries
