@@ -2852,12 +2852,17 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			conn.Mu.Unlock()
 
 			if !conn.InRecovery {
-				// New loss episode: halve SSThresh once (RFC 5681 §3.1).
+				// New loss episode: halve SSThresh once (RFC 5681 §3.1 eq. 4).
 				// Guarded so repeated timeouts or a timeout after fast retransmit
 				// (which already halved SSThresh) do not reduce it again.
-				conn.SSThresh = conn.CongWin / 2
-				// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
-				// The minimum is 2*SMSS, not 1*SMSS.
+				// RFC 5681 §3.1 eq. 4: ssthresh = max(FlightSize/2, 2*SMSS) where
+				// FlightSize = bytes sent but not yet cumulatively acknowledged =
+				// sum of ALL Unacked entries (matching the fix in ProcessAck).
+				var flightSize int
+				for _, e := range conn.Unacked {
+					flightSize += len(e.data)
+				}
+				conn.SSThresh = flightSize / 2
 				if conn.SSThresh < 2*MaxSegmentSize {
 					conn.SSThresh = 2 * MaxSegmentSize
 				}

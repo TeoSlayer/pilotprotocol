@@ -185,7 +185,6 @@ func TestRetransmitUnackedSackedSkippedAllBreakOnFirstUntimed(t *testing.T) {
 func TestRetransmitUnackedTimedOutSendsACKPacketAndEntersRecovery(t *testing.T) {
 	d := New(Config{})
 	conn, cs := newRetxConn(t)
-	prevCongWin := conn.CongWin
 	prevRTO := conn.RTO
 	payload := []byte("retx-me")
 	conn.Unacked = []*retxEntry{{data: payload, seq: 300, sentAt: time.Now().Add(-2 * InitialRTO), attempts: 1}}
@@ -207,16 +206,14 @@ func TestRetransmitUnackedTimedOutSendsACKPacketAndEntersRecovery(t *testing.T) 
 	if conn.Unacked[0].attempts != 2 {
 		t.Fatalf("attempts = %d, want 2", conn.Unacked[0].attempts)
 	}
-	// CongWin collapsed to InitialCongWin, SSThresh halved (but ≥ MaxSegmentSize)
+	// CongWin collapsed to InitialCongWin, SSThresh = max(FlightSize/2, 2*SMSS).
+	// FlightSize = len("retx-me") = 7; FlightSize/2 = 3 < 2*MSS = 8192 → floor.
 	if conn.CongWin != InitialCongWin {
 		t.Fatalf("CongWin = %d, want InitialCongWin=%d", conn.CongWin, InitialCongWin)
 	}
-	wantSSThresh := prevCongWin / 2
-	if wantSSThresh < MaxSegmentSize {
-		wantSSThresh = MaxSegmentSize
-	}
+	wantSSThresh := 2 * MaxSegmentSize // max(7/2=3, 2*MSS=8192) = 8192
 	if conn.SSThresh != wantSSThresh {
-		t.Fatalf("SSThresh = %d, want %d", conn.SSThresh, wantSSThresh)
+		t.Fatalf("SSThresh = %d, want %d (max(FlightSize/2, 2*SMSS))", conn.SSThresh, wantSSThresh)
 	}
 	if !conn.InRecovery {
 		t.Fatal("InRecovery should be true after timeout")
