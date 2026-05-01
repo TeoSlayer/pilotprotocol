@@ -857,9 +857,18 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 		}
 		e.attempts++
 		e.sentAt = time.Now()
+		// FIN entries must be resent as FlagFIN with no payload; data entries
+		// use FlagACK with their payload (mirrors retransmitUnacked's isFIN check).
+		flags := protocol.FlagACK
+		var payload []byte
+		if e.isFIN {
+			flags = protocol.FlagFIN
+		} else {
+			payload = e.data
+		}
 		pkt := &protocol.Packet{
 			Version:  protocol.Version,
-			Flags:    protocol.FlagACK,
+			Flags:    flags,
 			Protocol: protocol.ProtoStream,
 			Src:      c.LocalAddr,
 			Dst:      c.RemoteAddr,
@@ -868,7 +877,7 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 			Seq:      e.seq,
 			Ack:      recvAck,
 			Window:   c.RecvWindow(),
-			Payload:  e.data,
+			Payload:  payload,
 		}
 		c.RetxSend(pkt)
 		return
