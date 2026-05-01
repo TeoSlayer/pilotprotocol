@@ -2044,9 +2044,13 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
 		conn.RetxMu.Unlock()
 
-		// Process ACK for retransmission tracking
-		// Only count as pure ACK for dup detection if no data payload
-		if pkt.Ack > 0 {
+		// Process ACK for retransmission tracking.
+		// Only count as pure ACK for dup detection if no data payload.
+		// v1.9.1: removed the 'pkt.Ack > 0' guard — Ack=0 is the legitimate
+		// cumulative ACK value after a 4 GiB uint32 sequence-space wraparound.
+		// ProcessAck's seqAfter and uint32 arithmetic already handle Ack=0
+		// correctly for both wraparound and fresh connections.
+		{
 			isPureACK := len(pkt.Payload) == 0
 			conn.ProcessAck(pkt.Ack, isPureACK)
 		}
