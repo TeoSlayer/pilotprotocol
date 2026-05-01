@@ -81,6 +81,32 @@ docs/                   # Documentation
   WHITEPAPER.pdf        # Protocol whitepaper (LaTeX source: WHITEPAPER.tex)
 ```
 
+## Lock discipline (required reading for registry/daemon contributors)
+
+The registry holds several mutexes covering different scopes. Past
+contention incidents have shown that running signature-verification
+work — or any operation that can take longer than a few microseconds —
+while holding a global lock can produce contention queues large enough
+to drop the registry over a cliff under load.
+
+The 3-phase pattern is: **RLock → unlock → verify (signatures, args,
+caller identity) → Lock for mutation only**. The verify phase must not
+hold any registry mutex.
+
+Concrete rules:
+
+1. **Never call `crypto`/`subtle.ConstantTimeCompare`/JSON-marshal
+   under `s.mu`.** These can take microseconds-to-milliseconds; a
+   queue of contended writers piles up behind them.
+2. **Bracket `s.mu` write windows tightly** — only the actual map
+   mutation goes under `s.mu.Lock()`. Read inputs first under RLock,
+   verify, then take the write lock.
+3. **Snapshot/replication paths build their deep-copy outside `s.mu`.**
+   See `apply_snapshot_test.go` for the lock-hold regression test.
+4. **List endpoints (`list_nodes`, `list_networks`) go through the
+   singleflight cache.** Re-marshalling JSON for every caller while
+   `s.mu` is held was the root cause of the 2026-04-28 outage.
+
 ## Contributing to the Python SDK
 
 See the **[Python SDK Contributing Guide](sdk/python/CONTRIBUTING.md)**.

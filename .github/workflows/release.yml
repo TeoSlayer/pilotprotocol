@@ -72,6 +72,24 @@ jobs:
             go build -ldflags "$LDFLAGS" -o dist/$bin ./cmd/$bin
           done
 
+      # Ad-hoc codesign + drop quarantine on darwin builds so downloaded
+      # binaries don't trigger "killed: 9" or Gatekeeper "cannot be opened
+      # because Apple cannot check it for malicious software". Ad-hoc
+      # signing is enough to make the binary launch — full notarization
+      # would need APPLE_ID + APP_SPECIFIC_PASSWORD secrets and a paid
+      # developer cert; out of scope for this release.
+      - name: macOS ad-hoc codesign + strip quarantine
+        if: matrix.goos == 'darwin'
+        run: |
+          for bin in dist/*; do
+            echo "codesigning $bin..."
+            codesign --force --deep --sign - "$bin"
+            xattr -cr "$bin" || true
+          done
+          for bin in dist/*; do
+            codesign -dv "$bin" 2>&1 | grep -E "Signature|Authority|TeamIdentifier" | head -1
+          done
+
       - name: Smoke test binaries
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64' || matrix.goos == 'darwin'
         run: |
