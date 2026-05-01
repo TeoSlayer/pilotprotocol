@@ -282,7 +282,24 @@ func (c *ipcConn) trackConn(connID uint32) {
 	c.conns = append(c.conns, connID)
 }
 
-// connCount returns the number of connections currently owned by this client.
+// removeConn removes a connection ID from the tracked set when the connection
+// is closed (either via explicit CmdClose or remote-FIN path). Without this,
+// connCount() would grow without bound, exhausting the per-client quota after
+// MaxConnsPerIPCClient dial+close cycles even with zero active connections.
+func (c *ipcConn) removeConn(connID uint32) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	for i, id := range c.conns {
+		if id == connID {
+			c.conns = append(c.conns[:i], c.conns[i+1:]...)
+			return
+		}
+	}
+}
+
+// connCount returns the number of currently active connections owned by
+// this client. Connections are removed from the tracked set when closed
+// (removeConn), so this reflects live connections only.
 func (c *ipcConn) connCount() int {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -581,6 +598,7 @@ func (s *IPCServer) handleClose(conn *ipcConn, payload []byte) {
 	if c != nil {
 		s.daemon.CloseConnection(c)
 	}
+	conn.removeConn(connID)
 
 	resp := make([]byte, 5)
 	resp[0] = CmdCloseOK
@@ -1257,6 +1275,7 @@ func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
 			copy(msg[5:], data)
 			if err := conn.ipcWrite(msg); err != nil {
 				slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
+				conn.removeConn(c.ID)
 				return
 			}
 		}
@@ -1266,6 +1285,7 @@ func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
 		if err := conn.ipcWrite(closeMsg); err != nil {
 			slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
 		}
+		conn.removeConn(c.ID)
 	}()
 }
 
