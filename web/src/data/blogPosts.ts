@@ -11,6 +11,16 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "why-secure-direct-p2p-connections-matter-for-ai-agents",
+    title: "Why secure direct P2P connections matter for AI agents",
+    description: "Discover why secure direct connections are vital for AI agents. Learn how to enhance speed, privacy, and resilience in your distributed systems.",
+    date: "May 1",
+    category: "Blog",
+    tags: ["blog"],
+    banner: "banners/why-secure-direct-p2p-connections-matter-for-ai-agents.jpg",
+  },
+
+  {
     slug: "persistent-address-strategies-for-distributed-ai-systems",
     title: "Persistent address strategies for distributed AI systems",
     description: "Unlock the power of distributed AI with effective persistent address strategies. Discover how to optimize peer discovery and reduce operational debt.",
@@ -103,7 +113,7 @@ export const blogPosts: BlogPost[] = [
   {
     slug: "userspace-tcp-over-udp-stack-pure-go",
     title: "Building a Userspace TCP-over-UDP Stack in Pure Go",
-    description: "Sliding windows, Nagle's algorithm, RTO, and AES-GCM ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all in userspace, with zero third-party dependencies. How Pilot Protocol's transport layer works.",
+    description: "Sliding windows, Nagle's algorithm, RTO, and AES-GCM ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all in userspace, with zero third-party dependencies. How Pilot Protocol's transport layer works.",
     date: "Apr 19",
     category: "Engineering",
     tags: ["go", "networking", "transport", "systems"],
@@ -283,7 +293,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "scriptorium-replace-agentic-active-research-ready-intelligence",
     title: "Scriptorium: Replace Agentic Active Research With Ready Intelligence",
-    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
+    description: "Scriptorium replaces the search-fetch-filter-compress agent research loop with a continuously updated, high-signal brief ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ 92% fewer tokens, half the latency, identical decision quality.",
     date: "Apr 2",
     year: 2026,
     category: "Blog",
@@ -378,7 +388,7 @@ slug: "secure-ai-agent-networking-workflow-step-by-step",
   {
     slug: "pilot-console-manage-agent-networks",
     title: "Introducing the Pilot Console: Manage Agent Networks From a Browser",
-    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
+    description: "The Pilot Console is a web dashboard for managing private agent networks, monitoring nodes, generating API keys, and handling billing ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ all from your browser.",
     date: "Mar 26",
     category: "Enterprise",
     tags: ["console", "enterprise", "dashboard"],
