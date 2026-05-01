@@ -602,11 +602,15 @@ func (pm *PortManager) RemoveConnection(id uint32) {
 	}
 }
 
-// BytesInFlight returns total unacknowledged bytes.
+// BytesInFlight returns total unacknowledged bytes, excluding SACKed segments.
+// SACKed segments remain in c.Unacked until a cumulative ACK removes them, but
+// they are already at the peer so they must not consume congestion-window space.
 func (c *Connection) BytesInFlight() int {
 	total := 0
 	for _, e := range c.Unacked {
-		total += len(e.data)
+		if !e.sacked {
+			total += len(e.data)
+		}
 	}
 	return total
 }
@@ -1107,6 +1111,15 @@ func (c *Connection) ProcessSACK(blocks []SACKBlock) {
 				e.sacked = true
 				break
 			}
+		}
+	}
+
+	// Excluding SACKed bytes from BytesInFlight may have opened the send window.
+	// Signal WindowCh so a sender blocked in sendSegment wakes immediately.
+	if c.WindowCh != nil && c.WindowAvailable() {
+		select {
+		case c.WindowCh <- struct{}{}:
+		default:
 		}
 	}
 }
