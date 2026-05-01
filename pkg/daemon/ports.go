@@ -741,19 +741,18 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 					c.InRecovery = true
 					c.RecoveryPoint = sendSeq
 				}
-				// Track that recovery was entered via fast retransmit (not timeout),
-				// so that subsequent partial ACKs within this episode trigger RFC 6582
-				// §3 step 6 retransmit + deflation even when DupAckCount was reset
-				// to 0 by a prior partial ACK.
-				c.FastRecovery = true
-				// RFC 6582 §3 recover guard: only inflate CongWin when entering a NEW
-				// recovery episode.  If recovery was already active (prevInRecovery)
-				// AND sendSeq has not advanced beyond the existing RecoveryPoint, this
-				// is the same loss window — re-inflation would undo the timeout's
-				// RFC 5681 §3.1 slow-start reset (CongWin=1 MSS → SSThresh+3*MSS).
-				// Allow re-entry only when sendSeq > RecoveryPoint (new data exists
-				// beyond the prior recovery window, indicating a distinct loss event).
+				// RFC 6582 §3 recover guard: only enter fast recovery (set FastRecovery,
+				// inflate CongWin) when this is a NEW loss episode.  Same-episode dup
+				// ACKs (prevInRecovery && sendSeq <= RecoveryPoint) must not set
+				// FastRecovery — doing so causes wasFastRecovery=true on the next new
+				// ACK, which triggers step-6's SSThresh floor and inflates CongWin
+				// from the timeout's 1 MSS to SSThresh (5× too large).
 				if !prevInRecovery || seqAfter(sendSeq, c.RecoveryPoint) {
+					// Track that recovery was entered via fast retransmit (not timeout),
+					// so that subsequent partial ACKs within this episode trigger RFC 6582
+					// §3 step 6 retransmit + deflation even when DupAckCount was reset
+					// to 0 by a prior partial ACK.
+					c.FastRecovery = true
 					c.CongWin = c.SSThresh + 3*MaxSegmentSize
 					// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
 					// the window may have opened.  Signal the sender so it doesn't stall.
@@ -808,14 +807,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 	}
 	c.LastAck = ack
-	oldDupAckCount := c.DupAckCount
 	c.DupAckCount = 0
 	c.LastRetxTime = time.Time{} // reset retransmit guard so ACK-driven recovery can proceed
 
 	// Capture both flags before the recovery-exit check below may clear them.
-	// wasInRecovery: needed by the deflation guard so that "oldDupAckCount >= 3"
-	// is not sufficient on its own (after iter-57, DupAckCount can reach 3+
-	// without recovery being entered).
+	// wasInRecovery: needed by the deflation guard.
 	// wasFastRecovery: needed so subsequent partial ACKs (with DupAckCount < 3
 	// after the first partial ACK reset it to 0) still trigger RFC 6582 §3
 	// step 6 retransmit + deflation unconditionally while in fast recovery.
@@ -884,16 +880,17 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// Two guards combine:
 	//  1. wasInRecovery: prevents deflation when recovery was never entered
 	//     (no-op fastRetransmit case after iter-57/58).
-	//  2. (oldDupAckCount >= 3 || wasFastRecovery): ensures step 6 fires for
-	//     EVERY partial ACK during fast recovery, not only the first one.
-	//     After the first partial ACK resets DupAckCount=0, subsequent partial
-	//     ACKs may arrive when DupAckCount < 3.  wasFastRecovery (captured
-	//     before the recovery-exit check) records that we entered via fast
-	//     retransmit (not timeout), so step 6 repeats per RFC 6582 §3:
-	//     "As partial ACKs come in, this process repeats."
-	//     For timeout-based recovery: retransmitUnacked clears FastRecovery, so
-	//     wasFastRecovery=false and DupAckCount=0 — step 6 correctly skips.
-	if (oldDupAckCount >= 3 || wasFastRecovery) && wasInRecovery {
+	//  2. wasFastRecovery: ensures step 6 fires for EVERY partial ACK during
+	//     fast recovery (not only the first one), while excluding timeout-based
+	//     recovery where FastRecovery is never set.  After the first partial ACK
+	//     resets DupAckCount=0, subsequent partial ACKs arrive when
+	//     DupAckCount < 3; wasFastRecovery (captured before recovery-exit)
+	//     ensures step 6 repeats per RFC 6582 §3 "As partial ACKs come in."
+	//     oldDupAckCount >= 3 is intentionally NOT used here: leftover
+	//     DupAckCount from a timeout-recovery episode (same-episode dup ACKs)
+	//     must not trigger step-6 deflation — only explicitly fast-retransmit
+	//     entered recovery (FastRecovery=true) should deflate cwnd.
+	if wasFastRecovery && wasInRecovery {
 		if !c.InRecovery {
 			// Full ACK exit (RFC 6582 §3 case 2): ack covers RecoveryPoint —
 			// deflate to ssthresh so we re-enter CA from a safe baseline.

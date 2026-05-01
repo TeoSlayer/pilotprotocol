@@ -68,6 +68,7 @@ func TestPartialAckDuringRecoveryRetransmitsFirstUnacked(t *testing.T) {
 	c.LastAck = seqA
 	c.DupAckCount = 3
 	c.InRecovery = true
+	c.FastRecovery = true // fast retransmit entered recovery (new episode, not timeout)
 	c.RecoveryPoint = recoveryPoint
 	c.SSThresh = 5 * MaxSegmentSize
 	c.CongWin = c.SSThresh + 3*MaxSegmentSize // 32768
