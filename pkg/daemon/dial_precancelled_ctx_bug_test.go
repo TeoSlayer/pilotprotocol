@@ -47,11 +47,11 @@ import (
 // dialConnectionLocked, check ctx.Err() before any side-effecting
 // work. If already cancelled, return ctx.Err() immediately.
 //
-// This test pins the CURRENT (buggy) behavior: with a pre-cancelled
-// ctx, the peer's UDP socket receives a SYN frame before
-// DialConnectionContext returns ctx.Err(). After GREEN, the
-// assertion flips: peer receives no packet, dial returns ctx.Err()
-// without any wire traffic.
+// FIXED (v1.9.1): dialConnectionLocked checks ctx.Err() at the top,
+// before any side-effecting work. A pre-cancelled ctx returns
+// context.Canceled immediately with NO wire traffic — peer's UDP
+// socket stays silent, no Connection is created, no port is
+// allocated.
 func TestDialContextPreCancelledStillSendsSYN(t *testing.T) {
 	d, peerNode, peerConn := setupDaemonWithPeer(t, Config{Public: true})
 	d.setNodeID_testhelper(0xABCD0050)
@@ -80,15 +80,18 @@ func TestDialContextPreCancelledStillSendsSYN(t *testing.T) {
 		t.Fatalf("expected context.Canceled error; got %v", err)
 	}
 
-	// CURRENT (buggy) behavior: a SYN was emitted before the ctx
-	// check fired. The peer's UDP socket has bytes on it. After
-	// GREEN, the read times out (no packet sent).
+	// FIXED: peer's UDP socket stays silent. No SYN was emitted
+	// because ctx.Err() short-circuited dialConnectionLocked before
+	// any wire-side work.
 	pkt := readPacket(t, peerConn, 100*time.Millisecond)
-	if pkt == nil {
-		t.Fatalf("BUG NOT REPRODUCED: peer socket idle after pre-cancelled dial; ctx may already be checked at top of dialConnectionLocked — flip assertion to GREEN")
+	if pkt != nil {
+		t.Errorf("expected no packet on peer socket after pre-cancelled dial; got flags=%d srcPort=%d",
+			pkt.Flags, pkt.SrcPort)
 	}
-	if !pkt.HasFlag(protocol.FlagSYN) {
-		t.Errorf("expected SYN packet (current bug); got flags=%d", pkt.Flags)
+
+	// Also verify no Connection lingered in the daemon's port table.
+	if cs := d.ports.AllConnections(); len(cs) != 0 {
+		t.Errorf("expected no Connection allocated after pre-cancelled dial; got %d", len(cs))
 	}
 }
 

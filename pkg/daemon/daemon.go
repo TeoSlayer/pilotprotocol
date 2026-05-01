@@ -2288,6 +2288,16 @@ func (d *Daemon) DialConnectionContext(ctx context.Context, dstAddr protocol.Add
 // cancellation tears down the in-flight SYN_SENT and returns
 // ctx.Err() to followers via flight.err.
 func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	// v1.9.1: bail before any side-effecting work if ctx is already
+	// cancelled. iter 2 made the SYN-retry loop cancellable, but
+	// ensureTunnel + port alloc + initial SYN send all happen BEFORE
+	// the loop. Without this check, a pre-cancelled ctx still results
+	// in a wire-side SYN going to the peer, who replies with SYN-ACK
+	// for a connection the dialer already abandoned.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Enforce outbound port policy: prevent dialing ports blocked by the network
 	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
 		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
