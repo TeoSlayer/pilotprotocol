@@ -2683,6 +2683,9 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		Payload:  data,
 	}
 
+	// v1.9.1: track before send so a tunnel failure doesn't consume the seq
+	// slot without a retx entry — retxLoop can retry if Send returns an error.
+	conn.TrackSend(seq, data)
 	if err := d.tunnels.Send(conn.RemoteAddr.Node, pkt); err != nil {
 		return err
 	}
@@ -2691,7 +2694,6 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 	conn.Stats.BytesSent += uint64(len(data))
 	conn.Stats.SegsSent++
 	conn.Mu.Unlock()
-	conn.TrackSend(seq, data)
 
 	// Cancel delayed ACK — this data packet piggybacks the ACK
 	conn.AckMu.Lock()
