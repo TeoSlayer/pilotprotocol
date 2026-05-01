@@ -247,7 +247,24 @@ func (wc *WebhookClient) post(ev *WebhookEvent) {
 		return
 	}
 
+	// v1.9.1 circuit breaker: if the breaker is open AND we're still
+	// inside the cooldown window, short-circuit. The first event after
+	// cooldown elapses is the probe — if it succeeds, breaker resets
+	// to closed; if it fails, breaker reopens for another cooldown.
+	if openUntil := wc.circuitOpenUntilNano.Load(); openUntil > 0 {
+		now := time.Now().UnixNano()
+		if now < openUntil {
+			wc.circuitSkips.Add(1)
+			return
+		}
+		// Cooldown elapsed — clear and let this event probe. If it
+		// fails, the failure path below will reopen the breaker.
+		wc.circuitOpenUntilNano.Store(0)
+	}
+
 	backoff := wc.initialBackoff
+	success := false
+	clientErr := false
 	for attempt := 0; attempt < webhookMaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(backoff)
@@ -262,14 +279,39 @@ func (wc *WebhookClient) post(ev *WebhookEvent) {
 		resp.Body.Close()
 
 		if resp.StatusCode < 400 {
-			return // success
+			success = true
+			break
 		}
 		if resp.StatusCode < 500 {
-			// 4xx — permanent client error, no retry
+			// 4xx — permanent client error, no retry. Also doesn't
+			// trip the circuit: the URL is reachable, the issue is
+			// the payload (which the breaker can't fix by waiting).
 			slog.Warn("webhook POST client error", "event", ev.Event, "status", resp.StatusCode)
-			return
+			clientErr = true
+			break
 		}
 		// 5xx — server error, retry
 		slog.Warn("webhook POST server error", "event", ev.Event, "status", resp.StatusCode, "attempt", attempt+1)
+	}
+
+	if success {
+		wc.consecutiveFailures.Store(0)
+		return
+	}
+	if clientErr {
+		// Don't count toward breaker — see comment above.
+		return
+	}
+	// All attempts exhausted (network errors or 5xx). Increment counter
+	// and open the circuit if we hit the threshold.
+	failures := wc.consecutiveFailures.Add(1)
+	if failures >= webhookCircuitOpenThreshold {
+		cooldown := wc.circuitCooldown
+		if cooldown == 0 {
+			cooldown = webhookCircuitCooldown
+		}
+		wc.circuitOpenUntilNano.Store(time.Now().Add(cooldown).UnixNano())
+		slog.Warn("webhook circuit breaker opened",
+			"consecutive_failures", failures, "cooldown", cooldown.String())
 	}
 }
