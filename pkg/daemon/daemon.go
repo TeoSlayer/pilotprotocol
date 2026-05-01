@@ -2079,6 +2079,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		sackBlocks, isSACK := DecodeSACK(pkt.Payload)
 		{
 			isPureACK := len(pkt.Payload) == 0 || isSACK
+			// RFC 5681 §3.1 condition (e): a packet is only a duplicate ACK
+			// when "the advertised window equals the advertised window in the
+			// last incoming acknowledgment."  If the peer's receive window
+			// changed (window update), condition (e) is violated and we must
+			// not count this as a dup-ACK — set isPureACK=false so ProcessAck's
+			// early-return suppresses DupAckCount.  SACKs always count as dup-
+			// ACKs regardless of window changes (they report OOO data).
+			if !isSACK && conn.PeerRecvWin != prevPeerWin {
+				isPureACK = false
+			}
 			conn.ProcessAck(pkt.Ack, isPureACK)
 		}
 
