@@ -2856,8 +2856,10 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 				// Guarded so repeated timeouts or a timeout after fast retransmit
 				// (which already halved SSThresh) do not reduce it again.
 				conn.SSThresh = conn.CongWin / 2
-				if conn.SSThresh < MaxSegmentSize {
-					conn.SSThresh = MaxSegmentSize
+				// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
+				// The minimum is 2*SMSS, not 1*SMSS.
+				if conn.SSThresh < 2*MaxSegmentSize {
+					conn.SSThresh = 2 * MaxSegmentSize
 				}
 				conn.InRecovery = true
 				conn.RecoveryPoint = sendSeq

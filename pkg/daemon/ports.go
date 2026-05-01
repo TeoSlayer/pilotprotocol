@@ -719,8 +719,10 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				// episode (RFC 5681 §3.2: one reduction per episode).
 				if !c.InRecovery {
 					c.SSThresh = c.CongWin / 2
-					if c.SSThresh < MaxSegmentSize {
-						c.SSThresh = MaxSegmentSize
+					// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
+					// The minimum is 2*SMSS, not 1*SMSS.
+					if c.SSThresh < 2*MaxSegmentSize {
+						c.SSThresh = 2 * MaxSegmentSize
 					}
 					c.InRecovery = true
 					c.RecoveryPoint = sendSeq
