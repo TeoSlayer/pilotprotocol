@@ -775,9 +775,9 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				rttUpdated = true
 			}
 		} else {
-			// Reset sacked flag for segments that are still unacked
-			// (SACK state is refreshed with each incoming ACK)
-			e.sacked = false
+			// Retain sacked state for remaining entries (RFC 2018 §5):
+			// the peer has confirmed receiving SACKed segments and a
+			// partial cumulative ACK above them does not invalidate that.
 			remaining = append(remaining, e)
 		}
 	}
