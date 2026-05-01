@@ -11,11 +11,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
@@ -568,6 +570,8 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 			atomic.AddUint64(&tm.PktsSent, 1)
 			atomic.AddUint64(&tm.BytesSent, uint64(n))
 			tm.recordOutboundSend(nodeID)
+		} else {
+			tm.handleSendError(nodeID, err)
 		}
 		return err
 	}
@@ -580,6 +584,8 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 		atomic.AddUint64(&tm.PktsSent, 1)
 		atomic.AddUint64(&tm.BytesSent, uint64(n))
 		tm.recordOutboundSend(nodeID)
+	} else {
+		tm.handleSendError(nodeID, err)
 	}
 	return err
 }
@@ -606,12 +612,41 @@ const sendErrThreshold = 3
 // peer is promoted to relay mode for fast recovery (vs. waiting ~24 s
 // for the lastDirectRecv-based blackhole heuristic).
 //
-// NOTE (v1.9.1 RED #8): currently a stub that does nothing. The GREEN
-// phase will implement the body — error classification + counter +
-// relay flip on threshold.
+// Non-ICMP errors (generic write failure, EAGAIN, etc.) are ignored —
+// they don't carry the same "peer is reachably-dead" signal.
 func (tm *TunnelManager) handleSendError(nodeID uint32, err error) {
-	_ = nodeID
-	_ = err
+	if !isICMPUnreachable(err) {
+		return
+	}
+
+	tm.mu.Lock()
+	tm.sendErrCount[nodeID]++
+	count := tm.sendErrCount[nodeID]
+	flipped := false
+	if count >= sendErrThreshold && !tm.relayPeers[nodeID] {
+		if len(tm.relayPeers) < maxRelayPeers {
+			tm.relayPeers[nodeID] = true
+			tm.sendErrCount[nodeID] = 0 // reset for next cycle
+			flipped = true
+		}
+	}
+	tm.mu.Unlock()
+
+	if flipped {
+		slog.Info("direct path ICMP-unreachable, flipping to relay",
+			"peer_node_id", nodeID,
+			"consecutive_errors", count,
+			"error", err)
+	}
+}
+
+// isICMPUnreachable returns true if err is one of the syscall errors
+// the Linux kernel surfaces on a subsequent UDP send after receiving
+// an ICMP unreachable from the peer's stack.
+func isICMPUnreachable(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH)
 }
 
 // TunnelKeepaliveInterval is the minimum gap between successive sends to
@@ -1369,6 +1404,14 @@ func (tm *TunnelManager) recordInboundDecrypt(peerNodeID uint32) {
 	tm.rkPendingMu.Lock()
 	tm.lastInboundDecrypt[peerNodeID] = time.Now()
 	tm.rkPendingMu.Unlock()
+
+	// v1.9.1 ICMP-aware fix: a successful inbound decrypt is proof the
+	// peer is alive and reachable. Clear any accumulated send-error
+	// count so a future transient ICMP-unreachable burst doesn't
+	// trip the relay flip on a freshly-recovered peer.
+	tm.mu.Lock()
+	delete(tm.sendErrCount, peerNodeID)
+	tm.mu.Unlock()
 }
 
 // inboundDecryptStale returns true if we haven't successfully decrypted

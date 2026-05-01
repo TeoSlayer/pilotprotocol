@@ -41,10 +41,12 @@ import (
 // handleSendError directly with a synthesized ECONNREFUSED, which is
 // portable across both platforms.
 //
-// This test pins the CURRENT (buggy) behavior: handleSendError is a
-// stub, sendErrCount stays 0, peer stays out of relayPeers no matter
-// how many errors we feed in. After GREEN, the assertion flips: 3
-// consecutive ECONNREFUSED → relay flip.
+// FIXED (v1.9.1): handleSendError now classifies ICMP-unreachable
+// errors via errors.Is(syscall.ECONNREFUSED|EHOSTUNREACH|ENETUNREACH)
+// and increments per-peer sendErrCount. On reaching sendErrThreshold
+// (3) consecutive matching errors, the peer is flipped to relay mode
+// and the counter resets. recordInboundDecrypt clears the counter on
+// any inbound success (peer recovered → forget the past errors).
 func TestICMPUnreachableIgnoredByWriteFrame(t *testing.T) {
 	tm := NewTunnelManager()
 	t.Cleanup(func() { tm.Close() })
@@ -66,22 +68,90 @@ func TestICMPUnreachableIgnoredByWriteFrame(t *testing.T) {
 		t.Fatalf("synthesized error doesn't satisfy errors.Is(syscall.ECONNREFUSED): %v", icmpErr)
 	}
 
-	// Feed 5 consecutive ICMP-unreachable errors — well over any
-	// reasonable threshold. The stub does nothing.
+	// First 2 errors: counter increments, no flip yet.
+	tm.handleSendError(peerNodeID, icmpErr)
+	tm.mu.RLock()
+	count := tm.sendErrCount[peerNodeID]
+	flipped := tm.relayPeers[peerNodeID]
+	tm.mu.RUnlock()
+	if count != 1 || flipped {
+		t.Fatalf("after 1 error: count=%d flipped=%v, want count=1 flipped=false", count, flipped)
+	}
+
+	tm.handleSendError(peerNodeID, icmpErr)
+	tm.mu.RLock()
+	count = tm.sendErrCount[peerNodeID]
+	flipped = tm.relayPeers[peerNodeID]
+	tm.mu.RUnlock()
+	if count != 2 || flipped {
+		t.Fatalf("after 2 errors: count=%d flipped=%v, want count=2 flipped=false", count, flipped)
+	}
+
+	// Third error: flip fires, counter resets.
+	tm.handleSendError(peerNodeID, icmpErr)
+	tm.mu.RLock()
+	count = tm.sendErrCount[peerNodeID]
+	flipped = tm.relayPeers[peerNodeID]
+	tm.mu.RUnlock()
+	if !flipped {
+		t.Errorf("after %d errors: expected relay flip, got flipped=false (count=%d)", sendErrThreshold, count)
+	}
+	if count != 0 {
+		t.Errorf("after flip: expected sendErrCount reset to 0, got %d", count)
+	}
+}
+
+// TestNonICMPErrorIgnored pins the inverse: a generic write error
+// (not ICMP-unreachable) must NOT increment sendErrCount or flip the
+// peer. This prevents the recovery path from being triggered by
+// transient socket-level issues that don't correlate with peer death.
+func TestNonICMPErrorIgnored(t *testing.T) {
+	tm := NewTunnelManager()
+	t.Cleanup(func() { tm.Close() })
+
+	const peerNodeID uint32 = 0x99AABBCC
+	tm.mu.Lock()
+	tm.peers[peerNodeID] = &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1}
+	tm.mu.Unlock()
+
+	genericErr := &net.OpError{Op: "write", Net: "udp", Err: errors.New("transient write failure")}
+
 	for i := 0; i < 5; i++ {
-		tm.handleSendError(peerNodeID, icmpErr)
+		tm.handleSendError(peerNodeID, genericErr)
 	}
 
 	tm.mu.RLock()
 	count := tm.sendErrCount[peerNodeID]
 	flipped := tm.relayPeers[peerNodeID]
 	tm.mu.RUnlock()
-
 	if count != 0 {
-		t.Fatalf("BUG NOT REPRODUCED: stub already counts errors (count=%d); GREEN flips this", count)
+		t.Errorf("non-ICMP error should not increment sendErrCount; got %d", count)
 	}
 	if flipped {
-		t.Fatalf("BUG NOT REPRODUCED: stub already flips to relay; GREEN flips this")
+		t.Errorf("non-ICMP error should not flip peer to relay")
+	}
+}
+
+// TestRecordInboundDecryptClearsSendErrCount pins the recovery half:
+// once the peer is alive again (we successfully decrypted from them),
+// past sendErrCount must be cleared so a future transient ICMP burst
+// doesn't immediately re-flip a freshly-recovered peer.
+func TestRecordInboundDecryptClearsSendErrCount(t *testing.T) {
+	tm := NewTunnelManager()
+	t.Cleanup(func() { tm.Close() })
+
+	const peerNodeID uint32 = 0xDDEEFF00
+	tm.mu.Lock()
+	tm.sendErrCount[peerNodeID] = 2 // simulate accumulated count below threshold
+	tm.mu.Unlock()
+
+	tm.recordInboundDecrypt(peerNodeID)
+
+	tm.mu.RLock()
+	_, present := tm.sendErrCount[peerNodeID]
+	tm.mu.RUnlock()
+	if present {
+		t.Errorf("expected sendErrCount cleared after inbound decrypt; entry still present")
 	}
 }
 
