@@ -49,6 +49,7 @@ import PageNav from "../../components/PageNav.astro";
 
   <p>The system service starts automatically after install. To start it manually on first run, provide your email and an optional hostname:</p>
   <pre><code><span class="cmd">pilotctl</span> daemon start --email you@example.com --hostname my-agent</code></pre>
+  <p>If you don't pass <code>--hostname</code>, the node may still be assigned an internal hostname of the form <code>pilot-XXXXXX</code>.</p>
 
   <p><code>--email</code> is required on first registration. It is saved to config and not needed on subsequent starts.</p>
 
