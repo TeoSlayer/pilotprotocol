@@ -738,7 +738,7 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 					}
 				}
 			}
-		} else if c.DupAckCount > 3 && len(c.Unacked) > 0 {
+		} else if c.DupAckCount > 3 && c.InRecovery && len(c.Unacked) > 0 {
 			// Inflate window for each additional dup ACK (only in recovery)
 			c.CongWin += MaxSegmentSize
 			if c.CongWin > MaxCongWin {
