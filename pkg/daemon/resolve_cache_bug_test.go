@@ -38,9 +38,11 @@ import (
 //   - Call it from the iter 8 ICMP-relay flip path (peer is
 //     reachably dead → caches need refreshing).
 //
-// This test pins the CURRENT (buggy) behavior: the stub
-// forgetPeerResolution does nothing, both caches remain populated.
-// After GREEN, the assertion flips: both cache entries are evicted.
+// FIXED (v1.9.1): forgetPeerResolution now deletes both
+// resolveCache[nodeID] and epCache[nodeID] under their respective
+// mutexes. dialConnectionLocked's max-retries-exhausted branch now
+// calls it before returning ErrDialTimeout, so an application-driven
+// retry sees fresh registry data rather than the stale entry.
 func TestForgetPeerResolutionDoesNotInvalidateCaches(t *testing.T) {
 	d := New(Config{})
 	t.Cleanup(func() { d.tunnels.Close() })
@@ -54,16 +56,22 @@ func TestForgetPeerResolutionDoesNotInvalidateCaches(t *testing.T) {
 	})
 	d.cacheEndpoint(peerNodeID, "10.0.0.99:4000")
 
-	// Call the helper. Currently a stub.
-	d.forgetPeerResolution(peerNodeID)
-
-	// CURRENT (buggy) behavior: stub does nothing, caches still
-	// hold the stale entry. GREEN flips: both caches empty.
+	// Sanity: caches populated before invalidation.
 	if _, ok := d.cachedResolve(peerNodeID); !ok {
-		t.Fatalf("BUG NOT REPRODUCED: stub already evicts resolveCache; GREEN flips this")
+		t.Fatalf("setup invariant: resolveCache should be populated")
 	}
 	if _, ok := d.cachedEndpoint(peerNodeID); !ok {
-		t.Fatalf("BUG NOT REPRODUCED: stub already evicts epCache; GREEN flips this")
+		t.Fatalf("setup invariant: epCache should be populated")
+	}
+
+	d.forgetPeerResolution(peerNodeID)
+
+	// FIXED: both caches empty after invalidation.
+	if _, ok := d.cachedResolve(peerNodeID); ok {
+		t.Errorf("expected resolveCache empty for peer after forgetPeerResolution")
+	}
+	if _, ok := d.cachedEndpoint(peerNodeID); ok {
+		t.Errorf("expected epCache empty for peer after forgetPeerResolution")
 	}
 }
 

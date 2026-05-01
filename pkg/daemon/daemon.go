@@ -2377,6 +2377,12 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 
 			if retries > maxRetries {
 				d.ports.RemoveConnection(conn.ID)
+				// v1.9.1: a peer that didn't respond to the full retry
+				// budget (direct + relay) is reachably dead. Invalidate
+				// the resolve / endpoint caches so the application's
+				// next dial fetches fresh registry data instead of
+				// re-dialing the same dead address for ResolveCacheTTL.
+				d.forgetPeerResolution(dstAddr.Node)
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
@@ -3079,11 +3085,14 @@ func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
 // unreachable threshold flipped to relay, peer explicitly removed).
 // Without this, ensureTunnel keeps reusing a stale entry for up to
 // ResolveCacheTTL (60 s) — silent dial failures against a dead address.
-//
-// NOTE (v1.9.1 RED #13): currently a stub that does nothing. The GREEN
-// phase will implement the body and wire into call sites.
 func (d *Daemon) forgetPeerResolution(nodeID uint32) {
-	_ = nodeID
+	d.resolveCacheMu.Lock()
+	delete(d.resolveCache, nodeID)
+	d.resolveCacheMu.Unlock()
+
+	d.epCacheMu.Lock()
+	delete(d.epCache, nodeID)
+	d.epCacheMu.Unlock()
 }
 
 // ensureTunnel makes sure we have a route to the given node.
