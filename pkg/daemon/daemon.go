@@ -256,6 +256,13 @@ type Daemon struct {
 	// Cached member tags: netID -> local node's admin-assigned tags
 	memberTagsMu sync.RWMutex
 	memberTags   map[uint16][]string
+
+	// AcceptQueueDrops counts SYNs that hit a full Listener.AcceptCh.
+	// Each drop sends a RST back to the dialer (so the peer learns
+	// immediately) and bumps this counter for operator visibility.
+	// Without this, accept-queue overflows are silent slow-downs that
+	// only surface as application-level connection failures.
+	AcceptQueueDrops uint64
 }
 
 const perSourceSYNLimit = 10     // max SYNs per source per second
