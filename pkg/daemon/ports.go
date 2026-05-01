@@ -5,6 +5,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
+
+// ErrEphemeralExhausted is returned by callers of AllocEphemeralPort when
+// all 16384 ephemeral ports (49152..65535) are simultaneously in use.
+var ErrEphemeralExhausted = errors.New("ephemeral ports exhausted")
 
 // SACKBlock represents a contiguous range of received bytes.
 // Left is the seq of the first byte; Right is the seq of the first byte AFTER the range.
@@ -314,23 +319,32 @@ func (pm *PortManager) TotalActiveConnections() int {
 	return count
 }
 
+// AllocEphemeralPort returns an unused ephemeral port in [PortEphemeralMin,
+// PortEphemeralMax], or 0 when all 16384 ports are simultaneously in use.
+// Callers must treat 0 as ErrEphemeralExhausted.
+//
+// v1.9.1 fix: the previous implementation incremented nextEphPort as uint16
+// and checked `> PortEphemeralMax` afterward. When nextEphPort was 65535,
+// uint16++ silently wrapped to 0 before the check fired, so the loop would
+// escape the ephemeral range and return port 0 via `portInUse(0) == false`.
+// The fix uses a bounded int counter and checks >= PortEphemeralMax BEFORE
+// the increment so the uint16 field never reaches 0 via overflow.
 func (pm *PortManager) AllocEphemeralPort() uint16 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	start := pm.nextEphPort
-	for {
+	total := int(protocol.PortEphemeralMax-protocol.PortEphemeralMin) + 1
+	for i := 0; i < total; i++ {
 		port := pm.nextEphPort
-		pm.nextEphPort++
-		if pm.nextEphPort > protocol.PortEphemeralMax {
+		if pm.nextEphPort >= protocol.PortEphemeralMax {
 			pm.nextEphPort = protocol.PortEphemeralMin
+		} else {
+			pm.nextEphPort++
 		}
 		if !pm.portInUse(port) {
 			return port
 		}
-		if pm.nextEphPort == start {
-			return port // full wrap, return anyway (16384 ports)
-		}
 	}
+	return 0 // exhausted; callers must check and return ErrEphemeralExhausted
 }
 
 // portInUse returns true if any active connection is using the given local port.

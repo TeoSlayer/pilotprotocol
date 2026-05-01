@@ -2309,6 +2309,9 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	}
 
 	localPort := d.ports.AllocEphemeralPort()
+	if localPort == 0 {
+		return nil, ErrEphemeralExhausted
+	}
 	conn := d.ports.NewConnection(localPort, dstAddr, dstPort)
 	// Guard the initial state-mutation under conn.Mu — observers (test
 	// helpers, idleSweepLoop, the IPC handler walking the conn table)
@@ -2950,6 +2953,9 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	}
 
 	srcPort := d.ports.AllocEphemeralPort()
+	if srcPort == 0 {
+		return ErrEphemeralExhausted
+	}
 
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
 		return err
@@ -2982,6 +2988,9 @@ func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, ad
 		return fmt.Errorf("broadcast denied: invalid admin token")
 	}
 	srcPort := d.ports.AllocEphemeralPort()
+	if srcPort == 0 {
+		return ErrEphemeralExhausted
+	}
 	return d.broadcastDatagram(netID, srcPort, dstPort, data, adminToken)
 }
 

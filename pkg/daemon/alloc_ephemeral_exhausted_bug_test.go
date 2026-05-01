@@ -8,57 +8,30 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
-// TestAllocEphemeralPortReturnsZeroOnUInt16Overflow reproduces the
-// "exhausted ephemeral range falls through uint16 overflow into
-// non-ephemeral port 0" bug.
+// TestAllocEphemeralPortReturnsZeroOnUInt16Overflow verifies that
+// AllocEphemeralPort returns 0 as an intentional exhaustion sentinel
+// (not via uint16 overflow) when all 16384 ephemeral ports are in use,
+// and that nextEphPort stays within the ephemeral range afterward.
 //
-// Symptom: AllocEphemeralPort scans 49152..65535 (the ephemeral
-// range) looking for an unused port. When ALL 16384 ports are in
-// use, the loop is supposed to wrap. The current code:
+// Bug (pre-v1.9.1): when all 16384 ephemeral ports (49152..65535) were in
+// use, `nextEphPort++` on value 65535 silently overflowed to 0 (uint16
+// arithmetic). The subsequent `> PortEphemeralMax` check failed (0 > 65535
+// is false), so the wrap-to-MIN never fired. The next iteration found
+// port=0 not in use and returned it — a non-ephemeral port that collides
+// with PortPing. After the call, nextEphPort was stuck at 1, outside the
+// ephemeral range.
 //
-//	for {
-//	    port := pm.nextEphPort
-//	    pm.nextEphPort++
-//	    if pm.nextEphPort > protocol.PortEphemeralMax {
-//	        pm.nextEphPort = protocol.PortEphemeralMin
-//	    }
-//	    if !pm.portInUse(port) { return port }
-//	    if pm.nextEphPort == start { return port }
-//	}
+// Fix (v1.9.1): AllocEphemeralPort uses a bounded int counter (max 16384
+// iterations) and checks `>= PortEphemeralMax` BEFORE the increment, so
+// nextEphPort never escapes the ephemeral range. Exhaustion is signaled
+// by returning 0 intentionally. Callers (dialConnectionLocked,
+// SendDatagram, BroadcastDatagram) now check for 0 and return
+// ErrEphemeralExhausted rather than silently proceeding with port=0.
 //
-// Because pm.nextEphPort is uint16, `nextEphPort++` on 65535
-// silently overflows to 0 BEFORE the `> PortEphemeralMax` wrap
-// check. 0 > 65535 is false, so the wrap-to-MIN doesn't fire.
-// nextEphPort stays at 0, which is OUTSIDE the ephemeral range.
-// The next loop iteration tries port=0, finds it not in
-// pm.connections (since we never use port 0 — PortPing is reserved),
-// and returns 0.
-//
-// The caller (DialConnection's localPort assignment) then proceeds
-// with port=0, creating a Connection that:
-//   - violates the ephemeral-port range invariant
-//   - collides with PortPing (reserved port 0)
-//   - looks like a control-plane port to peers that route based
-//     on well-known port numbers
-//
-// Real-world impact: pathological accumulation of stuck SYN_SENT
-// or half-closed connections (e.g. a peer that ignored every FIN,
-// leaving us in StateFinWait until idleSweepLoop reaps) plus high
-// dial volume could exhaust the ephemeral range. Hard to hit in
-// normal use, but silent corruption when it happens.
-//
-// What the v1.9.1 fix should change: AllocEphemeralPort detects
-// real exhaustion (no available port in the ephemeral range) and
-// returns a sentinel value with a callable error path. Callers
-// (DialConnectionContext, SendDatagram, BroadcastDatagram) check
-// the result and surface a clear "ephemeral ports exhausted"
-// error rather than silently proceeding with port=0.
-//
-// This test pins the CURRENT (buggy) behavior: pre-fill all 16384
-// ephemeral ports with active connections, call AllocEphemeralPort,
-// observe that it returns 0 (a non-ephemeral port). After GREEN,
-// the assertion flips: returns the ErrEphemeralExhausted sentinel
-// or surfaces an error.
+// GREEN assertion: after an exhaustion call, nextEphPort must still be
+// in [PortEphemeralMin, PortEphemeralMax]. The overflow bug left it at 1
+// (or some value in [0..PortEphemeralMin-1]), making this check fail
+// against the unpatched code.
 func TestAllocEphemeralPortReturnsZeroOnUInt16Overflow(t *testing.T) {
 	pm := NewPortManager()
 
@@ -77,19 +50,19 @@ func TestAllocEphemeralPortReturnsZeroOnUInt16Overflow(t *testing.T) {
 
 	got := pm.AllocEphemeralPort()
 
-	// CURRENT (buggy) behavior: returns 0 — a non-ephemeral port
-	// that collides with reserved PortPing. The uint16 overflow on
-	// nextEphPort++ from 65535 wraps to 0, the > PortEphemeralMax
-	// wrap-check doesn't fire, and the next iteration finds port=0
-	// not in use (no entries claim it).
+	// FIXED: returns 0 as an intentional exhaustion sentinel.
 	if got != 0 {
-		// Either the bug is fixed (got is in the ephemeral range), or
-		// got is some other non-ephemeral port. Anything other than 0
-		// means the test scenario didn't reproduce the specific overflow.
-		if got >= protocol.PortEphemeralMin && got <= protocol.PortEphemeralMax {
-			t.Fatalf("BUG NOT REPRODUCED: got %d in ephemeral range (fix may be in place); GREEN flips this", got)
-		}
-		t.Fatalf("got unexpected non-ephemeral port %d (expected 0 from overflow path)", got)
+		t.Fatalf("expected 0 (exhaustion sentinel) when all ephemeral ports are in use; got %d", got)
 	}
-	t.Logf("AllocEphemeralPort returned port 0 — outside ephemeral range (49152..65535), collides with PortPing")
+
+	// GREEN distinguisher: nextEphPort must be within the ephemeral range
+	// after the exhaustion scan. The overflow bug left nextEphPort at 1
+	// (uint16 wrapped past 65535 → 0 → loop continued → nextEphPort=1).
+	pm.mu.Lock()
+	next := pm.nextEphPort
+	pm.mu.Unlock()
+	if next < protocol.PortEphemeralMin || next > protocol.PortEphemeralMax {
+		t.Errorf("nextEphPort=%d escaped ephemeral range [%d..%d] — uint16 overflow fix not applied",
+			next, protocol.PortEphemeralMin, protocol.PortEphemeralMax)
+	}
 }
