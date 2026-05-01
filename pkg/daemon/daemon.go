@@ -1690,6 +1690,9 @@ func (d *Daemon) Info() *DaemonInfo {
 		Networks:              networks,
 		PeerList:              peerList,
 		ConnList:              d.ports.ConnectionList(),
+		AcceptQueueDrops:      atomic.LoadUint64(&d.AcceptQueueDrops),
+		WebhookQueueDropped:   d.webhook.Dropped(),
+		WebhookCircuitSkips:   d.webhook.CircuitSkips(),
 	}
 }
 

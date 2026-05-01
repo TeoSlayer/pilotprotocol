@@ -30,10 +30,11 @@ import (
 // in the returned DaemonInfo. No new mutex needed — the counters are
 // already atomic.
 //
-// This test pins the CURRENT (buggy) behavior: even after we set
-// non-zero values on the underlying counters, Info() returns zeros
-// for the new fields. After GREEN, the assertion flips: Info()
-// surfaces the actual values.
+// FIXED (v1.9.1): Info() now reads the underlying counters with
+// atomic.LoadUint64 / nil-safe accessors and populates the new
+// DaemonInfo fields. WebhookClient.Dropped() and CircuitSkips() are
+// nil-receiver-safe (return 0 when daemon has no webhook configured),
+// so tests with d.webhook == nil work without special-casing.
 func TestInfoOmitsHealthCounters(t *testing.T) {
 	reg, rc := startTestRegistry(t)
 	defer reg.Close()
@@ -51,16 +52,45 @@ func TestInfoOmitsHealthCounters(t *testing.T) {
 
 	info := d.Info()
 
-	// CURRENT (buggy) behavior: AcceptQueueDrops is zero in the
-	// returned struct because Info() doesn't populate it. GREEN
-	// flips this assertion.
-	if info.AcceptQueueDrops != 0 {
-		t.Fatalf("BUG NOT REPRODUCED: AcceptQueueDrops already populated (=%d); GREEN flips this", info.AcceptQueueDrops)
+	// FIXED: AcceptQueueDrops surfaces the value we set; webhook
+	// counters are zero because no webhook is configured (nil-safe).
+	if info.AcceptQueueDrops != 7 {
+		t.Errorf("expected AcceptQueueDrops=7 in Info(); got %d", info.AcceptQueueDrops)
 	}
 	if info.WebhookQueueDropped != 0 {
-		t.Fatalf("BUG NOT REPRODUCED: WebhookQueueDropped already populated (=%d); GREEN flips this", info.WebhookQueueDropped)
+		t.Errorf("expected WebhookQueueDropped=0 (no webhook configured); got %d", info.WebhookQueueDropped)
 	}
 	if info.WebhookCircuitSkips != 0 {
-		t.Fatalf("BUG NOT REPRODUCED: WebhookCircuitSkips already populated (=%d); GREEN flips this", info.WebhookCircuitSkips)
+		t.Errorf("expected WebhookCircuitSkips=0 (no webhook configured); got %d", info.WebhookCircuitSkips)
+	}
+}
+
+// TestInfoSurfacesWebhookCounters pins the webhook side of the fix:
+// when a WebhookClient IS configured and its internal counters have
+// non-zero values, Info() reads them through.
+func TestInfoSurfacesWebhookCounters(t *testing.T) {
+	reg, rc := startTestRegistry(t)
+	defer reg.Close()
+	defer rc.Close()
+
+	d := New(Config{})
+	d.regConn = rc
+	t.Cleanup(func() { d.tunnels.Close() })
+
+	// Build a WebhookClient pointed at an unreachable URL — we don't
+	// need it to actually send anything; we'll set the internal
+	// counters directly to simulate accumulated state.
+	wc := NewWebhookClient("http://127.0.0.1:1/noop", func() uint32 { return 1 })
+	t.Cleanup(func() { wc.Close() })
+	wc.dropped.Store(13)
+	wc.circuitSkips.Store(42)
+	d.webhook = wc
+
+	info := d.Info()
+	if info.WebhookQueueDropped != 13 {
+		t.Errorf("expected WebhookQueueDropped=13; got %d", info.WebhookQueueDropped)
+	}
+	if info.WebhookCircuitSkips != 42 {
+		t.Errorf("expected WebhookCircuitSkips=42; got %d", info.WebhookCircuitSkips)
 	}
 }
