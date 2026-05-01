@@ -1123,4 +1123,15 @@ func (c *Connection) ProcessSACK(blocks []SACKBlock) {
 		default:
 		}
 	}
+
+	// When all outstanding bytes are now sacked, BytesInFlight()==0 means the
+	// peer has received everything in flight.  Signal NagleCh so a nagleFlush
+	// goroutine waiting for "all data ACKed" wakes immediately instead of
+	// stalling for NagleTimeout (40 ms) until the cumulative ACK arrives.
+	if c.NagleCh != nil && c.BytesInFlight() == 0 {
+		select {
+		case c.NagleCh <- struct{}{}:
+		default:
+		}
+	}
 }
