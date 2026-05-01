@@ -1857,8 +1857,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Process peer's receive window from SYN (H9 fix: always update, including Window==0)
 		conn.RetxMu.Lock()
+		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		winOpened := prevWin == 0 && conn.PeerRecvWin > 0
 		conn.RetxMu.Unlock()
+		if winOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
 		// Send SYN-ACK with our receive window
 		conn.Mu.Lock()
@@ -1935,8 +1943,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Process peer's receive window from SYN-ACK (H9 fix: always update)
 		conn.RetxMu.Lock()
+		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		winOpened := prevWin == 0 && conn.PeerRecvWin > 0
 		conn.RetxMu.Unlock()
+		if winOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
 		// Send ACK with our receive window
 		ack := &protocol.Packet{
@@ -2041,8 +2057,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Update peer's receive window (H9 fix: always update, honor Window==0)
 		conn.RetxMu.Lock()
+		prevPeerWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		peerWinOpened := prevPeerWin == 0 && conn.PeerRecvWin > 0
 		conn.RetxMu.Unlock()
+		if peerWinOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
 		// Process ACK for retransmission tracking.
 		// v1.9.1: removed the 'pkt.Ack > 0' guard — Ack=0 is the legitimate
