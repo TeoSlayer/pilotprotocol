@@ -1600,6 +1600,15 @@ type DaemonInfo struct {
 	Networks              []NetworkMembership
 	PeerList              []PeerInfo
 	ConnList              []ConnectionInfo
+
+	// v1.9.1: health metrics surfaced for operators / dashboards.
+	// These counters live elsewhere (Daemon.AcceptQueueDrops, the
+	// WebhookClient internals) but had no path to reach `pilotctl info`
+	// until now. Each is monotonic; operators compute rate by diffing
+	// two snapshots over time.
+	AcceptQueueDrops    uint64
+	WebhookQueueDropped uint64
+	WebhookCircuitSkips uint64
 }
 
 // Info returns current daemon status.
