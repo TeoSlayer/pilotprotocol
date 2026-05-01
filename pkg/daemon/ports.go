@@ -1015,9 +1015,9 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 	for i := 1; i < len(sorted); i++ {
 		seg := sorted[i]
 		segEnd := seg.seq + uint32(len(seg.data))
-		if seg.seq <= cur.Right {
+		if seqAfterOrEqual(cur.Right, seg.seq) {
 			// Contiguous or overlapping — extend
-			if segEnd > cur.Right {
+			if seqAfter(segEnd, cur.Right) {
 				cur.Right = segEnd
 			}
 		} else {
