@@ -270,6 +270,13 @@ func (c *ipcConn) addDialCancel(cancel context.CancelFunc) {
 	c.dialCancels = append(c.dialCancels, cancel)
 }
 
+// dialCancelCount returns the number of entries in dialCancels (for testing).
+func (c *ipcConn) dialCancelCount() int {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	return len(c.dialCancels)
+}
+
 func (c *ipcConn) trackPort(port uint16) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
