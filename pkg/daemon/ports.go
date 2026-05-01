@@ -398,12 +398,24 @@ func (pm *PortManager) GetConnection(id uint32) *Connection {
 func (pm *PortManager) FindConnection(localPort uint16, remoteAddr protocol.Addr, remotePort uint16) *Connection {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
+	// v1.9.1: prefer active (non-TIME_WAIT, non-CLOSED) connections when
+	// multiple share the same 4-tuple (possible after port reuse on a
+	// TIME_WAIT entry). Without this preference, Go's randomised map
+	// iteration returned stale TIME_WAIT entries ~50% of the time, causing
+	// data packets to be silently discarded by the "established" state guard.
+	var fallback *Connection
 	for _, c := range pm.connections {
 		if c.LocalPort == localPort && c.RemoteAddr == remoteAddr && c.RemotePort == remotePort {
-			return c
+			c.Mu.Lock()
+			st := c.State
+			c.Mu.Unlock()
+			if st != StateTimeWait && st != StateClosed {
+				return c // active connection — always prefer over stale entries
+			}
+			fallback = c // stale; return only when no active match exists
 		}
 	}
-	return nil
+	return fallback
 }
 
 // ConnectionInfo describes an active connection for diagnostics.
