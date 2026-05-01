@@ -210,6 +210,15 @@ type TunnelManager struct {
 	// removed via RemovePeer.
 	lastOutboundSend map[uint32]time.Time
 
+	// sendErrCount counts consecutive ICMP-unreachable errors (ECONNREFUSED,
+	// EHOSTUNREACH, ENETUNREACH) returned by writeFrame to a given peer.
+	// Linux delivers these errors on a subsequent write after the kernel
+	// receives an ICMP unreachable from the peer's stack. On reaching
+	// sendErrThreshold, the peer is flipped to relay mode (faster recovery
+	// than the 24+ s blackhole-heuristic flip). Cleared on any inbound
+	// successful decrypt from the peer (see recordInboundDecrypt).
+	sendErrCount map[uint32]int
+
 	// Webhook
 	webhook *WebhookClient
 
@@ -255,6 +264,7 @@ func NewTunnelManager() *TunnelManager {
 		blackholeMissCount: make(map[uint32]int),
 		directClearCount:   make(map[uint32]int),
 		lastOutboundSend:   make(map[uint32]time.Time),
+		sendErrCount:       make(map[uint32]int),
 		lastRekeyReq:       make(map[uint32]time.Time),
 		pendingRekey:       make(map[uint32]*pendingRekeyState),
 		lastInboundDecrypt: make(map[uint32]time.Time),
@@ -581,6 +591,27 @@ func (tm *TunnelManager) recordOutboundSend(nodeID uint32) {
 	tm.mu.Lock()
 	tm.lastOutboundSend[nodeID] = time.Now()
 	tm.mu.Unlock()
+}
+
+// sendErrThreshold is the number of consecutive ICMP-unreachable errors
+// from a single peer required before handleSendError flips them to relay
+// mode. Three matches the symmetric blackhole-miss / direct-clear
+// thresholds so transient single-error blips don't cause flapping.
+const sendErrThreshold = 3
+
+// handleSendError is invoked from writeFrame's UDP-write error path. On
+// a Linux kernel that has received an ICMP-unreachable from the peer's
+// stack, the next WriteToUDP returns ECONNREFUSED / EHOSTUNREACH /
+// ENETUNREACH. After sendErrThreshold consecutive matching errors, the
+// peer is promoted to relay mode for fast recovery (vs. waiting ~24 s
+// for the lastDirectRecv-based blackhole heuristic).
+//
+// NOTE (v1.9.1 RED #8): currently a stub that does nothing. The GREEN
+// phase will implement the body — error classification + counter +
+// relay flip on threshold.
+func (tm *TunnelManager) handleSendError(nodeID uint32, err error) {
+	_ = nodeID
+	_ = err
 }
 
 // TunnelKeepaliveInterval is the minimum gap between successive sends to
@@ -1769,6 +1800,7 @@ func (tm *TunnelManager) RemovePeer(nodeID uint32) {
 	delete(tm.peers, nodeID)
 	delete(tm.crypto, nodeID)
 	delete(tm.lastOutboundSend, nodeID)
+	delete(tm.sendErrCount, nodeID)
 	tm.mu.Unlock()
 }
 
