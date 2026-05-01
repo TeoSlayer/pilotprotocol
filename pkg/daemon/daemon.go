@@ -2659,8 +2659,14 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		}
 	}
 
+	// v1.9.1: reserve seq atomically with the read — pre-incrementing SendSeq
+	// inside the same Mu critical section prevents two concurrent sendSegment
+	// callers from reading the same SendSeq and emitting packets with identical
+	// sequence numbers (which causes the peer to discard one as a duplicate,
+	// silently losing the data and corrupting the connection's seq state).
 	conn.Mu.Lock()
 	seq := conn.SendSeq
+	conn.SendSeq += uint32(len(data))
 	ack := conn.RecvAck
 	conn.Mu.Unlock()
 	pkt := &protocol.Packet{
@@ -2681,7 +2687,6 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		return err
 	}
 	conn.Mu.Lock()
-	conn.SendSeq += uint32(len(data))
 	conn.LastActivity = time.Now()
 	conn.Stats.BytesSent += uint64(len(data))
 	conn.Stats.SegsSent++
