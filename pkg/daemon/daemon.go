@@ -2914,7 +2914,10 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			}
 			return // only retransmit ONE segment per RTO
 		}
-		break // segments are ordered by time; if first hasn't timed out, none have
+		// Not timed out yet — continue checking remaining entries.
+		// sentAt ordering is not guaranteed: a prior retransmit updates sentAt
+		// for the retransmitted entry while later entries retain their original
+		// (older) sentAt, so an entry after a recent-retransmit may be timed out.
 	}
 }
 
