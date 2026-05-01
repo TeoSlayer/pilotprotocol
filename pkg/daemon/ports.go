@@ -843,8 +843,14 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// minimum must not fire for a zero-delivery ACK.
 	if bytesAcked > 0 {
 		if c.CongWin < c.SSThresh {
-			// Slow start: grow by acked bytes (exponential)
-			c.CongWin += bytesAcked
+			// Slow start: grow by acked bytes, capped at 2*SMSS per ACK
+			// (RFC 3465 §2.1: ABC limit prevents over-reward from delayed ACKs
+			// that cover 3+ segments — each ACK may add at most 2*SMSS).
+			inc := bytesAcked
+			if inc > 2*MaxSegmentSize {
+				inc = 2 * MaxSegmentSize
+			}
+			c.CongWin += inc
 		} else {
 			// Congestion avoidance: grow by ~MSS per RTT (AIMD, RFC 3465 §2.2).
 			// Cap the effective bytes at SMSS: when bytes_acked > SMSS (e.g. a
