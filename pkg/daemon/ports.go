@@ -204,7 +204,7 @@ type Connection struct {
 	RetxStop      chan struct{}          // closed to stop retx goroutine
 	RetxSend      func(*protocol.Packet) // callback to send retransmitted packets
 	WindowCh      chan struct{}          // signaled when window opens up
-	PeerRecvWin   int                    // peer's advertised receive window (0 = unknown/unlimited)
+	PeerRecvWin   int                    // peer's advertised receive window (-1 = not yet received, 0 = explicit zero-window)
 	// Nagle algorithm (write coalescing)
 	NagleBuf []byte        // pending small write data
 	NagleMu  sync.Mutex    // protects NagleBuf
@@ -418,6 +418,7 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		SSThresh:     MaxCongWin / 2,
 		WindowCh:     make(chan struct{}, 1),
 		NagleCh:      make(chan struct{}, 1),
+		PeerRecvWin:  -1, // sentinel: no window advertisement received yet
 	}
 	pm.nextConnID++
 	if pm.nextConnID == 0 {
@@ -618,7 +619,7 @@ func (c *Connection) EffectiveWindow() int {
 	if win <= 0 {
 		win = InitialCongWin
 	}
-	if c.PeerRecvWin > 0 && c.PeerRecvWin < win {
+	if c.PeerRecvWin >= 0 && c.PeerRecvWin < win {
 		win = c.PeerRecvWin
 	}
 	return win
