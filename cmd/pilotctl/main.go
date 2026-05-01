@@ -429,12 +429,13 @@ Service Agents:
 Diagnostic commands:
   pilotctl info
   pilotctl health
-  pilotctl peers [--search <query>]
+  pilotctl peers [--search <query>] [--show-endpoints]
   pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]
   pilotctl traceroute <address> [--timeout <dur>]
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
+  pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
   pilotctl context
@@ -481,6 +482,10 @@ func main() {
 	switch cmd {
 	case "version":
 		fmt.Println(version)
+		return
+
+	case "updates":
+		cmdUpdates(cmdArgs)
 		return
 
 	// Bootstrap
@@ -764,7 +769,7 @@ func main() {
 
 	// Diagnostics
 	case "info":
-		cmdInfo()
+		cmdInfo(cmdArgs)
 	case "my-polo":
 		cmdMyPolo()
 	case "health":
@@ -1892,16 +1897,44 @@ func cmdRegister(args []string) {
 
 func cmdLookup(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id> [--show-endpoints]")
 	}
-	nodeID := parseNodeID(args[0])
+	flags, pos := parseFlags(args)
+	if len(pos) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id> [--show-endpoints]")
+	}
+	showEndpoints := flagBool(flags, "show-endpoints")
+	nodeID := parseNodeID(pos[0])
 	rc := connectRegistry()
 	defer rc.Close()
 	resp, err := rc.Lookup(nodeID)
 	if err != nil {
 		fatalCode("connection_failed", "lookup: %v", err)
 	}
+	if !showEndpoints {
+		redactPeerEndpoints(resp)
+	}
 	output(resp)
+}
+
+// redactPeerEndpoints walks a registry/daemon response and drops any
+// IP-bearing fields. Operates in-place; safe to call on nil/non-map types.
+// Removed keys: endpoint, real_addr, lan_addrs, public_addr, ip, addr.
+// Recurses into nested maps and into peer_list / nodes / data sub-objects.
+func redactPeerEndpoints(v interface{}) {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		for _, k := range []string{"endpoint", "real_addr", "lan_addrs", "public_addr", "stun_addr", "observed_addr"} {
+			delete(x, k)
+		}
+		for _, vv := range x {
+			redactPeerEndpoints(vv)
+		}
+	case []interface{}:
+		for _, vv := range x {
+			redactPeerEndpoints(vv)
+		}
+	}
 }
 
 func cmdRotateKey(args []string) {
@@ -3773,13 +3806,24 @@ func cmdMyPolo() {
 	fmt.Printf("My polo score: %d\n", score)
 }
 
-func cmdInfo() {
+func cmdInfo(args []string) {
+	flags, _ := parseFlags(args)
+	showEndpoints := flagBool(flags, "show-endpoints")
+
 	d := connectDriver()
 	defer d.Close()
 
 	info, err := d.Info()
 	if err != nil {
 		fatalCode("connection_failed", "info: %v", err)
+	}
+
+	// Privacy: strip per-peer endpoints + STUN-discovered own addresses
+	// from the JSON dump unless the operator explicitly opts in via
+	// --show-endpoints. The summary counters (peers, encrypted_peers)
+	// stay; only the IP-bearing fields are redacted.
+	if !showEndpoints {
+		redactPeerEndpoints(info)
 	}
 
 	if jsonOutput {
@@ -3926,6 +3970,10 @@ func cmdHealth() {
 func cmdPeers(args []string) {
 	flags, _ := parseFlags(args)
 	search := flagString(flags, "search", "")
+	// Privacy default: peer real IPs are hidden. Opt in with --show-endpoints
+	// (ops/debug only). Search by node_id always works; search by endpoint
+	// fragment only works when endpoints are visible.
+	showEndpoints := flagBool(flags, "show-endpoints")
 
 	d := connectDriver()
 	defer d.Close()
@@ -3950,11 +3998,36 @@ func cmdPeers(args []string) {
 		peer := p.(map[string]interface{})
 		searchLower := strings.ToLower(search)
 		nodeIDStr := fmt.Sprintf("%d", int(peer["node_id"].(float64)))
-		endpoint, _ := peer["endpoint"].(string)
-		if strings.Contains(nodeIDStr, searchLower) ||
-			strings.Contains(strings.ToLower(endpoint), searchLower) {
+		match := strings.Contains(nodeIDStr, searchLower)
+		if !match && showEndpoints {
+			// only consult endpoint when the user has explicitly asked
+			// to see it; never let a search prompt leak IP existence.
+			endpoint, _ := peer["endpoint"].(string)
+			match = strings.Contains(strings.ToLower(endpoint), searchLower)
+		}
+		if match {
 			filtered = append(filtered, p)
 		}
+	}
+
+	// Redact endpoint unless the operator opted in.
+	if !showEndpoints {
+		redacted := make([]interface{}, 0, len(filtered))
+		for _, p := range filtered {
+			peer, _ := p.(map[string]interface{})
+			if peer == nil {
+				continue
+			}
+			cp := make(map[string]interface{}, len(peer))
+			for k, v := range peer {
+				if k == "endpoint" || k == "real_addr" || k == "lan_addrs" || k == "public_addr" {
+					continue
+				}
+				cp[k] = v
+			}
+			redacted = append(redacted, cp)
+		}
+		filtered = redacted
 	}
 
 	if jsonOutput {
@@ -3976,7 +4049,11 @@ func cmdPeers(args []string) {
 	}
 
 	maxDisplay := 50
-	fmt.Printf("%-10s  %-30s  %-20s  %s\n", "NODE ID", "ENDPOINT", "ENCRYPTED", "AUTH")
+	if showEndpoints {
+		fmt.Printf("%-10s  %-30s  %-20s  %s\n", "NODE ID", "ENDPOINT", "ENCRYPTED", "AUTH")
+	} else {
+		fmt.Printf("%-10s  %-20s  %s\n", "NODE ID", "ENCRYPTED", "AUTH")
+	}
 	displayed := 0
 	for _, p := range filtered {
 		if displayed >= maxDisplay {
@@ -4001,7 +4078,11 @@ func cmdPeers(args []string) {
 		if authenticated {
 			authStr = "yes (Ed25519)"
 		}
-		fmt.Printf("%-10d  %-30s  %-20s  %s\n", int(peer["node_id"].(float64)), peer["endpoint"], encStr, authStr)
+		if showEndpoints {
+			fmt.Printf("%-10d  %-30s  %-20s  %s\n", int(peer["node_id"].(float64)), peer["endpoint"], encStr, authStr)
+		} else {
+			fmt.Printf("%-10d  %-20s  %s\n", int(peer["node_id"].(float64)), encStr, authStr)
+		}
 	}
 }
 
@@ -4431,7 +4512,44 @@ func cmdListen(args []string) {
 }
 
 func cmdBroadcast(args []string) {
-	fatalCode("unavailable", "broadcast is not available yet — custom networks are WIP")
+	flags, positional := parseFlags(args)
+	if len(positional) < 2 {
+		fatalCode("usage", "usage: pilotctl broadcast <network_id> <message> [--port <port>]")
+	}
+	netID64, err := strconv.ParseUint(positional[0], 10, 16)
+	if err != nil {
+		fatalCode("usage", "invalid network_id: %v", err)
+	}
+	netID := uint16(netID64)
+	message := positional[1]
+
+	port := uint16(1000)
+	if v := flagString(flags, "port", ""); v != "" {
+		p, err := strconv.ParseUint(v, 10, 16)
+		if err != nil {
+			fatalCode("usage", "invalid --port: %v", err)
+		}
+		port = uint16(p)
+	}
+
+	token := requireAdminToken()
+
+	d := connectDriver()
+	defer d.Close()
+
+	if err := d.Broadcast(netID, port, []byte(message), token); err != nil {
+		fatalCode("broadcast_failed", "%v", err)
+	}
+
+	if jsonOutput {
+		output(map[string]interface{}{
+			"network_id": netID,
+			"port":       port,
+			"bytes":      len(message),
+		})
+	} else {
+		fmt.Printf("broadcast on network %d port %d (%d bytes)\n", netID, port, len(message))
+	}
 }
 
 // ===================== MAILBOX =====================
@@ -4656,19 +4774,23 @@ func cmdNetworkList() {
 		fmt.Println("no networks")
 		return
 	}
+	// Member counts are admin-only at the registry. Without admin_token
+	// the registry omits the `members` field; render "—" so the column
+	// stays aligned and it's clear the count is hidden by policy rather
+	// than broken.
 	fmt.Printf("%-8s %-30s %-10s %s\n", "ID", "NAME", "JOIN RULE", "MEMBERS")
 	for _, n := range nets {
 		nm, _ := n.(map[string]interface{})
 		id := uint16(nm["id"].(float64))
 		name, _ := nm["name"].(string)
 		rule, _ := nm["join_rule"].(string)
-		count := 0
+		memberStr := "—"
 		if members, ok := nm["members"].([]interface{}); ok {
-			count = len(members)
+			memberStr = fmt.Sprintf("%d", len(members))
 		} else if mc, ok := nm["members"].(float64); ok {
-			count = int(mc)
+			memberStr = fmt.Sprintf("%d", int(mc))
 		}
-		fmt.Printf("%-8d %-30s %-10s %d\n", id, name, rule, count)
+		fmt.Printf("%-8d %-30s %-10s %s\n", id, name, rule, memberStr)
 	}
 }
 

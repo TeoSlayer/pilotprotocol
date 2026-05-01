@@ -227,7 +227,7 @@ func TestNetworkTokenJoinRule(t *testing.T) {
 	}
 
 	// Get network ID
-	netsResp, err := rc.ListNetworks()
+	netsResp, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestListNetworks(t *testing.T) {
 	}
 
 	// List networks
-	resp, err := rc.ListNetworks()
+	resp, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -585,4 +585,109 @@ func TestVisibilityToggle(t *testing.T) {
 	}
 
 	t.Log("visibility toggle succeeded")
+}
+
+// TestListNetworksMembersAdminGated pins the privacy guarantee added in
+// v1.9.0: anyone can list networks (so daemons can discover what to
+// join), but the per-network member count is admin-only. Without an
+// admin token, the registry omits the `members` field; with the token,
+// the count is included.
+func TestListNetworksMembersAdminGated(t *testing.T) {
+	t.Parallel()
+	rc, _, cleanup := startTestRegistryWithAdmin(t)
+	defer cleanup()
+
+	ownerID, _ := registerTestNode(t, rc)
+	memberID, _ := registerTestNode(t, rc)
+
+	if _, err := rc.CreateNetwork(ownerID, "gated-pop", "open", "", TestAdminToken, false); err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	netList, err := rc.ListNetworks(TestAdminToken)
+	if err != nil {
+		t.Fatalf("admin list: %v", err)
+	}
+	var netID uint16
+	for _, n := range netList["networks"].([]interface{}) {
+		nm := n.(map[string]interface{})
+		if nm["name"] == "gated-pop" {
+			netID = uint16(nm["id"].(float64))
+			break
+		}
+	}
+	if netID == 0 {
+		t.Fatal("created network not found in admin list")
+	}
+	if _, err := rc.JoinNetwork(memberID, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	// 1. Without admin token: `members` must not be present.
+	pubResp, err := rc.ListNetworks()
+	if err != nil {
+		t.Fatalf("public list: %v", err)
+	}
+	pubFound := false
+	for _, n := range pubResp["networks"].([]interface{}) {
+		nm := n.(map[string]interface{})
+		if nm["name"] != "gated-pop" {
+			continue
+		}
+		pubFound = true
+		// Network identity stays visible.
+		if id := uint16(nm["id"].(float64)); id != netID {
+			t.Errorf("public list: id = %d, want %d", id, netID)
+		}
+		if _, ok := nm["members"]; ok {
+			t.Errorf("public list: `members` field leaked to non-admin caller (got %v)", nm["members"])
+		}
+	}
+	if !pubFound {
+		t.Error("public list: network `gated-pop` missing — list itself should remain visible")
+	}
+
+	// 2. With admin token: `members` must be present and accurate.
+	adminResp, err := rc.ListNetworks(TestAdminToken)
+	if err != nil {
+		t.Fatalf("admin list: %v", err)
+	}
+	adminFound := false
+	for _, n := range adminResp["networks"].([]interface{}) {
+		nm := n.(map[string]interface{})
+		if nm["name"] != "gated-pop" {
+			continue
+		}
+		adminFound = true
+		mc, ok := nm["members"].(float64)
+		if !ok {
+			t.Fatalf("admin list: `members` missing for admin caller, got %v", nm)
+		}
+		if int(mc) != 2 {
+			t.Errorf("admin list: members = %d, want 2 (owner + member)", int(mc))
+		}
+	}
+	if !adminFound {
+		t.Error("admin list: network `gated-pop` missing")
+	}
+
+	// 3. Wrong admin token must be treated as no admin (counts hidden,
+	//    list still visible).
+	wrong, err := rc.ListNetworks("not-the-real-token")
+	if err != nil {
+		t.Fatalf("wrong-token list: %v", err)
+	}
+	wrongFound := false
+	for _, n := range wrong["networks"].([]interface{}) {
+		nm := n.(map[string]interface{})
+		if nm["name"] != "gated-pop" {
+			continue
+		}
+		wrongFound = true
+		if _, ok := nm["members"]; ok {
+			t.Errorf("wrong-token list: members field leaked")
+		}
+	}
+	if !wrongFound {
+		t.Error("wrong-token list: network missing")
+	}
 }

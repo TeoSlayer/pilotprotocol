@@ -240,7 +240,7 @@ func TestEnterpriseCreateAndList(t *testing.T) {
 	regNetID := uint16(regResp["network_id"].(float64))
 
 	// List networks and verify enterprise flags
-	listResp, err := rc.ListNetworks()
+	listResp, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list_networks: %v", err)
 	}
@@ -2550,7 +2550,7 @@ func TestListNetworksEnterpriseFields(t *testing.T) {
 	}
 
 	// List networks and verify fields
-	listResp, err := rc.ListNetworks()
+	listResp, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -3757,7 +3757,7 @@ func TestNetworkRenameValidation(t *testing.T) {
 	}
 
 	// Verify rename took effect
-	networks, err := rc.ListNetworks()
+	networks, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -4072,7 +4072,7 @@ func TestDeleteNetworkCleansAllInvites(t *testing.T) {
 	}
 
 	// Verify network is gone
-	networks, err := rc.ListNetworks()
+	networks, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -4148,7 +4148,7 @@ func TestDeleteNetworkNonOwner(t *testing.T) {
 	}
 
 	// Verify network still exists
-	networks, err := rc.ListNetworks()
+	networks, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -4179,7 +4179,7 @@ func TestListNetworksCreatedTimestamp(t *testing.T) {
 		t.Fatalf("create network: %v", err)
 	}
 
-	networks, err := rc.ListNetworks()
+	networks, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}
@@ -4415,7 +4415,7 @@ func TestConcurrentEnterpriseOps(t *testing.T) {
 	}
 
 	// Verify network still exists and is consistent
-	networks, err := rc.ListNetworks()
+	networks, err := rc.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}

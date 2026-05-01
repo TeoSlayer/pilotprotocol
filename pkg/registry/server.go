@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,48 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
+
+// LOCK ORDERING INVARIANTS — read this before adding a new lock.
+//
+// The registry has several mutexes covering different scopes. The 2026-04-28
+// production incident was caused by signature verification (~28µs Ed25519)
+// running while holding s.mu.Lock; under load the contention queue grew to
+// 95k+ goroutines. This comment block exists so the rule is impossible to
+// miss when adding a new handler.
+//
+// Tier 1 (RWMutex):
+//   Server.mu — global state (nodes, networks, indices, trustPairs).
+//
+// Tier 2 (nested under Tier 1, NEVER reversed):
+//   Server.nodeShards[256] — per-node fields (RealAddr, LANAddrs, Version).
+//     Acquired under s.mu.Lock in the slow path, under s.mu.RLock in
+//     snapshotJSON / flushSave Phase 1. Never acquire s.mu while holding a
+//     shard lock.
+//
+// Tier 3 (independent or nested under Tier 1):
+//   Server.handshakeMu — handshake inbox / responses (added 2026-04-29).
+//     Acquired AFTER s.mu.RUnlock OR nested inside s.mu.RLock.
+//   Server.auditMu — audit log. Same pattern as handshakeMu.
+//   Server.restartMu / probeMu / pulseMu — must be acquired ONLY AFTER
+//     s.mu.RUnlock (never nested before).
+//
+// Tier 4 (fully independent):
+//   replicationManager.mu — subscriber state.
+//   listNodesPerNetMu → listNodesCacheState.mu — singleflight cache.
+//
+// FORBIDDEN PATTERNS (would deadlock or race):
+//   ❌ restartMu.Lock()  → s.mu.Lock()      (deadlock)
+//   ❌ probeMu.Lock()    → s.mu.Lock()      (deadlock)
+//   ❌ shard.Lock()      → s.mu.Lock()      (deadlock)
+//   ❌ handshakeMu.Lock without s.mu.RLock guard on inbox reads (race)
+//
+// CORRECTNESS RULE — DO NOT BREAK:
+//   No signature verification, no JSON marshal, no encoding/decoding, no
+//   network I/O while holding s.mu.Lock OR s.mu.RLock. CPU work goes
+//   OUTSIDE the lock. The 3-phase pattern (RLock → snapshot fields →
+//   RUnlock → CPU work outside lock → Lock for mutation) is the canonical
+//   shape; see handleRequestHandshake / handlePollHandshakes /
+//   handleRespondHandshake for working examples.
 
 // hashOwner returns a truncated SHA-256 hash of the owner for safe logging.
 func hashOwner(owner string) string {
@@ -283,12 +326,28 @@ type Server struct {
 	saveCh    chan struct{} // debounced save signal
 	saveDone  chan struct{} // closed when saveLoop exits
 
+	// Replica push — decoupled from disk save. saveLoopInterval can run
+	// on a slower cadence (5s+) without delaying replica propagation
+	// because replicaPushLoop runs every replicaPushInterval (1s) and
+	// builds + pushes a snapshot independently when dirty.
+	replicaPushCh   chan struct{} // debounced replica push signal
+	replicaPushDone chan struct{} // closed when replicaPushLoop exits
+
 	// TLS
 	tlsConfig *tls.Config
 
 	// Trust pairs: "min:max" -> true (bidirectional trust)
 	trustPairs map[string]bool
 
+	// Handshake state has its own mutex (handshakeMu) so daemon-initiated
+	// handshake polls/responses/requests don't compete with registration,
+	// heartbeat-update, save-loop snapshots, or any other state mutating
+	// operation that takes s.mu. Without this separation, a few thousand
+	// daemons polling concurrently saturate s.mu and bring throughput to
+	// near zero (observed 2026-04-29: 23k goroutines waiting on s.mu in
+	// handlePollHandshakes alone). Lock order if both are needed: take
+	// handshakeMu BEFORE s.mu (currently no path takes both nested).
+	handshakeMu sync.Mutex
 	// Handshake relay inbox: target nodeID -> pending requests
 	handshakeInbox map[uint32][]*HandshakeRelayMsg
 	// Handshake response inbox: requester nodeID -> approval/rejection responses
@@ -306,8 +365,10 @@ type Server struct {
 	replMgr    *replicationManager
 	replToken  string // H4 fix: required for subscribe_replication; empty = replication disabled
 	standby    bool   // if true, reject writes and receive snapshots from primary
-	adminToken     string // required for create_network; empty = creation disabled
-	dashboardToken string // token for per-network stats on dashboard; empty = public-only
+	adminToken        string // required for create_network; empty = creation disabled
+	dashboardToken    string // token for per-network stats on dashboard; empty = public-only
+	maintenanceBanner string // optional notice rendered on the dashboard alongside release banner
+	bannerPath        string // optional path to persist the banner so it survives restarts (e.g. /var/lib/pilot/banner.txt)
 
 	// Optional pluggable beacon stats provider — set by the host
 	// (cmd/rendezvous) so /api/stats can surface relay forward counters
@@ -351,6 +412,14 @@ type Server struct {
 	// Clock (overridable for testing)
 	now func() time.Time
 
+	// staleNodeThreshold controls how long since last heartbeat a node is
+	// considered online for dashboard / reap purposes. Defaults to
+	// defaultStaleNodeThreshold; settable via SetStaleNodeThreshold or the
+	// rendezvous -stale-threshold flag. Read via atomic load on the read
+	// paths; updates are rare (config-time only) so a plain int64 nanos
+	// load + atomic store is enough.
+	staleNodeThresholdNs atomic.Int64
+
 	// Shutdown
 	done chan struct{}
 
@@ -373,7 +442,59 @@ type Server struct {
 	// Per-network history ring buffers (keyed by network ID)
 	netHourly map[uint16]*netHistoryRing
 	netDaily  map[uint16]*netHistoryRing
+
+	// list_nodes cache. Admin-backbone (netID=0) and large per-network
+	// listings ("data-exchange" 45k members, "high-trust-society" 28k) all
+	// route through the same singleflight + 1s-TTL cache. Each network
+	// (and the admin path, key=0) has its own state inside listNodesPerNet.
+	listNodesCache    listNodesCacheState            // legacy backbone admin cache
+	listNodesPerNetMu sync.Mutex                     // guards the map itself
+	listNodesPerNet   map[uint16]*listNodesCacheState
 }
+
+type listNodesCacheState struct {
+	mu sync.Mutex
+	// fullBody is the COMPLETE pre-marshalled response body, including the
+	// outer `{"type":"list_nodes_ok","nodes":[...]}` wrapper. Returning this
+	// from the handler lets writeMessage skip json.Marshal entirely on
+	// cache-hits — saves the appendCompact pass over a 16 MB payload that
+	// dominated CPU at ~65% of total before this optimization.
+	fullBody      []byte
+	builtAt       time.Time
+	building      bool
+	cond          *sync.Cond
+	lastBuildErr  error  // err from the last rebuild (e.g., network not found)
+	cacheHits     uint64 // counter: served from fresh cache
+	cacheWaits    uint64 // counter: waited for in-flight rebuild
+	cacheRebuilds uint64 // counter: this goroutine rebuilt the cache
+}
+
+// invalidateListNodesCacheForNetwork drops the cached pre-marshalled response
+// for the given network so the next list_nodes call rebuilds. Call it after
+// any mutation to network.Members (join, leave, kick, invite-accept, admin
+// add/remove). Cheap — just deletes the per-net cache state.
+func (s *Server) invalidateListNodesCacheForNetwork(netID uint16) {
+	s.listNodesPerNetMu.Lock()
+	delete(s.listNodesPerNet, netID)
+	s.listNodesPerNetMu.Unlock()
+}
+
+// invalidateAdminListNodesCache forces the next adminListNodesCached() call
+// to rebuild instead of serving the cached body. Call it after any mutation
+// to s.nodes (register, deregister, reap). Cheap — just zeroes builtAt.
+func (s *Server) invalidateAdminListNodesCache() {
+	c := &s.listNodesCache
+	c.mu.Lock()
+	c.builtAt = time.Time{}
+	c.mu.Unlock()
+}
+
+// rawResponseKey is a sentinel map key. When a handler returns a response
+// map containing this key with a []byte value, writeMessage skips
+// json.Marshal entirely and writes the bytes verbatim (preceded by the
+// standard 4-byte length prefix). Used by the list_nodes cache to bypass
+// the encoder's appendCompact validation pass on already-valid cached JSON.
+const rawResponseKey = "_pilot_raw_body"
 
 // AuditEntry records a single audit event.
 type AuditEntry struct {
@@ -394,19 +515,44 @@ type beaconEntry struct {
 // beaconTTL is how long a beacon registration is valid without re-register.
 const beaconTTL = 60 * time.Second
 
-// staleNodeThreshold is how long since last heartbeat before a node is stale/offline.
-// At 60s heartbeat interval, this allows 5 missed heartbeats before reaping.
-// Old daemons using 30s interval still work (they just heartbeat more often).
-const staleNodeThreshold = 5 * time.Minute
+// defaultStaleNodeThreshold is the default time since last heartbeat before a
+// node is considered stale/offline. At 60s heartbeat interval, this tolerates
+// ~30 missed heartbeats before reaping — enough grace for spoof reconnect
+// storms and rendezvous transient overload to clear without evicting healthy
+// daemons whose heartbeats land late. Operators can override per-Server via
+// SetStaleNodeThreshold (or the rendezvous -stale-threshold flag); a smaller
+// value (e.g. 5m) gives faster dashboard reflection of disconnects at the
+// cost of less tolerance for reconnect storms.
+const defaultStaleNodeThreshold = 30 * time.Minute
+
+// saveLoopInterval is how often saveLoop flushes dirty state to disk.
+// Replica push runs on its own faster ticker (replicaPushInterval) so
+// raising this interval does not delay replication propagation.
+const saveLoopInterval = 5 * time.Second
+
+// replicaPushInterval is how often replicaPushLoop builds + pushes a
+// fresh snapshot to replication subscribers when state is dirty. This
+// is decoupled from the disk save cadence (saveLoopInterval) so replicas
+// stay near-current even when disk I/O is debounced longer.
+const replicaPushInterval = 1 * time.Second
+
+// shutdownDrainTimeout caps how long Close() waits for background loops
+// (saveLoop, replicaPushLoop) to finish their final iteration. A stuck
+// fsync or slow peer must not wedge the process indefinitely on shutdown;
+// 10s is generous enough for a clean final flush but bounded enough that
+// a misbehaving environment surfaces in process-supervisor timeouts.
+const shutdownDrainTimeout = 10 * time.Second
 
 // defaultMaxConnections is the maximum concurrent connections the server will accept.
 const defaultMaxConnections int64 = 1100000
 
-// maxMessageSize is the maximum allowed wire message size (4MB).
+// maxMessageSize is the maximum allowed wire message size (64MB).
 // Messages exceeding this limit cause the connection to be closed.
 // Note: must stay well below the binary wire magic (0x50494C54 ≈ 1.3B)
 // for protocol auto-detection to work.
-const maxMessageSize = 4 * 1024 * 1024
+// Sized for full registry snapshot in subscribe_replication: ~26MB at 100k+ nodes,
+// with headroom for growth.
+const maxMessageSize = 64 * 1024 * 1024
 
 // logSampler suppresses repeated log messages. Logs the first occurrence of
 // each key, then every Nth occurrence. Prevents log flooding under high load.
@@ -598,6 +744,9 @@ type NodeInfo struct {
 	KeyMeta    KeyInfo   // key lifecycle metadata
 	ExternalID string    // verified external identity (e.g., OIDC sub, email from IdP)
 	Version    string    // binary version reported by daemon (e.g., "v1.6.2")
+	RelayOnly  bool      // if true, peers must reach this node via beacon relay only;
+	//                       resolve / lookup responses strip RealAddr + LANAddrs so the
+	//                       node's public IP is hidden from peers (task 32).
 
 	// lastSeenNano stores time.UnixNano() for lock-free heartbeat updates.
 	// Heartbeats use atomic store (no write lock needed); reap/save read atomically.
@@ -631,6 +780,26 @@ func (s *Server) nodeShard(nodeID uint32) *sync.RWMutex {
 func (n *NodeInfo) setLastSeen(t time.Time) {
 	n.LastSeen = t
 	n.lastSeenNano.Store(t.UnixNano())
+}
+
+// StaleNodeThreshold returns the current configured stale-node threshold.
+// Hot path on online-count read sites; uses an atomic load.
+func (s *Server) StaleNodeThreshold() time.Duration {
+	if ns := s.staleNodeThresholdNs.Load(); ns > 0 {
+		return time.Duration(ns)
+	}
+	return defaultStaleNodeThreshold
+}
+
+// SetStaleNodeThreshold updates the threshold. Zero or negative values are
+// ignored to prevent accidentally disabling staleness detection. Intended
+// for one-time configuration at startup; safe to call concurrently with
+// readers.
+func (s *Server) SetStaleNodeThreshold(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	s.staleNodeThresholdNs.Store(int64(d))
 }
 
 // Role represents a member's permission level within a network.
@@ -789,7 +958,12 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 		logSampler:         newLogSampler(1000),
 		netHourly:          make(map[uint16]*netHistoryRing),
 		netDaily:           make(map[uint16]*netHistoryRing),
+		listNodesPerNet:    make(map[uint16]*listNodesCacheState),
+		replicaPushCh:      make(chan struct{}, 1),
+		replicaPushDone:    make(chan struct{}),
 	}
+	s.staleNodeThresholdNs.Store(int64(defaultStaleNodeThreshold))
+	s.listNodesCache.cond = sync.NewCond(&s.listNodesCache.mu)
 
 	// Initialize WAL for crash recovery between snapshots
 	if storePath != "" {
@@ -804,6 +978,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 	s.releasePoller = newReleasePoller("TeoSlayer/pilotprotocol")
 
 	go s.saveLoop()
+	go s.replicaPushLoop()
 	go s.statsCollectorLoop()
 	go s.pulseLoop()
 	go s.heartbeatLoop()
@@ -821,6 +996,11 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 				"next_node", s.nextNode,
 				"next_net", s.nextNet,
 			)
+			// Replay any post-snapshot WAL entries on top of the loaded state.
+			// flushSave truncates the WAL on success, so any entries here
+			// represent mutations that happened after the last successful
+			// snapshot — i.e., they would otherwise be lost on crash.
+			s.replayWAL()
 			return s
 		}
 	}
@@ -874,6 +1054,52 @@ func (s *Server) SetDashboardToken(token string) {
 	s.mu.Lock()
 	s.dashboardToken = token
 	s.mu.Unlock()
+}
+
+// SetMaintenanceBanner sets a free-form notice rendered on the dashboard
+// alongside the release-update banner. Empty string clears it. If a
+// bannerPath has been configured (SetBannerPath), the new value is also
+// atomically written to disk so it survives restart.
+func (s *Server) SetMaintenanceBanner(msg string) {
+	s.mu.Lock()
+	s.maintenanceBanner = msg
+	bannerPath := s.bannerPath
+	s.mu.Unlock()
+	if bannerPath != "" {
+		tmp := bannerPath + ".tmp"
+		if err := os.WriteFile(tmp, []byte(msg), 0644); err != nil {
+			slog.Warn("banner persist write failed", "path", bannerPath, "err", err)
+			return
+		}
+		if err := os.Rename(tmp, bannerPath); err != nil {
+			slog.Warn("banner persist rename failed", "path", bannerPath, "err", err)
+		}
+	}
+}
+
+// MaintenanceBanner returns the currently-set maintenance notice (or "").
+func (s *Server) MaintenanceBanner() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.maintenanceBanner
+}
+
+// SetBannerPath wires a disk-persistence path for the maintenance banner.
+// If the file exists at the time this is called, its contents become the
+// in-memory banner (overriding any -maintenance-banner flag default), so
+// runtime updates via PUT /api/banner survive across restarts. Subsequent
+// SetMaintenanceBanner calls atomically write the new value to this path.
+func (s *Server) SetBannerPath(path string) {
+	s.mu.Lock()
+	s.bannerPath = path
+	s.mu.Unlock()
+	if data, err := os.ReadFile(path); err == nil {
+		// Trim once; banner is a single line in practice.
+		msg := strings.TrimRight(string(data), "\r\n")
+		s.mu.Lock()
+		s.maintenanceBanner = msg
+		s.mu.Unlock()
+	}
 }
 
 // SetClock overrides the time source for testing.
@@ -1092,6 +1318,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 // Runs every 10s instead of 60s, processing 10K nodes per tick (chunked reap).
 // Full sweep completes in ~100s at 100K nodes, within 3-min stale threshold.
 func (s *Server) reapLoop() {
+	defer recoverHandler("reapLoop", nil)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1110,7 +1337,7 @@ func (s *Server) reapLoop() {
 const reapChunkSize = 10000
 
 func (s *Server) reapStaleNodes() {
-	threshold := s.now().Add(-staleNodeThreshold)
+	threshold := s.now().Add(-s.StaleNodeThreshold())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1159,6 +1386,7 @@ func (s *Server) reapStaleNodes() {
 			}
 			s.cleanupNode(id)
 			delete(s.nodes, id)
+			s.invalidateAdminListNodesCache()
 			reaped = true
 		}
 
@@ -1207,7 +1435,20 @@ func (s *Server) Close() error {
 	default:
 		close(s.done)
 	}
-	<-s.saveDone // wait for saveLoop to finish its final flush
+	// Bound the wait on background loops. If a flushSave or replica push
+	// is stuck (slow disk, peer stuck on write), we'd otherwise hang the
+	// process indefinitely on shutdown. shutdownDrainTimeout is generous
+	// enough for a normal final flush (synchronous disk write of the full
+	// snapshot) but bounded so a misbehaving environment cannot wedge us.
+	waitOrTimeout := func(name string, ch <-chan struct{}) {
+		select {
+		case <-ch:
+		case <-time.After(shutdownDrainTimeout):
+			slog.Warn("registry shutdown: background loop did not finish in time", "loop", name, "timeout", shutdownDrainTimeout)
+		}
+	}
+	waitOrTimeout("saveLoop", s.saveDone)
+	waitOrTimeout("replicaPushLoop", s.replicaPushDone)
 	if s.wal != nil {
 		s.wal.Close()
 	}
@@ -1224,6 +1465,11 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
+	// Outermost defer — runs LAST. Other deferred cleanup (conn.Close,
+	// connCount decrement) runs before this so resources are reclaimed
+	// even on panic. recoverHandler swallows the panic so a bad request
+	// cannot kill the process.
+	defer recoverHandler("handleConn", nil)
 	defer func() {
 		conn.Close()
 		s.connCount.Add(-1)
@@ -1362,7 +1608,19 @@ func (s *Server) handleJSONConn(conn net.Conn, reader io.Reader) {
 		}
 
 		if err := writeMessage(conn, resp); err != nil {
-			slog.Error("registry write error", "remote", conn.RemoteAddr(), "err", err)
+			// Throttle by remote: a stuck/dying client can produce hundreds
+			// of these per second (observed ~250/sec from one swarm IP during
+			// the 2026-04-28 incident), saturating journal disk write rate.
+			// Sampler logs the first occurrence and then every Nth, with the
+			// suppressed count attached.
+			samplerKey := "write-error:" + conn.RemoteAddr().String()
+			if shouldLog, suppressed := s.logSampler.shouldLog(samplerKey); shouldLog {
+				if suppressed > 1 {
+					slog.Error("registry write error", "remote", conn.RemoteAddr(), "err", err, "suppressed", suppressed-1)
+				} else {
+					slog.Error("registry write error", "remote", conn.RemoteAddr(), "err", err)
+				}
+			}
 			return
 		}
 	}
@@ -1511,7 +1769,14 @@ func (s *Server) handleBinaryLookup(conn net.Conn, payload []byte, host string) 
 	sh.RLock()
 	realAddr := ""
 	if node.Public {
-		realAddr = node.RealAddr
+		// Task 32 — relay-by-default: substitute beacon addr for
+		// RelayOnly nodes so old binary clients fall back via existing
+		// retry-then-relay logic. Same rationale as handleResolve.
+		if node.RelayOnly {
+			realAddr = s.beaconAddr
+		} else {
+			realAddr = node.RealAddr
+		}
 	}
 	resp := encodeLookupResp(
 		node.ID, node.Public, node.TaskExec, node.PoloScore,
@@ -1628,7 +1893,17 @@ func (s *Server) handleBinaryResolve(conn net.Conn, payload []byte, host string)
 		keyAgeDays = int(time.Since(keyStart).Hours() / 24)
 	}
 
-	resp := encodeResolveResp(node.ID, node.RealAddr, node.LANAddrs, keyAgeDays)
+	// Task 32 — relay-by-default: substitute beacon addr for RelayOnly
+	// nodes so old binary clients fall back via existing retry-then-
+	// relay logic. New binary clients can also detect "addr matches our
+	// beaconAddr" as a hint to skip direct retries.
+	respRealAddr := node.RealAddr
+	respLANAddrs := node.LANAddrs
+	if node.RelayOnly {
+		respRealAddr = s.beaconAddr
+		respLANAddrs = nil
+	}
+	resp := encodeResolveResp(node.ID, respRealAddr, respLANAddrs, keyAgeDays)
 	tSh.RUnlock()
 
 	wireWriteFrame(conn, wireMsgResolveOK, resp)
@@ -1675,6 +1950,16 @@ func (s *Server) handleBinaryJSONFallback(conn net.Conn, payload []byte, remoteA
 			"type":  "error",
 			"error": errMsg,
 		}
+	}
+
+	// Honor the bypass-marshal sentinel — handlers like heartbeat / list_nodes
+	// pre-build their full JSON bytes to skip an encoder pass. Mirrors the
+	// fast path in writeMessage; without this, the binary-passthrough wraps
+	// the pre-built bytes inside a {"_pilot_raw_body":"<base64>"} envelope
+	// (Go's json.Marshal of []byte produces base64), breaking JSON clients.
+	if raw, ok := resp[rawResponseKey].([]byte); ok && raw != nil {
+		wireWriteFrame(conn, wireMsgJSON, raw)
+		return
 	}
 
 	body, marshalErr := json.Marshal(resp)
@@ -1756,7 +2041,7 @@ func (s *Server) handleMessage(msg map[string]interface{}, remoteAddr string) (r
 	case "resolve":
 		return s.handleResolve(msg)
 	case "list_networks":
-		return s.handleListNetworks()
+		return s.handleListNetworks(msg)
 	case "list_nodes":
 		return s.handleListNodes(msg)
 	case "rotate_key":
@@ -1927,6 +2212,13 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 		}
 	}
 
+	// Task 32 — relay-by-default: client opts in to having its real_addr
+	// hidden from peers. Resolve / lookup responses substitute the beacon
+	// address for this node's real_addr so peers reach this node only
+	// through the relay path. Defaults false (current behavior) until
+	// the daemon's default flips in a follow-up.
+	relayOnly, _ := msg["relay_only"].(bool)
+
 	// Registration requires a client-generated public key
 	pubKeyB64, ok := msg["public_key"].(string)
 	if !ok || pubKeyB64 == "" {
@@ -1937,7 +2229,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 	if hostname != "" {
 		if err := validateHostname(hostname); err != nil {
 			// Register without hostname, return warning
-			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "", lanAddrs, clientVersion)
+			resp, regErr := s.handleReRegister(pubKeyB64, listenAddr, owner, "", lanAddrs, clientVersion, relayOnly)
 			if regErr != nil {
 				return resp, regErr
 			}
@@ -1951,7 +2243,7 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 
 	// M3 fix: pass hostname into handleReRegister so registration + hostname
 	// are set atomically under a single lock acquisition.
-	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname, lanAddrs, clientVersion)
+	resp, err := s.handleReRegister(pubKeyB64, listenAddr, owner, hostname, lanAddrs, clientVersion, relayOnly)
 	if err == nil {
 		s.metrics.registrations.Inc()
 		resp["observed_addr"] = listenAddr
@@ -1980,9 +2272,19 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 }
 
 // handleRotateKey rotates the Ed25519 keypair for a node.
+//
 // The caller must prove ownership by signing "rotate:<node_id>:<new_public_key>"
 // with the current private key. Binding new_public_key into the challenge
 // prevents a MITM from substituting their own key while reusing the signature.
+//
+// 3-PHASE LOCK PATTERN — see [[X-Tasks/backlog/30-mutex-risk-map]] § fix #5
+// and the lock-ordering invariants doc at the top of this file.
+//   Phase 1 (RLock): snapshot the current pubkey for verification.
+//   Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
+//   Phase 3 (Lock):   re-check the pubkey is unchanged; commit the swap.
+// If a concurrent rotation lands between Phase 1 and Phase 3 the verify is
+// stale; we reject this caller and let it retry. Rotate is rare, so the
+// retry surface is acceptable.
 func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 	sigB64, _ := msg["signature"].(string)
@@ -2000,37 +2302,61 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 		return nil, fmt.Errorf("invalid new_public_key: %w", err)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Phase 1 — snapshot the current pubkey under RLock.
+	s.mu.RLock()
 	node, ok := s.nodes[nodeID]
 	if !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
+	currentPubKey := make([]byte, len(node.PublicKey))
+	copy(currentPubKey, node.PublicKey)
+	s.mu.RUnlock()
 
-	// Verify signature: message = "rotate:<node_id>:<new_public_key_b64>".
-	// The new pubkey is part of the signed challenge so a MITM cannot swap it.
+	// Phase 2 — verify outside the lock (~28µs Ed25519).
 	challenge := fmt.Sprintf("rotate:%d:%s", nodeID, newPubKeyB64)
 	sig, err := base64Decode(sigB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid signature encoding: %w", err)
 	}
-	if !crypto.Verify(node.PublicKey, []byte(challenge), sig) {
+	if !crypto.Verify(currentPubKey, []byte(challenge), sig) {
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
-	// Swap pubkey index
+	// Phase 3 — commit under Lock with a stale-pubkey re-check.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, ok = s.nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+	// If a concurrent rotate already swapped the pubkey, our verify is stale —
+	// reject and let the caller retry with the new state.
+	if !bytes.Equal(node.PublicKey, currentPubKey) {
+		return nil, fmt.Errorf("rotate_key: key rotated concurrently, retry")
+	}
+
 	oldPubKeyB64 := crypto.EncodePublicKey(node.PublicKey)
 	delete(s.pubKeyIdx, oldPubKeyB64)
 
 	sh := s.nodeShard(nodeID)
 	sh.Lock()
 	node.PublicKey = newPubKey
-	node.setLastSeen(time.Now())
-	node.KeyMeta.RotatedAt = time.Now()
+	rotatedAt := time.Now()
+	node.setLastSeen(rotatedAt)
+	node.KeyMeta.RotatedAt = rotatedAt
 	node.KeyMeta.RotateCount++
 	sh.Unlock()
 	s.pubKeyIdx[newPubKeyB64] = nodeID
+	// WAL the rotation. If the registry crashes before the next snapshot,
+	// replay restores the new pubkey so the daemon's signed requests
+	// continue to validate post-restart.
+	s.recordWAL(DeltaKeyRotation, nodeID, keyRotationDelta{
+		NodeID:       nodeID,
+		NewPublicKey: newPubKeyB64,
+		RotatedAt:    rotatedAt.UTC().Format(time.RFC3339),
+	})
 	s.save()
 
 	addr := protocol.Addr{Network: 0, Node: nodeID}
@@ -2048,6 +2374,12 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 
 // handleSetKeyExpiry sets the key expiry time for a node.
 // Only the node itself can set its own key expiry (signature-verified).
+//
+// 3-PHASE LOCK PATTERN — see [[X-Tasks/backlog/30-mutex-risk-map]] § fix #6.
+//   Phase 1 (RLock): snapshot pubkey + adminToken for verification.
+//   Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
+//   Phase 3 (Lock):   re-check node + pubkey unchanged + enterprise gate;
+//                     commit the new expiry.
 func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 
@@ -2071,19 +2403,41 @@ func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]inte
 		}
 	}
 
+	// Phase 1 — snapshot pubkey + adminToken for verification.
+	s.mu.RLock()
+	node, ok := s.nodes[nodeID]
+	if !ok {
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+	currentPubKey := make([]byte, len(node.PublicKey))
+	copy(currentPubKey, node.PublicKey)
+	adminTokenCopy := s.adminToken
+	s.mu.RUnlock()
+
+	// Phase 2 — verify signature OUTSIDE the lock. verifyHeartbeatSignature
+	// is intentionally lock-free (takes pre-copied pubkey + admin token).
+	sigErr := s.verifyHeartbeatSignature(currentPubKey, adminTokenCopy, msg, fmt.Sprintf("set_key_expiry:%d", nodeID))
+	if sigErr != nil {
+		// Admin-token fallback for the console control plane.
+		if err := s.checkAdminToken(msg, adminTokenCopy); err != nil {
+			return nil, sigErr
+		}
+	}
+
+	// Phase 3 — commit under Lock with stale-pubkey + enterprise re-check.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	node, ok := s.nodes[nodeID]
+	node, ok = s.nodes[nodeID]
 	if !ok {
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
-
-	// Verify signature (admin token bypass for console control plane)
-	if sigErr := s.verifyNodeSignature(node, msg, fmt.Sprintf("set_key_expiry:%d", nodeID)); sigErr != nil {
-		if err := s.requireAdminTokenLocked(msg); err != nil {
-			return nil, sigErr
-		}
+	// If a concurrent rotate landed between Phase 1 and Phase 3 our verify
+	// is stale; reject and let the caller retry. Skip the check if the
+	// caller used admin-token auth (currentPubKey may have been irrelevant).
+	if sigErr == nil && !bytes.Equal(node.PublicKey, currentPubKey) {
+		return nil, fmt.Errorf("set_key_expiry: key rotated concurrently, retry")
 	}
 
 	// Enterprise gate: key expiry is a Phase 4 feature
@@ -2832,12 +3186,90 @@ func (s *Server) setNodeHostname(node *NodeInfo, hostname string, resp map[strin
 // handleReRegister handles a node presenting an existing public key.
 // Returns the same node_id if the key is known, or assigns a new one.
 // M3 fix: hostname is set atomically under the same lock as registration.
-func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string, lanAddrs []string, version string) (map[string]interface{}, error) {
+//
+// Fast path (added 2026-04-29): for the most common case — known pubkey,
+// node still alive, no new owner assignment, no hostname change — we use the
+// per-node shard lock instead of s.mu.Lock. This keeps reconnection storms
+// (every daemon re-registers when the registry restarts) off the global
+// mutex. Only owner-first-set, hostname-change, owner-key-update, and
+// new-node-creation paths still take s.mu.Lock.
+func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string, lanAddrs []string, version string, relayOnly bool) (map[string]interface{}, error) {
 	pubKey, err := crypto.DecodePublicKey(pubKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid public key: %w", err)
 	}
 
+	// FAST PATH: try shard-locked endpoint refresh.
+	// Phase F1: RLock briefly to look up node + capture owner/hostname.
+	s.mu.RLock()
+	fpNodeID, fpPubKeyKnown := s.pubKeyIdx[pubKeyB64]
+	var fpNode *NodeInfo
+	var fpNodeAlive bool
+	if fpPubKeyKnown {
+		fpNode, fpNodeAlive = s.nodes[fpNodeID]
+	}
+	s.mu.RUnlock()
+
+	if fpPubKeyKnown && fpNodeAlive {
+		// Phase F2: read current owner/hostname under shard RLock to decide
+		// fast-vs-slow path. If neither requires a global index update,
+		// proceed under shard write lock.
+		shard := &s.nodeShards[fpNodeID%numNodeShards]
+		shard.RLock()
+		currentOwner := fpNode.Owner
+		currentHostname := fpNode.Hostname
+		shard.RUnlock()
+
+		ownerNeedsIndex := owner != "" && currentOwner == "" // first owner assignment
+		hostnameNeedsIndex := hostname != "" && hostname != currentHostname
+
+		if !ownerNeedsIndex && !hostnameNeedsIndex {
+			// Phase F3: per-node field updates under shard write lock.
+			// We deliberately do NOT call setLastSeen() — it writes the
+			// non-atomic node.LastSeen which has a "caller must hold s.mu.Lock"
+			// contract. The atomic lastSeenNano is the canonical hot-path
+			// timestamp (heartbeat updates this and only this); n.LastSeen
+			// catches up on the next slow-path operation. getLastSeen()
+			// prefers the atomic, so readers see fresh data.
+			now := time.Now()
+			shard.Lock()
+			fpNode.RealAddr = listenAddr
+			fpNode.lastSeenNano.Store(now.UnixNano())
+			fpNode.LANAddrs = lanAddrs
+			if version != "" {
+				fpNode.Version = version
+			}
+			// Task 32 — relay-by-default: respect the daemon's current
+			// declaration. A daemon may toggle relay_only across restarts
+			// (operator changing the flag); the registry takes the most
+			// recent registration as authoritative.
+			fpNode.RelayOnly = relayOnly
+			shard.Unlock()
+
+			addr := protocol.Addr{Network: 0, Node: fpNodeID}
+			resp := map[string]interface{}{
+				"type":       "register_ok",
+				"node_id":    fpNodeID,
+				"network_id": 0,
+				"address":    addr.String(),
+				"public_key": pubKeyB64,
+			}
+			if currentHostname != "" {
+				resp["hostname"] = currentHostname
+			}
+			s.save() // non-blocking debounced channel send
+			slog.Debug("registered node", "node_id", fpNodeID, "listen", listenAddr, "addr", addr, "mode", "fast_path_endpoint_refresh")
+			s.audit("node.re_registered", "node_id", fpNodeID, "mode", "fast_path_endpoint_refresh")
+			return resp, nil
+		}
+	}
+
+	// SLOW PATH: takes the global write lock. Used when:
+	//   - new pubkey (need to assign nodeID, mutate pubKeyIdx)
+	//   - first owner assignment (mutate ownerIdx)
+	//   - hostname change (mutate hostnameIdx)
+	//   - reclaim of dead/reaped node (re-create entry)
+	//   - owner-key rotation
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2851,6 +3283,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			if version != "" {
 				node.Version = version
 			}
+			node.RelayOnly = relayOnly // task 32
 			if owner != "" && node.Owner == "" {
 				node.Owner = owner
 				s.ownerIdx[owner] = nodeID
@@ -2896,9 +3329,11 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 			LANAddrs:  lanAddrs,
 			KeyMeta:   KeyInfo{CreatedAt: now},
 			Version:   version,
+			RelayOnly: relayOnly, // task 32
 		}
 		node.lastSeenNano.Store(now.UnixNano())
 		s.nodes[nodeID] = node
+		s.invalidateAdminListNodesCache()
 		if owner != "" {
 			s.ownerIdx[owner] = nodeID
 		}
@@ -2943,6 +3378,7 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				if version != "" {
 					existingNode.Version = version
 				}
+				existingNode.RelayOnly = relayOnly // task 32
 				s.pubKeyIdx[pubKeyB64] = existingID
 
 				addr := protocol.Addr{Network: 0, Node: existingID}
@@ -2973,9 +3409,11 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 				LANAddrs:  lanAddrs,
 				KeyMeta:   KeyInfo{CreatedAt: now},
 				Version:   version,
+				RelayOnly: relayOnly, // task 32
 			}
 			node.lastSeenNano.Store(now.UnixNano())
 			s.nodes[existingID] = node
+			s.invalidateAdminListNodesCache()
 			s.networks[0].Members = append(s.networks[0].Members, existingID)
 
 			addr := protocol.Addr{Network: 0, Node: existingID}
@@ -3020,9 +3458,11 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 		LANAddrs:  lanAddrs,
 		KeyMeta:   KeyInfo{CreatedAt: now},
 		Version:   version,
+		RelayOnly: relayOnly, // task 32
 	}
 	node.lastSeenNano.Store(now.UnixNano())
 	s.nodes[nodeID] = node
+	s.invalidateAdminListNodesCache()
 	s.networks[0].Members = append(s.networks[0].Members, nodeID)
 
 	addr := protocol.Addr{Network: 0, Node: nodeID}
@@ -3034,6 +3474,21 @@ func (s *Server) handleReRegister(pubKeyB64, listenAddr, owner, hostname string,
 		"public_key": pubKeyB64,
 	}
 	s.setNodeHostname(node, hostname, resp)
+	// WAL the new-node assignment so a crash before the next flushSave
+	// doesn't reassign the same identity to a different node_id on
+	// restart. Re-registration of an existing node is NOT WAL'd because
+	// the daemon will reconnect and the existing pubKeyIdx entry returns
+	// the same node_id (auto-recovery).
+	s.recordWAL(DeltaRegister, nodeID, registerDelta{
+		NodeID:    nodeID,
+		Owner:     owner,
+		PublicKey: pubKeyB64,
+		RealAddr:  listenAddr,
+		Hostname:  node.Hostname,
+		LANAddrs:  lanAddrs,
+		Version:   version,
+		CreatedAt: now.UTC().Format(time.RFC3339),
+	})
 	s.save()
 	slog.Info("registered node", "node_id", nodeID, "listen", listenAddr, "addr", addr, "mode", "new_node", "owner_hash", hashOwner(owner))
 	s.audit("node.registered", "node_id", nodeID, "mode", "new_node")
@@ -3150,6 +3605,16 @@ func (s *Server) handleCreateNetwork(msg map[string]interface{}) (map[string]int
 
 	// Add network to node's list
 	s.nodes[nodeID].Networks = append(s.nodes[nodeID].Networks, netID)
+	s.recordWAL(DeltaNetworkCreate, 0, networkCreateDelta{
+		NetworkID:     netID,
+		Name:          name,
+		JoinRule:      joinRule,
+		Token:         token,
+		AdminToken:    networkAdminToken,
+		Enterprise:    enterprise,
+		CreatorNodeID: nodeID,
+		CreatedAt:     net.Created.UTC().Format(time.RFC3339),
+	})
 	s.save()
 
 	managed := rules != nil
@@ -3240,7 +3705,12 @@ func (s *Server) handleJoinNetwork(msg map[string]interface{}) (map[string]inter
 	sh.Lock()
 	node.Networks = append(node.Networks, netID)
 	sh.Unlock()
+	s.recordWAL(DeltaNetworkJoin, nodeID, networkMembershipDelta{
+		NodeID:    nodeID,
+		NetworkID: netID,
+	})
 	s.save()
+	s.invalidateListNodesCacheForNetwork(netID)
 
 	// Check RBAC pre-assignments (upgrade role if external_id matches)
 	s.applyRBACPreAssignmentLocked(netID, nodeID)
@@ -3330,6 +3800,11 @@ func (s *Server) handleLeaveNetwork(msg map[string]interface{}) (map[string]inte
 		}
 	}
 	delete(network.MemberRoles, nodeID)
+	s.invalidateListNodesCacheForNetwork(netID)
+	s.recordWAL(DeltaNetworkLeave, nodeID, networkMembershipDelta{
+		NodeID:    nodeID,
+		NetworkID: netID,
+	})
 
 	// Clean up any pending invites for this node+network (inbound)
 	if invites, ok := s.inviteInbox[nodeID]; ok {
@@ -3422,6 +3897,12 @@ func (s *Server) handleDeleteNetwork(msg map[string]interface{}) (map[string]int
 
 	name := network.Name
 	delete(s.networks, netID)
+	// Drop the cached list_nodes response — otherwise the per-net cache state
+	// lingers, holding ~16 MB of bytes for the now-deleted net until process
+	// exit, and a recreated network reusing this ID would observe zombie data
+	// for up to 1s (the TTL).
+	s.invalidateListNodesCacheForNetwork(netID)
+	s.recordWAL(DeltaNetworkDelete, 0, networkDeleteDelta{NetworkID: netID})
 	s.save()
 
 	slog.Info("deleted network", "network_id", netID, "name", name, "members", len(network.Members))
@@ -3580,8 +4061,18 @@ func (s *Server) handleLookup(msg map[string]interface{}) (map[string]interface{
 		resp["task_exec"] = true
 	}
 	if node.Public {
-		resp["real_addr"] = node.RealAddr
-		resp["endpoint"] = node.RealAddr // alias — clients commonly query for this name
+		// Task 32 — relay-by-default: same back-compat substitution as
+		// handleResolve. RelayOnly nodes expose the beacon addr (not their
+		// real IP) so old daemons fall back via timeout, new daemons see
+		// the relay_only hint and skip retries.
+		if node.RelayOnly {
+			resp["real_addr"] = s.beaconAddr
+			resp["endpoint"] = s.beaconAddr
+			resp["relay_only"] = true
+		} else {
+			resp["real_addr"] = node.RealAddr
+			resp["endpoint"] = node.RealAddr // alias — clients commonly query for this name
+		}
 	}
 	if node.ExternalID != "" {
 		resp["external_id"] = node.ExternalID
@@ -3676,13 +4167,43 @@ func (s *Server) handleResolve(msg map[string]interface{}) (map[string]interface
 	tSh.RLock()
 	defer tSh.RUnlock()
 
+	// Task 32 — relay-by-default: when the target registered as RelayOnly,
+	// hide its real IP from the requester. We do NOT strip real_addr
+	// outright (that breaks back-compat: old daemons error out on empty
+	// addr, see pkg/daemon/daemon.go:2944). Instead we SUBSTITUTE the
+	// beacon's address.
+	//
+	// Behavior under each daemon version:
+	//   - Old daemon (no relay_only awareness): receives beacon addr as
+	//     real_addr, dials beacon directly with raw protocol SYNs. The
+	//     beacon ignores packets that don't match its message framing.
+	//     After DialDirectRetries timeouts the daemon's existing
+	//     relay-fallback kicks in (daemon.go:2229), packets get wrapped
+	//     in MsgRelay framing, and Tier 1/2 dispatch delivers to the
+	//     RelayOnly peer. Slow first dial (~6-12s) but functional.
+	//   - New daemon: parses the relay_only=true hint and routes via
+	//     beacon immediately, skipping the direct-retry phase.
+	//
+	// This means flipping the default to relay-only doesn't require a
+	// fleet-wide upgrade — old binaries fall back automatically.
+	realAddr := node.RealAddr
+	lanAddrs := node.LANAddrs
+	relayOnly := node.RelayOnly
+	if relayOnly {
+		realAddr = s.beaconAddr // substitute — old daemons fall back via timeout
+		lanAddrs = nil          // strip LAN — those reveal the peer's IP too
+	}
+
 	resp := map[string]interface{}{
 		"type":      "resolve_ok",
 		"node_id":   node.ID,
-		"real_addr": node.RealAddr,
+		"real_addr": realAddr,
 	}
-	if len(node.LANAddrs) > 0 {
-		resp["lan_addrs"] = node.LANAddrs
+	if len(lanAddrs) > 0 {
+		resp["lan_addrs"] = lanAddrs
+	}
+	if relayOnly {
+		resp["relay_only"] = true
 	}
 
 	// Key freshness for trust decisions: days since key was created/rotated
@@ -3970,16 +4491,21 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 		}
 	}
 
-	// Phase 3: re-acquire write lock, re-check state (optimistic locking)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Phase 3a: re-check nodes under RLock (cheap, doesn't compete with handshakeMu)
+	s.mu.RLock()
 	if _, ok := s.nodes[fromNodeID]; !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", fromNodeID, protocol.ErrNodeNotFound)
 	}
 	if _, ok := s.nodes[toNodeID]; !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", toNodeID, protocol.ErrNodeNotFound)
 	}
+	s.mu.RUnlock()
+
+	// Phase 3b: handshake inbox mutation under handshakeMu — off the global lock
+	s.handshakeMu.Lock()
+	defer s.handshakeMu.Unlock()
 
 	// Limit inbox size to prevent abuse
 	if len(s.handshakeInbox[toNodeID]) >= maxHandshakeInbox {
@@ -4011,27 +4537,44 @@ func (s *Server) handleRequestHandshake(msg map[string]interface{}) (map[string]
 }
 
 // handlePollHandshakes returns and clears a node's handshake inbox.
+//
+// Uses the 3-phase pattern (matching handleRequestHandshake): RLock to look up
+// node + copy pubkey, release, verify signature without any lock (CPU-bound
+// ~28µs), then re-acquire the write lock briefly to swap inbox maps. Holding
+// s.mu.Lock during signature verification serialized the entire registry
+// behind every poll and was the dominant contention path under load.
 func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Phase 1: RLock to copy what we need for verification
+	s.mu.RLock()
 	node, ok := s.nodes[nodeID]
 	if !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
+	pubKey := node.PublicKey
+	adminToken := s.adminToken // copy under lock — SetAdminToken writes under s.mu.Lock
+	s.mu.RUnlock()
 
-	// H3 fix: verify signature to prevent unauthorized inbox access
-	if err := s.verifyNodeSignature(node, msg, fmt.Sprintf("poll_handshakes:%d", nodeID)); err != nil {
+	// Phase 2: H3 fix: verify signature without lock (CPU-bound).
+	// Use verifyHeartbeatSignature with values copied under RLock so we don't
+	// read s.adminToken concurrently with SetAdminToken's write lock.
+	if err := s.verifyHeartbeatSignature(pubKey, adminToken, msg, fmt.Sprintf("poll_handshakes:%d", nodeID)); err != nil {
 		return nil, err
 	}
 
+	// Phase 3: handshakeMu protects only the handshake state — does NOT
+	// compete with registration / heartbeat / save-loop / network ops on
+	// s.mu. This is the hot path; we take a dedicated lock to keep it off
+	// the global mutex.
+	s.handshakeMu.Lock()
 	inbox := s.handshakeInbox[nodeID]
 	delete(s.handshakeInbox, nodeID)
 
 	respInbox := s.handshakeResponses[nodeID]
 	delete(s.handshakeResponses, nodeID)
+	s.handshakeMu.Unlock()
 
 	requests := make([]map[string]interface{}, len(inbox))
 	for i, req := range inbox {
@@ -4061,24 +4604,30 @@ func (s *Server) handlePollHandshakes(msg map[string]interface{}) (map[string]in
 // handleRespondHandshake processes a handshake response (approve/reject).
 // If approved, creates a mutual trust pair.
 // M12 fix: verifies responder signature to prevent spoofed trust approvals.
+//
+// 3-phase pattern: RLock to copy pubkey, release, verify signature without
+// any lock, then re-acquire write lock for the actual map mutations.
 func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id") // responder
 	peerID := jsonUint32(msg, "peer_id") // original requester
 	accept, _ := msg["accept"].(bool)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Phase 1: RLock to copy pubkey for verification
+	s.mu.RLock()
 	respNode, ok := s.nodes[nodeID]
 	if !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
 	if _, ok := s.nodes[peerID]; !ok {
+		s.mu.RUnlock()
 		return nil, fmt.Errorf("node %d: %w", peerID, protocol.ErrNodeNotFound)
 	}
+	respPubKey := respNode.PublicKey
+	s.mu.RUnlock()
 
-	// M12 fix: verify responder signature if node has a public key
-	if respNode.PublicKey != nil {
+	// Phase 2: M12 fix: verify responder signature without lock (CPU-bound)
+	if respPubKey != nil {
 		sigB64, _ := msg["signature"].(string)
 		if sigB64 == "" {
 			return nil, fmt.Errorf("handshake response requires signature")
@@ -4088,27 +4637,47 @@ func (s *Server) handleRespondHandshake(msg map[string]interface{}) (map[string]
 			return nil, fmt.Errorf("invalid signature encoding: %w", err)
 		}
 		challenge := fmt.Sprintf("respond:%d:%d", nodeID, peerID)
-		if !crypto.Verify(respNode.PublicKey, []byte(challenge), sig) {
+		if !crypto.Verify(respPubKey, []byte(challenge), sig) {
 			return nil, fmt.Errorf("handshake response signature verification failed")
 		}
 	}
 
+	// Phase 3a: re-check both nodes still exist under RLock
+	s.mu.RLock()
+	if _, ok := s.nodes[nodeID]; !ok {
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
+	}
+	if _, ok := s.nodes[peerID]; !ok {
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("node %d: %w", peerID, protocol.ErrNodeNotFound)
+	}
+	s.mu.RUnlock()
+
+	// Phase 3b: trust pair update under s.mu.Lock (only if accept).
+	// Trust pairs live under s.mu and are read in many places; can't move
+	// them without a larger refactor. But this is the only mutation here,
+	// no CPU/IO under the lock.
 	if accept {
 		key := trustPairKey(nodeID, peerID)
+		s.mu.Lock()
 		s.trustPairs[key] = true
-		s.save()
+		s.mu.Unlock()
+		s.save() // s.save is non-blocking — sends to a debounced channel
 		slog.Info("handshake approved via relay, trust pair created", "node", nodeID, "peer", peerID)
 	} else {
 		slog.Info("handshake rejected via relay", "node", nodeID, "peer", peerID)
 	}
 	s.audit("handshake.responded", "node_id", nodeID, "peer_id", peerID, "accept", accept)
 
-	// Store response in requester's response inbox so they learn about the approval
+	// Phase 3c: response inbox append under handshakeMu — does NOT compete with s.mu
+	s.handshakeMu.Lock()
 	s.handshakeResponses[peerID] = append(s.handshakeResponses[peerID], &HandshakeResponseMsg{
 		FromNodeID: nodeID,
 		Accept:     accept,
 		Timestamp:  time.Now(),
 	})
+	s.handshakeMu.Unlock()
 
 	return map[string]interface{}{
 		"type":    "respond_handshake_ok",
@@ -4366,6 +4935,7 @@ func (s *Server) handleRespondInvite(msg map[string]interface{}) (map[string]int
 		}
 		network.MemberRoles[nodeID] = RoleMember
 		node.Networks = append(node.Networks, netID)
+		s.invalidateListNodesCacheForNetwork(netID)
 
 		slog.Info("invite accepted, node joined network", "node_id", nodeID, "network_id", netID, "name", network.Name)
 	} else {
@@ -4446,6 +5016,7 @@ func (s *Server) handleKickMember(msg map[string]interface{}) (map[string]interf
 	if !found {
 		return nil, fmt.Errorf("node %d is not a member of network %d", targetNodeID, netID)
 	}
+	s.invalidateListNodesCacheForNetwork(netID)
 
 	kickedRole := network.MemberRoles[targetNodeID]
 	delete(network.MemberRoles, targetNodeID)
@@ -5300,7 +5871,13 @@ func (s *Server) handleBeaconList() (map[string]interface{}, error) {
 	}, nil
 }
 
-func (s *Server) handleListNetworks() (map[string]interface{}, error) {
+func (s *Server) handleListNetworks(msg map[string]interface{}) (map[string]interface{}, error) {
+	// Member counts are admin-only. Anyone can list networks (so daemons
+	// can discover what to join), but the population per network is a
+	// privacy-sensitive aggregate (operator vs membership intel) and is
+	// only included when a valid admin_token is presented.
+	includeMembers := s.requireAdminToken(msg) == nil
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -5309,10 +5886,12 @@ func (s *Server) handleListNetworks() (map[string]interface{}, error) {
 		entry := map[string]interface{}{
 			"id":         n.ID,
 			"name":       n.Name,
-			"members":    len(n.Members),
 			"join_rule":  n.JoinRule,
 			"enterprise": n.Enterprise,
 			"created":    n.Created.Unix(),
+		}
+		if includeMembers {
+			entry["members"] = len(n.Members)
 		}
 		if n.Enterprise {
 			if n.Policy.MaxMembers > 0 {
@@ -5347,55 +5926,100 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 		if err := s.requireAdminToken(msg); err != nil {
 			return nil, fmt.Errorf("listing backbone nodes is not permitted (use lookup with a specific node_id)")
 		}
-		// Admin-authenticated: list all registered nodes
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		nodes := make([]map[string]interface{}, 0, len(s.nodes))
-		for _, node := range s.nodes {
-			entry := map[string]interface{}{
-				"node_id":    node.ID,
-				"address":    protocol.Addr{Network: 0, Node: node.ID}.String(),
-				"public":     node.Public,
-				"polo_score": node.PoloScore,
-			}
-			if node.Hostname != "" {
-				entry["hostname"] = node.Hostname
-			}
-			if node.TaskExec {
-				entry["task_exec"] = true
-			}
-			if node.Public {
-				entry["real_addr"] = node.RealAddr
-			}
-			if len(node.Tags) > 0 {
-				entry["tags"] = node.Tags
-			}
-			if node.ExternalID != "" {
-				entry["external_id"] = node.ExternalID
-			}
-			if node.Version != "" {
-				entry["version"] = node.Version
-			}
-			entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
-			nodes = append(nodes, entry)
+		body, err := s.adminListNodesCached()
+		if err != nil {
+			return nil, err
 		}
-		return map[string]interface{}{
-			"type":  "list_nodes_ok",
-			"nodes": nodes,
-		}, nil
+		// Bypass json.Marshal entirely on cache hits — writeMessage will
+		// detect the rawResponseKey and write these bytes verbatim. Saves
+		// the encoder's appendCompact pass over a 16 MB payload.
+		return map[string]interface{}{rawResponseKey: body}, nil
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Per-network branch: route through the same singleflight cache. The
+	// big networks (data-exchange 45k, high-trust-society 28k) generate
+	// the same JSON-marshal CPU storm as the admin path.
+	body, err := s.perNetworkListNodesCached(netID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{rawResponseKey: body}, nil
+}
 
-	network, ok := s.networks[netID]
+// wrapListNodesBody builds the full response body bytes around a marshalled
+// nodes array. Output is `{"type":"list_nodes_ok","nodes":<arr>}` with no
+// whitespace — byte-equivalent (modulo key ordering) to what json.Marshal
+// of the corresponding map would produce.
+func wrapListNodesBody(nodesArr []byte) []byte {
+	const prefix = `{"type":"list_nodes_ok","nodes":`
+	out := make([]byte, 0, len(prefix)+len(nodesArr)+1)
+	out = append(out, prefix...)
+	out = append(out, nodesArr...)
+	out = append(out, '}')
+	return out
+}
+
+// perNetworkListNodesCached returns the FULL pre-marshalled response body
+// for a per-network list_nodes call. Same singleflight + 1s TTL semantics
+// as adminListNodesCached. Returned bytes are written to the wire via the
+// rawResponseKey sentinel, bypassing json.Marshal entirely on cache hits.
+func (s *Server) perNetworkListNodesCached(netID uint16) ([]byte, error) {
+	// Atomic get-or-create the per-network cache state.
+	s.listNodesPerNetMu.Lock()
+	c, ok := s.listNodesPerNet[netID]
 	if !ok {
-		return nil, fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+		c = &listNodesCacheState{}
+		c.cond = sync.NewCond(&c.mu)
+		s.listNodesPerNet[netID] = c
+	}
+	s.listNodesPerNetMu.Unlock()
+
+	c.mu.Lock()
+	if c.fullBody != nil && time.Since(c.builtAt) < adminListNodesTTL {
+		body := c.fullBody
+		c.cacheHits++
+		c.mu.Unlock()
+		return body, nil
+	}
+	if c.building {
+		for c.building {
+			c.cond.Wait()
+		}
+		body := c.fullBody
+		buildErr := c.lastBuildErr
+		c.cacheWaits++
+		c.mu.Unlock()
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		if body == nil {
+			return nil, fmt.Errorf("list_nodes cache rebuild failed")
+		}
+		return body, nil
+	}
+	c.building = true
+	c.cacheRebuilds++
+	c.mu.Unlock()
+
+	// Build (no cache lock, but holds s.mu.RLock briefly).
+	s.mu.RLock()
+	network, networkOK := s.networks[netID]
+	if !networkOK {
+		s.mu.RUnlock()
+		err := fmt.Errorf("network %d: %w", netID, protocol.ErrNetworkNotFound)
+		c.mu.Lock()
+		c.building = false
+		c.lastBuildErr = err
+		c.cond.Broadcast()
+		c.mu.Unlock()
+		return nil, err
 	}
 
-	nodes := make([]map[string]interface{}, 0)
+	nodes := make([]map[string]interface{}, 0, len(network.Members))
 	for _, nid := range network.Members {
 		if node, ok := s.nodes[nid]; ok {
+			shard := &s.nodeShards[nid%numNodeShards]
+			shard.RLock()
 			entry := map[string]interface{}{
 				"node_id":    node.ID,
 				"address":    protocol.Addr{Network: netID, Node: node.ID}.String(),
@@ -5427,9 +6051,9 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 				entry["version"] = node.Version
 			}
 			entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
+			shard.RUnlock()
 			nodes = append(nodes, entry)
 		} else {
-			// Offline member — still include with minimal info
 			entry := map[string]interface{}{
 				"node_id": nid,
 				"address": protocol.Addr{Network: netID, Node: nid}.String(),
@@ -5444,11 +6068,142 @@ func (s *Server) handleListNodes(msg map[string]interface{}) (map[string]interfa
 			nodes = append(nodes, entry)
 		}
 	}
+	s.mu.RUnlock()
 
-	return map[string]interface{}{
-		"type":  "list_nodes_ok",
-		"nodes": nodes,
-	}, nil
+	nodesRaw, marshalErr := json.Marshal(nodes)
+	var fullBody []byte
+	if marshalErr == nil {
+		fullBody = wrapListNodesBody(nodesRaw)
+	}
+
+	c.mu.Lock()
+	c.lastBuildErr = nil
+	if marshalErr == nil {
+		c.fullBody = fullBody
+		c.builtAt = time.Now()
+	} else {
+		c.lastBuildErr = fmt.Errorf("list_nodes marshal: %w", marshalErr)
+	}
+	c.building = false
+	c.cond.Broadcast()
+	c.mu.Unlock()
+
+	if marshalErr != nil {
+		return nil, fmt.Errorf("list_nodes marshal: %w", marshalErr)
+	}
+	return fullBody, nil
+}
+
+// adminListNodesTTL is how long an admin list_nodes response is cached.
+// At 1s with ~40 calls/sec, only ~1 rebuild/sec runs even under sustained
+// load. New nodes appear within 1s of registration; deregistrations
+// disappear within 1s. Admin tooling sees data that's at most 1s old.
+const adminListNodesTTL = 1 * time.Second
+
+// adminListNodesCached returns the FULL pre-marshalled response body for
+// the admin list_nodes path, including the outer
+// `{"type":"list_nodes_ok","nodes":[...]}` wrapper. The caller hands the
+// bytes to writeMessage via the rawResponseKey sentinel, bypassing
+// json.Marshal entirely on cache hits.
+//
+// Why pre-build the wrapper:
+//   The previous implementation returned just the inner nodes array as
+//   json.RawMessage and let json.Marshal wrap it. Even though the bytes
+//   were already valid JSON, the encoder called appendCompact() on every
+//   call to re-validate them byte-by-byte — burning ~65% of total CPU at
+//   ~320 calls/sec on a 16 MB payload (measured 2026-04-29 profile).
+//   Pre-wrapping eliminates the encoder pass entirely.
+//
+// Race-clean: cache rebuild runs without any registry lock held. The
+// inner build acquires s.mu.RLock briefly and (via the iteration) per-node
+// shard.RLock — same pattern as flushSave.
+func (s *Server) adminListNodesCached() ([]byte, error) {
+	c := &s.listNodesCache
+
+	c.mu.Lock()
+	// Fast path: cache is fresh.
+	if c.fullBody != nil && time.Since(c.builtAt) < adminListNodesTTL {
+		body := c.fullBody
+		c.cacheHits++
+		c.mu.Unlock()
+		return body, nil
+	}
+	// Another goroutine is rebuilding — wait for it.
+	if c.building {
+		for c.building {
+			c.cond.Wait()
+		}
+		body := c.fullBody
+		c.cacheWaits++
+		c.mu.Unlock()
+		if body == nil {
+			return nil, fmt.Errorf("list_nodes cache rebuild failed")
+		}
+		return body, nil
+	}
+	// We're the rebuilder.
+	c.building = true
+	c.cacheRebuilds++
+	c.mu.Unlock()
+
+	// Build under s.mu.RLock, releasing before marshal.
+	s.mu.RLock()
+	nodes := make([]map[string]interface{}, 0, len(s.nodes))
+	for _, node := range s.nodes {
+		shard := &s.nodeShards[node.ID%numNodeShards]
+		shard.RLock()
+		entry := map[string]interface{}{
+			"node_id":    node.ID,
+			"address":    protocol.Addr{Network: 0, Node: node.ID}.String(),
+			"public":     node.Public,
+			"polo_score": node.PoloScore,
+		}
+		if node.Hostname != "" {
+			entry["hostname"] = node.Hostname
+		}
+		if node.TaskExec {
+			entry["task_exec"] = true
+		}
+		if node.Public {
+			entry["real_addr"] = node.RealAddr
+		}
+		if len(node.Tags) > 0 {
+			entry["tags"] = node.Tags
+		}
+		if node.ExternalID != "" {
+			entry["external_id"] = node.ExternalID
+		}
+		if node.Version != "" {
+			entry["version"] = node.Version
+		}
+		entry["last_seen"] = node.getLastSeen().Format(time.RFC3339)
+		shard.RUnlock()
+		nodes = append(nodes, entry)
+	}
+	s.mu.RUnlock()
+
+	// Marshal outside any registry lock, then wrap into the full response
+	// body so cache hits can write the bytes verbatim without going back
+	// through json.Marshal.
+	nodesRaw, marshalErr := json.Marshal(nodes)
+	var fullBody []byte
+	if marshalErr == nil {
+		fullBody = wrapListNodesBody(nodesRaw)
+	}
+
+	c.mu.Lock()
+	if marshalErr == nil {
+		c.fullBody = fullBody
+		c.builtAt = time.Now()
+	}
+	c.building = false
+	c.cond.Broadcast()
+	c.mu.Unlock()
+
+	if marshalErr != nil {
+		return nil, fmt.Errorf("list_nodes marshal: %w", marshalErr)
+	}
+	return fullBody, nil
 }
 
 func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interface{}, error) {
@@ -5469,7 +6224,9 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 		}
 	}
 
-	// Remove from all networks and clean up RBAC roles
+	// Remove from all networks and clean up RBAC roles. Each touched network's
+	// cached list_nodes response goes stale; invalidate per-net here so any
+	// post-deregister list_nodes returns fresh data.
 	var lostOwnerNets []uint16
 	for _, netID := range node.Networks {
 		if net, ok := s.networks[netID]; ok {
@@ -5479,6 +6236,7 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 			for i, m := range net.Members {
 				if m == nodeID {
 					net.Members = append(net.Members[:i], net.Members[i+1:]...)
+					s.invalidateListNodesCacheForNetwork(netID)
 					break
 				}
 			}
@@ -5510,6 +6268,10 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	}
 	s.cleanupNode(nodeID)
 	delete(s.nodes, nodeID)
+	s.invalidateAdminListNodesCache()
+	// WAL the deregistration so a crash before next flushSave doesn't
+	// resurrect the deleted node from the older snapshot.
+	s.recordWAL(DeltaDeregister, nodeID, deregisterDelta{NodeID: nodeID})
 	s.save()
 	s.metrics.deregistrations.Inc()
 
@@ -5524,6 +6286,35 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 	return map[string]interface{}{
 		"type": "deregister_ok",
 	}, nil
+}
+
+// Pre-built fragments for the heartbeat-ok response. Go's json.Marshal sorts
+// map keys alphabetically, so the wire shape is:
+//   without warning: {"time":<int>,"type":"heartbeat_ok"}
+//   with    warning: {"key_expiry_warning":true,"time":<int>,"type":"heartbeat_ok"}
+// Pre-building the static prefix/suffix and only sprintf'ing the timestamp
+// saves the ~8% of remaining CPU spent in json.Marshal on the heartbeat
+// response — this is the single most-frequent message in the system.
+var (
+	heartbeatOkPrefixNoWarn   = []byte(`{"time":`)
+	heartbeatOkPrefixWithWarn = []byte(`{"key_expiry_warning":true,"time":`)
+	heartbeatOkSuffix         = []byte(`,"type":"heartbeat_ok"}`)
+)
+
+// buildHeartbeatOk emits bytes byte-identical to json.Marshal of the
+// equivalent map[string]interface{}. Locked down by
+// TestBuildHeartbeatOkMatchesJSONMarshal.
+func buildHeartbeatOk(timeUnix int64, keyExpiryWarning bool) []byte {
+	// Bound: prefix(34) + int64-digits(20) + suffix(23) = 77; cap at 96.
+	b := make([]byte, 0, 96)
+	if keyExpiryWarning {
+		b = append(b, heartbeatOkPrefixWithWarn...)
+	} else {
+		b = append(b, heartbeatOkPrefixNoWarn...)
+	}
+	b = strconv.AppendInt(b, timeUnix, 10)
+	b = append(b, heartbeatOkSuffix...)
+	return b
 }
 
 func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interface{}, error) {
@@ -5569,17 +6360,14 @@ func (s *Server) handleHeartbeat(msg map[string]interface{}) (map[string]interfa
 	// Phase 3: atomic LastSeen update — no write lock needed
 	node.lastSeenNano.Store(now.UnixNano())
 
-	resp := map[string]interface{}{
-		"type": "heartbeat_ok",
-		"time": now.Unix(),
-	}
-
-	// Key expiry warning: if key expires within 24 hours, warn the daemon
-	if !expiresAt.IsZero() && expiresAt.Before(now.Add(24*time.Hour)) {
-		resp["key_expiry_warning"] = true
-	}
-
-	return resp, nil
+	// Bypass-marshal fast path: heartbeat is the most-frequent message in
+	// the system (~4k/sec at 4k-daemon scale). Pre-building the response
+	// bytes saves the json.Marshal pass on every successful heartbeat;
+	// writeMessage detects rawResponseKey and emits the bytes verbatim.
+	keyExpiryWarning := !expiresAt.IsZero() && expiresAt.Before(now.Add(24*time.Hour))
+	return map[string]interface{}{
+		rawResponseKey: buildHeartbeatOk(now.Unix(), keyExpiryWarning),
+	}, nil
 }
 
 func (s *Server) handlePunch(msg map[string]interface{}) (map[string]interface{}, error) {
@@ -5713,6 +6501,7 @@ type snapshotNode struct {
 	KeyExpires  string   `json:"key_expires,omitempty"`
 	ExternalID  string   `json:"external_id,omitempty"`
 	Version     string   `json:"version,omitempty"`
+	RelayOnly   bool     `json:"relay_only,omitempty"` // task 32 — preserve flag across snapshots
 }
 
 type snapshotNet struct {
@@ -5732,22 +6521,39 @@ type snapshotNet struct {
 	Created      string              `json:"created"`
 }
 
-// save signals that state has changed and should be persisted.
-// Non-blocking: actual serialization and disk I/O happen in saveLoop.
+// save signals that state has changed and should be persisted AND pushed
+// to replicas. Non-blocking: actual serialization happens in saveLoop
+// (disk) and replicaPushLoop (replicas), each on its own cadence.
 // Caller must hold s.mu (read or write lock).
 func (s *Server) save() {
 	select {
 	case s.saveCh <- struct{}{}:
 	default: // already signaled, will be picked up
 	}
+	select {
+	case s.replicaPushCh <- struct{}{}:
+	default: // already signaled
+	}
 }
 
 // saveLoop runs in the background and coalesces save signals. It flushes
-// state to disk at most once per second, preventing serialization storms
-// when many mutations happen in quick succession (trust pairs, registrations).
+// state to disk at most once per saveLoopInterval, preventing serialization
+// storms when many mutations happen in quick succession (trust pairs,
+// registrations).
+//
+// PERFORMANCE NOTE: At 5s the registry sustains 5× less disk I/O under hot
+// load (where saveCh is signaled continuously) — pre-2026-04-29 incident
+// observation pegged flushSave at ~17% CPU when the registry was hot, so
+// dropping to 5s should bring that to ~3-4%. The tradeoff: a registry crash
+// can lose up to 5s of in-memory state. For lastSeen this is recovered on
+// the next heartbeat (60s interval, so worst-case ~5s lag visible). For
+// membership/key changes the WAL is intended to close the gap; until WAL
+// hooks are wired in (tracked separately) operators sizing for this risk
+// should pin -save-interval=1s.
 func (s *Server) saveLoop() {
 	defer close(s.saveDone)
-	ticker := time.NewTicker(1 * time.Second)
+	defer recoverHandler("saveLoop", nil)
+	ticker := time.NewTicker(saveLoopInterval)
 	defer ticker.Stop()
 	dirty := false
 	for {
@@ -5757,9 +6563,17 @@ func (s *Server) saveLoop() {
 		case <-ticker.C:
 			if dirty {
 				if err := s.flushSave(); err != nil {
-					slog.Error("periodic save failed", "err", err)
+					// Keep dirty=true so we retry next tick. Previously we
+					// always reset dirty here, so a transient I/O hiccup
+					// (disk full, fsync timeout, EBUSY) silently dropped
+					// every accumulated mutation between this tick and the
+					// next save signal. Now retries continue until the next
+					// successful flushSave.
+					s.metrics.saveFailures.Inc()
+					slog.Error("periodic save failed (will retry next tick)", "err", err)
+				} else {
+					dirty = false
 				}
-				dirty = false
 			}
 		case <-s.done:
 			// Drain pending save signal
@@ -5770,7 +6584,46 @@ func (s *Server) saveLoop() {
 			}
 			if dirty {
 				if err := s.flushSave(); err != nil {
+					s.metrics.saveFailures.Inc()
 					slog.Error("final save failed", "err", err)
+				}
+			}
+			return
+		}
+	}
+}
+
+// replicaPushLoop runs in the background and coalesces replica push
+// signals. It rebuilds + pushes the replication snapshot at most once per
+// replicaPushInterval. Decoupled from disk save so replicas stay current
+// regardless of how aggressive operators set saveLoopInterval.
+func (s *Server) replicaPushLoop() {
+	defer close(s.replicaPushDone)
+	defer recoverHandler("replicaPushLoop", nil)
+	ticker := time.NewTicker(replicaPushInterval)
+	defer ticker.Stop()
+	dirty := false
+	for {
+		select {
+		case <-s.replicaPushCh:
+			dirty = true
+		case <-ticker.C:
+			if dirty {
+				if data := s.snapshotJSON(); data != nil {
+					s.replMgr.push(data)
+				}
+				dirty = false
+			}
+		case <-s.done:
+			// Drain on shutdown so the last mutation reaches replicas.
+			select {
+			case <-s.replicaPushCh:
+				dirty = true
+			default:
+			}
+			if dirty {
+				if data := s.snapshotJSON(); data != nil {
+					s.replMgr.push(data)
 				}
 			}
 			return
@@ -5790,7 +6643,7 @@ func (s *Server) sampleStats() statsSampleResult {
 	defer s.mu.RUnlock()
 
 	now := s.now()
-	onlineThreshold := now.Add(-staleNodeThreshold)
+	onlineThreshold := now.Add(-s.StaleNodeThreshold())
 	online := 0
 	for _, node := range s.nodes {
 		if node.getLastSeen().After(onlineThreshold) {
@@ -5885,6 +6738,7 @@ func writeBucketedStats(ring []StatsSample, idxPtr *int, sample StatsSample, buc
 // statsCollectorLoop runs in the background and samples stats for history charts.
 // Hourly samples are taken every hour; daily samples every 24 hours.
 func (s *Server) statsCollectorLoop() {
+	defer recoverHandler("statsCollectorLoop", nil)
 	// Wait for server to be ready (load complete) before first sample
 	<-s.readyCh
 	// Sample immediately so there's at least one data point
@@ -5928,6 +6782,7 @@ type rawNodeCopy struct {
 	keyMeta    KeyInfo
 	externalID string
 	version    string
+	relayOnly  bool // task 32
 }
 
 // flushSave serializes the full registry state and writes it to disk.
@@ -5942,8 +6797,16 @@ func (s *Server) flushSave() error {
 	// Copy node raw values (no encoding under lock). Slice fields that can be
 	// mutated in place elsewhere (Networks/Tags/LANAddrs are append-grown) are
 	// deep-copied so Phase 2 sees a stable snapshot after the lock is released.
+	//
+	// Per-node fields RealAddr / LANAddrs / Version may be written by the
+	// handleReRegister fast path under shard.Lock() (without s.mu.Lock).
+	// Take shard.RLock per node here to establish happens-before with those
+	// writers — otherwise this loop has a torn-string-read race against the
+	// fast path. Cost: ~100k RLock acquisitions per save tick (~5ms total).
 	rawNodes := make([]rawNodeCopy, 0, len(s.nodes))
 	for _, n := range s.nodes {
+		shard := &s.nodeShards[n.ID%numNodeShards]
+		shard.RLock()
 		rawNodes = append(rawNodes, rawNodeCopy{
 			id:         n.ID,
 			owner:      n.Owner,
@@ -5960,7 +6823,9 @@ func (s *Server) flushSave() error {
 			keyMeta:    n.KeyMeta,
 			externalID: n.ExternalID,
 			version:    n.Version,
+			relayOnly:  n.RelayOnly, // task 32
 		})
+		shard.RUnlock()
 	}
 
 	// Copy network data. Members/MemberRoles/MemberTags mutate in place
@@ -6031,21 +6896,25 @@ func (s *Server) flushSave() error {
 		trustPairs = append(trustPairs, key)
 	}
 
-	// Copy handshake inboxes
+	// Copy handshake inboxes — these now live under handshakeMu, not s.mu.
+	// Lock order: s.mu held (RLock) then handshakeMu — no path takes them
+	// in the opposite order so no deadlock.
 	var handshakeInbox map[uint32][]*HandshakeRelayMsg
+	var handshakeResponses map[uint32][]*HandshakeResponseMsg
+	s.handshakeMu.Lock()
 	if len(s.handshakeInbox) > 0 {
 		handshakeInbox = make(map[uint32][]*HandshakeRelayMsg, len(s.handshakeInbox))
 		for nodeID, msgs := range s.handshakeInbox {
 			handshakeInbox[nodeID] = msgs
 		}
 	}
-	var handshakeResponses map[uint32][]*HandshakeResponseMsg
 	if len(s.handshakeResponses) > 0 {
 		handshakeResponses = make(map[uint32][]*HandshakeResponseMsg, len(s.handshakeResponses))
 		for nodeID, msgs := range s.handshakeResponses {
 			handshakeResponses[nodeID] = msgs
 		}
 	}
+	s.handshakeMu.Unlock()
 	var inviteInbox map[uint32][]*NetworkInvite
 	if len(s.inviteInbox) > 0 {
 		inviteInbox = make(map[uint32][]*NetworkInvite, len(s.inviteInbox))
@@ -6100,7 +6969,7 @@ func (s *Server) flushSave() error {
 	}
 
 	// Convert raw node copies to snapshot nodes (base64 + time.Format outside lock)
-	onlineThreshold := time.Now().Add(-staleNodeThreshold)
+	onlineThreshold := time.Now().Add(-s.StaleNodeThreshold())
 	onlineCount := 0
 	taskExecCount := 0
 	tagSet := make(map[string]bool)
@@ -6119,6 +6988,7 @@ func (s *Server) flushSave() error {
 			PoloScore: rn.poloScore,
 			TaskExec:  rn.taskExec,
 			LANAddrs:  rn.lanAddrs,
+			RelayOnly: rn.relayOnly, // task 32
 		}
 		if !rn.keyMeta.CreatedAt.IsZero() {
 			sn.KeyCreated = rn.keyMeta.CreatedAt.Format(time.RFC3339)
@@ -6316,8 +7186,9 @@ func (s *Server) flushSave() error {
 		}
 	}
 
-	// Push to replication subscribers
-	s.replMgr.push(data)
+	// Replica push runs on its own ticker (replicaPushLoop) so this disk
+	// flush no longer drives replication latency. Subscribers receive
+	// updates within replicaPushInterval of any mutation.
 
 	slog.Debug("registry state saved", "nodes", nodeCount, "networks", netCount)
 	return nil
@@ -6475,6 +7346,7 @@ func (s *Server) load() error {
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
 			LANAddrs:  n.LANAddrs,
+			RelayOnly: n.RelayOnly, // task 32
 		}
 		node.lastSeenNano.Store(lastSeen.UnixNano())
 		// Restore key lifecycle metadata
@@ -6573,7 +7445,9 @@ func (s *Server) load() error {
 		slog.Info("loaded pub_key_idx", "persisted", len(snap.PubKeyIdx), "total", len(s.pubKeyIdx))
 	}
 
-	// Restore handshake inboxes
+	// Restore handshake inboxes — startup-only path, but take handshakeMu
+	// for hygiene now that the fields are protected by it.
+	s.handshakeMu.Lock()
 	for nodeIDStr, msgs := range snap.HandshakeInbox {
 		var nodeID uint32
 		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
@@ -6587,8 +7461,11 @@ func (s *Server) load() error {
 		}
 	}
 	inboxCount := len(s.handshakeInbox) + len(s.handshakeResponses)
+	reqQueues := len(s.handshakeInbox)
+	respQueues := len(s.handshakeResponses)
+	s.handshakeMu.Unlock()
 	if inboxCount > 0 {
-		slog.Info("loaded handshake inboxes", "request_queues", len(s.handshakeInbox), "response_queues", len(s.handshakeResponses))
+		slog.Info("loaded handshake inboxes", "request_queues", reqQueues, "response_queues", respQueues)
 	}
 
 	// Restore invite inboxes
@@ -6729,7 +7606,36 @@ func readMessage(r io.Reader) (map[string]interface{}, error) {
 	return msg, nil
 }
 
+// writeMessageDeadline bounds how long a single response write can take.
+// If a client is slow to drain (overloaded host, kernel buffer pressure)
+// we'd otherwise hold the request goroutine + response payload in memory
+// indefinitely, magnifying contention back-pressure on the registry.
+// The previous symptom: thousands of "connection reset by peer" errors
+// because write blocked waiting for a slow client whose TCP stack RST'd
+// before draining. After this deadline expires, w.Write returns an error
+// and we drop the connection cleanly.
+const writeMessageDeadline = 5 * time.Second
+
 func writeMessage(w io.Writer, msg map[string]interface{}) error {
+	// Fast path: handler signals "I already produced the full response
+	// bytes — skip json.Marshal entirely". Used by list_nodes cache hits
+	// to avoid the encoder's appendCompact pass over already-valid bytes.
+	if raw, ok := msg[rawResponseKey].([]byte); ok && raw != nil {
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(raw)))
+		if c, ok := w.(net.Conn); ok {
+			_ = c.SetWriteDeadline(time.Now().Add(writeMessageDeadline))
+			defer c.SetWriteDeadline(time.Time{})
+		}
+		if _, err := w.Write(lenBuf[:]); err != nil {
+			return err
+		}
+		if _, err := w.Write(raw); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("json encode: %w", err)
@@ -6737,6 +7643,15 @@ func writeMessage(w io.Writer, msg map[string]interface{}) error {
 
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(body)))
+
+	// If the underlying writer is a net.Conn, set a write deadline so a
+	// stuck/overloaded client can't pin a response goroutine forever.
+	// (io.Writer is the parameter type for unit-test friendliness; in
+	// production this is always a *net.TCPConn.)
+	if c, ok := w.(net.Conn); ok {
+		_ = c.SetWriteDeadline(time.Now().Add(writeMessageDeadline))
+		defer c.SetWriteDeadline(time.Time{}) // clear after this call
+	}
 
 	if _, err := w.Write(lenBuf[:]); err != nil {
 		return err
@@ -6895,7 +7810,7 @@ func (s *Server) GetDashboardStats() DashboardStats {
 	defer s.mu.RUnlock()
 
 	now := time.Now()
-	onlineThreshold := now.Add(-staleNodeThreshold)
+	onlineThreshold := now.Add(-s.StaleNodeThreshold())
 
 	activeCount := 0
 	versions := make(map[string]int)
@@ -7107,7 +8022,7 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	defer s.mu.RUnlock()
 
 	now := time.Now()
-	onlineThreshold := now.Add(-staleNodeThreshold)
+	onlineThreshold := now.Add(-s.StaleNodeThreshold())
 
 	activeCount := 0
 	versions := make(map[string]int)

@@ -83,6 +83,10 @@ func TestRegistryPersistence(t *testing.T) {
 
 	// Phase 2: start new registry from the same store file
 	reg2 := registry.NewWithStore("127.0.0.1:9001", storePath)
+	// Admin token is a startup flag, not persisted — re-set on the
+	// reloaded instance so admin-gated paths (member-count visibility,
+	// etc.) work the same as on the original registry.
+	reg2.SetAdminToken(TestAdminToken)
 	go reg2.ListenAndServe(":0")
 	select {
 	case <-reg2.Ready():
@@ -118,7 +122,7 @@ func TestRegistryPersistence(t *testing.T) {
 	}
 
 	// Verify network exists with both members
-	networks, err := rc2.ListNetworks()
+	networks, err := rc2.ListNetworks(TestAdminToken)
 	if err != nil {
 		t.Fatalf("list networks: %v", err)
 	}

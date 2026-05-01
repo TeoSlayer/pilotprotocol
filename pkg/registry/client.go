@@ -194,21 +194,57 @@ func (c *Client) RegisterWithOwner(listenAddr, owner string) (map[string]interfa
 // The registry returns the same node_id if the key is known.
 // lanAddrs are the node's LAN addresses for same-network peer detection.
 func (c *Client) RegisterWithKey(listenAddr, publicKeyB64, owner string, lanAddrs []string, opts ...string) (map[string]interface{}, error) {
+	return c.RegisterWithKeyOpts(RegisterOpts{
+		ListenAddr: listenAddr,
+		PublicKey:  publicKeyB64,
+		Owner:      owner,
+		LANAddrs:   lanAddrs,
+		Version:    firstNonEmpty(opts...),
+	})
+}
+
+// RegisterOpts is the full set of registration options. Lets us add
+// fields (like RelayOnly for task 32) without breaking the variadic
+// signature of RegisterWithKey.
+type RegisterOpts struct {
+	ListenAddr string
+	PublicKey  string // base64 Ed25519
+	Owner      string
+	LANAddrs   []string
+	Version    string
+	RelayOnly  bool // task 32: hide real_addr from peers
+}
+
+// RegisterWithKeyOpts is the structured-form register call. Existing
+// callers keep using RegisterWithKey; new flags go here.
+func (c *Client) RegisterWithKeyOpts(o RegisterOpts) (map[string]interface{}, error) {
 	msg := map[string]interface{}{
 		"type":        "register",
-		"listen_addr": listenAddr,
-		"public_key":  publicKeyB64,
+		"listen_addr": o.ListenAddr,
+		"public_key":  o.PublicKey,
 	}
-	if owner != "" {
-		msg["owner"] = owner
+	if o.Owner != "" {
+		msg["owner"] = o.Owner
 	}
-	if len(lanAddrs) > 0 {
-		msg["lan_addrs"] = lanAddrs
+	if len(o.LANAddrs) > 0 {
+		msg["lan_addrs"] = o.LANAddrs
 	}
-	if len(opts) > 0 && opts[0] != "" {
-		msg["version"] = opts[0]
+	if o.Version != "" {
+		msg["version"] = o.Version
+	}
+	if o.RelayOnly {
+		msg["relay_only"] = true
 	}
 	return c.Send(msg)
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // RotateKey requests a key rotation for a node.
@@ -392,10 +428,17 @@ func (c *Client) SetNetworkEnterprise(networkID uint16, enterprise bool, adminTo
 	})
 }
 
-func (c *Client) ListNetworks() (map[string]interface{}, error) {
-	return c.Send(map[string]interface{}{
+// ListNetworks returns the registry's network catalog. Member counts
+// (the `members` field on each entry) are admin-only — pass a non-empty
+// adminToken to receive them; otherwise the field is omitted.
+func (c *Client) ListNetworks(adminToken ...string) (map[string]interface{}, error) {
+	msg := map[string]interface{}{
 		"type": "list_networks",
-	})
+	}
+	if len(adminToken) > 0 && adminToken[0] != "" {
+		msg["admin_token"] = adminToken[0]
+	}
+	return c.Send(msg)
 }
 
 func (c *Client) ListNodes(networkID uint16, adminToken ...string) (map[string]interface{}, error) {
