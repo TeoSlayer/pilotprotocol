@@ -593,12 +593,83 @@ var TunnelKeepaliveInterval = 25 * time.Second
 // frame to every peer whose lastOutboundSend is older than
 // TunnelKeepaliveInterval. Returns the number of keepalives sent.
 //
-// NOTE (v1.9.1 RED #7): currently a stub that returns 0. The GREEN
-// phase will implement the body — encrypt an empty ProtoControl/PortPing
-// packet and route through writeFrame.
+// The keepalive frame is an empty ProtoControl packet on PortPing —
+// handleEncrypted recognises this combination and silently drops it
+// before recvCh delivery, so application code never sees a spurious
+// "ping" packet. The encrypted payload still authenticates as us
+// (peer's AEAD verifies our nodeID AAD), so an attacker can't forge
+// keepalives to keep stale entries warm.
 func (tm *TunnelManager) keepaliveSweep(now time.Time) int {
-	_ = now
-	return 0
+	type peerInfo struct {
+		id   uint32
+		addr *net.UDPAddr
+		pc   *peerCrypto
+	}
+	tm.mu.RLock()
+	stale := make([]peerInfo, 0, len(tm.peers))
+	for nodeID, addr := range tm.peers {
+		last, ok := tm.lastOutboundSend[nodeID]
+		if ok && now.Sub(last) < TunnelKeepaliveInterval {
+			continue
+		}
+		pc := tm.crypto[nodeID]
+		if pc == nil || !pc.ready {
+			continue
+		}
+		stale = append(stale, peerInfo{nodeID, addr, pc})
+	}
+	tm.mu.RUnlock()
+
+	sent := 0
+	for _, p := range stale {
+		ka := &protocol.Packet{
+			Version:  protocol.Version,
+			Protocol: protocol.ProtoControl,
+			DstPort:  protocol.PortPing,
+		}
+		plaintext, err := ka.Marshal()
+		if err != nil {
+			continue
+		}
+		frame := tm.encryptFrame(p.pc, plaintext)
+		if err := tm.writeFrame(p.id, p.addr, frame); err != nil {
+			slog.Debug("keepalive send failed", "peer_node_id", p.id, "error", err)
+			continue
+		}
+		sent++
+	}
+	return sent
+}
+
+// keepaliveTickerInterval is how often keepaliveLoop wakes up to scan
+// for stale peers. Set to a fraction of TunnelKeepaliveInterval so a
+// peer that goes idle right after a tick still gets a keepalive within
+// roughly TunnelKeepaliveInterval + this period.
+var keepaliveTickerInterval = 5 * time.Second
+
+// keepaliveLoop runs the periodic NAT-keepalive sweep until tm.done
+// closes. Spawned by Listen() once the UDP socket is bound.
+func (tm *TunnelManager) keepaliveLoop() {
+	ticker := time.NewTicker(keepaliveTickerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-tm.done:
+			return
+		case <-ticker.C:
+			tm.keepaliveSweep(time.Now())
+		}
+	}
+}
+
+// isTunnelKeepalive returns true for the packets that keepaliveSweep
+// emits — empty ProtoControl on PortPing. handleEncrypted drops these
+// before recvCh delivery so application code never sees a spurious ping.
+func isTunnelKeepalive(pkt *protocol.Packet) bool {
+	return pkt != nil &&
+		pkt.Protocol == protocol.ProtoControl &&
+		pkt.DstPort == protocol.PortPing &&
+		len(pkt.Payload) == 0
 }
 
 // getPeerPubKey returns the cached Ed25519 public key for a peer, fetching from
@@ -647,6 +718,11 @@ func (tm *TunnelManager) Listen(addr string) error {
 	// single dropped reply leaves the tunnel wedged until the next
 	// 5-minute relay probe.
 	go tm.rekeyRetransmitLoop()
+	// v1.9.1 NAT-keepalive: send a tiny encrypted ping every
+	// TunnelKeepaliveInterval to peers we've been silent to, preventing
+	// consumer-NAT idle-timeout from silently breaking long-lived
+	// peer relationships with bursty connection cycles.
+	go tm.keepaliveLoop()
 	return nil
 }
 
@@ -1079,6 +1155,15 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		return
 	}
 
+	// v1.9.1 NAT-keepalive: drop tunnel-keepalive packets before recvCh
+	// delivery. They're authenticated (the AEAD verified the sender's
+	// nodeID AAD) so we still want all the side-effects below (recordInbound
+	// Decrypt, clearRelayOnDirect, address-learning), but the application
+	// layer should never see them. Doing this BEFORE the recordInbound
+	// side-effects would lose the liveness signal the keepalive is meant
+	// to provide; doing it after but BEFORE the recvCh send keeps the
+	// signal flowing without polluting the application stream.
+
 	// P1-010 tunnel-state half: successful decrypt = peer has matching
 	// crypto. Clear any pending rekey state so rekeyRetransmitLoop stops
 	// hammering. Update the lastInboundDecrypt timestamp for the
@@ -1119,6 +1204,14 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 
 	atomic.AddUint64(&tm.PktsRecv, 1)
 	atomic.AddUint64(&tm.BytesRecv, uint64(len(data)+4)) // +4 for PILS magic
+
+	// Drop tunnel keepalives before recvCh delivery — they exist purely
+	// to keep NAT mappings warm; the application layer should never see
+	// them. All liveness/address-learning side-effects above already ran.
+	if isTunnelKeepalive(pkt) {
+		return
+	}
+
 	select {
 	case tm.recvCh <- &IncomingPacket{Packet: pkt, From: from}:
 	case <-tm.done:
