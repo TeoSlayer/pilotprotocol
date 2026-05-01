@@ -87,6 +87,21 @@ type Listener struct {
 	AcceptCh chan *Connection
 }
 
+// TrySend attempts a non-blocking push of conn to AcceptCh.
+// Returns true if the connection was queued, false if the queue was full.
+//
+// BUG (pre-v1.9.1): this implementation is not safe to call after Unbind —
+// if AcceptCh is closed, the send panics. The fix (v1.9.1) adds a
+// mutex-protected closed flag so TrySend returns false instead of panicking.
+func (ln *Listener) TrySend(conn *Connection) bool {
+	select {
+	case ln.AcceptCh <- conn:
+		return true
+	default:
+		return false
+	}
+}
+
 // retxEntry is a sent-but-unacknowledged data segment.
 type retxEntry struct {
 	data     []byte
