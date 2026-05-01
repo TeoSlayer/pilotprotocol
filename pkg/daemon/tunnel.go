@@ -203,6 +203,13 @@ type TunnelManager struct {
 	blackholeMissCount map[uint32]int
 	directClearCount   map[uint32]int
 
+	// lastOutboundSend tracks when we last successfully sent a frame to
+	// each peer. Used by keepaliveSweep to identify peers whose NAT
+	// mapping is at risk of idle-timeout. Updated by writeFrame on every
+	// successful UDP write (direct or relay). Pruned when a peer is
+	// removed via RemovePeer.
+	lastOutboundSend map[uint32]time.Time
+
 	// Webhook
 	webhook *WebhookClient
 
@@ -247,6 +254,7 @@ func NewTunnelManager() *TunnelManager {
 		lastDirectRecv:     make(map[uint32]time.Time),
 		blackholeMissCount: make(map[uint32]int),
 		directClearCount:   make(map[uint32]int),
+		lastOutboundSend:   make(map[uint32]time.Time),
 		lastRekeyReq:       make(map[uint32]time.Time),
 		pendingRekey:       make(map[uint32]*pendingRekeyState),
 		lastInboundDecrypt: make(map[uint32]time.Time),
@@ -549,6 +557,7 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 		if err == nil {
 			atomic.AddUint64(&tm.PktsSent, 1)
 			atomic.AddUint64(&tm.BytesSent, uint64(n))
+			tm.recordOutboundSend(nodeID)
 		}
 		return err
 	}
@@ -560,8 +569,36 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	if err == nil {
 		atomic.AddUint64(&tm.PktsSent, 1)
 		atomic.AddUint64(&tm.BytesSent, uint64(n))
+		tm.recordOutboundSend(nodeID)
 	}
 	return err
+}
+
+// recordOutboundSend stamps the lastOutboundSend timestamp for a peer.
+// Used by keepaliveSweep to identify peers whose NAT mapping is at risk
+// of idle-timeout (no send in keepaliveInterval).
+func (tm *TunnelManager) recordOutboundSend(nodeID uint32) {
+	tm.mu.Lock()
+	tm.lastOutboundSend[nodeID] = time.Now()
+	tm.mu.Unlock()
+}
+
+// TunnelKeepaliveInterval is the minimum gap between successive sends to
+// a peer before keepaliveSweep enqueues a NAT-keepalive frame. Set below
+// the 30 s lower bound of consumer-NAT UDP idle timeout. Tunable for
+// tests via direct assignment.
+var TunnelKeepaliveInterval = 25 * time.Second
+
+// keepaliveSweep examines tm.peers and sends a tiny encrypted keepalive
+// frame to every peer whose lastOutboundSend is older than
+// TunnelKeepaliveInterval. Returns the number of keepalives sent.
+//
+// NOTE (v1.9.1 RED #7): currently a stub that returns 0. The GREEN
+// phase will implement the body — encrypt an empty ProtoControl/PortPing
+// packet and route through writeFrame.
+func (tm *TunnelManager) keepaliveSweep(now time.Time) int {
+	_ = now
+	return 0
 }
 
 // getPeerPubKey returns the cached Ed25519 public key for a peer, fetching from
@@ -1638,6 +1675,7 @@ func (tm *TunnelManager) RemovePeer(nodeID uint32) {
 	tm.mu.Lock()
 	delete(tm.peers, nodeID)
 	delete(tm.crypto, nodeID)
+	delete(tm.lastOutboundSend, nodeID)
 	tm.mu.Unlock()
 }
 
