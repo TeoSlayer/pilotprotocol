@@ -1057,7 +1057,7 @@ func (c *Connection) ProcessSACK(blocks []SACKBlock) {
 	for _, e := range c.Unacked {
 		segEnd := e.seq + uint32(len(e.data))
 		for _, b := range blocks {
-			if e.seq >= b.Left && segEnd <= b.Right {
+			if seqAfterOrEqual(e.seq, b.Left) && seqAfterOrEqual(b.Right, segEnd) {
 				e.sacked = true
 				break
 			}
