@@ -1845,16 +1845,28 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		})
 
 		d.startRetxLoop(conn)
-		// Non-blocking push to accept queue — if full, clean up and RST
+		// Non-blocking push to accept queue — if full, clean up and RST.
+		// v1.9.1: surface the drop via AcceptQueueDrops counter and a
+		// dedicated webhook event so operators can detect overflow.
+		// Without this signal, slow-Accept applications silently lose
+		// inbound connections.
 		select {
 		case ln.AcceptCh <- conn:
 		default:
-			slog.Warn("accept queue full after SYN-ACK, closing connection", "port", pkt.DstPort, "src_addr", pkt.Src)
+			drops := atomic.AddUint64(&d.AcceptQueueDrops, 1)
+			slog.Warn("accept queue full after SYN-ACK, closing connection",
+				"port", pkt.DstPort, "src_addr", pkt.Src, "drops_total", drops)
 			conn.Mu.Lock()
 			conn.State = StateClosed
 			conn.Mu.Unlock()
 			d.ports.RemoveConnection(conn.ID)
 			d.sendRST(pkt)
+			d.webhook.Emit("conn.accept_queue_full", map[string]interface{}{
+				"port":        pkt.DstPort,
+				"src_addr":    pkt.Src.String(),
+				"src_port":    pkt.SrcPort,
+				"drops_total": drops,
+			})
 		}
 		return
 	}
