@@ -759,13 +759,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	}
 
 	// New ACK — advance.
-	// Count only non-sacked bytes for AIMD (RFC 3465 §2: "newly acknowledged
-	// bytes").  SACKed segments are already at the peer and excluded from
-	// BytesInFlight(); counting them again here would inflate AIMD growth by
-	// ~1 MSS per sacked entry covered by the cumulative ACK.
+	// Count only non-sacked, non-FIN bytes for AIMD (RFC 3465 §2: "newly
+	// acknowledged bytes").  SACKed segments are already at the peer and
+	// excluded from BytesInFlight(); counting them again here would inflate
+	// AIMD growth by ~1 MSS per sacked entry covered by the cumulative ACK.
+	// FIN entries use a 1-byte internal sentinel (isFIN=true, data=[]byte{0})
+	// that is not user data; counting it causes the CA "< 1 → 1" minimum to
+	// fire and grows CongWin by 1 spurious byte per connection close.
 	bytesAcked := 0
 	for _, e := range c.Unacked {
-		if seqAfterOrEqual(ack, e.seq+uint32(len(e.data))) && !e.sacked {
+		if seqAfterOrEqual(ack, e.seq+uint32(len(e.data))) && !e.sacked && !e.isFIN {
 			bytesAcked += len(e.data)
 		}
 	}
