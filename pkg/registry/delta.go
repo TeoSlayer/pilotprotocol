@@ -24,6 +24,10 @@ const (
 	DeltaNetworkLeave  DeltaType = 11
 	DeltaKeyRotation   DeltaType = 12
 	DeltaTaskExec      DeltaType = 13
+	// DeltaNetworkDelete added for WAL wiring (2026-04-29). On older
+	// binaries that don't recognize this type, replay logs and skips —
+	// safe forward-compat.
+	DeltaNetworkDelete DeltaType = 14
 )
 
 // DeltaEntry records a single state mutation for incremental replication.

@@ -5,12 +5,26 @@ package registry
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"sync"
 )
+
+// maxWALSize bounds the WAL to prevent disk exhaustion if flushSave keeps
+// failing (snapshot cannot be written → WAL never gets truncated → it
+// grows unboundedly). 256 MiB is generous enough for many minutes of
+// mutations at peak rates while leaving headroom on a typical 10-100GB
+// system disk.
+const maxWALSize = 256 << 20
+
+// ErrWALFull is returned by Append when the WAL would exceed maxWALSize.
+// Callers should log + drop the entry (best-effort durability); the
+// in-memory mutation still completed, and the next successful flushSave
+// will persist via the snapshot path and truncate the WAL.
+var ErrWALFull = errors.New("WAL: at size cap, refusing append")
 
 // WAL implements an append-only write-ahead log for registry mutations.
 // Instead of serializing the entire state on every mutation (O(N) per save),
@@ -65,6 +79,16 @@ func (w *WAL) Append(entry DeltaEntry) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Refuse the append if it would push past the cap. Operators see this
+	// in metrics + logs; the next successful flushSave will Truncate and
+	// reset the cap. Critically: the in-memory mutation already happened,
+	// so the only consequence is "loss window grows from 5s of WAL gap
+	// to 5s + (time since cap hit)" — much better than crashing on disk
+	// full.
+	if int64(4+len(data))+w.size > maxWALSize {
+		return ErrWALFull
+	}
 
 	// Write [4-byte length][data]
 	var lenBuf [4]byte

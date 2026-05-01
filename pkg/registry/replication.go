@@ -223,9 +223,14 @@ func (s *Server) handleSubscribeReplication(conn net.Conn) {
 }
 
 // snapshotJSON returns the current registry state as JSON bytes.
+//
+// PERFORMANCE NOTE: The expensive json.Marshal pass (75-85 MB at 108k nodes,
+// ~100-200ms) runs OUTSIDE s.mu.RLock so writers don't queue behind it. The
+// snap struct must therefore own all its slice/map state independently —
+// every aliasing slice from live registry maps is copied before RUnlock.
+// See [[X-Tasks/backlog/30-mutex-risk-map]] § fix #3.
 func (s *Server) snapshotJSON() []byte {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	snap := snapshot{
 		NextNode: s.nextNode,
@@ -234,20 +239,29 @@ func (s *Server) snapshotJSON() []byte {
 		Networks: make(map[string]*snapshotNet, len(s.networks)),
 	}
 
+	// Per-node fields RealAddr / LANAddrs / Version may be written by the
+	// handleReRegister fast path under shard.Lock(). Take shard.RLock per
+	// node to synchronize. Slice fields (Networks, LANAddrs, Tags) are
+	// DEEP-COPIED so we can safely Marshal after releasing s.mu.RLock —
+	// concurrent writers under s.mu.Lock could otherwise grow / re-slice
+	// the underlying arrays during marshal.
 	for id, n := range s.nodes {
+		shard := &s.nodeShards[n.ID%numNodeShards]
+		shard.RLock()
 		sn := &snapshotNode{
 			ID:        n.ID,
 			Owner:     n.Owner,
 			PublicKey: base64.StdEncoding.EncodeToString(n.PublicKey),
 			RealAddr:  n.RealAddr,
-			Networks:  n.Networks,
+			Networks:  cloneSliceUint16(n.Networks),
 			Public:    n.Public,
 			LastSeen:  n.LastSeen.Format(time.RFC3339),
 			Hostname:  n.Hostname,
-			Tags:      n.Tags,
+			Tags:      cloneSliceString(n.Tags),
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
-			LANAddrs:  n.LANAddrs,
+			LANAddrs:  cloneSliceString(n.LANAddrs),
+			RelayOnly: n.RelayOnly, // task 32
 		}
 		if !n.KeyMeta.CreatedAt.IsZero() {
 			sn.KeyCreated = n.KeyMeta.CreatedAt.Format(time.RFC3339)
@@ -262,6 +276,7 @@ func (s *Server) snapshotJSON() []byte {
 			sn.KeyExpires = n.KeyMeta.ExpiresAt.Format(time.RFC3339)
 		}
 		sn.ExternalID = n.ExternalID
+		shard.RUnlock()
 		snap.Nodes[fmt.Sprintf("%d", id)] = sn
 	}
 
@@ -271,7 +286,7 @@ func (s *Server) snapshotJSON() []byte {
 			Name:       n.Name,
 			JoinRule:   n.JoinRule,
 			Token:      n.Token,
-			Members:    n.Members,
+			Members:    cloneSliceUint32(n.Members),
 			AdminToken: n.AdminToken,
 			Enterprise: n.Enterprise,
 			Created:    n.Created.Format(time.RFC3339),
@@ -285,7 +300,7 @@ func (s *Server) snapshotJSON() []byte {
 		if len(n.MemberTags) > 0 {
 			sn.MemberTags = make(map[string][]string, len(n.MemberTags))
 			for nodeID, tags := range n.MemberTags {
-				sn.MemberTags[fmt.Sprintf("%d", nodeID)] = tags
+				sn.MemberTags[fmt.Sprintf("%d", nodeID)] = cloneSliceString(tags)
 			}
 		}
 		if n.Policy.MaxMembers != 0 || len(n.Policy.AllowedPorts) > 0 || n.Policy.Description != "" {
@@ -295,42 +310,47 @@ func (s *Server) snapshotJSON() []byte {
 		snap.Networks[fmt.Sprintf("%d", id)] = sn
 	}
 
-	// Include trust pairs
+	// Include trust pairs (already copies into a fresh slice)
 	for key := range s.trustPairs {
 		snap.TrustPairs = append(snap.TrustPairs, key)
 	}
 
-	// Include handshake inboxes
+	// Include handshake inboxes — protected by handshakeMu, not s.mu.
+	// Deep-copy each slice so we can release handshakeMu before Marshal.
+	s.handshakeMu.Lock()
 	if len(s.handshakeInbox) > 0 {
 		snap.HandshakeInbox = make(map[string][]*HandshakeRelayMsg, len(s.handshakeInbox))
 		for nodeID, msgs := range s.handshakeInbox {
-			snap.HandshakeInbox[fmt.Sprintf("%d", nodeID)] = msgs
+			cp := make([]*HandshakeRelayMsg, len(msgs))
+			copy(cp, msgs)
+			snap.HandshakeInbox[fmt.Sprintf("%d", nodeID)] = cp
 		}
 	}
 	if len(s.handshakeResponses) > 0 {
 		snap.HandshakeResponses = make(map[string][]*HandshakeResponseMsg, len(s.handshakeResponses))
 		for nodeID, msgs := range s.handshakeResponses {
-			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = msgs
+			cp := make([]*HandshakeResponseMsg, len(msgs))
+			copy(cp, msgs)
+			snap.HandshakeResponses[fmt.Sprintf("%d", nodeID)] = cp
 		}
 	}
+	s.handshakeMu.Unlock()
 
-	// Include invite inboxes
+	// Include invite inboxes (deep-copy slice values)
 	if len(s.inviteInbox) > 0 {
 		snap.InviteInbox = make(map[string][]*NetworkInvite, len(s.inviteInbox))
 		for nodeID, invites := range s.inviteInbox {
-			snap.InviteInbox[fmt.Sprintf("%d", nodeID)] = invites
+			cp := make([]*NetworkInvite, len(invites))
+			copy(cp, invites)
+			snap.InviteInbox[fmt.Sprintf("%d", nodeID)] = cp
 		}
 	}
 
-	// Include audit log (separate lock — not nested under s.mu)
-	s.auditMu.Lock()
-	if len(s.auditLog) > 0 {
-		snap.AuditLog = make([]AuditEntry, len(s.auditLog))
-		copy(snap.AuditLog, s.auditLog)
-	}
-	s.auditMu.Unlock()
-
-	// Enterprise config persistence
+	// Enterprise config — pointers; not mutated post-init in practice but we
+	// still snapshot the pointer under RLock and Marshal will read whatever
+	// they point to. Acceptable: these are config blobs whose mutation
+	// requires a separate handler call (rare). If they ever become hot we
+	// must deep-copy here.
 	if s.idpConfig != nil {
 		snap.IDPConfig = s.idpConfig
 	}
@@ -340,16 +360,60 @@ func (s *Server) snapshotJSON() []byte {
 	if len(s.rbacPreAssign) > 0 {
 		snap.RBACPreAssign = make(map[string][]BlueprintRole, len(s.rbacPreAssign))
 		for netID, roles := range s.rbacPreAssign {
-			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = roles
+			cp := make([]BlueprintRole, len(roles))
+			copy(cp, roles)
+			snap.RBACPreAssign[fmt.Sprintf("%d", netID)] = cp
 		}
 	}
 
+	// Done with registry state — release the read lock so writers don't
+	// queue behind the marshal. Audit log uses its own mutex.
+	s.mu.RUnlock()
+
+	// Audit log (separate lock — never nested under s.mu).
+	s.auditMu.Lock()
+	if len(s.auditLog) > 0 {
+		snap.AuditLog = make([]AuditEntry, len(s.auditLog))
+		copy(snap.AuditLog, s.auditLog)
+	}
+	s.auditMu.Unlock()
+
+	// Marshal outside any registry lock — saves 100-200ms RLock hold.
 	data, err := json.Marshal(snap)
 	if err != nil {
 		slog.Error("snapshot marshal error", "err", err)
 		return nil
 	}
 	return data
+}
+
+// cloneSliceUint16 returns a defensive copy. nil-in → nil-out so Marshal
+// produces JSON null, matching the previous behavior.
+func cloneSliceUint16(s []uint16) []uint16 {
+	if s == nil {
+		return nil
+	}
+	cp := make([]uint16, len(s))
+	copy(cp, s)
+	return cp
+}
+
+func cloneSliceUint32(s []uint32) []uint32 {
+	if s == nil {
+		return nil
+	}
+	cp := make([]uint32, len(s))
+	copy(cp, s)
+	return cp
+}
+
+func cloneSliceString(s []string) []string {
+	if s == nil {
+		return nil
+	}
+	cp := make([]string, len(s))
+	copy(cp, s)
+	return cp
 }
 
 // RunStandby connects to a primary registry and receives replicated snapshots.
@@ -469,6 +533,13 @@ func (s *Server) standbySession(primaryAddr string) error {
 const maxSnapshotSize = 256 << 20
 
 // applySnapshot loads a snapshot into the server state and persists it.
+//
+// PERFORMANCE NOTE: At 108k nodes the legacy implementation held s.mu.Lock
+// for 1.7-2.5s while base64-decoding pubkeys and parsing timestamps. During
+// that window every primary operation on the standby blocked. The current
+// implementation builds all the new state OUTSIDE the lock and atom-swaps
+// it under a brief Lock (~5ms), reducing the blocking window by ~350×.
+// See [[X-Tasks/backlog/30-mutex-risk-map]] § fix #2.
 func (s *Server) applySnapshot(data []byte) error {
 	if len(data) > maxSnapshotSize {
 		return fmt.Errorf("snapshot too large: %d bytes (max %d)", len(data), maxSnapshotSize)
@@ -478,17 +549,12 @@ func (s *Server) applySnapshot(data []byte) error {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// --- Phase 1: build all the new maps OUTSIDE any lock ---
 
-	// Clear current state
-	s.nodes = make(map[uint32]*NodeInfo)
-	s.pubKeyIdx = make(map[string]uint32)
-	s.ownerIdx = make(map[string]uint32)
-	s.hostnameIdx = make(map[string]uint32)
-	s.networks = make(map[uint16]*NetworkInfo)
-	s.nextNode = snap.NextNode
-	s.nextNet = snap.NextNet
+	newNodes := make(map[uint32]*NodeInfo, len(snap.Nodes))
+	newPubKeyIdx := make(map[string]uint32, len(snap.Nodes))
+	newOwnerIdx := make(map[string]uint32, len(snap.Nodes))
+	newHostnameIdx := make(map[string]uint32, len(snap.Nodes))
 
 	for _, n := range snap.Nodes {
 		pubKey, err := base64Decode(n.PublicKey)
@@ -514,6 +580,7 @@ func (s *Server) applySnapshot(data []byte) error {
 			PoloScore: n.PoloScore,
 			TaskExec:  n.TaskExec,
 			LANAddrs:  n.LANAddrs,
+			RelayOnly: n.RelayOnly, // task 32
 		}
 		// Restore key lifecycle metadata
 		if n.KeyCreated != "" {
@@ -533,22 +600,23 @@ func (s *Server) applySnapshot(data []byte) error {
 			}
 		}
 		node.ExternalID = n.ExternalID
-		s.nodes[n.ID] = node
-		s.pubKeyIdx[n.PublicKey] = n.ID
+		newNodes[n.ID] = node
+		newPubKeyIdx[n.PublicKey] = n.ID
 		if n.Owner != "" {
-			s.ownerIdx[n.Owner] = n.ID
+			newOwnerIdx[n.Owner] = n.ID
 		}
 		if n.Hostname != "" {
-			if existID, taken := s.hostnameIdx[n.Hostname]; taken && existID != n.ID {
+			if existID, taken := newHostnameIdx[n.Hostname]; taken && existID != n.ID {
 				slog.Warn("duplicate hostname in snapshot, keeping first",
 					"hostname", n.Hostname, "kept_node", existID, "skipped_node", n.ID)
 				node.Hostname = "" // clear the duplicate
 			} else {
-				s.hostnameIdx[n.Hostname] = n.ID
+				newHostnameIdx[n.Hostname] = n.ID
 			}
 		}
 	}
 
+	newNetworks := make(map[uint16]*NetworkInfo, len(snap.Networks))
 	for _, n := range snap.Networks {
 		created, _ := time.Parse(time.RFC3339, n.Created)
 		net := &NetworkInfo{
@@ -588,86 +656,133 @@ func (s *Server) applySnapshot(data []byte) error {
 				}
 			}
 		}
-		s.networks[n.ID] = net
+		newNetworks[n.ID] = net
 	}
 
-	// Restore trust pairs (H2 fix — previously dropped on replication)
-	s.trustPairs = make(map[string]bool)
+	newTrustPairs := make(map[string]bool, len(snap.TrustPairs))
 	for _, key := range snap.TrustPairs {
-		s.trustPairs[key] = true
+		newTrustPairs[key] = true
 	}
 
-	// Restore handshake inboxes (S20 fix — match load() behavior)
-	s.handshakeInbox = make(map[uint32][]*HandshakeRelayMsg)
-	s.handshakeResponses = make(map[uint32][]*HandshakeResponseMsg)
+	newHandshakeInbox := make(map[uint32][]*HandshakeRelayMsg, len(snap.HandshakeInbox))
 	for nodeIDStr, msgs := range snap.HandshakeInbox {
 		var nodeID uint32
 		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
-			s.handshakeInbox[nodeID] = msgs
+			newHandshakeInbox[nodeID] = msgs
 		}
 	}
+	newHandshakeResponses := make(map[uint32][]*HandshakeResponseMsg, len(snap.HandshakeResponses))
 	for nodeIDStr, msgs := range snap.HandshakeResponses {
 		var nodeID uint32
 		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
-			s.handshakeResponses[nodeID] = msgs
+			newHandshakeResponses[nodeID] = msgs
 		}
 	}
 
-	// Restore invite inboxes
-	s.inviteInbox = make(map[uint32][]*NetworkInvite)
+	newInviteInbox := make(map[uint32][]*NetworkInvite, len(snap.InviteInbox))
 	for nodeIDStr, invites := range snap.InviteInbox {
 		var nodeID uint32
 		if _, err := fmt.Sscanf(nodeIDStr, "%d", &nodeID); err == nil && nodeID > 0 {
-			s.inviteInbox[nodeID] = invites
+			newInviteInbox[nodeID] = invites
 		}
 	}
 
-	// Restore audit log
+	var newRBACPreAssign map[uint16][]BlueprintRole
+	if len(snap.RBACPreAssign) > 0 {
+		newRBACPreAssign = make(map[uint16][]BlueprintRole, len(snap.RBACPreAssign))
+		for netIDStr, roles := range snap.RBACPreAssign {
+			var netID uint16
+			if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
+				newRBACPreAssign[netID] = roles
+			}
+		}
+	}
+
+	// Validate enterprise config URLs OUTSIDE the lock — the validator does
+	// I/O-free string parsing but is still extra work we don't need to keep
+	// inside the swap critical section.
+	var (
+		acceptIDPConfig    bool
+		acceptAuditExport  bool
+	)
+	if snap.IDPConfig != nil {
+		if err := urlvalidate.Validate(snap.IDPConfig.URL); err != nil {
+			slog.Warn("replica: skipping IDP config with invalid URL", "url", snap.IDPConfig.URL, "err", err)
+		} else {
+			acceptIDPConfig = true
+		}
+	}
+	if snap.AuditExportCfg != nil {
+		acceptAuditExport = true
+		if snap.AuditExportCfg.Format == "json" || snap.AuditExportCfg.Format == "splunk_hec" {
+			if err := urlvalidate.Validate(snap.AuditExportCfg.Endpoint); err != nil {
+				slog.Warn("replica: skipping audit export with invalid endpoint", "endpoint", snap.AuditExportCfg.Endpoint, "err", err)
+				acceptAuditExport = false
+			}
+		}
+	}
+
+	// --- Phase 2: atomic swap under brief Lock (~5ms) ---
+
+	s.mu.Lock()
+	s.nodes = newNodes
+	s.pubKeyIdx = newPubKeyIdx
+	s.ownerIdx = newOwnerIdx
+	s.hostnameIdx = newHostnameIdx
+	s.networks = newNetworks
+	s.trustPairs = newTrustPairs
+	s.nextNode = snap.NextNode
+	s.nextNet = snap.NextNet
+	if newRBACPreAssign != nil {
+		s.rbacPreAssign = newRBACPreAssign
+	}
+	if acceptIDPConfig {
+		s.idpConfig = snap.IDPConfig
+		s.identityWebhookURL = snap.IDPConfig.URL
+	}
+	// Save the previous exporter so we can close it AFTER releasing s.mu —
+	// auditExporter.Close() may do I/O.
+	var oldExporter *AuditExporter
+	if acceptAuditExport {
+		oldExporter = s.auditExporter
+		s.auditExportConfig = snap.AuditExportCfg
+		s.auditExporter = newAuditExporter(snap.AuditExportCfg)
+	}
+	s.mu.Unlock()
+
+	// --- Phase 3: side state under their own locks ---
+
+	// Handshake state is guarded by handshakeMu (not s.mu) — see the
+	// lock-ordering doc at top of server.go.
+	s.handshakeMu.Lock()
+	s.handshakeInbox = newHandshakeInbox
+	s.handshakeResponses = newHandshakeResponses
+	s.handshakeMu.Unlock()
+
+	// inviteInbox is guarded by s.mu (no dedicated mutex). Set under brief
+	// Lock so concurrent readers/writers see the swap atomically.
+	s.mu.Lock()
+	s.inviteInbox = newInviteInbox
+	s.mu.Unlock()
+
 	if len(snap.AuditLog) > 0 {
 		s.auditMu.Lock()
 		s.auditLog = snap.AuditLog
 		s.auditMu.Unlock()
 	}
 
-	// Restore enterprise config. Validate URLs received from the primary —
-	// a compromised primary should not be able to point standbys at SSRF
-	// targets (cloud metadata / link-local) by streaming a hostile snapshot.
-	if snap.IDPConfig != nil {
-		if err := urlvalidate.Validate(snap.IDPConfig.URL); err != nil {
-			slog.Warn("replica: skipping IDP config with invalid URL", "url", snap.IDPConfig.URL, "err", err)
-		} else {
-			s.idpConfig = snap.IDPConfig
-			s.identityWebhookURL = snap.IDPConfig.URL
-		}
-	}
-	if snap.AuditExportCfg != nil {
-		acceptExport := true
-		if snap.AuditExportCfg.Format == "json" || snap.AuditExportCfg.Format == "splunk_hec" {
-			if err := urlvalidate.Validate(snap.AuditExportCfg.Endpoint); err != nil {
-				slog.Warn("replica: skipping audit export with invalid endpoint", "endpoint", snap.AuditExportCfg.Endpoint, "err", err)
-				acceptExport = false
-			}
-		}
-		if acceptExport {
-			s.auditExportConfig = snap.AuditExportCfg
-			if s.auditExporter != nil {
-				s.auditExporter.Close()
-			}
-			s.auditExporter = newAuditExporter(snap.AuditExportCfg)
-		}
-	}
-	if len(snap.RBACPreAssign) > 0 {
-		s.rbacPreAssign = make(map[uint16][]BlueprintRole)
-		for netIDStr, roles := range snap.RBACPreAssign {
-			var netID uint16
-			if _, err := fmt.Sscanf(netIDStr, "%d", &netID); err == nil {
-				s.rbacPreAssign[netID] = roles
-			}
-		}
+	if oldExporter != nil {
+		oldExporter.Close()
 	}
 
-	// Persist to local disk for crash recovery
-	s.save()
+	// Persist synchronously: standbys receive canonical state from primary
+	// and should be ready for promotion immediately. The default debounced
+	// save() would wait up to saveLoopInterval (5s) before writing to disk,
+	// which leaves a window where a freshly-promoted standby has nothing on
+	// disk to crash-recover from.
+	if err := s.flushSave(); err != nil {
+		slog.Error("standby flushSave after applySnapshot failed", "err", err)
+	}
 
 	return nil
 }

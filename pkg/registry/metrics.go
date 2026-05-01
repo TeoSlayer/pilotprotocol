@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -227,6 +228,12 @@ type registryMetrics struct {
 	idpVerifications   counter // pilot_idp_verifications_total
 	rbacPreAssignments counter // pilot_rbac_pre_assignments_total
 
+	// Reliability counters (Phase 3 wiring) — surface conditions that
+	// previously silently degraded the registry.
+	walFull      counter // pilot_wal_full_total — appends dropped because WAL hit size cap
+	walErrors    counter // pilot_wal_errors_total — non-cap WAL write failures (disk I/O)
+	saveFailures counter // pilot_save_failures_total — flushSave() returned an error
+
 	// Per-network metrics (computed on scrape, for Grafana dashboards)
 	networkMetricsMu sync.Mutex
 	networkMetrics   []networkMetricSnapshot
@@ -236,6 +243,22 @@ type registryMetrics struct {
 	webhookConfigured gauge // pilot_webhook_configured (0 or 1)
 	auditExportActive gauge // pilot_audit_export_active (0 or 1)
 	directorySynced   gauge // pilot_directory_synced_networks
+
+	// Runtime / saturation observability — added 2026-04-29 after a
+	// goroutine-pile-up incident on s.mu (handlePollHandshakes verify-under-lock
+	// + raw req volume) saturated the rendezvous. These gauges let an operator
+	// see the contention coming via Prometheus rather than discovering it via
+	// pprof during an outage.
+	runtimeGoroutines     gauge // pilot_runtime_goroutines (runtime.NumGoroutine)
+	runtimeConnectionsTCP gauge // pilot_registry_tcp_connections (s.connCount)
+	handshakeInboxSize    gauge // pilot_handshake_inbox_size (sum of pending requests across all nodes)
+	handshakeRespSize     gauge // pilot_handshake_responses_size (sum of pending responses)
+
+	// list_nodes cache observability — diagnoses whether the cache fix is
+	// actually firing. Counts since process start.
+	listNodesCacheHits     gauge // pilot_list_nodes_cache_hits
+	listNodesCacheWaits    gauge // pilot_list_nodes_cache_waits
+	listNodesCacheRebuilds gauge // pilot_list_nodes_cache_rebuilds
 }
 
 // networkMetricSnapshot holds per-network metrics computed on each scrape.
@@ -263,13 +286,19 @@ func (m *registryMetrics) updateGauges(s *Server) {
 	defer s.mu.RUnlock()
 
 	now := time.Now()
-	onlineThreshold := now.Add(-staleNodeThreshold)
+	onlineThreshold := now.Add(-s.StaleNodeThreshold())
 
 	total := len(s.nodes)
 	online := 0
 	taskExec := 0
 	for _, node := range s.nodes {
-		if node.LastSeen.After(onlineThreshold) {
+		// Use the atomic-aware getter: heartbeat hot path updates only
+		// lastSeenNano (under shard.RLock), not the legacy LastSeen field.
+		// Reading LastSeen directly here under-counted "online" for any
+		// node that had heartbeated since registration but never gone
+		// through a slow-path operation (the bug masked by re-registration
+		// churn during the 2026-04-28 incident).
+		if node.getLastSeen().After(onlineThreshold) {
 			online++
 		}
 		if node.TaskExec {
@@ -346,6 +375,44 @@ func (m *registryMetrics) updateGauges(s *Server) {
 		dirSynced++
 	}
 	m.directorySynced.Set(float64(dirSynced))
+
+	// Saturation observability — capture under handshakeMu (separate from s.mu).
+	// runtime.NumGoroutine is lock-free.
+	m.runtimeGoroutines.Set(float64(runtime.NumGoroutine()))
+	m.runtimeConnectionsTCP.Set(float64(s.connCount.Load()))
+	s.handshakeMu.Lock()
+	hi := 0
+	for _, msgs := range s.handshakeInbox {
+		hi += len(msgs)
+	}
+	hr := 0
+	for _, msgs := range s.handshakeResponses {
+		hr += len(msgs)
+	}
+	s.handshakeMu.Unlock()
+	m.handshakeInboxSize.Set(float64(hi))
+	m.handshakeRespSize.Set(float64(hr))
+
+	// list_nodes cache counters — sum legacy backbone-admin cache + all
+	// per-network caches so the gauge reflects real activity.
+	var totalHits, totalWaits, totalRebuilds uint64
+	s.listNodesCache.mu.Lock()
+	totalHits += s.listNodesCache.cacheHits
+	totalWaits += s.listNodesCache.cacheWaits
+	totalRebuilds += s.listNodesCache.cacheRebuilds
+	s.listNodesCache.mu.Unlock()
+	s.listNodesPerNetMu.Lock()
+	for _, c := range s.listNodesPerNet {
+		c.mu.Lock()
+		totalHits += c.cacheHits
+		totalWaits += c.cacheWaits
+		totalRebuilds += c.cacheRebuilds
+		c.mu.Unlock()
+	}
+	s.listNodesPerNetMu.Unlock()
+	m.listNodesCacheHits.Set(float64(totalHits))
+	m.listNodesCacheWaits.Set(float64(totalWaits))
+	m.listNodesCacheRebuilds.Set(float64(totalRebuilds))
 }
 
 // WriteTo writes all metrics in Prometheus text exposition format.
@@ -399,6 +466,35 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeType(&b, "pilot_uptime_seconds", "gauge")
 	writeMetric(&b, "pilot_uptime_seconds", m.uptimeSeconds.Get())
 
+	// --- Saturation gauges (lock contention / queue depth) ---
+	writeHelp(&b, "pilot_runtime_goroutines", "Total live goroutines (runtime.NumGoroutine). Spike indicates lock pile-up.")
+	writeType(&b, "pilot_runtime_goroutines", "gauge")
+	writeMetric(&b, "pilot_runtime_goroutines", m.runtimeGoroutines.Get())
+
+	writeHelp(&b, "pilot_registry_tcp_connections", "Active TCP connections to the registry listener.")
+	writeType(&b, "pilot_registry_tcp_connections", "gauge")
+	writeMetric(&b, "pilot_registry_tcp_connections", m.runtimeConnectionsTCP.Get())
+
+	writeHelp(&b, "pilot_handshake_inbox_size", "Sum of pending handshake-request entries across all node inboxes.")
+	writeType(&b, "pilot_handshake_inbox_size", "gauge")
+	writeMetric(&b, "pilot_handshake_inbox_size", m.handshakeInboxSize.Get())
+
+	writeHelp(&b, "pilot_handshake_responses_size", "Sum of pending handshake-response entries across all node inboxes.")
+	writeType(&b, "pilot_handshake_responses_size", "gauge")
+	writeMetric(&b, "pilot_handshake_responses_size", m.handshakeRespSize.Get())
+
+	writeHelp(&b, "pilot_list_nodes_cache_hits", "list_nodes admin cache: served from fresh cache.")
+	writeType(&b, "pilot_list_nodes_cache_hits", "counter")
+	writeMetric(&b, "pilot_list_nodes_cache_hits", m.listNodesCacheHits.Get())
+
+	writeHelp(&b, "pilot_list_nodes_cache_waits", "list_nodes admin cache: waited for in-flight rebuild.")
+	writeType(&b, "pilot_list_nodes_cache_waits", "counter")
+	writeMetric(&b, "pilot_list_nodes_cache_waits", m.listNodesCacheWaits.Get())
+
+	writeHelp(&b, "pilot_list_nodes_cache_rebuilds", "list_nodes admin cache: this goroutine rebuilt the cache.")
+	writeType(&b, "pilot_list_nodes_cache_rebuilds", "counter")
+	writeMetric(&b, "pilot_list_nodes_cache_rebuilds", m.listNodesCacheRebuilds.Get())
+
 	// --- Lifecycle counters ---
 	writeHelp(&b, "pilot_registrations_total", "Total number of successful registrations.")
 	writeType(&b, "pilot_registrations_total", "counter")
@@ -419,6 +515,23 @@ func (m *registryMetrics) WriteTo(w io.Writer) (int64, error) {
 	writeHelp(&b, "pilot_handshake_requests_total", "Total number of handshake requests relayed.")
 	writeType(&b, "pilot_handshake_requests_total", "counter")
 	writeMetric(&b, "pilot_handshake_requests_total", m.handshakeRequests.Get())
+
+	// --- Reliability counters (alert targets) ---
+	writeHelp(&b, "pilot_wal_full_total", "WAL appends dropped because WAL hit its size cap. Non-zero rate means the snapshot is failing AND the WAL has saturated — investigate disk health.")
+	writeType(&b, "pilot_wal_full_total", "counter")
+	writeMetric(&b, "pilot_wal_full_total", m.walFull.Get())
+
+	writeHelp(&b, "pilot_wal_errors_total", "WAL append failures other than size cap (disk I/O errors). Non-zero rate indicates a hardware or filesystem issue.")
+	writeType(&b, "pilot_wal_errors_total", "counter")
+	writeMetric(&b, "pilot_wal_errors_total", m.walErrors.Get())
+
+	writeHelp(&b, "pilot_save_failures_total", "flushSave() returned an error. With Phase 2.4 retry-on-error in place, sustained non-zero rate means snapshots are not being persisted — both WAL truncation AND replica push depend on flushSave succeeding.")
+	writeType(&b, "pilot_save_failures_total", "counter")
+	writeMetric(&b, "pilot_save_failures_total", m.saveFailures.Get())
+
+	writeHelp(&b, "pilot_recovered_panics_total", "Panics swallowed by recoverHandler since process start. Any non-zero value is a bug — alert on rate(.[5m]) > 0.")
+	writeType(&b, "pilot_recovered_panics_total", "counter")
+	writeMetric(&b, "pilot_recovered_panics_total", float64(RecoveredPanicCount()))
 
 	// --- Network gauges ---
 	writeHelp(&b, "pilot_networks_total", "Total number of networks (excluding backbone).")
