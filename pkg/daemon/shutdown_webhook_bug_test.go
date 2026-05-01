@@ -41,9 +41,11 @@ import (
 // so the event reliably reaches the receiver before the goroutine
 // exits.
 //
-// This test pins the CURRENT (buggy) behavior: no `daemon.shutting_down`
-// event is emitted during Stop. After GREEN, the assertion flips: the
-// event arrives at the webhook receiver before the daemon exits.
+// FIXED (v1.9.1): doStop now emits `daemon.shutting_down` as the
+// FIRST action with metadata payload (open_connections, known_peers,
+// uptime_seconds). The webhook.Close() at the end of doStop drains
+// the queue, so the event reliably reaches the receiver before the
+// goroutine exits.
 func TestDaemonStopEmitsNoShutdownWebhook(t *testing.T) {
 	type captured struct {
 		Event string                 `json:"event"`
@@ -78,14 +80,24 @@ func TestDaemonStopEmitsNoShutdownWebhook(t *testing.T) {
 	// the webhook.
 	d.doStop()
 
-	// CURRENT (buggy) behavior: no shutdown event was emitted.
-	// GREEN flips the assertion: events contains a "daemon.shutting_down"
-	// entry recorded BEFORE doStop returns.
+	// FIXED: events contains exactly one daemon.shutting_down entry
+	// with the expected metadata keys. The event was emitted before
+	// teardown started, so all other shutdown-time events follow it.
 	mu.Lock()
 	defer mu.Unlock()
-	for _, ev := range events {
+	var shutdown *captured
+	for i, ev := range events {
 		if ev.Event == "daemon.shutting_down" {
-			t.Fatalf("BUG NOT REPRODUCED: daemon.shutting_down already emitted (data=%v); GREEN flips this", ev.Data)
+			shutdown = &events[i]
+			break
+		}
+	}
+	if shutdown == nil {
+		t.Fatalf("expected daemon.shutting_down event; got events=%v", events)
+	}
+	for _, key := range []string{"open_connections", "known_peers", "uptime_seconds"} {
+		if _, ok := shutdown.Data[key]; !ok {
+			t.Errorf("daemon.shutting_down missing payload key %q; data=%v", key, shutdown.Data)
 		}
 	}
 }

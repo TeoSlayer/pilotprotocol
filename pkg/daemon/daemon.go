@@ -951,8 +951,28 @@ func (d *Daemon) Stop() error {
 }
 
 func (d *Daemon) doStop() {
-	// Graceful close: send FIN to all active connections, then force remove
+	// v1.9.1: emit a shutdown signal BEFORE any teardown so operators
+	// can distinguish planned drain from crash. Auto-scalers and
+	// webhook-driven dashboards rely on this transition event;
+	// otherwise the only visible signal is "events stop arriving,"
+	// which is indistinguishable from a kernel panic. Payload carries
+	// state snapshot for correlation with pre-shutdown metrics.
 	conns := d.ports.AllConnections()
+	openConns := 0
+	for _, c := range conns {
+		c.Mu.Lock()
+		if c.State == StateEstablished {
+			openConns++
+		}
+		c.Mu.Unlock()
+	}
+	d.webhook.Emit("daemon.shutting_down", map[string]interface{}{
+		"open_connections": openConns,
+		"known_peers":      d.tunnels.PeerCount(),
+		"uptime_seconds":   int(time.Since(d.startTime).Seconds()),
+	})
+
+	// Graceful close: send FIN to all active connections, then force remove
 	for _, conn := range conns {
 		conn.Mu.Lock()
 		st := conn.State
