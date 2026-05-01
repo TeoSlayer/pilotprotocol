@@ -718,9 +718,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				// same segment) do not halve SSThresh a second time for the same loss
 				// episode (RFC 5681 §3.2: one reduction per episode).
 				if !c.InRecovery {
-					c.SSThresh = c.CongWin / 2
 					// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
-					// The minimum is 2*SMSS, not 1*SMSS.
+					// FlightSize = bytes sent but not yet cumulatively acknowledged =
+					// SND.NXT − SND.UNA = sum of ALL Unacked entry lengths (including
+					// SACK'd entries that have not been covered by a cumulative ACK).
+					// Using CongWin overestimates when CongWin >> actual bytes in flight.
+					var flightSize int
+					for _, e := range c.Unacked {
+						flightSize += len(e.data)
+					}
+					c.SSThresh = flightSize / 2
 					if c.SSThresh < 2*MaxSegmentSize {
 						c.SSThresh = 2 * MaxSegmentSize
 					}
