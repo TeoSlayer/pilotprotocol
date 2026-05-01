@@ -836,16 +836,16 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	}
 	c.Unacked = remaining
 
-	// RFC 6298 §5.3: restart retransmit timer for the new oldest unacked segment
-	// when SND.UNA advances. In our per-entry model the "timer" is each entry's
-	// sentAt. Resetting sentAt for the first non-sacked remaining entry gives it
-	// a fresh RTO window from the ACK arrival time, preventing spurious retransmits
-	// when SND.UNA just advanced (path is demonstrably active).
+	// RFC 6298 §5.3: restart retransmit timer for ALL remaining outstanding
+	// segments when SND.UNA advances.  RFC 6298 uses a single timer covering
+	// all outstanding data; restarting it means no segment should time out
+	// before now+RTO.  In the per-entry model, sentAt is each entry's timer
+	// anchor; resetting it for every non-sacked remaining entry prevents
+	// spurious retransmits when the path just proved active.
 	ackNow := time.Now()
 	for _, e := range c.Unacked {
 		if !e.sacked {
 			e.sentAt = ackNow
-			break
 		}
 	}
 
