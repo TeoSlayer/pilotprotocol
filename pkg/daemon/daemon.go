@@ -2851,24 +2851,19 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
 
-			if !conn.InRecovery {
-				// New loss episode: halve SSThresh once (RFC 5681 §3.1 eq. 4).
-				// Guarded so repeated timeouts or a timeout after fast retransmit
-				// (which already halved SSThresh) do not reduce it again.
-				// RFC 5681 §3.1 eq. 4: ssthresh = max(FlightSize/2, 2*SMSS) where
-				// FlightSize = bytes sent but not yet cumulatively acknowledged =
-				// sum of ALL Unacked entries (matching the fix in ProcessAck).
-				var flightSize int
-				for _, e := range conn.Unacked {
-					flightSize += len(e.data)
-				}
-				conn.SSThresh = flightSize / 2
-				if conn.SSThresh < 2*MaxSegmentSize {
-					conn.SSThresh = 2 * MaxSegmentSize
-				}
-				conn.InRecovery = true
-				conn.RecoveryPoint = sendSeq
+			// RFC 5681 §3.1 eq. 4: ssthresh = max(FlightSize/2, 2*SMSS) on every
+			// timeout expiry — unconditional, no exception for connections already
+			// in fast recovery.  FlightSize = sum of ALL Unacked entries.
+			var flightSize int
+			for _, e := range conn.Unacked {
+				flightSize += len(e.data)
 			}
+			conn.SSThresh = flightSize / 2
+			if conn.SSThresh < 2*MaxSegmentSize {
+				conn.SSThresh = 2 * MaxSegmentSize
+			}
+			conn.InRecovery = true
+			conn.RecoveryPoint = sendSeq
 			// Timeout resets to slow start per RFC 5681 §3.1 (LW = 1 SMSS).
 			// InitialCongWin (RFC 6928, 10*SMSS) applies only at connection
 			// startup; post-timeout cwnd must be 1 SMSS so the connection
