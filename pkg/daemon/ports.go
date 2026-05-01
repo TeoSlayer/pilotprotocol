@@ -709,6 +709,14 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				c.SSThresh = MaxSegmentSize
 			}
 			c.CongWin = c.SSThresh + 3*MaxSegmentSize
+			// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
+			// the window may have opened.  Signal the sender so it doesn't stall.
+			if c.WindowCh != nil && c.WindowAvailable() {
+				select {
+				case c.WindowCh <- struct{}{}:
+				default:
+				}
+			}
 		} else if c.DupAckCount > 3 && len(c.Unacked) > 0 {
 			// Inflate window for each additional dup ACK (only in recovery)
 			c.CongWin += MaxSegmentSize
