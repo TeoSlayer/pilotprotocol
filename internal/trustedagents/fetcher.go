@@ -10,29 +10,26 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
-	"strings"
 	"time"
 )
 
-// DefaultURL is the canonical HTTPS source for the signed list. The
-// daemon fetches {DefaultURL} and {DefaultURL}.sig.
+// DefaultURL is the canonical HTTPS source for the list.
 const DefaultURL = "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/internal/trustedagents/trusted-agents.json"
 
-// DefaultFetchInterval is how often the daemon polls the URL for a
-// fresher list once at steady state.
+// DefaultFetchInterval is how often the daemon polls the URL for a fresher list.
 const DefaultFetchInterval = 1 * time.Hour
 
 // FetcherConfig configures the background poll loop.
 type FetcherConfig struct {
-	URL      string        // base JSON URL; .sig is appended for the signature
+	URL      string        // override default URL
 	Interval time.Duration // poll interval (0 = DefaultFetchInterval)
-	Client   *http.Client  // optional override (0 = http.Client with 30s timeout)
+	Client   *http.Client  // override default client
 }
 
 // Run blocks polling cfg.URL on cfg.Interval until ctx is cancelled,
-// updating store with any newer-version list that verifies. The first
-// fetch happens after a short randomized delay (0–30s) so a fleet of
-// daemons rebooting at the same time doesn't thunder the URL.
+// updating store with any newer-version list. The first fetch happens
+// after a short randomized delay (0–30s) so a fleet rebooting at the
+// same time doesn't thunder the URL.
 func Run(ctx context.Context, store *Store, cfg FetcherConfig) {
 	if cfg.URL == "" {
 		cfg.URL = DefaultURL
@@ -44,8 +41,7 @@ func Run(ctx context.Context, store *Store, cfg FetcherConfig) {
 		cfg.Client = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	jitter := randDuration(30 * time.Second)
-	timer := time.NewTimer(jitter)
+	timer := time.NewTimer(randDuration(30 * time.Second))
 	defer timer.Stop()
 
 	for {
@@ -57,25 +53,31 @@ func Run(ctx context.Context, store *Store, cfg FetcherConfig) {
 		if err := fetchOnce(ctx, store, cfg); err != nil {
 			slog.Warn("trusted-agents fetch failed", "url", cfg.URL, "err", err)
 		}
-		next := cfg.Interval + randDuration(cfg.Interval/10) // ±10% jitter
-		timer.Reset(next)
+		timer.Reset(cfg.Interval + randDuration(cfg.Interval/10))
 	}
 }
 
 func fetchOnce(ctx context.Context, store *Store, cfg FetcherConfig) error {
-	rawURL := cfg.URL
-	sigURL := cfg.URL + ".sig"
-
-	rawBody, err := httpGet(ctx, cfg.Client, rawURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", cfg.URL, nil)
 	if err != nil {
-		return fmt.Errorf("get %s: %w", rawURL, err)
+		return err
 	}
-	sigBody, err := httpGet(ctx, cfg.Client, sigURL)
+	req.Header.Set("User-Agent", "pilot-daemon/trusted-agents")
+	resp, err := cfg.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("get %s: %w", sigURL, err)
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	const maxBody = 1 << 20 // 1 MiB cap on a config blob
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return err
 	}
 
-	updated, err := store.TryUpdate(rawBody, sigBody)
+	updated, err := store.TryUpdate(body)
 	if err != nil {
 		return fmt.Errorf("update store: %w", err)
 	}
@@ -84,28 +86,6 @@ func fetchOnce(ctx context.Context, store *Store, cfg FetcherConfig) error {
 		slog.Info("trusted-agents list updated", "version", snap.Version, "agents", len(snap.Agents))
 	}
 	return nil
-}
-
-func httpGet(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "pilot-daemon/trusted-agents")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
-	}
-	const maxBody = 1 << 20 // 1 MiB cap on a config blob
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
 }
 
 func randDuration(max time.Duration) time.Duration {
@@ -118,7 +98,3 @@ func randDuration(max time.Duration) time.Duration {
 	}
 	return time.Duration(n.Int64())
 }
-
-// parseURL exists so tests can swap in a stub server URL by trimming the
-// .sig suffix logic. Kept small to avoid an external dep.
-var _ = strings.TrimSuffix

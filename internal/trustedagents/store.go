@@ -1,15 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// Package trustedagents distributes a list of well-known agent pubkeys
+// whose handshake requests the daemon auto-accepts. The list is a JSON
+// file in the main repo at internal/trustedagents/trusted-agents.json,
+// embedded into the daemon binary at build time and refreshed from
+// raw.githubusercontent.com on a timer.
+//
+// Authenticity comes from HTTPS to GitHub plus repo write access — only
+// people with commit rights to this repo can change the list. There is
+// no separate signing layer.
+//
+// Adding a new trusted agent: edit trusted-agents.json, bump version,
+// commit. Daemons in the field pick it up within the fetch interval
+// (~1h) without needing an upgrade. Brand-new daemons get the list
+// embedded at build time so the feature works on first boot, even
+// airgapped.
 package trustedagents
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,18 +35,18 @@ type Agent struct {
 	AddedAt   string `json:"added_at"`   // RFC3339 timestamp
 }
 
-// List is the on-disk + on-wire format of the signed trusted-agents file.
-// Version is monotonic — daemons reject any candidate whose version is
-// less than or equal to the highest already-verified one (rollback
-// protection).
+// List is the on-disk + on-wire format. Version is monotonic — the
+// store only adopts a candidate whose version is strictly greater than
+// the current one, so a stale or rolled-back fetch can't downgrade
+// the active list.
 type List struct {
 	Version  int     `json:"version"`
 	IssuedAt string  `json:"issued_at"`
 	Agents   []Agent `json:"agents"`
 }
 
-// Store holds the highest-version verified List and the lookup set of
-// trusted agent pubkeys. All accessors are safe for concurrent use.
+// Store holds the highest-version List seen so far and the lookup set
+// of trusted agent pubkeys. All accessors are safe for concurrent use.
 type Store struct {
 	mu        sync.RWMutex
 	list      List
@@ -42,29 +54,23 @@ type Store struct {
 	cachePath string
 }
 
-// NewStore loads the embedded list (verified against SignerPublicKey),
-// then upgrades to a higher-version cached list at cachePath if one
-// exists and verifies. The embedded list is the floor — a corrupt or
-// missing cache never reduces the set of trusted agents below the
-// embedded baseline.
+// NewStore loads the embedded list, then upgrades to a higher-version
+// cached list at cachePath if one exists. The embedded list is the
+// floor — a corrupt or missing cache never reduces the set of trusted
+// agents below the embedded baseline.
 //
-// cachePath may be "" to disable on-disk caching (useful in tests).
+// cachePath may be "" to disable on-disk caching.
 func NewStore(cachePath string) (*Store, error) {
-	signerPub, err := base64.StdEncoding.DecodeString(SignerPublicKey)
-	if err != nil || len(signerPub) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("trustedagents: bad SignerPublicKey constant")
-	}
-
-	embedded, err := parseAndVerify(embeddedList, embeddedSig, signerPub)
+	embedded, err := decode(embeddedList)
 	if err != nil {
-		return nil, fmt.Errorf("trustedagents: embedded blob failed verification: %w", err)
+		return nil, fmt.Errorf("trustedagents: embedded list malformed: %w", err)
 	}
 
 	s := &Store{cachePath: cachePath}
 	s.adopt(embedded)
 
 	if cachePath != "" {
-		if cached, ok := loadCache(cachePath, signerPub); ok && cached.Version > s.list.Version {
+		if cached, ok := loadCache(cachePath); ok && cached.Version > s.list.Version {
 			s.adopt(cached)
 		}
 	}
@@ -72,8 +78,8 @@ func NewStore(cachePath string) (*Store, error) {
 	return s, nil
 }
 
-// IsTrusted reports whether the given base64-encoded Ed25519 pubkey
-// belongs to a trusted agent in the current list.
+// IsTrusted reports whether the given base64 Ed25519 pubkey belongs to
+// a trusted agent in the current list.
 func (s *Store) IsTrusted(pubkeyB64 string) (string, bool) {
 	if pubkeyB64 == "" {
 		return "", false
@@ -88,12 +94,11 @@ func (s *Store) IsTrusted(pubkeyB64 string) (string, bool) {
 func (s *Store) Snapshot() List {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := List{
+	return List{
 		Version:  s.list.Version,
 		IssuedAt: s.list.IssuedAt,
 		Agents:   append([]Agent(nil), s.list.Agents...),
 	}
-	return out
 }
 
 // Version returns the version of the currently-active list.
@@ -103,16 +108,11 @@ func (s *Store) Version() int {
 	return s.list.Version
 }
 
-// TryUpdate verifies a candidate (raw JSON + base64 sig) and adopts it if
-// its version is strictly greater than the current. Returns true if the
-// store was updated. Used by the fetcher when GitHub returns a fresher
-// list. The candidate is persisted to cachePath atomically on success.
-func (s *Store) TryUpdate(rawJSON, sigB64 []byte) (bool, error) {
-	signerPub, err := base64.StdEncoding.DecodeString(SignerPublicKey)
-	if err != nil {
-		return false, err
-	}
-	cand, err := parseAndVerify(rawJSON, sigB64, signerPub)
+// TryUpdate adopts a candidate list if its version is strictly greater
+// than the current. Returns true if the store was updated. The
+// candidate is persisted to cachePath on success.
+func (s *Store) TryUpdate(rawJSON []byte) (bool, error) {
+	cand, err := decode(rawJSON)
 	if err != nil {
 		return false, err
 	}
@@ -127,7 +127,7 @@ func (s *Store) TryUpdate(rawJSON, sigB64 []byte) (bool, error) {
 	s.mu.Unlock()
 
 	if cachePath != "" {
-		writeCache(cachePath, rawJSON, sigB64)
+		writeCache(cachePath, rawJSON)
 	}
 	return true, nil
 }
@@ -150,17 +150,8 @@ func (s *Store) adoptLocked(l List) {
 	s.pubkeySet = set
 }
 
-// parseAndVerify validates the signature with signerPub and unmarshals
-// the JSON payload. Returns the parsed List on success.
-func parseAndVerify(raw, sigB64 []byte, signerPub ed25519.PublicKey) (List, error) {
-	sigStr := strings.TrimSpace(string(sigB64))
-	sig, err := base64.StdEncoding.DecodeString(sigStr)
-	if err != nil {
-		return List{}, fmt.Errorf("decode signature: %w", err)
-	}
-	if !ed25519.Verify(signerPub, raw, sig) {
-		return List{}, fmt.Errorf("signature verification failed")
-	}
+// decode parses raw JSON into a List with light schema validation.
+func decode(raw []byte) (List, error) {
 	var l List
 	if err := json.Unmarshal(raw, &l); err != nil {
 		return List{}, fmt.Errorf("decode list: %w", err)
@@ -174,27 +165,20 @@ func parseAndVerify(raw, sigB64 []byte, signerPub ed25519.PublicKey) (List, erro
 	return l, nil
 }
 
-// loadCache reads {cachePath} and {cachePath}.sig and returns the parsed
-// List if both exist and verify; otherwise returns ok=false silently.
-func loadCache(cachePath string, signerPub ed25519.PublicKey) (List, bool) {
+func loadCache(cachePath string) (List, bool) {
 	raw, err := os.ReadFile(cachePath)
 	if err != nil {
 		return List{}, false
 	}
-	sig, err := os.ReadFile(cachePath + ".sig")
-	if err != nil {
-		return List{}, false
-	}
-	l, err := parseAndVerify(raw, sig, signerPub)
+	l, err := decode(raw)
 	if err != nil {
 		return List{}, false
 	}
 	return l, true
 }
 
-func writeCache(cachePath string, raw, sig []byte) {
+func writeCache(cachePath string, raw []byte) {
 	dir := filepath.Dir(cachePath)
 	_ = os.MkdirAll(dir, 0700)
 	_ = fsutil.AtomicWrite(cachePath, raw)
-	_ = fsutil.AtomicWrite(cachePath+".sig", sig)
 }

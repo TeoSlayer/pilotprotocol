@@ -3,75 +3,22 @@
 package trustedagents
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-// TestEmbeddedListVerifies is the build-time guarantee: the JSON+sig
-// pair shipped in the binary must verify against the baked
-// SignerPublicKey. If this test fails, the release would ship a
-// daemon that rejects its own embedded list, so CI must catch it.
-func TestEmbeddedListVerifies(t *testing.T) {
+// TestEmbeddedListLoads is the build-time guard: the JSON shipped in
+// the binary must parse cleanly. CI catches a malformed commit before
+// it ships in a release.
+func TestEmbeddedListLoads(t *testing.T) {
 	store, err := NewStore("")
 	if err != nil {
-		t.Fatalf("embedded list failed verification: %v", err)
+		t.Fatalf("embedded list malformed: %v", err)
 	}
 	if store.Version() < 1 {
 		t.Fatalf("version must be >= 1, got %d", store.Version())
-	}
-}
-
-func TestRollbackRejected(t *testing.T) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Patch SignerPublicKey for this test by constructing a Store directly.
-	signerPub := pub
-
-	v2 := mustSign(t, priv, List{Version: 2, IssuedAt: time.Now().UTC().Format(time.RFC3339)})
-	v1 := mustSign(t, priv, List{Version: 1, IssuedAt: time.Now().UTC().Format(time.RFC3339)})
-
-	s := &Store{}
-	l, err := parseAndVerify(v2.raw, []byte(v2.sigB64), signerPub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.adopt(l)
-	if s.Version() != 2 {
-		t.Fatalf("want v2, got %d", s.Version())
-	}
-
-	// Try rolling back to v1.
-	l, err = parseAndVerify(v1.raw, []byte(v1.sigB64), signerPub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if l.Version > s.Version() {
-		t.Fatalf("v1 should not be greater than v2")
-	}
-}
-
-func TestForgedSigRejected(t *testing.T) {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
-
-	s := mustSign(t, priv, List{
-		Version:  1,
-		IssuedAt: time.Now().UTC().Format(time.RFC3339),
-		Agents:   []Agent{{Name: "evil", PublicKey: "AAAA", AddedAt: time.Now().UTC().Format(time.RFC3339)}},
-	})
-
-	if _, err := parseAndVerify(s.raw, []byte(s.sigB64), otherPub); err == nil {
-		t.Fatal("expected verify failure with wrong signer pubkey")
 	}
 }
 
@@ -85,7 +32,6 @@ func TestIsTrusted(t *testing.T) {
 			{Name: "search-agent", PublicKey: "PUBKEY-B"},
 		},
 	})
-
 	if name, ok := s.IsTrusted("PUBKEY-A"); !ok || name != "list-agents" {
 		t.Fatalf("PUBKEY-A: want (list-agents,true), got (%q,%v)", name, ok)
 	}
@@ -97,47 +43,67 @@ func TestIsTrusted(t *testing.T) {
 	}
 }
 
+func TestRollbackRejected(t *testing.T) {
+	s := &Store{}
+	s.adopt(List{Version: 5, IssuedAt: time.Now().UTC().Format(time.RFC3339)})
+
+	rawV4, _ := json.Marshal(List{Version: 4, IssuedAt: time.Now().UTC().Format(time.RFC3339)})
+	updated, err := s.TryUpdate(rawV4)
+	if err != nil {
+		t.Fatalf("TryUpdate(v4): %v", err)
+	}
+	if updated {
+		t.Fatal("v4 must not replace v5")
+	}
+	if s.Version() != 5 {
+		t.Fatalf("want v5 still active, got %d", s.Version())
+	}
+
+	rawV6, _ := json.Marshal(List{
+		Version:  6,
+		IssuedAt: time.Now().UTC().Format(time.RFC3339),
+		Agents:   []Agent{{Name: "x", PublicKey: "kx"}},
+	})
+	updated, err = s.TryUpdate(rawV6)
+	if err != nil || !updated {
+		t.Fatalf("TryUpdate(v6): updated=%v err=%v", updated, err)
+	}
+	if s.Version() != 6 {
+		t.Fatalf("want v6 active, got %d", s.Version())
+	}
+	if _, ok := s.IsTrusted("kx"); !ok {
+		t.Fatal("v6 agent should now be trusted")
+	}
+}
+
 func TestCacheRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cachePath := filepath.Join(dir, "trusted-agents.json")
 
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	signerPub := pub
-
-	// Write a v3 cache file by signing-then-writing.
-	s := mustSign(t, priv, List{
+	raw, _ := json.Marshal(List{
 		Version:  3,
 		IssuedAt: time.Now().UTC().Format(time.RFC3339),
 		Agents:   []Agent{{Name: "x", PublicKey: "kx"}},
 	})
-	writeCache(cachePath, s.raw, []byte(s.sigB64))
+	writeCache(cachePath, raw)
 
-	got, ok := loadCache(cachePath, signerPub)
+	got, ok := loadCache(cachePath)
 	if !ok || got.Version != 3 {
-		t.Fatalf("want v3 from cache, got ok=%v ver=%d", ok, got.Version)
-	}
-
-	// Tampered raw must fail to load.
-	tampered := append([]byte(nil), s.raw...)
-	tampered[len(tampered)-2] ^= 0x01
-	writeCache(cachePath, tampered, []byte(s.sigB64))
-	if _, ok := loadCache(cachePath, signerPub); ok {
-		t.Fatal("tampered cache must not load")
+		t.Fatalf("want v3, got ok=%v ver=%d", ok, got.Version)
 	}
 }
 
-type signed struct {
-	raw    []byte
-	sigB64 string
-}
+func TestMalformedRejected(t *testing.T) {
+	s := &Store{}
+	s.adopt(List{Version: 1, IssuedAt: time.Now().UTC().Format(time.RFC3339)})
 
-func mustSign(t *testing.T, priv ed25519.PrivateKey, l List) signed {
-	t.Helper()
-	raw, err := json.MarshalIndent(l, "", "  ")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := s.TryUpdate([]byte(`{"version": 0, "issued_at": "2026-01-01T00:00:00Z"}`)); err == nil {
+		t.Fatal("version=0 must reject")
 	}
-	raw = append(raw, '\n')
-	sig := ed25519.Sign(priv, raw)
-	return signed{raw: raw, sigB64: base64.StdEncoding.EncodeToString(sig)}
+	if _, err := s.TryUpdate([]byte(`{"version": 9, "issued_at": "not a date"}`)); err == nil {
+		t.Fatal("bad issued_at must reject")
+	}
+	if _, err := s.TryUpdate([]byte(`{not json`)); err == nil {
+		t.Fatal("garbage must reject")
+	}
 }

@@ -6,6 +6,3 @@ import _ "embed"
 
 //go:embed trusted-agents.json
 var embeddedList []byte
-
-//go:embed trusted-agents.json.sig
-var embeddedSig []byte
