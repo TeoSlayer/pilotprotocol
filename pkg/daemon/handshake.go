@@ -447,6 +447,39 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		return
 	}
 
+	// Auto-approve when the requester's pubkey is in the signed
+	// trusted-agents list (e.g. list-agents and other service agents).
+	// Pubkey, not node ID — node IDs can be re-registered, but a pubkey
+	// match means the request was signed by an agent the offline-signed
+	// list explicitly names. Gated by AutoAcceptTrusted so paranoid
+	// operators can disable the auto-path entirely. Only runs on the
+	// direct path; processRelayedRequest does not see the requester
+	// pubkey on the wire and so cannot safely take this shortcut.
+	if hm.daemon.config.AutoAcceptTrusted && hm.daemon.trustedAgents != nil {
+		if name, ok := hm.daemon.trustedAgents.IsTrusted(msg.PublicKey); ok {
+			hm.trusted[peerNodeID] = &TrustRecord{
+				NodeID:     peerNodeID,
+				PublicKey:  msg.PublicKey,
+				ApprovedAt: time.Now(),
+				Mutual:     false,
+			}
+			slog.Info("handshake auto-approved (trusted agent)",
+				"peer_node_id", peerNodeID, "agent", name)
+			hm.webhook.Emit("handshake.auto_approved", map[string]interface{}{
+				"peer_node_id": peerNodeID, "reason": "trusted_agent", "agent": name,
+			})
+			hm.webhook.Emit("trust.changed", map[string]interface{}{
+				"peer_node_id": peerNodeID, "state": "granted", "reason": "trusted_agent", "agent": name,
+			})
+			hm.saveTrust()
+			hm.sendAcceptLocked(peerNodeID)
+			if hm.daemon.regConn != nil {
+				hm.goRPC(func() { hm.daemon.regConn.ReportTrust(hm.daemon.NodeID(), peerNodeID) })
+			}
+			return
+		}
+	}
+
 	// Auto-approve all requests when the daemon is configured to do so.
 	if hm.daemon.config.TrustAutoApprove {
 		hm.trusted[peerNodeID] = &TrustRecord{

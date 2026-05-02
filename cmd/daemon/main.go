@@ -58,6 +58,8 @@ func main() {
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
+	autoAcceptTrusted := flag.Bool("auto-accept-trusted", true, "auto-approve handshakes from agents in the signed trusted-agents list (e.g. list-agents)")
+	trustedAgentsURL := flag.String("trusted-agents-url", "", "override URL for the signed trusted-agents JSON (empty = built-in default)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
@@ -108,6 +110,8 @@ func main() {
 		Networks:              parseNetworkIDs(*networks),
 		Version:               version,
 		TrustAutoApprove:      *trustAutoApprove,
+		AutoAcceptTrusted:     *autoAcceptTrusted,
+		TrustedAgentsURL:      *trustedAgentsURL,
 	})
 
 	if err := d.Start(); err != nil {

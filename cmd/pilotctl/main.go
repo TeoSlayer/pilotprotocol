@@ -644,6 +644,8 @@ dispatch:
 		cmdPending()
 	case "trust":
 		cmdTrust()
+	case "trusted":
+		cmdTrusted(cmdArgs)
 
 	// Networks
 	case "network":

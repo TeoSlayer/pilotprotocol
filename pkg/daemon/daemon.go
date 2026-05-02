@@ -24,6 +24,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
@@ -101,6 +102,19 @@ type Config struct {
 
 	// Trust
 	TrustAutoApprove bool // automatically approve all incoming handshake requests
+
+	// AutoAcceptTrusted, when true (default), auto-approves handshakes from
+	// agents whose pubkey appears in the signed trusted-agents list (see
+	// internal/trustedagents). Set false for paranoid operators / tests
+	// that want to manually approve every request, including service agents.
+	AutoAcceptTrusted bool
+
+	// TrustedAgentsURL overrides the GitHub URL the daemon polls for
+	// trusted-agent list updates. Empty = trustedagents.DefaultURL. The
+	// signature is still verified against the baked SignerPublicKey, so
+	// pointing at a different URL only changes the distribution channel,
+	// not the trust root.
+	TrustedAgentsURL string
 
 	// PoloGateMin is the minimum polo score the receiver requires from
 	// a submitter for a task to be accepted. 0 = use the registry's
@@ -209,6 +223,7 @@ type Daemon struct {
 	ports          *PortManager
 	ipc            *IPCServer
 	handshakes     *HandshakeManager
+	trustedAgents  *trustedagents.Store
 	webhook        *WebhookClient
 	taskQueue      *TaskQueue
 	startTime      time.Time
@@ -333,6 +348,19 @@ func New(cfg Config) *Daemon {
 		memberTags:    make(map[uint16][]string),
 	}
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
+
+	// Trusted-agents store: load embedded blob (verified at build time by
+	// trustedagents tests) and any cached newer version on disk.
+	cachePath := ""
+	if cfg.IdentityPath != "" {
+		cachePath = filepath.Join(filepath.Dir(cfg.IdentityPath), "trusted-agents.json")
+	}
+	if store, err := trustedagents.NewStore(cachePath); err != nil {
+		slog.Warn("trusted-agents store init failed; auto-accept disabled", "err", err)
+	} else {
+		d.trustedAgents = store
+	}
+
 	d.handshakes = NewHandshakeManager(d)
 	return d
 }
@@ -771,6 +799,24 @@ func (d *Daemon) Start() error {
 	// daemon will discover them and may migrate to a different one if
 	// hash-pick lands on a fresher beacon.
 	go d.beaconRefreshLoop()
+
+	// 13. Trusted-agents fetcher: poll the signed list URL for newer
+	// versions. The embedded blob is the floor; this loop only ever
+	// adopts a strictly higher version that still verifies against the
+	// baked SignerPublicKey, so a compromised URL cannot downgrade or
+	// forge the list.
+	if d.trustedAgents != nil {
+		go func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				<-d.stopCh
+				cancel()
+			}()
+			trustedagents.Run(ctx, d.trustedAgents, trustedagents.FetcherConfig{
+				URL: d.config.TrustedAgentsURL,
+			})
+		}()
+	}
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
