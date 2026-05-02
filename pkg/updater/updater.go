@@ -270,18 +270,19 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 		}
 	}
 
+	// Write version file before any exit path so the new process doesn't
+	// re-download the same release when it starts.
+	versionFile := filepath.Join(u.config.InstallDir, ".pilot-version")
+	if err := os.WriteFile(versionFile, []byte(release.TagName+"\n"), 0644); err != nil {
+		slog.Warn("failed to write version file", "error", err)
+	}
+
 	// If the updater binary itself was replaced, exit so launchd/systemd
 	// restarts the process with the new binary. On startup the new process
 	// runs recoverPendingRestart() which will handle the daemon restart.
 	if updaterReplaced {
 		slog.Info("updater binary replaced — exiting for process manager to restart with new binary")
 		os.Exit(0)
-	}
-
-	// Write version file for future comparison.
-	versionFile := filepath.Join(u.config.InstallDir, ".pilot-version")
-	if err := os.WriteFile(versionFile, []byte(release.TagName+"\n"), 0644); err != nil {
-		slog.Warn("failed to write version file", "error", err)
 	}
 
 	// Signal daemon to restart (SIGTERM for graceful shutdown).
