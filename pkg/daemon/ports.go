@@ -776,6 +776,21 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 						default:
 						}
 					}
+				} else if c.InRecovery && c.FastRecovery {
+					// RFC 5681 §3.2 step 5: same-episode 3rd dup ACK after a partial
+					// ACK reset DupAckCount to 0.  fastRetransmit (above) is the RFC
+					// 6582 §3 step 6a retransmit; the step-5 per-dup cwnd inflation
+					// must also fire — it is not gated on newEpisode.
+					c.CongWin += MaxSegmentSize
+					if c.CongWin > MaxCongWin {
+						c.CongWin = MaxCongWin
+					}
+					if c.WindowCh != nil && c.WindowAvailable() {
+						select {
+						case c.WindowCh <- struct{}{}:
+						default:
+						}
+					}
 				}
 			}
 		} else if c.DupAckCount > 3 && c.InRecovery && len(c.Unacked) > 0 {
