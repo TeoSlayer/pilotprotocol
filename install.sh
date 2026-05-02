@@ -196,14 +196,19 @@ if [ -z "$TAG" ]; then
     fi
     echo "Cloning..."
     git clone --depth 1 "https://github.com/${REPO}.git" "$TMPDIR/src" >/dev/null 2>&1
-    echo "Building daemon..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" "$TMPDIR/src/cmd/daemon"
-    echo "Building pilotctl..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" "$TMPDIR/src/cmd/pilotctl"
-    echo "Building gateway..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" "$TMPDIR/src/cmd/gateway"
-    echo "Building updater..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" "$TMPDIR/src/cmd/updater"
+    # Build from inside the cloned tree with GOWORK=off so a parent go.work
+    # in the user's $PWD does not reject the cloned module.
+    (
+        cd "$TMPDIR/src"
+        echo "Building daemon..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" ./cmd/daemon
+        echo "Building pilotctl..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" ./cmd/pilotctl
+        echo "Building gateway..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" ./cmd/gateway
+        echo "Building updater..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" ./cmd/updater
+    )
 fi
 
 # --- Install binaries to ~/.pilot/bin ---
