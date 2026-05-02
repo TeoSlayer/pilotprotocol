@@ -915,7 +915,13 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// Skip entirely when bytesAcked==0 (all covered segments were already SACKed):
 	// no new data was delivered, so no AIMD reward is due, and the CA "< 1 → 1"
 	// minimum must not fire for a zero-delivery ACK.
-	if bytesAcked > 0 {
+	// Skip AIMD during fast-recovery partial ACKs (RFC 5681 §3.2 step 7): step 7
+	// specifies only partial-window deflation; running AIMD on top double-counts the
+	// ACK and inflates cwnd beyond the recovery window.  For full recovery exits
+	// (wasFastRecovery && !c.InRecovery) AIMD is correct — the sender re-enters CA
+	// from SSThresh.  Timeout-recovery partial ACKs (wasFastRecovery==false) are not
+	// subject to step 7 deflation at all, so AIMD still applies for those.
+	if bytesAcked > 0 && !(wasFastRecovery && wasInRecovery && c.InRecovery) {
 		if c.CongWin < c.SSThresh {
 			// Slow start: grow by acked bytes, capped at 2*SMSS per ACK
 			// (RFC 3465 §2.1: ABC limit prevents over-reward from delayed ACKs
