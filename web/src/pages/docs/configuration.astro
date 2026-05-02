@@ -52,7 +52,7 @@ const bodyContent = `<h1>Configuration</h1>
     <tbody>
       <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
-      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install. If unset, the node may still be assigned an internal hostname of the form <code>pilot-XXXXXX</code></td></tr>
+      <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install. If unset, the node is assigned an internal hostname of the form <code>pilot-XXXXXXXX</code> (8 hex chars = first 4 bytes of <code>SHA-256(public_key)</code>)</td></tr>
       <tr><td>PILOT_ADMIN_TOKEN</td><td>(none)</td><td>Admin token for enterprise operations</td></tr>
     </tbody>
   </table>
