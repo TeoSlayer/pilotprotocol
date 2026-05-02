@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -387,33 +388,69 @@ func extractTarGz(archivePath, destDir string) error {
 }
 
 func replaceBinary(src, dst string) error {
-	// Remove old binary first (handles "text file busy" on Linux).
-	os.Remove(dst)
-
+	// Write to a temp file beside the destination, then atomically rename.
+	// This avoids "text file busy" on Linux (rename unlinks the old inode
+	// while the running process keeps its file descriptor open) and prevents
+	// a partial write leaving a corrupt binary at the destination path.
+	tmp := dst + ".new"
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	tmpFile, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	if _, err := io.Copy(tmpFile, srcFile); err != nil {
+		tmpFile.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	// Atomic swap — on the same filesystem this is a single syscall.
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func (u *Updater) signalDaemonRestart() {
-	// Find daemon process and send SIGTERM.
-	// We look for a process whose executable path matches our install dir.
+	if runtime.GOOS == "darwin" {
+		u.signalDaemonRestartDarwin()
+		return
+	}
+	u.signalDaemonRestartLinux()
+}
+
+func (u *Updater) signalDaemonRestartDarwin() {
+	// On macOS the daemon is managed by launchd. Use launchctl kickstart -k
+	// to kill the running instance and restart it immediately. The label
+	// matches the plist written by install.sh.
+	uid := os.Getuid()
+	label := "network.pilotprotocol.pilot-daemon"
+	target := fmt.Sprintf("gui/%d/%s", uid, label)
+	out, err := exec.Command("launchctl", "kickstart", "-k", target).CombinedOutput()
+	if err != nil {
+		slog.Warn("launchctl kickstart failed — restart daemon manually",
+			"target", target, "err", err, "output", strings.TrimSpace(string(out)))
+		return
+	}
+	slog.Info("daemon restarted via launchctl", "target", target)
+}
+
+func (u *Updater) signalDaemonRestartLinux() {
+	// On Linux, find the daemon process via /proc/<pid>/exe and send SIGTERM.
+	// systemd Restart=on-failure will relaunch it automatically.
 	daemonPath := filepath.Join(u.config.InstallDir, "daemon")
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		// Not on Linux (macOS, etc.) — try finding by name.
-		slog.Info("daemon restart: send SIGTERM to daemon process manually, or use systemd to auto-restart")
+		slog.Warn("cannot read /proc — restart daemon manually")
 		return
 	}
 
@@ -435,5 +472,5 @@ func (u *Updater) signalDaemonRestart() {
 			}
 		}
 	}
-	slog.Warn("daemon process not found, manual restart may be needed")
+	slog.Warn("daemon process not found — restart daemon manually")
 }
