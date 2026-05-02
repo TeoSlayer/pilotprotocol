@@ -75,6 +75,10 @@ func (u *Updater) Stop() {
 func (u *Updater) checkLoop() {
 	defer u.wg.Done()
 
+	// On startup, catch any missed daemon restart from a previous update cycle
+	// (e.g. old macOS updater replaced the binary but never called launchctl).
+	u.recoverPendingRestart()
+
 	// Run once immediately on start.
 	u.checkOnce()
 
@@ -134,6 +138,7 @@ func (u *Updater) checkOnce() {
 	}
 
 	slog.Info("update applied successfully", "version", latest.String())
+	u.touchRestartRecord()
 }
 
 func (u *Updater) fetchLatestRelease() (*GitHubRelease, error) {
@@ -418,6 +423,29 @@ func replaceBinary(src, dst string) error {
 		return err
 	}
 	return nil
+}
+
+func (u *Updater) recoverPendingRestart() {
+	daemonBin := filepath.Join(u.config.InstallDir, "daemon")
+	restartRecord := filepath.Join(u.config.InstallDir, ".daemon-last-restart")
+
+	binStat, err := os.Stat(daemonBin)
+	if err != nil {
+		return
+	}
+	recordStat, err := os.Stat(restartRecord)
+	if err != nil || binStat.ModTime().After(recordStat.ModTime()) {
+		slog.Info("daemon binary updated since last restart, triggering restart")
+		u.signalDaemonRestart()
+		u.touchRestartRecord()
+	}
+}
+
+func (u *Updater) touchRestartRecord() {
+	path := filepath.Join(u.config.InstallDir, ".daemon-last-restart")
+	if err := os.WriteFile(path, []byte(time.Now().Format(time.RFC3339)+"\n"), 0644); err != nil {
+		slog.Warn("failed to update restart record", "error", err)
+	}
 }
 
 func (u *Updater) signalDaemonRestart() {
