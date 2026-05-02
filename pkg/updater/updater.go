@@ -250,6 +250,7 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 		return fmt.Errorf("read staging dir: %w", err)
 	}
 
+	updaterReplaced := false
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -264,6 +265,17 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 			return fmt.Errorf("replace %s: %w", entry.Name(), err)
 		}
 		slog.Info("replaced binary", "name", entry.Name())
+		if entry.Name() == "updater" {
+			updaterReplaced = true
+		}
+	}
+
+	// If the updater binary itself was replaced, exit so launchd/systemd
+	// restarts the process with the new binary. On startup the new process
+	// runs recoverPendingRestart() which will handle the daemon restart.
+	if updaterReplaced {
+		slog.Info("updater binary replaced — exiting for process manager to restart with new binary")
+		os.Exit(0)
 	}
 
 	// Write version file for future comparison.
