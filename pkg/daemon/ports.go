@@ -708,6 +708,26 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 		c.DupAckCount++
 		dupAcks++
+		// RFC 5681 §3.2 step 5: inflate cwnd for dup ACKs at count 1-2 while already
+		// in fast recovery.  After a partial ACK resets DupAckCount to 0, subsequent
+		// dup ACKs at count 1 and 2 do not reach the DupAckCount==3 (fast-retransmit
+		// entry) or DupAckCount>3 (step-5 inflation) branches.  The 3-dup threshold
+		// is only the ENTRY condition; every dup ACK "while in fast retransmit"
+		// (InRecovery=true, FastRecovery=true) must inflate cwnd by SMSS regardless
+		// of the current count.
+		if c.DupAckCount < 3 && c.InRecovery && c.FastRecovery && len(c.Unacked) > 0 {
+			c.CongWin += MaxSegmentSize
+			if c.CongWin > MaxCongWin {
+				c.CongWin = MaxCongWin
+			}
+			if c.WindowCh != nil && c.WindowAvailable() {
+				select {
+				case c.WindowCh <- struct{}{}:
+				default:
+				}
+			}
+			return
+		}
 		if c.DupAckCount == 3 && len(c.Unacked) > 0 {
 			// Fast retransmit (RFC 5681). Only when there is data in flight:
 			// keepalive probes and other spurious dup-ACKs with an empty Unacked
