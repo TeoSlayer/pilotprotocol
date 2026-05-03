@@ -20,6 +20,6 @@ func cmdTrusted(args []string) {
 		return
 	}
 	for _, a := range agents {
-		fmt.Printf("  %-20s node_id=%d\n", a.Name, a.NodeID)
+		fmt.Printf("  %-32s %s  node_id=%d\n", a.Hostname, a.Address, a.NodeID)
 	}
 }

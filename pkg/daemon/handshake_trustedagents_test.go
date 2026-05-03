@@ -28,7 +28,7 @@ const untrustedNodeID uint32 = 99999
 
 func TestHandleRequestTrustedAgentBoundAutoAccepts(t *testing.T) {
 	defer trustedagents.SetForTest([]trustedagents.Agent{
-		{Name: "list-agents", NodeID: trustedNodeID},
+		{Hostname: "list-agents", NodeID: trustedNodeID},
 	})()
 
 	d := newHsTestDaemon(t, Config{})
@@ -71,7 +71,7 @@ func TestHandleRequestTrustedAgentBoundAutoAccepts(t *testing.T) {
 // registry can't confirm the binding), and slip into auto-accept.
 func TestHandleRequestTrustedAgentNotBoundFallsThrough(t *testing.T) {
 	defer trustedagents.SetForTest([]trustedagents.Agent{
-		{Name: "list-agents", NodeID: trustedNodeID},
+		{Hostname: "list-agents", NodeID: trustedNodeID},
 	})()
 
 	d := New(Config{}) // TrustAutoApprove off
@@ -103,7 +103,7 @@ func TestHandleRequestTrustedAgentNotBoundFallsThrough(t *testing.T) {
 
 func TestHandleRequestUntrustedAgentBoundFallsThrough(t *testing.T) {
 	defer trustedagents.SetForTest([]trustedagents.Agent{
-		{Name: "list-agents", NodeID: trustedNodeID},
+		{Hostname: "list-agents", NodeID: trustedNodeID},
 	})()
 
 	d := newHsTestDaemon(t, Config{})
@@ -165,7 +165,7 @@ func TestHandleRequestEmptyListNeverAutoAccepts(t *testing.T) {
 
 func TestHandleRequestTrustedAgentAlreadyTrustedNoRewrite(t *testing.T) {
 	defer trustedagents.SetForTest([]trustedagents.Agent{
-		{Name: "list-agents", NodeID: trustedNodeID},
+		{Hostname: "list-agents", NodeID: trustedNodeID},
 	})()
 
 	d := newHsTestDaemon(t, Config{})

@@ -34,11 +34,14 @@ const (
 	fetchInterval = 1 * time.Hour
 )
 
-// Agent is one entry in the trusted-agents list. Match is by NodeID.
-// Name is metadata for logs and `pilotctl trusted list`.
+// Agent is one entry in the trusted-agents list. Match is by NodeID;
+// Hostname and Address are kept for logs and `pilotctl trusted list`.
+// Other JSON fields in the source file (tier, description, ...) are
+// silently ignored on unmarshal — we don't care about them at runtime.
 type Agent struct {
-	Name   string `json:"name"`
-	NodeID uint32 `json:"node_id"`
+	Hostname string `json:"hostname"`
+	Address  string `json:"address"`
+	NodeID   uint32 `json:"node_id"`
 }
 
 //go:embed trusted-agents.json
@@ -80,7 +83,7 @@ func SetForTest(agents []Agent) (restore func()) {
 		if a.NodeID == 0 {
 			continue
 		}
-		idx[a.NodeID] = a.Name
+		idx[a.NodeID] = a.Hostname
 	}
 	mu.Lock()
 	prevByNode, prevAll := byNode, all
@@ -167,7 +170,7 @@ func load(raw []byte) error {
 		if a.NodeID == 0 {
 			continue // 0 is reserved / would silently match unset fields
 		}
-		idx[a.NodeID] = a.Name
+		idx[a.NodeID] = a.Hostname
 	}
 	mu.Lock()
 	byNode = idx
