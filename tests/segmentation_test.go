@@ -76,7 +76,8 @@ func TestLargeWriteSegmentation(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	// Read hash back
+	// Read hash back — set a deadline so a stalled transfer fails fast on CI
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	hashBuf := make([]byte, 32)
 	n, err := conn.Read(hashBuf)
 	if err != nil {

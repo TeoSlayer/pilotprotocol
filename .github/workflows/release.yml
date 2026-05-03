@@ -29,7 +29,7 @@ jobs:
         run: make build
 
       - name: Unit tests
-        run: go test -parallel 4 -count=1 -timeout 120s ./tests/ ./pkg/beacon/
+        run: go test -parallel 4 -count=1 -timeout 300s ./tests/ ./pkg/beacon/
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})

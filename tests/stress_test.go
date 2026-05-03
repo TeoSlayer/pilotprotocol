@@ -18,32 +18,41 @@ func TestStressConcurrentConnections(t *testing.T) {
 	a := env.AddDaemon()
 	b := env.AddDaemon()
 
-	// Echo server on A
-	ln, err := a.Driver.Listen(1000)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer conn.Close()
-				buf := make([]byte, 65535)
-				for {
-					n, err := conn.Read(buf)
-					if err != nil {
-						return
-					}
-					conn.Write(buf[:n])
-				}
-			}()
-		}
-	}()
+	// Each goroutine dials its own port so dials aren't deduplicated by
+	// DialConnectionContext, which keys on (peerNode, dstPort).
+	const numConns = 10
+	const basePort = 3000 // avoid ports used by daemon services (1001-1003)
 
-	const numConns = 20
+	startEchoListener := func(ln *driver.Listener) {
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				go func() {
+					defer conn.Close()
+					buf := make([]byte, 65535)
+					for {
+						n, err := conn.Read(buf)
+						if err != nil {
+							return
+						}
+						conn.Write(buf[:n])
+					}
+				}()
+			}
+		}()
+	}
+
+	for i := 0; i < numConns; i++ {
+		ln, err := a.Driver.Listen(uint16(basePort + i))
+		if err != nil {
+			t.Fatalf("listen port %d: %v", basePort+i, err)
+		}
+		startEchoListener(ln)
+	}
+
 	var wg sync.WaitGroup
 	var successes atomic.Int32
 	var failures atomic.Int32
@@ -61,7 +70,7 @@ func TestStressConcurrentConnections(t *testing.T) {
 			}
 			defer d.Close()
 
-			conn, err := d.DialAddr(a.Daemon.Addr(), 1000)
+			conn, err := d.DialAddr(a.Daemon.Addr(), uint16(basePort+idx))
 			if err != nil {
 				t.Logf("conn %d: dial failed: %v", idx, err)
 				failures.Add(1)

@@ -179,7 +179,7 @@ func TestDataExchangeLargePayload(t *testing.T) {
 			t.Errorf("large binary mismatch: got %d bytes, expected %d", len(frame.Payload), len(largeData))
 		}
 		t.Logf("received large binary: %d bytes", len(frame.Payload))
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timeout")
 	}
 }

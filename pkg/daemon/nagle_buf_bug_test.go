@@ -29,7 +29,7 @@ import (
 // memory budget. Multiple writers would amplify this further.
 //
 // What v1.9.1's NagleBuf cap fix will change:
-//   - introduce MaxNagleBuf = 8 * MaxSegmentSize (32 KB)
+//   - introduce MaxNagleBuf = 64 * MaxSegmentSize (256 KB)
 //   - SendData returns ErrSendBufFull when len(NagleBuf) + len(data) > MaxNagleBuf
 //   - test assertion flips: NagleBuf plateaus at MaxNagleBuf;
 //     SendData returns ErrSendBufFull on the oversized write.
@@ -63,7 +63,7 @@ func TestSendDataNagleBufGrowsUnbounded(t *testing.T) {
 	// FIXED (v1.9.1): SendData now rejects an oversized write up-front
 	// instead of appending it to NagleBuf. The 5 MiB write should
 	// return ErrSendBufFull immediately and NagleBuf should remain
-	// at 0 (not grow at all). MaxNagleBuf = 8 * MaxSegmentSize = 32 KB.
+	// at 0 (not grow at all). MaxNagleBuf = 64 * MaxSegmentSize = 256 KB.
 	const payloadSize = 5 * 1024 * 1024
 	payload := make([]byte, payloadSize)
 	for i := range payload {

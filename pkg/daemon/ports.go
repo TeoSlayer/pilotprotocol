@@ -153,15 +153,17 @@ const (
 	AcceptQueueLen = 64                           // listener accept channel capacity
 	SendBufLen     = 256                          // send buffer channel capacity (segments)
 
-	// MaxNagleBuf caps the per-connection NagleBuf at 8 segments
-	// (32 KB). v1.9.1 fix: SendData previously appended without bound,
+	// MaxNagleBuf caps the per-connection NagleBuf at 64 segments
+	// (256 KB). v1.9.1 fix: SendData previously appended without bound,
 	// so an application writing faster than the network could drain
 	// (slow peer, full cwnd, packet loss) leaked memory linearly with
 	// offered-but-undeliverable load. With many connections in that
 	// state, daemon RSS climbed until OOM. SendData now returns
 	// ErrSendBufFull when len(NagleBuf) + len(write) would exceed
 	// this cap; callers must retry with backpressure.
-	MaxNagleBuf = 8 * MaxSegmentSize
+	// 256 KB accommodates the largest single data-exchange frame
+	// (64 KB) with headroom, while still bounding per-connection memory.
+	MaxNagleBuf = 64 * MaxSegmentSize
 )
 
 // RTO parameters (RFC 6298)
