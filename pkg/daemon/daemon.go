@@ -3,10 +3,12 @@
 package daemon
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -22,10 +24,12 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/skillinject"
 )
 
 // isRegistryRejectingUsErr returns true when the registry's response to a
@@ -195,25 +199,32 @@ type resolveEntry struct {
 }
 
 type Daemon struct {
-	config         Config
-	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
-	nodeID         uint32
-	addr           protocol.Addr
-	publicEndpoint string // host:port reported to the registry at registration
-	identityMu     sync.RWMutex // protects identity after hot rotate-key
-	identity       *crypto.Identity
-	regConn        *registry.Client
-	tunnels        *TunnelManager
-	ports          *PortManager
-	ipc            *IPCServer
-	handshakes     *HandshakeManager
-	webhook        *WebhookClient
-	taskQueue      *TaskQueue
-	startTime      time.Time
-	stopCh         chan struct{} // closed on Stop() to signal goroutines
+	config          Config
+	addrMu          sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
+	nodeID          uint32
+	addr            protocol.Addr
+	publicEndpoint  string       // host:port reported to the registry at registration
+	identityMu      sync.RWMutex // protects identity after hot rotate-key
+	identity        *crypto.Identity
+	regConn         *registry.Client
+	tunnels         *TunnelManager
+	ports           *PortManager
+	ipc             *IPCServer
+	handshakes      *HandshakeManager
+	webhook         *WebhookClient
+	taskQueue       *TaskQueue
+	startTime       time.Time
+	stopCh          chan struct{}         // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
-	stopOnce   sync.Once     // ensures stopCh is closed exactly once
-	lanAddrs   []string      // LAN addresses for same-network peer detection
+	stopOnce        sync.Once             // ensures stopCh is closed exactly once
+
+	// In-flight dial dedup: concurrent DialConnection calls to the same
+	// (peer_node, dst_port) park on the first dialer's done channel
+	// instead of allocating their own SYN_SENT entry. Eliminates the
+	// "3 stuck SYN_SENT to same peer" pattern visible in `pilotctl info`
+	// when multiple commands race against a cold peer.
+	dialFlight sync.Map // key: dialKey, value: *dialInFlight
+	lanAddrs   []string // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
 	epCacheMu sync.RWMutex
@@ -247,6 +258,13 @@ type Daemon struct {
 	// Cached member tags: netID -> local node's admin-assigned tags
 	memberTagsMu sync.RWMutex
 	memberTags   map[uint16][]string
+
+	// AcceptQueueDrops counts SYNs that hit a full Listener.AcceptCh.
+	// Each drop sends a RST back to the dialer (so the peer learns
+	// immediately) and bumps this counter for operator visibility.
+	// Without this, accept-queue overflows are silent slow-downs that
+	// only surface as application-level connection failures.
+	AcceptQueueDrops uint64
 }
 
 const perSourceSYNLimit = 10     // max SYNs per source per second
@@ -756,6 +774,28 @@ func (d *Daemon) Start() error {
 	// hash-pick lands on a fresher beacon.
 	go d.beaconRefreshLoop()
 
+	// 13. Trusted-agents fetcher: hourly refresh of the auto-accept
+	// list from GitHub. Embedded blob in the binary is the bootstrap.
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() { <-d.stopCh; cancel() }()
+		trustedagents.Run(ctx)
+	}()
+
+	// 14. Skill injector: scan for installed agent tools (Claude Code,
+	// OpenClaw, Cursor, OpenHands, Hermes) and drop the Pilot Protocol
+	// skill markdown into each one's skills/rules dir, plus a heartbeat
+	// reference into the always-loaded instructions file. Idempotent —
+	// won't rewrite if the on-disk hash already matches.
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-d.stopCh
+			cancel()
+		}()
+		skillinject.Run(ctx, skillinject.Config{})
+	}()
+
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
 	return nil
@@ -935,8 +975,28 @@ func (d *Daemon) Stop() error {
 }
 
 func (d *Daemon) doStop() {
-	// Graceful close: send FIN to all active connections, then force remove
+	// v1.9.1: emit a shutdown signal BEFORE any teardown so operators
+	// can distinguish planned drain from crash. Auto-scalers and
+	// webhook-driven dashboards rely on this transition event;
+	// otherwise the only visible signal is "events stop arriving,"
+	// which is indistinguishable from a kernel panic. Payload carries
+	// state snapshot for correlation with pre-shutdown metrics.
 	conns := d.ports.AllConnections()
+	openConns := 0
+	for _, c := range conns {
+		c.Mu.Lock()
+		if c.State == StateEstablished {
+			openConns++
+		}
+		c.Mu.Unlock()
+	}
+	d.webhook.Emit("daemon.shutting_down", map[string]interface{}{
+		"open_connections": openConns,
+		"known_peers":      d.tunnels.PeerCount(),
+		"uptime_seconds":   int(time.Since(d.startTime).Seconds()),
+	})
+
+	// Graceful close: send FIN to all active connections, then force remove
 	for _, conn := range conns {
 		conn.Mu.Lock()
 		st := conn.State
@@ -1564,6 +1624,15 @@ type DaemonInfo struct {
 	Networks              []NetworkMembership
 	PeerList              []PeerInfo
 	ConnList              []ConnectionInfo
+
+	// v1.9.1: health metrics surfaced for operators / dashboards.
+	// These counters live elsewhere (Daemon.AcceptQueueDrops, the
+	// WebhookClient internals) but had no path to reach `pilotctl info`
+	// until now. Each is monotonic; operators compute rate by diffing
+	// two snapshots over time.
+	AcceptQueueDrops    uint64
+	WebhookQueueDropped uint64
+	WebhookCircuitSkips uint64
 }
 
 // Info returns current daemon status.
@@ -1645,6 +1714,9 @@ func (d *Daemon) Info() *DaemonInfo {
 		Networks:              networks,
 		PeerList:              peerList,
 		ConnList:              d.ports.ConnectionList(),
+		AcceptQueueDrops:      atomic.LoadUint64(&d.AcceptQueueDrops),
+		WebhookQueueDropped:   d.webhook.Dropped(),
+		WebhookCircuitSkips:   d.webhook.CircuitSkips(),
 	}
 }
 
@@ -1688,10 +1760,15 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return
 		}
 
-		// Check for retransmitted SYN (connection already exists for this 4-tuple)
+		// Check for retransmitted SYN (connection already exists for this 4-tuple).
+		// Only replay SYN-ACK for active connections (SynReceived or Established).
+		// TIME_WAIT and CLOSED connections are ineligible: the peer's source port
+		// was reused for a new connection, not a retransmit of the old one. Treating
+		// them as retransmits resends a stale SYN-ACK seq that the new client rejects,
+		// blocking the new connection for up to TimeWaitDuration + IdleSweepInterval.
 		if existing := d.ports.FindConnection(pkt.DstPort, pkt.Src, pkt.SrcPort); existing != nil {
-			// Resend SYN-ACK for the existing connection
 			existing.Mu.Lock()
+			st := existing.State
 			eAck := existing.RecvAck
 			// P1-001: prefer the recorded SYN-ACK sequence over `SendSeq-1`.
 			// Once data has been sent on this connection, SendSeq has drifted
@@ -1703,20 +1780,24 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				eSeq = existing.SendSeq - 1 // pre-existing connections from older builds
 			}
 			existing.Mu.Unlock()
-			synack := &protocol.Packet{
-				Version:  protocol.Version,
-				Flags:    protocol.FlagSYN | protocol.FlagACK,
-				Protocol: protocol.ProtoStream,
-				Src:      pkt.Dst,
-				Dst:      pkt.Src,
-				SrcPort:  pkt.DstPort,
-				DstPort:  pkt.SrcPort,
-				Seq:      eSeq,
-				Ack:      eAck,
-				Window:   existing.RecvWindow(),
+			if st == StateSynReceived || st == StateEstablished {
+				// Active connection — resend SYN-ACK (genuine retransmit dedup).
+				synack := &protocol.Packet{
+					Version:  protocol.Version,
+					Flags:    protocol.FlagSYN | protocol.FlagACK,
+					Protocol: protocol.ProtoStream,
+					Src:      pkt.Dst,
+					Dst:      pkt.Src,
+					SrcPort:  pkt.DstPort,
+					DstPort:  pkt.SrcPort,
+					Seq:      eSeq,
+					Ack:      eAck,
+					Window:   existing.RecvWindow(),
+				}
+				d.tunnels.Send(pkt.Src.Node, synack)
+				return
 			}
-			d.tunnels.Send(pkt.Src.Node, synack)
-			return
+			// TIME_WAIT or CLOSED — source port reuse: fall through to create new connection.
 		}
 
 		// Trust gate: private nodes only accept SYN from trusted or same-network peers.
@@ -1800,8 +1881,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Process peer's receive window from SYN (H9 fix: always update, including Window==0)
 		conn.RetxMu.Lock()
+		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
+		if winOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
 		// Send SYN-ACK with our receive window
 		conn.Mu.Lock()
@@ -1829,16 +1918,28 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		})
 
 		d.startRetxLoop(conn)
-		// Non-blocking push to accept queue — if full, clean up and RST
-		select {
-		case ln.AcceptCh <- conn:
-		default:
-			slog.Warn("accept queue full after SYN-ACK, closing connection", "port", pkt.DstPort, "src_addr", pkt.Src)
+		// Non-blocking push to accept queue — if full, clean up and RST.
+		// v1.9.1: surface the drop via AcceptQueueDrops counter and a
+		// dedicated webhook event so operators can detect overflow.
+		// Without this signal, slow-Accept applications silently lose
+		// inbound connections.
+		// v1.9.1: TrySend is safe after Unbind — returns false instead of
+		// panicking on a closed AcceptCh (bare send would crash routeLoop).
+		if !ln.TrySend(conn) {
+			drops := atomic.AddUint64(&d.AcceptQueueDrops, 1)
+			slog.Warn("accept queue full after SYN-ACK, closing connection",
+				"port", pkt.DstPort, "src_addr", pkt.Src, "drops_total", drops)
 			conn.Mu.Lock()
 			conn.State = StateClosed
 			conn.Mu.Unlock()
 			d.ports.RemoveConnection(conn.ID)
 			d.sendRST(pkt)
+			d.webhook.Emit("conn.accept_queue_full", map[string]interface{}{
+				"port":        pkt.DstPort,
+				"src_addr":    pkt.Src.String(),
+				"src_port":    pkt.SrcPort,
+				"drops_total": drops,
+			})
 		}
 		return
 	}
@@ -1866,8 +1967,16 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Process peer's receive window from SYN-ACK (H9 fix: always update)
 		conn.RetxMu.Lock()
+		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
+		if winOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
 		// Send ACK with our receive window
 		ack := &protocol.Packet{
@@ -1972,18 +2081,43 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 
 		// Update peer's receive window (H9 fix: always update, honor Window==0)
 		conn.RetxMu.Lock()
+		prevPeerWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
+		peerWinOpened := conn.PeerRecvWin > prevPeerWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
+		if peerWinOpened && conn.WindowCh != nil {
+			select {
+			case conn.WindowCh <- struct{}{}:
+			default:
+			}
+		}
 
-		// Process ACK for retransmission tracking
-		// Only count as pure ACK for dup detection if no data payload
-		if pkt.Ack > 0 {
-			isPureACK := len(pkt.Payload) == 0
+		// Process ACK for retransmission tracking.
+		// v1.9.1: removed the 'pkt.Ack > 0' guard — Ack=0 is the legitimate
+		// cumulative ACK value after a 4 GiB uint32 sequence-space wraparound.
+		// Decode SACK payload first so we can set isPureACK correctly: a packet
+		// whose payload is only SACK blocks carries no user data and is a pure
+		// ACK for dup-ACK detection purposes. Computing isPureACK as
+		// len(pkt.Payload)==0 alone wrongly marks SACK-carrying ACKs as
+		// non-pure, suppressing DupAckCount and blocking fast retransmit.
+		sackBlocks, isSACK := DecodeSACK(pkt.Payload)
+		{
+			isPureACK := len(pkt.Payload) == 0 || isSACK
+			// RFC 5681 §3.1 condition (e): a packet is only a duplicate ACK
+			// when "the advertised window equals the advertised window in the
+			// last incoming acknowledgment."  If the peer's receive window
+			// changed (window update), condition (e) is violated and we must
+			// not count this as a dup-ACK — set isPureACK=false so ProcessAck's
+			// early-return suppresses DupAckCount.  SACKs always count as dup-
+			// ACKs regardless of window changes (they report OOO data).
+			if !isSACK && conn.PeerRecvWin != prevPeerWin {
+				isPureACK = false
+			}
 			conn.ProcessAck(pkt.Ack, isPureACK)
 		}
 
 		// Check if payload is SACK info (not user data)
-		if sackBlocks, ok := DecodeSACK(pkt.Payload); ok {
+		if isSACK {
 			conn.ProcessSACK(sackBlocks)
 		} else if len(pkt.Payload) > 0 {
 			conn.Mu.Lock()
@@ -2163,8 +2297,81 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 	d.tunnels.Send(orig.Src.Node, rst)
 }
 
+// dialKey identifies an in-flight dial attempt for dedup.
+type dialKey struct {
+	peerNode uint32
+	dstPort  uint16
+}
+
+// dialInFlight tracks a single in-flight DialConnection so concurrent
+// callers to the same (peer, dport) can park on its result instead of
+// allocating their own SYN_SENT.
+type dialInFlight struct {
+	done chan struct{}
+	conn *Connection
+	err  error
+}
+
 // DialConnection initiates a connection to a remote address:port.
+// Wraps DialConnectionContext with context.Background() for callers
+// that don't have cancellation semantics (handshake bootstrap,
+// internal probes, tests). New code should prefer DialConnectionContext.
 func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	return d.DialConnectionContext(context.Background(), dstAddr, dstPort)
+}
+
+// DialConnectionContext is the cancellable variant of DialConnection.
+// Used by the IPC handler so a dial started on behalf of a pilotctl
+// command is aborted (and its SYN_SENT entry removed) the moment the
+// IPC client disconnects — no more orphan SYN_SENTs from Ctrl+C'd
+// commands grinding through the full retry budget.
+//
+// Concurrent dials to the same (peer_node, dst_port) are deduplicated:
+// the first call drives the SYN; subsequent callers park on its done
+// channel and return the same (*Connection, error) tuple. The follower
+// path also respects ctx — if the follower's caller cancels while the
+// leader is still dialing, the follower returns ctx.Err() without
+// affecting the leader (whose own ctx may still be live).
+func (d *Daemon) DialConnectionContext(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	key := dialKey{peerNode: dstAddr.Node, dstPort: dstPort}
+	flight := &dialInFlight{done: make(chan struct{})}
+	if existing, loaded := d.dialFlight.LoadOrStore(key, flight); loaded {
+		// Follower: wait for leader's result OR for our own ctx to
+		// cancel. We do NOT cancel the leader — they may have other
+		// followers and a live ctx of their own.
+		ex := existing.(*dialInFlight)
+		select {
+		case <-ex.done:
+			return ex.conn, ex.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	// Leader: do the dial, then signal followers.
+	defer func() {
+		d.dialFlight.Delete(key)
+		close(flight.done)
+	}()
+	flight.conn, flight.err = d.dialConnectionLocked(ctx, dstAddr, dstPort)
+	return flight.conn, flight.err
+}
+
+// dialConnectionLocked is the leader's dial body. Followers in the
+// dialFlight map wait on the leader's done channel and never reach
+// this function. The ctx here is the leader's caller's context;
+// cancellation tears down the in-flight SYN_SENT and returns
+// ctx.Err() to followers via flight.err.
+func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
+	// v1.9.1: bail before any side-effecting work if ctx is already
+	// cancelled. iter 2 made the SYN-retry loop cancellable, but
+	// ensureTunnel + port alloc + initial SYN send all happen BEFORE
+	// the loop. Without this check, a pre-cancelled ctx still results
+	// in a wire-side SYN going to the peer, who replies with SYN-ACK
+	// for a connection the dialer already abandoned.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Enforce outbound port policy: prevent dialing ports blocked by the network
 	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
 		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
@@ -2176,9 +2383,20 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 	}
 
 	localPort := d.ports.AllocEphemeralPort()
+	if localPort == 0 {
+		return nil, ErrEphemeralExhausted
+	}
 	conn := d.ports.NewConnection(localPort, dstAddr, dstPort)
+	// Guard the initial state-mutation under conn.Mu — observers (test
+	// helpers, idleSweepLoop, the IPC handler walking the conn table)
+	// take conn.Mu before reading State; without the lock here, the
+	// race detector flags the write/read pair. Pre-existing race that
+	// was hidden until the v1.9.1 dedup test started observing
+	// SYN_SENT entries from another goroutine.
+	conn.Mu.Lock()
 	conn.LocalAddr = protocol.Addr{Network: dstAddr.Network, Node: d.NodeID()}
 	conn.State = StateSynSent
+	conn.Mu.Unlock()
 
 	// Send SYN with our receive window
 	syn := &protocol.Packet{
@@ -2220,6 +2438,14 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 
 	for {
 		select {
+		case <-ctx.Done():
+			// Caller (typically the IPC client) gave up. Tear down the
+			// half-open connection so it doesn't sit in SYN_SENT for the
+			// rest of the retry budget. Counter-symptom: the
+			// "ID 13/14/15 SYN_SENT" orphan rows in `pilotctl info`
+			// after Ctrl+C — gone within ~1 ms of the cancel.
+			d.ports.RemoveConnection(conn.ID)
+			return nil, ctx.Err()
 		case <-check.C:
 			conn.Mu.Lock()
 			st := conn.State
@@ -2250,6 +2476,12 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 
 			if retries > maxRetries {
 				d.ports.RemoveConnection(conn.ID)
+				// v1.9.1: a peer that didn't respond to the full retry
+				// budget (direct + relay) is reachably dead. Invalidate
+				// the resolve / endpoint caches so the application's
+				// next dial fetches fresh registry data instead of
+				// re-dialing the same dead address for ResolveCacheTTL.
+				d.forgetPeerResolution(dstAddr.Node)
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
@@ -2278,6 +2510,16 @@ const DelayedACKThreshold = 2
 // SendData sends data over an established connection.
 // Implements Nagle's algorithm: small writes are coalesced into MSS-sized
 // segments unless NoDelay is set. Large writes (>= MSS) are sent immediately.
+// ErrSendBufFull is returned by SendData when the per-connection
+// NagleBuf would exceed MaxNagleBuf if the caller's write were
+// appended. Callers must back off and retry — typically by waiting
+// for a webhook or polling the connection's send-buffer state.
+//
+// This error replaces the silent unbounded-growth behavior that
+// could OOM the daemon when an application wrote faster than the
+// network drained. Pinned by TestSendDataNagleBufGrowsUnbounded.
+var ErrSendBufFull = errors.New("send buffer full")
+
 func (d *Daemon) SendData(conn *Connection, data []byte) error {
 	conn.Mu.Lock()
 	st := conn.State
@@ -2292,6 +2534,15 @@ func (d *Daemon) SendData(conn *Connection, data []byte) error {
 	}
 
 	conn.NagleMu.Lock()
+	// v1.9.1: cap NagleBuf at MaxNagleBuf. Without this, slow peers /
+	// full cwnd / packet loss caused the buffer to grow without bound,
+	// linearly with offered-but-undeliverable load. ErrSendBufFull is
+	// the application's signal to stop pushing — retry once buffer
+	// drains. Caller-side: dataexchange.WriteFrame propagates this up.
+	if len(conn.NagleBuf)+len(data) > MaxNagleBuf {
+		conn.NagleMu.Unlock()
+		return ErrSendBufFull
+	}
 	conn.NagleBuf = append(conn.NagleBuf, data...)
 	conn.NagleMu.Unlock()
 
@@ -2322,9 +2573,12 @@ func (d *Daemon) nagleFlush(conn *Connection) error {
 			continue
 		}
 
-		// Sub-MSS data: check if we can send now (check under NagleMu)
+		// Sub-MSS data: check if we can send now (check under NagleMu).
+		// Use BytesInFlight() rather than len(Unacked): SACKed entries
+		// stay in Unacked until cumulative ACK removes them, but they
+		// are already at the peer and should not delay a flush.
 		conn.RetxMu.Lock()
-		hasUnacked := len(conn.Unacked) > 0
+		hasUnacked := conn.BytesInFlight() > 0
 		conn.RetxMu.Unlock()
 
 		if !hasUnacked {
@@ -2473,8 +2727,14 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		}
 	}
 
+	// v1.9.1: reserve seq atomically with the read — pre-incrementing SendSeq
+	// inside the same Mu critical section prevents two concurrent sendSegment
+	// callers from reading the same SendSeq and emitting packets with identical
+	// sequence numbers (which causes the peer to discard one as a duplicate,
+	// silently losing the data and corrupting the connection's seq state).
 	conn.Mu.Lock()
 	seq := conn.SendSeq
+	conn.SendSeq += uint32(len(data))
 	ack := conn.RecvAck
 	conn.Mu.Unlock()
 	pkt := &protocol.Packet{
@@ -2491,16 +2751,17 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 		Payload:  data,
 	}
 
+	// v1.9.1: track before send so a tunnel failure doesn't consume the seq
+	// slot without a retx entry — retxLoop can retry if Send returns an error.
+	conn.TrackSend(seq, data)
 	if err := d.tunnels.Send(conn.RemoteAddr.Node, pkt); err != nil {
 		return err
 	}
 	conn.Mu.Lock()
-	conn.SendSeq += uint32(len(data))
 	conn.LastActivity = time.Now()
 	conn.Stats.BytesSent += uint64(len(data))
 	conn.Stats.SegsSent++
 	conn.Mu.Unlock()
-	conn.TrackSend(seq, data)
 
 	// Cancel delayed ACK — this data packet piggybacks the ACK
 	conn.AckMu.Lock()
@@ -2614,48 +2875,63 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			sendSeq := conn.SendSeq
 			conn.Mu.Unlock()
 
-			isNewLossEvent := !conn.InRecovery
-			if isNewLossEvent {
-				// New loss event: reduce window, enter recovery
-				conn.SSThresh = conn.CongWin / 2
-				if conn.SSThresh < MaxSegmentSize {
-					conn.SSThresh = MaxSegmentSize
-				}
-				conn.CongWin = InitialCongWin
-				conn.InRecovery = true
-				conn.RecoveryPoint = sendSeq
-
-				// Double RTO for first timeout in this loss event
-				conn.RTO = conn.RTO * 2
-				if conn.RTO > 10*time.Second {
-					conn.RTO = 10 * time.Second
-				}
-				// P2-009: add 0-25% random jitter so many connections that
-				// started at the same time don't retransmit in lockstep
-				// under shared congestion. Cap still applies after jitter.
-				jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
-				conn.RTO += jitter
-				if conn.RTO > 10*time.Second {
-					conn.RTO = 10 * time.Second
-				}
+			// RFC 5681 §3.1 eq. 4: ssthresh = max(FlightSize/2, 2*SMSS) on every
+			// timeout expiry — unconditional, no exception for connections already
+			// in fast recovery.  FlightSize = sum of ALL Unacked entries.
+			var flightSize int
+			for _, e := range conn.Unacked {
+				flightSize += len(e.data)
 			}
-			// During recovery, retransmit without further RTO doubling
+			conn.SSThresh = flightSize / 2
+			if conn.SSThresh < 2*MaxSegmentSize {
+				conn.SSThresh = 2 * MaxSegmentSize
+			}
+			conn.InRecovery = true
+			conn.RecoveryPoint = sendSeq
+			// Timeout resets to slow start per RFC 5681 §3.1 (LW = 1 SMSS).
+			// InitialCongWin (RFC 6928, 10*SMSS) applies only at connection
+			// startup; post-timeout cwnd must be 1 SMSS so the connection
+			// re-enters slow start rather than jumping directly to CA.
+			conn.CongWin = MaxSegmentSize
+
+			// RFC 6298 §5.5–5.6: double RTO on every timeout expiry, not only
+			// the first one.  Window reduction above is once-per-loss-event, but
+			// the backoff applies each time the timer fires without an ACK.
+			conn.RTO = conn.RTO * 2
+			if conn.RTO > 10*time.Second {
+				conn.RTO = 10 * time.Second
+			}
+			// P2-009: add 0-25% random jitter so many connections that
+			// started at the same time don't retransmit in lockstep
+			// under shared congestion. Cap still applies after jitter.
+			jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
+			conn.RTO += jitter
+			if conn.RTO > 10*time.Second {
+				conn.RTO = 10 * time.Second
+			}
 
 			e.attempts++
 			e.sentAt = now
 			conn.Mu.Lock()
 			conn.Stats.Retransmits++
 			conn.Mu.Unlock()
+			// Timeout supersedes fast-recovery dup-ACK state: reset DupAckCount and
+			// FastRecovery so the next new ACK does not execute the fast-recovery-exit
+			// path (CongWin = SSThresh), which would override the timeout's
+			// CongWin = MaxSegmentSize reduction.
+			conn.DupAckCount = 0
+			conn.FastRecovery = false
 			conn.LastRetxTime = now
 
 			conn.Mu.Lock()
 			recvAck := conn.RecvAck
-			st := conn.State
 			conn.Mu.Unlock()
 
-			// FIN retransmit: when in FIN_WAIT, the tracked entry is a
-			// FIN sentinel — resend with FlagFIN instead of data.
-			if st == StateFinWait {
+			// FIN retransmit: use e.isFIN (set by CloseConnection) rather than
+			// state==FinWait. A data entry can time out before the FIN entry
+			// reaches its RTO; using state would misidentify the data entry as
+			// the FIN and send FlagFIN with the wrong sequence number.
+			if e.isFIN {
 				pkt := &protocol.Packet{
 					Version:  protocol.Version,
 					Flags:    protocol.FlagFIN,
@@ -2690,7 +2966,10 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			}
 			return // only retransmit ONE segment per RTO
 		}
-		break // segments are ordered by time; if first hasn't timed out, none have
+		// Not timed out yet — continue checking remaining entries.
+		// sentAt ordering is not guaranteed: a prior retransmit updates sentAt
+		// for the retransmitted entry while later entries retain their original
+		// (older) sentAt, so an entry after a recent-retransmit may be timed out.
 	}
 }
 
@@ -2702,9 +2981,16 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	// Capture every conn field this function reads under Mu; reading them
 	// post-unlock would race with concurrent state mutations from
 	// handleStreamPacket / sendDelayedACK / sendSegment paths.
+	// v1.9.1: pre-increment SendSeq inside this critical section so that a
+	// concurrent sendSegment cannot read the same value and produce a data
+	// segment with the same seq as the FIN sentinel (iter 24 fix, same
+	// pattern as the sendSegment pre-increment fix in iter 23).
 	conn.Mu.Lock()
 	st := conn.State
 	sendSeq := conn.SendSeq
+	if st == StateEstablished {
+		conn.SendSeq++ // reserve FIN seq atomically with the read
+	}
 	localAddr := conn.LocalAddr
 	localPort := conn.LocalPort
 	remoteAddr := conn.RemoteAddr
@@ -2731,11 +3017,21 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 			Seq:      sendSeq,
 		}
 		d.tunnels.Send(remoteAddr.Node, fin)
-		// Track FIN in retransmission buffer so the retxLoop retries it
-		conn.TrackSend(sendSeq, finData)
-		conn.Mu.Lock()
-		conn.SendSeq++
-		conn.Mu.Unlock()
+		// Track FIN in retransmission buffer so the retxLoop retries it.
+		// Use isFIN=true so retransmitUnacked can distinguish the FIN entry
+		// from regular data entries (which must be retransmitted as data even
+		// when the connection is in StateFinWait).
+		conn.RetxMu.Lock()
+		now := time.Now()
+		conn.Unacked = append(conn.Unacked, &retxEntry{
+			data:       finData,
+			seq:        sendSeq,
+			sentAt:     now,
+			origSentAt: now,
+			attempts:   1,
+			isFIN:      true,
+		})
+		conn.RetxMu.Unlock()
 	}
 	conn.CloseRecvBuf()
 	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
@@ -2776,6 +3072,9 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	}
 
 	srcPort := d.ports.AllocEphemeralPort()
+	if srcPort == 0 {
+		return ErrEphemeralExhausted
+	}
 
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
 		return err
@@ -2808,6 +3107,9 @@ func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, ad
 		return fmt.Errorf("broadcast denied: invalid admin token")
 	}
 	srcPort := d.ports.AllocEphemeralPort()
+	if srcPort == 0 {
+		return ErrEphemeralExhausted
+	}
 	return d.broadcastDatagram(netID, srcPort, dstPort, data, adminToken)
 }
 
@@ -2925,6 +3227,22 @@ func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
 	d.resolveCacheMu.Lock()
 	d.resolveCache[nodeID] = &resolveEntry{resp: resp, cachedAt: time.Now()}
 	d.resolveCacheMu.Unlock()
+}
+
+// forgetPeerResolution invalidates the registry resolve cache and the
+// fallback endpoint cache for a peer. Called when there is strong
+// evidence the cached endpoint is wrong (dial timeout reached, ICMP
+// unreachable threshold flipped to relay, peer explicitly removed).
+// Without this, ensureTunnel keeps reusing a stale entry for up to
+// ResolveCacheTTL (60 s) — silent dial failures against a dead address.
+func (d *Daemon) forgetPeerResolution(nodeID uint32) {
+	d.resolveCacheMu.Lock()
+	delete(d.resolveCache, nodeID)
+	d.resolveCacheMu.Unlock()
+
+	d.epCacheMu.Lock()
+	delete(d.epCache, nodeID)
+	d.epCacheMu.Unlock()
 }
 
 // ensureTunnel makes sure we have a route to the given node.
@@ -3275,6 +3593,7 @@ func (d *Daemon) idleSweepLoop() {
 					DstPort:  conn.RemotePort,
 					Seq:      sendSeq,
 					Ack:      recvAck,
+					Window:   conn.RecvWindow(),
 				}
 				d.tunnels.Send(conn.RemoteAddr.Node, probe)
 			}

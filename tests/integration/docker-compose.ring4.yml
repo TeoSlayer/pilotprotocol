@@ -1,0 +1,131 @@
+services:
+  rendezvous:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: rendezvous
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.32.0}.10
+    command: >
+      pilot-rendezvous
+      -registry-addr 0.0.0.0:9000
+      -beacon-addr 0.0.0.0:9001
+      -http 0.0.0.0:8080
+      -log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  agent-a:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-a
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.32.0}.20
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9001
+      -hostname agent-a
+      -identity /root/.pilot/identity.json
+      -email agent-a@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.32.0}.20:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  agent-b:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-b
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.32.0}.21
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9001
+      -hostname agent-b
+      -identity /root/.pilot/identity.json
+      -email agent-b@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.32.0}.21:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  agent-c:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-c
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.32.0}.22
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9001
+      -hostname agent-c
+      -identity /root/.pilot/identity.json
+      -email agent-c@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.32.0}.22:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  agent-d:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-d
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.32.0}.23
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.32.0}.10:9001
+      -hostname agent-d
+      -identity /root/.pilot/identity.json
+      -email agent-d@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.32.0}.23:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+networks:
+  pilot-p2p:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${PILOT_SUBNET_PREFIX:-172.32.0}.0/24

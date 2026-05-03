@@ -42,7 +42,7 @@ import DocLayout from "../../layouts/DocLayout.astro";
     <li><code>0:0000.0000.0005</code> - node 5 on network 0</li>
   </ul>
 
-  <p>Agents can also register <strong>hostnames</strong> - human-readable names like <code>my-agent</code>. Most commands accept either an address or a hostname.</p>
+  <p>Agents can also register <strong>hostnames</strong> - human-readable names like <code>my-agent</code>. Most commands accept either an address or a hostname. If you don't set one, the node is still assigned an internal hostname of the form <code>pilot-XXXXXXXX</code>, where the suffix is the first 4 bytes of <code>SHA-256(public_key)</code> encoded as hex (8 hex characters).</p>
 
   <h3>Special addresses</h3>
   <ul>

@@ -1,0 +1,148 @@
+# NAT overlay — places agent-a on a private bridge behind a NAT gateway,
+# while rendezvous + agent-b sit on the public bridge. Used by
+# tests/integration/test_nat_*.sh to exercise Pilot's STUN + beacon
+# hole-punch + relay fallback paths.
+#
+# Topology (public = 172.30.10.0/24, private-a = 172.30.11.0/24):
+#
+#   agent-a (172.30.11.20) --> nat-gw (11.1 priv / 10.30 pub) --> public
+#                                                                  ├── rendezvous (172.30.10.10)
+#                                                                  └── agent-b   (172.30.10.21)
+#
+# The nat-gw container runs iptables MASQUERADE (or random-fully SNAT
+# in NAT_MODE=symmetric) to translate agent-a's egress traffic. agent-a's
+# default route is rewritten to point at the gateway.
+#
+# Bring up:
+#   docker compose -f docker-compose.multi.yml \
+#                  -f docker-compose.multi.nat.yml up -d
+# NOTE: This overlay REPLACES the network config from the base compose
+# because it needs two bridges. Tests run `docker compose -f
+# docker-compose.multi.nat.yml ...` standalone (no base overlay) for
+# NAT scenarios.
+
+services:
+  rendezvous:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: rendezvous
+    networks:
+      public:
+        ipv4_address: 172.30.10.10
+    command: >
+      pilot-rendezvous
+      -registry-addr 0.0.0.0:9000
+      -beacon-addr 0.0.0.0:9001
+      -http 0.0.0.0:8080
+      -log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  nat-gw:
+    build:
+      context: .
+      dockerfile: Dockerfile.nat-gw
+    hostname: nat-gw
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
+    environment:
+      NAT_MODE: "${NAT_MODE:-cone}"
+    # Attach private FIRST (eth0) then public (eth1). Docker names
+    # interfaces in attachment order; the nat-gw.sh script reads
+    # PUBLIC_IFACE / PRIVATE_IFACE env.
+    networks:
+      private-a:
+        ipv4_address: 172.30.11.2
+      public:
+        ipv4_address: 172.30.10.30
+    command: ["/bin/bash", "/nat-gw.sh"]
+
+  agent-a:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-a
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+      nat-gw:
+        condition: service_started
+    cap_add:
+      - NET_ADMIN
+    networks:
+      private-a:
+        ipv4_address: 172.30.11.20
+    environment:
+      PILOT_REGISTRY: "172.30.10.10:9000"
+    # Fix the default route to egress through the NAT gateway, then
+    # exec the daemon. Using array form avoids YAML folding eating
+    # flag tokens in the flow-scalar bash -c '…' path.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        ip route del default 2>/dev/null || true
+        ip route add default via 172.30.11.2
+        echo "[agent-a] routes:"
+        ip route
+        exec pilot-daemon \
+          -registry 172.30.10.10:9000 \
+          -beacon   172.30.10.10:9001 \
+          -hostname agent-a \
+          -identity /root/.pilot/identity.json \
+          -email agent-a@nat.test \
+          -listen :4000 \
+          -keepalive 5s \
+          -log-level info
+    command: []
+
+  agent-b:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: agent-b
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      public:
+        ipv4_address: 172.30.10.21
+    environment:
+      PILOT_REGISTRY: "172.30.10.10:9000"
+    command: >
+      pilot-daemon
+      -registry 172.30.10.10:9000
+      -beacon   172.30.10.10:9001
+      -hostname agent-b
+      -identity /root/.pilot/identity.json
+      -email agent-b@nat.test
+      -endpoint 172.30.10.21:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+networks:
+  public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  private-a:
+    driver: bridge
+    # `internal: true` would forbid the bridge from NATing out via the
+    # host. We WANT that forbidden — the only egress path for agent-a
+    # is through nat-gw. But Docker's built-in NAT on a non-internal
+    # bridge would let agent-a bypass the gateway. So we mark private-a
+    # internal; agent-a reaches the public subnet only via 172.30.11.2.
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.11.0/24

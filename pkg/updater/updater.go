@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,6 +22,19 @@ import (
 	"syscall"
 	"time"
 )
+
+// archiveToInstall maps binary names in the release archive to the filenames
+// used by install.sh in the install directory. The archive uses short names;
+// install.sh adds the "pilot-" prefix to avoid conflicts with system binaries.
+var archiveToInstall = map[string]string{
+	"daemon":   "pilot-daemon",
+	"gateway":  "pilot-gateway",
+	"updater":  "pilot-updater",
+	"pilotctl": "pilotctl",
+}
+
+// maxDownloadBytes caps the size of any single downloaded file.
+const maxDownloadBytes = 256 * 1024 * 1024
 
 // Config holds the updater configuration.
 type Config struct {
@@ -36,6 +50,7 @@ type Updater struct {
 	client *http.Client
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+	exitFn func(int) // injectable for testing; defaults to os.Exit
 }
 
 // GitHubRelease represents a subset of the GitHub release API response.
@@ -56,6 +71,7 @@ func New(cfg Config) *Updater {
 		config: cfg,
 		client: &http.Client{Timeout: 30 * time.Second},
 		stopCh: make(chan struct{}),
+		exitFn: os.Exit,
 	}
 }
 
@@ -73,6 +89,10 @@ func (u *Updater) Stop() {
 
 func (u *Updater) checkLoop() {
 	defer u.wg.Done()
+
+	// On startup, catch any missed daemon restart from a previous update cycle
+	// (e.g. old macOS updater replaced the binary but never called launchctl).
+	u.recoverPendingRestart()
 
 	// Run once immediately on start.
 	u.checkOnce()
@@ -133,6 +153,7 @@ func (u *Updater) checkOnce() {
 	}
 
 	slog.Info("update applied successfully", "version", latest.String())
+	u.touchRestartRecord()
 }
 
 func (u *Updater) fetchLatestRelease() (*GitHubRelease, error) {
@@ -165,7 +186,7 @@ func (u *Updater) fetchLatestRelease() (*GitHubRelease, error) {
 }
 
 func (u *Updater) currentVersion() (Semver, error) {
-	daemonPath := filepath.Join(u.config.InstallDir, "daemon")
+	daemonPath := filepath.Join(u.config.InstallDir, "pilot-daemon")
 	if _, err := os.Stat(daemonPath); err != nil {
 		return Semver{}, fmt.Errorf("daemon binary not found at %s: %w", daemonPath, err)
 	}
@@ -174,9 +195,10 @@ func (u *Updater) currentVersion() (Semver, error) {
 	versionFile := filepath.Join(u.config.InstallDir, ".pilot-version")
 	data, err := os.ReadFile(versionFile)
 	if err != nil {
-		// No version file — this is a pre-updater install.
-		// Try to run daemon -version.
-		return Semver{}, fmt.Errorf("no version file at %s (run daemon -version manually to check): %w", versionFile, err)
+		// No version file means this is a pre-updater install. Treat as 0.0.0
+		// so any published release triggers an update immediately.
+		slog.Warn("no version file, treating current version as 0.0.0", "path", versionFile)
+		return Semver{}, nil
 	}
 	return ParseSemver(strings.TrimSpace(string(data)))
 }
@@ -230,40 +252,51 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
-	// Only replace client binaries — server binaries (registry, beacon,
-	// rendezvous, nameserver) are managed separately.
-	clientBins := map[string]bool{
-		"daemon":   true,
-		"pilotctl": true,
-		"gateway":  true,
-		"updater":  true,
-	}
-
 	entries, err := os.ReadDir(stagingDir)
 	if err != nil {
 		return fmt.Errorf("read staging dir: %w", err)
 	}
 
+	updaterReplaced := false
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		if !clientBins[entry.Name()] {
+		installName, ok := archiveToInstall[entry.Name()]
+		if !ok {
 			slog.Debug("skipping server binary", "name", entry.Name())
 			continue
 		}
 		src := filepath.Join(stagingDir, entry.Name())
-		dst := filepath.Join(u.config.InstallDir, entry.Name())
+		dst := filepath.Join(u.config.InstallDir, installName)
 		if err := replaceBinary(src, dst); err != nil {
-			return fmt.Errorf("replace %s: %w", entry.Name(), err)
+			return fmt.Errorf("replace %s: %w", installName, err)
 		}
-		slog.Info("replaced binary", "name", entry.Name())
+		slog.Info("replaced binary", "name", installName)
+		if installName == "pilot-updater" {
+			updaterReplaced = true
+		}
 	}
 
-	// Write version file for future comparison.
-	versionFile := filepath.Join(u.config.InstallDir, ".pilot-version")
-	if err := os.WriteFile(versionFile, []byte(release.TagName+"\n"), 0644); err != nil {
+	// Write version file before any exit path so the new process doesn't
+	// re-download the same release when it starts. Fsync ensures the write
+	// survives an immediate os.Exit(0).
+	if err := writeFileSync(
+		filepath.Join(u.config.InstallDir, ".pilot-version"),
+		[]byte(release.TagName+"\n"),
+		0644,
+	); err != nil {
 		slog.Warn("failed to write version file", "error", err)
+	}
+
+	// If the updater binary itself was replaced, exit so launchd/systemd
+	// restarts the process with the new binary. On startup the new process
+	// runs recoverPendingRestart() which will handle the daemon restart.
+	// Explicitly clean up tmpDir first since defer won't run after os.Exit.
+	if updaterReplaced {
+		os.RemoveAll(tmpDir)
+		slog.Info("updater binary replaced — exiting for process manager to restart with new binary")
+		u.exitFn(0)
 	}
 
 	// Signal daemon to restart (SIGTERM for graceful shutdown).
@@ -289,7 +322,7 @@ func (u *Updater) downloadFile(url, dst string) error {
 	}
 	defer f.Close()
 
-	_, err = io.Copy(f, resp.Body)
+	_, err = io.Copy(f, io.LimitReader(resp.Body, maxDownloadBytes))
 	return err
 }
 
@@ -387,33 +420,117 @@ func extractTarGz(archivePath, destDir string) error {
 }
 
 func replaceBinary(src, dst string) error {
-	// Remove old binary first (handles "text file busy" on Linux).
-	os.Remove(dst)
-
+	// Write to a temp file beside the destination, then atomically rename.
+	// This avoids "text file busy" on Linux (rename unlinks the old inode
+	// while the running process keeps its file descriptor open) and prevents
+	// a partial write leaving a corrupt binary at the destination path.
+	tmp := dst + ".new"
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	tmpFile, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	if _, err := io.Copy(tmpFile, srcFile); err != nil {
+		tmpFile.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	// Atomic swap — on the same filesystem this is a single syscall.
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
 
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+func (u *Updater) recoverPendingRestart() {
+	// Only attempt recovery if the updater has previously completed at least
+	// one update cycle. On a fresh install there is no history to recover.
+	versionFile := filepath.Join(u.config.InstallDir, ".pilot-version")
+	if _, err := os.Stat(versionFile); err != nil {
+		return
+	}
+
+	daemonBin := filepath.Join(u.config.InstallDir, "pilot-daemon")
+	restartRecord := filepath.Join(u.config.InstallDir, ".daemon-last-restart")
+
+	binStat, err := os.Stat(daemonBin)
+	if err != nil {
+		return
+	}
+	recordStat, err := os.Stat(restartRecord)
+	if err != nil || binStat.ModTime().After(recordStat.ModTime()) {
+		slog.Info("daemon binary updated since last restart, triggering restart")
+		u.signalDaemonRestart()
+		u.touchRestartRecord()
+	}
+}
+
+func (u *Updater) touchRestartRecord() {
+	path := filepath.Join(u.config.InstallDir, ".daemon-last-restart")
+	if err := writeFileSync(path, []byte(time.Now().Format(time.RFC3339)+"\n"), 0644); err != nil {
+		slog.Warn("failed to update restart record", "error", err)
+	}
+}
+
+// writeFileSync writes data to path and fsyncs before returning so the write
+// survives an immediately following os.Exit(0).
+func writeFileSync(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func (u *Updater) signalDaemonRestart() {
-	// Find daemon process and send SIGTERM.
-	// We look for a process whose executable path matches our install dir.
-	daemonPath := filepath.Join(u.config.InstallDir, "daemon")
+	if runtime.GOOS == "darwin" {
+		u.signalDaemonRestartDarwin()
+		return
+	}
+	u.signalDaemonRestartLinux()
+}
+
+func (u *Updater) signalDaemonRestartDarwin() {
+	// On macOS the daemon is managed by launchd. Use launchctl kickstart -k
+	// to kill the running instance and restart it immediately. The label
+	// matches the plist written by install.sh.
+	uid := os.Getuid()
+	label := "network.pilotprotocol.pilot-daemon"
+	target := fmt.Sprintf("gui/%d/%s", uid, label)
+	out, err := exec.Command("launchctl", "kickstart", "-k", target).CombinedOutput()
+	if err != nil {
+		slog.Warn("launchctl kickstart failed — restart daemon manually",
+			"target", target, "err", err, "output", strings.TrimSpace(string(out)))
+		return
+	}
+	slog.Info("daemon restarted via launchctl", "target", target)
+}
+
+func (u *Updater) signalDaemonRestartLinux() {
+	// On Linux, find the daemon process via /proc/<pid>/exe and send SIGTERM.
+	// systemd Restart=on-failure will relaunch it automatically.
+	daemonPath := filepath.Join(u.config.InstallDir, "pilot-daemon")
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		// Not on Linux (macOS, etc.) — try finding by name.
-		slog.Info("daemon restart: send SIGTERM to daemon process manually, or use systemd to auto-restart")
+		slog.Warn("cannot read /proc — restart daemon manually")
 		return
 	}
 
@@ -435,5 +552,5 @@ func (u *Updater) signalDaemonRestart() {
 			}
 		}
 	}
-	slog.Warn("daemon process not found, manual restart may be needed")
+	slog.Warn("daemon process not found — restart daemon manually")
 }

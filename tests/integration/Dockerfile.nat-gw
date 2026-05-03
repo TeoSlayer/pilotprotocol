@@ -1,0 +1,10 @@
+FROM alpine:3.20
+RUN apk add --no-cache iptables ip6tables iproute2 bash
+# Entrypoint is supplied per-compose-service via `command:` — the gateway
+# containers set up masquerading rules keyed to a `NAT_MODE` env var:
+#   - cone       : stateful NAT (Linux default; behaves ~ port-restricted cone)
+#   - symmetric  : force per-destination source-port randomisation
+# Usage (from compose):
+#   command: ["/bin/bash", "/nat-gw.sh"]
+COPY nat-gw.sh /nat-gw.sh
+RUN chmod +x /nat-gw.sh

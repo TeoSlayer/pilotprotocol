@@ -88,6 +88,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="clear-hostname">clear-hostname</h3>
   <pre><code><span class="cmd">pilotctl</span> clear-hostname</code></pre>
+  <p>Clears the user-set hostname. The node keeps its internal hostname <code>pilot-XXXXXXXX</code> (first 4 bytes of <code>SHA-256(public_key)</code> as hex).</p>
   <p>Returns: <code>hostname</code></p>
 
   <h3 id="find">find</h3>

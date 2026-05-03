@@ -5,6 +5,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
+
+// ErrEphemeralExhausted is returned by callers of AllocEphemeralPort when
+// all 16384 ephemeral ports (49152..65535) are simultaneously in use.
+var ErrEphemeralExhausted = errors.New("ephemeral ports exhausted")
 
 // SACKBlock represents a contiguous range of received bytes.
 // Left is the seq of the first byte; Right is the seq of the first byte AFTER the range.
@@ -80,15 +85,55 @@ type PortManager struct {
 type Listener struct {
 	Port     uint16
 	AcceptCh chan *Connection
+	mu       sync.Mutex
+	closed   bool
+}
+
+// TrySend attempts a non-blocking push of conn to AcceptCh.
+// Returns true if the connection was queued, false if the queue was full or
+// the listener has been closed (via Unbind). Safe to call after Unbind —
+// never panics even if AcceptCh is already closed.
+//
+// v1.9.1 fix: the closed flag is checked under mu before the channel send,
+// eliminating the window where Unbind()'s close(AcceptCh) races with
+// handleStreamPacket's send. Without this guard, a concurrent Unbind could
+// close AcceptCh between GetListener's return and the send, causing a
+// "send on closed channel" panic that killed routeLoop.
+func (ln *Listener) TrySend(conn *Connection) bool {
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+	if ln.closed {
+		return false
+	}
+	select {
+	case ln.AcceptCh <- conn:
+		return true
+	default:
+		return false
+	}
+}
+
+// close marks the listener as closed and drains + closes AcceptCh.
+// Called by Unbind under pm.mu to ensure Listener.TrySend sees the closed
+// flag atomically — no send can slip between closed=true and close(AcceptCh).
+func (ln *Listener) close() {
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+	if !ln.closed {
+		ln.closed = true
+		close(ln.AcceptCh)
+	}
 }
 
 // retxEntry is a sent-but-unacknowledged data segment.
 type retxEntry struct {
-	data     []byte
-	seq      uint32
-	sentAt   time.Time
-	attempts int
-	sacked   bool // true if covered by a SACK block (don't retransmit)
+	data       []byte
+	seq        uint32
+	sentAt     time.Time // timer anchor; reset by RFC 6298 §5.3 and on retransmit
+	origSentAt time.Time // original send time for RTT measurement; never reset
+	attempts   int
+	sacked     bool // true if covered by a SACK block (don't retransmit)
+	isFIN      bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
 }
 
 // recvSegment is an out-of-order received segment waiting for reassembly.
@@ -107,6 +152,16 @@ const (
 	MaxOOOBuf      = 128                          // max out-of-order segments buffered per connection
 	AcceptQueueLen = 64                           // listener accept channel capacity
 	SendBufLen     = 256                          // send buffer channel capacity (segments)
+
+	// MaxNagleBuf caps the per-connection NagleBuf at 8 segments
+	// (32 KB). v1.9.1 fix: SendData previously appended without bound,
+	// so an application writing faster than the network could drain
+	// (slow peer, full cwnd, packet loss) leaked memory linearly with
+	// offered-but-undeliverable load. With many connections in that
+	// state, daemon RSS climbed until OOM. SendData now returns
+	// ErrSendBufFull when len(NagleBuf) + len(write) would exceed
+	// this cap; callers must retry with backpressure.
+	MaxNagleBuf = 8 * MaxSegmentSize
 )
 
 // RTO parameters (RFC 6298)
@@ -147,11 +202,12 @@ type Connection struct {
 	CongWin       int                    // congestion window in bytes
 	SSThresh      int                    // slow-start threshold
 	InRecovery    bool                   // true during timeout loss recovery
+	FastRecovery  bool                   // true when recovery was entered via fast retransmit (not timeout)
 	RecoveryPoint uint32                 // highest seq sent when entering recovery
 	RetxStop      chan struct{}          // closed to stop retx goroutine
 	RetxSend      func(*protocol.Packet) // callback to send retransmitted packets
 	WindowCh      chan struct{}          // signaled when window opens up
-	PeerRecvWin   int                    // peer's advertised receive window (0 = unknown/unlimited)
+	PeerRecvWin   int                    // peer's advertised receive window (-1 = not yet received, 0 = explicit zero-window)
 	// Nagle algorithm (write coalescing)
 	NagleBuf []byte        // pending small write data
 	NagleMu  sync.Mutex    // protects NagleBuf
@@ -261,7 +317,7 @@ func (pm *PortManager) Unbind(port uint16) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if ln, ok := pm.listeners[port]; ok {
-		close(ln.AcceptCh)
+		ln.close() // sets closed=true + close(AcceptCh) under ln.mu
 		delete(pm.listeners, port)
 	}
 }
@@ -304,23 +360,32 @@ func (pm *PortManager) TotalActiveConnections() int {
 	return count
 }
 
+// AllocEphemeralPort returns an unused ephemeral port in [PortEphemeralMin,
+// PortEphemeralMax], or 0 when all 16384 ports are simultaneously in use.
+// Callers must treat 0 as ErrEphemeralExhausted.
+//
+// v1.9.1 fix: the previous implementation incremented nextEphPort as uint16
+// and checked `> PortEphemeralMax` afterward. When nextEphPort was 65535,
+// uint16++ silently wrapped to 0 before the check fired, so the loop would
+// escape the ephemeral range and return port 0 via `portInUse(0) == false`.
+// The fix uses a bounded int counter and checks >= PortEphemeralMax BEFORE
+// the increment so the uint16 field never reaches 0 via overflow.
 func (pm *PortManager) AllocEphemeralPort() uint16 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	start := pm.nextEphPort
-	for {
+	total := int(protocol.PortEphemeralMax-protocol.PortEphemeralMin) + 1
+	for i := 0; i < total; i++ {
 		port := pm.nextEphPort
-		pm.nextEphPort++
-		if pm.nextEphPort > protocol.PortEphemeralMax {
+		if pm.nextEphPort >= protocol.PortEphemeralMax {
 			pm.nextEphPort = protocol.PortEphemeralMin
+		} else {
+			pm.nextEphPort++
 		}
 		if !pm.portInUse(port) {
 			return port
 		}
-		if pm.nextEphPort == start {
-			return port // full wrap, return anyway (16384 ports)
-		}
 	}
+	return 0 // exhausted; callers must check and return ErrEphemeralExhausted
 }
 
 // portInUse returns true if any active connection is using the given local port.
@@ -356,6 +421,7 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		SSThresh:     MaxCongWin / 2,
 		WindowCh:     make(chan struct{}, 1),
 		NagleCh:      make(chan struct{}, 1),
+		PeerRecvWin:  -1, // sentinel: no window advertisement received yet
 	}
 	pm.nextConnID++
 	if pm.nextConnID == 0 {
@@ -374,12 +440,24 @@ func (pm *PortManager) GetConnection(id uint32) *Connection {
 func (pm *PortManager) FindConnection(localPort uint16, remoteAddr protocol.Addr, remotePort uint16) *Connection {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
+	// v1.9.1: prefer active (non-TIME_WAIT, non-CLOSED) connections when
+	// multiple share the same 4-tuple (possible after port reuse on a
+	// TIME_WAIT entry). Without this preference, Go's randomised map
+	// iteration returned stale TIME_WAIT entries ~50% of the time, causing
+	// data packets to be silently discarded by the "established" state guard.
+	var fallback *Connection
 	for _, c := range pm.connections {
 		if c.LocalPort == localPort && c.RemoteAddr == remoteAddr && c.RemotePort == remotePort {
-			return c
+			c.Mu.Lock()
+			st := c.State
+			c.Mu.Unlock()
+			if st != StateTimeWait && st != StateClosed {
+				return c // active connection — always prefer over stale entries
+			}
+			fallback = c // stale; return only when no active match exists
 		}
 	}
-	return nil
+	return fallback
 }
 
 // ConnectionInfo describes an active connection for diagnostics.
@@ -527,11 +605,15 @@ func (pm *PortManager) RemoveConnection(id uint32) {
 	}
 }
 
-// BytesInFlight returns total unacknowledged bytes.
+// BytesInFlight returns total unacknowledged bytes, excluding SACKed segments.
+// SACKed segments remain in c.Unacked until a cumulative ACK removes them, but
+// they are already at the peer so they must not consume congestion-window space.
 func (c *Connection) BytesInFlight() int {
 	total := 0
 	for _, e := range c.Unacked {
-		total += len(e.data)
+		if !e.sacked {
+			total += len(e.data)
+		}
 	}
 	return total
 }
@@ -544,7 +626,7 @@ func (c *Connection) EffectiveWindow() int {
 	if win <= 0 {
 		win = InitialCongWin
 	}
-	if c.PeerRecvWin > 0 && c.PeerRecvWin < win {
+	if c.PeerRecvWin >= 0 && c.PeerRecvWin < win {
 		win = c.PeerRecvWin
 	}
 	return win
@@ -562,11 +644,13 @@ func (c *Connection) TrackSend(seq uint32, data []byte) {
 	defer c.RetxMu.Unlock()
 	saved := make([]byte, len(data))
 	copy(saved, data)
+	now := time.Now()
 	c.Unacked = append(c.Unacked, &retxEntry{
-		data:     saved,
-		seq:      seq,
-		sentAt:   time.Now(),
-		attempts: 1,
+		data:       saved,
+		seq:        seq,
+		sentAt:     now,
+		origSentAt: now,
+		attempts:   1,
 	})
 }
 
@@ -583,12 +667,13 @@ func (c *Connection) TrackSend(seq uint32, data []byte) {
 // then needs RetxMu, while we hold RetxMu and need Mu), we accumulate
 // stats deltas locally and apply them under Mu AFTER RetxMu is released.
 func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
-	// Capture RecvAck under Mu BEFORE taking RetxMu so fastRetransmit can
-	// run lock-order-safe. RecvAck only advances forward (or stays equal),
-	// so a slightly stale read is safe — a fresher one would cause us to
-	// retransmit data the peer would discard, harmless.
+	// Capture RecvAck and SendSeq under Mu BEFORE taking RetxMu.
+	// RecvAck: needed by fastRetransmit (lock-order-safe read).
+	// SendSeq: needed to set RecoveryPoint when fast retransmit enters recovery.
+	// Both advance monotonically; a slightly stale read is harmless.
 	c.Mu.Lock()
 	recvAck := c.RecvAck
+	sendSeq := c.SendSeq
 	c.Mu.Unlock()
 
 	var dupAcks, fastRetx uint64
@@ -613,74 +698,293 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		if !pureACK {
 			return // data packets don't count as dup ACKs
 		}
-		// Duplicate ACK (pure ACK only)
+		// Dup-ACK counting is only meaningful when data is genuinely in flight
+		// (RFC 5681 §3.2).  Use BytesInFlight() rather than len(Unacked) so
+		// that all-SACKed Unacked entries (peer has them, no real loss) do not
+		// count as "in flight" and trigger spurious fast retransmit with the
+		// associated SSThresh halving.
+		if c.BytesInFlight() == 0 {
+			return
+		}
 		c.DupAckCount++
 		dupAcks++
-		if c.DupAckCount == 3 {
-			// Fast retransmit (RFC 5681)
-			c.fastRetransmit(recvAck)
-			fastRetx++
-			// Multiplicative decrease
-			c.SSThresh = c.CongWin / 2
-			if c.SSThresh < MaxSegmentSize {
-				c.SSThresh = MaxSegmentSize
-			}
-			c.CongWin = c.SSThresh + 3*MaxSegmentSize
-		} else if c.DupAckCount > 3 {
-			// Inflate window for each additional dup ACK
+		// RFC 5681 §3.2 step 5: inflate cwnd for dup ACKs at count 1-2 while already
+		// in fast recovery.  After a partial ACK resets DupAckCount to 0, subsequent
+		// dup ACKs at count 1 and 2 do not reach the DupAckCount==3 (fast-retransmit
+		// entry) or DupAckCount>3 (step-5 inflation) branches.  The 3-dup threshold
+		// is only the ENTRY condition; every dup ACK "while in fast retransmit"
+		// (InRecovery=true, FastRecovery=true) must inflate cwnd by SMSS regardless
+		// of the current count.
+		if c.DupAckCount < 3 && c.InRecovery && c.FastRecovery && len(c.Unacked) > 0 {
 			c.CongWin += MaxSegmentSize
 			if c.CongWin > MaxCongWin {
 				c.CongWin = MaxCongWin
+			}
+			if c.WindowCh != nil && c.WindowAvailable() {
+				select {
+				case c.WindowCh <- struct{}{}:
+				default:
+				}
+			}
+			return
+		}
+		if c.DupAckCount == 3 && len(c.Unacked) > 0 {
+			// Fast retransmit (RFC 5681). Only when there is data in flight:
+			// keepalive probes and other spurious dup-ACKs with an empty Unacked
+			// must not trigger congestion reduction (FlightSize == 0).
+			// fastRetransmit returns true only when a packet was actually sent.
+			// When it returns false (e.g. MaxRetxAttempts guard), skip all
+			// congestion-state adjustments — no recovery was entered.
+			if c.fastRetransmit(recvAck) {
+				fastRetx++
+				// RFC 6582 §3: enter a new recovery episode only when the highest
+				// sequence number transmitted is above the current recover variable
+				// (our RecoveryPoint).  This covers two cases:
+				//   • Not in recovery at all (fresh new episode).
+				//   • Already in timeout recovery AND new data was sent beyond the
+				//     prior recovery window — a second, distinct loss event that
+				//     requires its own multiplicative decrease.
+				// Same-episode dup ACKs (InRecovery && sendSeq <= RecoveryPoint)
+				// are excluded: they must not re-halve SSThresh or set FastRecovery.
+				newEpisode := !c.InRecovery || seqAfter(sendSeq, c.RecoveryPoint)
+				if newEpisode {
+					// RFC 5681 §3.2 step 2: ssthresh = max(FlightSize/2, 2*SMSS).
+					// FlightSize = bytes sent but not yet cumulatively acknowledged =
+					// SND.NXT − SND.UNA = sum of ALL Unacked entry lengths (including
+					// SACK'd entries that have not been covered by a cumulative ACK).
+					var flightSize int
+					for _, e := range c.Unacked {
+						flightSize += len(e.data)
+					}
+					c.SSThresh = flightSize / 2
+					if c.SSThresh < 2*MaxSegmentSize {
+						c.SSThresh = 2 * MaxSegmentSize
+					}
+					c.InRecovery = true
+					c.RecoveryPoint = sendSeq
+					// Track that recovery was entered via fast retransmit (not timeout),
+					// so that subsequent partial ACKs within this episode trigger RFC 6582
+					// §3 step 6 retransmit + deflation even when DupAckCount was reset
+					// to 0 by a prior partial ACK.
+					c.FastRecovery = true
+					c.CongWin = c.SSThresh + 3*MaxSegmentSize
+					// For small CongWin (< 6*SMSS), SSThresh+3*MSS > old CongWin, so
+					// the window may have opened.  Signal the sender so it doesn't stall.
+					if c.WindowCh != nil && c.WindowAvailable() {
+						select {
+						case c.WindowCh <- struct{}{}:
+						default:
+						}
+					}
+				} else if c.InRecovery && c.FastRecovery {
+					// RFC 5681 §3.2 step 5: same-episode 3rd dup ACK after a partial
+					// ACK reset DupAckCount to 0.  fastRetransmit (above) is the RFC
+					// 6582 §3 step 6a retransmit; the step-5 per-dup cwnd inflation
+					// must also fire — it is not gated on newEpisode.
+					c.CongWin += MaxSegmentSize
+					if c.CongWin > MaxCongWin {
+						c.CongWin = MaxCongWin
+					}
+					if c.WindowCh != nil && c.WindowAvailable() {
+						select {
+						case c.WindowCh <- struct{}{}:
+						default:
+						}
+					}
+				}
+			}
+		} else if c.DupAckCount > 3 && c.InRecovery && len(c.Unacked) > 0 {
+			// RFC 5681 §3.2 step 5: inflate cwnd per additional dup ACK only
+			// when in fast recovery (FastRecovery=true).  Timeout-based recovery
+			// clears FastRecovery; those same-episode dup ACKs must not inflate.
+			// After iter-79, RecoveryPoint is always updated to sendSeq when
+			// entering a new episode, so seqAfter(sendSeq, RecoveryPoint) is
+			// always false here — FastRecovery is the correct discriminator.
+			if !c.FastRecovery {
+				return
+			}
+			// Inflate window for each additional dup ACK (only in recovery)
+			c.CongWin += MaxSegmentSize
+			if c.CongWin > MaxCongWin {
+				c.CongWin = MaxCongWin
+			}
+			// RFC 5681 §3.2 step 5: the inflation may open the window for the
+			// sender. Signal WindowCh so a sendSegment blocked on a full cwnd
+			// can wake up immediately rather than waiting for the probe timer
+			// (ZeroWinProbeInitial = 500 ms).
+			if c.WindowCh != nil && c.WindowAvailable() {
+				select {
+				case c.WindowCh <- struct{}{}:
+				default:
+				}
 			}
 		}
 		return
 	}
 
-	// New ACK — advance
-	bytesAcked := int(ack - c.LastAck)
+	// New ACK — advance.
+	// Count only non-sacked, non-FIN bytes for AIMD (RFC 3465 §2: "newly
+	// acknowledged bytes").  SACKed segments are already at the peer and
+	// excluded from BytesInFlight(); counting them again here would inflate
+	// AIMD growth by ~1 MSS per sacked entry covered by the cumulative ACK.
+	// FIN entries use a 1-byte internal sentinel (isFIN=true, data=[]byte{0})
+	// that is not user data; counting it causes the CA "< 1 → 1" minimum to
+	// fire and grows CongWin by 1 spurious byte per connection close.
+	bytesAcked := 0
+	for _, e := range c.Unacked {
+		if seqAfterOrEqual(ack, e.seq+uint32(len(e.data))) && !e.sacked && !e.isFIN {
+			bytesAcked += len(e.data)
+		}
+	}
 	c.LastAck = ack
 	c.DupAckCount = 0
 	c.LastRetxTime = time.Time{} // reset retransmit guard so ACK-driven recovery can proceed
 
-	// Exit timeout recovery when all loss-window data is acked
+	// Capture both flags before the recovery-exit check below may clear them.
+	// wasInRecovery: needed by the deflation guard.
+	// wasFastRecovery: needed so subsequent partial ACKs (with DupAckCount < 3
+	// after the first partial ACK reset it to 0) still trigger RFC 6582 §3
+	// step 6 retransmit + deflation unconditionally while in fast recovery.
+	wasInRecovery := c.InRecovery
+	wasFastRecovery := c.FastRecovery
+
+	// Exit recovery when all loss-window data is acked.
 	if c.InRecovery && seqAfterOrEqual(ack, c.RecoveryPoint) {
 		c.InRecovery = false
+		c.FastRecovery = false
 	}
 
-	// Remove acked entries and update RTT from the first one
+	// Remove acked entries and update RTT from the first once-sent segment.
+	// RFC 6298 §2 requires at most one RTT sample per ACK event; taking a
+	// sample per segment biases SRTT toward short-RTT late-in-batch entries
+	// and inflates RTTVAR with within-batch variance that is not path-level.
 	var remaining []*retxEntry
+	rttUpdated := false
 	for _, e := range c.Unacked {
 		endSeq := e.seq + uint32(len(e.data))
 		if seqAfterOrEqual(ack, endSeq) {
-			// This segment is fully acked — update RTT if first attempt and not SACKed
-			if e.attempts == 1 && !e.sacked {
-				rtt := time.Since(e.sentAt)
+			// This segment is fully acked — update RTT from the first one only.
+			// Karn's algorithm: skip retransmitted segments (attempts > 1).
+			// SACK state is not excluded: a once-sent segment is a valid RTT
+			// sample per RFC 6298 regardless of whether it was previously
+			// reported via SACK (the cumulative ACK time is a conservative
+			// upper bound that the EWMA smooths out).
+			if e.attempts == 1 && !rttUpdated {
+				// Use origSentAt (original send time, never overwritten by
+				// RFC 6298 §5.3 timer restarts) so that the RTT sample
+				// reflects actual path latency, not the inter-ACK interval.
+				// Fall back to sentAt for test fixtures that pre-date this field.
+				rttAnchor := e.origSentAt
+				if rttAnchor.IsZero() {
+					rttAnchor = e.sentAt
+				}
+				rtt := time.Since(rttAnchor)
 				c.updateRTT(rtt)
+				rttUpdated = true
 			}
 		} else {
-			// Reset sacked flag for segments that are still unacked
-			// (SACK state is refreshed with each incoming ACK)
-			e.sacked = false
+			// Retain sacked state for remaining entries (RFC 2018 §5):
+			// the peer has confirmed receiving SACKed segments and a
+			// partial cumulative ACK above them does not invalidate that.
 			remaining = append(remaining, e)
 		}
 	}
 	c.Unacked = remaining
 
-	// Congestion window growth (Appropriate Byte Counting, RFC 3465)
-	// Grow based on bytes ACKed, not number of ACKs — avoids delayed ACK penalty.
-	if c.CongWin < c.SSThresh {
-		// Slow start: grow by acked bytes (exponential)
-		c.CongWin += bytesAcked
-	} else {
-		// Congestion avoidance: grow by ~MSS per RTT (AIMD)
-		increment := MaxSegmentSize * bytesAcked / c.CongWin
-		if increment < 1 {
-			increment = 1
+	// RFC 6298 §5.3: restart retransmit timer for ALL remaining outstanding
+	// segments when SND.UNA advances.  RFC 6298 uses a single timer covering
+	// all outstanding data; restarting it means no segment should time out
+	// before now+RTO.  In the per-entry model, sentAt is each entry's timer
+	// anchor; resetting it for every non-sacked remaining entry prevents
+	// spurious retransmits when the path just proved active.
+	ackNow := time.Now()
+	for _, e := range c.Unacked {
+		if !e.sacked {
+			e.sentAt = ackNow
 		}
-		c.CongWin += increment
 	}
-	if c.CongWin > MaxCongWin {
-		c.CongWin = MaxCongWin
+
+	// Congestion-window deflation and fast-retransmit on ACKs in/after fast
+	// recovery (RFC 6582 §3).
+	//
+	// Two guards combine:
+	//  1. wasInRecovery: prevents deflation when recovery was never entered
+	//     (no-op fastRetransmit case after iter-57/58).
+	//  2. wasFastRecovery: ensures step 6 fires for EVERY partial ACK during
+	//     fast recovery (not only the first one), while excluding timeout-based
+	//     recovery where FastRecovery is never set.  After the first partial ACK
+	//     resets DupAckCount=0, subsequent partial ACKs arrive when
+	//     DupAckCount < 3; wasFastRecovery (captured before recovery-exit)
+	//     ensures step 6 repeats per RFC 6582 §3 "As partial ACKs come in."
+	//     oldDupAckCount >= 3 is intentionally NOT used here: leftover
+	//     DupAckCount from a timeout-recovery episode (same-episode dup ACKs)
+	//     must not trigger step-6 deflation — only explicitly fast-retransmit
+	//     entered recovery (FastRecovery=true) should deflate cwnd.
+	if wasFastRecovery && wasInRecovery {
+		if !c.InRecovery {
+			// Full ACK exit (RFC 6582 §3 case 2): ack covers RecoveryPoint —
+			// deflate to ssthresh so we re-enter CA from a safe baseline.
+			c.CongWin = c.SSThresh
+		} else {
+			// Partial ACK (RFC 6582 §3 step 6a+6b): ack below RecoveryPoint —
+			// step 6b: partial-window deflation keeps the fast-recovery window
+			// open. cwnd -= bytesAcked; add back SMSS when bytesAcked >= SMSS
+			// so that a 1-SMSS partial ACK is neutral, and cwnd never falls
+			// below ssthresh.
+			c.CongWin -= bytesAcked
+			if bytesAcked >= MaxSegmentSize {
+				c.CongWin += MaxSegmentSize
+			}
+			if c.CongWin < c.SSThresh {
+				c.CongWin = c.SSThresh
+			}
+			// step 6a: retransmit the first unacknowledged segment immediately.
+			// Without this, the next lost segment is not retransmitted until
+			// the 100ms RTO tick — up to one full RTO of unnecessary delay.
+			c.fastRetransmit(recvAck)
+		}
+	}
+
+	// Congestion window growth (Appropriate Byte Counting, RFC 3465).
+	// Grow based on bytes ACKed, not number of ACKs — avoids delayed ACK penalty.
+	// Skip entirely when bytesAcked==0 (all covered segments were already SACKed):
+	// no new data was delivered, so no AIMD reward is due, and the CA "< 1 → 1"
+	// minimum must not fire for a zero-delivery ACK.
+	// Skip AIMD during fast-recovery partial ACKs (RFC 5681 §3.2 step 7): step 7
+	// specifies only partial-window deflation; running AIMD on top double-counts the
+	// ACK and inflates cwnd beyond the recovery window.  For full recovery exits
+	// (wasFastRecovery && !c.InRecovery) AIMD is correct — the sender re-enters CA
+	// from SSThresh.  Timeout-recovery partial ACKs (wasFastRecovery==false) are not
+	// subject to step 7 deflation at all, so AIMD still applies for those.
+	if bytesAcked > 0 && !(wasFastRecovery && wasInRecovery && c.InRecovery) {
+		if c.CongWin < c.SSThresh {
+			// Slow start: grow by acked bytes, capped at 2*SMSS per ACK
+			// (RFC 3465 §2.1: ABC limit prevents over-reward from delayed ACKs
+			// that cover 3+ segments — each ACK may add at most 2*SMSS).
+			inc := bytesAcked
+			if inc > 2*MaxSegmentSize {
+				inc = 2 * MaxSegmentSize
+			}
+			c.CongWin += inc
+		} else {
+			// Congestion avoidance: grow by ~MSS per RTT (AIMD, RFC 3465 §2.2).
+			// Cap the effective bytes at SMSS: when bytes_acked > SMSS (e.g. a
+			// delayed ACK covering multiple segments), use SMSS*SMSS/cwnd, not
+			// SMSS*bytes_acked/cwnd — the latter grows faster than one full
+			// segment per RTT which is the RFC-defined CA rate.
+			eff := bytesAcked
+			if eff > MaxSegmentSize {
+				eff = MaxSegmentSize
+			}
+			increment := MaxSegmentSize * eff / c.CongWin
+			if increment < 1 {
+				increment = 1
+			}
+			c.CongWin += increment
+		}
+		if c.CongWin > MaxCongWin {
+			c.CongWin = MaxCongWin
+		}
 	}
 
 	// Signal that window opened up
@@ -691,8 +995,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		}
 	}
 
-	// Signal Nagle flush if all data acknowledged
-	if len(c.Unacked) == 0 && c.NagleCh != nil {
+	// Signal Nagle flush when no data is genuinely in flight.
+	// Use BytesInFlight()==0 rather than len(c.Unacked)==0: after iter-49,
+	// sacked entries remain in Unacked across partial ACKs, so len>0 even
+	// when the peer already has every outstanding byte.
+	if c.BytesInFlight() == 0 && c.NagleCh != nil {
 		select {
 		case c.NagleCh <- struct{}{}:
 		default:
@@ -705,9 +1012,13 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 // acquiring RetxMu, so we don't have to take Mu here (which would re-introduce
 // the Mu↔RetxMu inversion that the rest of ProcessAck went out of its way
 // to avoid).
-func (c *Connection) fastRetransmit(recvAck uint32) {
+// fastRetransmit returns true if a packet was sent, false if it was a no-op
+// (empty/all-sacked Unacked, nil RetxSend, or MaxRetxAttempts guard).
+// The caller gates all congestion-state adjustments on the return value so
+// that a no-op does not produce phantom fast-recovery state.
+func (c *Connection) fastRetransmit(recvAck uint32) bool {
 	if len(c.Unacked) == 0 || c.RetxSend == nil {
-		return
+		return false
 	}
 
 	// Find the first unacked segment that hasn't been SACKed
@@ -715,11 +1026,25 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 		if e.sacked {
 			continue
 		}
+		// Mirror retransmitUnacked's guard: don't send if the retry budget is
+		// exhausted.  retransmitUnacked will fire RST on the next RTO tick.
+		if e.attempts >= MaxRetxAttempts {
+			return false
+		}
 		e.attempts++
 		e.sentAt = time.Now()
+		// FIN entries must be resent as FlagFIN with no payload; data entries
+		// use FlagACK with their payload (mirrors retransmitUnacked's isFIN check).
+		flags := protocol.FlagACK
+		var payload []byte
+		if e.isFIN {
+			flags = protocol.FlagFIN
+		} else {
+			payload = e.data
+		}
 		pkt := &protocol.Packet{
 			Version:  protocol.Version,
-			Flags:    protocol.FlagACK,
+			Flags:    flags,
 			Protocol: protocol.ProtoStream,
 			Src:      c.LocalAddr,
 			Dst:      c.RemoteAddr,
@@ -728,11 +1053,12 @@ func (c *Connection) fastRetransmit(recvAck uint32) {
 			Seq:      e.seq,
 			Ack:      recvAck,
 			Window:   c.RecvWindow(),
-			Payload:  e.data,
+			Payload:  payload,
 		}
 		c.RetxSend(pkt)
-		return
+		return true
 	}
+	return false
 }
 
 func (c *Connection) updateRTT(rtt time.Duration) {
@@ -941,9 +1267,9 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 	for i := 1; i < len(sorted); i++ {
 		seg := sorted[i]
 		segEnd := seg.seq + uint32(len(seg.data))
-		if seg.seq <= cur.Right {
+		if seqAfterOrEqual(cur.Right, seg.seq) {
 			// Contiguous or overlapping — extend
-			if segEnd > cur.Right {
+			if seqAfter(segEnd, cur.Right) {
 				cur.Right = segEnd
 			}
 		} else {
@@ -954,9 +1280,12 @@ func (c *Connection) SACKBlocks() []SACKBlock {
 	}
 	blocks = append(blocks, cur)
 
-	// Limit to 4 blocks (most recent/important first is fine since they're sorted by seq)
+	// Limit to 4 blocks, keeping the 4 highest-seq blocks (RFC 2018 §4 prefers
+	// most-recently-received first; highest seq approximates most recently added
+	// in a seq-sorted OOO buffer).  blocks[:4] would keep the lowest 4 and silently
+	// drop the highest block, causing the sender to retransmit it every RTT.
 	if len(blocks) > 4 {
-		blocks = blocks[:4]
+		blocks = blocks[len(blocks)-4:]
 	}
 	return blocks
 }
@@ -983,10 +1312,30 @@ func (c *Connection) ProcessSACK(blocks []SACKBlock) {
 	for _, e := range c.Unacked {
 		segEnd := e.seq + uint32(len(e.data))
 		for _, b := range blocks {
-			if e.seq >= b.Left && segEnd <= b.Right {
+			if seqAfterOrEqual(e.seq, b.Left) && seqAfterOrEqual(b.Right, segEnd) {
 				e.sacked = true
 				break
 			}
+		}
+	}
+
+	// Excluding SACKed bytes from BytesInFlight may have opened the send window.
+	// Signal WindowCh so a sender blocked in sendSegment wakes immediately.
+	if c.WindowCh != nil && c.WindowAvailable() {
+		select {
+		case c.WindowCh <- struct{}{}:
+		default:
+		}
+	}
+
+	// When all outstanding bytes are now sacked, BytesInFlight()==0 means the
+	// peer has received everything in flight.  Signal NagleCh so a nagleFlush
+	// goroutine waiting for "all data ACKed" wakes immediately instead of
+	// stalling for NagleTimeout (40 ms) until the cumulative ACK arrives.
+	if c.NagleCh != nil && c.BytesInFlight() == 0 {
+		select {
+		case c.NagleCh <- struct{}{}:
+		default:
 		}
 	}
 }

@@ -403,6 +403,11 @@ func TestProcessAckBehindLastAckIsNoop(t *testing.T) {
 func TestProcessAckDupAckOnlyCountsOnPureACK(t *testing.T) {
 	c := newAckTestConn(t)
 	c.LastAck = 1000
+	// Dup-ACK counting requires data in flight (RFC 5681 §3.2); add an unacked
+	// segment so the dup-ACK path is active.
+	c.Unacked = []*retxEntry{
+		{seq: 1000, data: make([]byte, 100), attempts: 1, sentAt: time.Now()},
+	}
 
 	// pureACK=false — should NOT increment dup count
 	c.ProcessAck(1000, false)
@@ -441,12 +446,15 @@ func TestProcessAckThirdDupACKTriggersFastRetransmit(t *testing.T) {
 	if sent[0].Seq != 1000 {
 		t.Fatalf("fast retx Seq = %d, want 1000", sent[0].Seq)
 	}
-	// Multiplicative decrease: SSThresh halved to 20000, CongWin = SSThresh + 3*MSS
-	if c.SSThresh != 20000 {
-		t.Fatalf("SSThresh = %d, want 20000 (CongWin/2)", c.SSThresh)
+	// Multiplicative decrease: SSThresh = max(FlightSize/2, 2*SMSS).
+	// FlightSize = len("one") = 3; FlightSize/2 = 1 < 2*MSS = 8192 → floor applies.
+	// CongWin = SSThresh + 3*MSS (fast-recovery inflation).
+	wantSSThresh := 2 * MaxSegmentSize // max(3/2=1, 2*MSS=8192)
+	if c.SSThresh != wantSSThresh {
+		t.Fatalf("SSThresh = %d, want %d (max(FlightSize/2, 2*SMSS))", c.SSThresh, wantSSThresh)
 	}
-	if c.CongWin != 20000+3*MaxSegmentSize {
-		t.Fatalf("CongWin = %d, want %d", c.CongWin, 20000+3*MaxSegmentSize)
+	if c.CongWin != wantSSThresh+3*MaxSegmentSize {
+		t.Fatalf("CongWin = %d, want %d", c.CongWin, wantSSThresh+3*MaxSegmentSize)
 	}
 	if c.Stats.FastRetx != 1 {
 		t.Fatalf("Stats.FastRetx = %d, want 1", c.Stats.FastRetx)

@@ -143,16 +143,22 @@ fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Try downloading a release first
-# PILOT_RC=1 opts into release candidates (pre-releases)
+ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
+
+# Resolve the latest release tag.
+# - Default path uses the unauthenticated /releases/latest/download/ redirect,
+#   which is not subject to the 60/hr api.github.com rate limit.
+# - PILOT_RC=1 still hits the API because pre-releases need the listing endpoint.
 if [ "${PILOT_RC:-}" = "1" ]; then
     TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
 else
-    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+    TAG=$(curl -fsSI "https://github.com/${REPO}/releases/latest/download/${ARCHIVE}" 2>/dev/null \
+        | grep -i '^location:' \
+        | sed -n 's|.*/releases/download/\([^/]*\)/.*|\1|p' \
+        | tr -d '\r' | head -1)
 fi
 
 if [ -n "$TAG" ]; then
-    ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
     URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
     CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
     echo "Downloading ${TAG}..."
@@ -196,14 +202,19 @@ if [ -z "$TAG" ]; then
     fi
     echo "Cloning..."
     git clone --depth 1 "https://github.com/${REPO}.git" "$TMPDIR/src" >/dev/null 2>&1
-    echo "Building daemon..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" "$TMPDIR/src/cmd/daemon"
-    echo "Building pilotctl..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" "$TMPDIR/src/cmd/pilotctl"
-    echo "Building gateway..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" "$TMPDIR/src/cmd/gateway"
-    echo "Building updater..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" "$TMPDIR/src/cmd/updater"
+    # Build from inside the cloned tree with GOWORK=off so a parent go.work
+    # in the user's $PWD does not reject the cloned module.
+    (
+        cd "$TMPDIR/src"
+        echo "Building daemon..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" ./cmd/daemon
+        echo "Building pilotctl..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" ./cmd/pilotctl
+        echo "Building gateway..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" ./cmd/gateway
+        echo "Building updater..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" ./cmd/updater
+    )
 fi
 
 # --- Install binaries to ~/.pilot/bin ---
@@ -309,7 +320,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -identity ${PILOT_DIR}/identity.json \\
   -email ${EMAIL} \\
   -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
@@ -487,4 +498,31 @@ echo "Bridge IP traffic (requires root for ports < 1024):"
 echo ""
 echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
 echo "  curl http://10.4.0.1:3000/status"
+echo ""
+echo "Agent skill auto-injection:"
+echo ""
+echo "  The daemon scans every 15 minutes and injects the Pilot Protocol"
+echo "  skill into installed agent tools. Triggering a first pass right now"
+echo "  so your agents know about Pilot before the daemon is even started:"
+echo ""
+if "${BIN_DIR}/pilotctl" skills check 2>&1 | sed 's/^/    /'; then
+    :
+else
+    echo "    (skills check failed — non-fatal; will re-attempt on daemon start)"
+fi
+echo ""
+echo "  Per-tool target paths:"
+echo "    Claude Code   ~/.claude/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.claude/CLAUDE.md"
+echo "    OpenClaw      ~/.openclaw/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.openclaw/workspace/AGENTS.md"
+echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.picoclaw/workspace/AGENT.md"
+echo "    OpenHands     ~/.openhands/microagents/pilot-protocol.md (self-heartbeat)"
+echo "    Hermes        ~/.hermes/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.hermes/SOUL.md"
+echo ""
+echo "  Inspect / force a refresh anytime:"
+echo "    pilotctl skills           # status of every install path"
+echo "    pilotctl skills check     # run one reconcile pass right now"
 echo ""

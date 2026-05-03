@@ -439,6 +439,9 @@ Diagnostic commands:
 
 Agent tool discovery:
   pilotctl context
+  pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
+  pilotctl skills paths               print only the install paths (shell-friendly)
+  pilotctl skills check               run one reconcile pass right now
 
 Gateway (requires root for ports <1024):
   pilotctl gateway start [--subnet <cidr>] [--ports <list>] [<pilot-addr>...]
@@ -478,14 +481,31 @@ func main() {
 
 	cmd := args[0]
 	cmdArgs := args[1:]
+	extrasOnly := false
 
+dispatch:
 	switch cmd {
+
+	case "extras":
+		if len(cmdArgs) == 0 {
+			cmdExtrasHelp()
+			return
+		}
+		extrasOnly = true
+		cmd = cmdArgs[0]
+		cmdArgs = cmdArgs[1:]
+		goto dispatch
+
 	case "version":
 		fmt.Println(version)
 		return
 
 	case "updates":
 		cmdUpdates(cmdArgs)
+		return
+
+	case "skills":
+		cmdSkills(cmdArgs)
 		return
 
 	// Bootstrap
@@ -516,11 +536,16 @@ func main() {
 				"unknown daemon subcommand: %s", cmdArgs[0])
 		}
 
-	// Gateway
+	// Gateway (extras-only — use 'pilotctl extras gateway' or pilot-gateway binary)
 	case "gateway":
+		if !extrasOnly {
+			fatalHint("invalid_argument",
+				"use 'pilotctl extras gateway <subcommand>' or the pilot-gateway binary",
+				"gateway commands are not in the core CLI")
+		}
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: pilotctl gateway start | stop | map | unmap | list",
+				"available: start, stop, map, unmap, list",
 				"missing subcommand")
 		}
 		switch cmdArgs[0] {
@@ -562,12 +587,24 @@ func main() {
 	case "clear-hostname":
 		cmdClearHostname()
 	case "set-tags":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras set-tags'", "set-tags is not in the core CLI")
+		}
 		cmdSetTags(cmdArgs)
 	case "clear-tags":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras clear-tags'", "clear-tags is not in the core CLI")
+		}
 		cmdClearTags()
 	case "enable-tasks":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras enable-tasks'", "enable-tasks is not in the core CLI")
+		}
 		cmdEnableTasks()
 	case "disable-tasks":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras disable-tasks'", "disable-tasks is not in the core CLI")
+		}
 		cmdDisableTasks()
 	case "set-webhook":
 		cmdSetWebhook(cmdArgs)
@@ -588,9 +625,14 @@ func main() {
 	case "send-message":
 		cmdSendMessage(cmdArgs)
 	case "task":
+		if !extrasOnly {
+			fatalHint("invalid_argument",
+				"use 'pilotctl extras task <subcommand>'",
+				"task commands are not in the core CLI")
+		}
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: pilotctl task submit | accept | decline | execute | send-results | result | list | queue",
+				"available: submit, accept, decline, execute, send-results, result, list, queue",
 				"missing subcommand")
 		}
 		switch cmdArgs[0] {
@@ -633,6 +675,8 @@ func main() {
 		cmdPending()
 	case "trust":
 		cmdTrust()
+	case "trusted":
+		cmdTrusted(cmdArgs)
 
 	// Networks
 	case "network":
@@ -878,8 +922,12 @@ func cmdConfig(args []string) {
 
 func cmdContext() {
 	ctx := map[string]interface{}{
-		"version": "1.2",
+		"version": "1.3",
+		"note":    "Core commands cover everything an agent needs. Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-task' and 'pilot-gateway' are separate installed binaries.",
+
+		// ── Core agent commands ──────────────────────────────────────────────
 		"commands": map[string]interface{}{
+			// Setup & identity
 			"init": map[string]interface{}{
 				"args":        []string{"--registry <addr>", "--beacon <addr>", "--hostname <name>", "[--socket <path>]"},
 				"description": "Initialize pilot configuration (writes ~/.pilot/config.json)",
@@ -890,9 +938,16 @@ func cmdContext() {
 				"description": "Show or set configuration values",
 				"returns":     "current configuration as JSON",
 			},
+			"version": map[string]interface{}{
+				"args":        []string{},
+				"description": "Print the installed binary version",
+				"returns":     "version string",
+			},
+
+			// Daemon lifecycle
 			"daemon start": map[string]interface{}{
-				"args":        []string{"[--config <path>]", "[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--email <addr>]", "[--hostname <name>]", "[--log-level <level>]", "[--log-format <fmt>]", "[--public]", "[--foreground]", "[--no-encrypt]", "[--socket <path>]", "[--webhook <url>]"},
-				"description": "Start the daemon as a background process. Blocks until registered, then prints status and exits",
+				"args":        []string{"[--registry <addr>]", "[--beacon <addr>]", "[--listen <addr>]", "[--identity <path>]", "[--email <addr>]", "[--hostname <name>]", "[--log-level <level>]", "[--public]", "[--foreground]", "[--socket <path>]"},
+				"description": "Start the daemon as a background process. Blocks until registered, then exits",
 				"returns":     "node_id, address, pid, socket, hostname, log_file",
 			},
 			"daemon stop": map[string]interface{}{
@@ -902,13 +957,20 @@ func cmdContext() {
 			},
 			"daemon status": map[string]interface{}{
 				"args":        []string{"[--check]"},
-				"description": "Check if daemon is running and responsive. --check: silent, exits 0 if responsive, 1 otherwise",
-				"returns":     "running (bool), responsive (bool), pid, pid_file, socket, node_id, address, hostname, uptime_secs, peers, connections",
+				"description": "Check if daemon is running and responsive. --check: silent, exits 0/1",
+				"returns":     "running (bool), responsive (bool), pid, node_id, address, hostname, uptime_secs, peers, connections",
 			},
+
+			// Registry / discovery
 			"register": map[string]interface{}{
 				"args":        []string{"[listen_addr]"},
-				"description": "Register a new node with the registry",
+				"description": "Register this node with the registry",
 				"returns":     "node_id, address, public_key",
+			},
+			"deregister": map[string]interface{}{
+				"args":        []string{},
+				"description": "Deregister this node from the registry",
+				"returns":     "status",
 			},
 			"lookup": map[string]interface{}{
 				"args":        []string{"<node_id>"},
@@ -922,114 +984,26 @@ func cmdContext() {
 			},
 			"set-hostname": map[string]interface{}{
 				"args":        []string{"<hostname>"},
-				"description": "Set hostname for this daemon's node",
+				"description": "Set this node's hostname",
 				"returns":     "hostname, node_id",
 			},
-			"clear-hostname": map[string]interface{}{
+			"set-public": map[string]interface{}{
 				"args":        []string{},
-				"description": "Clear hostname for this daemon's node",
-				"returns":     "hostname, node_id",
+				"description": "Make this node's endpoint publicly visible",
+				"returns":     "status",
 			},
-			"set-tags": map[string]interface{}{
-				"args":        []string{"<tag1>", "[tag2]", "..."},
-				"description": "Set capability tags for this daemon's node (replaces existing tags)",
-				"returns":     "node_id, tags",
-			},
-			"clear-tags": map[string]interface{}{
+			"set-private": map[string]interface{}{
 				"args":        []string{},
-				"description": "Clear all tags for this daemon's node",
-				"returns":     "node_id, tags",
+				"description": "Hide this node's endpoint",
+				"returns":     "status",
 			},
-			"enable-tasks": map[string]interface{}{
+			"rotate-key": map[string]interface{}{
 				"args":        []string{},
-				"description": "Advertise that this node can execute tasks",
-				"returns":     "node_id, task_exec",
+				"description": "Rotate this node's Ed25519 identity key",
+				"returns":     "node_id, address, new public_key",
 			},
-			"disable-tasks": map[string]interface{}{
-				"args":        []string{},
-				"description": "Stop advertising task execution capability",
-				"returns":     "node_id, task_exec",
-			},
-			"set-webhook": map[string]interface{}{
-				"args":        []string{"<url>"},
-				"description": "Set the webhook URL for event notifications (applies immediately if daemon is running)",
-				"returns":     "webhook, applied",
-			},
-			"clear-webhook": map[string]interface{}{
-				"args":        []string{},
-				"description": "Clear the webhook URL (applies immediately if daemon is running)",
-				"returns":     "webhook, applied",
-			},
-			"info": map[string]interface{}{
-				"args":        []string{},
-				"description": "Show daemon status: node_id, address, hostname, uptime, peers, connections, encryption, identity",
-				"returns":     "node_id, address, hostname, uptime_secs, connections, ports, peers, encrypt, bytes_sent, bytes_recv, conn_list, peer_list",
-			},
-			"peers": map[string]interface{}{
-				"args":        []string{"[--search <query>]"},
-				"description": "List connected peers with optional search filter",
-				"returns":     "peers [{node_id, endpoint, encrypted, authenticated}], total",
-			},
-			"connections": map[string]interface{}{
-				"args":        []string{},
-				"description": "List active connections",
-				"returns":     "connections [{id, local_port, remote_addr, remote_port, state, ...}], total",
-			},
-			"connect": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "[port]", "[--message <msg>]", "[--timeout <dur>]"},
-				"description": "Open a stream connection. Use --message to send a single message and get a response",
-				"returns":     "target, port, sent, response (with --message), or interactive stdio session",
-			},
-			"send": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "<port>", "--data <msg>", "[--timeout <dur>]"},
-				"description": "Send a single message to a port and read the response",
-				"returns":     "target, port, sent, response",
-			},
-			"recv": map[string]interface{}{
-				"args":        []string{"<port>", "[--count <n>]", "[--timeout <dur>]"},
-				"description": "Accept incoming connections, receive messages",
-				"returns":     "messages [{seq, port, data, bytes}], timeout (bool)",
-			},
-			"send-file": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "<filepath>"},
-				"description": "Send a file to a node on port 1001 (data exchange)",
-				"returns":     "filename, bytes, destination, ack",
-			},
-			"send-message": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]"},
-				"description": "Send a typed message via data exchange (port 1001). Default type: text",
-				"returns":     "target, type, bytes, ack",
-			},
-			"subscribe": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "<topic>", "[--count <n>]", "[--timeout <dur>]"},
-				"description": "Subscribe to event stream topics (port 1002). Use * for all topics. Without --count: streams NDJSON",
-				"returns":     "events [{topic, data, bytes}], timeout (bool). Unbounded: NDJSON per line",
-			},
-			"publish": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "<topic>", "--data <message>"},
-				"description": "Publish an event to a topic on the target's event stream broker (port 1002)",
-				"returns":     "target, topic, bytes",
-			},
-			"ping": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "[--count <n>]", "[--timeout <dur>]"},
-				"description": "Ping a node via echo port. Default 4 pings",
-				"returns":     "target, results [{seq, bytes, rtt_ms, error}], timeout (bool)",
-			},
-			"traceroute": map[string]interface{}{
-				"args":        []string{"<address>", "[--timeout <dur>]"},
-				"description": "Trace path to a node (connection setup + RTT samples)",
-				"returns":     "target, setup_ms, rtt_samples [{rtt_ms, bytes}]",
-			},
-			"bench": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "[size_mb]", "[--timeout <dur>]"},
-				"description": "Throughput benchmark via echo port (default 1 MB)",
-				"returns":     "target, sent_bytes, recv_bytes, send_duration_ms, total_duration_ms, send_mbps, total_mbps",
-			},
-			"listen": map[string]interface{}{
-				"args":        []string{"<port>", "[--count <n>]", "[--timeout <dur>]"},
-				"description": "Listen for incoming datagrams. Default: infinite (NDJSON streaming). Use --count/--timeout to bound",
-				"returns":     "messages [{src_addr, src_port, data, bytes}], timeout (bool). Unbounded: NDJSON per line",
-			},
+
+			// Trust
 			"handshake": map[string]interface{}{
 				"args":        []string{"<node_id|hostname>", "[justification]"},
 				"description": "Send a trust handshake request to a remote node",
@@ -1045,87 +1019,259 @@ func cmdContext() {
 				"description": "Reject a pending handshake request",
 				"returns":     "status, node_id",
 			},
+			"pending": map[string]interface{}{
+				"args":        []string{},
+				"description": "List pending inbound handshake requests",
+				"returns":     "pending [{node_id, justification, received_at}]",
+			},
+			"trust": map[string]interface{}{
+				"args":        []string{},
+				"description": "List all trusted peers",
+				"returns":     "trusted [{node_id, mutual, network, approved_at}]",
+			},
 			"untrust": map[string]interface{}{
 				"args":        []string{"<node_id>"},
 				"description": "Revoke trust for a peer",
 				"returns":     "node_id",
 			},
-			"pending": map[string]interface{}{
+
+			// Networks (agent self-management)
+			"network list": map[string]interface{}{
 				"args":        []string{},
-				"description": "List pending handshake requests",
-				"returns":     "pending [{node_id, justification, received_at}]",
+				"description": "List networks this node belongs to",
+				"returns":     "networks [{id, name, role, members}], total",
 			},
-			"trust": map[string]interface{}{
+			"network join": map[string]interface{}{
+				"args":        []string{"<network_id>"},
+				"description": "Join a network",
+				"returns":     "network_id, status",
+			},
+			"network leave": map[string]interface{}{
+				"args":        []string{"<network_id>"},
+				"description": "Leave a network",
+				"returns":     "network_id, status",
+			},
+			"network members": map[string]interface{}{
+				"args":        []string{"<network_id>"},
+				"description": "List members of a network",
+				"returns":     "members [{node_id, role, joined_at}], total",
+			},
+			"network invite": map[string]interface{}{
+				"args":        []string{"<network_id>", "<target_node_id>"},
+				"description": "Invite another node to a network",
+				"returns":     "network_id, target_node_id, status",
+			},
+			"network invites": map[string]interface{}{
 				"args":        []string{},
-				"description": "List trusted peers",
-				"returns":     "trusted [{node_id, mutual, network, approved_at}]",
+				"description": "List pending network invitations for this node",
+				"returns":     "invites [{network_id, network_name, invited_by, invited_at}]",
 			},
-			"disconnect": map[string]interface{}{
-				"args":        []string{"<conn_id>"},
-				"description": "Close a connection by ID",
-				"returns":     "conn_id",
+			"network accept": map[string]interface{}{
+				"args":        []string{"<network_id>"},
+				"description": "Accept a network invitation",
+				"returns":     "network_id, status",
 			},
-			"broadcast": map[string]interface{}{
-				"args":        []string{"<network_id>", "<message>"},
-				"description": "Broadcast a message to all network members",
-				"returns":     "network_id, message",
+			"network reject": map[string]interface{}{
+				"args":        []string{"<network_id>"},
+				"description": "Reject a network invitation",
+				"returns":     "network_id, status",
 			},
-			"rotate-key": map[string]interface{}{
-				"args":        []string{},
-				"description": "Rotate this daemon's Ed25519 identity at the registry",
-				"returns":     "node_id, address, new public_key",
+			"network create": map[string]interface{}{
+				"args":        []string{"<name>", "[--managed]", "[--policy <file>]"},
+				"description": "Create a new network. Use --managed for policy-governed networks",
+				"returns":     "network_id, name, managed (bool)",
 			},
-			"set-public": map[string]interface{}{
-				"args":        []string{},
-				"description": "Make this node's endpoint publicly visible (routes through daemon)",
-				"returns":     "status",
+
+			// Messaging
+			"send-message": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]"},
+				"description": "Send a typed message to a node via data exchange (port 1001). Default type: text",
+				"returns":     "target, type, bytes, ack",
 			},
-			"set-private": map[string]interface{}{
-				"args":        []string{},
-				"description": "Hide this node's endpoint (private, default; routes through daemon)",
-				"returns":     "status",
-			},
-			"deregister": map[string]interface{}{
-				"args":        []string{},
-				"description": "Deregister this node from the registry (routes through daemon)",
-				"returns":     "status",
-			},
-			"gateway start": map[string]interface{}{
-				"args":        []string{"[--subnet <cidr>]", "[--ports <list>]", "[<pilot-addr>...]"},
-				"description": "Start the IP gateway (bridges TCP to Pilot Protocol)",
-				"returns":     "pid, subnet, mappings [{local_ip, pilot_addr}]",
-			},
-			"gateway stop": map[string]interface{}{
-				"args":        []string{},
-				"description": "Stop the running gateway",
-				"returns":     "pid",
-			},
-			"gateway map": map[string]interface{}{
-				"args":        []string{"<pilot-addr>", "[local-ip]"},
-				"description": "Add a mapping to the running gateway",
-				"returns":     "local_ip, pilot_addr",
-			},
-			"gateway unmap": map[string]interface{}{
-				"args":        []string{"<local-ip>"},
-				"description": "Remove a mapping and clean up loopback alias",
-				"returns":     "unmapped",
-			},
-			"gateway list": map[string]interface{}{
-				"args":        []string{},
-				"description": "List all current gateway mappings",
-				"returns":     "mappings [{local_ip, pilot_addr}], total",
-			},
-			"received": map[string]interface{}{
-				"args":        []string{"[--clear]"},
-				"description": "List files received via data exchange (port 1001). Files saved to ~/.pilot/received/. Use --clear to delete all",
-				"returns":     "files [{name, bytes, modified, path}], total, dir",
+			"send-file": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "<filepath>"},
+				"description": "Send a file to a node via data exchange (port 1001)",
+				"returns":     "filename, bytes, destination, ack",
 			},
 			"inbox": map[string]interface{}{
 				"args":        []string{"[--clear]"},
-				"description": "List messages received via data exchange (port 1001). Messages saved to ~/.pilot/inbox/. Use --clear to delete all",
+				"description": "List received messages (~/.pilot/inbox/). --clear to delete all",
 				"returns":     "messages [{type, from, data, received_at}], total, dir",
 			},
+			"received": map[string]interface{}{
+				"args":        []string{"[--clear]"},
+				"description": "List received files (~/.pilot/received/). --clear to delete all",
+				"returns":     "files [{name, bytes, modified, path}], total, dir",
+			},
+
+			// Pub/Sub
+			"subscribe": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "<topic>", "[--count <n>]", "[--timeout <dur>]"},
+				"description": "Subscribe to a topic on a node's event stream (port 1002). Use * for all topics. Streams NDJSON without --count",
+				"returns":     "events [{topic, data, bytes}], timeout (bool)",
+			},
+			"publish": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "<topic>", "--data <message>"},
+				"description": "Publish an event to a topic on a node's event stream (port 1002)",
+				"returns":     "target, topic, bytes",
+			},
+
+			// Diagnostics
+			"info": map[string]interface{}{
+				"args":        []string{},
+				"description": "Show daemon status: node_id, address, uptime, peers, connections, encryption",
+				"returns":     "node_id, address, hostname, uptime_secs, connections, peers, encrypt, bytes_sent, bytes_recv, conn_list, peer_list",
+			},
+			"ping": map[string]interface{}{
+				"args":        []string{"<address|hostname>", "[--count <n>]", "[--timeout <dur>]"},
+				"description": "Ping a node via echo port (port 7). Default 4 pings",
+				"returns":     "target, results [{seq, bytes, rtt_ms, error}], timeout (bool)",
+			},
 		},
+
+		// ── pilot-task binary ────────────────────────────────────────────────
+		"pilot_task": map[string]interface{}{
+			"binary":      "pilot-task",
+			"description": "Task submission and execution workflow. Separate binary installed alongside pilotctl.",
+			"commands": map[string]interface{}{
+				"submit": map[string]interface{}{
+					"args":        []string{"<address|hostname>", "--task <description>", "[--timeout <dur>]"},
+					"description": "Submit a task to a remote node for execution",
+					"returns":     "task_id, status (accepted|rejected), target",
+				},
+				"accept": map[string]interface{}{
+					"args":        []string{"--id <task_id>"},
+					"description": "Accept an inbound task",
+					"returns":     "task_id, status",
+				},
+				"decline": map[string]interface{}{
+					"args":        []string{"--id <task_id>", "--justification <reason>"},
+					"description": "Decline an inbound task",
+					"returns":     "task_id, status",
+				},
+				"execute": map[string]interface{}{
+					"args":        []string{},
+					"description": "Mark the next accepted task as executing (FIFO)",
+					"returns":     "task_id, description, from, staged_at",
+				},
+				"send-results": map[string]interface{}{
+					"args":        []string{"--id <task_id>", "--results <text>", "[--file <filepath>]"},
+					"description": "Send results back to the task submitter",
+					"returns":     "task_id, status",
+				},
+				"result": map[string]interface{}{
+					"args":        []string{"<task_id>"},
+					"description": "Read results for a submitted task",
+					"returns":     "task_id, status, result, completed_at",
+				},
+				"list": map[string]interface{}{
+					"args":        []string{"[--type received|submitted]"},
+					"description": "List tasks. Default: both directions",
+					"returns":     "tasks [{task_id, status, description, from, created_at}], total",
+				},
+				"queue": map[string]interface{}{
+					"args":        []string{},
+					"description": "List accepted tasks ready to execute, oldest first",
+					"returns":     "tasks [{task_id, description, from, accepted_at}]",
+				},
+			},
+		},
+
+		// ── pilot-gateway binary ─────────────────────────────────────────────
+		"pilot_gateway": map[string]interface{}{
+			"binary":      "pilot-gateway",
+			"description": "IP gateway — bridges standard TCP/IP applications to Pilot Protocol addresses. Separate binary installed alongside pilotctl.",
+			"commands": map[string]interface{}{
+				"start": map[string]interface{}{
+					"args":        []string{"[--subnet <cidr>]", "[--ports <list>]", "[<pilot-addr>...]"},
+					"description": "Start the IP gateway",
+					"returns":     "pid, subnet, mappings [{local_ip, pilot_addr}]",
+				},
+				"stop": map[string]interface{}{
+					"args":        []string{},
+					"description": "Stop the running gateway",
+					"returns":     "pid",
+				},
+				"map": map[string]interface{}{
+					"args":        []string{"<pilot-addr>", "[local-ip]"},
+					"description": "Add a Pilot-address → local-IP mapping",
+					"returns":     "local_ip, pilot_addr",
+				},
+				"unmap": map[string]interface{}{
+					"args":        []string{"<local-ip>"},
+					"description": "Remove a mapping and release the loopback alias",
+					"returns":     "unmapped",
+				},
+				"list": map[string]interface{}{
+					"args":        []string{},
+					"description": "List active gateway mappings",
+					"returns":     "mappings [{local_ip, pilot_addr}], total",
+				},
+			},
+		},
+
+		// ── Extras (operator / admin) ────────────────────────────────────────
+		// Invoke as: pilotctl extras <command> [args...]
+		"extras": map[string]interface{}{
+			"description": "Operator and admin commands. All invoked as: pilotctl extras <command> [args]. Not intended for autonomous agent use.",
+			"commands": map[string]interface{}{
+				// Network admin
+				"network delete":  map[string]interface{}{"args": []string{"<network_id>"}, "description": "Delete a network (admin)"},
+				"network rename":  map[string]interface{}{"args": []string{"<network_id>", "<new_name>"}, "description": "Rename a network (admin)"},
+				"network promote": map[string]interface{}{"args": []string{"<network_id>", "<node_id>"}, "description": "Promote a member to admin"},
+				"network demote":  map[string]interface{}{"args": []string{"<network_id>", "<node_id>"}, "description": "Demote an admin to member"},
+				"network kick":    map[string]interface{}{"args": []string{"<network_id>", "<node_id>"}, "description": "Remove a member from a network"},
+				"network role":    map[string]interface{}{"args": []string{"<network_id>", "<node_id>"}, "description": "Get a member's role"},
+				"network policy":  map[string]interface{}{"args": []string{"<network_id>", "[--set <json>]"}, "description": "Get or set network policy"},
+				// Policy engine
+				"policy get":      map[string]interface{}{"args": []string{"<network_id>"}, "description": "Get the active policy for a managed network"},
+				"policy set":      map[string]interface{}{"args": []string{"<network_id>", "--file <path>|--expr <expr>"}, "description": "Set the active policy"},
+				"policy validate": map[string]interface{}{"args": []string{"--file <path>|--expr <expr>"}, "description": "Validate a policy expression locally"},
+				"policy test":     map[string]interface{}{"args": []string{"--file <path>", "--input <json>"}, "description": "Test a policy against sample input"},
+				// Managed networks
+				"managed score":     map[string]interface{}{"args": []string{"<network_id>", "[node_id]", "[--delta <n>]"}, "description": "Read or adjust a node's polo score in a managed network"},
+				"managed status":    map[string]interface{}{"args": []string{"<network_id>"}, "description": "Status of a managed network (cycle count, last run, member count)"},
+				"managed rankings":  map[string]interface{}{"args": []string{"<network_id>"}, "description": "Sorted member rankings by polo score"},
+				"managed cycle":     map[string]interface{}{"args": []string{"<network_id>"}, "description": "Force a policy evaluation cycle"},
+				"managed reconcile": map[string]interface{}{"args": []string{"<network_id>"}, "description": "Reconcile member state against registry"},
+				// Member tags
+				"member-tags get": map[string]interface{}{"args": []string{"<network_id>", "<node_id>"}, "description": "Get tags for a network member"},
+				"member-tags set": map[string]interface{}{"args": []string{"<network_id>", "<node_id>", "--tags <csv>"}, "description": "Set tags for a network member (requires admin token)"},
+				// Enterprise / provisioning
+				"audit":            map[string]interface{}{"args": []string{"<network_id>", "[--limit <n>]"}, "description": "Fetch audit log for a network (requires admin token)"},
+				"provision":        map[string]interface{}{"args": []string{"--file <blueprint>"}, "description": "Provision a new network from a blueprint (requires admin token)"},
+				"deprovision":      map[string]interface{}{"args": []string{"<network_id>"}, "description": "Delete a managed network and its data (requires admin token)"},
+				"provision-status": map[string]interface{}{"args": []string{"<network_id>"}, "description": "Check provisioning job status (requires admin token)"},
+				"idp":              map[string]interface{}{"args": []string{"[--set <json>]"}, "description": "Get or set IdP configuration (requires admin token)"},
+				"audit-export":     map[string]interface{}{"args": []string{"[--set <json>]"}, "description": "Get or set audit export config (requires admin token)"},
+				"directory-sync":   map[string]interface{}{"args": []string{"<network_id>", "--file <csv>"}, "description": "Sync directory entries into a managed network (requires admin token)"},
+				"directory-status": map[string]interface{}{"args": []string{"<network_id>"}, "description": "Check last directory sync status (requires admin token)"},
+				// Node config (setup-time, not runtime agent ops)
+				"set-tags":       map[string]interface{}{"args": []string{"<tag1>", "[tag2...]"}, "description": "Set discovery tags (max 3) for registry filtering"},
+				"clear-tags":     map[string]interface{}{"args": []string{}, "description": "Clear all discovery tags"},
+				"clear-hostname": map[string]interface{}{"args": []string{}, "description": "Clear this node's hostname"},
+				"set-webhook":    map[string]interface{}{"args": []string{"<url>"}, "description": "Set webhook URL for event push notifications"},
+				"clear-webhook":  map[string]interface{}{"args": []string{}, "description": "Clear the webhook URL"},
+				"enable-tasks":   map[string]interface{}{"args": []string{}, "description": "Advertise task-execution capability on port 1003"},
+				"disable-tasks":  map[string]interface{}{"args": []string{}, "description": "Stop advertising task-execution capability"},
+				// Low-level / plumbing
+				"connect":    map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
+				"send":       map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
+				"recv":       map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Accept and print incoming stream messages"},
+				"dgram":      map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a UDP-style datagram"},
+				"listen":     map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Listen for incoming datagrams"},
+				"broadcast":  map[string]interface{}{"args": []string{"<network_id>", "<message>"}, "description": "Broadcast a datagram to all network members"},
+				// Connection management
+				"connections": map[string]interface{}{"args": []string{}, "description": "List active daemon connections"},
+				"disconnect":  map[string]interface{}{"args": []string{"<conn_id>"}, "description": "Close a connection by ID"},
+				// Diagnostics
+				"health":     map[string]interface{}{"args": []string{}, "description": "Compact health summary (subset of info)"},
+				"peers":      map[string]interface{}{"args": []string{"[--search <query>]"}, "description": "List connected peers"},
+				"traceroute": map[string]interface{}{"args": []string{"<address>"}, "description": "Trace path to a node"},
+				"bench":      map[string]interface{}{"args": []string{"<address|hostname>", "[size_mb]"}, "description": "Throughput benchmark via echo port"},
+			},
+		},
+
 		"error_codes": map[string]interface{}{
 			"invalid_argument":  "Bad input or usage error (do not retry)",
 			"not_found":         "Resource not found (hostname/name resolve failure)",
@@ -1145,6 +1291,22 @@ func cmdContext() {
 		"config_file": "~/.pilot/config.json",
 	}
 	output(ctx)
+}
+
+func cmdExtrasHelp() {
+	fmt.Println("pilotctl extras <command> [args...]")
+	fmt.Println()
+	fmt.Println("Operator and admin commands. Run 'pilotctl context' for the full list.")
+	fmt.Println()
+	fmt.Println("Network admin:  network delete/rename/promote/demote/kick/role/policy")
+	fmt.Println("Policy engine:  policy get/set/validate/test")
+	fmt.Println("Managed nets:   managed score/status/rankings/cycle/reconcile")
+	fmt.Println("Member tags:    member-tags get/set")
+	fmt.Println("Enterprise:     audit provision deprovision idp audit-export provision-status directory-sync directory-status")
+	fmt.Println("Node config:    set-tags clear-tags clear-hostname set-webhook clear-webhook enable-tasks disable-tasks")
+	fmt.Println("Low-level:      connect send recv dgram listen broadcast")
+	fmt.Println("Connections:    connections disconnect")
+	fmt.Println("Diagnostics:    health peers traceroute bench")
 }
 
 // ===================== DAEMON LIFECYCLE =====================
@@ -3902,6 +4064,8 @@ func cmdInfo(args []string) {
 	}
 	fmt.Printf("  Traffic:     %s sent / %s recv\n", formatBytes(bytesSent), formatBytes(bytesRecv))
 	fmt.Printf("  Packets:     %d sent / %d recv\n", pktsSent, pktsRecv)
+
+	printSkillInstallSummary()
 
 	connList, ok := info["conn_list"].([]interface{})
 	if ok && len(connList) > 0 {

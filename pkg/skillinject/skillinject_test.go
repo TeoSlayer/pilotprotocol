@@ -1,0 +1,317 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package skillinject
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// claudeOnly is a one-tool manifest used by most behavioral tests.
+func claudeOnly() []ManifestTool {
+	return []ManifestTool{{
+		Name:              "claude-code",
+		RootDir:           "~/.claude",
+		SkillsDir:         "~/.claude/skills",
+		HeartbeatPath:     "~/.claude/CLAUDE.md",
+		HeartbeatTemplate: "heartbeats/claude-code.md",
+	}}
+}
+
+// fullPriority covers all five priority tools — used to verify per-tool
+// path correctness and the singular/plural AGENT.md gotcha.
+func fullPriority() []ManifestTool {
+	return []ManifestTool{
+		{Name: "claude-code", RootDir: "~/.claude", SkillsDir: "~/.claude/skills",
+			HeartbeatPath: "~/.claude/CLAUDE.md", HeartbeatTemplate: "heartbeats/claude-code.md"},
+		{Name: "openclaw", RootDir: "~/.openclaw", SkillsDir: "~/.openclaw/skills",
+			HeartbeatPath: "~/.openclaw/workspace/AGENTS.md", HeartbeatTemplate: "heartbeats/openclaw.md"},
+		{Name: "picoclaw", RootDir: "~/.picoclaw", SkillsDir: "~/.picoclaw/workspace/skills",
+			HeartbeatPath: "~/.picoclaw/workspace/AGENT.md", HeartbeatTemplate: "heartbeats/picoclaw.md"},
+		{Name: "openhands", RootDir: "~/.openhands", SkillsDir: "~/.openhands/microagents",
+			SkillNaming: "flat", SelfHeartbeat: true},
+		{Name: "hermes", RootDir: "~/.hermes", SkillsDir: "~/.hermes/skills",
+			HeartbeatPath: "~/.hermes/SOUL.md", HeartbeatTemplate: "heartbeats/hermes.md"},
+	}
+}
+
+func TestTick_OnlyTouchesPresentTools(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+	mustMkdirAll(t, filepath.Join(home, ".picoclaw"))
+
+	r := newFakeRepo(t)
+	r.withTools(fullPriority())
+
+	rep, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if len(rep.Skipped) != 3 {
+		t.Errorf("expected 3 skipped, got %d: %v", len(rep.Skipped), rep.Skipped)
+	}
+
+	mustExist(t, filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md"))
+	mustExist(t, filepath.Join(home, ".claude", "CLAUDE.md"))
+	mustExist(t, filepath.Join(home, ".picoclaw", "workspace", "skills", "pilotctl", "SKILL.md"))
+	mustExist(t, filepath.Join(home, ".picoclaw", "workspace", "AGENT.md"))
+
+	mustNotExist(t, filepath.Join(home, ".openclaw", "skills", "pilotctl", "SKILL.md"))
+	mustNotExist(t, filepath.Join(home, ".hermes", "skills", "pilotctl", "SKILL.md"))
+	mustNotExist(t, filepath.Join(home, ".openhands", "microagents", "pilotctl.md"))
+}
+
+// PicoClaw uses AGENT.md (singular). OpenClaw uses AGENTS.md (plural).
+// This test prevents a future refactor from collapsing them.
+func TestPicoClawAgentMdIsSingular(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".picoclaw"))
+	mustMkdirAll(t, filepath.Join(home, ".openclaw"))
+
+	r := newFakeRepo(t)
+	r.withTools(fullPriority())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	mustExist(t, filepath.Join(home, ".picoclaw", "workspace", "AGENT.md"))
+	mustNotExist(t, filepath.Join(home, ".picoclaw", "workspace", "AGENTS.md"))
+	mustExist(t, filepath.Join(home, ".openclaw", "workspace", "AGENTS.md"))
+	mustNotExist(t, filepath.Join(home, ".openclaw", "workspace", "AGENT.md"))
+}
+
+// Two ticks with identical content must not rewrite anything.
+func TestTick_IdempotentWhenHashMatches(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+	cfg := r.cfg(home)
+
+	if _, err := Tick(context.Background(), cfg); err != nil {
+		t.Fatalf("Tick #1: %v", err)
+	}
+	skill := filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md")
+	hb := filepath.Join(home, ".claude", "CLAUDE.md")
+	m1 := mustMtime(t, skill)
+	h1 := mustMtime(t, hb)
+
+	rep, err := Tick(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Tick #2: %v", err)
+	}
+	c := rep.Counts()
+	if c[ActionNoop] != 2 {
+		t.Errorf("expected 2 noops on second tick, got counts=%+v", c)
+	}
+	if mustMtime(t, skill) != m1 {
+		t.Error("skill rewritten despite identical content")
+	}
+	if mustMtime(t, hb) != h1 {
+		t.Error("heartbeat rewritten despite identical content")
+	}
+}
+
+// Drift in canonical content rewrites both skill and marker.
+func TestTick_RewritesOnContentChange(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick #1: %v", err)
+	}
+
+	r.setSkillBody([]byte(testContent + "\n## v2 section\n"))
+
+	rep, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick #2: %v", err)
+	}
+	c := rep.Counts()
+	if c[ActionRewrite] != 2 {
+		t.Errorf("expected 2 rewrites (skill + marker), got counts=%+v", c)
+	}
+}
+
+// User content above and below the marker block must survive injection
+// and re-injection byte-for-byte.
+func TestMarker_PreservesUserContent(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+	hb := filepath.Join(home, ".claude", "CLAUDE.md")
+
+	pre := "# My CLAUDE.md\n\nMy custom rules.\n"
+	if err := os.WriteFile(hb, []byte(pre), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	got := mustRead(t, hb)
+	if !strings.HasPrefix(got, pre) {
+		t.Errorf("user content not preserved at top:\n%s", got)
+	}
+	if !strings.Contains(got, "<!-- pilot:begin v=1 hash=") {
+		t.Errorf("marker block missing")
+	}
+
+	// User adds content AFTER our marker block.
+	withSuffix := mustRead(t, hb) + "\n## My new section\n\nAfter the marker.\n"
+	if err := os.WriteFile(hb, []byte(withSuffix), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force drift to trigger marker rewrite.
+	r.setSkillBody([]byte(testContent + "\n## v2\n"))
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick after drift: %v", err)
+	}
+
+	got = mustRead(t, hb)
+	if !strings.HasPrefix(got, pre) {
+		t.Errorf("top content lost on drift rewrite")
+	}
+	if !strings.Contains(got, "## My new section\n\nAfter the marker.\n") {
+		t.Errorf("user suffix after marker was lost on drift rewrite:\n%s", got)
+	}
+	if c := strings.Count(got, "<!-- pilot:begin v=1 hash="); c != 1 {
+		t.Errorf("expected exactly 1 marker block, got %d", c)
+	}
+}
+
+// YAML frontmatter at top of file (PicoClaw's AGENT.md shape) is preserved.
+func TestMarker_PreservesYAMLFrontmatter(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".picoclaw", "workspace"))
+	hb := filepath.Join(home, ".picoclaw", "workspace", "AGENT.md")
+	pre := "---\nname: pico\ndescription: PicoClaw agent\n---\n\n# PicoClaw\n\nUser body.\n"
+	if err := os.WriteFile(hb, []byte(pre), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := newFakeRepo(t)
+	r.withTools(fullPriority())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	got := mustRead(t, hb)
+	if !strings.HasPrefix(got, "---\nname: pico\ndescription: PicoClaw agent\n---\n") {
+		t.Errorf("frontmatter not preserved at top:\n%s", got[:min(150, len(got))])
+	}
+	if !strings.Contains(got, "User body.") {
+		t.Errorf("body content lost")
+	}
+	idxFrontmatterEnd := strings.Index(got, "---\n\n# PicoClaw")
+	idxMarker := strings.Index(got, "<!-- pilot:begin")
+	if idxMarker <= idxFrontmatterEnd {
+		t.Errorf("marker inserted before/inside frontmatter")
+	}
+}
+
+// Network failure: manifest URL unreachable → Tick returns error and does NOT
+// touch any local files. There is no embedded fallback by design.
+func TestTick_NetworkFailure_NoEmbeddedFallback(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	cfg := Config{
+		Home:        home,
+		ManifestURL: "http://127.0.0.1:1/inject-manifest.json", // port 1 = unreachable
+		RepoBaseURL: "http://127.0.0.1:1/",
+	}
+	rep, err := Tick(context.Background(), cfg)
+	if err == nil {
+		t.Errorf("expected error on network failure, got nil")
+	}
+	if rep != nil {
+		t.Errorf("expected nil report on network failure, got %+v", rep)
+	}
+	mustNotExist(t, filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md"))
+	mustNotExist(t, filepath.Join(home, ".claude", "CLAUDE.md"))
+}
+
+// Heartbeat marker is directive — references the entrypoint path and
+// includes WHEN keywords (overlay/NAT/peer).
+func TestMarker_IsDirective(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	got := mustRead(t, filepath.Join(home, ".claude", "CLAUDE.md"))
+	skillPath := filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md")
+	if !strings.Contains(got, skillPath) {
+		t.Errorf("marker missing entrypoint path")
+	}
+	if !strings.Contains(got, "Pilot Protocol") {
+		t.Errorf("marker missing 'Pilot Protocol' name")
+	}
+	for _, kw := range []string{"overlay", "NAT", "peer"} {
+		if !strings.Contains(got, kw) {
+			t.Errorf("marker missing trigger keyword %q", kw)
+		}
+	}
+}
+
+// helpers
+
+func mustMkdirAll(t *testing.T, p string) {
+	t.Helper()
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatalf("mkdirall %s: %v", p, err)
+	}
+}
+func mustExist(t *testing.T, p string) {
+	t.Helper()
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("expected %s to exist: %v", p, err)
+	}
+}
+func mustNotExist(t *testing.T, p string) {
+	t.Helper()
+	if _, err := os.Stat(p); err == nil {
+		t.Errorf("expected %s NOT to exist", p)
+	}
+}
+func mustRead(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	return string(b)
+}
+func mustMtime(t *testing.T, p string) int64 {
+	t.Helper()
+	st, err := os.Stat(p)
+	if err != nil {
+		t.Fatalf("stat %s: %v", p, err)
+	}
+	return st.ModTime().UnixNano()
+}
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

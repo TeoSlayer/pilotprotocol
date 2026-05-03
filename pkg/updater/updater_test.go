@@ -286,8 +286,11 @@ func TestApplyUpdate_SkipsServerBinaries(t *testing.T) {
 	installDir := filepath.Join(tmpDir, "bin")
 	os.MkdirAll(installDir, 0755)
 
-	// Seed existing binaries (client + server).
-	os.WriteFile(filepath.Join(installDir, "daemon"), []byte("old-daemon"), 0755)
+	// Seed existing binaries using installed names (install.sh adds pilot- prefix).
+	os.WriteFile(filepath.Join(installDir, "pilot-daemon"), []byte("old-pilot-daemon"), 0755)
+	os.WriteFile(filepath.Join(installDir, "pilot-gateway"), []byte("old-pilot-gateway"), 0755)
+	os.WriteFile(filepath.Join(installDir, "pilot-updater"), []byte("old-pilot-updater"), 0755)
+	os.WriteFile(filepath.Join(installDir, "pilotctl"), []byte("old-pilotctl"), 0755)
 	os.WriteFile(filepath.Join(installDir, "registry"), []byte("old-registry"), 0755)
 	os.WriteFile(filepath.Join(installDir, "beacon"), []byte("old-beacon"), 0755)
 	os.WriteFile(filepath.Join(installDir, ".pilot-version"), []byte("v1.0.0\n"), 0644)
@@ -322,10 +325,12 @@ func TestApplyUpdate_SkipsServerBinaries(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	exitCalled := false
 	u := &Updater{
 		config: Config{InstallDir: installDir},
 		client: srv.Client(),
 		stopCh: make(chan struct{}),
+		exitFn: func(int) { exitCalled = true },
 	}
 
 	release := &GitHubRelease{
@@ -340,14 +345,24 @@ func TestApplyUpdate_SkipsServerBinaries(t *testing.T) {
 		t.Fatalf("applyUpdate: %v", err)
 	}
 
-	// Client binaries should be updated.
-	for _, name := range []string{"daemon", "pilotctl", "gateway", "updater"} {
-		data, err := os.ReadFile(filepath.Join(installDir, name))
+	// updater binary replaced → self-exit should have been triggered.
+	if !exitCalled {
+		t.Error("expected exitFn to be called after updater binary replacement")
+	}
+
+	// Client binaries should be updated using installed names (pilot- prefix).
+	for archiveName, installName := range map[string]string{
+		"daemon":   "pilot-daemon",
+		"pilotctl": "pilotctl",
+		"gateway":  "pilot-gateway",
+		"updater":  "pilot-updater",
+	} {
+		data, err := os.ReadFile(filepath.Join(installDir, installName))
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s (from archive %s): %v", installName, archiveName, err)
 		}
-		if string(data) != "new-"+name {
-			t.Errorf("%s = %q, want %q", name, string(data), "new-"+name)
+		if string(data) != "new-"+archiveName {
+			t.Errorf("%s = %q, want %q", installName, string(data), "new-"+archiveName)
 		}
 	}
 

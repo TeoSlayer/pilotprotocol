@@ -133,16 +133,22 @@ fi
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Try downloading a release first
-# PILOT_RC=1 opts into release candidates (pre-releases)
+ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
+
+# Resolve the latest release tag.
+# - Default path uses the unauthenticated /releases/latest/download/ redirect,
+#   which is not subject to the 60/hr api.github.com rate limit.
+# - PILOT_RC=1 still hits the API because pre-releases need the listing endpoint.
 if [ "${PILOT_RC:-}" = "1" ]; then
     TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
 else
-    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+    TAG=$(curl -fsSI "https://github.com/${REPO}/releases/latest/download/${ARCHIVE}" 2>/dev/null \
+        | grep -i '^location:' \
+        | sed -n 's|.*/releases/download/\([^/]*\)/.*|\1|p' \
+        | tr -d '\r' | head -1)
 fi
 
 if [ -n "$TAG" ]; then
-    ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
     URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
     echo "Downloading ${TAG}..."
     if curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE" 2>/dev/null; then
@@ -165,14 +171,19 @@ if [ -z "$TAG" ]; then
     fi
     echo "Cloning..."
     git clone --depth 1 "https://github.com/${REPO}.git" "$TMPDIR/src" >/dev/null 2>&1
-    echo "Building daemon..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" "$TMPDIR/src/cmd/daemon"
-    echo "Building pilotctl..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" "$TMPDIR/src/cmd/pilotctl"
-    echo "Building gateway..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" "$TMPDIR/src/cmd/gateway"
-    echo "Building updater..."
-    CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" "$TMPDIR/src/cmd/updater"
+    # Build from inside the cloned tree with GOWORK=off so a parent go.work
+    # in the user's $PWD does not reject the cloned module.
+    (
+        cd "$TMPDIR/src"
+        echo "Building daemon..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" ./cmd/daemon
+        echo "Building pilotctl..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" ./cmd/pilotctl
+        echo "Building gateway..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" ./cmd/gateway
+        echo "Building updater..."
+        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" ./cmd/updater
+    )
 fi
 
 # --- Install binaries to ~/.pilot/bin ---

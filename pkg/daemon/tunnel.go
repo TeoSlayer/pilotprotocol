@@ -11,11 +11,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
@@ -188,6 +190,37 @@ type TunnelManager struct {
 	// path later dies (NAT-mapping refresh window, mid-flight partition).
 	lastDirectRecv map[uint32]time.Time
 
+	// blackholeMissCount counts consecutive writeFrame observations of
+	// "lastDirectRecv stale" per peer. The flip to relay only fires once
+	// the count reaches blackholeMissesRequired (3) — single transient
+	// ACK gaps caused by GC pauses, scheduler jitter, or brief packet
+	// reordering no longer flap the entire tunnel onto the relay path.
+	// Resets to 0 on any direct packet receipt (see clearRelayOnDirect
+	// path) and on a successful flip.
+	//
+	// directClearCount is the symmetric counter for the relay→direct
+	// auto-clear path: clearing the relay flag now requires
+	// directClearsRequired (3) consecutive direct-from-peer packets, so
+	// a brief direct burst during a relay stretch can't bounce us back.
+	blackholeMissCount map[uint32]int
+	directClearCount   map[uint32]int
+
+	// lastOutboundSend tracks when we last successfully sent a frame to
+	// each peer. Used by keepaliveSweep to identify peers whose NAT
+	// mapping is at risk of idle-timeout. Updated by writeFrame on every
+	// successful UDP write (direct or relay). Pruned when a peer is
+	// removed via RemovePeer.
+	lastOutboundSend map[uint32]time.Time
+
+	// sendErrCount counts consecutive ICMP-unreachable errors (ECONNREFUSED,
+	// EHOSTUNREACH, ENETUNREACH) returned by writeFrame to a given peer.
+	// Linux delivers these errors on a subsequent write after the kernel
+	// receives an ICMP unreachable from the peer's stack. On reaching
+	// sendErrThreshold, the peer is flipped to relay mode (faster recovery
+	// than the 24+ s blackhole-heuristic flip). Cleared on any inbound
+	// successful decrypt from the peer (see recordInboundDecrypt).
+	sendErrCount map[uint32]int
+
 	// Webhook
 	webhook *WebhookClient
 
@@ -230,6 +263,10 @@ func NewTunnelManager() *TunnelManager {
 		pending:            make(map[uint32][][]byte),
 		relayPeers:         make(map[uint32]bool),
 		lastDirectRecv:     make(map[uint32]time.Time),
+		blackholeMissCount: make(map[uint32]int),
+		directClearCount:   make(map[uint32]int),
+		lastOutboundSend:   make(map[uint32]time.Time),
+		sendErrCount:       make(map[uint32]int),
 		lastRekeyReq:       make(map[uint32]time.Time),
 		pendingRekey:       make(map[uint32]*pendingRekeyState),
 		lastInboundDecrypt: make(map[uint32]time.Time),
@@ -469,6 +506,23 @@ func (tm *TunnelManager) RequestHolePunch(targetNodeID uint32) {
 // integration tests which sleep 10s after partitioning UDP between peers.
 const directBlackholeThreshold = 8 * time.Second
 
+// blackholeMissesRequired is the number of consecutive writeFrame
+// observations of "direct path silent for >threshold" needed before
+// the tunnel flips to relay. With a single window check, transient
+// ACK gaps (GC pauses, OS scheduler jitter, brief loss bursts) flapped
+// the entire tunnel onto the relay path mid-transfer — observed in
+// the autoscale bench as 4 MB/s ↔ 0.06 MB/s bimodality. Three
+// consecutive misses ≈ 24+ s of legitimate silence before fail-over,
+// which still beats the application-layer 30+ s retransmit budget.
+const blackholeMissesRequired = 3
+
+// directClearsRequired is the symmetric hysteresis on the relay→direct
+// auto-clear path. Clearing the relay flag now requires N consecutive
+// direct-from-peer packets so a single direct burst during a relay
+// stretch (e.g. one stray packet from a brief NAT path opening) can't
+// bounce us back to direct only to flap immediately.
+const directClearsRequired = 3
+
 // writeFrame sends a raw frame to a peer, using relay through the beacon if needed.
 func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
 	tm.mu.RLock()
@@ -477,8 +531,11 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	lastRecv, hasRecv := tm.lastDirectRecv[nodeID]
 	tm.mu.RUnlock()
 
-	// B1 relay regression fix: if we have a beacon and the peer's direct
-	// path has gone silent past the blackhole threshold, flip to relay.
+	// Direct-blackhole detection with hysteresis (v1.9.1).
+	// A single 8 s gap is no longer enough — the heuristic now requires
+	// blackholeMissesRequired consecutive observations of staleness
+	// before flipping. The miss counter resets to 0 on any direct
+	// packet receipt (clearRelayOnDirectLocked) and on the flip itself.
 	// hasRecv check ensures we don't flip peers we've never heard from
 	// directly (those go through the standard DialConnection auto-switch
 	// at daemon.go:2097 instead).
@@ -486,13 +543,19 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 		tm.mu.Lock()
 		// Re-check under write lock to avoid racing with clearRelayOnDirectLocked
 		if !tm.relayPeers[nodeID] {
-			tm.relayPeers[nodeID] = true
-			slog.Info("direct path silent, flipping to relay",
-				"peer_node_id", nodeID,
-				"silent_for", time.Since(lastRecv).String())
+			tm.blackholeMissCount[nodeID]++
+			misses := tm.blackholeMissCount[nodeID]
+			if misses >= blackholeMissesRequired {
+				tm.relayPeers[nodeID] = true
+				tm.blackholeMissCount[nodeID] = 0 // reset for next cycle
+				slog.Info("direct path silent, flipping to relay",
+					"peer_node_id", nodeID,
+					"silent_for", time.Since(lastRecv).String(),
+					"misses", misses)
+				relay = true
+			}
 		}
 		tm.mu.Unlock()
-		relay = true
 	}
 
 	if relay && bAddr != nil {
@@ -506,6 +569,9 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 		if err == nil {
 			atomic.AddUint64(&tm.PktsSent, 1)
 			atomic.AddUint64(&tm.BytesSent, uint64(n))
+			tm.recordOutboundSend(nodeID)
+		} else {
+			tm.handleSendError(nodeID, err)
 		}
 		return err
 	}
@@ -517,8 +583,159 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	if err == nil {
 		atomic.AddUint64(&tm.PktsSent, 1)
 		atomic.AddUint64(&tm.BytesSent, uint64(n))
+		tm.recordOutboundSend(nodeID)
+	} else {
+		tm.handleSendError(nodeID, err)
 	}
 	return err
+}
+
+// recordOutboundSend stamps the lastOutboundSend timestamp for a peer.
+// Used by keepaliveSweep to identify peers whose NAT mapping is at risk
+// of idle-timeout (no send in keepaliveInterval).
+func (tm *TunnelManager) recordOutboundSend(nodeID uint32) {
+	tm.mu.Lock()
+	tm.lastOutboundSend[nodeID] = time.Now()
+	tm.mu.Unlock()
+}
+
+// sendErrThreshold is the number of consecutive ICMP-unreachable errors
+// from a single peer required before handleSendError flips them to relay
+// mode. Three matches the symmetric blackhole-miss / direct-clear
+// thresholds so transient single-error blips don't cause flapping.
+const sendErrThreshold = 3
+
+// handleSendError is invoked from writeFrame's UDP-write error path. On
+// a Linux kernel that has received an ICMP-unreachable from the peer's
+// stack, the next WriteToUDP returns ECONNREFUSED / EHOSTUNREACH /
+// ENETUNREACH. After sendErrThreshold consecutive matching errors, the
+// peer is promoted to relay mode for fast recovery (vs. waiting ~24 s
+// for the lastDirectRecv-based blackhole heuristic).
+//
+// Non-ICMP errors (generic write failure, EAGAIN, etc.) are ignored —
+// they don't carry the same "peer is reachably-dead" signal.
+func (tm *TunnelManager) handleSendError(nodeID uint32, err error) {
+	if !isICMPUnreachable(err) {
+		return
+	}
+
+	tm.mu.Lock()
+	tm.sendErrCount[nodeID]++
+	count := tm.sendErrCount[nodeID]
+	flipped := false
+	if count >= sendErrThreshold && !tm.relayPeers[nodeID] {
+		if len(tm.relayPeers) < maxRelayPeers {
+			tm.relayPeers[nodeID] = true
+			tm.sendErrCount[nodeID] = 0 // reset for next cycle
+			flipped = true
+		}
+	}
+	tm.mu.Unlock()
+
+	if flipped {
+		slog.Info("direct path ICMP-unreachable, flipping to relay",
+			"peer_node_id", nodeID,
+			"consecutive_errors", count,
+			"error", err)
+	}
+}
+
+// isICMPUnreachable returns true if err is one of the syscall errors
+// the Linux kernel surfaces on a subsequent UDP send after receiving
+// an ICMP unreachable from the peer's stack.
+func isICMPUnreachable(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH)
+}
+
+// TunnelKeepaliveInterval is the minimum gap between successive sends to
+// a peer before keepaliveSweep enqueues a NAT-keepalive frame. Set below
+// the 30 s lower bound of consumer-NAT UDP idle timeout. Tunable for
+// tests via direct assignment.
+var TunnelKeepaliveInterval = 25 * time.Second
+
+// keepaliveSweep examines tm.peers and sends a tiny encrypted keepalive
+// frame to every peer whose lastOutboundSend is older than
+// TunnelKeepaliveInterval. Returns the number of keepalives sent.
+//
+// The keepalive frame is an empty ProtoControl packet on PortPing —
+// handleEncrypted recognises this combination and silently drops it
+// before recvCh delivery, so application code never sees a spurious
+// "ping" packet. The encrypted payload still authenticates as us
+// (peer's AEAD verifies our nodeID AAD), so an attacker can't forge
+// keepalives to keep stale entries warm.
+func (tm *TunnelManager) keepaliveSweep(now time.Time) int {
+	type peerInfo struct {
+		id   uint32
+		addr *net.UDPAddr
+		pc   *peerCrypto
+	}
+	tm.mu.RLock()
+	stale := make([]peerInfo, 0, len(tm.peers))
+	for nodeID, addr := range tm.peers {
+		last, ok := tm.lastOutboundSend[nodeID]
+		if ok && now.Sub(last) < TunnelKeepaliveInterval {
+			continue
+		}
+		pc := tm.crypto[nodeID]
+		if pc == nil || !pc.ready {
+			continue
+		}
+		stale = append(stale, peerInfo{nodeID, addr, pc})
+	}
+	tm.mu.RUnlock()
+
+	sent := 0
+	for _, p := range stale {
+		ka := &protocol.Packet{
+			Version:  protocol.Version,
+			Protocol: protocol.ProtoControl,
+			DstPort:  protocol.PortPing,
+		}
+		plaintext, err := ka.Marshal()
+		if err != nil {
+			continue
+		}
+		frame := tm.encryptFrame(p.pc, plaintext)
+		if err := tm.writeFrame(p.id, p.addr, frame); err != nil {
+			slog.Debug("keepalive send failed", "peer_node_id", p.id, "error", err)
+			continue
+		}
+		sent++
+	}
+	return sent
+}
+
+// keepaliveTickerInterval is how often keepaliveLoop wakes up to scan
+// for stale peers. Set to a fraction of TunnelKeepaliveInterval so a
+// peer that goes idle right after a tick still gets a keepalive within
+// roughly TunnelKeepaliveInterval + this period.
+var keepaliveTickerInterval = 5 * time.Second
+
+// keepaliveLoop runs the periodic NAT-keepalive sweep until tm.done
+// closes. Spawned by Listen() once the UDP socket is bound.
+func (tm *TunnelManager) keepaliveLoop() {
+	ticker := time.NewTicker(keepaliveTickerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-tm.done:
+			return
+		case <-ticker.C:
+			tm.keepaliveSweep(time.Now())
+		}
+	}
+}
+
+// isTunnelKeepalive returns true for the packets that keepaliveSweep
+// emits — empty ProtoControl on PortPing. handleEncrypted drops these
+// before recvCh delivery so application code never sees a spurious ping.
+func isTunnelKeepalive(pkt *protocol.Packet) bool {
+	return pkt != nil &&
+		pkt.Protocol == protocol.ProtoControl &&
+		pkt.DstPort == protocol.PortPing &&
+		len(pkt.Payload) == 0
 }
 
 // getPeerPubKey returns the cached Ed25519 public key for a peer, fetching from
@@ -567,6 +784,11 @@ func (tm *TunnelManager) Listen(addr string) error {
 	// single dropped reply leaves the tunnel wedged until the next
 	// 5-minute relay probe.
 	go tm.rekeyRetransmitLoop()
+	// v1.9.1 NAT-keepalive: send a tiny encrypted ping every
+	// TunnelKeepaliveInterval to peers we've been silent to, preventing
+	// consumer-NAT idle-timeout from silently breaking long-lived
+	// peer relationships with bursty connection cycles.
+	go tm.keepaliveLoop()
 	return nil
 }
 
@@ -961,6 +1183,19 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 			tm.webhook.Emit("security.nonce_replay", map[string]interface{}{
 				"peer_node_id": peerNodeID, "counter": recvCounter,
 			})
+			// v1.9.1 peer-restart resync: a "replay" with a counter in the
+			// low-counter zone (< 1024) is far more likely to be a peer
+			// that just restarted and resumed from 1 than a real replay
+			// attack. Real attacks reuse a HIGH counter captured from the
+			// active session — the attacker has no way to lower their
+			// own counter without our private key. Trigger a rate-limited
+			// rekey so the peer (still alive on the wire) can re-establish
+			// crypto. Rate limiting (rekeyRequestInterval) prevents
+			// amplification if a real attacker tries to force key rotation
+			// by spraying low-counter ciphertexts.
+			if recvCounter < 1024 {
+				tm.maybeRequestRekey(peerNodeID, from)
+			}
 		}
 		return
 	}
@@ -986,6 +1221,15 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		return
 	}
 
+	// v1.9.1 NAT-keepalive: drop tunnel-keepalive packets before recvCh
+	// delivery. They're authenticated (the AEAD verified the sender's
+	// nodeID AAD) so we still want all the side-effects below (recordInbound
+	// Decrypt, clearRelayOnDirect, address-learning), but the application
+	// layer should never see them. Doing this BEFORE the recordInbound
+	// side-effects would lose the liveness signal the keepalive is meant
+	// to provide; doing it after but BEFORE the recvCh send keeps the
+	// signal flowing without polluting the application stream.
+
 	// P1-010 tunnel-state half: successful decrypt = peer has matching
 	// crypto. Clear any pending rekey state so rekeyRetransmitLoop stops
 	// hammering. Update the lastInboundDecrypt timestamp for the
@@ -998,6 +1242,16 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	// subsequent sends go direct (and the relay probe loop stops firing).
 	// Also record the timestamp so writeFrame can detect direct-path
 	// blackholes and flip to relay (B1 relay regression fix).
+	//
+	// v1.9.1 NAT-remap address learning: also update tm.peers[peerNodeID]
+	// to the source addr of every authenticated direct decrypt. Symmetric
+	// or port-restricted NATs rotate source ports (idle timeout, NAT box
+	// reboot, CGNAT churn). Without this, our cached peers[] entry stays
+	// stuck at the pre-rotation addr until the peer happens to send a
+	// fresh key_exchange — silently black-holing every outbound send in
+	// between. Skipping the beacon-source case prevents pinning the peer
+	// to the beacon's listen port (relay traffic carries the original
+	// from=beaconAddr, which is not the peer's real direct addr).
 	tm.mu.Lock()
 	cleared := tm.clearRelayOnDirectLocked(peerNodeID, from)
 	if from != nil {
@@ -1005,6 +1259,7 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 			from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port
 		if !fromBeacon {
 			tm.lastDirectRecv[peerNodeID] = time.Now()
+			tm.peers[peerNodeID] = from
 		}
 	}
 	tm.mu.Unlock()
@@ -1015,6 +1270,14 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 
 	atomic.AddUint64(&tm.PktsRecv, 1)
 	atomic.AddUint64(&tm.BytesRecv, uint64(len(data)+4)) // +4 for PILS magic
+
+	// Drop tunnel keepalives before recvCh delivery — they exist purely
+	// to keep NAT mappings warm; the application layer should never see
+	// them. All liveness/address-learning side-effects above already ran.
+	if isTunnelKeepalive(pkt) {
+		return
+	}
+
 	select {
 	case tm.recvCh <- &IncomingPacket{Packet: pkt, From: from}:
 	case <-tm.done:
@@ -1141,6 +1404,14 @@ func (tm *TunnelManager) recordInboundDecrypt(peerNodeID uint32) {
 	tm.rkPendingMu.Lock()
 	tm.lastInboundDecrypt[peerNodeID] = time.Now()
 	tm.rkPendingMu.Unlock()
+
+	// v1.9.1 ICMP-aware fix: a successful inbound decrypt is proof the
+	// peer is alive and reachable. Clear any accumulated send-error
+	// count so a future transient ICMP-unreachable burst doesn't
+	// trip the relay flip on a freshly-recovered peer.
+	tm.mu.Lock()
+	delete(tm.sendErrCount, peerNodeID)
+	tm.mu.Unlock()
 }
 
 // inboundDecryptStale returns true if we haven't successfully decrypted
@@ -1454,18 +1725,36 @@ func (tm *TunnelManager) SendDirectProbe(nodeID uint32, pkt *protocol.Packet) er
 // arrives from a non-beacon UDP address. Called from handleEncrypted after
 // successful decryption. Must be called with tm.mu held for writing.
 //
-// P1-010 fix: when the direct path recovers (NAT mapping refreshed, peer
-// moved networks, etc.), the first successfully-decrypted direct packet
-// auto-downgrades us out of relay mode. This replaces the old 2-second
-// afterFunc in relayProbeLoop which raced with concurrent sends.
+// v1.9.1: hysteresis applied. Clearing now requires directClearsRequired
+// consecutive direct-from-peer packets so a single direct burst during a
+// relay stretch (a stray packet from a brief NAT path opening) doesn't
+// bounce us back to direct only to flap immediately. Each non-beacon
+// receipt also resets the blackholeMissCount so writeFrame's flip
+// counter accurately tracks "consecutive misses since the last
+// confirmed direct packet."
 func (tm *TunnelManager) clearRelayOnDirectLocked(peerNodeID uint32, from *net.UDPAddr) bool {
-	if from == nil || !tm.relayPeers[peerNodeID] {
+	if from == nil {
 		return false
 	}
 	if tm.beaconAddr != nil && from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port {
 		return false
 	}
+	// A direct packet just arrived. Reset blackholeMissCount unconditionally
+	// — the writeFrame heuristic should restart its counter on every fresh
+	// direct receipt, regardless of whether we're in relay mode.
+	tm.blackholeMissCount[peerNodeID] = 0
+
+	if !tm.relayPeers[peerNodeID] {
+		// Not in relay; nothing to clear. Counter reset above is sufficient.
+		return false
+	}
+	// In relay; require N consecutive direct receipts before clearing.
+	tm.directClearCount[peerNodeID]++
+	if tm.directClearCount[peerNodeID] < directClearsRequired {
+		return false
+	}
 	tm.relayPeers[peerNodeID] = false
+	tm.directClearCount[peerNodeID] = 0
 	return true
 }
 
@@ -1548,12 +1837,32 @@ func (tm *TunnelManager) AddPeer(nodeID uint32, addr *net.UDPAddr) {
 	}
 }
 
-// RemovePeer removes a peer.
+// RemovePeer removes a peer and all per-peer metadata. Long-running
+// daemons with peer churn (handshake revocations, network leaves)
+// previously leaked entries in lastDirectRecv, blackholeMissCount,
+// directClearCount, relayPeers, peerPubKeys, pendingRekey, and
+// lastInboundDecrypt — none of which had any other deletion path.
+// A reused nodeID would also inherit stale state (e.g. trip the relay
+// flip on the third miss because blackholeMissCount=2 from the
+// previous tenant).
 func (tm *TunnelManager) RemovePeer(nodeID uint32) {
 	tm.mu.Lock()
 	delete(tm.peers, nodeID)
 	delete(tm.crypto, nodeID)
+	delete(tm.lastOutboundSend, nodeID)
+	delete(tm.sendErrCount, nodeID)
+	delete(tm.lastDirectRecv, nodeID)
+	delete(tm.blackholeMissCount, nodeID)
+	delete(tm.directClearCount, nodeID)
+	delete(tm.relayPeers, nodeID)
+	delete(tm.peerPubKeys, nodeID)
 	tm.mu.Unlock()
+
+	// pendingRekey + lastInboundDecrypt live under a separate mutex.
+	tm.rkPendingMu.Lock()
+	delete(tm.pendingRekey, nodeID)
+	delete(tm.lastInboundDecrypt, nodeID)
+	tm.rkPendingMu.Unlock()
 }
 
 // HasPeer checks if we have a tunnel to a node.

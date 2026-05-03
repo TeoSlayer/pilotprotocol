@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -116,6 +117,20 @@ type ipcConn struct {
 	done      chan struct{} // closed by Close() to signal shutdown to ipcWrite + writeLoop
 	closeOnce sync.Once
 	writeDone chan struct{}
+
+	// dialCancels holds cancel funcs for in-flight DialConnection calls
+	// this client started. On Close() we fire them all so the daemon's
+	// dial loops bail out immediately instead of grinding to their full
+	// retry budget (~14-31 s) leaving orphan SYN_SENT entries.
+	//
+	// v1.9.1 fix: changed from []CancelFunc to map[uint64]CancelFunc.
+	// addDialCancel returns an ID; removeDialCancel(id) deletes the entry
+	// in O(1) so completed dials don't accumulate dead cancel funcs.
+	// A []CancelFunc that was never pruned would grow by one entry per
+	// completed dial — at 1000 dials/s over 8 h that was ~2.3 GB leaked
+	// per IPC connection.
+	dialCancels  map[uint64]context.CancelFunc
+	nextCancelID uint64
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -155,10 +170,11 @@ const MaxConnsPerIPCClient = 4096
 // is properly initialized.
 func newIPCConn(c net.Conn) *ipcConn {
 	ic := &ipcConn{
-		Conn:      c,
-		sendCh:    make(chan []byte, ipcSendBuffer),
-		done:      make(chan struct{}),
-		writeDone: make(chan struct{}),
+		Conn:        c,
+		sendCh:      make(chan []byte, ipcSendBuffer),
+		done:        make(chan struct{}),
+		writeDone:   make(chan struct{}),
+		dialCancels: make(map[uint64]context.CancelFunc),
 	}
 	go ic.writeLoop()
 	return ic
@@ -238,8 +254,47 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 func (c *ipcConn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)
+		// Cancel any in-flight dials this client started so the daemon
+		// doesn't keep grinding through retry budgets after the caller
+		// has already disconnected. Each cancel removes its connection
+		// from the daemon's conn table within milliseconds.
+		c.rmu.Lock()
+		cancels := c.dialCancels
+		c.dialCancels = make(map[uint64]context.CancelFunc)
+		c.rmu.Unlock()
+		for _, cancel := range cancels {
+			cancel()
+		}
 	})
 	return nil
+}
+
+// addDialCancel registers a context.CancelFunc for an in-flight dial.
+// Returns an opaque ID that the caller passes to removeDialCancel when
+// the dial completes, keeping dialCancels bounded to in-flight dials only.
+func (c *ipcConn) addDialCancel(cancel context.CancelFunc) uint64 {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	c.nextCancelID++
+	id := c.nextCancelID
+	c.dialCancels[id] = cancel
+	return id
+}
+
+// removeDialCancel removes the cancel registered under id. Called after
+// a dial completes (success or error) to prevent dead cancel funcs from
+// accumulating in the map for the lifetime of the IPC connection.
+func (c *ipcConn) removeDialCancel(id uint64) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	delete(c.dialCancels, id)
+}
+
+// dialCancelCount returns the number of in-flight dial cancel funcs (for testing).
+func (c *ipcConn) dialCancelCount() int {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	return len(c.dialCancels)
 }
 
 func (c *ipcConn) trackPort(port uint16) {
@@ -254,7 +309,24 @@ func (c *ipcConn) trackConn(connID uint32) {
 	c.conns = append(c.conns, connID)
 }
 
-// connCount returns the number of connections currently owned by this client.
+// removeConn removes a connection ID from the tracked set when the connection
+// is closed (either via explicit CmdClose or remote-FIN path). Without this,
+// connCount() would grow without bound, exhausting the per-client quota after
+// MaxConnsPerIPCClient dial+close cycles even with zero active connections.
+func (c *ipcConn) removeConn(connID uint32) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	for i, id := range c.conns {
+		if id == connID {
+			c.conns = append(c.conns[:i], c.conns[i+1:]...)
+			return
+		}
+	}
+}
+
+// connCount returns the number of currently active connections owned by
+// this client. Connections are removed from the tracked set when closed
+// (removeConn), so this reflects live connections only.
 func (c *ipcConn) connCount() int {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -495,7 +567,18 @@ func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize:])
 
-	c, err := s.daemon.DialConnection(dstAddr, dstPort)
+	// Per-dial cancellable context tied to this IPC connection's lifetime.
+	// When the IPC client closes (Ctrl+C, crash), ipcConn.Close fires this
+	// cancel and the dial loop exits inside its select instead of grinding
+	// through the full 14-31 s retry budget leaving an orphaned SYN_SENT.
+	dialCtx, dialCancel := context.WithCancel(context.Background())
+	cancelID := conn.addDialCancel(dialCancel)
+	defer func() {
+		dialCancel()
+		conn.removeDialCancel(cancelID) // keep map bounded to in-flight dials
+	}()
+
+	c, err := s.daemon.DialConnectionContext(dialCtx, dstAddr, dstPort)
 	if err != nil {
 		s.sendError(conn, err.Error())
 		return
@@ -545,6 +628,7 @@ func (s *IPCServer) handleClose(conn *ipcConn, payload []byte) {
 	if c != nil {
 		s.daemon.CloseConnection(c)
 	}
+	conn.removeConn(connID)
 
 	resp := make([]byte, 5)
 	resp[0] = CmdCloseOK
@@ -1221,6 +1305,7 @@ func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
 			copy(msg[5:], data)
 			if err := conn.ipcWrite(msg); err != nil {
 				slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
+				conn.removeConn(c.ID)
 				return
 			}
 		}
@@ -1230,6 +1315,7 @@ func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
 		if err := conn.ipcWrite(closeMsg); err != nil {
 			slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
 		}
+		conn.removeConn(c.ID)
 	}()
 }
 

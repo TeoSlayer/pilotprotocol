@@ -168,3 +168,4 @@ tests/integration/local/logs.rerun*
 # Untracked sandboxes / personal scratch — never commit
 abpn/
 scripts/pilot-geo-exporter/
+/spoof
