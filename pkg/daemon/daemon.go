@@ -198,6 +198,18 @@ type resolveEntry struct {
 	cachedAt time.Time
 }
 
+// hostnameCacheEntry caches a resolve_hostname response so repeated
+// send-message calls to the same peer don't pound the registry.
+type hostnameCacheEntry struct {
+	resp     map[string]interface{}
+	cachedAt time.Time
+}
+
+// hostnameCacheTTL is how long a cached hostname resolution stays
+// valid. Short enough that legitimate hostname rotations propagate
+// within a minute; long enough to absorb rapid-fire CLI invocations.
+const hostnameCacheTTL = 60 * time.Second
+
 type Daemon struct {
 	config          Config
 	addrMu          sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
@@ -233,6 +245,14 @@ type Daemon struct {
 	// Resolve cache: nodeID -> cached registry response (60s TTL)
 	resolveCacheMu sync.RWMutex
 	resolveCache   map[uint32]*resolveEntry
+
+	// Hostname cache: hostname string -> cached resolve_hostname response.
+	// Avoids hitting the registry for every send-message to the same peer
+	// when the regConn is contended (policy fetchMembers loops, etc.).
+	// 60s TTL — hostnames do change (rotation, reassignment) but rarely
+	// fast enough for sub-minute staleness to matter.
+	hostnameCacheMu sync.RWMutex
+	hostnameCache   map[string]*hostnameCacheEntry
 
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
@@ -329,6 +349,7 @@ func New(cfg Config) *Daemon {
 		perSrcSYN:     make(map[uint32]*srcSYNBucket),
 		epCache:       make(map[uint32]*endpointEntry),
 		resolveCache:  make(map[uint32]*resolveEntry),
+		hostnameCache: make(map[string]*hostnameCacheEntry),
 		netPolicies:   make(map[uint16][]uint16),
 		managed:       make(map[uint16]*ManagedEngine),
 		policyRunners: make(map[uint16]*PolicyRunner),

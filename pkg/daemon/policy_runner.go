@@ -47,6 +47,16 @@ type PolicyRunner struct {
 	stopCh chan struct{}
 	done   chan struct{}
 	path   string // persistence path (~/.pilot/policy_<netID>.json)
+
+	// fetchMembers backoff. Some networks are too large for the registry's
+	// list_nodes response to fit a single read window — fetchMembers EOFs
+	// every 5s tick and pounds the regConn mutex, which adds 5+ seconds
+	// of latency to ANY other call (resolve_hostname, lookup, etc) that
+	// shares regConn. Track consecutive failures and skip ticks until
+	// the next backoff deadline.
+	fetchFailMu       sync.Mutex
+	fetchFailures     int       // consecutive failure count
+	fetchSkipUntil    time.Time // skip ticks before this time
 }
 
 // policySnapshot is the JSON format persisted to disk.
@@ -1035,11 +1045,47 @@ func (pr *PolicyRunner) fetchMembers() ([]uint32, error) {
 // fetchMembersWithTags returns member IDs and their admin-assigned tags.
 // Also updates the daemon's local member tags cache for the local node.
 func (pr *PolicyRunner) fetchMembersWithTags() []fetchedMember {
-	resp, err := pr.daemon.regConn.ListNodes(pr.netID, pr.daemon.config.AdminToken)
-	if err != nil {
-		slog.Warn("policy: fetchMembers failed", "network_id", pr.netID, "err", err)
+	// Skip if recent failures put us in backoff. Prevents the 5s tick
+	// from re-EOF'ing the regConn and starving co-tenant calls
+	// (resolve_hostname, lookup) of the shared mutex.
+	pr.fetchFailMu.Lock()
+	if !pr.fetchSkipUntil.IsZero() && time.Now().Before(pr.fetchSkipUntil) {
+		pr.fetchFailMu.Unlock()
 		return nil
 	}
+	pr.fetchFailMu.Unlock()
+
+	resp, err := pr.daemon.regConn.ListNodes(pr.netID, pr.daemon.config.AdminToken)
+	if err != nil {
+		// Exponential backoff: 5s → 10s → 20s → 40s → 80s, capped at 5min.
+		// Logs only on transitions (1st, 4th, 8th, 16th failure) so the
+		// user sees the issue without log spam.
+		pr.fetchFailMu.Lock()
+		pr.fetchFailures++
+		fails := pr.fetchFailures
+		backoff := time.Duration(1<<min(fails, 6)) * 5 * time.Second
+		if backoff > 5*time.Minute {
+			backoff = 5 * time.Minute
+		}
+		pr.fetchSkipUntil = time.Now().Add(backoff)
+		pr.fetchFailMu.Unlock()
+		// Log on power-of-two transitions to avoid spam.
+		if fails == 1 || fails == 4 || fails == 8 || fails == 16 || fails%32 == 0 {
+			slog.Warn("policy: fetchMembers failed",
+				"network_id", pr.netID, "err", err,
+				"consecutive_failures", fails, "next_attempt_in", backoff.String())
+		}
+		return nil
+	}
+	// Reset failure count on success.
+	pr.fetchFailMu.Lock()
+	if pr.fetchFailures > 0 {
+		slog.Info("policy: fetchMembers recovered", "network_id", pr.netID,
+			"after_failures", pr.fetchFailures)
+		pr.fetchFailures = 0
+		pr.fetchSkipUntil = time.Time{}
+	}
+	pr.fetchFailMu.Unlock()
 
 	nodesRaw, ok := resp["nodes"].([]interface{})
 	if !ok {

@@ -820,11 +820,44 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 		return
 	}
 
+	// Try the daemon's hostname cache first. The regConn mutex is shared
+	// with the policy_runner's fetchMembers loop; on networks that trip
+	// the list_nodes EOF cycle the lookup can block for seconds. Most
+	// CLI invocations resolve the same hostname repeatedly (a chained
+	// agent script doing dozens of `pilotctl send-message agent X`
+	// calls), so a 60s positive cache turns those calls into IPC-only
+	// round trips.
+	now := time.Now()
+	s.daemon.hostnameCacheMu.RLock()
+	if e, ok := s.daemon.hostnameCache[hostname]; ok && now.Sub(e.cachedAt) < hostnameCacheTTL {
+		cached := e.resp
+		s.daemon.hostnameCacheMu.RUnlock()
+		if data, err := json.Marshal(cached); err == nil {
+			resp := make([]byte, 1+len(data))
+			resp[0] = CmdResolveHostnameOK
+			copy(resp[1:], data)
+			if err := conn.ipcWrite(resp); err != nil {
+				slog.Debug("IPC resolve_hostname (cached) reply failed", "err", err)
+			}
+			return
+		}
+		// fall through on marshal error (shouldn't happen)
+	} else {
+		s.daemon.hostnameCacheMu.RUnlock()
+	}
+
 	result, err := s.daemon.regConn.ResolveHostname(hostname)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("resolve_hostname: %v", err))
 		return
 	}
+
+	// Cache the successful response. Only cache positive results so
+	// transient registry hiccups don't poison the cache with a bogus
+	// "not found".
+	s.daemon.hostnameCacheMu.Lock()
+	s.daemon.hostnameCache[hostname] = &hostnameCacheEntry{resp: result, cachedAt: now}
+	s.daemon.hostnameCacheMu.Unlock()
 
 	data, err := json.Marshal(result)
 	if err != nil {

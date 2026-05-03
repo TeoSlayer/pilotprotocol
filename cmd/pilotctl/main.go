@@ -2848,10 +2848,23 @@ func cmdSendMessage(args []string) {
 		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]")
 	}
 
+	// Optional latency tracing: set PILOTCTL_TRACE_TIME=1 to dump per-step
+	// timings to stderr. Useful when debugging slow agents — distinguishes
+	// hostname-resolve, dial, and recv contributions.
+	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != ""
+	t0 := time.Now()
+	tracef := func(label string) {
+		if traceTime {
+			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, float64(time.Since(t0).Microseconds())/1000.0)
+		}
+	}
+
 	d := connectDriver()
+	tracef("connectDriver")
 	defer d.Close()
 
 	target, err := parseAddrOrHostname(d, pos[0])
+	tracef("parseAddrOrHostname")
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
@@ -2863,6 +2876,7 @@ func cmdSendMessage(args []string) {
 	msgType := flagString(flags, "type", "text")
 
 	client, err := dataexchange.Dial(d, target)
+	tracef("dataexchange.Dial")
 	if err != nil {
 		hint := classifyDaemonError(err)
 		if hint == "" {
@@ -2883,12 +2897,14 @@ func cmdSendMessage(args []string) {
 	default:
 		fatalCode("invalid_argument", "unknown type %q (use text, json, or binary)", msgType)
 	}
+	tracef("client.Send")
 	if err != nil {
 		fatalCode("connection_failed", "send: %v", err)
 	}
 
 	// Read ACK
 	ack, err := client.Recv()
+	tracef("client.Recv")
 	if err != nil {
 		slog.Debug("send-message ACK read failed", "err", err)
 	}
@@ -2902,6 +2918,7 @@ func cmdSendMessage(args []string) {
 		result["ack"] = string(ack.Payload)
 	}
 	outputOK(result)
+	tracef("outputOK")
 }
 
 // ===================== TASK SUBCOMMANDS =====================
