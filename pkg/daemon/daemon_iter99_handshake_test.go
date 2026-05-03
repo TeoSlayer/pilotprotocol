@@ -108,7 +108,7 @@ func TestHandleRequestAlreadyTrustedSendsAcceptWithoutDuplicating(t *testing.T) 
 		PublicKey: "new-key-should-be-ignored",
 		Timestamp: time.Now().Unix(),
 	}
-	hm.handleRequest(nil, msg) // conn is unused in body
+	hm.handleRequest(nil, msg, false) // conn is unused in body
 
 	// PublicKey should NOT have been overwritten (handleRequest for trusted peers
 	// is a no-op beyond emitting sendAcceptLocked).
@@ -139,7 +139,7 @@ func TestHandleRequestMutualAutoApprovesAndMarksMutual(t *testing.T) {
 		PublicKey: "peer-99-key",
 		Timestamp: time.Now().Unix(),
 	}
-	hm.handleRequest(nil, msg)
+	hm.handleRequest(nil, msg, false)
 
 	hm.mu.RLock()
 	rec, ok := hm.trusted[99]
@@ -172,7 +172,7 @@ func TestHandleRequestAutoApproveWhenTrustAutoApproveEnabled(t *testing.T) {
 		PublicKey: "key-55",
 		Timestamp: time.Now().Unix(),
 	}
-	hm.handleRequest(nil, msg)
+	hm.handleRequest(nil, msg, false)
 
 	hm.mu.RLock()
 	rec, ok := hm.trusted[55]
@@ -202,7 +202,7 @@ func TestHandleRequestStoresInPendingWhenNotAutoApprovable(t *testing.T) {
 		Justification: "trust us",
 		Timestamp:     time.Now().Unix(),
 	}
-	hm.handleRequest(nil, msg)
+	hm.handleRequest(nil, msg, false)
 
 	hm.mu.RLock()
 	p, ok := hm.pending[100]
@@ -241,7 +241,7 @@ func TestHandleRequestPendingQueueFullRejects(t *testing.T) {
 		PublicKey: "key-oversize",
 		Timestamp: time.Now().Unix(),
 	}
-	hm.handleRequest(nil, msg)
+	hm.handleRequest(nil, msg, false)
 
 	hm.mu.RLock()
 	endLen := len(hm.pending)

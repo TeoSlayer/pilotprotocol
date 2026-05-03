@@ -29,6 +29,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	"github.com/TeoSlayer/pilotprotocol/pkg/skillinject"
 )
 
 // isRegistryRejectingUsErr returns true when the registry's response to a
@@ -102,19 +103,6 @@ type Config struct {
 
 	// Trust
 	TrustAutoApprove bool // automatically approve all incoming handshake requests
-
-	// AutoAcceptTrusted, when true (default), auto-approves handshakes from
-	// agents whose pubkey appears in the signed trusted-agents list (see
-	// internal/trustedagents). Set false for paranoid operators / tests
-	// that want to manually approve every request, including service agents.
-	AutoAcceptTrusted bool
-
-	// TrustedAgentsURL overrides the GitHub URL the daemon polls for
-	// trusted-agent list updates. Empty = trustedagents.DefaultURL. The
-	// signature is still verified against the baked SignerPublicKey, so
-	// pointing at a different URL only changes the distribution channel,
-	// not the trust root.
-	TrustedAgentsURL string
 
 	// PoloGateMin is the minimum polo score the receiver requires from
 	// a submitter for a task to be accepted. 0 = use the registry's
@@ -211,25 +199,24 @@ type resolveEntry struct {
 }
 
 type Daemon struct {
-	config         Config
-	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
-	nodeID         uint32
-	addr           protocol.Addr
-	publicEndpoint string // host:port reported to the registry at registration
-	identityMu     sync.RWMutex // protects identity after hot rotate-key
-	identity       *crypto.Identity
-	regConn        *registry.Client
-	tunnels        *TunnelManager
-	ports          *PortManager
-	ipc            *IPCServer
-	handshakes     *HandshakeManager
-	trustedAgents  *trustedagents.Store
-	webhook        *WebhookClient
-	taskQueue      *TaskQueue
-	startTime      time.Time
-	stopCh         chan struct{} // closed on Stop() to signal goroutines
+	config          Config
+	addrMu          sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
+	nodeID          uint32
+	addr            protocol.Addr
+	publicEndpoint  string       // host:port reported to the registry at registration
+	identityMu      sync.RWMutex // protects identity after hot rotate-key
+	identity        *crypto.Identity
+	regConn         *registry.Client
+	tunnels         *TunnelManager
+	ports           *PortManager
+	ipc             *IPCServer
+	handshakes      *HandshakeManager
+	webhook         *WebhookClient
+	taskQueue       *TaskQueue
+	startTime       time.Time
+	stopCh          chan struct{}         // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
-	stopOnce   sync.Once     // ensures stopCh is closed exactly once
+	stopOnce        sync.Once             // ensures stopCh is closed exactly once
 
 	// In-flight dial dedup: concurrent DialConnection calls to the same
 	// (peer_node, dst_port) park on the first dialer's done channel
@@ -237,7 +224,7 @@ type Daemon struct {
 	// "3 stuck SYN_SENT to same peer" pattern visible in `pilotctl info`
 	// when multiple commands race against a cold peer.
 	dialFlight sync.Map // key: dialKey, value: *dialInFlight
-	lanAddrs   []string      // LAN addresses for same-network peer detection
+	lanAddrs   []string // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
 	epCacheMu sync.RWMutex
@@ -348,19 +335,6 @@ func New(cfg Config) *Daemon {
 		memberTags:    make(map[uint16][]string),
 	}
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
-
-	// Trusted-agents store: load embedded blob (verified at build time by
-	// trustedagents tests) and any cached newer version on disk.
-	cachePath := ""
-	if cfg.IdentityPath != "" {
-		cachePath = filepath.Join(filepath.Dir(cfg.IdentityPath), "trusted-agents.json")
-	}
-	if store, err := trustedagents.NewStore(cachePath); err != nil {
-		slog.Warn("trusted-agents store init failed; auto-accept disabled", "err", err)
-	} else {
-		d.trustedAgents = store
-	}
-
 	d.handshakes = NewHandshakeManager(d)
 	return d
 }
@@ -800,23 +774,27 @@ func (d *Daemon) Start() error {
 	// hash-pick lands on a fresher beacon.
 	go d.beaconRefreshLoop()
 
-	// 13. Trusted-agents fetcher: poll the signed list URL for newer
-	// versions. The embedded blob is the floor; this loop only ever
-	// adopts a strictly higher version that still verifies against the
-	// baked SignerPublicKey, so a compromised URL cannot downgrade or
-	// forge the list.
-	if d.trustedAgents != nil {
+	// 13. Trusted-agents fetcher: hourly refresh of the auto-accept
+	// list from GitHub. Embedded blob in the binary is the bootstrap.
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() { <-d.stopCh; cancel() }()
+		trustedagents.Run(ctx)
+	}()
+
+	// 14. Skill injector: scan for installed agent tools (Claude Code,
+	// OpenClaw, Cursor, OpenHands, Hermes) and drop the Pilot Protocol
+	// skill markdown into each one's skills/rules dir, plus a heartbeat
+	// reference into the always-loaded instructions file. Idempotent —
+	// won't rewrite if the on-disk hash already matches.
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			go func() {
-				<-d.stopCh
-				cancel()
-			}()
-			trustedagents.Run(ctx, d.trustedAgents, trustedagents.FetcherConfig{
-				URL: d.config.TrustedAgentsURL,
-			})
+			<-d.stopCh
+			cancel()
 		}()
-	}
+		skillinject.Run(ctx, skillinject.Config{})
+	}()
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)

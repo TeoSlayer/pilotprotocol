@@ -15,6 +15,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
@@ -285,6 +286,13 @@ func (hm *HandshakeManager) handleConnection(conn *Connection) {
 }
 
 // processMessage handles an incoming handshake message.
+//
+// On a successful (claimed pubkey == registry-registered pubkey) match
+// we set registryBound = true and pass it to handleRequest. The
+// trusted-agents auto-accept path requires that flag — without it,
+// trusting a peer by node_id alone is unsafe (registry down or no
+// record means we'd be relying on signature verification against a
+// claimed pubkey that nothing has tied to the claimed node ID).
 func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) {
 	// Timestamp validation
 	now := time.Now()
@@ -316,6 +324,7 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 	hm.replayMu.Unlock()
 
 	// M12 fix: verify P2P signature if the sender provides a public key
+	registryBound := false
 	if msg.PublicKey != "" {
 		if msg.Signature == "" {
 			slog.Warn("handshake: missing signature from authenticated node", "peer_node_id", msg.NodeID)
@@ -334,6 +343,7 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 						return
 					}
 					verifyKey = regPubKey
+					registryBound = true
 				}
 			}
 		}
@@ -357,7 +367,7 @@ func (hm *HandshakeManager) processMessage(conn *Connection, msg *HandshakeMsg) 
 
 	switch msg.Type {
 	case HandshakeRequest:
-		hm.handleRequest(conn, msg)
+		hm.handleRequest(conn, msg, registryBound)
 	case HandshakeAccept:
 		hm.handleAccept(msg)
 	case HandshakeReject:
@@ -380,7 +390,13 @@ func (hm *HandshakeManager) reapReplay() {
 }
 
 // handleRequest processes an incoming handshake request.
-func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
+//
+// registryBound is true iff processMessage confirmed the claimed
+// (node_id, public_key) binding via a registry lookup that returned a
+// non-empty pubkey matching the claimed one. It gates the trusted-
+// agents auto-accept path; signature-only authentication is not
+// enough to safely key on node_id.
+func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg, registryBound bool) {
 	peerNodeID := msg.NodeID
 	slog.Info("handshake request received", "peer_node_id", peerNodeID, "justification", msg.Justification)
 	hm.webhook.Emit("handshake.received", map[string]interface{}{
@@ -447,21 +463,17 @@ func (hm *HandshakeManager) handleRequest(conn *Connection, msg *HandshakeMsg) {
 		return
 	}
 
-	// Auto-approve when the requester's pubkey is in the signed
-	// trusted-agents list (e.g. list-agents and other service agents).
-	// Pubkey, not node ID — node IDs can be re-registered, but a pubkey
-	// match means the request was signed by an agent the offline-signed
-	// list explicitly names. Gated by AutoAcceptTrusted so paranoid
-	// operators can disable the auto-path entirely. Only runs on the
-	// direct path; processRelayedRequest does not see the requester
-	// pubkey on the wire and so cannot safely take this shortcut.
-	if hm.daemon.config.AutoAcceptTrusted && hm.daemon.trustedAgents != nil {
-		if name, ok := hm.daemon.trustedAgents.IsTrusted(msg.PublicKey); ok {
+	// Auto-approve when the peer is in the trusted-agents list AND the
+	// registry confirmed the (node_id, public_key) binding. Without
+	// registryBound a peer could claim any node ID with their own
+	// pubkey, sign with their own key, pass signature verify, and slip
+	// into auto-accept.
+	if registryBound {
+		if name, ok := trustedagents.IsTrusted(peerNodeID); ok {
 			hm.trusted[peerNodeID] = &TrustRecord{
 				NodeID:     peerNodeID,
 				PublicKey:  msg.PublicKey,
 				ApprovedAt: time.Now(),
-				Mutual:     false,
 			}
 			slog.Info("handshake auto-approved (trusted agent)",
 				"peer_node_id", peerNodeID, "agent", name)
