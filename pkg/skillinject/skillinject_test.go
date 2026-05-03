@@ -4,6 +4,7 @@ package skillinject
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -331,6 +332,167 @@ func TestMarker_IsDirective(t *testing.T) {
 		if !strings.Contains(got, kw) {
 			t.Errorf("marker missing trigger keyword %q", kw)
 		}
+	}
+}
+
+// Concurrent Tick calls don't corrupt outputs. Two writers using the
+// same path+".tmp" could race and leave a half-written file or a
+// rename-source-not-found. We don't *protect* against this in the
+// daemon (only one Run loop fires Tick at a time), but pilotctl skills
+// check + a tick coincide can race; this test verifies the worst that
+// happens is one writer's content wins, never corruption.
+func TestTick_ConcurrentDoesNotCorrupt(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+	r.manifest.Helpers = []ManifestHelper{{
+		Name: "pilot-ask",
+		Src:  "workflow-injection/pilot-ask",
+		Dst:  "~/.pilot/bin/pilot-ask",
+		Mode: "0755",
+	}}
+	r.files["workflow-injection/pilot-ask"] = []byte("#!/usr/bin/env bash\necho concurrent\n")
+
+	const N = 8
+	errCh := make(chan error, N)
+	for i := 0; i < N; i++ {
+		go func() {
+			_, err := Tick(context.Background(), r.cfg(home))
+			errCh <- err
+		}()
+	}
+	for i := 0; i < N; i++ {
+		if err := <-errCh; err != nil {
+			t.Errorf("concurrent Tick %d: %v", i, err)
+		}
+	}
+
+	// Final content matches one consistent body.
+	got := mustRead(t, filepath.Join(home, ".pilot", "bin", "pilot-ask"))
+	if got != "#!/usr/bin/env bash\necho concurrent\n" {
+		t.Errorf("corrupted helper content: %q", got)
+	}
+	skill := mustRead(t, filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md"))
+	if skill != testContent {
+		t.Errorf("corrupted skill content: %q", skill[:min(80, len(skill))])
+	}
+}
+
+// Malformed manifest JSON: tick returns an error and writes nothing.
+func TestTick_MalformedManifest(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.files["inject-manifest.json"] = []byte("not json {{{")
+	// Override default JSON marshaling: register a raw handler.
+	r.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		path := strings.TrimPrefix(req.URL.Path, "/")
+		if body, ok := r.files[path]; ok {
+			w.Write(body)
+			return
+		}
+		http.NotFound(w, req)
+	})
+
+	rep, err := Tick(context.Background(), r.cfg(home))
+	if err == nil {
+		t.Errorf("expected error on malformed manifest, got nil")
+	}
+	if rep != nil && len(rep.Outcomes) > 0 {
+		t.Errorf("expected no outcomes on parse failure, got %+v", rep.Outcomes)
+	}
+	mustNotExist(t, filepath.Join(home, ".pilot", "bin", "pilot-ask"))
+	mustNotExist(t, filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md"))
+}
+
+// Helper fetch fails mid-tick — record an error outcome, but still
+// continue with skill+marker reconciliation for the tools.
+func TestTick_HelperFetchFails_DoesNotBlockTools(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+	// Manifest references a helper src path that's NOT served.
+	r.manifest.Helpers = []ManifestHelper{{
+		Name: "pilot-ask",
+		Src:  "workflow-injection/missing-helper",
+		Dst:  "~/.pilot/bin/pilot-ask",
+		Mode: "0755",
+	}}
+
+	rep, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	var helperErr, skillCreate bool
+	for _, o := range rep.Outcomes {
+		if o.Kind == KindHelper && o.Action == ActionError {
+			helperErr = true
+		}
+		if o.Kind == KindSkill && o.Action == ActionCreate {
+			skillCreate = true
+		}
+	}
+	if !helperErr {
+		t.Errorf("expected helper error outcome, got %+v", rep.Outcomes)
+	}
+	if !skillCreate {
+		t.Errorf("skill should still be created despite helper failure: %+v", rep.Outcomes)
+	}
+	mustNotExist(t, filepath.Join(home, ".pilot", "bin", "pilot-ask"))
+	mustExist(t, filepath.Join(home, ".claude", "skills", "pilotctl", "SKILL.md"))
+}
+
+// Mode field defaults to 0755 when absent or invalid.
+func TestParseFileMode_Defaults(t *testing.T) {
+	cases := map[string]os.FileMode{
+		"":        0o755,
+		"0755":    0o755,
+		"0644":    0o644,
+		"0700":    0o700,
+		"garbage": 0o755,
+		"0":       0o755, // zero is treated as default to avoid silently writing unreadable files
+	}
+	for input, want := range cases {
+		if got := parseFileMode(input); got != want {
+			t.Errorf("parseFileMode(%q) = %o, want %o", input, got, want)
+		}
+	}
+}
+
+// Helper mode is preserved across ticks: chmod down then back up should
+// settle at the manifest-declared mode without rewriting content.
+func TestHelper_ModeDriftRewritesFile(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+	r.manifest.Helpers = []ManifestHelper{{
+		Name: "pilot-ask", Src: "workflow-injection/pilot-ask",
+		Dst: "~/.pilot/bin/pilot-ask", Mode: "0755",
+	}}
+	r.files["workflow-injection/pilot-ask"] = []byte("#!/usr/bin/env bash\necho ok\n")
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick 1: %v", err)
+	}
+	dst := filepath.Join(home, ".pilot", "bin", "pilot-ask")
+	// User chmods down to 0644
+	if err := os.Chmod(dst, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	// Next tick should detect mode drift and restore 0755.
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick 2: %v", err)
+	}
+	st, _ := os.Stat(dst)
+	if got := st.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode after rewrite = %o, want 0755", got)
 	}
 }
 
