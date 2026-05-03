@@ -439,6 +439,9 @@ Diagnostic commands:
 
 Agent tool discovery:
   pilotctl context
+  pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
+  pilotctl skills paths               print only the install paths (shell-friendly)
+  pilotctl skills check               run one reconcile pass right now
 
 Gateway (requires root for ports <1024):
   pilotctl gateway start [--subnet <cidr>] [--ports <list>] [<pilot-addr>...]
@@ -478,6 +481,7 @@ func main() {
 
 	cmd := args[0]
 	cmdArgs := args[1:]
+	extrasOnly := false
 
 dispatch:
 	switch cmd {
@@ -487,6 +491,7 @@ dispatch:
 			cmdExtrasHelp()
 			return
 		}
+		extrasOnly = true
 		cmd = cmdArgs[0]
 		cmdArgs = cmdArgs[1:]
 		goto dispatch
@@ -497,6 +502,10 @@ dispatch:
 
 	case "updates":
 		cmdUpdates(cmdArgs)
+		return
+
+	case "skills":
+		cmdSkills(cmdArgs)
 		return
 
 	// Bootstrap
@@ -527,11 +536,16 @@ dispatch:
 				"unknown daemon subcommand: %s", cmdArgs[0])
 		}
 
-	// Gateway
+	// Gateway (extras-only — use 'pilotctl extras gateway' or pilot-gateway binary)
 	case "gateway":
+		if !extrasOnly {
+			fatalHint("invalid_argument",
+				"use 'pilotctl extras gateway <subcommand>' or the pilot-gateway binary",
+				"gateway commands are not in the core CLI")
+		}
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: pilotctl gateway start | stop | map | unmap | list",
+				"available: start, stop, map, unmap, list",
 				"missing subcommand")
 		}
 		switch cmdArgs[0] {
@@ -573,12 +587,24 @@ dispatch:
 	case "clear-hostname":
 		cmdClearHostname()
 	case "set-tags":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras set-tags'", "set-tags is not in the core CLI")
+		}
 		cmdSetTags(cmdArgs)
 	case "clear-tags":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras clear-tags'", "clear-tags is not in the core CLI")
+		}
 		cmdClearTags()
 	case "enable-tasks":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras enable-tasks'", "enable-tasks is not in the core CLI")
+		}
 		cmdEnableTasks()
 	case "disable-tasks":
+		if !extrasOnly {
+			fatalHint("invalid_argument", "use 'pilotctl extras disable-tasks'", "disable-tasks is not in the core CLI")
+		}
 		cmdDisableTasks()
 	case "set-webhook":
 		cmdSetWebhook(cmdArgs)
@@ -599,9 +625,14 @@ dispatch:
 	case "send-message":
 		cmdSendMessage(cmdArgs)
 	case "task":
+		if !extrasOnly {
+			fatalHint("invalid_argument",
+				"use 'pilotctl extras task <subcommand>'",
+				"task commands are not in the core CLI")
+		}
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: pilotctl task submit | accept | decline | execute | send-results | result | list | queue",
+				"available: submit, accept, decline, execute, send-results, result, list, queue",
 				"missing subcommand")
 		}
 		switch cmdArgs[0] {
@@ -4033,6 +4064,8 @@ func cmdInfo(args []string) {
 	}
 	fmt.Printf("  Traffic:     %s sent / %s recv\n", formatBytes(bytesSent), formatBytes(bytesRecv))
 	fmt.Printf("  Packets:     %d sent / %d recv\n", pktsSent, pktsRecv)
+
+	printSkillInstallSummary()
 
 	connList, ok := info["conn_list"].([]interface{})
 	if ok && len(connList) > 0 {
