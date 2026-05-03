@@ -69,6 +69,10 @@ func Run(ctx context.Context, cfg Config) {
 // Tick performs one scan + reconcile pass and returns a Report. Network
 // failures abort the tick and return an error — there is no embedded
 // fallback. Exposed for tests, one-shot use, and `pilotctl skills check`.
+//
+// If the user has disabled skill injection via `pilotctl skills disable`
+// (persisted in ~/.pilot/config.json), Tick returns an empty report
+// without touching disk or the network.
 func Tick(ctx context.Context, cfg Config) (*Report, error) {
 	home := cfg.Home
 	if home == "" {
@@ -77,6 +81,10 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 			return nil, fmt.Errorf("home dir: %w", err)
 		}
 		home = h
+	}
+
+	if !IsEnabled(home) {
+		return &Report{At: time.Now().UTC(), Disabled: true}, nil
 	}
 
 	f := newFetcher(cfg)

@@ -161,14 +161,17 @@ func TestMarker_PreservesUserContent(t *testing.T) {
 	}
 
 	got := mustRead(t, hb)
-	if !strings.HasPrefix(got, pre) {
-		t.Errorf("user content not preserved at top:\n%s", got)
+	// Marker now lives at TOP of body (not at bottom) so it dominates
+	// any competing first-action instructions later in the file. User
+	// content is preserved BELOW the marker.
+	if !strings.HasPrefix(got, "<!-- pilot:begin v=1 hash=") {
+		t.Errorf("marker block not at top of file:\n%s", got)
 	}
-	if !strings.Contains(got, "<!-- pilot:begin v=1 hash=") {
-		t.Errorf("marker block missing")
+	if !strings.Contains(got, pre) {
+		t.Errorf("user content lost from file:\n%s", got)
 	}
 
-	// User adds content AFTER our marker block.
+	// User adds content AFTER our marker block (anywhere in the file).
 	withSuffix := mustRead(t, hb) + "\n## My new section\n\nAfter the marker.\n"
 	if err := os.WriteFile(hb, []byte(withSuffix), 0o644); err != nil {
 		t.Fatal(err)
@@ -181,14 +184,55 @@ func TestMarker_PreservesUserContent(t *testing.T) {
 	}
 
 	got = mustRead(t, hb)
-	if !strings.HasPrefix(got, pre) {
-		t.Errorf("top content lost on drift rewrite")
+	if !strings.Contains(got, pre) {
+		t.Errorf("user top content lost on drift rewrite:\n%s", got)
 	}
 	if !strings.Contains(got, "## My new section\n\nAfter the marker.\n") {
-		t.Errorf("user suffix after marker was lost on drift rewrite:\n%s", got)
+		t.Errorf("user suffix lost on drift rewrite:\n%s", got)
 	}
 	if c := strings.Count(got, "<!-- pilot:begin v=1 hash="); c != 1 {
 		t.Errorf("expected exactly 1 marker block, got %d", c)
+	}
+}
+
+// Marker is injected at the top of the body (after any frontmatter) and
+// preserves all existing user content below.
+func TestMarker_PreservesUserContentBelow(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+	hb := filepath.Join(home, ".claude", "CLAUDE.md")
+	pre := `# CLAUDE.md
+
+My personal Claude Code rules:
+
+- Always cite file paths.
+- Prefer small commits.
+
+## Memory
+
+Some other content stays.
+`
+	if err := os.WriteFile(hb, []byte(pre), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+
+	if _, err := Tick(context.Background(), r.cfg(home)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	got := mustRead(t, hb)
+	// All original sections preserved.
+	for _, want := range []string{"# CLAUDE.md", "Always cite file paths", "Prefer small commits", "## Memory", "Some other content stays."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("user content lost (%q):\n%s", want, got)
+		}
+	}
+	// Marker is present and at the top.
+	if !strings.HasPrefix(got, "<!-- pilot:begin") {
+		t.Errorf("marker not at top of body:\n%s", got[:min(150, len(got))])
 	}
 }
 
@@ -210,16 +254,33 @@ func TestMarker_PreservesYAMLFrontmatter(t *testing.T) {
 	}
 
 	got := mustRead(t, hb)
+	// Frontmatter must be at line 0 (parsers like PicoClaw require it).
 	if !strings.HasPrefix(got, "---\nname: pico\ndescription: PicoClaw agent\n---\n") {
 		t.Errorf("frontmatter not preserved at top:\n%s", got[:min(150, len(got))])
 	}
 	if !strings.Contains(got, "User body.") {
 		t.Errorf("body content lost")
 	}
-	idxFrontmatterEnd := strings.Index(got, "---\n\n# PicoClaw")
+	// Marker should be AFTER frontmatter, BEFORE body content.
+	idxFrontmatterEnd := strings.Index(got, "---\n") + len("---\n")
+	// Walk past possible additional ---\n
+	for strings.HasPrefix(got[idxFrontmatterEnd:], "---\n") || strings.HasPrefix(got[idxFrontmatterEnd:], "\n") {
+		if strings.HasPrefix(got[idxFrontmatterEnd:], "---\n") {
+			idxFrontmatterEnd += len("---\n")
+		} else {
+			break
+		}
+	}
 	idxMarker := strings.Index(got, "<!-- pilot:begin")
-	if idxMarker <= idxFrontmatterEnd {
-		t.Errorf("marker inserted before/inside frontmatter")
+	idxBody := strings.Index(got, "# PicoClaw")
+	if idxMarker < 0 {
+		t.Fatal("marker missing")
+	}
+	if idxBody < 0 {
+		t.Fatal("body header missing")
+	}
+	if idxMarker > idxBody {
+		t.Errorf("marker should be ABOVE body but is below (marker=%d body=%d)", idxMarker, idxBody)
 	}
 }
 

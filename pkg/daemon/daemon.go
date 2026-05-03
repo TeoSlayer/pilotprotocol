@@ -800,12 +800,36 @@ func (d *Daemon) Start() error {
 	// hash-pick lands on a fresher beacon.
 	go d.beaconRefreshLoop()
 
-	// 12b. Pre-warm encrypted tunnels for trusted peers so the first
-	// `pilotctl send-message <peer>` after a daemon restart skips the
-	// 2-RTT key-exchange + SYN/SYN-ACK and only pays the 1-RTT
-	// SYN/SYN-ACK relay cost. Background; failures are harmless (the
-	// dial path will redo whatever didn't stick).
-	go d.prewarmTrustedTunnels()
+	// 12b. Earlier rc2-dev iterations pre-warmed trusted peers at
+	// startup. Two variants were tried and both made things worse:
+	//
+	//   (1) sendKeyExchangeToNode for each peer → rekey storm. Every
+	//       call marked pendingRekey; the retransmit loop pounded all
+	//       peers simultaneously; each peer's reply was interpreted as
+	//       a fresh key-exchange request that rotated session keys
+	//       mid-flight. Pings worked for a few seconds then dial
+	//       timed out for minutes.
+	//
+	//   (2) ensureTunnel only (no key exchange) → NAT-punch wave.
+	//       ensureTunnel still issues a punch via beacon for non-
+	//       relay-only peers, and the dial path that owns the punch
+	//       takes 7-15s per peer to time out and flip to relay. With
+	//       7 peers in a 1.4s burst, the daemon was busy doing
+	//       dial-fail-over for ~70s after start. User pings during
+	//       that window collided with the prewarm activity.
+	//
+	// Neither variant survives contact with a fleet that has many
+	// trusted peers. Lazy-on-first-use is the right behavior: pay the
+	// 600ms cold cost on the first send-message and let warm cache
+	// handle everything after.
+	//
+	// Latency wins kept (independent of prewarm):
+	//   - DialInitialRTO 1s → 250ms
+	//   - hostname cache (in-memory + disk-persisted)
+	//   - fetchMembers exponential backoff
+	//   - resolve cache pre-warm via the resolve_hostname IPC handler
+	//     (warms ONLY the peer the user just asked about, not the
+	//     entire trust list)
 
 	// 13. Trusted-agents fetcher: hourly refresh of the auto-accept
 	// list from GitHub. Embedded blob in the binary is the bootstrap.
@@ -2509,10 +2533,17 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 		case <-timer.C:
 			retries++
 
-			// Switch to relay mode after direct retries exhaust
+			// Switch to relay mode after direct retries exhaust. Pin the
+			// relay flag so clearRelayOnDirectLocked won't bounce us back
+			// to direct on a stray non-beacon-sourced packet (NAT-port-
+			// rewrite of beacon replies, ICMP-unreachable from the
+			// rendezvous, beacon mesh forwarding from a different IP).
+			// The peer just demonstrated direct doesn't work — observation
+			// of one or two seemingly-direct packets shouldn't override
+			// that empirical signal.
 			if retries == directRetries && d.config.BeaconAddr != "" && !relayActive {
 				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
-				d.tunnels.SetRelayPeer(dstAddr.Node, true)
+				d.tunnels.SetRelayPeerPinned(dstAddr.Node, true)
 				relayActive = true
 				rto = DialInitialRTO // reset backoff for relay phase
 			}
@@ -3272,28 +3303,26 @@ func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
 	d.resolveCacheMu.Unlock()
 }
 
-// prewarmTrustedTunnels iterates trusted peers and fires a key_exchange
-// at each one so the encrypted tunnel is established BEFORE the user's
-// first send-message. Without this, the first dial pays:
+// prewarmTrustedResolves iterates trusted peers and warms the registry
+// resolve cache for each. After this, ensureTunnel() on the dial path
+// hits the in-memory cache instead of paying a registry round-trip.
 //
-//   1 RTT  registry resolve_node (~150ms)
-//   1 RTT  ECDH key exchange     (~170ms via relay)
-//   1 RTT  SYN / SYN-ACK         (~170ms via relay)
-//
-// = ~500ms cold. With prewarm, only the SYN/SYN-ACK round trip remains
-// (~170ms), because both the resolve cache and the encrypted tunnel
-// are already warm.
-//
-// Spaced out (50ms between peers) so that 50 trusted peers don't all
-// fire key_exchange at the same beacon at once. The beacon's per-peer
-// reflection queue can absorb bursts but smoothing the registration
-// reduces tail latency for everyone.
-func (d *Daemon) prewarmTrustedTunnels() {
+// Does NOT fire ECDH key exchanges. An earlier version did, and the
+// ~7-trusted-peer fleet observed here triggered a feedback storm:
+// every sendKeyExchangeToNode marked the peer pendingRekey, the
+// retransmit loop fired against ~7 peers simultaneously, and each
+// peer's reply was interpreted by our handler as a fresh key-exchange
+// request that rotated session keys mid-flight. Resulting symptom:
+// pings worked for 5-10 seconds after restart, then dial timed out
+// for minutes as session keys rotated faster than encrypted packets
+// could decrypt. The encryption layer is intentionally left for the
+// first real dial; we just want the resolve cache warm.
+func (d *Daemon) prewarmTrustedResolves() {
 	if d.handshakes == nil {
 		return
 	}
 	// Brief delay so registration + beacon-refresh have settled before
-	// we start hammering the registry with resolves.
+	// we hit the registry.
 	select {
 	case <-time.After(2 * time.Second):
 	case <-d.stopCh:
@@ -3303,30 +3332,28 @@ func (d *Daemon) prewarmTrustedTunnels() {
 	if len(peers) == 0 {
 		return
 	}
-	slog.Info("prewarming encrypted tunnels for trusted peers", "count", len(peers))
+	slog.Info("prewarming resolve cache for trusted peers", "count", len(peers))
 	warmed := 0
 	for _, rec := range peers {
 		if d.stopping() {
 			return
 		}
 		// ensureTunnel fetches the peer's UDP endpoint (real_addr / relay)
-		// and registers it with the tunnel manager. Cheap if cached.
+		// and registers it with the tunnel manager. Populates resolveCache
+		// and epCache as a side effect. NO key exchange.
 		if err := d.ensureTunnel(rec.NodeID); err != nil {
 			slog.Debug("prewarm: ensureTunnel failed", "peer", rec.NodeID, "err", err)
 			continue
 		}
-		// Fire a key_exchange; the peer's reply derives the session key
-		// on both sides. After this, the peer is in tm.encKeys and the
-		// next call goes encrypted without re-keying.
-		d.tunnels.sendKeyExchangeToNode(rec.NodeID)
 		warmed++
+		// 200ms gap so a 50-peer fleet doesn't pile up at the registry.
 		select {
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 		case <-d.stopCh:
 			return
 		}
 	}
-	slog.Info("prewarm fired", "peers", warmed)
+	slog.Info("prewarm complete", "peers_warmed", warmed)
 }
 
 // hostnameCachePath returns the on-disk location of the persisted
@@ -3508,7 +3535,12 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	// flow A → beacon → B as MsgRelay frames.
 	relayOnly, _ := resp["relay_only"].(bool)
 	if relayOnly {
-		d.tunnels.SetRelayPeer(nodeID, true)
+		// Pin the relay flag — the registry's relay_only=true is an
+		// authoritative signal. clearRelayOnDirectLocked must not
+		// auto-flip pinned peers back to direct based on observed
+		// non-beacon source addresses (NAT-port-rewrite, beacon mesh
+		// forward from a different IP, etc).
+		d.tunnels.SetRelayPeerPinned(nodeID, true)
 		d.tunnels.AddPeer(nodeID, udpAddr) // udpAddr is already the beacon (substituted by registry)
 		slog.Debug("peer is RelayOnly, skipping hole punch", "node_id", nodeID)
 		return nil

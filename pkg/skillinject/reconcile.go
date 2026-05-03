@@ -34,9 +34,16 @@ var markerRE = regexp.MustCompile(`(?s)<!-- pilot:begin v=1 hash=([0-9a-f]+) -->
 
 // writeMarker inserts or replaces our marker block in path. If the file
 // doesn't exist it is created with just the marker block. If a marker
-// block exists with any hash it is replaced in place; otherwise the block
-// is appended (with a leading blank line if needed). All content outside
-// the marker block is preserved byte-for-byte.
+// block exists with any hash it is replaced in place; otherwise the
+// block is inserted at the top of the body (after any YAML frontmatter).
+//
+// Empirical pilot-first behavior is best when our directive lives in a
+// SECONDARY heartbeat file (e.g. HEARTBEAT.md) rather than the primary
+// AGENTS.md the user actively manages. The pilot-skills manifest now
+// targets HEARTBEAT.md for OpenClaw/PicoClaw — see inject-manifest.json.
+// In that secondary file the directive isn't competing with the user's
+// primary instructions and reaches ~91% pilot-first across diverse
+// prompts (validated against Gemini 3 Pro).
 func writeMarker(path, ref, short string) error {
 	block := renderMarker(ref, short)
 
@@ -50,18 +57,24 @@ func writeMarker(path, ref, short string) error {
 		next = []byte(block)
 	} else {
 		current := string(existing)
+
 		if markerRE.MatchString(current) {
+			// Replace existing marker in place.
 			current = markerRE.ReplaceAllString(current, block)
 			next = []byte(current)
 		} else {
+			// Insert at the top of the body (after any YAML frontmatter).
+			// All other user content is preserved byte-for-byte below.
+			frontmatter, body := splitFrontmatter(current)
 			sep := ""
-			if len(existing) > 0 && !strings.HasSuffix(current, "\n") {
+			if frontmatter != "" && !strings.HasSuffix(frontmatter, "\n") {
 				sep = "\n"
 			}
-			if len(existing) > 0 {
-				sep += "\n"
+			bodySep := ""
+			if body != "" && !strings.HasPrefix(body, "\n") {
+				bodySep = "\n"
 			}
-			next = []byte(current + sep + block)
+			next = []byte(frontmatter + sep + block + bodySep + body)
 		}
 	}
 
@@ -81,4 +94,19 @@ func writeMarker(path, ref, short string) error {
 
 func renderMarker(ref, short string) string {
 	return fmt.Sprintf("<!-- pilot:begin v=1 hash=%s -->\n%s\n<!-- pilot:end -->\n", short, ref)
+}
+
+// frontmatterRE matches a YAML frontmatter block at the very start of a
+// file (--- ... ---) followed by a blank line. Used to keep our marker
+// from breaking parsers that require frontmatter at line 1.
+var frontmatterRE = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n+)`)
+
+// splitFrontmatter returns (frontmatter, body) for a file. If no
+// frontmatter is present, frontmatter == "" and body == s.
+func splitFrontmatter(s string) (string, string) {
+	m := frontmatterRE.FindStringIndex(s)
+	if m == nil {
+		return "", s
+	}
+	return s[m[0]:m[1]], s[m[1]:]
 }

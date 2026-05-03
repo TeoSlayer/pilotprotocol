@@ -183,6 +183,22 @@ type TunnelManager struct {
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
 
+	// relayPinned marks peers whose relay flag was set by an authoritative
+	// signal (registry's relay_only=true on the resolve response, OR an
+	// operator forcing relay via SetRelayPeer with pin=true). For pinned
+	// peers, clearRelayOnDirectLocked is a no-op — we never auto-flip
+	// back to direct based on packet observations alone. Without this,
+	// a stray non-beacon-sourced packet (e.g. a NAT punch reply, a
+	// beacon ICMP unreachable, or just GCP reply-source-ip variance)
+	// triggered the directClear hysteresis after 3 such packets, the
+	// peer flipped to direct, the next outgoing packet went direct
+	// (and dropped, since the peer is unreachable), the writeFrame
+	// blackhole counter then took ~60s to flip BACK to relay, and
+	// during the flap window each fresh key_exchange rotated session
+	// keys faster than encrypted packets could decrypt. The user-
+	// visible symptom was "ping works for a minute then dial timeout".
+	relayPinned map[uint32]bool
+
 	// lastDirectRecv tracks when each peer was last heard from on a direct
 	// (non-beacon) UDP path. Used by writeFrame to flip an established
 	// connection into relay mode when the direct path goes silent —
@@ -275,6 +291,7 @@ func NewTunnelManager() *TunnelManager {
 		peerPubKeys:        make(map[uint32]ed25519.PublicKey),
 		pending:            make(map[uint32][][]byte),
 		relayPeers:         make(map[uint32]bool),
+		relayPinned:        make(map[uint32]bool),
 		lastDirectRecv:     make(map[uint32]time.Time),
 		blackholeMissCount: make(map[uint32]int),
 		directClearCount:   make(map[uint32]int),
@@ -380,6 +397,10 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 		from.IP.Equal(tm.beaconAddr.IP) && from.Port == tm.beaconAddr.Port {
 		if _, capped := tm.relayPeers[peerNodeID]; !capped && len(tm.relayPeers) < maxRelayPeers {
 			tm.relayPeers[peerNodeID] = true
+			// Beacon-sourced key exchange = empirical proof relay path
+			// is the working one. Pin so clearRelayOnDirectLocked can't
+			// flap us back to direct on a stray non-beacon packet.
+			tm.relayPinned[peerNodeID] = true
 		}
 	}
 	tm.mu.Unlock()
@@ -560,6 +581,12 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 			misses := tm.blackholeMissCount[nodeID]
 			if misses >= blackholeMissesRequired {
 				tm.relayPeers[nodeID] = true
+				// Direct path went silent for blackholeMissesRequired
+				// observations. The peer is empirically not reachable
+				// directly. Pin so we don't flap back. (Without the pin,
+				// a single non-beacon-sourced reply via relay-mesh could
+				// trigger clearRelayOnDirect after 3 such packets.)
+				tm.relayPinned[nodeID] = true
 				tm.blackholeMissCount[nodeID] = 0 // reset for next cycle
 				slog.Info("direct path silent, flipping to relay",
 					"peer_node_id", nodeID,
@@ -639,6 +666,10 @@ func (tm *TunnelManager) handleSendError(nodeID uint32, err error) {
 	if count >= sendErrThreshold && !tm.relayPeers[nodeID] {
 		if len(tm.relayPeers) < maxRelayPeers {
 			tm.relayPeers[nodeID] = true
+			// ICMP-unreachable threshold tripped — kernel keeps telling us
+			// the peer's direct path is dead. Pin so observation can't flap
+			// us back to direct.
+			tm.relayPinned[nodeID] = true
 			tm.sendErrCount[nodeID] = 0 // reset for next cycle
 			flipped = true
 		}
@@ -992,14 +1023,28 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 	}
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
-	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
-		// Issue #199: now that the signature verified, it is safe to
-		// install the beacon-addr placeholder. handleRelayDeliver no
-		// longer does this for unknown peers, so the first authenticated
-		// key-exchange is what opens the relay slot.
-		tm.peers[peerNodeID] = tm.beaconAddr
-		if len(tm.relayPeers) < maxRelayPeers {
-			tm.relayPeers[peerNodeID] = true
+	} else {
+		// fromRelay=true means the auth key exchange arrived via the
+		// beacon — empirical proof the relay path is the working one
+		// for this peer. Always overwrite the peers entry to point at
+		// the beacon and set+pin the relay flag, even if ensureTunnel
+		// previously added the peer with its registry-published direct
+		// address. Without overwriting, writeFrame would continue sending
+		// to the (unreachable) direct address and only flip to relay
+		// after writeFrame's ~60s silent-detection timer — during which
+		// encrypted sends fail and rekey attempts rotate session keys
+		// faster than they settle. Issue #199 was the original "open the
+		// relay slot if peer is unknown" patch; this generalizes it to
+		// "always trust the working empirical signal."
+		if tm.beaconAddr != nil {
+			tm.peers[peerNodeID] = tm.beaconAddr
+			if _, alreadyRelay := tm.relayPeers[peerNodeID]; !alreadyRelay && len(tm.relayPeers) >= maxRelayPeers {
+				// Don't admit new relay peers if cap is reached; existing
+				// relay peers stay relay (handled below).
+			} else {
+				tm.relayPeers[peerNodeID] = true
+				tm.relayPinned[peerNodeID] = true
+			}
 		}
 	}
 	// Cache the peer's Ed25519 pubkey
@@ -1100,13 +1145,18 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	}
 	if !fromRelay {
 		tm.peers[peerNodeID] = from
-	} else if _, ok := tm.peers[peerNodeID]; !ok && tm.beaconAddr != nil {
-		// Issue #199: unauth key exchange passed maxCryptoPeers gating,
-		// so we admit this peer via relay. handleRelayDeliver no longer
-		// populates peers eagerly, so this is the first safe moment.
+	} else if tm.beaconAddr != nil {
+		// fromRelay=true: peer's key exchange arrived via the beacon, so
+		// the relay path is the empirically-working one. Overwrite the
+		// peers entry to the beacon and set+pin relay regardless of any
+		// prior ensureTunnel registration — see the matching block in
+		// handleAuthKeyExchange for the full rationale.
 		tm.peers[peerNodeID] = tm.beaconAddr
-		if len(tm.relayPeers) < maxRelayPeers {
+		if _, alreadyRelay := tm.relayPeers[peerNodeID]; !alreadyRelay && len(tm.relayPeers) >= maxRelayPeers {
+			// cap reached; keep existing entry as-is
+		} else {
 			tm.relayPeers[peerNodeID] = true
+			tm.relayPinned[peerNodeID] = true
 		}
 	}
 	tm.mu.Unlock()
@@ -1757,18 +1807,48 @@ func (tm *TunnelManager) clearRelayOnDirectLocked(peerNodeID uint32, from *net.U
 	// direct receipt, regardless of whether we're in relay mode.
 	tm.blackholeMissCount[peerNodeID] = 0
 
-	if !tm.relayPeers[peerNodeID] {
-		// Not in relay; nothing to clear. Counter reset above is sufficient.
-		return false
+	// v1.9.1-rc2 (2026-05-03): auto-clear DISABLED.
+	//
+	// The previous heuristic (3 consecutive non-beacon packets → clear
+	// relay flag) was unreliable in production environments where:
+	//   - GCP NAT can rewrite the source port of beacon-originated UDP
+	//     replies, making them appear non-beacon to the IP+port equality
+	//     check above.
+	//   - Beacon mesh can forward relay packets via a peer beacon, so
+	//     replies arrive from a different IP than tm.beaconAddr.
+	//   - Stray packets (NAT punch responses, ICMP unreachable) leak in
+	//     during relay-stable periods.
+	//
+	// Once any of those triggers ≥3 fake-direct observations, the relay
+	// flag flips to false. The next outgoing packet goes direct, fails
+	// (peer is genuinely behind a NAT direct can't traverse), then
+	// writeFrame's silent-detection takes ~60s to flip back to relay.
+	// During that 60s window, encrypted data sends fail and any rekey
+	// attempts rotate session keys faster than they can settle. User-
+	// visible symptom: "ping works for a minute then dial timeout for
+	// minutes". Repro-reliable in this fleet, fixed by removing the
+	// auto-clear. The counter reset above is preserved as a no-op
+	// observation; the flag itself stays put. If a peer's relay status
+	// genuinely changes (rare — operator scenario), the next dial cycle
+	// will rediscover and re-pin via direct/relay/punch logic.
+	_ = peerNodeID
+	return false
+}
+
+// SetRelayPeerPinned is like SetRelayPeer but also marks the relay flag
+// as authoritative — clearRelayOnDirectLocked will never auto-flip a
+// pinned peer back to direct based on observed packet sources. Used
+// by ensureTunnel when the registry's resolve response carries
+// relay_only=true.
+func (tm *TunnelManager) SetRelayPeerPinned(nodeID uint32, relay bool) {
+	tm.mu.Lock()
+	tm.relayPeers[nodeID] = relay
+	tm.relayPinned[nodeID] = relay
+	if !relay {
+		// Caller is explicitly clearing both flag and pin.
+		delete(tm.relayPinned, nodeID)
 	}
-	// In relay; require N consecutive direct receipts before clearing.
-	tm.directClearCount[peerNodeID]++
-	if tm.directClearCount[peerNodeID] < directClearsRequired {
-		return false
-	}
-	tm.relayPeers[peerNodeID] = false
-	tm.directClearCount[peerNodeID] = 0
-	return true
+	tm.mu.Unlock()
 }
 
 // SendTo sends a packet to a specific UDP address (relay-aware).

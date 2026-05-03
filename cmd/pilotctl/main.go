@@ -4315,10 +4315,24 @@ func cmdPing(args []string) {
 	count := flagInt(flags, "count", 4)
 	timeout := flagDuration(flags, "timeout", 30*time.Second)
 
+	// Optional per-step timing trace. Set PILOTCTL_TRACE_TIME=1 to see
+	// where the latency goes (binary startup, IPC connect, hostname
+	// lookup, dial, echo). Helps when "ping feels slow before the
+	// first packet" — the answer is almost always step 3.
+	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != ""
+	t0 := time.Now()
+	tracef := func(label string) {
+		if traceTime {
+			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, float64(time.Since(t0).Microseconds())/1000.0)
+		}
+	}
+
 	d := connectDriver()
+	tracef("connectDriver")
 	defer d.Close()
 
 	target, err := parseAddrOrHostname(d, pos[0])
+	tracef("parseAddrOrHostname")
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}

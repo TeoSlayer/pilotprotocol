@@ -64,6 +64,9 @@ type Report struct {
 	At       time.Time `json:"at"`
 	Outcomes []Outcome `json:"outcomes"`
 	Skipped  []string  `json:"skipped,omitempty"`
+	// Disabled is true if the tick was a no-op because the user has
+	// `pilotctl skills disable`'d injection.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // Counts returns how many outcomes hit each Action.

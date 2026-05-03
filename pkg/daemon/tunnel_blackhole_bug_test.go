@@ -158,11 +158,20 @@ func TestWriteFrameFlipsToRelayAfterSustainedBlackhole(t *testing.T) {
 	}
 }
 
-// TestRelayClearRequiresConsecutiveDirectReceipts pins the symmetric
-// hysteresis on the relay→direct auto-clear path: a single direct
-// burst during a relay stretch must NOT clear the flag. N consecutive
-// direct receipts from the peer are required.
-func TestRelayClearRequiresConsecutiveDirectReceipts(t *testing.T) {
+// TestRelayAutoClearDisabled pins the v1.9.1-rc2 behavior: the
+// relay→direct auto-clear heuristic is disabled. Any number of
+// "direct" packet receipts must NOT clear the relay flag — only an
+// explicit operator action (SetRelayPeer with relay=false) does.
+//
+// Background: the previous heuristic (3 consecutive non-beacon
+// packets → clear) was unreliable in production environments with
+// NAT-port-rewrite or beacon-mesh forwarding, where a packet from
+// the beacon could be observed with a non-matching source IP/port
+// and trigger a spurious clear. The clear caused a 60-180 second
+// "ping works for a minute then dial timeout" symptom as the
+// daemon flapped between direct and relay states with each flap
+// rotating session keys mid-flight.
+func TestRelayAutoClearDisabled(t *testing.T) {
 	d := New(Config{})
 	t.Cleanup(func() { d.tunnels.Close() })
 
@@ -174,31 +183,29 @@ func TestRelayClearRequiresConsecutiveDirectReceipts(t *testing.T) {
 	d.tunnels.relayPeers[peerNode] = true
 	d.tunnels.mu.Unlock()
 
-	// First direct receipt: counter increments but flag stays.
-	d.tunnels.mu.Lock()
-	cleared := d.tunnels.clearRelayOnDirectLocked(peerNode, peerAddr)
-	stillRelay := d.tunnels.relayPeers[peerNode]
-	d.tunnels.mu.Unlock()
-	if cleared || !stillRelay {
-		t.Errorf("first direct receipt: expected stillRelay=true cleared=false; got cleared=%v stillRelay=%v",
-			cleared, stillRelay)
-	}
-
-	// (directClearsRequired - 1) more receipts: the LAST one must clear.
-	for i := 1; i < directClearsRequired; i++ {
+	// Many direct receipts — flag must stay set.
+	for i := 0; i < 50; i++ {
 		d.tunnels.mu.Lock()
-		cleared = d.tunnels.clearRelayOnDirectLocked(peerNode, peerAddr)
+		cleared := d.tunnels.clearRelayOnDirectLocked(peerNode, peerAddr)
 		d.tunnels.mu.Unlock()
+		if cleared {
+			t.Fatalf("auto-clear must be disabled but cleared=true on receipt #%d", i+1)
+		}
 	}
 	d.tunnels.mu.RLock()
-	finalRelay := d.tunnels.relayPeers[peerNode]
+	stillRelay := d.tunnels.relayPeers[peerNode]
 	d.tunnels.mu.RUnlock()
-	if !cleared {
-		t.Errorf("expected last direct receipt (#%d) to clear the flag; got cleared=false", directClearsRequired)
+	if !stillRelay {
+		t.Fatal("relay flag must remain set after 50 direct receipts; got cleared")
 	}
-	if finalRelay {
-		t.Errorf("expected relay flag cleared after %d consecutive direct receipts; got finalRelay=true",
-			directClearsRequired)
+
+	// Explicit operator clear via SetRelayPeer must still work.
+	d.tunnels.SetRelayPeer(peerNode, false)
+	d.tunnels.mu.RLock()
+	afterExplicit := d.tunnels.relayPeers[peerNode]
+	d.tunnels.mu.RUnlock()
+	if afterExplicit {
+		t.Fatal("explicit SetRelayPeer(false) must clear the flag")
 	}
 }
 

@@ -854,10 +854,17 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 
 	// Cache the successful response. Only cache positive results so
 	// transient registry hiccups don't poison the cache with a bogus
-	// "not found".
-	s.daemon.hostnameCacheMu.Lock()
-	s.daemon.hostnameCache[hostname] = &hostnameCacheEntry{resp: result, cachedAt: now}
-	s.daemon.hostnameCacheMu.Unlock()
+	// "not found". Skip caching when the result points at our own
+	// node — local hostname state is owned by the daemon and changes
+	// through paths that don't always invalidate the cache (admin
+	// tools talking directly to the registry, tests bypassing IPC).
+	if nidVal, ok := result["node_id"].(float64); ok && uint32(nidVal) == s.daemon.NodeID() {
+		// fall through — no cache write, no prewarm, no disk persist
+	} else {
+		s.daemon.hostnameCacheMu.Lock()
+		s.daemon.hostnameCache[hostname] = &hostnameCacheEntry{resp: result, cachedAt: now}
+		s.daemon.hostnameCacheMu.Unlock()
+	}
 
 	// Pre-warm the node-resolve cache so a follow-up DialAddr call from the
 	// same pilotctl invocation skips the second registry round-trip in
@@ -897,6 +904,11 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 
 func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 	hostname := string(payload)
+	// Snapshot the previous hostname so we can invalidate it from the
+	// cache regardless of whether this is a set, change, or clear.
+	s.daemon.addrMu.RLock()
+	prevHostname := s.daemon.config.Hostname
+	s.daemon.addrMu.RUnlock()
 	result, err := s.daemon.regConn.SetHostname(s.daemon.NodeID(), hostname)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_hostname: %v", err))
@@ -906,6 +918,17 @@ func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 	s.daemon.addrMu.Lock()
 	s.daemon.config.Hostname = hostname
 	s.daemon.addrMu.Unlock()
+	// Invalidate any cache entries that this change could have made stale:
+	// the old name (we may have cached resolutions for it) and the new
+	// name (could be a re-bind from another node we previously cached).
+	s.daemon.hostnameCacheMu.Lock()
+	if prevHostname != "" {
+		delete(s.daemon.hostnameCache, prevHostname)
+	}
+	if hostname != "" {
+		delete(s.daemon.hostnameCache, hostname)
+	}
+	s.daemon.hostnameCacheMu.Unlock()
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("set_hostname marshal: %v", err))
