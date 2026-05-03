@@ -320,7 +320,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -identity ${PILOT_DIR}/identity.json \\
   -email ${EMAIL} \\
   -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
@@ -498,4 +498,31 @@ echo "Bridge IP traffic (requires root for ports < 1024):"
 echo ""
 echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
 echo "  curl http://10.4.0.1:3000/status"
+echo ""
+echo "Agent skill auto-injection:"
+echo ""
+echo "  The daemon scans every 15 minutes and injects the Pilot Protocol"
+echo "  skill into installed agent tools. Triggering a first pass right now"
+echo "  so your agents know about Pilot before the daemon is even started:"
+echo ""
+if "${BIN_DIR}/pilotctl" skills check 2>&1 | sed 's/^/    /'; then
+    :
+else
+    echo "    (skills check failed — non-fatal; will re-attempt on daemon start)"
+fi
+echo ""
+echo "  Per-tool target paths:"
+echo "    Claude Code   ~/.claude/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.claude/CLAUDE.md"
+echo "    OpenClaw      ~/.openclaw/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.openclaw/workspace/AGENTS.md"
+echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.picoclaw/workspace/AGENT.md"
+echo "    OpenHands     ~/.openhands/microagents/pilot-protocol.md (self-heartbeat)"
+echo "    Hermes        ~/.hermes/skills/pilot-protocol/SKILL.md"
+echo "                  + heartbeat ref in ~/.hermes/SOUL.md"
+echo ""
+echo "  Inspect / force a refresh anytime:"
+echo "    pilotctl skills           # status of every install path"
+echo "    pilotctl skills check     # run one reconcile pass right now"
 echo ""

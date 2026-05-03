@@ -50,6 +50,7 @@ type Updater struct {
 	client *http.Client
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+	exitFn func(int) // injectable for testing; defaults to os.Exit
 }
 
 // GitHubRelease represents a subset of the GitHub release API response.
@@ -70,6 +71,7 @@ func New(cfg Config) *Updater {
 		config: cfg,
 		client: &http.Client{Timeout: 30 * time.Second},
 		stopCh: make(chan struct{}),
+		exitFn: os.Exit,
 	}
 }
 
@@ -294,7 +296,7 @@ func (u *Updater) applyUpdate(release *GitHubRelease) error {
 	if updaterReplaced {
 		os.RemoveAll(tmpDir)
 		slog.Info("updater binary replaced — exiting for process manager to restart with new binary")
-		os.Exit(0)
+		u.exitFn(0)
 	}
 
 	// Signal daemon to restart (SIGTERM for graceful shutdown).
