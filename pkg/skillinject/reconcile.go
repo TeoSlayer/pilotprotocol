@@ -27,6 +27,59 @@ func writeFile(path string, content []byte) error {
 	return nil
 }
 
+// writeHelper installs a helper script at path with the given mode if
+// the file is missing or its content hash differs. Atomic write-via-rename.
+// Returns the resulting State for reporting (Absent → created, Drifted →
+// rewritten, Identical → noop).
+func writeHelper(path string, content []byte, mode os.FileMode) (State, error) {
+	cur, err := os.ReadFile(path)
+	state := StateAbsent
+	switch {
+	case err != nil && !os.IsNotExist(err):
+		return state, err
+	case err == nil:
+		if sha256Hex(cur) == sha256Hex(content) {
+			st, sErr := os.Stat(path)
+			if sErr == nil && st.Mode().Perm() == mode.Perm() {
+				return StateIdentical, nil
+			}
+			state = StateDrifted
+		} else {
+			state = StateDrifted
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return state, err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, content, mode); err != nil {
+		return state, err
+	}
+	if err := os.Chmod(tmp, mode); err != nil {
+		_ = os.Remove(tmp)
+		return state, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return state, err
+	}
+	return state, nil
+}
+
+// parseFileMode parses an octal mode string like "0755". Empty input
+// returns the default 0o755 (executable). Invalid input returns 0o755
+// with no error so a malformed manifest doesn't break the tick.
+func parseFileMode(s string) os.FileMode {
+	if s == "" {
+		return 0o755
+	}
+	var v uint64
+	if _, err := fmt.Sscanf(s, "%o", &v); err != nil || v == 0 {
+		return 0o755
+	}
+	return os.FileMode(v)
+}
+
 // markerRE matches our heartbeat marker block. The hash field lets us
 // detect drift cheaply: if the canonical hash changes we re-render the
 // block.

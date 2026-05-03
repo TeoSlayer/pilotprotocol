@@ -35,6 +35,7 @@ type FileKind string
 const (
 	KindSkill  FileKind = "skill"
 	KindMarker FileKind = "marker"
+	KindHelper FileKind = "helper"
 )
 
 func actionFor(s State) Action {

@@ -334,6 +334,82 @@ func TestMarker_IsDirective(t *testing.T) {
 	}
 }
 
+// Helpers (~/.pilot/bin/pilot-ask) are installed once per tick with the
+// requested mode, then become noop on subsequent ticks while content
+// is unchanged, and rewrite when the upstream content drifts.
+func TestTick_InstallsHelpers(t *testing.T) {
+	home := t.TempDir()
+	mustMkdirAll(t, filepath.Join(home, ".claude"))
+
+	r := newFakeRepo(t)
+	r.withTools(claudeOnly())
+	r.manifest.Helpers = []ManifestHelper{{
+		Name: "pilot-ask",
+		Src:  "workflow-injection/pilot-ask",
+		Dst:  "~/.pilot/bin/pilot-ask",
+		Mode: "0755",
+	}}
+	r.files["workflow-injection/pilot-ask"] = []byte("#!/usr/bin/env bash\necho v1\n")
+
+	rep, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	dst := filepath.Join(home, ".pilot", "bin", "pilot-ask")
+	mustExist(t, dst)
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := st.Mode().Perm(); got != 0o755 {
+		t.Errorf("mode = %o, want 0755", got)
+	}
+	got := mustRead(t, dst)
+	if !strings.Contains(got, "echo v1") {
+		t.Errorf("content not installed: %q", got)
+	}
+
+	var helperOutcome *Outcome
+	for i := range rep.Outcomes {
+		if rep.Outcomes[i].Kind == KindHelper {
+			helperOutcome = &rep.Outcomes[i]
+		}
+	}
+	if helperOutcome == nil {
+		t.Fatalf("no helper outcome in report: %+v", rep.Outcomes)
+	}
+	if helperOutcome.Action != ActionCreate {
+		t.Errorf("first tick: action = %v, want create", helperOutcome.Action)
+	}
+
+	// Second tick: identical → noop.
+	rep2, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick 2: %v", err)
+	}
+	for _, o := range rep2.Outcomes {
+		if o.Kind == KindHelper && o.Action != ActionNoop {
+			t.Errorf("second tick: action = %v, want noop", o.Action)
+		}
+	}
+
+	// Drift: upstream content changes → rewrite.
+	r.files["workflow-injection/pilot-ask"] = []byte("#!/usr/bin/env bash\necho v2\n")
+	rep3, err := Tick(context.Background(), r.cfg(home))
+	if err != nil {
+		t.Fatalf("Tick 3: %v", err)
+	}
+	for _, o := range rep3.Outcomes {
+		if o.Kind == KindHelper && o.Action != ActionRewrite {
+			t.Errorf("drift tick: action = %v, want rewrite", o.Action)
+		}
+	}
+	if got := mustRead(t, dst); !strings.Contains(got, "echo v2") {
+		t.Errorf("content not rewritten: %q", got)
+	}
+}
+
 // helpers
 
 func mustMkdirAll(t *testing.T, p string) {

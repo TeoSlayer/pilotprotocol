@@ -27,10 +27,30 @@ const DefaultRepoBaseURL = "https://raw.githubusercontent.com/TeoSlayer/pilot-sk
 // Manifest mirrors inject-manifest.json. Field tags match the upstream
 // schema. Unknown fields are ignored (forward-compat with new tool fields).
 type Manifest struct {
-	Version     int            `json:"version"`
-	Entrypoint  string         `json:"entrypoint"`
-	Description string         `json:"description,omitempty"`
-	Tools       []ManifestTool `json:"tools"`
+	Version     int              `json:"version"`
+	Entrypoint  string           `json:"entrypoint"`
+	Description string           `json:"description,omitempty"`
+	Tools       []ManifestTool   `json:"tools"`
+	Helpers     []ManifestHelper `json:"helpers,omitempty"`
+}
+
+// ManifestHelper is one helper script the daemon installs at a
+// well-known path so any AI tool on the host can invoke it. Used to
+// ship pilot-ask (the directory + specialist round-trip wrapper).
+//
+// Helpers are tool-agnostic — they live under ~/.pilot/bin/ and are
+// referenced by every tool's heartbeat directive.
+type ManifestHelper struct {
+	Name string `json:"name"`
+	// Src is a repo-relative path fetched via fetchRepoFile, e.g.
+	// "workflow-injection/pilot-ask".
+	Src string `json:"src"`
+	// Dst is the absolute install target. Supports ~/ expansion, e.g.
+	// "~/.pilot/bin/pilot-ask".
+	Dst string `json:"dst"`
+	// Mode is the file mode in octal string form, e.g. "0755". Empty
+	// defaults to 0755 (helpers are executables).
+	Mode string `json:"mode,omitempty"`
 }
 
 // ManifestTool is one tool target row.

@@ -107,6 +107,37 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 
 	report := &Report{At: time.Now().UTC()}
 
+	// (0) install host-wide helpers (e.g. ~/.pilot/bin/pilot-ask). These
+	// are tool-agnostic and referenced from every tool's heartbeat
+	// directive. Failure is best-effort: we record an error outcome and
+	// continue with skill/marker reconciliation.
+	for _, h := range manifest.Helpers {
+		dst := expandHome(h.Dst, home)
+		o := Outcome{Tool: h.Name, Kind: KindHelper, Path: dst}
+		body, err := f.fetchRepoFile(ctx, h.Src)
+		if err != nil {
+			o.Action = ActionError
+			o.Err = fmt.Sprintf("fetch %s: %v", h.Src, err)
+			report.Outcomes = append(report.Outcomes, o)
+			continue
+		}
+		o.Hash = sha256Hex(body)
+		state, err := writeHelper(dst, body, parseFileMode(h.Mode))
+		o.State = state
+		switch {
+		case err != nil:
+			o.Action = ActionError
+			o.Err = err.Error()
+		case state == StateAbsent:
+			o.Action = ActionCreate
+		case state == StateDrifted:
+			o.Action = ActionRewrite
+		default:
+			o.Action = ActionNoop
+		}
+		report.Outcomes = append(report.Outcomes, o)
+	}
+
 	for _, mt := range manifest.Tools {
 		rootDir := expandHome(mt.RootDir, home)
 		if !dirExists(rootDir) {
