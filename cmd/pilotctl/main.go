@@ -3902,6 +3902,10 @@ func cmdConnections() {
 		conn := c.(map[string]interface{})
 		peerWin := int(conn["peer_recv_win"].(float64))
 		recvWin := int(conn["recv_win"].(float64))
+		peerWinStr := "—"
+		if peerWin >= 0 {
+			peerWinStr = formatBytes(uint64(peerWin))
+		}
 		fmt.Printf("%-4d  %-6d  %-22s  %-6d  %-11s  %-8s  %-8s  %-6.0fms  %-6d  %-6d  %-8s  %-8s\n",
 			int(conn["id"].(float64)),
 			int(conn["local_port"].(float64)),
@@ -3913,7 +3917,7 @@ func cmdConnections() {
 			conn["srtt_ms"].(float64),
 			int(conn["unacked"].(float64)),
 			int(conn["ooo_buf"].(float64)),
-			formatBytes(uint64(peerWin)),
+			peerWinStr,
 			formatBytes(uint64(recvWin)),
 		)
 		bytesSent := uint64(conn["bytes_sent"].(float64))
