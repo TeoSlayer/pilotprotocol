@@ -859,6 +859,28 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 	s.daemon.hostnameCache[hostname] = &hostnameCacheEntry{resp: result, cachedAt: now}
 	s.daemon.hostnameCacheMu.Unlock()
 
+	// Pre-warm the node-resolve cache so a follow-up DialAddr call from the
+	// same pilotctl invocation skips the second registry round-trip in
+	// ensureTunnel. Ran in a goroutine so the IPC reply isn't gated on it
+	// — the caller has already gotten what they asked for; this is just
+	// a latency-hiding bonus. Lock contention is rare since regConn.Send
+	// is the same mutex; the policy_runner backoff keeps it free.
+	if nodeIDVal, ok := result["node_id"].(float64); ok {
+		nodeID := uint32(nodeIDVal)
+		go func() {
+			resolveResp, err := s.daemon.regConn.Resolve(nodeID, s.daemon.NodeID())
+			if err != nil {
+				slog.Debug("hostname resolve prewarm failed", "node_id", nodeID, "err", err)
+				return
+			}
+			s.daemon.cacheResolve(nodeID, resolveResp)
+		}()
+	}
+
+	// Also persist the hostname cache to disk so a daemon restart starts
+	// warm. Async — don't gate the IPC reply on disk I/O.
+	go s.daemon.persistHostnameCache()
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("resolve_hostname marshal: %v", err))

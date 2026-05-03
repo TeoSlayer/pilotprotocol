@@ -142,7 +142,7 @@ const (
 const (
 	DialDirectRetries    = 3                      // direct connection attempts before relay
 	DialMaxRetries       = 6                      // total attempts (direct + relay)
-	DialInitialRTO       = 1 * time.Second        // initial SYN retransmission timeout
+	DialInitialRTO       = 250 * time.Millisecond // initial SYN retransmission timeout. Lowered from 1s — modern relay RTT is <200ms; waiting a full second before assuming loss makes cold dials feel like a stall. Three direct retries with exponential backoff (250→500→1000) still cover up to 1.75s of jitter before flipping to relay; that's plenty for an unhealthy direct path while letting the common case (peer is reachable, single retry needed) feel snappy.
 	DialMaxRTO           = 8 * time.Second        // max backoff for SYN retransmission
 	DialCheckInterval    = 10 * time.Millisecond  // poll interval for state changes during dial
 	RetxCheckInterval    = 100 * time.Millisecond // retransmission check ticker
@@ -435,6 +435,11 @@ func (d *Daemon) reapPerSrcSYN() {
 }
 
 func (d *Daemon) Start() error {
+	// Warm the hostname cache from disk before the IPC server comes up,
+	// so the first send-message after restart hits the cache instead of
+	// pounding regConn for a fresh resolve_hostname.
+	d.loadHostnameCache()
+
 	// 0. Resolve email: flag > owner (deprecated) > account file
 	email := d.config.Email
 	if email == "" && d.config.Owner != "" {
@@ -794,6 +799,13 @@ func (d *Daemon) Start() error {
 	// daemon will discover them and may migrate to a different one if
 	// hash-pick lands on a fresher beacon.
 	go d.beaconRefreshLoop()
+
+	// 12b. Pre-warm encrypted tunnels for trusted peers so the first
+	// `pilotctl send-message <peer>` after a daemon restart skips the
+	// 2-RTT key-exchange + SYN/SYN-ACK and only pays the 1-RTT
+	// SYN/SYN-ACK relay cost. Background; failures are harmless (the
+	// dial path will redo whatever didn't stick).
+	go d.prewarmTrustedTunnels()
 
 	// 13. Trusted-agents fetcher: hourly refresh of the auto-accept
 	// list from GitHub. Embedded blob in the binary is the bootstrap.
@@ -3258,6 +3270,151 @@ func (d *Daemon) cacheResolve(nodeID uint32, resp map[string]interface{}) {
 	d.resolveCacheMu.Lock()
 	d.resolveCache[nodeID] = &resolveEntry{resp: resp, cachedAt: time.Now()}
 	d.resolveCacheMu.Unlock()
+}
+
+// prewarmTrustedTunnels iterates trusted peers and fires a key_exchange
+// at each one so the encrypted tunnel is established BEFORE the user's
+// first send-message. Without this, the first dial pays:
+//
+//   1 RTT  registry resolve_node (~150ms)
+//   1 RTT  ECDH key exchange     (~170ms via relay)
+//   1 RTT  SYN / SYN-ACK         (~170ms via relay)
+//
+// = ~500ms cold. With prewarm, only the SYN/SYN-ACK round trip remains
+// (~170ms), because both the resolve cache and the encrypted tunnel
+// are already warm.
+//
+// Spaced out (50ms between peers) so that 50 trusted peers don't all
+// fire key_exchange at the same beacon at once. The beacon's per-peer
+// reflection queue can absorb bursts but smoothing the registration
+// reduces tail latency for everyone.
+func (d *Daemon) prewarmTrustedTunnels() {
+	if d.handshakes == nil {
+		return
+	}
+	// Brief delay so registration + beacon-refresh have settled before
+	// we start hammering the registry with resolves.
+	select {
+	case <-time.After(2 * time.Second):
+	case <-d.stopCh:
+		return
+	}
+	peers := d.handshakes.TrustedPeers()
+	if len(peers) == 0 {
+		return
+	}
+	slog.Info("prewarming encrypted tunnels for trusted peers", "count", len(peers))
+	warmed := 0
+	for _, rec := range peers {
+		if d.stopping() {
+			return
+		}
+		// ensureTunnel fetches the peer's UDP endpoint (real_addr / relay)
+		// and registers it with the tunnel manager. Cheap if cached.
+		if err := d.ensureTunnel(rec.NodeID); err != nil {
+			slog.Debug("prewarm: ensureTunnel failed", "peer", rec.NodeID, "err", err)
+			continue
+		}
+		// Fire a key_exchange; the peer's reply derives the session key
+		// on both sides. After this, the peer is in tm.encKeys and the
+		// next call goes encrypted without re-keying.
+		d.tunnels.sendKeyExchangeToNode(rec.NodeID)
+		warmed++
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-d.stopCh:
+			return
+		}
+	}
+	slog.Info("prewarm fired", "peers", warmed)
+}
+
+// hostnameCachePath returns the on-disk location of the persisted
+// hostname cache, derived from the identity path. Empty if the daemon
+// is in-memory only (no identity persistence configured).
+func (d *Daemon) hostnameCachePath() string {
+	if d.config.IdentityPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(d.config.IdentityPath), "hostname_cache.json")
+}
+
+// hostnameCacheDisk is the on-disk format for the hostname cache.
+type hostnameCacheDisk struct {
+	SavedAt   time.Time                          `json:"saved_at"`
+	Hostnames map[string]hostnameCacheDiskEntry  `json:"hostnames"`
+}
+
+type hostnameCacheDiskEntry struct {
+	Resp     map[string]interface{} `json:"resp"`
+	CachedAt time.Time              `json:"cached_at"`
+}
+
+// persistHostnameCache writes the in-memory hostname cache to disk so
+// a daemon restart starts warm. Best-effort — errors are logged at
+// debug level; a missing/corrupt file just means a slower first call.
+// Held lock is read-only and brief; the JSON marshal happens after
+// release.
+func (d *Daemon) persistHostnameCache() {
+	path := d.hostnameCachePath()
+	if path == "" {
+		return
+	}
+	d.hostnameCacheMu.RLock()
+	snap := hostnameCacheDisk{
+		SavedAt:   time.Now(),
+		Hostnames: make(map[string]hostnameCacheDiskEntry, len(d.hostnameCache)),
+	}
+	for k, v := range d.hostnameCache {
+		snap.Hostnames[k] = hostnameCacheDiskEntry{Resp: v.resp, CachedAt: v.cachedAt}
+	}
+	d.hostnameCacheMu.RUnlock()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		slog.Debug("persist hostname cache marshal failed", "err", err)
+		return
+	}
+	if err := fsutil.AtomicWrite(path, data); err != nil {
+		slog.Debug("persist hostname cache write failed", "err", err)
+	}
+}
+
+// loadHostnameCache reads the persisted hostname cache from disk into
+// memory at daemon startup. Stale entries (older than hostnameCacheTTL)
+// are dropped — they'd be filtered by the read path anyway, but
+// dropping them on load keeps memory tight.
+func (d *Daemon) loadHostnameCache() {
+	path := d.hostnameCachePath()
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// First-run / missing file is normal — do not log.
+		if !os.IsNotExist(err) {
+			slog.Debug("hostname cache read failed", "err", err)
+		}
+		return
+	}
+	var snap hostnameCacheDisk
+	if err := json.Unmarshal(data, &snap); err != nil {
+		slog.Debug("hostname cache parse failed", "err", err)
+		return
+	}
+	now := time.Now()
+	loaded := 0
+	d.hostnameCacheMu.Lock()
+	for k, v := range snap.Hostnames {
+		if now.Sub(v.CachedAt) >= hostnameCacheTTL {
+			continue
+		}
+		d.hostnameCache[k] = &hostnameCacheEntry{resp: v.Resp, cachedAt: v.CachedAt}
+		loaded++
+	}
+	d.hostnameCacheMu.Unlock()
+	if loaded > 0 {
+		slog.Info("hostname cache loaded from disk", "entries", loaded)
+	}
 }
 
 // forgetPeerResolution invalidates the registry resolve cache and the
