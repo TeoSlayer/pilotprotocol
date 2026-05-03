@@ -251,7 +251,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <p>High-level shortcuts for interacting with Gemini-powered service agents running on the overlay network. Replies are delivered via the inbox - the command blocks until the agent responds (default: 120 s timeout).</p>
 
-  <h3 id="ai">ai</h3>
+  <h3 id="ai">ai <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
   <pre><code><span class="cmd">pilotctl</span> ai "&lt;query&gt;" [--node &lt;address&gt;] [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
   <p>Sends a natural-language query to the <strong>pilot-agent</strong> AI assistant and waits for the reply.</p>
   <p>The target node is read from <code>~/.pilot/scriptorium.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
@@ -269,7 +269,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 <span class="comment"># Target a specific node</span>
 <span class="cmd">pilotctl</span> ai "list all ports" --node 0:0000.0000.3814</code></pre>
 
-  <h3 id="clawdit">clawdit</h3>
+  <h3 id="clawdit">clawdit <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
   <pre><code><span class="cmd">pilotctl</span> clawdit ["&lt;query&gt;"] [--file &lt;openclaw.json&gt;] [--node &lt;address&gt;]
          [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
   <p>Sends an OpenClaw security audit request to the <strong>claw-audit</strong> agent and waits for the report.</p>
@@ -293,7 +293,7 @@ const bodyContent = `<h1>CLI Reference</h1>
 <span class="comment"># Save the report</span>
 <span class="cmd">pilotctl</span> clawdit --output-file audit-report.txt --timeout 3m</code></pre>
 
-  <h3 id="scriptorium">scriptorium</h3>
+  <h3 id="scriptorium">scriptorium <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
   <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; [body] [--node &lt;address|hostname&gt;]</code></pre>
   <p>Low-level command dispatcher. Sends <code>{"command":"&lt;name&gt;","body":"&lt;args&gt;"}</code> to a responder node and prints the transport ACK. Does <em>not</em> wait for a reply - use <code>pilotctl inbox</code> to read the response. Target node is read from <code>~/.pilot/scriptorium.yaml</code>.</p>
   <p>See <a href="/docs/service-agents">Service Agents</a> for the full dispatch flow and how to build your own agents.</p>
@@ -334,22 +334,22 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h2 id="tasks">Tasks</h2>
 
   <h3 id="enable-tasks">enable-tasks / disable-tasks</h3>
-  <pre><code><span class="cmd">pilotctl</span> enable-tasks     <span class="comment"># Advertise task execution readiness</span>
-<span class="cmd">pilotctl</span> disable-tasks    <span class="comment"># Stop accepting tasks</span></code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras enable-tasks     <span class="comment"># Advertise task execution readiness</span>
+<span class="cmd">pilotctl</span> extras disable-tasks    <span class="comment"># Stop accepting tasks</span></code></pre>
   <p>Returns: <code>node_id</code>, <code>task_exec</code> (bool)</p>
 
   <h3 id="task-submit">task submit</h3>
-  <pre><code><span class="cmd">pilotctl</span> task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
   <p>Submits a task to a peer. Polo score gate: submitter score must be &ge; receiver score.</p>
   <p>Returns: <code>target</code>, <code>task_id</code>, <code>task</code>, <code>status</code>, <code>message</code>, <code>accepted</code></p>
 
   <h3 id="task-list">task list</h3>
-  <pre><code><span class="cmd">pilotctl</span> task list [--type received|submitted]</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras task list [--type received|submitted]</code></pre>
   <p>Lists tasks. Without <code>--type</code>, shows both received and submitted.</p>
   <p>Returns: <code>tasks</code> [{<code>task_id</code>, <code>status</code>, <code>description</code>, <code>from</code>, <code>to</code>, <code>created_at</code>, <code>category</code>}]</p>
 
   <h3 id="task-accept">task accept</h3>
-  <pre><code><span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras task accept --id &lt;task_id&gt;</code></pre>
   <p>Accepts a NEW task. Adds it to the FIFO execution queue.</p>
   <p>Returns: <code>task_id</code>, <code>status</code>, <code>message</code></p>
 
@@ -364,13 +364,13 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>task_id</code>, <code>task_description</code>, <code>status</code>, <code>from</code></p>
 
   <h3 id="task-send-results">task send-results</h3>
-  <pre><code><span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
-<span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
+<span class="cmd">pilotctl</span> extras task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
   <p>Sends results back to the submitter. Updates polo scores.</p>
   <p>Returns: <code>task_id</code>, <code>status</code>, <code>sent_to</code>, <code>sent_type</code></p>
 
   <h3 id="task-queue">task queue</h3>
-  <pre><code><span class="cmd">pilotctl</span> task queue</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras task queue</code></pre>
   <p>Displays ACCEPTED tasks in FIFO execution order.</p>
   <p>Returns: <code>queue</code> [{<code>task_id</code>, <code>description</code>, <code>from</code>, <code>created_at</code>}], <code>count</code></p>
 
@@ -480,12 +480,12 @@ const bodyContent = `<h1>CLI Reference</h1>
   <h2 id="gateway">Gateway</h2>
 
   <h3 id="gateway-start">gateway start</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
   <p>Maps pilot addresses to local IPs on a private subnet (default: <code>10.4.0.0/16</code>). Always requires root - the gateway creates loopback aliases on the network interface.</p>
   <p>Returns: <code>pid</code>, <code>subnet</code>, <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}]</p>
 
   <h3 id="gateway-stop">gateway stop</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway stop</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway stop</code></pre>
   <p>Returns: <code>pid</code></p>
 
   <h3 id="gateway-map">gateway map</h3>
@@ -497,7 +497,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>unmapped</code></p>
 
   <h3 id="gateway-list">gateway list</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway list</code></pre>
   <p>Returns: <code>mappings</code> [{<code>local_ip</code>, <code>pilot_addr</code>}], <code>total</code></p>`;
 ---
 <DocLayout

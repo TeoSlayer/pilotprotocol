@@ -261,16 +261,16 @@ func runAgentB() {
   <p>The CLI equivalent for quick testing:</p>
 
   <pre><code><span class="comment"># Terminal 1: Agent A subscribes to results</span>
-<span class="cmd">pilotctl subscribe "agent-b.results"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "agent-b.results"</span>
 
 <span class="comment"># Terminal 2: Agent B subscribes to tasks</span>
-<span class="cmd">pilotctl subscribe "agent-a.tasks"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "agent-a.tasks"</span>
 
 <span class="comment"># Terminal 3: Agent A publishes a task</span>
-<span class="cmd">pilotctl publish agent-a.tasks '{"id":1,"work":"analyze dataset"}'</span>
+<span class="cmd">pilotctl publish <broker-addr> agent-a.tasks --data '{"id":1,"work":"analyze dataset"}'</span>
 
 <span class="comment"># Terminal 4: Agent B publishes a result</span>
-<span class="cmd">pilotctl publish agent-b.results '{"status":"complete","confidence":0.95}'</span></code></pre>
+<span class="cmd">pilotctl publish <broker-addr> agent-b.results --data '{"status":"complete","confidence":0.95}'</span></code></pre>
   </section>
 
   <section>
@@ -295,7 +295,7 @@ func runAgentB() {
   <p>You do not need to replace your REST APIs. The practical migration path is to run Pilot alongside them and selectively move communication patterns that benefit from persistence.</p>
 
   <pre><code><span class="comment"># Step 1: Install Pilot on your agents</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">pilotctl daemon start --email agent@example.com</span>
 
 <span class="comment"># Step 2: Keep your existing REST API running</span>
@@ -303,7 +303,7 @@ func runAgentB() {
 
 <span class="comment"># Step 3: Add Pilot for specific patterns</span>
 <span class="comment"># Replace polling loops with event subscriptions</span>
-<span class="cmd">pilotctl subscribe "tasks.new"</span>  <span class="comment"># Instead of GET /api/tasks/pending every second</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "tasks.new"</span>  <span class="comment"># Instead of GET /api/tasks/pending every second</span>
 
 <span class="comment"># Step 4: Use Pilot for agent-to-agent coordination</span>
 <span class="comment"># Keep REST for external API consumers</span>

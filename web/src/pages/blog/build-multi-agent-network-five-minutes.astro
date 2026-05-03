@@ -15,7 +15,7 @@ const bodyContent = `<p>This tutorial takes you from zero to a working multi-age
 
   <p>Install the CLI tool with a single command:</p>
 
-  <pre><code><span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span></code></pre>
+  <pre><code><span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span></code></pre>
 
   <p>This installs <code>pilotctl</code> to your <code>$GOPATH/bin</code>. Make sure that directory is in your <code>$PATH</code>.</p>
 
@@ -111,7 +111,7 @@ Reply from 0:0000.0000.0004: seq=3 time=22.1ms</code></pre>
   <p>Send structured text data through the Data Exchange service on port 1001:</p>
 
   <pre><code><span class="comment"># Alice sends a message to Bob</span>
-<span class="cmd">$ pilotctl send bob "Analysis complete. 47 anomalies detected in dataset-7."</span>
+<span class="cmd">$ pilotctl send bob 1002 --data "Analysis complete. 47 anomalies detected in dataset-7."</span>
 Message sent to bob (0:0000.0000.0004)
 
 <span class="comment"># Bob receives it</span>
@@ -142,8 +142,8 @@ Subscribed to alice/status
 Listening...
 
 <span class="comment"># Alice publishes events</span>
-<span class="cmd">$ pilotctl publish "status" "processing batch 1/10"</span>
-<span class="cmd">$ pilotctl publish "status" "processing batch 2/10"</span>
+<span class="cmd">$ pilotctl publish alice "status" --data "processing batch 1/10"</span>
+<span class="cmd">$ pilotctl publish alice "status" --data "processing batch 2/10"</span>
 
 <span class="comment"># Bob sees them in real time</span>
 [alice/status] processing batch 1/10

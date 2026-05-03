@@ -92,10 +92,10 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
 
 <span class="comment"># Start daemon and set identity</span>
 <span class="cmd">pilotctl daemon start --email research@company.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl network join 1</span>
 <span class="cmd">pilotctl set-hostname research-aws</span>
-<span class="cmd">pilotctl set-visibility public</span>
-<span class="cmd">pilotctl tags set cloud=aws,region=us-east-1,role=research</span></code></pre>
+<span class="cmd">pilotctl set-public</span>
+<span class="cmd">pilotctl extras set-tags cloud=aws,region=us-east-1,role=research</span></code></pre>
 
   <h3>Step 2: Start agent on GCP</h3>
 
@@ -104,22 +104,21 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
 
 <span class="comment"># Start daemon and set identity</span>
 <span class="cmd">pilotctl daemon start --email analysis@company.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl network join 1</span>
 <span class="cmd">pilotctl set-hostname analysis-gcp</span>
-<span class="cmd">pilotctl set-visibility public</span>
-<span class="cmd">pilotctl tags set cloud=gcp,region=europe-west1,role=analysis</span></code></pre>
+<span class="cmd">pilotctl set-public</span>
+<span class="cmd">pilotctl extras set-tags cloud=gcp,region=europe-west1,role=analysis</span></code></pre>
 
   <h3>Step 4: Establish trust and communicate</h3>
 
   <pre><code><span class="comment"># From AWS agent: discover and trust GCP agent</span>
-<span class="cmd">pilotctl resolve analysis-gcp</span>
+<span class="cmd">pilotctl lookup analysis-gcp</span>
 <span class="comment"># 1:0001.0000.0042</span>
 
-<span class="cmd">pilotctl trust request 1:0001.0000.0042 \\
-  --justification "Cross-cloud research collaboration"</span>
+<span class="cmd">pilotctl handshake 1:0001.0000.0042 "Cross-cloud research collaboration"</span>
 
 <span class="comment"># From GCP agent: approve trust</span>
-<span class="cmd">pilotctl trust approve 1:0001.0000.0017</span>
+<span class="cmd">pilotctl approve 1:0001.0000.0017</span>
 
 <span class="comment"># Communicate: send a message</span>
 <span class="cmd">pilotctl send-message 1:0001.0000.0042 "Analyze this dataset"</span>
@@ -132,7 +131,7 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   --description "Run sentiment analysis on Q1 customer feedback"</span>
 
 <span class="comment"># Benchmark the connection</span>
-<span class="cmd">pilotctl echo 1:0001.0000.0042</span></code></pre>
+<span class="cmd">pilotctl bench 1:0001.0000.0042</span></code></pre>
 
   <p>That is the complete setup. Two <code>go install</code> commands, two <code>daemon start</code> commands, one trust handshake, and the agents are communicating across clouds with end-to-end encryption. No VPN tunnels. No cloud interconnect products. No firewall rules beyond the three ports.</p>
   </section>
@@ -373,7 +372,7 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
 
   <p>For 3 clouds with site-to-site VPN, you are paying approximately $108/month in VPN gateway hours alone, before data transfer. For 5 clouds, it is $360/month (10 tunnels). For 10 sites, it is $1,620/month (45 tunnels). And each tunnel requires configuration, monitoring, and maintenance.</p>
 
-  <p>Pilot requires no VPN configuration, no firewall rules beyond port 4000 UDP, and no cloud-specific networking setup. Adding a new cloud means installing Pilot on the new agent and running <code>pilotctl join</code>.</p>
+  <p>Pilot requires no VPN configuration, no firewall rules beyond port 4000 UDP, and no cloud-specific networking setup. Adding a new cloud means installing Pilot on the new agent and running <code>pilotctl network join</code>.</p>
   </section>
 
   <section>
@@ -391,16 +390,16 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <pre><code><span class="comment"># Add a new agent on Azure (or any cloud, or on-premises, or a laptop)</span>
 <span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">pilotctl daemon start --email agent@company.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl network join 1</span>
 <span class="cmd">pilotctl set-hostname new-agent-azure</span>
-<span class="cmd">pilotctl tags set cloud=azure,region=eastus2,role=customer-support</span>
+<span class="cmd">pilotctl extras set-tags cloud=azure,region=eastus2,role=customer-support</span>
 
 <span class="comment"># Discover peers by tag</span>
-<span class="cmd">pilotctl discover --tag role=research</span>
+<span class="cmd">pilotctl peers --search role=research</span>
 <span class="comment"># 1:0001.0000.0017  research-aws  [cloud=aws, region=us-east-1, role=research]</span>
 
 <span class="comment"># Establish trust with specific agents (not entire networks)</span>
-<span class="cmd">pilotctl trust request 1:0001.0000.0017 --justification "Cross-cloud task delegation"</span></code></pre>
+<span class="cmd">pilotctl handshake 1:0001.0000.0017 "Cross-cloud task delegation"</span></code></pre>
 
   <p>There are no VPN tunnels to add. No routing tables to update. No firewall rules to modify. No cloud-specific configuration. The agent joins the network, discovers peers, and establishes direct encrypted tunnels. Whether the peer is on AWS, GCP, Azure, Oracle Cloud, a Raspberry Pi, or a laptop on a coffee shop WiFi network, the process is identical.</p>
 
@@ -415,11 +414,11 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
   <pre><code><span class="comment"># 1. Install on each agent (any cloud, any location)</span>
 <span class="cmd">curl -sSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">pilotctl daemon start --email agent@company.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl network join 1</span>
 
 <span class="comment"># 3. Agents discover each other and communicate</span>
-<span class="cmd">pilotctl discover --tag role=analysis</span>
-<span class="cmd">pilotctl trust request &lt;peer-address&gt; --justification "Multi-cloud collaboration"</span>
+<span class="cmd">pilotctl peers --search role=analysis</span>
+<span class="cmd">pilotctl handshake &lt;peer-address&gt; "Multi-cloud collaboration"</span>
 <span class="cmd">pilotctl send-message &lt;peer-address&gt; "Task: analyze Q1 data"</span></code></pre>
 
   <p>No VPN. No cloud interconnect. No per-cloud networking configuration. One overlay network that spans all of them.</p>

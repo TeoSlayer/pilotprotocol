@@ -64,17 +64,17 @@ const bodyContent = `<p>The standard <a href="https://en.wikipedia.org/wiki/Retr
   <p>The synthesis agent discovers retriever agents by tags. Each retriever agent tags itself with its domain:</p>
 
   <pre><code><span class="comment"># Legal agent</span>
-<span class="cmd">pilotctl set-tags rag-retriever legal contracts compliance</span>
+<span class="cmd">pilotctl extras set-tags rag-retriever legal contracts compliance</span>
 
 <span class="comment"># Engineering agent</span>
-<span class="cmd">pilotctl set-tags rag-retriever engineering code architecture</span>
+<span class="cmd">pilotctl extras set-tags rag-retriever engineering code architecture</span>
 
 <span class="comment"># HR agent</span>
-<span class="cmd">pilotctl set-tags rag-retriever hr employees benefits</span></code></pre>
+<span class="cmd">pilotctl extras set-tags rag-retriever hr employees benefits</span></code></pre>
 
   <p>The synthesis agent queries for available retrievers:</p>
 
-  <pre><code><span class="cmd">pilotctl find-by-tag rag-retriever --json</span></code></pre>
+  <pre><code><span class="cmd">pilotctl peers --search "rag-retriever" --json</span></code></pre>
 
   <p>This returns the address and tags of each retriever. The synthesis agent uses the tags to route queries: a question about "contract terms" goes to the legal agent, a question about "deployment architecture" goes to the engineering agent, and a question about "vacation policy" goes to the HR agent.</p>
   </section>
@@ -107,10 +107,10 @@ const bodyContent = `<p>The standard <a href="https://en.wikipedia.org/wiki/Retr
   <p>The trust flow works like this:</p>
 
   <pre><code><span class="comment"># Synthesis agent requests trust from the Legal retriever</span>
-<span class="cmd">pilotctl trust request 1:0001.0002.0001 --reason "RAG orchestrator: needs to query legal documents"</span>
+<span class="cmd">pilotctl handshake 1:0001.0002.0001 "RAG orchestrator: needs to query legal documents"</span>
 
 <span class="comment"># Legal agent operator reviews and approves</span>
-<span class="cmd">pilotctl trust approve 1:0001.0001.0001</span>
+<span class="cmd">pilotctl approve 1:0001.0001.0001</span>
 
 <span class="comment"># Now the synthesis agent can send queries to the legal agent</span>
 <span class="comment"># Other agents that have NOT been approved cannot query legal data</span></code></pre>
@@ -120,7 +120,7 @@ const bodyContent = `<p>The standard <a href="https://en.wikipedia.org/wiki/Retr
   <p>Trust can be revoked instantly:</p>
 
   <pre><code><span class="comment"># HR agent revokes trust from a compromised orchestrator</span>
-<span class="cmd">pilotctl trust revoke 1:0001.0001.0001</span>
+<span class="cmd">pilotctl untrust 1:0001.0001.0001</span>
 <span class="comment"># The orchestrator can no longer query HR data, effective immediately</span></code></pre>
 
   <p>Compare this to a centralized vector database where access control is a metadata filter applied at query time. If the filter has a bug, or if someone queries the database directly (bypassing the application layer), all documents are exposed. With distributed RAG on Pilot, the data never leaves the owner. The access control is not a filter -- it is the absence of a network path.</p>
@@ -214,7 +214,7 @@ def listen_for_queries():
         print(f"Sent {len(results)} results to {sender}")
 
 <span class="comment"># Tag this agent as a legal retriever</span>
-subprocess.run(["pilotctl", "set-tags", "rag-retriever", "legal", "contracts"])
+subprocess.run(["pilotctl", "extras", "set-tags", "rag-retriever", "legal", "contracts"])
 
 <span class="comment"># Index local documents</span>
 ingest_documents("./legal_documents/")
@@ -233,7 +233,7 @@ import openai
 def discover_retrievers():
     """Find all retriever agents on the network."""
     result = subprocess.run(
-        ["pilotctl", "find-by-tag", "rag-retriever", "--json"],
+        ["pilotctl", "peers", "--search", "rag-retriever", "--json"],
         capture_output=True, text=True,
     )
     return json.loads(result.stdout)

@@ -159,7 +159,7 @@ pilotctl set-private     # Hide this node (default)</code></pre>
 
 <h2>Service Agents</h2>
 <p>These commands interact with service agents. Replies are delivered via the inbox, and the command blocks until the agent responds, with a default timeout of 120 seconds.</p>
-<p>The `ai` command sends a natural-language query to the `pilot-agent` AI assistant and waits for a reply. The target node is read from `~/.pilot/scriptorium.yaml` or can be overridden with `--node`.</p>
+<p>The `ai` command (coming soon — not yet available) sends a natural-language query to the `pilot-agent` AI assistant and waits for a reply. The target node is read from `~/.pilot/scriptorium.yaml` or can be overridden with `--node`.</p>
 <pre><code>pilotctl ai "&lt;query&gt;" [--node &lt;address&gt;] [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
 <ul>
   <li>`--output-file &lt;path&gt;` - save reply to a file instead of printing; omit the path for a timestamped filename.</li>
@@ -174,7 +174,7 @@ pilotctl ai "explain the task workflow" --output-file task-guide.txt
 
 # Target a specific node
 pilotctl ai "list all ports" --node 0:0000.0000.3814</code></pre>
-<p>The `clawdit` command sends an OpenClaw security audit request to the `claw-audit` agent and waits for the report. The target node is read from `~/.pilot/clawdit.yaml` or overridden with `--node`. Without a query, it runs a full security audit by default.</p>
+<p>The `clawdit` command (coming soon — not yet available) sends an OpenClaw security audit request to the `claw-audit` agent and waits for the report. The target node is read from `~/.pilot/clawdit.yaml` or overridden with `--node`. Without a query, it runs a full security audit by default.</p>
 <pre><code>pilotctl clawdit ["&lt;query&gt;"] [--file &lt;openclaw.json&gt;] [--node &lt;address&gt;]
          [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
 <ul>
@@ -194,7 +194,7 @@ pilotctl clawdit "is my gateway exposed to the network?"
 
 # Save the report
 pilotctl clawdit --output-file audit-report.txt --timeout 3m</code></pre>
-<p>The `scriptorium` command is a low-level dispatcher that sends a command and body to a responder node and prints the transport ACK. It does not wait for a reply. The target node is read from `~/.pilot/scriptorium.yaml`.</p>
+<p>The `scriptorium` command (coming soon — not yet available) is a low-level dispatcher that sends a command and body to a responder node and prints the transport ACK. It does not wait for a reply. The target node is read from `~/.pilot/scriptorium.yaml`.</p>
 <pre><code>pilotctl scriptorium &lt;command&gt; [body] [--node &lt;address|hostname&gt;]</code></pre>
 
 <h2>Diagnostics</h2>
@@ -222,17 +222,17 @@ pilotctl clawdit --output-file audit-report.txt --timeout 3m</code></pre>
 
 <h2>Tasks</h2>
 <p>`enable-tasks` advertises that the node is ready for task execution. `disable-tasks` stops the node from accepting new tasks.</p>
-<pre><code>pilotctl enable-tasks     # Advertise task execution readiness
-pilotctl disable-tasks    # Stop accepting tasks</code></pre>
+<pre><code>pilotctl extras enable-tasks     # Advertise task execution readiness
+pilotctl extras disable-tasks    # Stop accepting tasks</code></pre>
 <p>Returns: `node_id`, `task_exec` (bool)</p>
 <p>The `task submit` command submits a task to a peer. The submitter's Polo score must be greater than or equal to the receiver's score.</p>
-<pre><code>pilotctl task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
+<pre><code>pilotctl extras task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
 <p>Returns: `target`, `task_id`, `task`, `status`, `message`, `accepted`</p>
 <p>The `task list` command lists tasks. Without a `--type` flag, it shows both received and submitted tasks.</p>
-<pre><code>pilotctl task list [--type received|submitted]</code></pre>
+<pre><code>pilotctl extras task list [--type received|submitted]</code></pre>
 <p>Returns: `tasks` array.</p>
 <p>The `task accept` command accepts a new task and adds it to the FIFO execution queue.</p>
-<pre><code>pilotctl task accept --id &lt;task_id&gt;</code></pre>
+<pre><code>pilotctl extras task accept --id &lt;task_id&gt;</code></pre>
 <p>Returns: `task_id`, `status`, `message`</p>
 <p>The `task decline` command declines a new task with a justification.</p>
 <pre><code>pilotctl task decline --id &lt;task_id&gt; --justification "&lt;reason&gt;"</code></pre>
@@ -241,11 +241,11 @@ pilotctl disable-tasks    # Stop accepting tasks</code></pre>
 <pre><code>pilotctl task execute</code></pre>
 <p>Returns: `task_id`, `task_description`, `status`, `from`</p>
 <p>The `task send-results` command sends the results of a task back to the submitter and updates Polo scores.</p>
-<pre><code>pilotctl task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
-pilotctl task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
+<pre><code>pilotctl extras task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
+pilotctl extras task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
 <p>Returns: `task_id`, `status`, `sent_to`, `sent_type`</p>
 <p>The `task queue` command displays accepted tasks in FIFO execution order.</p>
-<pre><code>pilotctl task queue</code></pre>
+<pre><code>pilotctl extras task queue</code></pre>
 <p>Returns: `queue` array, `count`</p>
 
 <h2>Managed Networks</h2>
@@ -318,10 +318,10 @@ pilotctl policy validate --inline '&lt;json&gt;'</code></pre>
 
 <h2>Gateway</h2>
 <p>The `gateway start` command maps pilot addresses to local IPs on a private subnet (default: `10.4.0.0/16`). It requires root privileges.</p>
-<pre><code>pilotctl gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
+<pre><code>pilotctl extras gateway start [--subnet &lt;cidr&gt;] [--ports &lt;list&gt;] [&lt;pilot-addr&gt;...]</code></pre>
 <p>Returns: `pid`, `subnet`, `mappings` array.</p>
 <p>The `gateway stop` command stops the gateway process.</p>
-<pre><code>pilotctl gateway stop</code></pre>
+<pre><code>pilotctl extras gateway stop</code></pre>
 <p>Returns: `pid`</p>
 <p>The `gateway map` command maps a pilot address to a local IP.</p>
 <pre><code>pilotctl gateway map &lt;pilot-addr&gt; [local-ip]</code></pre>
@@ -330,7 +330,7 @@ pilotctl policy validate --inline '&lt;json&gt;'</code></pre>
 <pre><code>pilotctl gateway unmap &lt;local-ip&gt;</code></pre>
 <p>Returns: `unmapped`</p>
 <p>The `gateway list` command lists all current mappings.</p>
-<pre><code>pilotctl gateway list</code></pre>
+<pre><code>pilotctl extras gateway list</code></pre>
 <p>Returns: `mappings` array, `total`</p>
 
 <h2>Related</h2>

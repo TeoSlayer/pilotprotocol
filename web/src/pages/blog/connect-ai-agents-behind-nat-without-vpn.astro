@@ -202,14 +202,14 @@ Registered with fixed endpoint (STUN skipped)</code></pre>
   <p>Here is the complete workflow for connecting two agents on different home networks, each behind a consumer-grade NAT router.</p>
 
   <pre><code><span class="comment"># Home network 1 (Port-Restricted Cone NAT)</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-1</span>
 <span class="cmd">$ pilotctl daemon start --email home-agent-1@example.com</span>
 STUN: public endpoint 73.162.88.14:4000 (port_restricted_cone)
 Registered as home-agent-1 (1:0001.0000.0008)
 
 <span class="comment"># Home network 2 (Restricted Cone NAT)</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">$ pilotctl init --hostname home-agent-2 --public</span>
 <span class="cmd">$ pilotctl daemon start --email home-agent-2@example.com</span>
 STUN: public endpoint 98.45.211.33:4000 (restricted_cone)

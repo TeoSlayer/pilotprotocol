@@ -45,13 +45,13 @@ const bodyContent = `<p>"The network grinds to a halt 90% of the time when I add
   <p><strong>Tag-based discovery.</strong> Instead of multicast discovery, robots register with a lightweight registry server and tag themselves with capabilities. Other robots query the registry to discover peers. The registry is a single process that can run on the ground station, a cloud VM, or one of the robots themselves. Discovery traffic is unicast TCP to the registry, not multicast on the WiFi channel.</p>
 
   <pre><code><span class="comment"># Each drone tags itself on startup</span>
-<span class="cmd">pilotctl set-tags swarm-member drone quadcopter survey-team-alpha</span>
+<span class="cmd">pilotctl extras set-tags swarm-member drone quadcopter survey-team-alpha</span>
 
 <span class="comment"># Ground station discovers all drones</span>
-<span class="cmd">pilotctl find-by-tag drone --json</span>
+<span class="cmd">pilotctl peers --search "drone" --json</span>
 
 <span class="comment"># Or find specific capabilities</span>
-<span class="cmd">pilotctl find-by-tag drone thermal-camera --json</span></code></pre>
+<span class="cmd">pilotctl peers --search "drone thermal-camera" --json</span></code></pre>
 
   <p><strong>10 MB RSS per daemon.</strong> The Pilot daemon is a single Go binary with no external dependencies. It uses 10 MB of RSS at idle, which is 5-10x less than a ROS2 node with DDS middleware. On a Raspberry Pi 4, this is 0.25% of available memory. On a Jetson Nano, it is 0.5%. The remaining resources are available for the robot's actual workload: navigation, perception, and control.</p>
 
@@ -85,14 +85,14 @@ const bodyContent = `<p>"The network grinds to a halt 90% of the time when I add
   </ol>
 
   <pre><code><span class="comment"># Drone startup sequence</span>
-<span class="cmd">pilotctl daemon start --email drone-07@swarm.example.com</span>
-<span class="cmd">pilotctl join --network 1</span>
-<span class="cmd">pilotctl set-tags swarm-member drone drone-07 survey-team-alpha</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
+<span class="cmd">pilotctl extras set-tags swarm-member drone drone-07 survey-team-alpha</span>
 
 <span class="comment"># Ground station startup</span>
-<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
-<span class="cmd">pilotctl join --network 1</span>
-<span class="cmd">pilotctl set-tags ground-station survey-team-alpha</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
+<span class="cmd">pilotctl extras set-tags ground-station survey-team-alpha</span>
 <span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
 <span class="cmd">pilotctl subscribe "swarm.events.*"</span></code></pre>
   </section>
@@ -288,13 +288,13 @@ func main() {
   </ol>
 
   <pre><code><span class="comment"># Drone on cellular (behind carrier-grade NAT)</span>
-<span class="cmd">pilotctl daemon start --email drone@swarm.example.com</span>
+<span class="cmd">pilot-daemon</span>
 <span class="comment"># NAT type is detected automatically</span>
 <span class="comment"># Hole-punch or relay is selected automatically</span>
 <span class="comment"># No configuration needed on the drone</span>
 
 <span class="comment"># Ground station on WiFi (behind home router NAT)</span>
-<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
+<span class="cmd">pilot-daemon</span>
 <span class="comment"># Same: automatic NAT traversal</span>
 
 <span class="comment"># Both can now communicate regardless of NAT type</span>
@@ -420,18 +420,18 @@ func main() {
 
   <pre><code><span class="comment"># On the ground station (also runs the registry)</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --email ground-station@swarm.example.com</span>
-<span class="cmd">pilotctl set-tags ground-station swarm-controller</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl extras set-tags ground-station swarm-controller</span>
 <span class="cmd">pilotctl subscribe "swarm.telemetry.*"</span>
 
 <span class="comment"># On each robot (Raspberry Pi / Jetson Nano)</span>
 <span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --email robot@swarm.example.com</span>
-<span class="cmd">pilotctl join --network 1</span>
-<span class="cmd">pilotctl set-tags swarm-member robot ground-unit</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
+<span class="cmd">pilotctl extras set-tags swarm-member robot ground-unit</span>
 
 <span class="comment"># Verify connectivity</span>
-<span class="cmd">pilotctl find-by-tag swarm-member --json</span>
+<span class="cmd">pilotctl peers --search "swarm-member" --json</span>
 <span class="cmd">pilotctl ping 1:0001.0001.0001</span>
 
 <span class="comment"># Start publishing telemetry</span>

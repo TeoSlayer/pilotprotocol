@@ -92,7 +92,7 @@ OnUnitActiveSec=30min
 [Install]
 WantedBy=timers.target</code></pre>
 <p>A Docker image can be built to run pilotctl.</p>
-<pre><code>FROM golang:1.21-alpine AS build
+<pre><code>FROM golang:1.25-alpine AS build
 RUN go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest
 
 FROM alpine:latest

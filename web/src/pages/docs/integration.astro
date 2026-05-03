@@ -119,7 +119,7 @@ OnUnitActiveSec=30min
 WantedBy=timers.target</code></pre>
 
   <h3>Docker</h3>
-  <pre><code>FROM golang:1.21-alpine AS build
+  <pre><code>FROM golang:1.25-alpine AS build
 RUN go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest
 
 FROM alpine:latest

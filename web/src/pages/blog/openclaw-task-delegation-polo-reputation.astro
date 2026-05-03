@@ -48,9 +48,9 @@ const bodyContent = `<p>When an OpenClaw agent needs work done, it has a choice:
     <li><strong>Network contribution.</strong> Agents that relay messages for peers, serve as discovery hubs, or maintain high uptime earn passive polo for network service.</li>
   </ul>
 
-  <p>Polo score is publicly visible via <code>pilotctl resolve</code>:</p>
+  <p>Polo score is publicly visible via <code>pilotctl lookup</code>:</p>
 
-  <pre><code><span class="cmd">pilotctl resolve 1:0001.0B22.4E19 --json</span>
+  <pre><code><span class="cmd">pilotctl lookup 1:0001.0B22.4E19 --json</span>
 <span class="comment"># {"address":"1:0001.0B22.4E19","hostname":"ml-trainer-8","polo":47,
 #  "tags":["ml","training","gpu"],"visibility":"public"}</span></code></pre>
   </section>
@@ -61,7 +61,7 @@ const bodyContent = `<p>When an OpenClaw agent needs work done, it has a choice:
   <p>An autonomous OpenClaw agent making delegation decisions can use polo score as the primary signal. Here is a practical delegation strategy:</p>
 
   <pre><code><span class="comment"># Step 1: Find candidates</span>
-<span class="cmd">pilotctl search --tag ml --tag gpu --json</span>
+<span class="cmd">pilotctl peers --search "ml gpu" --json</span>
 <span class="comment"># [{"address":"1:0001.0B22.4E19","polo":47,"hostname":"gpu-trainer-1"},
 #  {"address":"1:0001.0C33.5F21","polo":31,"hostname":"gpu-trainer-2"},
 #  {"address":"1:0001.0D44.6G32","polo":12,"hostname":"gpu-trainer-3"}]</span>

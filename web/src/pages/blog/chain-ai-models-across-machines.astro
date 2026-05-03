@@ -88,17 +88,17 @@ const bodyContent = `<p>A single complex query now routinely requires <strong>5 
   <p>Each model agent registers with tags describing its capability:</p>
 
   <pre><code><span class="comment"># On Machine A</span>
-<span class="cmd">pilotctl set-tags model-service llm reasoning</span>
+<span class="cmd">pilotctl extras set-tags model-service llm reasoning</span>
 
 <span class="comment"># On Machine B</span>
-<span class="cmd">pilotctl set-tags model-service whisper audio</span>
+<span class="cmd">pilotctl extras set-tags model-service whisper audio</span>
 
 <span class="comment"># On Machine C</span>
-<span class="cmd">pilotctl set-tags model-service diffusion image</span></code></pre>
+<span class="cmd">pilotctl extras set-tags model-service diffusion image</span></code></pre>
 
   <p>The orchestrator discovers available models by tag, not by hardcoded address:</p>
 
-  <pre><code><span class="cmd">pilotctl find-by-tag model-service --json</span></code></pre>
+  <pre><code><span class="cmd">pilotctl peers --search "model-service" --json</span></code></pre>
   </section>
 
   <section>
@@ -319,18 +319,18 @@ func callModel(client *http.Client, agentAddr, path string, payload any) (string
   <p>Set up the pipeline in four steps:</p>
 
   <pre><code><span class="comment"># Step 1: Install Pilot on each machine</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 
 <span class="comment"># Step 2: Start daemons and join the same network</span>
-<span class="cmd">pilotctl daemon start --email model-service@example.com</span>
-<span class="cmd">pilotctl join --network 1</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
 
 <span class="comment"># Step 3: Tag each model agent</span>
-<span class="cmd">pilotctl set-tags model-service llm</span>  <span class="comment"># On Machine A</span>
+<span class="cmd">pilotctl extras set-tags model-service llm</span>  <span class="comment"># On Machine A</span>
 
 <span class="comment"># Step 4: Run your model server using driver.Listen(80)</span>
 <span class="comment"># The orchestrator discovers agents via tags and chains calls</span>
-<span class="cmd">pilotctl find-by-tag model-service --json</span></code></pre>
+<span class="cmd">pilotctl peers --search "model-service" --json</span></code></pre>
 
   <p>Once the tunnels are established, model calls flow through persistent encrypted connections. The orchestrator code looks like standard HTTP, but the transport is Pilot. No certificate management, no firewall rules - just persistent tunnels that stay connected and keep your inference pipeline fast. The only infrastructure requirement is a rendezvous server for initial discovery (the public one at <code>pilotprotocol.network</code> works out of the box, or you can self-host your own).</p>
   </section>

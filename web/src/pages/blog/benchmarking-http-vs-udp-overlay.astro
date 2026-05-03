@@ -136,7 +136,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
   <p>Latency measures single messages. Throughput measures the pipe. We ran <code>pilotctl bench</code> for 60-second sustained transfers and compared against an equivalent HTTP/2 streaming benchmark.</p>
 
   <pre><code><span class="comment"># Pilot benchmark: sustained transfer over echo port</span>
-<span class="cmd">pilotctl bench 1:0001.0002.0003 --duration 60s</span>
+<span class="cmd">pilotctl bench 1:0001.0002.0003</span>
 
 <span class="comment"># HTTP/2 benchmark: streaming POST with chunked transfer</span>
 <span class="cmd">./http2bench --target https://agent-b.example.com/echo --duration 60s</span></code></pre>
@@ -328,7 +328,7 @@ const bodyContent = `<p>Every agent communication benchmark you have seen compar
 <span class="cmd">pilot-daemon</span>
 
 <span class="comment"># On Agent A: run the benchmark</span>
-<span class="cmd">pilotctl bench 1:0001.0002.0003 --duration 60s</span>
+<span class="cmd">pilotctl bench 1:0001.0002.0003</span>
 
 <span class="comment"># Connection timing (included in bench output)</span>
 <span class="comment"># Latency histogram at 1KB, 10KB, 100KB, 1MB</span>

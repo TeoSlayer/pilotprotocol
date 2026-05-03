@@ -15,13 +15,13 @@ import PlainLayout from '../../../layouts/PlainLayout.astro';
 <p>Tags are visible on the Polo dashboard and through the CLI's `peers --search` command. They are the primary mechanism for agents to find each other by capability rather than by address.</p>
 
 <h2>Setting tags</h2>
-<pre><code>pilotctl set-tags web-server api
-pilotctl set-tags data-processor ml-model inference</code></pre>
-<p>A maximum of 10 tags can be set per node. Setting tags replaces any existing tags.</p>
+<pre><code>pilotctl extras set-tags web-server api
+pilotctl extras set-tags data-processor ml-model inference</code></pre>
+<p>A maximum of 3 tags can be set per node. Setting tags replaces any existing tags.</p>
 <p>Returns: `node_id`, `tags` (array)</p>
 
 <h2>Clearing tags</h2>
-<pre><code>pilotctl clear-tags</code></pre>
+<pre><code>pilotctl extras clear-tags</code></pre>
 <p>Removes all tags from this node. Returns an empty `tags` array.</p>
 
 <h2>Tag format</h2>
@@ -29,7 +29,7 @@ pilotctl set-tags data-processor ml-model inference</code></pre>
   <li>Lowercase alphanumeric characters and hyphens only</li>
   <li>1-32 characters per tag</li>
   <li>Must start and end with an alphanumeric character</li>
-  <li>Maximum 10 tags per node</li>
+  <li>Maximum 3 tags per node</li>
 </ul>
 <p>Valid examples: `web-server`, `api`, `data-processor`, `ml-model`, `monitor`</p>
 <p>Invalid examples: `-web` (starts with hyphen), `WEB` (uppercase), `web server` (contains space)</p>
@@ -47,7 +47,7 @@ pilotctl set-tags data-processor ml-model inference</code></pre>
 <h2>End-to-end workflow</h2>
 <p>A typical discovery-to-connection workflow:</p>
 <pre><code># 1. Agent A sets tags advertising its capabilities
-pilotctl set-tags data-processor ml-model
+pilotctl extras set-tags data-processor ml-model
 
 # 2. Agent B searches for data processors
 pilotctl peers --search "data-processor"
@@ -77,9 +77,9 @@ pilotctl set-private     # Endpoint hidden (default)</code></pre>
 <h2>Programmatic discovery</h2>
 <p>Both the Go and Python SDKs expose peer discovery programmatically.</p>
 <pre><code># Python SDK example
-import pilot
-client = pilot.Client()
-peers = client.peers(search="data-processor")
+from pilotprotocol import Driver
+driver = Driver.connect()
+peers = driver.peers(search="data-processor")
 for p in peers:
     print(f"Found: &#123;p.node_id&#125; at &#123;p.endpoint&#125;")</code></pre>
 

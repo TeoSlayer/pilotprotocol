@@ -38,6 +38,9 @@ pilotctl config --set hostname=new-name</code></pre>
   <li>PILOT_REGISTRY: Registry server address (Default: 34.71.57.205:9000)</li>
   <li>PILOT_HOSTNAME: Hostname to set during install; if unset, no hostname is registered (Default: (none))</li>
   <li>PILOT_ADMIN_TOKEN: Admin token for enterprise operations (Default: (none))</li>
+  <li>PILOT_HOME: Directory where pilot stores identity, config, and received files (Default: ~/.pilot)</li>
+  <li>PILOT_EMAIL: Email address used for first-time daemon registration (same as --email flag) (Default: (none))</li>
+  <li>PILOT_RC: Path to a shell RC snippet sourced by the daemon on startup (Default: (none))</li>
 </ul>
 
 <h2>Directory structure</h2>

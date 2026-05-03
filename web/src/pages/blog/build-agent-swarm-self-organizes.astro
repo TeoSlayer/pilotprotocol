@@ -76,11 +76,11 @@ class SwarmAgent:
         """Register hostname and set agent tags."""
         self.pilotctl("set-hostname", self.hostname)
         self.pilotctl(
-            "set-tags",
+            "extras", "set-tags",
             f"role={self.role},swarm=demo,capacity=medium"
         )
         <span class="comment"># Enable task acceptance</span>
-        self.pilotctl("task-opt-in")
+        self.pilotctl("extras", "enable-tasks")
         print(f"[{self.hostname}] Registered with tags")</code></pre>
 
   <p>Each agent starts its own daemon, registers a hostname, sets descriptive tags, and opts into the task system. The <code>task-opt-in</code> command tells the registry that this agent is willing to accept and execute tasks from trusted peers.</p>
@@ -91,7 +91,7 @@ class SwarmAgent:
 
   <pre><code>    def discover_peers(self):
         """Find other agents in the swarm by tag."""
-        output = self.pilotctl("lookup", "--tag", "swarm=demo")
+        output = self.pilotctl("peers", "--search", "swarm=demo")
         peers = json.loads(output)
         for peer in peers:
             addr = peer["address"]
@@ -107,11 +107,11 @@ class SwarmAgent:
 
     def my_address(self):
         """Get this agent's Pilot address."""
-        output = self.pilotctl("status")
+        output = self.pilotctl("daemon", "status")
         status = json.loads(output)
         return status["address"]</code></pre>
 
-  <p>The <code>lookup --tag</code> command queries the registry for all agents with matching tags. Each result includes the agent's virtual address, hostname, tags, and current polo score. This is how the swarm maintains awareness without an orchestrator -- every agent can ask the registry "who else is in my swarm?" at any time.</p>
+  <p>The <code>peers --search</code> command queries the registry for all agents with matching tags. Each result includes the agent's virtual address, hostname, tags, and current polo score. This is how the swarm maintains awareness without an orchestrator -- every agent can ask the registry "who else is in my swarm?" at any time.</p>
 
   <h3>Establishing Trust</h3>
 
@@ -187,7 +187,8 @@ class SwarmAgent:
         """Poll for incoming tasks and execute them."""
         while True:
             try:
-                output = self.pilotctl("task", "poll", "--timeout", "10")
+                # poll task list manually
+                output = self.pilotctl("extras", "task", "list")
                 if not output:
                     continue
 
@@ -206,10 +207,9 @@ class SwarmAgent:
 
                 <span class="comment"># Return results</span>
                 self.pilotctl(
-                    "task", "complete",
+                    "extras", "task", "send-results",
                     "--id", task_id,
-                    "--result", json.dumps(result),
-                    "--cpu-minutes", str(round(elapsed / 60, 4)),
+                    "--data", json.dumps(result),
                 )
 
                 self.tasks_completed += 1
@@ -221,8 +221,9 @@ class SwarmAgent:
             except Exception as e:
                 print(f"[{self.hostname}] Task error: {e}")
                 if 'task_id' in dir():
-                    self.pilotctl("task", "fail", "--id", task_id,
-                                  "--error", str(e))</code></pre>
+                    self.pilotctl("extras", "task", "send-results",
+                                  "--id", task_id,
+                                  "--data", f"error: {str(e)}")</code></pre>
 
   <h3>The LLM Execution Function</h3>
 
@@ -429,7 +430,7 @@ if __name__ == "__main__":
     """Print polo score leaderboard every 30 seconds."""
     while True:
         output = subprocess.run(
-            ["pilotctl", "lookup", "--tag", "swarm=demo"],
+            ["pilotctl", "peers", "--search", "swarm=demo"],
             capture_output=True, text=True
         ).stdout
         agents = json.loads(output)
@@ -485,7 +486,7 @@ swarm-general-9           general      9.0      8</code></pre>
   <p>At 100 agents, a new problem appears: low-reputation agents can spam task submissions to high-value workers, consuming their cycles with junk work. The polo gate prevents this.</p>
 
   <pre><code><span class="comment"># Agents can set a minimum polo score for incoming tasks</span>
-<span class="cmd">pilotctl set-polo-gate --min-score 10</span></code></pre>
+<span class="comment"># no CLI equivalent for polo gate</span></code></pre>
 
   <p>With a polo gate of 10, new agents (score 0) cannot submit tasks to high-value workers. They must first build reputation by completing tasks from other new agents or from established agents that explicitly submit to them. This creates a natural onboarding ramp:</p>
 
@@ -541,7 +542,7 @@ swarm-general-9           general      9.0      8</code></pre>
         """Poll for task completion."""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            output = self.pilotctl("task", "status", "--id", task_id)
+            output = self.pilotctl("extras", "task", "list")
             status = json.loads(output)
             if status["state"] == "completed":
                 return status["result"]
@@ -593,11 +594,11 @@ class SwarmAgent:
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
         self.pilotctl("set-hostname", self.hostname)
-        self.pilotctl("set-tags", f"role={self.role},swarm=demo")
-        self.pilotctl("task-opt-in")
+        self.pilotctl("extras", "set-tags", f"role={self.role},swarm=demo")
+        self.pilotctl("extras", "enable-tasks")
 
     def discover(self):
-        output = self.pilotctl("lookup", "--tag", "swarm=demo")
+        output = self.pilotctl("peers", "--search", "swarm=demo")
         my_addr = self.my_address()
         for peer in json.loads(output):
             addr = peer["address"]
@@ -610,7 +611,7 @@ class SwarmAgent:
                 }
 
     def my_address(self):
-        return json.loads(self.pilotctl("status"))["address"]
+        return json.loads(self.pilotctl("daemon", "status"))["address"]
 
     def trust_peers(self):
         for addr, info in self.peers.items():
@@ -656,7 +657,8 @@ class SwarmAgent:
     def listen(self):
         while True:
             try:
-                output = self.pilotctl("task", "poll", "--timeout", "10")
+                # poll task list manually
+                output = self.pilotctl("extras", "task", "list")
                 if not output:
                     continue
                 task = json.loads(output)
@@ -664,9 +666,9 @@ class SwarmAgent:
                 start = time.time()
                 result = {"output": f"Processed by {self.hostname}"}
                 elapsed = time.time() - start
-                self.pilotctl("task", "complete", "--id", task["task_id"],
-                    "--result", json.dumps(result),
-                    "--cpu-minutes", str(round(elapsed / 60, 4)))
+                self.pilotctl("extras", "task", "send-results",
+                    "--id", task["task_id"],
+                    "--data", json.dumps(result))
                 self.tasks_completed += 1
             except Exception:
                 continue

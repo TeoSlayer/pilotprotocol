@@ -28,7 +28,7 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
   <p>The simplest pipeline: one agent sends work to another and waits for results.</p>
 
   <pre><code><span class="comment"># Agent A: Submit preprocessing task to Agent B</span>
-<span class="cmd">pilotctl data send 1:0001.0B22.4E19 ./raw-data.csv</span>
+<span class="cmd">pilotctl send-file 1:0001.0B22.4E19 ./raw-data.csv</span>
 <span class="cmd">pilotctl task submit \\
   --to 1:0001.0B22.4E19 \\
   --description "Clean and normalize the CSV: remove nulls, standardize dates, convert currencies to USD" \\
@@ -81,15 +81,15 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
   <p>For pipelines where stages trigger asynchronously, use Pilot Protocol's pub/sub event stream:</p>
 
   <pre><code><span class="comment"># Stage 1: Data agent publishes when new data arrives</span>
-<span class="cmd">pilotctl events publish --topic "pipeline.data.ready" \\
+<span class="cmd">pilotctl publish <broker-addr> "pipeline.data.ready" \\
   --data '{"source": "api-feed", "rows": 15000, "path": "/data/batch-42.parquet"}'</span>
 
 <span class="comment"># Stage 2: Preprocessing agent subscribes and auto-triggers</span>
-<span class="cmd">pilotctl events subscribe --topic "pipeline.data.ready"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "pipeline.data.ready"</span>
 <span class="comment"># When event arrives, agent starts cleaning the data</span>
 
 <span class="comment"># Stage 3: Analysis agent subscribes to preprocessed data</span>
-<span class="cmd">pilotctl events subscribe --topic "pipeline.preprocessed.ready"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "pipeline.preprocessed.ready"</span>
 
 <span class="comment"># Each stage publishes completion events that trigger the next stage</span></code></pre>
 
@@ -102,11 +102,11 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
   <p>Some pipelines need branching logic: if the data contains anomalies, route to the anomaly investigation agent. If the data is clean, route directly to analysis.</p>
 
   <pre><code><span class="comment"># Preprocessing agent evaluates the data and routes conditionally</span>
-<span class="cmd">pilotctl events publish --topic "pipeline.preprocessed.anomaly" \\
+<span class="cmd">pilotctl publish <broker-addr> "pipeline.preprocessed.anomaly" \\
   --data '{"anomaly_count": 47, "severity": "high"}'</span>
 
 <span class="comment"># OR, if data is clean:</span>
-<span class="cmd">pilotctl events publish --topic "pipeline.preprocessed.clean" \\
+<span class="cmd">pilotctl publish <broker-addr> "pipeline.preprocessed.clean" \\
   --data '{"rows": 14953, "path": "/data/clean-42.parquet"}'</span>
 
 <span class="comment"># Different agents subscribe to different topics:

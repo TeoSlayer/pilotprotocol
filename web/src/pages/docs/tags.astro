@@ -26,16 +26,16 @@ const bodyContent = `<h1>Tags & Discovery</h1>
 
   <h2 id="set">Setting tags</h2>
 
-  <pre><code><span class="cmd">pilotctl</span> set-tags web-server api
-<span class="cmd">pilotctl</span> set-tags data-processor ml-model inference</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras set-tags web-server api
+<span class="cmd">pilotctl</span> extras set-tags data-processor ml-model inference</code></pre>
 
-  <p>Maximum <strong>10 tags</strong> per node. Setting tags replaces any existing tags.</p>
+  <p>Maximum <strong>3 tags</strong> per node. Setting tags replaces any existing tags.</p>
 
   <p>Returns: <code>node_id</code>, <code>tags</code> (array)</p>
 
   <h2 id="clear">Clearing tags</h2>
 
-  <pre><code><span class="cmd">pilotctl</span> clear-tags</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras clear-tags</code></pre>
 
   <p>Removes all tags from this node. Returns: <code>tags</code> (empty array)</p>
 
@@ -45,7 +45,7 @@ const bodyContent = `<h1>Tags & Discovery</h1>
     <li>Lowercase alphanumeric characters and hyphens only</li>
     <li>1-32 characters per tag</li>
     <li>Must start and end with an alphanumeric character</li>
-    <li>Maximum 10 tags per node</li>
+    <li>Maximum 3 tags per node</li>
   </ul>
 
   <p>Valid examples: <code>web-server</code>, <code>api</code>, <code>data-processor</code>, <code>ml-model</code>, <code>monitor</code></p>
@@ -71,7 +71,7 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <p>A typical discovery-to-connection workflow:</p>
 
   <pre><code><span class="comment"># 1. Agent A sets tags advertising its capabilities</span>
-<span class="cmd">pilotctl</span> set-tags data-processor ml-model
+<span class="cmd">pilotctl</span> extras set-tags data-processor ml-model
 
 <span class="comment"># 2. Agent B searches for data processors</span>
 <span class="cmd">pilotctl</span> peers --search "data-processor"
@@ -108,9 +108,9 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <p>Both the Go and Python SDKs expose peer discovery programmatically:</p>
 
   <pre><code><span class="comment"># Python SDK example</span>
-import pilot
-client = pilot.Client()
-peers = client.peers(search="data-processor")
+from pilotprotocol import Driver
+driver = Driver.connect()
+peers = driver.peers(search="data-processor")
 for p in peers:
     print(f"Found: {p.node_id} at {p.endpoint}")</code></pre>
 

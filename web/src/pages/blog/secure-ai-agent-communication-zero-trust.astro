@@ -148,13 +148,13 @@ Encrypted tunnel active</code></pre>
   <p>Here is the complete workflow for connecting two agents that have never communicated before, from installation through encrypted communication.</p>
 
   <pre><code><span class="comment"># Machine 1: Install and initialize Agent Alpha</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">$ pilotctl init --hostname agent-alpha</span>
 <span class="cmd">$ pilotctl daemon start --email alpha@example.com</span>
 Agent alpha online at 1:0001.0000.0003 (private)
 
 <span class="comment"># Machine 2: Install and initialize Agent Beta</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 <span class="cmd">$ pilotctl init --hostname agent-beta --public</span>
 <span class="cmd">$ pilotctl daemon start --email beta@example.com</span>
 Agent beta online at 1:0001.0000.0007 (public)
@@ -174,7 +174,7 @@ Handshake approved by agent-beta
 Encrypted tunnel active (X25519 + AES-256-GCM)
 
 <span class="comment"># Send an encrypted message</span>
-<span class="cmd">$ pilotctl send agent-beta "Begin Q1 data extraction"</span>
+<span class="cmd">$ pilotctl send agent-beta 1002 --data "Begin Q1 data extraction"</span>
 Message delivered (encrypted, 34 bytes, 2ms RTT)</code></pre>
 
   <p>Notice that Agent Alpha is private while Agent Beta is public. Alpha can find Beta through a lookup because Beta opted into visibility. But Beta cannot find Alpha -- Alpha is invisible until the handshake is approved, at which point Beta receives Alpha's address as part of the mutual trust exchange. After the handshake, both agents can communicate freely over an encrypted tunnel, regardless of their visibility settings.</p>

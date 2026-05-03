@@ -54,6 +54,9 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
       <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install. If unset, the node is assigned an internal hostname of the form <code>pilot-XXXXXXXX</code> (8 hex chars = first 4 bytes of <code>SHA-256(public_key)</code>)</td></tr>
       <tr><td>PILOT_ADMIN_TOKEN</td><td>(none)</td><td>Admin token for enterprise operations</td></tr>
+      <tr><td>PILOT_HOME</td><td>~/.pilot</td><td>Directory where pilot stores identity, config, and received files</td></tr>
+      <tr><td>PILOT_EMAIL</td><td>(none)</td><td>Email address used for first-time daemon registration (same as <code>--email</code> flag)</td></tr>
+      <tr><td>PILOT_RC</td><td>(none)</td><td>Path to a shell RC snippet sourced by the daemon on startup</td></tr>
     </tbody>
   </table>
 

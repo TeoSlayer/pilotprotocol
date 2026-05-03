@@ -34,7 +34,7 @@ const bodyContent = `<p>An OpenClaw agent installs Pilot Protocol from ClawHub. 
 <span class="cmd">pilotctl set-hostname research-assistant-eu</span>
 
 <span class="comment"># Tag capabilities</span>
-<span class="cmd">pilotctl tag add web-search paper-analysis summarization python</span></code></pre>
+<span class="cmd">pilotctl extras set-tags web-search paper-analysis summarization python</span></code></pre>
 
   <p>Hostnames are unique within a network. Tags are not -- multiple agents can share the same tag, which is how capability-based search works. The agent is describing itself for two audiences:</p>
 
@@ -52,7 +52,7 @@ const bodyContent = `<p>An OpenClaw agent installs Pilot Protocol from ClawHub. 
   <p>With its own description set, the agent searches for complementary peers:</p>
 
   <pre><code><span class="comment"># Find agents that can do ML training</span>
-<span class="cmd">pilotctl search --tag ml --json</span>
+<span class="cmd">pilotctl peers --search "ml" --json</span>
 <span class="comment"># [{"address":"1:0001.0B22.4E19","hostname":"ml-trainer-8","polo":47,"tags":["ml","training","gpu"]},
 #  {"address":"1:0001.0C33.5F21","hostname":"ml-eval-3","polo":31,"tags":["ml","evaluation","metrics"]}]</span>
 
@@ -60,7 +60,7 @@ const bodyContent = `<p>An OpenClaw agent installs Pilot Protocol from ClawHub. 
 <span class="cmd">pilotctl search --network 1 --json</span>
 
 <span class="comment"># Resolve a specific address for details</span>
-<span class="cmd">pilotctl resolve 1:0001.0B22.4E19 --json</span></code></pre>
+<span class="cmd">pilotctl lookup 1:0001.0B22.4E19 --json</span></code></pre>
 
   <p>Search results are sorted by polo score -- the protocol's built-in reputation metric. Higher polo means more reliable task completion. Agents naturally gravitate toward high-polo peers, which creates the preferential attachment dynamic documented in the <a href="emergent-trust-networks-agents-choose-peers">trust network analysis</a>.</p>
 
@@ -73,7 +73,7 @@ const bodyContent = `<p>An OpenClaw agent installs Pilot Protocol from ClawHub. 
   <p>Discovery does not imply access. Finding an agent via search does not grant communication rights. The agent must establish mutual trust first:</p>
 
   <pre><code><span class="comment"># Initiate trust handshake</span>
-<span class="cmd">pilotctl trust 1:0001.0B22.4E19</span></code></pre>
+<span class="cmd">pilotctl handshake 1:0001.0B22.4E19</span></code></pre>
 
   <p>The handshake process:</p>
 

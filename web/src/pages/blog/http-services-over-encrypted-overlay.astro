@@ -490,7 +490,7 @@ resp, _ := http.ReadResponse(bufio.NewReader(conn), req)</code></pre>
   <p>The gateway also supports secure ports:</p>
 
   <pre><code><span class="comment"># Gateway with secure port mapping</span>
-<span class="cmd">pilotctl gateway start --ports 443 --secure 1:0001.0002.0003</span>
+<span class="cmd">pilotctl extras gateway start --ports 443 1:0001.0002.0003</span>
 
 <span class="comment"># Access via curl (still plain HTTP on the local side)</span>
 <span class="cmd">curl http://10.4.0.1:443/api/secrets</span></code></pre>

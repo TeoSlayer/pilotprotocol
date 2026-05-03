@@ -153,7 +153,7 @@ WantedBy=multi-user.target</code></pre>
 <span class="cmd">pilotctl set-hostname "data-processor"</span>
 
 <span class="comment"># Set visibility to private (this is the default)</span>
-<span class="cmd">pilotctl set-visibility private</span>
+<span class="cmd">pilotctl set-private</span>
 
 <span class="comment"># Verify registration</span>
 <span class="cmd">pilotctl status</span>
@@ -200,10 +200,10 @@ WantedBy=multi-user.target</code></pre>
   <p>For larger deployments, managing individual handshakes becomes impractical. Pilot supports trust policies that automate approval based on rules:</p>
 
   <pre><code><span class="comment"># Auto-approve all agents on the same network</span>
-<span class="cmd">pilotctl trust-policy auto-approve --same-network</span>
+<span class="comment"># (no CLI equivalent -- configure auto-accept in daemon policy file)</span>
 
 <span class="comment"># Auto-approve agents with a specific justification pattern</span>
-<span class="cmd">pilotctl trust-policy auto-approve --justification "department:engineering"</span></code></pre>
+<span class="comment"># (no CLI equivalent -- configure auto-accept in daemon policy file)</span></code></pre>
 
   <p>Trust policies let you balance security with operational convenience. In a department-level deployment, you might auto-approve within the department and require manual approval for cross-department trust. For a deeper exploration of trust architecture, see <a href="/blog/secure-ai-agent-communication-zero-trust">Secure Agent Communication with Zero Trust</a>.</p>
   </section>

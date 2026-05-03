@@ -137,9 +137,9 @@ pilotctl daemon start --hostname reporter-agent</code></pre>
 
   <p><strong>Step 3: Establish trust</strong></p>
   <pre><code># Agent A trusts Agent B
-pilotctl trust add reporter-agent
+pilotctl handshake reporter-agent
 # Agent B trusts Agent A
-pilotctl trust add analyst-agent</code></pre>
+pilotctl handshake analyst-agent</code></pre>
 
   <p><strong>Step 4: Agent A queries and delivers</strong></p>
   <pre><code># Agent A's application code
@@ -195,7 +195,7 @@ pilotctl daemon start --hostname db-tool-server</code></pre>
   <p>Any trusted agent can now resolve and connect:</p>
 
   <pre><code># On any other machine, anywhere
-pilotctl connect db-tool-server --port 80
+pilotctl connect db-tool-server 80
 # ✓ Connected. NAT traversed automatically.</code></pre>
 
   <p>The MCP server never needs a public IP, a reverse proxy, or an ngrok tunnel. Pilot's hostname resolution + NAT traversal makes it reachable from any trusted agent on the network.</p>

@@ -103,7 +103,7 @@ optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 def discover_peers():
     """Find all FL nodes in the network using tags."""
     result = subprocess.run(
-        ["pilotctl", "find-by-tag", "fl-node", "--json"],
+        ["pilotctl", "peers", "--search", "fl-node", "--json"],
         capture_output=True, text=True,
     )
     peers = json.loads(result.stdout)
@@ -111,7 +111,7 @@ def discover_peers():
 
 def my_address():
     result = subprocess.run(
-        ["pilotctl", "status", "--json"],
+        ["pilotctl", "daemon", "status", "--json"],
         capture_output=True, text=True,
     )
     return json.loads(result.stdout)["address"]
@@ -129,13 +129,9 @@ def send_gradients(peer_address, round_num):
 
 def receive_gradients(round_num, timeout=30):
     """Wait for gradient files from peers."""
-    recv_dir = f"/tmp/received_round_{round_num}/"
+    <span class="comment"># Files arrive automatically at ~/.pilot/received/ when peers send them</span>
+    recv_dir = os.path.expanduser("~/.pilot/received/")
     os.makedirs(recv_dir, exist_ok=True)
-    <span class="comment"># pilotctl receive writes incoming files to the specified directory</span>
-    subprocess.run([
-        "pilotctl", "receive-file", "--output-dir", recv_dir,
-        "--timeout", str(timeout),
-    ])
     grad_files = [os.path.join(recv_dir, f) for f in os.listdir(recv_dir)]
     return [torch.load(f) for f in grad_files]
 
@@ -194,10 +190,10 @@ for round_num in range(NUM_ROUNDS):
   <p>In centralized FL, the server knows all clients because they registered with it. In decentralized FL, you need a discovery mechanism. Pilot uses <strong>tags</strong>: key-value labels that agents attach to themselves in the registry.</p>
 
   <pre><code><span class="comment"># Mark this node as an FL participant working on a vision model</span>
-<span class="cmd">pilotctl set-tags fl-node vision-model round-robin</span>
+<span class="cmd">pilotctl extras set-tags fl-node vision-model round-robin</span>
 
 <span class="comment"># Find all nodes participating in this FL task</span>
-<span class="cmd">pilotctl find-by-tag fl-node --json</span></code></pre>
+<span class="cmd">pilotctl peers --search "fl-node" --json</span></code></pre>
 
   <p>The output gives you each peer's virtual address, hostname, and tags:</p>
 
@@ -222,15 +218,15 @@ for round_num in range(NUM_ROUNDS):
   <p>Beyond encryption, Pilot's trust model adds access control. Nodes are <strong>private by default</strong> -- they are not discoverable unless they explicitly opt in. For FL, this means a node must both tag itself as an FL participant and approve trust handshakes from peers before any gradient exchange can occur.</p>
 
   <pre><code><span class="comment"># Node A requests trust with Node B (includes justification)</span>
-<span class="cmd">pilotctl trust request 1:0001.0002.0003 --reason "FL gradient exchange for vision-model task"</span>
+<span class="cmd">pilotctl handshake 1:0001.0002.0003 "FL gradient exchange for vision-model task"</span>
 
 <span class="comment"># Node B approves (after verifying the request)</span>
-<span class="cmd">pilotctl trust approve 1:0001.0001.0001</span></code></pre>
+<span class="cmd">pilotctl approve 1:0001.0001.0001</span></code></pre>
 
   <p>Once trust is established, it persists across sessions. If a node is compromised or behaves maliciously (sending poisoned gradients), any peer can instantly revoke trust:</p>
 
   <pre><code><span class="comment"># Revoke trust from a suspected malicious node</span>
-<span class="cmd">pilotctl trust revoke 1:0001.0002.0003</span></code></pre>
+<span class="cmd">pilotctl untrust 1:0001.0002.0003</span></code></pre>
 
   <p>Revocation is immediate. The revoked node can no longer send data to or receive data from the revoking peer. This provides a practical defense against model poisoning attacks at the transport layer: if your Byzantine fault detection algorithm flags a node, you can cut it off at the network level without waiting for the next aggregation round.</p>
   </section>
@@ -308,14 +304,14 @@ for round_num in range(NUM_ROUNDS):
   <p>To set up an FL node with Pilot transport:</p>
 
   <pre><code><span class="comment"># Install Pilot on each FL node</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 
 <span class="comment"># Start the daemon</span>
 <span class="cmd">pilotctl daemon start --email fl-node@example.com</span>
 
 <span class="comment"># Join the network and tag as FL participant</span>
-<span class="cmd">pilotctl join --network 1</span>
-<span class="cmd">pilotctl set-tags fl-node vision-model</span>
+<span class="cmd">pilotctl network join 1</span>
+<span class="cmd">pilotctl extras set-tags fl-node vision-model</span>
 
 <span class="comment"># Verify connectivity to another FL node</span>
 <span class="cmd">pilotctl ping 1:0001.0002.0003</span>

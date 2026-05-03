@@ -86,15 +86,15 @@ Hole-punch not possible. Switching to relay...
   </ul>
 
   <pre><code># Agent A trusts Agent B
-pilotctl trust add agent-b
+pilotctl handshake agent-b
 # Nothing happens yet - Agent B must reciprocate
 
 # Agent B trusts Agent A
-pilotctl trust add agent-a
+pilotctl handshake agent-a
 # ✓ Mutual trust established. Both agents can now dial each other.
 
 # Later: revoke trust
-pilotctl trust remove agent-b
+pilotctl untrust agent-b
 # ✓ Agent A is now invisible to Agent B again.</code></pre>
 
   <p>This model means agents choose who they talk to. No platform, no admin, no configuration file decides on their behalf. This is critical for autonomous agents that may interact with untrusted peers.</p>
@@ -128,10 +128,10 @@ pilotctl daemon start --hostname agent-b</code></pre>
   <p><strong>Establish trust (from either machine):</strong></p>
 
   <pre><code># On Machine A
-pilotctl trust add agent-b
+pilotctl handshake agent-b
 
 # On Machine B
-pilotctl trust add agent-a
+pilotctl handshake agent-a
 
 # Both sides have now agreed. Mutual trust is established.</code></pre>
 

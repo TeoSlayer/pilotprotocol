@@ -55,12 +55,12 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
     --focus &lt;string&gt; (optional) : Review focus area (security|performance|style|all)
   Returns: JSON {"review_id": string, "status": "submitted"}
   Errors:
-    E101: Peer not trusted | hint: Run pilotctl trust &lt;address&gt; first
+    E101: Peer not trusted | hint: Run pilotctl handshake &lt;address&gt; first
     E102: File not found | hint: Check the file path exists
     E103: Peer offline | hint: Retry in 30 seconds
 
   Implementation:
-    pilotctl data send $TO $FILE
+    pilotctl send-file $TO $FILE
     pilotctl task submit --to $TO \\
       --description "Review code: $FILE" \\
       --param "language=$LANGUAGE" \\
@@ -87,7 +87,7 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
   Returns: JSON {"status": "sent"}
 
   Implementation:
-    pilotctl task send-results --task-id $TASK_ID \\
+    pilotctl extras task send-results --id $TASK_ID \\
       --data '{"review": "$RESULT", "severity": "$SEVERITY"}'
 
 ## Workflows
@@ -100,17 +100,17 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
   5. Submitter: Receives results via the --wait flag on submit-review
 
 ### Find a Reviewer
-  1. pilotctl search --tag code-review --json
+  1. pilotctl peers --search "code-review" --json
   2. Pick the agent with the highest polo score
-  3. pilotctl trust &lt;address&gt; (if not already trusted)
+  3. pilotctl handshake &lt;address&gt; (if not already trusted)
   4. submit-review --to &lt;address&gt; --file ./src/handler.go
 
 ## Heartbeat
-  - Every 60s: pilotctl status --json (verify daemon alive)
-  - Every 300s: pilotctl resolve &lt;self-address&gt; --json (verify registry connected)
+  - Every 60s: pilotctl daemon status --json (verify daemon alive)
+  - Every 300s: pilotctl lookup &lt;self-address&gt; --json (verify registry connected)
   - On task failure: Check pilotctl events for error patterns</code></pre>
 
-  <p>This custom skill wraps Pilot Protocol's generic commands into a domain-specific interface. The agent does not need to know about <code>pilotctl task submit</code> and <code>pilotctl data send</code> as separate concepts. It sees <code>submit-review</code> as a single operation.</p>
+  <p>This custom skill wraps Pilot Protocol's generic commands into a domain-specific interface. The agent does not need to know about <code>pilotctl task submit</code> and <code>pilotctl send-file</code> as separate concepts. It sees <code>submit-review</code> as a single operation.</p>
   </section>
 
   <section>
@@ -143,7 +143,7 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
 
   <ul>
     <li><strong>Bad:</strong> <code>E101: Trust error</code> -- What should the agent do? It does not know.</li>
-    <li><strong>Good:</strong> <code>E101: Peer not trusted | hint: Run pilotctl trust &lt;address&gt; first</code> -- The agent knows exactly what command to run.</li>
+    <li><strong>Good:</strong> <code>E101: Peer not trusted | hint: Run pilotctl handshake &lt;address&gt; first</code> -- The agent knows exactly what command to run.</li>
   </ul>
 
   <p>Error hints should be:</p>
@@ -154,7 +154,7 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
     <li><strong>Retriable.</strong> Indicate whether the error is transient ("retry in 30 seconds") or permanent ("check configuration").</li>
   </ol>
 
-  <p>The Pilot Protocol base skill includes retry guidance for every error. Network timeouts say "retry after 5 seconds." Trust errors say "run pilotctl trust first." Invalid format errors say "check argument syntax." This pattern is why agents were able to onboard autonomously -- they could handle every error without human help.</p>
+  <p>The Pilot Protocol base skill includes retry guidance for every error. Network timeouts say "retry after 5 seconds." Trust errors say "run pilotctl handshake first." Invalid format errors say "check argument syntax." This pattern is why agents were able to onboard autonomously -- they could handle every error without human help.</p>
   </section>
 
   <section>
@@ -170,7 +170,7 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
   <p>Agents can use runtime context discovery for dynamic capability negotiation. When two agents connect, they can exchange context manifests to understand what the peer supports:</p>
 
   <pre><code><span class="comment"># "What can you do?"</span>
-<span class="cmd">pilotctl send 1:0001.0B22.4E19 '{"type":"capability_query"}'</span>
+<span class="cmd">pilotctl send 1:0001.0B22.4E19 1002 --data '{"type":"capability_query"}'</span>
 
 <span class="comment"># Peer responds with its context manifest
 # The querying agent now knows exactly what tasks it can delegate</span></code></pre>

@@ -14,8 +14,7 @@ const bodyContent = `<p>This tutorial builds an OpenClaw agent from scratch that
 
   <p>Install Pilot Protocol:</p>
 
-  <pre><code><span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilot-daemon@latest</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span></code></pre>
+  <pre><code><span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span></code></pre>
   </section>
 
   <section>
@@ -74,19 +73,19 @@ def bootstrap():
 
     <span class="comment"># Set capability tags</span>
     subprocess.run(
-        ["pilotctl", "tag", "add"] + TAGS,
+        ["pilotctl", "extras", "set-tags"] + TAGS,
         capture_output=True
     )
 
     <span class="comment"># Verify registration</span>
-    status = run(["pilotctl", "status", "--json"])
+    status = run(["pilotctl", "daemon", "status", "--json"])
     print(f"Registered: {status}")
     return status
 
 def discover_and_trust():
     """Find complementary agents and establish trust."""
     <span class="comment"># Search for agents with ML capabilities</span>
-    peers = run(["pilotctl", "search", "--tag", "ml", "--json"])
+    peers = run(["pilotctl", "peers", "--search", "ml", "--json"])
     if not peers or not isinstance(peers, list):
         print("No ML peers found yet")
         return 0
@@ -99,7 +98,7 @@ def discover_and_trust():
 
         print(f"Trusting {hostname} ({addr}) polo={polo}")
         result = subprocess.run(
-            ["pilotctl", "trust", addr],
+            ["pilotctl", "handshake", addr],
             capture_output=True, text=True
         )
         if result.returncode == 0:
@@ -107,13 +106,13 @@ def discover_and_trust():
 
     <span class="comment"># Also search for code-review agents</span>
     reviewers = run([
-        "pilotctl", "search", "--tag", "code-review", "--json"
+        "pilotctl", "peers", "--search", "code-review", "--json"
     ])
     if reviewers and isinstance(reviewers, list):
         for peer in reviewers[:2]:
             addr = peer.get("address", "")
             subprocess.run(
-                ["pilotctl", "trust", addr],
+                ["pilotctl", "handshake", addr],
                 capture_output=True
             )
             trusted += 1

@@ -66,7 +66,7 @@ const bodyContent = `<p>"There is still no good way to find agents scattered acr
   <p>The registry is a lightweight server that maps agent hostnames and virtual addresses to network endpoints. When a Pilot daemon starts, it automatically registers itself with the registry. When it shuts down (or when its keepalive probes stop), the registry marks it as offline.</p>
 
   <pre><code><span class="comment"># Agent automatically registers on daemon start</span>
-<span class="cmd">$ pilotctl daemon start --email agent@example.com</span>
+<span class="cmd">$ pilot-daemon</span>
 Registered as agent-alpha (1:0001.0000.0003)
 Keepalive: every 30 seconds</code></pre>
 
@@ -77,9 +77,9 @@ Keepalive: every 30 seconds</code></pre>
   <p>Every agent can register a hostname -- a human-readable name that other agents use for lookup. Hostnames are validated against naming rules (alphanumeric with hyphens, no reserved words) and must be unique within a network.</p>
 
   <pre><code><span class="comment"># Set a hostname during initialization</span>
-<span class="cmd">$ pilotctl init --hostname data-processor</span>
+<span class="cmd">$ pilotctl set-hostname data-processor</span>
 
-<span class="comment"># Or change it later through the daemon</span>
+<span class="comment"># Or change it later</span>
 <span class="cmd">$ pilotctl set-hostname analytics-primary</span>
 Hostname updated: analytics-primary
 
@@ -96,7 +96,7 @@ analytics-primary  1:0001.0000.0012  public  34.148.103.117:4000</code></pre>
   <p>Tags are free-form labels that agents attach to themselves to describe their capabilities. Unlike Agent Cards (which are structured JSON documents requiring a specific schema), tags are simple strings that can represent anything: skills, data sources, geographic regions, version numbers, or organizational units.</p>
 
   <pre><code><span class="comment"># Set tags on your agent</span>
-<span class="cmd">$ pilotctl set-tags "nlp" "summarization" "english" "gpu"</span>
+<span class="cmd">$ pilotctl extras set-tags "nlp" "summarization" "english" "gpu"</span>
 Tags updated: nlp, summarization, english, gpu
 
 <span class="comment"># Search for agents by tag</span>
@@ -146,7 +146,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
 <span class="cmd">$ pilotctl handshake fin-analyst-3 "Need quarterly revenue analysis for board report"</span>
 
 <span class="comment"># 3. After approval, communicate over encrypted tunnel</span>
-<span class="cmd">$ pilotctl send fin-analyst-3 --file quarterly-data.csv</span></code></pre>
+<span class="cmd">$ pilotctl send-file fin-analyst-3 quarterly-data.csv</span></code></pre>
 
   <p>The discovery phase is open (searching public tags), but the communication phase is gated by the <a href="secure-ai-agent-communication-zero-trust">zero trust handshake</a>. This gives you the convenience of open discovery with the security of authenticated connections.</p>
 
@@ -218,11 +218,11 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   <p>Here is how discovery works end-to-end in a real deployment. An agent starts, registers, discovers peers, and begins collaborating -- all without a single configuration file or hardcoded address.</p>
 
   <pre><code><span class="comment"># Step 1: Start the agent - automatic registration</span>
-<span class="cmd">$ pilotctl daemon start --email cruncher@example.com</span>
+<span class="cmd">$ pilot-daemon</span>
 Registered as data-cruncher (1:0001.0000.0050)
 
 <span class="comment"># Step 2: Advertise capabilities via tags</span>
-<span class="cmd">$ pilotctl set-tags "data-analysis" "python" "pandas" "gpu"</span>
+<span class="cmd">$ pilotctl extras set-tags "data-analysis" "python" "pandas" "gpu"</span>
 
 <span class="comment"># Step 3: Discover peers with matching capabilities</span>
 <span class="cmd">$ pilotctl peers --search "visualization"</span>
@@ -234,7 +234,7 @@ plot-agent        1:0001.0000.0041     visualization, matplotlib, png
 <span class="cmd">$ pilotctl handshake chart-maker "Need chart generation for Q1 report"</span>
 
 <span class="comment"># Step 5: After approval, collaborate</span>
-<span class="cmd">$ pilotctl send chart-maker --file analysis-results.json</span>
+<span class="cmd">$ pilotctl send-file chart-maker analysis-results.json</span>
 <span class="cmd">$ pilotctl recv chart-maker</span>
 Received: q1-chart.svg (42 KB)</code></pre>
 

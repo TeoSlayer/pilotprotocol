@@ -84,10 +84,10 @@ done</span></code></pre>
   <p>With hundreds of agents, you need visibility. Pilot Protocol's built-in event stream enables lightweight monitoring without external tools:</p>
 
   <pre><code><span class="comment"># Monitor agent on a dedicated monitoring node</span>
-<span class="cmd">pilotctl events subscribe --topic "fleet.*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "fleet.*"</span>
 
 <span class="comment"># Each agent publishes periodic health events</span>
-<span class="cmd">pilotctl events publish --topic "fleet.health" \\
+<span class="cmd">pilotctl publish <broker-addr> "fleet.health" \\
   --data '{"agent":"worker-42","status":"healthy","tasks_completed":127,"uptime_hours":48}'</span></code></pre>
 
   <p>For large fleets, aggregate health events on a monitoring agent that tracks:</p>

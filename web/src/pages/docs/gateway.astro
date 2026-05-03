@@ -41,19 +41,19 @@ const bodyContent = `<h1>Gateway</h1>
 <span class="cmd">pilotctl</span> handshake agent-alpha
 
 <span class="comment"># 2. Start the gateway - maps 0:0000.0000.037D to 10.4.0.1</span>
-<span class="cmd">sudo pilotctl</span> gateway start --ports 80 0:0000.0000.037D
+<span class="cmd">sudo pilotctl</span> extras gateway start --ports 80 0:0000.0000.037D
 
 <span class="comment"># 3. Connect using any TCP tool</span>
 <span class="cmd">curl</span> http://10.4.0.1/
 <span class="comment"># or open http://10.4.0.1/ in a browser</span>
 
 <span class="comment"># 4. Stop when done</span>
-<span class="cmd">sudo pilotctl</span> gateway stop</code></pre>
+<span class="cmd">sudo pilotctl</span> extras gateway stop</code></pre>
 
   <p>The first pilot address you map gets <code>10.4.0.1</code>, the second gets <code>10.4.0.2</code>, and so on.</p>
 
   <h3>Multiple peers at once</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 80,8080 0:0000.0000.037D 0:0000.0000.0002
+  <pre><code><span class="cmd">sudo pilotctl</span> extras gateway start --ports 80,8080 0:0000.0000.037D 0:0000.0000.0002
 <span class="comment"># First peer  → http://10.4.0.1/  and  http://10.4.0.1:8080/</span>
 <span class="comment"># Second peer → http://10.4.0.2/  and  http://10.4.0.2:8080/</span></code></pre>
 
@@ -77,7 +77,7 @@ const bodyContent = `<h1>Gateway</h1>
   <h3>Peer's machine (the client)</h3>
   <pre><code><span class="comment"># --ports 8080 must match the port your server is actually on</span>
 <span class="cmd">pilotctl</span> handshake 0:0000.0000.xxxx
-<span class="cmd">sudo pilotctl</span> gateway start --ports 8080 0:0000.0000.xxxx
+<span class="cmd">sudo pilotctl</span> extras gateway start --ports 8080 0:0000.0000.xxxx
 <span class="cmd">curl</span> http://10.4.0.1:8080/</code></pre>
 
   <p>No port forwarding, no VPN, no firewall changes needed on your side. The pilot overlay handles the traversal.</p>
@@ -85,7 +85,7 @@ const bodyContent = `<h1>Gateway</h1>
   <h2 id="manage">Manage mappings</h2>
 
   <h3>List current mappings</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway list</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway list</code></pre>
 
   <h3>Add a mapping to a running gateway</h3>
   <pre><code><span class="cmd">pilotctl</span> gateway map 0:0000.0000.0007           <span class="comment"># auto-assign local IP</span>
@@ -95,7 +95,7 @@ const bodyContent = `<h1>Gateway</h1>
   <pre><code><span class="cmd">pilotctl</span> gateway unmap 10.4.0.1</code></pre>
 
   <h3>Stop the gateway</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway stop</code></pre>
+  <pre><code><span class="cmd">sudo pilotctl</span> extras gateway stop</code></pre>
 
   <h2 id="notes">Notes &amp; limits</h2>
 
@@ -121,7 +121,7 @@ const bodyContent = `<h1>Gateway</h1>
   <p>Scriptorium is a service hosted on Pilot Protocol that delivers continuously updated intelligence briefs - market data, prediction markets, and more - directly to your agents. No public internet exposure, no anonymous callers. Trust is established through the normal pilot handshake.</p>
 
   <h3>1. Start the gateway</h3>
-  <pre><code><span class="cmd">sudo pilotctl</span> gateway start --ports 8100 0:0000.0000.3814</code></pre>
+  <pre><code><span class="cmd">sudo pilotctl</span> extras gateway start --ports 8100 0:0000.0000.3814</code></pre>
 
   <h3>2. Query endpoints</h3>
 

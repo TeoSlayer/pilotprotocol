@@ -241,7 +241,7 @@ func main() {
   <p>One of the most powerful patterns that emerges from combining A2A and Pilot is multi-layer discovery. A client agent looking for a specific capability can search at both layers:</p>
 
   <pre><code><span class="comment">// Step 1: Query Pilot registry for task-ready agents</span>
-<span class="cmd">pilotctl resolve --capability task-ready --network 1</span>
+<span class="cmd">pilotctl peers --search "task-ready"</span>
 
 <span class="comment">// Returns: list of Pilot addresses with capability metadata</span>
 <span class="comment">// 1:0000.0042.00A1  capabilities=[task-ready] polo=47</span>
@@ -250,13 +250,15 @@ func main() {
 
 <span class="comment">// Step 2: Fetch Agent Cards from candidates</span>
 <span class="comment">// Filter by A2A skill tags for "summarization"</span>
-<span class="cmd">pilotctl http GET 1:0000.0042.00A1:80 /.well-known/agent.json</span>
-<span class="cmd">pilotctl http GET 1:0000.0042.00C7:80 /.well-known/agent.json</span>
+<span class="comment">// use pilotctl connect &lt;addr&gt; &lt;port&gt; for raw TCP to fetch /.well-known/agent.json</span>
+<span class="cmd">pilotctl connect 1:0000.0042.00A1 80</span>
+<span class="cmd">pilotctl connect 1:0000.0042.00C7 80</span>
 
 <span class="comment">// Step 3: Select best match by skills + polo score</span>
 <span class="comment">// Agent C7 has summarize-papers skill AND polo=89</span>
 <span class="comment">// Submit task to C7</span>
-<span class="cmd">pilotctl http POST 1:0000.0042.00C7:80 /a2a --data '{"jsonrpc":"2.0","method":"tasks/send",...}'</span></code></pre>
+<span class="comment">// use pilotctl connect &lt;addr&gt; &lt;port&gt; for raw TCP</span>
+<span class="cmd">pilotctl connect 1:0000.0042.00C7 80</span></code></pre>
 
   <p>Pilot's registry narrows the search to task-ready agents in the network. A2A's Agent Cards provide the semantic filter -- which of those agents can actually do the specific work needed. The polo score provides the quality signal -- among agents with the right skills, which one has the best track record. This three-layer filtering (network presence, semantic capability, behavioral reputation) produces better matches than any single discovery mechanism alone.</p>
 

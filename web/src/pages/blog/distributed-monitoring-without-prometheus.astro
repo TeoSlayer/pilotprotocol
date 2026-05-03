@@ -29,11 +29,11 @@ const bodyContent = `<p>You want to monitor 15 servers. You need CPU, memory, di
 
   <pre><code><span class="comment"># Architecture overview:</span>
 <span class="comment">#</span>
-<span class="comment"># [Server 1] pilotctl publish "metrics/cpu"    ──┐</span>
-<span class="comment"># [Server 2] pilotctl publish "metrics/cpu"    ──┤</span>
-<span class="comment"># [Server 3] pilotctl publish "metrics/cpu"    ──┼──> [Aggregator] pilotctl subscribe "metrics/*"</span>
-<span class="comment"># [Server 1] pilotctl publish "metrics/disk"   ──┤</span>
-<span class="comment"># [Server 2] pilotctl publish "metrics/memory" ──┘</span>
+<span class="comment"># [Server 1] pilotctl publish <aggregator-addr> "metrics/cpu"    ──┐</span>
+<span class="comment"># [Server 2] pilotctl publish <aggregator-addr> "metrics/cpu"    ──┤</span>
+<span class="comment"># [Server 3] pilotctl publish <aggregator-addr> "metrics/cpu"    ──┼──> [Aggregator] pilotctl subscribe <aggregator-addr> "metrics/*"</span>
+<span class="comment"># [Server 1] pilotctl publish <aggregator-addr> "metrics/disk"   ──┤</span>
+<span class="comment"># [Server 2] pilotctl publish <aggregator-addr> "metrics/memory" ──┘</span>
 <span class="comment">#</span>
 <span class="comment"># All connections: encrypted, NAT-traversing, authenticated</span></code></pre>
 
@@ -47,6 +47,7 @@ const bodyContent = `<p>You want to monitor 15 servers. You need CPU, memory, di
 
 INTERVAL=30  <span class="comment"># seconds between metric publications</span>
 HOSTNAME=$(hostname)
+AGGREGATOR_ADDR=${AGGREGATOR_ADDR:-"<aggregator-addr>"}  <span class="comment"># set via env or replace with actual address</span>
 
 while true; do
   <span class="comment"># CPU usage (1-minute load average, normalized to core count)</span>
@@ -67,16 +68,16 @@ while true; do
   UPTIME=$(awk '{print int($1)}' /proc/uptime)
 
   <span class="comment"># Publish each metric to its topic</span>
-  pilotctl publish "metrics/cpu/$HOSTNAME" \\
+  pilotctl publish "$AGGREGATOR_ADDR" "metrics/cpu/$HOSTNAME" \\
     --data "{\\"host\\":\\"$HOSTNAME\\",\\"cpu_pct\\":$CPU_PCT,\\"load\\":$LOAD,\\"cores\\":$CORES,\\"ts\\":$(date +%s)}"
 
-  pilotctl publish "metrics/memory/$HOSTNAME" \\
+  pilotctl publish "$AGGREGATOR_ADDR" "metrics/memory/$HOSTNAME" \\
     --data "{\\"host\\":\\"$HOSTNAME\\",\\"mem_pct\\":$MEM_PCT,\\"mem_used_kb\\":$MEM_USED,\\"mem_total_kb\\":$MEM_TOTAL,\\"ts\\":$(date +%s)}"
 
-  pilotctl publish "metrics/disk/$HOSTNAME" \\
+  pilotctl publish "$AGGREGATOR_ADDR" "metrics/disk/$HOSTNAME" \\
     --data "{\\"host\\":\\"$HOSTNAME\\",\\"disk_pct\\":$DISK_PCT,\\"ts\\":$(date +%s)}"
 
-  pilotctl publish "metrics/uptime/$HOSTNAME" \\
+  pilotctl publish "$AGGREGATOR_ADDR" "metrics/uptime/$HOSTNAME" \\
     --data "{\\"host\\":\\"$HOSTNAME\\",\\"uptime_sec\\":$UPTIME,\\"ts\\":$(date +%s)}"
 
   sleep $INTERVAL
@@ -87,10 +88,10 @@ done</code></pre>
   <p>To deploy it on a new server, you install <code>pilotctl</code>, start the daemon, establish trust with the aggregator, and run the script. Total setup time: under two minutes.</p>
 
   <pre><code><span class="comment"># Deploy monitoring on a new server</span>
-<span class="cmd">$ go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">$ pilotctl init --hostname web-server-04</span>
-<span class="cmd">$ pilotctl daemon start --email ops@company.com</span>
-<span class="cmd">$ pilotctl set-tags monitoring server web</span>
+<span class="cmd">$ curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">$ pilotctl set-hostname web-server-04</span>
+<span class="cmd">$ pilot-daemon</span>
+<span class="cmd">$ pilotctl extras set-tags monitoring server web</span>
 
 <span class="comment"># Establish trust with the aggregator</span>
 <span class="cmd">$ pilotctl handshake metrics-aggregator "Monitoring agent for web-server-04"</span>
@@ -123,7 +124,7 @@ latest = {}
 def subscribe_metrics():
     <span class="comment">"""Subscribe to all metric topics using wildcard."""</span>
     proc = subprocess.Popen(
-        ["pilotctl", "subscribe", "metrics/*"],
+        ["pilotctl", "subscribe", os.environ.get("AGGREGATOR_ADDR", "<aggregator-addr>"), "metrics/*"],
         stdout=subprocess.PIPE, text=True
     )
     for line in proc.stdout:
@@ -163,7 +164,8 @@ def check_alerts(host, data):
             }
             <span class="comment"># Publish alert to dedicated topic</span>
             subprocess.run([
-                "pilotctl", "publish", f"alerts/{metric}/{host}",
+                "pilotctl", "publish", os.environ.get("AGGREGATOR_ADDR", "<aggregator-addr>"),
+                f"alerts/{metric}/{host}",
                 "--data", json.dumps(alert)
             ])
             print(f"ALERT [{alert['severity']}] {host}: {metric}={data[metric]} (threshold: {threshold})")
@@ -198,7 +200,7 @@ if __name__ == "__main__":
   <p>The aggregator subscribes to <code>metrics/*</code> (wildcard) and receives every metric from every host. It maintains an in-memory map of the latest values, checks thresholds on every update, and publishes alerts to <code>alerts/*</code> topics. Any interested party -- a Slack bot, an email script, a pager integration -- can subscribe to <code>alerts/*</code> and receive notifications.</p>
 
   <pre><code><span class="comment"># Subscribe to all alerts (from any monitoring consumer)</span>
-<span class="cmd">$ pilotctl subscribe "alerts/*"</span>
+<span class="cmd">$ pilotctl subscribe <aggregator-addr> "alerts/*"</span>
 [alerts/cpu/web-server-02] {"host":"web-server-02","metric":"cpu_pct","value":94.2,"threshold":90.0,"severity":"warning","ts":1709136000}
 [alerts/disk/db-server-01] {"host":"db-server-01","metric":"disk_pct","value":97.1,"threshold":90.0,"severity":"critical","ts":1709136030}</code></pre>
 
@@ -210,22 +212,22 @@ if __name__ == "__main__":
 
 <span class="comment"># Check if PostgreSQL can execute a query</span>
 PG_OK=$(psql -U monitor -d mydb -c "SELECT 1" 2>&1 && echo "ok" || echo "fail")
-pilotctl publish "health/postgres/$HOSTNAME" \\
+pilotctl publish "$AGGREGATOR_ADDR" "health/postgres/$HOSTNAME" \\
   --data "{\\"host\\":\\"$HOSTNAME\\",\\"service\\":\\"postgres\\",\\"status\\":\\"$PG_OK\\",\\"ts\\":$(date +%s)}"
 
 <span class="comment"># Check if the web application returns 200</span>
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health)
-pilotctl publish "health/webapp/$HOSTNAME" \\
+pilotctl publish "$AGGREGATOR_ADDR" "health/webapp/$HOSTNAME" \\
   --data "{\\"host\\":\\"$HOSTNAME\\",\\"service\\":\\"webapp\\",\\"http_code\\":$HTTP_CODE,\\"ts\\":$(date +%s)}"
 
 <span class="comment"># Check if a process is running</span>
 WORKERS=$(pgrep -c worker-process || echo 0)
-pilotctl publish "health/workers/$HOSTNAME" \\
+pilotctl publish "$AGGREGATOR_ADDR" "health/workers/$HOSTNAME" \\
   --data "{\\"host\\":\\"$HOSTNAME\\",\\"service\\":\\"workers\\",\\"count\\":$WORKERS,\\"ts\\":$(date +%s)}"
 
 <span class="comment"># Check disk I/O latency</span>
 IO_LATENCY=$(ioping -c 3 -q / 2>&1 | awk '/avg/ {print $4}')
-pilotctl publish "metrics/io_latency/$HOSTNAME" \\
+pilotctl publish "$AGGREGATOR_ADDR" "metrics/io_latency/$HOSTNAME" \\
   --data "{\\"host\\":\\"$HOSTNAME\\",\\"io_latency_us\\":\\"$IO_LATENCY\\",\\"ts\\":$(date +%s)}"</code></pre>
 
   <p>This is the advantage of agent-based monitoring over pull-based monitoring. The agent runs locally, so it can check anything the server can check. PostgreSQL query execution, HTTP response codes, process counts, disk I/O latency -- all of these require local access that an external scraper does not have. Uptime Kuma can tell you port 5432 is open. The monitoring agent can tell you the database is responding to queries in 3ms.</p>
@@ -237,12 +239,12 @@ pilotctl publish "metrics/io_latency/$HOSTNAME" \\
   <p>Tag your servers by role, and the dashboard becomes a filtered view of your infrastructure:</p>
 
   <pre><code><span class="comment"># Tag servers by role for dashboard filtering</span>
-<span class="cmd">$ pilotctl set-tags web-server production us-east</span>
-<span class="cmd">$ pilotctl set-tags db-server production us-east postgres</span>
-<span class="cmd">$ pilotctl set-tags cache-server production us-east redis</span>
+<span class="cmd">$ pilotctl extras set-tags web-server production us-east</span>
+<span class="cmd">$ pilotctl extras set-tags db-server production us-east postgres</span>
+<span class="cmd">$ pilotctl extras set-tags cache-server production us-east redis</span>
 
 <span class="comment"># View all production servers</span>
-<span class="cmd">$ pilotctl peers --search "tag:production"</span>
+<span class="cmd">$ pilotctl peers --search "production"</span>
 1:0001.0000.0001  web-server-01    [web-server, production, us-east]          online
 1:0001.0000.0002  web-server-02    [web-server, production, us-east]          online
 1:0001.0000.0003  db-server-01     [db-server, production, us-east, postgres] online
@@ -257,13 +259,13 @@ pilotctl publish "metrics/io_latency/$HOSTNAME" \\
   <p>With Pilot, every server runs the same daemon and connects to the same network. NAT traversal is automatic. The monitoring agent on the office server publishes metrics to the same topics as the monitoring agent on the AWS server. The aggregator subscribes once and receives everything.</p>
 
   <pre><code><span class="comment"># Server in AWS (public IP)</span>
-<span class="cmd">$ pilotctl daemon start --email ops@company.com</span>
+<span class="cmd">$ pilot-daemon</span>
 
 <span class="comment"># Server in Hetzner (different data center)</span>
-<span class="cmd">$ pilotctl daemon start --email ops@company.com</span>
+<span class="cmd">$ pilot-daemon</span>
 
 <span class="comment"># Server under desk (behind office NAT)</span>
-<span class="cmd">$ pilotctl daemon start --email ops@company.com</span>
+<span class="cmd">$ pilot-daemon</span>
 
 <span class="comment"># All three publish to the same topics.</span>
 <span class="comment"># The aggregator (anywhere) subscribes and receives from all three.</span>
@@ -325,7 +327,7 @@ def init_db():
 def main():
     conn = init_db()
     proc = subprocess.Popen(
-        ["pilotctl", "subscribe", "metrics/*"],
+        ["pilotctl", "subscribe", os.environ.get("AGGREGATOR_ADDR", "<aggregator-addr>"), "metrics/*"],
         stdout=subprocess.PIPE, text=True
     )
     batch = []
@@ -367,7 +369,7 @@ main()</code></pre>
   <p>Because alerts are published to Pilot topics, any consumer can subscribe and route them. Here are three common patterns:</p>
 
   <pre><code><span class="comment"># Pattern 1: Slack webhook on critical alerts</span>
-pilotctl subscribe "alerts/*" | while read -r line; do
+pilotctl subscribe "$AGGREGATOR_ADDR" "alerts/*" | while read -r line; do
   SEVERITY=$(echo "$line" | jq -r '.severity // empty' 2>/dev/null)
   if [ "$SEVERITY" = "critical" ]; then
     curl -s -X POST "$SLACK_WEBHOOK" \\
@@ -377,12 +379,12 @@ pilotctl subscribe "alerts/*" | while read -r line; do
 done
 
 <span class="comment"># Pattern 2: Email on any alert</span>
-pilotctl subscribe "alerts/*" | while read -r line; do
+pilotctl subscribe "$AGGREGATOR_ADDR" "alerts/*" | while read -r line; do
   echo "$line" | mail -s "Monitoring Alert" ops@company.com
 done
 
 <span class="comment"># Pattern 3: PagerDuty integration for critical only</span>
-pilotctl subscribe "alerts/*" | while read -r line; do
+pilotctl subscribe "$AGGREGATOR_ADDR" "alerts/*" | while read -r line; do
   SEVERITY=$(echo "$line" | jq -r '.severity // empty' 2>/dev/null)
   if [ "$SEVERITY" = "critical" ]; then
     curl -s -X POST "https://events.pagerduty.com/v2/enqueue" \\

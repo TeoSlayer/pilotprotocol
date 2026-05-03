@@ -245,23 +245,23 @@ if __name__ == "__main__":
   <p>The manager must be able to submit tasks to every specialist. On the manager machine:</p>
 
   <pre><code><span class="comment"># Manager trusts each specialist</span>
-<span class="cmd">pilotctl trust 1:0001.0000.0002</span>  <span class="comment"># backend</span>
-<span class="cmd">pilotctl trust 1:0001.0000.0003</span>  <span class="comment"># ml</span>
-<span class="cmd">pilotctl trust 1:0001.0000.0004</span>  <span class="comment"># qa</span></code></pre>
+<span class="cmd">pilotctl handshake 1:0001.0000.0002</span>  <span class="comment"># backend</span>
+<span class="cmd">pilotctl handshake 1:0001.0000.0003</span>  <span class="comment"># ml</span>
+<span class="cmd">pilotctl handshake 1:0001.0000.0004</span>  <span class="comment"># qa</span></code></pre>
 
   <h3>Specialists Only Trust the Manager</h3>
 
   <p>Specialists should only accept tasks from the authorized manager. On each specialist machine:</p>
 
   <pre><code><span class="comment"># Specialist trusts only the manager</span>
-<span class="cmd">pilotctl trust 1:0001.0000.0001</span>  <span class="comment"># manager</span></code></pre>
+<span class="cmd">pilotctl handshake 1:0001.0000.0001</span>  <span class="comment"># manager</span></code></pre>
 
   <p>This creates a hub-and-spoke trust topology. The manager can reach all specialists. Each specialist can only be reached by the manager. Specialists cannot submit tasks to each other unless explicitly granted trust. This prevents a compromised specialist from using other specialists as an attack surface.</p>
 
   <p>For teams where specialists need peer communication (e.g., the backend specialist sends test fixtures to the QA specialist), add explicit trust between those specific pairs:</p>
 
   <pre><code><span class="comment"># On the QA specialist: also trust the backend specialist</span>
-<span class="cmd">pilotctl trust 1:0001.0000.0002</span>  <span class="comment"># backend can send to qa</span></code></pre>
+<span class="cmd">pilotctl handshake 1:0001.0000.0002</span>  <span class="comment"># backend can send to qa</span></code></pre>
 
   <p>Trust is not transitive. Trusting the manager does not mean trusting the manager's other specialists. Every trust relationship is an explicit, mutual Ed25519 handshake. See <a href="trust-model-agents-invisible-by-default">The Trust Model</a> for the full cryptographic details.</p>
   </section>
@@ -274,9 +274,9 @@ if __name__ == "__main__":
   <p>Every completed task earns polo for the specialist. The manager can query polo scores to make delegation decisions:</p>
 
   <pre><code><span class="comment"># Check which specialist is most reliable</span>
-<span class="cmd">pilotctl resolve 1:0001.0000.0002</span>  <span class="comment"># polo: 47</span>
-<span class="cmd">pilotctl resolve 1:0001.0000.0003</span>  <span class="comment"># polo: 31</span>
-<span class="cmd">pilotctl resolve 1:0001.0000.0004</span>  <span class="comment"># polo: 52</span></code></pre>
+<span class="cmd">pilotctl lookup 1:0001.0000.0002</span>  <span class="comment"># polo: 47</span>
+<span class="cmd">pilotctl lookup 1:0001.0000.0003</span>  <span class="comment"># polo: 31</span>
+<span class="cmd">pilotctl lookup 1:0001.0000.0004</span>  <span class="comment"># polo: 52</span></code></pre>
 
   <p>The manager can include this in its decision-making: "The QA specialist has the highest polo score (52). It consistently accepts and completes tasks quickly. The ML specialist has the lowest (31) because GPU tasks take longer, reducing the efficiency multiplier." This is not about gatekeeping; it is about routing tasks to the specialist most likely to complete them promptly.</p>
 
@@ -289,10 +289,10 @@ if __name__ == "__main__":
   <p>Claude agent teams work heavily with files. The manager needs to send source files to specialists and receive modified files back. Pilot's data exchange service (port 1001) handles this:</p>
 
   <pre><code><span class="comment"># Manager sends source files to the backend specialist</span>
-<span class="cmd">pilotctl data send 1:0001.0000.0002 ./src/auth/</span>
+<span class="cmd">pilotctl send-file 1:0001.0000.0002 ./src/auth/</span>
 
 <span class="comment"># Backend specialist sends modified files back</span>
-<span class="cmd">pilotctl data send 1:0001.0000.0001 ./output/auth/</span></code></pre>
+<span class="cmd">pilotctl send-file 1:0001.0000.0001 ./output/auth/</span></code></pre>
 
   <p>For the task-based workflow, files can be embedded in task parameters or results as base64-encoded content. For larger files (model weights, datasets), use the data exchange service directly. See <a href="peer-to-peer-file-transfer-agents">Peer-to-Peer File Transfer Between AI Agents</a> for the full file transfer guide.</p>
 
@@ -305,15 +305,15 @@ if __name__ == "__main__":
   <p>Complex agent teams need more than request-response. Pilot's event stream (port 1002) enables publish-subscribe patterns within the team:</p>
 
   <pre><code><span class="comment"># Manager subscribes to all specialist events</span>
-<span class="cmd">pilotctl events subscribe --topic "specialist.*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "specialist.*"</span>
 
 <span class="comment"># Backend specialist publishes when API is ready</span>
-<span class="cmd">pilotctl events publish --topic "specialist.backend.ready" \\
+<span class="cmd">pilotctl publish <broker-addr> "specialist.backend.ready" \\
   --data '{"endpoints": ["POST /auth/login", "POST /auth/register"]}'</span>
 
 <span class="comment"># QA specialist subscribes to backend events
 # (automatically starts testing when backend is ready)</span>
-<span class="cmd">pilotctl events subscribe --topic "specialist.backend.*"</span></code></pre>
+<span class="cmd">pilotctl subscribe <broker-addr> "specialist.backend.*"</span></code></pre>
 
   <p>This enables reactive workflows. The QA specialist does not need to poll for task completion. It subscribes to "specialist.backend.ready" and automatically begins testing when the backend code is available. The manager subscribes to "specialist.*" and gets a real-time view of all specialist activity. See <a href="replace-message-broker-twelve-lines-go">Replace Your Agent Message Broker</a> for more event-driven patterns.</p>
   </section>
@@ -394,12 +394,12 @@ if __name__ == "__main__":
     <li><strong>Create a Pilot network.</strong> Sign up at <a href="https://pilotprotocol.network">pilotprotocol.network</a> or use the CLI.</li>
     <li><strong>Install Pilot on each machine.</strong> <code>go install github.com/TeoSlayer/pilotprotocol/cmd/...</code> or download the binary from the releases page.</li>
     <li><strong>Start daemons.</strong> Each machine runs <code>pilot-daemon</code>.</li>
-    <li><strong>Establish trust.</strong> Use <code>pilotctl trust</code> to create the hub-and-spoke topology.</li>
+    <li><strong>Establish trust.</strong> Use <code>pilotctl handshake</code> to create the hub-and-spoke topology.</li>
     <li><strong>Start workers.</strong> Run the worker script on each specialist machine.</li>
     <li><strong>Configure the manager.</strong> Add <code>pilotctl task submit</code> as a tool and include specialist addresses in the system prompt.</li>
   </ol>
 
-  <p>The entire setup takes about 15 minutes. Most of that time is installing Pilot on each machine. Once the daemons are running and trust is established, adding new specialists is a single <code>pilotctl trust</code> command.</p>
+  <p>The entire setup takes about 15 minutes. Most of that time is installing Pilot on each machine. Once the daemons are running and trust is established, adding new specialists is a single <code>pilotctl handshake</code> command.</p>
 
   <p>For the full Pilot Protocol documentation, including the driver API for building native Go integrations instead of shelling out to <code>pilotctl</code>, check the <a href="/docs/">docs</a>. For <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP</a> integration with your specialists, see <a href="mcp-plus-pilot-tools-and-network">MCP + Pilot: Give Your Agent Tools AND a Network</a>. For contributing to the project itself, see our <a href="contributing-codebase-tour">codebase tour</a>.</p>
   </section>

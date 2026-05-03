@@ -84,11 +84,11 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
   <p>Every agent generates an <strong>Ed25519 identity key pair</strong> at first startup. This key pair is the agent's permanent identity. Trust is established through a mutual handshake protocol:</p>
 
   <pre><code><span class="comment"># Agent A initiates trust with Agent B</span>
-<span class="cmd">pilotctl trust request 1:0001.0000.0042 --justification "Research collaboration with PartnerCo"</span>
+<span class="cmd">pilotctl handshake 1:0001.0000.0042 "Research collaboration with PartnerCo"</span>
 
 <span class="comment"># Agent B reviews and approves (or rejects)</span>
-<span class="cmd">pilotctl trust list-pending</span>
-<span class="cmd">pilotctl trust approve 1:0001.0000.0017</span>
+<span class="cmd">pilotctl pending</span>
+<span class="cmd">pilotctl approve 1:0001.0000.0017</span>
 
 <span class="comment"># Both agents can now communicate</span>
 <span class="cmd">pilotctl send-message 1:0001.0000.0042 "Ready for task delegation"</span></code></pre>
@@ -119,7 +119,7 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
   <p>Trust revocation is instant and unilateral:</p>
 
   <pre><code><span class="comment"># Revoke trust from a specific agent</span>
-<span class="cmd">pilotctl trust revoke 1:0001.0000.0042</span>
+<span class="cmd">pilotctl untrust 1:0001.0000.0042</span>
 
 <span class="comment"># The revoked agent can no longer:</span>
 <span class="comment"># - Resolve your address (you become invisible)</span>
@@ -137,29 +137,28 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
   <h3>Setup (one time per agent)</h3>
 
   <pre><code><span class="comment"># Company A: install and start research agent</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --email research@company-a.example.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
 <span class="cmd">pilotctl set-hostname research-agent-a</span>
-<span class="cmd">pilotctl tags set role=research,domain=finance</span>
+<span class="cmd">pilotctl extras set-tags role=research,domain=finance</span>
 
 <span class="comment"># Company B: install and start data agent</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --email data@company-b.example.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
 <span class="cmd">pilotctl set-hostname data-agent-b</span>
-<span class="cmd">pilotctl tags set role=analysis,domain=finance,accepts=queries</span></code></pre>
+<span class="cmd">pilotctl extras set-tags role=analysis,domain=finance,accepts=queries</span></code></pre>
 
   <h3>Establish trust</h3>
 
   <pre><code><span class="comment"># Company A's agent requests trust with Company B's agent</span>
-<span class="cmd">pilotctl trust request 1:0001.0000.0042 \\
-  --justification "Q1 financial research collaboration per MSA dated 2026-01-15"</span>
+<span class="cmd">pilotctl handshake 1:0001.0000.0042 "Q1 financial research collaboration per MSA dated 2026-01-15"</span>
 
 <span class="comment"># Company B's agent reviews and approves</span>
-<span class="cmd">pilotctl trust list-pending --json</span>
+<span class="cmd">pilotctl pending --json</span>
 <span class="comment"># {"address":"1:0001.0000.0017","justification":"Q1 financial research collaboration..."}</span>
-<span class="cmd">pilotctl trust approve 1:0001.0000.0017</span></code></pre>
+<span class="cmd">pilotctl approve 1:0001.0000.0017</span></code></pre>
 
   <h3>Collaborate</h3>
 
@@ -170,7 +169,7 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
 
 <span class="comment"># Company B's agent processes the task and returns results</span>
 <span class="comment"># Company A receives the result over the encrypted tunnel</span>
-<span class="cmd">pilotctl task status &lt;task-id&gt; --json</span></code></pre>
+<span class="cmd">pilotctl extras task list --json</span></code></pre>
 
   <h3>Go integration for programmatic use</h3>
 
@@ -293,12 +292,12 @@ func main() {
   <p>Cross-company agent collaboration starts with two commands on each side:</p>
 
   <pre><code><span class="comment"># Both companies install and join the same network</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
-<span class="cmd">pilotctl daemon start --email agent@example.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
+<span class="cmd">pilot-daemon</span>
+<span class="cmd">pilotctl network join 1</span>
 
 <span class="comment"># Establish trust (one-time, mutual)</span>
-<span class="cmd">pilotctl trust request &lt;partner-address&gt; --justification "Collaboration purpose"</span>
+<span class="cmd">pilotctl handshake &lt;partner-address&gt; "Collaboration purpose"</span>
 
 <span class="comment"># Start communicating</span>
 <span class="cmd">pilotctl send-message &lt;partner-address&gt; "Ready to collaborate"</span></code></pre>

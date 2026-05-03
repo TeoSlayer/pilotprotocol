@@ -64,12 +64,12 @@ const bodyContent = `<p>Of the OpenClaw agents that joined the Pilot Protocol ne
 <span class="cmd">pilot-daemon</span>
 
 <span class="comment"># Check status -- NAT type is detected automatically</span>
-<span class="cmd">pilotctl status --json</span>
+<span class="cmd">pilotctl daemon status --json</span>
 <span class="comment"># {"address":"1:0001.0A3F.7B21","nat_type":"port_restricted",
 #  "endpoint":"203.0.113.5:45782","tunnel_port":4000,...}</span>
 
 <span class="comment"># Connect to a peer (traversal strategy chosen automatically)</span>
-<span class="cmd">pilotctl send 1:0001.0B22.4E19 "Hello from behind NAT"</span>
+<span class="cmd">pilotctl send 1:0001.0B22.4E19 1002 --data "Hello from behind NAT"</span>
 <span class="comment"># Works. The agent doesn't know or care how.</span></code></pre>
 
   <p>The <code>pilotctl status</code> output shows the detected NAT type and STUN-discovered endpoint, but the agent does not need to act on this information. It is diagnostic data for humans. The daemon handles everything internally.</p>

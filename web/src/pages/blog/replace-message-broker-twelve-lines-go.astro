@@ -358,24 +358,24 @@ stream.Publish("pipeline.stage2.result.anomaly", data)</code></pre>
   <p>You do not need to write Go to test the event stream. The <code>pilotctl</code> CLI has publish and subscribe commands for quick prototyping.</p>
 
   <pre><code><span class="comment"># Terminal 1: subscribe to all metrics</span>
-<span class="cmd">pilotctl subscribe "metrics.*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "metrics.*"</span>
 
 <span class="comment"># Terminal 2: publish a CPU metric</span>
-<span class="cmd">pilotctl publish metrics.cpu '{"host":"agent-a","percent":73.2}'</span>
+<span class="cmd">pilotctl publish <broker-addr> metrics.cpu --data '{"host":"agent-a","percent":73.2}'</span>
 
 <span class="comment"># Terminal 3: publish a memory metric</span>
-<span class="cmd">pilotctl publish metrics.memory '{"host":"agent-b","alloc_mb":256}'</span></code></pre>
+<span class="cmd">pilotctl publish <broker-addr> metrics.memory --data '{"host":"agent-b","alloc_mb":256}'</span></code></pre>
 
   <p>Terminal 1 will print both events as they arrive. Use this to test your topic hierarchy before writing Go code.</p>
 
   <pre><code><span class="comment"># Subscribe to everything (useful for debugging)</span>
-<span class="cmd">pilotctl subscribe "*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "*"</span>
 
 <span class="comment"># Subscribe to all pipeline events</span>
-<span class="cmd">pilotctl subscribe "pipeline.*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "pipeline.*"</span>
 
 <span class="comment"># Subscribe to only anomalies</span>
-<span class="cmd">pilotctl subscribe "pipeline.stage2.result.anomaly"</span></code></pre>
+<span class="cmd">pilotctl subscribe <broker-addr> "pipeline.stage2.result.anomaly"</span></code></pre>
 
   <p>The CLI commands connect to the same daemon and use the same event stream as the Go API. They are interchangeable.</p>
   </section>

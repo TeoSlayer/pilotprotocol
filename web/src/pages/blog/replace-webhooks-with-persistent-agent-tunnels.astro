@@ -73,10 +73,10 @@ const bodyContent = `<p>"Give me /events, not webhooks." That sentiment hit the 
   <h3>CLI quick start</h3>
 
   <pre><code><span class="comment"># Terminal 1: subscribe to all task events</span>
-<span class="cmd">pilotctl subscribe "tasks.*"</span>
+<span class="cmd">pilotctl subscribe <broker-addr> "tasks.*"</span>
 
 <span class="comment"># Terminal 2: publish a task completion event</span>
-<span class="cmd">pilotctl publish tasks.complete '{"task_id":"abc123","status":"done","result":"summary generated"}'</span>
+<span class="cmd">pilotctl publish <broker-addr> tasks.complete --data '{"task_id":"abc123","status":"done","result":"summary generated"}'</span>
 
 <span class="comment"># Terminal 1 immediately prints:</span>
 <span class="comment"># [tasks.complete] {"task_id":"abc123","status":"done","result":"summary generated"}</span></code></pre>
@@ -170,9 +170,9 @@ func main() {
 import json
 
 <span class="comment"># Subscribe to events and process them in Python</span>
-def subscribe(topic: str):
+def subscribe(broker_addr: str, topic: str):
     proc = subprocess.Popen(
-        ["pilotctl", "subscribe", topic, "--json"],
+        ["pilotctl", "subscribe", broker_addr, topic, "--json"],
         stdout=subprocess.PIPE,
         text=True
     )
@@ -181,7 +181,7 @@ def subscribe(topic: str):
         yield event
 
 <span class="comment"># Usage: replaces a Flask webhook endpoint</span>
-for event in subscribe("tasks.*"):
+for event in subscribe("<broker-addr>", "tasks.*"):
     print(f"Received: {event['topic']} -> {event['data']}")
     process_event(event)</code></pre>
 
@@ -189,15 +189,15 @@ for event in subscribe("tasks.*"):
 import json
 
 <span class="comment"># Publish an event from Python</span>
-def publish(topic: str, data: dict):
+def publish(broker_addr: str, topic: str, data: dict):
     payload = json.dumps(data)
     subprocess.run(
-        ["pilotctl", "publish", topic, payload],
+        ["pilotctl", "publish", broker_addr, topic, "--data", payload],
         check=True
     )
 
 <span class="comment"># Usage: replaces a webhook POST</span>
-publish("tasks.complete", {
+publish("<broker-addr>", "tasks.complete", {
     "task_id": "abc123",
     "status": "done",
     "result": "Analysis complete. 3 anomalies found."
@@ -339,24 +339,24 @@ publish("tasks.complete", {
   <p>You do not need to replace all webhooks at once. The practical migration path is:</p>
 
   <ol>
-    <li><strong>Install Pilot on your agents:</strong> <code>go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</code></li>
+    <li><strong>Install Pilot on your agents:</strong> <code>curl -fsSL https://pilotprotocol.network/install.sh | sh</code></li>
     <li><strong>Bridge existing webhooks:</strong> Use <code>pilotctl set-webhook</code> to pipe incoming webhooks into the event stream.</li>
     <li><strong>New integrations use Pilot:</strong> When connecting agents you control, use the event stream directly instead of adding another webhook endpoint.</li>
     <li><strong>Decomission webhook infrastructure:</strong> As integrations move to Pilot, remove the corresponding webhook receivers, queues, and dead letter queues.</li>
   </ol>
 
   <pre><code><span class="comment"># Step 1: Install</span>
-<span class="cmd">go install github.com/TeoSlayer/pilotprotocol/cmd/pilotctl@latest</span>
+<span class="cmd">curl -fsSL https://pilotprotocol.network/install.sh | sh</span>
 
 <span class="comment"># Step 2: Start daemon and join network</span>
 <span class="cmd">pilotctl daemon start --email agent@example.com</span>
-<span class="cmd">pilotctl join 1</span>
+<span class="cmd">pilotctl network join 1</span>
 
 <span class="comment"># Step 3: Bridge existing webhooks</span>
 <span class="cmd">pilotctl set-webhook http://localhost:8080/events</span>
 
 <span class="comment"># Step 4: Subscribe to events (replaces webhook consumer)</span>
-<span class="cmd">pilotctl subscribe "tasks.*"</span></code></pre>
+<span class="cmd">pilotctl subscribe <broker-addr> "tasks.*"</span></code></pre>
 
   <p>The bridge means you never have to choose between webhooks and Pilot. You can run both simultaneously, routing some events through webhooks and others through the event stream, until you have migrated everything you control to persistent tunnels.</p>
   </section>

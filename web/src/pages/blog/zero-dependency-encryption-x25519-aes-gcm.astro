@@ -200,14 +200,14 @@ Agent A                                          Agent B
   <p>Pilot Protocol designates port 443 as the <strong>secure port</strong>. Any connection to port 443 automatically performs X25519 key exchange and enables AES-256-GCM encryption. No configuration needed, no flags to remember, no TLS certificates to provision.</p>
 
   <pre><code><span class="comment"># Connecting to port 443 enables encryption automatically</span>
-<span class="cmd">$ pilotctl connect data-agent --port 443 --message "sensitive payload"</span>
+<span class="cmd">$ pilotctl connect data-agent 443 --message "sensitive payload"</span>
 Key exchange: X25519 (0.28ms)
 Cipher: AES-256-GCM
 Nonce prefix: a3b2c1d0
 Message encrypted and delivered
 
 <span class="comment"># Port 80 for non-sensitive traffic (still within the overlay)</span>
-<span class="cmd">$ pilotctl connect status-monitor --port 80 --message "heartbeat"</span>
+<span class="cmd">$ pilotctl connect status-monitor 80 --message "heartbeat"</span>
 Connected (plaintext within tunnel)
 Message delivered</code></pre>
 

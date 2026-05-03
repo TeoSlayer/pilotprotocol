@@ -28,17 +28,17 @@ import PlainLayout from '../../../layouts/PlainLayout.astro';
 pilotctl handshake agent-alpha
 
 # 2. Start the gateway - maps 0:0000.0000.037D to 10.4.0.1
-sudo pilotctl gateway start --ports 80 0:0000.0000.037D
+sudo pilotctl extras gateway start --ports 80 0:0000.0000.037D
 
 # 3. Connect using any TCP tool
 curl http://10.4.0.1/
 # or open http://10.4.0.1/ in a browser
 
 # 4. Stop when done
-sudo pilotctl gateway stop</code></pre>
+sudo pilotctl extras gateway stop</code></pre>
 <p>The first pilot address mapped gets 10.4.0.1, the second gets 10.4.0.2, and so on.</p>
 <p>Multiple peers at once:</p>
-<pre><code>sudo pilotctl gateway start --ports 80,8080 0:0000.0000.037D 0:0000.0000.0002
+<pre><code>sudo pilotctl extras gateway start --ports 80,8080 0:0000.0000.037D 0:0000.0000.0002
 # First peer  → http://10.4.0.1/  and  http://10.4.0.1:8080/
 # Second peer → http://10.4.0.2/  and  http://10.4.0.2:8080/</code></pre>
 
@@ -58,20 +58,20 @@ pilotctl approve &lt;node_id&gt;</code></pre>
 <p>On the peer's (client) machine:</p>
 <pre><code># --ports 8080 must match the port your server is actually on
 pilotctl handshake 0:0000.0000.xxxx
-sudo pilotctl gateway start --ports 8080 0:0000.0000.xxxx
+sudo pilotctl extras gateway start --ports 8080 0:0000.0000.xxxx
 curl http://10.4.0.1:8080/</code></pre>
 <p>No port forwarding, VPN, or firewall changes are needed on the server side. The pilot overlay handles the traversal.</p>
 
 <h2>Manage mappings</h2>
 <p>List current mappings:</p>
-<pre><code>pilotctl gateway list</code></pre>
+<pre><code>pilotctl extras gateway list</code></pre>
 <p>Add a mapping to a running gateway:</p>
 <pre><code>pilotctl gateway map 0:0000.0000.0007           # auto-assign local IP
 pilotctl gateway map 0:0000.0000.0007 10.4.0.5  # assign a specific IP</code></pre>
 <p>Remove a mapping:</p>
 <pre><code>pilotctl gateway unmap 10.4.0.1</code></pre>
 <p>Stop the gateway:</p>
-<pre><code>sudo pilotctl gateway stop</code></pre>
+<pre><code>sudo pilotctl extras gateway stop</code></pre>
 
 <h2>Notes &amp; limits</h2>
 <ul>
@@ -87,7 +87,7 @@ pilotctl gateway map 0:0000.0000.0007 10.4.0.5  # assign a specific IP</code></p
 <p>Deprecated. The gateway-based Scriptorium workflow is still functional, but using Service Agents is recommended. Service agents live on a dedicated network. Join it with `pilotctl network join 9` and call services directly via `pilotctl scriptorium` commands without managing gateway mappings.</p>
 <p>Scriptorium is a service hosted on Pilot Protocol that delivers continuously updated intelligence briefs, such as market data and prediction markets. Trust is established through the pilot handshake.</p>
 <p>1. Start the gateway:</p>
-<pre><code>sudo pilotctl gateway start --ports 8100 0:0000.0000.3814</code></pre>
+<pre><code>sudo pilotctl extras gateway start --ports 8100 0:0000.0000.3814</code></pre>
 <p>2. Query endpoints:</p>
 <p>Prediction markets - today:</p>
 <pre><code>curl "http://10.4.0.1:8100/summaries/polymarket?from=2026-04-02T00:00:00Z"</code></pre>

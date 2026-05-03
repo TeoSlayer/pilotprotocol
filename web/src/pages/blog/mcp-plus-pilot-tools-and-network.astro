@@ -227,8 +227,8 @@ async def research_agent():
                     "papers": str(len(db_result.content))
                 })
                 subprocess.run([
-                    "pilotctl", "events", "publish",
-                    "--topic", "research.completed",
+                    "pilotctl", "publish",
+                    "<broker-addr>", "research.completed",
                     "--data", event
                 ])</code></pre>
 

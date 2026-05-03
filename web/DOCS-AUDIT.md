@@ -15,46 +15,46 @@ These are high priority because they affect first-time user discoverability and 
 
 ### `plain/docs/trust.astro`
 
-- [ ] 🔴 **Critical** — `pilotctl trusts` → should be `pilotctl trust`
-- [ ] 🟡 **Warning** — `pilotctl status` → should be `pilotctl daemon status` or `pilotctl info`
+- [x] 🔴 **Critical** — `pilotctl trusts` → should be `pilotctl trust`
+- [x] 🟡 **Warning** — `pilotctl status` → should be `pilotctl daemon status` or `pilotctl info`
 
 ### `diagnostics.astro`
 
-- [ ] 🔴 **Critical** — `pilotctl bench other-agent 50 --timeout 120s` → `--timeout` flag does not exist; correct syntax is `pilotctl bench <addr> [size_mb]`
+- [x] 🔴 **Critical** — `pilotctl bench other-agent 50 --timeout 120s` → `--timeout` flag does not exist; correct syntax is `pilotctl bench <addr> [size_mb]`
 
 ### `go-sdk.astro`
 
-- [ ] 🔵 **Info** — `SetTags` documented as "max 10 tags" → inconsistent with `cli-reference.astro` (max 3) and `python-sdk` docs (max 3); one source is wrong
+- [x] 🔵 **Info** — `SetTags` documented as "max 10 tags" → fixed to "max 3 tags" (enforced by daemon IPC at `pkg/daemon/ipc.go:920`)
 
 ### `tags.astro`
 
-- [ ] 🔴 **Critical** — "Maximum 10 tags per node" → `cli-reference.astro` and python-sdk both say max 3; resolve the discrepancy
-- [ ] 🔴 **Critical** — Python example shows `import pilot` and `pilot.Client()` → correct import is `from pilotprotocol import Driver`
-- [ ] 🟡 **Warning** — `pilotctl set-tags` shown as a top-level command → must be `pilotctl extras set-tags`
+- [x] 🔴 **Critical** — "Maximum 10 tags per node" → fixed to 3 (matches daemon IPC enforcement)
+- [x] 🔴 **Critical** — Python example shows `import pilot` and `pilot.Client()` → fixed to `from pilotprotocol import Driver` / `Driver.connect()`
+- [x] 🟡 **Warning** — `pilotctl set-tags` shown as a top-level command → fixed to `pilotctl extras set-tags`
 
 ### `integration.astro`
 
-- [ ] 🟡 **Warning** — Docker example uses `FROM golang:1.21-alpine` → should be `golang:1.25` (current project requirement)
+- [x] 🟡 **Warning** — Docker example uses `FROM golang:1.21-alpine` → fixed to `golang:1.25-alpine`
 
 ### `configuration.astro`
 
-- [ ] 🔵 **Info** — Missing env vars table entries: `PILOT_HOME`, `PILOT_EMAIL`, `PILOT_RC` — all three are referenced in other docs and blog posts but absent from the configuration reference
+- [x] 🔵 **Info** — Missing env vars table entries: `PILOT_HOME`, `PILOT_EMAIL`, `PILOT_RC` — added
 
 ### `cli-reference.astro`
 
-- [ ] 🔴 **Critical** — `ai` command listed → not implemented; falls through to "unknown command" error
-- [ ] 🔴 **Critical** — `clawdit` command listed → not implemented; falls through to "unknown command" error
-- [ ] 🔴 **Critical** — `scriptorium` command listed → not implemented; falls through to "unknown command" error
+- [x] 🔴 **Critical** — `ai` command listed → marked "(Coming soon — not yet available)"
+- [x] 🔴 **Critical** — `clawdit` command listed → marked "(Coming soon — not yet available)"
+- [x] 🔴 **Critical** — `scriptorium` command listed → marked "(Coming soon — not yet available)"
 
 ### `tasks.astro`
 
-- [ ] 🟡 **Warning** — `pilotctl enable-tasks` → should be `pilotctl extras enable-tasks`
-- [ ] 🟡 **Warning** — `pilotctl disable-tasks` → should be `pilotctl extras disable-tasks`
-- [ ] 🟡 **Warning** — `pilotctl task submit` (and other `task` subcommands) → should be `pilotctl extras task submit`
+- [x] 🟡 **Warning** — `pilotctl enable-tasks` → fixed to `pilotctl extras enable-tasks`
+- [x] 🟡 **Warning** — `pilotctl disable-tasks` → fixed to `pilotctl extras disable-tasks`
+- [x] 🟡 **Warning** — `pilotctl task submit` (and other `task` subcommands) → fixed to `pilotctl extras task submit`
 
 ### `gateway.astro`
 
-- [ ] 🟡 **Warning** — `pilotctl gateway start` / `pilotctl gateway stop` → should be `pilotctl extras gateway start` / `pilotctl extras gateway stop` (or the `pilot-gateway` binary)
+- [x] 🟡 **Warning** — `pilotctl gateway start` / `pilotctl gateway stop` → fixed to `pilotctl extras gateway start` / `pilotctl extras gateway stop`
 
 ---
 
@@ -78,20 +78,20 @@ These are lower priority than formal docs but affect SEO content and reader trus
 
 Affected files:
 
-- [ ] 🟡 `why-autonomous-agents-need-private-discovery.astro`
-- [ ] 🟡 `cross-company-agent-collaboration-without-shared-infrastructure.astro`
-- [ ] 🟡 `distributed-rag-without-central-knowledge-base.astro`
-- [ ] 🟡 `claude-agent-teams-over-pilot.astro`
-- [ ] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
-- [ ] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
-- [ ] 🟡 `federated-learning-p2p-communication.astro`
-- [ ] 🟡 `hipaa-compliant-agent-communication.astro`
-- [ ] 🟡 `peer-to-peer-agent-communication-no-server.astro`
-- [ ] 🟡 `contributing-codebase-tour.astro`
-- [ ] 🟡 `connecting-mcp-servers-across-agents.astro`
-- [ ] 🟡 `building-custom-pilot-skills-openclaw.astro`
-- [ ] 🟡 `secure-research-collaboration-share-models-not-data.astro`
-- [ ] 🟡 `secure-ai-agent-communication-zero-trust.astro`
+- [x] 🟡 `why-autonomous-agents-need-private-discovery.astro`
+- [x] 🟡 `cross-company-agent-collaboration-without-shared-infrastructure.astro`
+- [x] 🟡 `distributed-rag-without-central-knowledge-base.astro`
+- [x] 🟡 `claude-agent-teams-over-pilot.astro`
+- [x] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
+- [x] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
+- [x] 🟡 `federated-learning-p2p-communication.astro`
+- [x] 🟡 `hipaa-compliant-agent-communication.astro`
+- [x] 🟡 `peer-to-peer-agent-communication-no-server.astro`
+- [x] 🟡 `contributing-codebase-tour.astro`
+- [x] 🟡 `connecting-mcp-servers-across-agents.astro`
+- [x] 🟡 `building-custom-pilot-skills-openclaw.astro`
+- [x] 🟡 `secure-research-collaboration-share-models-not-data.astro`
+- [x] 🟡 `secure-ai-agent-communication-zero-trust.astro`
 
 ---
 
@@ -107,21 +107,21 @@ Affected files:
 
 Affected files:
 
-- [ ] 🟡 `why-autonomous-agents-need-private-discovery.astro`
-- [ ] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
-- [ ] 🟡 `openclaw-task-delegation-polo-reputation.astro`
-- [ ] 🟡 `openclaw-meets-pilot-agent-networking-one-command.astro`
-- [ ] 🟡 `build-agent-swarm-self-organizes.astro`
-- [ ] 🟡 `how-626-agents-autonomously-adopted-pilot.astro`
-- [ ] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
-- [ ] 🟡 `federated-learning-p2p-communication.astro`
-- [ ] 🟡 `chain-ai-models-across-machines.astro`
-- [ ] 🟡 `lightweight-swarm-communication-drones-robots.astro`
-- [ ] 🟡 `building-custom-pilot-skills-openclaw.astro`
-- [ ] 🟡 `openclaw-agents-behind-nat-zero-config.astro`
-- [ ] 🟡 `peer-to-peer-agent-communication-no-server.astro`
-- [ ] 🟡 `preferential-attachment-ai-networks-trust-graph.astro`
-- [ ] 🟡 `build-openclaw-agent-self-organizes-pilot.astro`
+- [x] 🟡 `why-autonomous-agents-need-private-discovery.astro`
+- [x] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
+- [x] 🟡 `openclaw-task-delegation-polo-reputation.astro`
+- [x] 🟡 `openclaw-meets-pilot-agent-networking-one-command.astro`
+- [x] 🟡 `build-agent-swarm-self-organizes.astro`
+- [x] 🟡 `how-626-agents-autonomously-adopted-pilot.astro`
+- [x] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
+- [x] 🟡 `federated-learning-p2p-communication.astro`
+- [x] 🟡 `chain-ai-models-across-machines.astro`
+- [x] 🟡 `lightweight-swarm-communication-drones-robots.astro`
+- [x] 🟡 `building-custom-pilot-skills-openclaw.astro`
+- [x] 🟡 `openclaw-agents-behind-nat-zero-config.astro`
+- [x] 🟡 `peer-to-peer-agent-communication-no-server.astro`
+- [x] 🟡 `preferential-attachment-ai-networks-trust-graph.astro`
+- [x] 🟡 `build-openclaw-agent-self-organizes-pilot.astro`
 
 ---
 
@@ -136,16 +136,16 @@ Affected files:
 
 Affected files:
 
-- [ ] 🔴 `multi-agent-pipelines-openclaw-encrypted-tunnels.astro`
-- [ ] 🔴 `claude-agent-teams-over-pilot.astro`
-- [ ] 🔴 `scaling-openclaw-fleets-thousands-agents.astro`
-- [ ] 🔴 `mcp-plus-pilot-tools-and-network.astro`
-- [ ] 🔴 `replace-webhooks-with-persistent-agent-tunnels.astro`
-- [ ] 🔴 `move-beyond-rest-persistent-connections-for-agents.astro`
-- [ ] 🔴 `replace-message-broker-twelve-lines-go.astro`
-- [ ] 🔴 `distributed-monitoring-without-prometheus.astro`
-- [ ] 🔴 `build-multi-agent-network-five-minutes.astro`
-- [ ] 🔴 `secure-research-collaboration-share-models-not-data.astro`
+- [x] 🔴 `multi-agent-pipelines-openclaw-encrypted-tunnels.astro`
+- [x] 🔴 `claude-agent-teams-over-pilot.astro`
+- [x] 🔴 `scaling-openclaw-fleets-thousands-agents.astro`
+- [x] 🔴 `mcp-plus-pilot-tools-and-network.astro`
+- [x] 🔴 `replace-webhooks-with-persistent-agent-tunnels.astro`
+- [x] 🔴 `move-beyond-rest-persistent-connections-for-agents.astro`
+- [x] 🔴 `replace-message-broker-twelve-lines-go.astro`
+- [x] 🔴 `distributed-monitoring-without-prometheus.astro`
+- [x] 🔴 `build-multi-agent-network-five-minutes.astro`
+- [x] 🔴 `secure-research-collaboration-share-models-not-data.astro`
 
 ---
 
@@ -159,14 +159,14 @@ Affected files:
 
 Affected files:
 
-- [ ] 🔴 `multi-agent-pipelines-openclaw-encrypted-tunnels.astro`
-- [ ] 🔴 `claude-agent-teams-over-pilot.astro`
-- [ ] 🔴 `build-multi-agent-network-five-minutes.astro`
-- [ ] 🔴 `how-ai-agents-discover-each-other.astro`
-- [ ] 🔴 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
-- [ ] 🔴 `secure-ai-agent-communication-zero-trust.astro`
-- [ ] 🔴 `openclaw-agents-behind-nat-zero-config.astro`
-- [ ] 🔴 `building-custom-pilot-skills-openclaw.astro`
+- [x] 🔴 `multi-agent-pipelines-openclaw-encrypted-tunnels.astro`
+- [x] 🔴 `claude-agent-teams-over-pilot.astro`
+- [x] 🔴 `build-multi-agent-network-five-minutes.astro`
+- [x] 🔴 `how-ai-agents-discover-each-other.astro`
+- [x] 🔴 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
+- [x] 🔴 `secure-ai-agent-communication-zero-trust.astro`
+- [x] 🔴 `openclaw-agents-behind-nat-zero-config.astro`
+- [x] 🔴 `building-custom-pilot-skills-openclaw.astro`
 
 ---
 
@@ -179,13 +179,13 @@ Affected files:
 
 Affected files:
 
-- [ ] 🟡 `cross-company-agent-collaboration-without-shared-infrastructure.astro`
-- [ ] 🟡 `chain-ai-models-across-machines.astro`
-- [ ] 🟡 `lightweight-swarm-communication-drones-robots.astro`
-- [ ] 🟡 `replace-webhooks-with-persistent-agent-tunnels.astro`
-- [ ] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
-- [ ] 🟡 `federated-learning-p2p-communication.astro`
-- [ ] 🟡 `hipaa-compliant-agent-communication.astro`
+- [x] 🟡 `cross-company-agent-collaboration-without-shared-infrastructure.astro`
+- [x] 🟡 `chain-ai-models-across-machines.astro`
+- [x] 🟡 `lightweight-swarm-communication-drones-robots.astro`
+- [x] 🟡 `replace-webhooks-with-persistent-agent-tunnels.astro`
+- [x] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
+- [x] 🟡 `federated-learning-p2p-communication.astro`
+- [x] 🟡 `hipaa-compliant-agent-communication.astro`
 
 ---
 
@@ -201,14 +201,14 @@ Affected files:
 
 Affected files:
 
-- [ ] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
-- [ ] 🟡 `build-openclaw-agent-self-organizes-pilot.astro`
-- [ ] 🟡 `openclaw-meets-pilot-agent-networking-one-command.astro`
-- [ ] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
-- [ ] 🟡 `build-ai-agent-marketplace-discovery-reputation.astro`
-- [ ] 🟡 `why-autonomous-agents-need-private-discovery.astro`
-- [ ] 🟡 `private-agent-network-company.astro`
-- [ ] 🟡 `secure-research-collaboration-share-models-not-data.astro`
+- [x] 🟡 `clawhub-to-live-network-openclaw-discovery.astro`
+- [x] 🟡 `build-openclaw-agent-self-organizes-pilot.astro`
+- [x] 🟡 `openclaw-meets-pilot-agent-networking-one-command.astro`
+- [x] 🟡 `connect-agents-across-aws-gcp-azure-without-vpn.astro`
+- [x] 🟡 `build-ai-agent-marketplace-discovery-reputation.astro`
+- [x] 🟡 `why-autonomous-agents-need-private-discovery.astro`
+- [x] 🟡 `private-agent-network-company.astro`
+- [x] 🟡 `secure-research-collaboration-share-models-not-data.astro`
 
 ---
 
@@ -221,17 +221,17 @@ Affected files:
 
 Affected files:
 
-- [ ] 🟡 `build-multi-agent-network-five-minutes.astro`
-- [ ] 🟡 `build-openclaw-agent-self-organizes-pilot.astro` (also uses `cmd/pilot-daemon`)
-- [ ] 🟡 `chain-ai-models-across-machines.astro`
-- [ ] 🟡 `smart-home-without-cloud-local-device-communication.astro`
-- [ ] 🟡 `connect-ai-agents-behind-nat-without-vpn.astro`
-- [ ] 🟡 `federated-learning-p2p-communication.astro`
-- [ ] 🟡 `distributed-monitoring-without-prometheus.astro`
-- [ ] 🟡 `move-beyond-rest-persistent-connections-for-agents.astro`
-- [ ] 🟡 `replace-webhooks-with-persistent-agent-tunnels.astro`
-- [ ] 🟡 `secure-ai-agent-communication-zero-trust.astro` (appears twice)
-- [ ] 🟡 `zero-dependency-encryption-x25519-aes-gcm.astro` (implied)
+- [x] 🟡 `build-multi-agent-network-five-minutes.astro`
+- [x] 🟡 `build-openclaw-agent-self-organizes-pilot.astro` (also uses `cmd/pilot-daemon`)
+- [x] 🟡 `chain-ai-models-across-machines.astro`
+- [x] 🟡 `smart-home-without-cloud-local-device-communication.astro`
+- [x] 🟡 `connect-ai-agents-behind-nat-without-vpn.astro`
+- [x] 🟡 `federated-learning-p2p-communication.astro`
+- [x] 🟡 `distributed-monitoring-without-prometheus.astro`
+- [x] 🟡 `move-beyond-rest-persistent-connections-for-agents.astro`
+- [x] 🟡 `replace-webhooks-with-persistent-agent-tunnels.astro`
+- [x] 🟡 `secure-ai-agent-communication-zero-trust.astro` (appears twice)
+- [x] 🟡 `zero-dependency-encryption-x25519-aes-gcm.astro` (implied)
 
 ---
 
@@ -244,9 +244,9 @@ Affected files:
 
 Affected files:
 
-- [ ] 🔴 `connecting-mcp-servers-across-agents.astro`
-- [ ] 🔴 `zero-dependency-encryption-x25519-aes-gcm.astro`
-- [ ] 🔴 `benchmarking-http-vs-udp-overlay.astro`
+- [x] 🔴 `connecting-mcp-servers-across-agents.astro`
+- [x] 🔴 `zero-dependency-encryption-x25519-aes-gcm.astro`
+- [x] 🔴 `benchmarking-http-vs-udp-overlay.astro`
 
 ---
 
@@ -277,16 +277,16 @@ Affected files:
 
 Affected files (most egregious):
 
-- [ ] 🔴 `build-agent-swarm-self-organizes.astro` — uses: `task-opt-in`, `task poll`, `task fail`, `task complete`, `task status`, `set-polo-gate`
-- [ ] 🔴 `federated-learning-p2p-communication.astro` — uses: `find-by-tag`, `receive-file`, `status` (bare), trust subcommands
-- [ ] 🔴 `a2a-agent-cards-over-pilot-tunnels.astro` — uses: `resolve --capability`, `http GET/POST`
-- [ ] 🔴 `decentralized-task-marketplace-agents.astro` — uses: `resolve --capability --filter`
-- [ ] 🔴 `building-custom-pilot-skills-openclaw.astro` — uses: `task send-results --task-id`, `search --tag`, `status` (bare)
-- [ ] 🔴 `private-agent-network-company.astro` — uses: `trust-policy auto-approve`
-- [ ] 🔴 `enterprise-production-complete-identity-directory-audit-export.astro` — uses: `network transfer-ownership`
-- [ ] 🔴 `http-services-over-encrypted-overlay.astro` — uses: `gateway start --secure`
-- [ ] 🔴 `connect-agents-across-aws-gcp-azure-without-vpn.astro` — uses: `echo`, `discover --tag`
-- [ ] 🔴 `smart-home-without-cloud-local-device-communication.astro` — uses: `send-message --wait-reply`, `peers --search "tag:X"` (wrong search syntax)
+- [x] 🔴 `build-agent-swarm-self-organizes.astro` — uses: `task-opt-in`, `task poll`, `task fail`, `task complete`, `task status`, `set-polo-gate`
+- [x] 🔴 `federated-learning-p2p-communication.astro` — uses: `find-by-tag`, `receive-file`, `status` (bare), trust subcommands
+- [x] 🔴 `a2a-agent-cards-over-pilot-tunnels.astro` — uses: `resolve --capability`, `http GET/POST`
+- [x] 🔴 `decentralized-task-marketplace-agents.astro` — uses: `resolve --capability --filter`
+- [x] 🔴 `building-custom-pilot-skills-openclaw.astro` — uses: `task send-results --task-id`, `search --tag`, `status` (bare)
+- [x] 🔴 `private-agent-network-company.astro` — uses: `trust-policy auto-approve`
+- [x] 🔴 `enterprise-production-complete-identity-directory-audit-export.astro` — uses: `network transfer-ownership`
+- [x] 🔴 `http-services-over-encrypted-overlay.astro` — uses: `gateway start --secure`
+- [x] 🔴 `connect-agents-across-aws-gcp-azure-without-vpn.astro` — uses: `echo`, `discover --tag`
+- [x] 🔴 `smart-home-without-cloud-local-device-communication.astro` — uses: `send-message --wait-reply`, `peers --search "tag:X"` (wrong search syntax)
 
 ---
 
@@ -305,10 +305,10 @@ The following commands were moved behind `pilotctl extras` and are shown without
 
 Affected formal doc files:
 
-- [ ] 🟡 `tasks.astro` — `enable-tasks`, `disable-tasks`, `task submit` all missing `extras` prefix
-- [ ] 🟡 `gateway.astro` — `gateway start` / `gateway stop` missing `extras` prefix
-- [ ] 🟡 `tags.astro` — `set-tags` missing `extras` prefix
+- [x] 🟡 `tasks.astro` — `enable-tasks`, `disable-tasks`, `task submit` all missing `extras` prefix
+- [x] 🟡 `gateway.astro` — `gateway start` / `gateway stop` missing `extras` prefix
+- [x] 🟡 `tags.astro` — `set-tags` missing `extras` prefix
 
 ---
 
-*Last updated: 2026-05-02. Total open items: 109 checkboxes across formal docs and blog patterns.*
+*Last updated: 2026-05-02. All 109 items resolved. Total files changed: 56 (9 formal docs + 47 blog posts).*

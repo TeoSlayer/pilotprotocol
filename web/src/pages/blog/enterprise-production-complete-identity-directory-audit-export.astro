@@ -194,8 +194,7 @@ const bodyContent = `
 
 <p>Network owners can now transfer ownership to another member. The transfer is atomic: the previous owner is demoted to admin, the new owner gets the owner role. Six edge cases are enforced: non-owners cannot transfer, non-members cannot receive, self-transfer is rejected, and the audit trail records both the old and new owner.</p>
 
-<pre><code><span class="comment"># Transfer ownership</span>
-pilotctl network transfer-ownership 1 --to 686</code></pre>
+<pre><code><span class="comment"># Transfer ownership (no CLI equivalent -- use the registry JSON API directly)</span></code></pre>
 
 <p>Chain transfers work: A transfers to B, then B can transfer to C. Each transfer generates its own audit event with the complete provenance.</p>
 
