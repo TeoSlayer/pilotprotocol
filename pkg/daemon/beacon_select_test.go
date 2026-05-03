@@ -146,3 +146,51 @@ func TestPickBeaconStableAcrossSeparateListInstances(t *testing.T) {
 		}
 	}
 }
+
+// TestFilterUnreachableDropsPrivateAndLoopback covers the silent-blackhole
+// fix: discovered beacon lists from the registry can include addresses
+// running on a private VPC (e.g. GCP 10.128.0.x). When the daemon's
+// pickBeacon hash lands on one of those, all relay traffic vanishes
+// because off-VPC clients cannot reach it. filterUnreachable must drop
+// RFC1918, loopback, link-local and unspecified literals. DNS hostnames
+// are kept because they may resolve to public IPs.
+func TestFilterUnreachableDropsPrivateAndLoopback(t *testing.T) {
+	in := []string{
+		"34.71.57.205:9001",   // public — kept
+		"10.128.0.78:9001",    // private RFC1918 — dropped
+		"192.168.1.5:9001",    // private RFC1918 — dropped
+		"172.16.0.5:9001",     // private RFC1918 — dropped
+		"127.0.0.1:9001",      // loopback — dropped
+		"169.254.1.1:9001",    // link-local — dropped
+		"0.0.0.0:9001",        // unspecified — dropped
+		"beacon.example.com:9001", // DNS hostname — kept
+		"8.8.8.8:9001",        // public — kept
+	}
+	got := filterUnreachable(in)
+	want := []string{
+		"34.71.57.205:9001",
+		"beacon.example.com:9001",
+		"8.8.8.8:9001",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("filtered len = %d (%v), want %d (%v)", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestFilterUnreachableEmptyInputs guards against panics on edge inputs.
+func TestFilterUnreachableEmptyInputs(t *testing.T) {
+	if got := filterUnreachable(nil); len(got) != 0 {
+		t.Fatalf("nil input -> %v, want empty", got)
+	}
+	if got := filterUnreachable([]string{}); len(got) != 0 {
+		t.Fatalf("empty input -> %v, want empty", got)
+	}
+	if got := filterUnreachable([]string{"malformed-no-port"}); len(got) != 1 {
+		t.Fatalf("malformed entry should be kept (host parses cleanly w/o port): got %v", got)
+	}
+}

@@ -62,6 +62,13 @@ func fetchBeaconList(client beaconLister) ([]string, error) {
 			out = append(out, addr)
 		}
 	}
+	// Drop addresses that an off-VPC client cannot reach (RFC1918,
+	// loopback, link-local). The registry returns whatever beacons have
+	// registered, including ones running on a private VPC; if our hash
+	// lands on one of those, all relay traffic vanishes (silent black-
+	// hole). Bootstrap entries are NOT filtered — operators on the same
+	// VPC can still pin a private beacon there.
+	out = filterUnreachable(out)
 	// Sort to give a deterministic order even when the registry's map
 	// iteration produces a different order each call. mergeBeaconLists
 	// dedupes against bootstrap, but stable order keeps the hash-pick
@@ -130,7 +137,10 @@ func loadBeaconCache(identityPath string) ([]string, error) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, fmt.Errorf("parse beacon cache: %w", err)
 	}
-	return entry.Addrs, nil
+	// Filter unreachable addresses from disk too — a previous daemon may
+	// have persisted a list that included private VPC IPs before this
+	// fix was in place.
+	return filterUnreachable(entry.Addrs), nil
 }
 
 // beaconSelectionState tracks the daemon's beacon picks across refresh

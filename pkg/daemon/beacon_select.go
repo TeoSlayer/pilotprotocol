@@ -4,8 +4,44 @@ package daemon
 
 import (
 	"hash/fnv"
+	"net"
 	"strings"
 )
+
+// isUnreachableBeaconHost reports whether host is an RFC1918 / loopback /
+// link-local / unspecified address — an address that a public-internet
+// daemon cannot reach. The registry's beacon_list endpoint can return
+// internal addresses for beacons running on the same VPC (e.g. GCP
+// 10.128.0.0/16); those are useless to off-VPC daemons and, if picked,
+// silently black-hole all relay traffic. Only IP literals are checked
+// — DNS hostnames are kept (they may resolve to public addresses).
+func isUnreachableBeaconHost(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+}
+
+// filterUnreachable removes addresses whose host part is an RFC1918 /
+// loopback / link-local literal. Used on the DISCOVERED list before
+// merging with bootstrap — the operator's bootstrap list is preserved
+// verbatim (intra-VPC deployments can still pin a private beacon there).
+func filterUnreachable(addrs []string) []string {
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		host, _, err := net.SplitHostPort(a)
+		if err != nil {
+			// Fall back to the whole string if there's no port.
+			host = a
+		}
+		if isUnreachableBeaconHost(host) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
 
 // Multi-beacon support
 //

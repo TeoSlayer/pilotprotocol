@@ -4342,6 +4342,7 @@ func cmdPing(args []string) {
 		payload := fmt.Sprintf("ping-%d", i)
 		conn.Write([]byte(payload))
 
+		conn.SetReadDeadline(time.Now().Add(perAttempt))
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
 		conn.Close()
