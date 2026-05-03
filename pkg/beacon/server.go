@@ -52,7 +52,8 @@ type Server struct {
 	peerMu    sync.RWMutex
 	healthOk  atomic.Bool
 
-	registryAddr string // registry address for dynamic peer discovery
+	registryAddr  string // registry address for dynamic peer discovery
+	advertiseAddr string // address to register (overrides auto-detect from TCP local addr)
 
 	done chan struct{} // closed on shutdown
 }
@@ -615,6 +616,17 @@ func (s *Server) SetRegistry(addr string) {
 	s.registryAddr = addr
 }
 
+// SetAdvertiseAddr sets the address this beacon registers with the registry.
+// When empty (default), the beacon auto-detects from its TCP local addr to
+// the registry — which on a GCP MIG deployment yields the INTERNAL VPC
+// address (10.128.0.x), unreachable from external daemons. MIG-deployed
+// beacons must set this to the public DNAT entrypoint (e.g. the rendezvous
+// reserved IP on UDP 9001) so external clients receive a routable address
+// from beacon_list.
+func (s *Server) SetAdvertiseAddr(addr string) {
+	s.advertiseAddr = addr
+}
+
 // registryDiscoveryLoop registers this beacon with the registry and discovers
 // peers every 30 seconds. Requires the beacon to be listening (conn bound).
 func (s *Server) registryDiscoveryLoop() {
@@ -680,17 +692,24 @@ func (s *Server) registryDiscover() {
 		return resp, json.Unmarshal(body, &resp)
 	}
 
-	// Register this beacon with our listen address
-	listenAddr := s.conn.LocalAddr().String()
-	// Resolve wildcard to actual IP for peers to reach us
-	host, port, _ := net.SplitHostPort(listenAddr)
-	if host == "::" || host == "0.0.0.0" || host == "" {
-		// Use the outbound IP (the IP used to reach the registry)
-		if tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
-			host = tcpAddr.IP.String()
+	// Pick the address to register. Operator-supplied advertiseAddr wins
+	// (MIG deployments need this — see SetAdvertiseAddr). Otherwise
+	// auto-detect from the TCP local addr, which on a single-node deploy
+	// is the right answer but on a VPC-internal beacon yields a private
+	// 10.x address that external daemons cannot reach.
+	var myAddr string
+	if s.advertiseAddr != "" {
+		myAddr = s.advertiseAddr
+	} else {
+		listenAddr := s.conn.LocalAddr().String()
+		host, port, _ := net.SplitHostPort(listenAddr)
+		if host == "::" || host == "0.0.0.0" || host == "" {
+			if tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
+				host = tcpAddr.IP.String()
+			}
 		}
+		myAddr = net.JoinHostPort(host, port)
 	}
-	myAddr := net.JoinHostPort(host, port)
 
 	if err := sendMsg(map[string]interface{}{
 		"type":      "beacon_register",

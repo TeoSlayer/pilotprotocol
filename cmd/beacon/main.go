@@ -19,6 +19,7 @@ import (
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
 	addr := flag.String("addr", ":9001", "listen address (UDP)")
+	advertiseAddr := flag.String("advertise-addr", "", "address to register with the registry (e.g. 34.71.57.205:9001). When unset, the beacon auto-detects its outbound IP from the TCP connection to the registry — which yields the INTERNAL VPC address on GCP MIG deployments and is unreachable from external daemons. MIG-deployed beacons MUST set this to the public rendezvous DNAT entrypoint.")
 	beaconID := flag.Uint("beacon-id", 0, "unique beacon ID (0 = standalone)")
 	peersFlag := flag.String("peers", "", "comma-separated peer beacon addresses for gossip")
 	healthAddr := flag.String("health", "", "health check HTTP address (e.g. :8080)")
@@ -51,6 +52,9 @@ func main() {
 
 	if *registryAddr != "" {
 		s.SetRegistry(*registryAddr)
+	}
+	if *advertiseAddr != "" {
+		s.SetAdvertiseAddr(*advertiseAddr)
 	}
 
 	if *healthAddr != "" {
