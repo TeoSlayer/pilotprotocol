@@ -1,0 +1,157 @@
+services:
+  rendezvous:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: rendezvous
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.10
+    command: >
+      pilot-rendezvous
+      -registry-addr 0.0.0.0:9000
+      -beacon-addr 0.0.0.0:9001
+      -http 0.0.0.0:8080
+      -log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  hub:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: hub
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.20
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9001
+      -hostname hub
+      -identity /root/.pilot/identity.json
+      -email hub@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.33.0}.20:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  leaf-1:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: leaf-1
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.21
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9001
+      -hostname leaf-1
+      -identity /root/.pilot/identity.json
+      -email leaf-1@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.33.0}.21:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  leaf-2:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: leaf-2
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.22
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9001
+      -hostname leaf-2
+      -identity /root/.pilot/identity.json
+      -email leaf-2@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.33.0}.22:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  leaf-3:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: leaf-3
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.23
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9001
+      -hostname leaf-3
+      -identity /root/.pilot/identity.json
+      -email leaf-3@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.33.0}.23:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+  leaf-4:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile.multi
+    hostname: leaf-4
+    depends_on:
+      rendezvous:
+        condition: service_healthy
+    networks:
+      pilot-p2p:
+        ipv4_address: ${PILOT_SUBNET_PREFIX:-172.33.0}.24
+    environment:
+      PILOT_REGISTRY: "${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000"
+    command: >
+      pilot-daemon
+      -registry ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9000
+      -beacon ${PILOT_SUBNET_PREFIX:-172.33.0}.10:9001
+      -hostname leaf-4
+      -identity /root/.pilot/identity.json
+      -email leaf-4@p2p.test
+      -endpoint ${PILOT_SUBNET_PREFIX:-172.33.0}.24:4000
+      -listen :4000
+      -public
+      -keepalive 5s
+      -log-level info
+
+networks:
+  pilot-p2p:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${PILOT_SUBNET_PREFIX:-172.33.0}.0/24
