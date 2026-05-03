@@ -97,6 +97,32 @@ func fatalCode(code string, format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+// classifyDaemonError inspects an error string from the daemon and, when it
+// recognizes a transient or operator-friendly failure mode, returns a more
+// actionable hint to the user. Returns "" if no specific guidance applies —
+// callers fall back to whatever default hint they had.
+//
+// Currently recognized patterns:
+//   - "pending queue full ... key exchange pending" — the encrypted tunnel
+//     to the peer is mid-handshake. The packet was queued; waiting a moment
+//     and retrying typically succeeds.
+//   - "dial timeout"/"dial: daemon: dial timeout" — the SYN went out but no
+//     SYN-ACK came back. Often means the relay path is mid-convergence
+//     after a beacon roll, or the peer is offline.
+func classifyDaemonError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "pending queue full") || strings.Contains(s, "key exchange pending"):
+		return "tunnel handshake in progress — the packet was queued. Wait a few seconds and retry; the SYN will go out as soon as the encrypted session keys are derived."
+	case strings.Contains(s, "dial timeout"):
+		return "no reply from peer. Check reachability with `pilotctl ping <peer>`; if relay is fresh after a beacon roll it can take ~30s for endpoints to converge."
+	}
+	return ""
+}
+
 // fatalHint is like fatalCode but adds an actionable hint telling the user what to do next.
 func fatalHint(code, hint, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
@@ -2418,8 +2444,11 @@ func cmdConnect(args []string) {
 	if message != "" {
 		conn, err := d.DialAddr(target, port)
 		if err != nil {
-			fatalHint("connection_failed",
-				fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+			hint := classifyDaemonError(err)
+			if hint == "" {
+				hint = fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target)
+			}
+			fatalHint("connection_failed", hint,
 				"cannot connect to %s port %d", target, port)
 		}
 		defer conn.Close()
@@ -2771,8 +2800,11 @@ func cmdSendFile(args []string) {
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
-		fatalHint("connection_failed",
-			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+		hint := classifyDaemonError(err)
+		if hint == "" {
+			hint = fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target)
+		}
+		fatalHint("connection_failed", hint,
 			"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
 	}
 	defer client.Close()
@@ -2832,8 +2864,11 @@ func cmdSendMessage(args []string) {
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
-		fatalHint("connection_failed",
-			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
+		hint := classifyDaemonError(err)
+		if hint == "" {
+			hint = fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target)
+		}
+		fatalHint("connection_failed", hint,
 			"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
 	}
 	defer client.Close()

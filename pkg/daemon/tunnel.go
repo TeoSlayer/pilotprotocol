@@ -250,6 +250,19 @@ const maxPendingPerPeer = 64
 // maxPendingPeers limits the total number of peers with pending key exchanges.
 const maxPendingPeers = 256
 
+// ErrPendingDropped is returned by sendEncryptedToNode when the per-peer
+// pending queue was already at maxPendingPerPeer and the oldest queued
+// packet had to be dropped to make room for the new one. The CALLER's
+// packet is still queued — it will be sent as soon as key exchange
+// finishes — but an older packet was lost to back-pressure.
+//
+// Callers that distinguish this error from a hard failure can choose to
+// retry (the dial path does this; one of the SYN retransmits will land
+// after the queue drains). Surfacing it as a typed error also lets
+// pilotctl render a "tunnel handshaking" hint instead of an opaque
+// "send SYN: pending queue full" message.
+var ErrPendingDropped = errors.New("pending queue full: oldest queued packet dropped while key exchange pending")
+
 // RecvChSize is the capacity of the incoming packet channel.
 // Increased from 1024 to 8192 for 1M-node scale to prevent drops during
 // bursts (e.g., many peers sending simultaneously after a cron trigger).
@@ -1808,7 +1821,11 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 				"peer_node_id", nodeID,
 				"queue_len", qlen,
 				"limit", maxPendingPerPeer)
-			return fmt.Errorf("pending queue full for node %d: oldest packet dropped", nodeID)
+			// The new packet IS queued (line above appended it). What was
+			// dropped is the oldest packet, not this one. Callers that
+			// errors.Is(err, ErrPendingDropped) can treat this as transient
+			// — a SYN retransmit will succeed once the queue drains.
+			return fmt.Errorf("%w (peer_node_id=%d)", ErrPendingDropped, nodeID)
 		}
 		return nil // queued, will be sent encrypted after key exchange
 	}

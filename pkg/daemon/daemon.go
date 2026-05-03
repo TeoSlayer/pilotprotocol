@@ -2412,8 +2412,18 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	}
 
 	if err := d.tunnels.Send(dstAddr.Node, syn); err != nil {
-		d.ports.RemoveConnection(conn.ID)
-		return nil, fmt.Errorf("send SYN: %w", err)
+		// ErrPendingDropped means the SYN itself IS queued; only an older
+		// packet was dropped to make room. The tunnel is mid-handshake.
+		// Don't abort the dial — the SYN will go out as soon as the key
+		// exchange completes, and if not, the retry loop below will
+		// retransmit. Aborting here turns a transient handshake-startup
+		// condition into a hard "dial failed" for the user.
+		if !errors.Is(err, ErrPendingDropped) {
+			d.ports.RemoveConnection(conn.ID)
+			return nil, fmt.Errorf("send SYN: %w", err)
+		}
+		slog.Debug("dial: SYN queued during tunnel handshake (will retransmit)",
+			"peer_node_id", dstAddr.Node, "dst_port", dstPort)
 	}
 	conn.Mu.Lock()
 	conn.SendSeq++
