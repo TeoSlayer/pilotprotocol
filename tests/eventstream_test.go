@@ -14,6 +14,23 @@ import (
 // disableES disables the built-in eventstream service so tests can bind port 1002 via driver.
 func disableES(cfg *daemon.Config) { cfg.DisableEventStream = true }
 
+// startEventServer launches srv.ListenAndServe in a goroutine and waits until
+// the port is accepting connections before returning, so callers don't race
+// the goroutine scheduler on slow CI runners.
+func startEventServer(t *testing.T, srv *eventstream.Server, info *DaemonInfo) {
+	t.Helper()
+	go srv.ListenAndServe()
+	for i := 0; i < 40; i++ {
+		c, err := eventstream.Subscribe(info.Driver, info.Daemon.Addr(), "_probe")
+		if err == nil {
+			c.Close()
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("event stream server did not become ready")
+}
+
 func TestEventStream(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
@@ -29,7 +46,7 @@ func TestEventStream(t *testing.T) {
 
 	// Start broker on A
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// Subscriber on B
 	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "test-topic")
@@ -126,7 +143,7 @@ func TestEventStreamWildcard(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// B subscribes with wildcard
 	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "*")
@@ -170,7 +187,7 @@ func TestEventStreamMultipleTopics(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// B subscribes to "topic-A"
 	subA, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "topic-A")
@@ -239,7 +256,7 @@ func TestEventStreamMultipleSubscribers(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// Both B and C subscribe to same topic
 	sub1, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "shared-topic")
@@ -317,7 +334,7 @@ func TestEventStreamPublisherExclusion(t *testing.T) {
 	b := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// B subscribes and publishes on the same topic
 	client, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "self-topic")
@@ -361,7 +378,7 @@ func TestEventStreamSequentialMessages(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "seq-topic")
 	if err != nil {
@@ -419,7 +436,7 @@ func TestEventStreamSubscriberDisconnect(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	srv := eventstream.NewServer(a.Driver)
-	go srv.ListenAndServe()
+	startEventServer(t, srv, a)
 
 	// B subscribes and then disconnects
 	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "disc-topic")
