@@ -710,3 +710,48 @@ func TestHandlersAreRobustAgainstEmptyData(_ *testing.T) {
 
 // Ensure compile-time coverage of stdlib imports unused in some builds
 var _ = fmt.Errorf
+
+
+// setupAuthKeyExchangeTest builds the common scaffolding: a tunnel
+// manager with encryption enabled, a peer Ed25519 identity registered,
+// and a valid signed auth key_exchange frame ready to feed into
+// handleAuthKeyExchange.
+func setupAuthKeyExchangeTest(t *testing.T) (*TunnelManager, uint32, []byte, *net.UDPAddr) {
+	t.Helper()
+	tm := NewTunnelManager()
+	if err := tm.EnableEncryption(); err != nil {
+		t.Fatalf("EnableEncryption: %v", err)
+	}
+	if err := tm.Listen("127.0.0.1:0"); err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	peerPub, peerPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519 keygen: %v", err)
+	}
+	tm.SetPeerVerifyFunc(func(uint32) (ed25519.PublicKey, error) {
+		return peerPub, nil
+	})
+	curve := ecdh.X25519()
+	peerX, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("x25519 keygen: %v", err)
+	}
+	peerNodeID := uint32(0x50515253)
+
+	challenge := make([]byte, 4+4+32)
+	copy(challenge[0:4], []byte("auth"))
+	binary.BigEndian.PutUint32(challenge[4:8], peerNodeID)
+	copy(challenge[8:40], peerX.PublicKey().Bytes())
+	sig := ed25519.Sign(peerPriv, challenge)
+
+	tm.AddPeer(peerNodeID, mustUDPAddr(t, "127.0.0.1:9997"))
+
+	data := make([]byte, 132)
+	binary.BigEndian.PutUint32(data[0:4], peerNodeID)
+	copy(data[4:36], peerX.PublicKey().Bytes())
+	copy(data[36:68], peerPub)
+	copy(data[68:132], sig)
+	from := mustUDPAddr(t, "127.0.0.1:1234")
+	return tm, peerNodeID, data, from
+}

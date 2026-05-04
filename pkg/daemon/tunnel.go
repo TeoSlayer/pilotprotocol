@@ -57,6 +57,17 @@ type peerCrypto struct {
 	ready         bool                          // true once key exchange is complete
 	authenticated bool                          // true if peer proved Ed25519 identity
 	peerX25519Key [32]byte                      // peer's X25519 public key (for detecting rekeying)
+	// decryptFailCount tracks consecutive AEAD authentication failures
+	// since the last successful decrypt. Older-version peer daemons drift
+	// into a state where their derived AEAD key no longer matches ours
+	// (likely a session-id or info-string mismatch in HKDF), at which
+	// point every encrypted packet from the peer fails with "cipher:
+	// message authentication failed". Once this counter exceeds
+	// decryptFailDropThreshold the daemon drops this peerCrypto entirely
+	// and triggers a fresh key exchange — equivalent to a daemon-restart
+	// recovery without actually restarting. Reset to 0 on any successful
+	// decrypt. Only mutated under tm.mu to avoid an extra mutex.
+	decryptFailCount int
 	// createdAt is when this peerCrypto was installed in tm.crypto. Used
 	// by handleAuthKeyExchange to decide between preserving existing state
 	// (fresh handshake retransmit/reply within seconds) and resetting it
@@ -92,6 +103,17 @@ const salvageMaxEntries = 4
 // round-trip itself is ~1 RTT plus the rate-limit window (3 s); 5 s gives
 // margin for slow handshakes under loss.
 const salvageMaxAge = 5 * time.Second
+
+
+// decryptFailDropThreshold is how many consecutive AEAD-authentication
+// failures from a single peer trigger a full peerCrypto drop +
+// re-handshake. Sized to swallow a small burst of legitimate packet
+// corruption (kernel buffer overruns, mid-flight key rotation crossing
+// the wire) while still recovering from peer-side AEAD-key divergence
+// within a few seconds — a daemon restart on either side cycles the
+// peer through a fresh handshake; this is the "equivalent recovery
+// without restarting" path.
+const decryptFailDropThreshold = 5
 
 // checkAndRecordNonce returns true if the nonce is valid (not replayed, not too old).
 // Must be called with replayMu held.
@@ -190,6 +212,7 @@ type TunnelManager struct {
 	// NAT traversal: beacon-coordinated hole-punching and relay
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
+
 
 	// relayPinned marks peers whose relay flag was set by an authoritative
 	// signal (registry's relay_only=true on the resolve response, OR an
@@ -441,6 +464,24 @@ func (tm *TunnelManager) EnableEncryption() error {
 // SetNodeID sets our node ID (called after registration).
 func (tm *TunnelManager) SetNodeID(id uint32) {
 	atomic.StoreUint32(&tm.nodeID, id)
+}
+
+// DropCrypto removes the encryption context for a peer, forcing a fresh
+// key exchange on the next encrypted send. Used by the dial-timeout
+// exhausted path to recover from peer-side AEAD key divergence (older
+// daemon versions can drift into a state where their derived key no
+// longer matches ours despite stable X25519 pubkeys; the only recovery
+// is a full re-handshake). Also clears any pending-rekey state so the
+// retransmit loop doesn't immediately fire — the next dial's
+// sendKeyExchangeToNode will re-arm it.
+func (tm *TunnelManager) DropCrypto(peerNodeID uint32) {
+	tm.mu.Lock()
+	delete(tm.crypto, peerNodeID)
+	tm.mu.Unlock()
+	tm.rkPendingMu.Lock()
+	delete(tm.pendingRekey, peerNodeID)
+	delete(tm.lastInboundDecrypt, peerNodeID)
+	tm.rkPendingMu.Unlock()
 }
 
 // loadNodeID atomically loads our node ID.
@@ -965,6 +1006,13 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 		return
 	}
 
+	// (rate-limit removed v1.9.1-rc4: it deadlocked recovery when peer's
+	// decryptFailDropThreshold dropped crypto for us and tried to
+	// rebuild via key_exchange — our rate-limit suppressed those
+	// rebuild attempts, leaving both sides stuck in "no key" state.
+	// The handler is idempotent for same-pubkey duplicates so
+	// processing them all is cheap.)
+
 	// Verify the Ed25519 signature over the auth challenge
 	challenge := make([]byte, 4+4+32)
 	copy(challenge[0:4], []byte("auth"))
@@ -1283,7 +1331,33 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		bit := recvCounter % replayWindowSize
 		pc.replayBitmap[bit/64] &^= 1 << (bit % 64)
 		pc.replayMu.Unlock()
+		// Track consecutive AEAD failures. When the count exceeds
+		// decryptFailDropThreshold the peer's session keys have demonstrably
+		// diverged from ours (older daemon versions drift into states where
+		// their derived AEAD key no longer matches even with the same X25519
+		// pubkey — likely an HKDF info-string or session-id mismatch).
+		// Drop the peerCrypto and request a fresh exchange. Equivalent to
+		// the "stop and start the daemon" recovery, but automatic.
+		tm.mu.Lock()
+		pc.decryptFailCount++
+		failures := pc.decryptFailCount
+		shouldDrop := failures >= decryptFailDropThreshold && tm.crypto[peerNodeID] == pc
+		if shouldDrop {
+			delete(tm.crypto, peerNodeID)
+		}
+		tm.mu.Unlock()
+		if shouldDrop {
+			slog.Warn("tunnel: peer crypto key divergence detected, dropping session and re-handshaking",
+				"peer_node_id", peerNodeID, "consecutive_decrypt_failures", failures)
+			tm.maybeRequestRekey(peerNodeID, from)
+		}
 		return
+	}
+	// Successful decrypt — reset the AEAD failure counter.
+	if pc.decryptFailCount != 0 {
+		tm.mu.Lock()
+		pc.decryptFailCount = 0
+		tm.mu.Unlock()
 	}
 
 	pkt, err := protocol.Unmarshal(plaintext)
@@ -1960,6 +2034,7 @@ func (tm *TunnelManager) RemovePeer(nodeID uint32) {
 	delete(tm.blackholeMissCount, nodeID)
 	delete(tm.directClearCount, nodeID)
 	delete(tm.relayPeers, nodeID)
+	delete(tm.relayPinned, nodeID)
 	delete(tm.peerPubKeys, nodeID)
 	tm.mu.Unlock()
 

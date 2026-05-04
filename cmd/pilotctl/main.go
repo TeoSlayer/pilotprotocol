@@ -4346,10 +4346,17 @@ func cmdPing(args []string) {
 	defer overall.Stop()
 	// Per-attempt budget so a single dial against a ghost peer cannot
 	// blow past the user's --timeout. Split evenly across remaining count
-	// with a 4s floor so legitimate handshakes still have room.
+	// with a 10s floor so legitimate cold-start handshakes have room
+	// even when the daemon is in the post-restart "trust resync +
+	// inbound key-exchange storm" window: 7+ trusted peers can be
+	// concurrently establishing crypto state for ~30-60 s after a
+	// fresh start, and the dial's encrypted-SYN write competes with
+	// those handlers for the relay socket. The previous 4 s floor
+	// occasionally expired mid-handshake on the first ping after
+	// startup; 10 s covers it without making bad dials feel sluggish.
 	perAttempt := timeout / time.Duration(count)
-	if perAttempt < 4*time.Second {
-		perAttempt = 4 * time.Second
+	if perAttempt < 10*time.Second {
+		perAttempt = 10 * time.Second
 	}
 
 	for i := 0; i < count; i++ {

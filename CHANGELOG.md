@@ -9,6 +9,87 @@ Detailed per-release notes for tagged versions are published on the
 
 ## [Unreleased]
 
+## [1.9.1-rc4] - 2026-05-03
+
+Reliability improvements for back-to-back commands and long-lived
+tunnels. Verified: 35/40 (87.5%) operations succeed under aggressive
+rapid-fire stress (30 immediate sends + 10 sends after 60s idle)
+between two daemons running matching binaries. Up from rc3 which
+hung indefinitely against the same pattern with peers running older
+versions.
+
+### Recovery from peer-side AEAD key divergence
+
+`peerCrypto.decryptFailCount` tracks consecutive AEAD authentication
+failures from a peer. After `decryptFailDropThreshold = 5` consecutive
+failures, the daemon drops `tm.crypto[peer]` entirely and triggers a
+fresh key_exchange. Equivalent to a daemon-restart recovery for that
+single peer, automatic. Resets to 0 on any successful decrypt.
+
+`TunnelManager.DropCrypto(nodeID)` exposes this as a public method —
+operator scripts and the dial-timeout-exhausted path can force a
+re-handshake without restarting the daemon.
+
+### Relay-flag pinning
+
+`relayPinned` map tracks "relay flag set by an authoritative signal."
+Set when `ensureTunnel` sees `relay_only=true` from the registry, when
+the dial loop's direct-phase exhausts and switches to relay, when ICMP-
+unreachable threshold is hit, or when an authenticated key_exchange
+arrives via the beacon path. `clearRelayOnDirectLocked` is now a no-op
+for pinned peers — it cannot auto-flip them back to direct on stray
+non-beacon-sourced packets (NAT-port-rewrite of beacon replies, beacon-
+mesh forwards from a different IP, etc).
+
+The previous "auto-clear after 3 direct receipts" heuristic flapped
+relay state every ~60s in production, causing session-key rotation
+cascades and the "ping works for a minute then dial timeout for
+minutes" symptom. Auto-clear is now disabled entirely.
+
+### Dial budget
+
+`DialMaxRetries` 6 → 7. The relay phase now gets 4 retries (was 3),
+giving cold-start handshakes (key_exchange + SYN/SYN-ACK round trip)
+enough room without exceeding the user's `--timeout`. With
+`DialInitialRTO=250ms` and `DialMaxRTO=8s` exponential backoff, total
+budget is ~8 s.
+
+### pilotctl ping per-attempt floor
+
+`cmd/pilotctl/main.go cmdPing`: per-attempt budget floor 4s → 10s.
+Covers the daemon startup-storm warm-up window where 7+ trusted peers
+are concurrently establishing crypto state.
+
+### Considered, reverted in development
+
+* **Inbound auth-key-exchange rate-limit** (10s window with pubkey-
+  aware bypass): suppressed peer-initiated rebuild attempts when the
+  peer's own decryptFailDropThreshold dropped crypto for us. Both sides
+  ended up stuck in "no key" state. Reverted; the handler is naturally
+  idempotent for same-pubkey duplicates so processing all of them is
+  cheap.
+* **Recv-replay-window reset on stale auth-key-exchange duplicate**:
+  introduced a different race where in-flight peer packets at high
+  counters got rejected after the reset. Reverted.
+* **Trusted-peer tunnel pre-warm at daemon start**: ECDH variant
+  triggered a rekey storm; ensureTunnel-only variant caused a NAT-
+  punch wave. Both removed.
+* **Dial-timeout-exhausted crypto drop**: too aggressive — fired on
+  cold-start handshake delays and made things worse. Removed.
+
+### Known residual issues
+
+* Against peers running older daemon versions (e.g. some service
+  agents on the production fleet), the rekey storm pattern still
+  causes occasional dial timeouts. The pre-existing daemons would
+  benefit from being updated to rc4. Workaround for the user's side:
+  `pilotctl daemon stop && pilotctl daemon start`.
+* Cold-start: the FIRST 1-3 dials immediately after a daemon restart
+  can fail while the tunnel is establishing crypto. Subsequent dials
+  succeed. Open follow-up: per-peer probe-and-adapt SRTT-based dial
+  budget so peers we've successfully reached before get a tighter
+  timeout, and first-contact peers get a generous one.
+
 ## [1.9.1-rc3] - 2026-05-03
 
 Same content as rc2; tag bump to publish a fresh signed/notarized
