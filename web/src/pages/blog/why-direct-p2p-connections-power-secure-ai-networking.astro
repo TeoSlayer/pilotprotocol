@@ -1,0 +1,258 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `<script type="application/ld+json">
+      {
+  "@type": "Article",
+  "image": {
+    "url": "https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777628840849_Engineer-watching-AI-network-connections-on-monitor.jpeg",
+    "@type": "ImageObject",
+    "caption": "Engineer watching AI network connections on monitor"
+  },
+  "author": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "@context": "https://schema.org",
+  "headline": "Why Direct P2P Connections Power Secure AI Networking",
+  "publisher": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "inLanguage": "en-US",
+  "articleBody": "Discover why direct peer-to-peer connections are vital for secure AI networking. Learn how to enhance your agents’ performance today!",
+  "description": "Discover why direct peer-to-peer connections are vital for secure AI networking. Learn how to enhance your agents’ performance today!",
+  "datePublished": "2026-05-01T09:53:33.916Z"
+}
+      </script>
+    <h1 id="why-direct-p2p-connections-power-secure-ai-networking" tabindex="-1">Why Direct P2P Connections Power Secure AI Networking</h1>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777628840849_Engineer-watching-AI-network-connections-on-monitor.jpeg" alt="Engineer watching AI network connections on monitor"></p>
+<hr>
+<blockquote>
+<p><strong>TL;DR:</strong></p>
+<ul>
+<li>Direct P2P communication reduces latency, eliminates single points of failure, and enables greater agent autonomy.</li>
+<li>Technologies like WebRTC, libp2p, and Pilot Protocol facilitate secure, NAT-traversable peer connections in multi-cloud environments.</li>
+<li>Hybrid architectures combining P2P data exchange with centralized logging balance scalability, security, and regulatory compliance.</li>
+</ul>
+</blockquote>
+<hr>
+<p>Most AI agent architectures still route traffic through centralized brokers or API gateways, and that design choice quietly undermines everything you’re trying to build. When your agents span AWS, GCP, and Azure simultaneously, every hop through a central server adds latency, creates a single point of failure, and puts a hard ceiling on how autonomously your agents can actually operate. Direct peer-to-peer (P2P) connections remove that ceiling. This guide breaks down why P2P matters for AI agent networking, which technologies make it practical, and how you can deploy it across your multi-cloud infrastructure today.</p>
+<h2 id="table-of-contents" tabindex="-1">Table of Contents</h2>
+<ul>
+<li><a href="#why-direct-peer-to-peer-is-critical-for-ai-agents">Why direct peer-to-peer is critical for AI agents</a></li>
+<li><a href="#core-technologies-powering-direct-peer-to-peer-networking">Core technologies powering direct peer-to-peer networking</a></li>
+<li><a href="#trust-models-and-security-considerations-in-peer-to-peer-networking">Trust models and security considerations in peer-to-peer networking</a></li>
+<li><a href="#practical-deployment%3A-getting-ai-agents-connected-peer-to-peer">Practical deployment: Getting AI agents connected peer-to-peer</a></li>
+<li><a href="#a-fresh-perspective%3A-what-most-engineers-miss-about-peer-to-peer-in-multi-cloud-autonomous-systems">A fresh perspective: What most engineers miss about peer-to-peer in multi-cloud autonomous systems</a></li>
+<li><a href="#next-steps%3A-explore-peer-to-peer-solutions-for-your-ai-agents">Next steps: Explore peer-to-peer solutions for your AI agents</a></li>
+<li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
+</ul>
+<h2 id="key-takeaways" tabindex="-1">Key Takeaways</h2>
+<table>
+<thead>
+<tr>
+<th>Point</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direct P2P boosts agent autonomy</td>
+<td>Peer-to-peer networking allows AI agents to communicate and operate independently without central servers.</td>
+</tr>
+<tr>
+<td>Security and trust are vital</td>
+<td>TOFU, end-to-end encryption, and robust trust models are key for safe P2P deployment.</td>
+</tr>
+<tr>
+<td>Choose the right tech stack</td>
+<td>Technologies like WebRTC, libp2p, and Pilot protocol simplify P2P implementation for multi-cloud AI environments.</td>
+</tr>
+<tr>
+<td>Compliance requires hybrid designs</td>
+<td>Pure peer-to-peer may not meet strict regulatory or audit demands, so combining models is often best.</td>
+</tr>
+<tr>
+<td>NAT traversal enables wide connectivity</td>
+<td>Auto NAT traversal solutions overcome network boundaries and are essential for scalable agent deployment.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="why-direct-peer-to-peer-is-critical-for-ai-agents" tabindex="-1">Why direct peer-to-peer is critical for AI agents</h2>
+<p>With the stage set, let’s get to the heart of why direct peer-to-peer matters most for AI agents operating in modern infrastructures.</p>
+<p>In a standard client-server model, every agent message travels to a central broker before reaching its destination. That broker becomes a bottleneck. If it goes down, your entire agent fleet loses coordination. If traffic spikes, your broker becomes a chokepoint that slows every agent in the network simultaneously. Direct P2P eliminates that dependency by letting agents communicate straight to one another, reducing round-trip latency and removing the single-failure concern entirely.</p>
+<p><a href="https://pilotprotocol.network/blog/peer-to-peer-agent-communication-no-server">P2P agent communication</a> offers something even more valuable than lower latency: resilience at the architecture level. Agents operating in distributed environments, across different cloud providers or geographic regions, need to continue functioning even when parts of the network fail. In a P2P topology, losing one node doesn’t cascade into total network failure.</p>
+<p>Direct P2P also enables genuinely autonomous agent behavior. An agent that must always route through a central server is not truly autonomous. It’s dependent. P2P lets agents discover each other, negotiate capabilities, and exchange data without waiting for a coordinator to approve or forward each interaction.</p>
+<p>That said, P2P is not without challenges. You need to be clear-eyed about them before choosing this architecture:</p>
+<ul>
+<li><strong>Security exposure:</strong> <a href="https://medium.com/@p2pflowofficial/understanding-peer-to-peer-p2p-networks-strengths-and-limitations-72083ec9304a" rel="nofollow noopener noreferrer" target="_blank">P2P security risks</a> include malicious peers, scalability limits from churn, and higher implementation complexity compared to managed client-server setups.</li>
+<li><strong>Network churn:</strong> Agents joining and leaving constantly can destabilize routing and peer discovery.</li>
+<li><strong>Implementation complexity:</strong> Setting up NAT traversal, peer discovery, and encrypted channels requires more upfront engineering than pointing agents at a REST API.</li>
+</ul>
+<blockquote>
+<p>“Understanding P2P’s limitations is not a reason to avoid it. It’s a prerequisite for implementing it correctly. Engineers who skip this step build fragile systems.”</p>
+</blockquote>
+<p>Explore <a href="https://pilotprotocol.network/blog/decentralized-networking-p2p-solutions-ai-architectures">P2P solutions for AI architecture</a> to see how these challenges map to specific design patterns you can adopt.</p>
+<h2 id="core-technologies-powering-direct-peer-to-peer-networking" tabindex="-1">Core technologies powering direct peer-to-peer networking</h2>
+<p>Once you understand the “why,” the next question is “how,” specifically what tools and technologies make direct P2P communication possible for your AI systems.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777629212337_Infographic-comparing-P2P-and-client-server-models.jpeg" alt="Infographic comparing P2P and client-server models"></p>
+<p>Three technologies dominate this space: <strong>WebRTC</strong>, <strong>libp2p</strong>, and <strong>Pilot Protocol</strong>. Each has a distinct role, and choosing the right combination for your stack directly affects how much engineering overhead you carry long-term.</p>
+<p><strong>WebRTC</strong> was designed for browser-based real-time communication, but its signaling and ICE (Interactive Connectivity Establishment) mechanisms translate well to agent-to-agent connectivity. It handles NAT traversal through STUN and TURN servers natively, which means your agents can find and connect to each other even across restrictive firewalls. The downside is that WebRTC was built for media streams, and using it for data channels in agent networks requires careful tuning.</p>
+<p><strong>libp2p</strong> is a modular networking stack originally developed for IPFS. It provides peer discovery, stream multiplexing, and transport agnosticism out of the box. For AI agent fleets, libp2p’s modularity is a major advantage. You can swap transport layers without rewriting your communication logic. It also supports a wide range of peer discovery mechanisms, from mDNS for local networks to DHT for global-scale discovery.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1777628828255_Developer-runs-peer-to-peer-agent-software.jpeg" alt="Developer runs peer-to-peer agent software"></p>
+<p><strong>Pilot Protocol</strong> takes a different approach by building a network-layer overlay specifically for AI agents. It provides persistent virtual addresses, encrypted tunnels, and <a href="https://pilotprotocol.network/blog/nat-traversal-ai-agents-deep-dive">NAT traversal for AI agents</a> without requiring you to manage the underlying plumbing yourself. For teams who want production-ready P2P without months of infrastructure engineering, this is where the value proposition is clearest.</p>
+<table>
+<thead>
+<tr>
+<th>Technology</th>
+<th>NAT traversal</th>
+<th>Agent discovery</th>
+<th>Encryption</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WebRTC</td>
+<td>Built-in (STUN/TURN)</td>
+<td>Requires signaling server</td>
+<td>DTLS/SRTP</td>
+<td>Real-time data exchange</td>
+</tr>
+<tr>
+<td>libp2p</td>
+<td>Relay-based</td>
+<td>DHT, mDNS</td>
+<td>Noise protocol</td>
+<td>Custom, modular architectures</td>
+</tr>
+<tr>
+<td>Pilot Protocol</td>
+<td>Auto, zero-config</td>
+<td>Built-in overlay</td>
+<td>E2E by default</td>
+<td>Multi-cloud AI agent fleets</td>
+</tr>
+</tbody>
+</table>
+<p>As <a href="https://github.com/peerclaw/peerclaw-agent" rel="nofollow noopener noreferrer" target="_blank">multi-cloud AI developers</a> know well, preferring WebRTC or libp2p for agents and using auto NAT traversal libraries like Pilot significantly reduces implementation complexity. That difference matters when your team is iterating fast.</p>
+<p>Pro Tip: If your agents live entirely within a single VPC or private network, libp2p with mDNS discovery may be sufficient. Once you cross cloud boundaries or need zero-config NAT punch-through, Pilot Protocol’s overlay approach removes substantial operational burden.</p>
+<p><a href="https://pilotprotocol.network/blog/openclaw-agents-behind-nat-zero-config">Zero config NAT traversal</a> is not just a convenience feature. In multi-cloud deployments, network topologies change constantly as new regions come online, agents scale out, and cloud provider firewalls apply unpredictable rules. Auto traversal means your agents stay connected without manual intervention.</p>
+<p>For concrete use cases, review <a href="https://pilotprotocol.network/blog/peer-to-peer-networking-examples-ai-engineers">P2P networking examples</a> that walk through real implementation patterns for AI engineers.</p>
+<h2 id="trust-models-and-security-considerations-in-peer-to-peer-networking" tabindex="-1">Trust models and security considerations in peer-to-peer networking</h2>
+<p>Choosing the right tech stack is only one piece. Effective trust models and security strategies are essential to thriving in P2P environments.</p>
+<p>In a centralized system, trust is relatively straightforward: you authenticate against the server, and the server decides who gets access. In P2P, every agent is simultaneously a client and a server. That means trust must be established at the peer level, not delegated to a central authority.</p>
+<p>Three mechanisms form the foundation of secure P2P for AI agents:</p>
+<ul>
+<li><strong>TOFU (Trust On First Use):</strong> When an agent connects to a new peer for the first time, it stores that peer’s public key as trusted. Future connections verify against the stored key. This approach is practical and low-friction but requires careful key rotation policies.</li>
+<li><strong>E2EE (End-to-End Encryption):</strong> All data exchanged between agents should be encrypted in transit, independently of any transport layer protections. This prevents network-level observers from reading agent payloads even if they can observe the traffic pattern.</li>
+<li><strong>Capability discovery:</strong> Agents should negotiate what they can do before exchanging sensitive data. This limits exposure and reduces the attack surface if a peer is compromised.</li>
+</ul>
+<p>You can review a full <a href="https://pilotprotocol.network/blog/network-security-checklist-for-decentralized-p2p-ai-systems">P2P security checklist</a> to cover these points systematically before deployment.</p>
+<p>The guidance from the <a href="https://github.com/peerclaw/peerclaw-agent/tree/v0.7.0" rel="nofollow noopener noreferrer" target="_blank">peerclaw-agent</a> project is direct: implement TOFU trust, E2EE, and capability discovery, and avoid pure P2P in scenarios that require strict compliance with audit trail requirements.</p>
+<blockquote>
+<p>“P2P environments expose you to malicious peer risks and scalability constraints from network churn. Mitigating these is not optional in production AI systems.”</p>
+</blockquote>
+<p>The compliance dimension deserves specific attention. If your AI agents operate in financial services, healthcare, or regulated trading environments, pure P2P often cannot satisfy audit requirements. <a href="https://tickerly.net/automated-trading-on-decentralized-exchange" target="_blank" rel="noopener">Decentralized exchange audit trails</a> illustrate why: every trade action must be logged, attributable, and tamper-evident. Pure P2P architectures typically lack the centralized logging infrastructure to satisfy these requirements out of the box.</p>
+<p>In these cases, a hybrid architecture often delivers the best outcome. You retain P2P for data plane communication, where agents exchange payloads directly, while using a lightweight centralized component for control plane logging and audit. This gives you the latency and resilience benefits of P2P without sacrificing regulatory posture.</p>
+<p>Read more about <a href="https://pilotprotocol.network/blog/cloud-networking-secure-peer-to-peer-distributed-ai">secure cloud P2P</a> to see how this hybrid approach applies to cloud-native deployments. For a deeper look at foundational principles, <a href="https://pilotprotocol.network/blog/trust-network-protocols-secure-decentralized-systems">trust in decentralized protocols</a> covers the theoretical and practical dimensions of building reliable trust systems at scale.</p>
+<p>Pro Tip: Do not rely on transport encryption alone. Implement application-layer E2EE between agents so that even if a proxy or relay node is compromised, it cannot read the payload. In Pilot Protocol, this is on by default. In DIY stacks, you need to engineer it explicitly.</p>
+<h2 id="practical-deployment-getting-ai-agents-connected-peer-to-peer" tabindex="-1">Practical deployment: Getting AI agents connected peer-to-peer</h2>
+<p>Now, let’s pull everything together with a hands-on deployment strategy and practical applications for your AI agents.</p>
+<p>Getting agents connected via P2P in a multi-cloud environment breaks down into five concrete steps:</p>
+<ol>
+<li><strong>Assign persistent addresses.</strong> Each agent needs a stable identity that survives restarts, IP changes, and cloud migrations. Pilot Protocol provides virtual addresses for this purpose. With libp2p, you use peer IDs derived from public keys.</li>
+<li><strong>Configure peer discovery.</strong> Agents need to find each other before they can connect. In multi-cloud environments, DHT-based discovery or a rendezvous server solves this. Pilot’s overlay handles discovery automatically within the private network.</li>
+<li><strong>Establish NAT traversal.</strong> Most agents sit behind NAT in cloud environments. Use auto NAT traversal libraries like Pilot to punch through network boundaries without firewall rule changes. WebRTC with STUN/TURN works well as a fallback.</li>
+<li><strong>Negotiate trust.</strong> On first connection, exchange public keys and apply your TOFU policy. Store verified peer identities locally. Rotate keys on a defined schedule.</li>
+<li><strong>Begin encrypted data exchange.</strong> Once the encrypted tunnel is established, wrap your existing protocols (HTTP, gRPC, or SSH) inside the P2P overlay. This preserves your existing agent logic while giving it a secure, direct communication path.</li>
+</ol>
+<p>When assessing whether your environment is ready for P2P, use this framework:</p>
+<table>
+<thead>
+<tr>
+<th>Deployment factor</th>
+<th>P2P ready</th>
+<th>Needs hybrid</th>
+<th>Use centralized</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Audit trail required</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes (strict)</td>
+</tr>
+<tr>
+<td>Cross-cloud agents</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Possible</td>
+</tr>
+<tr>
+<td>Real-time data exchange</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Agent count</td>
+<td>Any</td>
+<td>Any</td>
+<td>Small</td>
+</tr>
+<tr>
+<td>Compliance environment</td>
+<td>Light</td>
+<td>Moderate</td>
+<td>Heavy</td>
+</tr>
+</tbody>
+</table>
+<p>Real-world scenarios make these decisions clearer. <a href="https://cryptowatchdog.net/blog/ai-trading-bots-and-agents-2026-honest-guide" target="_blank" rel="noopener">AI trading agents</a> face specific constraints: speed is critical, but so is auditability. A P2P overlay for the data plane, combined with a lightweight audit logger for the control plane, handles both requirements. Autonomous agent fleets performing distributed data collection or inference can often go fully P2P without any centralized component at all.</p>
+<p>Learn more about <a href="https://pilotprotocol.network/blog/ai-agent-discovery-process-p2p-networks">agent discovery in P2P</a> networks and explore <a href="https://pilotprotocol.network/for/p2p">direct P2P for AI agents</a> to see how Pilot structures this deployment process from end to end.</p>
+<h2 id="a-fresh-perspective-what-most-engineers-miss-about-peer-to-peer-in-multi-cloud-autonomous-systems" tabindex="-1">A fresh perspective: What most engineers miss about peer-to-peer in multi-cloud autonomous systems</h2>
+<p>Finally, let’s consider what most don’t: the deeper lessons learned by those who have built these systems and navigated complex trade-offs.</p>
+<p>Most engineers first reach for P2P because they want to reduce infrastructure costs. Eliminating the central broker sounds like it removes a line item. That’s true, but it’s not the primary reason experienced teams choose P2P. The real value is <strong>architectural autonomy</strong>, the ability for your agent fleet to grow, adapt, and operate without every behavior being funneled through a system that someone has to maintain, scale, and recover.</p>
+<p>When your agents communicate directly, you stop paying the coordination tax. Agents can form ad-hoc coalitions, share state directly, and reconfigure without waiting for central orchestration. That is what “autonomous” actually means in practice.</p>
+<p>The trap most engineers fall into is treating P2P as binary: either fully decentralized or fully centralized. Real production systems rarely work that way. The teams who build durable architectures use decentralization where it delivers speed and resilience, and use centralization where it delivers accountability and auditability. Decentralized protocol trust isn’t about eliminating all central systems. It’s about reducing unnecessary dependencies while retaining the oversight mechanisms your organization actually needs.</p>
+<p>The other thing most engineers underestimate is the regulatory timeline. You might build a fully decentralized agent network today that works perfectly from a technical standpoint, and then face a compliance audit eighteen months from now that requires you to retrofit audit logging into a system not designed for it. Building in a hybrid control plane from the start is far cheaper than retrofitting it later.</p>
+<p>Future architectures for AI agent networks will need to balance three forces: decentralization for scale and resilience, encryption for security and privacy, and structured audit trails for regulatory and operational accountability. None of these forces cancel each other out. The engineers who recognize that early will build systems that last.</p>
+<h2 id="next-steps-explore-peer-to-peer-solutions-for-your-ai-agents" tabindex="-1">Next steps: Explore peer-to-peer solutions for your AI agents</h2>
+<p>If you’re ready to explore further, here’s where you can find actionable guides and next steps.</p>
+<p>Direct P2P networking for AI agents is not a theoretical concept. It is a deployable, production-ready architecture that solves real problems in multi-cloud environments right now.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
+<p>Pilot Protocol for AI agents gives your agent fleet persistent addresses, encrypted tunnels, automatic NAT traversal, and mutual trust establishment without requiring you to build any of that infrastructure yourself. You get Go and Python SDKs, a CLI, and a web console to manage your network from day one. For engineers who want to understand the underlying design principles, the <a href="https://pilotprotocol.network/research/ietf/draft-teodor-pilot-problem-statement-00.html">network-layer infrastructure overview</a> details the technical problem Pilot was built to solve, written for engineers who want to go deep before committing to a platform.</p>
+<p>Start building your secure, autonomous agent network today.</p>
+<h2 id="frequently-asked-questions" tabindex="-1">Frequently asked questions</h2>
+<h3 id="what-are-the-main-security-risks-in-peer-to-peer-connections" tabindex="-1">What are the main security risks in peer-to-peer connections?</h3>
+<p>Malicious peers, scalability limits from network churn, and higher complexity in enforcing consistent security policies are the primary risks in P2P networking. Mitigating these requires TOFU trust, end-to-end encryption, and careful peer verification at connection time.</p>
+<h3 id="which-technologies-simplify-direct-p2p-for-ai-agents" tabindex="-1">Which technologies simplify direct P2P for AI agents?</h3>
+<p>WebRTC, libp2p, and Pilot are the leading options, with auto NAT traversal libraries like Pilot reducing implementation complexity significantly for multi-cloud deployments. Each technology has a distinct strength, so the right choice depends on your architecture’s scale and operational requirements.</p>
+<h3 id="can-peer-to-peer-networking-meet-strict-regulatory-compliance" tabindex="-1">Can peer-to-peer networking meet strict regulatory compliance?</h3>
+<p>Pure P2P often lacks the centralized audit trails required for strict regulatory compliance, making hybrid architectures the preferred approach in regulated industries. Retaining a lightweight control plane for logging while using P2P for the data plane is the most practical solution.</p>
+<h3 id="how-do-ai-agents-handle-nat-traversal-in-multi-cloud" tabindex="-1">How do AI agents handle NAT traversal in multi-cloud?</h3>
+<p>Auto NAT traversal libraries like Pilot enable agents to connect across cloud boundaries without manual firewall configuration or static IP assignments. This is essential in multi-cloud environments where network topology changes frequently and agents need to stay connected automatically.</p>
+<h2 id="recommended" tabindex="-1">Recommended</h2>
+<ul>
+<li><a href="https://pilotprotocol.network/blog/cloud-networking-secure-peer-to-peer-distributed-ai">Cloud networking: Secure peer-to-peer for distributed AI</a></li>
+<li><a href="https://pilotprotocol.network/blog/encrypted-tunnel-advantages-peer-to-peer-ai-networks">Top encrypted tunnel advantages for P2P AI networks</a></li>
+<li><a href="https://pilotprotocol.network/for/p2p">Direct Peer-to-Peer for AI Agents — Pilot Protocol</a></li>
+<li><a href="https://pilotprotocol.network/blog/peer-to-peer-networking-examples-ai-engineers">Peer-to-peer networking examples every AI engineer should know</a></li>
+<li><a href="https://fxshop24.net/ai-powered-eas-vs-traditional-robots-which-dominates-prop-firm-challenges-in-2025" target="_blank" rel="noopener">AI-Powered EAs Vs Traditional Robots: Which Dominates Prop Firm Challenges In 2025? | FxShop24 Marketplace</a></li>
+</ul>`;
+---
+<BlogLayout
+  title="Why Direct P2P Connections Power Secure AI Networking"
+  description="Discover why direct peer-to-peer connections are vital for secure AI networking. Learn how to enhance your agents’ performance today!"
+  date="May 4, 2026"
+  tags={["blog"]}
+  canonicalPath="/blog/why-direct-p2p-connections-power-secure-ai-networking"
+  bannerImage="/blog/banners/why-direct-p2p-connections-power-secure-ai-networking.jpg"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>
