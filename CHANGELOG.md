@@ -9,6 +9,32 @@ Detailed per-release notes for tagged versions are published on the
 
 ## [Unreleased]
 
+## [1.9.1-rc5] - 2026-05-04
+
+Reliability fix on top of rc4. Verified 100% (30/30 cold-start sends +
+50/50 warm-path sends) between two daemons on matching binaries over
+the GCP relay.
+
+### Rekey storm fix: grace-period guard on `decryptFailDropThreshold`
+
+rc4's `decryptFailDropThreshold = 5` caught persistent peer-side AEAD
+key divergence by dropping the `peerCrypto` after five consecutive
+decrypt failures. With both sides on rc4, a peer-initiated rekey left
+in-flight ciphertext on the relay path encrypted with the old key.
+Those frames arrived at us after the new key had been installed, failed
+AEAD against the new key, and within seconds tripped the threshold —
+tearing down the freshly-installed `peerCrypto` and demanding yet
+another rekey. The peer rotated again, its next batch of in-flight
+frames repeated the pattern, and the tunnel re-established every ~5 s
+in a closed loop scaling with relay queue depth.
+
+`decryptFailDropGrace = 3 * time.Second`: never drop a `peerCrypto`
+that was installed less than the grace window ago. Stale ciphertext
+from the previous rotation drains in ≤1 RTT (relay round-trip
+<200 ms); the grace covers worst-case salvage replay without holding
+a genuinely diverged session for long. The threshold still catches
+peers that remain misaligned past the grace.
+
 ## [1.9.1-rc4] - 2026-05-03
 
 Reliability improvements for back-to-back commands and long-lived
