@@ -115,6 +115,14 @@ const salvageMaxAge = 5 * time.Second
 // without restarting" path.
 const decryptFailDropThreshold = 5
 
+// decryptFailDropGrace is the minimum age a peerCrypto must reach before
+// repeated decrypt failures can drop it. Set above the typical relay RTT
+// (≤200 ms) plus a comfortable margin: stale ciphertext from before the
+// peer's last rekey takes ~1 RTT to drain, but if salvage replay is in
+// play it can stretch slightly. 3 s covers worst-case drain without
+// holding a genuinely diverged session for long.
+const decryptFailDropGrace = 3 * time.Second
+
 // checkAndRecordNonce returns true if the nonce is valid (not replayed, not too old).
 // Must be called with replayMu held.
 //
@@ -1341,7 +1349,22 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		tm.mu.Lock()
 		pc.decryptFailCount++
 		failures := pc.decryptFailCount
-		shouldDrop := failures >= decryptFailDropThreshold && tm.crypto[peerNodeID] == pc
+		// Grace period: never drop a peerCrypto that was installed less
+		// than decryptFailDropGrace ago. Just-installed crypto is the
+		// common case for stale in-flight packets — peer rekeyed, our
+		// new session has counter 0 / new AEAD key, but packets sent by
+		// peer before the rekey landed are in flight on the relay path
+		// and arrive at us with the OLD key. They fail AEAD here. Without
+		// the grace period, 5 stale frames at >1/s would tear down the
+		// pc we just installed, request another rekey, peer rotates again,
+		// peer's new stale frames arrive, we tear down again — a self-
+		// perpetuating storm that scales with the relay's queue depth.
+		// 3 s is much longer than a relay RTT (<200 ms) so genuine in-
+		// flight packets drain; persistent divergence (the original case
+		// decryptFailDropThreshold was added for) is still caught after
+		// the grace expires.
+		freshlyInstalled := time.Since(pc.createdAt) < decryptFailDropGrace
+		shouldDrop := failures >= decryptFailDropThreshold && tm.crypto[peerNodeID] == pc && !freshlyInstalled
 		if shouldDrop {
 			delete(tm.crypto, peerNodeID)
 		}
