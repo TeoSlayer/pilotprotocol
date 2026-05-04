@@ -57,6 +57,14 @@ type peerCrypto struct {
 	ready         bool                          // true once key exchange is complete
 	authenticated bool                          // true if peer proved Ed25519 identity
 	peerX25519Key [32]byte                      // peer's X25519 public key (for detecting rekeying)
+	// createdAt is when this peerCrypto was installed in tm.crypto. Used
+	// by handleAuthKeyExchange to decide between preserving existing state
+	// (fresh handshake retransmit/reply within seconds) and resetting it
+	// (long-lived peer's own state desynced — e.g. older-version daemon
+	// rotated its send counter without rotating X25519 keys, which
+	// otherwise leaves us with a high maxRecvNonce that rejects the
+	// peer's resumed packets as replays).
+	createdAt time.Time
 
 	// P1-010 desync salvage: ring buffer of recent plaintext sent with this
 	// key. On a peer-initiated rekey (keyChanged in handleAuthKeyExchange),
@@ -1394,7 +1402,7 @@ func (tm *TunnelManager) deriveSecret(peerPubKeyBytes []byte) (*peerCrypto, erro
 	}
 
 	// Generate random nonce prefix for domain separation
-	pc := &peerCrypto{aead: aead, ready: true}
+	pc := &peerCrypto{aead: aead, ready: true, createdAt: time.Now()}
 	copy(pc.peerX25519Key[:], peerPubKeyBytes)
 	if _, err := rand.Read(pc.noncePrefix[:]); err != nil {
 		return nil, fmt.Errorf("nonce prefix: %w", err)

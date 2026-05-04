@@ -9,6 +9,30 @@ Detailed per-release notes for tagged versions are published on the
 
 ## [Unreleased]
 
+## [1.9.1-rc3] - 2026-05-03
+
+Same content as rc2; tag bump to publish a fresh signed/notarized
+artifact set. The release workflow's macOS ad-hoc codesign step
+(`.github/workflows/release.yml:81-91`) re-signs each darwin binary on
+every tag — rc3 picks up that signature and the corresponding
+`checksums.txt`.
+
+### Tracked, not blocking rc3
+
+- Long-running tunnels against older-version peer daemons can desync
+  after ~minutes-to-hours of idle: the peer's daemon resets its send
+  counter (or rotates AEAD state without rotating X25519 keys), our
+  preserved peerCrypto holds a high maxRecvNonce, and the peer's
+  resumed-from-1 packets get rejected as replays. User symptom: a
+  burst of pings works on a fresh daemon, then `dial timeout after
+  7.5 s` until daemon restart. Workaround: `pilotctl daemon stop &&
+  pilotctl daemon start`. Fix candidates explored in rc2-dev (reset
+  recv replay state on duplicate key exchange, reset crypto on stale
+  contexts, prewarm trusted-peer tunnels) all introduced regressions
+  of their own and were reverted. The structural fix is a protocol-
+  level "session epoch" handshake — out of scope for the rc series.
+  Adds `peerCrypto.createdAt` for a future heuristic.
+
 ## [1.9.1-rc2] - 2026-05-03
 
 Release candidate 2. Builds on rc1 with three classes of fixes:
