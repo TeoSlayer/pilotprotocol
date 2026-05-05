@@ -9,6 +9,79 @@ Detailed per-release notes for tagged versions are published on the
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-05-05
+
+Stable release rolling up rc1–rc5. Headline themes: cold-start latency
+collapse, recovery from peer-side AEAD key divergence, and relay-flag
+stability. Verified end-to-end against the production rendezvous fleet.
+
+### Fixed
+
+- **Rekey storm with grace-period guard.** Resolved the loop where a
+  peer-initiated rekey left in-flight ciphertext on the relay path
+  encrypted with the old key; those frames arrived after the new key
+  installed, failed AEAD, and tripped the decrypt-fail drop threshold,
+  tearing down the freshly-installed `peerCrypto` and demanding yet
+  another rekey. `decryptFailDropGrace = 3 * time.Second` never drops
+  a `peerCrypto` installed less than the grace window ago. (rc4 + rc5)
+- **Recovery from peer-side AEAD key divergence.** After 5 consecutive
+  AEAD authentication failures the daemon drops `tm.crypto[peer]` and
+  triggers a fresh key exchange — automatic per-peer recovery
+  equivalent to a daemon restart. New `TunnelManager.DropCrypto(nodeID)`
+  exposes this as a public method for operator scripts. (rc4)
+- **Relay-flag pinning.** `relayPinned` map tracks "relay flag set by
+  an authoritative signal" (registry, dial-loop direct exhaustion,
+  ICMP-unreachable, beacon-sourced key exchange). The previous
+  "auto-clear after 3 direct receipts" heuristic flapped relay state
+  every ~60s in production, causing session-key rotation cascades and
+  the "ping works for a minute then dial timeout for minutes" symptom.
+  Auto-clear is now disabled. (rc4)
+
+### Performance
+
+- **Cold pilotctl latency cut from 10–30 s to ~600 ms; warm to ~170
+  ms.** Combination of:
+  - Daemon-side hostname cache (60 s, persisted to
+    `~/.pilot/hostname_cache.json`, reloaded at startup).
+  - PolicyRunner `fetchMembers` exponential backoff so a doomed
+    `list_nodes` no longer holds the regConn mutex every 5 s.
+  - `DialInitialRTO` 1 s → 250 ms — three direct retries now total
+    ~1.75 s before relay flip (was ~7 s).
+  - Background pre-warm of the registry resolve cache for trusted
+    peers at daemon start. (rc2)
+
+### Changed
+
+- **Dial budget**: `DialMaxRetries` 6 → 7. The relay phase now gets 4
+  retries (was 3), giving cold-start handshakes (key exchange + SYN/
+  SYN-ACK) enough room without exceeding the user's `--timeout`. With
+  `DialInitialRTO=250ms` and `DialMaxRTO=8s` exponential backoff,
+  total budget is ~8 s. (rc4)
+- **`pilotctl ping` per-attempt floor**: 4 s → 10 s, covering the
+  daemon startup-storm warm-up window where multiple trusted peers
+  concurrently establish crypto state. (rc4)
+- **Beacon `--advertise-addr` flag**: MIG instances behind a public
+  DNAT can now advertise a stable address. (rc2)
+
+### Known limitations
+
+- Against peers running pre-1.9.1 daemons, the rekey storm pattern
+  may still cause occasional dial timeouts until those peers update.
+  Workaround on our side: `pilotctl daemon stop && pilotctl daemon
+  start`.
+- Cold start: the FIRST 1–3 dials immediately after a daemon restart
+  can fail while the tunnel establishes crypto. Subsequent dials
+  succeed. Tracked for a future per-peer probe-and-adapt SRTT-based
+  dial budget.
+
+### Considered, reverted in development
+
+A rough log of fixes that introduced regressions and were pulled
+before GA: inbound auth-key-exchange rate-limit, recv-replay-window
+reset on stale auth-key-exchange duplicate, trusted-peer tunnel
+pre-warm at daemon start, and dial-timeout-exhausted crypto drop. See
+the rc4 entry for details.
+
 ## [1.9.1-rc5] - 2026-05-04
 
 Reliability fix on top of rc4. Verified 100% (30/30 cold-start sends +
