@@ -64,7 +64,7 @@ func TestFastRecoveryExitDeflationRequiresActualRecovery(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = InitialCongWin // 10*MSS
+	conn.CongWin = InitialCongWin   // 10*MSS
 	conn.SSThresh = initialSSThresh // 20*MSS  (intentionally > InitialCongWin)
 	conn.InRecovery = false
 	conn.DupAckCount = 0

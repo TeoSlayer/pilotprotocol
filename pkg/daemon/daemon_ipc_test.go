@@ -122,7 +122,7 @@ func TestHandleBindDoubleBindSendsError(t *testing.T) {
 	}
 	ic, client := newIPCTestConn(t)
 	reply := runHandler(t, client, func() { s.handleBind(ic, []byte{0x23, 0x28}) }) // port 9000
-	assertErrorReply(t, reply, "port")                                               // "already bound" or similar
+	assertErrorReply(t, reply, "port")                                              // "already bound" or similar
 }
 
 // --- handleDial ---

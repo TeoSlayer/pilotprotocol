@@ -13,15 +13,15 @@ import (
 //
 // Symptom: TunnelManager has eight per-peer maps that get populated
 // during the lifetime of a peer relationship:
-//   1. peers              — populated on AddPeer/handleEncrypted/key-exchange
-//   2. crypto             — populated on key-exchange paths
-//   3. lastOutboundSend   — populated on every writeFrame success (iter 7)
-//   4. sendErrCount       — populated on ICMP-unreachable errors (iter 8)
-//   5. lastDirectRecv     — populated on every authenticated decrypt (iter 5/3)
-//   6. blackholeMissCount — populated by writeFrame's hysteresis (iter 3)
-//   7. directClearCount   — populated by clearRelayOnDirectLocked (iter 3)
-//   8. relayPeers         — populated by relay flip / SetRelayPeer / iter 8
-//   9. peerPubKeys        — populated on auth key-exchange
+//  1. peers              — populated on AddPeer/handleEncrypted/key-exchange
+//  2. crypto             — populated on key-exchange paths
+//  3. lastOutboundSend   — populated on every writeFrame success (iter 7)
+//  4. sendErrCount       — populated on ICMP-unreachable errors (iter 8)
+//  5. lastDirectRecv     — populated on every authenticated decrypt (iter 5/3)
+//  6. blackholeMissCount — populated by writeFrame's hysteresis (iter 3)
+//  7. directClearCount   — populated by clearRelayOnDirectLocked (iter 3)
+//  8. relayPeers         — populated by relay flip / SetRelayPeer / iter 8
+//  9. peerPubKeys        — populated on auth key-exchange
 //  10. pendingRekey       — populated by markPendingRekey (rkPendingMu)
 //  11. lastInboundDecrypt — populated by recordInboundDecrypt (rkPendingMu)
 //

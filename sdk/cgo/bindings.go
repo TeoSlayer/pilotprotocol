@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
@@ -475,6 +476,312 @@ func PilotRecvFrom(h C.uint64_t) *C.char {
 		"dst_port": dg.DstPort,
 		"data":     dg.Data,
 	})
+}
+
+// ---------- Health / rotate-key ----------
+
+//export PilotHealth
+func PilotHealth(h C.uint64_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.Health()
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotRotateKey
+func PilotRotateKey(h C.uint64_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.RotateKey()
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+// ---------- Broadcast (admin-token gated) ----------
+
+//export PilotBroadcast
+func PilotBroadcast(h C.uint64_t, netID C.uint16_t, port C.uint16_t, data unsafe.Pointer, dataLen C.int, adminToken *C.char) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	if err := d.Broadcast(uint16(netID), uint16(port), C.GoBytes(data, dataLen), C.GoString(adminToken)); err != nil {
+		return errJSON(err)
+	}
+	return okJSON(map[string]interface{}{"ok": true})
+}
+
+// ---------- Dial with timeout ----------
+
+//export PilotDialTimeout
+func PilotDialTimeout(h C.uint64_t, addr *C.char, timeoutMs C.uint64_t) (C.uint64_t, *C.char) {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return 0, errJSON(err)
+	}
+	sa, err := protocol.ParseSocketAddr(C.GoString(addr))
+	if err != nil {
+		return 0, errJSON(err)
+	}
+	conn, err := d.DialAddrTimeout(sa.Addr, sa.Port, time.Duration(timeoutMs)*time.Millisecond)
+	if err != nil {
+		return 0, errJSON(err)
+	}
+	return C.uint64_t(storeHandle(conn)), nil
+}
+
+// ---------- Conn read deadline ----------
+
+// PilotConnSetReadDeadline sets the read deadline as Unix nanoseconds.
+// Pass 0 to clear the deadline.
+//
+//export PilotConnSetReadDeadline
+func PilotConnSetReadDeadline(ch C.uint64_t, deadlineUnixNanos C.int64_t) *C.char {
+	v, ok := loadHandle(uint64(ch))
+	if !ok {
+		return errJSON(fmt.Errorf("invalid conn handle"))
+	}
+	c, ok := v.(*driver.Conn)
+	if !ok {
+		return errJSON(fmt.Errorf("handle is not a Conn"))
+	}
+	var t time.Time
+	if int64(deadlineUnixNanos) != 0 {
+		t = time.Unix(0, int64(deadlineUnixNanos))
+	}
+	if err := c.SetReadDeadline(t); err != nil {
+		return errJSON(err)
+	}
+	return nil
+}
+
+// ---------- Networks ----------
+
+//export PilotNetworkList
+func PilotNetworkList(h C.uint64_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkList()
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkJoin
+func PilotNetworkJoin(h C.uint64_t, networkID C.uint16_t, token *C.char) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkJoin(uint16(networkID), C.GoString(token))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkLeave
+func PilotNetworkLeave(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkLeave(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkMembers
+func PilotNetworkMembers(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkMembers(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkInvite
+func PilotNetworkInvite(h C.uint64_t, networkID C.uint16_t, targetNodeID C.uint32_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkInvite(uint16(networkID), uint32(targetNodeID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkPollInvites
+func PilotNetworkPollInvites(h C.uint64_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkPollInvites()
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotNetworkRespondInvite
+func PilotNetworkRespondInvite(h C.uint64_t, networkID C.uint16_t, accept C.int) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.NetworkRespondInvite(uint16(networkID), accept != 0)
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+// ---------- Managed networks ----------
+
+//export PilotManagedScore
+func PilotManagedScore(h C.uint64_t, networkID C.uint16_t, nodeID C.uint32_t, delta C.int32_t, topic *C.char) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.ManagedScore(uint16(networkID), uint32(nodeID), int(int32(delta)), C.GoString(topic))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotManagedStatus
+func PilotManagedStatus(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.ManagedStatus(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotManagedRankings
+func PilotManagedRankings(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.ManagedRankings(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotManagedForceCycle
+func PilotManagedForceCycle(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.ManagedForceCycle(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotManagedReconcile
+func PilotManagedReconcile(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.ManagedReconcile(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+// ---------- Policy ----------
+
+//export PilotPolicyGet
+func PilotPolicyGet(h C.uint64_t, networkID C.uint16_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.PolicyGet(uint16(networkID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotPolicySet
+func PilotPolicySet(h C.uint64_t, networkID C.uint16_t, policyJSON *C.char) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.PolicySet(uint16(networkID), []byte(C.GoString(policyJSON)))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+// ---------- Member tags ----------
+
+//export PilotMemberTagsGet
+func PilotMemberTagsGet(h C.uint64_t, networkID C.uint16_t, nodeID C.uint32_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.MemberTagsGet(uint16(networkID), uint32(nodeID))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
+//export PilotMemberTagsSet
+func PilotMemberTagsSet(h C.uint64_t, networkID C.uint16_t, nodeID C.uint32_t, tagsJSON *C.char) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte(C.GoString(tagsJSON)), &tags); err != nil {
+		return errJSON(fmt.Errorf("invalid tags JSON: %w", err))
+	}
+	r, err := d.MemberTagsSet(uint16(networkID), uint32(nodeID), tags)
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
 }
 
 // main is required for c-shared build mode.

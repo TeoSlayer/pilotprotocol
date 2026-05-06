@@ -70,9 +70,9 @@ func TestCAGrowthCapsIncrementAtSMSS(t *testing.T) {
 	// SMSS*SMSS/cwnd = 4096*4096/40960 = 409.
 	// Bug: SMSS*bytes_acked/cwnd = 4096*8192/40960 = 819.
 	const (
-		wantIncrement = MaxSegmentSize * MaxSegmentSize / initialCongWin // 409
+		wantIncrement = MaxSegmentSize * MaxSegmentSize / initialCongWin       // 409
 		bugIncrement  = MaxSegmentSize * (2 * MaxSegmentSize) / initialCongWin // 819
-		wantCongWin   = initialCongWin + wantIncrement                   // 41369
+		wantCongWin   = initialCongWin + wantIncrement                         // 41369
 	)
 	if c.CongWin != wantCongWin {
 		t.Errorf("CA growth with bytes_acked=2*SMSS: CongWin=%d, want %d "+

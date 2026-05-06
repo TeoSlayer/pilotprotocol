@@ -115,8 +115,8 @@ func TestWindowUpdateDoesNotWakeSender(t *testing.T) {
 		SrcPort:  remotePort,
 		DstPort:  localPort,
 		Seq:      500,
-		Ack:      1000,  // == LastAck — dup-ACK path in ProcessAck
-		Window:   1,     // non-zero: peer's window just opened
+		Ack:      1000, // == LastAck — dup-ACK path in ProcessAck
+		Window:   1,    // non-zero: peer's window just opened
 	}
 	d.handleStreamPacket(windowUpdatePkt)
 
@@ -126,14 +126,14 @@ func TestWindowUpdateDoesNotWakeSender(t *testing.T) {
 	case <-conn.WindowCh:
 		// good — sender wakes up promptly
 	case <-time.After(100 * time.Millisecond):
-		t.Errorf("window-update ACK (Ack=LastAck, Window=1 with PeerRecvWin=0) did not "+
-			"signal conn.WindowCh within 100ms; "+
-			"handleStreamPacket updates PeerRecvWin but never signals WindowCh; "+
-			"ProcessAck is called with ack=LastAck (dup-ACK path) which returns "+
-			"before the WindowCh signal at the bottom of the new-ACK path; "+
-			"sendSegment blocked on WindowCh will not wake until the next "+
-			"zero-window probe timer fires (up to 30s with exponential backoff); "+
-			"fix: in handleStreamPacket, signal conn.WindowCh after setting "+
+		t.Errorf("window-update ACK (Ack=LastAck, Window=1 with PeerRecvWin=0) did not " +
+			"signal conn.WindowCh within 100ms; " +
+			"handleStreamPacket updates PeerRecvWin but never signals WindowCh; " +
+			"ProcessAck is called with ack=LastAck (dup-ACK path) which returns " +
+			"before the WindowCh signal at the bottom of the new-ACK path; " +
+			"sendSegment blocked on WindowCh will not wake until the next " +
+			"zero-window probe timer fires (up to 30s with exponential backoff); " +
+			"fix: in handleStreamPacket, signal conn.WindowCh after setting " +
 			"PeerRecvWin when transitioning from 0 to > 0")
 	}
 }

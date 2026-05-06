@@ -57,11 +57,11 @@ const (
 // The frame reader already caps the whole frame at 16 MiB; these are
 // tighter semantic bounds checked before the content is persisted.
 const (
-	MaxTaskDescription     = 16 * 1024           // 16 KiB — any reasonable prompt/description
-	MaxTaskResultText      = 1 * 1024 * 1024     // 1 MiB — inline text results
-	MaxTaskResultFilename  = 256                 // filesystem-safe length cap
-	MaxTaskResultFileBytes = 15 * 1024 * 1024    // ~15 MiB; frame cap is 16 MiB
-	MaxTaskJustification   = 4 * 1024            // status/decline reasons
+	MaxTaskDescription     = 16 * 1024        // 16 KiB — any reasonable prompt/description
+	MaxTaskResultText      = 1 * 1024 * 1024  // 1 MiB — inline text results
+	MaxTaskResultFilename  = 256              // filesystem-safe length cap
+	MaxTaskResultFileBytes = 15 * 1024 * 1024 // ~15 MiB; frame cap is 16 MiB
+	MaxTaskJustification   = 4 * 1024         // status/decline reasons
 )
 
 // ValidateSubmitRequest rejects submissions whose description exceeds the

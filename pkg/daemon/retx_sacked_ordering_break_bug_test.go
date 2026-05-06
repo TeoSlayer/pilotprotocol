@@ -27,21 +27,23 @@ import (
 // The comment "segments are ordered by time; if first hasn't timed out, none
 // have" is correct only when Unacked entries are in strict sentAt order.
 // That ordering invariant breaks when:
-//   1. A leading segment is SACKed (skipped by continue).
-//   2. The first non-sacked entry is recent (sentAt updated by a prior
-//      retransmit of that exact segment).
-//   3. A later non-sacked entry was originally sent much earlier (sentAt
-//      predates the retransmit) and is therefore timed out.
+//  1. A leading segment is SACKed (skipped by continue).
+//  2. The first non-sacked entry is recent (sentAt updated by a prior
+//     retransmit of that exact segment).
+//  3. A later non-sacked entry was originally sent much earlier (sentAt
+//     predates the retransmit) and is therefore timed out.
 //
 // Concretely:
-//   Unacked[0]: sacked=true,  sentAt=T-2s  (very old, SACK-skipped)
-//   Unacked[1]: sacked=false, sentAt=T-50ms (recently retransmitted; B)
-//   Unacked[2]: sacked=false, sentAt=T-2s  (original send; C — timed out)
+//
+//	Unacked[0]: sacked=true,  sentAt=T-2s  (very old, SACK-skipped)
+//	Unacked[1]: sacked=false, sentAt=T-50ms (recently retransmitted; B)
+//	Unacked[2]: sacked=false, sentAt=T-2s  (original send; C — timed out)
 //
 // With RTO=200ms:
-//   Entry[0] sacked → continue
-//   Entry[1] B: now-50ms = 50ms NOT > 200ms → break (before C is checked!)
-//   Entry[2] C: timed out but NEVER REACHED
+//
+//	Entry[0] sacked → continue
+//	Entry[1] B: now-50ms = 50ms NOT > 200ms → break (before C is checked!)
+//	Entry[2] C: timed out but NEVER REACHED
 //
 // Consequence: C sits in Unacked indefinitely, never retransmitted until B
 // is finally ACKed (removing it from Unacked) and C becomes the first entry.
@@ -88,13 +90,13 @@ func TestRetransmitUnackedBreakSkipsTimedOutEntryAfterRecentNonSacked(t *testing
 	// FAILS against unpatched code: no packet is sent because B (not timed out)
 	// fires the break before C is ever checked.
 	if len(pkts) == 0 {
-		t.Errorf("retransmitUnacked with [A(sacked), B(recent,not-timeout), C(timed-out)]: "+
-			"expected 1 retransmit (C), got 0; "+
-			"'break' after B fires before C is checked — sacked entry A causes "+
-			"B to be the first non-sacked entry examined; B's sentAt is recent "+
-			"(retransmit updated it) so it is not timed out and the break fires; "+
-			"C's older sentAt makes it timed out but it is never reached; "+
-			"fix: replace 'break' with 'continue' so all non-sacked entries "+
+		t.Errorf("retransmitUnacked with [A(sacked), B(recent,not-timeout), C(timed-out)]: " +
+			"expected 1 retransmit (C), got 0; " +
+			"'break' after B fires before C is checked — sacked entry A causes " +
+			"B to be the first non-sacked entry examined; B's sentAt is recent " +
+			"(retransmit updated it) so it is not timed out and the break fires; " +
+			"C's older sentAt makes it timed out but it is never reached; " +
+			"fix: replace 'break' with 'continue' so all non-sacked entries " +
 			"are checked for timeout regardless of ordering")
 	}
 	if len(pkts) == 1 && string(pkts[0].Payload) != "C" {

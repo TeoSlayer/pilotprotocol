@@ -77,18 +77,18 @@ func TestPartialAckInFastRecoveryDoesNotDeflateToSSThresh(t *testing.T) {
 	c := newAckTestConn(t)
 
 	const (
-		ssthresh           = 5 * MaxSegmentSize             // 20480
-		fastRecoveryCongWin = ssthresh + 3*MaxSegmentSize   // 32768 — entered fast recovery
-		seqA               = uint32(1000)
-		seqB               = seqA + MaxSegmentSize          // 5096
-		seqC               = seqB + MaxSegmentSize          // 9192 — RecoveryPoint (beyond partial ACK)
+		ssthresh            = 5 * MaxSegmentSize          // 20480
+		fastRecoveryCongWin = ssthresh + 3*MaxSegmentSize // 32768 — entered fast recovery
+		seqA                = uint32(1000)
+		seqB                = seqA + MaxSegmentSize // 5096
+		seqC                = seqB + MaxSegmentSize // 9192 — RecoveryPoint (beyond partial ACK)
 	)
 
 	c.LastAck = seqA
 	c.SSThresh = ssthresh
 	c.CongWin = fastRecoveryCongWin
-	c.DupAckCount = 3    // just triggered fast retransmit
-	c.InRecovery = true  // in fast recovery
+	c.DupAckCount = 3   // just triggered fast retransmit
+	c.InRecovery = true // in fast recovery
 	c.RecoveryPoint = seqC
 	c.Unacked = []*retxEntry{
 		// seqA: already retransmitted (attempts=2), will be acked by partial ACK

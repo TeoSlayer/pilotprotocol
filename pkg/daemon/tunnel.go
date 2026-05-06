@@ -104,7 +104,6 @@ const salvageMaxEntries = 4
 // margin for slow handshakes under loss.
 const salvageMaxAge = 5 * time.Second
 
-
 // decryptFailDropThreshold is how many consecutive AEAD-authentication
 // failures from a single peer trigger a full peerCrypto drop +
 // re-handshake. Sized to swallow a small burst of legitimate packet
@@ -204,8 +203,8 @@ type TunnelManager struct {
 
 	// Rate-limit rekey-request responses triggered by "encrypted packet but no
 	// key" events. Prevents amplification if a peer floods us with gibberish.
-	rekeyMu       sync.Mutex
-	lastRekeyReq  map[uint32]time.Time
+	rekeyMu      sync.Mutex
+	lastRekeyReq map[uint32]time.Time
 
 	// P1-010 tunnel-state half: track in-flight key exchanges so a single
 	// dropped reply under packet loss doesn't leave the tunnel wedged for
@@ -220,7 +219,6 @@ type TunnelManager struct {
 	// NAT traversal: beacon-coordinated hole-punching and relay
 	beaconAddr *net.UDPAddr    // beacon address for punch/relay
 	relayPeers map[uint32]bool // peers that need relay (symmetric NAT)
-
 
 	// relayPinned marks peers whose relay flag was set by an authoritative
 	// signal (registry's relay_only=true on the resolve response, OR an

@@ -702,8 +702,8 @@ func (s *Server) applySnapshot(data []byte) error {
 	// I/O-free string parsing but is still extra work we don't need to keep
 	// inside the swap critical section.
 	var (
-		acceptIDPConfig    bool
-		acceptAuditExport  bool
+		acceptIDPConfig   bool
+		acceptAuditExport bool
 	)
 	if snap.IDPConfig != nil {
 		if err := urlvalidate.Validate(snap.IDPConfig.URL); err != nil {

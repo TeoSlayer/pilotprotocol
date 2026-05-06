@@ -273,7 +273,7 @@ See `examples/python_sdk/` for comprehensive examples:
 - **`basic_usage.py`** — Connection, identity, trust management
 - **`data_exchange_demo.py`** — Send messages, files, JSON
 - **`event_stream_demo.py`** — Pub/sub patterns
-- **`task_submit_demo.py`** — Task delegation and polo score
+- **`task_submit_demo.py`** — Task delegation
 - **`pydantic_ai_agent.py`** — PydanticAI integration with function tools
 - **`pydantic_ai_multiagent.py`** — Multi-agent collaboration system
 

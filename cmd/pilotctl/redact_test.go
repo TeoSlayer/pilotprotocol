@@ -17,24 +17,24 @@ func TestRedactPeerEndpointsRemovesIPFields(t *testing.T) {
 		"node_id":         42,
 		"address":         "0:0000.0000.002A",
 		"hostname":        "agent-test",
-		"endpoint":        "203.0.113.5:4000", // must go
-		"real_addr":       "203.0.113.5:4000", // must go
-		"public_addr":     "203.0.113.5:4000", // must go
+		"endpoint":        "203.0.113.5:4000",             // must go
+		"real_addr":       "203.0.113.5:4000",             // must go
+		"public_addr":     "203.0.113.5:4000",             // must go
 		"lan_addrs":       []interface{}{"10.0.0.5:4000"}, // must go
-		"observed_addr":   "203.0.113.5:4000", // must go
-		"stun_addr":       "203.0.113.5:4000", // must go
+		"observed_addr":   "203.0.113.5:4000",             // must go
+		"stun_addr":       "203.0.113.5:4000",             // must go
 		"peers":           7,
 		"encrypted_peers": 7,
 		"peer_list": []interface{}{
 			map[string]interface{}{
-				"node_id":  10,
-				"endpoint": "198.51.100.10:4000",
+				"node_id":   10,
+				"endpoint":  "198.51.100.10:4000",
 				"real_addr": "198.51.100.10:4000",
 				"encrypted": true,
 			},
 			map[string]interface{}{
-				"node_id":  11,
-				"endpoint": "198.51.100.11:4000",
+				"node_id":   11,
+				"endpoint":  "198.51.100.11:4000",
 				"encrypted": false,
 			},
 		},

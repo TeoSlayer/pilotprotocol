@@ -3,8 +3,11 @@ include README.md
 include LICENSE
 include CHANGELOG.md
 
-# Include all binaries in bin/ directory
+# Include all binaries in bin/ directory (the seed cache).
+# Dotfiles like .pilot-version need an explicit pattern because some
+# setuptools versions skip them under recursive-include.
 recursive-include pilotprotocol/bin *
+include pilotprotocol/bin/.pilot-version
 
 # Include type stubs if any
 recursive-include pilotprotocol *.pyi

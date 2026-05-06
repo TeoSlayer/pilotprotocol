@@ -101,8 +101,10 @@ func TestSACKBlocksWraparound(t *testing.T) {
 //
 // seg1: [0xFFFFF000, 0x00000000)  (wraps to 0; segEnd = 0x00000000 after add)
 // Wait — use seg1 that ends exactly where seg2 begins:
-//   seg1: [0xFFFFFF00, 0xFFFFFFFF+1) = [0xFFFFFF00, 0x00000000)
-//   seg2: [0x00000000, 0x00000010)
+//
+//	seg1: [0xFFFFFF00, 0xFFFFFFFF+1) = [0xFFFFFF00, 0x00000000)
+//	seg2: [0x00000000, 0x00000010)
+//
 // They are contiguous: seg1's right edge == seg2's left edge.
 func TestSACKBlocksWraparoundContiguous(t *testing.T) {
 	pm := NewPortManager()

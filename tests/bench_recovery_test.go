@@ -15,10 +15,10 @@ import (
 // packets in the A→B direction on demand, then resume forwarding normally.
 // B→A traffic is always forwarded without drops.
 type burstProxy struct {
-	toB   *net.UDPConn
-	toA   *net.UDPConn
-	realA *net.UDPAddr
-	realB *net.UDPAddr
+	toB     *net.UDPConn
+	toA     *net.UDPConn
+	realA   *net.UDPAddr
+	realB   *net.UDPAddr
 	dropN   atomic.Int64
 	stopped atomic.Bool
 }

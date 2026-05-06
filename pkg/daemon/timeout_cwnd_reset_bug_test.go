@@ -75,9 +75,9 @@ func TestTimeoutResetsCongWinTo1SMSS(t *testing.T) {
 	conn.RetxStop = make(chan struct{})
 
 	const (
-		seqA             = uint32(1000)
-		initialCongWin   = 20 * MaxSegmentSize // 81920 — large established window
-		initialSSThresh  = 10 * MaxSegmentSize // 40960 — initial ssthresh
+		seqA            = uint32(1000)
+		initialCongWin  = 20 * MaxSegmentSize // 81920 — large established window
+		initialSSThresh = 10 * MaxSegmentSize // 40960 — initial ssthresh
 	)
 
 	conn.Mu.Lock()
