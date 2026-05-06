@@ -3,14 +3,28 @@ name: Publish Python SDK
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without leading v, e.g. 1.9.1)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Treat as prerelease (skip publish; build only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   id-token: write
 
+env:
+  PILOT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  PILOT_PRERELEASE: ${{ inputs.prerelease || github.event.release.prerelease }}
+
 jobs:
   test-sdk:
-    if: "!github.event.release.prerelease"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -39,10 +53,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set version from release tag
+      - name: Set version from release tag or workflow input
         shell: bash
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${PILOT_VERSION}"
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> $GITHUB_ENV
           cd sdk/python
@@ -114,6 +128,7 @@ jobs:
 
   publish:
     needs: build-wheels
+    if: ${{ !(inputs.prerelease || github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
