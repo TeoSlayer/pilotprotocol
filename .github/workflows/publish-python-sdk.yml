@@ -35,7 +35,7 @@ jobs:
 
       - name: Run SDK integration tests
         run: |
-          cd tests/integration
+          cd tests/integration/local
           make test-sdk
         timeout-minutes: 10
 

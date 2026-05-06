@@ -138,21 +138,43 @@ jobs:
 
       - name: Merge macOS binaries into package
         run: |
-          # Linux base already contains bin/<linux subdirs>/. Layer in the
+          set -euo pipefail
+          shopt -s nullglob
+
+          # Sanity: linux base must have at least one platform subdir.
+          if ! ls sdk/node-pkg/bin/*/ >/dev/null 2>&1; then
+            echo "ERROR: linux base package has no platform subdirs in bin/"
+            ls -la sdk/node-pkg/bin/ || true
+            exit 1
+          fi
+
+          # Sanity: macOS artifact must have at least one platform subdir.
+          mac_subs=( sdk/node-bin-macos/*/ )
+          if [ ${#mac_subs[@]} -eq 0 ]; then
+            echo "ERROR: macOS artifact has no platform subdirs"
+            ls -la sdk/node-bin-macos/ || true
+            exit 1
+          fi
+
+          # Linux base already contains bin/<linux subdir>/. Layer in the
           # macOS subdirs so the published package is multi-platform.
-          for sub in sdk/node-bin-macos/*/; do
+          for sub in "${mac_subs[@]}"; do
             name=$(basename "$sub")
-            # Skip the .pilot-version file which is at the root, not a subdir.
-            [ "$name" = ".pilot-version" ] && continue
+            target="sdk/node-pkg/bin/$name"
+            if [ -d "$target" ]; then
+              echo "  WARNING: $target already exists in linux base — overwriting"
+              rm -rf "$target"
+            fi
             echo "  merging bin/$name"
-            cp -R "$sub" "sdk/node-pkg/bin/$name"
+            cp -R "$sub" "$target"
           done
+
           echo ""
           echo "Final bin/ layout:"
-          find sdk/node-pkg/bin -maxdepth 2 -type d | sort
+          find sdk/node-pkg/bin -maxdepth 2 | sort
           echo ""
           echo "Files included by npm pack:"
-          cd sdk/node-pkg && npm pack --dry-run 2>&1 | grep -E "\.(js|so|dylib)" | head -30
+          cd sdk/node-pkg && npm pack --dry-run 2>&1 | grep -E "(linux|darwin|\.(so|dylib))" | head -40
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
