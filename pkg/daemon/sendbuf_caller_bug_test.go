@@ -48,6 +48,7 @@ import (
 //   - Surface a non-transient error only if the connection is
 //     actually broken (not Established, peer closed, etc.) OR if a
 //     deadline elapses
+//
 // This keeps net.Conn semantics intact: callers see Write block
 // briefly under back-pressure (just like a real TCP socket whose
 // kernel send buffer is full), then succeed.

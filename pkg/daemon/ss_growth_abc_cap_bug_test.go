@@ -75,9 +75,9 @@ func TestSSGrowthCapsIncrementAt2SMSS(t *testing.T) {
 	// 2*SMSS = 8192.
 	// Bug: cwnd += 12288 (3*MSS) uses raw bytes_acked exceeding RFC limit.
 	const (
-		wantIncrement = 2 * MaxSegmentSize                  // 8192
-		bugIncrement  = 3 * MaxSegmentSize                  // 12288
-		wantCongWin   = initialCongWin + wantIncrement      // 20480
+		wantIncrement = 2 * MaxSegmentSize             // 8192
+		bugIncrement  = 3 * MaxSegmentSize             // 12288
+		wantCongWin   = initialCongWin + wantIncrement // 20480
 	)
 	if c.CongWin != wantCongWin {
 		t.Errorf("SS growth with bytes_acked=3*SMSS: CongWin=%d, want %d "+

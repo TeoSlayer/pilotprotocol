@@ -55,14 +55,14 @@ type deregisterDelta struct {
 // Member set is empty at creation; the creator is added by a separate
 // join delta if applicable.
 type networkCreateDelta struct {
-	NetworkID         uint16 `json:"network_id"`
-	Name              string `json:"name"`
-	JoinRule          string `json:"join_rule"`
-	Token             string `json:"token,omitempty"`
-	AdminToken        string `json:"admin_token,omitempty"`
-	Enterprise        bool   `json:"enterprise,omitempty"`
-	CreatorNodeID     uint32 `json:"creator_node_id,omitempty"`
-	CreatedAt         string `json:"created_at"` // RFC3339
+	NetworkID     uint16 `json:"network_id"`
+	Name          string `json:"name"`
+	JoinRule      string `json:"join_rule"`
+	Token         string `json:"token,omitempty"`
+	AdminToken    string `json:"admin_token,omitempty"`
+	Enterprise    bool   `json:"enterprise,omitempty"`
+	CreatorNodeID uint32 `json:"creator_node_id,omitempty"`
+	CreatedAt     string `json:"created_at"` // RFC3339
 }
 
 // networkDeleteDelta marks a network as removed.

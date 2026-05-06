@@ -62,7 +62,7 @@ func TestFastRecoveryExitDeflatesCongWin(t *testing.T) {
 	// iter-59 gates the deflation on wasInRecovery; without this field the
 	// test setup misrepresents the state and the deflation would not fire.
 	conn.InRecovery = true
-	conn.FastRecovery = true // fast retransmit entered recovery (new episode, not timeout)
+	conn.FastRecovery = true                   // fast retransmit entered recovery (new episode, not timeout)
 	conn.RecoveryPoint = 1000 + MaxSegmentSize // new ACK will reach this and clear it
 	// Put one unacked entry so ProcessAck has something to remove when ack > LastAck
 	conn.Unacked = []*retxEntry{

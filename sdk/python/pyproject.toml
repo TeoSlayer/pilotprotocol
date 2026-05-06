@@ -9,12 +9,13 @@ include-package-data = true
 [tool.setuptools.package-data]
 pilotprotocol = [
     "bin/*",
+    "bin/.pilot-version",
     "py.typed"
 ]
 
 [project]
 name = "pilotprotocol"
-version = "0.1.1"  # Auto-updated by CI workflow
+version = "1.9.1"  # Auto-updated by CI workflow
 description = "Python SDK for Pilot Protocol - the network stack for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -68,7 +69,6 @@ Documentation = "https://pilotprotocol.network/docs/"
 Repository = "https://github.com/TeoSlayer/pilotprotocol"
 "Bug Tracker" = "https://github.com/TeoSlayer/pilotprotocol/issues"
 Changelog = "https://github.com/TeoSlayer/pilotprotocol/blob/main/sdk/python/CHANGELOG.md"
-"Live Dashboard" = "https://polo.pilotprotocol.network"
 
 [project.optional-dependencies]
 dev = [

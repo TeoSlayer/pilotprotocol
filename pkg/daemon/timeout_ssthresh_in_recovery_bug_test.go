@@ -76,9 +76,9 @@ func TestTimeoutDuringFastRecoveryRecomputesSSThresh(t *testing.T) {
 	conn.RetxStop = make(chan struct{})
 
 	const (
-		seqA                    = uint32(1000)
-		fastRecoverySSThresh    = 5 * MaxSegmentSize // 20480 — from a larger flightSize
-		fastRecoveryCongWin     = fastRecoverySSThresh + 3*MaxSegmentSize
+		seqA                 = uint32(1000)
+		fastRecoverySSThresh = 5 * MaxSegmentSize // 20480 — from a larger flightSize
+		fastRecoveryCongWin  = fastRecoverySSThresh + 3*MaxSegmentSize
 	)
 
 	conn.Mu.Lock()

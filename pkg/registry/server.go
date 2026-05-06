@@ -286,10 +286,10 @@ func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs .
 const numNodeShards = 256
 
 type Server struct {
-	mu           sync.RWMutex
-	nodeShards   [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
-	nodes        map[uint32]*NodeInfo
-	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
+	mu                sync.RWMutex
+	nodeShards        [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
+	nodes             map[uint32]*NodeInfo
+	maxNodes          int // max registered nodes (0 = unlimited); prevents memory exhaustion
 	startTime         time.Time
 	restartEvents     []int64    // unix-millis of each process start after the first
 	downtimeIntervals [][2]int64 // [start,end] unix-millis pairs, pruned to last 30d
@@ -309,14 +309,14 @@ type Server struct {
 	pulseIdx     int
 	pulseFilled  bool
 
-	networks map[uint16]*NetworkInfo
-	pubKeyIdx    map[string]uint32 // base64(pubkey) -> nodeID for re-registration
-	ownerIdx     map[string]uint32 // owner -> nodeID for key rotation
-	hostnameIdx  map[string]uint32 // hostname -> nodeID (unique index)
-	nextNode     uint32
-	nextNet      uint16
-	listener     net.Listener
-	readyCh      chan struct{}
+	networks    map[uint16]*NetworkInfo
+	pubKeyIdx   map[string]uint32 // base64(pubkey) -> nodeID for re-registration
+	ownerIdx    map[string]uint32 // owner -> nodeID for key rotation
+	hostnameIdx map[string]uint32 // hostname -> nodeID (unique index)
+	nextNode    uint32
+	nextNet     uint16
+	listener    net.Listener
+	readyCh     chan struct{}
 
 	// Beacon coordination
 	beaconAddr string
@@ -356,15 +356,14 @@ type Server struct {
 	// Network invite inbox: target nodeID -> pending invites
 	inviteInbox map[uint32][]*NetworkInvite
 
-
 	// Connection tracking
 	connCount      atomic.Int64
 	maxConnections int64
 
 	// Replication
-	replMgr    *replicationManager
-	replToken  string // H4 fix: required for subscribe_replication; empty = replication disabled
-	standby    bool   // if true, reject writes and receive snapshots from primary
+	replMgr           *replicationManager
+	replToken         string // H4 fix: required for subscribe_replication; empty = replication disabled
+	standby           bool   // if true, reject writes and receive snapshots from primary
 	adminToken        string // required for create_network; empty = creation disabled
 	dashboardToken    string // token for per-network stats on dashboard; empty = public-only
 	maintenanceBanner string // optional notice rendered on the dashboard alongside release banner
@@ -447,8 +446,8 @@ type Server struct {
 	// listings ("data-exchange" 45k members, "high-trust-society" 28k) all
 	// route through the same singleflight + 1s-TTL cache. Each network
 	// (and the admin path, key=0) has its own state inside listNodesPerNet.
-	listNodesCache    listNodesCacheState            // legacy backbone admin cache
-	listNodesPerNetMu sync.Mutex                     // guards the map itself
+	listNodesCache    listNodesCacheState // legacy backbone admin cache
+	listNodesPerNetMu sync.Mutex          // guards the map itself
 	listNodesPerNet   map[uint16]*listNodesCacheState
 }
 
@@ -1752,8 +1751,6 @@ func (s *Server) handleBinaryLookup(conn net.Conn, payload []byte, host string) 
 		s.metrics.requestDuration.WithLabel("lookup").Observe(time.Since(start).Seconds())
 	}()
 
-
-
 	// Brief global lock for map lookup
 	s.mu.RLock()
 	node, ok := s.nodes[nodeID]
@@ -1801,8 +1798,6 @@ func (s *Server) handleBinaryResolve(conn net.Conn, payload []byte, host string)
 	defer func() {
 		s.metrics.requestDuration.WithLabel("resolve").Observe(time.Since(start).Seconds())
 	}()
-
-
 
 	// Phase 1: copy pubkey for verification
 	s.mu.RLock()
@@ -2279,9 +2274,11 @@ func (s *Server) handleRegister(msg map[string]interface{}, remoteAddr string) (
 //
 // 3-PHASE LOCK PATTERN — see [[X-Tasks/backlog/30-mutex-risk-map]] § fix #5
 // and the lock-ordering invariants doc at the top of this file.
-//   Phase 1 (RLock): snapshot the current pubkey for verification.
-//   Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
-//   Phase 3 (Lock):   re-check the pubkey is unchanged; commit the swap.
+//
+//	Phase 1 (RLock): snapshot the current pubkey for verification.
+//	Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
+//	Phase 3 (Lock):   re-check the pubkey is unchanged; commit the swap.
+//
 // If a concurrent rotation lands between Phase 1 and Phase 3 the verify is
 // stale; we reject this caller and let it retry. Rotate is rare, so the
 // retry surface is acceptable.
@@ -2376,10 +2373,11 @@ func (s *Server) handleRotateKey(msg map[string]interface{}) (map[string]interfa
 // Only the node itself can set its own key expiry (signature-verified).
 //
 // 3-PHASE LOCK PATTERN — see [[X-Tasks/backlog/30-mutex-risk-map]] § fix #6.
-//   Phase 1 (RLock): snapshot pubkey + adminToken for verification.
-//   Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
-//   Phase 3 (Lock):   re-check node + pubkey unchanged + enterprise gate;
-//                     commit the new expiry.
+//
+//	Phase 1 (RLock): snapshot pubkey + adminToken for verification.
+//	Phase 2 (no lock): ~28µs Ed25519 verify runs OUTSIDE the lock.
+//	Phase 3 (Lock):   re-check node + pubkey unchanged + enterprise gate;
+//	                  commit the new expiry.
 func (s *Server) handleSetKeyExpiry(msg map[string]interface{}) (map[string]interface{}, error) {
 	nodeID := jsonUint32(msg, "node_id")
 
@@ -6107,12 +6105,13 @@ const adminListNodesTTL = 1 * time.Second
 // json.Marshal entirely on cache hits.
 //
 // Why pre-build the wrapper:
-//   The previous implementation returned just the inner nodes array as
-//   json.RawMessage and let json.Marshal wrap it. Even though the bytes
-//   were already valid JSON, the encoder called appendCompact() on every
-//   call to re-validate them byte-by-byte — burning ~65% of total CPU at
-//   ~320 calls/sec on a 16 MB payload (measured 2026-04-29 profile).
-//   Pre-wrapping eliminates the encoder pass entirely.
+//
+//	The previous implementation returned just the inner nodes array as
+//	json.RawMessage and let json.Marshal wrap it. Even though the bytes
+//	were already valid JSON, the encoder called appendCompact() on every
+//	call to re-validate them byte-by-byte — burning ~65% of total CPU at
+//	~320 calls/sec on a 16 MB payload (measured 2026-04-29 profile).
+//	Pre-wrapping eliminates the encoder pass entirely.
 //
 // Race-clean: cache rebuild runs without any registry lock held. The
 // inner build acquires s.mu.RLock briefly and (via the iteration) per-node
@@ -6290,8 +6289,10 @@ func (s *Server) handleDeregister(msg map[string]interface{}) (map[string]interf
 
 // Pre-built fragments for the heartbeat-ok response. Go's json.Marshal sorts
 // map keys alphabetically, so the wire shape is:
-//   without warning: {"time":<int>,"type":"heartbeat_ok"}
-//   with    warning: {"key_expiry_warning":true,"time":<int>,"type":"heartbeat_ok"}
+//
+//	without warning: {"time":<int>,"type":"heartbeat_ok"}
+//	with    warning: {"key_expiry_warning":true,"time":<int>,"type":"heartbeat_ok"}
+//
 // Pre-building the static prefix/suffix and only sprintf'ing the timestamp
 // saves the ~8% of remaining CPU spent in json.Marshal on the heartbeat
 // response — this is the single most-frequent message in the system.
@@ -6468,8 +6469,8 @@ type snapshot struct {
 	LastHeartbeat     int64                  `json:"last_heartbeat,omitempty"`
 	ProbeStates       map[string]*ProbeState `json:"probe_states,omitempty"`
 	// Time-series history for dashboard charts
-	HourlyHistory    []StatsSample                      `json:"hourly_history,omitempty"`
-	DailyHistory     []StatsSample                      `json:"daily_history,omitempty"`
+	HourlyHistory    []StatsSample                   `json:"hourly_history,omitempty"`
+	DailyHistory     []StatsSample                   `json:"daily_history,omitempty"`
 	NetHourlyHistory map[string][]NetworkSampleEntry `json:"net_hourly_history,omitempty"`
 	NetDailyHistory  map[string][]NetworkSampleEntry `json:"net_daily_history,omitempty"`
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
@@ -7773,19 +7774,19 @@ func (s *Server) SetBeaconStats(b BeaconStatsProvider) {
 }
 
 type DashboardStats struct {
-	TotalNodes      int            `json:"total_nodes"`
-	ActiveNodes     int            `json:"active_nodes"`
-	TotalTrustLinks int            `json:"-"`
-	TotalRequests   int64          `json:"total_requests"`
-	RelayForwarded  uint64         `json:"relay_forwarded,omitempty"`
-	RelayDropped    uint64         `json:"relay_dropped,omitempty"`
-	RelayNotFound   uint64         `json:"relay_not_found,omitempty"`
-	ReqPerDay       int64          `json:"req_per_day"`
-	UptimeSecs      int64          `json:"uptime_secs"`
-	Versions        map[string]int `json:"versions,omitempty"`
-	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
-	Hourly          []StatsSample  `json:"hourly,omitempty"`
-	Daily           []StatsSample  `json:"daily,omitempty"`
+	TotalNodes        int                    `json:"total_nodes"`
+	ActiveNodes       int                    `json:"active_nodes"`
+	TotalTrustLinks   int                    `json:"-"`
+	TotalRequests     int64                  `json:"total_requests"`
+	RelayForwarded    uint64                 `json:"relay_forwarded,omitempty"`
+	RelayDropped      uint64                 `json:"relay_dropped,omitempty"`
+	RelayNotFound     uint64                 `json:"relay_not_found,omitempty"`
+	ReqPerDay         int64                  `json:"req_per_day"`
+	UptimeSecs        int64                  `json:"uptime_secs"`
+	Versions          map[string]int         `json:"versions,omitempty"`
+	Networks          []NetworkStats         `json:"networks,omitempty"` // only populated with dashboard token
+	Hourly            []StatsSample          `json:"hourly,omitempty"`
+	Daily             []StatsSample          `json:"daily,omitempty"`
 	RestartEvents     []int64                `json:"restart_events,omitempty"`
 	DowntimeIntervals [][2]int64             `json:"downtime_intervals,omitempty"`
 	Probes            map[string]*ProbeState `json:"probes,omitempty"`
@@ -7794,12 +7795,12 @@ type DashboardStats struct {
 
 // NetworkStats holds per-network statistics for the authenticated dashboard view.
 type NetworkStats struct {
-	ID         uint16              `json:"id"`
-	Name       string              `json:"name"`
-	Members    int                 `json:"members"`
-	Online     int                 `json:"online"`
-	Requests   int64               `json:"requests"`
-	TrustLinks int                 `json:"-"`
+	ID         uint16               `json:"id"`
+	Name       string               `json:"name"`
+	Members    int                  `json:"members"`
+	Online     int                  `json:"online"`
+	Requests   int64                `json:"requests"`
+	TrustLinks int                  `json:"-"`
 	Hourly     []NetworkSampleEntry `json:"hourly,omitempty"`
 	Daily      []NetworkSampleEntry `json:"daily,omitempty"`
 }
@@ -8130,15 +8131,15 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	s.probeMu.Unlock()
 
 	return DashboardStats{
-		TotalNodes:      int(s.nextNode - 1),
-		ActiveNodes:     activeCount,
-		TotalTrustLinks: len(s.trustPairs),
-		TotalRequests:   s.requestCount.Load(),
-		ReqPerDay:       reqPerDay,
-		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
-		Versions:        versions,
-		Networks:        networks,
-		Hourly:          hourly,
+		TotalNodes:        int(s.nextNode - 1),
+		ActiveNodes:       activeCount,
+		TotalTrustLinks:   len(s.trustPairs),
+		TotalRequests:     s.requestCount.Load(),
+		ReqPerDay:         reqPerDay,
+		UptimeSecs:        int64(now.Sub(s.startTime).Seconds()),
+		Versions:          versions,
+		Networks:          networks,
+		Hourly:            hourly,
 		Daily:             daily,
 		RestartEvents:     restartEvents,
 		DowntimeIntervals: downtimeIntervals,

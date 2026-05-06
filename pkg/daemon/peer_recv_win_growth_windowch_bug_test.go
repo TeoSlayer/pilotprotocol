@@ -93,8 +93,8 @@ func TestPeerRecvWinGrowthSignalsWindowCh(t *testing.T) {
 		SrcPort:  remotePort,
 		DstPort:  localPort,
 		Seq:      200,
-		Ack:      500,                  // == conn.LastAck → dup-ACK (no new data acked)
-		Window:   2,                    // 2 segments → PeerRecvWin = 2*MSS
+		Ack:      500, // == conn.LastAck → dup-ACK (no new data acked)
+		Window:   2,   // 2 segments → PeerRecvWin = 2*MSS
 	}
 
 	d.handleStreamPacket(windowUpdate)

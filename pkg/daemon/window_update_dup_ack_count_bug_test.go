@@ -118,7 +118,7 @@ func TestWindowUpdateDoesNotIncrementDupAckCount(t *testing.T) {
 			SrcPort:  remotePort,
 			DstPort:  localPort,
 			Seq:      uint32(100 + i),
-			Ack:      500,    // == conn.LastAck → same cumulative ACK
+			Ack:      500,     // == conn.LastAck → same cumulative ACK
 			Window:   winSegs, // grows: 2, 3, 4 segments
 		}
 		d.handleStreamPacket(pkt)

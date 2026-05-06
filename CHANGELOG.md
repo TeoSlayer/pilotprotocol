@@ -7,7 +7,31 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes for tagged versions are published on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
-## [Unreleased]
+## [1.9.2] - 2026-05-05
+
+### Changed
+- **SDK: updated sdk clients and cgo bindings to the latest version**
+  
+- **SDK: removed polo-score surface from Node and Python bindings.**
+  Dropped `PilotMyPolo` from the CGO export layer (`sdk/cgo/bindings.go`)
+  and the corresponding `Driver.myPoloScore()` / `Driver.my_polo_score()`
+  wrappers, fake-lib hooks, and tests in both SDKs. The driver-level
+  `MyPoloScore()` and the underlying registry/daemon machinery are
+  untouched — this only narrows what the language SDKs expose. Removed
+  the now-stale `polo.pilotprotocol.network` "Live Dashboard" project
+  URL from `sdk/python/pyproject.toml` and a stray polo mention from
+  the Python SDK README.
+
+### Fixed
+
+- **SDK: macOS binaries shipped via npm/pip codesign parity.**
+  `sdk/{node,python}/scripts/build-binaries.sh` now mirror the main
+  release workflow — after building `pilot-daemon`, `pilotctl`,
+  `pilot-gateway`, `pilot-updater`, and `libpilot.dylib` on darwin,
+  each artifact is codesigned (`codesign --force --deep --sign -`)
+  and stripped of the quarantine xattr. Without this, npm/pip-installed
+  binaries triggered Gatekeeper "killed: 9" / "cannot be opened
+  because Apple cannot check it for malicious software" on first run.
 
 ## [1.9.1] - 2026-05-05
 

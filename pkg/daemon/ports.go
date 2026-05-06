@@ -191,8 +191,8 @@ type Connection struct {
 	// stale `SendSeq-1` that has drifted forward once data flowed.
 	SynAckSeq    uint32
 	SynAckSeqSet bool
-	SendBuf chan []byte
-	RecvBuf chan []byte
+	SendBuf      chan []byte
+	RecvBuf      chan []byte
 	// Sliding window + retransmission (send side)
 	RetxMu        sync.Mutex
 	Unacked       []*retxEntry           // ordered by seq
@@ -1111,10 +1111,11 @@ func seqAfterOrEqual(a, b uint32) bool {
 // ACK number (next expected seq).
 //
 // Three-phase design to avoid both deadlock and sequence leaks:
-//   Phase 1: Collect segments to deliver under RecvMu (don't advance ExpectedSeq).
-//   Phase 2: Deliver outside lock (prevents routeLoop deadlock, C1 fix).
-//   Phase 3: Re-acquire lock, advance ExpectedSeq only for delivered segments,
-//            re-buffer undelivered OOO segments.
+//
+//	Phase 1: Collect segments to deliver under RecvMu (don't advance ExpectedSeq).
+//	Phase 2: Deliver outside lock (prevents routeLoop deadlock, C1 fix).
+//	Phase 3: Re-acquire lock, advance ExpectedSeq only for delivered segments,
+//	         re-buffer undelivered OOO segments.
 //
 // Safe because routeLoop is single-goroutine — no concurrent DeliverInOrder
 // calls for the same connection between Phase 2 and Phase 3.

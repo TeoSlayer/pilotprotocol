@@ -70,8 +70,8 @@ func TestSACKCumulativeAckDoesNotInflateBytesAcked(t *testing.T) {
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
 	// In slow start: CongWin < SSThresh so every new ACK grows CongWin by bytesAcked.
-	conn.CongWin = InitialCongWin                // 10*MSS = 40960
-	conn.SSThresh = 40 * MaxSegmentSize          // 163840 — well above CongWin
+	conn.CongWin = InitialCongWin       // 10*MSS = 40960
+	conn.SSThresh = 40 * MaxSegmentSize // 163840 — well above CongWin
 	conn.InRecovery = false
 	conn.DupAckCount = 0
 	conn.Unacked = []*retxEntry{

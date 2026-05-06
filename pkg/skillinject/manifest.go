@@ -67,7 +67,7 @@ type ManifestTool struct {
 // fetcher is a small wrapper around http.Client that returns response
 // bodies. Pulled out so tests can inject a fake.
 type fetcher struct {
-	httpClient *http.Client
+	httpClient  *http.Client
 	manifestURL string
 	repoBase    string
 }

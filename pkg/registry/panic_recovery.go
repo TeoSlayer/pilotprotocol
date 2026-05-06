@@ -23,14 +23,14 @@ func RecoveredPanicCount() uint64 {
 // recoverHandler is the standard panic-recovery shim used at the top of
 // every connection-handling goroutine and every background loop. Usage:
 //
-//   defer recoverHandler("handleConn", nil)
+//	defer recoverHandler("handleConn", nil)
 //
 // On panic it:
-//   1. Recovers (process keeps running)
-//   2. Logs at ERROR with the panic value + full goroutine stack trace
-//   3. Increments the global recoveredPanicCount metric
-//   4. Calls onPanic(count) if non-nil — callers can use this to drop
-//      a connection / restart a loop / etc.
+//  1. Recovers (process keeps running)
+//  2. Logs at ERROR with the panic value + full goroutine stack trace
+//  3. Increments the global recoveredPanicCount metric
+//  4. Calls onPanic(count) if non-nil — callers can use this to drop
+//     a connection / restart a loop / etc.
 //
 // recoverHandler must be the OUTERMOST defer in the goroutine: defers
 // run LIFO, so other defers (conn.Close, mu.Unlock) run first; we want

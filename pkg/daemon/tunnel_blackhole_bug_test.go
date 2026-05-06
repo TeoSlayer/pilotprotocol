@@ -40,13 +40,13 @@ import (
 //   - 50 MB direct transfer iter 3: 4.27 MB/s
 //
 // What v1.9.x's tunnel-stability fix should change. Any of:
-//   1. Skip the flip if conn-level retransmit budget hasn't been
-//      exhausted (direct path is actively being used; absence of recv
-//      ACK means the peer is slow, not unreachable).
-//   2. Require N consecutive 8 s gaps WITH active sends in between
-//      (transient pause shouldn't latch the relay flag).
-//   3. Raise the threshold (30 s+) under normal load and only drop
-//      it when the application explicitly requests fast-failover.
+//  1. Skip the flip if conn-level retransmit budget hasn't been
+//     exhausted (direct path is actively being used; absence of recv
+//     ACK means the peer is slow, not unreachable).
+//  2. Require N consecutive 8 s gaps WITH active sends in between
+//     (transient pause shouldn't latch the relay flag).
+//  3. Raise the threshold (30 s+) under normal load and only drop
+//     it when the application explicitly requests fast-failover.
 //
 // This test pins the CURRENT behavior so the fix has a concrete
 // regression target. After the fix, the assertion below flips:

@@ -711,7 +711,6 @@ func TestHandlersAreRobustAgainstEmptyData(_ *testing.T) {
 // Ensure compile-time coverage of stdlib imports unused in some builds
 var _ = fmt.Errorf
 
-
 // setupAuthKeyExchangeTest builds the common scaffolding: a tunnel
 // manager with encryption enabled, a peer Ed25519 identity registered,
 // and a valid signed auth key_exchange frame ready to feed into

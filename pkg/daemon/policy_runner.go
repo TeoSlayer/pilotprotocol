@@ -25,8 +25,8 @@ type PolicyRunner struct {
 	compiled *policy.CompiledPolicy
 	daemon   *Daemon
 
-	mu       sync.RWMutex
-	peers    map[uint32]*managedPeer // reuse managedPeer from managed.go
+	mu    sync.RWMutex
+	peers map[uint32]*managedPeer // reuse managedPeer from managed.go
 	// Peers that local evict / deny decisions removed from pr.peers.
 	// Reconciler's applyMembershipDiff refuses to re-add entries during
 	// the cooldown window — otherwise the next reconcile tick (5s)
@@ -54,9 +54,9 @@ type PolicyRunner struct {
 	// of latency to ANY other call (resolve_hostname, lookup, etc) that
 	// shares regConn. Track consecutive failures and skip ticks until
 	// the next backoff deadline.
-	fetchFailMu       sync.Mutex
-	fetchFailures     int       // consecutive failure count
-	fetchSkipUntil    time.Time // skip ticks before this time
+	fetchFailMu    sync.Mutex
+	fetchFailures  int       // consecutive failure count
+	fetchSkipUntil time.Time // skip ticks before this time
 }
 
 // policySnapshot is the JSON format persisted to disk.

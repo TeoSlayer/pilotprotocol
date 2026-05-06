@@ -38,13 +38,14 @@ import (
 // the congestion-window-full state.
 //
 // Concrete example (8 segments in flight, MaxSegmentSize = 4096 bytes):
-//   initial:    CongWin = 8*MSS = 32768, BytesInFlight = 32768
-//   3rd dup-ACK (fast retransmit):
-//               SSThresh = 16384, CongWin = 16384+3*4096 = 28672
-//               WindowAvailable = (32768 < 28672) = false
-//   4th dup-ACK: CongWin = 32768. WindowAvailable = (32768 < 32768) = false
-//   5th dup-ACK: CongWin = 36864. WindowAvailable = (32768 < 36864) = true
-//               → window opened but WindowCh NOT signaled (bug)
+//
+//	initial:    CongWin = 8*MSS = 32768, BytesInFlight = 32768
+//	3rd dup-ACK (fast retransmit):
+//	            SSThresh = 16384, CongWin = 16384+3*4096 = 28672
+//	            WindowAvailable = (32768 < 28672) = false
+//	4th dup-ACK: CongWin = 32768. WindowAvailable = (32768 < 32768) = false
+//	5th dup-ACK: CongWin = 36864. WindowAvailable = (32768 < 36864) = true
+//	            → window opened but WindowCh NOT signaled (bug)
 //
 // GREEN assertion: after the 5th dup-ACK, WindowCh has a token because the
 // window became available.  Against unpatched code WindowCh is empty and a
@@ -59,8 +60,8 @@ func TestFastRecoveryExtraACKInflationSignalsWindowCh(t *testing.T) {
 	// 8 in-flight segments, window exactly full.
 	conn.RetxMu.Lock()
 	conn.LastAck = 1000
-	conn.CongWin = numSegs * MaxSegmentSize  // 32768
-	conn.SSThresh = conn.CongWin             // high enough to be in AIMD territory
+	conn.CongWin = numSegs * MaxSegmentSize // 32768
+	conn.SSThresh = conn.CongWin            // high enough to be in AIMD territory
 	for i := 0; i < numSegs; i++ {
 		conn.Unacked = append(conn.Unacked, &retxEntry{
 			seq:      uint32(1000 + i*MaxSegmentSize),

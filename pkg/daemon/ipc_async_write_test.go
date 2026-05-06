@@ -129,7 +129,7 @@ func TestIPCConnAsyncWriteBackpressure(t *testing.T) {
 	// Write since nothing reads. So we expect roughly buffer+1 to succeed
 	// before backpressure.
 	var (
-		successes  atomic.Int64
+		successes   atomic.Int64
 		gotPressure atomic.Bool
 	)
 	deadline := time.After(3 * time.Second)

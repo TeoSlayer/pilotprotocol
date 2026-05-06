@@ -32,7 +32,7 @@ import (
 
 const benchTransferBytes = 4 * 1024 * 1024 // 4 MB
 
-func BenchmarkThroughputNoLoss(b *testing.B)   { runThroughputBench(b, 0.000) }
+func BenchmarkThroughputNoLoss(b *testing.B)    { runThroughputBench(b, 0.000) }
 func BenchmarkThroughput01PctLoss(b *testing.B) { runThroughputBench(b, 0.001) }
 func BenchmarkThroughput1PctLoss(b *testing.B)  { runThroughputBench(b, 0.010) }
 func BenchmarkThroughput5PctLoss(b *testing.B)  { runThroughputBench(b, 0.050) }
@@ -68,10 +68,10 @@ func TestThroughputReport(t *testing.T) {
 	}
 
 	type result struct {
-		name     string
-		rate     float64
-		elapsed  time.Duration
-		mbps     float64
+		name        string
+		rate        float64
+		elapsed     time.Duration
+		mbps        float64
 		retransmits int
 	}
 
@@ -240,7 +240,7 @@ func simulateTransferFull(lossRate float64, totalBytes int, seed int64) int {
 
 	// Re-initialize Unacked so TrackSend uses our sim time epoch.
 	// TrackSend sets sentAt=time.Now() internally; we overwrite after each call.
-	sendIdx := 0       // next segment index to send
+	sendIdx := 0 // next segment index to send
 	noProgressRounds := 0
 	maxIterations := totalSegs * 200 // safety bound; sim converges fast
 

@@ -25,8 +25,8 @@ var changelogFeedURL = "https://teoslayer.github.io/pilot-changelog/feed.xml"
 // for the human-readable + JSON output are decoded; unknown elements are
 // ignored by encoding/xml.
 type rssDoc struct {
-	XMLName xml.Name  `xml:"rss"`
-	Channel rssChan   `xml:"channel"`
+	XMLName xml.Name `xml:"rss"`
+	Channel rssChan  `xml:"channel"`
 }
 
 type rssChan struct {

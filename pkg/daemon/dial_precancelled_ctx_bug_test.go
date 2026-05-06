@@ -24,11 +24,11 @@ import (
 // request, or an upstream timeout fired during request queueing),
 // the daemon still:
 //
-//   1. Calls ensureTunnel (potentially up to 30 s blocked on a
-//      slow registry — see iter 13 audit notes)
-//   2. Allocates an ephemeral port
-//   3. Creates a Connection in StateSynSent
-//   4. Sends a SYN over the tunnel to the peer
+//  1. Calls ensureTunnel (potentially up to 30 s blocked on a
+//     slow registry — see iter 13 audit notes)
+//  2. Allocates an ephemeral port
+//  3. Creates a Connection in StateSynSent
+//  4. Sends a SYN over the tunnel to the peer
 //
 // Only AFTER all of that does the for-loop's ctx.Done case fire.
 // The peer received a phantom SYN they'll respond to (SYN-ACK)

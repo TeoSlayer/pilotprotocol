@@ -1281,12 +1281,12 @@ func cmdContext() {
 				"enable-tasks":   map[string]interface{}{"args": []string{}, "description": "Advertise task-execution capability on port 1003"},
 				"disable-tasks":  map[string]interface{}{"args": []string{}, "description": "Stop advertising task-execution capability"},
 				// Low-level / plumbing
-				"connect":    map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
-				"send":       map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
-				"recv":       map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Accept and print incoming stream messages"},
-				"dgram":      map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a UDP-style datagram"},
-				"listen":     map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Listen for incoming datagrams"},
-				"broadcast":  map[string]interface{}{"args": []string{"<network_id>", "<message>"}, "description": "Broadcast a datagram to all network members"},
+				"connect":   map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
+				"send":      map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
+				"recv":      map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Accept and print incoming stream messages"},
+				"dgram":     map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a UDP-style datagram"},
+				"listen":    map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Listen for incoming datagrams"},
+				"broadcast": map[string]interface{}{"args": []string{"<network_id>", "<message>"}, "description": "Broadcast a datagram to all network members"},
 				// Connection management
 				"connections": map[string]interface{}{"args": []string{}, "description": "List active daemon connections"},
 				"disconnect":  map[string]interface{}{"args": []string{"<conn_id>"}, "description": "Close a connection by ID"},

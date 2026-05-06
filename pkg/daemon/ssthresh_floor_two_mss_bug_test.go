@@ -69,9 +69,9 @@ func TestFastRetransmitSSThreshFloorTwoSMSS(t *testing.T) {
 	conn.RetxStop = make(chan struct{})
 
 	const (
-		lastAck      = uint32(1000)
-		initialCongWin = 2 * MaxSegmentSize // 8192 — floor scenario
-		highSSThresh = 40 * MaxSegmentSize  // >> CongWin, not the binding constraint
+		lastAck        = uint32(1000)
+		initialCongWin = 2 * MaxSegmentSize  // 8192 — floor scenario
+		highSSThresh   = 40 * MaxSegmentSize // >> CongWin, not the binding constraint
 	)
 
 	conn.Mu.Lock()

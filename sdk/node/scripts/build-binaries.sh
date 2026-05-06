@@ -6,6 +6,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../../.."  # Go to repo root
 
+# Read SDK version (from package.json) so the seeder marker matches it.
+SDK_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('sdk/node/package.json','utf8')).version)")
+
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -62,6 +65,27 @@ CGO_ENABLED=1 GOOS="$OS" GOARCH="$ARCH" go build -buildmode=c-shared -ldflags="-
 cd ../..
 echo "   ✓ Built: $OUTPUT_DIR/libpilot.$EXT"
 echo ""
+
+# 6. Write .pilot-version marker so the runtime seeder can compare against
+#    whatever's already installed at ~/.pilot/bin/.
+echo "$SDK_VERSION" > "$OUTPUT_DIR/.pilot-version"
+echo "6. Wrote $OUTPUT_DIR/.pilot-version → $SDK_VERSION"
+echo ""
+
+# 7. macOS ad-hoc codesign + strip quarantine. Mirrors the main release
+#    workflow so SDK-shipped binaries don't trigger Gatekeeper "killed: 9"
+#    or "cannot be opened because Apple cannot check it for malicious
+#    software" when downloaded via npm.
+if [ "$OS" = "darwin" ]; then
+    echo "7. macOS ad-hoc codesign + strip quarantine..."
+    for bin in "$OUTPUT_DIR/pilot-daemon" "$OUTPUT_DIR/pilotctl" "$OUTPUT_DIR/pilot-gateway" "$OUTPUT_DIR/pilot-updater" "$OUTPUT_DIR/libpilot.$EXT"; do
+        codesign --force --deep --sign - "$bin"
+        xattr -cr "$bin" || true
+        codesign -dv "$bin" 2>&1 | grep -E "Signature|Authority|TeamIdentifier" | head -1 || true
+    done
+    echo "   ✓ codesigned ${OS} binaries"
+    echo ""
+fi
 
 # Show sizes
 echo "================================================================"

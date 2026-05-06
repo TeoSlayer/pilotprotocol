@@ -101,8 +101,24 @@ def _find_library() -> str:
 
 
 def _load_lib() -> ctypes.CDLL:  # pragma: no cover
-    path = _find_library()
-    return ctypes.CDLL(path)
+    """Load libpilot.
+
+    Order:
+    1. ``PILOT_LIB_PATH`` (explicit override) — bypasses the seeder.
+    2. The seeded library at ``~/.pilot/bin/`` (canonical runtime).
+    3. Legacy fallback via :func:`_find_library` (system search etc.).
+    """
+    env = os.environ.get("PILOT_LIB_PATH")
+    if env:
+        return ctypes.CDLL(_find_library())
+
+    try:
+        from ._runtime import runtime_library
+        return ctypes.CDLL(str(runtime_library()))
+    except Exception:
+        # Seeder failed (read-only home, etc.) — fall back to legacy lookup
+        # so the SDK still loads from the wheel-bundled location.
+        return ctypes.CDLL(_find_library())
 
 
 _lib: Optional[ctypes.CDLL] = None
@@ -168,8 +184,10 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
 
     # JSON-RPC (single *C.char return → c_void_p)
     for name in (
-        "PilotInfo", "PilotPendingHandshakes", "PilotTrustedPeers",
+        "PilotInfo", "PilotHealth", "PilotRotateKey",
+        "PilotPendingHandshakes", "PilotTrustedPeers",
         "PilotDeregister", "PilotRecvFrom",
+        "PilotNetworkList", "PilotNetworkPollInvites",
     ):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64]
@@ -209,6 +227,9 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotDial.argtypes = [ctypes.c_uint64, ctypes.c_char_p]
     lib.PilotDial.restype = _HandleErr
 
+    lib.PilotDialTimeout.argtypes = [ctypes.c_uint64, ctypes.c_char_p, ctypes.c_uint64]
+    lib.PilotDialTimeout.restype = _HandleErr
+
     # Listen: (handle, uint16) -> struct{handle, err}
     lib.PilotListen.argtypes = [ctypes.c_uint64, ctypes.c_uint16]
     lib.PilotListen.restype = _HandleErr
@@ -220,7 +241,7 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotListenerClose.argtypes = [ctypes.c_uint64]
     lib.PilotListenerClose.restype = ctypes.c_void_p
 
-    # Conn Read / Write / Close
+    # Conn Read / Write / Close / SetReadDeadline
     lib.PilotConnRead.argtypes = [ctypes.c_uint64, ctypes.c_int]
     lib.PilotConnRead.restype = _ReadResult
 
@@ -230,9 +251,68 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
     lib.PilotConnClose.argtypes = [ctypes.c_uint64]
     lib.PilotConnClose.restype = ctypes.c_void_p
 
+    lib.PilotConnSetReadDeadline.argtypes = [ctypes.c_uint64, ctypes.c_int64]
+    lib.PilotConnSetReadDeadline.restype = ctypes.c_void_p
+
     # SendTo: (handle, string, void*, int) -> *char
     lib.PilotSendTo.argtypes = [ctypes.c_uint64, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int]
     lib.PilotSendTo.restype = ctypes.c_void_p
+
+    # Broadcast: (handle, uint16 net, uint16 port, void* data, int len, *char token) -> *char
+    lib.PilotBroadcast.argtypes = [
+        ctypes.c_uint64, ctypes.c_uint16, ctypes.c_uint16,
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p,
+    ]
+    lib.PilotBroadcast.restype = ctypes.c_void_p
+
+    # Networks (handle, uint16) -> *char
+    for name in ("PilotNetworkLeave", "PilotNetworkMembers"):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_uint64, ctypes.c_uint16]
+        fn.restype = ctypes.c_void_p
+
+    # PilotNetworkJoin: (handle, uint16, *char token) -> *char
+    lib.PilotNetworkJoin.argtypes = [ctypes.c_uint64, ctypes.c_uint16, ctypes.c_char_p]
+    lib.PilotNetworkJoin.restype = ctypes.c_void_p
+
+    # PilotNetworkInvite: (handle, uint16, uint32) -> *char
+    lib.PilotNetworkInvite.argtypes = [ctypes.c_uint64, ctypes.c_uint16, ctypes.c_uint32]
+    lib.PilotNetworkInvite.restype = ctypes.c_void_p
+
+    # PilotNetworkRespondInvite: (handle, uint16, int) -> *char
+    lib.PilotNetworkRespondInvite.argtypes = [ctypes.c_uint64, ctypes.c_uint16, ctypes.c_int]
+    lib.PilotNetworkRespondInvite.restype = ctypes.c_void_p
+
+    # Managed (handle, uint16) -> *char
+    for name in (
+        "PilotManagedStatus", "PilotManagedRankings",
+        "PilotManagedForceCycle", "PilotManagedReconcile",
+        "PilotPolicyGet",
+    ):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_uint64, ctypes.c_uint16]
+        fn.restype = ctypes.c_void_p
+
+    # PilotManagedScore: (handle, uint16 net, uint32 node, int32 delta, *char topic)
+    lib.PilotManagedScore.argtypes = [
+        ctypes.c_uint64, ctypes.c_uint16, ctypes.c_uint32,
+        ctypes.c_int32, ctypes.c_char_p,
+    ]
+    lib.PilotManagedScore.restype = ctypes.c_void_p
+
+    # PilotPolicySet: (handle, uint16, *char json)
+    lib.PilotPolicySet.argtypes = [ctypes.c_uint64, ctypes.c_uint16, ctypes.c_char_p]
+    lib.PilotPolicySet.restype = ctypes.c_void_p
+
+    # PilotMemberTagsGet: (handle, uint16 net, uint32 node) -> *char
+    lib.PilotMemberTagsGet.argtypes = [ctypes.c_uint64, ctypes.c_uint16, ctypes.c_uint32]
+    lib.PilotMemberTagsGet.restype = ctypes.c_void_p
+
+    # PilotMemberTagsSet: (handle, uint16 net, uint32 node, *char tagsJson) -> *char
+    lib.PilotMemberTagsSet.argtypes = [
+        ctypes.c_uint64, ctypes.c_uint16, ctypes.c_uint32, ctypes.c_char_p,
+    ]
+    lib.PilotMemberTagsSet.restype = ctypes.c_void_p
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +430,23 @@ class Conn:
             obj = json.loads(raw)
             if "error" in obj:
                 raise PilotError(obj["error"])
+
+    def set_read_deadline(self, deadline: Optional[float]) -> None:
+        """Set the read deadline.
+
+        ``deadline`` is a Unix timestamp in seconds (e.g. ``time.time() + 5``)
+        or ``None`` to clear. After the deadline passes, ``read()`` returns
+        a ``PilotError`` with a "deadline exceeded" message.
+        """
+        if self._closed:
+            raise PilotError("connection closed")
+        if deadline is None:
+            nanos = 0
+        else:
+            nanos = int(deadline * 1_000_000_000)
+        lib = _get_lib()
+        ptr = lib.PilotConnSetReadDeadline(self._h, ctypes.c_int64(nanos))
+        _check_err(ptr)
 
     def __enter__(self) -> "Conn":
         return self
@@ -472,6 +569,14 @@ class Driver:
         """Return the daemon's status information."""
         return self._call_json("PilotInfo")
 
+    def health(self) -> dict[str, Any]:
+        """Lightweight health check from the daemon."""
+        return self._call_json("PilotHealth")
+
+    def rotate_key(self) -> dict[str, Any]:
+        """Rotate the daemon's Ed25519 identity at the registry."""
+        return self._call_json("PilotRotateKey")
+
     # -- Handshake / Trust --
 
     def handshake(self, node_id: int, justification: str = "") -> dict[str, Any]:
@@ -540,10 +645,18 @@ class Driver:
 
     # -- Streams --
 
-    def dial(self, addr: str) -> Conn:
-        """Open a stream connection to addr (format: "N:XXXX.YYYY.YYYY:PORT")."""
+    def dial(self, addr: str, timeout: Optional[float] = None) -> Conn:
+        """Open a stream connection to addr (format: "N:XXXX.YYYY.YYYY:PORT").
+
+        If ``timeout`` is given (seconds), the dial is cancelled if the daemon
+        does not respond within that window.
+        """
         lib = _get_lib()
-        res = lib.PilotDial(self._h, addr.encode())
+        if timeout is None:
+            res = lib.PilotDial(self._h, addr.encode())
+        else:
+            ms = max(0, int(timeout * 1000))
+            res = lib.PilotDialTimeout(self._h, addr.encode(), ctypes.c_uint64(ms))
         if res.err:
             raw = ctypes.string_at(res.err)
             lib.FreeString(res.err)
@@ -575,6 +688,152 @@ class Driver:
         Returns dict with keys: src_addr, src_port, dst_port, data.
         """
         return self._call_json("PilotRecvFrom")
+
+    def broadcast(
+        self,
+        network_id: int,
+        port: int,
+        data: bytes,
+        admin_token: str,
+    ) -> None:
+        """Broadcast an unreliable datagram to every member of a network.
+
+        Requires the daemon's admin token; an empty or mismatched token is
+        rejected. Permitted on every network including network 0 (backbone).
+        """
+        lib = _get_lib()
+        buf = ctypes.create_string_buffer(data)
+        ptr = lib.PilotBroadcast(
+            self._h,
+            ctypes.c_uint16(network_id),
+            ctypes.c_uint16(port),
+            buf,
+            ctypes.c_int(len(data)),
+            admin_token.encode(),
+        )
+        _check_err(ptr)
+
+    # -- Networks --
+
+    def network_list(self) -> dict[str, Any]:
+        """List all networks known to the registry."""
+        return self._call_json("PilotNetworkList")
+
+    def network_join(self, network_id: int, token: str = "") -> dict[str, Any]:
+        """Join a network by ID, optionally with a token for token-gated networks."""
+        return self._call_json(
+            "PilotNetworkJoin", ctypes.c_uint16(network_id), token.encode()
+        )
+
+    def network_leave(self, network_id: int) -> dict[str, Any]:
+        """Leave a network by ID."""
+        return self._call_json("PilotNetworkLeave", ctypes.c_uint16(network_id))
+
+    def network_members(self, network_id: int) -> dict[str, Any]:
+        """List all members of a network."""
+        return self._call_json("PilotNetworkMembers", ctypes.c_uint16(network_id))
+
+    def network_invite(self, network_id: int, target_node_id: int) -> dict[str, Any]:
+        """Invite a target node to a network (requires admin token on daemon)."""
+        return self._call_json(
+            "PilotNetworkInvite",
+            ctypes.c_uint16(network_id),
+            ctypes.c_uint32(target_node_id),
+        )
+
+    def network_poll_invites(self) -> dict[str, Any]:
+        """Return pending network invites for this node."""
+        return self._call_json("PilotNetworkPollInvites")
+
+    def network_respond_invite(self, network_id: int, accept: bool) -> dict[str, Any]:
+        """Accept or reject a pending network invite."""
+        return self._call_json(
+            "PilotNetworkRespondInvite",
+            ctypes.c_uint16(network_id),
+            ctypes.c_int(1 if accept else 0),
+        )
+
+    # -- Managed networks --
+
+    def managed_score(
+        self,
+        network_id: int,
+        node_id: int,
+        delta: int,
+        topic: str = "",
+    ) -> dict[str, Any]:
+        """Adjust a peer's score in a managed network."""
+        return self._call_json(
+            "PilotManagedScore",
+            ctypes.c_uint16(network_id),
+            ctypes.c_uint32(node_id),
+            ctypes.c_int32(delta),
+            topic.encode(),
+        )
+
+    def managed_status(self, network_id: int) -> dict[str, Any]:
+        """Return the status of a managed network engine."""
+        return self._call_json("PilotManagedStatus", ctypes.c_uint16(network_id))
+
+    def managed_rankings(self, network_id: int) -> dict[str, Any]:
+        """Return ranked peers in a managed network."""
+        return self._call_json("PilotManagedRankings", ctypes.c_uint16(network_id))
+
+    def managed_force_cycle(self, network_id: int) -> dict[str, Any]:
+        """Force a prune/fill cycle in a managed network."""
+        return self._call_json("PilotManagedForceCycle", ctypes.c_uint16(network_id))
+
+    def managed_reconcile(self, network_id: int) -> dict[str, Any]:
+        """Refresh the managed network's peer set without running a policy cycle."""
+        return self._call_json("PilotManagedReconcile", ctypes.c_uint16(network_id))
+
+    # -- Policy --
+
+    def policy_get(self, network_id: int) -> dict[str, Any]:
+        """Retrieve the active policy for a network."""
+        return self._call_json("PilotPolicyGet", ctypes.c_uint16(network_id))
+
+    def policy_set(self, network_id: int, policy: Any) -> dict[str, Any]:
+        """Apply a policy document to a network.
+
+        ``policy`` may be a dict, a JSON string, or pre-encoded bytes.
+        """
+        if isinstance(policy, (bytes, bytearray)):
+            payload = bytes(policy)
+        elif isinstance(policy, str):
+            payload = policy.encode()
+        else:
+            payload = json.dumps(policy).encode()
+        return self._call_json(
+            "PilotPolicySet", ctypes.c_uint16(network_id), payload
+        )
+
+    # -- Member tags --
+
+    def member_tags_get(self, network_id: int, node_id: int) -> dict[str, Any]:
+        """Retrieve admin-assigned member tags for a node in a network."""
+        return self._call_json(
+            "PilotMemberTagsGet",
+            ctypes.c_uint16(network_id),
+            ctypes.c_uint32(node_id),
+        )
+
+    def member_tags_set(
+        self, network_id: int, node_id: int, tags: list[str]
+    ) -> dict[str, Any]:
+        """Set admin-assigned member tags for a node in a network."""
+        return self._call_json(
+            "PilotMemberTagsSet",
+            ctypes.c_uint16(network_id),
+            ctypes.c_uint32(node_id),
+            json.dumps(tags).encode(),
+        )
+
+    # -- Identity --
+
+    def rotate_identity(self) -> dict[str, Any]:
+        """Alias for :meth:`rotate_key`."""
+        return self.rotate_key()
 
     # -- High-level service methods --
 

@@ -51,7 +51,7 @@ func TestListenerSendAfterUnbindSafe(t *testing.T) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				panicked <- true  // panic → bug present
+				panicked <- true // panic → bug present
 			} else {
 				panicked <- false // clean → fix applied
 			}
