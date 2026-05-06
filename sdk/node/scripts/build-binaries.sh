@@ -31,45 +31,47 @@ echo "Building Pilot Protocol Suite for ${OS}/${ARCH}"
 echo "================================================================"
 echo ""
 
-OUTPUT_DIR="sdk/node/bin"
-mkdir -p "$OUTPUT_DIR"
+BIN_ROOT="sdk/node/bin"
+PLATFORM_DIR="$BIN_ROOT/${OS}-${ARCH}"
+mkdir -p "$PLATFORM_DIR"
 
 # 1. Build daemon
 echo "1. Building pilot-daemon..."
-CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DIR/pilot-daemon" ./cmd/daemon
-echo "   ✓ Built: $OUTPUT_DIR/pilot-daemon"
+CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$PLATFORM_DIR/pilot-daemon" ./cmd/daemon
+echo "   ✓ Built: $PLATFORM_DIR/pilot-daemon"
 echo ""
 
 # 2. Build pilotctl
 echo "2. Building pilotctl..."
-CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DIR/pilotctl" ./cmd/pilotctl
-echo "   ✓ Built: $OUTPUT_DIR/pilotctl"
+CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$PLATFORM_DIR/pilotctl" ./cmd/pilotctl
+echo "   ✓ Built: $PLATFORM_DIR/pilotctl"
 echo ""
 
 # 3. Build gateway
 echo "3. Building pilot-gateway..."
-CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DIR/pilot-gateway" ./cmd/gateway
-echo "   ✓ Built: $OUTPUT_DIR/pilot-gateway"
+CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$PLATFORM_DIR/pilot-gateway" ./cmd/gateway
+echo "   ✓ Built: $PLATFORM_DIR/pilot-gateway"
 echo ""
 
 # 4. Build updater
 echo "4. Building pilot-updater..."
-CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$OUTPUT_DIR/pilot-updater" ./cmd/updater
-echo "   ✓ Built: $OUTPUT_DIR/pilot-updater"
+CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$PLATFORM_DIR/pilot-updater" ./cmd/updater
+echo "   ✓ Built: $PLATFORM_DIR/pilot-updater"
 echo ""
 
 # 5. Build CGO bindings
 echo "5. Building libpilot CGO bindings..."
 cd sdk/cgo
-CGO_ENABLED=1 GOOS="$OS" GOARCH="$ARCH" go build -buildmode=c-shared -ldflags="-s -w" -o "../../$OUTPUT_DIR/libpilot.$EXT" .
+CGO_ENABLED=1 GOOS="$OS" GOARCH="$ARCH" go build -buildmode=c-shared -ldflags="-s -w" -o "../../$PLATFORM_DIR/libpilot.$EXT" .
 cd ../..
-echo "   ✓ Built: $OUTPUT_DIR/libpilot.$EXT"
+echo "   ✓ Built: $PLATFORM_DIR/libpilot.$EXT"
 echo ""
 
-# 6. Write .pilot-version marker so the runtime seeder can compare against
-#    whatever's already installed at ~/.pilot/bin/.
-echo "$SDK_VERSION" > "$OUTPUT_DIR/.pilot-version"
-echo "6. Wrote $OUTPUT_DIR/.pilot-version → $SDK_VERSION"
+# 6. Write .pilot-version marker at the bin/ root (shared across all platform
+#    subdirs). The runtime seeder reads this to compare against whatever's
+#    already installed at ~/.pilot/bin/.
+echo "$SDK_VERSION" > "$BIN_ROOT/.pilot-version"
+echo "6. Wrote $BIN_ROOT/.pilot-version → $SDK_VERSION"
 echo ""
 
 # 7. macOS ad-hoc codesign + strip quarantine. Mirrors the main release
@@ -78,7 +80,7 @@ echo ""
 #    software" when downloaded via npm.
 if [ "$OS" = "darwin" ]; then
     echo "7. macOS ad-hoc codesign + strip quarantine..."
-    for bin in "$OUTPUT_DIR/pilot-daemon" "$OUTPUT_DIR/pilotctl" "$OUTPUT_DIR/pilot-gateway" "$OUTPUT_DIR/pilot-updater" "$OUTPUT_DIR/libpilot.$EXT"; do
+    for bin in "$PLATFORM_DIR/pilot-daemon" "$PLATFORM_DIR/pilotctl" "$PLATFORM_DIR/pilot-gateway" "$PLATFORM_DIR/pilot-updater" "$PLATFORM_DIR/libpilot.$EXT"; do
         codesign --force --deep --sign - "$bin"
         xattr -cr "$bin" || true
         codesign -dv "$bin" 2>&1 | grep -E "Signature|Authority|TeamIdentifier" | head -1 || true
@@ -91,10 +93,10 @@ fi
 echo "================================================================"
 echo "Build Summary:"
 echo "================================================================"
-du -h "$OUTPUT_DIR"/* | awk '{printf "  %-30s %s\n", $2, $1}'
+du -h "$PLATFORM_DIR"/* | awk '{printf "  %-30s %s\n", $2, $1}'
 echo ""
 echo "Total size:"
-du -sh "$OUTPUT_DIR" | awk '{printf "  %s\n", $1}'
+du -sh "$PLATFORM_DIR" | awk '{printf "  %s\n", $1}'
 echo ""
 echo "✓ All binaries built successfully for ${OS}/${ARCH}"
 echo ""

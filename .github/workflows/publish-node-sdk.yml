@@ -3,14 +3,28 @@ name: Publish Node SDK
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without leading v, e.g. 1.9.1)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Treat as prerelease (skip publish; build only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   id-token: write
 
+env:
+  PILOT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  PILOT_PRERELEASE: ${{ inputs.prerelease || github.event.release.prerelease }}
+
 jobs:
   test-sdk:
-    if: "!github.event.release.prerelease"
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,10 +52,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set version from release tag
+      - name: Set version from release tag or workflow input
         shell: bash
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${PILOT_VERSION}"
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> $GITHUB_ENV
           cd sdk/node
@@ -82,25 +96,63 @@ jobs:
           echo "Package contents:"
           npm pack --dry-run
           echo ""
-          echo "Binary sizes:"
+          echo "Built binary subdirs:"
           ls -lh bin/
 
-      - name: Upload package artifact
+      # Upload only the platform-specific binary subdir; the publish job
+      # downloads both and merges them into a single multi-platform npm package.
+      - name: Upload platform binaries
         uses: actions/upload-artifact@v4
         with:
-          name: npm-package-${{ matrix.platform }}
+          name: node-bin-${{ matrix.platform }}
+          path: sdk/node/bin/
+          retention-days: 7
+
+      # Upload the full package layout (JS + bin/ + bin-stubs) once — the
+      # Linux runner's copy is the publish base; macOS just contributes its
+      # bin/ subdir to the merge.
+      - name: Upload full package (Linux base)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-base
           path: sdk/node/
           retention-days: 7
 
   publish:
     needs: build-packages
+    if: ${{ !(inputs.prerelease || github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Download Linux package
+      - name: Download package base (Linux build)
         uses: actions/download-artifact@v4
         with:
-          name: npm-package-linux
-          path: sdk/node-linux
+          name: npm-package-base
+          path: sdk/node-pkg
+
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: node-bin-macos
+          path: sdk/node-bin-macos
+
+      - name: Merge macOS binaries into package
+        run: |
+          # Linux base already contains bin/<linux subdirs>/. Layer in the
+          # macOS subdirs so the published package is multi-platform.
+          for sub in sdk/node-bin-macos/*/; do
+            name=$(basename "$sub")
+            # Skip the .pilot-version file which is at the root, not a subdir.
+            [ "$name" = ".pilot-version" ] && continue
+            echo "  merging bin/$name"
+            cp -R "$sub" "sdk/node-pkg/bin/$name"
+          done
+          echo ""
+          echo "Final bin/ layout:"
+          find sdk/node-pkg/bin -maxdepth 2 -type d | sort
+          echo ""
+          echo "Files included by npm pack:"
+          cd sdk/node-pkg && npm pack --dry-run 2>&1 | grep -E "\.(js|so|dylib)" | head -30
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -111,7 +163,7 @@ jobs:
       - name: Extract version
         id: extract-version
         run: |
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('sdk/node-linux/package.json', 'utf8')).version)")
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('sdk/node-pkg/package.json', 'utf8')).version)")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
@@ -129,7 +181,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.check-npm.outputs.exists == 'false'
-        working-directory: sdk/node-linux
+        working-directory: sdk/node-pkg
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -147,9 +199,11 @@ jobs:
           echo "**Version:** ${{ steps.extract-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Install:** \`npm install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
           echo "**npm:** https://www.npmjs.com/package/pilotprotocol" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms bundled:** linux-amd64, darwin-arm64" >> $GITHUB_STEP_SUMMARY
 
   test-install:
     needs: publish
+    if: ${{ !(inputs.prerelease || github.event.release.prerelease) }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]

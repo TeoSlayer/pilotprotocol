@@ -19,7 +19,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { platform as osPlatform, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Import under test.
@@ -31,38 +31,60 @@ function platformLib(): string {
   return runtime._internals.platformLibName();
 }
 
-function makeFakePkgBin(parentTmp: string, version: string): string {
-  const pkg = join(parentTmp, 'pkg-bin');
-  mkdirSync(pkg, { recursive: true });
+/**
+ * Build a fake bundled bin/ that mirrors the real npm package layout:
+ *
+ *   <root>/
+ *     .pilot-version
+ *     <platform>/
+ *       pilotctl, pilot-daemon, pilot-gateway, pilot-updater, libpilot.{so|dylib}
+ *
+ * Returns { root, platformDir }. Tests set PILOT_PKG_BIN_ROOT to root and
+ * PILOT_PKG_BIN_DIR to platformDir.
+ */
+function makeFakePkg(parentTmp: string, name: string, version: string): {
+  root: string;
+  platformDir: string;
+} {
+  const root = join(parentTmp, name);
+  const platformDir = join(root, runtime._internals.platformDirName());
+  mkdirSync(platformDir, { recursive: true });
   for (const n of BIN_NAMES) {
-    const p = join(pkg, n);
+    const p = join(platformDir, n);
     writeFileSync(p, `#!/bin/sh\necho ${n} ${version}\n`);
     chmodSync(p, 0o755);
   }
-  const lib = join(pkg, platformLib());
+  const lib = join(platformDir, platformLib());
   writeFileSync(lib, `LIB ${version}\n`);
   chmodSync(lib, 0o755);
-  writeFileSync(join(pkg, '.pilot-version'), version + '\n');
-  return pkg;
+  writeFileSync(join(root, '.pilot-version'), version + '\n');
+  return { root, platformDir };
 }
 
 let tmpRoot: string;
 let fakeHome: string;
+let pkgRoot: string;
 let pkgBin: string;
-let restoreEnv: { home: string | undefined; pkg: string | undefined };
+let restoreEnv: {
+  home: string | undefined;
+  pkgRoot: string | undefined;
+  pkgBin: string | undefined;
+};
 
 beforeEach(() => {
   // Use a *short* tmp root so AF_UNIX paths fit in 104 chars on macOS.
   tmpRoot = mkdtempSync(join('/tmp', 'pilot-rt-'));
   fakeHome = join(tmpRoot, 'home', '.pilot');
   mkdirSync(fakeHome, { recursive: true });
-  pkgBin = makeFakePkgBin(tmpRoot, '1.9.1');
+  ({ root: pkgRoot, platformDir: pkgBin } = makeFakePkg(tmpRoot, 'pkg-bin', '1.9.1'));
 
   restoreEnv = {
     home: process.env['PILOT_HOME'],
-    pkg: process.env['PILOT_PKG_BIN_DIR'],
+    pkgRoot: process.env['PILOT_PKG_BIN_ROOT'],
+    pkgBin: process.env['PILOT_PKG_BIN_DIR'],
   };
   process.env['PILOT_HOME'] = fakeHome;
+  process.env['PILOT_PKG_BIN_ROOT'] = pkgRoot;
   process.env['PILOT_PKG_BIN_DIR'] = pkgBin;
 
   runtime._resetSeededMarker();
@@ -72,14 +94,17 @@ afterEach(() => {
   vi.restoreAllMocks();
   if (restoreEnv.home === undefined) delete process.env['PILOT_HOME'];
   else process.env['PILOT_HOME'] = restoreEnv.home;
-  if (restoreEnv.pkg === undefined) delete process.env['PILOT_PKG_BIN_DIR'];
-  else process.env['PILOT_PKG_BIN_DIR'] = restoreEnv.pkg;
+  if (restoreEnv.pkgRoot === undefined) delete process.env['PILOT_PKG_BIN_ROOT'];
+  else process.env['PILOT_PKG_BIN_ROOT'] = restoreEnv.pkgRoot;
+  if (restoreEnv.pkgBin === undefined) delete process.env['PILOT_PKG_BIN_DIR'];
+  else process.env['PILOT_PKG_BIN_DIR'] = restoreEnv.pkgBin;
   rmSync(tmpRoot, { recursive: true, force: true });
   runtime._resetSeededMarker();
 });
 
-function setPkgBin(p: string): void {
-  process.env['PILOT_PKG_BIN_DIR'] = p;
+function usePkg(p: { root: string; platformDir: string }): void {
+  process.env['PILOT_PKG_BIN_ROOT'] = p.root;
+  process.env['PILOT_PKG_BIN_DIR'] = p.platformDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +139,7 @@ describe('seeder state machine', () => {
     runtime._resetSeededMarker();
 
     // Replace the package with an older version.
-    const olderPkg = makeFakePkgBin(join(tmpRoot, 'older'), '1.8.0');
-    setPkgBin(olderPkg);
+    usePkg(makeFakePkg(tmpRoot, 'older', '1.8.0'));
 
     const r = runtime.runSeeder();
     expect(r.action).toBe('noop');
@@ -128,8 +152,7 @@ describe('seeder state machine', () => {
     runtime.runSeeder();
     runtime._resetSeededMarker();
 
-    const newerPkg = makeFakePkgBin(join(tmpRoot, 'newer'), '2.0.0');
-    setPkgBin(newerPkg);
+    usePkg(makeFakePkg(tmpRoot, 'newer', '2.0.0'));
 
     const r = runtime.runSeeder();
     expect(r.action).toBe('upgrade');
@@ -277,16 +300,17 @@ describe('semver compare', () => {
 
 describe('wrong-platform package', () => {
   it('seeder skips missing files cleanly', () => {
-    // Build a pkg without the platform lib.
-    const incomplete = join(tmpRoot, 'incomplete');
-    mkdirSync(incomplete, { recursive: true });
+    // Build a pkg with proper layout but missing the platform lib.
+    const incompleteRoot = join(tmpRoot, 'incomplete');
+    const incompletePlatform = join(incompleteRoot, runtime._internals.platformDirName());
+    mkdirSync(incompletePlatform, { recursive: true });
     for (const n of BIN_NAMES) {
-      const p = join(incomplete, n);
+      const p = join(incompletePlatform, n);
       writeFileSync(p, '#!/bin/sh\n');
       chmodSync(p, 0o755);
     }
-    writeFileSync(join(incomplete, '.pilot-version'), '1.9.1\n');
-    setPkgBin(incomplete);
+    writeFileSync(join(incompleteRoot, '.pilot-version'), '1.9.1\n');
+    usePkg({ root: incompleteRoot, platformDir: incompletePlatform });
 
     const r = runtime.runSeeder();
     expect(r.copied).not.toContain(platformLib());
@@ -294,5 +318,24 @@ describe('wrong-platform package', () => {
     // runtimeLibraryPath should raise a clear error since lib is absent
     // from both runtime dir and package.
     expect(() => runtime.runtimeLibraryPath()).toThrow(/libpilot/);
+  });
+
+  it('seeder is a no-op when the platform subdir is entirely absent', () => {
+    // Simulate an npm package built only for the *other* platform.
+    const otherRoot = join(tmpRoot, 'wrongplatform');
+    const otherPlatform = osPlatform() === 'linux' ? 'darwin-arm64' : 'linux-amd64';
+    const otherDir = join(otherRoot, otherPlatform);
+    mkdirSync(otherDir, { recursive: true });
+    writeFileSync(join(otherDir, 'pilotctl'), '#!/bin/sh\n');
+    writeFileSync(join(otherRoot, '.pilot-version'), '1.9.1\n');
+    // Point at the missing subdir for THIS platform.
+    usePkg({
+      root: otherRoot,
+      platformDir: join(otherRoot, runtime._internals.platformDirName()),
+    });
+
+    // Should not throw — just nothing copied.
+    const r = runtime.runSeeder();
+    expect(r.copied).toEqual([]);
   });
 });

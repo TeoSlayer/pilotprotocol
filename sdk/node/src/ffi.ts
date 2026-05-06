@@ -18,10 +18,15 @@
 
 import koffi from 'koffi';
 import { existsSync } from 'node:fs';
-import { homedir, platform } from 'node:os';
+import { homedir, arch, platform } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runtimeLibraryPath } from './runtime.js';
+
+function platformSubdir(): string {
+  const goArch = arch() === 'x64' ? 'amd64' : arch();
+  return `${platform()}-${goArch}`;
+}
 
 // ---------------------------------------------------------------------------
 // Error class (defined here to avoid circular deps with client.ts)
@@ -69,9 +74,10 @@ export function findLibrary(): string {
   const pilotBin = join(homedir(), '.pilot', 'bin', libName);
   if (existsSync(pilotBin)) return pilotBin;
 
-  // 4. <package>/bin/ (npm package layout: dist/ffi.js → ../bin/).
+  // 4. <package>/bin/<os>-<arch>/ (npm package layout: dist/ffi.js → ../bin/).
   const thisDir = resolve(fileURLToPath(import.meta.url), '..');
-  const pkgBin = resolve(thisDir, '..', 'bin', libName);
+  const sub = platformSubdir();
+  const pkgBin = resolve(thisDir, '..', 'bin', sub, libName);
   if (existsSync(pkgBin)) return pkgBin;
 
   // 5. Same directory as this file.
@@ -87,7 +93,7 @@ export function findLibrary(): string {
     '\n' +
     'Expected locations:\n' +
     `  - ~/.pilot/bin/${libName}\n` +
-    `  - ${pkgBin} (npm package)\n` +
+    `  - ${pkgBin} (npm package, ${sub})\n` +
     `  - ${colocated} (colocated)\n` +
     `  - ${repoBin} (development)\n` +
     '\n' +

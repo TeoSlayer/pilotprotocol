@@ -30,7 +30,7 @@ import {
   accessSync,
   constants as fsConstants,
 } from 'node:fs';
-import { homedir, platform as osPlatform } from 'node:os';
+import { homedir, arch as osArch, platform as osPlatform } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +42,13 @@ const LIB_NAMES: Record<string, string> = {
   win32: 'libpilot.dll',
 };
 
+// node arch ("x64", "arm64") → go arch ("amd64", "arm64") used in bin/<os>-<arch>/
+function platformDirName(): string {
+  const goOS = osPlatform();
+  const goArch = osArch() === 'x64' ? 'amd64' : osArch();
+  return `${goOS}-${goArch}`;
+}
+
 export const DEFAULT_REGISTRY = '34.71.57.205:9000';
 export const DEFAULT_BEACON = '34.71.57.205:9001';
 export const DEFAULT_SOCKET = '/tmp/pilot.sock';
@@ -51,26 +58,37 @@ export const DEFAULT_SOCKET = '/tmp/pilot.sock';
 // ---------------------------------------------------------------------------
 
 /**
- * Where the npm package ships its bundled binaries (the seed cache).
+ * Where the npm package keeps its top-level bin/ directory (containing
+ * platform subdirs and the shared `.pilot-version` marker).
  *
  * dist/runtime.js → ../bin/   (npm package layout)
  * src/runtime.ts → ../../bin/ (development layout, run via tsx)
+ */
+function pkgBinRoot(): string {
+  const override = process.env['PILOT_PKG_BIN_ROOT'];
+  if (override) return override;
+
+  const thisDir = resolve(fileURLToPath(import.meta.url), '..');
+
+  const compiledBin = resolve(thisDir, '..', 'bin');
+  if (existsSync(compiledBin)) return compiledBin;
+
+  const sourceBin = resolve(thisDir, '..', '..', 'bin');
+  return sourceBin;
+}
+
+/**
+ * Where the npm package ships THIS host's bundled binaries (the seed cache):
+ * `bin/<os>-<arch>/`. Each platform subdir holds the four binaries and
+ * `libpilot.{so|dylib}`. May not exist if the package was built for a
+ * different platform — callers must handle missing files.
  */
 function pkgBinDir(): string {
   // Test override: a one-shot way to point at a fake bundled bin/ without
   // resorting to vi.spyOn on a live binding. Honored only when set.
   const override = process.env['PILOT_PKG_BIN_DIR'];
   if (override) return override;
-
-  const thisDir = resolve(fileURLToPath(import.meta.url), '..');
-
-  // Compiled (dist/runtime.js)
-  const compiledBin = resolve(thisDir, '..', 'bin');
-  if (existsSync(compiledBin)) return compiledBin;
-
-  // Source (src/runtime.ts) — sdk/node/bin
-  const sourceBin = resolve(thisDir, '..', '..', 'bin');
-  return sourceBin;
+  return join(pkgBinRoot(), platformDirName());
 }
 
 function runtimeRoot(): string {
@@ -117,7 +135,7 @@ function compareSemver(a: number[] | null, b: number[] | null): number {
 }
 
 function bundledVersion(): string {
-  const f = join(pkgBinDir(), '.pilot-version');
+  const f = join(pkgBinRoot(), '.pilot-version');
   if (existsSync(f)) {
     try {
       return readFileSync(f, 'utf8').trim();
@@ -471,6 +489,8 @@ export async function isDaemonLive(): Promise<boolean> {
 /** For tests: expose the raw paths. */
 export const _internals = {
   pkgBinDir,
+  pkgBinRoot,
+  platformDirName,
   runtimeRoot,
   runtimeBin,
   platformLibName,
