@@ -33,6 +33,15 @@ Detailed per-release notes for tagged versions are published on the
   binaries triggered Gatekeeper "killed: 9" / "cannot be opened
   because Apple cannot check it for malicious software" on first run.
 
+## [1.9.2] - 2026-05-06
+
+### Added
+- **Auto-handshake toward trusted agents.** Dialing a known trusted agent
+  (pilotprotocol.network service fleet) now automatically initiates a
+  handshake in the background if no local trust entry exists. The SYN-retry
+  loop succeeds once the peer approves — no manual `pilotctl handshake`
+  required before `pilotctl ping` or `pilotctl send-message`.
+
 ## [1.9.1] - 2026-05-05
 
 Stable release rolling up rc1–rc5. Headline themes: cold-start latency

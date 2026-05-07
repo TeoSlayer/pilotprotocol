@@ -2439,6 +2439,16 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 		return nil, err
 	}
 
+	// Auto-initiate handshake toward known trusted agents when we have no
+	// local trust entry yet. Scoped to the trusted-agents list so we don't
+	// spray handshakes at arbitrary peers. Fires non-blocking so the
+	// SYN-retry loop succeeds once the peer approves.
+	if !d.handshakes.IsTrusted(dstAddr.Node) {
+		if _, ok := trustedagents.IsTrusted(dstAddr.Node); ok {
+			go d.handshakes.SendRequest(dstAddr.Node, "")
+		}
+	}
+
 	localPort := d.ports.AllocEphemeralPort()
 	if localPort == 0 {
 		return nil, ErrEphemeralExhausted
