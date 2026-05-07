@@ -47,7 +47,7 @@ const bodyContent = `<p>You want to monitor 15 servers. You need CPU, memory, di
 
 INTERVAL=30  <span class="comment"># seconds between metric publications</span>
 HOSTNAME=$(hostname)
-AGGREGATOR_ADDR=${AGGREGATOR_ADDR:-"<aggregator-addr>"}  <span class="comment"># set via env or replace with actual address</span>
+AGGREGATOR_ADDR=\${AGGREGATOR_ADDR:-"&lt;aggregator-addr&gt;"}  <span class="comment"># set via env or replace with actual address</span>
 
 while true; do
   <span class="comment"># CPU usage (1-minute load average, normalized to core count)</span>
