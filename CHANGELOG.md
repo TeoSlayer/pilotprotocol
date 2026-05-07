@@ -33,7 +33,7 @@ Detailed per-release notes for tagged versions are published on the
   binaries triggered Gatekeeper "killed: 9" / "cannot be opened
   because Apple cannot check it for malicious software" on first run.
 
-## [1.9.2] - 2026-05-06
+## [1.9.3] - 2026-05-06
 
 ### Added
 - **Auto-handshake toward trusted agents.** Dialing a known trusted agent
