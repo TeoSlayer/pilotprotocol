@@ -180,6 +180,16 @@ known_transitional:
   - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
     to: github.com/TeoSlayer/pilotprotocol/plugins/policy
     owner: T2.3
+  # plugins/handshake bootstrap tests wrap *daemon.Daemon and
+  # *registry/client.Client for port-444 integration coverage. These are
+  # test-only imports; the production handshake plugin never touches L7/L8.
+  # TODO: extract into tests/regtestutil once test infra supports it.
+  - from: github.com/TeoSlayer/pilotprotocol/plugins/handshake
+    to: github.com/TeoSlayer/pilotprotocol/pkg/daemon
+    owner: T8.1-tests
+  - from: github.com/TeoSlayer/pilotprotocol/plugins/handshake
+    to: github.com/TeoSlayer/pilotprotocol/pkg/registry/client
+    owner: T8.1-tests
 # P3 enforcement (tools/check-globals): cross-layer mutable globals.
 # Each entry below is a known shared global whose ownership has not yet
 # been moved to the layer that should own it. The checker reports them
