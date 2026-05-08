@@ -168,6 +168,17 @@ func TestHandleDialPortDeniedByPolicySendsError(t *testing.T) {
 	assertErrorReply(t, reply, "not allowed")
 }
 
+// assertNoReply verifies that no IPC frame is written within a short window.
+// handleSend and handleSendTo are fire-and-forget: they never write a reply.
+func assertNoReply(t *testing.T, client net.Conn) {
+	t.Helper()
+	_ = client.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	_, err := ipcutil.Read(client)
+	if err == nil {
+		t.Fatal("handler unexpectedly sent a reply")
+	}
+}
+
 // --- handleSend ---
 
 func TestHandleSendShortPayloadSendsError(t *testing.T) {
@@ -175,8 +186,10 @@ func TestHandleSendShortPayloadSendsError(t *testing.T) {
 	d := New(Config{})
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() { s.handleSend(ic, 0, []byte{0x01}) }) // <4 bytes
-	assertErrorReply(t, reply, "send: missing conn_id")
+	done := make(chan struct{})
+	go func() { s.handleSend(ic, 0, []byte{0x01}); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
 
 func TestHandleSendUnknownConnIDSendsError(t *testing.T) {
@@ -184,10 +197,11 @@ func TestHandleSendUnknownConnIDSendsError(t *testing.T) {
 	d := New(Config{})
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
-	// 4-byte conn_id that doesn't exist + some payload.
 	payload := []byte{0x00, 0x00, 0x00, 0x7B, 'a', 'b', 'c'} // conn_id 123
-	reply := runHandler(t, client, func() { s.handleSend(ic, 0, payload) })
-	assertErrorReply(t, reply, "connection 123 not found")
+	done := make(chan struct{})
+	go func() { s.handleSend(ic, 0, payload); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
 
 // --- handleClose ---
@@ -227,8 +241,10 @@ func TestHandleSendToShortPayloadSendsError(t *testing.T) {
 	d := New(Config{})
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() { s.handleSendTo(ic, 0, []byte{0x00}) })
-	assertErrorReply(t, reply, "sendto: missing address/port")
+	done := make(chan struct{})
+	go func() { s.handleSendTo(ic, 0, []byte{0x00}); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
 
 func TestHandleSendToBroadcastOnNetworkZeroSendsError(t *testing.T) {
@@ -244,8 +260,10 @@ func TestHandleSendToBroadcastOnNetworkZeroSendsError(t *testing.T) {
 	binary.BigEndian.PutUint16(payload[protocol.AddrSize:], 80)
 	copy(payload[protocol.AddrSize+2:], "data")
 
-	reply := runHandler(t, client, func() { s.handleSendTo(ic, 0, payload) })
-	assertErrorReply(t, reply, "sendto:")
+	done := make(chan struct{})
+	go func() { s.handleSendTo(ic, 0, payload); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
 
 // --- handleInfo ---

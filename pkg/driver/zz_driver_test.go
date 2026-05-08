@@ -74,9 +74,7 @@ func (d *fakeDaemon) acceptLoop() {
 	d.mu.Unlock()
 	close(d.connSet) // signal that conn is stored and ready to be closed
 
-	// ipcEnvelopeHdr = [cmd(1)][reqID(8)] — matches driver.ipcEnvelopeHeaderSize.
-	const ipcEnvelopeHdr = 9
-
+	// Wire format: [cmd(1)][payload...] — matches driver.ipcEnvelopeHeaderSize.
 	for {
 		frame, err := ipcutil.Read(conn)
 		if err != nil {
@@ -84,29 +82,11 @@ func (d *fakeDaemon) acceptLoop() {
 		}
 		d.mu.Lock()
 		var resp [][]byte
-		if len(frame) >= ipcEnvelopeHdr {
-			// Extract cmd and reqID; pass [cmd][body...] to handlers so
-			// handlers remain unaware of the reqID envelope.
+		if len(frame) >= 1 {
 			cmd := frame[0]
-			reqID := frame[1:ipcEnvelopeHdr] // 8 bytes, used to echo back
-			body := frame[ipcEnvelopeHdr:]
-			stripped := append([]byte{cmd}, body...)
-			// Store stripped frame (no reqID) so test assertions on byte
-			// positions continue to match the logical wire payload.
-			d.received = append(d.received, stripped)
+			d.received = append(d.received, frame)
 			if h, ok := d.handlers[cmd]; ok {
-				resp = h(stripped)
-			}
-			// Prepend reqID to each response so driver.sendAndWait can
-			// match them by reqID (reqID==0 → unsolicited; reqID!=0 → waiter).
-			for i, r := range resp {
-				if len(r) > 0 {
-					withReqID := make([]byte, ipcEnvelopeHdr+len(r)-1)
-					withReqID[0] = r[0] // cmd
-					copy(withReqID[1:ipcEnvelopeHdr], reqID)
-					copy(withReqID[ipcEnvelopeHdr:], r[1:])
-					resp[i] = withReqID
-				}
+				resp = h(frame)
 			}
 		}
 		d.mu.Unlock()
@@ -352,7 +332,7 @@ func TestSendToWritesFrame(t *testing.T) {
 		return d.lastFrame() != nil
 	}, "daemon to receive frame")
 	frame := d.lastFrame()
-	// d.received stores stripped frames: [cmd(1)][body...] (no reqID).
+	// d.received stores frames as-is: [cmd(1)][body...].
 	if frame[0] != cmdSendTo {
 		t.Errorf("cmd = %#x, want %#x", frame[0], cmdSendTo)
 	}
@@ -384,7 +364,7 @@ func TestRecvFromDeliversDatagram(t *testing.T) {
 	copy(payload[protocol.AddrSize+4:], "abc")
 	frame := append([]byte{cmdRecvFrom}, payload...)
 
-	// Use pushFromDaemon so the 8-byte reqID=0 is inserted correctly.
+	// Use pushFromDaemon to write the frame through the daemon-side conn.
 	pushFromDaemon(t, d, frame)
 
 	dg, err := drv.RecvFrom()
@@ -632,6 +612,8 @@ func TestDisconnectSendsCmdClose(t *testing.T) {
 	if err := drv.Disconnect(77); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
+	// Disconnect is fire-and-forget; wait for the daemon to receive the frame.
+	waitFor(t, time.Second, func() bool { return d.lastFrame() != nil }, "daemon to receive cmdClose")
 	frame := d.lastFrame()
 	if frame[0] != cmdClose {
 		t.Errorf("cmd = %#x, want %#x", frame[0], cmdClose)

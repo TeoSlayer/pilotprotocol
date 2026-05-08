@@ -24,7 +24,8 @@ func TestConnWriteChunksLargePayload(t *testing.T) {
 
 	ipc := &ipcClient{
 		conn:      clientSide,
-		pending:   make(map[uint64]chan *pendingResponse),
+		waitSem:   make(chan struct{}, 1),
+		pending:   make(chan *pendingResponse, 16),
 		recvChs:   make(map[uint32]chan []byte),
 		pendRecv:  make(map[uint32][][]byte),
 		acceptChs: make(map[uint16]chan []byte),
@@ -121,7 +122,8 @@ func TestConnWriteSinglePayloadNotSplit(t *testing.T) {
 
 	ipc := &ipcClient{
 		conn:      clientSide,
-		pending:   make(map[uint64]chan *pendingResponse),
+		waitSem:   make(chan struct{}, 1),
+		pending:   make(chan *pendingResponse, 16),
 		recvChs:   make(map[uint32]chan []byte),
 		pendRecv:  make(map[uint32][][]byte),
 		acceptChs: make(map[uint16]chan []byte),
@@ -134,7 +136,7 @@ func TestConnWriteSinglePayloadNotSplit(t *testing.T) {
 
 	payload := []byte("hello world")
 
-	// Wire format (issue #99): [cmd(1)][reqID(8)][connID(4)][data...]
+	// Wire format: [cmd(1)][connID(4)][data...]
 	const sendHdr = ipcEnvelopeHeaderSize + 4
 
 	var got []byte

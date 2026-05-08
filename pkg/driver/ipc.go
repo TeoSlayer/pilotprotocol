@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
@@ -52,9 +51,8 @@ const (
 	cmdManagedOK         byte = 0x24
 	cmdRotateKey         byte = 0x25
 	cmdRotateKeyOK       byte = 0x26
-	cmdBroadcast         byte = 0x29
-	cmdBroadcastOK       byte = 0x2A
-	cmdCancel            byte = 0x2B // issue #99: tell daemon to abandon a timed-out request
+	cmdBroadcast   byte = 0x29
+	cmdBroadcastOK byte = 0x2A
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)
@@ -77,10 +75,8 @@ const (
 	subManagedReconcile  byte = 0x07
 )
 
-// ipcEnvelopeHeaderSize matches daemon.IPCEnvelopeHeaderSize: 1 byte cmd
-// + 8 bytes reqID. Issue #99: reqID demultiplexes responses across
-// concurrent in-flight requests.
-const ipcEnvelopeHeaderSize = 1 + 8
+// ipcEnvelopeHeaderSize matches daemon.IPCEnvelopeHeaderSize: 1 byte cmd.
+const ipcEnvelopeHeaderSize = 1
 
 // Datagram represents a received unreliable datagram.
 type Datagram struct {
@@ -100,23 +96,19 @@ type pendingResponse struct {
 type ipcClient struct {
 	conn net.Conn
 
-	// writeMu serializes ipcutil.Write calls on conn so two goroutines
-	// can't interleave a length-prefixed envelope. Held only across the
-	// 12-byte header + body write — never during a wait or read. Issue
-	// #99: previously the same `mu` covered both the write and the
-	// handlers-map mutation, which serialized all driver goroutines on
-	// a single conn. The split lets handlers register concurrently.
+	// writeMu serializes frame writes so concurrent goroutines don't
+	// interleave bytes on the wire. Held only for the write itself.
 	writeMu sync.Mutex
 
-	// reqMu protects pending. Held briefly for register/dispatch.
-	reqMu   sync.Mutex
-	pending map[uint64]chan *pendingResponse // reqID → waiter
+	// waitSem is a channel-based semaphore (capacity 1) that ensures at
+	// most one request/reply pair is in-flight at a time. Using a channel
+	// instead of sync.Mutex lets goroutines waiting for the semaphore be
+	// woken on doneCh close, preventing a deadlock when the daemon closes
+	// while many goroutines are queued behind a slow sendAndWait.
+	waitSem chan struct{}          // capacity 1
+	pending chan *pendingResponse // capacity 16; buffers reply frames from readLoop
 
-	// nextReqID is bumped atomically. We start at 1 so reqID==0 cleanly
-	// means "server-pushed unsolicited frame" on the wire.
-	nextReqID atomic.Uint64
-
-	recvMu   sync.Mutex
+	recvMu sync.Mutex
 	recvChs  map[uint32]chan []byte // conn_id → data channel
 	pendRecv   map[uint32][][]byte // conn_id → buffered data before recvCh registered
 	pendAccept map[uint16][][]byte // port → buffered cmdAccept payloads before acceptCh registered (post-#99 race fix)
@@ -137,14 +129,15 @@ func newIPCClient(socketPath string) (*ipcClient, error) {
 	}
 
 	c := &ipcClient{
-		conn:      conn,
-		pending:   make(map[uint64]chan *pendingResponse),
-		recvChs:   make(map[uint32]chan []byte),
+		conn:       conn,
+		waitSem:    make(chan struct{}, 1),
+		pending:    make(chan *pendingResponse, 16),
+		recvChs:    make(map[uint32]chan []byte),
 		pendRecv:   make(map[uint32][][]byte),
 		pendAccept: make(map[uint16][][]byte),
 		acceptChs:  make(map[uint16]chan []byte),
-		dgCh:      make(chan *Datagram, 256),
-		doneCh:    make(chan struct{}),
+		dgCh:       make(chan *Datagram, 256),
+		doneCh:     make(chan struct{}),
 	}
 
 	go c.readLoop()
@@ -161,13 +154,15 @@ func (c *ipcClient) close() error {
 
 // readLoop demultiplexes incoming envelopes. Wire format:
 //
-//	[uint32-len][uint8-cmd][uint64-reqID][payload...]
+//	[uint32-len][uint8-cmd][payload...]
 //
-// reqID==0  → server-pushed unsolicited frame (CmdRecv, CmdAccept,
-//             CmdRecvFrom, plus the post-FIN CmdCloseOK from recvPusher).
-// reqID!=0 → response to the request that bore the same reqID. The
-//            waiter is registered in c.pending; on dispatch it is
-//            removed and the channel receives one pendingResponse.
+// Server-pushed frames (cmdRecv, cmdCloseOK, cmdRecvFrom, cmdAccept) are
+// routed by cmd to their per-connection channels. cmdCloseOK is always
+// a server-push (remote FIN); Driver.Disconnect uses send() not
+// sendAndWait() so it never waits for cmdCloseOK in pending.
+// Known response cmds are forwarded to c.pending for sendAndWait.
+// Unknown cmds are silently dropped — they never reach pending, so
+// sendAndWaitTimeout can use a single read without a discard loop.
 func (c *ipcClient) readLoop() {
 	defer c.cleanup()
 	for {
@@ -180,31 +175,23 @@ func (c *ipcClient) readLoop() {
 		}
 
 		cmd := msg[0]
-		reqID := binary.BigEndian.Uint64(msg[1:9])
 		payload := msg[ipcEnvelopeHeaderSize:]
 
-		if reqID == 0 {
-			// Server-pushed: route by cmd.
+		switch cmd {
+		case cmdRecv, cmdRecvFrom, cmdAccept, cmdCloseOK:
+			// Server-pushed frames: route to per-connection channels.
 			c.dispatchPush(cmd, payload)
-			continue
+		case cmdBindOK, cmdDialOK, cmdError, cmdInfoOK, cmdHandshakeOK,
+			cmdResolveHostnameOK, cmdSetHostnameOK, cmdSetVisibilityOK,
+			cmdDeregisterOK, cmdSetTagsOK, cmdSetWebhookOK, cmdNetworkOK,
+			cmdHealthOK, cmdManagedOK, cmdRotateKeyOK, cmdBroadcastOK:
+			// Known response cmds: route to pending for the in-flight sendAndWait.
+			select {
+			case c.pending <- &pendingResponse{cmd: cmd, payload: append([]byte(nil), payload...)}:
+			default:
+			}
+		// default: unknown cmd — silently drop (version mismatch, test injection, etc.)
 		}
-
-		// Response to a specific request. Look up the waiter and dispatch
-		// exactly once. If no waiter exists (caller timed out or the
-		// reqID mismatched), drop silently — this used to be the
-		// "silent reply drop" hazard but is now harmless because the
-		// waiter has already returned a timeout error.
-		c.reqMu.Lock()
-		ch, ok := c.pending[reqID]
-		if ok {
-			delete(c.pending, reqID)
-		}
-		c.reqMu.Unlock()
-		if !ok {
-			continue
-		}
-		// Channel is buffered (capacity 1), so send is non-blocking.
-		ch <- &pendingResponse{cmd: cmd, payload: append([]byte(nil), payload...)}
 	}
 }
 
@@ -287,17 +274,19 @@ func (c *ipcClient) dispatchPush(cmd byte, payload []byte) {
 	}
 }
 
-// cleanup closes all pending channels when readLoop exits (daemon disconnect).
+// cleanup closes channels when readLoop exits (daemon disconnect).
 func (c *ipcClient) cleanup() {
 	close(c.doneCh)
 
-	// Fail every in-flight waiter with daemon-disconnected.
-	c.reqMu.Lock()
-	for id, ch := range c.pending {
-		close(ch)
-		delete(c.pending, id)
+	// Drain all buffered responses.
+	for {
+		select {
+		case <-c.pending:
+		default:
+			goto drained
+		}
 	}
-	c.reqMu.Unlock()
+drained:
 
 	// Close all receive channels
 	c.recvMu.Lock()
@@ -316,74 +305,44 @@ func (c *ipcClient) cleanup() {
 	c.acceptMu.Unlock()
 }
 
-// writeFrame builds a `[cmd][reqID(8)][body...]` envelope and writes it
-// under writeMu so multiple goroutines don't interleave bytes.
-func (c *ipcClient) writeFrame(cmd byte, reqID uint64, body []byte) error {
+// writeFrame builds a `[cmd][body...]` envelope and writes it under
+// writeMu so frames don't interleave on the wire.
+func (c *ipcClient) writeFrame(cmd byte, body []byte) error {
 	buf := make([]byte, ipcEnvelopeHeaderSize+len(body))
 	buf[0] = cmd
-	binary.BigEndian.PutUint64(buf[1:9], reqID)
-	copy(buf[9:], body)
-
+	copy(buf[1:], body)
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return ipcutil.Write(c.conn, buf)
 }
 
-// send is a fire-and-forget request — used for cmdSend and cmdSendTo
-// where the daemon doesn't reply on success. We still allocate a reqID
-// so the daemon's error path (sendError) can echo it back; the driver
-// just doesn't wait for the (non-existent) success reply.
-//
-// data is the full message body the caller built: `[cmd][body...]`.
-// We split off the cmd byte and prepend a fresh reqID via writeFrame.
+// send is a fire-and-forget write — used for cmdSend/cmdSendTo where
+// the daemon does not reply. Acquires only writeMu (not waitMu), so
+// concurrent fire-and-forget sends are never blocked behind a reply wait.
 func (c *ipcClient) send(data []byte) error {
 	if len(data) < 1 {
 		return fmt.Errorf("ipc: empty message")
 	}
-	return c.writeFrame(data[0], c.nextReqID.Add(1), data[1:])
+	return c.writeFrame(data[0], data[1:])
 }
 
-// sendAndWait sends a request and waits for the matching reply.
-// expectCmd is checked against the dispatched response cmd; mismatch
-// (e.g. cmdError) returns a daemon-formatted error. Per issue #99,
-// every in-flight request has its own reqID and waiter channel, so
-// concurrent calls do not stomp on each other.
+// sendAndWait sends a request and waits for the reply.
 func (c *ipcClient) sendAndWait(data []byte, expectCmd byte) ([]byte, error) {
 	return c.sendAndWaitTimeout(data, expectCmd, 0)
 }
 
-// sendAndWaitTimeout is the canonical entry point. timeout=0 means
-// "wait forever" (until daemon disconnect); positive timeout caps the
-// wait and returns "dial timeout" if the daemon doesn't respond.
-//
-// Note: caller-supplied data starts with the cmd byte: `[cmd][body...]`.
-// We allocate a fresh reqID, register the waiter, then writeFrame the
-// envelope. The waiter unregisters itself on every exit path so a
-// timed-out/cancelled request doesn't leak a slot in the pending map.
+// sendAndWaitTimeout serialises at most one request/reply pair at a time
+// via waitSem. timeout=0 means wait forever. The timer is started BEFORE
+// acquiring the semaphore so the timeout applies to queue wait + reply
+// wait combined — without this, goroutines queued behind the semaphore
+// can't time out and pile up indefinitely under high concurrency.
 func (c *ipcClient) sendAndWaitTimeout(data []byte, expectCmd byte, timeout time.Duration) ([]byte, error) {
 	if len(data) < 1 {
 		return nil, fmt.Errorf("ipc: empty request")
 	}
-	reqID := c.nextReqID.Add(1)
-	ch := make(chan *pendingResponse, 1)
 
-	c.reqMu.Lock()
-	c.pending[reqID] = ch
-	c.reqMu.Unlock()
-
-	// Cleanup helper: remove our waiter if it's still registered. If
-	// readLoop already dispatched, the entry is gone and this is a no-op.
-	unregister := func() {
-		c.reqMu.Lock()
-		delete(c.pending, reqID)
-		c.reqMu.Unlock()
-	}
-
-	if err := c.writeFrame(data[0], reqID, data[1:]); err != nil {
-		unregister()
-		return nil, err
-	}
-
+	// Start the timer before acquiring the semaphore so queued goroutines
+	// can bail out instead of waiting forever.
 	var timer <-chan time.Time
 	if timeout > 0 {
 		t := time.NewTimer(timeout)
@@ -391,12 +350,35 @@ func (c *ipcClient) sendAndWaitTimeout(data []byte, expectCmd byte, timeout time
 		timer = t.C
 	}
 
+	// Acquire the serialisation semaphore. Channel-based (not sync.Mutex)
+	// so goroutines blocked here are woken by doneCh or timer.
 	select {
-	case resp, ok := <-ch:
-		// Channel was closed by cleanup: daemon disconnected.
-		if !ok {
-			return nil, fmt.Errorf("daemon disconnected")
+	case c.waitSem <- struct{}{}:
+	case <-c.doneCh:
+		return nil, fmt.Errorf("daemon disconnected")
+	case <-timer:
+		return nil, fmt.Errorf("dial timeout")
+	}
+	defer func() { <-c.waitSem }()
+
+	// Drain all stale replies buffered before this request was sent.
+	for {
+		select {
+		case <-c.pending:
+		default:
+			goto drained
 		}
+	}
+drained:
+
+	if err := c.writeFrame(data[0], data[1:]); err != nil {
+		return nil, err
+	}
+
+	// Unknown cmds are dropped in readLoop, so the first frame in pending
+	// is always either the expected response or cmdError.
+	select {
+	case resp := <-c.pending:
 		if resp.cmd == cmdError {
 			if len(resp.payload) >= 2 {
 				return nil, fmt.Errorf("daemon: %s", string(resp.payload[2:]))
@@ -404,21 +386,12 @@ func (c *ipcClient) sendAndWaitTimeout(data []byte, expectCmd byte, timeout time
 			return nil, fmt.Errorf("daemon error")
 		}
 		if resp.cmd != expectCmd {
-			return nil, fmt.Errorf("ipc: unexpected reply cmd 0x%02X (expected 0x%02X)", resp.cmd, expectCmd)
+			return nil, fmt.Errorf("ipc: unexpected reply 0x%02X (want 0x%02X)", resp.cmd, expectCmd)
 		}
 		return resp.payload, nil
 	case <-c.doneCh:
 		return nil, fmt.Errorf("daemon disconnected")
 	case <-timer:
-		unregister()
-		// Tell the daemon the driver has lost interest in this reqID
-		// so it can cancel the dispatch goroutine instead of grinding
-		// through the full retry budget. Best-effort: if the write
-		// fails (daemon dead, socket closed) we still return the
-		// timeout error to the caller — they don't care.
-		body := make([]byte, 8)
-		binary.BigEndian.PutUint64(body[0:8], reqID)
-		_ = c.writeFrame(cmdCancel, 0, body)
 		return nil, fmt.Errorf("dial timeout")
 	}
 }

@@ -15,9 +15,7 @@ import (
 // exercise driver.readLoop dispatch. Waits briefly for the daemon conn to
 // be accepted first.
 //
-// frame must be [cmd][payload...]. pushFromDaemon inserts the 8-byte zero
-// reqID after the cmd byte, matching the wire format writePush uses:
-// [cmd][reqID=0(8)][payload...]
+// frame must be [cmd][payload...]. Wire format is [cmd][payload...] with no reqID.
 func pushFromDaemon(t *testing.T, d *fakeDaemon, frame []byte) {
 	t.Helper()
 	waitFor(t, 2*time.Second, func() bool {
@@ -28,15 +26,7 @@ func pushFromDaemon(t *testing.T, d *fakeDaemon, frame []byte) {
 	d.mu.Lock()
 	conn := d.conn
 	d.mu.Unlock()
-	// Insert 8-byte zero reqID after cmd byte (if frame has a cmd byte).
-	var wire []byte
-	if len(frame) > 0 {
-		wire = make([]byte, len(frame)+8)
-		wire[0] = frame[0]
-		// reqID = 0 (already zero from make)
-		copy(wire[9:], frame[1:])
-	}
-	if err := ipcutil.Write(conn, wire); err != nil {
+	if err := ipcutil.Write(conn, frame); err != nil {
 		t.Fatalf("write from daemon: %v", err)
 	}
 }

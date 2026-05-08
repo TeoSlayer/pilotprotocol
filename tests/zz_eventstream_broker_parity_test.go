@@ -284,11 +284,15 @@ func TestBrokerParityRateLimit(t *testing.T) {
 	rateSendSide := float64(flood) / sendDur.Seconds()
 	t.Logf("sent %d events in %v (~%.0f/s send-side, baseline before flood: %d)", flood, sendDur, rateSendSide, baseline)
 
-	// Drain window: at the broker's 100/s refill rate, a flood of
-	// 250 takes (250-200)/100 = 0.5s minimum to fully drain through
-	// the rate limit, plus tunnel-side pacing. 5s is comfortably
-	// generous on slow CI machines.
-	const drainWindow = 5 * time.Second
+	// Drain window: tunnel throughput from broker→subscriber is bounded
+	// by the Nagle/delayed-ACK interaction (~25 events/s on localhost).
+	// At 25/s, draining 250 events takes ~10s. The drain window must be
+	// sized to accommodate this regardless of how fast the sender is.
+	// 15s is generous even on slow CI: exits early once all events land.
+	drainWindow := 15*time.Second - sendDur
+	if drainWindow < 5*time.Second {
+		drainWindow = 5 * time.Second
+	}
 	deadline := time.Now().Add(drainWindow)
 	for time.Now().Before(deadline) {
 		if int(got.Load()-baseline) >= flood {
@@ -298,7 +302,7 @@ func TestBrokerParityRateLimit(t *testing.T) {
 	}
 
 	delivered := int(got.Load() - baseline)
-	t.Logf("delivered %d / %d events (excluding baseline) within %v", delivered, flood, drainWindow)
+	t.Logf("delivered %d / %d events (excluding baseline) within %v", delivered, flood, drainWindow+sendDur)
 
 	// Pin the broker's token-bucket contract (200 burst + 100/s refill):
 	//   1. Burst budget honored: at least 200 events must be delivered,

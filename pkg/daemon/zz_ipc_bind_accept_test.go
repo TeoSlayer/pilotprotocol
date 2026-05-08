@@ -131,7 +131,7 @@ func TestHandleBindPortAlreadyBoundReturnsError(t *testing.T) {
 	assertErrorReply(t, reply, "already bound")
 }
 
-// --- handleSend: missing connID (len < 4) emits CmdError ---
+// --- handleSend: fire-and-forget — no reply on error ---
 
 func TestHandleSendShortPayloadEmitsError(t *testing.T) {
 	t.Parallel()
@@ -139,13 +139,11 @@ func TestHandleSendShortPayloadEmitsError(t *testing.T) {
 	s := d.ipc
 
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() {
-		s.handleSend(ic, 0, []byte{0x01, 0x02}) // only 2 bytes — need ≥4
-	})
-	assertErrorReply(t, reply, "send: missing conn_id")
+	done := make(chan struct{})
+	go func() { s.handleSend(ic, 0, []byte{0x01, 0x02}); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
-
-// --- handleSend: unknown connID emits CmdError("connection N not found") ---
 
 func TestHandleSendUnknownConnIDEmitsError(t *testing.T) {
 	t.Parallel()
@@ -153,10 +151,11 @@ func TestHandleSendUnknownConnIDEmitsError(t *testing.T) {
 	s := d.ipc
 
 	ic, client := newIPCTestConn(t)
-	// Valid 4-byte connID followed by payload; conn doesn't exist.
 	payload := []byte{0x00, 0x00, 0xFF, 0xFE, 'x'}
-	reply := runHandler(t, client, func() { s.handleSend(ic, 0, payload) })
-	assertErrorReply(t, reply, "connection 65534 not found")
+	done := make(chan struct{})
+	go func() { s.handleSend(ic, 0, payload); close(done) }()
+	assertNoReply(t, client) // fire-and-forget: no reply on error
+	<-done
 }
 
 // --- handleClose: unknown connID still writes CmdCloseOK (no error path) ---

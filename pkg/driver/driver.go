@@ -325,12 +325,15 @@ func (d *Driver) RotateKey() (map[string]interface{}, error) {
 }
 
 // Disconnect closes a connection by ID. Used by administrative tools.
+// Fire-and-forget: the daemon always responds CmdCloseOK regardless of
+// whether the connID exists, so there is no error to propagate. Using
+// sendAndWait here would corrupt a concurrent sendAndWait for a different
+// command if a server-pushed cmdCloseOK (remote FIN) arrived simultaneously.
 func (d *Driver) Disconnect(connID uint32) error {
 	msg := make([]byte, 5)
 	msg[0] = cmdClose
 	binary.BigEndian.PutUint32(msg[1:5], connID)
-	_, err := d.ipc.sendAndWait(msg, cmdCloseOK)
-	return err
+	return d.ipc.send(msg)
 }
 
 // NetworkList returns all networks known to the registry.

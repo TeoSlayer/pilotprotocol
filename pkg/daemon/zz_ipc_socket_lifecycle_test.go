@@ -238,10 +238,10 @@ func TestIPCServerHandleClientEmptyFrameContinuesLoop(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Send a frame too short for the envelope header (issue #99 wire
-	// format), then a valid CmdBind. If the continue branch works, the
-	// second frame still produces a CmdBindOK.
-	if err := ipcutil.Write(conn, []byte{0x01, 0x02}); err != nil {
+	// Send an empty frame (0 bytes — shorter than the 1-byte header),
+	// then a valid CmdBind. If the continue branch works, the second
+	// frame still produces a CmdBindOK.
+	if err := ipcutil.Write(conn, []byte{}); err != nil {
 		t.Fatalf("write short frame: %v", err)
 	}
 	if err := writeIPCRequest(conn, CmdBind, []byte{0x20, 0x01}); err != nil {
