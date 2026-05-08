@@ -147,29 +147,11 @@ func TestSendToEncryptedBeforeKeyExchangeQueuesAndInitiates(t *testing.T) {
 	defer peerConn.Close()
 	peerAddr := peerConn.LocalAddr().(*net.UDPAddr)
 
-	// sendKeyExchangeToNode looks up addr from tm.peers, so register 77.
+	// AddPeer registers the address and fires one KE frame (the dedup guard
+	// prevents SendTo from firing a second one while the first is pending).
 	tm.AddPeer(77, peerAddr)
-	// Drain the AddPeer-triggered key-exchange frame so the real SendTo check is clean.
-	drainBuf := make([]byte, 1500)
-	peerConn.SetReadDeadline(deadlineMS(200))
-	peerConn.ReadFromUDP(drainBuf)
 
-	// No crypto for node 77 yet → SendTo should queue and initiate key exchange.
-	if err := tm.SendTo(peerAddr, 77, newPacket("q1")); err != nil {
-		t.Fatalf("SendTo: %v", err)
-	}
-	if err := tm.SendTo(peerAddr, 77, newPacket("q2")); err != nil {
-		t.Fatalf("SendTo: %v", err)
-	}
-
-	tm.pendMu.Lock()
-	queued := len(tm.pending[77])
-	tm.pendMu.Unlock()
-	if queued != 2 {
-		t.Fatalf("pending[77] = %d, want 2", queued)
-	}
-
-	// Peer should have received at least one key-exchange frame (PILK magic).
+	// Peer should have received the AddPeer-triggered KE frame (PILK magic).
 	buf := make([]byte, 1500)
 	if err := peerConn.SetReadDeadline(deadlineMS(500)); err != nil {
 		t.Fatalf("setdeadline: %v", err)
@@ -184,6 +166,29 @@ func TestSendToEncryptedBeforeKeyExchangeQueuesAndInitiates(t *testing.T) {
 	// Without identity set, sendKeyExchangeToNode uses unauth PILK frame.
 	if string(buf[0:4]) != string(protocol.TunnelMagicKeyEx[:]) {
 		t.Fatalf("expected PILK magic for key-exchange init, got %x", buf[0:4])
+	}
+
+	// Multiple SendTo calls before crypto is ready must queue all packets
+	// and must NOT fire additional KE frames (dedup guard keeps one in-flight).
+	if err := tm.SendTo(peerAddr, 77, newPacket("q1")); err != nil {
+		t.Fatalf("SendTo: %v", err)
+	}
+	if err := tm.SendTo(peerAddr, 77, newPacket("q2")); err != nil {
+		t.Fatalf("SendTo: %v", err)
+	}
+
+	tm.pendMu.Lock()
+	queued := len(tm.pending[77])
+	tm.pendMu.Unlock()
+	if queued != 2 {
+		t.Fatalf("pending[77] = %d, want 2", queued)
+	}
+
+	// No second KE frame should have been sent (dedup guard).
+	peerConn.SetReadDeadline(deadlineMS(100))
+	var extra [1500]byte
+	if _, _, err2 := peerConn.ReadFromUDP(extra[:]); err2 == nil {
+		t.Fatal("unexpected second KE frame — dedup guard should suppress it")
 	}
 }
 
