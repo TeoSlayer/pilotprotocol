@@ -62,9 +62,11 @@ else
 fi
 
 log_test "agent-a member list contains agent-a and agent-b"
+# Allow the registry to fully reflect both joins before querying.
+sleep 2
 MEMBERS=$($DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-b \
     pilotctl --json network members "$POLICY_NET_ID" 2>/dev/null \
-    | jq -r '.data.members | length')
+    | jq -r '.data.nodes // .data.members // [] | length')
 if [ "${MEMBERS:-0}" -ge 2 ]; then
     log_pass "members=$MEMBERS"
 else

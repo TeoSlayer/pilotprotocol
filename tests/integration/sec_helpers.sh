@@ -193,8 +193,13 @@ ip_of() {
 
 # wait_for <seconds> <condition_command...>
 # Blocks until the condition returns 0 or the timeout expires.
+# Honors PILOT_TEST_WAIT_MULT (default 1) — lets k8s paradigm scale timeouts
+# when DinD IO contention slows stack boot past the 60s-range defaults wired
+# into individual tests.
 wait_for() {
     local secs="$1"; shift
+    local mult="${PILOT_TEST_WAIT_MULT:-1}"
+    secs=$(( secs * mult ))
     local i
     for i in $(seq 1 "$secs"); do
         if "$@"; then return 0; fi

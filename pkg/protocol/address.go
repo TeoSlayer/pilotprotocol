@@ -25,11 +25,16 @@ type Addr struct {
 }
 
 var (
-	AddrZero       = Addr{0, 0}
 	AddrRegistry   = Addr{0, 1}
 	AddrBeacon     = Addr{0, 2}
 	AddrNameserver = Addr{0, 3}
 )
+
+// ZeroAddr returns the zero-value address ({0, 0}). It exists as a
+// function rather than a package-level var so callers cannot mutate a
+// shared sentinel (P3 — no cross-layer mutable globals). The returned
+// value is freshly constructed on each call.
+func ZeroAddr() Addr { return Addr{} }
 
 // BroadcastAddr returns the broadcast address for a given network.
 func BroadcastAddr(network uint16) Addr {
@@ -69,39 +74,39 @@ func (a Addr) String() string {
 func ParseAddr(s string) (Addr, error) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
-		return AddrZero, fmt.Errorf("invalid address: %q (expected N:XXXX.YYYY.YYYY)", s)
+		return Addr{}, fmt.Errorf("invalid address: %q (expected N:XXXX.YYYY.YYYY)", s)
 	}
 
 	networkDec, err := strconv.ParseUint(parts[0], 10, 16)
 	if err != nil {
-		return AddrZero, fmt.Errorf("invalid network ID: %q: %w", parts[0], err)
+		return Addr{}, fmt.Errorf("invalid network ID: %q: %w", parts[0], err)
 	}
 
 	hexGroups := strings.Split(parts[1], ".")
 	if len(hexGroups) != 3 {
-		return AddrZero, fmt.Errorf("invalid address: %q (expected 3 dot-separated hex groups)", parts[1])
+		return Addr{}, fmt.Errorf("invalid address: %q (expected 3 dot-separated hex groups)", parts[1])
 	}
 	for _, h := range hexGroups {
 		if len(h) != 4 {
-			return AddrZero, fmt.Errorf("invalid hex group: %q (expected 4 digits)", h)
+			return Addr{}, fmt.Errorf("invalid hex group: %q (expected 4 digits)", h)
 		}
 	}
 
 	netHex, err := strconv.ParseUint(hexGroups[0], 16, 16)
 	if err != nil {
-		return AddrZero, fmt.Errorf("invalid hex group: %q: %w", hexGroups[0], err)
+		return Addr{}, fmt.Errorf("invalid hex group: %q: %w", hexGroups[0], err)
 	}
 	if netHex != networkDec {
-		return AddrZero, fmt.Errorf("network mismatch: decimal %d != hex 0x%04X", networkDec, netHex)
+		return Addr{}, fmt.Errorf("network mismatch: decimal %d != hex 0x%04X", networkDec, netHex)
 	}
 
 	nodeHigh, err := strconv.ParseUint(hexGroups[1], 16, 16)
 	if err != nil {
-		return AddrZero, fmt.Errorf("invalid hex group: %q: %w", hexGroups[1], err)
+		return Addr{}, fmt.Errorf("invalid hex group: %q: %w", hexGroups[1], err)
 	}
 	nodeLow, err := strconv.ParseUint(hexGroups[2], 16, 16)
 	if err != nil {
-		return AddrZero, fmt.Errorf("invalid hex group: %q: %w", hexGroups[2], err)
+		return Addr{}, fmt.Errorf("invalid hex group: %q: %w", hexGroups[2], err)
 	}
 
 	return Addr{

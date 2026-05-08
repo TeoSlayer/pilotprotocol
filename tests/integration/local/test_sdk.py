@@ -550,7 +550,7 @@ def run_sdk_tests(network_available=True):
                 if response["status"] == 200:
                     log_pass(f"submit_task() ACCEPTED: {response}")
                 elif response["status"] == 400:
-                    log_pass(f"submit_task() REJECTED (expected, polo score): {response}")
+                    log_pass(f"submit_task() REJECTED (expected): {response}")
                 else:
                     log_fail(f"submit_task() unexpected status: {response}")
             else:

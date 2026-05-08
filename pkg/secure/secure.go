@@ -25,9 +25,9 @@ const MaxEncryptedMessageLen = 16 * 1024 * 1024 // 16 MB
 // HandshakeTimeout is the maximum time allowed for the ECDH handshake.
 const HandshakeTimeout = 10 * time.Second
 
-// authFrameLen is the total size of an auth frame:
+// AuthFrameLen is the total size of an auth frame:
 // nodeID(4) + timestamp(8) + nonce(16) + ed25519_signature(64) = 92 bytes.
-const authFrameLen = 4 + 8 + 16 + 64
+const AuthFrameLen = 4 + 8 + 16 + 64
 
 // authTimestampSkew is the maximum allowed time difference for auth timestamps.
 const authTimestampSkew = 5 * time.Second
@@ -43,6 +43,13 @@ type HandshakeConfig struct {
 	Signer     ed25519.PrivateKey
 	PeerPubKey ed25519.PublicKey
 }
+
+// PeerPubKeyLookup returns the Ed25519 public key for a given node ID.
+// Used by the server to look up a connecting client's identity for auth
+// verification. Returns nil if the node is unknown.
+//
+// Definitive declaration of PeerPubKeyLookup; do not duplicate in this package.
+type PeerPubKeyLookup func(nodeID uint32) ed25519.PublicKey
 
 // replayCache prevents reuse of auth nonces within a 1-hour window.
 var replayCache = struct {
@@ -72,9 +79,9 @@ func replayCacheCleaner() {
 // maxReplayCacheEntries caps the replay cache to prevent memory exhaustion (M1 fix).
 const maxReplayCacheEntries = 100000
 
-// checkAndRecordNonce returns an error if the nonce was already seen within
+// CheckAndRecordNonce returns an error if the nonce was already seen within
 // the replay window, otherwise records it and returns nil.
-func checkAndRecordNonce(nonce [16]byte) error {
+func CheckAndRecordNonce(nonce [16]byte) error {
 	replayCache.Lock()
 	defer replayCache.Unlock()
 	if _, exists := replayCache.nonces[nonce]; exists {
@@ -128,7 +135,7 @@ func HandshakeWithTimestampOffset(conn net.Conn, isServer bool, cfg *HandshakeCo
 	var remotePub []byte
 
 	if isServer {
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read client key: %w", err)
 		}
@@ -139,7 +146,7 @@ func HandshakeWithTimestampOffset(conn net.Conn, isServer bool, cfg *HandshakeCo
 		if _, err := conn.Write(localPub); err != nil {
 			return nil, fmt.Errorf("send client key: %w", err)
 		}
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read server key: %w", err)
 		}
@@ -211,10 +218,10 @@ func performAuthWithOffset(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		return fmt.Errorf("generate auth nonce: %w", err)
 	}
 
-	sigMsg := buildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
+	sigMsg := BuildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
 	signature := ed25519.Sign(cfg.Signer, sigMsg)
 
-	frame := make([]byte, authFrameLen)
+	frame := make([]byte, AuthFrameLen)
 	binary.BigEndian.PutUint32(frame[0:4], cfg.NodeID)
 	binary.BigEndian.PutUint64(frame[4:12], ts)
 	copy(frame[12:28], authNonce[:])
@@ -230,7 +237,7 @@ func performAuthWithOffset(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		if err != nil {
 			return fmt.Errorf("read peer auth frame: %w", err)
 		}
-		peerNodeID, err := verifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
+		peerNodeID, err := VerifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -240,7 +247,7 @@ func performAuthWithOffset(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		if err != nil {
 			return fmt.Errorf("read peer auth frame: %w", err)
 		}
-		peerNodeID, err := verifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
+		peerNodeID, err := VerifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -289,7 +296,7 @@ func Handshake(conn net.Conn, isServer bool, auth ...*HandshakeConfig) (*SecureC
 
 	if isServer {
 		// Server: read client's public key first, then send ours
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read client key: %w", err)
 		}
@@ -301,7 +308,7 @@ func Handshake(conn net.Conn, isServer bool, auth ...*HandshakeConfig) (*SecureC
 		if _, err := conn.Write(localPub); err != nil {
 			return nil, fmt.Errorf("send client key: %w", err)
 		}
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read server key: %w", err)
 		}
@@ -394,7 +401,7 @@ func HandshakeWithLookup(conn net.Conn, isServer bool, cfg *HandshakeConfig, loo
 	var remotePub []byte
 
 	if isServer {
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read client key: %w", err)
 		}
@@ -405,7 +412,7 @@ func HandshakeWithLookup(conn net.Conn, isServer bool, cfg *HandshakeConfig, loo
 		if _, err := conn.Write(localPub); err != nil {
 			return nil, fmt.Errorf("send client key: %w", err)
 		}
-		remotePub, err = readExact(conn, 32)
+		remotePub, err = ReadExact(conn, 32)
 		if err != nil {
 			return nil, fmt.Errorf("read server key: %w", err)
 		}
@@ -478,10 +485,10 @@ func performAuthWithLookup(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		return fmt.Errorf("generate auth nonce: %w", err)
 	}
 
-	sigMsg := buildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
+	sigMsg := BuildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
 	signature := ed25519.Sign(cfg.Signer, sigMsg)
 
-	frame := make([]byte, authFrameLen)
+	frame := make([]byte, AuthFrameLen)
 	binary.BigEndian.PutUint32(frame[0:4], cfg.NodeID)
 	binary.BigEndian.PutUint64(frame[4:12], ts)
 	copy(frame[12:28], authNonce[:])
@@ -501,7 +508,7 @@ func performAuthWithLookup(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		if peerPubKey == nil {
 			return fmt.Errorf("unknown peer node %d: no public key found", peerNodeID)
 		}
-		peerNodeID, err = verifyAuthFrame(peerFrame, peerPubKey, remoteX25519Pub, now)
+		peerNodeID, err = VerifyAuthFrame(peerFrame, peerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -516,7 +523,7 @@ func performAuthWithLookup(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub,
 		if peerPubKey == nil {
 			return fmt.Errorf("unknown peer node %d: no public key found", peerNodeID)
 		}
-		peerNodeID, err = verifyAuthFrame(peerFrame, peerPubKey, remoteX25519Pub, now)
+		peerNodeID, err = VerifyAuthFrame(peerFrame, peerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -557,11 +564,11 @@ func performAuth(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub, remoteX25
 	}
 
 	// Sign over our own X25519 pubkey to bind our identity to this ECDH session
-	sigMsg := buildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
+	sigMsg := BuildAuthSignMessage(cfg.NodeID, localX25519Pub, ts, authNonce)
 	signature := ed25519.Sign(cfg.Signer, sigMsg)
 
 	// Build the wire frame: nodeID(4) + timestamp(8) + nonce(16) + signature(64)
-	frame := make([]byte, authFrameLen)
+	frame := make([]byte, AuthFrameLen)
 	binary.BigEndian.PutUint32(frame[0:4], cfg.NodeID)
 	binary.BigEndian.PutUint64(frame[4:12], ts)
 	copy(frame[12:28], authNonce[:])
@@ -577,7 +584,7 @@ func performAuth(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub, remoteX25
 		if err != nil {
 			return fmt.Errorf("read peer auth frame: %w", err)
 		}
-		peerNodeID, err := verifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
+		peerNodeID, err := VerifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -587,7 +594,7 @@ func performAuth(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub, remoteX25
 		if err != nil {
 			return fmt.Errorf("read peer auth frame: %w", err)
 		}
-		peerNodeID, err := verifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
+		peerNodeID, err := VerifyAuthFrame(peerFrame, cfg.PeerPubKey, remoteX25519Pub, now)
 		if err != nil {
 			return err
 		}
@@ -600,12 +607,12 @@ func performAuth(sc *SecureConn, cfg *HandshakeConfig, localX25519Pub, remoteX25
 	return nil
 }
 
-// readAuthFrame reads exactly authFrameLen bytes from the SecureConn.
+// readAuthFrame reads exactly AuthFrameLen bytes from the SecureConn.
 // The data is already decrypted by SecureConn.Read.
 func readAuthFrame(sc *SecureConn) ([]byte, error) {
-	frame := make([]byte, authFrameLen)
+	frame := make([]byte, AuthFrameLen)
 	n := 0
-	for n < authFrameLen {
+	for n < AuthFrameLen {
 		nn, err := sc.Read(frame[n:])
 		if err != nil {
 			return nil, err
@@ -615,12 +622,12 @@ func readAuthFrame(sc *SecureConn) ([]byte, error) {
 	return frame, nil
 }
 
-// verifyAuthFrame validates a peer's auth frame. The peer signed over their own
+// VerifyAuthFrame validates a peer's auth frame. The peer signed over their own
 // X25519 ephemeral pubkey (peerX25519Pub), which we received during the ECDH
 // exchange. We reconstruct the signed message and verify against the peer's
 // Ed25519 public key from the registry.
-func verifyAuthFrame(frame []byte, peerEdPubKey ed25519.PublicKey, peerX25519Pub []byte, now time.Time) (uint32, error) {
-	if len(frame) != authFrameLen {
+func VerifyAuthFrame(frame []byte, peerEdPubKey ed25519.PublicKey, peerX25519Pub []byte, now time.Time) (uint32, error) {
+	if len(frame) != AuthFrameLen {
 		return 0, fmt.Errorf("auth frame wrong size: %d", len(frame))
 	}
 
@@ -641,12 +648,12 @@ func verifyAuthFrame(frame []byte, peerEdPubKey ed25519.PublicKey, peerX25519Pub
 	}
 
 	// Check nonce replay
-	if err := checkAndRecordNonce(peerNonce); err != nil {
+	if err := CheckAndRecordNonce(peerNonce); err != nil {
 		return 0, err
 	}
 
 	// Reconstruct the message the peer signed: domain + nodeID + peerX25519Pub + timestamp + nonce
-	sigMsg := buildAuthSignMessage(peerNodeID, peerX25519Pub, peerTS, peerNonce)
+	sigMsg := BuildAuthSignMessage(peerNodeID, peerX25519Pub, peerTS, peerNonce)
 
 	// Verify Ed25519 signature
 	if !ed25519.Verify(peerEdPubKey, sigMsg, peerSig) {
@@ -656,9 +663,9 @@ func verifyAuthFrame(frame []byte, peerEdPubKey ed25519.PublicKey, peerX25519Pub
 	return peerNodeID, nil
 }
 
-// buildAuthSignMessage constructs the message that is signed in the auth frame.
+// BuildAuthSignMessage constructs the message that is signed in the auth frame.
 // Format: "pilot-secure-auth:" + nodeID(4) + X25519_ephemeral_pubkey(32) + timestamp(8) + nonce(16)
-func buildAuthSignMessage(nodeID uint32, x25519Pub []byte, timestamp uint64, nonce [16]byte) []byte {
+func BuildAuthSignMessage(nodeID uint32, x25519Pub []byte, timestamp uint64, nonce [16]byte) []byte {
 	domain := []byte("pilot-secure-auth:")
 	msg := make([]byte, len(domain)+4+32+8+16)
 	copy(msg, domain)
@@ -687,7 +694,7 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	}
 
 	// Read 4-byte length prefix
-	lenBuf, err := readExact(sc.raw, 4)
+	lenBuf, err := ReadExact(sc.raw, 4)
 	if err != nil {
 		return 0, err
 	}
@@ -701,7 +708,7 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	}
 
 	// Read nonce + ciphertext
-	ciphertext, err := readExact(sc.raw, int(msgLen))
+	ciphertext, err := ReadExact(sc.raw, int(msgLen))
 	if err != nil {
 		return 0, err
 	}
@@ -759,7 +766,7 @@ func (sc *SecureConn) SetDeadline(t time.Time) error      { return sc.raw.SetDea
 func (sc *SecureConn) SetReadDeadline(t time.Time) error  { return sc.raw.SetReadDeadline(t) }
 func (sc *SecureConn) SetWriteDeadline(t time.Time) error { return sc.raw.SetWriteDeadline(t) }
 
-func readExact(r io.Reader, n int) ([]byte, error) {
+func ReadExact(r io.Reader, n int) ([]byte, error) {
 	buf := make([]byte, n)
 	_, err := io.ReadFull(r, buf)
 	return buf, err

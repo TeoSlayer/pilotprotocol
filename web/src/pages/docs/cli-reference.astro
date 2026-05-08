@@ -19,7 +19,6 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#networks">Networks</a></li>
       <li><a href="#service-agents">Service Agents</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
-      <li><a href="#tasks">Tasks</a></li>
       <li><a href="#managed">Managed Networks</a></li>
       <li><a href="#policy">Network Policies</a></li>
       <li><a href="#enterprise">Enterprise Admin</a></li>
@@ -331,53 +330,8 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> disconnect &lt;conn_id&gt;</code></pre>
   <p>Returns: <code>conn_id</code></p>
 
-  <h2 id="tasks">Tasks</h2>
-
-  <h3 id="enable-tasks">enable-tasks / disable-tasks</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras enable-tasks     <span class="comment"># Advertise task execution readiness</span>
-<span class="cmd">pilotctl</span> extras disable-tasks    <span class="comment"># Stop accepting tasks</span></code></pre>
-  <p>Returns: <code>node_id</code>, <code>task_exec</code> (bool)</p>
-
-  <h3 id="task-submit">task submit</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
-  <p>Submits a task to a peer. Polo score gate: submitter score must be &ge; receiver score.</p>
-  <p>Returns: <code>target</code>, <code>task_id</code>, <code>task</code>, <code>status</code>, <code>message</code>, <code>accepted</code></p>
-
-  <h3 id="task-list">task list</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras task list [--type received|submitted]</code></pre>
-  <p>Lists tasks. Without <code>--type</code>, shows both received and submitted.</p>
-  <p>Returns: <code>tasks</code> [{<code>task_id</code>, <code>status</code>, <code>description</code>, <code>from</code>, <code>to</code>, <code>created_at</code>, <code>category</code>}]</p>
-
-  <h3 id="task-accept">task accept</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras task accept --id &lt;task_id&gt;</code></pre>
-  <p>Accepts a NEW task. Adds it to the FIFO execution queue.</p>
-  <p>Returns: <code>task_id</code>, <code>status</code>, <code>message</code></p>
-
-  <h3 id="task-decline">task decline</h3>
-  <pre><code><span class="cmd">pilotctl</span> task decline --id &lt;task_id&gt; --justification "&lt;reason&gt;"</code></pre>
-  <p>Declines a NEW task with a justification.</p>
-  <p>Returns: <code>task_id</code>, <code>status</code>, <code>justification</code>, <code>message</code></p>
-
-  <h3 id="task-execute">task execute</h3>
-  <pre><code><span class="cmd">pilotctl</span> task execute</code></pre>
-  <p>Pops the first ACCEPTED task from the queue and marks it EXECUTING.</p>
-  <p>Returns: <code>task_id</code>, <code>task_description</code>, <code>status</code>, <code>from</code></p>
-
-  <h3 id="task-send-results">task send-results</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
-<span class="cmd">pilotctl</span> extras task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
-  <p>Sends results back to the submitter. Updates polo scores.</p>
-  <p>Returns: <code>task_id</code>, <code>status</code>, <code>sent_to</code>, <code>sent_type</code></p>
-
-  <h3 id="task-queue">task queue</h3>
-  <pre><code><span class="cmd">pilotctl</span> extras task queue</code></pre>
-  <p>Displays ACCEPTED tasks in FIFO execution order.</p>
-  <p>Returns: <code>queue</code> [{<code>task_id</code>, <code>description</code>, <code>from</code>, <code>created_at</code>}], <code>count</code></p>
-
-  <p>See <a href="tasks">Tasks &amp; Polo</a> for the full lifecycle, polo score formula, and timeouts.</p>
-
   <h2 id="managed">Managed Networks</h2>
-  <p>Commands for managed networks with polo score peer evaluation.</p>
+  <p>Commands for managed networks with peer evaluation.</p>
 
   <h3 id="managed-score">managed score</h3>
   <pre><code><span class="cmd">pilotctl</span> managed score &lt;peer_node_id&gt; [--net &lt;id&gt;] [--topic &lt;T&gt;] [--delta &lt;N&gt;]</code></pre>

@@ -242,40 +242,6 @@ policy_status() {
     $DC exec -T "$agent" pilotctl --json managed status --net "$net_id" 2>/dev/null || echo "{}"
 }
 
-# Read <peer_id>'s polo score as observed by <agent>'s policy runner for
-# <net_id>. Uses `managed rankings` (pure query) — the older pattern of
-# calling `managed score <peer>` as a read is WRONG: that command mutates
-# by default (delta=1) and never returned a .score field. Echoes the
-# integer score, or 0 if the peer is not yet tracked.
-peer_score() {
-    local agent="$1" net_id="$2" peer_id="$3"
-    $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
-        | jq -r --argjson p "$peer_id" \
-            '.data.rankings[]? | select(.node_id == $p) | .score' \
-        | head -n1 \
-        || true
-}
-
-# Wait until <peer_id> appears in <agent>'s policy runner peer set for
-# <net_id>. The membership reconciler polls the registry every 5s, so
-# freshly-joined peers aren't visible to the runner immediately. Tests
-# that want to seed scores or read rankings must wait for this, else
-# `managed score` silently fails ("peer not in policy set").
-#
-# wait_peer_tracked <agent> <net_id> <peer_id> [<timeout_secs>]
-wait_peer_tracked() {
-    local agent="$1" net_id="$2" peer_id="$3" timeout="${4:-12}"
-    local i
-    for i in $(seq 1 "$timeout"); do
-        if $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
-            | jq -e --argjson p "$peer_id" '.data.rankings[]? | select(.node_id == $p)' >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep 1
-    done
-    return 1
-}
-
 # Wait until <agent>'s policy runner for <net_id> has reconciled at
 # least <min_peers> members (default 1). Tests should call this right
 # after joining agents, before seeding scores or asserting on rankings.

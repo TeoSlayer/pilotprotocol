@@ -178,20 +178,7 @@ test('setTags([]) clears tags', () => {
   assert(tags === null || (Array.isArray(tags) && tags.length === 0), 'tags should be null or empty');
 });
 
-// ---- 6. Task exec ----
-console.log('\n--- Task Exec ---');
-
-test('setTaskExec(true) enables task execution', () => {
-  const result = driver.setTaskExec(true);
-  assert(result['type'] === 'set_task_exec_ok', `expected set_task_exec_ok, got ${result['type']}`);
-});
-
-test('setTaskExec(false) disables task execution', () => {
-  const result = driver.setTaskExec(false);
-  assert(result['type'] === 'set_task_exec_ok', `expected set_task_exec_ok, got ${result['type']}`);
-});
-
-// ---- 7. Webhook ----
+// ---- 6. Webhook ----
 console.log('\n--- Webhook ---');
 
 test('setWebhook() sets webhook URL', () => {

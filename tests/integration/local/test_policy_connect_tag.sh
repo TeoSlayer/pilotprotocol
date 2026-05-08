@@ -1,7 +1,7 @@
 #!/bin/bash
 # Matrix 4 — connect × tag.
 # Under a policy that adds the tag "seen" to peer metadata on every inbound
-# connect, verify the managed rankings for agent-b show agent-a with the
+# connect, verify agent-b shows agent-a with the
 # "seen" tag after a single connect.
 #
 # Note: executeTag in pkg/daemon/policy_runner.go only tags peers that are
@@ -66,7 +66,7 @@ if echo "$TAGS" | grep -q '"seen"'; then
     log_pass "tags=$TAGS"
 else
     log_fail "tags=$TAGS (want to include 'seen')"
-    $DC exec -T agent-b pilotctl --json managed rankings --net "$POLICY_NET_ID" | head -c 500
+    $DC exec -T agent-b pilotctl --json managed status --net "$POLICY_NET_ID" | head -c 500
 fi
 
 stop_policy_stack

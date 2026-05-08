@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/last-in-first-out.json"
+CFG="$(pwd)/../../../configs/networks/last-in-first-out.json"
 if [ ! -f "$CFG" ]; then
     log_fail "last-in-first-out.json NOT shipped — promise unmet (EXPECTED: LIFO eviction — newest joiner is evicted first when cap hit)"
     exit 1
@@ -43,7 +43,7 @@ start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
 
 log_test "LIFO eviction keyed on newest joiner"
-STATUS=$($DC exec -T agent-a pilotctl --json managed status "$NID" 2>/dev/null)
+STATUS=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
 if echo "$STATUS" | grep -qE "joined_at|joinedAt|order"; then
     log_pass "joined-order metadata present (LIFO eligible)"
 else

@@ -47,7 +47,7 @@ const bodyContent = `<p>You want to monitor 15 servers. You need CPU, memory, di
 
 INTERVAL=30  <span class="comment"># seconds between metric publications</span>
 HOSTNAME=$(hostname)
-AGGREGATOR_ADDR=${AGGREGATOR_ADDR:-"<aggregator-addr>"}  <span class="comment"># set via env or replace with actual address</span>
+AGGREGATOR_ADDR=&#36;{AGGREGATOR_ADDR:-"&lt;aggregator-addr&gt;"}  <span class="comment"># set via env or replace with actual address</span>
 
 while true; do
   <span class="comment"># CPU usage (1-minute load average, normalized to core count)</span>
@@ -234,7 +234,7 @@ pilotctl publish "$AGGREGATOR_ADDR" "metrics/io_latency/$HOSTNAME" \\
 
   <h2 id="dashboard">The Built-In Dashboard</h2>
 
-  <p>The Polo dashboard at <a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a> already provides a fleet overview. Every node registered on the network appears with its hostname, address, tags, online status, and polo score. For basic monitoring -- "which of my servers are up?" -- the dashboard works without any additional setup.</p>
+  <p>The Pilot registry already provides a fleet overview. Every node registered on the network appears with its hostname, address, tags, and online status. For basic monitoring -- "which of my servers are up?" -- the <code>pilotctl peers</code> command works without any additional setup.</p>
 
   <p>Tag your servers by role, and the dashboard becomes a filtered view of your infrastructure:</p>
 
@@ -286,7 +286,7 @@ pilotctl publish "$AGGREGATOR_ADDR" "metrics/io_latency/$HOSTNAME" \\
       <tr><td>Encryption</td><td>Mandatory (X25519 + AES-GCM)</td><td>Optional (TLS config)</td><td>TLS (Cloud uses HTTPS)</td><td>Optional (reverse proxy)</td></tr>
       <tr><td>Time-series storage</td><td>None (bring your own)</td><td>Built-in (TSDB)</td><td>Built-in (custom DB)</td><td>SQLite</td></tr>
       <tr><td>Built-in alerting</td><td>Via pub/sub topics</td><td>Alertmanager (separate)</td><td>Built-in</td><td>Built-in</td></tr>
-      <tr><td>Dashboard</td><td>Polo dashboard (basic)</td><td>Grafana (full-featured)</td><td>Built-in (excellent)</td><td>Built-in (status page)</td></tr>
+      <tr><td>Dashboard</td><td>CLI-based (basic)</td><td>Grafana (full-featured)</td><td>Built-in (excellent)</td><td>Built-in (status page)</td></tr>
       <tr><td>Query language</td><td>None</td><td>PromQL</td><td>Custom</td><td>None</td></tr>
       <tr><td>Scaling</td><td>Add more subscribers</td><td>Federation/Thanos/Cortex</td><td>Netdata Cloud</td><td>Single instance</td></tr>
       <tr><td>Memory per node</td><td>~10MB (daemon)</td><td>~50-100MB (exporter + Prometheus)</td><td>~100-200MB</td><td>N/A (server only)</td></tr>
@@ -402,7 +402,7 @@ done</code></pre>
   <ul>
     <li><strong>No time-series storage.</strong> Metrics are ephemeral events. Without a storage backend (SQLite, InfluxDB, etc.), there is no history, no trending, and no anomaly detection. You must build or integrate storage yourself.</li>
     <li><strong>No query language.</strong> Prometheus has PromQL. Grafana has its query builders. This pattern has raw JSON payloads. For ad-hoc analysis ("what was the 95th percentile CPU last Tuesday?"), you need a database with a query language behind it.</li>
-    <li><strong>No pre-built dashboards.</strong> The Polo dashboard shows node status, but it does not render CPU graphs, memory trends, or disk usage charts. Visualization requires either building a custom frontend or piping data into Grafana (which brings back the dependency you were trying to avoid).</li>
+    <li><strong>No pre-built dashboards.</strong> The CLI shows node status, but it does not render CPU graphs, memory trends, or disk usage charts. Visualization requires either building a custom frontend or piping data into Grafana (which brings back the dependency you were trying to avoid).</li>
     <li><strong>No ecosystem of exporters.</strong> Prometheus has hundreds of exporters for every database, message queue, web server, and cloud service. With Pilot, you write your own metric collection in shell scripts. This is simpler but less comprehensive.</li>
     <li><strong>No high-availability for the aggregator.</strong> If the aggregator goes down, metrics are lost during the outage. There is no built-in buffering or replay. You could run multiple aggregators subscribing to the same topics, but deduplication is your responsibility.</li>
   </ul>

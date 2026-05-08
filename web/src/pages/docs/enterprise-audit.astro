@@ -73,7 +73,6 @@ const bodyContent = `<h1>Audit & Compliance</h1>
       <tr><td><code>visibility.changed</code></td><td>An agent changes between public and private</td></tr>
       <tr><td><code>hostname.changed</code></td><td>An agent changes its hostname</td></tr>
       <tr><td><code>tags.changed</code></td><td>An agent updates its tags</td></tr>
-      <tr><td><code>task_exec.changed</code></td><td>An agent enables or disables task execution</td></tr>
       <tr><td><code>handshake.relayed</code></td><td>A handshake request is relayed through the registry</td></tr>
       <tr><td><code>handshake.responded</code></td><td>An agent responds to a handshake (accept/reject)</td></tr>
       <tr><td><code>key.rotated</code></td><td>An agent rotates its Ed25519 key</td></tr>
@@ -84,8 +83,6 @@ const bodyContent = `<h1>Audit & Compliance</h1>
       <tr><td><code>idp.configured</code></td><td>An identity provider is configured</td></tr>
       <tr><td><code>directory.synced</code></td><td>A directory sync operation completes</td></tr>
       <tr><td><code>audit_export.configured</code></td><td>An audit export endpoint is configured</td></tr>
-      <tr><td><code>polo_score.updated</code></td><td>An agent&rsquo;s polo score changes from task completion/expiry</td></tr>
-      <tr><td><code>polo_score.set</code></td><td>An agent&rsquo;s polo score is set directly (admin)</td></tr>
       <tr><td><code>beacon.registered</code></td><td>A beacon server registers with the registry</td></tr>
     </tbody>
   </table>

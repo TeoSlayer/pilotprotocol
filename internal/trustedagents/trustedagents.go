@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package trustedagents holds a list of node IDs whose handshake
-// requests the daemon auto-accepts (e.g. list-agents and other service
-// agents that need to talk to every node without per-node manual
-// approval).
+// Package trustedagents holds the build-time-embedded list of node IDs
+// that the daemon auto-accepts handshake requests from. The data layer
+// is utility-tier so both the daemon plugin (plugins/trustedagents)
+// and the CLI (cmd/pilotctl) can read it without violating the strict
+// downward layer rule.
 //
-// The list is plain JSON in this directory, embedded into the binary at
-// build time and refreshed hourly from raw.githubusercontent.com.
-// Authenticity comes from HTTPS to GitHub plus repo write access — the
-// daemon does no separate signature check.
+// The list is plain JSON in this directory, embedded at build time and
+// refreshed hourly from raw.githubusercontent.com by
+// plugins/trustedagents.Run. Authenticity comes from HTTPS to GitHub
+// plus repo write access — there is no separate signature check.
 //
 // Adding an agent: edit trusted-agents.json, commit. Daemons in the
 // field pick it up within ~1h. Brand-new daemons get the embedded copy
@@ -16,22 +17,10 @@
 package trustedagents
 
 import (
-	"context"
-	"crypto/rand"
 	_ "embed"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
-	"math/big"
-	"net/http"
 	"sync"
-	"time"
-)
-
-const (
-	defaultURL    = "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/internal/trustedagents/trusted-agents.json"
-	fetchInterval = 1 * time.Hour
 )
 
 // Agent is one entry in the trusted-agents list. Match is by NodeID;
@@ -47,6 +36,15 @@ type Agent struct {
 //go:embed trusted-agents.json
 var embeddedJSON []byte
 
+// EmbeddedJSON returns the bytes of the embedded JSON list. Exposed for
+// the plugin's HTTP refresher which needs to compare fetched bytes
+// against the embedded baseline at startup.
+func EmbeddedJSON() []byte {
+	out := make([]byte, len(embeddedJSON))
+	copy(out, embeddedJSON)
+	return out
+}
+
 var (
 	mu     sync.RWMutex
 	byNode map[uint32]string // node_id -> name
@@ -54,7 +52,7 @@ var (
 )
 
 func init() {
-	if err := load(embeddedJSON); err != nil {
+	if err := Load(embeddedJSON); err != nil {
 		// CI guards this via TestEmbeddedListLoads; if it ever fires in
 		// production, an empty list (zero auto-accepts) is the safe default.
 		slog.Error("trustedagents: embedded list malformed", "err", err)
@@ -107,58 +105,10 @@ func All() []Agent {
 	return out
 }
 
-// Run polls the canonical URL on a timer, replacing the active list
-// whenever a new one is fetched. Blocks until ctx is cancelled. The
-// first fetch is delayed 0–30s so a fleet rebooting at the same time
-// doesn't thunder the URL.
-func Run(ctx context.Context) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	timer := time.NewTimer(jitter(30 * time.Second))
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		if err := fetchOnce(ctx, client); err != nil {
-			slog.Warn("trustedagents fetch failed", "err", err)
-		}
-		timer.Reset(fetchInterval + jitter(fetchInterval/10))
-	}
-}
-
-func fetchOnce(ctx context.Context, client *http.Client) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", defaultURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "pilot-daemon/trustedagents")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
-	if err != nil {
-		return err
-	}
-	if err := load(body); err != nil {
-		return fmt.Errorf("load: %w", err)
-	}
-	mu.RLock()
-	n := len(all)
-	mu.RUnlock()
-	slog.Info("trustedagents list fetched", "agents", n)
-	return nil
-}
-
-// load parses raw JSON and atomically replaces the active list. Safe to
-// call from any goroutine.
-func load(raw []byte) error {
+// Load parses raw JSON and atomically replaces the active list. Safe to
+// call from any goroutine. Used by plugins/trustedagents.fetchOnce
+// after each successful HTTP refresh.
+func Load(raw []byte) error {
 	var doc struct {
 		Agents []Agent `json:"agents"`
 	}
@@ -177,15 +127,4 @@ func load(raw []byte) error {
 	all = doc.Agents
 	mu.Unlock()
 	return nil
-}
-
-func jitter(max time.Duration) time.Duration {
-	if max <= 0 {
-		return 0
-	}
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return max / 2
-	}
-	return time.Duration(n.Int64())
 }

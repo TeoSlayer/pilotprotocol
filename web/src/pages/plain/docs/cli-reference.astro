@@ -220,36 +220,8 @@ pilotctl clawdit --output-file audit-report.txt --timeout 3m</code></pre>
 <pre><code>pilotctl disconnect &lt;conn_id&gt;</code></pre>
 <p>Returns: `conn_id`</p>
 
-<h2>Tasks</h2>
-<p>`enable-tasks` advertises that the node is ready for task execution. `disable-tasks` stops the node from accepting new tasks.</p>
-<pre><code>pilotctl extras enable-tasks     # Advertise task execution readiness
-pilotctl extras disable-tasks    # Stop accepting tasks</code></pre>
-<p>Returns: `node_id`, `task_exec` (bool)</p>
-<p>The `task submit` command submits a task to a peer. The submitter's Polo score must be greater than or equal to the receiver's score.</p>
-<pre><code>pilotctl extras task submit &lt;address|hostname&gt; --task "&lt;description&gt;"</code></pre>
-<p>Returns: `target`, `task_id`, `task`, `status`, `message`, `accepted`</p>
-<p>The `task list` command lists tasks. Without a `--type` flag, it shows both received and submitted tasks.</p>
-<pre><code>pilotctl extras task list [--type received|submitted]</code></pre>
-<p>Returns: `tasks` array.</p>
-<p>The `task accept` command accepts a new task and adds it to the FIFO execution queue.</p>
-<pre><code>pilotctl extras task accept --id &lt;task_id&gt;</code></pre>
-<p>Returns: `task_id`, `status`, `message`</p>
-<p>The `task decline` command declines a new task with a justification.</p>
-<pre><code>pilotctl task decline --id &lt;task_id&gt; --justification "&lt;reason&gt;"</code></pre>
-<p>Returns: `task_id`, `status`, `justification`, `message`</p>
-<p>The `task execute` command pops the first accepted task from the queue and marks it as executing.</p>
-<pre><code>pilotctl task execute</code></pre>
-<p>Returns: `task_id`, `task_description`, `status`, `from`</p>
-<p>The `task send-results` command sends the results of a task back to the submitter and updates Polo scores.</p>
-<pre><code>pilotctl extras task send-results --id &lt;task_id&gt; --results "&lt;text&gt;"
-pilotctl extras task send-results --id &lt;task_id&gt; --file &lt;filepath&gt;</code></pre>
-<p>Returns: `task_id`, `status`, `sent_to`, `sent_type`</p>
-<p>The `task queue` command displays accepted tasks in FIFO execution order.</p>
-<pre><code>pilotctl extras task queue</code></pre>
-<p>Returns: `queue` array, `count`</p>
-
 <h2>Managed Networks</h2>
-<p>These commands are for managed networks that use Polo score peer evaluation.</p>
+<p>These commands are for managed networks with peer evaluation.</p>
 <p>The `managed score` command scores a peer in a managed network. The default delta is 1.</p>
 <pre><code>pilotctl managed score &lt;peer_node_id&gt; [--net &lt;id&gt;] [--topic &lt;T&gt;] [--delta &lt;N&gt;]</code></pre>
 <p>Returns: `node_id`, `delta`, `topic`</p>
@@ -337,7 +309,6 @@ pilotctl policy validate --inline '&lt;json&gt;'</code></pre>
 <ul>
   <li><a href="/plain/docs/networks">Networks</a></li>
   <li><a href="/plain/docs/service-agents">Service Agents</a></li>
-  <li><a href="/plain/docs/tasks">Tasks &amp; Polo</a></li>
 </ul>
 
 </PlainLayout>

@@ -8,9 +8,12 @@
 # The daemon flag is `-webhook <url>`; executeWebhook wraps the configured
 # event under "policy.<event>" (policy_runner.go:352).
 #
-# NOTE: The webhook URL is set via daemon -webhook flag at startup; there
-# is no runtime hot-reload CLI. This test restarts agent-b with the sink
-# URL baked in.
+# NOTE: Earlier versions of this test restarted the daemon with
+# -webhook baked in. pilotctl now supports `set-webhook <url>` at
+# runtime (cmd/pilotctl/main.go), and the eventBroker hot-swaps through
+# daemon.webhook on each emit, so we just flip the URL live instead of
+# restarting. Restarting fails in this harness anyway — pilot-daemon is
+# PID 1 inside the agent-b container and pkill kills the container.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -61,32 +64,19 @@ PY
 sleep 2
 log_pass "sink listening on 127.0.0.1:18080"
 
-log_test "restart agent-b daemon with -webhook flag"
-# Rewrite the daemon command for agent-b inline — start a second pilot-daemon.
-# Kill the original and launch with -webhook set.
-$DC exec -T agent-b bash -c '
-    pkill -x pilot-daemon 2>/dev/null || true
-    rm -f /tmp/pilot.sock /root/.pilot/identity.json
-    sleep 1
-    nohup pilot-daemon \
-        -registry $PILOT_REGISTRY \
-        -beacon ${PILOT_REGISTRY%:*}:9001 \
-        -hostname agent-b \
-        -identity /root/.pilot/identity.json \
-        -email agent-b@p2p.test \
-        -endpoint $(hostname -i):4000 \
-        -listen :4000 \
-        -public \
-        -keepalive 5s \
-        -admin-token test-admin-token \
-        -webhook http://127.0.0.1:18080/hook \
-        -log-level info \
-        >/tmp/daemon.log 2>&1 &
-    sleep 4
-'
-log_pass "agent-b relaunched with webhook"
-
-sleep 5
+log_test "point agent-b's daemon at the local sink via set-webhook"
+if ! $DC exec -T agent-b pilotctl set-webhook http://127.0.0.1:18080/hook >/dev/null 2>&1; then
+    log_fail "set-webhook CLI rejected the URL"
+    stop_policy_stack
+    exit 1
+fi
+NID=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r '.data.node_id // empty')
+if [ -z "$NID" ] || [ "$NID" = "0" ]; then
+    log_fail "agent-b lost its node_id after set-webhook (unexpected)"
+    stop_policy_stack
+    exit 1
+fi
+log_pass "webhook set on running daemon (node_id=$NID)"
 
 log_test "Apply webhook-on-cycle policy"
 if ! load_policy agent-b /tests/fixtures/policies/short_cycle_webhook.json; then
@@ -111,7 +101,7 @@ else
 fi
 
 log_test "at least one POST mentions 'policy.cycle_fired' or 'policy.cycle'"
-FOUND=$($DC exec -T agent-b bash -c "grep -cE 'policy\\.(cycle_fired|cycle)' /tmp/hook.log 2>/dev/null || echo 0")
+FOUND=$($DC exec -T agent-b bash -c "grep -cE 'policy\\.(cycle_fired|cycle)' /tmp/hook.log 2>/dev/null || true")
 if [ "${FOUND:-0}" -ge 1 ]; then
     log_pass "found policy.cycle* event in hook body"
 else

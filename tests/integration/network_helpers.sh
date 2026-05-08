@@ -129,16 +129,26 @@ create_network_from_file() {
     fi
 
     # Step 1: unmanaged network create (no --rules / --rules-file).
-    local resp
-    resp=$($DC exec -T -e PILOT_ADMIN_TOKEN="$PILOT_ADMIN_TOKEN" \
-        agent-a pilotctl --json network create \
-        --name "$name" \
-        --join-rule "$join_rule" \
-        --node-id "$node_id" 2>&1)
-    local net_id
-    net_id=$(echo "$resp" | jq -r '.data.network_id // .network_id // empty' 2>/dev/null)
+    # Retry 5x with exp backoff — registry occasionally reports
+    # connection_failed under stack-boot-race on k8s DinD.
+    local resp net_id=""
+    local attempt backoff
+    for attempt in 1 2 3 4 5; do
+        resp=$($DC exec -T -e PILOT_ADMIN_TOKEN="$PILOT_ADMIN_TOKEN" \
+            agent-a pilotctl --json network create \
+            --name "$name" \
+            --join-rule "$join_rule" \
+            --node-id "$node_id" 2>&1)
+        net_id=$(echo "$resp" | jq -r '.data.network_id // .network_id // empty' 2>/dev/null)
+        if [ -n "$net_id" ] && [ "$net_id" != "null" ]; then
+            break
+        fi
+        backoff=$((attempt * 2))
+        echo "create_network_from_file: attempt $attempt failed ($(echo "$resp" | head -c 160)), retrying in ${backoff}s" >&2
+        sleep "$backoff"
+    done
     if [ -z "$net_id" ] || [ "$net_id" = "null" ]; then
-        echo "create_network_from_file: create failed: $resp" >&2
+        echo "create_network_from_file: create failed after 5 attempts: $resp" >&2
         return 1
     fi
 
@@ -183,6 +193,23 @@ start_agent_in_network() {
     $DC exec -T "$agent" pilotctl --json network join "$net_id" >/dev/null 2>&1
 }
 
+# sync_policy_peers <net_id> <agent1> [<agent2> ...]
+#
+# Force each agent's policy runner to reconcile membership immediately
+# via `managed reconcile` — poll registry + refresh peer set, NO cycle
+# side effects. Use after ALL starts_in_network calls complete so each
+# daemon sees the final member set without waiting 5s for the periodic
+# reconciler tick, and without accidentally triggering the network's
+# cycle rules (tithe, decay, evict_where ...) on fresh-joined peers.
+sync_policy_peers() {
+    local net_id="$1"
+    shift
+    local agent
+    for agent in "$@"; do
+        $DC exec -T "$agent" pilotctl --json managed reconcile --net "$net_id" >/dev/null 2>&1 || true
+    done
+}
+
 # Verify that <agent>'s daemon lists <net_id> as a joined network.
 # Echoes "ok" + returns 0 if joined, prints the network list + returns 1
 # otherwise.
@@ -212,7 +239,26 @@ trigger_cycle() {
 # Echoes the raw JSON or "{}" on failure.
 policy_status() {
     local agent="$1" net_id="$2"
-    $DC exec -T "$agent" pilotctl --json managed status "$net_id" 2>/dev/null || echo "{}"
+    $DC exec -T "$agent" pilotctl --json managed status --net "$net_id" 2>/dev/null || echo "{}"
+}
+
+# Wait until <agent>'s policy runner for <net_id> has reconciled at
+# least <min_peers> members (default 1). Tests should call this right
+# after joining agents, before seeding scores or asserting on rankings.
+#
+# wait_peers_reconciled <agent> <net_id> [<min_peers>] [<timeout_secs>]
+wait_peers_reconciled() {
+    local agent="$1" net_id="$2" min="${3:-1}" timeout="${4:-12}"
+    local i peers
+    for i in $(seq 1 "$timeout"); do
+        peers=$($DC exec -T "$agent" pilotctl --json managed status --net "$net_id" 2>/dev/null \
+            | jq -r '.data.peers // 0')
+        if [ "${peers:-0}" -ge "$min" ]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
 }
 
 # Fetch daemon logs and grep for policy runner init lines for <net_id>.

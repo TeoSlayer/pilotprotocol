@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ping / send / submit to a "ghost peer" — a node that WAS registered and
+# Ping / send to a "ghost peer" — a node that WAS registered and
 # had a live tunnel, but was then killed without a graceful unregister.
 # Rendezvous still has its record, agent-a still has cached crypto, but
 # the real UDP endpoint is dead.
@@ -10,9 +10,8 @@
 #   - fail within the caller-supplied timeout (not spin forever)
 #   - not poison the sender's local state (once b returns, a must work)
 #   - not panic, fatal, or deadlock on agent-a
-#   - task submit must not silently queue work to a dead peer
 #
-# This is the Matrix row "peer gone (ghost)" × {ping, send-message, submit}.
+# This is the Matrix row "peer gone (ghost)" × {ping, send-message}.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -31,7 +30,7 @@ DC="docker compose -f docker-compose.multi.yml"
 cd "$(dirname "$0")" || exit 1
 
 echo "=========================================="
-echo "Ping / send / submit to a ghost peer"
+echo "Ping / send to a ghost peer"
 echo "=========================================="
 
 log_test "fresh stack"
@@ -102,29 +101,7 @@ else
     fi
 fi
 
-# ----- 5. task submit must not claim success ------------------------
-log_test "task submit a->b (ghost) — must not report completion"
-S2=$($DC exec -T agent-a bash -c 'timeout 15 pilotctl --json task submit agent-b --task "to-ghost"' 2>&1)
-TID=$(echo "$S2" | jq -r '.data.task_id // empty' 2>/dev/null)
-if [ -z "$TID" ]; then
-    log_pass "submit to ghost peer refused at the front door"
-else
-    # If it did enqueue, status must not reach completed within 8s.
-    STA=""
-    for _ in $(seq 1 8); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-    if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-        log_fail "task to dead peer marked $STA (false completion)"
-    else
-        log_pass "task stuck in $STA (correct — peer is dead)"
-    fi
-fi
-
-# ----- 6. agent-a must not have panicked ----------------------------
+# ----- 5. agent-a must not have panicked ----------------------------
 log_test "agent-a has no panic/fatal after ghost attempts"
 BAD=$($DC logs agent-a 2>&1 | grep -iE "panic|fatal|race detected" | head -3)
 if [ -z "$BAD" ]; then
@@ -133,7 +110,7 @@ else
     log_fail "agent-a log: $BAD"
 fi
 
-# ----- 7. Bring agent-b back; a's cache must NOT be poisoned --------
+# ----- 6. Bring agent-b back; a's cache must NOT be poisoned --------
 log_test "restart agent-b; ping a->b works again"
 $DC up -d agent-b >/dev/null 2>&1
 # Wait for agent-b to be registered again.

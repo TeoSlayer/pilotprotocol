@@ -100,9 +100,9 @@ log_pass "forwarders running"
 # from somebody. Easiest: agent-a sends the first message to agent-b
 # (acts as both originator AND terminal; its forwarder is configured as
 # terminal so when the packet returns, it halts).
-log_test "agent-a kicks the ring (path=start, ttl=3)"
+log_test "agent-a kicks the ring (path=start, ttl=4)"
 INIT=$($DC exec -T agent-a pilotctl --json send-message agent-b \
-    --data '{"ring":"1","path":"start","ttl":3}' --type json 2>&1)
+    --data '{"ring":"1","path":"start","ttl":4}' --type json 2>&1)
 if echo "$INIT" | jq -e '.data' >/dev/null 2>&1 || echo "$INIT" | grep -qi delivered; then
     log_pass "ring kicked"
 else

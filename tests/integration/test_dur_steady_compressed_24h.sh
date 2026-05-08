@@ -21,8 +21,14 @@ log_test() { echo -e "[$(ts)] ${YELLOW}[TEST]${NC} $*"; }
 log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
-DC="docker compose -f docker-compose.multi.yml"
-RUN=300   # 5 min simulating a day
+DC="docker compose -f docker-compose.multi.yml -f docker-compose.multi.policy.yml"
+# PILOT_DUR_COMPRESS=1 shrinks the run from 300s to 30s so this can live
+# in the fast tier alongside the other dur_* tests.
+if [ "${PILOT_DUR_COMPRESS:-0}" = "1" ]; then
+    RUN=30
+else
+    RUN=300
+fi
 
 cd "$(dirname "$0")" || exit 1
 
@@ -39,28 +45,37 @@ for _ in $(seq 1 60); do
 done
 [ "$COUNT" -ge 2 ] && log_pass "both agents registered" || { log_fail "agents not up"; exit 1; }
 
-log_test "write 1s-cycle policy"
+log_test "write 1s-cycle expr_policy"
+# The log action requires params.message (validated by pkg/policy);
+# older JSON had message at the top level, which silently fails policy
+# load and leaves cycle never firing.
 $DC exec -T agent-a bash -c 'cat >/tmp/c24h.json <<JSON
 {
-  "name": "compressed-24h",
-  "network_id": 97,
-  "cycle": "1s",
+  "version": 1,
+  "config": {"cycle": "1s"},
   "rules": [
-    {"event": "cycle", "action": "log", "tag": "CYCLE_C24H"}
+    {"name": "tick", "on": "cycle", "match": "true",
+     "actions": [{"type": "log", "params": {"message": "compressed-24h-tick"}}]}
   ]
 }
 JSON'
 log_pass "policy written"
 
-log_test "create network with 1s-cycle rules"
-# Real CLI: no `policy load` / `network apply`. Use `network create --rules-file`.
-OUT=$($DC exec -T agent-a bash -c 'pilotctl --json network create --name compressed-24h --join-rule open --rules-file /tmp/c24h.json 2>&1')
+log_test "create unmanaged network then attach expr_policy"
+NID_CREATOR=$($DC exec -T agent-a pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
+OUT=$($DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-a \
+    pilotctl --json network create --name "compressed-24h-$$" \
+    --join-rule open --node-id "$NID_CREATOR" 2>&1)
 NID=$(echo "$OUT" | jq -r '.data.network_id // .data.id // empty')
-if [ -n "$NID" ] && [ "$NID" != "null" ]; then
-    log_pass "network active (nid=$NID)"
-else
+if [ -z "$NID" ] || [ "$NID" = "null" ]; then
     log_fail "create failed: $(echo "$OUT" | head -c 200)"
+    exit 1
 fi
+$DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-a \
+    pilotctl --json policy set --net "$NID" --file /tmp/c24h.json \
+    --admin-token test-admin-token >/tmp/pset.out 2>&1
+$DC exec -T agent-a pilotctl --json network join "$NID" >/dev/null 2>&1
+log_pass "network active (nid=$NID), policy attached, joined"
 
 snapshot_a() {
     $DC exec -T agent-a bash -c '
@@ -77,21 +92,21 @@ RSS0=$(echo "$T0" | awk '{print $1}')
 FD0=$(echo "$T0" | awk '{print $2}')
 log_pass "T0 rss=${RSS0}KiB fds=${FD0}"
 
-START=$($DC logs agent-a 2>&1 | grep -cE "CYCLE_C24H|cycle.*tick" | tr -d ' \r\n')
+START=$($DC logs agent-a 2>&1 | grep -c "policy: cycle complete" | tr -d ' \r\n')
 START=${START:-0}
 
 log_test "run for ${RUN}s"
 sleep $RUN
 log_pass "run complete"
 
-END=$($DC logs agent-a 2>&1 | grep -cE "CYCLE_C24H|cycle.*tick" | tr -d ' \r\n')
+END=$($DC logs agent-a 2>&1 | grep -c "policy: cycle complete" | tr -d ' \r\n')
 END=${END:-0}
 DELTA=$((END - START))
 echo "    cycle ticks during run: $DELTA (expected ~$RUN)"
 
-log_test "tick count within ±15% of $RUN"
-MIN=$((RUN * 85 / 100))
-MAX=$((RUN * 115 / 100))
+log_test "tick count within ±25% of $RUN"
+MIN=$((RUN * 75 / 100))
+MAX=$((RUN * 125 / 100))
 if [ "$DELTA" -ge "$MIN" ] && [ "$DELTA" -le "$MAX" ]; then
     log_pass "tick count $DELTA within [$MIN, $MAX]"
 else

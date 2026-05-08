@@ -850,23 +850,45 @@ log_header "PHASE 12: GATEWAY TESTING"
 
 if [[ $EUID -eq 0 ]]; then
     log_info "Running as root, testing gateway functionality"
-    
-    run_test "Start gateway" \
-        "pilotctl gateway start $CURRENT_ADDRESS" \
-        "false" \
-        "Gateway: start IP-to-Pilot bridge"
-    
-    sleep 2
-    
-    run_test "List gateway mappings" \
-        "pilotctl gateway list" \
-        "false" \
-        "Gateway: list active mappings"
-    
-    run_test "Stop gateway" \
-        "pilotctl gateway stop" \
-        "false" \
-        "Gateway: stop IP-to-Pilot bridge"
+
+    # T6.1: pilotctl no longer embeds the gateway. `gateway start`
+    # exec's pilot-gateway in the foreground (and blocks); `gateway
+    # stop` is a non-routable hint. Run pilot-gateway directly so we
+    # exercise the real surface end-to-end.
+    if command -v pilot-gateway >/dev/null 2>&1; then
+        # Background pilot-gateway run with the address mapped, then
+        # tear it down with SIGTERM. This validates the same wire
+        # behavior the previous in-process test did.
+        pilot-gateway run "$CURRENT_ADDRESS" >/tmp/pilot-gateway.log 2>&1 &
+        GATEWAY_PID=$!
+        sleep 2
+
+        if kill -0 "$GATEWAY_PID" 2>/dev/null; then
+            log_success "Start gateway"
+            ((TESTS_PASSED++))
+        else
+            log_error "Start gateway" "pilot-gateway exited" "see /tmp/pilot-gateway.log" ""
+        fi
+        ((TESTS_RUN++))
+
+        run_test "List gateway mappings" \
+            "pilotctl gateway list" \
+            "false" \
+            "Gateway: list active mappings (informational; mappings are owned by pilot-gateway)"
+
+        if kill -TERM "$GATEWAY_PID" 2>/dev/null; then
+            wait "$GATEWAY_PID" 2>/dev/null || true
+            log_success "Stop gateway"
+            ((TESTS_PASSED++))
+        else
+            log_error "Stop gateway" "could not signal pilot-gateway" "" ""
+        fi
+        ((TESTS_RUN++))
+    else
+        log_skip "pilot-gateway binary not on PATH"
+        ((TESTS_SKIPPED+=3))
+        ((TESTS_RUN+=3))
+    fi
 else
     log_skip "Gateway tests require root privileges (sudo)"
     log_info "To test gateway: sudo ./run_tests.sh"

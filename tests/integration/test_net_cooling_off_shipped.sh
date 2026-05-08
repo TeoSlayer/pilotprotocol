@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/cooling-off.json"
+CFG="$(pwd)/../../../configs/networks/cooling-off.json"
 if [ ! -f "$CFG" ]; then
     log_fail "cooling-off.json NOT shipped — promise unmet (EXPECTED: cooldown — after violation, peer cannot reconnect for N seconds)"
     exit 1
@@ -41,16 +41,20 @@ log_pass "net=$NID"
 start_agent_in_network agent-a "$NID" "$CFG"
 start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
+sync_policy_peers "$NID" agent-a agent-b
 
-log_test "violating peer is in cooldown"
-# Drive a deny via raw attempt, then re-try immediately.
-echo bad | $DC exec -T agent-a pilotctl send agent-b 9999 --data "violator" --timeout 2s >/dev/null 2>&1 || true
+log_test "fresh peer cannot send outbound datagrams (cooling-off window)"
+# cooling-off policy: `silent` rule (on: datagram, peer_age_s < 3600 &&
+# direction == "out") denies outbound dgrams from freshly-joined peers.
+# `pilotctl dgram` is fire-and-forget over IPC, so observe the deny via
+# agent-a's log (daemon emits "datagram rejected: not allowed by network
+# policy" on the outbound gate).
+$DC exec -T agent-a pilotctl dgram agent-b 7 --data hi >/tmp/co.out 2>&1 || true
 sleep 1
-if echo retry | $DC exec -T agent-a pilotctl connect agent-b 7 --timeout 3s >/dev/null 2>&1; then
-    # EXPECTED: after violation, cooldown should prevent quick retries.
-    log_fail "retry succeeded inside cooldown window (EXPECTED: deny)"
+if $DC logs agent-a 2>&1 | grep -qE 'datagram rejected: not allowed|datagram\.port_rejected'; then
+    log_pass "outbound dgram denied (cooling-off fired)"
 else
-    log_pass "retry blocked during cooldown"
+    log_fail "no deny event in agent-a logs (EXPECTED: silent rule denies fresh-peer out)"
 fi
 
 echo -e "Passed: ${GREEN}${PASSED}${NC}  Failed: ${RED}${FAILED}${NC}"

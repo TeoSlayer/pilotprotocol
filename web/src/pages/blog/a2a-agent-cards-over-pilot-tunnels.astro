@@ -20,7 +20,7 @@ const bodyContent = `<p>Google's <a href="https://google.github.io/A2A" target="
     </thead>
     <tbody>
       <tr><td>Capability advertisement</td><td>Agent Cards (JSON)</td><td>Registry (capability flags + metadata)</td></tr>
-      <tr><td>Task lifecycle</td><td>send/get/cancel task (JSON-RPC)</td><td>Port 1003 task submission</td></tr>
+      <tr><td>Task lifecycle</td><td>send/get/cancel task (JSON-RPC)</td><td>Messaging ports (send/recv)</td></tr>
       <tr><td>Wire format</td><td>JSON-RPC 2.0</td><td>34-byte binary header + payload</td></tr>
       <tr><td>Transport</td><td>HTTP/HTTPS</td><td>UDP overlay with sliding window</td></tr>
       <tr><td>Discovery</td><td>Well-known URL or directory</td><td>Registry resolve + trust handshake</td></tr>
@@ -229,7 +229,7 @@ func main() {
     <li><strong>Card fetch.</strong> The client sends an HTTP GET to <code>/.well-known/agent.json</code> to verify the server's capabilities before submitting work.</li>
     <li><strong>Task submission.</strong> The client POSTs a JSON-RPC <code>tasks/send</code> request. Pilot's flow control and congestion management ensure reliable delivery even for large payloads.</li>
     <li><strong>Streaming.</strong> If the task supports streaming, the server sends Server-Sent Events over the same HTTP connection. Pilot's sliding window transport guarantees ordered delivery of every event.</li>
-    <li><strong>Completion.</strong> The server returns the final task result. The polo score is updated based on execution performance.</li>
+    <li><strong>Completion.</strong> The server returns the final task result over the established tunnel.</li>
   </ol>
 
   <p>Every step happens over the same encrypted Pilot tunnel. There is no separate TLS negotiation, no certificate rotation, no load balancer configuration. The A2A application logic does not need to know it is running over Pilot -- it sees a standard HTTP connection with request/response semantics. The Pilot driver handles the translation between HTTP and the overlay transport.</p>
@@ -244,9 +244,9 @@ func main() {
 <span class="cmd">pilotctl peers --search "task-ready"</span>
 
 <span class="comment">// Returns: list of Pilot addresses with capability metadata</span>
-<span class="comment">// 1:0000.0042.00A1  capabilities=[task-ready] polo=47</span>
-<span class="comment">// 1:0000.0042.00B3  capabilities=[task-ready] polo=12</span>
-<span class="comment">// 1:0000.0042.00C7  capabilities=[task-ready] polo=89</span>
+<span class="comment">// 1:0000.0042.00A1  capabilities=[task-ready]</span>
+<span class="comment">// 1:0000.0042.00B3  capabilities=[task-ready]</span>
+<span class="comment">// 1:0000.0042.00C7  capabilities=[task-ready]</span>
 
 <span class="comment">// Step 2: Fetch Agent Cards from candidates</span>
 <span class="comment">// Filter by A2A skill tags for "summarization"</span>
@@ -254,13 +254,13 @@ func main() {
 <span class="cmd">pilotctl connect 1:0000.0042.00A1 80</span>
 <span class="cmd">pilotctl connect 1:0000.0042.00C7 80</span>
 
-<span class="comment">// Step 3: Select best match by skills + polo score</span>
-<span class="comment">// Agent C7 has summarize-papers skill AND polo=89</span>
+<span class="comment">// Step 3: Select best match by skills</span>
+<span class="comment">// Agent C7 has the summarize-papers skill</span>
 <span class="comment">// Submit task to C7</span>
 <span class="comment">// use pilotctl connect &lt;addr&gt; &lt;port&gt; for raw TCP</span>
 <span class="cmd">pilotctl connect 1:0000.0042.00C7 80</span></code></pre>
 
-  <p>Pilot's registry narrows the search to task-ready agents in the network. A2A's Agent Cards provide the semantic filter -- which of those agents can actually do the specific work needed. The polo score provides the quality signal -- among agents with the right skills, which one has the best track record. This three-layer filtering (network presence, semantic capability, behavioral reputation) produces better matches than any single discovery mechanism alone.</p>
+  <p>Pilot's registry narrows the search to task-ready agents in the network. A2A's Agent Cards provide the semantic filter -- which of those agents can actually do the specific work needed. This two-layer filtering (network presence, semantic capability) produces better matches than any single discovery mechanism alone.</p>
 
   <p>For more on how Pilot's network layer provides the foundation for this kind of integration, see <a href="/blog/how-pilot-protocol-works">How Pilot Protocol Works</a>. For the complementary pattern using MCP for tool access alongside Pilot networking, see <a href="/blog/mcp-plus-pilot-tools-and-network">MCP + Pilot: Tools and Network</a>. And for a deeper look at why agents need a dedicated network layer in the first place, see <a href="/blog/why-ai-agents-need-network-stack">Why AI Agents Need Their Own Network Stack</a>.</p>
   </section>

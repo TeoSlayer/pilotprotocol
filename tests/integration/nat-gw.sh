@@ -1,28 +1,24 @@
 #!/bin/bash
-# NAT gateway bootstrap for docker-compose.multi.nat.yml.
+# NAT gateway bootstrap for docker-compose.multi.nat.yml and friends.
 #
-# This container sits between a private-network agent and the public
-# network that holds rendezvous + the peer. We set up MASQUERADE on the
-# public-side interface and rely on the private-side agent having its
-# default route pointed at us (done via `sysctl` + route commands the
-# agent container itself runs at boot — see docker-compose.multi.nat.yml
-# `command:` block for agent-a).
-#
-# NAT_MODE env selects behaviour:
-#   cone       (default) — stock Linux stateful NAT (~ port-restricted cone)
-#   symmetric           — per-destination source-port randomisation so
-#                         the STUN-discovered endpoint for one peer is
-#                         NOT the endpoint seen by a second peer; Pilot
-#                         MUST fall back to beacon-relay.
+# Extended NAT_MODE values:
+#   cone               - stock Linux NAT (~port-restricted cone)
+#   symmetric          - MASQUERADE --random-fully (per-dest random src port)
+#   full_cone          - explicit DNAT of gateway public port -> agent-a,
+#                        no conntrack filtering (any peer can hit mapped port)
+#   address_restricted - filter return path by src IP only, not src port
+#   hairpin            - cone + hairpin DNAT so same-private peers can
+#                        reach each other via gateway public IP
+#   conntrack_short    - cone + UDP conntrack timeout shrunk to 10s
+#   udp_blocked        - iptables drops all UDP forwarded traffic
+#   egress_443_only    - forward only UDP dst port 443, drop everything else
+#   stateful_fw        - no NAT rewriting, just a stateful firewall
+#                        (deny unsolicited inbound, allow established)
 set -euo pipefail
 
 NAT_MODE="${NAT_MODE:-cone}"
-
-# Docker doesn't guarantee network attachment order (mapping syntax in
-# YAML is unordered). Detect which interface holds which subnet by IP,
-# so the MASQUERADE + FORWARD rules point the correct way regardless.
-PUBLIC_SUBNET="${PUBLIC_SUBNET:-172.30.10}"
-PRIVATE_SUBNET="${PRIVATE_SUBNET:-172.30.11}"
+PUBLIC_SUBNET="${PUBLIC_SUBNET:-192.0.2}"
+PRIVATE_SUBNET="${PRIVATE_SUBNET:-198.51.100}"
 
 detect_iface() {
     local subnet="$1"
@@ -41,38 +37,121 @@ fi
 echo "[nat-gw] mode=$NAT_MODE public=$PUBLIC_IFACE private=$PRIVATE_IFACE"
 ip addr show >&2 || true
 
-# Enable forwarding on both interfaces. The compose `sysctls:` directive
-# sets net.ipv4.ip_forward=1 at namespace creation time; re-writing
-# /proc/sys from the script fails on some kernels because the file is
-# marked RO inside an unprivileged container. Make both best-effort.
 sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true
 sysctl -w net.ipv4.conf.all.forwarding=1 2>/dev/null || true
 
-# Clean slate.
+# Clean slate for every run.
 iptables -t nat -F
 iptables -F FORWARD
+iptables -F INPUT 2>/dev/null || true
 
 case "$NAT_MODE" in
     cone)
-        # Stock Linux NAT: keeps conntrack per (src, dst) pair. Returning
-        # packets from the same (dst_ip, dst_port) are allowed. Other
-        # external peers can hit the mapped port IF they send to it —
-        # i.e. this is approximately a restricted-cone NAT, good enough
-        # to exercise Pilot's hole-punch via beacon.
         iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
         ;;
     symmetric)
-        # Force a fresh source port for every new destination by
-        # combining SNAT --random-fully (randomise within the whole
-        # ephemeral range) with --persistent disabled. Linux stateful
-        # NAT normally reuses a single external port; with --random-fully
-        # each new (dst_ip, dst_port) tuple gets an independent random
-        # external source port — which is exactly the symmetric-NAT
-        # property that breaks STUN-discovered direct connectivity.
         iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" \
             -p udp -j MASQUERADE --random-fully
         iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" \
             -p tcp -j MASQUERADE --random-fully
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
+        ;;
+    full_cone)
+        # MASQUERADE egress, plus DNAT any inbound UDP to the gateway's public
+        # IP on high ports back to agent-a. This approximates "full cone":
+        # once agent-a has any mapping, any external peer can reach it by
+        # hitting the gateway's public IP.
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -t nat -A PREROUTING -i "$PUBLIC_IFACE" -p udp \
+            --dport 1024:65535 -j DNAT --to-destination "${PRIVATE_SUBNET}.20:4000"
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" -j ACCEPT
+        ;;
+    address_restricted)
+        # Like cone, but we add a permissive FORWARD rule that accepts
+        # inbound traffic from any previously-seen src *IP* (not src port).
+        # conntrack already gives port-restricted behaviour; we relax it
+        # by using only source-IP tracking via a custom chain.
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        # Allow any inbound to the mapped agent from IPs we've sent to.
+        # Approximated by relaxed conntrack + explicit hairpin accept:
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state NEW,RELATED,ESTABLISHED -j ACCEPT
+        ;;
+    hairpin)
+        # Cone behavior + hairpin DNAT: when a private-side peer sends
+        # to the gateway's public IP:port, redirect back into the private
+        # network to the mapped agent. Plus SNAT so the return traffic
+        # looks like it came from the gateway (keeps conntrack happy).
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -t nat -A PREROUTING -i "$PRIVATE_IFACE" -p udp \
+            -d "${PUBLIC_SUBNET}.30" --dport 4000 \
+            -j DNAT --to-destination "${PRIVATE_SUBNET}.20:4000"
+        iptables -t nat -A POSTROUTING -o "$PRIVATE_IFACE" -p udp \
+            -d "${PRIVATE_SUBNET}.20" --dport 4000 -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -j ACCEPT
+        iptables -A FORWARD -o "$PRIVATE_IFACE" -j ACCEPT
+        ;;
+    conntrack_short)
+        # Cone NAT + aggressively short UDP conntrack timeout. If Pilot's
+        # 5s keepalive is working, tunnels should survive; if not, they'll
+        # fail after the timeout passes mid-idle.
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
+        # Shrink conntrack timeouts. /proc can be RO on some Docker Desktop
+        # kernels; try sysctl first, then proc direct. Best-effort.
+        sysctl -w net.netfilter.nf_conntrack_udp_timeout=10 2>/dev/null \
+            || echo 10 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout 2>/dev/null \
+            || true
+        sysctl -w net.netfilter.nf_conntrack_udp_timeout_stream=15 2>/dev/null \
+            || echo 15 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream 2>/dev/null \
+            || true
+        ;;
+    udp_blocked)
+        # Allow TCP through, drop all UDP. Pilot uses UDP for its tunnel,
+        # so registration/handshake must fail gracefully.
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" \
+            -p udp -j DROP
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
+        ;;
+    egress_443_only)
+        # Only forward UDP if dst port is 443 or it's the rendezvous TCP
+        # registry port (9000). This simulates a corporate firewall that
+        # only allows HTTPS egress. Pilot binds :443 as its tunnel port
+        # in this mode (configured on agent side).
+        iptables -t nat -A POSTROUTING -o "$PUBLIC_IFACE" -j MASQUERADE
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" \
+            -p tcp --dport 9000 -j ACCEPT
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" \
+            -p tcp --dport 9001 -j ACCEPT
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" \
+            -p udp --dport 443 -j ACCEPT
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" \
+            -p udp --dport 9001 -j ACCEPT
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j DROP
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
+        ;;
+    stateful_fw)
+        # No NAT rewriting at all — agent-a keeps its private IP. The
+        # gateway just acts as a stateful firewall: allow outbound, allow
+        # inbound only for established flows. Useful for contrasting with
+        # NAT (same filtering semantics, no address rewriting).
+        iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
+        iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
+            -m state --state RELATED,ESTABLISHED -j ACCEPT
+        iptables -A FORWARD -j DROP
         ;;
     *)
         echo "[nat-gw] unknown NAT_MODE=$NAT_MODE" >&2
@@ -80,13 +159,9 @@ case "$NAT_MODE" in
         ;;
 esac
 
-iptables -A FORWARD -i "$PRIVATE_IFACE" -o "$PUBLIC_IFACE" -j ACCEPT
-iptables -A FORWARD -i "$PUBLIC_IFACE" -o "$PRIVATE_IFACE" \
-    -m state --state RELATED,ESTABLISHED -j ACCEPT
-
 echo "[nat-gw] rules installed:"
 iptables -t nat -S POSTROUTING
+iptables -t nat -S PREROUTING 2>/dev/null || true
 iptables -S FORWARD
 
-# Stay alive forever; docker logs tail this.
 exec tail -f /dev/null

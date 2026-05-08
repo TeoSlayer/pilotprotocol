@@ -1,22 +1,25 @@
 #!/bin/bash
 # Chunk J — NAT traversal: restricted/port-restricted cone.
 #
-# Topology: agent-a is behind nat-gw on private-a (172.30.11.0/24);
-# rendezvous + agent-b are on public (172.30.10.0/24). The gateway
-# runs stock Linux NAT (iptables MASQUERADE) which behaves as a
-# port-restricted cone — inbound traffic to agent-a's mapped port is
-# only accepted from (ip, port) pairs agent-a has previously contacted.
+# Topology: agent-a is behind nat-gw on private-a (198.51.100.0/24);
+# rendezvous + agent-b are on public (192.0.2.0/24). The gateway runs
+# stock Linux NAT (iptables MASQUERADE) which behaves as a port-
+# restricted cone — inbound traffic to agent-a's mapped port is only
+# accepted from (ip, port) pairs agent-a has previously contacted.
 #
 # Expectation: Pilot's beacon hole-punch makes both sides send a probe
 # to each other so conntrack on nat-gw admits the peer's return path.
 # Once established, agent-b should be able to send a message to agent-a
 # and get a round-trip.
 #
+# Subnets are RFC5737 TEST-NET ranges so Pilot's IsPrivate() filter
+# accepts the STUN-discovered gateway IP as the registered endpoint.
+#
 # EXPECTED:
 #   - Both agents register with rendezvous (2 nodes in /api/stats).
 #   - `pilotctl connect agent-b:7` from agent-a succeeds (echo works).
 #   - agent-a's registered endpoint is nat-gw's public IP (not the
-#     private 172.30.11.20), confirming STUN saw the NATed endpoint.
+#     private 198.51.100.20), confirming STUN saw the NATed endpoint.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -64,14 +67,24 @@ else
 fi
 
 log_test "agent-a's registered endpoint is the gateway public IP"
+# A NATed node registers as non-public, so its real_addr is not exposed
+# via `pilotctl lookup`. The authoritative record is the daemon's own
+# "daemon registered" log line, which includes the endpoint STUN saw.
 NID_A=$($DC exec -T agent-a pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
-ENDPOINT=$($DC exec -T rendezvous curl -fsS "http://127.0.0.1:8080/api/nodes" 2>/dev/null \
-    | jq -r --argjson id "$NID_A" '.nodes[]? | select(.node_id == $id) | .endpoint // empty')
+ENDPOINT=$($DC logs agent-a 2>&1 \
+    | grep 'daemon registered' \
+    | grep -oE 'endpoint=[^ "]+' \
+    | tail -n1 \
+    | sed -E 's/^endpoint=//')
 echo "    agent-a node_id=$NID_A endpoint=$ENDPOINT"
-if echo "$ENDPOINT" | grep -q '172\.30\.10\.30'; then
-    log_pass "endpoint is nat-gw public ip (172.30.10.30)"
-elif echo "$ENDPOINT" | grep -q '172\.30\.11\.'; then
+EXPECT_PUB="${NAT_PUB:-192.0.2}.30"
+EXPECT_PRV="${NAT_PRV:-198.51.100}."
+if echo "$ENDPOINT" | grep -qF "$EXPECT_PUB"; then
+    log_pass "endpoint is nat-gw public ip ($ENDPOINT)"
+elif echo "$ENDPOINT" | grep -qF "$EXPECT_PRV"; then
     log_fail "endpoint leaks private-a IP: $ENDPOINT (STUN didn't discover NAT mapping)"
+elif echo "$ENDPOINT" | grep -qE '^\[::1\]|^127\.0\.0\.1'; then
+    log_fail "endpoint fell back to loopback ($ENDPOINT) — STUN failed or reply not forwarded"
 else
     log_fail "unexpected endpoint: $ENDPOINT"
 fi
@@ -87,13 +100,40 @@ else
 fi
 
 log_test "agent-b -> agent-a direction also works (return hole-punch)"
-OUT2=$(echo "reverse" | timeout 15 $DC exec -T agent-b pilotctl connect agent-a 7 --timeout 10s 2>&1)
+# Inbound SYNs from a peer that hasn't completed a handshake are
+# rejected by Pilot policy ("SYN rejected: untrusted source"). To
+# exercise the reverse path we first establish mutual trust via the
+# handshake+approve dance, then try the echo. This isolates "did NAT
+# traversal work?" from "did trust authorise the SYN?".
+AGENT_A_ADDR="0:0000.0000.$(printf %04x "$NID_A")"
+NID_B=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
+
+# handshake takes either a hostname or pilot address; approve takes
+# a raw numeric node_id. A handshake from an untrusted peer arrives
+# via relay (direct SYNs get dropped), so it can take 10–30s to show
+# up on agent-a. Poll for the pending request before approving,
+# otherwise approve would no-op against an empty queue.
+echo "    NID_A=$NID_A NID_B=$NID_B (A_ADDR=$AGENT_A_ADDR)"
+HS_OUT=$($DC exec -T agent-b pilotctl --json handshake "$AGENT_A_ADDR" "NAT reverse-path test" 2>&1)
+echo "    handshake b->a: $HS_OUT" | head -c 300
+for _ in $(seq 1 30); do
+    if $DC logs agent-a 2>&1 | grep -q "relayed handshake request pending approval.*from_node_id=$NID_B"; then
+        break
+    fi
+    sleep 1
+done
+AP_OUT=$($DC exec -T agent-a pilotctl --json approve "$NID_B" 2>&1)
+echo "    approve a->b: $AP_OUT" | head -c 300
+# Give the mutual-trust sync a beat to propagate back to agent-b.
+sleep 2
+
+OUT2=$(echo "reverse" | timeout 15 $DC exec -T agent-b pilotctl connect "$AGENT_A_ADDR" 7 --timeout 10s 2>&1)
 if echo "$OUT2" | grep -q "reverse"; then
-    log_pass "reverse echo ok"
+    log_pass "reverse echo ok (trusted + return hole-punch)"
 else
-    # EXPECTED behaviour on port-restricted cone: may need the a->b
-    # direction first to open the pinhole. If it still fails, that's a
-    # real Pilot finding — beacon should coordinate the punch.
+    # On a port-restricted cone this CAN still fail if the beacon
+    # didn't coordinate a second punch — that would be a real Pilot
+    # finding worth investigating.
     log_fail "reverse echo failed: $(echo "$OUT2" | head -c 200)"
 fi
 

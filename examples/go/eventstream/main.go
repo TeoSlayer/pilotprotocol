@@ -8,7 +8,7 @@ import (
 	"log"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 

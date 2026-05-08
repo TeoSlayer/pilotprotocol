@@ -1,8 +1,9 @@
 services:
   rendezvous:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: rendezvous
     networks:
       pilot-p2p:
@@ -20,9 +21,10 @@ services:
       retries: 10
 
   a1:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a1
     depends_on:
       rendezvous:
@@ -40,9 +42,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.21:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a2:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a2
     depends_on:
       rendezvous:
@@ -60,9 +63,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.22:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a3:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a3
     depends_on:
       rendezvous:
@@ -80,9 +84,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.23:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a4:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a4
     depends_on:
       rendezvous:
@@ -100,9 +105,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.24:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a5:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a5
     depends_on:
       rendezvous:
@@ -120,9 +126,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.25:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a6:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a6
     depends_on:
       rendezvous:
@@ -140,9 +147,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.26:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a7:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a7
     depends_on:
       rendezvous:
@@ -160,9 +168,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.27:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a8:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a8
     depends_on:
       rendezvous:
@@ -180,9 +189,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.28:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a9:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a9
     depends_on:
       rendezvous:
@@ -200,9 +210,10 @@ services:
       -endpoint ${PILOT_SUBNET_PREFIX:-172.34.0}.29:4000 -listen :4000 -public -keepalive 5s -log-level info
 
   a10:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: a10
     depends_on:
       rendezvous:

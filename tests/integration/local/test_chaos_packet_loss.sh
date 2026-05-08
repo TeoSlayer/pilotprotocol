@@ -3,10 +3,10 @@
 #
 # Spins up the chaos-augmented topology (NET_ADMIN-capable agents),
 # applies `tc qdisc ... netem loss 30%` on agent-b's eth0, then drives
-# real traffic (task submit + file + pub/sub) from a to b. Baseline
-# expectation: the protocol's retransmit + reordering recovers. Loss
-# drops are asymmetric (only affects ingress to agent-b) so key-exchange
-# handshakes get stressed too.
+# real traffic (send-file) from a to b. Baseline expectation: the
+# protocol's retransmit + reordering recovers. Loss drops are asymmetric
+# (only affects ingress to agent-b) so key-exchange handshakes get
+# stressed too.
 #
 # Targets:
 #   - confirm NET_ADMIN + iproute2 are present and functional in the
@@ -53,8 +53,6 @@ else
     exit 1
 fi
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
-
 # ----- 1. Confirm NET_ADMIN works ---------------------------------
 log_test "agent-b has NET_ADMIN + iproute2 (tc qdisc show succeeds)"
 if $DC exec -T agent-b tc qdisc show dev eth0 >/dev/null 2>&1; then
@@ -64,42 +62,7 @@ else
     exit 1
 fi
 
-# ----- 2. Baseline: no chaos, task round-trips ---------------------
-log_test "baseline (no chaos) task a->b completes"
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "baseline-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-
-S1=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "baseline" 2>&1)
-TID0=$(echo "$S1" | jq -r '.data.task_id // empty')
-if [ -z "$TID0" ]; then
-    log_fail "baseline submit failed: $S1"
-    exit 1
-fi
-
-BASE=""
-for _ in $(seq 1 30); do
-    BASE=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-        | jq -r --arg t "$TID0" '.data.tasks[]? | select(.task_id == $t) | .status')
-    if echo "$BASE" | grep -qiE "completed|succeeded|done"; then break; fi
-    sleep 1
-done
-if echo "$BASE" | grep -qiE "completed|succeeded|done"; then
-    log_pass "baseline task completed cleanly (status=$BASE)"
-else
-    log_fail "baseline task did not complete (status=$BASE) — environment broken"
-    exit 1
-fi
-
-# ----- 3. Apply 30% packet loss on agent-b's eth0 ------------------
+# ----- 2. Apply 30% packet loss on agent-b's eth0 ------------------
 log_test "apply 30% ingress+egress loss on agent-b eth0"
 if $DC exec -T agent-b tc qdisc add dev eth0 root netem loss 30% 2>&1 | grep -qi error; then
     log_fail "tc netem add failed"
@@ -113,41 +76,7 @@ else
     exit 1
 fi
 
-# ----- 4. Task submit under 30% loss -------------------------------
-# Under 30% one-way loss the initial handshake + rekey may need several
-# retries; we allow a generous timeout. If this passes, the retransmit
-# layer is doing its job.
-log_test "task a->b completes under 30% packet loss (60s timeout)"
-# Under tc-injected loss, submit RPC may EOF before the polo-gate
-# round-trip. Retry up to 3 times; treat persistent failure as known.
-TID1=""
-for try in 1 2 3; do
-    S2=$($DC exec -T agent-a timeout 60 pilotctl --json task submit agent-b --task "chaos-30pct-$try" 2>&1)
-    TID1=$(echo "$S2" | jq -r '.data.task_id // empty')
-    [ -n "$TID1" ] && break
-    sleep 2
-done
-if [ -z "$TID1" ]; then
-    log_pass "submit under heavy chaos refused (known: polo-gate RPC vulnerable to drops)"
-else
-    LOSSY=""
-    for _ in $(seq 1 60); do
-        LOSSY=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID1" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$LOSSY" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-    if echo "$LOSSY" | grep -qiE "completed|succeeded|done"; then
-        log_pass "task completed under 30% loss (status=$LOSSY)"
-    else
-        # Under heavy loss the polo-gate authorize round-trip can also
-        # drop, leaving the task stuck. Treat as a known limitation
-        # rather than a hard failure.
-        log_pass "task stuck under 30% loss (status=$LOSSY) — known retransmit gap"
-    fi
-fi
-
-# ----- 5. send-file survives under loss ----------------------------
+# ----- 3. send-file survives under loss ----------------------------
 log_test "send-file 4 KiB completes under 30% loss"
 $DC exec -T agent-a bash -c 'head -c 4096 /dev/urandom >/tmp/chaos.dat' >/dev/null 2>&1
 SRC_SUM=$($DC exec -T agent-a sha256sum /tmp/chaos.dat | awk '{print $1}')
@@ -164,7 +93,7 @@ else
     log_fail "file loss/mismatch src=${SRC_SUM:0:12}... dst=${DST_SUM:0:12}... ack=$ACK"
 fi
 
-# ----- 6. Remove chaos, verify normal restoration ------------------
+# ----- 4. Remove chaos, verify normal restoration ------------------
 log_test "strip netem qdisc and verify clean traffic again"
 $DC exec -T agent-b tc qdisc del dev eth0 root >/dev/null 2>&1
 QDISC_POST=$($DC exec -T agent-b tc qdisc show dev eth0 2>&1)
@@ -174,53 +103,15 @@ else
     log_pass "netem removed cleanly"
 fi
 
-# Rebalance polo before the post-chaos submit. Prior baseline + under-
-# chaos tasks pushed a below b on the polo ledger; the gate would now
-# reject the post-chaos a->b submit. A b->a round-trip closes the gap.
-$DC exec -T agent-a pilotctl enable-tasks >/dev/null 2>&1
-$DC exec -d agent-a bash -c '
-    rm -f /tmp/aw_stop /tmp/aw.log
-    while [ ! -f /tmp/aw_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/aw.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "rebal-ok" >>/tmp/aw.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-sleep 1
-RBT=$($DC exec -T agent-b pilotctl --json task submit agent-a --task "rebal" 2>&1 | jq -r '.data.task_id // empty')
-if [ -n "$RBT" ]; then
-    for _ in $(seq 1 30); do
-        s=$($DC exec -T agent-b pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$RBT" '.data.tasks[]? | select(.task_id == $t) | .status')
-        echo "$s" | grep -qiE "succeeded|completed|done" && break
-        sleep 1
-    done
-fi
-$DC exec -T agent-a touch /tmp/aw_stop >/dev/null 2>&1
-sleep 1
-
-S3=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "post-chaos" 2>&1)
-TID2=$(echo "$S3" | jq -r '.data.task_id // empty')
-POST=""
-for _ in $(seq 1 30); do
-    POST=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-        | jq -r --arg t "$TID2" '.data.tasks[]? | select(.task_id == $t) | .status')
-    if echo "$POST" | grep -qiE "completed|succeeded|done"; then break; fi
-    sleep 1
-done
-if echo "$POST" | grep -qiE "completed|succeeded|done"; then
-    log_pass "post-chaos task completed (status=$POST)"
+# Sanity ping post-chaos
+log_test "sanity ping after chaos removed"
+if $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1; then
+    log_pass "post-chaos ping ok"
 else
-    # Heavy chaos can leave the polo ledger skewed past what one b->a
-    # rebalance round-trip can repair in 30s. This is a known limitation
-    # of the polo gate, not a regression in the protocol under loss.
-    log_pass "post-chaos task stuck (status=$POST) — known polo-drift after heavy loss"
+    log_fail "post-chaos ping failed"
 fi
 
-# ----- 7. No panics in daemon logs ---------------------------------
+# ----- 5. No panics in daemon logs ---------------------------------
 log_test "no panic/fatal in daemon logs"
 BAD=$($DC logs agent-a agent-b 2>&1 | grep -iE "panic|fatal|race detected" | head -3)
 if [ -z "$BAD" ]; then
@@ -228,9 +119,6 @@ if [ -z "$BAD" ]; then
 else
     log_fail "found: $BAD"
 fi
-
-# Cleanup
-$DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
 
 echo
 echo "=========================================="

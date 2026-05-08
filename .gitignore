@@ -20,6 +20,7 @@ jetson
 /nameserver
 /gateway
 /updater
+/check-layers
 
 # Go workspace
 go.work
@@ -58,6 +59,22 @@ web/.wrangler/
 
 # Personal analytics scripts + their reports - never commit
 web/scripts/local/
+
+# =============================================================================
+# Private / ops — lives in web4-private, never commit here
+# =============================================================================
+OBSERVABILITY_PLAN.md
+SECURITY_PLAN.md
+abpn/
+mention-exporter
+k8s/gcp-vms/
+k8s/pilot-exporter/
+k8s/pilot-install-canary/
+k8s/pilot-probe/
+k8s/pilot-release/
+k8s/pilot-website/
+k8s/network/
+web/ANALYTICS.md
 
 # Root-level npm tooling (not the main module)
 /package.json
@@ -108,7 +125,6 @@ tests/integration/k8s/preloaded/*.tar
 tests/integration/local/logs/
 tests/integration/local/results/
 tests/admin_cli_test.go
-cmd/spoof/
 
 # =============================================================================
 # Docs (allowlist — only track .tex, .pdf, SPEC.md, media/, ietf/, research/)
@@ -116,6 +132,7 @@ cmd/spoof/
 docs/*
 !docs/*.tex
 !docs/*.pdf
+!docs/*.md
 !docs/SPEC.md
 !docs/media/
 !docs/research/
@@ -129,13 +146,19 @@ AGENTS.md
 .mcp.json
 cmd/pilot-admin/
 cmd/console/
+cmd/netsim/
+cmd/wire-gen/
 console
 console-ui/
 pkg/console/
+pkg/netsim/
 newsletter/
 web/MESSAGING.md
 scripts/publish-worker/src/webhook.ts
 scripts/publish-worker/test/webhook.test.ts
+tools/check-bootstrap/
+tools/check-globals/
+RELEASE_NOTES*.md
 
 # =============================================================================
 # Web: stale Astro outputs (regenerated at build time)
@@ -166,6 +189,4 @@ k8s/
 tests/integration/local/logs.rerun*
 
 # Untracked sandboxes / personal scratch — never commit
-abpn/
 scripts/pilot-geo-exporter/
-/spoof

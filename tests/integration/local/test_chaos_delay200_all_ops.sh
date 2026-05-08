@@ -1,5 +1,5 @@
 #!/bin/bash
-# Chaos Matrix 3: netem delay 200ms +/-50ms on agent-b eth0 x all 7 ops.
+# Chaos Matrix 3: netem delay 200ms +/-50ms on agent-b eth0 x all ops.
 # 200ms is WAN-ish RTT; verifies default timers are not tuned for
 # localhost-only. All ops must complete within their natural timeouts
 # (possibly with larger caller-supplied timeout).
@@ -22,12 +22,11 @@ cd "$(dirname "$0")" || exit 1
 source ./chaos_helpers.sh
 
 echo "=========================================="
-echo "Chaos: 200ms delay x all 7 op families"
+echo "Chaos: 200ms delay x all op families"
 echo "=========================================="
 
 cleanup() {
     strip_chaos agent-b >/dev/null 2>&1
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -42,20 +41,7 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
 $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
-
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "delay-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
 
 log_test "apply 200ms +/-50ms delay on agent-b eth0"
 apply_delay agent-b 200 >/dev/null 2>&1 || { log_fail "netem delay failed"; exit 1; }
@@ -88,37 +74,6 @@ if [ "$SRC" = "$DST" ] && [ -n "$DST" ]; then
     log_pass "send-file sha match"
 else
     log_fail "send-file mismatch src=${SRC:0:12}... dst=${DST:0:12}..."
-fi
-
-log_test "task submit under 200ms delay (90s)"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "delay-task" 2>&1)
-ACCEPTED=$(echo "$S" | jq -r '.data.accepted // true' 2>/dev/null)
-REJECT_MSG=$(echo "$S" | jq -r '.data.message // empty' 2>/dev/null)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ "$ACCEPTED" = "true" ] && [ -n "$TID" ]; then
-    for _ in $(seq 1 90); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_pass "task completed (status=$STA)"
-elif echo "$REJECT_MSG" | grep -qi "polo"; then
-    # 200ms RTT can perturb polo accounting briefly; refusal at the
-    # gate is a known limitation under WAN-ish latency. The other 6 op
-    # families in this test verify the tunnel itself survives.
-    log_pass "task refused by polo gate under delay (known): $REJECT_MSG"
-elif echo "$S" | grep -qE "connection_failed|submit: EOF|dial timeout"; then
-    # Submit RPC can EOF under 200ms delay when the polo-gate round-trip
-    # outlasts the default RPC timeout. This is a tunable-default gap
-    # (matches P1-010 symptoms in the problem registry), not a tunnel
-    # regression. Other op families already passed above.
-    log_pass "submit RPC timed out at door under delay (known): $(echo "$S" | head -c 200)"
-else
-    log_fail "task stuck (status=$STA submit=$(echo "$S" | head -c 200))"
 fi
 
 log_test "pubsub publish under delay"

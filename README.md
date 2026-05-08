@@ -175,7 +175,6 @@ graph LR
         D --- E[Echo :7]
         D --- DX[Data Exchange :1001]
         D --- ES[Event Stream :1002]
-        D --- TS[Task Submit :1003]
     end
 
     D <====>|UDP Tunnel<br/>AES-256-GCM + NAT traversal| RD
@@ -186,7 +185,6 @@ graph LR
         RD --- RE[Echo :7]
         RD --- RDX[Data Exchange :1001]
         RD --- RES[Event Stream :1002]
-        RD --- RTS[Task Submit :1003]
     end
 
     D -.->|register + discover| RV

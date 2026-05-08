@@ -82,11 +82,11 @@ fi
 
 log_test "sender reports success OR loud error (never silent corruption)"
 OUT=$($DC exec -T agent-a bash -c 'cat /tmp/send.out')
-OK=$(echo "$OUT" | jq -r '.ok // false' 2>/dev/null)
+OK=$(echo "$OUT" | jq -r ".status // empty" 2>/dev/null)
 ACK=$(echo "$OUT" | jq -r '.data.ack // empty' 2>/dev/null | grep -oE '[0-9]+' | head -n1)
 ERR=$(echo "$OUT" | jq -r '.error // empty' 2>/dev/null)
 
-if [ "$OK" = "true" ] && [ -n "$ACK" ] && [ "$ACK" -ge "$SRC_SZ" ]; then
+if [ "$OK" = "ok" ] && [ -n "$ACK" ] && [ "$ACK" -ge "$SRC_SZ" ]; then
     # Sender claims full delivery → verify receiver side sha.
     log_test "verify receiver file sha matches source (ack claims full delivery)"
     RECV=$($DC exec -T agent-b bash -c "ls /root/.pilot/received 2>/dev/null | grep '^rekey-race-' | head -n1" | tr -d ' \r\n')

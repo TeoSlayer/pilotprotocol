@@ -41,7 +41,7 @@ PAYLOAD="temp=42.1"
 # agent-a subscribes in the background, writing events to a file.
 $DC exec -d agent-a bash -c "
     rm -f /tmp/sub.log
-    pilotctl subscribe '$TOPIC' --timeout 20s > /tmp/sub.log 2>&1 &
+    pilotctl subscribe agent-a '$TOPIC' --timeout 20s > /tmp/sub.log 2>&1 &
     echo \$! > /tmp/sub.pid
 "
 sleep 2
@@ -56,7 +56,7 @@ fi
 
 sleep 3
 log_test "subscriber on agent-a saw payload"
-SAW=$($DC exec -T agent-a bash -c "grep -c '$PAYLOAD' /tmp/sub.log 2>/dev/null || echo 0" | tr -d '\r\n')
+SAW=$($DC exec -T agent-a bash -c "grep -c '$PAYLOAD' /tmp/sub.log 2>/dev/null || true" | tr -d '\r\n')
 if [ "${SAW:-0}" -ge 1 ]; then
     log_pass "subscriber received payload ($SAW matches)"
 else

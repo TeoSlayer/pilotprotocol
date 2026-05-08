@@ -162,14 +162,13 @@ const bodyContent = `<p>Your company has an AI research agent. A partner company
 
   <h3>Collaborate</h3>
 
-  <pre><code><span class="comment"># Company A: submit a task to Company B's agent</span>
-<span class="cmd">pilotctl task submit 1:0001.0000.0042 \\
-  --description "Analyze Q1 revenue trends for NASDAQ tech sector" \\
-  --payload '{"sectors":["tech"],"exchange":"NASDAQ","period":"Q1-2026"}'</span>
+  <pre><code><span class="comment"># Company A: send a request to Company B's agent</span>
+<span class="cmd">pilotctl send 1:0001.0000.0042 \\
+  '{"description":"Analyze Q1 revenue trends for NASDAQ tech sector","params":{"sectors":["tech"],"exchange":"NASDAQ","period":"Q1-2026"}}'</span>
 
-<span class="comment"># Company B's agent processes the task and returns results</span>
+<span class="comment"># Company B's agent processes the request and sends results back</span>
 <span class="comment"># Company A receives the result over the encrypted tunnel</span>
-<span class="cmd">pilotctl extras task list --json</span></code></pre>
+<span class="cmd">pilotctl recv --from 1:0001.0000.0042 --json</span></code></pre>
 
   <h3>Go integration for programmatic use</h3>
 

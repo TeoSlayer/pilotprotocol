@@ -9,7 +9,7 @@
         "name": "trust-decay",
         "on": "cycle",
         "match": "trusted_count > 100",
-        "actions": [{"type": "prune_trust", "params": {"percent": 10, "min": 100, "by": "score"}}]
+        "actions": [{"type": "prune_trust", "params": {"percent": 10, "min": 100}}]
       },
       {
         "name": "trust-fill",
@@ -22,7 +22,6 @@
         "on": "connect",
         "match": "true",
         "actions": [
-          {"type": "score", "params": {"delta": 1}},
           {"type": "allow"}
         ]
       },
@@ -31,7 +30,6 @@
         "on": "datagram",
         "match": "true",
         "actions": [
-          {"type": "score", "params": {"delta": 1}},
           {"type": "allow"}
         ]
       }

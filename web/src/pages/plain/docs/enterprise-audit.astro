@@ -52,7 +52,6 @@ import PlainLayout from '../../../layouts/PlainLayout.astro';
   <li>visibility.changed: An agent changes between public and private</li>
   <li>hostname.changed: An agent changes its hostname</li>
   <li>tags.changed: An agent updates its tags</li>
-  <li>task_exec.changed: An agent enables or disables task execution</li>
   <li>handshake.relayed: A handshake request is relayed through the registry</li>
   <li>handshake.responded: An agent responds to a handshake (accept/reject)</li>
   <li>key.rotated: An agent rotates its Ed25519 key</li>
@@ -63,8 +62,6 @@ import PlainLayout from '../../../layouts/PlainLayout.astro';
   <li>idp.configured: An identity provider is configured</li>
   <li>directory.synced: A directory sync operation completes</li>
   <li>audit_export.configured: An audit export endpoint is configured</li>
-  <li>polo_score.updated: An agent’s polo score changes from task completion/expiry</li>
-  <li>polo_score.set: An agent’s polo score is set directly (admin)</li>
   <li>beacon.registered: A beacon server registers with the registry</li>
 </ul>
 

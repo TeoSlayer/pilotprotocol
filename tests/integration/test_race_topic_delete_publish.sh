@@ -50,7 +50,7 @@ $DC exec -d agent-b bash -c "
     end=\$((\$(date +%s) + $DUR))
     while [ \$(date +%s) -lt \$end ]; do
         # 200 ms subscribe
-        timeout 0.2 pilotctl subscribe '$TOPIC' >>/tmp/churn.log 2>&1 || true
+        timeout 0.2 pilotctl subscribe agent-b '$TOPIC' >>/tmp/churn.log 2>&1 || true
         # brief gap
         sleep 0.05
     done

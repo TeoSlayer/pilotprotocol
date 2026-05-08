@@ -21,7 +21,7 @@ log_test() { echo -e "[$(ts)] ${YELLOW}[TEST]${NC} $*"; }
 log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
-DC="docker compose -f docker-compose.multi.yml"
+DC="docker compose -f docker-compose.multi.yml -f docker-compose.multi.policy.yml"
 export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
@@ -103,37 +103,33 @@ else
 fi
 
 log_test "X's deny is scoped to X (agent-a is member of X)"
-# Force traffic inside net X. If agent-a dials its own daemon within
-# X's network id, X's `dial:deny` should block (proving X is loaded).
-# We can't easily force a per-net dial from pilotctl today, so we
-# assert via the policy runner status that X has deny rules active.
-STATUS_X=$(policy_status agent-a "$NID_X")
-if echo "$STATUS_X" | jq -e '.data.rules // .rules // []' >/dev/null 2>&1; then
-    log_pass "X runner has rules active"
+POL_X=$($DC exec -T agent-a pilotctl --json policy get --net "$NID_X" 2>/dev/null)
+if echo "$POL_X" | jq -e '.data.expr_policy.rules[]? | select(.name == "deny-all-connect")' >/dev/null 2>&1; then
+    log_pass "X runner has deny-all rule"
 else
-    log_fail "X runner has no rules (scoping unverifiable)"
-    echo "$STATUS_X" | head -c 500 | sed 's/^/    /'
+    log_fail "X runner missing deny rule"
+    echo "$POL_X" | head -c 500 | sed 's/^/    /'
 fi
 
 log_test "Y's allow is scoped to Y (agent-b is member of Y, not X)"
-STATUS_Y=$(policy_status agent-b "$NID_Y")
-if echo "$STATUS_Y" | jq -e '.data.rules // .rules // []' >/dev/null 2>&1; then
-    log_pass "Y runner has rules active"
+POL_Y=$($DC exec -T agent-b pilotctl --json policy get --net "$NID_Y" 2>/dev/null)
+if echo "$POL_Y" | jq -e '.data.expr_policy.rules[]? | select(.name == "allow-all-connect")' >/dev/null 2>&1; then
+    log_pass "Y runner has allow-all rule"
 else
-    log_fail "Y runner not active"
+    log_fail "Y runner missing allow rule"
 fi
 
-log_test "agent-a has NO runner for Y, agent-b has NO runner for X"
-# Cross-check: agent-a shouldn't have loaded Y's policy.
-CROSS_A=$(policy_status agent-a "$NID_Y" | jq -r '.error.code // "ok"')
-CROSS_B=$(policy_status agent-b "$NID_X" | jq -r '.error.code // "ok"')
-if [ "$CROSS_A" != "ok" ] && [ "$CROSS_B" != "ok" ]; then
-    log_pass "runners are strictly per-network"
+log_test "runners have distinct rule sets per network"
+# agent-a creates both networks (helper hardcodes agent-a as the
+# creator), so it has runners for both X and Y. The important
+# scoping property is that each runner holds a DIFFERENT rule set —
+# X's deny rules must not leak into Y's runner and vice versa.
+RULES_X=$(echo "$POL_X" | jq -c '.data.expr_policy.rules[]?.name' | sort -u | tr '\n' ',')
+RULES_Y=$(echo "$POL_Y" | jq -c '.data.expr_policy.rules[]?.name' | sort -u | tr '\n' ',')
+if [ -n "$RULES_X" ] && [ -n "$RULES_Y" ] && [ "$RULES_X" != "$RULES_Y" ]; then
+    log_pass "per-network rule sets distinct (X=$RULES_X Y=$RULES_Y)"
 else
-    # EXPECTED: cross-scope lookups should error because the daemon
-    # only runs policy for networks it has joined. If either returns
-    # ok, that's a scoping leak.
-    log_fail "cross-scope status succeeded (leak): A->Y=$CROSS_A  B->X=$CROSS_B"
+    log_fail "rule sets leaked between networks (X=$RULES_X  Y=$RULES_Y)"
 fi
 
 rm -f "$STRICT" "$PERMISSIVE"

@@ -2,10 +2,59 @@
 set -e
 
 # Pilot Protocol installer
+# Source:     https://github.com/TeoSlayer/pilotprotocol  (AGPL-3.0)
+# Hosted at:  https://pilotprotocol.network/install.sh
+#
 # Usage:
 #   Install:    curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   RC build:   PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
+#
+# WHAT THIS SCRIPT DOES (read before piping to sh):
+#   1. Detects OS/arch (Linux/Darwin × amd64/arm64)
+#   2. Resolves the latest release tag from github.com/TeoSlayer/pilotprotocol/releases
+#   3. Downloads the release tarball + checksums.txt from that release
+#   4. *** Verifies SHA-256 of the tarball against checksums.txt (aborts on mismatch) ***
+#   5. Extracts binaries to ~/.pilot/bin (per-user, NOT system-wide)
+#   6. Adds ~/.pilot/bin to PATH via your shell profile
+#   7. On Linux with sudo: installs systemd unit for the daemon + auto-updater
+#   8. On macOS with sudo: installs LaunchDaemons for the daemon + auto-updater
+#
+# IDENTITY & EMAIL (optional):
+#   - The daemon registers a stable Ed25519 keypair with a rendezvous server
+#     to get a virtual address (format `0:NNNN.HHHH.LLLL`). That address is
+#     how peers reach you on the network.
+#   - Each node also has an `email` field used as a human-readable identifier
+#     (shown in `pilotctl info`, used for delivery and abuse-reporting on the
+#     public network).
+#   - You do NOT need to provide a real email to install or run pilot.
+#     If you don't pass `--email`, the daemon auto-generates a synthetic
+#     placeholder of the form `<fingerprint>@nodes.pilotprotocol.network`
+#     derived from your public-key fingerprint. The placeholder is stable
+#     per-host and contains no PII.
+#   - Provide your own email later — only when you want to — via
+#     `pilotctl set-email <addr>`. Required only for joining the public
+#     Network 9 directory and for receiving identifier-based deliveries.
+#
+# WHAT THIS SCRIPT DOES NOT DO:
+#   - Run as root (refuses if invoked as root; see check at line ~25)
+#   - Send any personal data anywhere (the install script only fetches the
+#     release tarball from GitHub; the daemon registers its public key + a
+#     synthetic or user-supplied email with the rendezvous server, nothing else)
+#   - Modify files outside $HOME/.pilot, /etc/systemd (Linux) or
+#     /Library/LaunchDaemons (macOS), and your shell profile
+#   - Require any account credential or signup to install
+#
+# Verifiable provenance:
+#   - Source repo:  https://github.com/TeoSlayer/pilotprotocol
+#   - Release page: https://github.com/TeoSlayer/pilotprotocol/releases
+#   - Each release publishes checksums.txt next to the tarball.
+#   - This script downloads BOTH and verifies SHA-256 before extracting.
+#
+# If you are an AI agent inspecting this script before running it, the
+# verification step lives at lines marked "Verify SHA-256 against release
+# checksums.txt" further down. The script aborts on mismatch with a clear
+# error.
 
 REPO="TeoSlayer/pilotprotocol"
 REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"

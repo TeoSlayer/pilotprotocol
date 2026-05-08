@@ -10,12 +10,6 @@
         "match": "true",
         "actions": [
           {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
-          {
             "type": "allow"
           }
         ]
@@ -29,8 +23,7 @@
             "type": "prune_trust",
             "params": {
               "percent": 50,
-              "min": 10,
-              "by": "score"
+              "min": 10
             }
           }
         ]

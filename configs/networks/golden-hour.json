@@ -10,12 +10,6 @@
         "match": "peer_age_s < 3600",
         "actions": [
           {
-            "type": "score",
-            "params": {
-              "delta": 5
-            }
-          },
-          {
             "type": "allow"
           }
         ]
@@ -25,12 +19,6 @@
         "on": "datagram",
         "match": "true",
         "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
           {
             "type": "allow"
           }
@@ -45,8 +33,7 @@
             "type": "prune_trust",
             "params": {
               "percent": 10,
-              "min": 50,
-              "by": "score"
+              "min": 50
             }
           }
         ]

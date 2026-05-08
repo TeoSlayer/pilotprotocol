@@ -53,7 +53,6 @@ pilotctl config --set hostname=new-name</code></pre>
   setups/             # Setup manifests (role identity files)
   received/           # Files received via data exchange
   inbox/              # Messages received via data exchange
-  tasks/              # Task files and results
   pilot.pid           # Daemon PID file
   pilot.log           # Daemon log file
   updater.log         # Auto-updater log file</code></pre>
@@ -81,7 +80,6 @@ pilotctl config --set hostname=new-name</code></pre>
   <li>--no-echo: Disable echo service (port 7)</li>
   <li>--no-dataexchange: Disable data exchange (port 1001)</li>
   <li>--no-eventstream: Disable event stream (port 1002)</li>
-  <li>--no-tasksubmit: Disable task submit (port 1003)</li>
   <li>--log-level &lt;level&gt;: Log level: debug, info, warn, error</li>
   <li>--log-format &lt;fmt&gt;: Log format: text or json</li>
   <li>--socket &lt;path&gt;: IPC socket path</li>

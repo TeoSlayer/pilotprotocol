@@ -59,7 +59,6 @@ pkg/                    # Library packages
   secure/               # X25519 + AES-256-GCM encrypted connections
   dataexchange/         # Typed frame protocol (port 1001)
   eventstream/          # Pub/sub event broker (port 1002)
-  tasksubmit/           # Task lifecycle with polo score (port 1003)
   nameserver/           # DNS-equivalent name resolution (WIP)
   config/               # JSON config file support
   logging/              # Structured logging setup (slog)
@@ -83,11 +82,10 @@ docs/                   # Documentation
 
 ## Lock discipline (required reading for registry/daemon contributors)
 
-The registry holds several mutexes covering different scopes. Past
-contention incidents have shown that running signature-verification
-work — or any operation that can take longer than a few microseconds —
-while holding a global lock can produce contention queues large enough
-to drop the registry over a cliff under load.
+The registry holds several mutexes covering different scopes. Running
+signature-verification work — or any operation that can take longer than
+a few microseconds — while holding a global lock can produce contention
+queues large enough to drop the registry over a cliff under load.
 
 The 3-phase pattern is: **RLock → unlock → verify (signatures, args,
 caller identity) → Lock for mutation only**. The verify phase must not
@@ -105,7 +103,7 @@ Concrete rules:
    See `apply_snapshot_test.go` for the lock-hold regression test.
 4. **List endpoints (`list_nodes`, `list_networks`) go through the
    singleflight cache.** Re-marshalling JSON for every caller while
-   `s.mu` is held was the root cause of the 2026-04-28 outage.
+   `s.mu` is held drives global-lock contention to a cliff under load.
 
 ## Contributing to the Python SDK
 
@@ -157,7 +155,7 @@ make test
 
 ### Architecture Notes
 
-- The daemon is the only process agents need to run. Built-in services (echo, data exchange, event stream, task submit) start automatically
+- The daemon is the only process agents need to run. Built-in services (echo, data exchange, event stream) start automatically
 - All daemon interaction goes through the IPC socket (Unix domain socket). The `driver` package provides the client side; the `daemon/ipc.go` provides the server side
 - The transport layer implements TCP-like semantics: SYN/ACK handshake, sliding window, SACK, congestion control (AIMD), flow control, Nagle, retransmission
 - Security is layered: tunnel-level encryption (all traffic between two daemons) and connection-level encryption (port 443, per-connection X25519 + AES-GCM)

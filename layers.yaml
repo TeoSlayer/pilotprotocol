@@ -1,0 +1,197 @@
+# layers.yaml — single source of truth for the layered architecture.
+#
+# Each Go package belongs to exactly one layer (or is a utility, or is
+# excluded from classification). Imports across layers must always go
+# downward (L_n may import L_{<n}). The static checker at
+# tools/check-layers consumes this file and fails CI on any violation.
+#
+# Per-layer schema:
+#   packages:  list of import paths owned by this layer
+#   public:    optional subset of packages that other layers may import.
+#              When unset (today's default for every layer in this
+#              file), the entire packages list is treated as public —
+#              this preserves the pre-P2-enforcement behavior. When
+#              set, packages listed in `packages:` but absent from
+#              `public:` are layer-internal: only importable from
+#              within the same layer. P2 is enforced by
+#              tools/check-layers (see 03-INVARIANTS.md §1 P2).
+#
+# See docs/architecture/01-LAYERS.md for the layer definitions and
+# docs/architecture/05-VERIFICATION.md for the enforcement design.
+
+layers:
+  L1:
+    description: Wire format — packets, addresses, magic, CRC
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/protocol
+  L2:
+    description: Datagram I/O — UDP send/recv
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio
+  L4:
+    description: Peer discovery & routing — beacons, relay, NAT
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/beacon
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing
+  L5:
+    description: Key exchange — X25519 ECDH, Ed25519 auth
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange
+  L6:
+    description: Crypto envelope — AEAD encrypt/decrypt, replay window
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope
+  L7:
+    description: Reliable stream — TCP-over-UDP, ports, retx
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon
+  L8:
+    description: Directory client — registry over TCP side-channel
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/registry/client
+    # T7.2 split landed: the L8 client (Dial, BinaryClient, RegisterOpts)
+    # lives at pkg/registry/client. Server-side ops (Server, Provision,
+    # Replication, WAL, Webhook, Dashboard, Metrics, AuditExport, etc.)
+    # moved to pkg/registry/server (L11). Shared wire-format types and
+    # framing live at pkg/registry/wire (utility, importable from any
+    # tier). The L7→L8 side-channel whitelist now scopes only the
+    # client subpackage.
+  L9:
+    description: IPC — daemon ↔ local-client framed RPC
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/driver
+  L10:
+    description: Plugin runtime contract — Go interfaces
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/pkg/coreapi
+    # Per docs/architecture/05-VERIFICATION.md the canonical consumers of
+    # L10 are L11 (plugins implement the interfaces) and L12 (cmd/* wires
+    # services together). pkg/daemon (L7) currently also imports L10 to
+    # hold the ServiceRegistry, EventBus, and TrustChecker handles —
+    # logged below as transitional T7.1, to be resolved by moving the
+    # plugin lifecycle out of pkg/daemon and up to cmd/daemon.
+  L11:
+    description: Capability plugins + registry server-side ops
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/plugins/dataexchange
+      - github.com/TeoSlayer/pilotprotocol/plugins/eventstream
+      - github.com/TeoSlayer/pilotprotocol/plugins/gateway
+      - github.com/TeoSlayer/pilotprotocol/plugins/handshake
+      - github.com/TeoSlayer/pilotprotocol/plugins/nameserver
+      - github.com/TeoSlayer/pilotprotocol/plugins/policy
+      - github.com/TeoSlayer/pilotprotocol/plugins/skillinject
+      - github.com/TeoSlayer/pilotprotocol/plugins/updater
+      - github.com/TeoSlayer/pilotprotocol/plugins/trustedagents
+      - github.com/TeoSlayer/pilotprotocol/plugins/webhook
+      - github.com/TeoSlayer/pilotprotocol/pkg/registry/server
+  L12:
+    description: Tooling — CLI binaries
+    packages:
+      - github.com/TeoSlayer/pilotprotocol/cmd/daemon
+      - github.com/TeoSlayer/pilotprotocol/cmd/pilotctl
+      - github.com/TeoSlayer/pilotprotocol/cmd/gateway
+      - github.com/TeoSlayer/pilotprotocol/cmd/nameserver
+      - github.com/TeoSlayer/pilotprotocol/cmd/updater
+      - github.com/TeoSlayer/pilotprotocol/cmd/beacon
+      - github.com/TeoSlayer/pilotprotocol/cmd/registry
+      - github.com/TeoSlayer/pilotprotocol/cmd/rendezvous
+
+utilities:
+  description: Leaf packages used by multiple layers; can be imported by
+    anyone and may import anything (they're outside the strict stack).
+  packages:
+    - github.com/TeoSlayer/pilotprotocol/internal/crypto
+    - github.com/TeoSlayer/pilotprotocol/internal/fsutil
+    - github.com/TeoSlayer/pilotprotocol/internal/ipcutil
+    - github.com/TeoSlayer/pilotprotocol/internal/pool
+    - github.com/TeoSlayer/pilotprotocol/internal/account
+    - github.com/TeoSlayer/pilotprotocol/internal/validate
+    - github.com/TeoSlayer/pilotprotocol/internal/nodesapi
+    - github.com/TeoSlayer/pilotprotocol/pkg/secure
+    - github.com/TeoSlayer/pilotprotocol/pkg/config
+    - github.com/TeoSlayer/pilotprotocol/pkg/logging
+    - github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate
+    - github.com/TeoSlayer/pilotprotocol/pkg/registry/wire
+
+excluded:
+  description: Pre-decided extractions; not classified. Placeholder — Tier 5
+    extractions (cmd/console, cmd/pilot-admin, pkg/console) have been removed
+    from the tree. Future pre-decided extractions can be listed here.
+  packages: []
+
+# Permanent allowed exceptions to the strict-downward rule. The L8
+# registry-over-TCP path bypasses the overlay because it has to: it is
+# how daemons bootstrap before the overlay is usable. See
+# docs/architecture/05-VERIFICATION.md §1 (side_channels block) and
+# 03-INVARIANTS.md for the full rationale. Changes to these entries
+# require explicit architecture-maintainer review.
+side_channels:
+  L8_registry_tcp:
+    package: github.com/TeoSlayer/pilotprotocol/pkg/registry/client
+    bypasses: [L1, L2, L4, L5, L6, L7]
+    rationale: bootstrap; raw TCP to registry before overlay is usable
+    review_required_for_changes: true
+
+# P8 — Bootstrap path documented (see 05-VERIFICATION.md §3 P8).
+#
+# L5's first auth-key-exchange frame is sent without an L6 wrap because
+# no shared key exists yet. This is the ONLY allowed L5→L1+L2 direct
+# edge that bypasses L6. Exactly one annotated call site is permitted,
+# enforced by tools/check-bootstrap.
+#
+# Stage 2 sub-pass 2 moved the function from pkg/daemon/tunnel.go to
+# pkg/daemon/keyexchange/bootstrap.go (its canonical post-extraction
+# home). The marker comment travels with the function body; tunnel.go
+# now exposes a thin shim (sendKeyExchangeToNode) that forwards to
+# keyexchange.Manager.SendKeyExchangeToNode.
+bootstrap_exception:
+  L5_first_keyexchange:
+    description: |
+      L5's first auth-key-exchange frame is sent without L6 wrap (no key
+      yet). This is the only allowed L5 → L1+L2 direct edge.
+    allowed_call_sites:
+      - file: pkg/daemon/keyexchange/bootstrap.go
+        function: SendKeyExchangeToNode
+        line_marker: "// BOOTSTRAP-EXCEPTION: bypasses L6 envelope"
+
+# Known violations during the simplification transition. Each lists
+# the extraction tier that will resolve it. The checker reports these
+# as "transitional" (warns but does not fail the build) until the
+# owner tier completes.
+known_transitional:
+  # L5↔L6 import direction RESOLVED by T5.x-followup (option A): the
+  # Crypto type, SalvageEntry, Store, MaxCryptoPeers cap, and the
+  # ErrNoKey/ErrNotReady key-state errors moved from
+  # pkg/daemon/envelope to pkg/daemon/keyexchange. envelope now imports
+  # keyexchange (downward, allowed) and keyexchange imports nothing
+  # from envelope. envelope is reduced to stateless framing functions
+  # (EncryptFrame, EncryptWith, DecryptFrame) plus the framing-level
+  # errors (ErrTooShort, ErrAEAD, ErrReplay, ErrOutsideWindow) and the
+  # DecryptResult struct.
+  #
+  # Plugin lifecycle (ServiceRegistry, EventBus, TrustChecker) lives in
+  # pkg/daemon today; the docs require it to live at the composition
+  # root (cmd/daemon, L12). T7.1 = move plugin lifecycle out of
+  # pkg/daemon. Until then daemon imports pkg/coreapi (L10) directly.
+  - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
+    to: github.com/TeoSlayer/pilotprotocol/pkg/coreapi
+    owner: T7.1
+  - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
+    to: github.com/TeoSlayer/pilotprotocol/pkg/eventstream
+    owner: T2.2
+  - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
+    to: github.com/TeoSlayer/pilotprotocol/plugins/policy
+    owner: T2.3
+# P3 enforcement (tools/check-globals): cross-layer mutable globals.
+# Each entry below is a known shared global whose ownership has not yet
+# been moved to the layer that should own it. The checker reports them
+# as transitional warnings (not failures) until the owner tier resolves
+# them. Permitted exceptions (errors `Err*`, `*Magic*`, regex `*RE`,
+# `embed.FS`, `*Default`) are whitelisted by the tool itself and need
+# no entry here.
+known_globals_transitional: []
+
+# P3 explicit allowlist: these globals are permanently exempt even
+# though their names don't match the suffix-based whitelist (e.g.
+# read-only sentinel struct values that can't be `const`).
+known_globals_allowlist: []

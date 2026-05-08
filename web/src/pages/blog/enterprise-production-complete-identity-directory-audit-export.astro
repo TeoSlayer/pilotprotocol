@@ -284,7 +284,7 @@ const bodyContent = `
     <tr><td><strong>Signature + enterprise</strong></td><td><code>invite_to_network</code>, <code>respond_invite</code>, <code>kick_member</code>, <code>promote_member</code>, <code>demote_member</code>, <code>transfer_ownership</code>, <code>set_network_policy</code>, <code>set_key_expiry</code></td></tr>
     <tr><td><strong>Signature or admin</strong></td><td><code>join_network</code>, <code>leave_network</code>, <code>delete_network</code>, <code>rename_network</code>, <code>resolve</code>, <code>deregister</code>, <code>set_visibility</code>, <code>set_hostname</code>, <code>set_tags</code>, <code>set_task_exec</code></td></tr>
     <tr><td><strong>Signature</strong></td><td><code>report_trust</code>, <code>revoke_trust</code>, <code>request_handshake</code>, <code>poll_handshakes</code>, <code>respond_handshake</code>, <code>heartbeat</code>, <code>punch</code>, <code>rotate_key</code></td></tr>
-    <tr><td><strong>None (read)</strong></td><td><code>register</code>, <code>lookup</code>, <code>list_networks</code>, <code>list_nodes</code>, <code>check_trust</code>, <code>resolve_hostname</code>, <code>beacon_register</code>, <code>beacon_list</code>, <code>get_member_role</code>, <code>get_network_policy</code>, <code>get_key_info</code>, <code>poll_invites</code>, <code>update_polo_score</code>, <code>set_polo_score</code>, <code>get_polo_score</code></td></tr>
+    <tr><td><strong>None (read)</strong></td><td><code>register</code>, <code>lookup</code>, <code>list_networks</code>, <code>list_nodes</code>, <code>check_trust</code>, <code>resolve_hostname</code>, <code>beacon_register</code>, <code>beacon_list</code>, <code>get_member_role</code>, <code>get_network_policy</code>, <code>get_key_info</code>, <code>poll_invites</code></td></tr>
     <tr><td><strong>Replication token</strong></td><td><code>subscribe_replication</code></td></tr>
   </tbody>
 </table>
@@ -304,7 +304,6 @@ const bodyContent = `
   <li><strong>Directory Sync</strong> (2) - push sync, status query</li>
   <li><strong>Blueprints</strong> (3) - provision, validate, status</li>
   <li><strong>Key Lifecycle</strong> (3) - rotation, expiry, info</li>
-  <li><strong>Reputation</strong> (3) - polo score update, set, get</li>
   <li><strong>Audit</strong> (6) - ring buffer, query API, Splunk HEC, CEF/Syslog, JSON export, async delivery</li>
   <li><strong>Webhooks</strong> (4) - dispatch, retry + DLQ, status, DLQ query</li>
   <li><strong>Observability</strong> (7) - 40+ Prometheus metrics, per-type histograms, per-network labels, enterprise counters, status gauges</li>

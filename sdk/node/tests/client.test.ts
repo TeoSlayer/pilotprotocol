@@ -62,7 +62,6 @@ function createFakeLib(): PilotLib & {
     PilotResolveHostname(_h: bigint, _hostname: string) { return fake._jsonReturns['PilotResolveHostname'] ?? jsonOk({ node_id: 7 }); },
     PilotSetHostname(_h: bigint, _hostname: string) { return fake._jsonReturns['PilotSetHostname'] ?? jsonOk({ status: 'ok' }); },
     PilotSetVisibility(_h: bigint, _pub: number) { return fake._jsonReturns['PilotSetVisibility'] ?? jsonOk({ status: 'ok' }); },
-    PilotSetTaskExec(_h: bigint, _en: number) { return fake._jsonReturns['PilotSetTaskExec'] ?? jsonOk({ status: 'ok' }); },
     PilotSetTags(_h: bigint, _tags: string) { return fake._jsonReturns['PilotSetTags'] ?? jsonOk({ status: 'ok' }); },
     PilotSetWebhook(_h: bigint, _url: string) { return fake._jsonReturns['PilotSetWebhook'] ?? jsonOk({ status: 'ok' }); },
     PilotDisconnect(_h: bigint, _connId: number) { return null as string | null; },
@@ -261,12 +260,6 @@ describe('Driver settings', () => {
   it('set visibility', () => {
     const d = new Driver();
     expect(d.setVisibility(true)).toEqual({ status: 'ok' });
-    d.close();
-  });
-
-  it('set task exec', () => {
-    const d = new Driver();
-    expect(d.setTaskExec(false)).toEqual({ status: 'ok' });
     d.close();
   });
 

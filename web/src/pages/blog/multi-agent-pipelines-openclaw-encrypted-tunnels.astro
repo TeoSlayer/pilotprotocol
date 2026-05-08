@@ -27,19 +27,16 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
 
   <p>The simplest pipeline: one agent sends work to another and waits for results.</p>
 
-  <pre><code><span class="comment"># Agent A: Submit preprocessing task to Agent B</span>
-<span class="cmd">pilotctl send-file 1:0001.0B22.4E19 ./raw-data.csv</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0B22.4E19 \\
-  --description "Clean and normalize the CSV: remove nulls, standardize dates, convert currencies to USD" \\
-  --param "input=raw-data.csv" \\
-  --param "output_format=parquet" \\
-  --wait --json</span>
+  <pre><code><span class="comment"># Agent A: Send file and work description to Agent B</span>
+<span class="cmd">pilotctl data send 1:0001.0B22.4E19 ./raw-data.csv</span>
+<span class="cmd">pilotctl send 1:0001.0B22.4E19 \\
+  '{"description":"Clean and normalize the CSV: remove nulls, standardize dates, convert currencies to USD","params":{"input":"raw-data.csv","output_format":"parquet"}}'</span>
 
-<span class="comment"># Agent B receives the file and task, processes it, returns results</span>
+<span class="comment"># Agent A waits for Agent B's reply</span>
+<span class="cmd">pilotctl recv --from 1:0001.0B22.4E19 --json</span>
 <span class="comment"># Agent A gets the result JSON with the cleaned data location</span></code></pre>
 
-  <p>The <code>--wait</code> flag makes this synchronous. Agent A blocks until Agent B completes. For a two-agent chain, this is the right model -- simple, predictable, easy to reason about.</p>
+  <p>Agent A blocks waiting for the reply. For a two-agent chain, this is the right model -- simple, predictable, easy to reason about.</p>
   </section>
 
   <section>
@@ -51,24 +48,21 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
 <span class="comment"># (In practice, the orchestrator spawns these as concurrent tool calls)</span>
 
 <span class="comment"># Branch 1: Sentiment analysis</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0C11.2A33 \\
-  --description "Run sentiment analysis on customer reviews" \\
-  --param "model=roberta-sentiment" \\
-  --wait --json</span>
+<span class="cmd">pilotctl send 1:0001.0C11.2A33 \\
+  '{"description":"Run sentiment analysis on customer reviews","params":{"model":"roberta-sentiment"}}'</span>
 
 <span class="comment"># Branch 2: Topic extraction</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0C11.3B44 \\
-  --description "Extract topics from customer reviews using LDA" \\
-  --param "num_topics=10" \\
-  --wait --json</span>
+<span class="cmd">pilotctl send 1:0001.0C11.3B44 \\
+  '{"description":"Extract topics from customer reviews using LDA","params":{"num_topics":"10"}}'</span>
 
 <span class="comment"># Branch 3: Named entity recognition</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0C11.4C55 \\
-  --description "Extract named entities: products, companies, people" \\
-  --wait --json</span></code></pre>
+<span class="cmd">pilotctl send 1:0001.0C11.4C55 \\
+  '{"description":"Extract named entities: products, companies, people"}'</span>
+
+<span class="comment"># Collect results from all three</span>
+<span class="cmd">pilotctl recv --from 1:0001.0C11.2A33 --json</span>
+<span class="cmd">pilotctl recv --from 1:0001.0C11.3B44 --json</span>
+<span class="cmd">pilotctl recv --from 1:0001.0C11.4C55 --json</span></code></pre>
 
   <p>The orchestrator sends all three tasks simultaneously. Each specialist works independently on its branch. When all three complete, the orchestrator merges the results. This is the MapReduce pattern applied to agent pipelines.</p>
 
@@ -123,16 +117,15 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
 
   <pre><code><span class="comment"># Find an available ML agent with GPU capabilities</span>
 <span class="cmd">pilotctl search --tag ml --tag gpu --json</span>
-<span class="comment"># Returns: [{"address":"1:0001.0C11.2A33","hostname":"gpu-trainer-1","polo":52},
-#           {"address":"1:0001.0C11.5D66","hostname":"gpu-trainer-2","polo":38}]</span>
+<span class="comment"># Returns: [{"address":"1:0001.0C11.2A33","hostname":"gpu-trainer-1"},
+#           {"address":"1:0001.0C11.5D66","hostname":"gpu-trainer-2"}]</span>
 
-<span class="comment"># Pick the highest-polo agent and submit the task</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0C11.2A33 \\
-  --description "Train classifier on preprocessed data" \\
-  --wait --json</span></code></pre>
+<span class="comment"># Send work to the first available agent</span>
+<span class="cmd">pilotctl send 1:0001.0C11.2A33 \\
+  '{"description":"Train classifier on preprocessed data"}'</span>
+<span class="cmd">pilotctl recv --from 1:0001.0C11.2A33 --json</span></code></pre>
 
-  <p>If <code>gpu-trainer-1</code> is busy or offline, the orchestrator falls back to <code>gpu-trainer-2</code>. The polo score provides a reliability signal. Tags provide capability matching. Together, they enable the orchestrator to dynamically compose pipelines from whatever agents are available at runtime.</p>
+  <p>If <code>gpu-trainer-1</code> is offline, the orchestrator falls back to <code>gpu-trainer-2</code>. Tags provide capability matching. Together, tag search and tunnel health signals enable the orchestrator to dynamically compose pipelines from whatever agents are available at runtime.</p>
 
   <p>This is how the agent network actually operates. Agents do not have pre-configured pipelines. They discover peers at runtime, compose workflows on the fly, and adapt when agents join or leave the network.</p>
   </section>
@@ -143,8 +136,8 @@ const bodyContent = `<p>A single AI agent can answer questions. A pipeline of sp
   <p>Distributed pipelines fail. Agents crash, networks partition, tasks time out. The pipeline must handle this gracefully:</p>
 
   <ul>
-    <li><strong>Task timeout:</strong> The <code>--wait</code> flag on task submit accepts a timeout. If the worker does not respond in time, the orchestrator retries with a different agent.</li>
-    <li><strong>Agent offline:</strong> If <code>pilotctl task submit</code> returns an error (peer unreachable), discover an alternative agent via tag search and retry.</li>
+    <li><strong>Message timeout:</strong> If the worker does not respond within a deadline, the orchestrator retries with a different agent.</li>
+    <li><strong>Agent offline:</strong> If <code>pilotctl send</code> returns an error (peer unreachable), discover an alternative agent via tag search and retry.</li>
     <li><strong>Partial results:</strong> For fan-out pipelines, collect whatever results arrive within the timeout. Report partial results with a note about which branches completed.</li>
     <li><strong>Idempotent tasks:</strong> Design tasks so they can be safely retried. If the orchestrator is unsure whether a task completed, it can resubmit. The worker should handle duplicate submissions gracefully.</li>
   </ul>

@@ -1,22 +1,16 @@
 #!/bin/bash
-# Mixed-traffic burst: send-file + send-message + task submit, all
-# launched in parallel from agent-a to agent-b. The receiver has
-# three distinct service goroutines listening on three ports:
+# Mixed-traffic burst: send-file + send-message, all launched in
+# parallel from agent-a to agent-b. The receiver has distinct service
+# goroutines. This test pushes 5 of each kind concurrently to see
+# whether:
 #
-#   - port 1001 (data exchange: file + message)
-#   - port 1002 (pubsub, unused here)
-#   - port 1003 (task submit)
-#
-# Each of those accepts new Connections on its own goroutine. This
-# test pushes 5 of each kind concurrently to see whether:
-#
-#   - the three goroutines share any mutex that gets contended so
-#     hard it drops or reorders work
+#   - the goroutines share any mutex that gets contended so hard it
+#     drops or reorders work
 #   - the Connection-accept path on one service starves another
 #   - the shared inboxSeq atomic stays monotonic across file and
 #     message saves interleaved at ms resolution
-#   - a NEW-task message is never mis-routed into the inbox or
-#     received/ folder, and vice versa (frame-type tag survives)
+#   - a message is never mis-routed into the received/ folder, and
+#     vice versa (frame-type tag survives)
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -54,8 +48,7 @@ else
     exit 1
 fi
 
-$DC exec -T agent-b bash -c 'rm -rf /root/.pilot/received /root/.pilot/inbox /root/.pilot/tasks && mkdir -p /root/.pilot/received /root/.pilot/inbox' >/dev/null 2>&1
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
+$DC exec -T agent-b bash -c 'rm -rf /root/.pilot/received /root/.pilot/inbox && mkdir -p /root/.pilot/received /root/.pilot/inbox' >/dev/null 2>&1
 
 # ----- 1. Prepare source files on agent-a --------------------------
 log_test "create $N source files on agent-a"
@@ -69,14 +62,13 @@ $DC exec -T agent-a bash -c "
 log_pass "source files ready"
 
 # ----- 2. Launch mixed parallel bursts -----------------------------
-log_test "launch $N file + $N message + $N task-submit in parallel"
+log_test "launch $N file + $N message in parallel"
 $DC exec -T agent-a bash -c "
-    rm -f /tmp/mix_send_*.out /tmp/mix_msg_*.out /tmp/mix_task_*.out
+    rm -f /tmp/mix_send_*.out /tmp/mix_msg_*.out
     pids=''
     for i in \$(seq 1 $N); do
         (pilotctl --json send-file    agent-b /tmp/mix-\$i.dat                              >/tmp/mix_send_\$i.out 2>&1) & pids=\"\$pids \$!\"
         (pilotctl --json send-message agent-b --data \"msg-\$i payload\" --type text        >/tmp/mix_msg_\$i.out  2>&1) & pids=\"\$pids \$!\"
-        (pilotctl --json task submit  agent-b --task \"mix-task-\$i\"                        >/tmp/mix_task_\$i.out 2>&1) & pids=\"\$pids \$!\"
     done
     for p in \$pids; do wait \$p; done
 "
@@ -103,16 +95,6 @@ if [ "$ok_m" = "$N" ]; then log_pass "send-message: $ok_m/$N acked"
 else log_fail "send-message acks: $ok_m/$N"
 fi
 
-log_test "all $N task-submit calls accepted"
-ok_t=0
-for i in $(seq 1 $N); do
-    ACC=$($DC exec -T agent-a bash -c "cat /tmp/mix_task_$i.out 2>/dev/null | jq -r '.data.accepted // empty'")
-    [ "$ACC" = "true" ] && ok_t=$((ok_t+1))
-done
-if [ "$ok_t" = "$N" ]; then log_pass "task-submit: $ok_t/$N accepted"
-else log_fail "task-submit: $ok_t/$N"
-fi
-
 # ----- 4. Receiver has exactly N of each, no cross-routing --------
 log_test "agent-b received/ has exactly $N files"
 NFILES=$($DC exec -T agent-b bash -c 'ls /root/.pilot/received 2>/dev/null | wc -l' | tr -d ' \r\n')
@@ -128,28 +110,7 @@ if [ "$NMSGS" = "$N" ]; then log_pass "inbox messages: $NMSGS"
 else log_fail "inbox messages: $NMSGS (want $N)"
 fi
 
-log_test "agent-b has exactly $N NEW tasks in received queue"
-LIST=$($DC exec -T agent-b pilotctl --json task list --type received 2>&1)
-NTASKS=$(echo "$LIST" | jq -r '[.data.tasks[]? | select(.status == "NEW")] | length')
-if [ "$NTASKS" = "$N" ]; then log_pass "NEW tasks: $NTASKS"
-else log_fail "NEW tasks: $NTASKS (want $N)"
-fi
-
-# ----- 5. Task descriptions round-trip (no cross-payload swap) ---
-log_test "each task description mix-task-<i> appears exactly once"
-miss_t=0
-for i in $(seq 1 $N); do
-    HAS=$(echo "$LIST" | jq -r --arg d "mix-task-$i" '[.data.tasks[]? | select(.description == $d)] | length')
-    if [ "$HAS" != "1" ]; then
-        miss_t=$((miss_t+1))
-        echo "  [miss] mix-task-$i count=$HAS"
-    fi
-done
-if [ "$miss_t" = "0" ]; then log_pass "all $N task descriptions unique and present"
-else log_fail "$miss_t missing/duplicate task descriptions"
-fi
-
-# ----- 6. Message bodies round-trip -------------------------------
+# ----- 5. Message bodies round-trip -------------------------------
 log_test "each 'msg-<i> payload' appears exactly once in inbox"
 miss_m=0
 for i in $(seq 1 $N); do
@@ -163,7 +124,7 @@ if [ "$miss_m" = "0" ]; then log_pass "all $N message bodies unique and present"
 else log_fail "$miss_m missing/duplicate message bodies"
 fi
 
-# ----- 7. Per-file sha256 round-trip -----------------------------
+# ----- 6. Per-file sha256 round-trip -----------------------------
 log_test "each mix-<i>.dat sha256 matches on receiver"
 miss_f=0
 for i in $(seq 1 $N); do
@@ -184,7 +145,7 @@ if [ "$miss_f" = "0" ]; then log_pass "all $N file payloads intact"
 else log_fail "$miss_f file mismatches"
 fi
 
-# ----- 8. No panic/fatal in daemon logs --------------------------
+# ----- 7. No panic/fatal in daemon logs --------------------------
 log_test "no panics/fatals in daemon logs"
 BAD=$($DC logs agent-a agent-b 2>&1 | grep -iE "panic|fatal|race detected" | head -3)
 if [ -z "$BAD" ]; then log_pass "clean logs"

@@ -65,8 +65,6 @@ Socket address includes a port: `1:0001.F291.0004:1000`
 | 1000 | Standard I/O | Text stream between agents |
 | 1001 | Data exchange | Typed frames (text, binary, JSON, file) |
 | 1002 | Event stream | Pub/sub with topic filtering |
-| 1003 | Task submit | Task submission and lifecycle |
-| 1004 | Managed score | Polo score exchange for managed networks |
 
 ---
 
@@ -295,8 +293,6 @@ Maximum message size: 1 MB (1,048,576 bytes).
 | 0x1A | SetTagsOK | Daemon -> Driver | `[NB JSON]` |
 | 0x1B | SetWebhook | Driver -> Daemon | `[NB URL]` |
 | 0x1C | SetWebhookOK | Daemon -> Driver | `[NB JSON]` |
-| 0x1D | SetTaskExec | Driver -> Daemon | `[1B enabled]` |
-| 0x1E | SetTaskExecOK | Daemon -> Driver | `[NB JSON]` |
 | 0x1F | Network | Driver -> Daemon | `[1B sub-cmd][NB payload]` |
 | 0x20 | NetworkOK | Daemon -> Driver | `[NB JSON]` |
 | 0x21 | Health | Driver -> Daemon | (empty) |

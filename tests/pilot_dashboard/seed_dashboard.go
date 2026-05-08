@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 )
 
 // SeedRegistry populates a registry with test nodes, tags, and trust relationships
@@ -16,7 +16,7 @@ import (
 func SeedRegistry(registryAddr string) error {
 	log.Printf("Connecting to registry at %s...", registryAddr)
 
-	rc, err := registry.Dial(registryAddr)
+	rc, err := registryclient.Dial(registryAddr)
 	if err != nil {
 		return err
 	}
@@ -24,22 +24,21 @@ func SeedRegistry(registryAddr string) error {
 
 	// Seed test nodes with various configurations
 	nodes := []struct {
-		addr      string
-		hostname  string
-		tags      []string
-		taskExec  bool
-		poloScore int
+		addr     string
+		hostname string
+		tags     []string
+		taskExec bool
 	}{
-		{"192.168.1.10:8000", "ml-gpu-1", []string{"ml", "gpu", "training"}, true, 150},
-		{"192.168.1.11:8000", "ml-gpu-2", []string{"ml", "gpu", "inference"}, true, 125},
-		{"192.168.1.12:8000", "storage-1", []string{"storage", "backup"}, false, 45},
-		{"192.168.1.13:8000", "compute-1", []string{"compute", "batch"}, true, 92},
-		{"192.168.1.14:8000", "webserver-1", []string{"webserver", "api"}, true, 110},
-		{"192.168.1.15:8000", "webserver-2", []string{"webserver", "frontend"}, false, 68},
-		{"192.168.1.16:8000", "database-1", []string{"database", "postgres"}, false, 78},
-		{"192.168.1.17:8000", "cache-1", []string{"cache", "redis"}, false, 55},
-		{"192.168.1.18:8000", "assistant-1", []string{"assistant", "nlp"}, true, 135},
-		{"192.168.1.19:8000", "monitor-1", []string{"monitoring", "metrics"}, false, 30},
+		{"192.168.1.10:8000", "ml-gpu-1", []string{"ml", "gpu", "training"}, true},
+		{"192.168.1.11:8000", "ml-gpu-2", []string{"ml", "gpu", "inference"}, true},
+		{"192.168.1.12:8000", "storage-1", []string{"storage", "backup"}, false},
+		{"192.168.1.13:8000", "compute-1", []string{"compute", "batch"}, true},
+		{"192.168.1.14:8000", "webserver-1", []string{"webserver", "api"}, true},
+		{"192.168.1.15:8000", "webserver-2", []string{"webserver", "frontend"}, false},
+		{"192.168.1.16:8000", "database-1", []string{"database", "postgres"}, false},
+		{"192.168.1.17:8000", "cache-1", []string{"cache", "redis"}, false},
+		{"192.168.1.18:8000", "assistant-1", []string{"assistant", "nlp"}, true},
+		{"192.168.1.19:8000", "monitor-1", []string{"monitoring", "metrics"}, false},
 	}
 
 	registeredNodes := make([]struct {
@@ -94,7 +93,7 @@ func SeedRegistry(registryAddr string) error {
 		// Set tags if any
 		if len(n.tags) > 0 {
 			// Create a new client with signer for authenticated operations
-			rcAuth, err := registry.Dial(registryAddr)
+			rcAuth, err := registryclient.Dial(registryAddr)
 			if err != nil {
 				log.Printf("failed to create auth client for %s: %v", n.addr, err)
 				continue
@@ -122,35 +121,6 @@ func SeedRegistry(registryAddr string) error {
 			rcAuth.Close()
 		}
 
-		// Set POLO score if specified
-		if n.poloScore > 0 {
-			rcScore, err := registry.Dial(registryAddr)
-			if err != nil {
-				log.Printf("  ⚠ failed to create client for polo score: %v", err)
-				continue
-			}
-
-			rcScore.SetSigner(func(challenge string) string {
-				sig := id.Sign([]byte(challenge))
-				return base64.StdEncoding.EncodeToString(sig)
-			})
-
-			setScoreMsg := map[string]interface{}{
-				"type":       "set_polo_score",
-				"node_id":    nodeID,
-				"polo_score": n.poloScore,
-			}
-
-			scoreResp, err := rcScore.Send(setScoreMsg)
-			if err != nil {
-				log.Printf("  ⚠ failed to set POLO score for %s: %v", n.addr, err)
-			} else if scoreResp["type"] == "set_polo_score_ok" {
-				log.Printf("  ✓ Set POLO score: %d", n.poloScore)
-			}
-
-			rcScore.Close()
-		}
-
 		time.Sleep(100 * time.Millisecond)
 	}
 
@@ -173,7 +143,7 @@ func SeedRegistry(registryAddr string) error {
 		nodeB := registeredNodes[pair[1]]
 
 		// Create authenticated clients for both nodes
-		rcA, err := registry.Dial(registryAddr)
+		rcA, err := registryclient.Dial(registryAddr)
 		if err != nil {
 			continue
 		}
@@ -182,7 +152,7 @@ func SeedRegistry(registryAddr string) error {
 			return base64.StdEncoding.EncodeToString(sig)
 		})
 
-		rcB, err := registry.Dial(registryAddr)
+		rcB, err := registryclient.Dial(registryAddr)
 		if err != nil {
 			rcA.Close()
 			continue

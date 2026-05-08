@@ -50,8 +50,10 @@ BASE=$(policy_score_of agent-b "$POLICY_NET_ID" "$NID_A")
 log_pass "baseline score=${BASE:-<none>}"
 
 log_test "drive 5 datagrams from agent-a"
+# pilotctl send uses DialAddr (stream), which fires `on: connect`/`dial`,
+# not `on: datagram`. dgram is the actual UDP datagram path.
 for i in 1 2 3 4 5; do
-    $DC exec -T agent-a pilotctl send agent-b 1001 --data "pkt-$i" --timeout 5s \
+    $DC exec -T agent-a pilotctl dgram agent-b 1001 --data "pkt-$i" \
         >/dev/null 2>&1 || true
     sleep 0.2
 done

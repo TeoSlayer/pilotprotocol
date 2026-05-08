@@ -5,50 +5,24 @@
     "version": 1,
     "rules": [
       {
-        "name": "normal",
+        "name": "tag-on-deny",
         "on": "datagram",
-        "match": "peer_score >= 0",
+        "match": "true",
         "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
-          {
-            "type": "allow"
-          }
+          {"type": "log", "params": {"message": "datagram evaluated", "level": "debug"}}
         ]
       },
       {
-        "name": "shunned",
-        "on": "datagram",
-        "match": "peer_score < 0",
-        "actions": [
-          {
-            "type": "deny"
-          }
-        ]
-      },
-      {
-        "name": "banish",
+        "name": "cycle-prune",
         "on": "cycle",
         "match": "true",
         "actions": [
-          {
-            "type": "evict_where",
-            "params": {
-              "match": "peer_score < 0"
-            }
-          }
+          {"type": "evict_where", "params": {"match": "has_tag(peer_tags, \"ostracized\")"}}
         ]
       }
-    ],
-    "config": {
-      "cycle": "6h"
-    }
+    ]
   },
   "policy": {
-    "description": "Ostracism: drop below zero score and you're muted immediately and banished on the next 6h cycle."
+    "description": "Ostracism: peers tagged ostracized are banished on the next 6h cycle."
   }
 }

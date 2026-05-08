@@ -1,13 +1,11 @@
 #!/bin/bash
 # Shipped config: configs/networks/two-strikes.json
 #
-# Name's promise: violation count = 2 triggers eviction
+# Current behavior:
+#   - datagram: log all (debug)
+#   - cycle: evict_where has_tag(peer_tags, "two-strikes"), then fill 5 random
 #
-# This test loads the shipped config (if present) and verifies the
-# specific behavior implied by the network's name. If the config is
-# not shipped or the policy engine cannot enforce the promise, the
-# test fails — per Chunk I rules that failure is a product/engine
-# gap finding, not a test bug.
+# Assertion: peer tagged "two-strikes" is evicted from managed peers after cycle.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -28,7 +26,7 @@ source ./network_helpers.sh
 
 CFG="$(pwd)/../../../configs/networks/two-strikes.json"
 if [ ! -f "$CFG" ]; then
-    log_fail "two-strikes.json NOT shipped — promise unmet (EXPECTED: violation count = 2 triggers eviction)"
+    log_fail "two-strikes.json NOT shipped"
     exit 1
 fi
 
@@ -45,17 +43,25 @@ sync_policy_peers "$NID" agent-a agent-b
 
 PEER_B=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r ".data.node_id // 0")
 
-log_test "two failed attempts evict peer"
-# Policy: `strike` rule (on: datagram, peer_score<0) scores -1 and
-# denies; `out` cycle rule evicts where peer_score <= -2. Seed a negative
-# score (the "strike" credit from 2 prior violations) then force cycle.
-$DC exec -T agent-a pilotctl managed score "$PEER_B" --net "$NID" --delta -3 >/dev/null 2>&1 || true
-$DC exec -T agent-a pilotctl --json managed cycle --force --net "$NID" >/dev/null 2>&1 || true
-RANK=$($DC exec -T agent-a pilotctl --json managed rankings --net "$NID" 2>/dev/null)
-if echo "$RANK" | jq -e --argjson p "$PEER_B" '.data.rankings[]? | select(.node_id == $p)' >/dev/null 2>&1; then
-    log_fail "peer still present after 2 strikes (EXPECTED: evicted)"
+log_test "config loads — managed status succeeds"
+STATUS=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
+if echo "$STATUS" | jq -e '.data' >/dev/null 2>&1; then
+    log_pass "managed status OK"
 else
-    log_pass "peer evicted after two strikes"
+    log_fail "managed status returned no data"
+fi
+
+log_test "tagged peer is evicted on cycle"
+$DC exec -T agent-a pilotctl member-tags set --node "$PEER_B" --tags two-strikes --net "$NID" >/dev/null 2>&1 || true
+$DC exec -T agent-a pilotctl --json managed reconcile --net "$NID" >/dev/null 2>&1 || true
+$DC exec -T agent-a pilotctl --json managed cycle --force --net "$NID" >/dev/null 2>&1 || true
+sleep 1
+
+STATUS_POST=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
+if echo "$STATUS_POST" | jq -e --argjson p "$PEER_B" '.data.peers[]? | select(.node_id == $p)' >/dev/null 2>&1; then
+    log_fail "two-strikes peer still present after cycle (EXPECTED: evicted)"
+else
+    log_pass "two-strikes peer evicted on cycle"
 fi
 
 echo -e "Passed: ${GREEN}${PASSED}${NC}  Failed: ${RED}${FAILED}${NC}"

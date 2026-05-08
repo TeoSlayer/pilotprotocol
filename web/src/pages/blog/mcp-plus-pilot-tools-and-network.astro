@@ -40,17 +40,17 @@ type Agent struct {
     llm    *llmclient.Client  <span class="comment">// LLM: reasoning</span>
 }
 
-<span class="comment">// The agent loop: receive task, gather data, reason, deliver</span>
+<span class="comment">// The agent loop: receive request, gather data, reason, deliver</span>
 func (a *Agent) Run() {
-    for task := range a.pilot.AcceptTasks() {
+    for msg := range a.pilot.Recv() {
         <span class="comment">// 1. Use MCP to gather data</span>
-        data := a.mcp.CallTool("database_query", task.Params)
+        data := a.mcp.CallTool("database_query", msg.Params)
 
         <span class="comment">// 2. Use LLM to reason about the data</span>
-        result := a.llm.Complete(task.Prompt + data)
+        result := a.llm.Complete(msg.Prompt + data)
 
         <span class="comment">// 3. Use Pilot to deliver the result</span>
-        a.pilot.SendResults(task.ID, result)
+        a.pilot.Send(msg.Sender, result)
     }
 }</code></pre>
 
@@ -63,7 +63,7 @@ func (a *Agent) Run() {
   <p>Let us build a concrete example. A research agent that:</p>
 
   <ol>
-    <li>Receives a research request from a peer via Pilot's task system</li>
+    <li>Receives a research request from a peer via Pilot</li>
     <li>Uses MCP to query a database and fetch web content</li>
     <li>Produces a summary using an LLM</li>
     <li>Returns the summary to the requesting agent via Pilot</li>
@@ -99,41 +99,41 @@ func main() {
     log.Println("Research agent online, waiting for tasks...")
 
     for {
-        <span class="comment">// Accept incoming research tasks via Pilot</span>
-        task, err := drv.AcceptTask()
+        <span class="comment">// Accept incoming research requests via Pilot</span>
+        msg, err := drv.Recv()
         if err != nil {
-            log.Printf("accept error: %v", err)
+            log.Printf("recv error: %v", err)
             continue
         }
 
-        log.Printf("Accepted task %s: %s", task.ID, task.Description)
+        log.Printf("Received request from %s", msg.Sender)
 
         <span class="comment">// Use MCP to query the database</span>
         queryResult := callMCPTool("database", "query", map[string]string{
             "sql": fmt.Sprintf(
                 "SELECT title, abstract FROM papers WHERE topic LIKE '%%%s%%' LIMIT 10",
-                task.Params["topic"],
+                msg.Params["topic"],
             ),
         })
 
         <span class="comment">// Use MCP to fetch web content for additional context</span>
         webResult := callMCPTool("web-search", "search", map[string]string{
-            "query": task.Params["topic"] + " recent developments",
+            "query": msg.Params["topic"] + " recent developments",
         })
 
         <span class="comment">// Combine sources and produce summary (LLM call omitted for clarity)</span>
         summary := fmt.Sprintf(
             "Research summary for: %s\\n\\nDatabase: %d papers found\\n%s\\n\\nWeb: %s",
-            task.Params["topic"],
+            msg.Params["topic"],
             len(queryResult),
             formatPapers(queryResult),
             webResult,
         )
 
         <span class="comment">// Return results to the requester via Pilot</span>
-        err = drv.SendTaskResults(task.ID, []byte(summary))
+        err = drv.Send(msg.Sender, []byte(summary))
         if err != nil {
-            log.Printf("send results error: %v", err)
+            log.Printf("send error: %v", err)
             continue
         }
 
@@ -191,16 +191,16 @@ async def research_agent():
             await mcp.initialize()
 
             while True:
-                <span class="comment"># Accept tasks via pilotctl</span>
+                <span class="comment"># Receive incoming request via pilotctl</span>
                 result = subprocess.run(
-                    ["pilotctl", "task", "accept", "--json"],
+                    ["pilotctl", "recv", "--json"],
                     capture_output=True, text=True, timeout=60
                 )
                 if result.returncode != 0:
                     continue
 
-                task = json.loads(result.stdout)
-                topic = task["params"]["topic"]
+                msg = json.loads(result.stdout)
+                topic = msg["params"]["topic"]
 
                 <span class="comment"># Use MCP to query the database</span>
                 db_result = await mcp.call_tool("query", {
@@ -215,9 +215,9 @@ async def research_agent():
 
                 <span class="comment"># Return results via pilotctl</span>
                 subprocess.run([
-                    "pilotctl", "task", "send-results",
-                    "--task-id", task["id"],
-                    "--data", summary
+                    "pilotctl", "send",
+                    msg["sender"],
+                    summary
                 ])
 
                 <span class="comment"># Publish completion event via pilotctl</span>
@@ -246,7 +246,7 @@ async def research_agent():
 
   <h3>Tool Delegation</h3>
 
-  <p>Not every agent has access to every tool. Agent A has MCP access to a proprietary API. Agent B needs data from that API but does not have credentials. Agent B submits a task to Agent A via Pilot's task system: "query the API for X." Agent A executes the query via MCP, returns the results via Pilot. The API credentials never leave Agent A's machine. Trust between Agent A and Agent B is managed by Pilot's <a href="trust-model-agents-invisible-by-default">handshake system</a>, not by sharing API keys.</p>
+  <p>Not every agent has access to every tool. Agent A has MCP access to a proprietary API. Agent B needs data from that API but does not have credentials. Agent B sends a request to Agent A via Pilot: "query the API for X." Agent A executes the query via MCP and returns the results via Pilot. The API credentials never leave Agent A's machine. Trust between Agent A and Agent B is managed by Pilot's <a href="trust-model-agents-invisible-by-default">handshake system</a>, not by sharing API keys.</p>
 
   <h3>Monitoring and Alerting</h3>
 

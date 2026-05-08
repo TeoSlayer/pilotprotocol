@@ -18,7 +18,7 @@ log_test() { echo -e "[$(ts)] ${YELLOW}[TEST]${NC} $*"; }
 log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
-DC="docker compose -f docker-compose.multi.yml"
+DC="docker compose -f docker-compose.multi.yml -f docker-compose.multi.policy.yml"
 RUN=60
 
 cd "$(dirname "$0")" || exit 1
@@ -36,36 +36,42 @@ for _ in $(seq 1 60); do
 done
 [ "$COUNT" -ge 2 ] && log_pass "both agents registered" || { log_fail "agents not up"; exit 1; }
 
-log_test "write short-cycle test policy onto agent-a"
+log_test "write short-cycle expr_policy onto agent-a"
+# expr_policy schema (config.cycle + rules with on/match/actions); the
+# daemon uses this for programmable cycle/connect/datagram/join rules.
+# `--rules-file` expects NetworkRules (managed topology) — different
+# schema. Use the two-step pattern: unmanaged create + policy set --file.
 $DC exec -T agent-a bash -c 'cat >/tmp/shortcycle.json <<JSON
 {
-  "name": "shortcycle-test",
-  "network_id": 99,
-  "cycle": "5s",
+  "version": 1,
+  "config": {"cycle": "5s"},
   "rules": [
-    {"event": "cycle", "action": "log", "tag": "CYCLE_TICK_TEST"}
+    {"name": "tick", "on": "cycle", "match": "true",
+     "actions": [{"type": "log", "params": {"message": "shortcycle-tick"}}]}
   ]
 }
 JSON'
 log_pass "policy written"
 
-log_test "create network with short-cycle rules"
-# Real CLI: there is no `policy load` / `network apply`. Networks are
-# created with `network create --rules-file`, and policy can be set on
-# an existing network via `policy set --net <id> --file <path>`.
-OUT=$($DC exec -T agent-a bash -c 'pilotctl --json network create --name shortcycle-test --join-rule open --rules-file /tmp/shortcycle.json 2>&1' 2>&1)
+log_test "create unmanaged network then attach expr_policy"
+NID_CREATOR=$($DC exec -T agent-a pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
+OUT=$($DC exec -T agent-a bash -c "pilotctl --json network create --name shortcycle-$$ --join-rule open --node-id $NID_CREATOR -e PILOT_ADMIN_TOKEN=test-admin-token 2>&1" 2>&1)
 NID=$(echo "$OUT" | jq -r '.data.network_id // .data.id // empty')
-if [ -n "$NID" ] && [ "$NID" != "null" ]; then
-    log_pass "network created (nid=$NID)"
-else
+if [ -z "$NID" ] || [ "$NID" = "null" ]; then
     log_fail "could not create network: $(echo "$OUT" | head -c 200)"
+    exit 1
 fi
+$DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-a \
+    pilotctl --json policy set --net "$NID" --file /tmp/shortcycle.json \
+    --admin-token test-admin-token >/tmp/pset.out 2>&1
+$DC exec -T agent-a pilotctl --json network join "$NID" >/dev/null 2>&1
+log_pass "network created (nid=$NID), policy attached, joined"
 
 log_test "run ${RUN}s and count cycle events"
-START_LINES=$($DC logs agent-a 2>&1 | grep -cE "CYCLE_TICK_TEST|cycle.*tick|policy.*cycle" | tr -d ' \r\n')
+START_LINES=$($DC logs agent-a 2>&1 | grep -c "policy: cycle complete" | tr -d ' \r\n')
 START_LINES=${START_LINES:-0}
 sleep $RUN
-END_LINES=$($DC logs agent-a 2>&1 | grep -cE "CYCLE_TICK_TEST|cycle.*tick|policy.*cycle" | tr -d ' \r\n')
+END_LINES=$($DC logs agent-a 2>&1 | grep -c "policy: cycle complete" | tr -d ' \r\n')
 END_LINES=${END_LINES:-0}
 DELTA=$((END_LINES - START_LINES))
 echo "    cycle tick delta over ${RUN}s: $DELTA (expect >= 10)"

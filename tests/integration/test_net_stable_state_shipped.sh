@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/stable-state.json"
+CFG="$(pwd)/../../../configs/networks/stable-state.json"
 if [ ! -f "$CFG" ]; then
     log_fail "stable-state.json NOT shipped — promise unmet (EXPECTED: steady-state — peer count converges toward a target)"
     exit 1
@@ -41,20 +41,21 @@ log_pass "net=$NID"
 start_agent_in_network agent-a "$NID" "$CFG"
 start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
+sync_policy_peers "$NID" agent-a agent-b
 
 log_test "cycles converge peer count toward target"
 $DC exec -T agent-a pilotctl --json managed cycle --force --net "$NID" >/dev/null 2>&1
-C0=$($DC exec -T agent-a pilotctl --json managed status "$NID" 2>/dev/null | jq -r ".data.peer_count // 0")
+C0=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null | jq -r ".data.peers // 0")
 for i in 1 2 3; do
     $DC exec -T agent-a pilotctl --json managed cycle --force --net "$NID" >/dev/null 2>&1
 done
-C1=$($DC exec -T agent-a pilotctl --json managed status "$NID" 2>/dev/null | jq -r ".data.peer_count // 0")
+C1=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null | jq -r ".data.peers // 0")
 DELTA=$((C1 - C0))
 ABS=${DELTA#-}
-if [ "${ABS:-0}" -le 2 ]; then
+if [ "${C0:-0}" -ge 1 ] && [ "${ABS:-0}" -le 2 ]; then
     log_pass "peer count stable: $C0 -> $C1"
 else
-    log_fail "peer count drifted: $C0 -> $C1 (EXPECTED: convergence)"
+    log_fail "peer count drifted or empty: $C0 -> $C1 (EXPECTED: C0>=1 AND |ΔC|<=2)"
 fi
 
 echo -e "Passed: ${GREEN}${PASSED}${NC}  Failed: ${RED}${FAILED}${NC}"

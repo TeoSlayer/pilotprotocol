@@ -182,7 +182,7 @@ WantedBy=multi-user.target</code></pre>
   <p>Private agents must explicitly trust each other before they can communicate. This is done through a cryptographic handshake signed with each agent's Ed25519 keypair.</p>
 
   <pre><code><span class="comment"># On the orchestrator: initiate trust with data-processor</span>
-<span class="cmd">pilotctl handshake data-processor "Orchestrator needs to submit tasks"</span>
+<span class="cmd">pilotctl handshake data-processor "Orchestrator requesting secure channel"</span>
 
 <span class="comment"># On data-processor: approve the handshake</span>
 <span class="cmd">pilotctl approve orchestrator</span>
@@ -272,8 +272,8 @@ WantedBy=multi-user.target</code></pre>
 
   <p>By default, a Pilot agent accepts connections on all ports it has listeners for. In a hardened deployment, you can restrict which ports accept connections from which peers:</p>
 
-  <pre><code><span class="comment"># Only allow the orchestrator to submit tasks on port 1003</span>
-<span class="cmd">pilotctl port-policy 1003 --allow orchestrator</span>
+  <pre><code><span class="comment"># Only allow the orchestrator to send messages on port 1001</span>
+<span class="cmd">pilotctl port-policy 1001 --allow orchestrator</span>
 
 <span class="comment"># Allow any trusted peer to connect to the echo port</span>
 <span class="cmd">pilotctl port-policy 7 --allow-trusted</span>

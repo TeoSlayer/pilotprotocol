@@ -143,10 +143,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	// Start gossip loop (always — peers may be added dynamically via registry)
 	go s.gossipLoop()
 
-	// Start registry-based peer discovery if configured
-	if s.registryAddr != "" {
-		go s.registryDiscoveryLoop()
-	}
+	// Start registry-based peer discovery. The loop checks registryAddr at
+	// runtime so it is started unconditionally; SetRegistry may be called
+	// after ListenAndServe and the loop will pick up the address on its
+	// next tick without requiring a restart.
+	go s.registryDiscoveryLoop()
 
 	buf := make([]byte, 65535)
 	for {
@@ -360,7 +361,14 @@ func (s *Server) dispatchRelay(data []byte) {
 //  3. Neither → drop (unknown dest)
 func (s *Server) relayWorker() {
 	sendBuf := make([]byte, 1500) // per-worker send buffer, no allocations
-	for job := range s.relayCh {
+	for {
+		var job relayJob
+		select {
+		case <-s.done:
+			return
+		case job = <-s.relayCh:
+		}
+
 		// Tier 1: local node lookup
 		s.mu.RLock()
 		destNode, ok := s.nodes[job.destID]
@@ -611,9 +619,12 @@ func (s *Server) handleSync(data []byte, remote *net.UDPAddr) {
 // --- Registry-based peer discovery ---
 
 // SetRegistry sets the registry address for dynamic peer discovery.
-// The beacon will periodically register itself and discover peers via the registry.
+// Safe to call at any time — protected by mu so the discovery loop
+// does not race against a post-startup SetRegistry call.
 func (s *Server) SetRegistry(addr string) {
+	s.mu.Lock()
 	s.registryAddr = addr
+	s.mu.Unlock()
 }
 
 // SetAdvertiseAddr sets the address this beacon registers with the registry.
@@ -624,7 +635,9 @@ func (s *Server) SetRegistry(addr string) {
 // reserved IP on UDP 9001) so external clients receive a routable address
 // from beacon_list.
 func (s *Server) SetAdvertiseAddr(addr string) {
+	s.mu.Lock()
 	s.advertiseAddr = addr
+	s.mu.Unlock()
 }
 
 // registryDiscoveryLoop registers this beacon with the registry and discovers
@@ -649,13 +662,16 @@ func (s *Server) registryDiscoveryLoop() {
 }
 
 func (s *Server) registryDiscover() {
-	if s.registryAddr == "" || s.beaconID == 0 {
+	s.mu.RLock()
+	regAddr := s.registryAddr
+	advAddr := s.advertiseAddr
+	s.mu.RUnlock()
+	if regAddr == "" || s.beaconID == 0 {
 		return
 	}
-
-	conn, err := net.DialTimeout("tcp", s.registryAddr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", regAddr, 5*time.Second)
 	if err != nil {
-		slog.Debug("beacon registry connect failed", "addr", s.registryAddr, "err", err)
+		slog.Debug("beacon registry connect failed", "addr", regAddr, "err", err)
 		return
 	}
 	defer conn.Close()
@@ -698,8 +714,8 @@ func (s *Server) registryDiscover() {
 	// is the right answer but on a VPC-internal beacon yields a private
 	// 10.x address that external daemons cannot reach.
 	var myAddr string
-	if s.advertiseAddr != "" {
-		myAddr = s.advertiseAddr
+	if advAddr != "" {
+		myAddr = advAddr
 	} else {
 		listenAddr := s.conn.LocalAddr().String()
 		host, port, _ := net.SplitHostPort(listenAddr)

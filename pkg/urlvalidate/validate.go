@@ -39,7 +39,14 @@ func Validate(rawURL string) error {
 	if host == "" {
 		return fmt.Errorf("URL must have a host")
 	}
-	if ip := net.ParseIP(host); ip != nil {
+	// Strip IPv6 zone identifier (e.g. "fe80::1%eth0") before parsing.
+	// net.ParseIP does not handle zone suffixes, so without this a
+	// link-local address with a zone ID would pass the check unnoticed.
+	ipStr := host
+	if i := strings.IndexByte(ipStr, '%'); i != -1 {
+		ipStr = ipStr[:i]
+	}
+	if ip := net.ParseIP(ipStr); ip != nil {
 		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("URL cannot target link-local address %s", host)
 		}

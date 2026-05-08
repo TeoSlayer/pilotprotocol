@@ -126,9 +126,8 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
 <span class="comment"># Send a file</span>
 <span class="cmd">pilotctl send-file 1:0001.0000.0042 dataset.csv</span>
 
-<span class="comment"># Submit a task</span>
-<span class="cmd">pilotctl task submit 1:0001.0000.0042 \\
-  --description "Run sentiment analysis on Q1 customer feedback"</span>
+<span class="comment"># Send a message</span>
+<span class="cmd">pilotctl send 1:0001.0000.0042 "Run sentiment analysis on Q1 customer feedback"</span>
 
 <span class="comment"># Benchmark the connection</span>
 <span class="cmd">pilotctl bench 1:0001.0000.0042</span></code></pre>
@@ -317,7 +316,7 @@ const bodyContent = `<p>You have agents on <a href="https://aws.amazon.com" targ
 
   <p>Tailscale and ZeroTier are excellent products for connecting devices and services across networks. They solve the connectivity problem well. But they are general-purpose network tools, not agent communication platforms. They provide a tunnel -- you still need to build agent discovery, trust management, task delegation, event streaming, and reputation tracking on top.</p>
 
-  <p>Pilot provides all of these as built-in services on well-known ports. An agent on Pilot can discover peers by tags, establish trust with justifications, delegate tasks (port 1003), stream events (port 1002), exchange files (port 1001), and build reputation through task completion -- all without additional infrastructure. The networking is just the foundation.</p>
+  <p>Pilot provides all of these as built-in services on well-known ports. An agent on Pilot can discover peers by tags, establish trust with justifications, stream events (port 1002), exchange files (port 1001), and send messages (port 1000) -- all without additional infrastructure. The networking is just the foundation.</p>
   </section>
 
   <section>

@@ -43,8 +43,12 @@ load_policy() {
     # remain self-contained and don't require image rebuilds.
     case "$policy_path" in
         /tests/fixtures/*)
-            local rel="${policy_path#/tests/}"
-            local host_path="${PWD}/${rel}"
+            local rel="${policy_path#/tests/fixtures/}"
+            # Fixtures live at tests/integration/fixtures/ (not under local/).
+            # Resolve relative to this helper's directory so callers can run
+            # from any PWD.
+            local helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            local host_path="${helper_dir}/../fixtures/${rel}"
             if [ ! -f "$host_path" ]; then
                 echo "load_policy: fixture not on host: $host_path" >&2
                 return 1
@@ -65,13 +69,37 @@ load_policy() {
         | head -n1)
 
     if [ -z "$existing" ] || [ "$existing" = "null" ]; then
-        local create_out
-        create_out=$($DC exec -T -e PILOT_ADMIN_TOKEN="$POLICY_ADMIN_TOKEN" "$agent" \
-            pilotctl --json network create --name "$POLICY_TEST_NET_NAME" \
-            --join-rule open --enterprise 2>&1)
-        POLICY_NET_ID=$(echo "$create_out" | jq -r '.data.network_id // .network_id // empty')
+        # Resolve creator's node_id. pilotctl network create defaults
+        # --node-id to 0; the registry rejects (node 0 not registered),
+        # and that error is sanitized to "request failed" by the error
+        # whitelist in pkg/registry/server.go — which is why this used
+        # to look like a retriable connection error.
+        local node_id
+        node_id=$($DC exec -T "$agent" pilotctl --json info 2>/dev/null \
+            | jq -r '.data.node_id // 0')
+        if [ -z "$node_id" ] || [ "$node_id" = "0" ] || [ "$node_id" = "null" ]; then
+            echo "load_policy: cannot resolve $agent node_id" >&2
+            return 1
+        fi
+
+        # 5 attempts with exp backoff — registry occasionally reports
+        # connection_failed under stack-boot-race on k8s DinD.
+        local create_out attempt backoff
+        POLICY_NET_ID=""
+        for attempt in 1 2 3 4 5; do
+            create_out=$($DC exec -T -e PILOT_ADMIN_TOKEN="$POLICY_ADMIN_TOKEN" "$agent" \
+                pilotctl --json network create --name "$POLICY_TEST_NET_NAME" \
+                --join-rule open --enterprise --node-id "$node_id" 2>&1)
+            POLICY_NET_ID=$(echo "$create_out" | jq -r '.data.network_id // .network_id // empty')
+            if [ -n "$POLICY_NET_ID" ] && [ "$POLICY_NET_ID" != "null" ]; then
+                break
+            fi
+            backoff=$((attempt * 2))
+            echo "load_policy: create attempt $attempt failed, retrying in ${backoff}s" >&2
+            sleep "$backoff"
+        done
         if [ -z "$POLICY_NET_ID" ] || [ "$POLICY_NET_ID" = "null" ]; then
-            echo "load_policy: failed to create network:" >&2
+            echo "load_policy: failed to create network after 5 attempts:" >&2
             echo "$create_out" >&2
             return 1
         fi
@@ -86,13 +114,24 @@ load_policy() {
     done
 
     # Apply the policy to the network. --file resolves inside the container.
-    $DC exec -T -e PILOT_ADMIN_TOKEN="$POLICY_ADMIN_TOKEN" "$agent" \
-        pilotctl --json policy set --net "$POLICY_NET_ID" \
-        --file "$policy_path" --admin-token "$POLICY_ADMIN_TOKEN" \
-        >/tmp/policy-set.out 2>&1
+    # Retry with exp backoff — under run-all.sh parallelism, the policy-set
+    # IPC RPC can race a concurrent registry fetch in the daemon and return
+    # an empty error body.
+    local set_attempt
+    for set_attempt in 1 2 3 4 5; do
+        $DC exec -T -e PILOT_ADMIN_TOKEN="$POLICY_ADMIN_TOKEN" "$agent" \
+            pilotctl --json policy set --net "$POLICY_NET_ID" \
+            --file "$policy_path" --admin-token "$POLICY_ADMIN_TOKEN" \
+            >/tmp/policy-set.out 2>&1
+        if grep -q '"applied": *true\|"network_id"' /tmp/policy-set.out; then
+            break
+        fi
+        echo "load_policy: policy set attempt $set_attempt failed, retrying" >&2
+        sleep $((set_attempt * 2))
+    done
 
     if ! grep -q '"applied": *true\|"network_id"' /tmp/policy-set.out; then
-        echo "load_policy: policy set failed:" >&2
+        echo "load_policy: policy set failed after 5 attempts:" >&2
         cat /tmp/policy-set.out >&2
         return 1
     fi
@@ -150,8 +189,8 @@ assert_policy_event() {
         prune)              pattern='policy: pruned peers' ;;
         fill)               pattern='policy: filled peers' ;;
         evict)              pattern='policy: evicted peers' ;;
-        connect_deny)       pattern='syn\.port_rejected\|port %d not allowed\|port_rejected' ;;
-        datagram_deny)      pattern='datagram\.port_rejected\|datagram: rejected\|datagram.*not allowed' ;;
+        connect_deny)       pattern='SYN rejected: not allowed\|syn\.port_rejected\|port_rejected' ;;
+        datagram_deny)      pattern='datagram rejected: not allowed\|datagram\.port_rejected\|datagram.*not allowed' ;;
         webhook)            pattern='policy\.' ;;
         *)                  pattern="$event" ;;
     esac
@@ -165,28 +204,15 @@ assert_policy_event() {
     return 1
 }
 
-# policy_score_of <agent> <net_id> <peer_node_id>
-# Print the numeric peer score on <agent> for <peer_node_id> in <net_id>.
-# Prints empty string on miss.
-policy_score_of() {
-    local agent="$1"
-    local net_id="$2"
-    local peer_id="$3"
-    $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
-        | jq -r --argjson p "$peer_id" \
-            '.data.rankings[]? | select(.node_id == $p) | .score // empty' \
-        | head -n1
-}
-
 # policy_tags_of <agent> <net_id> <peer_node_id>
 # Print the JSON array of tags for a peer in the policy runner's peer set.
 policy_tags_of() {
     local agent="$1"
     local net_id="$2"
     local peer_id="$3"
-    $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
+    $DC exec -T "$agent" pilotctl --json managed status --net "$net_id" 2>/dev/null \
         | jq -c --argjson p "$peer_id" \
-            '.data.rankings[]? | select(.node_id == $p) | .tags // []' \
+            '.data.peer_list[]? | select(.node_id == $p) | .tags // []' \
         | head -n1
 }
 

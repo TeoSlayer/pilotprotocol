@@ -55,7 +55,7 @@ fi
 log_test "start subscriber on agent-b (topic: spam)"
 $DC exec -d agent-b bash -c '
     rm -f /tmp/sub_stop
-    pilotctl subscribe spam --count 100000 --timeout 60s > /tmp/sub.log 2>&1 || true
+    pilotctl subscribe agent-b spam --count 100000 --timeout 60s > /tmp/sub.log 2>&1 || true
 '
 sleep 2
 

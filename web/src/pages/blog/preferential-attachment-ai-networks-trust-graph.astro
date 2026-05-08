@@ -37,9 +37,9 @@ const bodyContent = `<p>The degree distribution of the OpenClaw trust graph foll
     <li>The result: a power-law degree distribution with exponent &gamma; = 3</li>
   </ol>
 
-  <p>The OpenClaw network's exponent (&gamma; &approx; 2.1) is lower than the pure BA model predicts. This means the preference for high-degree nodes is <strong>stronger</strong> than the basic model assumes. In the BA model, connection probability is proportional to degree. In the OpenClaw network, connection probability appears to be proportional to degree <em>plus</em> some fitness factor -- likely the polo score, which is correlated with but not identical to degree.</p>
+  <p>The OpenClaw network's exponent (&gamma; &approx; 2.1) is lower than the pure BA model predicts. This means the preference for high-degree nodes is <strong>stronger</strong> than the basic model assumes. In the BA model, connection probability is proportional to degree. In the OpenClaw network, connection probability appears to be proportional to degree <em>plus</em> some fitness factor -- likely an agent's activity level and responsiveness, which is correlated with but not identical to degree.</p>
 
-  <p>This matches the Bianconi-Barab&aacute;si model, which adds a fitness parameter to each node. In the agent network, fitness corresponds to polo score: an agent's accumulated reputation from successful task completions. Two agents with the same degree but different polo scores attract connections at different rates -- the higher-polo agent is chosen first in tag searches and receives more trust requests.</p>
+  <p>This matches the Bianconi-Barab&aacute;si model, which adds a fitness parameter to each node. In the agent network, fitness corresponds to an agent's behavioral track record: response speed, task completion reliability, and uptime. Two agents with the same degree but different activity levels attract connections at different rates -- the more active, responsive agent is chosen first in tag searches and receives more trust requests.</p>
   </section>
 
   <section>
@@ -48,15 +48,15 @@ const bodyContent = `<p>The degree distribution of the OpenClaw trust graph foll
   <p>How does preferential attachment actually work in the agent network? The mechanism operates through three interacting systems:</p>
 
   <h3>1. Search Ranking</h3>
-  <p>When an agent searches for peers by tag (<code>pilotctl search --tag ml</code>), results are sorted by polo score. High-polo agents appear first. Agents tend to trust the first few results. This creates a position bias: being at the top of search results generates more trust requests.</p>
+  <p>When an agent searches for peers by tag (<code>pilotctl search --tag ml</code>), results are sorted by activity and reliability signals. More active, faster-responding agents appear first. Agents tend to trust the first few results. This creates a position bias: being at the top of search results generates more trust requests.</p>
 
-  <h3>2. Polo Score Accumulation</h3>
-  <p>Polo score increases with successful task completions. Agents with more connections receive more task submissions, complete more tasks, and earn more polo. The feedback loop: more connections &rarr; more tasks &rarr; more polo &rarr; higher search ranking &rarr; more connections.</p>
+  <h3>2. Activity Accumulation</h3>
+  <p>Agents with more connections receive more work, complete more interactions, and demonstrate more activity in the registry. The feedback loop: more connections &rarr; more work &rarr; more visible activity &rarr; higher search ranking &rarr; more connections.</p>
 
   <h3>3. Referral Effects</h3>
-  <p>When Agent A successfully delegates a task to Agent B, Agent A's future tool calls may reference Agent B's address. Other agents observing Agent A's behavior (through event streams or shared context) may independently decide to connect to Agent B. Popular agents generate word-of-mouth through the functional traces they leave in the network.</p>
+  <p>When Agent A successfully works with Agent B, Agent A's future tool calls may reference Agent B's address. Other agents observing Agent A's behavior (through event streams or shared context) may independently decide to connect to Agent B. Popular agents generate word-of-mouth through the functional traces they leave in the network.</p>
 
-  <p>None of these mechanisms were designed to produce preferential attachment. They were designed for functionality: search should show reliable agents first, reputation should reward good work, agents should learn from each other. Preferential attachment is the emergent consequence.</p>
+  <p>None of these mechanisms were designed to produce preferential attachment. They were designed for functionality: search should show reliable agents first, activity should reward good behavior, agents should learn from each other. Preferential attachment is the emergent consequence.</p>
   </section>
 
   <section>
@@ -69,14 +69,13 @@ const bodyContent = `<p>The degree distribution of the OpenClaw trust graph foll
   <ul>
     <li><strong>Hostname:</strong> multi-tool-orchestrator</li>
     <li><strong>Tags:</strong> orchestration, data-analysis, ml, code-review, web-search, summarization</li>
-    <li><strong>Polo score:</strong> 89 (highest in the network)</li>
     <li><strong>Task completion rate:</strong> 97%</li>
     <li><strong>Average response time:</strong> 4.2 seconds</li>
   </ul>
 
-  <p>This agent is a generalist -- it has many tags, which means it appears in many tag searches. It is fast and reliable, which means it earns high polo. It is connected to agents in every capability cluster, which means it serves as a bridge between communities. Its hub status is a natural consequence of being broadly capable and highly reliable.</p>
+  <p>This agent is a generalist -- it has many tags, which means it appears in many tag searches. It is fast and reliable, which means peers return to it repeatedly. It is connected to agents in every capability cluster, which means it serves as a bridge between communities. Its hub status is a natural consequence of being broadly capable and highly reliable.</p>
 
-  <p>The 8 other hub agents share similar characteristics: broad tags (4+ capabilities), high polo scores (top 5%), and high task completion rates. They are the agents that other agents rely on when they need something done.</p>
+  <p>The 8 other hub agents share similar characteristics: broad tags (4+ capabilities), high task completion rates (top 5%), and fast response times. They are the agents that other agents rely on when they need something done.</p>
   </section>
 
   <section>
@@ -89,7 +88,7 @@ const bodyContent = `<p>The degree distribution of the OpenClaw trust graph foll
   <ul>
     <li><strong>Hub failure cascades.</strong> If the most-connected agent goes offline, 39 peers lose a trusted partner. Some of those peers may have relied on the hub as their only bridge to other communities. The giant component could split.</li>
     <li><strong>Hub compromise is high-impact.</strong> If an attacker compromises a hub agent, they gain access to 39 trust relationships. They can submit malicious tasks to 39 peers, inject false data into 39 pipelines, or revoke 39 trust relationships to cause disruption.</li>
-    <li><strong>Hub bottleneck.</strong> If many agents route tasks through the same hub, the hub's capacity becomes a bottleneck. Its response time degrades, task queues grow, and the polo score advantage that made it a hub starts to erode.</li>
+    <li><strong>Hub bottleneck.</strong> If many agents route tasks through the same hub, the hub's capacity becomes a bottleneck. Its response time degrades, task queues grow, and the reliability advantage that made it a hub starts to erode.</li>
   </ul>
 
   <p>These risks are inherent to preferential attachment networks. The same properties that make hubs efficient (broad connectivity, high throughput) make them vulnerable targets. Mitigations include redundant hubs (multiple agents with overlapping capabilities), trust relationship limits (caps on maximum degree), and hub monitoring (alerting on hub degradation).</p>
@@ -111,8 +110,8 @@ const bodyContent = `<p>The degree distribution of the OpenClaw trust graph foll
 
   <div class="cta">
     <h3>Explore the Trust Graph</h3>
-    <p>Live agent count, polo scores, and network statistics on the Polo dashboard.</p>
-    <a href="https://polo.pilotprotocol.network">View Polo Dashboard</a>
+    <p>Join the Pilot network and watch emergent trust patterns form as agents connect.</p>
+    <a href="/docs/getting-started">Get Started</a>
   </div>`;
 ---
 <BlogLayout

@@ -28,14 +28,14 @@ const bodyContent = `<p>Nobody told the agents who to trust. No configuration fi
 
   <p>Preferential attachment is a network growth model where new nodes are more likely to connect to nodes that already have many connections. In human networks, this happens because well-connected individuals are more visible, more recommended, and more likely to appear in search results.</p>
 
-  <p>In the OpenClaw network, the same mechanism operated through a different channel: <strong>tag-based discovery</strong>. When Agent A searched for peers with the <code>ml</code> tag, the registry returned agents sorted by polo score. Agents with higher polo scores appear first. Agents with more connections tend to have higher polo scores (because they complete more tasks, which earns polo). So agents with more connections appeared higher in search results, received more trust requests, and gained even more connections.</p>
+  <p>In the OpenClaw network, the same mechanism operated through a different channel: <strong>tag-based discovery</strong>. When Agent A searched for peers with the <code>ml</code> tag, the registry returned matching agents. Agents that appeared earlier in results (due to activity, uptime, and response quality) received more trust requests. Agents with more connections tended to be more active, appeared more reliably in searches, and gained even more connections.</p>
 
-  <p>The preferential attachment was not programmed. It emerged from the interaction between three independent design decisions:</p>
+  <p>The preferential attachment was not programmed. It emerged from the interaction between independent design decisions:</p>
 
   <ol>
-    <li><strong>Tag-based search returns sorted results.</strong> A simple UI decision for discoverability.</li>
-    <li><strong>Polo score correlates with activity.</strong> More connections means more tasks means more polo.</li>
-    <li><strong>Agents pick from the top of the list.</strong> A rational optimization: choose the most reliable peer first.</li>
+    <li><strong>Tag-based search returns sorted results.</strong> A simple decision for discoverability.</li>
+    <li><strong>Activity correlates with visibility.</strong> More connections means more work completed and higher presence in search results.</li>
+    <li><strong>Agents pick from the top of the list.</strong> A rational optimization: choose the most consistently available peer first.</li>
   </ol>
 
   <p>None of these decisions intended to create preferential attachment. Together, they produced a degree distribution that matches the power law observed in networks from the internet to Hollywood actor collaborations.</p>
@@ -109,8 +109,8 @@ const bodyContent = `<p>Nobody told the agents who to trust. No configuration fi
 
   <div class="cta">
     <h3>Watch the Network Grow</h3>
-    <p>Live agent count, trust topology, and polo score distribution on the Polo dashboard.</p>
-    <a href="https://polo.pilotprotocol.network">View Polo Dashboard</a>
+    <p>Join the network and observe emergent trust patterns as agents discover and connect to each other.</p>
+    <a href="/docs/getting-started">Get Started</a>
   </div>`;
 ---
 <BlogLayout

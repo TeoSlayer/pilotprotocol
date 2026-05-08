@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/old-guard.json"
+CFG="$(pwd)/../../../configs/networks/old-guard.json"
 if [ ! -f "$CFG" ]; then
     log_fail "old-guard.json NOT shipped — promise unmet (EXPECTED: old-guard privilege — peers with high peer_age_s have special status)"
     exit 1
@@ -43,11 +43,12 @@ start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
 
 log_test "old-guard rule references peer_age_s"
-# Without a >24h peer we cannot truly test; assert the rule exists
-# in the loaded policy by inspecting runner status.
-STATUS=$($DC exec -T agent-a pilotctl --json managed status "$NID" 2>/dev/null)
-if echo "$STATUS" | grep -qE "peer_age|old_guard|senior"; then
-    log_pass "old-guard age rule present in runner"
+# `managed status` intentionally returns just {network_id, peers, cycle,
+# ...} — no rule expressions — so assert against the loaded policy JSON
+# that `pilotctl policy get` exposes.
+POLICY=$($DC exec -T agent-a pilotctl --json policy get --net "$NID" 2>/dev/null)
+if echo "$POLICY" | grep -qE "peer_age_s|old_guard|senior"; then
+    log_pass "old-guard age rule present in loaded policy"
 else
     log_fail "no age-based rule visible (EXPECTED: peer_age_s keyed rule)"
 fi

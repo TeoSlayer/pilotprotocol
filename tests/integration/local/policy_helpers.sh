@@ -204,28 +204,15 @@ assert_policy_event() {
     return 1
 }
 
-# policy_score_of <agent> <net_id> <peer_node_id>
-# Print the numeric peer score on <agent> for <peer_node_id> in <net_id>.
-# Prints empty string on miss.
-policy_score_of() {
-    local agent="$1"
-    local net_id="$2"
-    local peer_id="$3"
-    $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
-        | jq -r --argjson p "$peer_id" \
-            '.data.rankings[]? | select(.node_id == $p) | .score // empty' \
-        | head -n1
-}
-
 # policy_tags_of <agent> <net_id> <peer_node_id>
 # Print the JSON array of tags for a peer in the policy runner's peer set.
 policy_tags_of() {
     local agent="$1"
     local net_id="$2"
     local peer_id="$3"
-    $DC exec -T "$agent" pilotctl --json managed rankings --net "$net_id" 2>/dev/null \
+    $DC exec -T "$agent" pilotctl --json managed status --net "$net_id" 2>/dev/null \
         | jq -c --argjson p "$peer_id" \
-            '.data.rankings[]? | select(.node_id == $p) | .tags // []' \
+            '.data.peer_list[]? | select(.node_id == $p) | .tags // []' \
         | head -n1
 }
 

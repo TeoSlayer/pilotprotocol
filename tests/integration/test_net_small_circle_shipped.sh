@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/small-circle.json"
+CFG="$(pwd)/../../../configs/networks/small-circle.json"
 if [ ! -f "$CFG" ]; then
     log_fail "small-circle.json NOT shipped — promise unmet (EXPECTED: small-circle — hard cap on peer count (e.g. max_peers=10))"
     exit 1
@@ -42,13 +42,18 @@ start_agent_in_network agent-a "$NID" "$CFG"
 start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
 
-log_test "max_peers cap enforced (small-circle)"
-POL=$($DC exec -T agent-a pilotctl --json network policy "$NID" 2>/dev/null)
-MP=$(echo "$POL" | jq -r ".data.max_members // .data.max_peers // 0")
-if [ "${MP:-0}" -gt 0 ] && [ "${MP:-0}" -le 20 ]; then
-    log_pass "small-circle cap = $MP"
+log_test "small-circle trim/fill cycle pair loaded"
+# small-circle uses fill_trust (target N) + prune_trust (>N) on cycle to
+# hold the member count at a target; no explicit max_peers field. A
+# 2-agent test can only verify the rule pair is active — fleet tests
+# verify convergence.
+POL=$($DC exec -T agent-a pilotctl --json policy get --net "$NID" 2>/dev/null)
+TARGET=$(echo "$POL" | jq -r '.data.expr_policy.rules[]? | select(.name == "fill") | .actions[] | select(.type == "fill_trust") | .params.target // 0' | head -n1)
+HAS_TRIM=$(echo "$POL" | jq -e '.data.expr_policy.rules[]? | select(.on == "cycle" and (.actions | map(.type) | index("prune_trust")))' >/dev/null 2>&1 && echo yes || echo no)
+if [ "${TARGET:-0}" -gt 0 ] && [ "$HAS_TRIM" = yes ]; then
+    log_pass "small-circle target=$TARGET trim+fill loaded"
 else
-    log_fail "cap=$MP (EXPECTED: small positive cap, e.g. 10)"
+    log_fail "small-circle rules missing: target=$TARGET trim=$HAS_TRIM"
 fi
 
 echo -e "Passed: ${GREEN}${PASSED}${NC}  Failed: ${RED}${FAILED}${NC}"

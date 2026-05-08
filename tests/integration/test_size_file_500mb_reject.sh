@@ -50,11 +50,11 @@ log_pass "src=$SRC_SZ sha=${SRC_SHA:0:12}..."
 
 log_test "attempt send (may be rejected or complete)"
 OUT=$($DC exec -T agent-a bash -c "pilotctl --json send-file agent-b /tmp/huge.bin --timeout 900s 2>&1")
-OK=$(echo "$OUT" | jq -r '.ok // false' 2>/dev/null)
+OK=$(echo "$OUT" | jq -r '.status // ""' 2>/dev/null)
 ERR=$(echo "$OUT" | jq -r '.error // ""' 2>/dev/null)
 ACK=$(echo "$OUT" | jq -r '.data.ack // empty' 2>/dev/null | grep -oE '[0-9]+' | head -n1)
 
-if [ "$OK" = "true" ] && [ -n "$ACK" ] && [ "$ACK" -ge "$SRC_SZ" ]; then
+if [ "$OK" = "ok" ] && [ -n "$ACK" ] && [ "$ACK" -ge "$SRC_SZ" ]; then
     # Claims success — verify byte-exact.
     log_test "success claimed — verify full sha256"
     RECV=""

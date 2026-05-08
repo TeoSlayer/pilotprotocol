@@ -15,6 +15,10 @@ var (
 	ErrConnRefused      = errors.New("connection refused")
 	ErrDialTimeout      = errors.New("dial timeout")
 	ErrChecksumMismatch = errors.New("checksum mismatch")
+	// ErrMalformedPacket is returned by Marshal/Unmarshal's L1 panic
+	// boundary when a panic is recovered during wire-format decode/encode.
+	// Wraps the original panic value via fmt.Errorf("%w: %v", ...).
+	ErrMalformedPacket = errors.New("malformed packet")
 )
 
 // Flags (4 bits, stored in lower nibble of first byte alongside version)
@@ -43,8 +47,6 @@ const (
 	PortStdIO        uint16 = 1000
 	PortDataExchange uint16 = 1001
 	PortEventStream  uint16 = 1002
-	PortTaskSubmit   uint16 = 1003
-	PortManagedScore uint16 = 1004
 )
 
 // Port ranges

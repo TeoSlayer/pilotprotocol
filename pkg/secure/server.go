@@ -14,11 +14,6 @@ import (
 // Handler is called for each new secure connection.
 type Handler func(conn net.Conn)
 
-// PeerPubKeyLookup returns the Ed25519 public key for a given node ID.
-// Used by the server to look up a connecting client's identity for auth
-// verification. Returns nil if the node is unknown.
-type PeerPubKeyLookup func(nodeID uint32) ed25519.PublicKey
-
 // Server listens on port 443 and upgrades connections to encrypted channels.
 type Server struct {
 	driver     *driver.Driver
@@ -45,6 +40,24 @@ func NewAuthServer(d *driver.Driver, handler Handler, nodeID uint32, signer ed25
 		peerLookup: lookup,
 	}
 }
+
+// Driver returns the underlying packet driver. Exposed for tests.
+func (s *Server) Driver() *driver.Driver { return s.driver }
+
+// Handler returns the per-connection handler callback. Exposed for tests.
+func (s *Server) Handler() Handler { return s.handler }
+
+// AuthNodeID returns the authenticated node id (zero when unauth).
+// Exposed for tests.
+func (s *Server) AuthNodeID() uint32 { return s.authNodeID }
+
+// AuthSigner returns the server's Ed25519 signing key (nil when unauth).
+// Exposed for tests.
+func (s *Server) AuthSigner() ed25519.PrivateKey { return s.authSigner }
+
+// PeerLookup returns the per-peer pubkey lookup (nil when unauth).
+// Exposed for tests.
+func (s *Server) PeerLookup() PeerPubKeyLookup { return s.peerLookup }
 
 // ListenAndServe binds port 443 and starts accepting secure connections.
 func (s *Server) ListenAndServe() error {

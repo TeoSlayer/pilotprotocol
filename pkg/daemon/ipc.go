@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -50,8 +49,6 @@ const (
 	CmdSetTagsOK         byte = 0x1A
 	CmdSetWebhook        byte = 0x1B
 	CmdSetWebhookOK      byte = 0x1C
-	CmdSetTaskExec       byte = 0x1D
-	CmdSetTaskExecOK     byte = 0x1E
 	CmdNetwork           byte = 0x1F
 	CmdNetworkOK         byte = 0x20
 	CmdHealth            byte = 0x21
@@ -60,10 +57,20 @@ const (
 	CmdManagedOK         byte = 0x24
 	CmdRotateKey         byte = 0x25
 	CmdRotateKeyOK       byte = 0x26
-	CmdMyPolo            byte = 0x27
-	CmdMyPoloOK          byte = 0x28
 	CmdBroadcast         byte = 0x29
 	CmdBroadcastOK       byte = 0x2A
+	// CmdCancel: driver → daemon, "abandon the in-flight request that
+	// I sent under reqID X". The reqID embedded in the envelope header
+	// IS NOT the reqID being cancelled — that's encoded in the body
+	// payload as a uint64. The envelope's own reqID is the new request
+	// (CmdCancel); we don't reply, so it's effectively unused on the
+	// wire (typically 0 from the driver's send() path).
+	//
+	// Issue #99: without this, a driver that timed out on a slow
+	// daemon dial left the daemon's dispatch goroutine grinding for
+	// the full 14-31 s retry budget, filling the per-conn dispatch
+	// semaphore under burst load (§4.8 stress).
+	CmdCancel byte = 0x2B
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -79,9 +86,7 @@ const (
 
 // Managed sub-commands (second byte of CmdManaged payload)
 const (
-	SubManagedScore      byte = 0x01
 	SubManagedStatus     byte = 0x02
-	SubManagedRankings   byte = 0x03
 	SubManagedCycle      byte = 0x04
 	SubManagedPolicy     byte = 0x05 // get/set expr policy
 	SubManagedMemberTags byte = 0x06 // get/set member tags
@@ -97,14 +102,38 @@ const (
 // stress to (*ipcConn).ipcWrite. See [[X-Tasks/backlog/26-ipc-write-mutex-contention]]
 // and [[X-Tasks/backlog/30-mutex-risk-map]] § fix #4.
 //
+// Wire format (issue #99):
+//
+//	[uint32-len][uint8-cmd][uint64-reqID][payload...]
+//
+// reqID is a per-IPC-connection monotonic identifier the driver allocates
+// for each request expecting a reply. The daemon echoes the same reqID
+// back in the response, so the driver can demultiplex replies that may
+// arrive out of submission order (concurrent dispatch — see issue #99).
+// reqID==0 means "server-pushed, unsolicited" — used for cmdRecv,
+// cmdAccept, cmdRecvFrom, cmdCloseOK from the recvPusher path, and the
+// fan-out broadcast in DeliverDatagram. Drivers route those by cmd.
+//
+// Ordering: per-reqID, requests and their replies are paired (the driver
+// sees its own reply). Across requests, replies may interleave with each
+// other (concurrent dispatch). Server-pushed messages arrive in send
+// order on the writer goroutine. Per-conn ordering for traffic on a
+// single overlay connection (CmdRecv frames) is unchanged because the
+// recvPusher writes them sequentially.
+//
 // Concurrency model:
 //   - sendCh has capacity ipcSendBuffer (256). Producers (handleBind,
 //     handleHealth, etc.) push to it via ipcWrite.
-//   - A single writer goroutine drains sendCh in order. Per-client message
-//     ordering is preserved (the same guarantee the old mutex provided).
-//   - If sendCh is full, ipcWrite blocks up to ipcWriteBackpressureTimeout
-//     (100ms) then returns ErrIPCBackpressure rather than waiting forever.
-//     Callers already handle write errors by dropping the conn.
+//   - A single writer goroutine drains sendCh in order. Per-client byte
+//     ordering on the wire is preserved.
+//   - ipcWrite blocks until enqueue, conn-close, or ctx-cancel. The old
+//     100 ms backpressure-timeout was removed because the driver waits
+//     on a per-reqID channel and a silent reply drop wedged callers
+//     forever (issue #99 root cause). With concurrent daemon dispatch,
+//     a stalled writeLoop now applies backpressure to the dispatch
+//     goroutine pushing the reply, which is the right shape — a slow
+//     IPC client throttles the rate at which its requests are answered,
+//     not the rate at which other clients are answered.
 //   - Close() is idempotent and races-safe; once invoked, ipcWrite returns
 //     ErrIPCClosed. The writer drains queued messages best-effort before
 //     the underlying net.Conn is closed.
@@ -131,6 +160,16 @@ type ipcConn struct {
 	// per IPC connection.
 	dialCancels  map[uint64]context.CancelFunc
 	nextCancelID uint64
+
+	// reqCancels maps in-flight reqID → cancel func. Issue #99: when the
+	// driver-side waiter times out (sendAndWaitTimeout returned "dial
+	// timeout"), it sends a CmdCancel with the same reqID so the
+	// daemon's dispatch goroutine can cancel its long-running operation
+	// (typically DialConnectionContext, which has a 14-31 s retry
+	// budget). Without this, every driver-timeout left the daemon
+	// grinding for the full retry budget and the per-conn dispatch
+	// semaphore filled within seconds under §4.8 burst load.
+	reqCancels map[uint64]context.CancelFunc
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -139,19 +178,33 @@ type ipcConn struct {
 // avg 256B/msg ≈ 64 MB worst case).
 const ipcSendBuffer = 256
 
-// ipcWriteBackpressureTimeout caps how long ipcWrite waits to enqueue when
-// the buffer is full. After this elapses the client gets ErrIPCBackpressure
-// — signaling the daemon that this client cannot keep up; callers close
-// the conn rather than wait forever (which is what the synchronous mutex
-// effectively did).
-const ipcWriteBackpressureTimeout = 100 * time.Millisecond
-
-// ErrIPCBackpressure is returned when ipcWrite cannot enqueue within
-// ipcWriteBackpressureTimeout. Indicates a stuck or too-slow IPC client.
-var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
+// ipcMaxInflightPerClient caps how many in-flight dispatch goroutines a
+// single IPC client may have. Each request becomes a goroutine that
+// handles the command and writes the reply (concurrent dispatch — see
+// issue #99). Without a cap, a flooding client could spawn unbounded
+// goroutines on the daemon. The cap is a buffered semaphore: once
+// reached, the read loop blocks before reading the next request, which
+// in turn applies TCP-style backpressure to the client.
+//
+// 1024 is large enough to absorb the §4.8 stress workload (≈700
+// concurrent goroutines per IPC pipe — dial+decrypt+rekey+heartbeat)
+// while still bounded. Worst-case memory at MaxIPCClients = 1024
+// clients is 1024 × 1024 = ~1 M dispatch goroutines, ~8 GB of stacks
+// — plenty of headroom for the typical 1-3 IPC clients a daemon sees.
+const ipcMaxInflightPerClient = 1024
 
 // ErrIPCClosed is returned when ipcWrite is called after Close.
 var ErrIPCClosed = errors.New("ipc: connection closed")
+
+// ErrIPCBackpressure is retained for historical compatibility with tests
+// that import it. Post-issue-#99, ipcWrite no longer returns this — it
+// blocks until enqueue or close. The constant is unused in production
+// code paths.
+var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
+
+// IPCEnvelopeHeaderSize is the size of the per-message header that sits
+// inside the ipcutil length-framed envelope: 1 byte cmd + 8 bytes reqID.
+const IPCEnvelopeHeaderSize = 1 + 8
 
 // MaxIPCClients caps the total number of concurrent IPC socket
 // connections to the daemon (P2-002). Without this cap a misbehaving or
@@ -175,9 +228,45 @@ func newIPCConn(c net.Conn) *ipcConn {
 		done:        make(chan struct{}),
 		writeDone:   make(chan struct{}),
 		dialCancels: make(map[uint64]context.CancelFunc),
+		reqCancels:  make(map[uint64]context.CancelFunc),
 	}
 	go ic.writeLoop()
 	return ic
+}
+
+// registerReqCancel records a cancel func keyed on reqID so a CmdCancel
+// from the driver can interrupt a long-running dispatch. Idempotent: a
+// later registration with the same reqID overwrites the earlier one
+// (which won't happen in practice because reqIDs are monotonic per
+// driver, but keeping it forgiving avoids edge cases).
+func (c *ipcConn) registerReqCancel(reqID uint64, cancel context.CancelFunc) {
+	if reqID == 0 {
+		return // reqID 0 is reserved for unsolicited frames
+	}
+	c.rmu.Lock()
+	c.reqCancels[reqID] = cancel
+	c.rmu.Unlock()
+}
+
+// unregisterReqCancel deletes the entry. Called from the dispatch
+// goroutine on its way out so completed dispatches don't accumulate
+// dead cancel funcs in the map (issue #99 follow-up: bounded growth).
+func (c *ipcConn) unregisterReqCancel(reqID uint64) {
+	c.rmu.Lock()
+	delete(c.reqCancels, reqID)
+	c.rmu.Unlock()
+}
+
+// cancelReq fires the cancel for reqID if it's still in-flight. Called
+// from the CmdCancel handler.
+func (c *ipcConn) cancelReq(reqID uint64) {
+	c.rmu.Lock()
+	cancel, ok := c.reqCancels[reqID]
+	delete(c.reqCancels, reqID)
+	c.rmu.Unlock()
+	if ok {
+		cancel()
+	}
 }
 
 // writeLoop is the sole writer to c.Conn. It exits when c.done is closed
@@ -218,10 +307,16 @@ func (c *ipcConn) writeLoop() {
 // ipcWrite queues a message for asynchronous writing. Returns:
 //   - nil on successful enqueue (write may still happen later)
 //   - ErrIPCClosed if the conn has been Close()d (or is being closed)
-//   - ErrIPCBackpressure if the buffer stays full for
-//     ipcWriteBackpressureTimeout
+//
+// Per issue #99, ipcWrite blocks until enqueue or close — there is no
+// 100 ms backpressure timeout anymore. Silent reply drops were the root
+// cause of the §4.8 stress drain failure: the driver waits on a per-reqID
+// channel and a dropped reply hung the waiter forever. Concurrent
+// dispatch on the daemon side (handleClient spawns a goroutine per
+// request) means a stalled writeLoop applies backpressure only to the
+// dispatcher pushing its reply, not to other in-flight requests.
 func (c *ipcConn) ipcWrite(data []byte) error {
-	// Fast-fail if already closed — avoids allocating a timer below.
+	// Fast-fail if already closed — avoids the channel-send dance below.
 	select {
 	case <-c.done:
 		return ErrIPCClosed
@@ -235,17 +330,40 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 		return ErrIPCClosed
 	default:
 	}
-	// Slow path: backpressure timer.
-	timer := time.NewTimer(ipcWriteBackpressureTimeout)
-	defer timer.Stop()
+	// Slow path: block until the buffer drains, the conn closes, or
+	// the writeLoop exits (broken socket).
 	select {
 	case c.sendCh <- data:
 		return nil
 	case <-c.done:
 		return ErrIPCClosed
-	case <-timer.C:
-		return ErrIPCBackpressure
+	case <-c.writeDone:
+		return ErrIPCClosed
 	}
+}
+
+// writeReply builds an envelope `[cmd][reqID(8)][payload...]` and queues
+// it for write. Use this for any message that is a response to a
+// driver-initiated request. reqID must be the same value the daemon
+// received in the original request.
+func (c *ipcConn) writeReply(cmd byte, reqID uint64, payload []byte) error {
+	buf := make([]byte, IPCEnvelopeHeaderSize+len(payload))
+	buf[0] = cmd
+	binary.BigEndian.PutUint64(buf[1:9], reqID)
+	copy(buf[9:], payload)
+	return c.ipcWrite(buf)
+}
+
+// writePush builds an envelope `[cmd][0(8)][payload...]` for an
+// unsolicited server → client message (CmdRecv, CmdAccept, CmdRecvFrom,
+// or the broadcast fan-out). reqID is always 0 on the wire so the
+// driver can route by cmd.
+func (c *ipcConn) writePush(cmd byte, payload []byte) error {
+	buf := make([]byte, IPCEnvelopeHeaderSize+len(payload))
+	buf[0] = cmd
+	// reqID = 0 (already zero).
+	copy(buf[9:], payload)
+	return c.ipcWrite(buf)
 }
 
 // Close is idempotent. It signals the writer goroutine to drain and exit,
@@ -261,8 +379,15 @@ func (c *ipcConn) Close() error {
 		c.rmu.Lock()
 		cancels := c.dialCancels
 		c.dialCancels = make(map[uint64]context.CancelFunc)
+		// Also fire every per-reqID cancel — same rationale: the
+		// driver is gone, no point in finishing the dispatch.
+		reqCancels := c.reqCancels
+		c.reqCancels = make(map[uint64]context.CancelFunc)
 		c.rmu.Unlock()
 		for _, cancel := range cancels {
+			cancel()
+		}
+		for _, cancel := range reqCancels {
 			cancel()
 		}
 	})
@@ -411,21 +536,35 @@ func (s *IPCServer) acceptLoop() {
 }
 
 func (s *IPCServer) handleClient(conn *ipcConn) {
-	// Outermost defer: swallow panics so a buggy IPC handler doesn't kill
-	// the daemon. The other deferred cleanup (ports/conns/registry) still
-	// runs first because defers are LIFO.
+	// Outermost defer: L9 panic boundary
+	// (architecture-notes/03-INVARIANTS.md §8). Tear down THIS IPC
+	// conn only — other clients keep working. The other deferred
+	// cleanup (ports/conns/registry) still runs first because defers
+	// are LIFO. recoverLayer publishes the bus event so observability
+	// sees the per-conn teardown.
+	defer recoverLayer("L9", "handleClient", s.daemon.bus, nil)
+
+	// Concurrent-dispatch wait group: every dispatched request bumps it,
+	// every reply path decrements it. We wait on this before tearing down
+	// ports/conns so an in-flight handler can't write to a closed sendCh.
+	var dispatchWG sync.WaitGroup
+
 	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("IPC handler panic recovered",
-				"recover", r,
-				"stack", string(debug.Stack()))
-		}
-	}()
-	defer func() {
-		// Clean up ports and connections owned by this client
+		// Drain in-flight dispatch goroutines first so they finish their
+		// reply (or fail fast on closed conn) before the cleanup below
+		// invalidates ports/conns they may be touching.
+		dispatchWG.Wait()
+
+		// Clean up ports and connections owned by this client.
+		// Copy the slices into fresh backing arrays — `conn.conns` and
+		// `conn.ports` may be mutated by removeConn / unbind paths
+		// running after we release rmu, and the [:0] aliasing form
+		// would race with our iteration below (bug surfaced by §4.8).
 		conn.rmu.Lock()
-		ports := conn.ports
-		conns := conn.conns
+		ports := make([]uint16, len(conn.ports))
+		copy(ports, conn.ports)
+		conns := make([]uint32, len(conn.conns))
+		copy(conns, conn.conns)
 		conn.rmu.Unlock()
 
 		for _, connID := range conns {
@@ -443,6 +582,12 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 		s.mu.Unlock()
 	}()
 
+	// Buffered semaphore caps in-flight goroutines per client. Push to it
+	// before spawning a dispatcher; pop when the dispatcher exits. If
+	// full, the read loop blocks here, applying TCP-style backpressure
+	// to the client.
+	sem := make(chan struct{}, ipcMaxInflightPerClient)
+
 	for {
 		msg, err := ipcutil.Read(conn)
 		if err != nil {
@@ -451,96 +596,156 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			}
 			return
 		}
-		if len(msg) < 1 {
+		// Wire format (issue #99): [cmd(1)][reqID(8)][payload...]
+		if len(msg) < IPCEnvelopeHeaderSize {
+			continue
+		}
+		cmd := msg[0]
+		reqID := binary.BigEndian.Uint64(msg[1:9])
+		payload := msg[IPCEnvelopeHeaderSize:]
+
+		// CmdCancel is handled inline. It's a tiny map lookup + cancel
+		// call — pushing it through the dispatch sem would defeat the
+		// purpose (the cancel exists to FREE sem slots) and could lead
+		// to deadlock if sem is full of slow dials we're trying to
+		// cancel. Body shape: [reqIDToCancel(8)].
+		if cmd == CmdCancel {
+			if len(payload) >= 8 {
+				target := binary.BigEndian.Uint64(payload[0:8])
+				conn.cancelReq(target)
+			}
 			continue
 		}
 
-		cmd := msg[0]
-		payload := msg[1:]
-
+		// CmdSend MUST dispatch inline to preserve per-client-conn FIFO
+		// data ordering — dataexchange.WriteFrame issues two sequential
+		// Conn.Write() calls (header + payload); if those raced in
+		// worker goroutines, SendData would append in the wrong order
+		// and the receiver would see a corrupted frame. handleSend's
+		// reply paths use asyncSendError so the inline call never
+		// blocks on a full sendCh (TestTaskSubmitConcurrent regression).
+		// CmdSendTo follows the same pattern (UDP-like fire-and-forget,
+		// but ordering still cleaner). CmdClose stays in the concurrent
+		// dispatch lane: by the time it arrives, all prior CmdSends on
+		// the same conn have already returned from their inline call,
+		// so the data is in NagleBuf and Close's FIN goes out after.
 		switch cmd {
-		case CmdBind:
-			s.handleBind(conn, payload)
-		case CmdDial:
-			s.handleDial(conn, payload)
 		case CmdSend:
-			s.handleSend(conn, payload)
-		case CmdClose:
-			s.handleClose(conn, payload)
+			s.handleSend(conn, reqID, payload)
+			continue
 		case CmdSendTo:
-			s.handleSendTo(conn, payload)
-		case CmdBroadcast:
-			s.handleBroadcast(conn, payload)
-		case CmdInfo:
-			s.handleInfo(conn)
-		case CmdMyPolo:
-			s.handleMyPolo(conn)
-		case CmdHandshake:
-			s.handleHandshake(conn, payload)
-		case CmdResolveHostname:
-			s.handleResolveHostname(conn, payload)
-		case CmdSetHostname:
-			s.handleSetHostname(conn, payload)
-		case CmdSetVisibility:
-			s.handleSetVisibility(conn, payload)
-		case CmdDeregister:
-			s.handleDeregister(conn)
-		case CmdSetTags:
-			s.handleSetTags(conn, payload)
-		case CmdSetWebhook:
-			s.handleSetWebhook(conn, payload)
-		case CmdSetTaskExec:
-			s.handleSetTaskExec(conn, payload)
-		case CmdNetwork:
-			s.handleNetwork(conn, payload)
-		case CmdHealth:
-			s.handleHealth(conn)
-		case CmdManaged:
-			s.handleManaged(conn, payload)
-		case CmdRotateKey:
-			s.handleRotateKey(conn)
-		default:
-			s.sendError(conn, fmt.Sprintf("unknown command: 0x%02X", cmd))
+			s.handleSendTo(conn, reqID, payload)
+			continue
 		}
+
+		// Acquire a dispatch slot. Block if the client is already at the
+		// per-conn cap; this is what stops a flooding client from
+		// spawning unbounded goroutines.
+		select {
+		case sem <- struct{}{}:
+		case <-conn.done:
+			return
+		}
+
+		dispatchWG.Add(1)
+		go func(cmd byte, reqID uint64, payload []byte) {
+			defer func() {
+				<-sem
+				dispatchWG.Done()
+			}()
+			// Per-handler panic boundary: a panic in one dispatch must not
+			// take down handleClient or other in-flight dispatches on the
+			// same conn (issue #99, concurrent dispatch).
+			defer recoverLayer("L9", "ipcDispatch", s.daemon.bus, nil)
+			s.dispatch(conn, cmd, reqID, payload)
+		}(cmd, reqID, payload)
 	}
 }
 
-func (s *IPCServer) handleBind(conn *ipcConn, payload []byte) {
+// dispatch routes a request to the correct handler. Each handler is
+// responsible for writing exactly one reply (writeReply with the same
+// reqID) or calling sendError (which now also takes reqID). Several
+// handlers spawn long-lived background goroutines (e.g. handleBind starts
+// the accept-pusher); those run independently and use writePush for
+// unsolicited server → client frames.
+func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []byte) {
+	switch cmd {
+	case CmdBind:
+		s.handleBind(conn, reqID, payload)
+	case CmdDial:
+		s.handleDial(conn, reqID, payload)
+	case CmdSend:
+		s.handleSend(conn, reqID, payload)
+	case CmdClose:
+		s.handleClose(conn, reqID, payload)
+	case CmdSendTo:
+		s.handleSendTo(conn, reqID, payload)
+	case CmdBroadcast:
+		s.handleBroadcast(conn, reqID, payload)
+	case CmdInfo:
+		s.handleInfo(conn, reqID)
+	case CmdHandshake:
+		s.handleHandshake(conn, reqID, payload)
+	case CmdResolveHostname:
+		s.handleResolveHostname(conn, reqID, payload)
+	case CmdSetHostname:
+		s.handleSetHostname(conn, reqID, payload)
+	case CmdSetVisibility:
+		s.handleSetVisibility(conn, reqID, payload)
+	case CmdDeregister:
+		s.handleDeregister(conn, reqID)
+	case CmdSetTags:
+		s.handleSetTags(conn, reqID, payload)
+	case CmdSetWebhook:
+		s.handleSetWebhook(conn, reqID, payload)
+	case CmdNetwork:
+		s.handleNetwork(conn, reqID, payload)
+	case CmdHealth:
+		s.handleHealth(conn, reqID)
+	case CmdManaged:
+		s.handleManaged(conn, reqID, payload)
+	case CmdRotateKey:
+		s.handleRotateKey(conn, reqID)
+	default:
+		s.sendError(conn, reqID, fmt.Sprintf("unknown command: 0x%02X", cmd))
+	}
+}
+
+func (s *IPCServer) handleBind(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 2 {
-		s.sendError(conn, "bind: missing port")
+		s.sendError(conn, reqID, "bind: missing port")
 		return
 	}
 	port := binary.BigEndian.Uint16(payload[0:2])
 
 	ln, err := s.daemon.ports.Bind(port)
 	if err != nil {
-		s.sendError(conn, err.Error())
+		s.sendError(conn, reqID, err.Error())
 		return
 	}
 
 	conn.trackPort(port)
 
-	// Send bind OK
-	resp := make([]byte, 3)
-	resp[0] = CmdBindOK
-	binary.BigEndian.PutUint16(resp[1:3], port)
-	if err := conn.ipcWrite(resp); err != nil {
+	// Send bind OK (reply: [port(2)])
+	respBody := make([]byte, 2)
+	binary.BigEndian.PutUint16(respBody[0:2], port)
+	if err := conn.writeReply(CmdBindOK, reqID, respBody); err != nil {
 		slog.Debug("IPC bind reply failed", "port", port, "err", err)
 		return
 	}
 
-	// Start pushing accepted connections to this client
+	// Start pushing accepted connections to this client. CmdAccept frames
+	// are server-pushed (reqID=0) and demuxed by the driver on local port.
 	go func() {
 		for c := range ln.AcceptCh {
 			conn.trackConn(c.ID)
 			// H12 fix: include local port for per-port demux
-			msg := make([]byte, 1+2+4+protocol.AddrSize+2)
-			msg[0] = CmdAccept
-			binary.BigEndian.PutUint16(msg[1:3], port)
-			binary.BigEndian.PutUint32(msg[3:7], c.ID)
-			c.RemoteAddr.MarshalTo(msg, 7)
-			binary.BigEndian.PutUint16(msg[7+protocol.AddrSize:], c.RemotePort)
-			if err := conn.ipcWrite(msg); err != nil {
+			body := make([]byte, 2+4+protocol.AddrSize+2)
+			binary.BigEndian.PutUint16(body[0:2], port)
+			binary.BigEndian.PutUint32(body[2:6], c.ID)
+			c.RemoteAddr.MarshalTo(body, 6)
+			binary.BigEndian.PutUint16(body[6+protocol.AddrSize:], c.RemotePort)
+			if err := conn.writePush(CmdAccept, body); err != nil {
 				slog.Debug("IPC accept notify failed", "conn_id", c.ID, "err", err)
 				return
 			}
@@ -550,9 +755,9 @@ func (s *IPCServer) handleBind(conn *ipcConn, payload []byte) {
 	}()
 }
 
-func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < protocol.AddrSize+2 {
-		s.sendError(conn, "dial: missing address/port")
+		s.sendError(conn, reqID, "dial: missing address/port")
 		return
 	}
 
@@ -560,47 +765,90 @@ func (s *IPCServer) handleDial(conn *ipcConn, payload []byte) {
 	// connections. Avoids the single-client DoS where one buggy driver
 	// exhausts the global connection table.
 	if n := conn.connCount(); n >= MaxConnsPerIPCClient {
-		s.sendError(conn, fmt.Sprintf("dial: per-client connection quota (%d) reached", MaxConnsPerIPCClient))
+		s.sendError(conn, reqID, fmt.Sprintf("dial: per-client connection quota (%d) reached", MaxConnsPerIPCClient))
 		return
 	}
 
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize:])
 
-	// Per-dial cancellable context tied to this IPC connection's lifetime.
-	// When the IPC client closes (Ctrl+C, crash), ipcConn.Close fires this
-	// cancel and the dial loop exits inside its select instead of grinding
-	// through the full 14-31 s retry budget leaving an orphaned SYN_SENT.
+	// Per-dial cancellable context tied to this IPC connection's lifetime
+	// AND to the request's reqID (issue #99). Two cancellation paths:
+	//   1. ipcConn.Close fires every dialCancels entry (driver crash, EOF).
+	//   2. cmdCancel from the driver fires the reqID entry (driver-side
+	//      sendAndWaitTimeout expired and the driver is no longer waiting).
+	// Without (2), a driver that re-dials after a 2 s timeout leaves the
+	// daemon grinding through 14-31 s of retries, exhausting the per-conn
+	// dispatch semaphore under burst load.
 	dialCtx, dialCancel := context.WithCancel(context.Background())
 	cancelID := conn.addDialCancel(dialCancel)
+	conn.registerReqCancel(reqID, dialCancel)
 	defer func() {
 		dialCancel()
 		conn.removeDialCancel(cancelID) // keep map bounded to in-flight dials
+		conn.unregisterReqCancel(reqID)
 	}()
 
 	c, err := s.daemon.DialConnectionContext(dialCtx, dstAddr, dstPort)
 	if err != nil {
-		s.sendError(conn, err.Error())
+		s.sendError(conn, reqID, err.Error())
 		return
+	}
+
+	// If the driver cancelled (cmdCancel) AFTER the dial succeeded but
+	// BEFORE we got here, the resulting Connection is orphaned: the
+	// driver isn't tracking the connID and won't ever send CmdClose. We
+	// close it here to avoid leaking the conn table slot + a retxLoop
+	// goroutine. Issue #99: §4.8 stress with cmdCancel uncovered ~20
+	// retxLoops accumulating per rep from this race.
+	select {
+	case <-dialCtx.Done():
+		s.daemon.CloseConnection(c)
+		return
+	default:
 	}
 
 	conn.trackConn(c.ID)
 
-	// Send dial OK
-	resp := make([]byte, 5)
-	resp[0] = CmdDialOK
-	binary.BigEndian.PutUint32(resp[1:5], c.ID)
-	if err := conn.ipcWrite(resp); err != nil {
+	// Send dial OK (reply: [connID(4)])
+	respBody := make([]byte, 4)
+	binary.BigEndian.PutUint32(respBody[0:4], c.ID)
+	if err := conn.writeReply(CmdDialOK, reqID, respBody); err != nil {
 		slog.Debug("IPC dial reply failed", "conn_id", c.ID, "err", err)
+		// Driver isn't reachable — also close the orphan conn.
+		s.daemon.CloseConnection(c)
+		conn.removeConn(c.ID)
 		return
+	}
+
+	// Re-check cancellation after the reply has gone out: cmdCancel may
+	// have arrived during the window between the first cancel-check and
+	// the writeReply. The driver's waiter has already returned a
+	// "dial timeout" error, so its reply demux silently drops cmdDialOK
+	// and the connection is orphaned with no Close() ever coming. Issue
+	// #99 §4.8 residual: this race left ~30 retxLoops alive per rep
+	// even after the orphan-close pre-check.
+	select {
+	case <-dialCtx.Done():
+		s.daemon.CloseConnection(c)
+		conn.removeConn(c.ID)
+		return
+	default:
 	}
 
 	s.startRecvPusher(conn, c)
 }
 
-func (s *IPCServer) handleSend(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSend(conn *ipcConn, reqID uint64, payload []byte) {
+	// CmdSend is dispatched INLINE in handleClient's read loop to
+	// preserve per-conn-FIFO data ordering (see ipc.go header §
+	// "Order-sensitive commands"). That means this handler MUST NOT
+	// block on ipcWrite — if it did, a full sendCh would stall the
+	// read loop and cause a fan-in deadlock under concurrent senders
+	// (TestTaskSubmitConcurrent regression). Reply paths use
+	// asyncSendError so the inline call always returns promptly.
 	if len(payload) < 4 {
-		s.sendError(conn, "send: missing conn_id")
+		s.asyncSendError(conn, reqID, "send: missing conn_id")
 		return
 	}
 	connID := binary.BigEndian.Uint32(payload[0:4])
@@ -608,18 +856,32 @@ func (s *IPCServer) handleSend(conn *ipcConn, payload []byte) {
 
 	c := s.daemon.ports.GetConnection(connID)
 	if c == nil {
-		s.sendError(conn, fmt.Sprintf("connection %d not found", connID))
+		s.asyncSendError(conn, reqID, fmt.Sprintf("connection %d not found", connID))
 		return
 	}
 
+	// SendData itself preserves per-conn order via conn.NagleMu — and
+	// does not block on IPC backpressure (it appends to NagleBuf and
+	// returns ErrSendBufFull when the cap is reached, never waiting on
+	// the IPC sendCh). Inline call is safe.
 	if err := s.daemon.SendData(c, data); err != nil {
-		s.sendError(conn, fmt.Sprintf("send: %v", err))
+		s.asyncSendError(conn, reqID, fmt.Sprintf("send: %v", err))
 	}
+	// Note: legacy CmdSend has no positive reply on success — the driver's
+	// Conn.Write does not wait for one. This stays as a fire-and-forget
+	// command (reqID is consumed but no echo is sent on success).
 }
 
-func (s *IPCServer) handleClose(conn *ipcConn, payload []byte) {
+// asyncSendError schedules the error reply on a separate goroutine so
+// the caller (an inline-dispatched handler) doesn't block on a full
+// IPC sendCh. Used by handleSend, handleSendTo, handleClose.
+func (s *IPCServer) asyncSendError(conn *ipcConn, reqID uint64, msg string) {
+	go s.sendError(conn, reqID, msg)
+}
+
+func (s *IPCServer) handleClose(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 4 {
-		s.sendError(conn, "close: missing conn_id")
+		s.sendError(conn, reqID, "close: missing conn_id")
 		return
 	}
 	connID := binary.BigEndian.Uint32(payload[0:4])
@@ -630,17 +892,18 @@ func (s *IPCServer) handleClose(conn *ipcConn, payload []byte) {
 	}
 	conn.removeConn(connID)
 
-	resp := make([]byte, 5)
-	resp[0] = CmdCloseOK
-	binary.BigEndian.PutUint32(resp[1:5], connID)
-	if err := conn.ipcWrite(resp); err != nil {
+	respBody := make([]byte, 4)
+	binary.BigEndian.PutUint32(respBody[0:4], connID)
+	if err := conn.writeReply(CmdCloseOK, reqID, respBody); err != nil {
 		slog.Debug("IPC close reply failed", "conn_id", connID, "err", err)
 	}
 }
 
-func (s *IPCServer) handleSendTo(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSendTo(conn *ipcConn, reqID uint64, payload []byte) {
+	// Inline-dispatched (see handleClient): error replies use
+	// asyncSendError so the read loop never blocks on a full sendCh.
 	if len(payload) < protocol.AddrSize+2 {
-		s.sendError(conn, "sendto: missing address/port")
+		s.asyncSendError(conn, reqID, "sendto: missing address/port")
 		return
 	}
 
@@ -649,8 +912,9 @@ func (s *IPCServer) handleSendTo(conn *ipcConn, payload []byte) {
 	data := payload[protocol.AddrSize+2:]
 
 	if err := s.daemon.SendDatagram(dstAddr, dstPort, data); err != nil {
-		s.sendError(conn, fmt.Sprintf("sendto: %v", err))
+		s.asyncSendError(conn, reqID, fmt.Sprintf("sendto: %v", err))
 	}
+	// SendTo has no positive reply on success — driver fires-and-forgets.
 }
 
 // handleBroadcast services CmdBroadcast — admin-token-gated fan-out to a
@@ -661,53 +925,31 @@ func (s *IPCServer) handleSendTo(conn *ipcConn, payload []byte) {
 // On success, replies with CmdBroadcastOK (no body). On failure, replies
 // with CmdError carrying the daemon error message — typically "daemon has
 // no admin token configured" or "invalid admin token".
-func (s *IPCServer) handleBroadcast(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleBroadcast(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 6 {
-		s.sendError(conn, "broadcast: missing header")
+		s.sendError(conn, reqID, "broadcast: missing header")
 		return
 	}
 	netID := binary.BigEndian.Uint16(payload[0:2])
 	dstPort := binary.BigEndian.Uint16(payload[2:4])
 	tokenLen := binary.BigEndian.Uint16(payload[4:6])
 	if len(payload) < 6+int(tokenLen) {
-		s.sendError(conn, "broadcast: truncated token")
+		s.sendError(conn, reqID, "broadcast: truncated token")
 		return
 	}
 	token := string(payload[6 : 6+tokenLen])
 	data := payload[6+tokenLen:]
 
 	if err := s.daemon.BroadcastDatagram(netID, dstPort, data, token); err != nil {
-		s.sendError(conn, fmt.Sprintf("broadcast: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("broadcast: %v", err))
 		return
 	}
-	if err := conn.ipcWrite([]byte{CmdBroadcastOK}); err != nil {
+	if err := conn.writeReply(CmdBroadcastOK, reqID, nil); err != nil {
 		slog.Debug("IPC broadcast reply failed", "err", err)
 	}
 }
 
-// handleMyPolo asks the registry for this daemon's own polo score.
-// Polo is private — only self-read is permitted, and the request is
-// signed by regConn so the registry can verify ownership.
-func (s *IPCServer) handleMyPolo(conn *ipcConn) {
-	if s.daemon.regConn == nil {
-		s.sendError(conn, "my_polo: registry not available")
-		return
-	}
-	score, err := s.daemon.regConn.GetPoloScore(s.daemon.NodeID())
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("my_polo: %v", err))
-		return
-	}
-	data, _ := json.Marshal(map[string]interface{}{"polo_score": score})
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdMyPoloOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
-		slog.Debug("IPC my_polo reply failed", "err", err)
-	}
-}
-
-func (s *IPCServer) handleInfo(conn *ipcConn) {
+func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 	info := s.daemon.Info()
 
 	// Build peer list for JSON
@@ -780,18 +1022,15 @@ func (s *IPCServer) handleInfo(conn *ipcConn) {
 		"conn_list":                 conns,
 	})
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("info marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("info marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdInfoOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdInfoOK, reqID, data); err != nil {
 		slog.Debug("IPC info reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleHealth(conn *ipcConn) {
+func (s *IPCServer) handleHealth(conn *ipcConn, reqID uint64) {
 	info := s.daemon.Info()
 	data, err := json.Marshal(map[string]interface{}{
 		"status":         "ok",
@@ -802,21 +1041,18 @@ func (s *IPCServer) handleHealth(conn *ipcConn) {
 		"bytes_recv":     info.BytesRecv,
 	})
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("health marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("health marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdHealthOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdHealthOK, reqID, data); err != nil {
 		slog.Debug("IPC health reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleResolveHostname(conn *ipcConn, reqID uint64, payload []byte) {
 	hostname := string(payload)
 	if hostname == "" {
-		s.sendError(conn, "resolve_hostname: missing hostname")
+		s.sendError(conn, reqID, "resolve_hostname: missing hostname")
 		return
 	}
 
@@ -833,10 +1069,7 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 		cached := e.resp
 		s.daemon.hostnameCacheMu.RUnlock()
 		if data, err := json.Marshal(cached); err == nil {
-			resp := make([]byte, 1+len(data))
-			resp[0] = CmdResolveHostnameOK
-			copy(resp[1:], data)
-			if err := conn.ipcWrite(resp); err != nil {
+			if err := conn.writeReply(CmdResolveHostnameOK, reqID, data); err != nil {
 				slog.Debug("IPC resolve_hostname (cached) reply failed", "err", err)
 			}
 			return
@@ -848,7 +1081,7 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 
 	result, err := s.daemon.regConn.ResolveHostname(hostname)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("resolve_hostname: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("resolve_hostname: %v", err))
 		return
 	}
 
@@ -890,19 +1123,16 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, payload []byte) {
 
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("resolve_hostname marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("resolve_hostname marshal: %v", err))
 		return
 	}
 
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdResolveHostnameOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdResolveHostnameOK, reqID, data); err != nil {
 		slog.Debug("IPC resolve_hostname reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSetHostname(conn *ipcConn, reqID uint64, payload []byte) {
 	hostname := string(payload)
 	// Snapshot the previous hostname so we can invalidate it from the
 	// cache regardless of whether this is a set, change, or clear.
@@ -911,7 +1141,7 @@ func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 	s.daemon.addrMu.RUnlock()
 	result, err := s.daemon.regConn.SetHostname(s.daemon.NodeID(), hostname)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_hostname: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_hostname: %v", err))
 		return
 	}
 	// Update daemon's local config so Info() reflects the change
@@ -931,26 +1161,23 @@ func (s *IPCServer) handleSetHostname(conn *ipcConn, payload []byte) {
 	s.daemon.hostnameCacheMu.Unlock()
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_hostname marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_hostname marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdSetHostnameOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdSetHostnameOK, reqID, data); err != nil {
 		slog.Debug("IPC set_hostname reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleSetVisibility(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSetVisibility(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 1 {
-		s.sendError(conn, "set_visibility: missing value")
+		s.sendError(conn, reqID, "set_visibility: missing value")
 		return
 	}
 	public := payload[0] == 1
 	result, err := s.daemon.regConn.SetVisibility(s.daemon.NodeID(), public)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_visibility: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_visibility: %v", err))
 		return
 	}
 	// Update daemon's local config so Info() reflects the change
@@ -959,123 +1186,84 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, payload []byte) {
 	s.daemon.addrMu.Unlock()
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_visibility marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_visibility marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdSetVisibilityOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdSetVisibilityOK, reqID, data); err != nil {
 		slog.Debug("IPC set_visibility reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleDeregister(conn *ipcConn) {
+func (s *IPCServer) handleDeregister(conn *ipcConn, reqID uint64) {
 	result, err := s.daemon.regConn.Deregister(s.daemon.NodeID())
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("deregister: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("deregister: %v", err))
 		return
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("deregister marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("deregister marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdDeregisterOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdDeregisterOK, reqID, data); err != nil {
 		slog.Debug("IPC deregister reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleSetTags(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSetTags(conn *ipcConn, reqID uint64, payload []byte) {
 	var tags []string
 	if err := json.Unmarshal(payload, &tags); err != nil {
-		s.sendError(conn, fmt.Sprintf("set_tags: invalid JSON: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_tags: invalid JSON: %v", err))
 		return
 	}
 	if len(tags) > 3 {
-		s.sendError(conn, "set_tags: maximum 3 tags allowed")
+		s.sendError(conn, reqID, "set_tags: maximum 3 tags allowed")
 		return
 	}
 	result, err := s.daemon.regConn.SetTags(s.daemon.NodeID(), tags)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_tags: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_tags: %v", err))
 		return
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_tags marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("set_tags marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdSetTagsOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdSetTagsOK, reqID, data); err != nil {
 		slog.Debug("IPC set_tags reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleRotateKey(conn *ipcConn) {
+func (s *IPCServer) handleRotateKey(conn *ipcConn, reqID uint64) {
 	result, err := s.daemon.RotateKey()
 	if err != nil {
-		s.sendError(conn, err.Error())
+		s.sendError(conn, reqID, err.Error())
 		return
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("rotate_key marshal: %v", err))
+		s.sendError(conn, reqID, fmt.Sprintf("rotate_key marshal: %v", err))
 		return
 	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdRotateKeyOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdRotateKeyOK, reqID, data); err != nil {
 		slog.Debug("IPC rotate_key reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleSetWebhook(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleSetWebhook(conn *ipcConn, reqID uint64, payload []byte) {
 	url := string(payload) // empty string = clear webhook
 	if url != "" {
 		if err := ValidateWebhookURL(url); err != nil {
-			s.sendError(conn, err.Error())
+			s.sendError(conn, reqID, err.Error())
 			return
 		}
 	}
 	s.daemon.SetWebhookURL(url)
 	result := map[string]interface{}{"webhook": url}
 	data, _ := json.Marshal(result)
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdSetWebhookOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+	if err := conn.writeReply(CmdSetWebhookOK, reqID, data); err != nil {
 		slog.Debug("IPC set_webhook reply failed", "err", err)
-	}
-}
-
-func (s *IPCServer) handleSetTaskExec(conn *ipcConn, payload []byte) {
-	if len(payload) < 1 {
-		s.sendError(conn, "set_task_exec: missing value")
-		return
-	}
-	enabled := payload[0] == 1
-	result, err := s.daemon.regConn.SetTaskExec(s.daemon.NodeID(), enabled)
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_task_exec: %v", err))
-		return
-	}
-	data, err := json.Marshal(result)
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("set_task_exec marshal: %v", err))
-		return
-	}
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdSetTaskExecOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
-		slog.Debug("IPC set_task_exec reply failed", "err", err)
 	}
 }
 
@@ -1087,11 +1275,16 @@ const (
 	SubHandshakePending byte = 0x04
 	SubHandshakeTrusted byte = 0x05
 	SubHandshakeRevoke  byte = 0x06
+	SubHandshakeWait    byte = 0x07
 )
 
-func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 1 {
-		s.sendError(conn, "handshake: missing sub-command")
+		s.sendError(conn, reqID, "handshake: missing sub-command")
+		return
+	}
+	if s.daemon.handshakes == nil {
+		s.sendError(conn, reqID, "handshake: service not registered")
 		return
 	}
 	sub := payload[0]
@@ -1100,7 +1293,7 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
 	switch sub {
 	case SubHandshakeSend:
 		if len(rest) < 4 {
-			s.sendError(conn, "handshake request: missing node_id")
+			s.sendError(conn, reqID, "handshake request: missing node_id")
 			return
 		}
 		nodeID := binary.BigEndian.Uint32(rest[0:4])
@@ -1109,34 +1302,34 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
 			justification = string(rest[4:])
 		}
 		if err := s.daemon.handshakes.SendRequest(nodeID, justification); err != nil {
-			s.sendError(conn, fmt.Sprintf("handshake request: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("handshake request: %v", err))
 			return
 		}
 		data, _ := json.Marshal(map[string]interface{}{
 			"status":  "sent",
 			"node_id": nodeID,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeApprove:
 		if len(rest) < 4 {
-			s.sendError(conn, "handshake approve: missing node_id")
+			s.sendError(conn, reqID, "handshake approve: missing node_id")
 			return
 		}
 		nodeID := binary.BigEndian.Uint32(rest[0:4])
 		if err := s.daemon.handshakes.ApproveHandshake(nodeID); err != nil {
-			s.sendError(conn, fmt.Sprintf("handshake approve: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("handshake approve: %v", err))
 			return
 		}
 		data, _ := json.Marshal(map[string]interface{}{
 			"status":  "approved",
 			"node_id": nodeID,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeReject:
 		if len(rest) < 4 {
-			s.sendError(conn, "handshake reject: missing node_id")
+			s.sendError(conn, reqID, "handshake reject: missing node_id")
 			return
 		}
 		nodeID := binary.BigEndian.Uint32(rest[0:4])
@@ -1145,14 +1338,14 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
 			reason = string(rest[4:])
 		}
 		if err := s.daemon.handshakes.RejectHandshake(nodeID, reason); err != nil {
-			s.sendError(conn, fmt.Sprintf("handshake reject: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("handshake reject: %v", err))
 			return
 		}
 		data, _ := json.Marshal(map[string]interface{}{
 			"status":  "rejected",
 			"node_id": nodeID,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakePending:
 		pending := s.daemon.handshakes.PendingRequests()
@@ -1168,7 +1361,7 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
 		data, _ := json.Marshal(map[string]interface{}{
 			"pending": list,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeTrusted:
 		trusted := s.daemon.handshakes.TrustedPeers()
@@ -1185,50 +1378,63 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, payload []byte) {
 		data, _ := json.Marshal(map[string]interface{}{
 			"trusted": list,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeRevoke:
 		if len(rest) < 4 {
-			s.sendError(conn, "handshake revoke: missing node_id")
+			s.sendError(conn, reqID, "handshake revoke: missing node_id")
 			return
 		}
 		nodeID := binary.BigEndian.Uint32(rest[0:4])
 		if err := s.daemon.handshakes.RevokeTrust(nodeID); err != nil {
-			s.sendError(conn, fmt.Sprintf("handshake revoke: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("handshake revoke: %v", err))
 			return
 		}
 		data, _ := json.Marshal(map[string]interface{}{
 			"status":  "revoked",
 			"node_id": nodeID,
 		})
-		s.ipcWriteHandshakeOK(conn, data)
+		s.ipcWriteHandshakeOK(conn, reqID, data)
+
+	case SubHandshakeWait:
+		if len(rest) < 8 {
+			s.sendError(conn, reqID, "handshake wait: payload must be [nodeID(4)][timeoutMs(4)]")
+			return
+		}
+		nodeID := binary.BigEndian.Uint32(rest[0:4])
+		timeoutMs := binary.BigEndian.Uint32(rest[4:8])
+		// Cap timeout at 30s — pilotctl is the typical caller and we
+		// don't want a stuck wait blocking an IPC dispatch slot longer.
+		if timeoutMs > 30000 {
+			timeoutMs = 30000
+		}
+		ok := s.daemon.handshakes.WaitForTrust(nodeID, time.Duration(timeoutMs)*time.Millisecond)
+		data, _ := json.Marshal(map[string]interface{}{
+			"node_id": nodeID,
+			"trusted": ok,
+		})
+		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	default:
-		s.sendError(conn, fmt.Sprintf("handshake: unknown sub-command 0x%02X", sub))
+		s.sendError(conn, reqID, fmt.Sprintf("handshake: unknown sub-command 0x%02X", sub))
 	}
 }
 
-func (s *IPCServer) ipcWriteHandshakeOK(conn *ipcConn, data []byte) {
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdHandshakeOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+func (s *IPCServer) ipcWriteHandshakeOK(conn *ipcConn, reqID uint64, data []byte) {
+	if err := conn.writeReply(CmdHandshakeOK, reqID, data); err != nil {
 		slog.Debug("IPC handshake reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) ipcWriteNetworkOK(conn *ipcConn, data []byte) {
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdNetworkOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+func (s *IPCServer) ipcWriteNetworkOK(conn *ipcConn, reqID uint64, data []byte) {
+	if err := conn.writeReply(CmdNetworkOK, reqID, data); err != nil {
 		slog.Debug("IPC network reply failed", "err", err)
 	}
 }
 
-func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 1 {
-		s.sendError(conn, "network: missing sub-command")
+		s.sendError(conn, reqID, "network: missing sub-command")
 		return
 	}
 	sub := payload[0]
@@ -1238,16 +1444,16 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 	case SubNetworkList:
 		result, err := s.daemon.regConn.ListNetworks()
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network list: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network list: %v", err))
 			return
 		}
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	case SubNetworkJoin:
 		// [2-byte networkID][token...]
 		if len(rest) < 2 {
-			s.sendError(conn, "network join: missing network_id")
+			s.sendError(conn, reqID, "network join: missing network_id")
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
@@ -1259,11 +1465,14 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 			s.daemon.NodeID(), netID, token, 0, s.daemon.config.AdminToken,
 		)
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network join: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network join: %v", err))
 			return
 		}
+		// Membership just changed — drop the cached snapshot so the next
+		// Info() / Health() call resolves the fresh list (issue #93).
+		s.daemon.invalidateNodeNetworksCache()
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 		// Refresh port policy cache for the newly joined network
 		go s.daemon.loadNetworkPolicies()
 		// Start policy runner if the network has an expr_policy
@@ -1285,7 +1494,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 	case SubNetworkLeave:
 		// [2-byte networkID]
 		if len(rest) < 2 {
-			s.sendError(conn, "network leave: missing network_id")
+			s.sendError(conn, reqID, "network leave: missing network_id")
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
@@ -1293,11 +1502,12 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 			s.daemon.NodeID(), netID, s.daemon.config.AdminToken,
 		)
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network leave: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network leave: %v", err))
 			return
 		}
+		s.daemon.invalidateNodeNetworksCache()
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 		// Clean up local state for the left network.
 		go func() {
@@ -1310,22 +1520,22 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 	case SubNetworkMembers:
 		// [2-byte networkID]
 		if len(rest) < 2 {
-			s.sendError(conn, "network members: missing network_id")
+			s.sendError(conn, reqID, "network members: missing network_id")
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
 		result, err := s.daemon.regConn.ListNodes(netID, s.daemon.config.AdminToken)
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network members: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network members: %v", err))
 			return
 		}
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	case SubNetworkInvite:
 		// [2-byte networkID][4-byte targetNodeID]
 		if len(rest) < 6 {
-			s.sendError(conn, "network invite: missing network_id or target_node_id")
+			s.sendError(conn, reqID, "network invite: missing network_id or target_node_id")
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
@@ -1334,25 +1544,25 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 			netID, s.daemon.NodeID(), targetID, s.daemon.config.AdminToken,
 		)
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network invite: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network invite: %v", err))
 			return
 		}
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	case SubNetworkPollInvites:
 		result, err := s.daemon.regConn.PollInvites(s.daemon.NodeID())
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network poll-invites: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network poll-invites: %v", err))
 			return
 		}
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	case SubNetworkRespondInvite:
 		// [2-byte networkID][1-byte accept]
 		if len(rest) < 3 {
-			s.sendError(conn, "network respond-invite: missing network_id or accept flag")
+			s.sendError(conn, reqID, "network respond-invite: missing network_id or accept flag")
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
@@ -1361,48 +1571,51 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, payload []byte) {
 			s.daemon.NodeID(), netID, accept,
 		)
 		if err != nil {
-			s.sendError(conn, fmt.Sprintf("network respond-invite: %v", err))
+			s.sendError(conn, reqID, fmt.Sprintf("network respond-invite: %v", err))
 			return
 		}
 		data, _ := json.Marshal(result)
-		s.ipcWriteNetworkOK(conn, data)
+		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	default:
-		s.sendError(conn, fmt.Sprintf("network: unknown sub-command 0x%02X", sub))
+		s.sendError(conn, reqID, fmt.Sprintf("network: unknown sub-command 0x%02X", sub))
 	}
 }
 
 // startRecvPusher drains c.RecvBuf and pushes data to the IPC client.
 // When RecvBuf closes (remote FIN), it sends CmdCloseOK to the driver.
+// Both CmdRecv and the trailing CmdCloseOK go out as server-pushed
+// envelopes (reqID=0) so the driver's read loop demuxes by cmd, not by
+// any in-flight reqID.
 func (s *IPCServer) startRecvPusher(conn *ipcConn, c *Connection) {
 	go func() {
 		for data := range c.RecvBuf {
-			msg := make([]byte, 1+4+len(data))
-			msg[0] = CmdRecv
-			binary.BigEndian.PutUint32(msg[1:5], c.ID)
-			copy(msg[5:], data)
-			if err := conn.ipcWrite(msg); err != nil {
+			body := make([]byte, 4+len(data))
+			binary.BigEndian.PutUint32(body[0:4], c.ID)
+			copy(body[4:], data)
+			if err := conn.writePush(CmdRecv, body); err != nil {
 				slog.Debug("IPC recv push failed", "conn_id", c.ID, "err", err)
 				conn.removeConn(c.ID)
 				return
 			}
 		}
-		closeMsg := make([]byte, 5)
-		closeMsg[0] = CmdCloseOK
-		binary.BigEndian.PutUint32(closeMsg[1:5], c.ID)
-		if err := conn.ipcWrite(closeMsg); err != nil {
+		closeBody := make([]byte, 4)
+		binary.BigEndian.PutUint32(closeBody[0:4], c.ID)
+		if err := conn.writePush(CmdCloseOK, closeBody); err != nil {
 			slog.Debug("IPC close notify failed", "conn_id", c.ID, "err", err)
 		}
 		conn.removeConn(c.ID)
 	}()
 }
 
-func (s *IPCServer) sendError(conn *ipcConn, msg string) {
-	resp := make([]byte, 1+2+len(msg))
-	resp[0] = CmdError
-	binary.BigEndian.PutUint16(resp[1:3], 1) // generic error code
-	copy(resp[3:], msg)
-	if err := conn.ipcWrite(resp); err != nil {
+// sendError writes a CmdError envelope echoing the request's reqID so the
+// driver routes the failure to the awaiting waiter (or the global error
+// fallback when reqID==0). Body shape: [code(2)][message...].
+func (s *IPCServer) sendError(conn *ipcConn, reqID uint64, msg string) {
+	body := make([]byte, 2+len(msg))
+	binary.BigEndian.PutUint16(body[0:2], 1) // generic error code
+	copy(body[2:], msg)
+	if err := conn.writeReply(CmdError, reqID, body); err != nil {
 		slog.Debug("IPC error reply failed", "msg", msg, "err", err)
 	}
 }
@@ -1418,76 +1631,37 @@ func (s *IPCServer) DeliverDatagram(srcAddr protocol.Addr, srcPort uint16, dstPo
 	}
 	s.mu.Unlock()
 
-	// Send RecvFrom to all connected clients (the driver filters by port)
-	msg := make([]byte, 1+protocol.AddrSize+2+2+len(data))
-	msg[0] = CmdRecvFrom
-	srcAddr.MarshalTo(msg, 1)
-	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize:], srcPort)
-	binary.BigEndian.PutUint16(msg[1+protocol.AddrSize+2:], dstPort)
-	copy(msg[1+protocol.AddrSize+4:], data)
+	// Send RecvFrom to all connected clients (the driver filters by port).
+	// reqID=0 because this is a server-pushed unsolicited frame.
+	body := make([]byte, protocol.AddrSize+2+2+len(data))
+	srcAddr.MarshalTo(body, 0)
+	binary.BigEndian.PutUint16(body[protocol.AddrSize:], srcPort)
+	binary.BigEndian.PutUint16(body[protocol.AddrSize+2:], dstPort)
+	copy(body[protocol.AddrSize+4:], data)
 
 	// P2-004: fan out writes to each client in a dedicated goroutine so a
 	// slow IPC peer can't wedge routeLoop for every other peer. ipcWrite
-	// already serializes per-connection via wmu, so concurrency is safe.
+	// already serializes per-connection via the writer goroutine, so
+	// concurrent enqueues are safe.
 	for _, conn := range clients {
 		conn := conn
 		go func() {
-			if err := conn.ipcWrite(msg); err != nil {
+			if err := conn.writePush(CmdRecvFrom, body); err != nil {
 				slog.Debug("IPC datagram delivery failed", "err", err)
 			}
 		}()
 	}
 }
 
-func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
+func (s *IPCServer) handleManaged(conn *ipcConn, reqID uint64, payload []byte) {
 	if len(payload) < 1 {
-		s.sendError(conn, "managed: missing sub-command")
+		s.sendError(conn, reqID, "managed: missing sub-command")
 		return
 	}
 	sub := payload[0]
 	rest := payload[1:]
 
 	switch sub {
-	case SubManagedScore:
-		// [2-byte netID][4-byte nodeID][4-byte delta (int32)][topic...]
-		if len(rest) < 10 {
-			s.sendError(conn, "managed score: missing fields (need netID + nodeID + delta)")
-			return
-		}
-		netID := binary.BigEndian.Uint16(rest[0:2])
-		nodeID := binary.BigEndian.Uint32(rest[2:6])
-		delta := int(int32(binary.BigEndian.Uint32(rest[6:10])))
-		topic := ""
-		if len(rest) > 10 {
-			topic = string(rest[10:])
-		}
-
-		// Prefer the PolicyRunner when present — a manual score increment
-		// should land in the same store the policy engine reads from
-		// (see SubManagedRankings comment).
-		if pr := s.daemon.GetPolicyRunner(netID); pr != nil {
-			if err := pr.Score(nodeID, delta, topic); err != nil {
-				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
-				return
-			}
-		} else if me := s.daemon.GetManagedEngine(netID); me != nil {
-			if err := me.Score(nodeID, delta, topic); err != nil {
-				s.sendError(conn, fmt.Sprintf("managed score: %v", err))
-				return
-			}
-		} else {
-			s.sendError(conn, fmt.Sprintf("managed: no engine for network %d", netID))
-			return
-		}
-
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":    "managed_score_ok",
-			"node_id": nodeID,
-			"delta":   delta,
-			"topic":   topic,
-		})
-		s.ipcWriteManagedOK(conn, data)
-
 	case SubManagedStatus:
 		// [2-byte netID] (optional — 0 means first/only engine)
 		netID := uint16(0)
@@ -1497,42 +1671,13 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 
 		if pr := s.findPolicyRunner(netID); pr != nil {
 			data, _ := json.Marshal(pr.Status())
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		} else if me := s.findManagedEngine(netID); me != nil {
 			data, _ := json.Marshal(me.Status())
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		} else {
-			s.sendError(conn, "managed: no active managed networks")
+			s.sendError(conn, reqID, "managed: no active managed networks")
 		}
-
-	case SubManagedRankings:
-		// [2-byte netID] (optional)
-		netID := uint16(0)
-		if len(rest) >= 2 {
-			netID = binary.BigEndian.Uint16(rest[0:2])
-		}
-
-		// Prefer the PolicyRunner when present: when both a policy and
-		// rules are attached to a network, the policy drives per-peer
-		// scoring (executeScore on connect/dial/datagram), so the
-		// runner's peer state is authoritative. ManagedEngine.peers only
-		// gets scored via manual `pilotctl managed score` and would
-		// otherwise shadow the live policy-driven view with stale zeros.
-		var rankings []map[string]interface{}
-		if pr := s.findPolicyRunner(netID); pr != nil {
-			rankings = pr.Rankings()
-		} else if me := s.findManagedEngine(netID); me != nil {
-			rankings = me.Rankings()
-		} else {
-			s.sendError(conn, "managed: no active managed networks")
-			return
-		}
-
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":     "managed_rankings_ok",
-			"rankings": rankings,
-		})
-		s.ipcWriteManagedOK(conn, data)
 
 	case SubManagedCycle:
 		// [2-byte netID] (optional)
@@ -1547,17 +1692,17 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 		} else if me := s.findManagedEngine(netID); me != nil {
 			result = me.ForceCycle()
 		} else {
-			s.sendError(conn, "managed: no active managed networks")
+			s.sendError(conn, reqID, "managed: no active managed networks")
 			return
 		}
 
 		data, _ := json.Marshal(result)
-		s.ipcWriteManagedOK(conn, data)
+		s.ipcWriteManagedOK(conn, reqID, data)
 
 	case SubManagedReconcile:
 		// [2-byte netID]. Poll the registry for the network's member list
 		// and refresh the runner's peer set — without running a policy
-		// cycle (no score/evict side effects). This is useful for tests
+		// cycle (no evict side effects). This is useful for tests
 		// and operators who want a clean "my peer view matches the
 		// registry" primitive.
 		netID := uint16(0)
@@ -1566,21 +1711,21 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 		}
 		pr := s.findPolicyRunner(netID)
 		if pr == nil {
-			s.sendError(conn, "managed: no active policy runner for network")
+			s.sendError(conn, reqID, "managed: no active policy runner for network")
 			return
 		}
 		pr.ReconcileNow()
 		data, _ := json.Marshal(map[string]interface{}{
 			"type":       "managed_reconcile_ok",
 			"network_id": netID,
-			"peers":      len(pr.Rankings()),
+			"peers":      len(pr.PeerList()),
 		})
-		s.ipcWriteManagedOK(conn, data)
+		s.ipcWriteManagedOK(conn, reqID, data)
 
 	case SubManagedPolicy:
 		// Sub-sub-command: [0x00=get][2-byte netID] or [0x01=set][2-byte netID][policy JSON...]
 		if len(rest) < 3 {
-			s.sendError(conn, "managed policy: missing sub-sub-command and network_id")
+			s.sendError(conn, reqID, "managed policy: missing sub-sub-command and network_id")
 			return
 		}
 		action := rest[0]
@@ -1594,7 +1739,7 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 				"network_id": netID,
 			}
 			if pr != nil {
-				policyData, _ := json.Marshal(pr.Policy().Doc)
+				policyData, _ := pr.PolicyJSON()
 				resp["expr_policy"] = json.RawMessage(policyData)
 				resp["engine"] = "policy"
 			} else if me := s.daemon.GetManagedEngine(netID); me != nil {
@@ -1603,15 +1748,15 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 				resp["engine"] = "none"
 			}
 			data, _ := json.Marshal(resp)
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		case 0x01: // set — reload policy from registry
 			policyJSON := rest[3:]
 			if len(policyJSON) == 0 {
-				s.sendError(conn, "managed policy set: missing policy JSON")
+				s.sendError(conn, reqID, "managed policy set: missing policy JSON")
 				return
 			}
 			if err := s.daemon.StartPolicyRunner(netID, policyJSON); err != nil {
-				s.sendError(conn, fmt.Sprintf("managed policy set: %v", err))
+				s.sendError(conn, reqID, fmt.Sprintf("managed policy set: %v", err))
 				return
 			}
 			data, _ := json.Marshal(map[string]interface{}{
@@ -1619,15 +1764,15 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 				"network_id": netID,
 				"applied":    true,
 			})
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		default:
-			s.sendError(conn, fmt.Sprintf("managed policy: unknown action 0x%02X", action))
+			s.sendError(conn, reqID, fmt.Sprintf("managed policy: unknown action 0x%02X", action))
 		}
 
 	case SubManagedMemberTags:
 		// Sub-sub-command: [0x00=get][2-byte netID][4-byte nodeID] or [0x01=set][2-byte netID][4-byte nodeID][tags JSON...]
 		if len(rest) < 7 {
-			s.sendError(conn, "managed member-tags: missing action, network_id, or node_id")
+			s.sendError(conn, reqID, "managed member-tags: missing action, network_id, or node_id")
 			return
 		}
 		action := rest[0]
@@ -1638,42 +1783,39 @@ func (s *IPCServer) handleManaged(conn *ipcConn, payload []byte) {
 		case 0x00: // get
 			resp, err := s.daemon.regConn.GetMemberTags(tagNetID, targetNodeID)
 			if err != nil {
-				s.sendError(conn, fmt.Sprintf("member-tags get: %v", err))
+				s.sendError(conn, reqID, fmt.Sprintf("member-tags get: %v", err))
 				return
 			}
 			data, _ := json.Marshal(resp)
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		case 0x01: // set
 			if len(rest) < 8 {
-				s.sendError(conn, "managed member-tags set: missing tags JSON")
+				s.sendError(conn, reqID, "managed member-tags set: missing tags JSON")
 				return
 			}
 			var tags []string
 			if err := json.Unmarshal(rest[7:], &tags); err != nil {
-				s.sendError(conn, fmt.Sprintf("member-tags set: invalid tags JSON: %v", err))
+				s.sendError(conn, reqID, fmt.Sprintf("member-tags set: invalid tags JSON: %v", err))
 				return
 			}
 			resp, err := s.daemon.regConn.SetMemberTags(tagNetID, targetNodeID, tags, s.daemon.config.AdminToken)
 			if err != nil {
-				s.sendError(conn, fmt.Sprintf("member-tags set: %v", err))
+				s.sendError(conn, reqID, fmt.Sprintf("member-tags set: %v", err))
 				return
 			}
 			data, _ := json.Marshal(resp)
-			s.ipcWriteManagedOK(conn, data)
+			s.ipcWriteManagedOK(conn, reqID, data)
 		default:
-			s.sendError(conn, fmt.Sprintf("managed member-tags: unknown action 0x%02X", action))
+			s.sendError(conn, reqID, fmt.Sprintf("managed member-tags: unknown action 0x%02X", action))
 		}
 
 	default:
-		s.sendError(conn, fmt.Sprintf("managed: unknown sub-command 0x%02X", sub))
+		s.sendError(conn, reqID, fmt.Sprintf("managed: unknown sub-command 0x%02X", sub))
 	}
 }
 
-func (s *IPCServer) ipcWriteManagedOK(conn *ipcConn, data []byte) {
-	resp := make([]byte, 1+len(data))
-	resp[0] = CmdManagedOK
-	copy(resp[1:], data)
-	if err := conn.ipcWrite(resp); err != nil {
+func (s *IPCServer) ipcWriteManagedOK(conn *ipcConn, reqID uint64, data []byte) {
+	if err := conn.writeReply(CmdManagedOK, reqID, data); err != nil {
 		slog.Debug("IPC managed reply failed", "err", err)
 	}
 }
@@ -1694,15 +1836,17 @@ func (s *IPCServer) findManagedEngine(netID uint16) *ManagedEngine {
 }
 
 // findPolicyRunner returns the policy runner for a specific network, or the
-// first runner if netID is 0.
-func (s *IPCServer) findPolicyRunner(netID uint16) *PolicyRunner {
+// first runner if netID is 0. Delegates to the registered policy manager.
+func (s *IPCServer) findPolicyRunner(netID uint16) PolicyRunner {
 	if netID != 0 {
 		return s.daemon.GetPolicyRunner(netID)
 	}
-	s.daemon.policyMu.Lock()
-	defer s.daemon.policyMu.Unlock()
-	for _, pr := range s.daemon.policyRunners {
-		return pr
+	if s.daemon.policyManager == nil {
+		return nil
 	}
-	return nil
+	all := s.daemon.policyManager.All()
+	if len(all) == 0 {
+		return nil
+	}
+	return all[0]
 }

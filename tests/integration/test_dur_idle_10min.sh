@@ -16,7 +16,13 @@ log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
 DC="docker compose -f docker-compose.multi.yml"
-IDLE_SEC=600
+# PILOT_DUR_COMPRESS=1 shrinks idle from 10min to 60s so the test can run
+# in the fast tier. Nightly leaves full 10min for real leak detection.
+if [ "${PILOT_DUR_COMPRESS:-0}" = "1" ]; then
+    IDLE_SEC=60
+else
+    IDLE_SEC=600
+fi
 
 cd "$(dirname "$0")" || exit 1
 

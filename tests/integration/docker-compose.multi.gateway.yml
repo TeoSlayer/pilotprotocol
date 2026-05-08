@@ -10,7 +10,7 @@
 # each mapped pilot address on ports 80, 443, 1000, 1001, 1002, 7, 8080,
 # 8443 and forwards TCP streams over the pilot tunnel to <pilot-addr>:<port>.
 # It does NOT expose an HTTP/gRPC control-plane API of its own — all
-# operations (task submit, trust grant, polo read, pubsub, lookup, register,
+# operations (trust grant, pubsub, lookup, register,
 # rotate-key, ping) continue to flow through pilotctl / the daemon socket.
 # Tests therefore exercise "through the gateway" by driving pilotctl against
 # the gateway-side daemon, OR by hitting the mapped local IP:port with
@@ -20,9 +20,10 @@
 # addr add` (pkg/gateway/gateway.go addLoopbackAlias).
 services:
   gateway:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: gateway
     depends_on:
       rendezvous:
@@ -47,30 +48,25 @@ services:
     # The container runs the daemon, then the gateway. The test scripts
     # exec into this container to drive pilotctl and curl through the
     # mapped IPs.
-    command: >
+    # NOTE: keep the pilot-daemon invocation on a single line. YAML folded
+    # scalars (`>`) preserve newlines on any line indented MORE than the
+    # first content line — so splitting flags onto indented lines silently
+    # breaks the command. Literal block (`|`) has the same issue without
+    # backslash continuations.
+    command: |
       bash -c "
-        mkdir -p /root/.pilot/inbox /root/.pilot/received &&
-        pilot-daemon
-          -registry ${PILOT_SUBNET_PREFIX:-172.29.0}.10:9000
-          -beacon ${PILOT_SUBNET_PREFIX:-172.29.0}.10:9001
-          -hostname gateway
-          -identity /root/.pilot/identity.json
-          -email gateway@p2p.test
-          -endpoint ${PILOT_SUBNET_PREFIX:-172.29.0}.40:4000
-          -listen :4000
-          -public
-          -keepalive 5s
-          -log-level info
-          > /tmp/gateway-daemon.log 2>&1 &
-        DAEMON_PID=$$! ;
+        set -e
+        mkdir -p /root/.pilot/inbox /root/.pilot/received
+        pilot-daemon -registry ${PILOT_SUBNET_PREFIX:-172.29.0}.10:9000 -beacon ${PILOT_SUBNET_PREFIX:-172.29.0}.10:9001 -hostname gateway -identity /root/.pilot/identity.json -email gateway@p2p.test -endpoint ${PILOT_SUBNET_PREFIX:-172.29.0}.40:4000 -listen :4000 -public -keepalive 5s -log-level info > /tmp/gateway-daemon.log 2>&1 &
+        DAEMON_PID=$$!
         for i in $$(seq 1 30); do
           if [ -S /tmp/pilot.sock ] && pilotctl --json info 2>/dev/null | jq -e '.data.node_id' >/dev/null 2>&1; then
-            break;
-          fi;
-          sleep 1;
-        done;
+            break
+          fi
+          sleep 1
+        done
         pilot-gateway -subnet 10.4.0.0/16 -socket /tmp/pilot.sock run > /tmp/gateway.log 2>&1 &
-        GW_PID=$$! ;
-        echo 'gateway ready';
+        GW_PID=$$!
+        echo 'gateway ready'
         wait $$DAEMON_PID $$GW_PID
       "

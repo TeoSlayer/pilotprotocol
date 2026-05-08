@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/first-in-first-out.json"
+CFG="$(pwd)/../../../configs/networks/first-in-first-out.json"
 if [ ! -f "$CFG" ]; then
     log_fail "first-in-first-out.json NOT shipped — promise unmet (EXPECTED: FIFO eviction — oldest joined peer is evicted first when cap hit)"
     exit 1
@@ -45,7 +45,7 @@ sleep 2
 log_test "first joiner is first evicted on overflow"
 # Cannot easily overflow max_peers in a 2-agent stack; assert the
 # runner exposes joined-order ordering in rankings or peers.
-STATUS=$($DC exec -T agent-a pilotctl --json managed status "$NID" 2>/dev/null)
+STATUS=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
 if echo "$STATUS" | grep -qE "joined_at|joinedAt|order"; then
     log_pass "joined-order metadata present"
 else

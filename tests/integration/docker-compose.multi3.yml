@@ -1,8 +1,9 @@
 services:
   rendezvous:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: rendezvous
     networks:
       pilot-p2p:
@@ -12,6 +13,7 @@ services:
       -registry-addr 0.0.0.0:9000
       -beacon-addr 0.0.0.0:9001
       -http 0.0.0.0:8080
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/stats >/dev/null || exit 1"]
@@ -20,9 +22,10 @@ services:
       retries: 10
 
   agent-a:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-a
     depends_on:
       rendezvous:
@@ -43,12 +46,14 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
   agent-b:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-b
     depends_on:
       rendezvous:
@@ -69,12 +74,14 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
   agent-c:
+    image: pilot-multi:latest
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-c
     depends_on:
       rendezvous:
@@ -95,6 +102,7 @@ services:
       -listen :4000
       -public
       -keepalive 5s
+      ${PILOT_ADMIN_TOKEN:+-admin-token ${PILOT_ADMIN_TOKEN}}
       -log-level info
 
 networks:

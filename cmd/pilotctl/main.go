@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,17 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/config"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/pkg/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/pkg/gateway"
-	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
-	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
+	"github.com/TeoSlayer/pilotprotocol/internal/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
+	policylang "github.com/TeoSlayer/pilotprotocol/internal/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
-	"github.com/TeoSlayer/pilotprotocol/pkg/tasksubmit"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 )
 
 var version = "dev"
@@ -315,6 +311,37 @@ func flagBool(flags map[string]string, key string) bool {
 	return ok && (v == "true" || v == "1" || v == "")
 }
 
+// fmtDuration formats a duration as a compact human-readable string
+// ("3s", "2m5s", "1h4m", "2d3h") for --trace output.
+func fmtDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if m == 0 {
+			return fmt.Sprintf("%dh", h)
+		}
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	days := int(d.Hours()) / 24
+	h := int(d.Hours()) % 24
+	if h == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd%dh", days, h)
+}
+
 // --- Connection helpers ---
 
 func connectDriver() *driver.Driver {
@@ -357,6 +384,95 @@ func resolveHostnameToAddr(d *driver.Driver, hostname string) (protocol.Addr, ui
 		return protocol.Addr{}, 0, fmt.Errorf("parse address: %w", err)
 	}
 	return addr, nodeID, nil
+}
+
+// maybeAutoHandshake gates any client-initiated tunnel operation
+// (send-message, send-file, connect, ping, publish, etc.)
+// based on the peer's visibility and our trust state. Three branches:
+//
+//  1. **Already trusted**: pass silently (one IPC fast-path, ~5ms).
+//  2. **Peer in embedded `internal/trustedagents` list** (curated service
+//     agents): print "establishing handshake with Trusted Agent <name>",
+//     fire Driver.Handshake, then block on Driver.WaitForTrust until the
+//     peer's accept arrives or 5s elapses. Trust formation on cold first
+//     contact takes ~700–2400ms (request dial + accept dial back); blocking
+//     here serialises trust-then-data so service agents don't drop our
+//     payload before peer-side trust is finalised.
+//  3. **Otherwise**: registry lookup. If the peer is **Public**, allow the
+//     tunnel — public daemons accept all comers by design. If the peer is
+//     **Private**, refuse client-side with `trust_required`: a private
+//     peer's daemon will silently drop our SYN anyway (daemon.go:2223),
+//     so starting a tunnel just produces a timeout. Refusing upfront
+//     gives the user a clear, immediate signal and a handshake hint.
+//
+// Skip with --no-auto-handshake. Pre-#99 daemons don't have SubHandshakeWait;
+// we treat the IPC error as "wait unsupported" and proceed best-effort.
+func maybeAutoHandshake(d *driver.Driver, addr protocol.Addr, skip bool) {
+	if skip {
+		return
+	}
+
+	// Branch 1 — already trusted. Fast path: one IPC roundtrip, no network.
+	if resp, err := d.WaitForTrust(addr.Node, 0); err == nil {
+		if trusted, _ := resp["trusted"].(bool); trusted {
+			return
+		}
+	}
+
+	// Branch 2 — peer is in the embedded trusted-agents allowlist.
+	if name, ok := trustedagents.IsTrusted(addr.Node); ok {
+		if !jsonOutput {
+			fmt.Fprintf(os.Stderr, "establishing handshake with Trusted Agent %s (%s)...\n", name, addr)
+		}
+		if _, err := d.Handshake(addr.Node, "auto-handshake: trusted agent "+name); err != nil {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "  handshake send failed: %v — continuing\n", err)
+			}
+			return
+		}
+		resp, err := d.WaitForTrust(addr.Node, 5000)
+		if err != nil {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "  wait-for-trust unsupported on this daemon; continuing\n")
+			}
+			return
+		}
+		if trusted, _ := resp["trusted"].(bool); trusted {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "  trust established with %s\n", name)
+			}
+		} else {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "  trust not established within 5s — continuing (peer may drop)\n")
+			}
+		}
+		return
+	}
+
+	// Branch 3 — unknown peer, not trusted. Refuse if private.
+	rc, err := registry.Dial(getRegistry())
+	if err != nil {
+		// Registry unreachable — be conservative and refuse rather than
+		// silently let an untrusted tunnel attempt go through to a peer
+		// we can't characterise.
+		fatalHint("trust_required",
+			fmt.Sprintf("run: pilotctl handshake %s", addr),
+			"cannot verify peer visibility (registry unreachable: %v); refusing tunnel to untrusted node", err)
+	}
+	defer rc.Close()
+	info, lookupErr := rc.Lookup(addr.Node)
+	if lookupErr != nil {
+		fatalHint("trust_required",
+			fmt.Sprintf("run: pilotctl handshake %s", addr),
+			"cannot look up peer %s (%v); refusing tunnel to untrusted node", addr, lookupErr)
+	}
+	pub, _ := info["public"].(bool)
+	if !pub {
+		fatalHint("trust_required",
+			fmt.Sprintf("run: pilotctl handshake %s", addr),
+			"refusing tunnel to private node %s without trust", addr)
+	}
+	// Public peer, no trust needed — proceed.
 }
 
 func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
@@ -411,8 +527,6 @@ Discovery commands:
   pilotctl clear-hostname
   pilotctl set-tags <tag1> [tag2] ...
   pilotctl clear-tags
-  pilotctl enable-tasks
-  pilotctl disable-tasks
 
 Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
@@ -422,16 +536,6 @@ Communication commands:
   pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
-
-Task commands:
-  pilotctl task submit <address|hostname> --task <description>
-  pilotctl task accept --id <task_id>
-  pilotctl task decline --id <task_id> --justification <reason>
-  pilotctl task execute
-  pilotctl task send-results --id <task_id> --results <text> | --file <filepath>
-  pilotctl task result <task_id> [--out <filepath>]
-  pilotctl task list [--type received|submitted]
-  pilotctl task queue
 
 Trust commands:
   pilotctl handshake <node_id|hostname> [justification]
@@ -484,6 +588,12 @@ Version:
   pilotctl version
 
 Config file: ~/.pilot/config.json
+
+Companion binaries:
+  daemon start / start --foreground exec the separately-shipped
+  pilot-daemon binary; gateway start / map exec pilot-gateway. They
+  are discovered (in order): $PILOT_DAEMON_BIN / $PILOT_GATEWAY_BIN,
+  next to the pilotctl executable, then $PATH.
 `)
 	os.Exit(2)
 }
@@ -622,16 +732,6 @@ dispatch:
 			fatalHint("invalid_argument", "use 'pilotctl extras clear-tags'", "clear-tags is not in the core CLI")
 		}
 		cmdClearTags()
-	case "enable-tasks":
-		if !extrasOnly {
-			fatalHint("invalid_argument", "use 'pilotctl extras enable-tasks'", "enable-tasks is not in the core CLI")
-		}
-		cmdEnableTasks()
-	case "disable-tasks":
-		if !extrasOnly {
-			fatalHint("invalid_argument", "use 'pilotctl extras disable-tasks'", "disable-tasks is not in the core CLI")
-		}
-		cmdDisableTasks()
 	case "set-webhook":
 		cmdSetWebhook(cmdArgs)
 	case "clear-webhook":
@@ -650,39 +750,6 @@ dispatch:
 		cmdSendFile(cmdArgs)
 	case "send-message":
 		cmdSendMessage(cmdArgs)
-	case "task":
-		if !extrasOnly {
-			fatalHint("invalid_argument",
-				"use 'pilotctl extras task <subcommand>'",
-				"task commands are not in the core CLI")
-		}
-		if len(cmdArgs) < 1 {
-			fatalHint("invalid_argument",
-				"available: submit, accept, decline, execute, send-results, result, list, queue",
-				"missing subcommand")
-		}
-		switch cmdArgs[0] {
-		case "submit":
-			cmdTaskSubmit(cmdArgs[1:])
-		case "accept":
-			cmdTaskAccept(cmdArgs[1:])
-		case "decline":
-			cmdTaskDecline(cmdArgs[1:])
-		case "execute":
-			cmdTaskExecute(cmdArgs[1:])
-		case "send-results":
-			cmdTaskSendResults(cmdArgs[1:])
-		case "result":
-			cmdTaskResult(cmdArgs[1:])
-		case "list":
-			cmdTaskList(cmdArgs[1:])
-		case "queue":
-			cmdTaskQueue(cmdArgs[1:])
-		default:
-			fatalHint("invalid_argument",
-				"available: submit, accept, decline, execute, send-results, result, list, queue",
-				"unknown task subcommand: %s", cmdArgs[0])
-		}
 	case "subscribe":
 		cmdSubscribe(cmdArgs)
 	case "publish":
@@ -755,23 +822,19 @@ dispatch:
 	case "managed":
 		if len(cmdArgs) < 1 {
 			fatalHint("invalid_argument",
-				"available: score, status, rankings, cycle",
+				"available: status, cycle, reconcile",
 				"usage: pilotctl managed <subcommand>")
 		}
 		switch cmdArgs[0] {
-		case "score":
-			cmdManagedScore(cmdArgs[1:])
 		case "status":
 			cmdManagedStatus(cmdArgs[1:])
-		case "rankings":
-			cmdManagedRankings(cmdArgs[1:])
 		case "cycle":
 			cmdManagedCycle(cmdArgs[1:])
 		case "reconcile":
 			cmdManagedReconcile(cmdArgs[1:])
 		default:
 			fatalHint("invalid_argument",
-				"available: score, status, rankings, cycle, reconcile",
+				"available: status, cycle, reconcile",
 				"unknown managed subcommand: %s", cmdArgs[0])
 		}
 
@@ -840,8 +903,6 @@ dispatch:
 	// Diagnostics
 	case "info":
 		cmdInfo(cmdArgs)
-	case "my-polo":
-		cmdMyPolo()
 	case "health":
 		cmdHealth()
 	case "peers":
@@ -949,7 +1010,7 @@ func cmdConfig(args []string) {
 func cmdContext() {
 	ctx := map[string]interface{}{
 		"version": "1.3",
-		"note":    "Core commands cover everything an agent needs. Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-task' and 'pilot-gateway' are separate installed binaries.",
+		"note":    "Core commands cover everything an agent needs. Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is a separate installed binary.",
 
 		// ── Core agent commands ──────────────────────────────────────────────
 		"commands": map[string]interface{}{
@@ -1155,54 +1216,6 @@ func cmdContext() {
 			},
 		},
 
-		// ── pilot-task binary ────────────────────────────────────────────────
-		"pilot_task": map[string]interface{}{
-			"binary":      "pilot-task",
-			"description": "Task submission and execution workflow. Separate binary installed alongside pilotctl.",
-			"commands": map[string]interface{}{
-				"submit": map[string]interface{}{
-					"args":        []string{"<address|hostname>", "--task <description>", "[--timeout <dur>]"},
-					"description": "Submit a task to a remote node for execution",
-					"returns":     "task_id, status (accepted|rejected), target",
-				},
-				"accept": map[string]interface{}{
-					"args":        []string{"--id <task_id>"},
-					"description": "Accept an inbound task",
-					"returns":     "task_id, status",
-				},
-				"decline": map[string]interface{}{
-					"args":        []string{"--id <task_id>", "--justification <reason>"},
-					"description": "Decline an inbound task",
-					"returns":     "task_id, status",
-				},
-				"execute": map[string]interface{}{
-					"args":        []string{},
-					"description": "Mark the next accepted task as executing (FIFO)",
-					"returns":     "task_id, description, from, staged_at",
-				},
-				"send-results": map[string]interface{}{
-					"args":        []string{"--id <task_id>", "--results <text>", "[--file <filepath>]"},
-					"description": "Send results back to the task submitter",
-					"returns":     "task_id, status",
-				},
-				"result": map[string]interface{}{
-					"args":        []string{"<task_id>"},
-					"description": "Read results for a submitted task",
-					"returns":     "task_id, status, result, completed_at",
-				},
-				"list": map[string]interface{}{
-					"args":        []string{"[--type received|submitted]"},
-					"description": "List tasks. Default: both directions",
-					"returns":     "tasks [{task_id, status, description, from, created_at}], total",
-				},
-				"queue": map[string]interface{}{
-					"args":        []string{},
-					"description": "List accepted tasks ready to execute, oldest first",
-					"returns":     "tasks [{task_id, description, from, accepted_at}]",
-				},
-			},
-		},
-
 		// ── pilot-gateway binary ─────────────────────────────────────────────
 		"pilot_gateway": map[string]interface{}{
 			"binary":      "pilot-gateway",
@@ -1255,9 +1268,7 @@ func cmdContext() {
 				"policy validate": map[string]interface{}{"args": []string{"--file <path>|--expr <expr>"}, "description": "Validate a policy expression locally"},
 				"policy test":     map[string]interface{}{"args": []string{"--file <path>", "--input <json>"}, "description": "Test a policy against sample input"},
 				// Managed networks
-				"managed score":     map[string]interface{}{"args": []string{"<network_id>", "[node_id]", "[--delta <n>]"}, "description": "Read or adjust a node's polo score in a managed network"},
 				"managed status":    map[string]interface{}{"args": []string{"<network_id>"}, "description": "Status of a managed network (cycle count, last run, member count)"},
-				"managed rankings":  map[string]interface{}{"args": []string{"<network_id>"}, "description": "Sorted member rankings by polo score"},
 				"managed cycle":     map[string]interface{}{"args": []string{"<network_id>"}, "description": "Force a policy evaluation cycle"},
 				"managed reconcile": map[string]interface{}{"args": []string{"<network_id>"}, "description": "Reconcile member state against registry"},
 				// Member tags
@@ -1278,8 +1289,6 @@ func cmdContext() {
 				"clear-hostname": map[string]interface{}{"args": []string{}, "description": "Clear this node's hostname"},
 				"set-webhook":    map[string]interface{}{"args": []string{"<url>"}, "description": "Set webhook URL for event push notifications"},
 				"clear-webhook":  map[string]interface{}{"args": []string{}, "description": "Clear the webhook URL"},
-				"enable-tasks":   map[string]interface{}{"args": []string{}, "description": "Advertise task-execution capability on port 1003"},
-				"disable-tasks":  map[string]interface{}{"args": []string{}, "description": "Stop advertising task-execution capability"},
 				// Low-level / plumbing
 				"connect":    map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
 				"send":       map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
@@ -1326,10 +1335,10 @@ func cmdExtrasHelp() {
 	fmt.Println()
 	fmt.Println("Network admin:  network delete/rename/promote/demote/kick/role/policy")
 	fmt.Println("Policy engine:  policy get/set/validate/test")
-	fmt.Println("Managed nets:   managed score/status/rankings/cycle/reconcile")
+	fmt.Println("Managed nets:   managed status/cycle/reconcile")
 	fmt.Println("Member tags:    member-tags get/set")
 	fmt.Println("Enterprise:     audit provision deprovision idp audit-export provision-status directory-sync directory-status")
-	fmt.Println("Node config:    set-tags clear-tags clear-hostname set-webhook clear-webhook enable-tasks disable-tasks")
+	fmt.Println("Node config:    set-tags clear-tags clear-hostname set-webhook clear-webhook")
 	fmt.Println("Low-level:      connect send recv dgram listen broadcast")
 	fmt.Println("Connections:    connections disconnect")
 	fmt.Println("Diagnostics:    health peers traceroute bench")
@@ -1337,40 +1346,77 @@ func cmdExtrasHelp() {
 
 // ===================== DAEMON LIFECYCLE =====================
 
-func cmdDaemonStart(args []string) {
+// findCompanionBinary locates a sibling binary distributed alongside
+// pilotctl. Discovery order:
+//
+//  1. If $envVar is set, use that path verbatim.
+//  2. Look next to the running pilotctl executable (os.Executable()).
+//  3. Fall back to PATH lookup via exec.LookPath.
+//
+// Returns a clear error mentioning the env override and where pilotctl
+// looked. This is the binary discovery contract for the daemon and
+// gateway exec paths; it removes the need for cmd/pilotctl to import
+// the L11 plugin packages and serve as a second composition root.
+func findCompanionBinary(name, envVar string) (string, error) {
+	if v := os.Getenv(envVar); v != "" {
+		return v, nil
+	}
+	self, err := os.Executable()
+	if err == nil {
+		// Resolve symlinks so the sibling lookup follows e.g. Homebrew
+		// shims. If EvalSymlinks fails we fall back to the raw path —
+		// not fatal.
+		if resolved, err2 := filepath.EvalSymlinks(self); err2 == nil {
+			self = resolved
+		}
+		candidate := filepath.Join(filepath.Dir(self), name)
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+			return candidate, nil
+		}
+	}
+	if path, err := exec.LookPath(name); err == nil {
+		return path, nil
+	}
+	siblingHint := ""
+	if self != "" {
+		siblingHint = fmt.Sprintf(" (expected sibling at %s)", filepath.Join(filepath.Dir(self), name))
+	}
+	return "", fmt.Errorf("%s not found%s or in PATH; set %s to override", name, siblingHint, envVar)
+}
+
+// daemonBinaryPath resolves the pilot-daemon binary.
+func daemonBinaryPath() string {
+	path, err := findCompanionBinary("pilot-daemon", "PILOT_DAEMON_BIN")
+	if err != nil {
+		fatalCode("internal", "%v", err)
+	}
+	return path
+}
+
+// gatewayBinaryPath resolves the pilot-gateway binary.
+func gatewayBinaryPath() string {
+	path, err := findCompanionBinary("pilot-gateway", "PILOT_GATEWAY_BIN")
+	if err != nil {
+		fatalCode("internal", "%v", err)
+	}
+	return path
+}
+
+// buildDaemonArgs translates pilotctl-style flags into pilot-daemon CLI
+// args, applying defaults from ~/.pilot/config.json when CLI flags are
+// unset. This keeps existing pilotctl invocations working unchanged —
+// the only difference is that the daemon runs in a separate
+// `pilot-daemon` process rather than re-execing pilotctl.
+func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 	flags, _ := parseFlags(args)
 
-	// Check if already running
-	if pid := readPID(); pid > 0 {
-		if processExists(pid) {
-			fatalHint("already_exists",
-				"stop it first with: pilotctl daemon stop",
-				"daemon is already running (pid %d)", pid)
-		}
-		// Stale PID file — clean up silently
-		os.Remove(pidFilePath())
-	}
+	cfg := loadConfig()
 
-	// Clean up stale socket
-	socketPath := flagString(flags, "socket", "")
+	socketPath = flagString(flags, "socket", "")
 	if socketPath == "" {
 		socketPath = getSocket()
 	}
-	if _, err := os.Stat(socketPath); err == nil {
-		// Try to connect — if it works, daemon is running
-		d, err := driver.Connect(socketPath)
-		if err == nil {
-			d.Close()
-			fatalHint("already_exists",
-				"stop it first with: pilotctl daemon stop",
-				"daemon is already running (socket %s is active)", socketPath)
-		}
-		// Stale socket — clean up silently
-		os.Remove(socketPath)
-	}
 
-	// Build daemon config
-	cfg := loadConfig()
 	registryAddr := flagString(flags, "registry", "")
 	if registryAddr == "" {
 		if r, ok := cfg["registry"].(string); ok {
@@ -1433,28 +1479,7 @@ func cmdDaemonStart(args []string) {
 	}
 	trustAutoApprove := flagBool(flags, "trust-auto-approve")
 
-	// If --foreground, run in-process
-	if flagBool(flags, "foreground") {
-		runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-			socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-			adminToken, networks, trustAutoApprove)
-		return
-	}
-
-	// Fork: re-exec self with _daemon-run internal command
-	selfPath, err := os.Executable()
-	if err != nil {
-		fatalCode("internal", "find executable: %v", err)
-	}
-
-	// Ensure config dir + log file exist
-	os.MkdirAll(configDir(), 0700)
-	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		fatalCode("internal", "open log file: %v", err)
-	}
-
-	daemonArgs := []string{"_daemon-run",
+	daemonArgs = []string{
 		"--registry", registryAddr,
 		"--beacon", beaconAddr,
 		"--listen", listenAddr,
@@ -1463,8 +1488,10 @@ func cmdDaemonStart(args []string) {
 		"--log-level", logLevel,
 		"--log-format", logFormat,
 	}
+	// pilot-daemon's encrypt flag defaults to true; pass `=false`
+	// only when --no-encrypt was supplied.
 	if !encrypt {
-		daemonArgs = append(daemonArgs, "--no-encrypt")
+		daemonArgs = append(daemonArgs, "--encrypt=false")
 	}
 	if email != "" {
 		daemonArgs = append(daemonArgs, "--email", email)
@@ -1490,8 +1517,63 @@ func cmdDaemonStart(args []string) {
 	if trustAutoApprove {
 		daemonArgs = append(daemonArgs, "--trust-auto-approve")
 	}
+	return daemonArgs, socketPath
+}
 
-	proc := exec.Command(selfPath, daemonArgs...)
+func cmdDaemonStart(args []string) {
+	flags, _ := parseFlags(args)
+
+	// Check if already running
+	if pid := readPID(); pid > 0 {
+		if processExists(pid) {
+			fatalHint("already_exists",
+				"stop it first with: pilotctl daemon stop",
+				"daemon is already running (pid %d)", pid)
+		}
+		// Stale PID file — clean up silently
+		os.Remove(pidFilePath())
+	}
+
+	daemonArgs, socketPath := buildDaemonArgs(args)
+
+	// Clean up stale socket
+	if _, err := os.Stat(socketPath); err == nil {
+		// Try to connect — if it works, daemon is running
+		d, err := driver.Connect(socketPath)
+		if err == nil {
+			d.Close()
+			fatalHint("already_exists",
+				"stop it first with: pilotctl daemon stop",
+				"daemon is already running (socket %s is active)", socketPath)
+		}
+		// Stale socket — clean up silently
+		os.Remove(socketPath)
+	}
+
+	daemonBin := daemonBinaryPath()
+
+	// --foreground: replace the current process so signal/lifetime
+	// handling matches what the user expects from systemd unit files
+	// or shell wrappers.
+	if flagBool(flags, "foreground") {
+		// syscall.Exec needs argv[0] to be the binary name. Pass the
+		// full env unchanged.
+		execArgs := append([]string{daemonBin}, daemonArgs...)
+		if err := syscall.Exec(daemonBin, execArgs, os.Environ()); err != nil {
+			fatalCode("internal", "exec %s: %v", daemonBin, err)
+		}
+		return
+	}
+
+	// Fork: spawn the daemon detached, redirect output to the log
+	// file, then poll the socket until the daemon is ready.
+	os.MkdirAll(configDir(), 0700)
+	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		fatalCode("internal", "open log file: %v", err)
+	}
+
+	proc := exec.Command(daemonBin, daemonArgs...)
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	proc.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -1707,134 +1789,28 @@ func cmdDaemonStatus(args []string) {
 	output(result)
 }
 
-// _daemon-run is the internal command used by "daemon start" to run in the forked process.
+// runDaemonInternal handles the legacy `pilotctl _daemon-run` hidden
+// subcommand, which earlier pilotctl builds used to exec themselves
+// for the forked daemon process. The composition root has moved to
+// cmd/daemon/main.go; this entry point now exec's pilot-daemon so old
+// pilotctl-managed PID files (which point at a `pilotctl _daemon-run`
+// process) keep working until the next daemon restart cycles them
+// out. The `_daemon-run` flag set is identical to pilot-daemon's, so
+// we forward args verbatim apart from translating --no-encrypt.
 func runDaemonInternal(args []string) {
-	flags, _ := parseFlags(args)
-
-	registryAddr := flagString(flags, "registry", "34.71.57.205:9000")
-	beaconAddr := flagString(flags, "beacon", "127.0.0.1:9001")
-	listenAddr := flagString(flags, "listen", ":0")
-	socketPath := flagString(flags, "socket", defaultSocket)
-	identityPath := flagString(flags, "identity", "")
-	if identityPath == "" {
-		identityPath = configDir() + "/identity.json"
-	}
-	email := flagString(flags, "email", "")
-	owner := flagString(flags, "owner", "")
-	if email == "" && owner != "" {
-		email = owner
-	}
-	hostname := flagString(flags, "hostname", "")
-	logLevel := flagString(flags, "log-level", "info")
-	logFormat := flagString(flags, "log-format", "text")
-	configFile := flagString(flags, "config", "")
-	encrypt := !flagBool(flags, "no-encrypt")
-	public := flagBool(flags, "public")
-	webhookURL := flagString(flags, "webhook", "")
-	adminToken := flagString(flags, "admin-token", "")
-	networks := flagString(flags, "networks", "")
-	trustAutoApprove := flagBool(flags, "trust-auto-approve")
-
-	runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-		socketPath, encrypt, identityPath, email, hostname, logLevel, logFormat, public, webhookURL,
-		adminToken, networks, trustAutoApprove)
-}
-
-func runDaemonForeground(configFile, registryAddr, beaconAddr, listenAddr,
-	socketPath string, encrypt bool, identityPath, email, hostname,
-	logLevel, logFormat string, public bool, webhookURL string,
-	adminToken, networks string, trustAutoApprove bool) {
-
-	if configFile != "" {
-		cfg, err := config.Load(configFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "load config: %v\n", err)
-			os.Exit(1)
-		}
-		// Apply config values as defaults (CLI flags override)
-		if registryAddr == "34.71.57.205:9000" {
-			if v, ok := cfg["registry"].(string); ok {
-				registryAddr = v
-			}
-		}
-		if beaconAddr == "127.0.0.1:9001" {
-			if v, ok := cfg["beacon"].(string); ok {
-				beaconAddr = v
-			}
-		}
-	}
-
-	logging.Setup(logLevel, logFormat)
-
-	d := daemon.New(daemon.Config{
-		RegistryAddr:     registryAddr,
-		BeaconAddr:       beaconAddr,
-		ListenAddr:       listenAddr,
-		SocketPath:       socketPath,
-		Encrypt:          encrypt,
-		IdentityPath:     identityPath,
-		Email:            email,
-		Public:           public,
-		Hostname:         hostname,
-		WebhookURL:       webhookURL,
-		AdminToken:       adminToken,
-		Networks:         pilotctlParseNetworkIDs(networks),
-		TrustAutoApprove: trustAutoApprove,
-		Version:          version,
-	})
-
-	if err := d.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "daemon start: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Auto-start gateway alongside daemon
-	var gw *gateway.Gateway
-	gw, err := gateway.New(gateway.Config{
-		Subnet:     "10.4.0.0/16",
-		SocketPath: socketPath,
-	})
-	if err != nil {
-		slog.Warn("gateway init failed, continuing without gateway", "error", err)
-	} else {
-		if err := gw.Start(); err != nil {
-			slog.Warn("gateway start failed, continuing without gateway", "error", err)
-			gw = nil
-		} else {
-			slog.Info("gateway started", "subnet", "10.4.0.0/16")
-		}
-	}
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-
-	if gw != nil {
-		gw.Stop()
-	}
-	d.Stop()
-}
-
-// pilotctlParseNetworkIDs parses a comma-separated string of network IDs into a uint16 slice.
-func pilotctlParseNetworkIDs(s string) []uint16 {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	var ids []uint16
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
+	translated := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--no-encrypt" || a == "-no-encrypt" {
+			translated = append(translated, "--encrypt=false")
 			continue
 		}
-		n, err := strconv.ParseUint(p, 10, 16)
-		if err != nil {
-			slog.Warn("invalid network ID", "value", p, "error", err)
-			continue
-		}
-		ids = append(ids, uint16(n))
+		translated = append(translated, a)
 	}
-	return ids
+	daemonBin := daemonBinaryPath()
+	execArgs := append([]string{daemonBin}, translated...)
+	if err := syscall.Exec(daemonBin, execArgs, os.Environ()); err != nil {
+		fatalCode("internal", "exec %s: %v", daemonBin, err)
+	}
 }
 
 // PID file helpers
@@ -1861,210 +1837,92 @@ func processExists(pid int) bool {
 
 // ===================== GATEWAY =====================
 
-const gatewayPIDFile = "gateway.pid"
-
-func gatewayPIDPath() string { return configDir() + "/" + gatewayPIDFile }
-
+// cmdGatewayStart exec's pilot-gateway in the foreground. The flags
+// pilotctl already accepted (--subnet, --ports, plus positional
+// addresses) map 1:1 onto pilot-gateway flags + the `run` subcommand,
+// so we translate and replace the current process. The gateway runs
+// as long as pilotctl's caller chooses; SIGINT/SIGTERM tear it down
+// the same as before.
+//
+// The PID-file pattern from the in-process implementation is dropped:
+// pilot-gateway is the canonical CLI for these operations and it
+// already manages its own lifetime. `pilotctl gateway stop` now
+// degrades to the documented "find and kill" path described in its
+// help text.
 func cmdGatewayStart(args []string) {
 	flags, pos := parseFlags(args)
 
-	// Check if already running
-	if pid := readGatewayPID(); pid > 0 && processExists(pid) {
-		fatalHint("already_exists",
-			"stop it first with: pilotctl gateway stop",
-			"gateway is already running (pid %d)", pid)
-	}
-
 	subnet := flagString(flags, "subnet", "10.4.0.0/16")
 	portsStr := flagString(flags, "ports", "")
-	socketPath := getSocket()
 
-	var ports []uint16
+	gwArgs := []string{"--socket", getSocket(), "--subnet", subnet}
 	if portsStr != "" {
-		for _, s := range strings.Split(portsStr, ",") {
-			s = strings.TrimSpace(s)
-			p, err := strconv.ParseUint(s, 10, 16)
-			if err != nil {
-				fatalCode("invalid_argument", "invalid port %q: %v", s, err)
-			}
-			ports = append(ports, uint16(p))
-		}
+		gwArgs = append(gwArgs, "--ports", portsStr)
 	}
+	gwArgs = append(gwArgs, "run")
+	gwArgs = append(gwArgs, pos...)
 
-	gw, err := gateway.New(gateway.Config{
-		Subnet:     subnet,
-		SocketPath: socketPath,
-		Ports:      ports,
-	})
-	if err != nil {
-		fatalCode("internal", "create gateway: %v", err)
+	gwBin := gatewayBinaryPath()
+	execArgs := append([]string{gwBin}, gwArgs...)
+	if err := syscall.Exec(gwBin, execArgs, os.Environ()); err != nil {
+		fatalCode("internal", "exec %s: %v", gwBin, err)
 	}
-
-	if err := gw.Start(); err != nil {
-		fatalCode("internal", "start gateway: %v", err)
-	}
-
-	// Map any addresses from positional args
-	var mappings []map[string]interface{}
-	for _, addr := range pos {
-		pilotAddr, err := protocol.ParseAddr(addr)
-		if err != nil {
-			fatalCode("invalid_argument", "parse address %s: %v", addr, err)
-		}
-		assigned, err := gw.Map(pilotAddr, "")
-		if err != nil {
-			fatalCode("internal", "map %s: %v", addr, err)
-		}
-		mappings = append(mappings, map[string]interface{}{
-			"local_ip":   assigned,
-			"pilot_addr": pilotAddr.String(),
-		})
-	}
-
-	// Write PID
-	os.MkdirAll(configDir(), 0700)
-	os.WriteFile(gatewayPIDPath(), []byte(strconv.Itoa(os.Getpid())), 0600)
-
-	if jsonOutput {
-		outputOK(map[string]interface{}{
-			"pid":      os.Getpid(),
-			"subnet":   subnet,
-			"mappings": mappings,
-		})
-	} else {
-		for _, m := range mappings {
-			fmt.Printf("mapped %s → %s\n", m["local_ip"], m["pilot_addr"])
-		}
-		fmt.Println("gateway running")
-	}
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-
-	gw.Stop()
-	os.Remove(gatewayPIDPath())
 }
 
+// cmdGatewayStop is now a thin wrapper. The previous in-process
+// implementation tracked its own PID file; with pilot-gateway running
+// as a separate process pilotctl can't reach into it without
+// duplicating that bookkeeping. Surface a clear hint instead.
 func cmdGatewayStop() {
-	pid := readGatewayPID()
-	if pid <= 0 || !processExists(pid) {
-		fatalCode("not_running", "gateway is not running")
-	}
-	proc, _ := os.FindProcess(pid)
-	proc.Signal(syscall.SIGTERM)
-	time.Sleep(time.Second)
-	os.Remove(gatewayPIDPath())
-	outputOK(map[string]interface{}{"pid": pid})
+	fatalHint("not_running",
+		"send SIGTERM to the pilot-gateway process directly (e.g. pkill -TERM pilot-gateway)",
+		"pilotctl no longer tracks the gateway process; run pilot-gateway directly")
 }
 
+// cmdGatewayMap exec's `pilot-gateway map`. This is a transient
+// add-mapping path: pilot-gateway will spin up, register the mapping,
+// and exit.
 func cmdGatewayMap(args []string) {
 	if len(args) < 1 {
 		fatalCode("invalid_argument", "usage: pilotctl gateway map <pilot-addr> [local-ip]")
 	}
-	pilotAddr, err := protocol.ParseAddr(args[0])
-	if err != nil {
-		fatalCode("invalid_argument", "parse address: %v", err)
+	gwBin := gatewayBinaryPath()
+	gwArgs := []string{"--socket", getSocket(), "map"}
+	gwArgs = append(gwArgs, args...)
+	execArgs := append([]string{gwBin}, gwArgs...)
+	if err := syscall.Exec(gwBin, execArgs, os.Environ()); err != nil {
+		fatalCode("internal", "exec %s: %v", gwBin, err)
 	}
-	localIP := ""
-	if len(args) > 1 {
-		localIP = args[1]
-	}
-
-	gw, err := gateway.New(gateway.Config{
-		SocketPath: getSocket(),
-	})
-	if err != nil {
-		fatalCode("internal", "create gateway: %v", err)
-	}
-	if err := gw.Start(); err != nil {
-		fatalCode("internal", "start gateway: %v", err)
-	}
-	assigned, err := gw.Map(pilotAddr, localIP)
-	if err != nil {
-		fatalCode("internal", "map: %v", err)
-	}
-	outputOK(map[string]interface{}{
-		"local_ip":   assigned,
-		"pilot_addr": pilotAddr.String(),
-	})
 }
 
+// cmdGatewayUnmap is no longer routable from pilotctl: pilot-gateway
+// owns its in-memory mapping table and there's no IPC for outside
+// processes to mutate it. Emit a clear error pointing the caller at
+// pilot-gateway directly.
 func cmdGatewayUnmap(args []string) {
 	if len(args) < 1 {
 		fatalCode("invalid_argument", "usage: pilotctl gateway unmap <local-ip>")
 	}
-	localIP := args[0]
-
-	pid := readGatewayPID()
-	if pid <= 0 || !processExists(pid) {
-		fatalHint("not_running",
-			"start with: pilotctl gateway start",
-			"gateway is not running")
-	}
-
-	gw, err := gateway.New(gateway.Config{
-		SocketPath: getSocket(),
-	})
-	if err != nil {
-		fatalCode("internal", "create gateway: %v", err)
-	}
-	if err := gw.Unmap(localIP); err != nil {
-		fatalCode("not_found", "no mapping for %s", localIP)
-	}
-	outputOK(map[string]interface{}{
-		"unmapped": localIP,
-	})
+	fatalHint("not_supported",
+		"restart pilot-gateway without the mapping, or extend pilot-gateway with an unmap subcommand",
+		"unmap is owned by the pilot-gateway process and has no remote control path")
 }
 
+// cmdGatewayList is no longer accurate from pilotctl: the in-process
+// implementation only ever reported an empty list because it spun up
+// a fresh gateway per call. Surface the architectural reality: the
+// gateway process holds the mapping table.
 func cmdGatewayList() {
-	pid := readGatewayPID()
-	if pid <= 0 || !processExists(pid) {
-		fatalHint("not_running",
-			"start with: pilotctl gateway start [--ports <list>] [<pilot-addr>...]",
-			"gateway is not running")
-	}
-
-	gw, err := gateway.New(gateway.Config{
-		SocketPath: getSocket(),
-	})
-	if err != nil {
-		fatalCode("internal", "create gateway: %v", err)
-	}
-
-	mappings := gw.Mappings().All()
-	result := make([]map[string]interface{}, 0, len(mappings))
-	for _, m := range mappings {
-		result = append(result, map[string]interface{}{
-			"local_ip":   m.LocalIP.String(),
-			"pilot_addr": m.PilotAddr.String(),
-		})
-	}
-
 	if jsonOutput {
 		outputOK(map[string]interface{}{
-			"mappings": result,
-			"total":    len(result),
+			"mappings": []map[string]interface{}{},
+			"total":    0,
+			"note":     "mappings live inside the pilot-gateway process; run pilot-gateway with the desired mappings",
 		})
-	} else {
-		if len(result) == 0 {
-			fmt.Println("no mappings")
-			return
-		}
-		for _, m := range result {
-			fmt.Printf("%s → %s\n", m["local_ip"], m["pilot_addr"])
-		}
-		fmt.Printf("total: %d\n", len(result))
+		return
 	}
-}
-
-func readGatewayPID() int {
-	data, err := os.ReadFile(gatewayPIDPath())
-	if err != nil {
-		return 0
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
-	return pid
+	fmt.Println("no mappings")
+	fmt.Println("note: mappings live inside the pilot-gateway process; run pilot-gateway with the desired mappings")
 }
 
 // ===================== REGISTRY =====================
@@ -2152,26 +2010,6 @@ func cmdSetPrivate(args []string) {
 	resp, err := d.SetVisibility(false)
 	if err != nil {
 		fatalCode("connection_failed", "set-private: %v", err)
-	}
-	output(resp)
-}
-
-func cmdEnableTasks() {
-	d := connectDriver()
-	defer d.Close()
-	resp, err := d.SetTaskExec(true)
-	if err != nil {
-		fatalCode("connection_failed", "enable-tasks: %v", err)
-	}
-	output(resp)
-}
-
-func cmdDisableTasks() {
-	d := connectDriver()
-	defer d.Close()
-	resp, err := d.SetTaskExec(false)
-	if err != nil {
-		fatalCode("connection_failed", "disable-tasks: %v", err)
 	}
 	output(resp)
 }
@@ -2427,6 +2265,7 @@ func cmdConnect(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 
 	port := protocol.PortStdIO
 	if len(pos) > 1 {
@@ -2579,6 +2418,7 @@ func cmdSend(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 	p, err := strconv.ParseUint(pos[1], 10, 16)
 	if err != nil {
 		fatalCode("invalid_argument", "invalid port %q: %v", pos[1], err)
@@ -2737,6 +2577,7 @@ func cmdDgram(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 	p, err := strconv.ParseUint(pos[1], 10, 16)
 	if err != nil {
 		fatalCode("invalid_argument", "invalid port %q: %v", pos[1], err)
@@ -2775,6 +2616,11 @@ func cmdSendFile(args []string) {
 	if err != nil {
 		fatalCode("invalid_argument", "%v", err)
 	}
+
+	// Auto-handshake to peers in the embedded trusted-agents list.
+	// Best-effort: warns on stderr and continues if handshake fails.
+	// (send-file uses positional args — no flag map; pass false.)
+	maybeAutoHandshake(d, target, false)
 
 	filePath := args[1]
 	data, err := os.ReadFile(filePath)
@@ -2845,13 +2691,12 @@ func cmdSendFile(args []string) {
 func cmdSendMessage(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]")
+		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--trace]")
 	}
 
-	// Optional latency tracing: set PILOTCTL_TRACE_TIME=1 to dump per-step
-	// timings to stderr. Useful when debugging slow agents — distinguishes
-	// hostname-resolve, dial, and recv contributions.
-	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != ""
+	// --trace (or PILOTCTL_TRACE_TIME=1) prints per-step timings to stderr:
+	// IPC connect, hostname resolve, auto-handshake, dial, send, ACK recv.
+	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != "" || flagBool(flags, "trace")
 	t0 := time.Now()
 	tracef := func(label string) {
 		if traceTime {
@@ -2875,6 +2720,11 @@ func cmdSendMessage(args []string) {
 	}
 	msgType := flagString(flags, "type", "text")
 
+	// Auto-handshake to peers in the embedded trusted-agents list.
+	// Best-effort: warns on stderr and continues if handshake fails.
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
+	tracef("maybeAutoHandshake")
+
 	client, err := dataexchange.Dial(d, target)
 	tracef("dataexchange.Dial")
 	if err != nil {
@@ -2887,23 +2737,40 @@ func cmdSendMessage(args []string) {
 	}
 	defer client.Close()
 
-	switch msgType {
-	case "text":
-		err = client.SendText(data)
-	case "json":
-		err = client.SendJSON([]byte(data))
-	case "binary":
-		err = client.SendBinary([]byte(data))
-	default:
+	innerType := map[string]uint32{
+		"text":   dataexchange.TypeText,
+		"json":   dataexchange.TypeJSON,
+		"binary": dataexchange.TypeBinary,
+	}[msgType]
+	if innerType == 0 && msgType != "text" {
 		fatalCode("invalid_argument", "unknown type %q (use text, json, or binary)", msgType)
 	}
+
+	var sentAtNs int64
+	var sendErr error
+	if traceTime {
+		// TypeTrace frame embeds sent_at_ns; receiver echoes back full timing.
+		sentAtNs, sendErr = client.SendTrace(innerType, []byte(data))
+	} else {
+		sendStart := time.Now()
+		switch msgType {
+		case "text":
+			sendErr = client.SendText(data)
+		case "json":
+			sendErr = client.SendJSON([]byte(data))
+		case "binary":
+			sendErr = client.SendBinary([]byte(data))
+		}
+		sentAtNs = sendStart.UnixNano()
+	}
 	tracef("client.Send")
-	if err != nil {
-		fatalCode("connection_failed", "send: %v", err)
+	if sendErr != nil {
+		fatalCode("connection_failed", "send: %v", sendErr)
 	}
 
 	// Read ACK
 	ack, err := client.Recv()
+	ackRecvAtNs := time.Now().UnixNano()
 	tracef("client.Recv")
 	if err != nil {
 		slog.Debug("send-message ACK read failed", "err", err)
@@ -2917,640 +2784,32 @@ func cmdSendMessage(args []string) {
 	if ack != nil {
 		result["ack"] = string(ack.Payload)
 	}
+	if traceTime {
+		result["total_ms"] = float64(time.Duration(ackRecvAtNs-sentAtNs).Microseconds()) / 1000.0
+		// Parse timing fields from the TypeJSON ACK if present.
+		if ack != nil && ack.Type == dataexchange.TypeJSON {
+			var timing map[string]interface{}
+			if json.Unmarshal(ack.Payload, &timing) == nil {
+				ns := func(key string) int64 {
+					if v, ok := timing[key].(float64); ok {
+						return int64(v)
+					}
+					return 0
+				}
+				recvNs := ns("received_at_ns")
+				inboxNs := ns("inbox_written_at_ns")
+				ackSentNs := ns("ack_sent_at_ns")
+				if recvNs > 0 {
+					result["to_receiver_ms"] = float64(time.Duration(recvNs-sentAtNs).Microseconds()) / 1000.0
+					result["receiver_process_ms"] = float64(time.Duration(inboxNs-recvNs).Microseconds()) / 1000.0
+					result["return_trip_ms"] = float64(time.Duration(ackRecvAtNs-ackSentNs).Microseconds()) / 1000.0
+					result["inner_ack"] = timing["inner_ack"]
+				}
+			}
+		}
+	}
 	outputOK(result)
 	tracef("outputOK")
-}
-
-// ===================== TASK SUBCOMMANDS =====================
-
-func cmdTaskSubmit(args []string) {
-	flags, pos := parseFlags(args)
-	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl task submit <address|hostname> --task <description>")
-	}
-
-	d := connectDriver()
-	defer d.Close()
-
-	target, err := parseAddrOrHostname(d, pos[0])
-	if err != nil {
-		fatalCode("not_found", "%v", err)
-	}
-
-	taskDesc := flagString(flags, "task", "")
-	if taskDesc == "" {
-		fatalCode("invalid_argument", "--task is required")
-	}
-
-	client, err := tasksubmit.Dial(d, target)
-	if err != nil {
-		fatalHint("connection_failed",
-			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
-			"cannot connect to %s (task submit port %d)", target, protocol.PortTaskSubmit)
-	}
-	defer client.Close()
-
-	resp, err := client.SubmitTask(taskDesc, target.String())
-	if err != nil {
-		fatalCode("connection_failed", "submit: %v", err)
-	}
-
-	// Save task file locally (submitted/)
-	if resp.Status == tasksubmit.StatusAccepted {
-		info, _ := d.Info()
-		localAddr := ""
-		if addr, ok := info["address"].(string); ok {
-			localAddr = addr
-		}
-		tf := tasksubmit.NewTaskFile(resp.TaskID, taskDesc, localAddr, target.String())
-		if err := daemon.SaveTaskFile(tf, true); err != nil {
-			slog.Warn("failed to save submitted task file", "error", err)
-		}
-	}
-
-	result := map[string]interface{}{
-		"target":   target.String(),
-		"task_id":  resp.TaskID,
-		"task":     taskDesc,
-		"status":   resp.Status,
-		"message":  resp.Message,
-		"accepted": resp.Status == tasksubmit.StatusAccepted,
-	}
-
-	outputOK(result)
-}
-
-func cmdTaskAccept(args []string) {
-	flags, _ := parseFlags(args)
-
-	taskID := flagString(flags, "id", "")
-	if taskID == "" {
-		fatalCode("invalid_argument", "--id is required")
-	}
-
-	// Load task from received/
-	tf, err := daemon.LoadTaskFile(taskID)
-	if err != nil {
-		fatalHint("not_found",
-			"check pilotctl task list --type received",
-			"task not found: %s", taskID)
-	}
-
-	if tf.Status != tasksubmit.TaskStatusNew {
-		fatalCode("invalid_state", "task %s is already %s", taskID, tf.Status)
-	}
-
-	// Check if task has expired for acceptance (1 minute timeout)
-	if tf.IsExpiredForAccept() {
-		fatalCode("expired", "task %s has expired (accept deadline was 1 minute after creation)", taskID)
-	}
-
-	// Update status to ACCEPTED with time_idle calculation
-	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusAccepted, "Task accepted", "accept", false, ""); err != nil {
-		fatalCode("internal_error", "failed to update task status: %v", err)
-	}
-
-	// Send status update to submitter
-	d := connectDriver()
-	defer d.Close()
-
-	fromAddr, err := protocol.ParseAddr(tf.From)
-	if err != nil {
-		fatalCode("invalid_argument", "invalid from address: %v", err)
-	}
-
-	client, err := tasksubmit.Dial(d, fromAddr)
-	if err != nil {
-		// Still accept locally even if we can't notify submitter
-		slog.Warn("could not notify submitter", "error", err)
-		outputOK(map[string]interface{}{
-			"task_id": taskID,
-			"status":  tasksubmit.TaskStatusAccepted,
-			"message": "Task accepted (submitter notification failed)",
-		})
-		return
-	}
-	defer client.Close()
-
-	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusAccepted, "Task accepted"); err != nil {
-		slog.Warn("could not send status update", "error", err)
-	}
-
-	outputOK(map[string]interface{}{
-		"task_id": taskID,
-		"status":  tasksubmit.TaskStatusAccepted,
-		"message": "Task accepted",
-	})
-}
-
-func cmdTaskDecline(args []string) {
-	flags, _ := parseFlags(args)
-
-	taskID := flagString(flags, "id", "")
-	if taskID == "" {
-		fatalCode("invalid_argument", "--id is required")
-	}
-
-	justification := flagString(flags, "justification", "")
-	if justification == "" {
-		fatalCode("invalid_argument", "--justification is required")
-	}
-
-	// Load task from received/
-	tf, err := daemon.LoadTaskFile(taskID)
-	if err != nil {
-		fatalHint("not_found",
-			"check pilotctl task list --type received",
-			"task not found: %s", taskID)
-	}
-
-	if tf.Status != tasksubmit.TaskStatusNew {
-		fatalCode("invalid_state", "task %s is already %s", taskID, tf.Status)
-	}
-
-	// Update status to DECLINED with time_idle calculation
-	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusDeclined, justification, "decline", false, ""); err != nil {
-		fatalCode("internal_error", "failed to update task status: %v", err)
-	}
-
-	// Remove from queue if present (shouldn't be, but just in case)
-	daemon.RemoveFromQueue(taskID)
-
-	// Send status update to submitter
-	d := connectDriver()
-	defer d.Close()
-
-	fromAddr, err := protocol.ParseAddr(tf.From)
-	if err != nil {
-		fatalCode("invalid_argument", "invalid from address: %v", err)
-	}
-
-	client, err := tasksubmit.Dial(d, fromAddr)
-	if err != nil {
-		// Still decline locally even if we can't notify submitter
-		slog.Warn("could not notify submitter", "error", err)
-		outputOK(map[string]interface{}{
-			"task_id":       taskID,
-			"status":        tasksubmit.TaskStatusDeclined,
-			"justification": justification,
-			"message":       "Task declined (submitter notification failed)",
-		})
-		return
-	}
-	defer client.Close()
-
-	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusDeclined, justification); err != nil {
-		slog.Warn("could not send status update", "error", err)
-	}
-
-	outputOK(map[string]interface{}{
-		"task_id":       taskID,
-		"status":        tasksubmit.TaskStatusDeclined,
-		"justification": justification,
-		"message":       "Task declined",
-	})
-}
-
-func cmdTaskExecute(args []string) {
-	// Get first ACCEPTED task from received/ and mark as EXECUTING
-	// This should be the task at the head of the queue
-	tasksDir, err := getTasksDir()
-	if err != nil {
-		fatalCode("internal_error", "failed to get tasks directory: %v", err)
-	}
-
-	receivedDir := filepath.Join(tasksDir, "received")
-	entries, err := os.ReadDir(receivedDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fatalCode("not_found", "no received tasks found")
-		}
-		fatalCode("internal_error", "failed to read tasks directory: %v", err)
-	}
-
-	var accepted []*tasksubmit.TaskFile
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(receivedDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		tf, err := tasksubmit.UnmarshalTaskFile(data)
-		if err != nil {
-			continue
-		}
-		if tf.Status == tasksubmit.TaskStatusAccepted {
-			accepted = append(accepted, tf)
-		}
-	}
-
-	if len(accepted) == 0 {
-		fatalCode("not_found", "no accepted tasks to execute")
-	}
-
-	// FIFO by submission time: task IDs are random UUIDs, so directory
-	// iteration (alphabetical by filename) does not match arrival order.
-	// Parse-based compare handles the mix of RFC3339 (old files) and
-	// RFC3339Nano (new files) that can co-exist after an upgrade.
-	sort.Slice(accepted, func(i, j int) bool {
-		ti, _ := tasksubmit.ParseTime(accepted[i].CreatedAt)
-		tj, _ := tasksubmit.ParseTime(accepted[j].CreatedAt)
-		return ti.Before(tj)
-	})
-	taskToExecute := accepted[0]
-
-	// Get staged time from queue before removing
-	stagedAt := daemon.GetQueueStagedAt(taskToExecute.TaskID)
-
-	// Remove task from queue since we're executing it
-	daemon.RemoveFromQueue(taskToExecute.TaskID)
-
-	// Update status to EXECUTING with time_staged calculation
-	if err := daemon.UpdateTaskFileWithTimes(taskToExecute.TaskID, tasksubmit.TaskStatusExecuting, "Task execution started", "execute", false, stagedAt); err != nil {
-		fatalCode("internal_error", "failed to update task status: %v", err)
-	}
-
-	// Send status update to submitter
-	d := connectDriver()
-	defer d.Close()
-
-	fromAddr, err := protocol.ParseAddr(taskToExecute.From)
-	if err == nil {
-		client, err := tasksubmit.Dial(d, fromAddr)
-		if err == nil {
-			_ = client.SendStatusUpdate(taskToExecute.TaskID, tasksubmit.TaskStatusExecuting, "Task execution started")
-			client.Close()
-		}
-	}
-
-	outputOK(map[string]interface{}{
-		"task_id":          taskToExecute.TaskID,
-		"task_description": taskToExecute.TaskDescription,
-		"status":           tasksubmit.TaskStatusExecuting,
-		"from":             taskToExecute.From,
-	})
-}
-
-func cmdTaskSendResults(args []string) {
-	flags, _ := parseFlags(args)
-
-	taskID := flagString(flags, "id", "")
-	if taskID == "" {
-		fatalCode("invalid_argument", "--id is required")
-	}
-
-	results := flagString(flags, "results", "")
-	filePath := flagString(flags, "file", "")
-
-	if results == "" && filePath == "" {
-		fatalCode("invalid_argument", "either --results or --file is required")
-	}
-
-	// Load task from received/ to verify it exists and get submitter address
-	tf, err := daemon.LoadTaskFile(taskID)
-	if err != nil {
-		fatalHint("not_found",
-			"check pilotctl task list --type received",
-			"task not found: %s", taskID)
-	}
-
-	if tf.Status != tasksubmit.TaskStatusExecuting && tf.Status != tasksubmit.TaskStatusAccepted {
-		fatalCode("invalid_state", "task %s cannot receive results (status: %s)", taskID, tf.Status)
-	}
-
-	var resultMsg *tasksubmit.TaskResultMessage
-
-	if filePath != "" {
-		// Validate file extension
-		ext := strings.ToLower(filepath.Ext(filePath))
-		if !tasksubmit.AllowedResultExtensions[ext] {
-			fatalCode("invalid_argument", "file type %q not allowed for results", ext)
-		}
-		if tasksubmit.ForbiddenResultExtensions[ext] {
-			fatalCode("invalid_argument", "source code files cannot be sent as results")
-		}
-
-		// Read file
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			fatalCode("internal_error", "failed to read file: %v", err)
-		}
-
-		resultMsg = &tasksubmit.TaskResultMessage{
-			TaskID:      taskID,
-			ResultType:  "file",
-			Filename:    filepath.Base(filePath),
-			FileData:    data,
-			CompletedAt: time.Now().UTC().Format(time.RFC3339),
-		}
-	} else {
-		resultMsg = &tasksubmit.TaskResultMessage{
-			TaskID:      taskID,
-			ResultType:  "text",
-			ResultText:  results,
-			CompletedAt: time.Now().UTC().Format(time.RFC3339),
-		}
-	}
-
-	// Update local status to SUCCEEDED with time_cpu calculation
-	if err := daemon.UpdateTaskFileWithTimes(taskID, tasksubmit.TaskStatusSucceeded, "Results sent successfully", "complete", false, ""); err != nil {
-		slog.Warn("failed to update local task status", "error", err)
-	}
-
-	// Reload task file to get computed time values for polo score calculation
-	updatedTf, err := daemon.LoadTaskFile(taskID)
-	if err == nil {
-		// Include time metadata in the result message for polo score calculation
-		resultMsg.TimeIdleMs = updatedTf.TimeIdleMs
-		resultMsg.TimeStagedMs = updatedTf.TimeStagedMs
-		resultMsg.TimeCpuMs = updatedTf.TimeCpuMs
-	}
-
-	// Send results to submitter
-	d := connectDriver()
-	defer d.Close()
-
-	fromAddr, err := protocol.ParseAddr(tf.From)
-	if err != nil {
-		fatalCode("invalid_argument", "invalid from address: %v", err)
-	}
-
-	client, err := tasksubmit.Dial(d, fromAddr)
-	if err != nil {
-		fatalHint("connection_failed",
-			fmt.Sprintf("check that %s is reachable", tf.From),
-			"cannot connect to submitter %s", tf.From)
-	}
-	defer client.Close()
-
-	if err := client.SendResults(resultMsg); err != nil {
-		fatalCode("connection_failed", "failed to send results: %v", err)
-	}
-
-	// Also update submitter's copy to SUCCEEDED
-	if err := client.SendStatusUpdate(taskID, tasksubmit.TaskStatusSucceeded, "Task completed successfully"); err != nil {
-		slog.Warn("could not send status update to submitter", "error", err)
-	}
-
-	output := map[string]interface{}{
-		"task_id":   taskID,
-		"status":    tasksubmit.TaskStatusSucceeded,
-		"sent_to":   tf.From,
-		"sent_type": resultMsg.ResultType,
-	}
-	if filePath != "" {
-		output["filename"] = filepath.Base(filePath)
-		output["file_size"] = len(resultMsg.FileData)
-	}
-
-	outputOK(output)
-}
-
-func cmdTaskResult(args []string) {
-	flags, positional := parseFlags(args)
-
-	taskID := flagString(flags, "id", "")
-	if taskID == "" && len(positional) > 0 {
-		taskID = positional[0]
-	}
-	if taskID == "" {
-		fatalCode("invalid_argument", "usage: pilotctl task result <task_id> [--out <filepath>]")
-	}
-
-	tasksDir, err := getTasksDir()
-	if err != nil {
-		fatalCode("internal_error", "failed to get tasks directory: %v", err)
-	}
-	resultsDir := filepath.Join(tasksDir, "results")
-
-	textPath := filepath.Join(resultsDir, taskID+"_result.txt")
-	if data, err := os.ReadFile(textPath); err == nil {
-		out := map[string]interface{}{
-			"task_id": taskID,
-			"type":    "text",
-			"content": string(data),
-			"path":    textPath,
-		}
-		outputOK(out)
-		return
-	}
-
-	entries, err := os.ReadDir(resultsDir)
-	if err != nil {
-		fatalHint("not_found",
-			"check pilotctl task list --type submitted",
-			"no results for task %s", taskID)
-	}
-	prefix := taskID + "_"
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, prefix) || name == taskID+"_result.txt" {
-			continue
-		}
-		srcPath := filepath.Join(resultsDir, name)
-		origName := strings.TrimPrefix(name, prefix)
-
-		if outPath := flagString(flags, "out", ""); outPath != "" {
-			data, err := os.ReadFile(srcPath)
-			if err != nil {
-				fatalCode("internal_error", "read result file: %v", err)
-			}
-			if err := os.WriteFile(outPath, data, 0o600); err != nil {
-				fatalCode("internal_error", "write result file: %v", err)
-			}
-			outputOK(map[string]interface{}{
-				"task_id":  taskID,
-				"type":     "file",
-				"filename": origName,
-				"written":  outPath,
-				"size":     len(data),
-			})
-			return
-		}
-
-		info, _ := e.Info()
-		var size int64
-		if info != nil {
-			size = info.Size()
-		}
-		outputOK(map[string]interface{}{
-			"task_id":  taskID,
-			"type":     "file",
-			"filename": origName,
-			"path":     srcPath,
-			"size":     size,
-			"hint":     "add --out <path> to copy the file locally",
-		})
-		return
-	}
-
-	fatalHint("not_found",
-		"check pilotctl task list --type submitted",
-		"no results for task %s", taskID)
-}
-
-func cmdTaskList(args []string) {
-	flags, _ := parseFlags(args)
-	taskType := flagString(flags, "type", "")
-
-	tasksDir, err := getTasksDir()
-	if err != nil {
-		fatalCode("internal_error", "failed to get tasks directory: %v", err)
-	}
-
-	var tasks []map[string]interface{}
-
-	listTasksInDir := func(dir, category string) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return
-		}
-		var dirTasks []*tasksubmit.TaskFile
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-			if err != nil {
-				continue
-			}
-			tf, err := tasksubmit.UnmarshalTaskFile(data)
-			if err != nil {
-				continue
-			}
-			dirTasks = append(dirTasks, tf)
-		}
-		sort.Slice(dirTasks, func(i, j int) bool {
-			ti, _ := tasksubmit.ParseTime(dirTasks[i].CreatedAt)
-			tj, _ := tasksubmit.ParseTime(dirTasks[j].CreatedAt)
-			return ti.Before(tj)
-		})
-		for _, tf := range dirTasks {
-			entry := map[string]interface{}{
-				"task_id":              tf.TaskID,
-				"description":          tf.TaskDescription,
-				"status":               tf.Status,
-				"status_justification": tf.StatusJustification,
-				"from":                 tf.From,
-				"to":                   tf.To,
-				"created_at":           tf.CreatedAt,
-				"category":             category,
-			}
-			if tf.Results != "" {
-				entry["results"] = tf.Results
-				entry["result_type"] = tf.ResultType
-			}
-			tasks = append(tasks, entry)
-		}
-	}
-
-	if taskType == "" || taskType == "received" {
-		listTasksInDir(filepath.Join(tasksDir, "received"), "received")
-	}
-	if taskType == "" || taskType == "submitted" {
-		listTasksInDir(filepath.Join(tasksDir, "submitted"), "submitted")
-	}
-
-	if len(tasks) == 0 {
-		if jsonOutput {
-			outputOK(map[string]interface{}{"tasks": []interface{}{}})
-		} else {
-			fmt.Println("No tasks found")
-		}
-		return
-	}
-
-	if jsonOutput {
-		outputOK(map[string]interface{}{"tasks": tasks})
-	} else {
-		for _, t := range tasks {
-			fmt.Printf("[%s] %s (%s) - %s\n  From: %s → To: %s\n",
-				t["category"], t["task_id"], t["status"], t["description"], t["from"], t["to"])
-		}
-	}
-}
-
-func cmdTaskQueue(args []string) {
-	// Show queued (ACCEPTED) tasks in FIFO order
-	tasksDir, err := getTasksDir()
-	if err != nil {
-		fatalCode("internal_error", "failed to get tasks directory: %v", err)
-	}
-
-	receivedDir := filepath.Join(tasksDir, "received")
-	entries, err := os.ReadDir(receivedDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if jsonOutput {
-				outputOK(map[string]interface{}{"queue": []interface{}{}})
-			} else {
-				fmt.Println("Queue is empty")
-			}
-			return
-		}
-		fatalCode("internal_error", "failed to read tasks directory: %v", err)
-	}
-
-	var acceptedTasks []*tasksubmit.TaskFile
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(receivedDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		tf, err := tasksubmit.UnmarshalTaskFile(data)
-		if err != nil {
-			continue
-		}
-		if tf.Status == tasksubmit.TaskStatusAccepted {
-			acceptedTasks = append(acceptedTasks, tf)
-		}
-	}
-	sort.Slice(acceptedTasks, func(i, j int) bool {
-		ti, _ := tasksubmit.ParseTime(acceptedTasks[i].CreatedAt)
-		tj, _ := tasksubmit.ParseTime(acceptedTasks[j].CreatedAt)
-		return ti.Before(tj)
-	})
-	var queuedTasks []map[string]interface{}
-	for _, tf := range acceptedTasks {
-		queuedTasks = append(queuedTasks, map[string]interface{}{
-			"task_id":     tf.TaskID,
-			"description": tf.TaskDescription,
-			"from":        tf.From,
-			"created_at":  tf.CreatedAt,
-		})
-	}
-
-	if len(queuedTasks) == 0 {
-		if jsonOutput {
-			outputOK(map[string]interface{}{"queue": []interface{}{}})
-		} else {
-			fmt.Println("Queue is empty")
-		}
-		return
-	}
-
-	if jsonOutput {
-		outputOK(map[string]interface{}{"queue": queuedTasks, "count": len(queuedTasks)})
-	} else {
-		fmt.Printf("Queued tasks (%d):\n", len(queuedTasks))
-		for i, t := range queuedTasks {
-			fmt.Printf("  %d. %s: %s\n     From: %s\n", i+1, t["task_id"], t["description"], t["from"])
-		}
-	}
-}
-
-// getTasksDir returns the path to ~/.pilot/tasks directory.
-func getTasksDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".pilot", "tasks"), nil
 }
 
 func cmdSubscribe(args []string) {
@@ -3566,6 +2825,7 @@ func cmdSubscribe(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 
 	topic := pos[1]
 	count := flagInt(flags, "count", 0) // 0 = infinite
@@ -3676,6 +2936,7 @@ func cmdPublish(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 
 	topic := pos[1]
 	data := flagString(flags, "data", "")
@@ -4007,23 +3268,6 @@ func cmdDisconnect(args []string) {
 
 // ===================== DIAGNOSTICS =====================
 
-// cmdMyPolo asks the local daemon for this node's own polo score.
-// Polo is private — there is no command to read another node's polo.
-func cmdMyPolo() {
-	d := connectDriver()
-	defer d.Close()
-
-	score, err := d.MyPoloScore()
-	if err != nil {
-		fatalCode("internal", "my-polo: %v", err)
-	}
-	if jsonOutput {
-		output(map[string]interface{}{"polo_score": score})
-		return
-	}
-	fmt.Printf("My polo score: %d\n", score)
-}
-
 func cmdInfo(args []string) {
 	flags, _ := parseFlags(args)
 	showEndpoints := flagBool(flags, "show-endpoints")
@@ -4107,7 +3351,16 @@ func cmdInfo(args []string) {
 		fmt.Printf("  Identity:    ephemeral (not persisted)\n")
 	}
 	if email, ok := info["email"].(string); ok && email != "" {
-		fmt.Printf("  Email:       %s\n", email)
+		// Tag synthetic emails so users (and agents inspecting the output)
+		// can tell at a glance whether this node has a real identity.
+		// Synthetic emails are auto-derived from the public-key fingerprint
+		// and end with @nodes.pilotprotocol.network. To replace one, run
+		// `pilotctl set-email <your-real-address>`.
+		if strings.HasSuffix(email, "@nodes.pilotprotocol.network") {
+			fmt.Printf("  Email:       %s  (auto-generated; optional — `pilotctl set-email <addr>` to set your own)\n", email)
+		} else {
+			fmt.Printf("  Email:       %s\n", email)
+		}
 	}
 	if nets, ok := info["networks"].([]interface{}); ok && len(nets) > 0 {
 		fmt.Printf("  Networks:    %d\n", len(nets))
@@ -4309,17 +3562,16 @@ func cmdPeers(args []string) {
 func cmdPing(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]")
+		fatalCode("invalid_argument", "usage: pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>] [--trace]")
 	}
 
 	count := flagInt(flags, "count", 4)
 	timeout := flagDuration(flags, "timeout", 30*time.Second)
 
-	// Optional per-step timing trace. Set PILOTCTL_TRACE_TIME=1 to see
-	// where the latency goes (binary startup, IPC connect, hostname
-	// lookup, dial, echo). Helps when "ping feels slow before the
-	// first packet" — the answer is almost always step 3.
-	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != ""
+	// --trace (or PILOTCTL_TRACE_TIME=1) prints per-step timing to stderr:
+	// startup overhead, IPC connect, hostname lookup, and per-packet
+	// dial/echo split so you can see where latency actually lives.
+	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != "" || flagBool(flags, "trace")
 	t0 := time.Now()
 	tracef := func(label string) {
 		if traceTime {
@@ -4336,6 +3588,8 @@ func cmdPing(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
+	tracef("maybeAutoHandshake")
 
 	if !jsonOutput {
 		fmt.Printf("PING %s\n", target)
@@ -4402,6 +3656,7 @@ func cmdPing(args []string) {
 				}
 			}()
 		}
+		dialElapsed := time.Since(start)
 		if err != nil {
 			r := map[string]interface{}{"seq": i, "error": err.Error()}
 			results = append(results, r)
@@ -4412,19 +3667,39 @@ func cmdPing(args []string) {
 			continue
 		}
 
-		payload := fmt.Sprintf("ping-%d", i)
-		conn.Write([]byte(payload))
+		// Build payload. In trace mode embed [TRCE][8-byte sent_at_ns] so the
+		// echo service can stamp its receive time and reflect it back.
+		var pktPayload []byte
+		var sentAtNs int64
+		if traceTime {
+			pktPayload = make([]byte, 12)
+			copy(pktPayload[0:4], "TRCE")
+			sentAtNs = time.Now().UnixNano()
+			binary.BigEndian.PutUint64(pktPayload[4:12], uint64(sentAtNs))
+		} else {
+			pktPayload = []byte(fmt.Sprintf("ping-%d", i))
+		}
+
+		echoStart := time.Now()
+		conn.Write(pktPayload)
 
 		conn.SetReadDeadline(time.Now().Add(perAttempt))
 		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
+		n, readErr := conn.Read(buf)
+		recvAtNs := time.Now().UnixNano()
 		conn.Close()
+		echoElapsed := time.Since(echoStart)
 
 		rtt := time.Since(start)
 		r := map[string]interface{}{
 			"seq":    i,
 			"rtt_ms": float64(rtt.Microseconds()) / 1000.0,
 		}
+		if traceTime {
+			r["dial_ms"] = float64(dialElapsed.Microseconds()) / 1000.0
+			r["echo_ms"] = float64(echoElapsed.Microseconds()) / 1000.0
+		}
+		err = readErr
 		if err != nil {
 			r["error"] = err.Error()
 			if !jsonOutput {
@@ -4432,8 +3707,29 @@ func cmdPing(args []string) {
 			}
 		} else {
 			r["bytes"] = n
+			// Parse TRCE response: [TRCE][sent_at_ns][server_recv_at_ns]
+			var serverRecvNs int64
+			if traceTime && n >= 20 && string(buf[0:4]) == "TRCE" {
+				serverRecvNs = int64(binary.BigEndian.Uint64(buf[12:20]))
+				toServer := time.Duration(serverRecvNs - sentAtNs)
+				fromServer := time.Duration(recvAtNs - serverRecvNs)
+				r["to_server_ms"] = float64(toServer.Microseconds()) / 1000.0
+				r["from_server_ms"] = float64(fromServer.Microseconds()) / 1000.0
+			}
 			if !jsonOutput {
-				fmt.Printf("seq=%d bytes=%d time=%v\n", i, n, rtt)
+				if traceTime && serverRecvNs > 0 {
+					toServer := time.Duration(serverRecvNs - sentAtNs)
+					fromServer := time.Duration(recvAtNs - serverRecvNs)
+					fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v →srv=%v ←srv=%v]\n",
+						i, n, rtt,
+						dialElapsed.Round(time.Microsecond),
+						toServer.Round(time.Microsecond),
+						fromServer.Round(time.Microsecond))
+				} else if traceTime {
+					fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v echo=%v]\n", i, n, rtt, dialElapsed.Round(time.Microsecond), echoElapsed.Round(time.Microsecond))
+				} else {
+					fmt.Printf("seq=%d bytes=%d time=%v\n", i, n, rtt)
+				}
 			}
 		}
 		results = append(results, r)
@@ -4574,6 +3870,7 @@ func cmdBench(args []string) {
 	if err != nil {
 		fatalCode("not_found", "%v", err)
 	}
+	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 
 	totalSize := 1024 * 1024
 	if len(pos) > 1 {
@@ -4890,6 +4187,7 @@ func cmdReceived(args []string) {
 // Messages are saved to ~/.pilot/inbox/ by the daemon's built-in service.
 func cmdInbox(args []string) {
 	flags, _ := parseFlags(args)
+	traceTime := flagBool(flags, "trace")
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -4982,16 +4280,32 @@ func cmdInbox(args []string) {
 	}
 
 	fmt.Printf("Inbox (%d messages):\n\n", len(messages))
+	now := time.Now()
 	for _, m := range messages {
 		msgType, _ := m["type"].(string)
 		from, _ := m["from"].(string)
 		ts, _ := m["received_at"].(string)
 		data, _ := m["data"].(string)
+		bytes, _ := m["bytes"].(float64)
+
+		var tsLine string
+		if traceTime {
+			t, err := time.Parse(time.RFC3339Nano, ts)
+			if err == nil {
+				ago := now.Sub(t)
+				tsLine = fmt.Sprintf("%s  (%s ago, %d bytes)", ts, fmtDuration(ago), int(bytes))
+			} else {
+				tsLine = ts
+			}
+		} else {
+			tsLine = ts
+		}
+
 		preview := data
 		if len(preview) > 80 {
 			preview = preview[:80] + "..."
 		}
-		fmt.Printf("  [%s] from %s type=%s\n", ts, from, msgType)
+		fmt.Printf("  [%s] from %s type=%s\n", tsLine, from, msgType)
 		fmt.Printf("    %s\n", preview)
 	}
 	fmt.Printf("\nclear with: pilotctl inbox --clear\n")
@@ -5887,30 +5201,6 @@ func cmdDirectoryStatus(args []string) {
 
 // --- Managed network commands ---
 
-func cmdManagedScore(args []string) {
-	flags, pos := parseFlags(args)
-	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl managed score <peer_node_id> [--net <id>] [--topic T] [--delta N]")
-	}
-	nodeID := parseNodeID(pos[0])
-	netID := uint16(flagInt(flags, "net", 0))
-	topic := flagString(flags, "topic", "")
-	delta := flagInt(flags, "delta", 1)
-
-	d := connectDriver()
-	defer d.Close()
-
-	resp, err := d.ManagedScore(netID, nodeID, delta, topic)
-	if err != nil {
-		fatalCode("connection_failed", "managed score: %v", err)
-	}
-	if jsonOutput {
-		output(resp)
-	} else {
-		fmt.Printf("scored peer %d: delta=%d topic=%q\n", nodeID, delta, topic)
-	}
-}
-
 func cmdManagedStatus(args []string) {
 	flags, _ := parseFlags(args)
 	netID := uint16(flagInt(flags, "net", 0))
@@ -5921,20 +5211,6 @@ func cmdManagedStatus(args []string) {
 	resp, err := d.ManagedStatus(netID)
 	if err != nil {
 		fatalCode("connection_failed", "managed status: %v", err)
-	}
-	output(resp)
-}
-
-func cmdManagedRankings(args []string) {
-	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
-
-	d := connectDriver()
-	defer d.Close()
-
-	resp, err := d.ManagedRankings(netID)
-	if err != nil {
-		fatalCode("connection_failed", "managed rankings: %v", err)
 	}
 	output(resp)
 }
@@ -6027,11 +5303,11 @@ func cmdPolicySet(args []string) {
 	}
 
 	// Validate locally first
-	doc, err := policy.Parse(policyJSON)
+	doc, err := policylang.Parse(policyJSON)
 	if err != nil {
 		fatalCode("invalid_argument", "policy validation: %v", err)
 	}
-	if _, err := policy.Compile(doc); err != nil {
+	if _, err := policylang.Compile(doc); err != nil {
 		fatalCode("invalid_argument", "policy compilation: %v", err)
 	}
 
@@ -6082,12 +5358,12 @@ func cmdPolicyValidate(args []string) {
 		fatalCode("invalid_argument", "provide --file or --inline")
 	}
 
-	doc, err := policy.Parse(policyJSON)
+	doc, err := policylang.Parse(policyJSON)
 	if err != nil {
 		fatalCode("invalid_argument", "validation failed: %v", err)
 	}
 
-	cp, err := policy.Compile(doc)
+	cp, err := policylang.Compile(doc)
 	if err != nil {
 		fatalCode("invalid_argument", "compilation failed: %v", err)
 	}
@@ -6121,11 +5397,11 @@ func cmdPolicyTest(args []string) {
 		fatalCode("io_error", "reading policy file: %v", err)
 	}
 
-	doc, err := policy.Parse(policyJSON)
+	doc, err := policylang.Parse(policyJSON)
 	if err != nil {
 		fatalCode("invalid_argument", "policy: %v", err)
 	}
-	cp, err := policy.Compile(doc)
+	cp, err := policylang.Compile(doc)
 	if err != nil {
 		fatalCode("invalid_argument", "policy: %v", err)
 	}
@@ -6148,7 +5424,7 @@ func cmdPolicyTest(args []string) {
 	}
 	delete(event, "type")
 
-	dirs, err := cp.Evaluate(policy.EventType(eventType), event)
+	dirs, err := cp.Evaluate(policylang.EventType(eventType), event)
 	if err != nil {
 		fatalCode("invalid_argument", "evaluation: %v", err)
 	}
@@ -6171,11 +5447,11 @@ func cmdPolicyTest(args []string) {
 	}
 }
 
-func countEventTypes(cp *policy.CompiledPolicy) map[string]bool {
+func countEventTypes(cp *policylang.CompiledPolicy) map[string]bool {
 	events := map[string]bool{}
-	for _, et := range []policy.EventType{
-		policy.EventConnect, policy.EventDial, policy.EventDatagram,
-		policy.EventCycle, policy.EventJoin, policy.EventLeave,
+	for _, et := range []policylang.EventType{
+		policylang.EventConnect, policylang.EventDial, policylang.EventDatagram,
+		policylang.EventCycle, policylang.EventJoin, policylang.EventLeave,
 	} {
 		if cp.HasRulesFor(et) {
 			events[string(et)] = true
@@ -6184,27 +5460,25 @@ func countEventTypes(cp *policy.CompiledPolicy) map[string]bool {
 	return events
 }
 
-func directiveTypeName(dt policy.DirectiveType) string {
+func directiveTypeName(dt policylang.DirectiveType) string {
 	switch dt {
-	case policy.DirectiveAllow:
+	case policylang.DirectiveAllow:
 		return "allow"
-	case policy.DirectiveDeny:
+	case policylang.DirectiveDeny:
 		return "deny"
-	case policy.DirectiveScore:
-		return "score"
-	case policy.DirectiveTag:
+	case policylang.DirectiveTag:
 		return "tag"
-	case policy.DirectiveEvict:
+	case policylang.DirectiveEvict:
 		return "evict"
-	case policy.DirectiveEvictWhere:
+	case policylang.DirectiveEvictWhere:
 		return "evict_where"
-	case policy.DirectivePrune:
+	case policylang.DirectivePrune:
 		return "prune"
-	case policy.DirectiveFill:
+	case policylang.DirectiveFill:
 		return "fill"
-	case policy.DirectiveWebhook:
+	case policylang.DirectiveWebhook:
 		return "webhook"
-	case policy.DirectiveLog:
+	case policylang.DirectiveLog:
 		return "log"
 	default:
 		return "unknown"

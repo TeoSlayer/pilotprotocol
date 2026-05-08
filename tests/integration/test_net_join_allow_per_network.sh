@@ -14,7 +14,7 @@ log_test() { echo -e "[$(ts)] ${YELLOW}[TEST]${NC} $*"; }
 log_pass() { echo -e "[$(ts)] ${GREEN}[PASS]${NC} $*"; PASSED=$((PASSED+1)); }
 log_fail() { echo -e "[$(ts)] ${RED}[FAIL]${NC} $*"; FAILED=$((FAILED+1)); }
 
-DC="docker compose -f docker-compose.multi.yml"
+DC="docker compose -f docker-compose.multi.yml -f docker-compose.multi.policy.yml"
 export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh

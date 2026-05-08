@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -12,10 +13,23 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+
+	// L11 plugin imports — cmd/daemon (L12) is the only place these
+	// are allowed. The daemon proper imports only pkg/coreapi
+	// interfaces.
+	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
+	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
+	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
+	"github.com/TeoSlayer/pilotprotocol/plugins/skillinject"
+	"github.com/TeoSlayer/pilotprotocol/plugins/trustedagents"
+	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
 )
 
 var version = "dev"
@@ -35,6 +49,7 @@ func main() {
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
 	socketPath := flag.String("socket", "/tmp/pilot.sock", "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")
+	fakeListenAddr := flag.String("fake-listen-addr", "", "advertise this listen_addr to the registry instead of the real one (real socket binding unaffected)")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
 	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate")
@@ -53,7 +68,6 @@ func main() {
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
-	noTaskSubmit := flag.Bool("no-tasksubmit", false, "disable built-in task submit service (port 1003)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
@@ -68,6 +82,22 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Auto-load ~/.pilot/config.json when -config isn't passed. Without
+	// this, launching the daemon directly (vs. via `pilotctl daemon
+	// start`) gives an empty IdentityPath, which silently disables
+	// identity persistence AND trust-state persistence (Manager.loadTrust
+	// only runs when IdentityPath != ""). Result: every restart loses
+	// trust.json contents from the runtime even though the file is on
+	// disk. Mirroring `pilotctl daemon start`'s implicit config path
+	// here closes that gap.
+	if *configPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			defaultConfig := home + "/.pilot/config.json"
+			if _, err := os.Stat(defaultConfig); err == nil {
+				configPath = &defaultConfig
+			}
+		}
+	}
 	if *configPath != "" {
 		cfg, err := config.Load(*configPath)
 		if err != nil {
@@ -84,6 +114,7 @@ func main() {
 		ListenAddr:            *listenAddr,
 		SocketPath:            *socketPath,
 		Endpoint:              *endpoint,
+		FakeListenAddr:        *fakeListenAddr,
 		Encrypt:               *encrypt,
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,
@@ -102,7 +133,6 @@ func main() {
 		DisableEcho:           *noEcho,
 		DisableDataExchange:   *noDataExchange,
 		DisableEventStream:    *noEventStream,
-		DisableTaskSubmit:     *noTaskSubmit,
 		WebhookURL:            *webhookURL,
 		AdminToken:            *adminToken,
 		Networks:              parseNetworkIDs(*networks),
@@ -110,6 +140,64 @@ func main() {
 		TrustAutoApprove:      *trustAutoApprove,
 	})
 
+	// L11 plugin lifecycle (T7.1): composition root owns the
+	// ServiceRegistry via plugins/runtime. Daemon never imports
+	// pkg/coreapi.
+	rt := runtime.New(d)
+
+	ta := trustedagents.NewService()
+	if err := rt.Register(ta); err != nil {
+		log.Fatalf("register trustedagents: %v", err)
+	}
+	d.RegisterTrustChecker(ta)
+
+	if err := rt.Register(skillinject.NewService(skillinject.Config{})); err != nil {
+		log.Fatalf("register skillinject: %v", err)
+	}
+
+	if !*noDataExchange {
+		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{})); err != nil {
+			log.Fatalf("register dataexchange: %v", err)
+		}
+	}
+
+	if !*noEventStream {
+		if err := rt.Register(eventstream.NewService()); err != nil {
+			log.Fatalf("register eventstream: %v", err)
+		}
+	}
+
+	policySvc := policy.NewService(policy.NewDaemonRuntime(d))
+	if err := rt.Register(policySvc); err != nil {
+		log.Fatalf("register policy: %v", err)
+	}
+	d.RegisterPolicyManager(runtime.AsDaemonPolicyManager(policySvc.Manager()))
+
+	// Manual trust-handshake (port 444) — extracted from pkg/daemon in T3.3.
+	hsSvc := handshake.NewService(handshake.NewDaemonRuntime(d))
+	if err := rt.Register(hsSvc); err != nil {
+		log.Fatalf("register handshake: %v", err)
+	}
+	d.RegisterHandshakeService(hsSvc.AsHandshakeService())
+
+	// Webhook (T4.1): the daemon publishes events to the in-process
+	// bus, the plugin subscribes and POSTs to the configured URL. URL
+	// hot-swap (IPC's `set-webhook`) routes through SetURL on the
+	// plugin via the daemon's WebhookManager interface.
+	webhookSvc := webhook.NewService(*webhookURL)
+	if err := rt.Register(webhookSvc); err != nil {
+		log.Fatalf("register webhook: %v", err)
+	}
+	d.RegisterWebhookManager(webhookManagerAdapter{svc: webhookSvc})
+
+	// T4.1: subscribe plugins to the bus BEFORE Daemon.Start so the
+	// webhook plugin captures the node.registered / agent.registered
+	// events published from registerWithRegistry inside d.Start.
+	// Plugin Start methods don't depend on d.Start having run; ports
+	// and tunnels are constructed in daemon.New.
+	if err := rt.StartPlugins(context.Background()); err != nil {
+		log.Fatalf("plugin startup: %v", err)
+	}
 	if err := d.Start(); err != nil {
 		log.Fatalf("daemon start: %v", err)
 	}
@@ -119,8 +207,31 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
+	// Order matters: Daemon.Stop publishes daemon.shutting_down to the
+	// bus before tearing down ports/IPC/tunnels. Plugins (notably
+	// webhook) are still subscribed at that point, so the event flows
+	// through. StopPlugins then drains each plugin's queue. Reversing
+	// this order would lose the shutdown event because the webhook's
+	// bus subscription would be cancelled before doStop publishes.
 	slog.Info("shutting down")
 	d.Stop()
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := rt.StopPlugins(stopCtx); err != nil {
+		slog.Warn("plugin shutdown error", "err", err)
+	}
+	stopCancel()
+}
+
+// webhookManagerAdapter bridges *webhook.Service to the daemon's
+// WebhookManager interface. Defined here (composition root) rather
+// than in the plugin to keep the plugin free of pkg/daemon imports.
+type webhookManagerAdapter struct{ svc *webhook.Service }
+
+func (a webhookManagerAdapter) SetURL(url string) { a.svc.SetURL(url) }
+func (a webhookManagerAdapter) Stats() daemon.WebhookStats {
+	s := a.svc.Stats()
+	return daemon.WebhookStats{Dropped: s.Dropped, CircuitSkips: s.CircuitSkips}
 }
 
 // parseNetworkIDs parses a comma-separated string of network IDs into a uint16 slice.

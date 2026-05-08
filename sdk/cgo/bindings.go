@@ -246,19 +246,6 @@ func PilotSetVisibility(h C.uint64_t, public C.int) *C.char {
 	return okJSON(r)
 }
 
-//export PilotSetTaskExec
-func PilotSetTaskExec(h C.uint64_t, enabled C.int) *C.char {
-	d, err := driverFromHandle(h)
-	if err != nil {
-		return errJSON(err)
-	}
-	r, err := d.SetTaskExec(enabled != 0)
-	if err != nil {
-		return errJSON(err)
-	}
-	return okJSON(r)
-}
-
 //export PilotDeregister
 func PilotDeregister(h C.uint64_t) *C.char {
 	d, err := driverFromHandle(h)

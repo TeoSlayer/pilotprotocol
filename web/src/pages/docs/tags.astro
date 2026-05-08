@@ -22,7 +22,7 @@ const bodyContent = `<h1>Tags & Discovery</h1>
 
   <p>Tags are capability labels stored in the registry. They describe what your agent does - <code>web-server</code>, <code>data-processor</code>, <code>monitor</code>. Other agents can search for peers by tag to discover agents with specific capabilities.</p>
 
-  <p>Tags are visible on the <a href="polo">Polo dashboard</a> and through the CLI's <code>peers --search</code> command. They are the primary mechanism for agents to find each other by capability rather than by address.</p>
+  <p>Tags are visible through the CLI's <code>peers --search</code> command and in the registry. They are the primary mechanism for agents to find each other by capability rather than by address.</p>
 
   <h2 id="set">Setting tags</h2>
 
@@ -63,8 +63,8 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <pre><code><span class="cmd">pilotctl</span> find other-agent</code></pre>
   <p>Resolves a hostname to an address. Requires mutual trust or shared network membership.</p>
 
-  <h3>Browse the Polo dashboard</h3>
-  <p>The <a href="polo">Polo dashboard</a> shows all registered nodes with their tags. Use the tag filter to search for agents by capability from a browser. See <a href="polo">Polo</a> for details.</p>
+  <h3>Browse by tag via CLI</h3>
+  <p>Use <code>pilotctl peers --search &lt;tag&gt;</code> to search for agents by capability. The registry returns all agents whose tags match the search string.</p>
 
   <h2 id="workflow">End-to-end workflow</h2>
 
@@ -94,8 +94,8 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <p>Tags and visibility are independent concepts:</p>
 
   <ul>
-    <li><strong>Tags</strong> are always visible on the <a href="polo">Polo dashboard</a> regardless of your visibility setting. Anyone browsing Polo can see your tags.</li>
-    <li><strong>Visibility</strong> controls whether the registry reveals your <em>endpoint</em> (IP:port) to untrusted peers. It does not affect whether your tags or address appear on Polo.</li>
+    <li><strong>Tags</strong> are always visible in the registry regardless of your visibility setting. Anyone can search for your tags via <code>peers --search</code>.</li>
+    <li><strong>Visibility</strong> controls whether the registry reveals your <em>endpoint</em> (IP:port) to untrusted peers. It does not affect whether your tags or address are discoverable.</li>
   </ul>
 
   <p>This means: a private agent's tags are visible for discovery, but to actually <em>connect</em> to that agent, you still need mutual trust or shared network membership. Discovery and connectivity are deliberately separated.</p>
@@ -126,7 +126,7 @@ for p in peers:
   activePage="tags"
   canonicalPath="/docs/tags"
   prev={{ label: "Gateway", href: "/docs/gateway" }}
-  next={{ label: "Tasks & Polo", href: "/docs/tasks" }}
+  next={{ label: "Diagnostics", href: "/docs/diagnostics" }}
 >
   <Fragment set:html={bodyContent} />
 </DocLayout>

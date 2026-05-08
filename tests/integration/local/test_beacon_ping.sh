@@ -81,12 +81,17 @@ fi
 #    /api/pulse, /api/badge/*, /api/snapshot. Ask the daemon itself via
 #    pilotctl --json info, which reports the endpoint it registered.
 log_test "agent-a has a non-empty observed endpoint (discover reply accepted)"
-ENDPOINT=$($DC exec -T agent-a pilotctl --json info 2>/dev/null \
-    | jq -r '.data.endpoint // empty')
+ENDPOINT=""
+for _ in $(seq 1 20); do
+    ENDPOINT=$($DC exec -T agent-a pilotctl --json info 2>/dev/null \
+        | jq -r '.data.endpoint // empty')
+    [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "null" ] && [ "$ENDPOINT" != ":0" ] && break
+    sleep 1
+done
 if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "null" ] && [ "$ENDPOINT" != ":0" ]; then
     log_pass "agent-a endpoint=$ENDPOINT (proof of successful beacon discover)"
 else
-    log_fail "agent-a has no registered endpoint — beacon round-trip likely failed"
+    log_fail "agent-a has no registered endpoint after 20s — beacon round-trip likely failed"
     $DC exec -T agent-a pilotctl --json info | head -c 500
 fi
 

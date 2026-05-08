@@ -28,6 +28,7 @@ echo "=========================================="
 
 log_test "bring rendezvous up first"
 $DC down -v >/dev/null 2>&1
+sweep_pilot_p2p_network
 $DC up -d rendezvous >/dev/null 2>&1
 for _ in $(seq 1 30); do
     if $DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats >/dev/null 2>&1; then

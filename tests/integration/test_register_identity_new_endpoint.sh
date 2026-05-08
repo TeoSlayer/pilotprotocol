@@ -48,24 +48,12 @@ EP1=$(echo "$LU1" | jq -r '.data.node.endpoint // .data.endpoint // empty')
 [ -n "$EP1" ] || { log_fail "could not read agent-b endpoint from lookup"; exit 1; }
 log_pass "initial endpoint: $EP1"
 
-# Stop agent-b. Identity.json is in an anonymous volume but the
-# container preserves it for the life of the container. We use
-# `compose stop` + `compose up` to restart with different args.
-log_test "stop agent-b, bring it back with a different listen port"
-$DC stop agent-b >/dev/null 2>&1
-
-# Re-run agent-b via compose run with a different -listen port
-# (4001 instead of 4000). We use `docker compose run` to override
-# the command.
+# Replace agent-b's daemon in-place (don't compose-stop the container,
+# since that may garbage-collect it on some Docker setups). The
+# existing container has the identity file at /root/.pilot/identity.json
+# which we want to preserve so node_id stays stable.
+log_test "replace agent-b daemon in-place with -listen :4001"
 PFX="${PILOT_SUBNET_PREFIX:-172.29.0}"
-# Use compose start then manually kill & replace — simpler: just
-# exec a second daemon on a new port inside the same container.
-# We can't re-assign ipv4, but -listen :4001 with -endpoint
-# ${PFX}.21:4001 does the job since the container has that IP.
-$DC up -d agent-b >/dev/null 2>&1
-sleep 3
-# Now kill the pilot-daemon process inside the container and start a
-# new one with a different listen port/endpoint.
 $DC exec -T agent-b bash -c '
     pkill -f pilot-daemon 2>/dev/null || true
     sleep 1

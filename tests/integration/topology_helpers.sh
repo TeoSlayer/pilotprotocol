@@ -62,3 +62,27 @@ wait_for_peer_in_registry() {
     done
     return 1
 }
+
+# sweep_pilot_p2p_network — force-remove any containers still attached to
+# the shared pilot-p2p docker network. Tests in this directory have ~10
+# compose files that all declare the same network name; leftover
+# containers from a prior test (esp. the p2p runner + multi.yml stack)
+# block a sibling compose file from recreating the network on `up`. Call
+# this before `$DC up` to make tests order-independent.
+sweep_pilot_p2p_network() {
+    local f
+    for f in docker-compose.multi.yml \
+             docker-compose.multi3.yml \
+             docker-compose.multi5.yml \
+             docker-compose.multi10.yml \
+             docker-compose.splitbrain.yml \
+             docker-compose.ring4.yml \
+             docker-compose.star5hub.yml \
+             docker-compose.multi.gateway.yml \
+             docker-compose.multi.policy.yml \
+             docker-compose.multi.webhooks.yml; do
+        [ -f "$f" ] && docker compose -f "$f" down -v >/dev/null 2>&1 || true
+    done
+    docker ps -a --filter "network=local_pilot-p2p" --format '{{.Names}}' 2>/dev/null \
+        | xargs -r docker rm -f >/dev/null 2>&1 || true
+}

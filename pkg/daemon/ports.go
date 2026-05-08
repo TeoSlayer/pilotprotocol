@@ -424,6 +424,13 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		WindowCh:     make(chan struct{}, 1),
 		NagleCh:      make(chan struct{}, 1),
 		PeerRecvWin:  -1, // sentinel: no window advertisement received yet
+		// Initialize RetxStop here (instead of in startRetxLoop) so it is
+		// safe to read concurrently from RemoveConnection / idleSweepLoop
+		// before the retx loop is wired up after handshake completion.
+		// Without this, the §4.8 stress test trips a write-vs-read race
+		// between dialConnectionLocked → startRetxLoop and idleSweepLoop
+		// → RemoveConnection on the same conn.
+		RetxStop: make(chan struct{}),
 	}
 	pm.nextConnID++
 	if pm.nextConnID == 0 {
@@ -1178,10 +1185,15 @@ func (c *Connection) DeliverInOrder(seq uint32, data []byte) uint32 {
 	for _, seg := range toDeliver {
 		ok := func() bool {
 			defer func() { recover() }() // handle closed RecvBuf
+			// Use NewTimer + Stop so the timer goroutine is reclaimed
+			// immediately when the channel send succeeds, instead of
+			// lingering for the full 1s timeout (time.After leak).
+			t := time.NewTimer(1 * time.Second)
+			defer t.Stop()
 			select {
 			case c.RecvBuf <- seg.data:
 				return true
-			case <-time.After(1 * time.Second):
+			case <-t.C:
 				return false
 			}
 		}()

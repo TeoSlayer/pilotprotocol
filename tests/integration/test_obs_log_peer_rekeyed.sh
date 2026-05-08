@@ -39,7 +39,7 @@ $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 10s >/dev/null 2>&
 sleep 2
 
 # Snapshot agent-a's log line count for "peer rekeyed" before the event.
-BEFORE=$($DC logs agent-a 2>&1 | grep -c 'peer rekeyed' || echo 0)
+BEFORE=$($DC logs agent-a 2>&1 | grep -c 'peer rekeyed' || true)
 log_test "before: agent-a has $BEFORE 'peer rekeyed' log lines"
 
 # Force rekey via agent-b restart (fresh identity session -> new key).
@@ -55,7 +55,7 @@ done
 $DC exec -T agent-a pilotctl ping agent-b --count 3 --timeout 15s >/dev/null 2>&1 || true
 sleep 5
 
-AFTER=$($DC logs agent-a 2>&1 | grep -c 'peer rekeyed' || echo 0)
+AFTER=$($DC logs agent-a 2>&1 | grep -c 'peer rekeyed' || true)
 DELTA=$((AFTER - BEFORE))
 log_test "after: agent-a has $AFTER 'peer rekeyed' lines (delta=$DELTA)"
 
@@ -70,7 +70,7 @@ fi
 # Sanity: matches peer_node_id on agent-b
 B_NID=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r '.data.node_id // empty')
 if [ -n "$B_NID" ]; then
-    MATCH=$($DC logs agent-a 2>&1 | grep 'peer rekeyed' | grep -c "peer_node_id=$B_NID" || echo 0)
+    MATCH=$($DC logs agent-a 2>&1 | grep 'peer rekeyed' | grep -c "peer_node_id=$B_NID" || true)
     log_test "'peer rekeyed' log names peer_node_id=$B_NID"
     if [ "$MATCH" -ge 1 ]; then log_pass "peer id present in log"; else log_fail "no matching peer_node_id in log"; fi
 fi

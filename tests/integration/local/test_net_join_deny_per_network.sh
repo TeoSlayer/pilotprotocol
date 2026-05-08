@@ -53,21 +53,16 @@ start_agent_in_network agent-b "$NID" "$DENY"
 sleep 2
 sync_policy_peers "$NID" agent-a agent-b
 
-PEER_A=$($DC exec -T agent-a pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
-PEER_B=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
-
 log_test "join-deny rule evicts freshly-added peers from the runner"
 # EventJoin fires when the runner's reconciler adds a peer. A `deny`
 # directive on that event causes applyMembershipDiff to remove the peer
-# right back out — so neither agent should see the other in rankings.
-RANK_A=$($DC exec -T agent-a pilotctl --json managed rankings --net "$NID" 2>/dev/null)
-RANK_B=$($DC exec -T agent-b pilotctl --json managed rankings --net "$NID" 2>/dev/null)
-HAS_B=$(echo "$RANK_A" | jq -e --argjson p "$PEER_B" '.data.rankings[]? | select(.node_id == $p)' >/dev/null 2>&1 && echo yes || echo no)
-HAS_A=$(echo "$RANK_B" | jq -e --argjson p "$PEER_A" '.data.rankings[]? | select(.node_id == $p)' >/dev/null 2>&1 && echo yes || echo no)
-if [ "$HAS_B" = no ] && [ "$HAS_A" = no ]; then
-    log_pass "join-deny evicted both peers from their runners"
+# right back out — peer_count should be 0 on both sides.
+COUNT_A=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null | jq '.data.peer_count // -1')
+COUNT_B=$($DC exec -T agent-b pilotctl --json managed status --net "$NID" 2>/dev/null | jq '.data.peer_count // -1')
+if [ "${COUNT_A:-1}" -eq 0 ] && [ "${COUNT_B:-1}" -eq 0 ]; then
+    log_pass "join-deny evicted all peers (A peer_count=$COUNT_A, B peer_count=$COUNT_B)"
 else
-    log_fail "join-deny did not evict peers (A→B=$HAS_B, B→A=$HAS_A)"
+    log_fail "join-deny did not evict peers (A peer_count=$COUNT_A, B peer_count=$COUNT_B)"
 fi
 
 rm -f "$DENY"

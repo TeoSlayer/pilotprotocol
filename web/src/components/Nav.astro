@@ -87,11 +87,10 @@ const statusText = version ? `Network live · v${version}` : 'Network live';
       </div>
 
       <div class="nav-right">
-        <a class="nav-status" href="https://polo.pilotprotocol.network" aria-label="Network status - open Polo dashboard"
-           data-track="nav_click" data-track-target="status">
+        <span class="nav-status">
           <span class="dot"></span>
           <span class="status-text">{statusText}</span>
-        </a>
+        </span>
         <a class="bots-link" href="/plain/" aria-label="IF YOU ARE AN AGENT GO HERE"
            data-track="nav_click" data-track-target="bots">
           <span class="bots-label">Bots</span>

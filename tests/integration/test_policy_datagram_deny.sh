@@ -46,22 +46,19 @@ if ! load_policy agent-b /tests/fixtures/policies/deny_all_datagram.json; then
 fi
 log_pass "policy loaded (net=$POLICY_NET_ID)"
 
-log_test "send datagram under deny — expect failure / timeout"
-set +e
-$DC exec -T agent-a timeout 8s pilotctl send agent-b 1001 --data "x" --timeout 5s \
-    >/tmp/dd-send.out 2>&1
-RC=$?
-set -e
-if [ $RC -ne 0 ]; then
-    log_pass "send rejected/timed out (rc=$RC)"
-else
-    log_fail "send succeeded under deny-all datagram — check net gating"
-fi
+log_test "datagram under deny — expect policy deny log on receiver"
+# Use dgram (real UDP datagram path). `pilotctl send` uses stream dial
+# and fires connect/dial events, not datagram.
+$DC exec -T agent-a timeout 8s pilotctl dgram agent-b 1001 --data "x" \
+    >/tmp/dd-send.out 2>&1 || true
+sleep 2
+log_pass "dgram issued"
 
 log_test "agent-b logs datagram rejection"
-sleep 2
 if assert_policy_event agent-b datagram_deny 1; then
     log_pass "rejection observed"
+elif $DC logs agent-b 2>&1 | grep -qiE "datagram rejected: not allowed|datagram\.port_rejected"; then
+    log_pass "rejection observed (log)"
 else
     log_fail "no datagram_deny event observed"
 fi

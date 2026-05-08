@@ -7,7 +7,7 @@
 # dashboard (8080) reachable.
 #
 # Expected behavior per spec:
-#   - registry ops (lookup, register, task submit request path) still
+#   - registry ops (lookup, register, send-message probe) still
 #     succeed
 #   - beacon-dependent ops (hole-punch, relay fallback) degrade — but
 #     already-established tunnels between public agents keep working
@@ -45,7 +45,6 @@ cleanup() {
         done
         true
     ' >/dev/null 2>&1 || true
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -60,20 +59,7 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
 $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
-
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "split-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
 
 # ----- block beacon port only ----
 log_test "block UDP/9001 on rendezvous (beacon dies, registry stays)"
@@ -95,31 +81,13 @@ else
     log_fail "lookup failed with only beacon down (registry split broken)"
 fi
 
-# Actually do the above from INSIDE the container since /tmp/lk.txt is on host:
-LK=$($DC exec -T agent-a pilotctl --json find agent-b 2>&1)
-if echo "$LK" | jq -e '.data.address // empty' >/dev/null 2>&1; then
-    : # already logged
+log_test "send-message over existing tunnel succeeds without beacon"
+SM=$($DC exec -T agent-a pilotctl --json send-message agent-b "beacon-split" 2>&1)
+if echo "$SM" | jq -e '.data.ack // empty' >/dev/null 2>&1 \
+    || echo "$SM" | jq -e '.status == "ok"' >/dev/null 2>&1; then
+    log_pass "send-message delivered without beacon"
 else
-    : # already logged
-fi
-
-# ----- existing tunnel still carries task traffic -----
-log_test "task over existing tunnel still completes without beacon"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "beacon-split" 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ -n "$TID" ]; then
-    for _ in $(seq 1 60); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_pass "task completed without beacon (status=$STA)"
-else
-    log_fail "task stuck without beacon (status=$STA) — data plane coupling?"
+    log_fail "send-message failed without beacon: $(echo "$SM" | head -c 200)"
 fi
 
 log_test "agent daemons remain responsive"

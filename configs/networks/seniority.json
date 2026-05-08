@@ -15,19 +15,6 @@
         ]
       },
       {
-        "name": "aging",
-        "on": "cycle",
-        "match": "true",
-        "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          }
-        ]
-      },
-      {
         "name": "dial-elders",
         "on": "dial",
         "match": "peer_age_s >= 86400",

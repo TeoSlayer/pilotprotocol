@@ -30,12 +30,6 @@
         "match": "true",
         "actions": [
           {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
-          {
             "type": "allow"
           }
         ]

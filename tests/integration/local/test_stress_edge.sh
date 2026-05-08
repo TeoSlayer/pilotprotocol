@@ -2,7 +2,6 @@
 # Stress & protocol edge-case tests.
 #   - Large send-file (5 MB)
 #   - Handshake reject flow leaves no trust
-#   - Concurrent task submits from multiple senders
 #   - Agent-a (sender) restart recovery
 #   - Visibility toggle under traffic
 #   - Tunnel metrics sanity
@@ -67,35 +66,7 @@ else
     log_fail "reject command failed"
 fi
 
-# ---- 3. Concurrent task submits (many→one) ----
-log_test "concurrent task submits (8 parallel from agent-a → agent-b)"
-$DC exec -T agent-b bash -c 'pilotctl enable-tasks' >/dev/null 2>&1
-IDS_FILE=/tmp/task-ids.txt
-$DC exec -T agent-a bash -c '
-    rm -f /tmp/ids.txt
-    for i in $(seq 1 8); do
-        (pilotctl --json task submit agent-b --task "parallel-$i" 2>/dev/null | jq -r ".data.task_id // empty" >> /tmp/ids.txt) &
-    done
-    wait
-    cat /tmp/ids.txt
-' > $IDS_FILE 2>&1
-SUBMITTED=$(grep -cE '^[0-9a-fA-F-]+$' $IDS_FILE)
-if [ "$SUBMITTED" -ge 8 ]; then
-    log_pass "8/8 parallel task submits ok"
-else
-    log_fail "only $SUBMITTED/8 task submits returned IDs"
-fi
-
-# Verify all appear on agent-b's received list
-sleep 2
-RECV_COUNT=$($DC exec -T agent-b bash -c 'pilotctl --json task list --type received' | jq -r '.data.tasks | length // 0' 2>/dev/null)
-if [ "${RECV_COUNT:-0}" -ge 8 ]; then
-    log_pass "agent-b received list has ≥8 tasks"
-else
-    log_fail "agent-b received only $RECV_COUNT tasks"
-fi
-
-# ---- 4. Agent-a (sender) restart recovery ----
+# ---- 3. Agent-a (sender) restart recovery ----
 log_test "restart agent-a and verify echo to agent-b recovers"
 $DC restart agent-a >/dev/null 2>&1
 # Wait for agent-a socket + re-registration
@@ -121,7 +92,7 @@ else
     log_fail "post-sender-restart echo never recovered"
 fi
 
-# ---- 5. Echo from agent-b → agent-a after sender restart ----
+# ---- 4. Echo from agent-b → agent-a after sender restart ----
 # This tests that agent-b's stale tunnel to agent-a ALSO recovers (reverse direction)
 log_test "reverse echo agent-b → agent-a after agent-a restart"
 RECOVERED=0
@@ -139,7 +110,7 @@ else
     log_fail "reverse echo never recovered — my rekey fix may not handle sender-restart reverse direction"
 fi
 
-# ---- 6. Visibility toggle under traffic ----
+# ---- 5. Visibility toggle under traffic ----
 log_test "visibility toggle (public→private→public) survives under traffic"
 $DC exec -T agent-a bash -c '
     for i in $(seq 1 10); do
@@ -160,7 +131,7 @@ else
     log_fail "send-message failed after toggle: $(echo "$OUT" | head -c 200)"
 fi
 
-# ---- 7. Tunnel metrics are non-zero & sane ----
+# ---- 6. Tunnel metrics are non-zero & sane ----
 log_test "tunnel metrics: encryption success counter advances"
 INFO=$($DC exec -T agent-a bash -c 'pilotctl --json info')
 ENC_OK=$(echo "$INFO" | jq -r '.data.tunnel_encryption_success // 0')
@@ -172,7 +143,7 @@ else
     log_fail "tunnel metrics flat: enc_ok=$ENC_OK pkts_sent=$PKTS_SENT"
 fi
 
-# ---- 8. Port allocation: many ephemeral connections don't exhaust ----
+# ---- 7. Port allocation: many ephemeral connections don't exhaust ----
 log_test "30 sequential connect-and-close don't exhaust ephemeral ports"
 $DC exec -T agent-a bash -c '
     ok=0; bad=0
@@ -195,7 +166,7 @@ else
     log_fail "ephemeral connections: ok=$OK bad=$BAD"
 fi
 
-# ---- 9. Logs still clean after stress ----
+# ---- 8. Logs still clean after stress ----
 log_test "no panic/fatal/race in logs after stress run"
 A_LOG=$($DC logs --tail 400 agent-a 2>&1)
 B_LOG=$($DC logs --tail 400 agent-b 2>&1)

@@ -3,248 +3,52 @@
 package daemon
 
 import (
-	"encoding/json"
-	"fmt"
 	"log/slog"
-	"math/rand"
-	"os"
-	"path/filepath"
-	"sort"
-	"sync"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
 )
 
-// beaconRefreshInterval is how often the daemon re-fetches beacon_list
-// from the registry. At 100k daemons × 1 call/min = ~1.7k req/sec on
-// the registry — bounded, small responses, well within capacity.
-const beaconRefreshInterval = 60 * time.Second
+// Pre-extraction names re-exposed as aliases / thin shims over routing/.
+// Canonical definitions live at pkg/daemon/routing/discovery.go (L4).
 
-// beaconRefreshJitter spreads the initial tick across a window so a
-// fleet-wide simultaneous restart doesn't thunder-herd the registry.
-// The first refresh fires at t = rand[0..beaconRefreshJitter).
-const beaconRefreshJitter = 10 * time.Second
+const (
+	beaconRefreshInterval = routing.BeaconRefreshInterval
+	beaconRefreshJitter   = routing.BeaconRefreshJitter
+	beaconCacheFilename   = routing.BeaconCacheFilename
+)
 
-// beaconCacheFilename is the on-disk fallback used when the registry
-// is unreachable at cold-start. Lives next to the identity file.
-const beaconCacheFilename = "beacons.json"
-
-// beaconLister abstracts the registry call. Production wires this to
-// (*registry.Client).Send; tests inject a fake.
-type beaconLister interface {
-	Send(msg map[string]interface{}) (map[string]interface{}, error)
-}
-
-// fetchBeaconList queries the registry's beacon_list endpoint and
-// returns just the addresses, in the registry's response order. Empty
-// addrs are dropped. Returns an error if the call fails or the response
-// shape is wrong; the caller treats that as "keep the current list".
-func fetchBeaconList(client beaconLister) ([]string, error) {
-	if client == nil {
-		return nil, fmt.Errorf("nil registry client")
-	}
-	resp, err := client.Send(map[string]interface{}{"type": "beacon_list"})
-	if err != nil {
-		return nil, fmt.Errorf("beacon_list send: %w", err)
-	}
-	rawList, ok := resp["beacons"].([]interface{})
-	if !ok {
-		// No "beacons" key OR not an array — treat as empty list, not error.
-		return nil, nil
-	}
-	out := make([]string, 0, len(rawList))
-	for _, b := range rawList {
-		entry, ok := b.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		addr, _ := entry["addr"].(string)
-		if addr != "" {
-			out = append(out, addr)
-		}
-	}
-	// Drop addresses that an off-VPC client cannot reach (RFC1918,
-	// loopback, link-local). The registry returns whatever beacons have
-	// registered, including ones running on a private VPC; if our hash
-	// lands on one of those, all relay traffic vanishes (silent black-
-	// hole). Bootstrap entries are NOT filtered — operators on the same
-	// VPC can still pin a private beacon there.
-	out = filterUnreachable(out)
-	// Sort to give a deterministic order even when the registry's map
-	// iteration produces a different order each call. mergeBeaconLists
-	// dedupes against bootstrap, but stable order keeps the hash-pick
-	// stable when the SET is unchanged.
-	sort.Strings(out)
-	return out, nil
-}
-
-// beaconCacheEntry is the on-disk format. We keep "saved_at" so a stale
-// cache (older than e.g. an hour) can be sniffed out by an operator.
-type beaconCacheEntry struct {
-	SavedAt time.Time `json:"saved_at"`
-	Addrs   []string  `json:"addrs"`
-}
-
-// beaconCachePath returns the path to the on-disk beacon cache derived
-// from the identity path. Returns "" if identityPath is empty (in-memory
-// daemons skip caching).
-func beaconCachePath(identityPath string) string {
-	if identityPath == "" {
-		return ""
-	}
-	return filepath.Join(filepath.Dir(identityPath), beaconCacheFilename)
-}
-
-// saveBeaconCache writes the current addr list to disk as a fallback
-// for next cold-start. Best-effort: errors are returned but the caller
-// typically logs and continues.
-func saveBeaconCache(identityPath string, addrs []string) error {
-	path := beaconCachePath(identityPath)
-	if path == "" {
-		return nil
-	}
-	entry := beaconCacheEntry{SavedAt: time.Now(), Addrs: addrs}
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("marshal beacon cache: %w", err)
-	}
-	// Write atomically: write to temp file, then rename.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return fmt.Errorf("write beacon cache: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename beacon cache: %w", err)
-	}
-	return nil
-}
-
-// loadBeaconCache reads the on-disk cache. Returns (nil, nil) if no
-// cache exists or identityPath is empty (not an error). Returns an
-// error only on parse failures.
-func loadBeaconCache(identityPath string) ([]string, error) {
-	path := beaconCachePath(identityPath)
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read beacon cache: %w", err)
-	}
-	var entry beaconCacheEntry
-	if err := json.Unmarshal(data, &entry); err != nil {
-		return nil, fmt.Errorf("parse beacon cache: %w", err)
-	}
-	// Filter unreachable addresses from disk too — a previous daemon may
-	// have persisted a list that included private VPC IPs before this
-	// fix was in place.
-	return filterUnreachable(entry.Addrs), nil
-}
-
-// beaconSelectionState tracks the daemon's beacon picks across refresh
-// ticks. Pure data — the refresh logic mutates it under its mutex,
-// and the daemon hot path reads via getCurrentPick().
-type beaconSelectionState struct {
-	mu          sync.Mutex
-	bootstrap   []string // operator-configured -beacon list
-	currentList []string // last-known merged list
-	currentPick string   // address currently set on the tunnel
-}
+type beaconLister = routing.BeaconLister
+type beaconCacheEntry = routing.BeaconCacheEntry
+type beaconSelectionState = routing.BeaconSelectionState
+type refreshDecision = routing.RefreshDecision
 
 func newBeaconSelectionState(bootstrap []string) *beaconSelectionState {
-	return &beaconSelectionState{
-		bootstrap: append([]string(nil), bootstrap...),
-	}
+	return routing.NewBeaconSelectionState(bootstrap)
 }
 
-func (s *beaconSelectionState) getCurrentPick() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.currentPick
+func fetchBeaconList(client beaconLister) ([]string, error) {
+	return routing.FetchBeaconList(client)
 }
 
-// refreshDecision describes the outcome of a discovery tick: should
-// the daemon swap its beacon and what's the new picked address?
-type refreshDecision struct {
-	NewList    []string // merged bootstrap + discovered, deduped
-	NewPick    string   // hash-of-pubkey selection from NewList
-	ShouldSwap bool     // true if NewPick != previous currentPick
+func beaconCachePath(identityPath string) string {
+	return routing.BeaconCachePath(identityPath)
 }
 
-// computeRefreshDecision runs the merge-pick-compare logic on a snapshot
-// of state. Pure function; tests drive it directly without a registry.
-//
-// If discovered is nil/empty, the function still merges with bootstrap
-// — i.e. if discovery fails / returns nothing, fall back to bootstrap-
-// only. NewList is empty only if BOTH inputs are empty.
-//
-// ShouldSwap is true when:
-//   - currentPick is empty (initial pick at startup), OR
-//   - currentPick is no longer present in NewList (failover: the picked
-//     beacon was scaled down / removed from the registry), OR
-//   - hash-pick over NewList disagrees with currentPick (rare; happens
-//     when the bootstrap list changes via config reload, not in steady
-//     state since pubkey + list both stay constant).
-//
-// NOTE on stickiness vs failover: a hash-of-pubkey pick is stable as
-// long as the list set is stable. When a beacon is REMOVED from the
-// list, the modulo result for ~ all daemons hashing past that index
-// shifts — so the daemon migrates naturally. When a NEW beacon is added
-// at a higher index, only the daemons whose hash%N now points at the
-// new entry migrate. This is the standard mod-N failover; consistent
-// hashing would minimize migration but mod-N is fine at our scale.
+func saveBeaconCache(identityPath string, addrs []string) error {
+	return routing.SaveBeaconCache(identityPath, addrs)
+}
+
+func loadBeaconCache(identityPath string) ([]string, error) {
+	return routing.LoadBeaconCache(identityPath)
+}
+
 func computeRefreshDecision(state *beaconSelectionState, discovered []string, identityKey []byte) refreshDecision {
-	state.mu.Lock()
-	bootstrap := state.bootstrap
-	previousPick := state.currentPick
-	state.mu.Unlock()
-
-	merged := mergeBeaconLists(bootstrap, discovered)
-	if len(merged) == 0 {
-		return refreshDecision{NewList: nil, NewPick: "", ShouldSwap: false}
-	}
-	newPick := pickBeacon(merged, identityKey)
-
-	shouldSwap := previousPick == "" || newPick != previousPick
-	// Also force a swap if currentPick was REMOVED from the new list
-	// (covers the "beacon scaled down" case even if hash happens to
-	// produce the same index).
-	if !shouldSwap {
-		stillPresent := false
-		for _, a := range merged {
-			if a == previousPick {
-				stillPresent = true
-				break
-			}
-		}
-		if !stillPresent {
-			shouldSwap = true
-		}
-	}
-	return refreshDecision{
-		NewList:    merged,
-		NewPick:    newPick,
-		ShouldSwap: shouldSwap,
-	}
+	return routing.ComputeRefreshDecision(state, discovered, identityKey)
 }
 
-// applyRefreshDecision commits a refresh outcome to the state struct.
-// Called by the production refresh loop after a successful SetBeaconAddr.
-func (s *beaconSelectionState) applyRefreshDecision(d refreshDecision) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.currentList = d.NewList
-	if d.ShouldSwap && d.NewPick != "" {
-		s.currentPick = d.NewPick
-	}
-}
-
-// initialJitter returns a duration in [0, beaconRefreshJitter) for
-// avoiding thundering-herd on the registry at fleet restart.
 func initialJitter() time.Duration {
-	return time.Duration(rand.Int63n(int64(beaconRefreshJitter)))
+	return routing.InitialJitter()
 }
 
 // beaconRefreshLoop runs in a background goroutine and refreshes the
@@ -300,7 +104,27 @@ func (d *Daemon) beaconRefreshLoop() {
 // beaconRefreshTick runs one iteration of the discovery loop. Extracted
 // from beaconRefreshLoop for testability — production drives this from
 // the loop; tests can drive it directly.
+//
+// L4 panic boundary (architecture-notes/03-INVARIANTS.md §8): the
+// discovery tick walks registry-supplied data through user-defined
+// hash/sort logic and disk I/O. A panic here would otherwise kill the
+// daemon; instead we drop this tick (current beacon pick stays in
+// effect) and continue. The next tick will retry from a clean state.
 func (d *Daemon) beaconRefreshTick(firstTick bool) {
+	defer recoverLayer("L4", "beaconRefreshTick", d.bus, nil)
+
+	// Concrete-pointer nil check (NOT the interface form). A typed-nil
+	// *registry.Client wrapped in the beaconLister interface is not
+	// equal to interface nil, so fetchBeaconList's `client == nil`
+	// guard wouldn't catch it — and (*Client).Send panics on a nil
+	// receiver. Bail early from this tick if no registry connection.
+	if d.regConn == nil {
+		if firstTick {
+			slog.Debug("beacon discovery skipped (no registry connection)")
+		}
+		return
+	}
+
 	discovered, err := fetchBeaconList(d.regConn)
 	if err != nil {
 		// On the FIRST tick, try the on-disk cache as a fallback —
@@ -323,12 +147,24 @@ func (d *Daemon) beaconRefreshTick(firstTick bool) {
 		}
 	}
 
-	decision := computeRefreshDecision(d.beaconSelection, discovered, d.identity.PublicKey)
+	// Take identityMu.RLock for the read — RotateKey writes d.identity under
+	// identityMu.Lock, and the §4.8 stress test's rekey group is concurrent
+	// with the beacon refresh ticker.
+	d.identityMu.RLock()
+	identityPubKey := d.identity.PublicKey
+	d.identityMu.RUnlock()
+	decision := computeRefreshDecision(d.beaconSelection, discovered, identityPubKey)
 	if !decision.ShouldSwap {
 		// Refresh the cache even on no-op so it tracks the latest
 		// known list — useful for cold-start fallback.
-		if len(decision.NewList) > 0 {
-			_ = saveBeaconCache(d.config.IdentityPath, decision.NewList)
+		// Save only the discovered (registry-supplied, already filtered)
+		// list, NOT the merged list. Bootstrap entries come from the
+		// -beacon flag at runtime and must not be written to disk:
+		// a private bootstrap (e.g. swarm VMs on 10.128.0.x) would
+		// be re-injected into the cache every 60s and survive into
+		// off-VPC daemons that cold-start from the file.
+		if len(discovered) > 0 {
+			_ = saveBeaconCache(d.config.IdentityPath, discovered)
 		}
 		return
 	}
@@ -342,9 +178,9 @@ func (d *Daemon) beaconRefreshTick(firstTick bool) {
 		slog.Warn("beacon refresh: SetBeaconAddr failed", "addr", decision.NewPick, "err", err)
 		return
 	}
-	d.beaconSelection.applyRefreshDecision(decision)
+	d.beaconSelection.ApplyRefreshDecision(decision)
 	d.tunnels.RegisterWithBeacon()
-	if err := saveBeaconCache(d.config.IdentityPath, decision.NewList); err != nil {
+	if err := saveBeaconCache(d.config.IdentityPath, discovered); err != nil {
 		slog.Debug("beacon cache save failed (non-fatal)", "err", err)
 	}
 	slog.Info("beacon refresh: pick changed",

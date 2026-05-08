@@ -1,7 +1,7 @@
 #!/bin/bash
 # Matrix 4 — connect × tag.
 # Under a policy that adds the tag "seen" to peer metadata on every inbound
-# connect, verify the managed rankings for agent-b show agent-a with the
+# connect, verify agent-b shows agent-a with the
 # "seen" tag after a single connect.
 #
 # Note: executeTag in pkg/daemon/policy_runner.go only tags peers that are
@@ -46,11 +46,14 @@ log_pass "policy loaded (net=$POLICY_NET_ID)"
 
 NID_A=$(node_id_of agent-a)
 
-# Bootstrap peer set via force-cycle (fills peer map from registry).
-log_test "Force cycle to seed policy-runner peer set"
-force_cycle agent-b "$POLICY_NET_ID" >/tmp/cyc.out 2>&1 || true
+# Join agent-a into the policy network, then reconcile agent-b's runner
+# so PEER_A is in its peer set — otherwise the on:connect tag directive
+# bails (executeTag skips untracked peers).
+$DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-a pilotctl --json network join "$POLICY_NET_ID" >/dev/null 2>&1
 sleep 1
-log_pass "cycle forced"
+log_test "Reconcile agent-b runner so PEER_A is tracked"
+$DC exec -T agent-b pilotctl --json managed reconcile --net "$POLICY_NET_ID" >/dev/null 2>&1 || true
+log_pass "reconciled"
 
 log_test "connect agent-a → agent-b"
 $DC exec -T agent-a bash -c "echo hi | pilotctl connect agent-b 7 --timeout 10s" \
@@ -63,7 +66,7 @@ if echo "$TAGS" | grep -q '"seen"'; then
     log_pass "tags=$TAGS"
 else
     log_fail "tags=$TAGS (want to include 'seen')"
-    $DC exec -T agent-b pilotctl --json managed rankings --net "$POLICY_NET_ID" | head -c 500
+    $DC exec -T agent-b pilotctl --json managed status --net "$POLICY_NET_ID" | head -c 500
 fi
 
 stop_policy_stack

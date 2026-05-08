@@ -44,7 +44,21 @@ func (p *Packet) SetFlag(f uint8)      { p.Flags |= f }
 func (p *Packet) ClearFlag(f uint8)    { p.Flags &^= f }
 
 // Marshal serializes the packet to wire format with checksum.
-func (p *Packet) Marshal() ([]byte, error) {
+//
+// L1 panic boundary (architecture-notes/03-INVARIANTS.md §8):
+// the explicit length-check below covers the only known caller-induced
+// failure (oversize payload), but a nil-pointer Packet receiver or
+// future bug could trigger a panic mid-encode. The deferred recover
+// converts any panic into ErrMalformedPacket so callers (Send paths)
+// drop the frame instead of crashing the daemon.
+func (p *Packet) Marshal() (out []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = nil
+			err = fmt.Errorf("%w: panic during encode: %v", ErrMalformedPacket, r)
+		}
+	}()
+
 	payloadLen := len(p.Payload)
 	if payloadLen > 0xFFFF {
 		return nil, fmt.Errorf("payload too large: %d bytes (max 65535)", payloadLen)
@@ -76,7 +90,24 @@ func (p *Packet) Marshal() ([]byte, error) {
 }
 
 // Unmarshal deserializes a packet from wire bytes.
-func Unmarshal(data []byte) (*Packet, error) {
+//
+// L1 panic boundary (architecture-notes/03-INVARIANTS.md §8):
+// the explicit length-checks below cover all *known* malformed inputs,
+// but a future caller could pass a slice that aliases a buffer being
+// concurrently mutated, or a malformed input not yet enumerated, causing
+// an out-of-bounds slice expression to panic. The deferred recover
+// converts any such panic into a structured error so callers (the
+// tunnel readLoop, relay path) drop the frame instead of taking down
+// the whole daemon. Returns ErrMalformedPacket on panic; the original
+// panic value is wrapped via fmt.Errorf for diagnostics.
+func Unmarshal(data []byte) (p *Packet, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			p = nil
+			err = fmt.Errorf("%w: panic during decode: %v", ErrMalformedPacket, r)
+		}
+	}()
+
 	if len(data) < packetHeaderSize {
 		return nil, fmt.Errorf("packet too short: %d bytes (min %d)", len(data), packetHeaderSize)
 	}
@@ -103,7 +134,7 @@ func Unmarshal(data []byte) (*Packet, error) {
 		return nil, fmt.Errorf("unsupported protocol version %d (expected %d)", wireVersion, Version)
 	}
 
-	p := &Packet{
+	p = &Packet{
 		Version:  (data[0] >> 4) & 0x0F,
 		Flags:    data[0] & 0x0F,
 		Protocol: data[1],

@@ -36,13 +36,14 @@ if [ "${COUNT:-0}" -lt 3 ]; then
 fi
 log_pass "stack up (total_nodes=$COUNT)"
 
-log_test "pilotctl lookup agent-b via gateway daemon"
-LK=$($DC exec -T gateway pilotctl --json lookup agent-b 2>&1)
+log_test "pilotctl find agent-b via gateway daemon"
+# `pilotctl lookup` takes a numeric node_id; use `find` to resolve by hostname.
+LK=$($DC exec -T gateway pilotctl --json find agent-b 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty' 2>/dev/null)
 if [ -n "$ADDR" ] && [ "$ADDR" != "null" ]; then
-    log_pass "gateway-side lookup resolved agent-b: $ADDR"
+    log_pass "gateway-side find resolved agent-b: $ADDR"
 else
-    log_fail "lookup failed: $(echo "$LK" | head -c 300)"
+    log_fail "find failed: $(echo "$LK" | head -c 300)"
 fi
 
 echo

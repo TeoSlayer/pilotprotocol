@@ -37,10 +37,10 @@ SENT=0
 OK=0
 end=$(( $(date +%s) + DUR ))
 while [ $(date +%s) -lt $end ]; do
-    OUT=$($DC exec -T agent-a bash -c 'pilotctl --json send-message agent-b --data "p" --type text --timeout 5s' 2>&1)
+    OUT=$($DC exec -T agent-a bash -c 'pilotctl --json send-message agent-b --data "p" --type text' 2>&1)
     SENT=$((SENT+1))
-    ACK=$(echo "$OUT" | jq -r '.ok // false')
-    [ "$ACK" = "true" ] && OK=$((OK+1))
+    STATUS=$(echo "$OUT" | jq -r '.status // ""' 2>/dev/null)
+    [ "$STATUS" = "ok" ] && OK=$((OK+1))
     sleep 1
 done
 echo "    sent=$SENT ok=$OK"

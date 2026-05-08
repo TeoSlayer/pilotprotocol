@@ -23,12 +23,14 @@ SINK="http://webhook-sink:18080"
 LOG="/var/log/webhooks.jsonl"
 
 cd "$(dirname "$0")" || exit 1
+source ./webhook_helpers.sh
 cleanup() { $DC down -v >/dev/null 2>&1; }
 trap cleanup EXIT
 
 $DC down -v >/dev/null 2>&1
-$DC up -d rendezvous webhook-sink agent-a agent-b >/dev/null 2>&1
-for _ in $(seq 1 60); do
+ensure_webhook_sink_ready || { log_fail "webhook-sink never came up"; exit 1; }
+$DC up -d agent-a agent-b >/dev/null 2>&1
+for _ in $(seq 1 $((60 * ${PILOT_TEST_WAIT_MULT:-1}))); do
     COUNT=$($DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats 2>/dev/null | jq -r '.total_nodes // 0')
     [ "$COUNT" -ge 2 ] && break
     sleep 1
@@ -40,15 +42,15 @@ log_test "configure agent-b webhook"
 $DC exec -T agent-b pilotctl set-webhook "$SINK/b" >/dev/null 2>&1 && log_pass "webhook set" || log_fail "set-webhook failed"
 
 for _ in $(seq 1 10); do $DC exec -T webhook-sink test -f "$LOG" && break; sleep 1; done
-BEFORE=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"message.received\"' $LOG 2>/dev/null || echo 0")
+BEFORE=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"message.received\"' $LOG 2>/dev/null; true" | tail -1)
 
 log_test "agent-a sends exactly one message to agent-b"
 $DC exec -T agent-a pilotctl send-message agent-b --data '{"hello":"world"}' --type json >/tmp/m.txt 2>&1 \
     && log_pass "send-message ok" || log_fail "send-message failed"
 
-sleep 6
+sleep 12
 
-AFTER=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"message.received\"' $LOG 2>/dev/null || echo 0")
+AFTER=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"message.received\"' $LOG 2>/dev/null; true" | tail -1)
 DELTA=$((AFTER - BEFORE))
 log_test "exactly one message.received webhook (delta=$DELTA)"
 if [ "$DELTA" -eq 1 ]; then log_pass "message.received fired once"; else log_fail "expected delta=1 got $DELTA"; fi

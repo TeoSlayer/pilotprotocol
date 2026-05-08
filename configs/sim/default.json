@@ -1,0 +1,61 @@
+{
+  "duration": "24h",
+  "tick": "1m",
+  "seed": 42,
+  "out_dir": "tmp/sim-{timestamp}",
+  "networks_dir": "configs/networks",
+  "sample_every_s": 300,
+  "defaults": {
+    "initial_members": 400,
+    "mix": {
+      "lurker": 0.30,
+      "normal": 0.50,
+      "spammer": 0.05,
+      "sybil": 0.10,
+      "service": 0.04,
+      "admin": 0.01
+    },
+    "join_rate_per_hour": 15,
+    "packet_loss": 0.005,
+    "retry_on_deny": 0.2,
+    "max_population": 5000
+  },
+  "networks": {
+    "sybil-gauntlet": {
+      "initial_members": 100,
+      "mix": { "lurker": 0.1, "normal": 0.4, "spammer": 0.1, "sybil": 0.4 },
+      "join_rate_per_hour": 30,
+      "max_population": 2000
+    },
+    "dunbar-150": {
+      "initial_members": 180,
+      "join_rate_per_hour": 10,
+      "max_population": 500
+    },
+    "high-trust-society": {
+      "initial_members": 120,
+      "join_rate_per_hour": 8,
+      "max_population": 600
+    },
+    "trust-decay": {
+      "initial_members": 120,
+      "join_rate_per_hour": 8,
+      "max_population": 600
+    },
+    "data-exchange": {
+      "initial_members": 600,
+      "mix": { "lurker": 0.20, "normal": 0.55, "spammer": 0.05, "sybil": 0.05, "service": 0.13, "admin": 0.02 },
+      "join_rate_per_hour": 40,
+      "max_population": 8000
+    },
+    "aristocracy": {
+      "initial_members": 250,
+      "join_rate_per_hour": 12
+    },
+    "ostracism": {
+      "initial_members": 250,
+      "mix": { "lurker": 0.20, "normal": 0.45, "spammer": 0.20, "sybil": 0.15 },
+      "join_rate_per_hour": 20
+    }
+  }
+}

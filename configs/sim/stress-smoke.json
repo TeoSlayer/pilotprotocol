@@ -1,0 +1,23 @@
+{
+  "duration": "30m",
+  "tick": "30s",
+  "seed": 7,
+  "out_dir": "tmp/sim-smoke-{timestamp}",
+  "networks_dir": "configs/networks",
+  "sample_every_s": 60,
+  "include": ["data-exchange", "high-trust-society", "trust-decay"],
+  "defaults": {
+    "initial_members": 60,
+    "join_rate_per_hour": 12,
+    "packet_loss": 0.01,
+    "retry_on_deny": 0.2,
+    "max_population": 600,
+    "mix": {"lurker": 0.2, "normal": 0.55, "spammer": 0.1, "sybil": 0.1, "service": 0.04, "admin": 0.01}
+  },
+  "stress_events": [
+    {"at": 300,  "type": "sybil_burst",   "network": "high-trust-society", "magnitude": 40, "note": "sybil swarm"},
+    {"at": 600,  "type": "spammer_flood", "network": "data-exchange",      "magnitude": 25, "note": "spam wave"},
+    {"at": 900,  "type": "partition",     "network": "trust-decay",        "magnitude": 3,  "duration_s": 600, "note": "split brain"},
+    {"at": 1200, "type": "dos",           "network": "",                   "magnitude": 60, "duration_s": 300, "note": "global DoS"}
+  ]
+}

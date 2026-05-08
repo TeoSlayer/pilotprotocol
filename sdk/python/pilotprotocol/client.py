@@ -189,7 +189,7 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:  # pragma: no cover
         fn.restype = ctypes.c_void_p
 
     # (handle, int) -> *char
-    for name in ("PilotSetVisibility", "PilotSetTaskExec"):
+    for name in ("PilotSetVisibility",):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_uint64, ctypes.c_int]
         fn.restype = ctypes.c_void_p
@@ -514,10 +514,6 @@ class Driver:
         """Set the daemon's visibility on the registry."""
         return self._call_json("PilotSetVisibility", ctypes.c_int(1 if public else 0))
 
-    def set_task_exec(self, enabled: bool) -> dict[str, Any]:
-        """Enable or disable task execution capability."""
-        return self._call_json("PilotSetTaskExec", ctypes.c_int(1 if enabled else 0))
-
     def deregister(self) -> dict[str, Any]:
         """Remove the daemon from the registry."""
         return self._call_json("PilotDeregister")
@@ -809,66 +805,3 @@ class Driver:
         finally:
             conn.close()
 
-    def submit_task(self, target: str, task_data: dict[str, Any]) -> dict[str, Any]:
-        """Submit a task via the task submit service (port 1003).
-
-        Args:
-            target: Hostname or protocol address of task execution server
-            task_data: Task specification as dict. Must include 'task_description'.
-                      Optional: 'task_id' (auto-generated if not provided)
-
-        Returns:
-            Response from task submit service (StatusAccepted=200 or StatusRejected=400)
-        """
-        import struct
-        import uuid
-        
-        # Resolve hostname if needed
-        if not target.startswith("0:"):
-            result = self.resolve_hostname(target)
-            addr = result.get("address", "")
-            if not addr:
-                raise PilotError(f"Could not resolve hostname: {target}")
-        else:
-            addr = target
-
-        # Get local address
-        info = self.info()
-        from_addr = info.get("address", "unknown")
-        
-        # Build proper SubmitRequest
-        submit_req = {
-            "task_id": task_data.get("task_id", str(uuid.uuid4())),
-            "task_description": task_data.get("task_description", json.dumps(task_data)),
-            "from_addr": from_addr,
-            "to_addr": addr
-        }
-        
-        # Encode task request as JSON
-        task_json = json.dumps(submit_req).encode('utf-8')
-        
-        # Build submit frame: [4-byte type=1][4-byte length][JSON payload]
-        frame = struct.pack('>II', 1, len(task_json)) + task_json
-
-        # Connect to task submit service (port 1003)
-        with self.dial(f"{addr}:1003") as conn:
-            # Send submit frame
-            conn.write(frame)
-            
-            # Read response frame: [4-byte type][4-byte length][JSON payload]
-            header = conn.read(8)
-            if not header or len(header) < 8:
-                raise PilotError("No response from task submit service")
-            
-            resp_type, resp_len = struct.unpack('>II', header)
-            response_data = conn.read(resp_len)
-            
-            if not response_data or len(response_data) < resp_len:
-                raise PilotError("Incomplete response from task submit service")
-            
-            # Parse JSON response
-            try:
-                resp = json.loads(response_data.decode('utf-8'))
-                return resp
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                raise PilotError(f"Invalid response format: {e}")

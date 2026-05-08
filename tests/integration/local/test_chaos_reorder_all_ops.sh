@@ -4,8 +4,7 @@
 # shuffle packets; apply_reorder() in chaos_helpers.sh adds 10ms for
 # that reason.
 #
-# Ops exercised: ping, send-message, send-file, task submit+results,
-# pubsub, trust, register.
+# Ops exercised: ping, send-message, send-file, pubsub, trust, register.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -25,12 +24,11 @@ cd "$(dirname "$0")" || exit 1
 source ./chaos_helpers.sh
 
 echo "=========================================="
-echo "Chaos: 25% reorder x all 7 op families"
+echo "Chaos: 25% reorder x all op families"
 echo "=========================================="
 
 cleanup() {
     strip_chaos agent-b >/dev/null 2>&1
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -45,20 +43,7 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
 $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
-
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "reorder-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
 
 log_test "apply 25% reorder on agent-b eth0"
 apply_reorder agent-b 25 >/dev/null 2>&1 || { log_fail "netem reorder failed"; exit 1; }
@@ -94,25 +79,6 @@ if [ "$SRC" = "$DST" ] && [ -n "$DST" ]; then
     log_pass "send-file sha match under reorder"
 else
     log_fail "send-file mismatch src=${SRC:0:12}... dst=${DST:0:12}..."
-fi
-
-# task
-log_test "task submit under reorder"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "reorder-task" 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ -n "$TID" ]; then
-    for _ in $(seq 1 60); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_pass "task completed (status=$STA)"
-else
-    log_fail "task stuck (status=$STA)"
 fi
 
 # pubsub

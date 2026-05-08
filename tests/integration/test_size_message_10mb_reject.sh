@@ -41,12 +41,12 @@ SZ=$($DC exec -T agent-a bash -c 'wc -c </tmp/bigmsg.txt' | tr -d ' \r\n')
 log_pass "size=$SZ"
 
 log_test "send as inline message (expect rejection or clear error)"
-OUT=$($DC exec -T agent-a bash -c 'pilotctl --json send-message agent-b --data "$(cat /tmp/bigmsg.txt)" --type text --timeout 30s 2>&1' 2>&1)
+OUT=$($DC exec -T agent-a bash -c 'timeout 30 pilotctl --json send-message agent-b --data "$(cat /tmp/bigmsg.txt)" --type text 2>&1' 2>&1)
 RC=$?
-OK=$(echo "$OUT" | jq -r '.ok // false' 2>/dev/null)
+OK=$(echo "$OUT" | jq -r ".status // empty" 2>/dev/null)
 ERR=$(echo "$OUT" | jq -r '.error // ""' 2>/dev/null)
 
-if [ "$OK" = "true" ]; then
+if [ "$OK" = "ok" ]; then
     log_fail "inline 10 MiB message unexpectedly accepted (no size cap enforced?)"
 elif [ -n "$ERR" ] && [ "$ERR" != "null" ] && [ "$ERR" != "" ]; then
     log_pass "rejected with error: '$(echo "$ERR" | head -c 200)'"

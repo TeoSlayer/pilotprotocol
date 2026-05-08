@@ -5,50 +5,25 @@
     "version": 1,
     "rules": [
       {
-        "name": "good",
+        "name": "log-activity",
         "on": "datagram",
-        "match": "peer_score >= 0",
+        "match": "true",
         "actions": [
-          {
-            "type": "allow"
-          }
+          {"type": "log", "params": {"message": "datagram evaluated", "level": "debug"}}
         ]
       },
       {
-        "name": "strike",
-        "on": "datagram",
-        "match": "peer_score < 0",
-        "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": -1
-            }
-          },
-          {
-            "type": "deny"
-          }
-        ]
-      },
-      {
-        "name": "out",
+        "name": "cycle-evict-flagged",
         "on": "cycle",
         "match": "true",
         "actions": [
-          {
-            "type": "evict_where",
-            "params": {
-              "match": "peer_score <= -2"
-            }
-          }
+          {"type": "evict_where", "params": {"match": "has_tag(peer_tags, \"two-strikes\")"}},
+          {"type": "fill", "params": {"count": 5, "how": "random"}}
         ]
       }
-    ],
-    "config": {
-      "cycle": "12h"
-    }
+    ]
   },
   "policy": {
-    "description": "Two strikes: one denied datagram takes you to -1; the next drops you to -2 and the 12h cycle evicts you. Mistakes compound."
+    "description": "Two strikes: peers tagged two-strikes are evicted on the next 12h cycle."
   }
 }

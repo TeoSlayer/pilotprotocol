@@ -28,7 +28,7 @@ const bodyContent = `<p><a href="https://claude.ai" target="_blank" rel="noopene
   <section>
   <h2>Pilot as the Distribution Layer</h2>
 
-  <p>The core idea: replace the local subprocess model with Pilot Protocol's task system. Instead of spawning a specialist as a subprocess, the manager submits a task to a specialist running on a different machine. The specialist accepts the task, executes it (using its own Claude API key, its own hardware, its own network position), and returns the results over an encrypted Pilot tunnel.</p>
+  <p>The core idea: replace the local subprocess model with Pilot Protocol's encrypted messaging. Instead of spawning a specialist as a subprocess, the manager sends work to a specialist running on a different machine. The specialist receives the message, executes the work (using its own Claude API key, its own hardware, its own network position), and returns the results over an encrypted Pilot tunnel.</p>
 
   <p>Each machine in the distributed team runs:</p>
 
@@ -37,7 +37,7 @@ const bodyContent = `<p><a href="https://claude.ai" target="_blank" rel="noopene
     <li><strong>Worker agent</strong> - accepts tasks matching its specialty, executes them with Claude, returns results</li>
   </ul>
 
-  <p>The manager machine runs the manager agent, which has <code>pilotctl</code> available as a tool. When the manager decides to delegate work, it calls <code>pilotctl task submit</code> instead of spawning a local subprocess. The Pilot network handles everything else: finding the specialist, establishing the encrypted connection, transferring the task, and returning the results.</p>
+  <p>The manager machine runs the manager agent, which has <code>pilotctl</code> available as a tool. When the manager decides to delegate work, it sends a message to the specialist over an encrypted Pilot tunnel. The Pilot network handles everything else: finding the specialist, establishing the encrypted connection, and transferring the work payload and results.</p>
 
   <h3>Setup: Three Machines, Three Specialists</h3>
 
@@ -86,33 +86,27 @@ const bodyContent = `<p><a href="https://claude.ai" target="_blank" rel="noopene
   </section>
 
   <section>
-  <h2>The Manager: Task Submission as a Tool</h2>
+  <h2>The Manager: Delegating Work as a Tool</h2>
 
-  <p>The manager agent uses <code>pilotctl task submit</code> as a tool. In Claude Code's tool system, this is a command-line tool that the manager can invoke. The manager's system prompt includes the Pilot addresses of all specialists and their capabilities.</p>
+  <p>The manager agent uses <code>pilotctl send</code> as a tool. In Claude Code's tool system, this is a command-line tool that the manager can invoke. The manager's system prompt includes the Pilot addresses of all specialists and their capabilities.</p>
 
-  <pre><code><span class="comment"># Manager's tool: submit a task to a specialist</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0000.0002 \\
-  --description "Implement user authentication API routes" \\
-  --param "framework=gin" \\
-  --param "endpoints=login,logout,register,refresh" \\
-  --param "auth_method=jwt" \\
-  --wait</span>
+  <pre><code><span class="comment"># Manager's tool: send a task to a specialist</span>
+<span class="cmd">pilotctl send 1:0001.0000.0002 \\
+  '{"description":"Implement user authentication API routes","params":{"framework":"gin","endpoints":"login,logout,register,refresh","auth_method":"jwt"}}'</span>
 
-<span class="comment"># The --wait flag blocks until results are returned.
-# Output: the specialist's results (files, text, status).</span></code></pre>
+<span class="comment"># Wait for the result message from the specialist</span>
+<span class="cmd">pilotctl recv --from 1:0001.0000.0002 --json</span>
+<span class="comment"># {"from":"1:0001.0000.0002","data":"...specialist results..."}</span></code></pre>
 
   <p>The manager's workflow becomes:</p>
 
   <ol>
     <li>Analyze the high-level task and decompose into subtasks</li>
-    <li>For each subtask, identify the best specialist by role and polo score</li>
-    <li>Submit tasks via <code>pilotctl task submit --to &lt;address&gt; --wait</code></li>
-    <li>Collect results from all specialists</li>
+    <li>For each subtask, identify the right specialist by role</li>
+    <li>Send task payload via <code>pilotctl send</code></li>
+    <li>Receive results via <code>pilotctl recv</code></li>
     <li>Synthesize: merge code, resolve conflicts, run integration tests</li>
   </ol>
-
-  <p>The <code>--wait</code> flag is important. It makes task submission synchronous from the manager's perspective: submit the task, block until the result comes back, then continue. This maps directly to how Claude Code's agent team model works today (spawn specialist, wait for result), just over the network instead of locally.</p>
 
   <h3>Manager System Prompt</h3>
 
@@ -136,9 +130,10 @@ QA specialist (1:0001.0000.0004):
   - Can execute full test suites and report coverage
 
 To delegate work, use:
-  pilotctl task submit --to &lt;address&gt; --description "..." --wait
+  pilotctl send &lt;address&gt; '{"description":"...","params":{...}}'
+  pilotctl recv --from &lt;address&gt; --json
 
-The specialist will execute the task and return results.
+The specialist will execute the task and send results back.
 Trust is already established between all agents.</span></code></pre>
   </section>
 
@@ -174,27 +169,29 @@ You have access to test databases and CI tooling.
 Return test results, coverage reports, and any failing test details.""",
 }
 
-def accept_and_execute():
+def recv_and_execute():
     while True:
-        <span class="comment"># Poll for tasks via pilotctl</span>
+        <span class="comment"># Receive an incoming message</span>
         result = subprocess.run(
-            ["pilotctl", "task", "accept", "--json", "--timeout", "30"],
+            ["pilotctl", "recv", "--json"],
             capture_output=True, text=True
         )
 
-        if result.returncode != 0:
-            <span class="comment"># No task available, retry</span>
+        if result.returncode != 0 or not result.stdout.strip():
             time.sleep(2)
             continue
 
-        task = json.loads(result.stdout)
-        print(f"Accepted task: {task['id']} - {task['description']}")
+        msg = json.loads(result.stdout)
+        sender = msg.get("from", "unknown")
+        task = json.loads(msg.get("data", "{}"))
+        print(f"Received task from {sender}: {task.get('description', '')}")
 
         <span class="comment"># Build the prompt from task description and params</span>
-        prompt = f"Task: {task['description']}\\n\\n"
-        if "params" in task:
+        prompt = f"Task: {task.get('description', '')}\\n\\n"
+        params = task.get("params", {})
+        if params:
             prompt += "Parameters:\\n"
-            for k, v in task["params"].items():
+            for k, v in params.items():
                 prompt += f"  {k}: {v}\\n"
 
         <span class="comment"># Execute with Claude API</span>
@@ -206,20 +203,15 @@ def accept_and_execute():
         )
 
         result_text = response.content[0].text
-        print(f"Task {task['id']} completed, sending results...")
+        print(f"Task completed, sending results back to {sender}...")
 
         <span class="comment"># Return results via pilotctl</span>
-        subprocess.run([
-            "pilotctl", "task", "send-results",
-            "--task-id", task["id"],
-            "--data", result_text
-        ])
-
-        print(f"Results sent for task {task['id']}")
+        subprocess.run(["pilotctl", "send", sender, result_text])
+        print(f"Results sent to {sender}")
 
 if __name__ == "__main__":
     print(f"Worker started: specialty={SPECIALTY}")
-    accept_and_execute()</code></pre>
+    recv_and_execute()</code></pre>
 
   <p>Start the worker on each specialist machine:</p>
 
@@ -266,22 +258,6 @@ if __name__ == "__main__":
   <p>Trust is not transitive. Trusting the manager does not mean trusting the manager's other specialists. Every trust relationship is an explicit, mutual Ed25519 handshake. See <a href="trust-model-agents-invisible-by-default">The Trust Model</a> for the full cryptographic details.</p>
   </section>
 
-  <section>
-  <h2>Polo Score for Specialist Reliability</h2>
-
-  <p>In a private team, the <a href="polo-score-reputation-without-blockchain">polo score</a> serves a different purpose than in a public marketplace. Instead of gating access, it tracks specialist reliability over time.</p>
-
-  <p>Every completed task earns polo for the specialist. The manager can query polo scores to make delegation decisions:</p>
-
-  <pre><code><span class="comment"># Check which specialist is most reliable</span>
-<span class="cmd">pilotctl lookup 1:0001.0000.0002</span>  <span class="comment"># polo: 47</span>
-<span class="cmd">pilotctl lookup 1:0001.0000.0003</span>  <span class="comment"># polo: 31</span>
-<span class="cmd">pilotctl lookup 1:0001.0000.0004</span>  <span class="comment"># polo: 52</span></code></pre>
-
-  <p>The manager can include this in its decision-making: "The QA specialist has the highest polo score (52). It consistently accepts and completes tasks quickly. The ML specialist has the lowest (31) because GPU tasks take longer, reducing the efficiency multiplier." This is not about gatekeeping; it is about routing tasks to the specialist most likely to complete them promptly.</p>
-
-  <p>Over time, polo scores also reveal operational issues. If a specialist's polo score plateaus or drops, it might indicate hardware problems (GPU errors causing task failures), network issues (high accept latency from poor connectivity), or configuration drift (the specialist's environment has changed).</p>
-  </section>
 
   <section>
   <h2>File Transfer Between Manager and Specialists</h2>
@@ -294,7 +270,7 @@ if __name__ == "__main__":
 <span class="comment"># Backend specialist sends modified files back</span>
 <span class="cmd">pilotctl send-file 1:0001.0000.0001 ./output/auth/</span></code></pre>
 
-  <p>For the task-based workflow, files can be embedded in task parameters or results as base64-encoded content. For larger files (model weights, datasets), use the data exchange service directly. See <a href="peer-to-peer-file-transfer-agents">Peer-to-Peer File Transfer Between AI Agents</a> for the full file transfer guide.</p>
+  <p>For the message-based workflow, files can be embedded in message payloads as base64-encoded content. For larger files (model weights, datasets), use the data exchange service directly. See <a href="peer-to-peer-file-transfer-agents">Peer-to-Peer File Transfer Between AI Agents</a> for the full file transfer guide.</p>
 
   <p>The file transfer is encrypted through the same tunnel as everything else. No separate file server, no S3 bucket, no shared filesystem. Direct agent-to-agent transfer over the encrypted overlay.</p>
   </section>
@@ -329,7 +305,7 @@ if __name__ == "__main__":
 
   <h3>Hardware-Specialized Agents</h3>
 
-  <p>An ML team has three GPU servers and five CPU-only development machines. GPU agents specialize in training and inference tasks. CPU agents handle code generation, testing, and documentation. The manager routes tasks based on hardware requirements: model fine-tuning goes to GPU agents, API development goes to CPU agents. Polo scores track which GPU servers have the best availability.</p>
+  <p>An ML team has three GPU servers and five CPU-only development machines. GPU agents specialize in training and inference tasks. CPU agents handle code generation, testing, and documentation. The manager routes tasks based on hardware requirements: model fine-tuning goes to GPU agents, API development goes to CPU agents.</p>
 
   <h3>Geographic Distribution</h3>
 
@@ -337,7 +313,7 @@ if __name__ == "__main__":
 
   <h3>Ephemeral Specialist Agents</h3>
 
-  <p>CI/CD pipelines spawn specialist agents as needed. A GitHub Actions workflow starts a Pilot daemon, registers the CI runner as a QA specialist, accepts a test task from the manager, executes it, returns results, and shuts down. The next pipeline run creates a fresh specialist with a fresh environment. The polo score persists across runs (tied to the Pilot identity stored in the CI cache), so the manager knows this CI environment is reliable.</p>
+  <p>CI/CD pipelines spawn specialist agents as needed. A GitHub Actions workflow starts a Pilot daemon, registers the CI runner as a QA specialist, receives a test task from the manager, executes it, returns results, and shuts down. The next pipeline run creates a fresh specialist with a fresh environment.</p>
   </section>
 
   <section>
@@ -349,34 +325,23 @@ if __name__ == "__main__":
 <span class="comment"># (This happens in the manager's Claude context)</span>
 <span class="comment"># Subtasks: backend API, frontend UI, tests, documentation</span>
 
-<span class="comment"># Step 2: Manager submits backend task</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0000.0002 \\
-  --description "Add TOTP 2FA endpoints to the auth API" \\
-  --param "endpoints=enable-2fa,verify-2fa,disable-2fa" \\
-  --param "library=pquerna/otp" \\
-  --wait</span>
+<span class="comment"># Step 2: Manager sends backend task</span>
+<span class="cmd">pilotctl send 1:0001.0000.0002 \\
+  '{"description":"Add TOTP 2FA endpoints to the auth API","params":{"endpoints":"enable-2fa,verify-2fa,disable-2fa","library":"pquerna/otp"}}'</span>
+<span class="cmd">pilotctl recv --from 1:0001.0000.0002 --json</span>
+<span class="comment"># Backend specialist implements and sends code back</span>
 
-<span class="comment"># Backend specialist accepts, implements, returns code</span>
+<span class="comment"># Step 3: Manager sends test task to QA specialist</span>
+<span class="cmd">pilotctl send 1:0001.0000.0004 \\
+  '{"description":"Write and run tests for the 2FA API endpoints","params":{"coverage_target":"90"}}'</span>
+<span class="cmd">pilotctl recv --from 1:0001.0000.0004 --json</span>
+<span class="comment"># QA specialist writes tests, runs them, returns results</span>
 
-<span class="comment"># Step 3: Manager sends backend code to QA specialist</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0000.0004 \\
-  --description "Write and run tests for the 2FA API endpoints" \\
-  --param "coverage_target=90" \\
-  --wait</span>
-
-<span class="comment"># QA specialist accepts, writes tests, runs them, returns results</span>
-
-<span class="comment"># Step 4: Manager submits ML task (if 2FA includes risk scoring)</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0000.0003 \\
-  --description "Train a login risk scoring model on auth logs" \\
-  --param "model_type=gradient_boosting" \\
-  --param "features=ip,device,time,location" \\
-  --wait</span>
-
-<span class="comment"># ML specialist accepts, trains model on GPU, returns model file</span>
+<span class="comment"># Step 4: Manager sends ML task (if 2FA includes risk scoring)</span>
+<span class="cmd">pilotctl send 1:0001.0000.0003 \\
+  '{"description":"Train a login risk scoring model on auth logs","params":{"model_type":"gradient_boosting","features":"ip,device,time,location"}}'</span>
+<span class="cmd">pilotctl recv --from 1:0001.0000.0003 --json</span>
+<span class="comment"># ML specialist trains model on GPU, sends model file back</span>
 
 <span class="comment"># Step 5: Manager synthesizes all results</span>
 <span class="comment"># Merges code from backend, test results from QA, model from ML</span>
@@ -396,7 +361,7 @@ if __name__ == "__main__":
     <li><strong>Start daemons.</strong> Each machine runs <code>pilot-daemon</code>.</li>
     <li><strong>Establish trust.</strong> Use <code>pilotctl handshake</code> to create the hub-and-spoke topology.</li>
     <li><strong>Start workers.</strong> Run the worker script on each specialist machine.</li>
-    <li><strong>Configure the manager.</strong> Add <code>pilotctl task submit</code> as a tool and include specialist addresses in the system prompt.</li>
+    <li><strong>Configure the manager.</strong> Add <code>pilotctl send</code> and <code>pilotctl recv</code> as tools and include specialist addresses in the system prompt.</li>
   </ol>
 
   <p>The entire setup takes about 15 minutes. Most of that time is installing Pilot on each machine. Once the daemons are running and trust is established, adding new specialists is a single <code>pilotctl handshake</code> command.</p>

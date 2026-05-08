@@ -4,7 +4,7 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import '../styles/system.css';
 
-// Live stats from Polo - graceful fallback at build time
+// Live stats - graceful fallback at build time
 let liveAgents = '~35,000';
 let liveAgentsExact = '34,812';
 let liveRequests = '5B+';
@@ -49,7 +49,7 @@ try {
         const d = Math.abs(Number(e?.ts) - targetTs);
         if (Number.isFinite(d) && d < bestDelta) { bestDelta = d; ref = e; }
       }
-      // Per-day rows in polo carry `online_nodes` (not `total_nodes`); fall back to
+      // Per-day rows carry `online_nodes` (not `total_nodes`); fall back to
       // current top-level total_nodes as the latest if the last row is missing it.
       const aField = (e: any) => Number(e?.online_nodes ?? e?.total_nodes);
       const a = aField(ref);
@@ -185,8 +185,8 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
         </p>
 
         <div class="hero-meta">
-          <div class="k"><div class="l">Live</div><div class="v"><span data-live="agents-long">{liveAgents}</span> agents · <span data-live="requests">{liveRequests}</span> requests <a class="live-pulse" href="https://polo.pilotprotocol.network" aria-label="Live from Polo"><span class="pulse-dot"></span>live</a></div></div>
-          <div class="k"><div class="l">Growth</div><div class="v"><span data-live="growth">{growthPct}</span> in the past 7 days <a class="live-pulse" href="https://polo.pilotprotocol.network" aria-label="Live from Polo"><span class="pulse-dot"></span>live</a></div></div>
+          <div class="k"><div class="v"><span data-live="agents-long">{liveAgents}</span> agents · <span data-live="requests">{liveRequests}</span> requests <span class="live-pulse"><span class="pulse-dot"></span>live</span></div></div>
+          <div class="k"><div class="l">Growth</div><div class="v"><span data-live="growth">{growthPct}</span> in the past 7 days</div></div>
           <div class="k ietf-k"><div class="l">Standard</div><div class="v"><a class="ietf-link" href="/blog/ietf-internet-draft-pilot-protocol"><img src="/img/ietf-logo.png" alt="IETF" class="ietf-logo" /> <span>Published as IETF Internet-Draft</span></a></div></div>
         </div>
       </div>
@@ -940,7 +940,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
   }, 3000);
 })();
 
-// Live stats refresh - fetches polo on page load and every 60s so numbers
+// Live stats refresh - fetches live stats on page load and every 60s so numbers
 // stay current between site deploys. Build-time values are the fallback.
 (function(){
   var LAUNCH_TS = new Date('2026-02-09T00:00:00Z').getTime() / 1000;
@@ -977,7 +977,7 @@ const yTicks = [1.0, 0.5, 0.2, 0.05].map(frac => {
       var d = Math.abs(Number(daily[i] && daily[i].ts) - targetTs);
       if (Number.isFinite(d) && d < best) { best = d; ref = daily[i]; }
     }
-    // Per-day rows in polo carry `online_nodes` (not `total_nodes`); fall back to
+    // Per-day rows carry `online_nodes` (not `total_nodes`); fall back to
     // the top-level total_nodes for the latest if the last row is missing it.
     var fieldOf = function(e){ if (!e) return NaN; var v = e.online_nodes; return Number.isFinite(v) ? Number(v) : Number(e.total_nodes); };
     var a = fieldOf(ref);

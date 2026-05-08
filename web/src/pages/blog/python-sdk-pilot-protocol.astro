@@ -41,10 +41,7 @@ with Driver() as d:
 
     # Pub/sub events (port 1002)
     d.publish_event("peer", "metrics/gpu", b"87.3")
-    d.subscribe_event("peer", "metrics/**", lambda topic, data: print(f"{topic}: {data}"))
-
-    # Task submission (port 1003)
-    d.submit_task("worker", {"command": "inference", "params": {"model": "llama-3"}})</code></pre>
+    d.subscribe_event("peer", "metrics/**", lambda topic, data: print(f"{topic}: {data}"))</code></pre>
 
 <p>Each method handles connection setup, framing, and acknowledgment. You send bytes and get dicts back.</p>
 

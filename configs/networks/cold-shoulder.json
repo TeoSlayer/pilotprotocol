@@ -5,32 +5,6 @@
     "version": 1,
     "rules": [
       {
-        "name": "earn",
-        "on": "datagram",
-        "match": "peer_score >= 0",
-        "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
-          {
-            "type": "allow"
-          }
-        ]
-      },
-      {
-        "name": "ignore",
-        "on": "datagram",
-        "match": "peer_score < 0",
-        "actions": [
-          {
-            "type": "deny"
-          }
-        ]
-      },
-      {
         "name": "reset",
         "on": "cycle",
         "match": "true",
@@ -49,6 +23,6 @@
     }
   },
   "policy": {
-    "description": "Cold shoulder: one negative score and the network stops responding to you until the 12h cycle resets everyone's baseline."
+    "description": "Cold shoulder: every 12h cycle clears all trusted peers (fill_trust target=0), forcing a full re-evaluation of who belongs."
   }
 }

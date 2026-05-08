@@ -2,7 +2,7 @@ services:
   rendezvous:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: rendezvous
     networks:
       pilot-p2p:
@@ -22,7 +22,7 @@ services:
   hub:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: hub
     depends_on:
       rendezvous:
@@ -48,7 +48,7 @@ services:
   leaf-1:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: leaf-1
     depends_on:
       rendezvous:
@@ -74,7 +74,7 @@ services:
   leaf-2:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: leaf-2
     depends_on:
       rendezvous:
@@ -100,7 +100,7 @@ services:
   leaf-3:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: leaf-3
     depends_on:
       rendezvous:
@@ -126,7 +126,7 @@ services:
   leaf-4:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: leaf-4
     depends_on:
       rendezvous:

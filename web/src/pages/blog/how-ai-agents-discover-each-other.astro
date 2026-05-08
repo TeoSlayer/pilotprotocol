@@ -121,19 +121,17 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
     "hostname": "vision-agent",
     "address": "1:0001.0000.0031",
     "tags": ["image-processing", "ocr", "gpu", "batch"],
-    "polo_score": 847,
     "online": true
   },
   {
     "hostname": "img-classifier",
     "address": "1:0001.0000.0045",
     "tags": ["image-processing", "classification", "realtime"],
-    "polo_score": 623,
     "online": true
   }
 ]</code></pre>
 
-  <p>An agent can parse this JSON, sort by Polo score (the <a href="polo-score-reputation-without-blockchain">reputation metric</a> that tracks task completion reliability), and choose the most capable or most trustworthy peer for the job. This is runtime service discovery that happens without a service mesh, without Consul, and without any external infrastructure beyond the Pilot registry.</p>
+  <p>An agent can parse this JSON and choose the most capable peer for the job based on tags, uptime, and connectivity status. This is runtime service discovery that happens without a service mesh, without Consul, and without any external infrastructure beyond the Pilot registry.</p>
 
   <h3>Combining Tags With Trust</h3>
 
@@ -150,13 +148,13 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
 
   <p>The discovery phase is open (searching public tags), but the communication phase is gated by the <a href="secure-ai-agent-communication-zero-trust">zero trust handshake</a>. This gives you the convenience of open discovery with the security of authenticated connections.</p>
 
-  <h2 id="polo-dashboard">The Polo Dashboard as a Public Directory</h2>
+  <h2 id="public-directory">The Registry as a Public Directory</h2>
 
-  <p>For agents that want maximum visibility, Pilot Protocol includes the Polo dashboard -- a web-based directory of public agents on the network. The dashboard shows agent hostnames, tags, Polo scores, uptime, and connectivity status.</p>
+  <p>For agents that want maximum visibility, the Pilot registry acts as a public directory. Public agents are discoverable via tag search. Agents can be listed using the CLI with their hostnames, tags, uptime, and connectivity status.</p>
 
-  <p>The dashboard serves as the human-accessible entry point to the agent network. Operators can browse available agents, review their capabilities, check their reputation scores, and initiate connections. It is the equivalent of a service catalog, automatically populated from the registry with no manual curation required.</p>
+  <p>The registry serves as the entry point to the agent network. Operators can search for available agents, review their capabilities, and initiate connections -- all through the CLI. It is the equivalent of a service catalog, automatically populated from agent registration with no manual curation required.</p>
 
-  <p>Public agents appear on the dashboard automatically. Private agents do not appear at all -- the dashboard respects the same visibility rules as the registry. There is no way to enumerate private agents through the dashboard, the CLI, or the API.</p>
+  <p>Public agents appear in search results automatically. Private agents do not appear at all -- the registry enforces the same visibility rules for all clients. There is no way to enumerate private agents through the CLI or the API.</p>
 
   <p>For organizations that want a private network, see <a href="private-agent-network-company">Building a Private Agent Network for Your Company</a>.</p>
 
@@ -179,10 +177,9 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
   "uptime": "4h32m",
   "trusted_peers": 7,
   "tags": ["nlp", "summarization", "english"],
-  "polo_score": 412
 }</code></pre>
 
-  <p>This is the agent's view of itself. It knows its virtual address, its NAT type (which affects how it connects to peers), the number of peers it has trusted relationships with, and its current reputation score. An LLM-powered agent can use this context to make decisions: "I have 7 trusted peers, my specialization tags are NLP-related, and my Polo score is 412. I should accept summarization tasks from my trusted peers to build reputation."</p>
+  <p>This is the agent's view of itself. It knows its virtual address, its NAT type (which affects how it connects to peers), the number of peers it has trusted relationships with, and its current tags. An LLM-powered agent can use this context to make decisions: "I have 7 trusted peers, my specialization tags are NLP-related. I should accept summarization requests from my trusted peers."</p>
 
   <p>Self-discovery also enables agents to detect configuration problems early. If the NAT type is "symmetric," the agent knows it will use relay for all connections and can adjust its behavior accordingly (for example, preferring smaller payloads to reduce relay load).</p>
 
@@ -201,7 +198,7 @@ summary-bot         1:0001.0000.0024     summarization, news, multilingual</code
       <tr><td>Liveness detection</td><td>Keepalive (30s)</td><td>HTTP health check</td><td>Heartbeat (proposed)</td><td>None</td></tr>
       <tr><td>Privacy</td><td>Private by default</td><td>Public by default</td><td>Configurable</td><td>N/A</td></tr>
       <tr><td>NAT support</td><td>Built-in traversal</td><td>Requires public endpoint</td><td>Not specified</td><td>Requires VPN</td></tr>
-      <tr><td>Reputation data</td><td>Polo score included</td><td>Not included</td><td>Not included</td><td>Not included</td></tr>
+      <tr><td>Liveness data</td><td>Keepalive signals</td><td>Not included</td><td>Not included</td><td>Not included</td></tr>
       <tr><td>Open source</td><td>Yes (MIT license)</td><td>Yes</td><td>TBD</td><td>N/A</td></tr>
       <tr><td>Machine-readable</td><td>JSON output (--json)</td><td>JSON (Agent Card)</td><td>JSON-LD (proposed)</td><td>Varies</td></tr>
     </tbody>

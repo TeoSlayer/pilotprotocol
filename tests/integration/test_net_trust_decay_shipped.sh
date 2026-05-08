@@ -39,7 +39,7 @@ $DC down -v >/dev/null 2>&1
 $DC up -d rendezvous agent-a agent-b >/dev/null 2>&1
 ensure_stack_up || { log_fail "stack boot"; exit 1; }
 
-CFG="$(pwd)/../../configs/networks/trust-decay.json"
+CFG="$(pwd)/../../../configs/networks/trust-decay.json"
 [ -f "$CFG" ] || { log_fail "missing $CFG"; exit 1; }
 
 log_test "create trust-decay network (cycle=1m)"

@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 )
 
 // ManagedEngine runs the managed network cycle for a single network.
-// It maintains a local peer set, scores, and runs periodic prune/fill cycles.
+// It maintains a local peer set and runs periodic prune/fill cycles.
 // All state is daemon-local — the registry only stores the rules.
 type ManagedEngine struct {
 	netID  uint16
@@ -36,12 +36,10 @@ type ManagedEngine struct {
 
 // managedPeer tracks a single managed peer's state.
 type managedPeer struct {
-	NodeID   uint32         `json:"node_id"`
-	Score    int            `json:"score"`
-	Topics   map[string]int `json:"topics,omitempty"` // per-topic scores
-	Tags     []string       `json:"tags,omitempty"`   // peer tags (policy engine)
-	AddedAt  time.Time      `json:"added_at"`
-	LastSeen time.Time      `json:"last_seen"`
+	NodeID   uint32     `json:"node_id"`
+	Tags     []string   `json:"tags,omitempty"` // peer tags (policy engine)
+	AddedAt  time.Time  `json:"added_at"`
+	LastSeen time.Time  `json:"last_seen"`
 }
 
 // managedSnapshot is the JSON format persisted to disk.
@@ -59,12 +57,6 @@ func clonePeersLocked(src map[uint32]*managedPeer) map[uint32]*managedPeer {
 	dst := make(map[uint32]*managedPeer, len(src))
 	for k, p := range src {
 		pc := *p
-		if p.Topics != nil {
-			pc.Topics = make(map[string]int, len(p.Topics))
-			for tk, tv := range p.Topics {
-				pc.Topics[tk] = tv
-			}
-		}
 		if p.Tags != nil {
 			pc.Tags = append([]string(nil), p.Tags...)
 		}
@@ -156,29 +148,6 @@ func (me *ManagedEngine) Bootstrap() error {
 	return nil
 }
 
-// Score adjusts a peer's score by delta. Optional topic scoping.
-func (me *ManagedEngine) Score(nodeID uint32, delta int, topic string) error {
-	me.mu.Lock()
-	defer me.mu.Unlock()
-
-	p, ok := me.peers[nodeID]
-	if !ok {
-		return fmt.Errorf("peer %d not in managed set for network %d", nodeID, me.netID)
-	}
-
-	p.Score += delta
-	p.LastSeen = time.Now()
-
-	if topic != "" {
-		if p.Topics == nil {
-			p.Topics = make(map[string]int)
-		}
-		p.Topics[topic] += delta
-	}
-
-	return nil
-}
-
 // Status returns a summary of the managed engine state.
 func (me *ManagedEngine) Status() map[string]interface{} {
 	me.mu.RLock()
@@ -196,41 +165,6 @@ func (me *ManagedEngine) Status() map[string]interface{} {
 		"grace":      me.rules.Grace,
 		"joined_at":  me.joinedAt.Format(time.RFC3339),
 	}
-}
-
-// Rankings returns all managed peers sorted by score descending.
-func (me *ManagedEngine) Rankings() []map[string]interface{} {
-	me.mu.RLock()
-	defer me.mu.RUnlock()
-
-	type entry struct {
-		peer *managedPeer
-	}
-	var entries []entry
-	for _, p := range me.peers {
-		entries = append(entries, entry{peer: p})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].peer.Score > entries[j].peer.Score
-	})
-
-	result := make([]map[string]interface{}, 0, len(entries))
-	for rank, e := range entries {
-		m := map[string]interface{}{
-			"rank":     rank + 1,
-			"node_id":  e.peer.NodeID,
-			"score":    e.peer.Score,
-			"added_at": e.peer.AddedAt.Format(time.RFC3339),
-		}
-		if !e.peer.LastSeen.IsZero() {
-			m["last_seen"] = e.peer.LastSeen.Format(time.RFC3339)
-		}
-		if len(e.peer.Topics) > 0 {
-			m["topics"] = e.peer.Topics
-		}
-		result = append(result, m)
-	}
-	return result
 }
 
 // ForceCycle runs a cycle immediately, outside the timer.
@@ -307,7 +241,7 @@ func (me *ManagedEngine) runCycle() map[string]interface{} {
 
 	slog.Info("managed: cycle complete", "network_id", me.netID, "pruned", pruned, "filled", filled, "peers", peerCount)
 
-	me.daemon.webhook.Emit("managed.cycle", result)
+	me.daemon.publishEvent("managed.cycle", result)
 
 	return result
 }
@@ -321,11 +255,6 @@ func (me *ManagedEngine) rankedPeers() []*managedPeer {
 	}
 
 	switch me.rules.PruneBy {
-	case "score":
-		// Ascending: lowest score first (pruned first)
-		sort.Slice(peers, func(i, j int) bool {
-			return peers[i].Score < peers[j].Score
-		})
 	case "age":
 		// Oldest first (earliest AddedAt pruned first)
 		sort.Slice(peers, func(i, j int) bool {

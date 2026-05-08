@@ -9,7 +9,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
-	"github.com/TeoSlayer/pilotprotocol/pkg/nameserver"
+	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
 )
 
 func main() {

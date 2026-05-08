@@ -40,29 +40,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-
----
-
-## Console-only dependencies
-
-The following modules appear in `go.mod` because the private console
-application (`pkg/console/`, not part of the public source tree) imports them.
-No code in the public tree imports these modules directly.
-
-### github.com/stripe/stripe-go/v81
-
-- **Version:** v81.4.0
-- **Used in:** console billing (private module)
-- **License:** MIT
-- **Upstream:** https://github.com/stripe/stripe-go
-
-### modernc.org/sqlite
-
-- **Version:** v1.48.0
-- **Used in:** console persistence (private module)
-- **License:** BSD-3-Clause
-- **Upstream:** https://gitlab.com/cznic/sqlite
-
-Transitive dependencies of `modernc.org/sqlite` (indirect in `go.mod`) carry
-their own licenses, all permissive (BSD / MIT / Apache-2.0). See each
-module's `LICENSE` file under `$GOPATH/pkg/mod/` for the authoritative text.

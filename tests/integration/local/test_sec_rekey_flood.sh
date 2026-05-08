@@ -59,25 +59,29 @@ RSS_BEFORE=$($DC exec -T agent-b sh -c '
 ' 2>/dev/null)
 RSS_BEFORE=${RSS_BEFORE:-0}
 
-log_test "flood 10k PILS frames from rotating spoofed IDs at 4000 pps"
-# We fire 10,000 frames over ~2.5 seconds by rotating nodeID and nonce so
-# the daemon's rekey map is exercised while per-peer rate limiting kicks in.
-# raw_udp.py does one nodeID per invocation, so drive from a shell loop
-# in agent-a that builds a frame each iteration.
-$DC exec -T agent-a sh -c '
-    total=10000
-    i=0
-    while [ "$i" -lt "$total" ]; do
-        # Rotate through 128 spoofed IDs
-        nid=$(printf "%08x" $((0xAA000000 + (i % 128))))
-        # Random nonce + ciphertext
-        nonce=$(head -c 12 /dev/urandom | xxd -p -c 1000)
-        ct=$(head -c 32 /dev/urandom | xxd -p -c 1000)
-        frame="50494c53${nid}${nonce}${ct}"
-        python3 /tests/raw_udp.py send '"$IP_B"' 4000 "$frame" >/dev/null 2>&1
-        i=$((i+1))
-    done
-' &
+log_test "flood 10k PILS frames from rotating spoofed IDs at ~4000 pps"
+# Send 10,000 PILS frames (encrypted-magic, no valid key) from 128 rotating
+# spoofed node IDs. A single Python process generates and sends all frames
+# in-memory — avoids the 10k process-start overhead of a shell loop.
+$DC exec -T agent-a python3 - "$IP_B" 4000 <<'PYEOF' &
+import socket, os, struct, sys
+
+host, port = sys.argv[1], int(sys.argv[2])
+MAGIC = b'\x50\x49\x4c\x53'   # PILS
+N_IDS = 128
+TOTAL = 10000
+
+sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+for i in range(TOTAL):
+    nid = struct.pack('>I', 0xAA000000 + (i % N_IDS))
+    frame = MAGIC + nid + os.urandom(12) + os.urandom(32)
+    try:
+        sk.sendto(frame, (host, port))
+    except OSError:
+        pass
+sk.close()
+print(f"flooded {TOTAL} frames across {N_IDS} spoofed node IDs", flush=True)
+PYEOF
 FLOOD_PID=$!
 
 log_test "during flood: daemon responsive?"

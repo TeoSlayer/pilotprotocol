@@ -8,7 +8,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/dataexchange"
+	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )

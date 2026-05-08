@@ -57,7 +57,7 @@ if [ "${COUNT:-0}" -lt 3 ]; then
 fi
 
 # Resolve agent-b's pilot address and map it into the gateway
-ADDR_B=$($DC exec -T gateway pilotctl --json lookup agent-b 2>/dev/null | jq -r '.data.address // empty')
+ADDR_B=$($DC exec -T gateway pilotctl --json find agent-b 2>/dev/null | jq -r '.data.address // empty')
 if [ -z "$ADDR_B" ] || [ "$ADDR_B" = "null" ]; then
     log_fail "gateway could not look up agent-b"
     exit 1
@@ -65,34 +65,48 @@ fi
 log_pass "agent-b pilot addr: $ADDR_B"
 
 log_test "map agent-b into gateway local subnet"
-MAP=$($DC exec -T gateway pilot-gateway -subnet 10.4.0.0/16 -socket /tmp/pilot.sock map "$ADDR_B" 2>&1)
-LOCAL_IP=$(echo "$MAP" | awk -F' → ' '{print $1}' | tr -d '[:space:]')
-if [ -z "$LOCAL_IP" ]; then
-    log_fail "map returned no local IP: $MAP"
+# `pilot-gateway map` is a one-shot CLI that creates its own transient
+# gateway, maps, then exits — leaving no listeners. To install a
+# durable mapping we restart the gateway via `pilot-gateway run` with
+# the mapping passed positionally, which keeps the proxy listeners up.
+# The compose-startup script left a no-arg pilot-gateway running. Kill
+# all pilot-gateway processes, then start a new one with the mapping
+# argument. Write to a fresh log so the no-arg restart attempts (if any)
+# don't overwrite the one we're inspecting.
+$DC exec -T gateway bash -c 'pkill -9 -f "pilot-gateway" 2>/dev/null; sleep 2' >/dev/null 2>&1
+$DC exec -T gateway bash -c "cat >/tmp/gw-run.sh <<EOF
+#!/bin/sh
+exec pilot-gateway -subnet 10.4.0.0/16 -socket /tmp/pilot.sock run '$ADDR_B' 10.4.0.1 > /tmp/gateway-mapped.log 2>&1
+EOF
+chmod +x /tmp/gw-run.sh"
+$DC exec -d gateway /tmp/gw-run.sh
+sleep 5
+LOCAL_IP="10.4.0.1"
+if $DC exec -T gateway grep -q "gateway proxy listening" /tmp/gateway-mapped.log 2>/dev/null; then
+    log_pass "mapped $ADDR_B -> $LOCAL_IP (listeners up)"
+else
+    log_fail "gateway proxy listeners did not start; log: $($DC exec -T gateway tail -15 /tmp/gateway-mapped.log)"
     exit 1
 fi
-log_pass "mapped $ADDR_B -> $LOCAL_IP"
 
-# Port 1001 (data-exchange) is in DefaultPorts, so the gateway is listening there.
-log_test "send payload to $LOCAL_IP:1001 (agent-b's data-exchange service)"
-PAYLOAD="gw-http-msg-$(date +%s%N)"
-# Install netcat-like tool inside the gateway container (use bash /dev/tcp).
-if $DC exec -T gateway bash -c "exec 3<>/dev/tcp/${LOCAL_IP}/1001 && printf '%s\n' '${PAYLOAD}' >&3 && sleep 1" 2>/dev/null; then
-    log_pass "TCP write to gateway-mapped IP succeeded"
+# Port 7 (echo) is in DefaultPorts. The echo service accepts raw bytes
+# and reflects them back, so a TCP echo round-trip through the gateway
+# proves the data-plane proxy works end-to-end. (Port 1001 — data-
+# exchange — would need framed protocol input that /dev/tcp can't easily
+# supply.)
+log_test "TCP echo round-trip through gateway-mapped $LOCAL_IP:7"
+PAYLOAD="gw-echo-$(date +%s%N)"
+ECHO_OUT=$($DC exec -T gateway bash -c "
+    exec 3<>/dev/tcp/${LOCAL_IP}/7
+    printf '%s' '${PAYLOAD}' >&3
+    timeout 3 head -c ${#PAYLOAD} <&3
+    exec 3<&-
+" 2>/dev/null)
+if [ "$ECHO_OUT" = "$PAYLOAD" ]; then
+    log_pass "echo round-trip ok (got $ECHO_OUT)"
 else
-    log_fail "could not open TCP to ${LOCAL_IP}:1001 via gateway"
-fi
-
-# Data-exchange writes payloads to agent-b's inbox.
-sleep 2
-log_test "payload delivered to agent-b inbox"
-HIT=$($DC exec -T agent-b bash -c "grep -rl '${PAYLOAD}' /root/.pilot/inbox 2>/dev/null | head -n1" | tr -d '\r\n')
-if [ -n "$HIT" ]; then
-    log_pass "payload landed at $HIT"
-else
-    log_fail "payload not found in agent-b inbox; gateway proxy may not have delivered"
-    $DC exec -T agent-b bash -c "ls /root/.pilot/inbox 2>/dev/null | head -5"
-    $DC exec -T gateway tail -30 /tmp/gateway.log 2>/dev/null | head -30
+    log_fail "echo mismatch via gateway: sent=$PAYLOAD got=$ECHO_OUT"
+    $DC exec -T gateway tail -20 /tmp/gateway-mapped.log 2>/dev/null
 fi
 
 echo

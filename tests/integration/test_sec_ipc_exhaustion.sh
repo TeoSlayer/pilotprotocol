@@ -54,25 +54,39 @@ fi
 $DC exec -T agent-a sh -c 'ulimit -n 20000 2>/dev/null || true' >/dev/null 2>&1
 
 log_test "attempt 10k concurrent IPC connections"
-# Python one-liner: open N unix-domain sockets and hold them. Capture
-# the number that actually opened successfully.
+# Python one-liner: open N unix-domain sockets, then AFTER a settle
+# window count the ones still alive. Server-side TCP accept() always
+# succeeds at the kernel layer — the IPC cap closes excess sockets
+# post-accept, which the client observes as EOF on the next read.
 OPEN=$($DC exec -T agent-a python3 - <<'PY'
-import socket, sys, time
+import socket, time
 SOCK = "/tmp/pilot.sock"
 N = 10000
 conns = []
-err = None
 for _ in range(N):
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(3)
         s.connect(SOCK)
         conns.append(s)
-    except Exception as e:
-        err = e
+    except Exception:
         break
-time.sleep(1)
-print(len(conns))
+# Give server a moment to close connections beyond its cap.
+time.sleep(2)
+alive = 0
+for s in conns:
+    try:
+        s.setblocking(False)
+        buf = s.recv(1)
+        # EOF (b"") means server closed; any exception other than
+        # BlockingIOError also means closed.
+        if buf == b"":
+            continue
+    except BlockingIOError:
+        alive += 1
+    except Exception:
+        pass
+print(alive)
 PY
 )
 OPEN=${OPEN:-0}

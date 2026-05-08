@@ -65,10 +65,13 @@ fi
 log_test "stand up a fresh sybil daemon identity inside agent-a"
 $DC exec -T agent-a bash -c '
     rm -rf /tmp/forger && mkdir -p /tmp/forger
+    REGISTRY=${PILOT_REGISTRY:-172.29.0.10:9000}
+    REGISTRY_HOST="${REGISTRY%:*}"
     pilot-daemon \
-        -registry 172.29.0.10:9000 \
-        -beacon 172.29.0.10:9001 \
+        -registry "$REGISTRY" \
+        -beacon "${REGISTRY_HOST}:9001" \
         -hostname forger-1 \
+        -email forger@test.local \
         -identity /tmp/forger/identity.json \
         -socket /tmp/forger/pilot.sock \
         -listen :0 \
@@ -115,9 +118,11 @@ $DC exec -T agent-a bash -c '
     sleep 1
     # Overwrite identity with brand-new keypair
     rm -f /tmp/forger/identity.json
+    REGISTRY=${PILOT_REGISTRY:-172.29.0.10:9000}
+    REGISTRY_HOST="${REGISTRY%:*}"
     pilot-daemon \
-        -registry 172.29.0.10:9000 \
-        -beacon 172.29.0.10:9001 \
+        -registry "$REGISTRY" \
+        -beacon "${REGISTRY_HOST}:9001" \
         -hostname forger-2 \
         -identity /tmp/forger/identity.json \
         -socket /tmp/forger/pilot.sock \

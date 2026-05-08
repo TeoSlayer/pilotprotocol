@@ -42,7 +42,7 @@ fi
 
 # Pre-heat a negative lookup for agent-c from agent-a BEFORE c registers.
 log_test "agent-a lookup of agent-c currently fails (c not up)"
-LK=$($DC exec -T agent-a pilotctl --json lookup agent-c 2>&1)
+LK=$($DC exec -T agent-a pilotctl --json find agent-c 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty')
 if [ -z "$ADDR" ] || [ "$ADDR" = "null" ]; then
     log_pass "agent-a correctly fails to resolve agent-c (pre-register)"
@@ -65,7 +65,7 @@ fi
 log_test "agent-a can lookup agent-c within 15s of registration"
 ADDR_A=""
 for _ in $(seq 1 15); do
-    ADDR_A=$($DC exec -T agent-a pilotctl --json lookup agent-c 2>/dev/null | jq -r '.data.address // empty')
+    ADDR_A=$($DC exec -T agent-a pilotctl --json find agent-c 2>/dev/null | jq -r '.data.address // empty')
     if [ -n "$ADDR_A" ] && [ "$ADDR_A" != "null" ]; then break; fi
     sleep 1
 done
@@ -78,7 +78,7 @@ fi
 log_test "agent-b can lookup agent-c within 15s"
 ADDR_B=""
 for _ in $(seq 1 15); do
-    ADDR_B=$($DC exec -T agent-b pilotctl --json lookup agent-c 2>/dev/null | jq -r '.data.address // empty')
+    ADDR_B=$($DC exec -T agent-b pilotctl --json find agent-c 2>/dev/null | jq -r '.data.address // empty')
     if [ -n "$ADDR_B" ] && [ "$ADDR_B" != "null" ]; then break; fi
     sleep 1
 done

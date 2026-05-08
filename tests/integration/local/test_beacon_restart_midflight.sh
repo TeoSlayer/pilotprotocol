@@ -36,7 +36,6 @@ echo "Beacon restart mid-flight"
 echo "=========================================="
 
 cleanup() {
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -51,34 +50,8 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
-
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "beacon-restart-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-
 # Warm the tunnel before the restart so data-plane is cached.
-log_test "warm task before beacon restart"
-S0=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "warm" 2>&1)
-T0=$(echo "$S0" | jq -r '.data.task_id // empty')
-WS=""
-if [ -n "$T0" ]; then
-    for _ in $(seq 1 30); do
-        WS=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$T0" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$WS" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-echo "$WS" | grep -qiE "completed|succeeded|done" && log_pass "warm ok" || { log_fail "warm failed $WS"; exit 1; }
+$DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
 
 # ----- Restart beacon container ---------------------
 log_test "docker compose restart rendezvous (beacon container)"
@@ -104,45 +77,6 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 [ "$COUNT" -ge 2 ] && log_pass "total_nodes=$COUNT" || log_fail "only $COUNT agents after beacon restart"
-
-# Rebalance polo: the warm task pushed a below b. Run one b->a round
-# trip so a<->b are at parity before the post-restart submit — the
-# polo gate would otherwise reject a->b.
-$DC exec -T agent-a pilotctl enable-tasks >/dev/null 2>&1
-$DC exec -d agent-a bash -c '
-    rm -f /tmp/aw_stop /tmp/aw.log
-    while [ ! -f /tmp/aw_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/aw.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "rebal-ok" >>/tmp/aw.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-sleep 1
-$DC exec -T agent-b pilotctl --json task submit agent-a --task "rebal-b2a" >/dev/null 2>&1 || true
-sleep 3
-$DC exec -T agent-a touch /tmp/aw_stop >/dev/null 2>&1
-
-# ----- Existing tunnel traffic still flows ----
-log_test "task still completes post-beacon-restart"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "post-beacon" 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ -n "$TID" ]; then
-    for _ in $(seq 1 60); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_pass "post-beacon task completed"
-else
-    log_fail "post-beacon task stuck (status=$STA)"
-fi
 
 # ----- fresh lookup still works (beacon-assisted discovery) ----
 log_test "pilotctl lookup works post-beacon-restart"

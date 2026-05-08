@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,12 +24,10 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
-	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
-	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
-	"github.com/TeoSlayer/pilotprotocol/pkg/skillinject"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 )
 
 // isRegistryRejectingUsErr returns true when the registry's response to a
@@ -82,6 +80,16 @@ type Config struct {
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
 
+	// FakeListenAddr overrides the listen_addr advertised to the
+	// registry. Real socket binding still uses ListenAddr; only the
+	// registered metadata is rewritten. Intended for synthetic-fleet
+	// scenarios where a daemon should appear at a country-residential
+	// address while still operating on a real OS socket. Endpoint
+	// learning on the data path is packet-driven, so peer responses
+	// continue to reach the real socket regardless of the advertised
+	// addr (see pkg/daemon/tunnel.go peerAddr learning).
+	FakeListenAddr string
+
 	// RelayOnly hides this node's real_addr from peer resolve/lookup
 	// responses. Peers reach this node only via the beacon-relay path,
 	// so this node's public IP is never exposed to other daemons.
@@ -93,7 +101,6 @@ type Config struct {
 	DisableEcho         bool // disable built-in echo service (port 7)
 	DisableDataExchange bool // disable built-in data exchange service (port 1001)
 	DisableEventStream  bool // disable built-in event stream service (port 1002)
-	DisableTaskSubmit   bool // disable built-in task submission service (port 1003)
 	DisablePolicyRunner bool // skip loading expr policy runners and joining networks at startup
 
 	// Webhook
@@ -103,13 +110,6 @@ type Config struct {
 
 	// Trust
 	TrustAutoApprove bool // automatically approve all incoming handshake requests
-
-	// PoloGateMin is the minimum polo score the receiver requires from
-	// a submitter for a task to be accepted. 0 = use the registry's
-	// default rule (submitter polo >= receiver polo). Positive values
-	// publish a "guarantee floor" — submitters must meet this even if
-	// the receiver itself scores lower.
-	PoloGateMin int
 
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
@@ -222,21 +222,44 @@ type Daemon struct {
 	tunnels         *TunnelManager
 	ports           *PortManager
 	ipc             *IPCServer
-	handshakes      *HandshakeManager
-	webhook         *WebhookClient
-	taskQueue       *TaskQueue
+	handshakes      HandshakeService
+
+	// network.* bus subscriber for daemon-internal reactions (managed
+	// engines + member-tag cache). Wired by subscribeNetworkInternalToBus
+	// during Start; torn down before tunnels in doStop. (T4.3.)
+	netSubMu   sync.Mutex
+	netSubStop func()
+
 	startTime       time.Time
 	stopCh          chan struct{}         // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
 	stopOnce        sync.Once             // ensures stopCh is closed exactly once
 
-	// In-flight dial dedup: concurrent DialConnection calls to the same
-	// (peer_node, dst_port) park on the first dialer's done channel
-	// instead of allocating their own SYN_SENT entry. Eliminates the
-	// "3 stuck SYN_SENT to same peer" pattern visible in `pilotctl info`
-	// when multiple commands race against a cold peer.
-	dialFlight sync.Map // key: dialKey, value: *dialInFlight
-	lanAddrs   []string // LAN addresses for same-network peer detection
+	// In-process event bus. Core layers Publish; the webhook plugin
+	// (and any other observability plugin) Subscribe. Replaces inline
+	// webhook.Emit calls (T4.1).
+	bus *inProcessBus
+
+	// Webhook plugin handle, set via RegisterWebhookManager. Daemon-
+	// local interface (no plugin import). Routes IPC's `set-webhook`
+	// to the plugin and exposes plugin counters for DaemonInfo.
+	webhookManager WebhookManager
+
+	// Trust checker registered by the trustedagents plugin via
+	// RegisterTrustChecker. Daemon-local interface (primitive
+	// signatures) so daemon doesn't import pkg/coreapi (T7.1).
+	trustChecker TrustChecker
+
+	// Policy plugin handle, set via RegisterPolicyManager. Daemon-
+	// local interface (primitive signatures only).
+	policyManager PolicyManager
+
+	// Daemon-shutdown context that sidecar plugins respect for
+	// graceful shutdown. Canceled when stopCh closes.
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+
+	lanAddrs []string // LAN addresses for same-network peer detection
 
 	// Endpoint cache: nodeID -> last-known endpoint (peer resilience)
 	epCacheMu sync.RWMutex
@@ -254,6 +277,19 @@ type Daemon struct {
 	hostnameCacheMu sync.RWMutex
 	hostnameCache   map[string]*hostnameCacheEntry
 
+	// nodeNetworks cache: short TTL snapshot of `regConn.Lookup(self).networks`.
+	// Issue #93: Daemon.Info() and handleHealth call nodeNetworks() on every
+	// invocation. Under §4.8 stress (250 heartbeat goroutines × ~10 ops/s,
+	// half of which are Info/Health) that meant ~1250 registry round-trips
+	// per second per daemon, all serialised through the IPC read loop.
+	// Caching for one second turns the steady-state cost from O(calls) to
+	// O(unique seconds) without observable staleness for callers (network
+	// memberships rarely change inside a second; admins who care invalidate
+	// via JoinNetwork/LeaveNetwork which clear the cache).
+	nodeNetworksCacheMu sync.Mutex
+	nodeNetworksCache   []uint16
+	nodeNetworksCacheAt time.Time
+
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
 	synTokens   int
@@ -267,13 +303,13 @@ type Daemon struct {
 	netPolicyMu sync.RWMutex
 	netPolicies map[uint16][]uint16
 
-	// Managed network engines: netID -> engine
+	// Managed network engines: netID -> engine (older "managed network"
+	// feature — doesn't reference pkg/policy, stays in pkg/daemon).
 	managedMu sync.Mutex
 	managed   map[uint16]*ManagedEngine
 
-	// Policy runners: netID -> compiled policy runner (expr-based policy engine)
-	policyMu      sync.Mutex
-	policyRunners map[uint16]*PolicyRunner
+	// policyRunners moved to plugins/policy as part of T2.3. Daemon
+	// now consults policyManager (above).
 
 	// Cached member tags: netID -> local node's admin-assigned tags
 	memberTagsMu sync.RWMutex
@@ -342,7 +378,6 @@ func New(cfg Config) *Daemon {
 		config:        cfg,
 		tunnels:       NewTunnelManager(),
 		ports:         NewPortManager(),
-		taskQueue:     NewTaskQueue(),
 		stopCh:        make(chan struct{}),
 		synTokens:     cfg.synRateLimit(),
 		synLastFill:   time.Now(),
@@ -352,11 +387,16 @@ func New(cfg Config) *Daemon {
 		hostnameCache: make(map[string]*hostnameCacheEntry),
 		netPolicies:   make(map[uint16][]uint16),
 		managed:       make(map[uint16]*ManagedEngine),
-		policyRunners: make(map[uint16]*PolicyRunner),
 		memberTags:    make(map[uint16][]string),
 	}
+	d.ctx, d.cancelCtx = context.WithCancel(context.Background())
+	d.bus = newInProcessBus(d.NodeID)
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
-	d.handshakes = NewHandshakeManager(d)
+	// HandshakeService is wired post-construction by the composition
+	// root via RegisterHandshakeService (T3.3 — handshake plugin moved
+	// to plugins/handshake). Tests that don't register the plugin will
+	// see d.handshakes == nil; the trust-gate / IPC paths guard against
+	// that.
 	return d
 }
 
@@ -440,7 +480,40 @@ func (d *Daemon) Start() error {
 	// pounding regConn for a fresh resolve_hostname.
 	d.loadHostnameCache()
 
-	// 0. Resolve email: flag > owner (deprecated) > account file
+	// 0. Resolve identity first (needed if we have to synthesise an email
+	// from the public-key fingerprint when no email is provided).
+	if d.config.IdentityPath != "" {
+		id, err := crypto.LoadIdentity(d.config.IdentityPath)
+		if err != nil {
+			return fmt.Errorf("load identity: %w", err)
+		}
+		if id != nil {
+			d.identity = id
+			slog.Info("loaded identity", "path", d.config.IdentityPath)
+		}
+	}
+	if d.identity == nil {
+		id, err := crypto.GenerateIdentity()
+		if err != nil {
+			return fmt.Errorf("generate identity: %w", err)
+		}
+		d.identity = id
+		if d.config.IdentityPath != "" {
+			if err := crypto.SaveIdentity(d.config.IdentityPath, d.identity); err != nil {
+				slog.Warn("failed to save identity", "error", err)
+			} else {
+				slog.Info("saved identity", "path", d.config.IdentityPath)
+			}
+		}
+	}
+
+	// 0b. Resolve email: flag > owner (deprecated) > account file > synthesise
+	// from the public-key fingerprint. Email is required as a stable identifier
+	// the registry can use; if the user didn't provide one, default to a
+	// synthetic <fingerprint>@nodes.pilotprotocol.network. The synthetic email
+	// is unambiguously not a real person — the registry treats it as a local
+	// node with no public contact, and the user can later override it via
+	// `pilotctl set-email <addr>` to opt into Network 9 / public directory.
 	email := d.config.Email
 	if email == "" && d.config.Owner != "" {
 		email = d.config.Owner
@@ -452,8 +525,16 @@ func (d *Daemon) Start() error {
 			slog.Info("loaded email from account file", "path", acctPath)
 		}
 	}
+	synthesised := false
 	if email == "" {
-		return fmt.Errorf("email address required: use -email you@example.com")
+		// Derive 12 hex chars from the first 6 bytes of the Ed25519 public key.
+		// Stable per-identity, locally derivable, no PII.
+		fp := hex.EncodeToString(d.identity.PublicKey[:6])
+		email = fp + "@nodes.pilotprotocol.network"
+		synthesised = true
+		slog.Info("no email provided; using synthetic identity-derived email",
+			"email", email,
+			"hint", "set a real email later via `pilotctl set-email <addr>` to opt into Network 9 / public directory")
 	}
 	if err := validate.Email(email); err != nil {
 		return fmt.Errorf("invalid email: %w", err)
@@ -461,13 +542,16 @@ func (d *Daemon) Start() error {
 	d.config.Email = email
 	d.config.Owner = email // keep Owner in sync for registry and DaemonInfo
 
-	// Persist email to account file (if identity path is set)
+	// Persist email to account file (if identity path is set). For synthetic
+	// emails we still persist so subsequent daemon starts produce a stable
+	// identity rather than a fresh fingerprint each boot.
 	if d.config.IdentityPath != "" {
 		acctPath := account.PathFromIdentity(d.config.IdentityPath)
 		if err := account.Save(acctPath, &account.Account{Email: email}); err != nil {
 			slog.Warn("failed to save account file", "error", err)
 		}
 	}
+	_ = synthesised // reserved for future log/metric tagging
 
 	// 1. Discover our public endpoint via beacon using a temporary UDP socket.
 	// If -endpoint is set, skip STUN and use the fixed address (for cloud VMs).
@@ -502,6 +586,14 @@ func (d *Daemon) Start() error {
 		}
 	}
 
+	// 2b. Wire the event bus into the tunnel layer BEFORE starting the
+	// UDP listener. The readLoop spawned by Listen() reads tm.bus from
+	// every recoverLayer call site; if SetEventBus runs after Listen,
+	// the bus pointer write races with those reads (issue #99 surfaced
+	// the race under §4.8 stress with -race). d.bus is constructed in
+	// New() so it's safe to publish here.
+	d.tunnels.SetEventBus(d.bus)
+
 	// 3. Start UDP listener for tunnel traffic
 	if err := d.tunnels.Listen(d.config.ListenAddr); err != nil {
 		return fmt.Errorf("tunnel listen: %w", err)
@@ -526,32 +618,9 @@ func (d *Daemon) Start() error {
 		registrationAddr = resolveLocalAddr(actualAddr)
 	}
 
-	// 3. Load or generate identity locally
-	if d.config.IdentityPath != "" {
-		id, err := crypto.LoadIdentity(d.config.IdentityPath)
-		if err != nil {
-			return fmt.Errorf("load identity: %w", err)
-		}
-		if id != nil {
-			d.identity = id
-			slog.Info("loaded identity", "path", d.config.IdentityPath)
-		}
-	}
-	// Always generate identity locally if we don't have one
-	if d.identity == nil {
-		id, err := crypto.GenerateIdentity()
-		if err != nil {
-			return fmt.Errorf("generate identity: %w", err)
-		}
-		d.identity = id
-		if d.config.IdentityPath != "" {
-			if err := crypto.SaveIdentity(d.config.IdentityPath, d.identity); err != nil {
-				slog.Warn("failed to save identity", "error", err)
-			} else {
-				slog.Info("saved identity", "path", d.config.IdentityPath)
-			}
-		}
-	}
+	// 3. Identity is already loaded/generated at the top of Start (step 0)
+	//    so the synthetic email could be derived from the public key. Nothing
+	//    to do here.
 
 	// 4. Register with the registry (always with client-generated key).
 	// Retry the initial dial with bounded backoff: in real deployments the
@@ -562,6 +631,14 @@ func (d *Daemon) Start() error {
 	var rc *registry.Client
 	var err error
 	const maxRegistryDialAttempts = 10
+	// regConnPoolSize is the number of TCP conns the daemon keeps open to
+	// the registry. With a single conn (the historical default) every
+	// regConn.Send serialises on one mutex — issue #93. 4 conns is enough
+	// to absorb the steady-state burst (heartbeat + per-resolve prewarm +
+	// persistHostnameCache fan-out) and small enough that a few hundred
+	// daemons against one registry server stay well under the registry's
+	// per-host backpressure threshold.
+	const regConnPoolSize = 4
 	registryDialBackoff := 500 * time.Millisecond
 	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
 		if d.config.RegistryTLS {
@@ -570,7 +647,7 @@ func (d *Daemon) Start() error {
 			}
 			rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
 		} else {
-			rc, err = registry.Dial(d.config.RegistryAddr)
+			rc, err = registry.DialPool(d.config.RegistryAddr, regConnPoolSize)
 		}
 		if err == nil {
 			break
@@ -598,6 +675,10 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
+	if d.config.FakeListenAddr != "" {
+		registrationAddr = d.config.FakeListenAddr
+		slog.Info("using fake listen addr for registration", "fake_addr", registrationAddr)
+	}
 	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -655,31 +736,21 @@ func (d *Daemon) Start() error {
 
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
 
-	// Initialize webhook client (no-op if URL is empty).
-	// If no URL is configured, fall back to a persisted URL from a previous
-	// `pilotctl set-webhook` — that way node.registered/agent.registered on
-	// daemon restart still reaches the sink without re-issuing set-webhook.
-	webhookURL := d.config.WebhookURL
-	if webhookURL == "" {
-		if persisted, err := loadPersistedWebhookURL(); err == nil && persisted != "" {
-			webhookURL = persisted
-		}
-	}
-	var webhookOpts []WebhookOption
-	if d.config.WebhookHTTPTimeout > 0 {
-		webhookOpts = append(webhookOpts, WithHTTPTimeout(d.config.WebhookHTTPTimeout))
-	}
-	if d.config.WebhookRetryBackoff > 0 {
-		webhookOpts = append(webhookOpts, WithRetryBackoff(d.config.WebhookRetryBackoff))
-	}
-	d.webhook = NewWebhookClient(webhookURL, d.NodeID, webhookOpts...)
-	d.tunnels.SetWebhook(d.webhook)
-	d.handshakes.SetWebhook(d.webhook)
-	d.webhook.Emit("node.registered", map[string]interface{}{
+	// T4.1: webhook is now a bus subscriber owned by plugins/webhook.
+	// cmd/daemon (composition root) constructs the plugin and starts
+	// it via plugins/runtime.StartPlugins AFTER Daemon.Start returns.
+	// All d.webhook.Emit sites have been migrated to d.publishEvent.
+	// (SetEventBus moved earlier — see step 2b above. Issue #99: read/write
+	// race against the tunnel readLoop with `-race` under §4.8.)
+	// T4.3: daemon-internal reaction to network.* events (managed
+	// engines + member-tag cache). Must wire BEFORE the first
+	// reconcileMembership tick so the inaugural delta is observed.
+	d.subscribeNetworkInternalToBus()
+	d.publishEvent("node.registered", map[string]interface{}{
 		"address":  d.addr.String(),
 		"endpoint": registrationAddr,
 	})
-	d.webhook.Emit("agent.registered", map[string]interface{}{
+	d.publishEvent("agent.registered", map[string]interface{}{
 		"address":  d.addr.String(),
 		"endpoint": registrationAddr,
 		"node_id":  d.nodeID,
@@ -716,7 +787,7 @@ func (d *Daemon) Start() error {
 				}
 				// Record the initial pick into selection state so the
 				// refresh loop's swap-detection sees the right baseline.
-				d.beaconSelection.applyRefreshDecision(refreshDecision{
+				d.beaconSelection.ApplyRefreshDecision(refreshDecision{
 					NewList:    beaconList,
 					NewPick:    picked,
 					ShouldSwap: true,
@@ -766,12 +837,9 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("ipc start: %w", err)
 	}
 
-	// 5. Start handshake service on port 444
-	if d.identity != nil {
-		if err := d.handshakes.Start(); err != nil {
-			slog.Warn("handshake service failed to start", "error", err)
-		}
-	}
+	// 5. Handshake service (port 444) is started by the handshake plugin
+	// via plugins/runtime.StartPlugins after Daemon.Start completes.
+	// See cmd/daemon/main.go for the registration glue.
 
 	// 6. Start built-in services (echo, dataexchange, eventstream)
 	d.startBuiltinServices()
@@ -779,8 +847,15 @@ func (d *Daemon) Start() error {
 	// 7. Start packet router
 	go d.routeLoop()
 
-	// 8. Start heartbeat
-	go d.heartbeatLoop()
+	// 8. Start heartbeat — split per layer (T4.3, P9/P10):
+	//    - trustRepublishLoop          (L5/L8): registry heartbeat + reregister
+	//    - tunnelKeepaliveLoop         (L4):    beacon NAT-mapping refresh
+	//    - handshakePollLoop           (L11):   relayed-handshake polling
+	//    - observabilityHeartbeatLoop  (L11):   agent.heartbeat bus publish
+	go d.trustRepublishLoop()
+	go d.tunnelKeepaliveLoop()
+	go d.handshakePollLoop()
+	go d.observabilityHeartbeatLoop()
 
 	// 9. Start idle connection sweeper
 	go d.idleSweepLoop()
@@ -831,27 +906,11 @@ func (d *Daemon) Start() error {
 	//     (warms ONLY the peer the user just asked about, not the
 	//     entire trust list)
 
-	// 13. Trusted-agents fetcher: hourly refresh of the auto-accept
-	// list from GitHub. Embedded blob in the binary is the bootstrap.
-	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() { <-d.stopCh; cancel() }()
-		trustedagents.Run(ctx)
-	}()
-
-	// 14. Skill injector: scan for installed agent tools (Claude Code,
-	// OpenClaw, Cursor, OpenHands, Hermes) and drop the Pilot Protocol
-	// skill markdown into each one's skills/rules dir, plus a heartbeat
-	// reference into the always-loaded instructions file. Idempotent —
-	// won't rewrite if the on-disk hash already matches.
-	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			<-d.stopCh
-			cancel()
-		}()
-		skillinject.Run(ctx, skillinject.Config{})
-	}()
+	// 13/14. L11 plugin lifecycle (trustedagents, skillinject,
+	// dataexchange, eventstream, tasks, policy) is owned by
+	// plugins/runtime — cmd/daemon (composition root) calls
+	// runtime.StartPlugins(ctx) AFTER this Start returns. This
+	// inversion is T7.1: pkg/daemon no longer imports pkg/coreapi.
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
@@ -1008,7 +1067,7 @@ func (d *Daemon) autoJoinNetworks() {
 			continue
 		}
 		slog.Info("auto-joined network", "network_id", netID)
-		d.webhook.Emit("network.auto_joined", map[string]interface{}{"network_id": netID})
+		d.publishEvent("network.auto_joined", map[string]interface{}{"network_id": netID})
 	}
 }
 
@@ -1026,6 +1085,9 @@ func (d *Daemon) Stop() error {
 	// Idempotent: only the first caller runs shutdown; others wait and return nil.
 	d.stopOnce.Do(func() {
 		close(d.stopCh)
+		if d.cancelCtx != nil {
+			d.cancelCtx()
+		}
 		d.doStop()
 	})
 	return nil
@@ -1047,7 +1109,7 @@ func (d *Daemon) doStop() {
 		}
 		c.Mu.Unlock()
 	}
-	d.webhook.Emit("daemon.shutting_down", map[string]interface{}{
+	d.publishEvent("daemon.shutting_down", map[string]interface{}{
 		"open_connections": openConns,
 		"known_peers":      d.tunnels.PeerCount(),
 		"uptime_seconds":   int(time.Since(d.startTime).Seconds()),
@@ -1101,9 +1163,30 @@ func (d *Daemon) doStop() {
 
 	d.stopPolicyRunners()
 	d.stopManaged()
+
+	// L11 plugin lifecycle is owned by plugins/runtime — cmd/daemon
+	// (composition root) calls runtime.StopPlugins(ctx) BEFORE
+	// invoking Daemon.Stop. By the time we get here, plugins are
+	// already stopped. (T7.1.)
+
 	d.ipc.Close()
 	d.tunnels.Close()
-	d.webhook.Close()
+
+	// T4.3: drain the network.* internal subscriber so no in-flight
+	// reconcileMembership tick lingers after Stop returns.
+	d.netSubMu.Lock()
+	netStop := d.netSubStop
+	d.netSubStop = nil
+	d.netSubMu.Unlock()
+	if netStop != nil {
+		netStop()
+	}
+
+	// T4.1: webhook lifecycle (bus subscribe + HTTP client) is owned
+	// by plugins/webhook. cmd/daemon stops plugins after Daemon.Stop
+	// so the daemon.shutting_down event published above flows through
+	// the bus to the still-subscribed plugin, which drains its
+	// internal queue on Stop().
 }
 
 // startManaged detects managed networks this node belongs to and starts engines.
@@ -1140,7 +1223,7 @@ func (d *Daemon) startManaged() {
 
 		// Parse rules from map
 		rb, _ := json.Marshal(rulesRaw)
-		rules, err := registry.ParseRules(string(rb))
+		rules, err := registrywire.ParseRules(string(rb))
 		if err != nil {
 			slog.Warn("managed: invalid rules on network", "network_id", netID, "err", err)
 			continue
@@ -1170,7 +1253,7 @@ func (d *Daemon) stopManaged() {
 }
 
 // StartManagedEngine starts a managed engine for a newly joined network.
-func (d *Daemon) StartManagedEngine(netID uint16, rules *registry.NetworkRules) {
+func (d *Daemon) StartManagedEngine(netID uint16, rules *registrywire.NetworkRules) {
 	d.managedMu.Lock()
 	defer d.managedMu.Unlock()
 
@@ -1205,7 +1288,33 @@ func (d *Daemon) GetManagedEngine(netID uint16) *ManagedEngine {
 }
 
 // nodeNetworks returns this node's network memberships by querying the registry.
+// nodeNetworksTTL bounds how long a cached nodeNetworks() snapshot may serve
+// readers. Issue #93: bumped from "no cache" to 1 s to absorb §4.8-style
+// concurrent Info/Health bursts without each one round-tripping the registry.
+const nodeNetworksTTL = 1 * time.Second
+
+// nodeNetworks returns the cached network membership list, refreshing on
+// miss. Use nodeNetworksFresh to bypass the cache (e.g. when membership
+// is known to have changed but the cache TTL hasn't expired).
 func (d *Daemon) nodeNetworks() []uint16 {
+	d.nodeNetworksCacheMu.Lock()
+	if !d.nodeNetworksCacheAt.IsZero() && time.Since(d.nodeNetworksCacheAt) < nodeNetworksTTL {
+		// Return a copy so callers can mutate freely without poisoning
+		// the cache.
+		out := make([]uint16, len(d.nodeNetworksCache))
+		copy(out, d.nodeNetworksCache)
+		d.nodeNetworksCacheMu.Unlock()
+		return out
+	}
+	d.nodeNetworksCacheMu.Unlock()
+	return d.nodeNetworksFresh()
+}
+
+// nodeNetworksFresh always fetches from the registry, ignoring the cache.
+// Stores the result in the cache for subsequent nodeNetworks() callers.
+// Used by reconcileMembership where stale cache hides genuine join/leave
+// deltas, and by paths that must observe an up-to-the-millisecond list.
+func (d *Daemon) nodeNetworksFresh() []uint16 {
 	resp, err := d.regConn.Lookup(d.NodeID())
 	if err != nil {
 		return nil
@@ -1217,7 +1326,25 @@ func (d *Daemon) nodeNetworks() []uint16 {
 			nets = append(nets, uint16(f))
 		}
 	}
-	return nets
+
+	d.nodeNetworksCacheMu.Lock()
+	d.nodeNetworksCache = nets
+	d.nodeNetworksCacheAt = time.Now()
+	d.nodeNetworksCacheMu.Unlock()
+
+	out := make([]uint16, len(nets))
+	copy(out, nets)
+	return out
+}
+
+// invalidateNodeNetworksCache clears the cached membership list. Called from
+// network-mutating IPC paths (JoinNetwork / LeaveNetwork) so callers see
+// fresh state immediately, not after the TTL expires.
+func (d *Daemon) invalidateNodeNetworksCache() {
+	d.nodeNetworksCacheMu.Lock()
+	d.nodeNetworksCache = nil
+	d.nodeNetworksCacheAt = time.Time{}
+	d.nodeNetworksCacheMu.Unlock()
 }
 
 func (d *Daemon) NodeID() uint32 {
@@ -1283,131 +1410,223 @@ func (d *Daemon) isPortAllowed(netID uint16, port uint16) bool {
 // the event is rejected; otherwise allow. Side effects (score, tag, log,
 // webhook) execute on every matching runner so each network's view of the
 // peer reflects the activity.
-func (d *Daemon) evaluatePortPolicy(eventType policy.EventType, netID uint16, port uint16, peerNodeID uint32, payloadSize int, direction string) bool {
-	d.policyMu.Lock()
-	primary := d.policyRunners[netID]
-	others := make([]*PolicyRunner, 0, len(d.policyRunners))
-	for nid, pr := range d.policyRunners {
-		if nid == netID || pr == nil {
+func (d *Daemon) evaluatePortPolicy(eventType PolicyEventType, netID uint16, port uint16, peerNodeID uint32, payloadSize int, direction string) bool {
+	pm := d.policyManager
+	if pm == nil {
+		return d.isPortAllowed(netID, port)
+	}
+
+	primary := pm.Get(netID)
+	var others []PolicyRunner
+	for _, pr := range pm.All() {
+		if pr.NetworkID() == netID {
 			continue
 		}
-		pr.mu.RLock()
-		_, member := pr.peers[peerNodeID]
-		pr.mu.RUnlock()
-		if member {
+		if pr.HasMember(peerNodeID) {
 			others = append(others, pr)
 		}
 	}
-	d.policyMu.Unlock()
+
+	nodeInfoTags := d.nodeInfoTagsFor(peerNodeID)
 
 	allow := true
 	consulted := 0
 
 	if primary != nil {
 		consulted++
-		if !d.runPolicyGate(primary, eventType, port, peerNodeID, netID, payloadSize, direction) {
+		d.memberTagsMu.RLock()
+		localTags := append([]string(nil), d.memberTags[netID]...)
+		d.memberTagsMu.RUnlock()
+		if !primary.EvaluatePortGate(eventType, port, peerNodeID, payloadSize, direction, localTags, nodeInfoTags) {
 			allow = false
 		}
 	}
 	for _, pr := range others {
 		consulted++
-		if !d.runPolicyGate(pr, eventType, port, peerNodeID, pr.netID, payloadSize, direction) {
+		// Each cross-network runner must use localTags from its own network,
+		// not the packet's network. The member tags for network N are stored
+		// under d.memberTags[N]; using d.memberTags[packetNetID] would always
+		// return empty for cross-network evaluation (packet comes in on net 0
+		// but the policy runner lives on a managed network).
+		d.memberTagsMu.RLock()
+		localTags := append([]string(nil), d.memberTags[pr.NetworkID()]...)
+		d.memberTagsMu.RUnlock()
+		if !pr.EvaluatePortGate(eventType, port, peerNodeID, payloadSize, direction, localTags, nodeInfoTags) {
 			allow = false
 		}
 	}
 
 	if consulted == 0 {
-		// Fallback: legacy port allowlist
 		return d.isPortAllowed(netID, port)
 	}
 	return allow
 }
 
-// runPolicyGate evaluates a single policy runner with the standard context
-// (peer score/age/tags, local tags, members). Returns the runner's
-// allow/deny verdict; side effects (score, tag, log, webhook) are applied
-// inside EvaluateGate.
-func (d *Daemon) runPolicyGate(pr *PolicyRunner, eventType policy.EventType, port uint16, peerNodeID uint32, netID uint16, payloadSize int, direction string) bool {
-	ctx := map[string]interface{}{
-		"port":       int(port),
-		"peer_id":    int(peerNodeID),
-		"network_id": int(netID),
-	}
-	d.memberTagsMu.RLock()
-	if tags, ok := d.memberTags[netID]; ok {
-		ctx["local_tags"] = tags
-	} else {
-		ctx["local_tags"] = []string{}
-	}
-	d.memberTagsMu.RUnlock()
-	switch eventType {
-	case policy.EventConnect, policy.EventDial, policy.EventDatagram:
-		ctx["peer_score"] = 0
-		ctx["peer_age_s"] = 0.0
-		ctx["members"] = 0
-		var localTags []string
-		pr.mu.RLock()
-		if p, ok := pr.peers[peerNodeID]; ok {
-			ctx["peer_score"] = p.Score
-			localTags = p.tags()
-			ctx["peer_age_s"] = time.Since(p.AddedAt).Seconds()
+// nodeInfoTagsFor returns the registry-level tags assigned to a peer
+// (`pilotctl set-tags`). The plugin merges these with policy-local
+// tags inside EvaluatePortGate (T2.3). Replaces the daemon-side
+// peerTagsFor merge that previously lived alongside runPolicyGate.
+func (d *Daemon) nodeInfoTagsFor(peerNodeID uint32) []string {
+	var tags []string
+	d.resolveCacheMu.RLock()
+	if e, ok := d.resolveCache[peerNodeID]; ok {
+		if raw, ok := e.resp["tags"].([]interface{}); ok {
+			for _, t := range raw {
+				if s, ok := t.(string); ok {
+					tags = append(tags, s)
+				}
+			}
 		}
-		ctx["members"] = len(pr.peers)
-		pr.mu.RUnlock()
-		ctx["peer_tags"] = d.peerTagsFor(peerNodeID, localTags)
 	}
-	if eventType == policy.EventDatagram {
-		ctx["size"] = payloadSize
-		ctx["direction"] = direction
-	}
-	return pr.EvaluateGate(eventType, ctx)
+	d.resolveCacheMu.RUnlock()
+	return tags
 }
 
 // GetPolicyRunner returns the policy runner for a network, or nil.
-func (d *Daemon) GetPolicyRunner(netID uint16) *PolicyRunner {
-	d.policyMu.Lock()
-	defer d.policyMu.Unlock()
-	return d.policyRunners[netID]
+// Delegates to the registered policy manager.
+func (d *Daemon) GetPolicyRunner(netID uint16) PolicyRunner {
+	if d.policyManager == nil {
+		return nil
+	}
+	return d.policyManager.Get(netID)
 }
 
-// StartPolicyRunner starts a policy runner for a network.
+// StartPolicyRunner compiles a policy JSON and registers a runner via
+// the policy manager. Errors when no manager is registered.
 func (d *Daemon) StartPolicyRunner(netID uint16, policyJSON json.RawMessage) error {
-	doc, err := policy.Parse(policyJSON)
-	if err != nil {
-		return fmt.Errorf("policy parse: %w", err)
+	if d.policyManager == nil {
+		return fmt.Errorf("policy plugin not registered")
 	}
-	cp, err := policy.Compile(doc)
-	if err != nil {
-		return fmt.Errorf("policy compile: %w", err)
+	if _, err := d.policyManager.Start(netID, policyJSON); err != nil {
+		return err
 	}
-
-	d.policyMu.Lock()
-	defer d.policyMu.Unlock()
-
-	// Stop existing runner if any
-	if old, ok := d.policyRunners[netID]; ok {
-		old.Stop()
-	}
-
-	pr := NewPolicyRunner(netID, cp, d)
-	pr.Start()
-	d.policyRunners[netID] = pr
 	return nil
 }
 
-// StopPolicyRunner stops the policy runner for a network.
+// StopPolicyRunner stops the policy runner for a network. No-op if no
+// manager is registered or no runner exists for netID.
 func (d *Daemon) StopPolicyRunner(netID uint16) {
-	d.policyMu.Lock()
-	pr, ok := d.policyRunners[netID]
-	if ok {
-		delete(d.policyRunners, netID)
+	if d.policyManager == nil {
+		return
 	}
-	d.policyMu.Unlock()
-
-	if ok {
-		pr.Stop()
-	}
+	d.policyManager.Stop(netID)
 }
+
+// RegisterPolicyManager wires the L11 policy plugin into the daemon.
+// cmd/daemon (composition root) constructs the plugin and calls this.
+// Takes the daemon-local PolicyManager interface (primitive
+// signatures only); the plugin's manager satisfies it via structural
+// typing without daemon importing pkg/coreapi (T7.1).
+func (d *Daemon) RegisterPolicyManager(pm PolicyManager) {
+	d.policyManager = pm
+}
+
+// GetTrustChecker exposes the registered trust checker (or nil) so
+// plugins/runtime can include it in the coreapi.Deps it constructs.
+func (d *Daemon) GetTrustChecker() TrustChecker { return d.trustChecker }
+
+// RegisterTrustChecker installs the daemon-wide TrustChecker used by
+// the handshake handler to gate auto-accept. Replaces any previously-
+// registered checker. Takes the daemon-local interface (primitive
+// signatures) — plugin types satisfy it via structural typing.
+func (d *Daemon) RegisterTrustChecker(tc TrustChecker) {
+	d.trustChecker = tc
+}
+
+// NewConnReadWriter wraps a Connection with the daemon's net.Conn
+// adapter. plugins/runtime uses this to expose the conn as a
+// coreapi.Stream without needing access to the unexported connAdapter.
+func (d *Daemon) NewConnReadWriter(conn *Connection) ConnReadWriter {
+	return newConnAdapter(d, conn)
+}
+
+// ConnReadWriter is the public interface plugins/runtime sees for the
+// io-side of a Connection. Matches the unexported connAdapter shape.
+type ConnReadWriter interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+	Close() error
+}
+
+// --- Public accessors used by the policy plugin's Runtime adapter (T2.3) ---
+
+func (d *Daemon) PublishEvent(topic string, payload map[string]any) {
+	d.publishEvent(topic, payload)
+}
+
+func (d *Daemon) AdminToken() string { return d.config.AdminToken }
+
+func (d *Daemon) RegConnListNodes(netID uint16, token string) (map[string]any, error) {
+	if d.regConn == nil {
+		return nil, fmt.Errorf("registry connection not initialized")
+	}
+	return d.regConn.ListNodes(netID, token)
+}
+
+// TrustedPeers returns the trust records held by the registered
+// handshake service. Returns nil when no handshake plugin is wired
+// (e.g. unit tests that bypass plugins/runtime).
+func (d *Daemon) TrustedPeers() []HandshakeTrustRecord {
+	if d.handshakes == nil {
+		return nil
+	}
+	return d.handshakes.TrustedPeers()
+}
+
+func (d *Daemon) HandshakeRevokeTrust(nodeID uint32) error {
+	if d.handshakes == nil {
+		return fmt.Errorf("handshake service not registered")
+	}
+	return d.handshakes.RevokeTrust(nodeID)
+}
+
+func (d *Daemon) HandshakeSendRequest(nodeID uint32, reason string) error {
+	if d.handshakes == nil {
+		return fmt.Errorf("handshake service not registered")
+	}
+	return d.handshakes.SendRequest(nodeID, reason)
+}
+
+// RegisterHandshakeService installs the daemon-wide HandshakeService
+// implementation provided by the handshake plugin (T3.3). Called from
+// the composition root after constructing the plugin's Service.
+// Replaces any previously-registered service.
+func (d *Daemon) RegisterHandshakeService(svc HandshakeService) {
+	d.handshakes = svc
+}
+
+// HandshakeService returns the registered HandshakeService (or nil if
+// no handshake plugin has been registered). Mostly used by daemon
+// internals; external callers prefer the typed wrappers above.
+func (d *Daemon) HandshakeService() HandshakeService { return d.handshakes }
+
+// handshakePendingCount returns the pending-handshake count for the
+// status report, with a nil-safe guard for daemons that don't have a
+// handshake plugin registered.
+func handshakePendingCount(svc HandshakeService) int {
+	if svc == nil {
+		return 0
+	}
+	return svc.PendingCount()
+}
+
+// IdentityPath returns the configured identity file path, or "" if the
+// daemon runs without persistent identity. Exposed so the handshake
+// plugin can derive its trust.json store path from the same directory.
+func (d *Daemon) IdentityPath() string { return d.config.IdentityPath }
+
+// TrustAutoApprove reports whether the daemon was started with the
+// trust-auto-approve flag set. Exposed for the handshake plugin's
+// auto-accept gate.
+func (d *Daemon) TrustAutoApprove() bool { return d.config.TrustAutoApprove }
+
+// RegistryClient returns the underlying L8 registry-side-channel
+// client (or nil if no registry is configured). Exposed so the
+// handshake plugin can issue Lookup/ReportTrust/RevokeTrust /
+// RequestHandshake / RespondHandshake / PollHandshakes against the
+// same client the daemon uses elsewhere — there is no separate
+// connection or auth context.
+func (d *Daemon) RegistryClient() *registry.Client { return d.regConn }
 
 // peerTagsFor returns the merged tag set for a peer as seen by the policy
 // evaluator: policy-runner local tags (assigned via the `tag` action) unioned
@@ -1529,43 +1748,31 @@ func (d *Daemon) loadPolicyRunners() {
 	}
 }
 
-// stopPolicyRunners stops all policy runners.
+// stopPolicyRunners delegates to the policy manager. No-op when no
+// manager is registered (test daemons that don't load the plugin).
 func (d *Daemon) stopPolicyRunners() {
-	d.policyMu.Lock()
-	runners := make(map[uint16]*PolicyRunner, len(d.policyRunners))
-	for k, v := range d.policyRunners {
-		runners[k] = v
+	if d.policyManager == nil {
+		return
 	}
-	d.policyMu.Unlock()
-
-	for _, pr := range runners {
-		pr.Stop()
-	}
+	d.policyManager.StopAll()
 }
 
-// SetWebhookURL hot-swaps the webhook client at runtime.
-// An empty URL disables the webhook (all Emit calls become no-ops).
+// SetWebhookURL hot-swaps the webhook URL by delegating to the
+// registered WebhookManager (the plugins/webhook plugin). Called from
+// IPC's set-webhook handler. No-op if no manager is registered (e.g.
+// unit-test daemons that bypass cmd/daemon's plugin wiring).
 func (d *Daemon) SetWebhookURL(url string) {
-	old := d.webhook
-	var opts []WebhookOption
-	if d.config.WebhookHTTPTimeout > 0 {
-		opts = append(opts, WithHTTPTimeout(d.config.WebhookHTTPTimeout))
+	if d.webhookManager == nil {
+		return
 	}
-	if d.config.WebhookRetryBackoff > 0 {
-		opts = append(opts, WithRetryBackoff(d.config.WebhookRetryBackoff))
-	}
-	d.webhook = NewWebhookClient(url, d.NodeID, opts...)
-	d.tunnels.SetWebhook(d.webhook)
-	d.handshakes.SetWebhook(d.webhook)
-	old.Close()
-	if err := savePersistedWebhookURL(url); err != nil {
-		slog.Warn("failed to persist webhook URL", "err", err)
-	}
-	if url != "" {
-		slog.Info("webhook updated", "url", url)
-	} else {
-		slog.Info("webhook cleared")
-	}
+	d.webhookManager.SetURL(url)
+}
+
+// RegisterWebhookManager wires the L11 webhook plugin into the daemon
+// (T4.1). cmd/daemon (composition root) constructs the plugin and
+// calls this with an adapter satisfying the daemon-local interface.
+func (d *Daemon) RegisterWebhookManager(wm WebhookManager) {
+	d.webhookManager = wm
 }
 
 // Identity returns the daemon's Ed25519 identity (may be nil if unset).
@@ -1623,7 +1830,7 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 		}
 	}
 
-	d.webhook.Emit("key.rotated", map[string]interface{}{
+	d.publishEvent("key.rotated", map[string]interface{}{
 		"node_id":    nodeID,
 		"public_key": newPubB64,
 	})
@@ -1631,9 +1838,6 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	slog.Info("rotated identity key", "node_id", nodeID)
 	return resp, nil
 }
-
-// TaskQueue returns the daemon's task queue.
-func (d *Daemon) TaskQueue() *TaskQueue { return d.taskQueue }
 
 // AddTunnelPeer registers a peer's address in the tunnel manager (for testing/manual setup).
 func (d *Daemon) AddTunnelPeer(nodeID uint32, addr *net.UDPAddr) {
@@ -1647,6 +1851,171 @@ func (d *Daemon) Addr() protocol.Addr {
 	d.addrMu.RLock()
 	defer d.addrMu.RUnlock()
 	return d.addr
+}
+
+// --- Accessors for the plugin-runtime package (T7.1) ---
+//
+// These let plugins/runtime construct coreapi-typed adapters
+// (daemonStreams, daemonEventBus, daemonPolo) without pkg/daemon
+// importing pkg/coreapi.
+
+// Ports returns the daemon's port manager. Plugins/runtime uses this
+// to bind a coreapi.Listener for plugin services.
+func (d *Daemon) Ports() *PortManager { return d.ports }
+
+// Bus returns the daemon's in-process pub/sub bus. Plugins/runtime
+// uses it to construct a coreapi.EventBus adapter.
+func (d *Daemon) Bus() *inProcessBus { return d.bus }
+
+// Tunnels returns the daemon's tunnel manager. Mostly for in-tree
+// plugins that want direct access (tests + unusual integrations).
+func (d *Daemon) Tunnels() *TunnelManager { return d.tunnels }
+
+// publishEvent is the daemon-internal helper for publishing to the bus.
+// All event-bus subscribers (including the L11 webhook plugin via its
+// "*" subscription) receive the event. Nil-safe.
+func (d *Daemon) publishEvent(topic string, payload map[string]any) {
+	if d == nil || d.bus == nil {
+		return
+	}
+	d.bus.Publish(topic, payload)
+}
+
+// publishEventInternal is the entry point used by daemonEventBus.
+// Same dispatch as publishEvent — both go through the bus, which
+// fans out to all subscribers.
+func (d *Daemon) publishEventInternal(topic string, payload map[string]any) {
+	d.publishEvent(topic, payload)
+}
+
+// webhookStats fetches counters from the registered WebhookManager.
+// Returns the zero-value WebhookStats if no manager is registered —
+// keeps Info() nil-safe in unit tests that bypass plugins/runtime.
+func (d *Daemon) webhookStats() WebhookStats {
+	if d.webhookManager == nil {
+		return WebhookStats{}
+	}
+	return d.webhookManager.Stats()
+}
+
+// subscribeNetworkInternalToBus wires the daemon-internal reactor for
+// network.* bus events. Today it owns:
+//   - network.joined      → start a managed engine if the payload
+//                            carries non-empty rules and no engine is
+//                            running for the network
+//   - network.left        → stop the managed engine if one is running
+//   - network.tags_changed → already updated in the cache by
+//                            refreshMemberTagsAndDiff before publish;
+//                            event is observed for symmetry/logging
+//
+// When managed-engine moves to its own plugin, its half here will
+// move with it; the member-tag refresh side will stay daemon-internal
+// because the cache is consumed by L7 packet handlers (isPortAllowed,
+// peerTagsFor merge inside evaluatePortPolicy).
+//
+// Idempotent — replaces a prior subscription if already active.
+func (d *Daemon) subscribeNetworkInternalToBus() {
+	d.netSubMu.Lock()
+	defer d.netSubMu.Unlock()
+	if d.netSubStop != nil {
+		d.netSubStop()
+		d.netSubStop = nil
+	}
+	if d.bus == nil {
+		return
+	}
+	ch, cancel := d.bus.Subscribe("network.*")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ev := range ch {
+			switch ev.Topic {
+			case TopicNetworkJoined:
+				d.handleNetworkJoinedInternal(ev.Payload)
+			case TopicNetworkLeft:
+				d.handleNetworkLeftInternal(ev.Payload)
+			case TopicNetworkTagsChanged:
+				// Cache already updated by the publisher; nothing to
+				// do here. Subscriber kept for symmetry/logging.
+			}
+		}
+	}()
+	var once sync.Once
+	d.netSubStop = func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+}
+
+// handleNetworkJoinedInternal starts a managed engine when the
+// network.joined payload carries non-empty rules. Mirrors the old
+// syncManagedEngines logic (skip-if-running + ParseRules) so the
+// observable behavior of join → managed-engine.Start is unchanged.
+func (d *Daemon) handleNetworkJoinedInternal(payload map[string]any) {
+	netID, ok := networkIDFromBusPayload(payload)
+	if !ok {
+		return
+	}
+	rulesRaw, hasRules := payload["rules"]
+	if !hasRules || rulesRaw == nil {
+		return
+	}
+
+	d.managedMu.Lock()
+	_, running := d.managed[netID]
+	d.managedMu.Unlock()
+	if running {
+		return
+	}
+
+	rb, err := json.Marshal(rulesRaw)
+	if err != nil {
+		slog.Debug("network-sync: cannot marshal rules from event",
+			"network_id", netID, "err", err)
+		return
+	}
+	rules, err := registrywire.ParseRules(string(rb))
+	if err != nil {
+		slog.Debug("network-sync: invalid rules in network.joined event",
+			"network_id", netID, "err", err)
+		return
+	}
+	d.StartManagedEngine(netID, rules)
+	slog.Info("network-sync: started managed engine from event", "network_id", netID)
+}
+
+// handleNetworkLeftInternal stops a managed engine when the
+// network.left event arrives.
+func (d *Daemon) handleNetworkLeftInternal(payload map[string]any) {
+	netID, ok := networkIDFromBusPayload(payload)
+	if !ok {
+		return
+	}
+	d.StopManagedEngine(netID)
+}
+
+// networkIDFromBusPayload extracts a network_id from a bus-event
+// payload, accepting both the typed uint16 form (publisher uses it
+// directly) and JSON-decoded numeric forms (after the event has
+// round-tripped through any external transport).
+func networkIDFromBusPayload(p map[string]any) (uint16, bool) {
+	if p == nil {
+		return 0, false
+	}
+	switch v := p["network_id"].(type) {
+	case uint16:
+		return v, true
+	case int:
+		return uint16(v), true
+	case int64:
+		return uint16(v), true
+	case float64:
+		return uint16(v), true
+	default:
+		return 0, false
+	}
 }
 
 // DaemonInfo holds status information about the running daemon.
@@ -1721,9 +2090,14 @@ func (d *Daemon) Info() *DaemonInfo {
 
 	hasIdentity := d.config.IdentityPath != ""
 	pubKeyStr := ""
+	// Issue #93: take identityMu for the read — RotateKey writes d.identity
+	// under that mutex. Without it concurrent Info() / RotateKey races trip
+	// the race detector.
+	d.identityMu.RLock()
 	if d.identity != nil {
 		pubKeyStr = crypto.EncodePublicKey(d.identity.PublicKey)
 	}
+	d.identityMu.RUnlock()
 
 	d.addrMu.RLock()
 	nid := d.nodeID
@@ -1766,21 +2140,34 @@ func (d *Daemon) Info() *DaemonInfo {
 		PktsRecv:              atomic.LoadUint64(&d.tunnels.PktsRecv),
 		EncryptOK:             atomic.LoadUint64(&d.tunnels.EncryptOK),
 		EncryptFail:           atomic.LoadUint64(&d.tunnels.EncryptFail),
-		HandshakePendingCount: d.handshakes.PendingCount(),
+		HandshakePendingCount: handshakePendingCount(d.handshakes),
 		Version:               d.config.Version,
 		Networks:              networks,
 		PeerList:              peerList,
 		ConnList:              d.ports.ConnectionList(),
 		AcceptQueueDrops:      atomic.LoadUint64(&d.AcceptQueueDrops),
-		WebhookQueueDropped:   d.webhook.Dropped(),
-		WebhookCircuitSkips:   d.webhook.CircuitSkips(),
+		WebhookQueueDropped:   d.webhookStats().Dropped,
+		WebhookCircuitSkips:   d.webhookStats().CircuitSkips,
 	}
 }
 
 func (d *Daemon) routeLoop() {
 	for incoming := range d.tunnels.RecvCh() {
-		d.handlePacket(incoming.Packet, incoming.From)
+		d.routePacketWithRecover(incoming.Packet, incoming.From)
 	}
+}
+
+// routePacketWithRecover wraps handlePacket in an L7 panic boundary.
+// A panic inside any segment handler (handleStreamPacket,
+// handleDatagramPacket, handleControlPacket) drops THIS packet only;
+// other in-flight conns and the routeLoop itself stay alive. Per-conn
+// teardown still happens inside retxLoop's own boundary if a panic
+// flows back via async work.
+//
+// L7 panic boundary (architecture-notes/03-INVARIANTS.md §8).
+func (d *Daemon) routePacketWithRecover(pkt *protocol.Packet, from *net.UDPAddr) {
+	defer recoverLayer("L7", "routeLoop", d.bus, nil)
+	d.handlePacket(pkt, from)
 }
 
 func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
@@ -1791,7 +2178,7 @@ func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
 	if !d.tunnels.HasPeer(pkt.Src.Node) {
 		if !d.config.Encrypt || d.tunnels.HasCrypto(pkt.Src.Node) {
 			d.tunnels.AddPeer(pkt.Src.Node, from)
-			d.webhook.Emit("tunnel.peer_added", map[string]interface{}{
+			d.publishEvent("tunnel.peer_added", map[string]interface{}{
 				"peer_node_id": pkt.Src.Node, "endpoint": from.String(),
 			})
 		}
@@ -1861,7 +2248,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// Runs before rate limiting so untrusted sources cannot waste rate-limit tokens.
 		if !d.config.Public {
 			srcNode := pkt.Src.Node
-			trusted := d.handshakes.IsTrusted(srcNode)
+			trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
 			if !trusted && d.regConn != nil {
 				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
 				var err error
@@ -1872,7 +2259,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			}
 			if !trusted {
 				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
-				d.webhook.Emit("syn.rejected", map[string]interface{}{
+				d.publishEvent("syn.rejected", map[string]interface{}{
 					"src_node_id": srcNode,
 					"src_addr":    pkt.Src.String(),
 					"dst_port":    pkt.DstPort,
@@ -1882,10 +2269,10 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		}
 
 		// Network policy: reject SYN if port/peer is not allowed
-		if !d.evaluatePortPolicy(policy.EventConnect, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, 0, "") {
+		if !d.evaluatePortPolicy(PolicyEventConnect, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, 0, "") {
 			slog.Warn("SYN rejected: not allowed by network policy",
 				"src_node", pkt.Src.Node, "dst_port", pkt.DstPort, "network", pkt.Dst.Network)
-			d.webhook.Emit("syn.port_rejected", map[string]interface{}{
+			d.publishEvent("syn.port_rejected", map[string]interface{}{
 				"src_node_id": pkt.Src.Node,
 				"dst_port":    pkt.DstPort,
 				"network":     pkt.Dst.Network,
@@ -1896,7 +2283,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// SYN rate limiting
 		if !d.allowSYN() {
 			slog.Warn("SYN rate limit exceeded", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
-			d.webhook.Emit("security.syn_rate_limited", map[string]interface{}{
+			d.publishEvent("security.syn_rate_limited", map[string]interface{}{
 				"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 			})
 			return // silently drop — don't even RST (avoid amplification)
@@ -1913,7 +2300,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return
 		}
 
-		// Check global connection limit
+		// Check global connection limit 
 		if d.ports.TotalActiveConnections() >= d.config.maxTotalConnections() {
 			slog.Warn("max total connections reached, rejecting SYN", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.sendRST(pkt)
@@ -1931,7 +2318,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RecvAck = pkt.Seq + 1
 		conn.ExpectedSeq = pkt.Seq + 1 // first data segment after SYN
 		conn.Mu.Unlock()
-		d.webhook.Emit("conn.syn_received", map[string]interface{}{
+		d.publishEvent("conn.syn_received", map[string]interface{}{
 			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 			"dst_port": pkt.DstPort, "conn_id": conn.ID,
 		})
@@ -1969,7 +2356,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.SendSeq++
 		conn.State = StateEstablished
 		conn.Mu.Unlock()
-		d.webhook.Emit("conn.established", map[string]interface{}{
+		d.publishEvent("conn.established", map[string]interface{}{
 			"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 			"dst_port": pkt.DstPort, "conn_id": conn.ID,
 		})
@@ -1991,7 +2378,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			conn.Mu.Unlock()
 			d.ports.RemoveConnection(conn.ID)
 			d.sendRST(pkt)
-			d.webhook.Emit("conn.accept_queue_full", map[string]interface{}{
+			d.publishEvent("conn.accept_queue_full", map[string]interface{}{
 				"port":        pkt.DstPort,
 				"src_addr":    pkt.Src.String(),
 				"src_port":    pkt.SrcPort,
@@ -2079,7 +2466,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 				conn.RetxMu.Unlock()
 			}
 			if !wasTimeWait {
-				d.webhook.Emit("conn.fin", map[string]interface{}{
+				d.publishEvent("conn.fin", map[string]interface{}{
 					"remote_addr": pkt.Src.String(), "remote_port": pkt.SrcPort,
 					"local_port": pkt.DstPort, "conn_id": conn.ID,
 				})
@@ -2116,7 +2503,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			conn.Mu.Unlock()
 			conn.CloseRecvBuf()
 			d.ports.RemoveConnection(conn.ID)
-			d.webhook.Emit("conn.rst", map[string]interface{}{
+			d.publishEvent("conn.rst", map[string]interface{}{
 				"remote_addr": pkt.Src.String(), "remote_port": pkt.SrcPort,
 				"local_port": pkt.DstPort, "conn_id": conn.ID,
 			})
@@ -2274,7 +2661,7 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 	// Trust gate: private nodes only accept datagrams from trusted or same-network peers
 	if !d.config.Public {
 		srcNode := pkt.Src.Node
-		trusted := d.handshakes.IsTrusted(srcNode)
+		trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
 		if !trusted && d.regConn != nil {
 			var err error
 			trusted, err = d.regConn.CheckTrust(d.NodeID(), srcNode)
@@ -2284,7 +2671,7 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 		}
 		if !trusted {
 			slog.Warn("datagram rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
-			d.webhook.Emit("datagram.rejected", map[string]interface{}{
+			d.publishEvent("datagram.rejected", map[string]interface{}{
 				"src_node_id": srcNode,
 				"src_addr":    pkt.Src.String(),
 				"dst_port":    pkt.DstPort,
@@ -2294,10 +2681,10 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 	}
 
 	// Network policy: reject datagram if not allowed
-	if !d.evaluatePortPolicy(policy.EventDatagram, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, len(pkt.Payload), "in") {
+	if !d.evaluatePortPolicy(PolicyEventDatagram, pkt.Dst.Network, pkt.DstPort, pkt.Src.Node, len(pkt.Payload), "in") {
 		slog.Warn("datagram rejected: not allowed by network policy",
 			"src_node", pkt.Src.Node, "dst_port", pkt.DstPort, "network", pkt.Dst.Network)
-		d.webhook.Emit("datagram.port_rejected", map[string]interface{}{
+		d.publishEvent("datagram.port_rejected", map[string]interface{}{
 			"src_node_id": pkt.Src.Node,
 			"dst_port":    pkt.DstPort,
 			"network":     pkt.Dst.Network,
@@ -2305,7 +2692,7 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 		return
 	}
 
-	d.webhook.Emit("data.datagram", map[string]interface{}{
+	d.publishEvent("data.datagram", map[string]interface{}{
 		"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 		"dst_port": pkt.DstPort, "size": len(pkt.Payload),
 	})
@@ -2354,21 +2741,6 @@ func (d *Daemon) sendRST(orig *protocol.Packet) {
 	d.tunnels.Send(orig.Src.Node, rst)
 }
 
-// dialKey identifies an in-flight dial attempt for dedup.
-type dialKey struct {
-	peerNode uint32
-	dstPort  uint16
-}
-
-// dialInFlight tracks a single in-flight DialConnection so concurrent
-// callers to the same (peer, dport) can park on its result instead of
-// allocating their own SYN_SENT.
-type dialInFlight struct {
-	done chan struct{}
-	conn *Connection
-	err  error
-}
-
 // DialConnection initiates a connection to a remote address:port.
 // Wraps DialConnectionContext with context.Background() for callers
 // that don't have cancellation semantics (handshake bootstrap,
@@ -2383,34 +2755,22 @@ func (d *Daemon) DialConnection(dstAddr protocol.Addr, dstPort uint16) (*Connect
 // IPC client disconnects — no more orphan SYN_SENTs from Ctrl+C'd
 // commands grinding through the full retry budget.
 //
-// Concurrent dials to the same (peer_node, dst_port) are deduplicated:
-// the first call drives the SYN; subsequent callers park on its done
-// channel and return the same (*Connection, error) tuple. The follower
-// path also respects ctx — if the follower's caller cancels while the
-// leader is still dialing, the follower returns ctx.Err() without
-// affecting the leader (whose own ctx may still be live).
+// Each call returns a fresh, independent *Connection (its own ephemeral
+// port + SYN handshake). This matches BSD-socket semantics where
+// concurrent connect() to the same (peer, port) yield independent
+// streams. Issue #105: the previous (v1.9.1) per-(peer,port) dedup
+// returned the SAME *Connection to every concurrent caller; under
+// fan-in workloads (e.g. 10 task submissions racing) all callers
+// shared one underlying conn-ID, the IPC driver's recvCh map keyed
+// on conn-ID was overwritten by each subsequent registerRecvCh, and
+// frames from multiple callers got muxed into a single byte stream
+// — producing JSON-decode errors on the receiver and indefinite
+// hangs on the senders waiting for a response that never came back
+// to their (orphaned) Conn. The shared resource that genuinely
+// benefits from per-peer dedup is the tunnel/x25519 handshake; that
+// is already idempotent inside TunnelManager.AddPeer/HasPeer.
 func (d *Daemon) DialConnectionContext(ctx context.Context, dstAddr protocol.Addr, dstPort uint16) (*Connection, error) {
-	key := dialKey{peerNode: dstAddr.Node, dstPort: dstPort}
-	flight := &dialInFlight{done: make(chan struct{})}
-	if existing, loaded := d.dialFlight.LoadOrStore(key, flight); loaded {
-		// Follower: wait for leader's result OR for our own ctx to
-		// cancel. We do NOT cancel the leader — they may have other
-		// followers and a live ctx of their own.
-		ex := existing.(*dialInFlight)
-		select {
-		case <-ex.done:
-			return ex.conn, ex.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	// Leader: do the dial, then signal followers.
-	defer func() {
-		d.dialFlight.Delete(key)
-		close(flight.done)
-	}()
-	flight.conn, flight.err = d.dialConnectionLocked(ctx, dstAddr, dstPort)
-	return flight.conn, flight.err
+	return d.dialConnectionLocked(ctx, dstAddr, dstPort)
 }
 
 // dialConnectionLocked is the leader's dial body. Followers in the
@@ -2430,7 +2790,7 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	}
 
 	// Enforce outbound port policy: prevent dialing ports blocked by the network
-	if !d.evaluatePortPolicy(policy.EventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
+	if !d.evaluatePortPolicy(PolicyEventDial, dstAddr.Network, dstPort, dstAddr.Node, 0, "") {
 		return nil, fmt.Errorf("port %d not allowed by network %d policy", dstPort, dstAddr.Network)
 	}
 
@@ -2533,17 +2893,14 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 		case <-timer.C:
 			retries++
 
-			// Switch to relay mode after direct retries exhaust. Pin the
-			// relay flag so clearRelayOnDirectLocked won't bounce us back
-			// to direct on a stray non-beacon-sourced packet (NAT-port-
-			// rewrite of beacon replies, ICMP-unreachable from the
-			// rendezvous, beacon mesh forwarding from a different IP).
-			// The peer just demonstrated direct doesn't work — observation
-			// of one or two seemingly-direct packets shouldn't override
-			// that empirical signal.
+			// Switch to relay mode after direct retries exhaust. Use
+			// SetRelayPeer (not Pinned) so ClearRelayOnDirect can recover
+			// the direct path if it becomes reachable again. The pinned
+			// setter is reserved for registry relay_only=true signals and
+			// beacon-admitted symmetric-NAT peers.
 			if retries == directRetries && d.config.BeaconAddr != "" && !relayActive {
 				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
-				d.tunnels.SetRelayPeerPinned(dstAddr.Node, true)
+				d.tunnels.SetRelayPeer(dstAddr.Node, true)
 				relayActive = true
 				rto = DialInitialRTO // reset backoff for relay phase
 			}
@@ -2850,9 +3207,12 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 }
 
 // startRetxLoop starts the retransmission goroutine for a connection.
+// RetxStop is initialized in PortManager.NewConnection so it is non-nil
+// (and safe to read from RemoveConnection / idleSweepLoop) from the
+// moment the connection is registered, regardless of whether the retx
+// loop has been wired up yet.
 func (d *Daemon) startRetxLoop(conn *Connection) {
 	conn.RTO = InitialRTO
-	conn.RetxStop = make(chan struct{})
 	conn.RetxSend = func(pkt *protocol.Packet) {
 		d.tunnels.Send(conn.RemoteAddr.Node, pkt)
 	}
@@ -2862,21 +3222,19 @@ func (d *Daemon) startRetxLoop(conn *Connection) {
 func (d *Daemon) retxLoop(conn *Connection) {
 	ticker := time.NewTicker(RetxCheckInterval)
 	defer ticker.Stop()
-	// P1-002: a panic inside retransmitUnacked would silently kill the
-	// retransmit goroutine, stranding the connection with unacked segments.
-	// Recover, log, and tear the connection down cleanly so callers see EOF
-	// instead of an opaque hang.
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("retxLoop panic",
-				"conn_id", conn.ID,
-				"remote_node_id", conn.RemoteAddr.Node,
-				"recover", r,
-				"stack", string(debug.Stack()))
-			conn.CloseRecvBuf()
-			d.ports.RemoveConnection(conn.ID)
-		}
-	}()
+	// L7 panic boundary (architecture-notes/03-INVARIANTS.md §8 +
+	// P1-002): a panic inside retransmitUnacked would silently kill the
+	// retransmit goroutine, stranding the connection with unacked
+	// segments. Tear down THIS connection only — other connections in
+	// the daemon must continue. recoverLayer publishes the bus event so
+	// observability sees the per-conn teardown.
+	defer recoverLayer("L7", "retxLoop", d.bus, func(_ any) {
+		slog.Error("L7 retxLoop tearing down connection after panic",
+			"conn_id", conn.ID,
+			"remote_node_id", conn.RemoteAddr.Node)
+		conn.CloseRecvBuf()
+		d.ports.RemoveConnection(conn.ID)
+	})
 
 	for {
 		select {
@@ -2886,7 +3244,22 @@ func (d *Daemon) retxLoop(conn *Connection) {
 			conn.Mu.Lock()
 			st := conn.State
 			conn.Mu.Unlock()
-			if st == StateEstablished || st == StateFinWait {
+			if st == StateEstablished {
+				d.retransmitUnacked(conn)
+			} else if st == StateFinWait {
+				// retxLoop's job is to keep DATA delivery alive. Once we
+				// move to FinWait, the local side has already sent its FIN
+				// (it sits in Unacked as an isFIN sentinel). If there are
+				// still real DATA segments in Unacked, keep retransmitting
+				// them. Otherwise — only the FIN remains — exit and let
+				// idleSweepLoop clean up. Without this exit, a connection
+				// stuck waiting for FIN-ACK keeps a retxLoop goroutine
+				// alive for ~MaxRetxAttempts × RTO ≈ 53 s, which under the
+				// §4.8 stress workload accumulates ~20 lingering loops
+                                // per rep (busts the goroutine-delta gate).
+				if !d.unackedHasData(conn) {
+					return
+				}
 				d.retransmitUnacked(conn)
 			} else if st == StateClosed {
 				// Connection abandoned (max retransmit) — clean up immediately
@@ -2900,6 +3273,22 @@ func (d *Daemon) retxLoop(conn *Connection) {
 			}
 		}
 	}
+}
+
+// unackedHasData returns true if conn.Unacked contains any non-FIN,
+// non-SACKed entry. Used by retxLoop to decide whether the FinWait
+// state still has work to do (real DATA still in flight) or just
+// the FIN sentinel (no useful retx left).
+func (d *Daemon) unackedHasData(conn *Connection) bool {
+	conn.RetxMu.Lock()
+	defer conn.RetxMu.Unlock()
+	for _, e := range conn.Unacked {
+		if e.isFIN || e.sacked {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (d *Daemon) retransmitUnacked(conn *Connection) {
@@ -3072,7 +3461,7 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	connID := conn.ID
 	conn.Mu.Unlock()
 	if st == StateEstablished && remotePort == protocol.PortDataExchange {
-		d.webhook.Emit("file.delivered", map[string]interface{}{
+		d.publishEvent("file.delivered", map[string]interface{}{
 			"remote_addr": remoteAddr.String(),
 			"remote_port": remotePort,
 			"conn_id":     connID,
@@ -3133,10 +3522,10 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 		return fmt.Errorf("broadcast address requires admin token: use BroadcastDatagram")
 	}
 	// Enforce outbound port policy
-	if !d.evaluatePortPolicy(policy.EventDatagram, dstAddr.Network, dstPort, dstAddr.Node, len(data), "out") {
+	if !d.evaluatePortPolicy(PolicyEventDatagram, dstAddr.Network, dstPort, dstAddr.Node, len(data), "out") {
 		slog.Warn("datagram rejected: not allowed by network policy",
 			"direction", "out", "dst_node", dstAddr.Node, "dst_port", dstPort, "network", dstAddr.Network)
-		d.webhook.Emit("datagram.port_rejected", map[string]interface{}{
+		d.publishEvent("datagram.port_rejected", map[string]interface{}{
 			"direction":   "out",
 			"dst_node_id": dstAddr.Node,
 			"dst_port":    dstPort,
@@ -3194,6 +3583,9 @@ func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, ad
 // policy is still evaluated. The admin token (when non-empty) is forwarded
 // to the registry so backbone enumeration (network 0) is unlocked.
 func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data []byte, adminToken string) error {
+	if netID == 0 {
+		return fmt.Errorf("broadcast not permitted on backbone network")
+	}
 	var resp map[string]interface{}
 	var err error
 	if adminToken != "" {
@@ -3208,6 +3600,23 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 	nodesRaw, ok := resp["nodes"].([]interface{})
 	if !ok {
 		return nil // no nodes
+	}
+
+	// Verify this daemon is a member of the network before broadcasting.
+	selfID := d.NodeID()
+	isMember := false
+	for _, n := range nodesRaw {
+		nm, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if nid, ok := nm["node_id"].(float64); ok && uint32(nid) == selfID {
+			isMember = true
+			break
+		}
+	}
+	if !isMember {
+		return fmt.Errorf("broadcast denied: node %d is not a member of network %d", selfID, netID)
 	}
 
 	for _, n := range nodesRaw {
@@ -3225,7 +3634,7 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 		}
 
 		// Evaluate outbound datagram policy per recipient
-		if !d.evaluatePortPolicy(policy.EventDatagram, netID, dstPort, nodeID, len(data), "out") {
+		if !d.evaluatePortPolicy(PolicyEventDatagram, netID, dstPort, nodeID, len(data), "out") {
 			slog.Debug("broadcast: policy denied", "network_id", netID, "peer", nodeID)
 			continue
 		}
@@ -3247,6 +3656,43 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 		d.tunnels.Send(nodeID, pkt)
 	}
 	return nil
+}
+
+// reapCaches evicts expired entries from the three peer-resolution caches.
+// Called every DefaultIdleSweepInterval (15 s) from idleSweepLoop.
+// Without this, caches grow monotonically as the node talks to new peers:
+//   - epCache     — no read-time eviction; entries used as fallback even when stale.
+//   - resolveCache — read-time TTL check returns nil but never deletes the entry.
+//   - hostnameCache — same pattern as resolveCache.
+func (d *Daemon) reapCaches() {
+	now := time.Now()
+	epEvictAfter := 12 * EndpointCacheTTL   // keep fallback for up to 1 h
+	rvEvictAfter := 2 * ResolveCacheTTL     // stale after TTL; keep 1 extra window
+	hnEvictAfter := 2 * hostnameCacheTTL
+
+	d.epCacheMu.Lock()
+	for nodeID, e := range d.epCache {
+		if now.Sub(e.cachedAt) > epEvictAfter {
+			delete(d.epCache, nodeID)
+		}
+	}
+	d.epCacheMu.Unlock()
+
+	d.resolveCacheMu.Lock()
+	for nodeID, e := range d.resolveCache {
+		if now.Sub(e.cachedAt) > rvEvictAfter {
+			delete(d.resolveCache, nodeID)
+		}
+	}
+	d.resolveCacheMu.Unlock()
+
+	d.hostnameCacheMu.Lock()
+	for hostname, e := range d.hostnameCache {
+		if now.Sub(e.cachedAt) > hnEvictAfter {
+			delete(d.hostnameCache, hostname)
+		}
+	}
+	d.hostnameCacheMu.Unlock()
 }
 
 // cacheEndpoint stores a resolved endpoint in the cache.
@@ -3347,9 +3793,11 @@ func (d *Daemon) prewarmTrustedResolves() {
 		}
 		warmed++
 		// 200ms gap so a 50-peer fleet doesn't pile up at the registry.
+		paceTimer := time.NewTimer(200 * time.Millisecond)
 		select {
-		case <-time.After(200 * time.Millisecond):
+		case <-paceTimer.C:
 		case <-d.stopCh:
+			paceTimer.Stop()
 			return
 		}
 	}
@@ -3555,68 +4003,174 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	return nil
 }
 
-func (d *Daemon) heartbeatLoop() {
-	// Add random jitter (0-5s) to the initial tick to prevent thundering herd
-	// when many daemons restart simultaneously after a registry restart.
-	jitter := time.Duration(rand.Int63n(int64(5 * time.Second)))
-	time.Sleep(jitter)
+// T4.3 (P9/P10): The legacy heartbeatLoop spanned L4 + L5/L8 + L11 — registry
+// trust republish, beacon NAT-mapping refresh, relayed-handshake polling, and
+// observability heartbeat publish were chained off a single ticker, with the
+// downstream concerns gated on a successful registry heartbeat. That violated
+// P9 ("Layer-spanning loops forbidden") and P10 ("State ownership documented
+// per block").
+//
+// The loop is now split into four goroutines, one per layer of state owned:
+//
+//   - trustRepublishLoop (L5/L8): regConn.Heartbeat + reRegister. Owns
+//     registry-side identity republish state (consecutiveFailures, backoff).
+//     Touches no tunnel state.
+//   - tunnelKeepaliveLoop (L4): tunnels.RegisterWithBeacon. Owns the L4 NAT
+//     mapping refresh against the selected beacon. Briefly RLocks tm.mu via
+//     RegisterWithBeacon — the only loop that touches tm.mu per tick.
+//   - handshakePollLoop (L11): pollRelayedHandshakes. Drives the plugin-tier
+//     handshake manager (L11) by polling registry for relayed handshake
+//     traffic. Touches no tunnel state.
+//   - observabilityHeartbeatLoop (L11): publishes agent.heartbeat to the bus
+//     so subscribers (webhook bridge, dashboards, plugins) can observe a
+//     live daemon. Owns no transport, no registry state.
+//
+// Note on the per-tunnel transport keepalive (L4/L7 MsgKeepalive): the
+// keepalive that pokes peers below the consumer-NAT 30 s idle window lives at
+// TunnelManager.keepaliveLoop (tunnel.go), spawned by TunnelManager.Listen
+// and tied to TunnelKeepaliveInterval — distinct from this daemon-level
+// tunnelKeepaliveLoop, which handles the beacon-side NAT mapping refresh.
+//
+// Each loop stops on d.stopCh and uses an independent ticker derived from
+// d.config.keepaliveInterval(). A 0-5 s jitter is applied to the initial tick
+// of each loop independently to avoid thundering-herd at startup.
+
+// trustRepublishLoop (L5/L8) sends the periodic identity heartbeat to the
+// registry and re-registers on persistent failure. Owns no tunnel state.
+func (d *Daemon) trustRepublishLoop() {
+	// 0-5 s startup jitter to avoid thundering herd after a registry restart.
+	time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
 
 	ticker := time.NewTicker(d.config.keepaliveInterval())
 	defer ticker.Stop()
 	consecutiveFailures := 0
-	reregBackoff := 100 * time.Millisecond // initial backoff for re-registration attempts
+	reregBackoff := 100 * time.Millisecond
 	for {
 		select {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			if d.regConn != nil {
-				_, err := d.regConn.Heartbeat(d.NodeID())
-				if err != nil {
-					consecutiveFailures++
-					// If the registry rejects our identity (node not found, or a
-					// signature-verification failure because someone else claimed
-					// our node ID) re-register on this cycle instead of waiting
-					// for the full failure threshold to elapse.
-					if isRegistryRejectingUsErr(err) && consecutiveFailures < HeartbeatReregThresh {
-						consecutiveFailures = HeartbeatReregThresh
-					}
-					slog.Warn("heartbeat failed", "consecutive_failures", consecutiveFailures, "error", err)
-
-					// After 3 failures, try to re-register with exponential backoff + jitter
-					if consecutiveFailures >= HeartbeatReregThresh {
-						// Backoff with jitter before attempting re-registration
-						jitter := time.Duration(rand.Int63n(int64(reregBackoff) / 2))
-						time.Sleep(reregBackoff + jitter)
-
-						slog.Info("attempting re-registration", "backoff", reregBackoff)
-						d.reRegister()
-						consecutiveFailures = 0
-
-						// Exponential backoff: 100ms → 200ms → 400ms → ... → 30s max
-						reregBackoff *= 2
-						if reregBackoff > 30*time.Second {
-							reregBackoff = 30 * time.Second
-						}
-					}
-				} else {
-					if consecutiveFailures > 0 {
-						slog.Info("heartbeat recovered", "previous_failures", consecutiveFailures)
-					}
-					consecutiveFailures = 0
-					reregBackoff = 100 * time.Millisecond // reset backoff on success
-
-					// Re-register with beacon (keeps NAT mapping alive)
-					if d.config.BeaconAddr != "" {
-						d.tunnels.RegisterWithBeacon()
-					}
-
-					// Poll for relayed handshake requests
-					d.pollRelayedHandshakes()
+			if d.regConn == nil {
+				continue
+			}
+			_, err := d.regConn.Heartbeat(d.NodeID())
+			if err != nil {
+				consecutiveFailures++
+				// If the registry rejects our identity (node not found, or a
+				// signature-verification failure because someone else claimed
+				// our node ID) re-register on this cycle instead of waiting
+				// for the full failure threshold to elapse.
+				if isRegistryRejectingUsErr(err) && consecutiveFailures < HeartbeatReregThresh {
+					consecutiveFailures = HeartbeatReregThresh
 				}
+				slog.Warn("heartbeat failed", "consecutive_failures", consecutiveFailures, "error", err)
+
+				if consecutiveFailures >= HeartbeatReregThresh {
+					// Backoff with jitter before attempting re-registration.
+					jitter := time.Duration(rand.Int63n(int64(reregBackoff) / 2))
+					time.Sleep(reregBackoff + jitter)
+
+					slog.Info("attempting re-registration", "backoff", reregBackoff)
+					d.reRegister()
+					consecutiveFailures = 0
+
+					// Exponential backoff: 100ms → 200ms → 400ms → ... → 30s max.
+					reregBackoff *= 2
+					if reregBackoff > 30*time.Second {
+						reregBackoff = 30 * time.Second
+					}
+				}
+			} else {
+				if consecutiveFailures > 0 {
+					slog.Info("heartbeat recovered", "previous_failures", consecutiveFailures)
+				}
+				consecutiveFailures = 0
+				reregBackoff = 100 * time.Millisecond
 			}
 		}
 	}
+}
+
+// tunnelKeepaliveLoop (L4) refreshes the daemon's beacon registration so the
+// beacon retains a fresh endpoint for hole-punching and the upstream NAT
+// keeps the source mapping alive. Owns L4 beacon state only; briefly RLocks
+// tm.mu inside RegisterWithBeacon.
+func (d *Daemon) tunnelKeepaliveLoop() {
+	// Independent jitter so this loop does not align with trustRepublishLoop.
+	time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
+
+	ticker := time.NewTicker(d.config.keepaliveInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			if d.config.BeaconAddr == "" {
+				continue
+			}
+			d.tunnels.RegisterWithBeacon()
+		}
+	}
+}
+
+// handshakePollLoop (L11) polls the registry for relayed handshake requests
+// and responses and dispatches them into the plugin-tier handshake manager.
+// Owns no transport state. Independent of trustRepublishLoop's failure
+// tracking — handshake polling is best-effort and survives transient
+// registry hiccups on its own.
+func (d *Daemon) handshakePollLoop() {
+	// Independent jitter so this loop does not align with the others.
+	time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
+
+	ticker := time.NewTicker(d.config.keepaliveInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			if d.regConn == nil {
+				continue
+			}
+			d.pollRelayedHandshakes()
+		}
+	}
+}
+
+// observabilityHeartbeatLoop (L11) publishes an "agent.heartbeat" event to
+// the in-process bus on every tick. Subscribers (webhook bridge, dashboards,
+// plugins) use it as a liveness signal: a daemon that stops heartbeating
+// within ~2 × keepaliveInterval is considered down. This loop owns no
+// transport state, no registry state, and never blocks on either — it is
+// strictly an observability emitter, independent of trustRepublishLoop's
+// success or failure.
+func (d *Daemon) observabilityHeartbeatLoop() {
+	// Independent jitter so this loop does not align with the others.
+	time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
+
+	ticker := time.NewTicker(d.config.keepaliveInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			d.publishHeartbeatEvent()
+		}
+	}
+}
+
+// publishHeartbeatEvent publishes a single "agent.heartbeat" event with the
+// daemon's stable identity (node_id + address). Factored out so tests can
+// drive it deterministically without waiting on the loop's ticker. The bus
+// itself stamps NodeID and Time on the Event envelope; the payload carries
+// only what subscribers cannot infer from the envelope.
+func (d *Daemon) publishHeartbeatEvent() {
+	d.publishEvent("agent.heartbeat", map[string]any{
+		"address": d.Addr().String(),
+		"node_id": d.NodeID(),
+	})
 }
 
 // reRegister re-registers with the registry after a connection loss or registry restart.
@@ -3636,8 +4190,17 @@ func (d *Daemon) reRegister() {
 		}
 	}
 
-	// Always re-register with client-generated key
+	// Always re-register with client-generated key.
+	// Hold identityMu.RLock for the snapshot so RotateKey (which
+	// takes Lock to swap d.identity) can't tear the read here.
+	// Surfaced by §4.8 stress under -race when pilotctl key rotate
+	// fires while trustRepublishLoop is mid-tick.
+	d.identityMu.RLock()
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
+	d.identityMu.RUnlock()
+	if d.config.FakeListenAddr != "" {
+		registrationAddr = d.config.FakeListenAddr
+	}
 	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -3678,10 +4241,10 @@ func (d *Daemon) reRegister() {
 	nodeID := d.nodeID
 	slog.Info("re-registered", "node_id", nodeID, "addr", d.addr)
 	d.addrMu.Unlock()
-	d.webhook.Emit("node.reregistered", map[string]interface{}{
+	d.publishEvent("node.reregistered", map[string]interface{}{
 		"address": d.addr.String(),
 	})
-	d.webhook.Emit("agent.registered", map[string]interface{}{
+	d.publishEvent("agent.registered", map[string]interface{}{
 		"address":      d.addr.String(),
 		"node_id":      nodeID,
 		"reregistered": true,
@@ -3753,7 +4316,7 @@ func (d *Daemon) idleSweepLoop() {
 			dead := d.ports.IdleConnections(idleTimeout)
 			for _, conn := range dead {
 				slog.Debug("closing dead connection", "conn_id", conn.ID, "idle_timeout", idleTimeout, "remote_addr", conn.RemoteAddr, "remote_port", conn.RemotePort)
-				d.webhook.Emit("conn.idle_timeout", map[string]interface{}{
+				d.publishEvent("conn.idle_timeout", map[string]interface{}{
 					"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
 					"local_port": conn.LocalPort, "conn_id": conn.ID,
 				})
@@ -3762,6 +4325,11 @@ func (d *Daemon) idleSweepLoop() {
 
 			// Reap stale per-source SYN rate limit buckets
 			d.reapPerSrcSYN()
+
+			// Evict expired entries from the three peer-resolution caches.
+			// epCache: stale-but-usable after EndpointCacheTTL; evict after 1 hour.
+			// resolveCache and hostnameCache: strictly TTL-gated on read; evict after 2× TTL.
+			d.reapCaches()
 
 			// Send keepalive probes to connections idle beyond keepalive interval.
 			// Dead-peer detection: if 3 consecutive probes go unanswered, RST + close.
@@ -3794,7 +4362,7 @@ func (d *Daemon) idleSweepLoop() {
 					conn.Mu.Unlock()
 					conn.CloseRecvBuf()
 					d.ports.RemoveConnection(conn.ID)
-					d.webhook.Emit("conn.dead_peer", map[string]interface{}{
+					d.publishEvent("conn.dead_peer", map[string]interface{}{
 						"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
 						"local_port": conn.LocalPort, "conn_id": conn.ID,
 					})
@@ -3835,7 +4403,7 @@ func (d *Daemon) relayProbeLoop() {
 			for _, nodeID := range relayPeers {
 				// P1-010 fix: send a targeted direct probe without flipping
 				// the relay flag. If the peer's direct path has recovered, the
-				// response will arrive on tm.conn from their real address;
+				// response will arrive on tm.sock from their real address;
 				// handleEncrypted auto-clears relay mode on a successful
 				// direct decrypt. Concurrent traffic (key exchange replies,
 				// retransmits) continues going via relay during the probe.
@@ -3858,11 +4426,26 @@ func (d *Daemon) relayProbeLoop() {
 }
 
 // ---------------------------------------------------------------------------
-// Network sync: periodic reconciliation of network state with the registry.
+// Network membership reconciliation: periodic delta detection vs the
+// registry's authoritative membership list. The reconciler is L7-only:
+// it fetches from the L8 registry client, computes joined / left /
+// tags-changed deltas, refreshes the daemon-local port-policy cache,
+// publishes bus events for each delta, and persists a snapshot.
+//
+// The lifecycle reactions that used to live inline (StartPolicyRunner,
+// StartManagedEngine, etc.) are now handled by bus subscribers — see
+// pkg/daemon/network_events.go for the topic catalog and
+// subscribeNetworkInternalToBus below for the daemon-internal half
+// (managed engines + member-tag cache). Plugin-side reactions (policy
+// runners) live in plugins/policy/service.go and subscribe via
+// coreapi.Deps.Events. (T4.3.)
 // ---------------------------------------------------------------------------
 
-// networkSyncLoop periodically refreshes network memberships, port policies,
-// member tags, and policy runners from the registry. Runs every 5 minutes.
+// networkSyncLoop periodically reconciles local membership with the registry.
+// Runs every DefaultNetworkSyncInterval. Each tick publishes
+// network.joined / network.left / network.tags_changed events for any
+// observed delta; subscribers (plugins + daemon-internal handler) drive
+// the actual lifecycle work.
 func (d *Daemon) networkSyncLoop() {
 	// Random jitter (0-30s) to spread load across fleet restarts.
 	jitter := time.Duration(rand.Int63n(int64(30 * time.Second)))
@@ -3879,21 +4462,28 @@ func (d *Daemon) networkSyncLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			d.syncNetworks()
+			d.reconcileMembership()
 		}
 	}
 }
 
-// syncNetworks fetches current network memberships from the registry and
-// reconciles with local state: starts policy runners for new networks, stops
-// them for removed networks, refreshes port policies and member tags.
-func (d *Daemon) syncNetworks() {
+// reconcileMembership runs one membership-delta tick. It fetches the
+// authoritative network list from the registry, computes joins / leaves /
+// tag changes vs. local state, refreshes the L7-internal port-policy
+// cache, publishes network.* bus events for each delta, and persists
+// a snapshot. It does NOT start or stop policy runners or managed
+// engines directly — those are bus subscribers' responsibility (T4.3).
+func (d *Daemon) reconcileMembership() {
 	if d.regConn == nil {
 		return
 	}
 
-	// 1. Fetch current networks from registry.
-	newNets := d.nodeNetworks()
+	// 1. Fetch current network memberships from the registry (L8).
+	// Use the cache-bypassing variant: this tick is the authoritative
+	// source for join/leave deltas and a stale cached entry would cause
+	// us to miss a genuine membership change. Issue #93 added the cache
+	// for the §4.8 Info/Health hot path; reconcile must NOT see it.
+	newNets := d.nodeNetworksFresh()
 	if newNets == nil {
 		slog.Debug("network-sync: registry unreachable, skipping")
 		return
@@ -3904,56 +4494,161 @@ func (d *Daemon) syncNetworks() {
 		newSet[n] = true
 	}
 
-	// 2. Determine previously known networks from local state.
+	// 2. Snapshot prior known set BEFORE any state mutation so the
+	// delta detection sees a stable picture.
 	oldSet := d.knownNetworkSet()
 
-	// 3. Detect newly joined networks.
+	// 3. Refresh the daemon-internal port-policy cache (L7-internal,
+	// fed from L8). Done BEFORE event publication so subscribers
+	// reading isPortAllowed observe coherent state.
+	d.loadNetworkPolicies()
+
+	// 4. Fetch the rich network list once for join-event payloads
+	// (rules + has_expr_policy hint). Empty if registry hiccups —
+	// joined-event payloads will then carry network_id only and
+	// subscribers can fall back to lazy fetch.
+	var networkList []interface{}
+	if listResp, err := d.regConn.ListNetworks(); err == nil {
+		networkList, _ = listResp["networks"].([]interface{})
+	}
+	listByID := make(map[uint16]map[string]interface{}, len(networkList))
+	for _, raw := range networkList {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		idF, _ := n["id"].(float64)
+		listByID[uint16(idF)] = n
+	}
+
+	// 5. Refresh authoritative member tags from the registry for every
+	// current network. Compute change set vs cached values so the
+	// network.tags_changed event fires only on actual deltas.
+	tagChanges := d.refreshMemberTagsAndDiff(newNets)
+
+	// 6. Detect newly joined networks. Build rich payloads (rules +
+	// expr_policy + member_tags) and publish network.joined.
 	for netID := range newSet {
 		if netID == 0 {
 			continue
 		}
-		if !oldSet[netID] {
-			slog.Info("network-sync: new network detected", "network_id", netID)
-			d.webhook.Emit("network.sync_joined", map[string]interface{}{"network_id": netID})
+		if oldSet[netID] {
+			continue
 		}
+		slog.Info("network-sync: new network detected", "network_id", netID)
+		payload := d.buildJoinPayload(netID, listByID[netID])
+		d.publishEvent(TopicNetworkJoined, payload)
 	}
 
-	// 4. Detect removed networks.
+	// 7. Detect removed networks. Snapshot the locally-cached state
+	// BEFORE clearing it so subscribers observing the event still see
+	// the network as present in their own view. Then clear the
+	// daemon-internal cache (port policies + tag cache) and publish
+	// network.left so subscribers can stop their per-network state.
 	for netID := range oldSet {
-		if !newSet[netID] {
-			slog.Info("network-sync: network removed", "network_id", netID)
-			d.StopPolicyRunner(netID)
-			d.StopManagedEngine(netID)
-			d.clearNetworkState(netID)
-			d.webhook.Emit("network.sync_left", map[string]interface{}{"network_id": netID})
+		if newSet[netID] {
+			continue
 		}
+		slog.Info("network-sync: network removed", "network_id", netID)
+		d.clearNetworkState(netID)
+		d.publishEvent(TopicNetworkLeft, map[string]any{
+			"network_id": netID,
+		})
 	}
 
-	// 5. Refresh port policies for all current networks.
-	d.loadNetworkPolicies()
-
-	// 6. Fetch full network list once for policy runner + managed engine sync.
-	var networkList []interface{}
-	listResp, err := d.regConn.ListNetworks()
-	if err == nil {
-		networkList, _ = listResp["networks"].([]interface{})
+	// 8. Publish per-network tag deltas.
+	for netID, tags := range tagChanges {
+		d.publishEvent(TopicNetworkTagsChanged, map[string]any{
+			"network_id": netID,
+			"tags":       append([]string(nil), tags...),
+		})
 	}
 
-	// 7. Start policy runners for new networks that have expr policies.
-	if !d.config.DisablePolicyRunner {
-		d.syncPolicyRunners(newNets, networkList)
-	}
-
-	// 8. Start managed engines for new networks that have rules.
-	d.syncManagedEngines(newNets, networkList)
-
-	// 9. Refresh member tags for all current networks.
-	d.syncMemberTags(newNets)
-
-	// 10. Persist snapshot.
+	// 9. Persist snapshot.
 	d.saveNetworkSnapshot(newNets)
 
 	slog.Debug("network-sync: complete", "networks", len(newNets))
+}
+
+// buildJoinPayload assembles the network.joined payload for a single
+// network. Pulls expr_policy and rules from the cached ListNetworks()
+// response when available, plus the freshly-refreshed member_tags
+// cache. Falls back to a minimal payload (network_id only) if the
+// registry's network entry is missing.
+func (d *Daemon) buildJoinPayload(netID uint16, n map[string]interface{}) map[string]any {
+	payload := map[string]any{
+		"network_id": netID,
+	}
+	if n != nil {
+		if rulesRaw, ok := n["rules"]; ok && rulesRaw != nil {
+			payload["rules"] = rulesRaw
+		}
+		if hasPolicy, _ := n["has_expr_policy"].(bool); hasPolicy {
+			// Fetch the compiled expr policy so subscribers don't have
+			// to re-issue the L8 RPC. Same lazy-fetch the old
+			// syncPolicyRunners did, but moved up into the publisher
+			// so the policy-plugin subscriber stays L8-free.
+			if pResp, err := d.regConn.GetExprPolicy(netID); err == nil {
+				if v, ok := pResp["expr_policy"]; ok && v != nil {
+					payload["expr_policy"] = v
+				}
+			}
+		}
+	}
+	d.memberTagsMu.RLock()
+	tags := append([]string(nil), d.memberTags[netID]...)
+	d.memberTagsMu.RUnlock()
+	payload["member_tags"] = tags
+	return payload
+}
+
+// refreshMemberTagsAndDiff fetches authoritative member tags from the
+// registry for every joined network, updates the local cache, and
+// returns the set of networks whose tags changed (i.e. need a
+// network.tags_changed event). Networks not present in the response
+// are left untouched. Network 0 (default/backbone) is skipped.
+func (d *Daemon) refreshMemberTagsAndDiff(nets []uint16) map[uint16][]string {
+	nodeID := d.NodeID()
+	changes := make(map[uint16][]string)
+	for _, netID := range nets {
+		if netID == 0 {
+			continue
+		}
+		resp, err := d.regConn.GetMemberTags(netID, nodeID)
+		if err != nil {
+			continue
+		}
+		tagsRaw, _ := resp["tags"].([]interface{})
+		var tags []string
+		for _, t := range tagsRaw {
+			if s, ok := t.(string); ok {
+				tags = append(tags, s)
+			}
+		}
+		d.memberTagsMu.Lock()
+		prev := d.memberTags[netID]
+		if !stringSliceEqual(prev, tags) {
+			changes[netID] = append([]string(nil), tags...)
+		}
+		d.memberTags[netID] = tags
+		d.memberTagsMu.Unlock()
+	}
+	return changes
+}
+
+// stringSliceEqual returns true if two string slices contain the same
+// elements in the same order. Used by tag-diff to suppress redundant
+// network.tags_changed events on every reconciliation tick.
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // knownNetworkSet returns the set of non-backbone network IDs the daemon
@@ -3969,11 +4664,11 @@ func (d *Daemon) knownNetworkSet() map[uint16]bool {
 	}
 	d.netPolicyMu.RUnlock()
 
-	d.policyMu.Lock()
-	for netID := range d.policyRunners {
-		set[netID] = true
+	if d.policyManager != nil {
+		for _, pr := range d.policyManager.All() {
+			set[pr.NetworkID()] = true
+		}
 	}
-	d.policyMu.Unlock()
 
 	d.managedMu.Lock()
 	for netID := range d.managed {
@@ -3999,137 +4694,6 @@ func (d *Daemon) clearNetworkState(netID uint16) {
 	d.memberTagsMu.Lock()
 	delete(d.memberTags, netID)
 	d.memberTagsMu.Unlock()
-}
-
-// syncPolicyRunners starts expr policy runners for newly joined networks.
-// Already-running runners are left alone (policy content changes are handled
-// by explicit admin RPCs, not periodic sync).
-func (d *Daemon) syncPolicyRunners(nets []uint16, networkList []interface{}) {
-	if networkList == nil {
-		return
-	}
-
-	netSet := make(map[uint16]bool, len(nets))
-	for _, n := range nets {
-		netSet[n] = true
-	}
-
-	for _, raw := range networkList {
-		n, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		hasPolicy, _ := n["has_expr_policy"].(bool)
-		if !hasPolicy {
-			continue
-		}
-		netIDf, _ := n["id"].(float64)
-		netID := uint16(netIDf)
-		if !netSet[netID] {
-			continue
-		}
-
-		// Skip if already running.
-		d.policyMu.Lock()
-		_, running := d.policyRunners[netID]
-		d.policyMu.Unlock()
-		if running {
-			continue
-		}
-
-		// Fetch and start.
-		pResp, err := d.regConn.GetExprPolicy(netID)
-		if err != nil {
-			slog.Debug("network-sync: cannot fetch expr_policy", "network_id", netID, "err", err)
-			continue
-		}
-
-		var policyJSON json.RawMessage
-		switch v := pResp["expr_policy"].(type) {
-		case string:
-			policyJSON = json.RawMessage(v)
-		case map[string]interface{}:
-			b, _ := json.Marshal(v)
-			policyJSON = b
-		default:
-			continue
-		}
-
-		if err := d.StartPolicyRunner(netID, policyJSON); err != nil {
-			slog.Warn("network-sync: failed to start policy runner", "network_id", netID, "err", err)
-			continue
-		}
-		slog.Info("network-sync: started policy runner", "network_id", netID)
-	}
-}
-
-// syncManagedEngines starts managed engines for newly joined networks.
-// Already-running engines are left alone.
-func (d *Daemon) syncManagedEngines(nets []uint16, networkList []interface{}) {
-	if networkList == nil {
-		return
-	}
-
-	netSet := make(map[uint16]bool, len(nets))
-	for _, n := range nets {
-		netSet[n] = true
-	}
-
-	for _, raw := range networkList {
-		n, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		rulesRaw, hasRules := n["rules"]
-		if !hasRules || rulesRaw == nil {
-			continue
-		}
-		netIDf, _ := n["id"].(float64)
-		netID := uint16(netIDf)
-		if !netSet[netID] {
-			continue
-		}
-
-		// Skip if already running.
-		d.managedMu.Lock()
-		_, running := d.managed[netID]
-		d.managedMu.Unlock()
-		if running {
-			continue
-		}
-
-		rb, _ := json.Marshal(rulesRaw)
-		rules, err := registry.ParseRules(string(rb))
-		if err != nil {
-			slog.Debug("network-sync: invalid rules", "network_id", netID, "err", err)
-			continue
-		}
-		d.StartManagedEngine(netID, rules)
-		slog.Info("network-sync: started managed engine", "network_id", netID)
-	}
-}
-
-// syncMemberTags refreshes the cached member tags for the local node
-// across all joined networks.
-func (d *Daemon) syncMemberTags(nets []uint16) {
-	nodeID := d.NodeID()
-	for _, netID := range nets {
-		if netID == 0 {
-			continue
-		}
-		resp, err := d.regConn.GetMemberTags(netID, nodeID)
-		if err != nil {
-			continue
-		}
-		tagsRaw, _ := resp["tags"].([]interface{})
-		var tags []string
-		for _, t := range tagsRaw {
-			if s, ok := t.(string); ok {
-				tags = append(tags, s)
-			}
-		}
-		d.SetMemberTags(netID, tags)
-	}
 }
 
 // saveNetworkSnapshot persists the current network state to {identityDir}/networks.json.
@@ -4261,8 +4825,10 @@ func (d *Daemon) pollRelayedHandshakes() {
 
 		slog.Info("relayed handshake request received", "from_node_id", fromNodeID, "justification", justification)
 
-		// Process through the handshake manager as if it were a direct request
-		d.handshakes.processRelayedRequest(fromNodeID, justification)
+		// Process through the handshake service as if it were a direct request
+		if d.handshakes != nil {
+			d.handshakes.ProcessRelayedRequest(fromNodeID, justification)
+		}
 	}
 
 	// Process handshake responses (approvals/rejections relayed back to us)
@@ -4281,10 +4847,14 @@ func (d *Daemon) pollRelayedHandshakes() {
 
 		if accept {
 			slog.Info("relayed handshake approval received", "from_node_id", fromNodeID)
-			d.handshakes.processRelayedApproval(fromNodeID)
+			if d.handshakes != nil {
+				d.handshakes.ProcessRelayedApproval(fromNodeID)
+			}
 		} else {
 			slog.Info("relayed handshake rejection received", "from_node_id", fromNodeID)
-			d.handshakes.processRelayedRejection(fromNodeID)
+			if d.handshakes != nil {
+				d.handshakes.ProcessRelayedRejection(fromNodeID)
+			}
 		}
 	}
 }

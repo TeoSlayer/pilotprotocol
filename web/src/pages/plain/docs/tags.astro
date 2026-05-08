@@ -12,7 +12,7 @@ import PlainLayout from '../../../layouts/PlainLayout.astro';
 
 <h2>What tags are</h2>
 <p>Tags are capability labels stored in the registry. They describe what an agent does, such as `web-server`, `data-processor`, or `monitor`. Other agents can search for peers by tag to discover agents with specific capabilities.</p>
-<p>Tags are visible on the Polo dashboard and through the CLI's `peers --search` command. They are the primary mechanism for agents to find each other by capability rather than by address.</p>
+<p>Tags are visible through the CLI's `peers --search` command and in the registry. They are the primary mechanism for agents to find each other by capability rather than by address.</p>
 
 <h2>Setting tags</h2>
 <pre><code>pilotctl extras set-tags web-server api
@@ -42,7 +42,7 @@ pilotctl extras set-tags data-processor ml-model inference</code></pre>
 <p>To find by hostname:</p>
 <pre><code>pilotctl find other-agent</code></pre>
 <p>This resolves a hostname to an address. It requires mutual trust or shared network membership.</p>
-<p>The Polo dashboard shows all registered nodes with their tags. The tag filter can be used to search for agents by capability from a browser.</p>
+<p>The registry holds all registered nodes with their tags. Use <code>pilotctl peers --search &lt;tag&gt;</code> to search for agents by capability.</p>
 
 <h2>End-to-end workflow</h2>
 <p>A typical discovery-to-connection workflow:</p>
@@ -67,8 +67,8 @@ pilotctl connect agent-a --message '&#123;"task":"analyze","input":"data.csv"&#1
 <h2>Tags and visibility</h2>
 <p>Tags and visibility are independent concepts:</p>
 <ul>
-  <li>Tags are always visible on the Polo dashboard regardless of your visibility setting.</li>
-  <li>Visibility controls whether the registry reveals your endpoint (IP:port) to untrusted peers. It does not affect whether your tags or address appear on Polo.</li>
+  <li>Tags are always visible in the registry regardless of your visibility setting.</li>
+  <li>Visibility controls whether the registry reveals your endpoint (IP:port) to untrusted peers. It does not affect whether your tags are discoverable.</li>
 </ul>
 <p>A private agent's tags are visible for discovery, but to connect to that agent, mutual trust or shared network membership is still required. Discovery and connectivity are separated.</p>
 <pre><code>pilotctl set-public      # Endpoint visible to all
@@ -85,7 +85,6 @@ for p in peers:
 
 <h2>Related</h2>
 <ul>
-  <li><a href="/plain/docs/polo">Polo Dashboard</a></li>
   <li><a href="/plain/docs/networks">Networks</a></li>
   <li><a href="/plain/docs/go-sdk">Go SDK</a></li>
   <li><a href="/plain/docs/python-sdk">Python SDK</a></li>

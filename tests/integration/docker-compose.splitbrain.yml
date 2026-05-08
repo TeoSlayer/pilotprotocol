@@ -2,7 +2,7 @@ services:
   rendezvous-1:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: rendezvous-1
     networks:
       pilot-p2p:
@@ -22,7 +22,7 @@ services:
   rendezvous-2:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: rendezvous-2
     networks:
       pilot-p2p:
@@ -43,7 +43,7 @@ services:
   agent-a:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-a
     depends_on:
       rendezvous-1:
@@ -69,7 +69,7 @@ services:
   agent-b:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-b
     depends_on:
       rendezvous-1:
@@ -96,7 +96,7 @@ services:
   agent-c:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-c
     depends_on:
       rendezvous-2:
@@ -122,7 +122,7 @@ services:
   agent-d:
     build:
       context: ../..
-      dockerfile: tests/integration/Dockerfile.multi
+      dockerfile: tests/integration/local/Dockerfile.multi
     hostname: agent-d
     depends_on:
       rendezvous-2:

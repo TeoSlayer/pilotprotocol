@@ -76,15 +76,23 @@ else
     log_fail "could not open UDP socket to ${BEACON_HOST}:${BEACON_PORT} from agent-a"
 fi
 
-# 2) Endpoint visible in registry = beacon assigned it = discover reply accepted
-log_test "agent-a has a non-empty observed endpoint in registry (discover reply accepted)"
-ENDPOINT=$(curl -fsS "$DASHBOARD/api/nodes" 2>/dev/null \
-    | jq -r '.nodes[]? | select(.hostname=="agent-a") | .endpoint // empty' | head -n1)
-if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "null" ]; then
+# 2) Endpoint visible to the daemon = beacon discover reply was accepted.
+#    There is no public /api/nodes on the dashboard — only /api/stats,
+#    /api/pulse, /api/badge/*, /api/snapshot. Ask the daemon itself via
+#    pilotctl --json info, which reports the endpoint it registered.
+log_test "agent-a has a non-empty observed endpoint (discover reply accepted)"
+ENDPOINT=""
+for _ in $(seq 1 20); do
+    ENDPOINT=$($DC exec -T agent-a pilotctl --json info 2>/dev/null \
+        | jq -r '.data.endpoint // empty')
+    [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "null" ] && [ "$ENDPOINT" != ":0" ] && break
+    sleep 1
+done
+if [ -n "$ENDPOINT" ] && [ "$ENDPOINT" != "null" ] && [ "$ENDPOINT" != ":0" ]; then
     log_pass "agent-a endpoint=$ENDPOINT (proof of successful beacon discover)"
 else
-    log_fail "agent-a has no registered endpoint — beacon round-trip likely failed"
-    curl -s "$DASHBOARD/api/nodes" | head -c 500
+    log_fail "agent-a has no registered endpoint after 20s — beacon round-trip likely failed"
+    $DC exec -T agent-a pilotctl --json info | head -c 500
 fi
 
 # 3) Beacon dies -> subsequent probe should fail.

@@ -204,17 +204,7 @@ timeout 5s pilotctl subscribe "$ALPHA_AGENT" "test/**" --count 1 --timeout 3s 2>
     log_pass "Subscribe command works" || \
     log_pass "Subscribe command completed (no events expected)"
 
-# 13. Task Submit (port 1003) - if available
-log_test "Task Submit: Sending task (port 1003)"
-# Using raw send since pilotctl might not have a specific task command
-TASK_DATA='{"task": "test-task", "from": "'$TEST_HOSTNAME'", "timestamp": '$(date +%s)'}'
-if pilotctl send "$ALPHA_AGENT" 1003 --data "$TASK_DATA" --timeout 5s 2>/dev/null; then
-    log_pass "Task submitted successfully"
-else
-    log_pass "Task submit tested (alpha-agent may not accept tasks)"
-fi
-
-# 14. List peers
+# 13. List peers
 log_test "Listing peers"
 if pilotctl peers > /dev/null 2>&1; then
     PEER_COUNT=$(pilotctl --json peers | jq -r '.data | length' 2>/dev/null || echo "0")
@@ -223,7 +213,7 @@ else
     log_fail "Failed to list peers"
 fi
 
-# 15. List connections
+# 14. List connections
 log_test "Listing active connections"
 if pilotctl connections > /dev/null 2>&1; then
     log_pass "Connections listed successfully"
@@ -231,7 +221,7 @@ else
     log_fail "Failed to list connections"
 fi
 
-# 16. Check inbox
+# 15. Check inbox
 log_test "Checking inbox"
 if pilotctl inbox > /dev/null 2>&1; then
     log_pass "Inbox check successful"
@@ -239,7 +229,7 @@ else
     log_fail "Failed to check inbox"
 fi
 
-# 17. Check received files
+# 16. Check received files
 log_test "Checking received files"
 if pilotctl received > /dev/null 2>&1; then
     log_pass "Received files check successful"
@@ -247,7 +237,7 @@ else
     log_fail "Failed to check received files"
 fi
 
-# 18. Set and clear hostname
+# 17. Set and clear hostname
 log_test "Testing hostname management"
 NEW_HOSTNAME="renamed-$TEST_HOSTNAME"
 if pilotctl set-hostname "$NEW_HOSTNAME" && pilotctl clear-hostname && pilotctl set-hostname "$TEST_HOSTNAME"; then
@@ -256,7 +246,7 @@ else
     log_fail "Hostname management failed"
 fi
 
-# 19. Visibility toggle
+# 18. Visibility toggle
 log_test "Testing visibility settings"
 if pilotctl set-public && pilotctl set-private; then
     log_pass "Visibility toggle works"
@@ -264,7 +254,7 @@ else
     log_fail "Visibility toggle failed"
 fi
 
-# 20. Tags management
+# 19. Tags management
 log_test "Testing tag management"
 if pilotctl set-tags "test" "integration" "docker" && pilotctl clear-tags; then
     log_pass "Tag management works"
@@ -272,7 +262,7 @@ else
     log_fail "Tag management failed"
 fi
 
-# 21. Config check
+# 20. Config check
 log_test "Checking configuration"
 if pilotctl config > /dev/null 2>&1; then
     log_pass "Configuration retrieved successfully"
@@ -280,7 +270,7 @@ else
     log_fail "Failed to retrieve configuration"
 fi
 
-# 22. Deregister
+# 21. Deregister
 log_test "Deregistering from network"
 if pilotctl deregister; then
     log_pass "Successfully deregistered from network"

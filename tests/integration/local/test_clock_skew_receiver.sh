@@ -1,8 +1,8 @@
 #!/bin/bash
 # Chaos Matrix 3: receiver clock skewed +60s forward relative to sender.
-# Deadline-sensitive ops (task acceptance deadlines, rekey TTLs, trust
-# grant expiries) must still converge — the spec says deadlines are
-# carried as durations not wall clocks, so a skew must not strand tasks.
+# Deadline-sensitive ops (rekey TTLs, trust grant expiries) must still
+# converge — the spec says deadlines are carried as durations not wall
+# clocks, so a skew must not strand ops.
 #
 # NOTE on fixtures: `date -s` inside a container requires CAP_SYS_TIME
 # which our chaos overlay does NOT grant today (only NET_ADMIN). For
@@ -35,7 +35,6 @@ echo "Clock skew (receiver +60s) - deadline ops"
 echo "=========================================="
 
 cleanup() {
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     # best-effort restore clock
     $DC exec -T agent-b bash -c 'date -s "$(date -u)" 2>/dev/null' >/dev/null 2>&1 || true
     $DC down -v >/dev/null 2>&1
@@ -52,7 +51,6 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
 $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
 
 # ----- 1. Attempt clock skew ----------------------
@@ -81,39 +79,7 @@ if [ -z "$SKEW_APPLIED" ]; then
     fi
 fi
 
-# ----- 2. Worker on b still accepts --------------
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "skew-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-
-# ----- 3. Task under skew -----------------------
-log_test "task a->b completes under +60s receiver skew"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "skew-task" 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ -n "$TID" ]; then
-    for _ in $(seq 1 60); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_pass "task completed under skew (status=$STA)"
-else
-    log_fail "task stuck under skew (status=$STA) — deadline uses wall clock?"
-fi
-
-# ----- 4. send-file under skew ------------------
+# ----- 2. send-file under skew ------------------
 log_test "send-file under skew"
 $DC exec -T agent-a bash -c 'head -c 8192 /dev/urandom >/tmp/skew.dat'
 SRC=$($DC exec -T agent-a sha256sum /tmp/skew.dat | awk '{print $1}')
@@ -127,7 +93,7 @@ else
     log_fail "send-file mismatch src=${SRC:0:12}... dst=${DST:0:12}..."
 fi
 
-# ----- 5. No panic, no rejected-for-future-timestamp errors ---
+# ----- 3. No panic, no rejected-for-future-timestamp errors ---
 log_test "no panic/fatal under skew"
 BAD=$($DC logs agent-a agent-b 2>&1 | grep -iE "panic|fatal|race detected" | head -3)
 [ -z "$BAD" ] && log_pass "clean logs" || log_fail "found: $BAD"

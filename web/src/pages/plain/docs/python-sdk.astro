@@ -75,8 +75,6 @@ with Driver() as d:
     print(f"&#123;topic&#125;: &#123;data&#125;")
 
 d.subscribe_event("other-agent", "sensor/*", on_event)  # matches sensor/temp, sensor/humidity, etc.</code></pre>
-<p>`submit_task()`: Submits a task via the task service on port 1003.</p>
-<pre><code>result = d.submit_task("worker-agent", &#123;"command": "process", "params": &#123;"input": "data.txt"&#125;&#125;)</code></pre>
 <p>Administration Methods:</p>
 <ul>
   <li>`set_hostname(hostname: str)`: Set or update the hostname.</li>

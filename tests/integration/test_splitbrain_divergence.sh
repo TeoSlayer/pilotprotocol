@@ -27,6 +27,11 @@ echo "=========================================="
 
 log_test "Starting splitbrain stack"
 $DC down -v >/dev/null 2>&1
+# Clean up any orphaned healed-agent containers from test_splitbrain_heal runs
+docker rm -f "${COMPOSE_PROJECT_NAME:-pilot}-healed-agent-c" \
+             "${COMPOSE_PROJECT_NAME:-pilot}-healed-agent-d" \
+             >/dev/null 2>&1 || true
+sweep_pilot_p2p_network
 $DC up -d rendezvous-1 rendezvous-2 agent-a agent-b agent-c agent-d >/dev/null 2>&1
 
 log_test "rendezvous-1 sees 2 agents"
@@ -62,7 +67,7 @@ else
 fi
 
 log_test "agent-a cannot lookup agent-c (cross-partition)"
-LK=$($DC exec -T agent-a pilotctl --json lookup agent-c 2>&1)
+LK=$($DC exec -T agent-a pilotctl --json find agent-c 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty')
 if [ -z "$ADDR" ] || [ "$ADDR" = "null" ]; then
     log_pass "agent-a cannot resolve agent-c (partition holds)"
@@ -71,7 +76,7 @@ else
 fi
 
 log_test "agent-c cannot lookup agent-a (cross-partition)"
-LK=$($DC exec -T agent-c pilotctl --json lookup agent-a 2>&1)
+LK=$($DC exec -T agent-c pilotctl --json find agent-a 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty')
 if [ -z "$ADDR" ] || [ "$ADDR" = "null" ]; then
     log_pass "agent-c cannot resolve agent-a (partition holds)"
@@ -80,7 +85,7 @@ else
 fi
 
 log_test "agent-a can lookup agent-b (same side)"
-LK=$($DC exec -T agent-a pilotctl --json lookup agent-b 2>&1)
+LK=$($DC exec -T agent-a pilotctl --json find agent-b 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty')
 if [ -n "$ADDR" ] && [ "$ADDR" != "null" ]; then
     log_pass "same-side lookup works (agent-b=$ADDR)"
@@ -89,7 +94,7 @@ else
 fi
 
 log_test "agent-c can lookup agent-d (same side)"
-LK=$($DC exec -T agent-c pilotctl --json lookup agent-d 2>&1)
+LK=$($DC exec -T agent-c pilotctl --json find agent-d 2>&1)
 ADDR=$(echo "$LK" | jq -r '.data.address // empty')
 if [ -n "$ADDR" ] && [ "$ADDR" != "null" ]; then
     log_pass "same-side lookup works (agent-d=$ADDR)"

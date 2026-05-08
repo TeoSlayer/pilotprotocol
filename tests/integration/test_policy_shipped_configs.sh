@@ -41,7 +41,7 @@ if ! start_policy_stack; then
 fi
 log_pass "stack up"
 
-REPO_CONFIGS_HOST="$(cd ../.. && pwd)/configs/networks"
+REPO_CONFIGS_HOST="$(cd ../../.. && pwd)/configs/networks"
 if [ ! -d "$REPO_CONFIGS_HOST" ]; then
     log_fail "configs dir not found: $REPO_CONFIGS_HOST"
     stop_policy_stack

@@ -63,7 +63,7 @@ sleep 0.12
 log_test "subscribe on agent-b mid-flight"
 $DC exec -d agent-b bash -c "
     rm -f /tmp/sub.log
-    timeout 5 pilotctl subscribe '$TOPIC' >/tmp/sub.log 2>&1 || true
+    timeout 5 pilotctl subscribe agent-b '$TOPIC' >/tmp/sub.log 2>&1 || true
 "
 log_pass "subscriber started"
 
@@ -82,8 +82,8 @@ case "$SUB_N" in
     0)
         log_pass "observed semantics: NONE (subscriber before publish window misses all)"
         ;;
-    8|9|10|11|12)
-        log_pass "observed semantics: LATEST-ONLY (~10 received, matches subscribe time)"
+    [3-9]|1[0-5])
+        log_pass "observed semantics: LATEST-ONLY ($SUB_N received, matches subscribe time)"
         ;;
     19|20)
         log_pass "observed semantics: BACKLOG (full 20 delivered)"

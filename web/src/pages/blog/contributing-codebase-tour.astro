@@ -32,7 +32,7 @@ const bodyContent = `<p>You want to contribute to Pilot Protocol. You have clone
 
   <h3>cmd/pilotctl - The CLI</h3>
 
-  <p>The command-line interface. It wraps the driver with user-friendly commands: <code>info</code>, <code>connect</code>, <code>send</code>, <code>recv</code>, <code>trust</code>, <code>revoke</code>, <code>bench</code>, <code>resolve</code>, <code>data send</code>/<code>data recv</code>, <code>events publish</code>/<code>events subscribe</code>, <code>task submit</code>/<code>task accept</code>/<code>task send-results</code>, and more. Most commands are thin wrappers that parse flags, call the driver, and format output. Adding a new CLI command is one of the easiest contributions. Routes for <code>set-hostname</code>, <code>set-visibility</code>, and <code>deregister</code> go through the daemon IPC (not directly to the registry) because they require auth signing.</p>
+  <p>The command-line interface. It wraps the driver with user-friendly commands: <code>info</code>, <code>connect</code>, <code>send</code>, <code>recv</code>, <code>trust</code>, <code>revoke</code>, <code>bench</code>, <code>resolve</code>, <code>data send</code>/<code>data recv</code>, <code>events publish</code>/<code>events subscribe</code>, and more. Most commands are thin wrappers that parse flags, call the driver, and format output. Adding a new CLI command is one of the easiest contributions. Routes for <code>set-hostname</code>, <code>set-visibility</code>, and <code>deregister</code> go through the daemon IPC (not directly to the registry) because they require auth signing.</p>
 
   <h3>cmd/rendezvous - The Server Binary</h3>
 
@@ -42,13 +42,13 @@ const bodyContent = `<p>You want to contribute to Pilot Protocol. You have clone
 
   <p>Private packages that are not part of the public API. <code>internal/crypto</code> handles Ed25519 key generation, X25519 key exchange for tunnel encryption, AES-256-GCM encryption/decryption, identity persistence, and TLS certificate pinning with <code>DialTLSPinned</code>. Random nonce prefixes are generated per secure connection to prevent replay attacks. <code>internal/fsutil</code> provides atomic file writes (write to temp, rename over target) used by the registry persistence and trust state storage. <code>internal/pool</code> has buffer pooling. The <code>internal/ipcutil</code> package provides the IPC socket permission management. Because these are in <code>internal/</code>, they cannot be imported by external packages, so changes here only affect the project itself.</p>
 
-  <h3>Services: pkg/dataexchange, pkg/eventstream, pkg/tasksubmit, pkg/secure</h3>
+  <h3>Services: pkg/dataexchange, pkg/eventstream, pkg/secure</h3>
 
-  <p>These are the built-in services that run on well-known ports. <code>pkg/dataexchange</code> (port 1001) handles structured data transfer: file sends with metadata headers and chunked streaming. <code>pkg/eventstream</code> (port 1002) implements pub/sub with topic routing and wildcard subscriptions. <code>pkg/tasksubmit</code> (port 1003) manages the full task lifecycle: submit, accept, execute, return results, with polo score integration. <code>pkg/secure</code> (port 443) handles the X25519+AES-GCM encrypted channel on top of the tunnel encryption. The echo service runs on port 7 and is embedded in the daemon itself. Each service follows the same pattern: register a port handler with the daemon's PortManager, accept connections on that port, and implement the service protocol.</p>
+  <p>These are the built-in services that run on well-known ports. <code>pkg/dataexchange</code> (port 1001) handles structured data transfer: file sends with metadata headers and chunked streaming. <code>pkg/eventstream</code> (port 1002) implements pub/sub with topic routing and wildcard subscriptions. <code>pkg/secure</code> (port 443) handles the X25519+AES-GCM encrypted channel on top of the tunnel encryption. The echo service runs on port 7 and is embedded in the daemon itself. Each service follows the same pattern: register a port handler with the daemon's PortManager, accept connections on that port, and implement the service protocol.</p>
 
   <h3>tests/ - Integration Tests</h3>
 
-  <p>The integration test suite uses <code>testenv.go</code> to spin up a full in-process environment: beacon, registry, and multiple daemons, all running in the same process with real UDP sockets. This gives you end-to-end testing without deploying anything. There are currently 226 tests (202 passing, 24 skipped for platform-specific reasons). The test files are organized by feature: <code>handshake_test.go</code>, <code>privacy_test.go</code>, <code>polo_score_test.go</code>, <code>tasksubmit_test.go</code>, <code>nat_traversal_test.go</code>, <code>gateway_test.go</code>, and so on. Every PR should include tests, and most features can be tested entirely through testenv without any external infrastructure.</p>
+  <p>The integration test suite uses <code>testenv.go</code> to spin up a full in-process environment: beacon, registry, and multiple daemons, all running in the same process with real UDP sockets. This gives you end-to-end testing without deploying anything. There are currently 226 tests (202 passing, 24 skipped for platform-specific reasons). The test files are organized by feature: <code>handshake_test.go</code>, <code>privacy_test.go</code>, <code>nat_traversal_test.go</code>, <code>gateway_test.go</code>, and so on. Every PR should include tests, and most features can be tested entirely through testenv without any external infrastructure.</p>
   </section>
 
   <section>
@@ -63,7 +63,7 @@ const bodyContent = `<p>You want to contribute to Pilot Protocol. You have clone
 <span class="cmd">go test -parallel 4 -count=1 -run TestHandshake ./tests/</span>
 
 <span class="comment"># Run with verbose output</span>
-<span class="cmd">go test -parallel 4 -count=1 -v -run TestPoloScore ./tests/</span></code></pre>
+<span class="cmd">go test -parallel 4 -count=1 -v -run TestHandshake ./tests/</span></code></pre>
 
   <div class="callout">
     <p><strong>Critical:</strong> Always use <code>-parallel 4</code>. Unlimited parallelism exhausts ports and sockets, causing dial timeouts and flaky test failures. This is not a suggestion. The CI pipeline enforces it.</p>

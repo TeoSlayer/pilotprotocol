@@ -1,0 +1,59 @@
+name: architecture-gates
+
+on: [pull_request, push]
+
+jobs:
+  gates:
+    name: Architecture gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: P1 - layer imports
+        run: go run ./tools/check-layers ./...
+
+      - name: P5 - test imports stay in layer
+        run: go run ./tools/check-layers --tests ./...
+
+      - name: Lock-graph race detection (sec 4.8)
+        run: go test -race -timeout 5m ./pkg/daemon ./pkg/registry ./pkg/secure
+
+      - name: Lock-graph stress harness (sec 4.8) — TestConcurrentDialEncryptDecrypt
+        # 1000 goroutines × 30 s × 3 reps = ~90 s wall time. Race-clean,
+        # no panic, no goroutine leak. Skipped by -short; run here without.
+        run: go test -race -count=1 -timeout 10m -run TestConcurrentDialEncryptDecrypt ./tests/...
+
+      - name: P4/P9 - goroutine reaping
+        run: go test ./tests -run "TestDaemonShutdown|TestStreamLifecycleGoroutines|TestPluginShutdown"
+
+  plugin-matrix:
+    name: Plugin matrix (no_${{ matrix.plugin }})
+    needs: gates
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - updater
+          - skillinject
+          - trustedagents
+          - nameserver
+          - dataexchange
+          - eventstream
+          - tasks
+          - gateway
+          - policy
+          - webhook
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build & test with plugin disabled
+        run: go test -tags=no_${{ matrix.plugin }} ./pkg/daemon/... ./pkg/coreapi/...

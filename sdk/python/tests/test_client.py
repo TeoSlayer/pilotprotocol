@@ -117,9 +117,6 @@ class FakeLib:
     def PilotSetVisibility(self, h, public):
         return self._json_returns.get("PilotSetVisibility", _json_ok({"status": "ok"}))
 
-    def PilotSetTaskExec(self, h, enabled):
-        return self._json_returns.get("PilotSetTaskExec", _json_ok({"status": "ok"}))
-
     def PilotSetTags(self, h, tags_json):
         return self._json_returns.get("PilotSetTags", _json_ok({"status": "ok"}))
 
@@ -298,11 +295,6 @@ class TestDriverSettings:
     def test_set_visibility(self, fake_lib):
         d = client_mod.Driver()
         r = d.set_visibility(True)
-        assert r["status"] == "ok"
-
-    def test_set_task_exec(self, fake_lib):
-        d = client_mod.Driver()
-        r = d.set_task_exec(False)
         assert r["status"] == "ok"
 
     def test_deregister(self, fake_lib):

@@ -16,7 +16,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 var version = "dev"
@@ -38,8 +38,8 @@ func main() {
 	dashboardToken := flag.String("dashboard-token", "", "token for per-network stats on dashboard (empty = public-only)")
 	maintenanceBanner := flag.String("maintenance-banner", "", "free-form notice rendered on the dashboard (empty = no banner)")
 	replToken := flag.String("repl-token", "", "shared token required for hot-standby replication (empty = replication disabled)")
-	staleThreshold := flag.Duration("stale-threshold", 30*time.Minute, "how long since last heartbeat before a node is considered stale on the dashboard (e.g. 30m, 5m). Default 30m tolerates spoof reconnect storms; smaller values give faster dashboard reflection of disconnects.")
-	mutexProfileFraction := flag.Int("mutex-profile-fraction", 1000, "rate for runtime mutex contention profiling (1/N events sampled; 0 = off). Always-on at low overhead so future incidents have profile data ready without scrambling.")
+	staleThreshold := flag.Duration("stale-threshold", 30*time.Minute, "how long since last heartbeat before a node is considered stale on the dashboard (e.g. 30m, 5m). Default 30m tolerates client reconnect storms; smaller values give faster dashboard reflection of disconnects.")
+	mutexProfileFraction := flag.Int("mutex-profile-fraction", 1000, "rate for runtime mutex contention profiling (1/N events sampled; 0 = off). Always-on at low overhead so profile data is available without runtime reconfiguration.")
 	blockProfileRate := flag.Int("block-profile-rate", 10000, "rate for runtime blocking profile in nanoseconds (0 = off). Captures goroutines blocked on chan/select/Cond — same rationale as -mutex-profile-fraction.")
 	flag.Parse()
 

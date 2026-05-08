@@ -8,8 +8,12 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /bin/pilot-rendezvous ./cmd/rende
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash curl jq procps ca-certificates iproute2 python3 xxd \
+    bash curl jq procps ca-certificates iproute2 iptables python3 xxd \
     && rm -rf /var/lib/apt/lists/*
+# iptables is required by partition-* and force-relay-* tests which
+# simulate link partitions by inserting DROP rules inside the agent
+# container. Production daemons never shell out to iptables — this is
+# a test-fixture convenience only.
 # Note: Chunk D security tests also need tcpdump for frame capture; they
 # install it on-demand via ensure_tcpdump() in sec_helpers.sh (apt-get
 # install -y tcpdump) so we don't bloat every agent image with it.
@@ -18,11 +22,11 @@ COPY --from=builder /bin/pilot-daemon /usr/local/bin/
 COPY --from=builder /bin/pilotctl /usr/local/bin/
 COPY --from=builder /bin/pilot-gateway /usr/local/bin/
 RUN mkdir -p /root/.pilot/inbox /root/.pilot/received
-COPY tests/integration/test_p2p.sh /tests/
+COPY tests/integration/local/test_p2p.sh /tests/
 # Security-test injector + helpers (Chunk D). Kept alongside /tests so
 # raw_udp.py can be invoked as `python3 /tests/raw_udp.py ...` from any
 # service that has python3 on PATH.
-COPY tests/integration/raw_udp.py /tests/
-COPY tests/integration/sec_helpers.sh /tests/
+COPY tests/integration/local/raw_udp.py /tests/
+COPY tests/integration/local/sec_helpers.sh /tests/
 RUN chmod +x /tests/test_p2p.sh /tests/raw_udp.py
 WORKDIR /tests

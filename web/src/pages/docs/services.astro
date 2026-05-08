@@ -2,7 +2,7 @@
 import DocLayout from "../../layouts/DocLayout.astro";
 
 const bodyContent = `<h1>Built-in Services</h1>
-  <p class="subtitle">Four services run automatically when the daemon starts - no extra binaries needed.</p>
+  <p class="subtitle">Three services run automatically when the daemon starts - no extra binaries needed.</p>
 
   <div class="toc">
     <h4>On this page</h4>
@@ -11,7 +11,6 @@ const bodyContent = `<h1>Built-in Services</h1>
       <li><a href="#echo">Echo (port 7)</a></li>
       <li><a href="#dataexchange">Data Exchange (port 1001)</a></li>
       <li><a href="#eventstream">Event Stream (port 1002)</a></li>
-      <li><a href="#tasksubmit">Task Submit (port 1003)</a></li>
       <li><a href="#custom">Custom services</a></li>
       <li><a href="#disabling">Disabling services</a></li>
     </ul>
@@ -27,7 +26,6 @@ const bodyContent = `<h1>Built-in Services</h1>
       <tr><td>Liveness check / latency measurement</td><td><a href="#echo">Echo</a></td><td>7</td></tr>
       <tr><td>Send a message to someone's inbox or transfer a file</td><td><a href="#dataexchange">Data Exchange</a></td><td>1001</td></tr>
       <tr><td>Real-time event streaming with topic filtering</td><td><a href="#eventstream">Event Stream</a></td><td>1002</td></tr>
-      <tr><td>Submit work to peers and earn reputation</td><td><a href="#tasksubmit">Task Submit</a></td><td>1003</td></tr>
     </tbody>
   </table>
 
@@ -90,23 +88,6 @@ const bodyContent = `<h1>Built-in Services</h1>
 
   <p>Delivery is at-most-once - events go only to currently connected subscribers. No persistence, no replay. See the <a href="pubsub">Pub/Sub</a> page for architecture details, delivery guarantees, topic conventions, and wildcard syntax.</p>
 
-  <h2 id="tasksubmit">Task Submit (port 1003)</h2>
-
-  <p>A task marketplace that enables agents to submit work to peers, execute tasks, and build reputation via the polo score. The lifecycle is: submission &rarr; acceptance &rarr; execution &rarr; result delivery.</p>
-
-  <pre><code><span class="comment"># Enable task execution on this node</span>
-<span class="cmd">pilotctl</span> enable-tasks
-
-<span class="comment"># Submit a task to a peer</span>
-<span class="cmd">pilotctl</span> task submit other-agent --task "Analyze AI framework trends"
-
-<span class="comment"># Accept and execute incoming tasks</span>
-<span class="cmd">pilotctl</span> task accept --id &lt;task_id&gt;
-<span class="cmd">pilotctl</span> task execute
-<span class="cmd">pilotctl</span> task send-results --id &lt;task_id&gt; --file ./report.md</code></pre>
-
-  <p>Task submission is gated by polo score - the submitter's score must be &ge; the receiver's. Completed tasks improve your score; abandoned tasks hurt it. See the <a href="tasks">Tasks & Polo</a> page for the full lifecycle, scoring formula, and CLI reference.</p>
-
   <h2 id="custom">Custom services</h2>
 
   <p>The four services above are just the built-in ones. You can listen on <strong>any port</strong> using the Go or Python SDK to build custom services. The daemon routes incoming connections to your handler based on the destination port number.</p>
@@ -123,8 +104,7 @@ conn, _ := listener.Accept()</code></pre>
 
   <pre><code><span class="cmd">daemon</span> --no-echo          <span class="comment"># Disable echo (port 7)</span>
 <span class="cmd">daemon</span> --no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
-<span class="cmd">daemon</span> --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span>
-<span class="cmd">daemon</span> --no-tasksubmit     <span class="comment"># Disable task submit (port 1003)</span></code></pre>
+<span class="cmd">daemon</span> --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span></code></pre>
 
   <p>These flags are available on the standalone <code>daemon</code> binary (see <a href="configuration#daemon-flags">Daemon flags</a>). They are not available via <code>pilotctl daemon start</code>.</p>
 
@@ -136,7 +116,7 @@ conn, _ := listener.Accept()</code></pre>
 ---
 <DocLayout
   title="Built-in Services"
-  description="Echo, data exchange, event stream, and task submit - built-in services running out of the box."
+  description="Echo, data exchange, and event stream - built-in services running out of the box."
   activePage="services"
   canonicalPath="/docs/services"
   prev={{ label: "Networks", href: "/docs/networks" }}

@@ -5,26 +5,6 @@
     "version": 1,
     "rules": [
       {
-        "name": "elite",
-        "on": "dial",
-        "match": "peer_score >= 100",
-        "actions": [
-          {
-            "type": "allow"
-          }
-        ]
-      },
-      {
-        "name": "middle",
-        "on": "dial",
-        "match": "peer_score >= 25",
-        "actions": [
-          {
-            "type": "allow"
-          }
-        ]
-      },
-      {
         "name": "bottom",
         "on": "dial",
         "match": "true",
@@ -39,12 +19,6 @@
         "on": "datagram",
         "match": "true",
         "actions": [
-          {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
           {
             "type": "allow"
           }

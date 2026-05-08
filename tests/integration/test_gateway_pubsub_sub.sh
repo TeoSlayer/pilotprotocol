@@ -42,7 +42,7 @@ PAYLOAD="gw-sub-data-$(date +%s%N)"
 # Start subscriber on gateway container
 $DC exec -d gateway bash -c "
     rm -f /tmp/gw-sub.log
-    pilotctl subscribe '$TOPIC' --timeout 25s > /tmp/gw-sub.log 2>&1 &
+    pilotctl subscribe gateway '$TOPIC' --timeout 25s > /tmp/gw-sub.log 2>&1 &
     echo \$! > /tmp/gw-sub.pid
 "
 sleep 3
@@ -57,7 +57,7 @@ fi
 
 sleep 3
 log_test "gateway-side subscriber received payload"
-SAW=$($DC exec -T gateway bash -c "grep -c '$PAYLOAD' /tmp/gw-sub.log 2>/dev/null || echo 0" | tr -d '\r\n')
+SAW=$($DC exec -T gateway bash -c "grep -c '$PAYLOAD' /tmp/gw-sub.log 2>/dev/null || true" | tr -d '\r\n')
 if [ "${SAW:-0}" -ge 1 ]; then
     log_pass "gateway subscriber saw payload ($SAW matches)"
 else

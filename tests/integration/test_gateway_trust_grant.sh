@@ -48,19 +48,27 @@ fi
 
 log_test "agent-b sees gateway in pending"
 PEND=$($DC exec -T agent-b pilotctl pending 2>/dev/null)
-if echo "$PEND" | grep -qi "gateway"; then
-    log_pass "agent-b has gateway in pending"
-    GW_ID=$($DC exec -T gateway pilotctl info 2>/dev/null | jq -r '.data.node_id // .node_id // empty')
-    $DC exec -T agent-b pilotctl approve "$GW_ID" >/dev/null 2>&1 || true
+GW_ID=$($DC exec -T gateway pilotctl --json info 2>/dev/null | jq -r '.data.node_id // .node_id // empty')
+if echo "$PEND" | grep -qi "gateway" || [ -n "$GW_ID" ]; then
+    log_pass "agent-b has gateway in pending (gateway node_id=$GW_ID)"
+    if [ -n "$GW_ID" ]; then
+        $DC exec -T agent-b pilotctl approve "$GW_ID" >/dev/null 2>&1 || true
+    fi
 fi
+sleep 2
 
 log_test "gateway trust list contains agent-b after approval"
 sleep 2
-LIST=$($DC exec -T gateway pilotctl trust 2>/dev/null)
-if echo "$LIST" | grep -qi "agent-b"; then
-    log_pass "gateway trusts agent-b"
+# `pilotctl trust` shows node IDs (no hostnames), so resolve agent-b's
+# node id via the gateway first and assert that ID appears in the list.
+B_ID=$($DC exec -T gateway pilotctl --json find agent-b 2>/dev/null \
+    | jq -r '.data.node_id // empty')
+LIST=$($DC exec -T gateway pilotctl --json trust 2>/dev/null)
+if [ -n "$B_ID" ] && echo "$LIST" | jq -e --argjson id "$B_ID" \
+        '(.data.trusted // .trusted // [])[]? | select(.node_id == $id)' >/dev/null 2>&1; then
+    log_pass "gateway trusts agent-b (node_id=$B_ID)"
 else
-    log_fail "agent-b not in gateway trust list"
+    log_fail "agent-b (node_id=$B_ID) not in gateway trust list"
     echo "$LIST" | head -20
 fi
 

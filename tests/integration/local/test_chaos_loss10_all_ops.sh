@@ -5,8 +5,8 @@
 # to success — this is the "easy" end of the chaos envelope. If any op
 # fails here, it is a regression.
 #
-# Ops exercised: ping, send-message, send-file, task submit, task
-# send-results, pubsub publish, trust grant, pilotctl register.
+# Ops exercised: ping, send-message, send-file, pubsub publish,
+# trust grant, pilotctl registry lookup.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -27,12 +27,11 @@ cd "$(dirname "$0")" || exit 1
 source ./chaos_helpers.sh
 
 echo "=========================================="
-echo "Chaos: 10% loss x all 7 op families"
+echo "Chaos: 10% loss x all op families"
 echo "=========================================="
 
 cleanup() {
     strip_chaos agent-b >/dev/null 2>&1
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -51,21 +50,6 @@ else
     log_fail "agents did not register"
     exit 1
 fi
-
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
-
-# task worker loop on agent-b
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "loss10-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
 
 log_test "apply 10% loss on agent-b eth0"
 if apply_loss agent-b 10 >/dev/null 2>&1; then
@@ -109,28 +93,7 @@ else
     log_fail "send-file mismatch src=${SRC:0:12}... dst=${DST:0:12}..."
 fi
 
-# ----- 4. task submit + 5. task send-results (worker does this) -----
-log_test "task submit a->b under 10% loss (completes)"
-S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "loss10-task" 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-if [ -z "$TID" ]; then
-    log_fail "task submit failed: $(echo "$S" | head -c 300)"
-else
-    STA=""
-    for _ in $(seq 1 60); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-    if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-        log_pass "task completed (status=$STA); send-results ok"
-    else
-        log_fail "task stuck (status=$STA)"
-    fi
-fi
-
-# ----- 6. pubsub publish -----
+# ----- 4. pubsub publish -----
 log_test "pubsub publish a->b/sensor/chaos"
 PUB=$($DC exec -T agent-a timeout 15 pilotctl publish agent-b sensor/chaos --data "loss10=1" 2>&1)
 if [ $? -eq 0 ]; then
@@ -139,7 +102,7 @@ else
     log_fail "publish failed: $(echo "$PUB" | head -c 300)"
 fi
 
-# ----- 7. trust handshake (real CLI is `handshake` + receiver `approve`) -----
+# ----- 5. trust handshake (real CLI is `handshake` + receiver `approve`) -----
 log_test "trust handshake a->b under 10% loss"
 TG=$($DC exec -T agent-a timeout 15 pilotctl handshake agent-b "chaos-probe" 2>&1)
 if [ $? -eq 0 ]; then
@@ -148,7 +111,7 @@ else
     log_fail "handshake failed: $(echo "$TG" | head -c 300)"
 fi
 
-# ----- 8. registry control-plane op -----
+# ----- 6. registry control-plane op -----
 # `pilotctl register` is a bare anonymous register (no key) and the
 # registry correctly rejects that path. Use a driver-backed registry
 # lookup instead — it goes through the daemon, hits the registry, and

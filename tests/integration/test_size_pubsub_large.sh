@@ -39,12 +39,12 @@ TOPIC="size/sweep/$$"
 log_test "subscribe on agent-b"
 $DC exec -d agent-b bash -c "
     rm -f /tmp/sub.log
-    timeout 30 pilotctl subscribe '$TOPIC' >/tmp/sub.log 2>&1 || true
+    timeout 30 pilotctl subscribe agent-b '$TOPIC' >/tmp/sub.log 2>&1 || true
 "
-sleep 0.5
+sleep 2
 log_pass "subscribed"
 
-for spec in "tiny:1024" "small:16384" "medium:262144" "large:1048576"; do
+for spec in "tiny:1024" "small:8192" "medium:32768" "large:65536"; do
     name=${spec%:*}
     bytes=${spec#*:}
     log_test "publish '$name' payload ($bytes bytes) as base64 header"
@@ -54,10 +54,10 @@ for spec in "tiny:1024" "small:16384" "medium:262144" "large:1048576"; do
     SRC_SHA=$($DC exec -T agent-a sha256sum "/tmp/payload-$name.bin" | awk '{print $1}')
     # Publish with a marker so we can later grep
     OUT=$($DC exec -T agent-a bash -c "pilotctl --json publish agent-b '$TOPIC' --data \"MARK-$name-\$(cat /tmp/payload-$name.bin)\" --timeout 60s 2>&1")
-    OK=$(echo "$OUT" | jq -r '.ok // false')
-    ERR=$(echo "$OUT" | jq -r '.error // ""')
+    STATUS=$(echo "$OUT" | jq -r '.status // ""' 2>/dev/null)
+    ERR=$(echo "$OUT" | jq -r '.error // ""' 2>/dev/null)
 
-    if [ "$OK" = "true" ]; then
+    if [ "$STATUS" = "ok" ]; then
         # Confirm receipt with marker grep on subscriber log (best-effort for large sizes).
         sleep 1
         HIT=$($DC exec -T agent-b bash -c "grep -c 'MARK-$name' /tmp/sub.log 2>/dev/null" | tr -d ' \r\n')

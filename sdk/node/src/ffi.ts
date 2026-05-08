@@ -110,7 +110,6 @@ export interface PilotLib {
   PilotResolveHostname(h: bigint, hostname: string): string | null;
   PilotSetHostname(h: bigint, hostname: string): string | null;
   PilotSetVisibility(h: bigint, public_: number): string | null;
-  PilotSetTaskExec(h: bigint, enabled: number): string | null;
   PilotDeregister(h: bigint): string | null;
   PilotSetTags(h: bigint, tagsJson: string): string | null;
   PilotSetWebhook(h: bigint, url: string): string | null;
@@ -176,7 +175,6 @@ export function loadLibrary(path?: string): PilotLib {
   const rawResolveHostname = lib.func('PilotResolveHostname', 'void *', ['uint64', 'str']);
   const rawSetHostname = lib.func('PilotSetHostname', 'void *', ['uint64', 'str']);
   const rawSetVisibility = lib.func('PilotSetVisibility', 'void *', ['uint64', 'int']);
-  const rawSetTaskExec = lib.func('PilotSetTaskExec', 'void *', ['uint64', 'int']);
   const rawDeregister = lib.func('PilotDeregister', 'void *', ['uint64']);
   const rawSetTags = lib.func('PilotSetTags', 'void *', ['uint64', 'str']);
   const rawSetWebhook = lib.func('PilotSetWebhook', 'void *', ['uint64', 'str']);
@@ -222,7 +220,6 @@ export function loadLibrary(path?: string): PilotLib {
     PilotResolveHostname: wrapJSON(rawResolveHostname),
     PilotSetHostname: wrapJSON(rawSetHostname),
     PilotSetVisibility: wrapJSON(rawSetVisibility),
-    PilotSetTaskExec: wrapJSON(rawSetTaskExec),
     PilotDeregister: wrapJSON(rawDeregister),
     PilotSetTags: wrapJSON(rawSetTags),
     PilotSetWebhook: wrapJSON(rawSetWebhook),

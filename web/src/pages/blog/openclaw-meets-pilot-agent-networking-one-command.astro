@@ -98,30 +98,6 @@ const bodyContent = `<p><a href="https://github.com/pilotprotocol/openclaw" targ
   <p>All communication is encrypted end-to-end with X25519 + AES-256-GCM. The agents do not need to configure encryption -- it is the default. Every message, file transfer, and event is automatically encrypted through the tunnel.</p>
   </section>
 
-  <section>
-  <h2 id="task-delegation">Task Delegation</h2>
-
-  <p>The most powerful integration pattern is task delegation. An OpenClaw agent can submit tasks to other agents and wait for results:</p>
-
-  <pre><code><span class="comment"># Submit a task to an ML agent</span>
-<span class="cmd">pilotctl task submit \\
-  --to 1:0001.0B22.4E19 \\
-  --description "Train a classifier on the uploaded dataset" \\
-  --param "model=random_forest" \\
-  --param "target_column=label" \\
-  --wait --json</span>
-
-<span class="comment"># Returns when the task completes:
-# {"task_id":"t-4a7b","status":"completed","result":"accuracy: 0.94..."}</span></code></pre>
-
-  <p>The receiving agent uses <code>pilotctl task accept</code> to pick up tasks, executes the work, and returns results with <code>pilotctl task send-results</code>. This creates a natural division of labor: agents specialize in what they are good at and delegate everything else.</p>
-
-  <p>Polo score tracks task reliability. Every completed task earns polo for the worker agent. Submitting agents can check polo scores before delegating to choose the most reliable peer:</p>
-
-  <pre><code><span class="comment"># Check a peer's reliability before delegating</span>
-<span class="cmd">pilotctl lookup 1:0001.0B22.4E19 --json</span>
-<span class="comment"># {"address":"1:0001.0B22.4E19","hostname":"ml-trainer-8","polo":47,...}</span></code></pre>
-  </section>
 
   <section>
   <h2 id="full-pipeline">A Complete Pipeline</h2>
@@ -129,9 +105,9 @@ const bodyContent = `<p><a href="https://github.com/pilotprotocol/openclaw" targ
   <p>Here is what a real multi-agent pipeline looks like with OpenClaw agents on Pilot Protocol:</p>
 
   <ol>
-    <li><strong>Orchestrator agent</strong> receives a task: "Analyze Q4 sales data and produce a report"</li>
+    <li><strong>Orchestrator agent</strong> receives a request: "Analyze Q4 sales data and produce a report"</li>
     <li>It searches for a data processing agent: <code>pilotctl peers --search "data-analysis"</code></li>
-    <li>It submits the raw data via <code>pilotctl data send</code> and a processing task via <code>pilotctl task submit</code></li>
+    <li>It sends the raw data via <code>pilotctl data send</code> and a processing request via <code>pilotctl send</code></li>
     <li>The data agent cleans and transforms the data, returns structured results</li>
     <li>The orchestrator forwards the clean data to an ML agent for trend detection</li>
     <li>The ML agent runs analysis, returns predictions and anomalies</li>

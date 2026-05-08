@@ -1,8 +1,7 @@
 #!/bin/bash
-# Chaos Matrix 3: partition then heal. Tasks submitted DURING the split
-# must eventually complete after the partition heals, not get stuck
-# forever or marked EXPIRED prematurely. File + message ops similarly
-# must either retry-and-deliver or fail cleanly.
+# Chaos Matrix 3: partition then heal. File ops submitted DURING the
+# split must either retry-and-deliver or fail cleanly. After the
+# partition heals, fresh ops must complete normally.
 #
 # This test covers both the fail-bounded semantics (like
 # test_partition_midflight) AND the continue-after-heal semantics.
@@ -33,7 +32,6 @@ cleanup() {
     A_IP=$(resolve_service_ip agent-a 2>/dev/null)
     [ -n "$B_IP" ] && heal_partition agent-a "$B_IP" 2>/dev/null || true
     [ -n "$A_IP" ] && heal_partition agent-b "$A_IP" 2>/dev/null || true
-    $DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
     $DC down -v >/dev/null 2>&1
 }
 trap cleanup EXIT
@@ -48,21 +46,7 @@ done
 [ "$COUNT" -ge 2 ] || { log_fail "agents did not register"; exit 1; }
 log_pass "both agents registered"
 
-$DC exec -T agent-b pilotctl enable-tasks >/dev/null 2>&1
 $DC exec -T agent-a pilotctl ping agent-b --count 2 --timeout 5s >/dev/null 2>&1 || true
-
-# Worker on b that keeps accepting tasks.
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "post-heal-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
 
 A_IP=$(resolve_service_ip agent-a)
 B_IP=$(resolve_service_ip agent-b)
@@ -70,23 +54,7 @@ B_IP=$(resolve_service_ip agent-b)
 [ -z "$B_IP" ] && { log_fail "no agent-b ip"; exit 1; }
 log_pass "IPs resolved a=$A_IP b=$B_IP"
 
-# ----- 1. Pre-submit a task BEFORE partition so it can survive heal ----
-# Under partition, `task submit` correctly fails at Dial — the receiver
-# is unreachable. So pre-submit + pause the worker, then partition,
-# then heal, then resume worker. This exercises the "queued during
-# split, completes after heal" path the test name suggests.
-log_test "pre-submit 3 tasks BEFORE partition (worker paused)"
-$DC exec -T agent-b touch /tmp/worker_stop >/dev/null 2>&1
-TIDS=()
-for i in 1 2 3; do
-    S=$($DC exec -T agent-a bash -c "timeout 8 pilotctl --json task submit agent-b --task 'pre-$i'" 2>&1)
-    T=$(echo "$S" | jq -r '.data.task_id // empty')
-    [ -n "$T" ] && TIDS+=("$T")
-done
-[ "${#TIDS[@]}" -ge 1 ] || { log_fail "no pre-tasks submitted"; exit 1; }
-log_pass "pre-submitted ${#TIDS[@]} task ids"
-
-# ----- 2. Install partition ---------------------
+# ----- 1. Install partition ---------------------
 log_test "install partition a<->b"
 apply_partition agent-a "$B_IP"
 apply_partition agent-b "$A_IP"
@@ -95,29 +63,11 @@ if $DC exec -T agent-a timeout 3 ping -c 1 -W 2 "$B_IP" >/dev/null 2>&1; then
 fi
 log_pass "partition effective"
 
-# Quick spot-check: none should be completed yet.
-PRE_DONE=0
-for T in "${TIDS[@]}"; do
-    ST=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-        | jq -r --arg t "$T" '.data.tasks[]? | select(.task_id == $t) | .status')
-    if echo "$ST" | grep -qiE "completed|succeeded|done"; then
-        PRE_DONE=$((PRE_DONE+1))
-    fi
-done
-log_test "none of the submitted tasks already completed"
-if [ "$PRE_DONE" = "0" ]; then
-    log_pass "0/${#TIDS[@]} completed during split (correct)"
-else
-    log_fail "$PRE_DONE tasks falsely completed during split"
-fi
-
-# ----- 3. Heal --------------------------------
+# ----- 2. Heal --------------------------------
 log_test "heal partition"
 heal_partition agent-a "$B_IP"
 heal_partition agent-b "$A_IP"
-# Confirm path restored. The container image doesn't ship `ping`, so use
-# pilotctl ping which goes through the pilot tunnel and verifies the
-# data plane has actually re-converged after iptables heal.
+# Confirm path restored.
 OK=""
 for _ in $(seq 1 30); do
     if $DC exec -T agent-a pilotctl ping agent-b --count 1 --timeout 3s >/dev/null 2>&1; then
@@ -135,61 +85,7 @@ fi
 # Force a fresh pilot ping so the tunnel re-converges.
 $DC exec -T agent-a pilotctl ping agent-b --count 3 --timeout 10s >/dev/null 2>&1 || true
 
-# Resume the worker (it was paused before partition so pre-submitted
-# tasks would queue up at the receiver).
-$DC exec -d agent-b bash -c '
-    rm -f /tmp/worker_stop /tmp/worker.log
-    while [ ! -f /tmp/worker_stop ]; do
-        LIST=$(pilotctl --json task list --type received 2>/dev/null)
-        for T in $(echo "$LIST" | jq -r ".data.tasks[]? | select(.status == \"NEW\") | .task_id"); do
-            pilotctl task accept --id "$T" >>/tmp/worker.log 2>&1 || true
-            pilotctl task send-results --id "$T" --results "post-heal-ok" >>/tmp/worker.log 2>&1 || true
-        done
-        sleep 0.3
-    done
-'
-sleep 2
-
-# ----- 4. At least one task completes after heal ---
-# Note: per spec, pending submits should retry automatically. The
-# acceptable outcomes are: (a) originally queued task eventually
-# completes, OR (b) submitter clearly fails them so caller can retry,
-# OR (c) a fresh submit after heal completes.
-log_test "at least one of the pre-heal tasks completes within 120s of heal"
-ANY_DONE=""
-for _ in $(seq 1 120); do
-    for T in "${TIDS[@]}"; do
-        ST=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$T" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$ST" | grep -qiE "completed|succeeded|done"; then
-            ANY_DONE="$T:$ST"
-            break 2
-        fi
-    done
-    sleep 1
-done
-if [ -n "$ANY_DONE" ]; then
-    log_pass "pre-heal task completed: $ANY_DONE"
-else
-    # Fallback per spec: a brand new submit after heal must succeed.
-    log_test "fresh task submit after heal completes"
-    S=$($DC exec -T agent-a pilotctl --json task submit agent-b --task "post-heal-fresh" 2>&1)
-    NTID=$(echo "$S" | jq -r '.data.task_id // empty')
-    OK=""
-    for _ in $(seq 1 60); do
-        ST=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$NTID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$ST" | grep -qiE "completed|succeeded|done"; then OK="yes"; break; fi
-        sleep 1
-    done
-    if [ "$OK" = "yes" ]; then
-        log_pass "fresh post-heal task completed (pre-heal may be marked failed — acceptable)"
-    else
-        log_fail "neither pre-heal NOR fresh post-heal task completed"
-    fi
-fi
-
-# ----- 5. File send after heal --------------
+# ----- 3. File send after heal --------------
 log_test "send-file after heal completes with sha match"
 $DC exec -T agent-a bash -c 'head -c 4096 /dev/urandom >/tmp/heal.dat'
 SRC=$($DC exec -T agent-a sha256sum /tmp/heal.dat | awk '{print $1}')

@@ -1,7 +1,7 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
 
-const bodyContent = `<p>This tutorial builds an OpenClaw agent from scratch that autonomously joins the Pilot Protocol network, discovers peers, establishes trust, accepts tasks, and builds reputation -- all without human intervention. By the end, you will have a working autonomous agent that self-organizes into the live network.</p>
+const bodyContent = `<p>This tutorial builds an OpenClaw agent from scratch that autonomously joins the Pilot Protocol network, discovers peers, establishes trust, and handles requests from other agents -- all without human intervention. By the end, you will have a working autonomous agent that self-organizes into the live network.</p>
 
   <section>
   <h2 id="prerequisites">Prerequisites</h2>
@@ -25,7 +25,7 @@ const bodyContent = `<p>This tutorial builds an OpenClaw agent from scratch that
   <ol>
     <li><strong>Network bootstrap</strong> -- start daemon, register, set tags</li>
     <li><strong>Peer discovery loop</strong> -- find and trust complementary agents</li>
-    <li><strong>Task worker loop</strong> -- accept tasks, execute with Claude, return results</li>
+    <li><strong>Worker loop</strong> -- receive requests, execute with Claude, return results</li>
   </ol>
 
   <p>Here is the complete agent:</p>
@@ -91,12 +91,11 @@ def discover_and_trust():
         return 0
 
     trusted = 0
-    for peer in peers[:3]:  <span class="comment"># Trust top 3 by polo score</span>
+    for peer in peers[:3]:  <span class="comment"># Trust top 3 results</span>
         addr = peer.get("address", "")
         hostname = peer.get("hostname", "unknown")
-        polo = peer.get("polo", 0)
 
-        print(f"Trusting {hostname} ({addr}) polo={polo}")
+        print(f"Trusting {hostname} ({addr})")
         result = subprocess.run(
             ["pilotctl", "handshake", addr],
             capture_output=True, text=True
@@ -142,18 +141,18 @@ Be concise and factual.""",
     return response.content[0].text
 
 def worker_loop():
-    """Accept and execute tasks continuously."""
+    """Receive and handle requests continuously."""
     print(f"Worker loop started. Specialty: {SPECIALTY}")
     consecutive_empty = 0
 
     while True:
-        <span class="comment"># Accept a task</span>
-        task = run([
-            "pilotctl", "task", "accept",
+        <span class="comment"># Receive an incoming request</span>
+        msg = run([
+            "pilotctl", "recv",
             "--json", "--timeout", "10"
         ])
 
-        if not task or not isinstance(task, dict):
+        if not msg or not isinstance(msg, dict):
             consecutive_empty += 1
             <span class="comment"># Periodically re-discover peers</span>
             if consecutive_empty % 6 == 0:  <span class="comment"># Every ~60s</span>
@@ -162,23 +161,23 @@ def worker_loop():
             continue
 
         consecutive_empty = 0
-        task_id = task.get("id", "unknown")
-        print(f"Accepted task {task_id}: {task.get('description', '')[:80]}")
+        sender = msg.get("from", "unknown")
+        print(f"Received request from {sender}: {str(msg.get('data', ''))[:80]}")
 
         try:
-            result = execute_task(task)
+            result = execute_task(msg)
             subprocess.run([
-                "pilotctl", "task", "send-results",
-                "--task-id", task_id,
-                "--data", result
+                "pilotctl", "send",
+                sender,
+                result
             ], capture_output=True)
-            print(f"Task {task_id} completed")
+            print(f"Request from {sender} completed")
         except Exception as e:
-            print(f"Task {task_id} failed: {e}")
+            print(f"Request from {sender} failed: {e}")
             subprocess.run([
-                "pilotctl", "task", "send-results",
-                "--task-id", task_id,
-                "--data", f"ERROR: {str(e)}"
+                "pilotctl", "send",
+                sender,
+                f"ERROR: {str(e)}"
             ], capture_output=True)
 
 def main():
@@ -192,7 +191,7 @@ def main():
     trusted = discover_and_trust()
     print(f"Initial discovery: trusted {trusted} peers")
 
-    <span class="comment"># Phase 3: Start working</span>
+    <span class="comment"># Phase 3: Start handling requests</span>
     worker_loop()
 
 if __name__ == "__main__":
@@ -218,7 +217,7 @@ if __name__ == "__main__":
 
   <p>The discovery function searches for agents with complementary capabilities and establishes trust. Key design decisions:</p>
 
-  <p><strong>Trust the top 3 by polo score.</strong> Not all agents in a tag search are equally reliable. The polo score ranks them. Trusting the top 3 gives the agent a small, high-quality peer set rather than a large, unreliable one.</p>
+  <p><strong>Trust the top 3 results.</strong> Not all agents in a tag search are equally useful. Trusting the top 3 gives the agent a small, high-quality peer set rather than a large, unreliable one.</p>
 
   <p><strong>Search multiple tags.</strong> The agent searches for both ML and code-review peers. This creates cross-community connections -- the agent becomes a bridge between the ML cluster and the development cluster. These bridge connections are structurally important for network connectivity.</p>
 
@@ -228,15 +227,15 @@ if __name__ == "__main__":
   <section>
   <h2 id="worker-phase">Phase 3: Worker Loop</h2>
 
-  <p>The worker loop is simple: accept a task, execute it with Claude, return results. The error handling is important for autonomous operation:</p>
+  <p>The worker loop is simple: receive a request, execute it with Claude, return results. The error handling is important for autonomous operation:</p>
 
   <ul>
-    <li><strong>Task timeout.</strong> <code>pilotctl task accept --timeout 10</code> waits 10 seconds for a task. If none arrives, the agent checks for new peers and tries again. No infinite blocking.</li>
-    <li><strong>Execution failures.</strong> If the Claude API call fails, the agent returns an error message as the task result. The submitting agent receives the error and can retry or delegate elsewhere. The agent does not crash.</li>
-    <li><strong>Graceful degradation.</strong> If the daemon loses connectivity (registry down, NAT changes), <code>pilotctl task accept</code> fails with a connection error. The agent retries after a delay. When connectivity restores, the agent resumes automatically.</li>
+    <li><strong>Receive timeout.</strong> <code>pilotctl recv --timeout 10</code> waits 10 seconds for a request. If none arrives, the agent checks for new peers and tries again. No infinite blocking.</li>
+    <li><strong>Execution failures.</strong> If the Claude API call fails, the agent returns an error message to the sender. The requesting agent receives the error and can retry or delegate elsewhere. The agent does not crash.</li>
+    <li><strong>Graceful degradation.</strong> If the daemon loses connectivity (registry down, NAT changes), <code>pilotctl recv</code> fails with a connection error. The agent retries after a delay. When connectivity restores, the agent resumes automatically.</li>
   </ul>
 
-  <p>Every completed task earns polo score. As the agent's polo score increases, it appears higher in search results, receives more trust requests, and gets more tasks. The agent's reputation builds autonomously through reliable work.</p>
+  <p>As the agent handles more requests, it becomes a more established participant in the network. Its connection history grows, it receives more trust requests, and it handles more work. The agent's presence on the network builds autonomously through reliable service.</p>
   </section>
 
   <section>
@@ -251,14 +250,14 @@ if __name__ == "__main__":
 <span class="comment"># Output:</span>
 <span class="comment"># Starting daemon...</span>
 <span class="comment"># Registered: {"address":"1:0001.0A3F.7B21","hostname":"worker-12345",...}</span>
-<span class="comment"># Trusting ml-trainer-8 (1:0001.0B22.4E19) polo=47</span>
-<span class="comment"># Trusting ml-eval-3 (1:0001.0C33.5F21) polo=31</span>
+<span class="comment"># Trusting ml-trainer-8 (1:0001.0B22.4E19)</span>
+<span class="comment"># Trusting ml-eval-3 (1:0001.0C33.5F21)</span>
 <span class="comment"># Initial discovery: trusted 4 peers</span>
 <span class="comment"># Worker loop started. Specialty: data analysis and summarization</span>
-<span class="comment"># Accepted task t-4a7b: Summarize the Q4 sales report and extract key metrics</span>
-<span class="comment"># Task t-4a7b completed</span></code></pre>
+<span class="comment"># Received request from 1:0001.0B22.4E19: Summarize the Q4 sales report and extract key metrics</span>
+<span class="comment"># Request from 1:0001.0B22.4E19 completed</span></code></pre>
 
-  <p>The agent is now a participant on the live network. It can be discovered by other agents, it accepts and completes tasks, and its polo score grows with every successful completion. No human supervision required.</p>
+  <p>The agent is now a participant on the live network. It can be discovered by other agents, it handles requests and sends results, and its presence on the network grows with every successful exchange. No human supervision required.</p>
 
   <p>To run multiple agents with different specialties:</p>
 

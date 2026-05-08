@@ -246,11 +246,6 @@ export class Driver {
     return this._callJSON('PilotSetVisibility', isPublic ? 1 : 0);
   }
 
-  /** Enable or disable task execution capability. */
-  setTaskExec(enabled: boolean): Record<string, unknown> {
-    return this._callJSON('PilotSetTaskExec', enabled ? 1 : 0);
-  }
-
   /** Remove the daemon from the registry. */
   deregister(): Record<string, unknown> {
     return this._callJSON('PilotDeregister');
@@ -482,52 +477,6 @@ export class Driver {
     }
   }
 
-  /**
-   * Submit a task via the task submit service (port 1003).
-   *
-   * @param target - Hostname or protocol address of task execution server
-   * @param taskData - Task specification. Must include 'task_description'.
-   */
-  submitTask(target: string, taskData: Record<string, unknown>): Record<string, unknown> {
-    const addr = this._resolveTarget(target);
-    const nodeInfo = this.info();
-    const fromAddr = (nodeInfo['address'] as string) ?? 'unknown';
-
-    const submitReq = {
-      task_id: taskData['task_id'] ?? crypto.randomUUID(),
-      task_description: taskData['task_description'] ?? JSON.stringify(taskData),
-      from_addr: fromAddr,
-      to_addr: addr,
-    };
-
-    const taskJson = Buffer.from(JSON.stringify(submitReq), 'utf-8');
-
-    // Build submit frame: [4-byte type=1][4-byte length][JSON payload]
-    const header = Buffer.alloc(8);
-    header.writeUInt32BE(1, 0);
-    header.writeUInt32BE(taskJson.length, 4);
-    const frame = Buffer.concat([header, taskJson]);
-
-    const conn = this.dial(`${addr}:1003`);
-    try {
-      conn.write(frame);
-
-      // Read response frame: [4-byte type][4-byte length][JSON payload]
-      const respHeader = conn.read(8);
-      if (!respHeader || respHeader.length < 8) {
-        throw new PilotError('No response from task submit service');
-      }
-      const respLen = respHeader.readUInt32BE(4);
-      const respData = conn.read(respLen);
-      if (!respData || respData.length < respLen) {
-        throw new PilotError('Incomplete response from task submit service');
-      }
-
-      return JSON.parse(respData.toString('utf-8'));
-    } finally {
-      conn.close();
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------

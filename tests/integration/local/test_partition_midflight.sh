@@ -109,25 +109,6 @@ else
     log_fail "send-file: recv=$RECV dt=${DT}s (unexpected)"
 fi
 
-# ----- task submit must not claim completion -----
-log_test "task submit under partition must not mark completed"
-S=$($DC exec -T agent-a bash -c 'timeout 10 pilotctl --json task submit agent-b --task "partitioned"' 2>&1)
-TID=$(echo "$S" | jq -r '.data.task_id // empty')
-STA=""
-if [ -n "$TID" ]; then
-    for _ in $(seq 1 8); do
-        STA=$($DC exec -T agent-a pilotctl --json task list --type submitted 2>/dev/null \
-            | jq -r --arg t "$TID" '.data.tasks[]? | select(.task_id == $t) | .status')
-        if echo "$STA" | grep -qiE "completed|succeeded|done"; then break; fi
-        sleep 1
-    done
-fi
-if echo "$STA" | grep -qiE "completed|succeeded|done"; then
-    log_fail "task falsely marked $STA during partition"
-else
-    log_pass "task did not falsely complete (status=${STA:-<no-record>})"
-fi
-
 # ----- pubsub publish must not loop/panic ---------
 log_test "publish under partition — must fail bounded, not spin"
 T0=$(date +%s)

@@ -25,14 +25,16 @@ SINK="http://webhook-sink:18080"
 LOG="/var/log/webhooks.jsonl"
 
 cd "$(dirname "$0")" || exit 1
+source ./webhook_helpers.sh
 
 cleanup() { $DC down -v >/dev/null 2>&1; }
 trap cleanup EXIT
 
 log_test "fresh webhooks stack"
 $DC down -v >/dev/null 2>&1
-$DC up -d rendezvous webhook-sink agent-a agent-b >/dev/null 2>&1
-for _ in $(seq 1 60); do
+ensure_webhook_sink_ready || { log_fail "webhook-sink never came up"; exit 1; }
+$DC up -d agent-a agent-b >/dev/null 2>&1
+for _ in $(seq 1 $((60 * ${PILOT_TEST_WAIT_MULT:-1}))); do
     COUNT=$($DC exec -T rendezvous curl -fsS http://127.0.0.1:8080/api/stats 2>/dev/null | jq -r '.total_nodes // 0')
     [ "$COUNT" -ge 2 ] && break
     sleep 1
@@ -53,7 +55,7 @@ for _ in $(seq 1 10); do
 done
 
 # Snapshot count before.
-BEFORE=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"file.delivered\"' $LOG 2>/dev/null || echo 0")
+BEFORE=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"file.delivered\"' $LOG 2>/dev/null; true" | tail -1)
 
 log_test "agent-a sends file to agent-b"
 $DC exec -T agent-a bash -c 'echo "payload-$(date +%s)" > /tmp/x.bin && pilotctl send-file agent-b /tmp/x.bin' >/tmp/sf.txt 2>&1 \
@@ -63,7 +65,7 @@ $DC exec -T agent-a bash -c 'echo "payload-$(date +%s)" > /tmp/x.bin && pilotctl
 # Give webhook delivery time (async, with up to 3 retries).
 sleep 8
 
-AFTER=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"file.delivered\"' $LOG 2>/dev/null || echo 0")
+AFTER=$($DC exec -T webhook-sink sh -c "grep -c '\"event\":\"file.delivered\"' $LOG 2>/dev/null; true" | tail -1)
 DELTA=$((AFTER - BEFORE))
 log_test "exactly one file.delivered webhook (delta=$DELTA)"
 if [ "$DELTA" -eq 1 ]; then

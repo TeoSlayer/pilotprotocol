@@ -21,6 +21,7 @@ const (
 	subHandshakePending byte = 0x04
 	subHandshakeTrusted byte = 0x05
 	subHandshakeRevoke  byte = 0x06
+	subHandshakeWait    byte = 0x07
 )
 
 // jsonRPC sends an IPC message, waits for the expected response, and
@@ -197,19 +198,6 @@ func (d *Driver) Info() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdInfo}, cmdInfoOK, "info")
 }
 
-// MyPoloScore returns this node's own polo score. Polo is private —
-// the registry only allows a node to read its own score.
-func (d *Driver) MyPoloScore() (int, error) {
-	resp, err := d.jsonRPC([]byte{cmdMyPolo}, cmdMyPoloOK, "my_polo")
-	if err != nil {
-		return 0, err
-	}
-	if v, ok := resp["polo_score"].(float64); ok {
-		return int(v), nil
-	}
-	return 0, fmt.Errorf("polo_score missing from response")
-}
-
 // Health returns a lightweight health check from the daemon.
 func (d *Driver) Health() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdHealth}, cmdHealthOK, "health")
@@ -247,6 +235,23 @@ func (d *Driver) RejectHandshake(nodeID uint32, reason string) (map[string]inter
 // PendingHandshakes returns pending trust handshake requests.
 func (d *Driver) PendingHandshakes() (map[string]interface{}, error) {
 	return d.jsonRPC([]byte{cmdHandshake, subHandshakePending}, cmdHandshakeOK, "pending")
+}
+
+// WaitForTrust blocks (in the daemon) until the peer transitions to trusted
+// or the timeout elapses. Single IPC roundtrip — the daemon-side
+// HandshakeService.WaitForTrust waits on a per-node channel that is closed
+// the moment trust is granted, so wakeup latency is sub-millisecond.
+//
+// Backward compatibility: an old daemon (no SubHandshakeWait) returns an
+// "unknown sub-command" error; callers should treat that as "wait skipped"
+// and proceed.
+func (d *Driver) WaitForTrust(nodeID uint32, timeoutMs uint32) (map[string]interface{}, error) {
+	msg := make([]byte, 1+1+4+4)
+	msg[0] = cmdHandshake
+	msg[1] = subHandshakeWait
+	binary.BigEndian.PutUint32(msg[2:6], nodeID)
+	binary.BigEndian.PutUint32(msg[6:10], timeoutMs)
+	return d.jsonRPC(msg, cmdHandshakeOK, "wait")
 }
 
 // TrustedPeers returns all trusted peers from the handshake protocol.
@@ -287,16 +292,6 @@ func (d *Driver) SetVisibility(public bool) (map[string]interface{}, error) {
 		msg[1] = 1
 	}
 	return d.jsonRPC(msg, cmdSetVisibilityOK, "set_visibility")
-}
-
-// SetTaskExec enables or disables task execution capability on the registry.
-func (d *Driver) SetTaskExec(enabled bool) (map[string]interface{}, error) {
-	msg := make([]byte, 2)
-	msg[0] = cmdSetTaskExec
-	if enabled {
-		msg[1] = 1
-	}
-	return d.jsonRPC(msg, cmdSetTaskExecOK, "set_task_exec")
 }
 
 // Deregister removes the daemon from the registry.
@@ -398,18 +393,6 @@ func (d *Driver) NetworkRespondInvite(networkID uint16, accept bool) (map[string
 	return d.jsonRPC(msg, cmdNetworkOK, "network respond-invite")
 }
 
-// ManagedScore adjusts a peer's score in a managed network.
-func (d *Driver) ManagedScore(networkID uint16, nodeID uint32, delta int, topic string) (map[string]interface{}, error) {
-	msg := make([]byte, 1+1+2+4+4+len(topic))
-	msg[0] = cmdManaged
-	msg[1] = subManagedScore
-	binary.BigEndian.PutUint16(msg[2:4], networkID)
-	binary.BigEndian.PutUint32(msg[4:8], nodeID)
-	binary.BigEndian.PutUint32(msg[8:12], uint32(int32(delta)))
-	copy(msg[12:], topic)
-	return d.jsonRPC(msg, cmdManagedOK, "managed score")
-}
-
 // ManagedStatus returns the status of a managed network engine.
 func (d *Driver) ManagedStatus(networkID uint16) (map[string]interface{}, error) {
 	msg := make([]byte, 4)
@@ -417,15 +400,6 @@ func (d *Driver) ManagedStatus(networkID uint16) (map[string]interface{}, error)
 	msg[1] = subManagedStatus
 	binary.BigEndian.PutUint16(msg[2:4], networkID)
 	return d.jsonRPC(msg, cmdManagedOK, "managed status")
-}
-
-// ManagedRankings returns ranked peers in a managed network.
-func (d *Driver) ManagedRankings(networkID uint16) (map[string]interface{}, error) {
-	msg := make([]byte, 4)
-	msg[0] = cmdManaged
-	msg[1] = subManagedRankings
-	binary.BigEndian.PutUint16(msg[2:4], networkID)
-	return d.jsonRPC(msg, cmdManagedOK, "managed rankings")
 }
 
 // ManagedForceCycle forces a prune/fill cycle in a managed network.

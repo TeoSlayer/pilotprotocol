@@ -26,7 +26,7 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/seniority.json"
+CFG="$(pwd)/../../../configs/networks/seniority.json"
 if [ ! -f "$CFG" ]; then
     log_fail "seniority.json NOT shipped — promise unmet (EXPECTED: age-based privilege — older peers (peer_age_s) get more access)"
     exit 1

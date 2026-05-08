@@ -35,7 +35,7 @@ $DC down -v >/dev/null 2>&1
 $DC up -d rendezvous agent-a agent-b >/dev/null 2>&1
 ensure_stack_up || { log_fail "stack boot"; exit 1; }
 
-CFG="$(pwd)/../../configs/networks/data-exchange-policy.json"
+CFG="$(pwd)/../../../configs/networks/data-exchange-policy.json"
 [ -f "$CFG" ] || { log_fail "missing $CFG"; exit 1; }
 
 NID=$(create_network_from_file "$CFG" "dep-$$") || { log_fail "create"; exit 1; }
@@ -44,6 +44,7 @@ log_pass "net=$NID"
 start_agent_in_network agent-a "$NID" "$CFG"
 start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
+sync_policy_peers "$NID" agent-a agent-b
 
 log_test "echo (port 7) is always allowed (allow-echo-dial rule)"
 RESP=$(echo "dep-echo-$$" | $DC exec -T agent-a pilotctl connect agent-b 7 --timeout 5s 2>/dev/null | tr -d '\r\n')
@@ -53,27 +54,26 @@ else
     log_fail "echo blocked (EXPECTED: port 7 always allowed)"
 fi
 
-log_test "port 1001 rejected when neither side has 'service' tag"
-# Agents start with no custom tags — confirm deny path.
+log_test "port 1001 (send-message) rejected when neither side has 'service' tag"
 $DC exec -T agent-a pilotctl clear-tags >/dev/null 2>&1
 $DC exec -T agent-b pilotctl clear-tags >/dev/null 2>&1
 sleep 1
-if $DC exec -T agent-a pilotctl send agent-b 1001 --data "svc-probe" --timeout 3s >/tmp/dep.txt 2>&1; then
-    log_fail "1001 send ACCEPTED without service tag (EXPECTED: deny)"
+if $DC exec -T agent-a pilotctl send-message agent-b --data "svc-probe" --type text --timeout 3s >/tmp/dep.txt 2>&1; then
+    log_fail "1001 send-message ACCEPTED without service tag (EXPECTED: deny)"
     tail -3 /tmp/dep.txt | sed 's/^/    /'
 else
-    log_pass "1001 send refused"
+    log_pass "1001 send-message refused"
 fi
 
-log_test "port 1001 allowed once agent-b takes 'service' tag"
-$DC exec -T agent-b pilotctl --json member-tags set --network "$NID" service >/dev/null 2>&1 \
-    || $DC exec -T agent-b pilotctl set-tags service >/dev/null 2>&1
+log_test "port 1001 (send-message) allowed once agent-b takes 'service' tag"
+NID_B=$($DC exec -T agent-b pilotctl --json info 2>/dev/null | jq -r '.data.node_id // 0')
+$DC exec -T -e PILOT_ADMIN_TOKEN=test-admin-token agent-a pilotctl --json member-tags set \
+    --net "$NID" --node "$NID_B" --tags service >/dev/null 2>&1
+sync_policy_peers "$NID" agent-a agent-b
 sleep 1
-if $DC exec -T agent-a pilotctl send agent-b 1001 --data "svc-ok" --timeout 5s >/tmp/dep2.txt 2>&1; then
-    log_pass "1001 allowed with service tag"
+if $DC exec -T agent-a pilotctl send-message agent-b --data "svc-ok" --type text --timeout 5s >/tmp/dep2.txt 2>&1; then
+    log_pass "1001 send-message allowed with service tag"
 else
-    # EXPECTED: tag-gated allow-service-files rule should open the
-    # port once b is tagged service.
     log_fail "1001 blocked with service tag (EXPECTED: allowed)"
     tail -3 /tmp/dep2.txt | sed 's/^/    /'
 fi

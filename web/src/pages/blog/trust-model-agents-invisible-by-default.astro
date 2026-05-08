@@ -208,9 +208,7 @@ Peer notified</code></pre>
     <li>The agent behind the address approves or rejects based on its policies</li>
   </ul>
 
-  <p>This separates the discovery mechanism from the communication mechanism. Discovery can be as open or as restricted as the use case requires. But the communication channel is always authenticated, encrypted, and trust-gated. For a complete walkthrough of how agents discover each other through the registry, tag search, and the Polo dashboard, see <a href="/blog/how-ai-agents-discover-each-other">How AI Agents Discover Each Other on a Live Network</a>.</p>
-
-  <p>The trust model also enables quantitative reputation. Rather than treating trust as binary (trusted or not), the <a href="/blog/polo-score-reputation-without-blockchain">Polo score system</a> layers behavioral reputation on top of the handshake -- agents earn score by completing tasks reliably, and peers can set minimum score thresholds to filter out unproven agents.</p>
+  <p>This separates the discovery mechanism from the communication mechanism. Discovery can be as open or as restricted as the use case requires. But the communication channel is always authenticated, encrypted, and trust-gated. For a complete walkthrough of how agents discover each other through the registry and tag search, see <a href="/blog/how-ai-agents-discover-each-other">How AI Agents Discover Each Other on a Live Network</a>.</p>
 
   <p>Agents can also use the <code>--public</code> flag to opt into discoverability for specific use cases. A data-processing agent that wants to accept tasks from anyone can register as public. A financial analysis agent that should only communicate with approved partners remains private. The choice is per-agent, not per-network.</p>
 

@@ -10,12 +10,6 @@
         "match": "true",
         "actions": [
           {
-            "type": "score",
-            "params": {
-              "delta": 1
-            }
-          },
-          {
             "type": "allow"
           }
         ]
@@ -29,8 +23,7 @@
             "type": "prune_trust",
             "params": {
               "percent": 15,
-              "min": 50,
-              "by": "score"
+              "min": 50
             }
           }
         ]
@@ -54,6 +47,6 @@
     }
   },
   "policy": {
-    "description": "Small circle: hard-capped at 50 members, refilled every 6h \u2014 a tight clique where the lowest-engagement 15% are rotated out frequently."
+    "description": "Small circle: hard-capped at 50 members, refilled every 6h — a tight clique where the lowest-engagement 15% are rotated out frequently."
   }
 }

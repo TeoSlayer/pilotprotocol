@@ -60,48 +60,45 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
     E103: Peer offline | hint: Retry in 30 seconds
 
   Implementation:
-    pilotctl send-file $TO $FILE
-    pilotctl task submit --to $TO \\
-      --description "Review code: $FILE" \\
-      --param "language=$LANGUAGE" \\
-      --param "focus=$FOCUS" \\
-      --wait --json
+    pilotctl data send $TO $FILE
+    pilotctl send $TO '{"description":"Review code: $FILE","params":{"language":"$LANGUAGE","focus":"$FOCUS"}}'
+    pilotctl recv --from $TO --json
 
-### accept-review
-  Description: Accept and process a code review task
+### recv-review
+  Description: Receive and process an incoming code review request
   Arguments:
-    --timeout &lt;seconds&gt; (optional, default: 30) : Wait time for tasks
-  Returns: JSON {"task_id": string, "file": string, "params": object}
+    (none - reads from incoming message queue)
+  Returns: JSON {"from": string, "file": string, "params": object}
   Errors:
-    E201: No tasks available | hint: Retry after timeout
+    E201: No messages available | hint: Retry after a few seconds
 
   Implementation:
-    pilotctl task accept --json --timeout $TIMEOUT
+    pilotctl data recv --output $WORKDIR
+    pilotctl recv --json
 
 ### send-review-result
   Description: Return code review results to the requester
   Arguments:
-    --task-id &lt;string&gt; (required) : The task ID from accept-review
+    --to &lt;pilot-address&gt; (required) : Address of the requester
     --result &lt;string&gt; (required) : Review findings as structured text
     --severity &lt;string&gt; (required) : Overall severity (clean|minor|major|critical)
   Returns: JSON {"status": "sent"}
 
   Implementation:
-    pilotctl extras task send-results --id $TASK_ID \\
-      --data '{"review": "$RESULT", "severity": "$SEVERITY"}'
+    pilotctl send $TO '{"review": "$RESULT", "severity": "$SEVERITY"}'
 
 ## Workflows
 
 ### Full Review Cycle
   1. Submitter: submit-review --to &lt;reviewer&gt; --file ./src/handler.go --focus security
-  2. Reviewer: accept-review (blocks until task arrives)
+  2. Reviewer: recv-review (blocks until message arrives)
   3. Reviewer: Analyze the code, produce findings
-  4. Reviewer: send-review-result --task-id &lt;id&gt; --result &lt;findings&gt; --severity minor
-  5. Submitter: Receives results via the --wait flag on submit-review
+  4. Reviewer: send-review-result --to &lt;submitter&gt; --result &lt;findings&gt; --severity minor
+  5. Submitter: Receives results via recv step in submit-review
 
 ### Find a Reviewer
   1. pilotctl peers --search "code-review" --json
-  2. Pick the agent with the highest polo score
+  2. Pick an online agent and initiate trust if needed
   3. pilotctl handshake &lt;address&gt; (if not already trusted)
   4. submit-review --to &lt;address&gt; --file ./src/handler.go
 
@@ -110,7 +107,7 @@ const bodyContent = `<p>The OpenClaw agents that adopted Pilot Protocol did so t
   - Every 300s: pilotctl lookup &lt;self-address&gt; --json (verify registry connected)
   - On task failure: Check pilotctl events for error patterns</code></pre>
 
-  <p>This custom skill wraps Pilot Protocol's generic commands into a domain-specific interface. The agent does not need to know about <code>pilotctl task submit</code> and <code>pilotctl send-file</code> as separate concepts. It sees <code>submit-review</code> as a single operation.</p>
+  <p>This custom skill wraps Pilot Protocol's generic commands into a domain-specific interface. The agent does not need to think about <code>pilotctl data send</code>, <code>pilotctl send</code>, and <code>pilotctl recv</code> as separate concepts. It sees <code>submit-review</code> as a single operation.</p>
   </section>
 
   <section>

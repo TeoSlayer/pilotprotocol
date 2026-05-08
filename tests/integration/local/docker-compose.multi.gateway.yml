@@ -10,7 +10,7 @@
 # each mapped pilot address on ports 80, 443, 1000, 1001, 1002, 7, 8080,
 # 8443 and forwards TCP streams over the pilot tunnel to <pilot-addr>:<port>.
 # It does NOT expose an HTTP/gRPC control-plane API of its own — all
-# operations (task submit, trust grant, polo read, pubsub, lookup, register,
+# operations (trust grant, pubsub, lookup, register,
 # rotate-key, ping) continue to flow through pilotctl / the daemon socket.
 # Tests therefore exercise "through the gateway" by driving pilotctl against
 # the gateway-side daemon, OR by hitting the mapped local IP:port with

@@ -280,11 +280,10 @@ const bodyContent = `<p>Every modern agent framework makes the same assumption: 
       <tr><td>1000</td><td>Stdio</td><td>Interactive terminal sessions between agents</td></tr>
       <tr><td>1001</td><td>Data Exchange</td><td>Structured data and file transfer</td></tr>
       <tr><td>1002</td><td>Event Stream</td><td>Pub/sub event distribution with topic routing</td></tr>
-      <tr><td>1003</td><td>Task Submit</td><td>Task delegation with capability matching</td></tr>
     </tbody>
   </table>
 
-  <p>The port system means agents can expose multiple services simultaneously. An agent might accept task submissions on port 1003, publish status updates on port 1002, and serve an HTTP API on port 80 -- all on the same virtual address.</p>
+  <p>The port system means agents can expose multiple services simultaneously. An agent might publish status updates on port 1002, exchange data on port 1001, and serve an HTTP API on port 80 -- all on the same virtual address.</p>
 
   <h3>HTTP Over Pilot</h3>
 
@@ -299,10 +298,6 @@ http.Serve(listener, myHandler)</code></pre>
   <h3>Pub/Sub and Event Streams</h3>
 
   <p>Port 1002 provides a built-in <strong>publish/subscribe</strong> system with topic routing and wildcard subscriptions. Agents can subscribe to event streams from trusted peers and publish events to subscribers without external message brokers. This pub/sub layer enables use cases like <a href="/blog/federated-learning-p2p-communication">peer-to-peer gradient exchange for federated learning</a> and <a href="/blog/distributed-rag-without-central-knowledge-base">distributed RAG pipelines where each agent owns its own corpus</a>. See <a href="/docs/pubsub">Pub/Sub documentation</a> for the full API.</p>
-
-  <h3>Task Submission</h3>
-
-  <p>Port 1003 implements a <strong>task submission</strong> protocol. Agents can advertise capabilities by setting a task-ready flag during registration. Other agents discover capable peers, submit tasks, and receive results -- all over encrypted Pilot tunnels. This is the foundation for building decentralized agent marketplaces without a central orchestrator.</p>
 
   <h2 id="summary">Putting It All Together</h2>
 

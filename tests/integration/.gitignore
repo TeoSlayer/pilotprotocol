@@ -1,0 +1,7 @@
+logs/
+results/
+local/logs/
+local/logs.rerun-2/
+local/results/
+local/.iter/
+*.log

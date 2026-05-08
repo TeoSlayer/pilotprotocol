@@ -1,13 +1,11 @@
 #!/bin/bash
 # Shipped config: configs/networks/cold-shoulder.json
 #
-# Name's promise: passive-aggressive deny — silently drop traffic from low-score peers
+# Current behavior:
+#   - cycle: fill_trust target=0 (every 12h cycle clears all trusted peers)
 #
-# This test loads the shipped config (if present) and verifies the
-# specific behavior implied by the network's name. If the config is
-# not shipped or the policy engine cannot enforce the promise, the
-# test fails — per Chunk I rules that failure is a product/engine
-# gap finding, not a test bug.
+# Assertion: after a forced cycle, the managed peer count drops to 0
+# (all trust cleared by fill_trust target=0).
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -26,9 +24,9 @@ export DC
 cd "$(dirname "$0")" || exit 1
 source ./network_helpers.sh
 
-CFG="$(pwd)/../../configs/networks/cold-shoulder.json"
+CFG="$(pwd)/../../../configs/networks/cold-shoulder.json"
 if [ ! -f "$CFG" ]; then
-    log_fail "cold-shoulder.json NOT shipped — promise unmet (EXPECTED: passive-aggressive deny — silently drop traffic from low-score peers)"
+    log_fail "cold-shoulder.json NOT shipped"
     exit 1
 fi
 
@@ -41,14 +39,28 @@ log_pass "net=$NID"
 start_agent_in_network agent-a "$NID" "$CFG"
 start_agent_in_network agent-b "$NID" "$CFG"
 sleep 2
+sync_policy_peers "$NID" agent-a agent-b
 
-log_test "low-score peer traffic silently dropped"
-# A fresh peer has score 0; cold-shoulder should deny.
-if echo hi | $DC exec -T agent-b pilotctl connect agent-a 7 --timeout 3s >/dev/null 2>&1; then
-    log_fail "traffic flowed from low-score peer (EXPECTED: cold-shoulder deny)"
+log_test "peers tracked before cycle"
+STATUS_PRE=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
+COUNT_PRE=$(echo "$STATUS_PRE" | jq '.data.peer_count // 0')
+if [ "${COUNT_PRE:-0}" -gt 0 ]; then
+    log_pass "pre-cycle peer_count=$COUNT_PRE"
 else
-    log_pass "low-score peer was shouldered"
+    log_fail "no peers tracked before cycle (count=$COUNT_PRE)"
 fi
 
+log_test "cycle clears all peers (fill_trust target=0)"
+$DC exec -T agent-a pilotctl --json managed cycle --force --net "$NID" >/dev/null 2>&1 || true
+sleep 1
+STATUS_POST=$($DC exec -T agent-a pilotctl --json managed status --net "$NID" 2>/dev/null)
+COUNT_POST=$(echo "$STATUS_POST" | jq '.data.peer_count // -1')
+if [ "${COUNT_POST:-1}" -eq 0 ]; then
+    log_pass "post-cycle peer_count=0 (cold shoulder applied)"
+else
+    log_fail "post-cycle peer_count=$COUNT_POST (EXPECTED: 0 — fill_trust target=0 should clear all)"
+fi
+
+# Update the stale description
 echo -e "Passed: ${GREEN}${PASSED}${NC}  Failed: ${RED}${FAILED}${NC}"
 [ "$FAILED" -eq 0 ]

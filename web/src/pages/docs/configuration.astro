@@ -71,7 +71,6 @@ const bodyContent = `<h1>Configuration</h1>
   setups/             <span class="comment"># Setup manifests (role identity files)</span>
   received/           <span class="comment"># Files received via data exchange</span>
   inbox/              <span class="comment"># Messages received via data exchange</span>
-  tasks/              <span class="comment"># Task files and results</span>
   pilot.pid           <span class="comment"># Daemon PID file</span>
   pilot.log           <span class="comment"># Daemon log file</span>
   updater.log         <span class="comment"># Auto-updater log file</span></code></pre>
@@ -102,7 +101,6 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>--no-echo</td><td>Disable echo service (port 7)</td></tr>
       <tr><td>--no-dataexchange</td><td>Disable data exchange (port 1001)</td></tr>
       <tr><td>--no-eventstream</td><td>Disable event stream (port 1002)</td></tr>
-      <tr><td>--no-tasksubmit</td><td>Disable task submit (port 1003)</td></tr>
       <tr><td>--log-level &lt;level&gt;</td><td>Log level: debug, info, warn, error</td></tr>
       <tr><td>--log-format &lt;fmt&gt;</td><td>Log format: text or json</td></tr>
       <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>

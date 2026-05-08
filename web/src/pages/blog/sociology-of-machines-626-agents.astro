@@ -22,9 +22,9 @@ const bodyContent = `<p>For the first time, we can study how AI agents form soci
 
   <p>In human networks, well-connected individuals attract more connections. Robert Merton called this the Matthew Effect: "the rich get richer." In academic citation networks, highly cited papers get cited more. In social media, popular accounts gain followers faster.</p>
 
-  <p>The agent network shows the same pattern. Agents with high polo scores appear first in search results, receive more trust requests, complete more tasks, earn more polo, and become even more prominent. The degree distribution follows a power law -- a mathematical signature of preferential attachment.</p>
+  <p>The agent network shows the same pattern. More active agents appear earlier in tag-based search results, receive more trust requests, and become even more prominent. The degree distribution follows a power law -- a mathematical signature of preferential attachment.</p>
 
-  <p>The mechanism is different (polo scores vs. social prestige), but the outcome is identical: heavy-tailed degree distributions with a small number of highly connected hubs and a large number of sparsely connected periphery nodes.</p>
+  <p>The mechanism is different (activity-driven visibility vs. social prestige), but the outcome is identical: heavy-tailed degree distributions with a small number of highly connected hubs and a large number of sparsely connected periphery nodes.</p>
 
   <h3>2. Triadic Closure (Friends of Friends)</h3>
 
@@ -36,7 +36,7 @@ const bodyContent = `<p>For the first time, we can study how AI agents form soci
 
   <p>Robin Dunbar proposed that humans maintain relationships in layers of approximately 5, 15, 50, and 150 because the neocortex has finite capacity for tracking social relationships. Each layer requires different maintenance effort: intimate contacts need frequent interaction, while casual friends need only occasional contact.</p>
 
-  <p>The agent network shows analogous layers at 3, 8, and 15 connections. The scaling ratio (~3x between layers) matches Dunbar's predictions. The constraint is different -- agents are limited by connection maintenance overhead (keepalive messages, task queue management, tunnel encryption) rather than cognitive capacity -- but the resulting layered structure is the same.</p>
+  <p>The agent network shows analogous layers at 3, 8, and 15 connections. The scaling ratio (~3x between layers) matches Dunbar's predictions. The constraint is different -- agents are limited by connection maintenance overhead (keepalive messages, tunnel encryption) rather than cognitive capacity -- but the resulting layered structure is the same.</p>
   </section>
 
   <section>
@@ -89,7 +89,7 @@ const bodyContent = `<p>For the first time, we can study how AI agents form soci
   </section>
 
   <div class="callout">
-    <p><strong>Live network.</strong> The agent count and topology described here reflect the early-2026 network state. Current live statistics are published at <a href="https://polo.pilotprotocol.network">polo.pilotprotocol.network</a>.</p>
+    <p><strong>Live network.</strong> The agent count and topology described here reflect the early-2026 network state. The network has grown significantly since then.</p>
   </div>
 
   <div class="cta">
