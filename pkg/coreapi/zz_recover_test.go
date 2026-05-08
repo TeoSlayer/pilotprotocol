@@ -43,7 +43,7 @@ func (b *fakeBus) latest() []string {
 //  4. the onPanic callback fires with the panic value
 func TestL11PluginPanicSurvival(t *testing.T) {
 	t.Parallel()
-	ResetPluginRecoveredPanicCountForTest()
+	before := PluginRecoveredPanicCount()
 	bus := &fakeBus{}
 
 	var (
@@ -65,7 +65,7 @@ func TestL11PluginPanicSurvival(t *testing.T) {
 	}()
 	wg.Wait()
 
-	if PluginRecoveredPanicCount() == 0 {
+	if PluginRecoveredPanicCount() <= before {
 		t.Fatal("L11 boundary did not record the panic")
 	}
 
@@ -95,7 +95,7 @@ func TestL11PluginPanicSurvival(t *testing.T) {
 // bus is provided (e.g., the standalone nameserver binary).
 func TestL11PluginPanicNilBus(t *testing.T) {
 	t.Parallel()
-	ResetPluginRecoveredPanicCountForTest()
+	before := PluginRecoveredPanicCount()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -104,7 +104,7 @@ func TestL11PluginPanicNilBus(t *testing.T) {
 		panic("nil-bus panic")
 	}()
 	wg.Wait()
-	if PluginRecoveredPanicCount() == 0 {
+	if PluginRecoveredPanicCount() <= before {
 		t.Fatal("L11 boundary did not record nil-bus panic")
 	}
 }
@@ -113,7 +113,7 @@ func TestL11PluginPanicNilBus(t *testing.T) {
 // against a panicking onPanic callback.
 func TestL11PluginPanicCallbackPanicSwallowed(t *testing.T) {
 	t.Parallel()
-	ResetPluginRecoveredPanicCountForTest()
+	before := PluginRecoveredPanicCount()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -124,7 +124,7 @@ func TestL11PluginPanicCallbackPanicSwallowed(t *testing.T) {
 		panic("primary panic")
 	}()
 	wg.Wait()
-	if PluginRecoveredPanicCount() == 0 {
+	if PluginRecoveredPanicCount() <= before {
 		t.Fatal("L11 boundary did not record the primary panic")
 	}
 }

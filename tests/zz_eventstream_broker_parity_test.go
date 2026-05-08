@@ -207,6 +207,7 @@ func TestBrokerParityRateLimit(t *testing.T) {
 	// isters the recv channel without closing it); only env.Close()
 	// during t.Cleanup eventually drains it. Tests don't wait.
 	var got atomic.Int64
+	var probeReceived atomic.Bool // set when the "init" liveness probe lands
 	go func() {
 		for {
 			evt, err := sub.Recv()
@@ -215,7 +216,9 @@ func TestBrokerParityRateLimit(t *testing.T) {
 			}
 			if evt.Topic == "parity.ratelimit" {
 				p := string(evt.Payload)
-				if len(p) >= 3 && p[:3] == "rl-" {
+				if p == "init" {
+					probeReceived.Store(true)
+				} else if len(p) >= 3 && p[:3] == "rl-" {
 					got.Add(1)
 				}
 			}
@@ -223,8 +226,13 @@ func TestBrokerParityRateLimit(t *testing.T) {
 	}()
 	defer sub.Close()
 
-	// Wait for subscription to be live by re-publishing rl-0 until
-	// it's seen. (Once the first lands, the broker has registered.)
+	// Wait for subscription to be live by publishing "init" probes until
+	// one arrives. Uses probeReceived (not got) so that probe events don't
+	// contaminate the rl-* counter used in the flood assertions below.
+	// (Commit 82a12ce changed the probe payload from "rl-init" to "init"
+	// to stop probe events from counting as rl-* hits, but forgot to update
+	// the liveness check from got.Load() > 0 to probeReceived — so the
+	// loop always timed out on loaded CI runners.)
 	{
 		deadline := time.After(5 * time.Second)
 		tick := time.NewTicker(50 * time.Millisecond)
@@ -235,15 +243,12 @@ func TestBrokerParityRateLimit(t *testing.T) {
 				t.Fatal("subscription never became live")
 			case <-tick.C:
 				_ = pub.Publish("parity.ratelimit", []byte("init"))
-				if got.Load() > 0 {
+				if probeReceived.Load() {
 					tick.Stop()
 					break probeLoop
 				}
 			}
 		}
-		// Reset counter after probes. We don't know exactly how many
-		// probes landed; record current count and treat it as the
-		// pre-flood baseline.
 	}
 	baseline := got.Load()
 
