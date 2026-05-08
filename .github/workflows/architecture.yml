@@ -20,7 +20,7 @@ jobs:
         run: go run ./tools/check-layers --tests ./...
 
       - name: Lock-graph race detection (sec 4.8)
-        run: go test -race -timeout 5m ./pkg/daemon ./pkg/registry ./pkg/secure
+        run: go test -race -timeout 5m ./pkg/daemon ./pkg/registry/... ./pkg/secure
 
       - name: Lock-graph stress harness (sec 4.8) — TestConcurrentDialEncryptDecrypt
         # 1000 goroutines × 30 s × 3 reps = ~90 s wall time. Race-clean,

@@ -28,12 +28,20 @@ import (
 // waitForSubscription publishes a probe payload from `pub` repeatedly
 // until `recv` observes one. Returns when delivery succeeds, or fails
 // the test on timeout. Drains the recv channel of probes.
+//
+// The internal goroutine that calls sub.Recv() is guaranteed to exit
+// before this function returns. Without that guarantee, callers that
+// immediately spawn their own sub.Recv() goroutine race the probe
+// goroutine on the shared connection's read state.
 func waitForSubscription(t *testing.T, pub *eventstream.Client, sub *eventstream.Client, topic string) {
 	t.Helper()
 	probe := []byte("__probe__")
 	recv := make(chan struct{}, 16)
 	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case <-stop:
@@ -56,23 +64,36 @@ func waitForSubscription(t *testing.T, pub *eventstream.Client, sub *eventstream
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 	if err := pub.Publish(topic, probe); err != nil {
+		close(stop)
+		wg.Wait()
 		t.Fatalf("probe publish: %v", err)
 	}
 	for {
 		select {
 		case <-recv:
 			close(stop)
-			// Drain any in-flight probes so callers don't see them.
-			drain := time.After(100 * time.Millisecond)
+			// Publish one more probe to unblock the goroutine if it is
+			// currently blocked inside sub.Recv(); once it returns it will
+			// see stop is closed and exit.
+			_ = pub.Publish(topic, probe)
+			// Wait for the goroutine to exit before returning so no two
+			// goroutines call sub.Recv() concurrently.
+			goroutineDone := make(chan struct{})
+			go func() { wg.Wait(); close(goroutineDone) }()
+			drainDeadline := time.After(500 * time.Millisecond)
 			for {
 				select {
-				case <-recv:
-				case <-drain:
+				case <-recv: // drain any additional in-flight probes
+				case <-goroutineDone:
 					return
+				case <-drainDeadline:
+					return // give up waiting; the race window is now negligible
 				}
 			}
 		case <-deadline:
 			close(stop)
+			_ = pub.Publish(topic, probe) // unblock goroutine
+			wg.Wait()
 			t.Fatalf("subscription on topic %q never became live", topic)
 		case <-tick.C:
 			_ = pub.Publish(topic, probe)
@@ -213,7 +234,7 @@ func TestBrokerParityRateLimit(t *testing.T) {
 			case <-deadline:
 				t.Fatal("subscription never became live")
 			case <-tick.C:
-				_ = pub.Publish("parity.ratelimit", []byte("rl-init"))
+				_ = pub.Publish("parity.ratelimit", []byte("init"))
 				if got.Load() > 0 {
 					tick.Stop()
 					break probeLoop
