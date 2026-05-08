@@ -20,10 +20,6 @@
 # docs/architecture/05-VERIFICATION.md for the enforcement design.
 
 layers:
-  L1:
-    description: Wire format — packets, addresses, magic, CRC
-    packages:
-      - github.com/TeoSlayer/pilotprotocol/pkg/protocol
   L2:
     description: Datagram I/O — UDP send/recv
     packages:
@@ -72,6 +68,9 @@ layers:
     # plugin lifecycle out of pkg/daemon and up to cmd/daemon.
   L11:
     description: Capability plugins + registry server-side ops
+    # Per 01-LAYERS.md: L11 consumes L10 only. Direct imports of L7
+    # (pkg/daemon) from any L11 package are violations.
+    consumes: [L10]
     packages:
       - github.com/TeoSlayer/pilotprotocol/plugins/dataexchange
       - github.com/TeoSlayer/pilotprotocol/plugins/eventstream
@@ -85,8 +84,9 @@ layers:
       - github.com/TeoSlayer/pilotprotocol/plugins/webhook
       - github.com/TeoSlayer/pilotprotocol/pkg/registry/server
   L12:
-    description: Tooling — CLI binaries
+    description: Tooling — CLI binaries and composition roots
     packages:
+      - github.com/TeoSlayer/pilotprotocol/plugins/runtime
       - github.com/TeoSlayer/pilotprotocol/cmd/daemon
       - github.com/TeoSlayer/pilotprotocol/cmd/pilotctl
       - github.com/TeoSlayer/pilotprotocol/cmd/gateway
@@ -100,6 +100,7 @@ utilities:
   description: Leaf packages used by multiple layers; can be imported by
     anyone and may import anything (they're outside the strict stack).
   packages:
+    - github.com/TeoSlayer/pilotprotocol/pkg/protocol
     - github.com/TeoSlayer/pilotprotocol/internal/crypto
     - github.com/TeoSlayer/pilotprotocol/internal/fsutil
     - github.com/TeoSlayer/pilotprotocol/internal/ipcutil
@@ -176,9 +177,6 @@ known_transitional:
   - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
     to: github.com/TeoSlayer/pilotprotocol/pkg/coreapi
     owner: T7.1
-  - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
-    to: github.com/TeoSlayer/pilotprotocol/pkg/eventstream
-    owner: T2.2
   - from: github.com/TeoSlayer/pilotprotocol/pkg/daemon
     to: github.com/TeoSlayer/pilotprotocol/plugins/policy
     owner: T2.3

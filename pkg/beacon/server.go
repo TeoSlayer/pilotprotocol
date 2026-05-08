@@ -52,8 +52,9 @@ type Server struct {
 	peerMu    sync.RWMutex
 	healthOk  atomic.Bool
 
-	registryAddr  string // registry address for dynamic peer discovery
-	advertiseAddr string // address to register (overrides auto-detect from TCP local addr)
+	registryAddr        string // registry address for dynamic peer discovery
+	advertiseAddr       string // address to register (overrides auto-detect from TCP local addr)
+	registryAdminToken  string // admin token sent with beacon_register (required by SEC-002)
 
 	done chan struct{} // closed on shutdown
 }
@@ -640,6 +641,14 @@ func (s *Server) SetAdvertiseAddr(addr string) {
 	s.mu.Unlock()
 }
 
+// SetRegistryAdminToken sets the admin token sent with beacon_register.
+// Required when the registry enforces SEC-002 beacon registration auth.
+func (s *Server) SetRegistryAdminToken(token string) {
+	s.mu.Lock()
+	s.registryAdminToken = token
+	s.mu.Unlock()
+}
+
 // registryDiscoveryLoop registers this beacon with the registry and discovers
 // peers every 30 seconds. Requires the beacon to be listening (conn bound).
 func (s *Server) registryDiscoveryLoop() {
@@ -665,6 +674,7 @@ func (s *Server) registryDiscover() {
 	s.mu.RLock()
 	regAddr := s.registryAddr
 	advAddr := s.advertiseAddr
+	adminToken := s.registryAdminToken
 	s.mu.RUnlock()
 	if regAddr == "" || s.beaconID == 0 {
 		return
@@ -727,11 +737,15 @@ func (s *Server) registryDiscover() {
 		myAddr = net.JoinHostPort(host, port)
 	}
 
-	if err := sendMsg(map[string]interface{}{
+	regMsg := map[string]interface{}{
 		"type":      "beacon_register",
 		"beacon_id": s.beaconID,
 		"addr":      myAddr,
-	}); err != nil {
+	}
+	if adminToken != "" {
+		regMsg["admin_token"] = adminToken
+	}
+	if err := sendMsg(regMsg); err != nil {
 		slog.Debug("beacon register send failed", "err", err)
 		return
 	}

@@ -10,28 +10,25 @@
 // validate signatures, optionally consult an allowlist, and either
 // auto-accept or stash the request for manual approval via pilotctl.
 //
-// Lifecycle: this plugin sits at L11. The composition root (cmd/daemon
+// Lifecycle: this plugin sits at L11. The composition root (plugins/runtime
 // or test harness) constructs a Service via NewService(rt Runtime),
 // registers it on the plugin runtime, and the daemon's Start() spawns
-// the listener on PortHandshake via deps.Streams.Listen.
-//
-// Daemon coupling has been replaced by the Runtime interface below.
-// The daemon-side adapter lives in daemon_runtime.go.
+// the listener on PortHandshake via rt.PortListener.
 package handshake
 
 import (
 	"crypto/ed25519"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
 )
 
 // Runtime is the primitives-only contract the handshake manager needs
 // from the surrounding daemon. Every dependency that crossed the old
 // `hm.daemon.X` boundary now flows through one of these methods.
 //
-// The DaemonRuntime adapter (daemon_runtime.go) wraps a *daemon.Daemon
-// to satisfy this interface. Tests can substitute a fake runtime to
-// exercise the manager in isolation.
+// The concrete adapter (plugins/runtime.HandshakeRuntime) wraps a
+// *daemon.Daemon to satisfy this interface. Tests can substitute a
+// fake runtime to exercise the manager in isolation.
 type Runtime interface {
 	// NodeID returns this daemon's stable node ID. Returns 0 if
 	// identity has not been initialized yet.
@@ -71,17 +68,13 @@ type Runtime interface {
 	PublishEvent(topic string, payload map[string]any)
 
 	// PortListener binds the given well-known port and returns a
-	// daemon.Listener. The handshake plugin uses this for PortHandshake.
-	PortListener(port uint16) (*daemon.Listener, error)
-
-	// PortUnbind releases a previously-bound port. Called from Stop().
-	PortUnbind(port uint16)
+	// coreapi.Listener. The handshake plugin uses this for PortHandshake.
+	// Closing the returned listener stops the accept loop.
+	PortListener(port uint16) (coreapi.Listener, error)
 
 	// DialAndSend establishes a stream to (peerNodeID, port), writes
 	// the JSON-encoded message, and closes after a brief grace period
-	// to let the data flush. Wraps the daemon's DialConnection +
-	// SendData + CloseConnection trio so the manager doesn't need to
-	// handle *daemon.Connection directly.
+	// to let the data flush.
 	DialAndSend(peerNodeID uint32, port uint16, data []byte) error
 
 	// RemoveTunnelPeer tears down the encrypted tunnel for the given

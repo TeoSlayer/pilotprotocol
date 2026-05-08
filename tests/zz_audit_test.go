@@ -21,6 +21,26 @@ import (
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 )
 
+// syncLogBuf is a goroutine-safe bytes.Buffer for slog handlers. The slog
+// handler may still be invoked by background registry goroutines while tests
+// read the buffer; without locking this is a DATA RACE.
+type syncLogBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncLogBuf) Write(p []byte) (n int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncLogBuf) snapshot() *bytes.Buffer {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.NewBufferString(b.buf.String())
+}
+
 // TestAuditLogAPI tests the get_audit_log API endpoint (the ring buffer, not slog).
 func TestAuditLogAPI(t *testing.T) {
 	t.Parallel()
@@ -190,7 +210,7 @@ func parseAuditLines(buf *bytes.Buffer) []map[string]interface{} {
 // global slog handler to capture JSON output.
 func TestAuditEvents(t *testing.T) {
 	// Redirect slog to buffer
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -278,7 +298,7 @@ func TestAuditEvents(t *testing.T) {
 	}
 
 	// Parse and check
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	actions := make(map[string]bool)
 	for _, ev := range events {
 		if a, ok := ev["audit_action"].(string); ok {
@@ -317,7 +337,7 @@ func TestAuditEvents(t *testing.T) {
 // TestAuditInviteActions verifies that invite.created and invite.responded
 // are emitted as structured audit events.
 func TestAuditInviteActions(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -357,7 +377,7 @@ func TestAuditInviteActions(t *testing.T) {
 	rc.PollInvites(targetID)
 	rc.RespondInvite(targetID, netID, true)
 
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	actions := make(map[string]bool)
 	for _, ev := range events {
 		if a, ok := ev["audit_action"].(string); ok {
@@ -395,7 +415,7 @@ func TestAuditInviteActions(t *testing.T) {
 // TestAuditEventHasRequiredFields verifies that every audit event contains
 // msg, audit_action, and time fields (SIEM ingestibility requirement).
 func TestAuditEventHasRequiredFields(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -420,7 +440,7 @@ func TestAuditEventHasRequiredFields(t *testing.T) {
 	nodeID, _ := registerTestNode(t, rc)
 	rc.CreateNetwork(nodeID, "fields-check-net", "open", "", TestAdminToken, false)
 
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	if len(events) == 0 {
 		t.Fatal("no audit events captured")
 	}
@@ -440,7 +460,7 @@ func TestAuditEventHasRequiredFields(t *testing.T) {
 // TestAuditConcurrentMutations verifies that concurrent registry mutations each
 // produce an audit event. No events should be lost under concurrent load.
 func TestAuditConcurrentMutations(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -473,7 +493,7 @@ func TestAuditConcurrentMutations(t *testing.T) {
 	}
 	wg.Wait()
 
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	// Every worker registers a node and creates a network → 2 audit events each
 	if len(events) < workers*2 {
 		t.Errorf("expected at least %d audit events for %d workers, got %d", workers*2, workers, len(events))
@@ -494,7 +514,7 @@ func signChallenge(id *crypto.Identity, challenge string) string {
 
 // TestAuditKeyRotated verifies that key rotation emits a "key.rotated" audit event.
 func TestAuditKeyRotated(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -531,7 +551,7 @@ func TestAuditKeyRotated(t *testing.T) {
 		t.Fatalf("rotate key: %v", err)
 	}
 
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	found := false
 	for _, ev := range events {
 		if ev["audit_action"] == "key.rotated" {
@@ -556,7 +576,7 @@ func TestAuditKeyRotated(t *testing.T) {
 // TestAuditHandshakeRelayedAndResponded verifies that requesting and responding
 // to a handshake emits "handshake.relayed" and "handshake.responded" audit events.
 func TestAuditHandshakeRelayedAndResponded(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncLogBuf
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	old := slog.Default()
 	slog.SetDefault(slog.New(handler))
@@ -606,7 +626,7 @@ func TestAuditHandshakeRelayedAndResponded(t *testing.T) {
 	}
 
 	// Verify audit events
-	events := parseAuditLines(&buf)
+	events := parseAuditLines(buf.snapshot())
 	actions := make(map[string]bool)
 	for _, ev := range events {
 		if a, ok := ev["audit_action"].(string); ok {

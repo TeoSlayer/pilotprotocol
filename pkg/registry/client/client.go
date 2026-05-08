@@ -65,6 +65,11 @@ type poolState struct {
 	// Capacity equals len(entries). Send: <-free; defer free<-entry.
 	// nil means "no pool" (legacy single-conn path via c.mu).
 	free chan *pooledConn
+	// done is closed by Close() to wake goroutines blocked on <-free and to
+	// signal the deferred pool-return in sendPool to drop its entry instead
+	// of sending on free. Using a separate done channel avoids the race
+	// between close(free) and concurrent sends on free.
+	done chan struct{}
 }
 
 // pooledConn wraps one TCP connection plus its own mutex. The mutex
@@ -204,6 +209,7 @@ func (c *Client) initPool(size int, tlsCfg *tls.Config) error {
 	}
 	c.pool.entries = entries
 	c.pool.free = free
+	c.pool.done = make(chan struct{})
 	return nil
 }
 
@@ -265,12 +271,12 @@ func (c *Client) Close() error {
 		}
 		e.mu.Unlock()
 	}
-	// Close pool.free so any goroutine blocked on <-c.pool.free returns
-	// immediately with nil (handled as "client closed" in sendPool).
-	// The sendPool defer uses recover() to swallow the send-on-closed-channel
-	// panic that would otherwise occur when in-flight calls return their entry.
-	if c.pool.free != nil {
-		close(c.pool.free)
+	// Close pool.done to wake any goroutine blocked on <-c.pool.free and to
+	// signal the deferred pool-return in sendPool to drop its entry. We never
+	// close pool.free itself because that would race with concurrent sends on
+	// it from the sendPool defer.
+	if c.pool.done != nil {
+		close(c.pool.done)
 	}
 	return firstErr
 }
@@ -348,17 +354,18 @@ func (c *Client) sendPool(msg map[string]interface{}) (map[string]interface{}, e
 		return nil, fmt.Errorf("client closed")
 	}
 
-	entry := <-c.pool.free
-	if entry == nil {
-		// Channel was closed by Close(); nil is the zero value on a closed channel.
+	var entry *pooledConn
+	select {
+	case entry = <-c.pool.free:
+	case <-c.pool.done:
 		return nil, fmt.Errorf("client closed")
 	}
 	defer func() {
-		// Close() may have closed pool.free between when we received this
-		// entry and now. Catch the "send on closed channel" panic so we
-		// drop the entry silently instead of crashing.
-		defer func() { recover() }() //nolint:errcheck
-		c.pool.free <- entry
+		select {
+		case c.pool.free <- entry:
+		case <-c.pool.done:
+			// pool is torn down; drop the entry
+		}
 	}()
 
 	entry.mu.Lock()

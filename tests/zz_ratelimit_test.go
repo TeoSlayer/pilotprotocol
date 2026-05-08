@@ -281,8 +281,13 @@ func TestRateLimiterHighRate(t *testing.T) {
 func TestRateLimiterConcurrent(t *testing.T) {
 	t.Parallel()
 
-	// 100 requests per second — accessed concurrently
+	// 100 requests per second — accessed concurrently.
+	// Freeze the clock so token refill doesn't creep in as 200 goroutines
+	// drain through the mutex one by one; without this, real elapsed time
+	// between consecutive Now() calls inside the lock can add >1 token.
 	rl := registry.NewRateLimiter(100, time.Second, 0)
+	frozen := time.Now()
+	rl.SetClock(func() time.Time { return frozen })
 
 	ip := "concurrent-ip"
 
@@ -300,7 +305,7 @@ func TestRateLimiterConcurrent(t *testing.T) {
 		}
 	}
 
-	// Exactly 100 should be allowed (all goroutines fire nearly simultaneously)
+	// Exactly 100 should be allowed.
 	if allowed != 100 {
 		t.Fatalf("expected exactly 100 allowed under concurrent access, got %d", allowed)
 	}

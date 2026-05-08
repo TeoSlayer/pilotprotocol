@@ -48,9 +48,52 @@ func configDir() string {
 	return home + "/" + defaultConfigDir
 }
 
-func configPath() string  { return configDir() + "/" + defaultConfigFile }
-func pidFilePath() string { return configDir() + "/" + defaultPIDFile }
-func logFilePath() string { return configDir() + "/" + defaultLogFile }
+func configPath() string      { return configDir() + "/" + defaultConfigFile }
+func pidFilePath() string     { return configDir() + "/" + defaultPIDFile }
+func logFilePath() string     { return configDir() + "/" + defaultLogFile }
+func featureFlagsPath() string { return configDir() + "/feature-flags.json" }
+
+// featureFlags is the in-process cache of ~/.pilot/feature-flags.json.
+// Loaded once at startup via loadFeatureFlags(); never mutated after that.
+var featureFlags map[string]bool
+
+// loadFeatureFlags reads ~/.pilot/feature-flags.json if it exists. Missing
+// file is not an error. Precedence (highest→lowest): CLI flag → env var →
+// feature-flags.json → code default (false).
+func loadFeatureFlags() {
+	featureFlags = map[string]bool{}
+	b, err := os.ReadFile(featureFlagsPath())
+	if err != nil {
+		return // file absent or unreadable — silent, defaults apply
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return
+	}
+	for k, v := range raw {
+		switch val := v.(type) {
+		case bool:
+			featureFlags[k] = val
+		case float64:
+			featureFlags[k] = val != 0
+		case string:
+			featureFlags[k] = val == "true" || val == "1"
+		}
+	}
+}
+
+// featureEnabled returns true when the named flag is on. Checks (in order):
+//  1. Non-empty env var named PILOT_FLAG_<UPPER_SNAKE> (e.g. PILOT_FLAG_PING_REUSE_CONN)
+//  2. ~/.pilot/feature-flags.json key
+//
+// CLI flags take precedence at call sites before this function is consulted.
+func featureEnabled(name string) bool {
+	envKey := "PILOT_FLAG_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(name))
+	if v := os.Getenv(envKey); v != "" {
+		return v != "0" && v != "false"
+	}
+	return featureFlags[name]
+}
 
 // --- Output helpers ---
 
@@ -253,11 +296,18 @@ func parseFlags(args []string) (map[string]string, []string) {
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		var key string
 		if strings.HasPrefix(a, "--") {
-			key := a[2:]
+			key = a[2:]
+		} else if strings.HasPrefix(a, "-") && len(a) > 1 && !isNumericFlag(a[1:]) {
+			// Accept single-dash long flags (e.g. -email) so users aren't
+			// silently bitten after reading the daemon binary's own -flag help.
+			key = a[1:]
+		}
+		if key != "" {
 			if idx := strings.Index(key, "="); idx >= 0 {
 				flags[key[:idx]] = key[idx+1:]
-			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flags[key] = args[i+1]
 				i++
 			} else {
@@ -268,6 +318,20 @@ func parseFlags(args []string) (map[string]string, []string) {
 		}
 	}
 	return flags, pos
+}
+
+// isNumericFlag reports whether s looks like a bare number (e.g. "1", "3.14"),
+// so that negative number positional args like "-1" are not treated as flags.
+func isNumericFlag(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, c := range s {
+		if c != '.' && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func flagDuration(flags map[string]string, key string, def time.Duration) time.Duration {
@@ -533,7 +597,7 @@ Communication commands:
   pilotctl send <address|hostname> <port> --data <msg> [--timeout <dur>]
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
   pilotctl send-file <address|hostname> <filepath>
-  pilotctl send-message <address|hostname> --data <text> [--type text|json|binary]
+  pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--count <n>] [--reuse-conn] [--wait <dur>]
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
 
@@ -601,6 +665,8 @@ Companion binaries:
 // --- Main ---
 
 func main() {
+	loadFeatureFlags()
+
 	// Extract --json before subcommand
 	var args []string
 	for _, a := range os.Args[1:] {
@@ -1171,9 +1237,9 @@ func cmdContext() {
 
 			// Messaging
 			"send-message": map[string]interface{}{
-				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]"},
-				"description": "Send a typed message to a node via data exchange (port 1001). Default type: text",
-				"returns":     "target, type, bytes, ack",
+				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]", "[--count <n>]", "[--reuse-conn]"},
+				"description": "Send a typed message to a node via data exchange (port 1001). --count N sends N messages; --reuse-conn shares one connection across all N (env: PILOT_SENDMSG_REUSE_CONN=1). Default type: text",
+				"returns":     "target, type, bytes, ack, reuse_conn",
 			},
 			"send-file": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "<filepath>"},
@@ -1523,6 +1589,33 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 func cmdDaemonStart(args []string) {
 	flags, _ := parseFlags(args)
 
+	if flagBool(flags, "help") {
+		fmt.Fprint(os.Stderr, `Usage: pilotctl daemon start [flags]
+
+Flags:
+  --config <path>              path to config file (JSON)
+  --registry <addr>            registry address (default: $PILOT_REGISTRY or 34.71.57.205:9000)
+  --beacon <addr>              beacon address (default: $PILOT_BEACON or 34.71.57.205:9001)
+  --listen <addr>              UDP listen address (default: :0)
+  --socket <path>              Unix socket path (default: /tmp/pilot.sock)
+  --identity <path>            Ed25519 identity file path
+  --email <addr>               email for account identification and key recovery
+  --hostname <name>            discovery hostname (lowercase alphanumeric + hyphens)
+  --endpoint <host:port>       fixed public endpoint — skips STUN (for cloud VMs)
+  --public                     make this node publicly visible
+  --webhook <url>              HTTP(S) endpoint for event notifications
+  --admin-token <token>        admin token for network operations
+  --networks <ids>             comma-separated network IDs to auto-join
+  --trust-auto-approve         automatically approve all incoming trust handshakes
+  --log-level <level>          log level: debug, info, warn, error (default: info)
+  --log-format <fmt>           log format: text, json (default: text)
+  --no-encrypt                 disable tunnel encryption
+  --foreground                 run in foreground (no fork; for systemd / shell wrappers)
+  --wait <duration>            how long to wait for daemon to become ready (default: 15s)
+`)
+		os.Exit(0)
+	}
+
 	// Check if already running
 	if pid := readPID(); pid > 0 {
 		if processExists(pid) {
@@ -1567,8 +1660,15 @@ func cmdDaemonStart(args []string) {
 
 	// Fork: spawn the daemon detached, redirect output to the log
 	// file, then poll the socket until the daemon is ready.
+	//
+	// Per-PID log files: we write to a temp path first (so we have an fd
+	// before knowing the PID), then rename to pilot-{pid}.log once the
+	// process is started. pilot.log is updated to a symlink so existing
+	// tooling ("tail -f ~/.pilot/pilot.log") keeps working.
 	os.MkdirAll(configDir(), 0700)
-	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	// Use a fixed temp name so concurrent starts don't collide.
+	tmpLogPath := configDir() + "/pilot-starting.log"
+	logFile, err := os.OpenFile(tmpLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		fatalCode("internal", "open log file: %v", err)
 	}
@@ -1585,12 +1685,23 @@ func cmdDaemonStart(args []string) {
 	pid := proc.Process.Pid
 	os.WriteFile(pidFilePath(), []byte(strconv.Itoa(pid)), 0600)
 
+	// Rename the temp log to pilot-{pid}.log. The child's fd follows the
+	// inode, so it continues writing to the same file after the rename.
+	pidLogPath := configDir() + "/pilot-" + strconv.Itoa(pid) + ".log"
+	logFile.Close()
+	os.Rename(tmpLogPath, pidLogPath)
+	// Update pilot.log symlink to point at the current PID's log.
+	symPath := logFilePath()
+	os.Remove(symPath)
+	os.Symlink(pidLogPath, symPath)
+
 	if !jsonOutput {
 		fmt.Fprintf(os.Stderr, "starting daemon (pid %d)...", pid)
 	}
 
 	// Wait for daemon to become ready (socket appears and responds)
-	deadline := time.Now().Add(15 * time.Second)
+	waitDur := flagDuration(flags, "wait", 15*time.Second)
+	deadline := time.Now().Add(waitDur)
 	dots := 0
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
@@ -1621,7 +1732,7 @@ func cmdDaemonStart(args []string) {
 				"address":  address,
 				"hostname": hn,
 				"socket":   socketPath,
-				"log_file": logFilePath(),
+				"log_file": pidLogPath,
 			})
 		} else {
 			fmt.Printf("Daemon running (pid %d)\n", pid)
@@ -1630,7 +1741,7 @@ func cmdDaemonStart(args []string) {
 				fmt.Printf("  Hostname: %s\n", hn)
 			}
 			fmt.Printf("  Socket:   %s\n", socketPath)
-			fmt.Printf("  Logs:     %s\n", logFilePath())
+			fmt.Printf("  Logs:     %s\n", pidLogPath)
 		}
 		return
 	}
@@ -1640,8 +1751,8 @@ func cmdDaemonStart(args []string) {
 	}
 
 	fatalHint("timeout",
-		fmt.Sprintf("check logs: tail -f %s", logFilePath()),
-		"daemon started (pid %d) but did not become ready within 15s", pid)
+		fmt.Sprintf("check logs: tail -f %s", pidLogPath),
+		"daemon started (pid %d) but did not become ready within %s", pid, waitDur)
 }
 
 func cmdDaemonStop() {
@@ -2521,20 +2632,22 @@ func cmdRecv(args []string) {
 			if conn == nil {
 				fatalCode("connection_failed", "accept error")
 			}
-			buf := make([]byte, 65535)
-			n, err := conn.Read(buf)
+			// Set a read deadline so io.ReadAll doesn't block forever if
+			// the sender leaves the connection open without closing it.
+			conn.SetReadDeadline(time.Now().Add(timeout))
+			data, err := io.ReadAll(conn)
+			conn.Close()
 			msg := map[string]interface{}{
 				"seq":  i,
 				"port": port,
 			}
-			if err != nil {
+			if err != nil && len(data) == 0 {
 				msg["error"] = err.Error()
 			} else {
-				msg["data"] = string(buf[:n])
-				msg["bytes"] = n
+				msg["data"] = string(data)
+				msg["bytes"] = len(data)
 			}
 			messages = append(messages, msg)
-			conn.Close()
 
 			if !jsonOutput {
 				if errStr, ok := msg["error"].(string); ok {
@@ -2691,8 +2804,28 @@ func cmdSendFile(args []string) {
 func cmdSendMessage(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--trace]")
+		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--trace] [--count <n>] [--reuse-conn] [--wait <dur>]")
 	}
+
+	sendCount := flagInt(flags, "count", 1)
+	if sendCount < 1 {
+		sendCount = 1
+	}
+	// --wait: bare flag → 30s default; --wait <dur> → that duration; absent → don't wait.
+	var waitDur time.Duration
+	if raw, ok := flags["wait"]; ok {
+		if raw == "true" {
+			waitDur = 30 * time.Second
+		} else {
+			waitDur = flagDuration(flags, "wait", 30*time.Second)
+		}
+	}
+
+	// --reuse-conn (or PILOT_SENDMSG_REUSE_CONN=1): when --count > 1, dial once
+	// and reuse the same data-exchange connection for all N sends. Default false
+	// (each send dials fresh — current per-invocation behavior). Ablation flag:
+	// compare --count N vs --count N --reuse-conn to isolate dial-overhead savings.
+	reuseConn := flagBool(flags, "reuse-conn") || os.Getenv("PILOT_SENDMSG_REUSE_CONN") != "" || featureEnabled("sendmsg.reuse_conn")
 
 	// --trace (or PILOTCTL_TRACE_TIME=1) prints per-step timings to stderr:
 	// IPC connect, hostname resolve, auto-handshake, dial, send, ACK recv.
@@ -2725,18 +2858,6 @@ func cmdSendMessage(args []string) {
 	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 	tracef("maybeAutoHandshake")
 
-	client, err := dataexchange.Dial(d, target)
-	tracef("dataexchange.Dial")
-	if err != nil {
-		hint := classifyDaemonError(err)
-		if hint == "" {
-			hint = fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target)
-		}
-		fatalHint("connection_failed", hint,
-			"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
-	}
-	defer client.Close()
-
 	innerType := map[string]uint32{
 		"text":   dataexchange.TypeText,
 		"json":   dataexchange.TypeJSON,
@@ -2746,69 +2867,154 @@ func cmdSendMessage(args []string) {
 		fatalCode("invalid_argument", "unknown type %q (use text, json, or binary)", msgType)
 	}
 
-	var sentAtNs int64
-	var sendErr error
-	if traceTime {
-		// TypeTrace frame embeds sent_at_ns; receiver echoes back full timing.
-		sentAtNs, sendErr = client.SendTrace(innerType, []byte(data))
-	} else {
-		sendStart := time.Now()
-		switch msgType {
-		case "text":
-			sendErr = client.SendText(data)
-		case "json":
-			sendErr = client.SendJSON([]byte(data))
-		case "binary":
-			sendErr = client.SendBinary([]byte(data))
+	// dialOnce opens a fresh data-exchange connection and returns it. Used
+	// both for single sends and for the no-reuse multi-send path.
+	dialOnce := func() *dataexchange.Client {
+		c, err := dataexchange.Dial(d, target)
+		if err != nil {
+			hint := classifyDaemonError(err)
+			if hint == "" {
+				hint = fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target)
+			}
+			fatalHint("connection_failed", hint,
+				"cannot connect to %s (data exchange port %d)", target, protocol.PortDataExchange)
 		}
-		sentAtNs = sendStart.UnixNano()
-	}
-	tracef("client.Send")
-	if sendErr != nil {
-		fatalCode("connection_failed", "send: %v", sendErr)
+		return c
 	}
 
-	// Read ACK
-	ack, err := client.Recv()
-	ackRecvAtNs := time.Now().UnixNano()
-	tracef("client.Recv")
-	if err != nil {
-		slog.Debug("send-message ACK read failed", "err", err)
-	}
+	// sendOne sends one message on cl and returns timing/ack metadata.
+	// reused=true is recorded when the connection was dialled on a prior call.
+	sendOne := func(cl *dataexchange.Client, seq int, reused bool) map[string]interface{} {
+		var sentAtNs int64
+		var sendErr error
+		if traceTime {
+			sentAtNs, sendErr = cl.SendTrace(innerType, []byte(data))
+		} else {
+			sendStart := time.Now()
+			switch msgType {
+			case "text":
+				sendErr = cl.SendText(data)
+			case "json":
+				sendErr = cl.SendJSON([]byte(data))
+			case "binary":
+				sendErr = cl.SendBinary([]byte(data))
+			}
+			sentAtNs = sendStart.UnixNano()
+		}
+		if sendErr != nil {
+			return map[string]interface{}{"seq": seq, "error": sendErr.Error()}
+		}
 
-	result := map[string]interface{}{
-		"target": target.String(),
-		"type":   msgType,
-		"bytes":  len(data),
-	}
-	if ack != nil {
-		result["ack"] = string(ack.Payload)
-	}
-	if traceTime {
-		result["total_ms"] = float64(time.Duration(ackRecvAtNs-sentAtNs).Microseconds()) / 1000.0
-		// Parse timing fields from the TypeJSON ACK if present.
-		if ack != nil && ack.Type == dataexchange.TypeJSON {
-			var timing map[string]interface{}
-			if json.Unmarshal(ack.Payload, &timing) == nil {
-				ns := func(key string) int64 {
-					if v, ok := timing[key].(float64); ok {
-						return int64(v)
+		ack, ackErr := cl.Recv()
+		ackRecvAtNs := time.Now().UnixNano()
+		if ackErr != nil {
+			slog.Debug("send-message ACK read failed", "err", ackErr)
+		}
+
+		r := map[string]interface{}{
+			"seq":    seq,
+			"bytes":  len(data),
+			"reused": reused,
+		}
+		if ack != nil {
+			r["ack"] = string(ack.Payload)
+		}
+		if traceTime {
+			r["total_ms"] = float64(time.Duration(ackRecvAtNs-sentAtNs).Microseconds()) / 1000.0
+			if ack != nil && ack.Type == dataexchange.TypeJSON {
+				var timing map[string]interface{}
+				if json.Unmarshal(ack.Payload, &timing) == nil {
+					ns := func(key string) int64 {
+						if v, ok := timing[key].(float64); ok {
+							return int64(v)
+						}
+						return 0
 					}
-					return 0
-				}
-				recvNs := ns("received_at_ns")
-				inboxNs := ns("inbox_written_at_ns")
-				ackSentNs := ns("ack_sent_at_ns")
-				if recvNs > 0 {
-					result["to_receiver_ms"] = float64(time.Duration(recvNs-sentAtNs).Microseconds()) / 1000.0
-					result["receiver_process_ms"] = float64(time.Duration(inboxNs-recvNs).Microseconds()) / 1000.0
-					result["return_trip_ms"] = float64(time.Duration(ackRecvAtNs-ackSentNs).Microseconds()) / 1000.0
-					result["inner_ack"] = timing["inner_ack"]
+					recvNs := ns("received_at_ns")
+					inboxNs := ns("inbox_written_at_ns")
+					ackSentNs := ns("ack_sent_at_ns")
+					if recvNs > 0 {
+						r["to_receiver_ms"] = float64(time.Duration(recvNs-sentAtNs).Microseconds()) / 1000.0
+						r["receiver_process_ms"] = float64(time.Duration(inboxNs-recvNs).Microseconds()) / 1000.0
+						r["return_trip_ms"] = float64(time.Duration(ackRecvAtNs-ackSentNs).Microseconds()) / 1000.0
+						r["inner_ack"] = timing["inner_ack"]
+					}
 				}
 			}
 		}
+		return r
 	}
-	outputOK(result)
+	tracef("dial+send")
+
+	// Snapshot time before the send so --wait can find replies that arrive
+	// after this point even if the filesystem has 1-second mtime granularity.
+	inboxCutoff := time.Now().Add(-time.Second)
+	// agentHint is the target hostname used to filter inbox replies.
+	// For plain-hostname targets (no colon, not a dotted Pilot address) the
+	// inbox "agent" field should match the target directly.
+	agentHint := pos[0]
+	if strings.Contains(agentHint, ":") {
+		agentHint = "" // numeric/address form — match any new reply
+	}
+
+	if sendCount == 1 {
+		cl := dialOnce()
+		tracef("dataexchange.Dial")
+		defer cl.Close()
+		r := sendOne(cl, 0, false)
+		result := map[string]interface{}{
+			"target": target.String(),
+			"type":   msgType,
+		}
+		for k, v := range r {
+			result[k] = v
+		}
+		outputOK(result)
+		if waitDur > 0 {
+			reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
+			if err != nil {
+				fatalCode("timeout", "%v", err)
+			}
+			output(reply)
+		}
+	} else if reuseConn {
+		// --reuse-conn: one dial shared across all N sends. Seq 0 pays dial
+		// cost; seqs 1+ skip it. Savings ≈ one relay RTT (~70ms) per msg.
+		cl := dialOnce()
+		tracef("dataexchange.Dial (shared)")
+		defer cl.Close()
+		var results []map[string]interface{}
+		for i := 0; i < sendCount; i++ {
+			results = append(results, sendOne(cl, i, i > 0))
+			if i < sendCount-1 {
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		outputOK(map[string]interface{}{
+			"target":     target.String(),
+			"type":       msgType,
+			"reuse_conn": true,
+			"results":    results,
+		})
+	} else {
+		// No --reuse-conn: each of N sends dials a fresh connection. Ablation
+		// baseline — measures true per-message cost including dial overhead.
+		var results []map[string]interface{}
+		for i := 0; i < sendCount; i++ {
+			cl := dialOnce()
+			results = append(results, sendOne(cl, i, false))
+			cl.Close()
+			if i < sendCount-1 {
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		outputOK(map[string]interface{}{
+			"target":     target.String(),
+			"type":       msgType,
+			"reuse_conn": false,
+			"results":    results,
+		})
+	}
 	tracef("outputOK")
 }
 
@@ -3572,6 +3778,12 @@ func cmdPing(args []string) {
 	// startup overhead, IPC connect, hostname lookup, and per-packet
 	// dial/echo split so you can see where latency actually lives.
 	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != "" || flagBool(flags, "trace")
+	// --reuse-conn (or PILOT_PING_REUSE_CONN=1): dial once before the loop
+	// and reuse the stream connection for all echo packets. Reconnects only
+	// on error. Eliminates the ~1.5×RTT TCP-handshake overhead on packets
+	// 2+, saving ~72ms per packet on relay paths. Ablation flag — default
+	// off so behavior is identical to previous versions unless opted in.
+	reuseConn := flagBool(flags, "reuse-conn") || os.Getenv("PILOT_PING_REUSE_CONN") != "" || featureEnabled("ping.reuse_conn")
 	t0 := time.Now()
 	tracef := func(label string) {
 		if traceTime {
@@ -3613,6 +3825,43 @@ func cmdPing(args []string) {
 		perAttempt = 10 * time.Second
 	}
 
+	// reuseConn mode: one shared connection across all iterations.
+	// nil = needs dial. Reconnects only on error to avoid the ~1.5×RTT
+	// TCP-handshake cost on packets 2+. Disabled by default (ablation flag).
+	type dialResult struct {
+		conn *driver.Conn
+		err  error
+	}
+	dialOnce := func() (*driver.Conn, time.Duration, error) {
+		ch := make(chan dialResult, 1)
+		go func() {
+			c, e := d.DialAddr(target, protocol.PortEcho)
+			ch <- dialResult{c, e}
+		}()
+		t0 := time.Now()
+		select {
+		case dr := <-ch:
+			return dr.conn, time.Since(t0), dr.err
+		case <-time.After(perAttempt):
+			// Drain the goroutine asynchronously.
+			go func() {
+				if dr := <-ch; dr.conn != nil {
+					dr.conn.Close()
+				}
+			}()
+			return nil, time.Since(t0), fmt.Errorf("dial timeout after %s", perAttempt)
+		}
+	}
+
+	var sharedConn *driver.Conn
+	if reuseConn {
+		defer func() {
+			if sharedConn != nil {
+				sharedConn.Close()
+			}
+		}()
+	}
+
 	for i := 0; i < count; i++ {
 		select {
 		case <-overall.C:
@@ -3630,41 +3879,43 @@ func cmdPing(args []string) {
 		}
 
 		start := time.Now()
-		// Bound DialAddr by perAttempt — a goroutine + timer cap is the
-		// minimum-invasive way without plumbing context through Driver.
-		type dialResult struct {
-			conn *driver.Conn
-			err  error
-		}
-		ch := make(chan dialResult, 1)
-		go func() {
-			c, e := d.DialAddr(target, protocol.PortEcho)
-			ch <- dialResult{c, e}
-		}()
 		var conn *driver.Conn
-		select {
-		case dr := <-ch:
-			conn, err = dr.conn, dr.err
-		case <-time.After(perAttempt):
-			err = fmt.Errorf("dial timeout after %s", perAttempt)
-			conn = nil
-			// Drain the goroutine asynchronously so it doesn't leak FDs;
-			// the daemon-side dial will eventually fail.
-			go func() {
-				if dr := <-ch; dr.conn != nil {
-					dr.conn.Close()
+		var dialElapsed time.Duration
+		connReused := false
+
+		if reuseConn {
+			if sharedConn == nil {
+				var dialErr error
+				sharedConn, dialElapsed, dialErr = dialOnce()
+				if dialErr != nil {
+					r := map[string]interface{}{"seq": i, "error": dialErr.Error()}
+					results = append(results, r)
+					if !jsonOutput {
+						fmt.Printf("seq=%d error: %v\n", i, dialErr)
+					}
+					if i < count-1 {
+						time.Sleep(time.Second)
+					}
+					continue
 				}
-			}()
-		}
-		dialElapsed := time.Since(start)
-		if err != nil {
-			r := map[string]interface{}{"seq": i, "error": err.Error()}
-			results = append(results, r)
-			if !jsonOutput {
-				fmt.Printf("seq=%d error: %v\n", i, err)
+			} else {
+				connReused = true
 			}
-			time.Sleep(time.Second)
-			continue
+			conn = sharedConn
+		} else {
+			var dialErr error
+			conn, dialElapsed, dialErr = dialOnce()
+			if dialErr != nil {
+				r := map[string]interface{}{"seq": i, "error": dialErr.Error()}
+				results = append(results, r)
+				if !jsonOutput {
+					fmt.Printf("seq=%d error: %v\n", i, dialErr)
+				}
+				if i < count-1 {
+					time.Sleep(time.Second)
+				}
+				continue
+			}
 		}
 
 		// Build payload. In trace mode embed [TRCE][8-byte sent_at_ns] so the
@@ -3687,8 +3938,15 @@ func cmdPing(args []string) {
 		buf := make([]byte, 1024)
 		n, readErr := conn.Read(buf)
 		recvAtNs := time.Now().UnixNano()
-		conn.Close()
 		echoElapsed := time.Since(echoStart)
+
+		if !reuseConn {
+			conn.Close()
+		} else if readErr != nil {
+			// Drop the broken connection; next iteration redials.
+			sharedConn.Close()
+			sharedConn = nil
+		}
 
 		rtt := time.Since(start)
 		r := map[string]interface{}{
@@ -3696,8 +3954,13 @@ func cmdPing(args []string) {
 			"rtt_ms": float64(rtt.Microseconds()) / 1000.0,
 		}
 		if traceTime {
-			r["dial_ms"] = float64(dialElapsed.Microseconds()) / 1000.0
+			if !connReused {
+				r["dial_ms"] = float64(dialElapsed.Microseconds()) / 1000.0
+			}
 			r["echo_ms"] = float64(echoElapsed.Microseconds()) / 1000.0
+		}
+		if connReused {
+			r["reused"] = true
 		}
 		err = readErr
 		if err != nil {
@@ -3717,18 +3980,34 @@ func cmdPing(args []string) {
 				r["from_server_ms"] = float64(fromServer.Microseconds()) / 1000.0
 			}
 			if !jsonOutput {
+				reusedTag := ""
+				if connReused {
+					reusedTag = " [reused]"
+				}
 				if traceTime && serverRecvNs > 0 {
 					toServer := time.Duration(serverRecvNs - sentAtNs)
 					fromServer := time.Duration(recvAtNs - serverRecvNs)
-					fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v →srv=%v ←srv=%v]\n",
-						i, n, rtt,
-						dialElapsed.Round(time.Microsecond),
-						toServer.Round(time.Microsecond),
-						fromServer.Round(time.Microsecond))
+					if connReused {
+						fmt.Printf("seq=%d bytes=%d time=%v  [→srv=%v ←srv=%v]%s\n",
+							i, n, rtt,
+							toServer.Round(time.Microsecond),
+							fromServer.Round(time.Microsecond),
+							reusedTag)
+					} else {
+						fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v →srv=%v ←srv=%v]\n",
+							i, n, rtt,
+							dialElapsed.Round(time.Microsecond),
+							toServer.Round(time.Microsecond),
+							fromServer.Round(time.Microsecond))
+					}
 				} else if traceTime {
-					fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v echo=%v]\n", i, n, rtt, dialElapsed.Round(time.Microsecond), echoElapsed.Round(time.Microsecond))
+					if connReused {
+						fmt.Printf("seq=%d bytes=%d time=%v  [echo=%v]%s\n", i, n, rtt, echoElapsed.Round(time.Microsecond), reusedTag)
+					} else {
+						fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v echo=%v]\n", i, n, rtt, dialElapsed.Round(time.Microsecond), echoElapsed.Round(time.Microsecond))
+					}
 				} else {
-					fmt.Printf("seq=%d bytes=%d time=%v\n", i, n, rtt)
+					fmt.Printf("seq=%d bytes=%d time=%v%s\n", i, n, rtt, reusedTag)
 				}
 			}
 		}
@@ -4184,6 +4463,53 @@ func cmdReceived(args []string) {
 }
 
 // cmdInbox lists or clears messages received via data exchange (port 1001).
+// waitForInboxReply polls ~/.pilot/inbox/ until a JSON file arrives that is
+// newer than cutoff and (if agentHint is non-empty) has a matching "agent"
+// field. Returns the parsed message or an error on timeout.
+func waitForInboxReply(agentHint string, cutoff time.Time, timeout time.Duration) (map[string]interface{}, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(home, ".pilot", "inbox")
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read inbox: %w", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if !info.ModTime().After(cutoff) {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				continue
+			}
+			var msg map[string]interface{}
+			if json.Unmarshal(data, &msg) != nil {
+				continue
+			}
+			if agentHint != "" {
+				agent, _ := msg["agent"].(string)
+				if agent != agentHint {
+					continue
+				}
+			}
+			return msg, nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("no reply from %q within %s", agentHint, timeout)
+}
+
 // Messages are saved to ~/.pilot/inbox/ by the daemon's built-in service.
 func cmdInbox(args []string) {
 	flags, _ := parseFlags(args)

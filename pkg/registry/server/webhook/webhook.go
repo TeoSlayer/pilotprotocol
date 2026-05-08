@@ -101,8 +101,11 @@ func (d *dispatcher) Close() {
 		return
 	}
 	d.closeOnce.Do(func() {
+		// Only close d.closed — never close d.ch here. Closing d.ch while
+		// Emit() may concurrently be sending on it causes a race: Emit's
+		// two-step "check closed, then send" has a window where d.ch gets
+		// closed between the check and the send.
 		close(d.closed)
-		close(d.ch)
 	})
 	select {
 	case <-d.done:
@@ -113,8 +116,21 @@ func (d *dispatcher) Close() {
 
 func (d *dispatcher) run() {
 	defer close(d.done)
-	for ev := range d.ch {
-		d.post(ev)
+	for {
+		select {
+		case ev := <-d.ch:
+			d.post(ev)
+		case <-d.closed:
+			// drain whatever is already buffered
+			for {
+				select {
+				case ev := <-d.ch:
+					d.post(ev)
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -198,8 +214,9 @@ func (d *dispatcher) stats() (delivered, failed, dropped uint64) {
 //	...
 //	st.Close()                 // on server shutdown
 type Store struct {
-	mu   sync.RWMutex
-	disp *dispatcher // nil when no URL is configured
+	mu    sync.RWMutex
+	disp  *dispatcher // nil when no URL is configured
+	unsub func()      // stops the bus subscriber goroutine started by Subscribe
 }
 
 // NewStore returns an initialised *Store with no webhook URL configured.
@@ -247,12 +264,14 @@ func (st *Store) Emit(action string, details map[string]interface{}) {
 }
 
 // Subscribe must be called once after construction. The goroutine exits when
-// the store is Closed or the bus channel closes.
+// the store is Closed (which calls the unsubscribe func, closing the channel)
+// or the bus channel closes.
 func (st *Store) Subscribe(bus events.Bus) {
 	if bus == nil {
 		return
 	}
-	ch, _ := bus.Subscribe("audit.entry")
+	ch, unsub := bus.Subscribe("audit.entry")
+	st.unsub = unsub
 	go func() {
 		for evt := range ch {
 			action, _ := evt.Payload["action"].(string)
@@ -270,7 +289,12 @@ func (st *Store) Close() {
 	st.mu.Lock()
 	d := st.disp
 	st.disp = nil
+	unsub := st.unsub
+	st.unsub = nil
 	st.mu.Unlock()
+	if unsub != nil {
+		unsub()
+	}
 	if d != nil {
 		d.Close()
 	}

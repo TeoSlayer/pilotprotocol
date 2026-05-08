@@ -72,6 +72,7 @@ func main() {
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
+	beaconRTTProbe := flag.Bool("beacon-rtt-probe", false, "probe beacon RTT before selection; override hash pick when >2× slower than best (ablation test, default off)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
@@ -138,6 +139,7 @@ func main() {
 		Networks:              parseNetworkIDs(*networks),
 		Version:               version,
 		TrustAutoApprove:      *trustAutoApprove,
+		BeaconRTTProbe:        *beaconRTTProbe,
 	})
 
 	// L11 plugin lifecycle (T7.1): composition root owns the
@@ -167,18 +169,18 @@ func main() {
 		}
 	}
 
-	policySvc := policy.NewService(policy.NewDaemonRuntime(d))
+	policySvc := policy.NewService(runtime.NewPolicyRuntime(d))
 	if err := rt.Register(policySvc); err != nil {
 		log.Fatalf("register policy: %v", err)
 	}
 	d.RegisterPolicyManager(runtime.AsDaemonPolicyManager(policySvc.Manager()))
 
 	// Manual trust-handshake (port 444) — extracted from pkg/daemon in T3.3.
-	hsSvc := handshake.NewService(handshake.NewDaemonRuntime(d))
+	hsSvc := handshake.NewService(runtime.NewHandshakeRuntime(d))
 	if err := rt.Register(hsSvc); err != nil {
 		log.Fatalf("register handshake: %v", err)
 	}
-	d.RegisterHandshakeService(hsSvc.AsHandshakeService())
+	d.RegisterHandshakeService(runtime.NewHandshakeServiceAdapter(hsSvc))
 
 	// Webhook (T4.1): the daemon publishes events to the in-process
 	// bus, the plugin subscribes and POSTs to the configured URL. URL

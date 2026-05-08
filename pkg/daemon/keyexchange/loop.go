@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// maxRetransmitsPerTick caps how many pending key exchanges are
+// retransmitted in a single tick. Without this, sending to hundreds of
+// peers simultaneously causes all their retransmits to fire in one tight
+// loop every RekeyRetransmitInterval, flooding the UDP socket. Uncapped
+// peers are simply skipped this tick and picked up in the next one; with
+// MaxRekeyAttempts=5 and RekeyRetransmitInterval=4s we have 20s of
+// budget — enough for thousands of peers at 64/tick.
+const maxRetransmitsPerTick = 64
+
 // Loop runs the rekey retransmit loop. It scans pendingRekey every
 // RekeyRetransmitInterval, retransmits stale entries via
 // SendKeyExchangeToNode, and gives up after MaxRekeyAttempts.
@@ -54,8 +63,21 @@ func (m *Manager) RekeyRetransmitTick() {
 	}
 	for _, id := range toGiveUp {
 		delete(m.pendingRekey, id)
+		m.rekeyGaveUp[id] = now // cooldown: block immediate restart
+	}
+	// Prune expired gave-up entries to prevent unbounded map growth.
+	for id, t := range m.rekeyGaveUp {
+		if now.Sub(t) >= rekeyGaveUpCooldown {
+			delete(m.rekeyGaveUp, id)
+		}
 	}
 	m.rkPendingMu.Unlock()
+
+	// Cap retransmits per tick to prevent UDP flooding when many peers
+	// are pending simultaneously. Remaining entries are retried next tick.
+	if len(toRetry) > maxRetransmitsPerTick {
+		toRetry = toRetry[:maxRetransmitsPerTick]
+	}
 
 	for _, r := range toRetry {
 		slog.Info("rekey retransmit",

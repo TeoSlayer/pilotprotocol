@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
 )
@@ -21,7 +22,7 @@ func startEventServer(t *testing.T, srv *eventstream.Server, info *DaemonInfo) {
 	t.Helper()
 	go srv.ListenAndServe()
 	for i := 0; i < 40; i++ {
-		c, err := eventstream.Subscribe(info.Driver, info.Daemon.Addr(), "_probe")
+		c, err := internales.Subscribe(info.Driver, info.Daemon.Addr(), "_probe")
 		if err == nil {
 			c.Close()
 			return
@@ -45,11 +46,11 @@ func TestEventStream(t *testing.T) {
 	c := env.AddDaemon(disableES)
 
 	// Start broker on A
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// Subscriber on B
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "test-topic")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "test-topic")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestEventStream(t *testing.T) {
 	t.Log("subscriber connected")
 
 	// Publisher on C
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "test-topic")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "test-topic")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}
@@ -142,18 +143,18 @@ func TestEventStreamWildcard(t *testing.T) {
 	b := env.AddDaemon(disableES)
 	c := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// B subscribes with wildcard
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "*")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "*")
 	if err != nil {
 		t.Fatalf("subscribe wildcard: %v", err)
 	}
 	defer sub.Close()
 
 	// C publishes
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "any-topic")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "any-topic")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}
@@ -186,25 +187,25 @@ func TestEventStreamMultipleTopics(t *testing.T) {
 	b := env.AddDaemon(disableES)
 	c := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// B subscribes to "topic-A"
-	subA, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "topic-A")
+	subA, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "topic-A")
 	if err != nil {
 		t.Fatalf("subscribe topic-A: %v", err)
 	}
 	defer subA.Close()
 
 	// C subscribes to "topic-B"
-	subB, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "topic-B")
+	subB, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "topic-B")
 	if err != nil {
 		t.Fatalf("subscribe topic-B: %v", err)
 	}
 	defer subB.Close()
 
 	// Another connection to publish
-	pub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
+	pub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}
@@ -255,24 +256,24 @@ func TestEventStreamMultipleSubscribers(t *testing.T) {
 	b := env.AddDaemon(disableES)
 	c := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// Both B and C subscribe to same topic
-	sub1, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "shared-topic")
+	sub1, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "shared-topic")
 	if err != nil {
 		t.Fatalf("subscribe B: %v", err)
 	}
 	defer sub1.Close()
 
-	sub2, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "shared-topic")
+	sub2, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "shared-topic")
 	if err != nil {
 		t.Fatalf("subscribe C: %v", err)
 	}
 	defer sub2.Close()
 
 	// Separate publisher connection
-	pub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
+	pub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}
@@ -333,11 +334,11 @@ func TestEventStreamPublisherExclusion(t *testing.T) {
 	a := env.AddDaemon(disableES)
 	b := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// B subscribes and publishes on the same topic
-	client, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "self-topic")
+	client, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "self-topic")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -377,16 +378,16 @@ func TestEventStreamSequentialMessages(t *testing.T) {
 	b := env.AddDaemon(disableES)
 	c := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "seq-topic")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "seq-topic")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 	defer sub.Close()
 
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "seq-topic")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "seq-topic")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}
@@ -435,17 +436,17 @@ func TestEventStreamSubscriberDisconnect(t *testing.T) {
 	b := env.AddDaemon(disableES)
 	c := env.AddDaemon(disableES)
 
-	srv := eventstream.NewServer(a.Driver)
+	srv := internales.NewServer(a.Driver)
 	startEventServer(t, srv, a)
 
 	// B subscribes and then disconnects
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "disc-topic")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "disc-topic")
 	if err != nil {
 		t.Fatalf("subscribe B: %v", err)
 	}
 
 	// C also subscribes (stays connected)
-	sub2, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "disc-topic")
+	sub2, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "disc-topic")
 	if err != nil {
 		t.Fatalf("subscribe C: %v", err)
 	}
@@ -463,7 +464,7 @@ func TestEventStreamSubscriberDisconnect(t *testing.T) {
 	}()
 
 	// Publisher
-	pub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
+	pub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "publisher")
 	if err != nil {
 		t.Fatalf("connect publisher: %v", err)
 	}

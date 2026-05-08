@@ -9,6 +9,7 @@ build/
 *.so
 *.dylib
 *-linux
+*.bin
 jetson
 
 # Root-level Go build outputs
@@ -63,10 +64,7 @@ web/scripts/local/
 # =============================================================================
 # Private / ops — lives in web4-private, never commit here
 # =============================================================================
-OBSERVABILITY_PLAN.md
-SECURITY_PLAN.md
 abpn/
-mention-exporter
 k8s/gcp-vms/
 k8s/pilot-exporter/
 k8s/pilot-install-canary/
@@ -184,9 +182,5 @@ survey*.mjs
 
 # Operational manifests — kept local, never committed
 k8s/
-
-# Test rerun outputs — should never have been committed
 tests/integration/local/logs.rerun*
-
-# Untracked sandboxes / personal scratch — never commit
 scripts/pilot-geo-exporter/

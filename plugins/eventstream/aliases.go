@@ -6,14 +6,11 @@ import (
 	"io"
 
 	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // Re-exports for source compatibility. The wire format and the
-// driver-based broker/client moved to internal/eventstream so
-// cmd/pilotctl and other L12 callers can use them without an L11
-// import. plugins/eventstream retains the L11 Service shell.
+// driver-based broker/client live in internal/eventstream; L12 callers
+// (cmd/pilotctl, examples) import from there directly.
 
 // Type aliases.
 type (
@@ -25,13 +22,3 @@ type (
 // Wire helpers.
 func WriteEvent(w io.Writer, e *Event) error { return internales.WriteEvent(w, e) }
 func ReadEvent(r io.Reader) (*Event, error)  { return internales.ReadEvent(r) }
-
-// Client.
-func Subscribe(d *driver.Driver, addr protocol.Addr, topic string) (*Client, error) {
-	return internales.Subscribe(d, addr, topic)
-}
-
-// Server.
-func NewServer(d *driver.Driver) *Server {
-	return internales.NewServer(d)
-}

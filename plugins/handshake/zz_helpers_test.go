@@ -4,12 +4,15 @@ package handshake
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	"github.com/TeoSlayer/pilotprotocol/tests/regtestutil"
 )
@@ -113,16 +116,14 @@ func (r *testRuntime) PublishEvent(topic string, payload map[string]any) {
 	r.publishedMu.Unlock()
 }
 
-// PortListener / PortUnbind / DialAndSend are all called from the
-// listener-bind / send-message paths. The pure-logic tests don't
-// exercise those paths, so the methods return errors that exercise
-// the unhappy-path dial-failure logic in the manager (sendMessage
-// returns an error → SendRequest falls through to relay).
-func (r *testRuntime) PortListener(port uint16) (*daemon.Listener, error) {
+// PortListener / DialAndSend are all called from the listener-bind /
+// send-message paths. The pure-logic tests don't exercise those paths,
+// so the methods return errors that exercise the unhappy-path
+// dial-failure logic in the manager (sendMessage returns an error →
+// SendRequest falls through to relay).
+func (r *testRuntime) PortListener(port uint16) (coreapi.Listener, error) {
 	return nil, errStub("PortListener stub")
 }
-
-func (r *testRuntime) PortUnbind(uint16) {}
 
 func (r *testRuntime) DialAndSend(peerNodeID uint32, port uint16, data []byte) error {
 	return errStub("DialAndSend stub")
@@ -202,12 +203,101 @@ func waitForGoRPCDrain() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-// newDaemonBackedHM returns a Manager wired to a DaemonRuntime over a
+// testDaemonRuntime adapts *daemon.Daemon to Runtime for bootstrap tests
+// that need real port-444 binding. Defined here (test-only) so the
+// handshake package never imports plugins/runtime (L12).
+type testDaemonRuntime struct{ d *daemon.Daemon }
+
+func (r testDaemonRuntime) NodeID() uint32    { return r.d.NodeID() }
+func (r testDaemonRuntime) HasIdentity() bool { return r.d.Identity() != nil }
+func (r testDaemonRuntime) PublicKey() ed25519.PublicKey {
+	id := r.d.Identity()
+	if id == nil {
+		return nil
+	}
+	return id.PublicKey
+}
+func (r testDaemonRuntime) Sign(msg []byte) []byte {
+	id := r.d.Identity()
+	if id == nil {
+		return nil
+	}
+	return id.Sign(msg)
+}
+func (r testDaemonRuntime) IdentityPath() string   { return r.d.IdentityPath() }
+func (r testDaemonRuntime) TrustAutoApprove() bool { return r.d.TrustAutoApprove() }
+func (r testDaemonRuntime) IsTrusted(nodeID uint32) (string, bool) {
+	tc := r.d.GetTrustChecker()
+	if tc == nil {
+		return "", false
+	}
+	return tc.IsTrusted(nodeID)
+}
+func (r testDaemonRuntime) PublishEvent(topic string, payload map[string]any) {
+	r.d.PublishEvent(topic, payload)
+}
+func (r testDaemonRuntime) PortListener(port uint16) (coreapi.Listener, error) {
+	ln, err := r.d.Ports().Bind(port)
+	if err != nil {
+		return nil, err
+	}
+	return &testDaemonListener{inner: ln, d: r.d}, nil
+}
+func (r testDaemonRuntime) DialAndSend(peerNodeID uint32, port uint16, data []byte) error {
+	return errStub("DialAndSend stub")
+}
+func (r testDaemonRuntime) RemoveTunnelPeer(nodeID uint32) {
+	r.d.Tunnels().RemovePeer(nodeID)
+}
+func (r testDaemonRuntime) Registry() RegistryClient { return nil }
+
+// testDaemonListener wraps *daemon.Listener as coreapi.Listener.
+type testDaemonListener struct {
+	inner *daemon.Listener
+	d     *daemon.Daemon
+}
+
+func (l *testDaemonListener) Accept() (coreapi.Stream, error) {
+	conn, ok := <-l.inner.AcceptCh
+	if !ok {
+		return nil, errors.New("listener closed")
+	}
+	return &testStreamAdapter{d: l.d, conn: conn, rw: l.d.NewConnReadWriter(conn)}, nil
+}
+func (l *testDaemonListener) Close() error {
+	l.d.Ports().Unbind(l.inner.Port)
+	return nil
+}
+func (l *testDaemonListener) Addr() coreapi.Addr { return l.d.Addr() }
+func (l *testDaemonListener) Port() uint16       { return l.inner.Port }
+
+// testStreamAdapter wraps *daemon.Connection as coreapi.Stream.
+type testStreamAdapter struct {
+	d    *daemon.Daemon
+	conn *daemon.Connection
+	rw   daemon.ConnReadWriter
+}
+
+func (s *testStreamAdapter) Read(p []byte) (int, error)       { return s.rw.Read(p) }
+func (s *testStreamAdapter) Write(p []byte) (int, error)      { return s.rw.Write(p) }
+func (s *testStreamAdapter) Close() error                     { return s.rw.Close() }
+func (s *testStreamAdapter) LocalAddr() coreapi.Addr          { return s.conn.LocalAddr }
+func (s *testStreamAdapter) LocalPort() uint16                { return s.conn.LocalPort }
+func (s *testStreamAdapter) RemoteAddr() coreapi.Addr         { return s.conn.RemoteAddr }
+func (s *testStreamAdapter) RemotePort() uint16               { return s.conn.RemotePort }
+func (s *testStreamAdapter) SetDeadline(time.Time) error      { return nil }
+func (s *testStreamAdapter) SetReadDeadline(time.Time) error  { return nil }
+func (s *testStreamAdapter) SetWriteDeadline(time.Time) error { return nil }
+
+// Ensure protocol import is used (it's pulled in by coreapi.Addr alias).
+var _ = protocol.ZeroAddr
+
+// newDaemonBackedHM returns a Manager wired to a testDaemonRuntime over a
 // bare *daemon.Daemon. Use for tests that need real port-444 binding
 // (Start / accept-loop tests). Caller must call hm.Stop in cleanup.
 func newDaemonBackedHM(t *testing.T) (*Manager, *daemon.Daemon) {
 	t.Helper()
 	d := daemon.New(daemon.Config{})
-	rt := NewDaemonRuntime(d)
+	rt := testDaemonRuntime{d: d}
 	return NewManager(rt), d
 }

@@ -1049,6 +1049,9 @@ func (tm *TunnelManager) clearPendingRekey(peerNodeID uint32) {
 // clears send-error count (ICMP-aware fix).
 func (tm *TunnelManager) recordInboundDecrypt(peerNodeID uint32) {
 	tm.kx.RecordInboundDecrypt(peerNodeID)
+	// Successful decrypt = bidirectional crypto works. Lift any give-up
+	// cooldown so future rekeying can start immediately if needed.
+	tm.kx.ClearRekeyGaveUp(peerNodeID)
 	// v1.9.1 ICMP-aware fix: a successful inbound decrypt is proof the
 	// peer is alive and reachable. Clear any accumulated send-error
 	// count so a future transient ICMP-unreachable burst doesn't
@@ -1274,8 +1277,15 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 			return tm.writeFrame(nodeID, addr, frame)
 		}
 
-		// No key yet — initiate key exchange and queue the packet (C1 fix: no plaintext fallback)
+		// No key yet — initiate key exchange and queue the packet (C1 fix: no plaintext fallback).
+		// Skip if the peer is within the give-up cooldown: the key exchange
+		// will still be sent (one-shot, no retransmit) but queuing more data
+		// just fills the pending queue with undeliverable packets and floods
+		// the logs with "dropped oldest" warnings.
 		tm.sendKeyExchangeToNode(nodeID)
+		if tm.kx.PeerInRekeyGaveUp(nodeID) {
+			return fmt.Errorf("%w (peer_node_id=%d)", ErrPendingDropped, nodeID)
+		}
 		tm.pendMu.Lock()
 		if _, exists := tm.pending[nodeID]; !exists && len(tm.pending) >= maxPendingPeers {
 			tm.pendMu.Unlock()

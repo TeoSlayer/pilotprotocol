@@ -12,10 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
+	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
 )
 
 // webhookCollector is a test HTTP server that records received webhook events.
@@ -923,7 +925,7 @@ func TestWebhook_MessageReceived(t *testing.T) {
 	b := env.AddDaemon()
 
 	// B dials A's built-in dataexchange service on port 1001
-	c, err := dataexchange.Dial(b.Driver, a.Daemon.Addr())
+	c, err := internaldx.Dial(b.Driver, a.Daemon.Addr())
 	if err != nil {
 		t.Fatalf("dial dataexchange: %v", err)
 	}
@@ -967,7 +969,7 @@ func TestWebhook_FileReceived(t *testing.T) {
 	})
 	b := env.AddDaemon()
 
-	c, err := dataexchange.Dial(b.Driver, a.Daemon.Addr())
+	c, err := internaldx.Dial(b.Driver, a.Daemon.Addr())
 	if err != nil {
 		t.Fatalf("dial dataexchange: %v", err)
 	}
@@ -1015,7 +1017,7 @@ func TestWebhook_PubSubLifecycle(t *testing.T) {
 	c := env.AddDaemon()
 
 	// B subscribes to "alerts" topic on A's built-in broker
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "alerts")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "alerts")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -1032,7 +1034,7 @@ func TestWebhook_PubSubLifecycle(t *testing.T) {
 	t.Logf("pubsub.subscribed: topic=%v remote=%v", data["topic"], data["remote"])
 
 	// C subscribes and publishes to "alerts"
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "alerts")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "alerts")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}

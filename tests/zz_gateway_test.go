@@ -297,7 +297,7 @@ func TestGatewayUnmapCleanup(t *testing.T) {
 
 	gw, err := gateway.New(gateway.Config{
 		Subnet: "10.99.0.0/16",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("create gateway: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestGatewayUnmapNotFound(t *testing.T) {
 
 	gw, err := gateway.New(gateway.Config{
 		Subnet: "10.99.0.0/16",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("create gateway: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestGatewayUnmapInvalidIP(t *testing.T) {
 
 	gw, err := gateway.New(gateway.Config{
 		Subnet: "10.99.0.0/16",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("create gateway: %v", err)
 	}

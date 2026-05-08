@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"log"
 
+	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
@@ -28,7 +28,7 @@ func main() {
 
 	switch *mode {
 	case "server":
-		srv := eventstream.NewServer(d)
+		srv := internales.NewServer(d)
 		log.Fatal(srv.ListenAndServe())
 
 	case "sub":
@@ -39,7 +39,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("parse address: %v", err)
 		}
-		c, err := eventstream.Subscribe(d, addr, *topic)
+		c, err := internales.Subscribe(d, addr, *topic)
 		if err != nil {
 			log.Fatalf("subscribe: %v", err)
 		}
@@ -61,7 +61,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("parse address: %v", err)
 		}
-		c, err := eventstream.Subscribe(d, addr, *topic)
+		c, err := internales.Subscribe(d, addr, *topic)
 		if err != nil {
 			log.Fatalf("connect: %v", err)
 		}

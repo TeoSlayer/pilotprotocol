@@ -9,6 +9,39 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
 )
 
+// probeBeaconsParallel sends a discover probe to each beacon in parallel
+// and returns a map of addr → measured RTT for those that responded within
+// timeout. Probes use an ephemeral UDP socket and never touch the live
+// tunnel socket. Called only when BeaconRTTProbe feature flag is set.
+func (d *Daemon) probeBeaconsParallel(list []string, timeout time.Duration) map[string]time.Duration {
+	type result struct {
+		addr string
+		rtt  time.Duration
+	}
+	ch := make(chan result, len(list))
+	d.addrMu.RLock()
+	nodeID := d.nodeID
+	d.addrMu.RUnlock()
+	for _, addr := range list {
+		go func(a string) {
+			rtt, err := routing.ProbeBeaconRTT(a, nodeID, timeout)
+			if err == nil {
+				ch <- result{a, rtt}
+			} else {
+				ch <- result{a, 0}
+			}
+		}(addr)
+	}
+	rttMap := make(map[string]time.Duration, len(list))
+	for range list {
+		r := <-ch
+		if r.rtt > 0 {
+			rttMap[r.addr] = r.rtt
+		}
+	}
+	return rttMap
+}
+
 // Pre-extraction names re-exposed as aliases / thin shims over routing/.
 // Canonical definitions live at pkg/daemon/routing/discovery.go (L4).
 
@@ -154,6 +187,29 @@ func (d *Daemon) beaconRefreshTick(firstTick bool) {
 	identityPubKey := d.identity.PublicKey
 	d.identityMu.RUnlock()
 	decision := computeRefreshDecision(d.beaconSelection, discovered, identityPubKey)
+
+	// BeaconRTTProbe (feature flag): probe each beacon and override the
+	// hash pick when it is >2× slower than the fastest reachable beacon.
+	// Probes run in parallel with a 2s timeout each; total added latency
+	// per refresh tick is bounded by one probe round-trip (~200ms typical,
+	// 2s max). The override is logged at Debug so ablation tests can grep
+	// for "beacon RTT probe".
+	if d.config.BeaconRTTProbe && len(decision.NewList) > 1 {
+		rttMap := d.probeBeaconsParallel(decision.NewList, 2*time.Second)
+		if len(rttMap) > 0 {
+			rttPick := routing.PickBeaconWithRTT(decision.NewList, identityPubKey, rttMap)
+			if rttPick != "" && rttPick != decision.NewPick {
+				slog.Debug("beacon RTT probe overrides hash pick",
+					"hash_pick", decision.NewPick,
+					"rtt_pick", rttPick)
+				decision.NewPick = rttPick
+			}
+			// Recompute ShouldSwap based on final pick.
+			currentPick := d.beaconSelection.GetCurrentPick()
+			decision.ShouldSwap = decision.NewPick != currentPick
+		}
+	}
+
 	if !decision.ShouldSwap {
 		// Refresh the cache even on no-op so it tracks the latest
 		// known list — useful for cold-start fallback.

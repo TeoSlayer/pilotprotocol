@@ -69,6 +69,12 @@ const (
 	// this window, reply with our key_exchange too (in case our previous
 	// reply was dropped). Loosens handleAuthKeyExchange's "send back" gate.
 	KeyExchangeReplyStaleThreshold = 6 * time.Second
+
+	// rekeyGaveUpCooldown is how long after giving up on a rekey cycle
+	// before MarkPendingRekey starts a new one for the same peer.
+	// Prevents the "bounce" where a transient outbound packet immediately
+	// restarts a cycle that just exhausted MaxRekeyAttempts.
+	rekeyGaveUpCooldown = 60 * time.Second
 )
 
 // PendingRekeyState tracks a key-exchange we sent and are waiting on.
@@ -144,11 +150,16 @@ type Manager struct {
 	peerPubKeys map[uint32]ed25519.PublicKey
 
 	// rkPendingMu is the LEAF lock guarding pendingRekey +
-	// lastInboundDecrypt. NEVER held while taking any TunnelManager
-	// mutex (per 03-INVARIANTS.md §3).
+	// lastInboundDecrypt + rekeyGaveUp. NEVER held while taking any
+	// TunnelManager mutex (per 03-INVARIANTS.md §3).
 	rkPendingMu        sync.Mutex
 	pendingRekey       map[uint32]*PendingRekeyState
 	lastInboundDecrypt map[uint32]time.Time
+	// rekeyGaveUp records when we gave up retransmitting to a peer.
+	// MarkPendingRekey skips peers within the cooldown window so that
+	// transient outbound traffic doesn't immediately restart a doomed
+	// rekey cycle (the "bounce" pattern).
+	rekeyGaveUp map[uint32]time.Time
 
 	// Side-effect hooks plumbed in from the daemon.
 	sender      FrameSender
@@ -169,6 +180,7 @@ func New(store *Store) *Manager {
 		peerPubKeys:        make(map[uint32]ed25519.PublicKey),
 		pendingRekey:       make(map[uint32]*PendingRekeyState),
 		lastInboundDecrypt: make(map[uint32]time.Time),
+		rekeyGaveUp:        make(map[uint32]time.Time),
 	}
 }
 
@@ -317,9 +329,19 @@ func (m *Manager) HasPeerPubKey(nodeID uint32) bool {
 // MarkPendingRekey records that we sent a key_exchange to peerNodeID
 // and are awaiting confirmation. Idempotent — re-calls bump LastSentAt
 // and Attempts but preserve FirstSentAt.
-func (m *Manager) MarkPendingRekey(peerNodeID uint32) {
+//
+// Returns false and is a no-op if the peer is within the rekeyGaveUpCooldown
+// window, preventing an immediate restart of a just-failed rekey cycle.
+func (m *Manager) MarkPendingRekey(peerNodeID uint32) bool {
 	now := time.Now()
 	m.rkPendingMu.Lock()
+	if gaveUpAt, ok := m.rekeyGaveUp[peerNodeID]; ok {
+		if now.Sub(gaveUpAt) < rekeyGaveUpCooldown {
+			m.rkPendingMu.Unlock()
+			return false
+		}
+		delete(m.rekeyGaveUp, peerNodeID)
+	}
 	st, ok := m.pendingRekey[peerNodeID]
 	if !ok {
 		st = &PendingRekeyState{FirstSentAt: now}
@@ -328,15 +350,37 @@ func (m *Manager) MarkPendingRekey(peerNodeID uint32) {
 	st.LastSentAt = now
 	st.Attempts++
 	m.rkPendingMu.Unlock()
+	return true
 }
 
-// ClearPendingRekey is called after a successful decrypt from peer —
-// proves peer has matching crypto, so any in-flight key_exchange is
-// no longer pending.
+// ClearPendingRekey cancels any in-flight retransmit tracking for peerNodeID.
+// Called from Handle*Frame paths (we received their key exchange, so we no
+// longer need to keep hammering them with ours). Does NOT clear rekeyGaveUp —
+// receiving a key exchange is not proof of bidirectional reachability; only a
+// successful decrypt is. Clearing rekeyGaveUp here caused the bounce to
+// re-arm whenever a peer with no cooldown fix kept sending us key exchanges.
 func (m *Manager) ClearPendingRekey(peerNodeID uint32) {
 	m.rkPendingMu.Lock()
 	delete(m.pendingRekey, peerNodeID)
 	m.rkPendingMu.Unlock()
+}
+
+// ClearRekeyGaveUp lifts the post-give-up cooldown for peerNodeID. Must only
+// be called after a successful decrypt — proof that bidirectional crypto works.
+func (m *Manager) ClearRekeyGaveUp(peerNodeID uint32) {
+	m.rkPendingMu.Lock()
+	delete(m.rekeyGaveUp, peerNodeID)
+	m.rkPendingMu.Unlock()
+}
+
+// PeerInRekeyGaveUp reports whether peerNodeID is within the give-up cooldown.
+// Used by the tunnel to skip queuing outbound packets for unreachable peers.
+func (m *Manager) PeerInRekeyGaveUp(peerNodeID uint32) bool {
+	m.rkPendingMu.Lock()
+	t, ok := m.rekeyGaveUp[peerNodeID]
+	in := ok && time.Since(t) < rekeyGaveUpCooldown
+	m.rkPendingMu.Unlock()
+	return in
 }
 
 // PendingRekeyAttempts returns the current attempts count (0 if not pending).

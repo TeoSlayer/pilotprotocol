@@ -11,18 +11,24 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
 // DefaultPorts is the default set of ports the gateway proxies.
 var DefaultPorts = []uint16{80, 443, 1000, 1001, 1002, 7, 8080, 8443}
 
+// Dialer is satisfied by *driver.Driver. The concrete implementation
+// lives at the L12 composition root (cmd/gateway) so plugins/gateway
+// stays free of pkg/driver.
+type Dialer interface {
+	DialAddr(dst protocol.Addr, port uint16) (net.Conn, error)
+	Close() error
+}
+
 // Config configures the gateway.
 type Config struct {
-	Subnet     string   // CIDR subnet for local IPs (default: "10.4.0.0/16")
-	SocketPath string   // Daemon socket path
-	Ports      []uint16 // Ports to proxy (default: DefaultPorts)
+	Subnet string   // CIDR subnet for local IPs (default: "10.4.0.0/16")
+	Ports  []uint16 // Ports to proxy (default: DefaultPorts)
 }
 
 // Gateway bridges standard IP/TCP traffic to the Pilot Protocol overlay.
@@ -31,20 +37,18 @@ type Config struct {
 type Gateway struct {
 	config    Config
 	mappings  *MappingTable
-	driver    *driver.Driver
+	dialer    Dialer
 	mu        sync.Mutex
 	listeners map[string]net.Listener // localIP:port → TCP listener
 	aliases   []net.IP                // loopback aliases to clean up on Stop
 	done      chan struct{}
 }
 
-// New creates a new Gateway.
-func New(cfg Config) (*Gateway, error) {
+// New creates a new Gateway bound to the given Dialer. The Dialer is
+// typically a *driver.Driver constructed by cmd/gateway.
+func New(cfg Config, d Dialer) (*Gateway, error) {
 	if cfg.Subnet == "" {
 		cfg.Subnet = "10.4.0.0/16"
-	}
-	if cfg.SocketPath == "" {
-		cfg.SocketPath = driver.DefaultSocketPath
 	}
 
 	mt, err := NewMappingTable(cfg.Subnet)
@@ -59,24 +63,14 @@ func New(cfg Config) (*Gateway, error) {
 	return &Gateway{
 		config:    cfg,
 		mappings:  mt,
+		dialer:    d,
 		listeners: make(map[string]net.Listener),
 		done:      make(chan struct{}),
 	}, nil
 }
 
-// Start connects to the daemon and begins proxying.
-func (gw *Gateway) Start() error {
-	d, err := driver.Connect(gw.config.SocketPath)
-	if err != nil {
-		return fmt.Errorf("connect to daemon: %w", err)
-	}
-	gw.driver = d
-	slog.Info("gateway connected", "subnet", gw.config.Subnet)
-	return nil
-}
-
 // Stop shuts down the gateway and cleans up loopback aliases.
-// Safe to call multiple times (M17 fix).
+// Safe to call multiple times.
 func (gw *Gateway) Stop() {
 	select {
 	case <-gw.done:
@@ -94,7 +88,6 @@ func (gw *Gateway) Stop() {
 	gw.aliases = nil
 	gw.mu.Unlock()
 
-	// Clean up loopback aliases
 	for _, ip := range aliases {
 		gw.removeLoopbackAlias(ip)
 	}
@@ -102,8 +95,8 @@ func (gw *Gateway) Stop() {
 		slog.Info("gateway removed loopback aliases", "count", len(aliases))
 	}
 
-	if gw.driver != nil {
-		gw.driver.Close()
+	if gw.dialer != nil {
+		gw.dialer.Close()
 	}
 }
 
@@ -128,7 +121,6 @@ func (gw *Gateway) Map(pilotAddr protocol.Addr, localIP string) (net.IP, error) 
 		return nil, err
 	}
 
-	// Start a TCP proxy listener on this local IP
 	go gw.startProxy(assigned, pilotAddr)
 
 	slog.Info("gateway mapped address", "local_ip", assigned, "pilot_addr", pilotAddr)
@@ -142,7 +134,6 @@ func (gw *Gateway) Unmap(localIP string) error {
 		return fmt.Errorf("invalid IP: %s", localIP)
 	}
 
-	// Close all listeners for this IP (keys are "IP:port")
 	gw.mu.Lock()
 	for key, ln := range gw.listeners {
 		host, _, err := net.SplitHostPort(key)
@@ -154,8 +145,6 @@ func (gw *Gateway) Unmap(localIP string) error {
 			delete(gw.listeners, key)
 		}
 	}
-
-	// Remove from alias tracking
 	for i, alias := range gw.aliases {
 		if alias.Equal(ip) {
 			gw.aliases = append(gw.aliases[:i], gw.aliases[i+1:]...)
@@ -164,19 +153,13 @@ func (gw *Gateway) Unmap(localIP string) error {
 	}
 	gw.mu.Unlock()
 
-	// Remove loopback alias
 	gw.removeLoopbackAlias(ip)
-
 	return gw.mappings.Unmap(ip)
 }
 
-// startProxy listens on localIP for TCP connections on configured ports
-// and bridges them to the Pilot overlay.
 func (gw *Gateway) startProxy(localIP net.IP, pilotAddr protocol.Addr) {
-	// Add loopback alias so we can bind this IP
 	gw.addLoopbackAlias(localIP)
 
-	// Track alias for cleanup on Stop
 	gw.mu.Lock()
 	gw.aliases = append(gw.aliases, localIP)
 	gw.mu.Unlock()
@@ -186,7 +169,6 @@ func (gw *Gateway) startProxy(localIP net.IP, pilotAddr protocol.Addr) {
 	}
 }
 
-// addLoopbackAlias adds an IP address to the loopback interface.
 func (gw *Gateway) addLoopbackAlias(ip net.IP) {
 	var err error
 	switch runtime.GOOS {
@@ -203,7 +185,6 @@ func (gw *Gateway) addLoopbackAlias(ip net.IP) {
 	}
 }
 
-// removeLoopbackAlias removes an IP address from the loopback interface.
 func (gw *Gateway) removeLoopbackAlias(ip net.IP) {
 	var err error
 	switch runtime.GOOS {
@@ -224,12 +205,6 @@ func (gw *Gateway) listenPort(localIP net.IP, port uint16, pilotAddr protocol.Ad
 	addr := fmt.Sprintf("%s:%d", localIP, port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		// addLoopbackAlias is synchronous and the alias is routable before it returns,
-		// so "not yet routable" is never the real reason. Common causes: port already
-		// in use by another process, or permission denied for privileged ports (<1024)
-		// when the gateway is not run as root. Operators need to see this at default
-		// log levels — otherwise pilot-gateway reports "mapped" but silently fails to
-		// accept any traffic.
 		slog.Warn("gateway listen failed", "addr", addr, "err", err)
 		return
 	}
@@ -250,19 +225,16 @@ func (gw *Gateway) listenPort(localIP net.IP, port uint16, pilotAddr protocol.Ad
 	}
 }
 
-// bridgeConnection bridges a local TCP connection to a Pilot stream.
 func (gw *Gateway) bridgeConnection(tcpConn net.Conn, pilotAddr protocol.Addr, port uint16) {
 	defer tcpConn.Close()
 
-	pilotConn, err := gw.driver.DialAddr(pilotAddr, port)
+	pilotConn, err := gw.dialer.DialAddr(pilotAddr, port)
 	if err != nil {
 		slog.Error("gateway dial failed", "pilot_addr", pilotAddr, "port", port, "err", err)
 		return
 	}
 	defer pilotConn.Close()
 
-	// Bidirectional copy — close both sides when either direction finishes
-	// to unblock the other goroutine and prevent leaks
 	done := make(chan struct{}, 2)
 	go func() {
 		if _, err := io.Copy(pilotConn, tcpConn); err != nil {
@@ -279,7 +251,6 @@ func (gw *Gateway) bridgeConnection(tcpConn net.Conn, pilotAddr protocol.Addr, p
 		done <- struct{}{}
 	}()
 
-	// Wait for both directions to finish
 	<-done
 	<-done
 }

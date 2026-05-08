@@ -31,7 +31,7 @@ func TestListenPortWarnOnBindFailure(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	gw, err := New(Config{Subnet: "127.0.0.0/16", Ports: []uint16{blockedPort}})
+	gw, err := New(Config{Subnet: "127.0.0.0/16", Ports: []uint16{blockedPort}}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

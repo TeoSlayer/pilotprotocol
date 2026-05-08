@@ -274,9 +274,6 @@ func (me *ManagedEngine) rankedPeers() []*managedPeer {
 // Returns the number actually pruned. Caller must hold me.mu.
 func (me *ManagedEngine) prune(ranked []*managedPeer) int {
 	toPrune := me.rules.Prune
-	if toPrune > len(ranked) {
-		toPrune = len(ranked)
-	}
 
 	// Check grace period: don't prune peers added within grace window
 	var graceDur time.Duration
@@ -284,12 +281,18 @@ func (me *ManagedEngine) prune(ranked []*managedPeer) int {
 		graceDur, _ = time.ParseDuration(me.rules.Grace)
 	}
 
+	// Scan all ranked peers to find toPrune eligible (past-grace) ones.
+	// We must scan the full list rather than stopping after toPrune
+	// candidates, because grace-protected peers earlier in the ranking
+	// would otherwise prevent later eligible peers from being pruned.
 	pruned := 0
 	now := time.Now()
-	for i := 0; i < toPrune && i < len(ranked); i++ {
-		p := ranked[i]
+	for _, p := range ranked {
+		if pruned >= toPrune {
+			break
+		}
 		if graceDur > 0 && now.Sub(p.AddedAt) < graceDur {
-			continue // still in grace period
+			continue // still in grace period — skip, don't count against quota
 		}
 		delete(me.peers, p.NodeID)
 		pruned++

@@ -3,14 +3,30 @@
 package tests
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
 )
+
+// nsDriverPortListener wraps *driver.Driver for nameserver.PortListener.
+type nsDriverPortListener struct{ d *driver.Driver }
+
+func (w nsDriverPortListener) Listen(port uint16) (net.Listener, error) {
+	return w.d.Listen(port)
+}
+
+// nsDriverDialer wraps *driver.Driver for nameserver.Dialer.
+type nsDriverDialer struct{ d *driver.Driver }
+
+func (w nsDriverDialer) DialAddrTimeout(dst protocol.Addr, port uint16, timeout time.Duration) (net.Conn, error) {
+	return w.d.DialAddrTimeout(dst, port, timeout)
+}
 
 func waitNSReady(t *testing.T, ns interface{ Ready() <-chan struct{} }) {
 	t.Helper()
@@ -34,7 +50,7 @@ func TestNameserver(t *testing.T) {
 	t.Logf("daemon B: addr=%s", b.Daemon.Addr())
 
 	// Start nameserver on daemon A
-	ns := nameserver.New(a.Driver, "")
+	ns := nameserver.New(nsDriverPortListener{a.Driver}, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
 	defer ns.Close()
@@ -45,7 +61,7 @@ func TestNameserver(t *testing.T) {
 	ns.Store().RegisterN("backbone", 0)
 
 	// Query from daemon B
-	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
+	client := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
 
 	t.Run("LookupA", func(t *testing.T) {
 		addr, err := client.LookupA("agent-alpha")
@@ -113,12 +129,12 @@ func TestNameserverSRecord(t *testing.T) {
 	a := env.AddDaemon()
 	b := env.AddDaemon()
 
-	ns := nameserver.New(a.Driver, "")
+	ns := nameserver.New(nsDriverPortListener{a.Driver}, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
 	defer ns.Close()
 
-	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
+	client := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
 
 	// Register a service
 	err := client.RegisterS("echo-svc", b.Daemon.Addr(), 1, 7)
@@ -156,12 +172,12 @@ func TestNameserverRegisterN(t *testing.T) {
 	a := env.AddDaemon()
 	b := env.AddDaemon()
 
-	ns := nameserver.New(a.Driver, "")
+	ns := nameserver.New(nsDriverPortListener{a.Driver}, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
 	defer ns.Close()
 
-	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
+	client := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
 
 	// Register network name
 	if err := client.RegisterN("my-network", 42); err != nil {
@@ -187,12 +203,12 @@ func TestNameserverOverwriteA(t *testing.T) {
 	a := env.AddDaemon()
 	b := env.AddDaemon()
 
-	ns := nameserver.New(a.Driver, "")
+	ns := nameserver.New(nsDriverPortListener{a.Driver}, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
 	defer ns.Close()
 
-	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
+	client := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
 
 	// Register with A's address
 	if err := client.RegisterA("overwrite-test", a.Daemon.Addr()); err != nil {
@@ -227,12 +243,12 @@ func TestNameserverPersistence(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), "ns-records.json")
 
 	// Start nameserver with persistence
-	ns1 := nameserver.New(a.Driver, storePath)
+	ns1 := nameserver.New(nsDriverPortListener{a.Driver}, storePath)
 	go ns1.ListenAndServe()
 	waitNSReady(t, ns1)
 	defer ns1.Close()
 
-	client := nameserver.NewClient(b.Driver, a.Daemon.Addr())
+	client := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
 
 	// Register records
 	if err := client.RegisterA("persistent-agent", b.Daemon.Addr()); err != nil {
@@ -279,7 +295,7 @@ func TestNameserverMultipleClients(t *testing.T) {
 	b := env.AddDaemon()
 	c := env.AddDaemon()
 
-	ns := nameserver.New(a.Driver, "")
+	ns := nameserver.New(nsDriverPortListener{a.Driver}, "")
 	go ns.ListenAndServe()
 	waitNSReady(t, ns)
 	defer ns.Close()
@@ -288,8 +304,8 @@ func TestNameserverMultipleClients(t *testing.T) {
 	ns.Store().RegisterA("target", a.Daemon.Addr())
 
 	// Query from B and C simultaneously
-	clientB := nameserver.NewClient(b.Driver, a.Daemon.Addr())
-	clientC := nameserver.NewClient(c.Driver, a.Daemon.Addr())
+	clientB := nameserver.NewClient(nsDriverDialer{b.Driver}, a.Daemon.Addr())
+	clientC := nameserver.NewClient(nsDriverDialer{c.Driver}, a.Daemon.Addr())
 
 	addrB, err := clientB.LookupA("target")
 	if err != nil {

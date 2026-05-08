@@ -5,12 +5,31 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
+	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
 )
+
+// driverPortListener wraps *driver.Driver so its Listen method satisfies
+// nameserver.PortListener (returns net.Listener rather than *driver.Listener).
+type driverPortListener struct{ d *driver.Driver }
+
+func (w driverPortListener) Listen(port uint16) (net.Listener, error) {
+	return w.d.Listen(port)
+}
+
+// driverDialer wraps *driver.Driver so DialAddrTimeout returns net.Conn,
+// satisfying nameserver.Dialer without importing pkg/driver from within the plugin.
+type driverDialer struct{ d *driver.Driver }
+
+func (w driverDialer) DialAddrTimeout(dst protocol.Addr, port uint16, timeout time.Duration) (net.Conn, error) {
+	return w.d.DialAddrTimeout(dst, port, timeout)
+}
 
 func main() {
 	log.Fatal("nameserver is currently disabled (WIP). Use hostname-based discovery via the registry instead.")
@@ -38,6 +57,6 @@ func main() {
 	}
 	defer d.Close()
 
-	ns := nameserver.New(d, *storePath)
+	ns := nameserver.New(driverPortListener{d}, *storePath)
 	log.Fatal(ns.ListenAndServe())
 }

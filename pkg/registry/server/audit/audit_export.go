@@ -67,14 +67,17 @@ func (ae *AuditExporter) Export(entry *Entry) {
 	}
 }
 
-// Close drains the queue and stops the background goroutine.
+// Close signals the background goroutine to stop and waits for it to drain.
 func (ae *AuditExporter) Close() {
 	if ae == nil {
 		return
 	}
 	ae.closeOnce.Do(func() {
+		// Only close ae.closed — never close ae.ch here. Closing ae.ch while
+		// Export() may concurrently be sending on it causes a race: Export's
+		// two-step "check closed, then send" has a window where ae.ch gets
+		// closed between the check and the send.
 		close(ae.closed)
-		close(ae.ch)
 	})
 	select {
 	case <-ae.done:
@@ -85,8 +88,21 @@ func (ae *AuditExporter) Close() {
 
 func (ae *AuditExporter) run() {
 	defer close(ae.done)
-	for entry := range ae.ch {
-		ae.send(entry)
+	for {
+		select {
+		case entry := <-ae.ch:
+			ae.send(entry)
+		case <-ae.closed:
+			// drain whatever is already buffered
+			for {
+				select {
+				case entry := <-ae.ch:
+					ae.send(entry)
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 

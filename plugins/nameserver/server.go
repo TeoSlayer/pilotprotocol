@@ -8,9 +8,14 @@ import (
 	"net"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
+
+// PortListener abstracts the ability to listen on a Pilot overlay port.
+// Satisfied by *driver.Driver (via a thin wrapper in cmd/nameserver).
+type PortListener interface {
+	Listen(port uint16) (net.Listener, error)
+}
 
 // Server is the Pilot Protocol nameserver. It runs on the overlay
 // network itself, listening on port 53.
@@ -20,23 +25,23 @@ import (
 // (like real-world DNS), and hostname→address mappings are not considered private.
 // Private nodes are protected at the resolve/connect layer, not at name resolution.
 type Server struct {
-	store  *RecordStore
-	driver *driver.Driver
-	ln     net.Listener
-	ready  chan struct{}
+	store    *RecordStore
+	listener PortListener
+	ln       net.Listener
+	ready    chan struct{}
 }
 
 // New creates a nameserver backed by a fresh record store.
 // If storePath is non-empty, records are persisted to that file.
-func New(d *driver.Driver, storePath string) *Server {
+func New(pl PortListener, storePath string) *Server {
 	store := NewRecordStore()
 	if storePath != "" {
 		store.SetStorePath(storePath)
 	}
 	return &Server{
-		store:  store,
-		driver: d,
-		ready:  make(chan struct{}),
+		store:    store,
+		listener: pl,
+		ready:    make(chan struct{}),
 	}
 }
 
@@ -52,7 +57,7 @@ func (s *Server) Store() *RecordStore {
 
 // ListenAndServe listens on Pilot port 53 and handles name queries.
 func (s *Server) ListenAndServe() error {
-	ln, err := s.driver.Listen(protocol.PortNameserver)
+	ln, err := s.listener.Listen(protocol.PortNameserver)
 	if err != nil {
 		return fmt.Errorf("listen port %d: %w", protocol.PortNameserver, err)
 	}

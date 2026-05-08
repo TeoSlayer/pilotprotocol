@@ -15,12 +15,23 @@ import (
 	"syscall"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
-	"github.com/TeoSlayer/pilotprotocol/plugins/gateway"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/plugins/gateway"
 )
 
 var version = "dev"
+
+// driverDialer wraps *driver.Driver so DialAddr returns net.Conn, satisfying
+// gateway.Dialer without importing pkg/driver from within plugins/gateway.
+type driverDialer struct{ d *driver.Driver }
+
+func (w driverDialer) DialAddr(dst protocol.Addr, port uint16) (net.Conn, error) {
+	return w.d.DialAddr(dst, port)
+}
+
+func (w driverDialer) Close() error { return w.d.Close() }
 
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
@@ -64,11 +75,15 @@ func main() {
 		}
 	}
 
+	d, err := driver.Connect(*socketPath)
+	if err != nil {
+		log.Fatalf("connect to daemon: %v", err)
+	}
+
 	gw, err := gateway.New(gateway.Config{
-		Subnet:     *subnet,
-		SocketPath: *socketPath,
-		Ports:      ports,
-	})
+		Subnet: *subnet,
+		Ports:  ports,
+	}, driverDialer{d})
 	if err != nil {
 		log.Fatalf("create gateway: %v", err)
 	}
@@ -77,9 +92,6 @@ func main() {
 	case "run":
 		cmdRun(gw, args[1:])
 	case "map":
-		if err := gw.Start(); err != nil {
-			log.Fatalf("start: %v", err)
-		}
 		cmdMap(gw, args[1:])
 	default:
 		usage()
@@ -87,10 +99,6 @@ func main() {
 }
 
 func cmdRun(gw *gateway.Gateway, args []string) {
-	if err := gw.Start(); err != nil {
-		log.Fatalf("start gateway: %v", err)
-	}
-
 	// Map any addresses passed as arguments: <pilot-addr> [<local-ip>]
 	for i := 0; i < len(args); i += 2 {
 		pilotAddrStr := args[i]

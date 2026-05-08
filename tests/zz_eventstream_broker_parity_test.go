@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
 )
@@ -114,13 +115,13 @@ func TestBrokerParityNormal(t *testing.T) {
 	b := env.AddDaemon()
 	c := env.AddDaemon()
 
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "parity.normal")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "parity.normal")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 	defer sub.Close()
 
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "parity.normal-pub")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "parity.normal-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}
@@ -190,12 +191,12 @@ func TestBrokerParityRateLimit(t *testing.T) {
 	b := env.AddDaemon() // subscriber
 	c := env.AddDaemon() // publisher
 
-	sub, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "parity.ratelimit")
+	sub, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "parity.ratelimit")
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "parity.ratelimit-pub")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "parity.ratelimit-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}
@@ -353,18 +354,18 @@ func TestBrokerParityTransientFailure(t *testing.T) {
 	flaky := env.AddDaemon()
 	c := env.AddDaemon() // publisher
 
-	healthy, err := eventstream.Subscribe(b.Driver, a.Daemon.Addr(), "parity.txfail")
+	healthy, err := internales.Subscribe(b.Driver, a.Daemon.Addr(), "parity.txfail")
 	if err != nil {
 		t.Fatalf("subscribe healthy: %v", err)
 	}
 	defer healthy.Close()
 
-	flakySub, err := eventstream.Subscribe(flaky.Driver, a.Daemon.Addr(), "parity.txfail")
+	flakySub, err := internales.Subscribe(flaky.Driver, a.Daemon.Addr(), "parity.txfail")
 	if err != nil {
 		t.Fatalf("subscribe flaky: %v", err)
 	}
 
-	pub, err := eventstream.Subscribe(c.Driver, a.Daemon.Addr(), "parity.txfail-pub")
+	pub, err := internales.Subscribe(c.Driver, a.Daemon.Addr(), "parity.txfail-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}
@@ -463,17 +464,17 @@ func TestBrokerParityTunnelBlip(t *testing.T) {
 	subBd := env.AddDaemon()
 	pubd := env.AddDaemon()
 
-	subA, err := eventstream.Subscribe(subAd.Driver, broker.Daemon.Addr(), "parity.blip")
+	subA, err := internales.Subscribe(subAd.Driver, broker.Daemon.Addr(), "parity.blip")
 	if err != nil {
 		t.Fatalf("subscribe A: %v", err)
 	}
-	subB, err := eventstream.Subscribe(subBd.Driver, broker.Daemon.Addr(), "parity.blip")
+	subB, err := internales.Subscribe(subBd.Driver, broker.Daemon.Addr(), "parity.blip")
 	if err != nil {
 		t.Fatalf("subscribe B: %v", err)
 	}
 	defer subB.Close()
 
-	pub, err := eventstream.Subscribe(pubd.Driver, broker.Daemon.Addr(), "parity.blip-pub")
+	pub, err := internales.Subscribe(pubd.Driver, broker.Daemon.Addr(), "parity.blip-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}
@@ -573,7 +574,7 @@ func TestBrokerParityLockContention(t *testing.T) {
 	fastD := env.AddDaemon()
 	pubD := env.AddDaemon()
 
-	slowSub, err := eventstream.Subscribe(slowD.Driver, broker.Daemon.Addr(), "parity.contend")
+	slowSub, err := internales.Subscribe(slowD.Driver, broker.Daemon.Addr(), "parity.contend")
 	if err != nil {
 		t.Fatalf("subscribe slow: %v", err)
 	}
@@ -582,13 +583,13 @@ func TestBrokerParityLockContention(t *testing.T) {
 	// stall as soon as its receive buffer fills, exercising the
 	// snapshot-and-release fanout path.
 
-	fastSub, err := eventstream.Subscribe(fastD.Driver, broker.Daemon.Addr(), "parity.contend")
+	fastSub, err := internales.Subscribe(fastD.Driver, broker.Daemon.Addr(), "parity.contend")
 	if err != nil {
 		t.Fatalf("subscribe fast: %v", err)
 	}
 	defer fastSub.Close()
 
-	pub, err := eventstream.Subscribe(pubD.Driver, broker.Daemon.Addr(), "parity.contend-pub")
+	pub, err := internales.Subscribe(pubD.Driver, broker.Daemon.Addr(), "parity.contend-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}
@@ -729,13 +730,13 @@ func TestBrokerParityWebhooks(t *testing.T) {
 	pubD := env.AddDaemon()
 
 	// Slow subscriber subscribes but never reads.
-	slow, err := eventstream.Subscribe(slowD.Driver, a.Daemon.Addr(), "parity.webhook")
+	slow, err := internales.Subscribe(slowD.Driver, a.Daemon.Addr(), "parity.webhook")
 	if err != nil {
 		t.Fatalf("subscribe slow: %v", err)
 	}
 	defer slow.Close()
 
-	pub, err := eventstream.Subscribe(pubD.Driver, a.Daemon.Addr(), "parity.webhook-pub")
+	pub, err := internales.Subscribe(pubD.Driver, a.Daemon.Addr(), "parity.webhook-pub")
 	if err != nil {
 		t.Fatalf("publisher subscribe: %v", err)
 	}

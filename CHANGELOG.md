@@ -7,25 +7,6 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
-## [Unreleased] → 1.9.2
-
-### Removed
-- Task system (port 1003, `pilotctl task`, `pilot-task` binary, `TaskQueue`, `CmdSetTaskExec`)
-- Polo score from base protocol, managed networks, registry wire format, and website
-- `score` action and `peer_score` context from the policy engine
-- 14 shipped network configs whose only logic was score-based
-- 3 blog posts and doc pages for tasks and polo
-
-### Fixed
-- Relayed handshake path now checks `trustedagents.IsTrusted()` — NATed clients were getting
-  ~23% reply rates because the trusted-agent auto-approve only fired on direct paths
-- Beacon tests: pass `admin_token` in `beacon_register` (required since auth layer was added)
-- `trustedagents` parallel tests: replaced `Load()` mutations with `SetForTest()` to fix race
-
-### Added
-- 13 new integration test scripts (handshake, trust, message, pubsub coverage)
-- Architecture and package reference docs moved to `docs/`
-
 ## [1.9.1] - 2026-05-05
 
 - Rekey storm fix: `decryptFailDropGrace` (3 s) prevents tearing down a freshly-installed

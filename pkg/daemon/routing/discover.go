@@ -66,3 +66,27 @@ func DiscoverEndpoint(beaconAddr string, nodeID uint32, conn *net.UDPConn, readD
 
 	return &net.UDPAddr{IP: ip, Port: int(port)}, nil
 }
+
+// ProbeBeaconRTT measures the UDP round-trip time to a beacon by opening
+// a temporary ephemeral socket, sending a BeaconMsgDiscover, and timing
+// the reply. The probe socket is separate from the daemon's tunnel socket
+// so it never interferes with live traffic.
+//
+// nodeID is included in the discover payload as the protocol requires, but
+// the beacon's reply depends only on the sender's UDP source address — any
+// valid uint32 (including 0) works for a pure RTT measurement.
+//
+// Returns (0, err) when the beacon is unreachable within timeout. Used by
+// the beacon-rtt-probe feature flag to rank beacons before selection.
+func ProbeBeaconRTT(beaconAddr string, nodeID uint32, timeout time.Duration) (time.Duration, error) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
+	if err != nil {
+		return 0, fmt.Errorf("probe socket: %w", err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	if _, err := DiscoverEndpoint(beaconAddr, nodeID, conn, start.Add(timeout)); err != nil {
+		return 0, err
+	}
+	return time.Since(start), nil
+}

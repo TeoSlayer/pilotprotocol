@@ -8,9 +8,10 @@ import (
 	"log"
 	"net"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
 )
 
 func main() {
@@ -67,12 +68,12 @@ func runServer(d *driver.Driver) {
 		dataexchange.WriteFrame(conn, ack)
 	}
 
-	srv := dataexchange.NewServer(d, handler)
+	srv := internaldx.NewServer(d, handler)
 	log.Fatal(srv.ListenAndServe())
 }
 
 func runClient(d *driver.Driver, addr protocol.Addr, msg string) {
-	c, err := dataexchange.Dial(d, addr)
+	c, err := internaldx.Dial(d, addr)
 	if err != nil {
 		log.Fatalf("dial: %v", err)
 	}

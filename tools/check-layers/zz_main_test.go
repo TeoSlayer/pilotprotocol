@@ -115,6 +115,7 @@ func simulateCheck(doc *layersDoc, edges []edge) (vs, ws []violation) {
 	resolveLayerPkg := buildLayerPackageResolver(doc)
 	publicIdx := buildPublicIndex(doc)
 	transitionalIdx := buildTransitionalIndex(doc.KnownTransitional)
+	consumesIdx := buildConsumesIndex(doc)
 
 	for _, e := range edges {
 		src := classify(e.from)
@@ -125,7 +126,7 @@ func simulateCheck(doc *layersDoc, edges []edge) (vs, ws []violation) {
 		if dst == "" {
 			continue
 		}
-		ok, reason := edgeAllowed(src, dst)
+		ok, reason := edgeAllowed(src, dst, consumesIdx)
 		if !ok {
 			v := violation{
 				FromPkg: e.from, FromLay: src,

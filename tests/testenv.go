@@ -230,7 +230,7 @@ func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *
 		}
 	}
 	if !cfg.DisablePolicyRunner {
-		policySvc := policy.NewService(policy.NewDaemonRuntime(d))
+		policySvc := policy.NewService(pluginsruntime.NewPolicyRuntime(d))
 		if err := rt.Register(policySvc); err != nil {
 			t.Fatalf("register policy: %v", err)
 		}
@@ -239,11 +239,11 @@ func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *
 	// Handshake plugin (T3.3) — registered by default so production
 	// behavior matches: tests that don't want it can flip a Disable*
 	// flag on Config (none today, since smoke + e2e all need handshake).
-	hsSvc := handshake.NewService(handshake.NewDaemonRuntime(d))
+	hsSvc := handshake.NewService(pluginsruntime.NewHandshakeRuntime(d))
 	if err := rt.Register(hsSvc); err != nil {
 		t.Fatalf("register handshake: %v", err)
 	}
-	d.RegisterHandshakeService(hsSvc.AsHandshakeService())
+	d.RegisterHandshakeService(pluginsruntime.NewHandshakeServiceAdapter(hsSvc))
 	// Webhook plugin (T4.1) — registered by default so any test that
 	// sets cfg.WebhookURL gets the same dispatch path as production.
 	// Tests that don't set WebhookURL see a no-op (Service starts but

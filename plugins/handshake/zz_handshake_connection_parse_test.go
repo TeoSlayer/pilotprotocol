@@ -5,10 +5,11 @@ package handshake
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
 )
 
 // Iter-104 coverage for handleConnection (0% baseline) + processMessage
@@ -16,25 +17,57 @@ import (
 // gate all inbound handshake messages on port 444 before dispatching to the
 // handleRequest / handleAccept / handleRejectMsg / handleRevokeMsg switch.
 
-// --- handleConnection: closed RecvBuf returns cleanly ---
+// mockStream is a minimal coreapi.Stream for handleConnection unit tests.
+type mockStream struct {
+	data []byte
+	pos  int
+	err  error // returned immediately from Read when set
+}
+
+func newMockStreamData(data []byte) *mockStream { return &mockStream{data: data} }
+func newMockStreamErr(err error) *mockStream    { return &mockStream{err: err} }
+
+func (s *mockStream) Read(p []byte) (int, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	if s.pos >= len(s.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.data[s.pos:])
+	s.pos += n
+	return n, nil
+}
+func (s *mockStream) Write(p []byte) (int, error)      { return len(p), nil }
+func (s *mockStream) Close() error                     { return nil }
+func (s *mockStream) LocalAddr() coreapi.Addr          { return coreapi.Addr{} }
+func (s *mockStream) LocalPort() uint16                { return 0 }
+func (s *mockStream) RemoteAddr() coreapi.Addr         { return coreapi.Addr{} }
+func (s *mockStream) RemotePort() uint16               { return 0 }
+func (s *mockStream) SetDeadline(time.Time) error      { return nil }
+func (s *mockStream) SetReadDeadline(time.Time) error  { return nil }
+func (s *mockStream) SetWriteDeadline(time.Time) error { return nil }
+
+// --- handleConnection: EOF stream returns cleanly ---
 
 func TestHandleConnectionClosedRecvBufReturnsCleanly(t *testing.T) {
 	t.Parallel()
 	hm := newTestHM(t, "")
 	t.Cleanup(hm.Stop)
 
-	conn := &daemon.Connection{RecvBuf: make(chan []byte)}
-	close(conn.RecvBuf) // triggers `ok=false` branch in handleConnection
+	// An EOF stream (closed RecvBuf equivalent) causes io.ReadAll → empty
+	// data + nil error → JSON unmarshal error → handleConnection returns.
+	stream := newMockStreamErr(io.EOF)
 
 	done := make(chan struct{})
 	go func() {
-		hm.handleConnection(conn)
+		hm.handleConnection(stream)
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("handleConnection did not return on closed RecvBuf")
+		t.Fatal("handleConnection did not return on closed stream")
 	}
 }
 
@@ -45,12 +78,11 @@ func TestHandleConnectionInvalidJSONReturnsCleanly(t *testing.T) {
 	hm := newTestHM(t, "")
 	t.Cleanup(hm.Stop)
 
-	conn := &daemon.Connection{RecvBuf: make(chan []byte, 1)}
-	conn.RecvBuf <- []byte("this is not json at all {{{")
+	stream := newMockStreamData([]byte("this is not json at all {{{"))
 
 	done := make(chan struct{})
 	go func() {
-		hm.handleConnection(conn)
+		hm.handleConnection(stream)
 		close(done)
 	}()
 	select {
@@ -76,12 +108,11 @@ func TestHandleConnectionValidMsgDispatchesToProcessMessage(t *testing.T) {
 	}
 	raw, _ := json.Marshal(&msg)
 
-	conn := &daemon.Connection{RecvBuf: make(chan []byte, 1)}
-	conn.RecvBuf <- raw
+	stream := newMockStreamData(raw)
 
 	done := make(chan struct{})
 	go func() {
-		hm.handleConnection(conn)
+		hm.handleConnection(stream)
 		close(done)
 	}()
 	select {

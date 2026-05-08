@@ -24,6 +24,7 @@ func main() {
 	peersFlag := flag.String("peers", "", "comma-separated peer beacon addresses for gossip")
 	healthAddr := flag.String("health", "", "health check HTTP address (e.g. :8080)")
 	registryAddr := flag.String("registry", "", "registry address for dynamic peer discovery (e.g. 10.128.0.12:9000)")
+	registryAdminToken := flag.String("registry-admin-token", "", "admin token for beacon_register auth (required when registry enforces SEC-002)")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
@@ -55,6 +56,9 @@ func main() {
 	}
 	if *advertiseAddr != "" {
 		s.SetAdvertiseAddr(*advertiseAddr)
+	}
+	if *registryAdminToken != "" {
+		s.SetRegistryAdminToken(*registryAdminToken)
 	}
 
 	if *healthAddr != "" {

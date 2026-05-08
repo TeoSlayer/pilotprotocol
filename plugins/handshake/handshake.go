@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
@@ -70,11 +71,13 @@ const (
 type Manager struct {
 	mu        sync.RWMutex
 	rt        Runtime
+	ln        coreapi.Listener             // bound on PortHandshake; closed by Stop
 	trusted   map[uint32]*TrustRecord      // approved peers
 	pending   map[uint32]*PendingHandshake // incoming unapproved requests
 	outgoing  map[uint32]time.Time         // nodes we've sent requests to → sent-at (for TTL reap)
 	revoked   map[uint32]time.Time         // peer → cooldown-until (blocks stale relayed approvals)
 	storePath string                       // path to persist trust state (empty = no persistence)
+	stopping  bool                         // set under mu.Lock() before wg.Wait() in Stop
 	wg        sync.WaitGroup               // tracks background RPCs for clean shutdown
 	reapStop  chan struct{}                // signals replay reaper to stop
 	stopOnce  sync.Once                    // ensures reapStop is closed only once
@@ -115,6 +118,13 @@ func NewManager(rt Runtime) *Manager {
 
 // Stop waits for all background RPCs to finish and stops the replay reaper.
 func (hm *Manager) Stop() {
+	// Mark stopping under mu so goRPC cannot race wg.Add vs wg.Wait.
+	// Any goRPC that holds mu.RLock() and sees stopping=false has already
+	// called wg.Add(1), so Wait() will correctly count it.
+	hm.mu.Lock()
+	hm.stopping = true
+	hm.mu.Unlock()
+
 	hm.stopOnce.Do(func() {
 		if hm.reapStop != nil {
 			close(hm.reapStop)
@@ -124,7 +134,28 @@ func (hm *Manager) Stop() {
 }
 
 // goRPC launches a tracked background goroutine.
+// It takes mu.RLock() to atomically check stopping and call wg.Add(1) so
+// that Stop()'s wg.Wait() never misses an in-flight goroutine.
 func (hm *Manager) goRPC(fn func()) {
+	hm.mu.RLock()
+	if hm.stopping {
+		hm.mu.RUnlock()
+		return
+	}
+	hm.wg.Add(1)
+	hm.mu.RUnlock()
+	go func() {
+		defer hm.wg.Done()
+		fn()
+	}()
+}
+
+// goRPCLocked is like goRPC but must be called while hm.mu is write-locked.
+// Checks stopping without re-acquiring the lock to avoid same-goroutine deadlock.
+func (hm *Manager) goRPCLocked(fn func()) {
+	if hm.stopping {
+		return
+	}
 	hm.wg.Add(1)
 	go func() {
 		defer hm.wg.Done()
@@ -321,10 +352,15 @@ func (hm *Manager) Start() error {
 	if err != nil {
 		return err
 	}
+	hm.ln = ln
 
 	go func() {
-		for conn := range ln.AcceptCh {
-			go hm.handleConnection(conn)
+		for {
+			stream, err := ln.Accept()
+			if err != nil {
+				return // listener closed
+			}
+			go hm.handleConnection(stream)
 		}
 	}()
 
@@ -349,21 +385,29 @@ func (hm *Manager) Start() error {
 }
 
 // handleConnection processes a single handshake stream connection.
-func (hm *Manager) handleConnection(conn *daemon.Connection) {
-	// Read the handshake message from RecvBuf
+func (hm *Manager) handleConnection(stream coreapi.Stream) {
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(stream)
+		ch <- readResult{data, err}
+	}()
 	select {
-	case data, ok := <-conn.RecvBuf:
-		if !ok {
+	case res := <-ch:
+		if res.err != nil {
 			return
 		}
 		var msg HandshakeMsg
-		if err := json.Unmarshal(data, &msg); err != nil {
-			slog.Error("invalid handshake message", "remote_addr", conn.RemoteAddr, "error", err)
+		if err := json.Unmarshal(res.data, &msg); err != nil {
+			slog.Error("invalid handshake message", "remote_addr", stream.RemoteAddr(), "error", err)
 			return
 		}
-		hm.processMessage(conn, &msg)
+		hm.processMessage(stream, &msg)
 	case <-time.After(handshakeRecvTimeout):
-		slog.Warn("handshake timeout waiting for message", "remote_addr", conn.RemoteAddr)
+		slog.Warn("handshake timeout waiting for message", "remote_addr", stream.RemoteAddr())
 	}
 }
 
@@ -375,7 +419,7 @@ func (hm *Manager) handleConnection(conn *daemon.Connection) {
 // trusting a peer by node_id alone is unsafe (registry down or no
 // record means we'd be relying on signature verification against a
 // claimed pubkey that nothing has tied to the claimed node ID).
-func (hm *Manager) processMessage(conn *daemon.Connection, msg *HandshakeMsg) {
+func (hm *Manager) processMessage(stream coreapi.Stream, msg *HandshakeMsg) {
 	// Timestamp validation
 	now := time.Now()
 	msgTime := time.Unix(msg.Timestamp, 0)
@@ -449,7 +493,7 @@ func (hm *Manager) processMessage(conn *daemon.Connection, msg *HandshakeMsg) {
 
 	switch msg.Type {
 	case HandshakeRequest:
-		hm.handleRequest(conn, msg, registryBound)
+		hm.handleRequest(stream, msg, registryBound)
 	case HandshakeAccept:
 		hm.handleAccept(msg)
 	case HandshakeReject:
@@ -505,8 +549,8 @@ func (hm *Manager) reapOutgoingAndRevoked() {
 // non-empty pubkey matching the claimed one. It gates the trusted-
 // agents auto-accept path; signature-only authentication is not
 // enough to safely key on node_id.
-func (hm *Manager) handleRequest(conn *daemon.Connection, msg *HandshakeMsg, registryBound bool) {
-	_ = conn // body never dereferences conn; receivers keep it for interface symmetry
+func (hm *Manager) handleRequest(stream coreapi.Stream, msg *HandshakeMsg, registryBound bool) {
+	_ = stream // reserved for future response-on-same-stream support
 	peerNodeID := msg.NodeID
 	slog.Info("handshake request received", "peer_node_id", peerNodeID, "justification", msg.Justification)
 	hm.rt.PublishEvent("handshake.received", map[string]interface{}{
@@ -545,7 +589,7 @@ func (hm *Manager) handleRequest(conn *daemon.Connection, msg *HandshakeMsg, reg
 		// Report trust to registry
 		if reg := hm.rt.Registry(); reg != nil {
 			selfID := hm.rt.NodeID()
-			hm.goRPC(func() { reg.ReportTrust(selfID, peerNodeID) })
+			hm.goRPCLocked(func() { reg.ReportTrust(selfID, peerNodeID) })
 		}
 		return
 	}
@@ -570,7 +614,7 @@ func (hm *Manager) handleRequest(conn *daemon.Connection, msg *HandshakeMsg, reg
 		// Report trust to registry
 		if reg := hm.rt.Registry(); reg != nil {
 			selfID := hm.rt.NodeID()
-			hm.goRPC(func() { reg.ReportTrust(selfID, peerNodeID) })
+			hm.goRPCLocked(func() { reg.ReportTrust(selfID, peerNodeID) })
 		}
 		return
 	}
@@ -601,7 +645,7 @@ func (hm *Manager) handleRequest(conn *daemon.Connection, msg *HandshakeMsg, reg
 			hm.sendAcceptLocked(peerNodeID)
 			if reg := hm.rt.Registry(); reg != nil {
 				selfID := hm.rt.NodeID()
-				hm.goRPC(func() { reg.ReportTrust(selfID, peerNodeID) })
+				hm.goRPCLocked(func() { reg.ReportTrust(selfID, peerNodeID) })
 			}
 			return
 		}
@@ -626,7 +670,7 @@ func (hm *Manager) handleRequest(conn *daemon.Connection, msg *HandshakeMsg, reg
 		hm.sendAcceptLocked(peerNodeID)
 		if reg := hm.rt.Registry(); reg != nil {
 			selfID := hm.rt.NodeID()
-			hm.goRPC(func() { reg.ReportTrust(selfID, peerNodeID) })
+			hm.goRPCLocked(func() { reg.ReportTrust(selfID, peerNodeID) })
 		}
 		return
 	}
@@ -679,7 +723,7 @@ func (hm *Manager) handleAccept(msg *HandshakeMsg) {
 	// Report trust to registry
 	if reg := hm.rt.Registry(); reg != nil {
 		selfID := hm.rt.NodeID()
-		hm.goRPC(func() { reg.ReportTrust(selfID, peerNodeID) })
+		hm.goRPCLocked(func() { reg.ReportTrust(selfID, peerNodeID) })
 	}
 }
 
@@ -763,7 +807,7 @@ func (hm *Manager) processRelayedRequest(fromNodeID uint32, justification string
 		if reg := hm.rt.Registry(); reg != nil {
 			nodeID, peerID := hm.rt.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() { reg.RespondHandshake(nodeID, peerID, true, sig) })
+			hm.goRPCLocked(func() { reg.RespondHandshake(nodeID, peerID, true, sig) })
 		}
 		return
 	}
@@ -782,7 +826,7 @@ func (hm *Manager) processRelayedRequest(fromNodeID uint32, justification string
 		if reg := hm.rt.Registry(); reg != nil {
 			nodeID, peerID := hm.rt.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() {
+			hm.goRPCLocked(func() {
 				reg.RespondHandshake(nodeID, peerID, true, sig)
 				hm.backfillPeerKey(peerID)
 			})
@@ -802,7 +846,7 @@ func (hm *Manager) processRelayedRequest(fromNodeID uint32, justification string
 		if reg := hm.rt.Registry(); reg != nil {
 			nodeID, peerID := hm.rt.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() {
+			hm.goRPCLocked(func() {
 				reg.RespondHandshake(nodeID, peerID, true, sig)
 				reg.ReportTrust(nodeID, peerID)
 				hm.backfillPeerKey(peerID)
@@ -831,7 +875,7 @@ func (hm *Manager) processRelayedRequest(fromNodeID uint32, justification string
 		if reg := hm.rt.Registry(); reg != nil {
 			nodeID, peerID := hm.rt.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() {
+			hm.goRPCLocked(func() {
 				reg.RespondHandshake(nodeID, peerID, true, sig)
 				reg.ReportTrust(nodeID, peerID)
 				hm.backfillPeerKey(peerID)
@@ -858,7 +902,7 @@ func (hm *Manager) processRelayedRequest(fromNodeID uint32, justification string
 		if reg := hm.rt.Registry(); reg != nil {
 			nodeID, peerID := hm.rt.NodeID(), fromNodeID
 			sig := hm.signHandshakeChallenge(fmt.Sprintf("respond:%d:%d", nodeID, peerID))
-			hm.goRPC(func() {
+			hm.goRPCLocked(func() {
 				reg.RespondHandshake(nodeID, peerID, true, sig)
 				reg.ReportTrust(nodeID, peerID)
 				hm.backfillPeerKey(peerID)
@@ -919,7 +963,7 @@ func (hm *Manager) processRelayedApproval(fromNodeID uint32) {
 	if reg := hm.rt.Registry(); reg != nil {
 		_ = reg
 		peerID := fromNodeID
-		hm.goRPC(func() { hm.backfillPeerKey(peerID) })
+		hm.goRPCLocked(func() { hm.backfillPeerKey(peerID) })
 	}
 }
 
@@ -1174,7 +1218,7 @@ func (hm *Manager) PendingCount() int {
 
 // sendAcceptLocked sends an accept message (caller must hold hm.mu).
 func (hm *Manager) sendAcceptLocked(peerNodeID uint32) {
-	hm.goRPC(func() {
+	hm.goRPCLocked(func() {
 		hm.sendAccept(peerNodeID)
 	})
 }

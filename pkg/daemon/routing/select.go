@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"net"
 	"strings"
+	"time"
 )
 
 // IsUnreachableBeaconHost reports whether host is an RFC1918 / loopback /
@@ -102,6 +103,58 @@ func PickBeacon(list []string, key []byte) string {
 	h.Write(key)
 	idx := int(h.Sum32() % uint32(len(list)))
 	return list[idx]
+}
+
+// PickBeaconWithRTT selects a beacon using measured RTT data as a
+// tiebreaker. The hash-based pick (PickBeacon) is preferred to maintain
+// load distribution across the fleet, but is overridden when it is more
+// than 2× slower than the fastest measured beacon — a strong signal that
+// geography or routing has placed this node far from its hash pick.
+//
+// rttMap maps beacon address → measured probe RTT. Beacons absent from
+// rttMap (probe timed out or failed) are treated as unreachable and
+// excluded from RTT comparison. When rttMap is empty, falls back to the
+// pure hash pick. When the hash pick itself failed to probe but others
+// succeeded, the fastest responding beacon is used.
+//
+// This function is gated behind the BeaconRTTProbe feature flag in
+// pkg/daemon — call PickBeacon directly when the flag is off.
+func PickBeaconWithRTT(list []string, key []byte, rttMap map[string]time.Duration) string {
+	if len(list) == 0 {
+		return ""
+	}
+	if len(rttMap) == 0 {
+		return PickBeacon(list, key)
+	}
+	hashPick := PickBeacon(list, key)
+	hashRTT, hashReachable := rttMap[hashPick]
+
+	bestAddr := ""
+	var bestRTT time.Duration
+	for _, addr := range list {
+		rtt, ok := rttMap[addr]
+		if !ok {
+			continue
+		}
+		if bestAddr == "" || rtt < bestRTT {
+			bestRTT = rtt
+			bestAddr = addr
+		}
+	}
+
+	if bestAddr == "" {
+		// No probe responded — fall back to hash pick.
+		return hashPick
+	}
+	if !hashReachable {
+		// Hash pick didn't respond but at least one other did.
+		return bestAddr
+	}
+	// Override only when hash pick is >2× slower than the fastest beacon.
+	if hashRTT > 2*bestRTT {
+		return bestAddr
+	}
+	return hashPick
 }
 
 // FirstBeacon returns the first entry of a parsed beacon list, used for

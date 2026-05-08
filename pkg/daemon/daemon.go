@@ -118,6 +118,9 @@ type Config struct {
 	// Version
 	Version string // binary version string (injected via LDFLAGS at build time)
 
+	// Feature flags — ablation testing. All default false (current behavior).
+	BeaconRTTProbe bool // probe beacon RTT; override hash pick when >2× slower than best
+
 	// Tuning (zero = use defaults)
 	KeepaliveInterval     time.Duration // default 60s
 	IdleTimeout           time.Duration // default 120s

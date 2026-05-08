@@ -43,6 +43,11 @@ import (
 type layerSpec struct {
 	Description string   `yaml:"description"`
 	Packages    []string `yaml:"packages"`
+	// Consumes lists the layers this layer may directly import. When set,
+	// any import targeting a layer NOT in this list (other than utilities
+	// and same-layer peers) is a P1-skip violation. When unset, the
+	// existing strict-downward rule (no upward imports) applies.
+	Consumes []string `yaml:"consumes"`
 	// Public is the optional subset of Packages that may be imported
 	// from other layers (P2 — single upward interface). When unset, the
 	// full Packages list is treated as public, preserving the
@@ -121,6 +126,7 @@ func main() {
 	classify := buildClassifier(doc)
 	resolveLayerPkg := buildLayerPackageResolver(doc)
 	publicIdx := buildPublicIndex(doc)
+	consumesIdx := buildConsumesIndex(doc)
 	transitionalIdx := buildTransitionalIndex(doc.KnownTransitional)
 	sideChannelTargets := buildSideChannelIndex(doc.SideChannels)
 
@@ -160,7 +166,7 @@ func main() {
 				}
 			}
 		}
-		ok, reason := edgeAllowed(src, dst)
+		ok, reason := edgeAllowed(src, dst, consumesIdx)
 		if !ok {
 			v := violation{
 				FromPkg: p.ImportPath,
@@ -265,8 +271,15 @@ type violation struct {
 }
 
 // edgeAllowed returns whether an import from layer `src` to layer `dst`
-// is permitted under the strict-downward rule.
-func edgeAllowed(src, dst string) (bool, string) {
+// is permitted.
+//
+// Two rules are applied in order:
+//  1. No upward imports (dstN > srcN is always forbidden).
+//  2. Consumes constraint: if `src` declares a `consumes` list in
+//     layers.yaml, only layers in that list (plus utilities and same-layer
+//     peers) may be imported. An import targeting any other layer is a
+//     P1-skip violation — it jumps past a required abstraction boundary.
+func edgeAllowed(src, dst string, consumesIdx map[string]map[string]bool) (bool, string) {
 	if dst == "utility" {
 		return true, ""
 	}
@@ -294,18 +307,28 @@ func edgeAllowed(src, dst string) (bool, string) {
 	if !ok1 || !ok2 {
 		return false, fmt.Sprintf("unknown layer in edge: %s → %s", src, dst)
 	}
-	// Same-layer imports (different packages within one layer) are
-	// always allowed by the strict-downward rule. The P2 check above
-	// is responsible for any further restrictions on which sibling
-	// packages a layer-internal package may be imported from. Today
-	// every layer in layers.yaml lists exactly one package, so this
-	// branch is rarely hit, but P2's "internal subpackage" model
-	// depends on it being permissive.
+	// Same-layer imports are always allowed.
 	if dstN == srcN {
 		return true, ""
 	}
+	// Rule 1: no upward imports.
 	if dstN > srcN {
 		return false, fmt.Sprintf("upward import (%s → %s)", src, dst)
+	}
+	// Rule 2: if the source layer declares a consumes constraint, the
+	// destination layer must appear in it. This catches layer-skipping
+	// (e.g. L11 → L7 when L11 is only allowed to import L10).
+	if allowed, hasConstraint := consumesIdx[src]; hasConstraint {
+		if !allowed[dst] {
+			// Build a readable list of what is allowed.
+			var permitted []string
+			for l := range allowed {
+				permitted = append(permitted, l)
+			}
+			sort.Strings(permitted)
+			return false, fmt.Sprintf("layer-skip: %s may only import %v (consumes constraint); importing %s skips the abstraction boundary",
+				src, permitted, dst)
+		}
 	}
 	return true, ""
 }
@@ -406,6 +429,25 @@ func buildPublicIndex(doc *layersDoc) map[string]map[string]bool {
 		set := map[string]bool{}
 		for _, p := range spec.Public {
 			set[p] = true
+		}
+		out[layer] = set
+	}
+	return out
+}
+
+// buildConsumesIndex returns a map from layer label to the set of layer
+// labels that layer may import. Only layers with an explicit `consumes:`
+// list in layers.yaml are included; layers without a constraint fall back
+// to the strict-downward rule.
+func buildConsumesIndex(doc *layersDoc) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for layer, spec := range doc.Layers {
+		if len(spec.Consumes) == 0 {
+			continue
+		}
+		set := map[string]bool{}
+		for _, c := range spec.Consumes {
+			set[c] = true
 		}
 		out[layer] = set
 	}

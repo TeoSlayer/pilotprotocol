@@ -40,6 +40,7 @@ type fakeDaemon struct {
 	ln       net.Listener
 	path     string
 	conn     net.Conn
+	connSet  chan struct{} // closed once conn is stored in acceptLoop
 	mu       sync.Mutex
 	received [][]byte // all frames received
 	handlers map[byte]func(frame []byte) [][]byte
@@ -56,6 +57,7 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 		t:        t,
 		ln:       ln,
 		path:     path,
+		connSet:  make(chan struct{}),
 		handlers: make(map[byte]func(frame []byte) [][]byte),
 	}
 	go d.acceptLoop()
@@ -70,6 +72,7 @@ func (d *fakeDaemon) acceptLoop() {
 	d.mu.Lock()
 	d.conn = conn
 	d.mu.Unlock()
+	close(d.connSet) // signal that conn is stored and ready to be closed
 
 	// ipcEnvelopeHdr = [cmd(1)][reqID(8)] — matches driver.ipcEnvelopeHeaderSize.
 	const ipcEnvelopeHdr = 9
@@ -147,6 +150,14 @@ func (d *fakeDaemon) closeConn() {
 
 func (d *fakeDaemon) close() {
 	d.ln.Close()
+	// Wait for acceptLoop to store d.conn before closing it.
+	// Without this, close() races with acceptLoop: d.conn may still be
+	// nil when closeConn() runs, leaving the accepted socket open and
+	// blocking the driver's readLoop indefinitely.
+	select {
+	case <-d.connSet:
+	case <-time.After(100 * time.Millisecond):
+	}
 	d.closeConn()
 }
 

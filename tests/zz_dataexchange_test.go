@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
 )
@@ -32,11 +33,11 @@ func TestDataExchange(t *testing.T) {
 		})
 	}
 
-	srv := dataexchange.NewServer(a.Driver, handler)
+	srv := internaldx.NewServer(a.Driver, handler)
 	go srv.ListenAndServe()
 
 	// Client on B
-	c, err := dataexchange.Dial(b.Driver, a.Daemon.Addr())
+	c, err := internaldx.Dial(b.Driver, a.Daemon.Addr())
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -144,16 +145,16 @@ func TestDataExchangeLargePayload(t *testing.T) {
 		})
 	}
 
-	srv := dataexchange.NewServer(a.Driver, handler)
+	srv := internaldx.NewServer(a.Driver, handler)
 	go srv.ListenAndServe()
 
 	// srv.ListenAndServe spins up the bind async; on slower CI runners
 	// (macOS-latest) Dial can fire before the listener is accepting.
 	// Retry briefly.
-	var c *dataexchange.Client
+	var c *internaldx.Client
 	var err error
 	for i := 0; i < 20; i++ {
-		c, err = dataexchange.Dial(b.Driver, a.Daemon.Addr())
+		c, err = internaldx.Dial(b.Driver, a.Daemon.Addr())
 		if err == nil {
 			break
 		}

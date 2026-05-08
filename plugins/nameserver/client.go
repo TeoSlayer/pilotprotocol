@@ -4,21 +4,27 @@ package nameserver
 
 import (
 	"fmt"
+	"net"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
+// Dialer abstracts the ability to open a connection to a Pilot overlay address.
+// Satisfied by *driver.Driver (via a thin wrapper in cmd/nameserver).
+type Dialer interface {
+	DialAddrTimeout(dst protocol.Addr, port uint16, timeout time.Duration) (net.Conn, error)
+}
+
 // Client queries a Pilot Protocol nameserver over the overlay.
 type Client struct {
-	driver     *driver.Driver
+	dialer     Dialer
 	serverAddr protocol.Addr
 }
 
 // NewClient creates a nameserver client that will query the given nameserver address.
-func NewClient(d *driver.Driver, nsAddr protocol.Addr) *Client {
-	return &Client{driver: d, serverAddr: nsAddr}
+func NewClient(d Dialer, nsAddr protocol.Addr) *Client {
+	return &Client{dialer: d, serverAddr: nsAddr}
 }
 
 // LookupA resolves a name to a virtual address.
@@ -118,7 +124,7 @@ func (c *Client) RegisterS(name string, addr protocol.Addr, networkID, port uint
 }
 
 func (c *Client) send(msg string) (string, error) {
-	conn, err := c.driver.DialAddrTimeout(c.serverAddr, protocol.PortNameserver, 10*time.Second)
+	conn, err := c.dialer.DialAddrTimeout(c.serverAddr, protocol.PortNameserver, 10*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("dial nameserver: %w", err)
 	}

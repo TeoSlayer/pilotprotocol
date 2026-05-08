@@ -712,6 +712,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 
 	// Try loading from disk
 	if storePath != "" {
+		loaded := false
 		if err := s.load(); err != nil {
 			slog.Info("registry starting fresh", "reason", err)
 		} else {
@@ -721,13 +722,17 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 				"next_node", s.nextNode,
 				"next_net", s.nextNet,
 			)
-			// Replay any post-snapshot WAL entries on top of the loaded state.
-			// flushSave truncates the WAL on success, so any entries here
-			// represent mutations that happened after the last successful
-			// snapshot — i.e., they would otherwise be lost on crash.
-			s.replayWAL()
+			loaded = true
+		}
+		// Replay WAL in both cases: entries after the last snapshot when one
+		// exists, and entries written before the first-ever snapshot when the
+		// server crashed before the first flush. Without this, a node registered
+		// then lost before the first flush is silently dropped on restart.
+		s.replayWAL()
+		if loaded {
 			return s
 		}
+		// Fall through to backbone creation for the fresh-start case.
 	}
 
 	// Create the backbone network (ID 0)

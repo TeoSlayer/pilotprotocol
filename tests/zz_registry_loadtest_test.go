@@ -491,6 +491,9 @@ func TestRegistrationThroughput(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSustainedFakeNodeAttack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sustained load test: skipped under -short (15 min wall time)")
+	}
 	const (
 		numNodes     = 100_000
 		numConns     = 100
