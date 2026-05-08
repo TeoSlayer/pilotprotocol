@@ -671,19 +671,18 @@ The remote node must approve the request before messages can flow.
 
 See also: pilotctl approve, pilotctl pending, pilotctl trust
 `,
-	"approve": `Usage: pilotctl approve <node_id>
-
-Approve a pending inbound trust handshake request.
-
-See also: pilotctl pending, pilotctl handshake
-`,
 	"peers": `Usage: pilotctl peers [flags]
 
-List currently connected peers.
+List currently connected peers and their connection quality.
+
+Columns: NODE ID, ENCRYPTED, AUTH, PATH (direct/relay)
+  PATH=relay means this peer is behind symmetric NAT and traffic goes through
+  the beacon. It's normal but adds ~50-150ms latency vs a direct path.
 
 Flags:
-  --search <query>      filter by node ID or hostname substring
-  --show-endpoints      include UDP endpoint addresses in output
+  --search <query>      filter by node ID substring
+
+See also: pilotctl ping <node_id>  — measure RTT to a specific peer
 `,
 	"inbox": `Usage: pilotctl inbox [flags]
 
@@ -696,13 +695,31 @@ Flags:
 Tip: use with send-message --wait to get a reply inline:
   pilotctl send-message list-agents --data '/data {}' --wait
 `,
-	"info": `Usage: pilotctl info
+	"info": `Usage: pilotctl info [flags]
 
-Print local daemon info: address, hostname, node ID, registry, beacon.
+Print full daemon state: address, hostname, uptime, peers, encryption,
+beacon, active connections, traffic counters.
+
+Key fields:
+  Peers        total / direct / relay breakdown
+  Encryption   per-peer encrypted + authenticated counts
+  Beacon       which beacon was picked for relay and NAT traversal
+  Handshakes   pending approvals (run 'pilotctl pending' to act on them)
+  Traffic      cumulative bytes and packet counts since start
+
+See also: pilotctl health  — lightweight status check
+          pilotctl peers   — per-peer detail
 `,
 	"health": `Usage: pilotctl health
 
-Report daemon health and connectivity status.
+Quick daemon health check. Shows uptime, peers (encrypted/relay breakdown),
+pending handshakes, traffic, and any queue drops or webhook failures.
+
+Queue Drops > 0 means the daemon's accept queue is overflowing — connections
+are being dropped before they're processed. Usually indicates CPU saturation
+or a misconfigured system file-descriptor limit.
+
+See also: pilotctl info  — full daemon state with connection list
 `,
 	"daemon start": `Usage: pilotctl daemon start [flags]
 
@@ -727,10 +744,21 @@ Flags:
   --foreground                 run in foreground (no fork; for systemd / shell wrappers)
   --wait <duration>            how long to wait for daemon to become ready (default: 15s)
 `,
-	"daemon stop":   "Usage: pilotctl daemon stop\n\nStop the running daemon gracefully.\n",
-	"daemon status": "Usage: pilotctl daemon status\n\nPrint current daemon status, address, and uptime.\n",
-	"register":      "Usage: pilotctl register [listen_addr]\n\nRegister this node with the registry.\n",
-	"lookup":        "Usage: pilotctl lookup <node_id>\n\nLook up a node by ID in the registry.\n",
+	"daemon stop": `Usage: pilotctl daemon stop
+
+Stop the running daemon gracefully. Sends SIGTERM; daemon closes active
+connections and deregisters from the beacon before exiting.
+`,
+	"daemon status": `Usage: pilotctl daemon status [flags]
+
+Show daemon status: running/stopped, node ID, address, uptime, peer count
+(with encrypted and relay breakdown), active connections, and any pending
+trust handshakes.
+
+Flags:
+  --check     silent health check — exits 0 if daemon is responsive, 1 otherwise
+              useful in scripts: pilotctl daemon status --check || pilotctl daemon start
+`,
 	"init": `Usage: pilotctl init --registry <addr> [flags]
 
 Initialize the local pilot config at ~/.pilot/config.json.
@@ -754,11 +782,229 @@ Subcommands:
   invites               list pending invitations
   accept <id>           accept an invitation
   delete <id>           delete a network (owner only)
+  rename <id> <name>    rename a network (owner only)
+  promote <id> <node>   promote a member to admin
+  demote <id> <node>    demote an admin to member
+  kick <id> <node>      remove a member from a network
+  policy <id>           show or set network policy
 `,
-	"broadcast": "Usage: pilotctl broadcast <network_id> <message>\n\nBroadcast a message to all members of a network.\n",
-	"subscribe":  "Usage: pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]\n\nSubscribe to a pub/sub topic on a remote node.\n",
-	"publish":    "Usage: pilotctl publish <address|hostname> <topic> --data <message>\n\nPublish a message to a topic on a remote node.\n",
-	"send-file":  "Usage: pilotctl send-file <address|hostname> <filepath>\n\nSend a file to a remote node via the data-exchange port.\n",
+
+	// Trust
+	"pending": `Usage: pilotctl pending
+
+List inbound trust handshake requests waiting for your approval.
+Each row shows the requesting node ID, their justification, and when they asked.
+
+To approve:  pilotctl approve <node_id>
+To reject:   pilotctl reject <node_id> [reason]
+
+Note: nodes in the embedded trusted-agents list are auto-approved on first contact.
+`,
+	"trust": `Usage: pilotctl trust
+
+List all nodes this daemon currently trusts, with mutual status and approval time.
+
+MUTUAL=yes means the other node also approved you — messages flow freely.
+MUTUAL=no means you approved them but they haven't approved you yet, or vice versa.
+
+See also: pilotctl pending   — incoming requests waiting for your approval
+          pilotctl handshake — initiate trust with a new peer
+`,
+	"trusted": `Usage: pilotctl trusted
+
+List nodes in the embedded trusted-agents directory (service agents that are
+auto-approved on first contact, without requiring manual pilotctl approve).
+
+These are well-known network services (list-agents, weather agents, etc.).
+To see live trust state, use: pilotctl trust
+`,
+	"untrust": `Usage: pilotctl untrust <node_id>
+
+Remove trust with a node. Future messages from or to that node will be blocked
+until a new handshake is completed.
+
+This does not notify the remote node — they will see connection failures on
+their next attempt to reach you.
+`,
+	"reject": `Usage: pilotctl reject <node_id> [reason]
+
+Reject a pending inbound trust handshake request. The requesting node is
+notified with the optional reason string.
+
+To see pending requests: pilotctl pending
+`,
+	"approve": `Usage: pilotctl approve <node_id>
+
+Approve a pending inbound trust handshake request from the given node.
+Once approved, encrypted messages can flow in both directions (assuming they
+also approved you — check with: pilotctl trust).
+
+To see pending requests: pilotctl pending
+`,
+
+	// Registry
+	"deregister": `Usage: pilotctl deregister
+
+Remove this node from the registry and all network memberships.
+Use this for a clean shutdown when you no longer want this node to be reachable.
+
+Note: daemon stop does NOT deregister — the 5-minute TTL reaps inactive nodes
+automatically. Only use deregister if you want immediate removal.
+`,
+	"rotate-key": `Usage: pilotctl rotate-key
+
+Generate a new Ed25519 keypair and register it with the registry.
+Existing trust relationships are preserved if the registry supports key rotation.
+
+The old private key is replaced — there is no rollback.
+`,
+	"set-public": `Usage: pilotctl set-public
+
+Make this node publicly visible in the directory (hostname, category, description
+are searchable via list-agents and similar discovery agents).
+`,
+	"set-private": `Usage: pilotctl set-private
+
+Hide this node from the public directory. The node remains reachable by
+nodes that already know its address or have mutual trust.
+`,
+	"register": `Usage: pilotctl register [listen_addr]
+
+Register this node with the registry at the configured address.
+Normally called automatically by the daemon at startup.
+`,
+	"lookup": `Usage: pilotctl lookup <node_id>
+
+Look up a node by numeric ID in the registry and print its address,
+hostname, and public key.
+`,
+
+	// Discovery
+	"set-hostname": `Usage: pilotctl set-hostname <hostname>
+
+Set the discovery hostname for this node. Hostnames must be lowercase
+alphanumeric with hyphens (e.g. "my-agent"). Other nodes can then reach
+you with: pilotctl send-message my-agent --data "hello"
+
+Changes take effect on the next registry heartbeat (~30s).
+`,
+	"clear-hostname": `Usage: pilotctl clear-hostname
+
+Remove the discovery hostname from this node. The node remains reachable
+by address but not by name.
+`,
+	"set-webhook": `Usage: pilotctl set-webhook <url>
+
+Set an HTTP(S) webhook URL for event notifications. The daemon will POST
+JSON event payloads to this URL for: new connections, incoming messages,
+trust handshakes, and network membership changes.
+`,
+	"clear-webhook": `Usage: pilotctl clear-webhook
+
+Remove the configured webhook URL. Event notifications will stop.
+`,
+
+	// Management
+	"connections": `Usage: pilotctl connections
+
+List active stream connections with full TCP-like state detail:
+local port, remote address, state (SYN_SENT/ESTABLISHED/TIME_WAIT/...),
+congestion window, in-flight bytes, SRTT.
+
+See also: pilotctl info  — includes connection list plus full daemon state
+`,
+	"disconnect": `Usage: pilotctl disconnect <conn_id>
+
+Forcefully close a stream connection by its ID (from pilotctl connections).
+Sends FIN to the remote side.
+`,
+
+	// Messaging
+	"received": `Usage: pilotctl received [flags]
+
+Show raw received messages (lower-level than inbox — includes all ports,
+not just the data-exchange inbox port).
+
+Flags:
+  --clear    delete all received messages after displaying them
+`,
+	"dgram": `Usage: pilotctl dgram <address|hostname> <port> --data <msg>
+
+Send a single unreliable datagram to a remote node on the given port.
+Unlike send-message (which uses the reliable data-exchange stream), datagrams
+are fire-and-forget — no ACK, no retry, no ordering guarantee.
+
+Use for: real-time telemetry, heartbeats, anything where freshness > reliability.
+`,
+
+	// Bootstrap / config
+	"config": `Usage: pilotctl config [flags]
+
+Show or modify the local config file (~/.pilot/config.json).
+
+Flags:
+  --set key=value    set a config key (e.g. --set registry=34.71.57.205:9000)
+
+Common keys:
+  registry     registry address (overrides $PILOT_REGISTRY)
+  beacon       beacon address (overrides $PILOT_BEACON)
+  socket       daemon socket path (overrides $PILOT_SOCKET)
+  hostname     default hostname passed to daemon start
+`,
+	"version": `Usage: pilotctl version
+
+Print the pilotctl build version string.
+`,
+	"updates": `Usage: pilotctl updates [flags]
+
+Show the latest Pilot Protocol changelog entries from the release feed.
+
+Flags:
+  --count <n>      number of entries to show (default: 5)
+  --scope <name>   filter by scope tag (e.g. protocol, cli, networks)
+`,
+	"context": `Usage: pilotctl context
+
+Print machine-readable metadata for every command: name, description,
+argument templates, and return field names. Used by agent tools (Claude Code,
+OpenClaw, etc.) to auto-generate command invocations.
+
+Output is a JSON object keyed by command name.
+`,
+	"skills": `Usage: pilotctl skills [subcommand]
+
+Manage the SKILL.md files the daemon installs for each detected agent tool
+(Claude Code, OpenClaw, PicoClaw). The skill file teaches the agent how to
+use pilotctl without manual setup.
+
+Subcommands:
+  status    (default) show install state for each detected tool
+  paths     print install paths only — one per line, shell-friendly
+  check     run one reconcile pass right now (re-installs if missing/outdated)
+
+The daemon reconciles skill files every 15 minutes automatically.
+`,
+	"broadcast": `Usage: pilotctl broadcast <network_id> <message>
+
+Broadcast a message to all members of a network.
+`,
+	"subscribe": `Usage: pilotctl subscribe <address|hostname> <topic> [flags]
+
+Subscribe to a pub/sub topic on a remote node and print incoming events.
+
+Flags:
+  --count <n>       stop after N events (default: unlimited)
+  --timeout <dur>   idle timeout before exiting (default: unlimited)
+`,
+	"publish": `Usage: pilotctl publish <address|hostname> <topic> --data <message>
+
+Publish a message to a topic on a remote node.
+`,
+	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath>
+
+Send a file to a remote node via the reliable data-exchange stream.
+The receiver gets the filename and contents; an ACK is printed on success.
+`,
 }
 
 // printCommandHelp prints the help text for a command and exits.
@@ -844,7 +1090,7 @@ Service Agents:
 Diagnostic commands:
   pilotctl info
   pilotctl health
-  pilotctl peers [--search <query>] [--show-endpoints]
+  pilotctl peers [--search <query>]
   pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]
   pilotctl traceroute <address> [--timeout <dur>]
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
@@ -2281,13 +2527,13 @@ func cmdRegister(args []string) {
 
 func cmdLookup(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id> [--show-endpoints]")
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id>")
 	}
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id> [--show-endpoints]")
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id>")
 	}
-	showEndpoints := flagBool(flags, "show-endpoints")
+	_ = flags
 	nodeID := parseNodeID(pos[0])
 	rc := connectRegistry()
 	defer rc.Close()
@@ -2295,9 +2541,7 @@ func cmdLookup(args []string) {
 	if err != nil {
 		fatalCode("connection_failed", "lookup: %v", err)
 	}
-	if !showEndpoints {
-		redactPeerEndpoints(resp)
-	}
+	redactPeerEndpoints(resp)
 	output(resp)
 }
 
@@ -3714,9 +3958,7 @@ func cmdDisconnect(args []string) {
 // ===================== DIAGNOSTICS =====================
 
 func cmdInfo(args []string) {
-	flags, _ := parseFlags(args)
-	showEndpoints := flagBool(flags, "show-endpoints")
-
+	_ = args
 	d := connectDriver()
 	defer d.Close()
 
@@ -3725,13 +3967,8 @@ func cmdInfo(args []string) {
 		fatalCode("connection_failed", "info: %v", err)
 	}
 
-	// Privacy: strip per-peer endpoints + STUN-discovered own addresses
-	// from the JSON dump unless the operator explicitly opts in via
-	// --show-endpoints. The summary counters (peers, encrypted_peers)
-	// stay; only the IP-bearing fields are redacted.
-	if !showEndpoints {
-		redactPeerEndpoints(info)
-	}
+	// Always redact per-peer endpoints and STUN-discovered addresses.
+	redactPeerEndpoints(info)
 
 	if jsonOutput {
 		output(info)
@@ -3931,10 +4168,6 @@ func cmdHealth() {
 func cmdPeers(args []string) {
 	flags, _ := parseFlags(args)
 	search := flagString(flags, "search", "")
-	// Privacy default: peer real IPs are hidden. Opt in with --show-endpoints
-	// (ops/debug only). Search by node_id always works; search by endpoint
-	// fragment only works when endpoints are visible.
-	showEndpoints := flagBool(flags, "show-endpoints")
 
 	d := connectDriver()
 	defer d.Close()
@@ -3949,46 +4182,27 @@ func cmdPeers(args []string) {
 		peerList = []interface{}{}
 	}
 
-	// Filter by search query
+	// Strip endpoint fields — never shown in peers output.
 	var filtered []interface{}
 	for _, p := range peerList {
-		if search == "" {
-			filtered = append(filtered, p)
+		peer, _ := p.(map[string]interface{})
+		if peer == nil {
 			continue
 		}
-		peer := p.(map[string]interface{})
-		searchLower := strings.ToLower(search)
-		nodeIDStr := fmt.Sprintf("%d", int(peer["node_id"].(float64)))
-		match := strings.Contains(nodeIDStr, searchLower)
-		if !match && showEndpoints {
-			// only consult endpoint when the user has explicitly asked
-			// to see it; never let a search prompt leak IP existence.
-			endpoint, _ := peer["endpoint"].(string)
-			match = strings.Contains(strings.ToLower(endpoint), searchLower)
-		}
-		if match {
-			filtered = append(filtered, p)
-		}
-	}
-
-	// Redact endpoint unless the operator opted in.
-	if !showEndpoints {
-		redacted := make([]interface{}, 0, len(filtered))
-		for _, p := range filtered {
-			peer, _ := p.(map[string]interface{})
-			if peer == nil {
+		cp := make(map[string]interface{}, len(peer))
+		for k, v := range peer {
+			if k == "endpoint" || k == "real_addr" || k == "lan_addrs" || k == "public_addr" {
 				continue
 			}
-			cp := make(map[string]interface{}, len(peer))
-			for k, v := range peer {
-				if k == "endpoint" || k == "real_addr" || k == "lan_addrs" || k == "public_addr" {
-					continue
-				}
-				cp[k] = v
-			}
-			redacted = append(redacted, cp)
+			cp[k] = v
 		}
-		filtered = redacted
+		if search != "" {
+			nodeIDStr := fmt.Sprintf("%d", int(peer["node_id"].(float64)))
+			if !strings.Contains(nodeIDStr, strings.ToLower(search)) {
+				continue
+			}
+		}
+		filtered = append(filtered, cp)
 	}
 
 	if jsonOutput {
@@ -4009,16 +4223,11 @@ func cmdPeers(args []string) {
 		return
 	}
 
-	maxDisplay := 50
-	if showEndpoints {
-		fmt.Printf("%-10s  %-30s  %-20s  %-16s  %-6s\n", "NODE ID", "ENDPOINT", "ENCRYPTED", "AUTH", "PATH")
-	} else {
-		fmt.Printf("%-10s  %-20s  %-16s  %-6s\n", "NODE ID", "ENCRYPTED", "AUTH", "PATH")
-	}
+	fmt.Printf("%-10s  %-20s  %-16s  %-6s\n", "NODE ID", "ENCRYPTED", "AUTH", "PATH")
 	displayed := 0
 	for _, p := range filtered {
-		if displayed >= maxDisplay {
-			fmt.Printf("\n... and %d more peers (showing first %d)\n", len(filtered)-maxDisplay, maxDisplay)
+		if displayed >= 50 {
+			fmt.Printf("\n... and %d more peers (showing first 50)\n", len(filtered)-50)
 			break
 		}
 		displayed++
@@ -4038,11 +4247,7 @@ func cmdPeers(args []string) {
 		if relay {
 			pathStr = "relay"
 		}
-		if showEndpoints {
-			fmt.Printf("%-10d  %-30s  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), peer["endpoint"], encStr, authStr, pathStr)
-		} else {
-			fmt.Printf("%-10d  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), encStr, authStr, pathStr)
-		}
+		fmt.Printf("%-10d  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), encStr, authStr, pathStr)
 	}
 }
 
