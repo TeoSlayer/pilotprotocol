@@ -565,6 +565,51 @@ func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
 	return resolved, nil
 }
 
+// resolveToNodeID resolves any of: numeric node ID, pilot address
+// (N:NNNN.HHHH.LLLL), or hostname — to a uint32 node ID.
+// Prints a resolution line to stderr (text mode) so the user can see
+// what was matched. d may be nil only when the arg is numeric or an address.
+func resolveToNodeID(d *driver.Driver, arg string) uint32 {
+	if id, err := strconv.ParseUint(arg, 10, 32); err == nil {
+		return uint32(id)
+	}
+	if addr, err := protocol.ParseAddr(arg); err == nil {
+		if !jsonOutput {
+			fmt.Fprintf(os.Stderr, "parsed address %s → node %d\n", arg, addr.Node)
+		}
+		return addr.Node
+	}
+	if d == nil {
+		fatalCode("invalid_argument", "cannot resolve hostname without a daemon connection: %q", arg)
+	}
+	_, nodeID, err := resolveHostnameToAddr(d, arg)
+	if err != nil {
+		fatalCode("not_found", "cannot resolve %q — check the hostname and that mutual trust exists", arg)
+	}
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "resolved %q → node %d\n", arg, nodeID)
+	}
+	return nodeID
+}
+
+// resolveNetworkNodeArg resolves a node ID, address, or hostname for network
+// subcommands that talk directly to the registry (no daemon connection kept open).
+// Opens a daemon connection only when the arg is a hostname.
+func resolveNetworkNodeArg(arg string) uint32 {
+	if id, err := strconv.ParseUint(arg, 10, 32); err == nil {
+		return uint32(id)
+	}
+	if addr, err := protocol.ParseAddr(arg); err == nil {
+		if !jsonOutput {
+			fmt.Fprintf(os.Stderr, "parsed address %s → node %d\n", arg, addr.Node)
+		}
+		return addr.Node
+	}
+	d := connectDriver()
+	defer d.Close()
+	return resolveToNodeID(d, arg)
+}
+
 // hasHelpFlag returns true when args contains -h or --help.
 func hasHelpFlag(args []string) bool {
 	for _, a := range args {
@@ -2527,14 +2572,25 @@ func cmdRegister(args []string) {
 
 func cmdLookup(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id|address|hostname>")
 	}
-	flags, pos := parseFlags(args)
+	_, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl lookup <node_id|address|hostname>")
 	}
-	_ = flags
-	nodeID := parseNodeID(pos[0])
+	// Resolve hostname/address without a daemon connection when possible.
+	// If the arg is a hostname we need the daemon for resolution.
+	var nodeID uint32
+	arg := pos[0]
+	if id, err := strconv.ParseUint(arg, 10, 32); err == nil {
+		nodeID = uint32(id)
+	} else if addr, err := protocol.ParseAddr(arg); err == nil {
+		nodeID = addr.Node
+	} else {
+		d := connectDriver()
+		nodeID = resolveToNodeID(d, arg)
+		d.Close()
+	}
 	rc := connectRegistry()
 	defer rc.Close()
 	resp, err := rc.Lookup(nodeID)
@@ -3708,12 +3764,12 @@ func cmdHandshake(args []string) {
 
 func cmdApprove(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl approve <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl approve <node_id|address|hostname>")
 	}
 	d := connectDriver()
 	defer d.Close()
 
-	nodeID := parseNodeID(args[0])
+	nodeID := resolveToNodeID(d, args[0])
 
 	result, err := d.ApproveHandshake(nodeID)
 	if err != nil {
@@ -3730,12 +3786,12 @@ func cmdApprove(args []string) {
 
 func cmdReject(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl reject <node_id> [reason]")
+		fatalCode("invalid_argument", "usage: pilotctl reject <node_id|address|hostname> [reason]")
 	}
 	d := connectDriver()
 	defer d.Close()
 
-	nodeID := parseNodeID(args[0])
+	nodeID := resolveToNodeID(d, args[0])
 	reason := ""
 	if len(args) > 1 {
 		reason = args[1]
@@ -3755,17 +3811,13 @@ func cmdReject(args []string) {
 
 func cmdUntrust(args []string) {
 	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl untrust <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl untrust <node_id|address|hostname>")
 	}
-	nodeID, err := strconv.ParseUint(args[0], 10, 32)
-	if err != nil {
-		fatalCode("invalid_argument", "invalid node_id: %v", err)
-	}
-
 	d := connectDriver()
 	defer d.Close()
 
-	_, err = d.RevokeTrust(uint32(nodeID))
+	nodeID := resolveToNodeID(d, args[0])
+	_, err := d.RevokeTrust(nodeID)
 	if err != nil {
 		fatalCode("connection_failed", "untrust: %v", err)
 	}
@@ -5283,13 +5335,14 @@ func cmdNetworkMembers(args []string) {
 
 func cmdNetworkInvite(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl network invite <network_id> <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl network invite <network_id> <node_id|address|hostname>")
 	}
 	netID := parseUint16(args[0], "network_id")
-	nodeID := parseNodeID(args[1])
 
 	d := connectDriver()
 	defer d.Close()
+
+	nodeID := resolveToNodeID(d, args[1])
 
 	result, err := d.NetworkInvite(netID, nodeID)
 	if err != nil {
@@ -5472,10 +5525,10 @@ func cmdNetworkRename(args []string) {
 
 func cmdNetworkPromote(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl network promote <network_id> <target_node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl network promote <network_id> <node_id|address|hostname>")
 	}
 	netID := parseUint16(args[0], "network_id")
-	targetNodeID := parseNodeID(args[1])
+	targetNodeID := resolveNetworkNodeArg(args[1])
 	adminToken := requireAdminToken()
 
 	rc := connectRegistry()
@@ -5495,10 +5548,10 @@ func cmdNetworkPromote(args []string) {
 
 func cmdNetworkDemote(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl network demote <network_id> <target_node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl network demote <network_id> <node_id|address|hostname>")
 	}
 	netID := parseUint16(args[0], "network_id")
-	targetNodeID := parseNodeID(args[1])
+	targetNodeID := resolveNetworkNodeArg(args[1])
 	adminToken := requireAdminToken()
 
 	rc := connectRegistry()
@@ -5517,10 +5570,10 @@ func cmdNetworkDemote(args []string) {
 
 func cmdNetworkKick(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl network kick <network_id> <target_node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl network kick <network_id> <node_id|address|hostname>")
 	}
 	netID := parseUint16(args[0], "network_id")
-	targetNodeID := parseNodeID(args[1])
+	targetNodeID := resolveNetworkNodeArg(args[1])
 	adminToken := requireAdminToken()
 
 	rc := connectRegistry()
@@ -5539,10 +5592,10 @@ func cmdNetworkKick(args []string) {
 
 func cmdNetworkRole(args []string) {
 	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl network role <network_id> <node_id>")
+		fatalCode("invalid_argument", "usage: pilotctl network role <network_id> <node_id|address|hostname>")
 	}
 	netID := parseUint16(args[0], "network_id")
-	nodeID := parseNodeID(args[1])
+	nodeID := resolveNetworkNodeArg(args[1])
 
 	rc := connectRegistry()
 	defer rc.Close()
