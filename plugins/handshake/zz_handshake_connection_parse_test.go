@@ -55,8 +55,8 @@ func TestHandleConnectionClosedRecvBufReturnsCleanly(t *testing.T) {
 	hm := newTestHM(t, "")
 	t.Cleanup(hm.Stop)
 
-	// An EOF stream (closed RecvBuf equivalent) causes io.ReadAll → empty
-	// data + nil error → JSON unmarshal error → handleConnection returns.
+	// An EOF stream (closed RecvBuf equivalent) causes Read → (0, io.EOF)
+	// → handleConnection returns on the read-error path.
 	stream := newMockStreamErr(io.EOF)
 
 	done := make(chan struct{})

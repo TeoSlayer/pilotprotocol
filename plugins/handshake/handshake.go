@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -385,15 +384,26 @@ func (hm *Manager) Start() error {
 }
 
 // handleConnection processes a single handshake stream connection.
+//
+// The handshake protocol is exactly one JSON message per connection; we do a
+// single bounded Read rather than io.ReadAll so we return as soon as the
+// message bytes land, without waiting for the sender to close the stream.
 func (hm *Manager) handleConnection(stream coreapi.Stream) {
+	const maxMsgSize = 64 * 1024
+
 	type readResult struct {
 		data []byte
 		err  error
 	}
 	ch := make(chan readResult, 1)
 	go func() {
-		data, err := io.ReadAll(stream)
-		ch <- readResult{data, err}
+		buf := make([]byte, maxMsgSize)
+		n, err := stream.Read(buf)
+		if err != nil {
+			ch <- readResult{nil, err}
+			return
+		}
+		ch <- readResult{buf[:n], nil}
 	}()
 	select {
 	case res := <-ch:
