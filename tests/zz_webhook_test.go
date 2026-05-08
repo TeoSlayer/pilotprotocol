@@ -15,7 +15,6 @@ import (
 	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
 )
