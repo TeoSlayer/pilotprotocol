@@ -66,7 +66,9 @@ const relayQueueSize = 131072 // 128K buffered relay jobs before backpressure
 const maxRelayPayload = 65535
 
 // maxBeaconNodes caps the number of tracked nodes to prevent memory exhaustion.
-const maxBeaconNodes = 100_000
+// At ~32 bytes per node, 500k entries consume ~16 MB — well within fleet budget.
+// Raised from 100k after the network grew past that threshold (v1.9.4).
+const maxBeaconNodes = 500_000
 
 // beaconNodeTTL is how long a node entry lives without a discover refresh.
 // Set to 10 minutes (well above the 60s heartbeat-driven re-discover interval)

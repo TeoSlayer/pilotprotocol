@@ -365,6 +365,20 @@ func (m *Manager) ClearPendingRekey(peerNodeID uint32) {
 	m.rkPendingMu.Unlock()
 }
 
+// ResetPendingRekeyAttempts zeroes the Attempts counter for peerNodeID
+// without cancelling the pending-rekey entry. Called when the routing
+// path changes (e.g. direct→relay flip) so the peer gets a fresh set
+// of retransmit slots on the new path rather than immediately hitting
+// the MaxRekeyAttempts give-up threshold from prior direct attempts.
+func (m *Manager) ResetPendingRekeyAttempts(peerNodeID uint32) {
+	m.rkPendingMu.Lock()
+	if st, ok := m.pendingRekey[peerNodeID]; ok {
+		st.Attempts = 0
+		st.LastSentAt = time.Time{} // force immediate retransmit on next tick
+	}
+	m.rkPendingMu.Unlock()
+}
+
 // ClearRekeyGaveUp lifts the post-give-up cooldown for peerNodeID. Must only
 // be called after a successful decrypt — proof that bidirectional crypto works.
 func (m *Manager) ClearRekeyGaveUp(peerNodeID uint32) {

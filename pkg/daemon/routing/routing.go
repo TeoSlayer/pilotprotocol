@@ -10,6 +10,7 @@
 //   - sendErrCount map[uint32]int — consecutive ICMP-unreachable errors
 //   - lastDirectRecv map[uint32]time.Time — last direct-path receipt
 //   - lastOutboundSend map[uint32]time.Time — last successful send
+//   - firstOutboundSend map[uint32]time.Time — first ever send (blackhole baseline)
 //   - beaconAddr — the picked beacon for relay/punch
 //
 // Per docs/architecture/01-LAYERS.md L4:
@@ -123,6 +124,12 @@ type Manager struct {
 	// to each peer. Used by NAT-keepalive logic.
 	lastOutboundSend map[uint32]time.Time
 
+	// firstOutboundSend tracks when we FIRST sent to each peer. Unlike
+	// lastOutboundSend it is never updated after the initial write.
+	// Used by MaybeFlipBlackhole as the blackhole-detection baseline
+	// for brand-new peers that have no lastDirectRecv entry yet.
+	firstOutboundSend map[uint32]time.Time
+
 	// localNodeIDFn supplies our own node ID for relay-wrapping headers.
 	localNodeIDFn LocalNodeIDFn
 }
@@ -138,6 +145,7 @@ func New() *Manager {
 		directClearCount:   make(map[uint32]int),
 		sendErrCount:       make(map[uint32]int),
 		lastOutboundSend:   make(map[uint32]time.Time),
+		firstOutboundSend:  make(map[uint32]time.Time),
 	}
 }
 

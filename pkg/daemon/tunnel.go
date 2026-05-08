@@ -467,6 +467,11 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 				"peer_node_id", nodeID,
 				"error", err)
 		}
+		// Reset the key-exchange attempt counter so the peer gets a fresh
+		// set of relay-based retransmit slots. Without this, Attempts has
+		// already reached MaxRekeyAttempts+1 from the failed direct attempts
+		// and the next tick immediately gives up before any relay frame lands.
+		tm.kx.ResetPendingRekeyAttempts(nodeID)
 	}
 
 	if errors.Is(err, routing.ErrNoAddress) {
@@ -1278,11 +1283,15 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		}
 
 		// No key yet — initiate key exchange and queue the packet (C1 fix: no plaintext fallback).
-		// Skip if the peer is within the give-up cooldown: the key exchange
-		// will still be sent (one-shot, no retransmit) but queuing more data
-		// just fills the pending queue with undeliverable packets and floods
-		// the logs with "dropped oldest" warnings.
-		tm.sendKeyExchangeToNode(nodeID)
+		// Only trigger a new key exchange if one isn't already in-flight; the
+		// retransmit loop handles subsequent retries. Without this guard, rapid
+		// outbound traffic (e.g. SYN retransmits every 250ms during dial) calls
+		// sendKeyExchangeToNode repeatedly, each incrementing Attempts until it
+		// reaches MaxRekeyAttempts+1 within seconds and the peer gives up before
+		// the relay path is even established.
+		if !tm.kx.PendingRekeyHas(nodeID) {
+			tm.sendKeyExchangeToNode(nodeID)
+		}
 		if tm.kx.PeerInRekeyGaveUp(nodeID) {
 			return fmt.Errorf("%w (peer_node_id=%d)", ErrPendingDropped, nodeID)
 		}
@@ -1337,8 +1346,12 @@ func (tm *TunnelManager) AddPeer(nodeID uint32, addr *net.UDPAddr) {
 	tm.mu.Unlock()
 	slog.Debug("added peer", "node_id", nodeID, "addr", addr)
 
-	// If encryption is enabled, initiate key exchange (relay-aware)
-	if tm.encrypt {
+	// If encryption is enabled, initiate key exchange (relay-aware).
+	// Guard matches writeToNode's PendingRekeyHas check: concurrent AddPeer
+	// calls for the same node (e.g. two parallel dial goroutines) must not
+	// each increment Attempts, which would exhaust MaxRekeyAttempts before
+	// the retransmit loop can pace retries at RekeyRetransmitInterval.
+	if tm.encrypt && !tm.kx.PendingRekeyHas(nodeID) {
 		tm.sendKeyExchangeToNode(nodeID)
 	}
 }

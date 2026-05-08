@@ -151,6 +151,7 @@ func (m *Manager) RemovePeer(nodeID uint32) {
 	delete(m.relayPeers, nodeID)
 	delete(m.relayPinned, nodeID)
 	delete(m.lastOutboundSend, nodeID)
+	delete(m.firstOutboundSend, nodeID)
 	delete(m.sendErrCount, nodeID)
 	delete(m.lastDirectRecv, nodeID)
 	delete(m.blackholeMissCount, nodeID)

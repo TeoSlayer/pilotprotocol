@@ -10,10 +10,11 @@ import (
 
 // RecordDirectRecv stamps the lastDirectRecv timestamp for a peer. Called
 // from the L7 handleEncrypted path after a successful direct (non-beacon)
-// decrypt.
+// decrypt. Also clears firstOutboundSend since the direct path is confirmed.
 func (m *Manager) RecordDirectRecv(nodeID uint32, t time.Time) {
 	m.mu.Lock()
 	m.lastDirectRecv[nodeID] = t
+	delete(m.firstOutboundSend, nodeID)
 	m.mu.Unlock()
 }
 
@@ -34,10 +35,16 @@ func (m *Manager) LastDirectRecv(nodeID uint32) time.Time {
 }
 
 // RecordOutboundSend stamps the lastOutboundSend timestamp for a peer.
-// Used by NAT-keepalive logic.
+// Also sets firstOutboundSend on the very first write (never updated
+// after that), which gives MaybeFlipBlackhole a baseline for peers
+// that have never been heard from on the direct path.
+// Used by NAT-keepalive logic and blackhole detection.
 func (m *Manager) RecordOutboundSend(nodeID uint32, t time.Time) {
 	m.mu.Lock()
 	m.lastOutboundSend[nodeID] = t
+	if _, ok := m.firstOutboundSend[nodeID]; !ok {
+		m.firstOutboundSend[nodeID] = t
+	}
 	m.mu.Unlock()
 }
 
@@ -105,15 +112,28 @@ func (m *Manager) MaybeFlipBlackhole(nodeID uint32) (shouldRelay, flipped bool, 
 	relay := m.relayPeers[nodeID]
 	bAddr := m.beaconAddr
 	lastRecv, hasRecv := m.lastDirectRecv[nodeID]
+	firstSend, hasSent := m.firstOutboundSend[nodeID]
 	m.mu.RUnlock()
 
 	if relay {
 		return true, false, 0, 0
 	}
-	if bAddr == nil || !hasRecv {
+	if bAddr == nil {
 		return false, false, 0, 0
 	}
-	silentFor = time.Since(lastRecv)
+	if hasRecv {
+		// Established peer: measure silence since last direct receipt.
+		silentFor = time.Since(lastRecv)
+	} else if hasSent {
+		// Brand-new peer (no direct recv yet): measure silence since
+		// we first sent to them. This lets the blackhole heuristic fire
+		// for new peers on symmetric-NAT paths where the direct reply
+		// can never reach us — without this, !hasRecv would suppress
+		// blackhole detection forever and the peer would never flip to relay.
+		silentFor = time.Since(firstSend)
+	} else {
+		return false, false, 0, 0
+	}
 	if silentFor <= DirectBlackholeThreshold {
 		return false, false, 0, 0
 	}
