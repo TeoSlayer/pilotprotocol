@@ -2062,6 +2062,9 @@ type DaemonInfo struct {
 	AcceptQueueDrops    uint64
 	WebhookQueueDropped uint64
 	WebhookCircuitSkips uint64
+
+	RelayPeerCount int    // peers currently on relay path (symmetric NAT)
+	BeaconAddr     string // active beacon address
 }
 
 // Info returns current daemon status.
@@ -2151,6 +2154,8 @@ func (d *Daemon) Info() *DaemonInfo {
 		AcceptQueueDrops:      atomic.LoadUint64(&d.AcceptQueueDrops),
 		WebhookQueueDropped:   d.webhookStats().Dropped,
 		WebhookCircuitSkips:   d.webhookStats().CircuitSkips,
+		RelayPeerCount:        len(d.tunnels.RelayPeerIDs()),
+		BeaconAddr:            d.config.BeaconAddr,
 	}
 }
 

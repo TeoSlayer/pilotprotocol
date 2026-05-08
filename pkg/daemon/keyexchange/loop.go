@@ -80,7 +80,7 @@ func (m *Manager) RekeyRetransmitTick() {
 	}
 
 	for _, r := range toRetry {
-		slog.Info("rekey retransmit",
+		slog.Debug("rekey retransmit",
 			"peer_node_id", r.peerNodeID,
 			"attempt", r.attempts+1,
 			"max", MaxRekeyAttempts+1)

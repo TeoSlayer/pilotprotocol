@@ -161,15 +161,6 @@ type ipcConn struct {
 	dialCancels  map[uint64]context.CancelFunc
 	nextCancelID uint64
 
-	// reqCancels maps in-flight reqID → cancel func. Issue #99: when the
-	// driver-side waiter times out (sendAndWaitTimeout returned "dial
-	// timeout"), it sends a CmdCancel with the same reqID so the
-	// daemon's dispatch goroutine can cancel its long-running operation
-	// (typically DialConnectionContext, which has a 14-31 s retry
-	// budget). Without this, every driver-timeout left the daemon
-	// grinding for the full retry budget and the per-conn dispatch
-	// semaphore filled within seconds under §4.8 burst load.
-	reqCancels map[uint64]context.CancelFunc
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -203,8 +194,8 @@ var ErrIPCClosed = errors.New("ipc: connection closed")
 var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
 
 // IPCEnvelopeHeaderSize is the size of the per-message header that sits
-// inside the ipcutil length-framed envelope: 1 byte cmd + 8 bytes reqID.
-const IPCEnvelopeHeaderSize = 1 + 8
+// inside the ipcutil length-framed envelope: 1 byte cmd.
+const IPCEnvelopeHeaderSize = 1
 
 // MaxIPCClients caps the total number of concurrent IPC socket
 // connections to the daemon (P2-002). Without this cap a misbehaving or
@@ -228,46 +219,11 @@ func newIPCConn(c net.Conn) *ipcConn {
 		done:        make(chan struct{}),
 		writeDone:   make(chan struct{}),
 		dialCancels: make(map[uint64]context.CancelFunc),
-		reqCancels:  make(map[uint64]context.CancelFunc),
 	}
 	go ic.writeLoop()
 	return ic
 }
 
-// registerReqCancel records a cancel func keyed on reqID so a CmdCancel
-// from the driver can interrupt a long-running dispatch. Idempotent: a
-// later registration with the same reqID overwrites the earlier one
-// (which won't happen in practice because reqIDs are monotonic per
-// driver, but keeping it forgiving avoids edge cases).
-func (c *ipcConn) registerReqCancel(reqID uint64, cancel context.CancelFunc) {
-	if reqID == 0 {
-		return // reqID 0 is reserved for unsolicited frames
-	}
-	c.rmu.Lock()
-	c.reqCancels[reqID] = cancel
-	c.rmu.Unlock()
-}
-
-// unregisterReqCancel deletes the entry. Called from the dispatch
-// goroutine on its way out so completed dispatches don't accumulate
-// dead cancel funcs in the map (issue #99 follow-up: bounded growth).
-func (c *ipcConn) unregisterReqCancel(reqID uint64) {
-	c.rmu.Lock()
-	delete(c.reqCancels, reqID)
-	c.rmu.Unlock()
-}
-
-// cancelReq fires the cancel for reqID if it's still in-flight. Called
-// from the CmdCancel handler.
-func (c *ipcConn) cancelReq(reqID uint64) {
-	c.rmu.Lock()
-	cancel, ok := c.reqCancels[reqID]
-	delete(c.reqCancels, reqID)
-	c.rmu.Unlock()
-	if ok {
-		cancel()
-	}
-}
 
 // writeLoop is the sole writer to c.Conn. It exits when c.done is closed
 // (clean shutdown) or when ipcutil.Write fails (broken socket).
@@ -342,27 +298,22 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 	}
 }
 
-// writeReply builds an envelope `[cmd][reqID(8)][payload...]` and queues
-// it for write. Use this for any message that is a response to a
-// driver-initiated request. reqID must be the same value the daemon
-// received in the original request.
-func (c *ipcConn) writeReply(cmd byte, reqID uint64, payload []byte) error {
-	buf := make([]byte, IPCEnvelopeHeaderSize+len(payload))
+// writeReply builds an envelope `[cmd][payload...]` and queues it for
+// write. The reqID parameter is kept in handler signatures for potential
+// future use but is not transmitted on the wire.
+func (c *ipcConn) writeReply(cmd byte, _ uint64, payload []byte) error {
+	buf := make([]byte, 1+len(payload))
 	buf[0] = cmd
-	binary.BigEndian.PutUint64(buf[1:9], reqID)
-	copy(buf[9:], payload)
+	copy(buf[1:], payload)
 	return c.ipcWrite(buf)
 }
 
-// writePush builds an envelope `[cmd][0(8)][payload...]` for an
-// unsolicited server → client message (CmdRecv, CmdAccept, CmdRecvFrom,
-// or the broadcast fan-out). reqID is always 0 on the wire so the
-// driver can route by cmd.
+// writePush builds an envelope `[cmd][payload...]` for an unsolicited
+// server → client message (CmdRecv, CmdAccept, CmdRecvFrom, broadcast).
 func (c *ipcConn) writePush(cmd byte, payload []byte) error {
-	buf := make([]byte, IPCEnvelopeHeaderSize+len(payload))
+	buf := make([]byte, 1+len(payload))
 	buf[0] = cmd
-	// reqID = 0 (already zero).
-	copy(buf[9:], payload)
+	copy(buf[1:], payload)
 	return c.ipcWrite(buf)
 }
 
@@ -379,15 +330,8 @@ func (c *ipcConn) Close() error {
 		c.rmu.Lock()
 		cancels := c.dialCancels
 		c.dialCancels = make(map[uint64]context.CancelFunc)
-		// Also fire every per-reqID cancel — same rationale: the
-		// driver is gone, no point in finishing the dispatch.
-		reqCancels := c.reqCancels
-		c.reqCancels = make(map[uint64]context.CancelFunc)
 		c.rmu.Unlock()
 		for _, cancel := range cancels {
-			cancel()
-		}
-		for _, cancel := range reqCancels {
 			cancel()
 		}
 	})
@@ -596,24 +540,17 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 			}
 			return
 		}
-		// Wire format (issue #99): [cmd(1)][reqID(8)][payload...]
+		// Wire format: [cmd(1)][payload...]
 		if len(msg) < IPCEnvelopeHeaderSize {
 			continue
 		}
 		cmd := msg[0]
-		reqID := binary.BigEndian.Uint64(msg[1:9])
+		reqID := uint64(0) // not transmitted on wire; kept for handler signatures
 		payload := msg[IPCEnvelopeHeaderSize:]
 
-		// CmdCancel is handled inline. It's a tiny map lookup + cancel
-		// call — pushing it through the dispatch sem would defeat the
-		// purpose (the cancel exists to FREE sem slots) and could lead
-		// to deadlock if sem is full of slow dials we're trying to
-		// cancel. Body shape: [reqIDToCancel(8)].
+		// CmdCancel: no-op (reqID is not on the wire; kept for wire
+		// compat with older clients that still send it).
 		if cmd == CmdCancel {
-			if len(payload) >= 8 {
-				target := binary.BigEndian.Uint64(payload[0:8])
-				conn.cancelReq(target)
-			}
 			continue
 		}
 
@@ -621,11 +558,8 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 		// data ordering — dataexchange.WriteFrame issues two sequential
 		// Conn.Write() calls (header + payload); if those raced in
 		// worker goroutines, SendData would append in the wrong order
-		// and the receiver would see a corrupted frame. handleSend's
-		// reply paths use asyncSendError so the inline call never
-		// blocks on a full sendCh (TestTaskSubmitConcurrent regression).
-		// CmdSendTo follows the same pattern (UDP-like fire-and-forget,
-		// but ordering still cleaner). CmdClose stays in the concurrent
+		// and the receiver would see a corrupted frame. CmdSendTo
+		// follows the same pattern. CmdClose stays in the concurrent
 		// dispatch lane: by the time it arrives, all prior CmdSends on
 		// the same conn have already returned from their inline call,
 		// so the data is in NagleBuf and Close's FIN goes out after.
@@ -773,20 +707,14 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize:])
 
 	// Per-dial cancellable context tied to this IPC connection's lifetime
-	// AND to the request's reqID (issue #99). Two cancellation paths:
-	//   1. ipcConn.Close fires every dialCancels entry (driver crash, EOF).
-	//   2. cmdCancel from the driver fires the reqID entry (driver-side
-	//      sendAndWaitTimeout expired and the driver is no longer waiting).
-	// Without (2), a driver that re-dials after a 2 s timeout leaves the
-	// daemon grinding through 14-31 s of retries, exhausting the per-conn
-	// dispatch semaphore under burst load.
+	// Cancellation: ipcConn.Close fires every dialCancels entry so a
+	// disconnected driver doesn't leave the daemon grinding through
+	// 14-31 s of retries.
 	dialCtx, dialCancel := context.WithCancel(context.Background())
 	cancelID := conn.addDialCancel(dialCancel)
-	conn.registerReqCancel(reqID, dialCancel)
 	defer func() {
 		dialCancel()
-		conn.removeDialCancel(cancelID) // keep map bounded to in-flight dials
-		conn.unregisterReqCancel(reqID)
+		conn.removeDialCancel(cancelID)
 	}()
 
 	c, err := s.daemon.DialConnectionContext(dialCtx, dstAddr, dstPort)
@@ -840,15 +768,10 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 }
 
 func (s *IPCServer) handleSend(conn *ipcConn, reqID uint64, payload []byte) {
-	// CmdSend is dispatched INLINE in handleClient's read loop to
-	// preserve per-conn-FIFO data ordering (see ipc.go header §
-	// "Order-sensitive commands"). That means this handler MUST NOT
-	// block on ipcWrite — if it did, a full sendCh would stall the
-	// read loop and cause a fan-in deadlock under concurrent senders
-	// (TestTaskSubmitConcurrent regression). Reply paths use
-	// asyncSendError so the inline call always returns promptly.
+	// CmdSend is fire-and-forget: no reply on success OR error.
+	// Sending a CmdError reply would land in the driver's single
+	// pending channel and corrupt a concurrent sendAndWait reply.
 	if len(payload) < 4 {
-		s.asyncSendError(conn, reqID, "send: missing conn_id")
 		return
 	}
 	connID := binary.BigEndian.Uint32(payload[0:4])
@@ -856,27 +779,9 @@ func (s *IPCServer) handleSend(conn *ipcConn, reqID uint64, payload []byte) {
 
 	c := s.daemon.ports.GetConnection(connID)
 	if c == nil {
-		s.asyncSendError(conn, reqID, fmt.Sprintf("connection %d not found", connID))
 		return
 	}
-
-	// SendData itself preserves per-conn order via conn.NagleMu — and
-	// does not block on IPC backpressure (it appends to NagleBuf and
-	// returns ErrSendBufFull when the cap is reached, never waiting on
-	// the IPC sendCh). Inline call is safe.
-	if err := s.daemon.SendData(c, data); err != nil {
-		s.asyncSendError(conn, reqID, fmt.Sprintf("send: %v", err))
-	}
-	// Note: legacy CmdSend has no positive reply on success — the driver's
-	// Conn.Write does not wait for one. This stays as a fire-and-forget
-	// command (reqID is consumed but no echo is sent on success).
-}
-
-// asyncSendError schedules the error reply on a separate goroutine so
-// the caller (an inline-dispatched handler) doesn't block on a full
-// IPC sendCh. Used by handleSend, handleSendTo, handleClose.
-func (s *IPCServer) asyncSendError(conn *ipcConn, reqID uint64, msg string) {
-	go s.sendError(conn, reqID, msg)
+	_ = s.daemon.SendData(c, data)
 }
 
 func (s *IPCServer) handleClose(conn *ipcConn, reqID uint64, payload []byte) {
@@ -900,21 +805,16 @@ func (s *IPCServer) handleClose(conn *ipcConn, reqID uint64, payload []byte) {
 }
 
 func (s *IPCServer) handleSendTo(conn *ipcConn, reqID uint64, payload []byte) {
-	// Inline-dispatched (see handleClient): error replies use
-	// asyncSendError so the read loop never blocks on a full sendCh.
+	// CmdSendTo is fire-and-forget: no reply on success OR error.
+	// Same reasoning as handleSend — error replies would corrupt pending.
 	if len(payload) < protocol.AddrSize+2 {
-		s.asyncSendError(conn, reqID, "sendto: missing address/port")
 		return
 	}
 
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize : protocol.AddrSize+2])
 	data := payload[protocol.AddrSize+2:]
-
-	if err := s.daemon.SendDatagram(dstAddr, dstPort, data); err != nil {
-		s.asyncSendError(conn, reqID, fmt.Sprintf("sendto: %v", err))
-	}
-	// SendTo has no positive reply on success — driver fires-and-forgets.
+	_ = s.daemon.SendDatagram(dstAddr, dstPort, data)
 }
 
 // handleBroadcast services CmdBroadcast — admin-token-gated fan-out to a
@@ -960,6 +860,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 			"endpoint":      p.Endpoint,
 			"encrypted":     p.Encrypted,
 			"authenticated": p.Authenticated,
+			"relay":         p.Relay,
 		}
 	}
 
@@ -1020,6 +921,11 @@ func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 		"networks":                  info.Networks,
 		"peer_list":                 peers,
 		"conn_list":                 conns,
+		"accept_queue_drops":        info.AcceptQueueDrops,
+		"webhook_queue_dropped":     info.WebhookQueueDropped,
+		"webhook_circuit_skips":     info.WebhookCircuitSkips,
+		"relay_peer_count":          info.RelayPeerCount,
+		"beacon_addr":               info.BeaconAddr,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("info marshal: %v", err))
@@ -1037,8 +943,16 @@ func (s *IPCServer) handleHealth(conn *ipcConn, reqID uint64) {
 		"uptime_seconds": int64(info.Uptime.Seconds()),
 		"connections":    info.Connections,
 		"peers":          info.Peers,
-		"bytes_sent":     info.BytesSent,
-		"bytes_recv":     info.BytesRecv,
+		"bytes_sent":               info.BytesSent,
+		"bytes_recv":               info.BytesRecv,
+		"encrypted_peers":          info.EncryptedPeers,
+		"authenticated_peers":      info.AuthenticatedPeers,
+		"handshake_pending_count":  info.HandshakePendingCount,
+		"relay_peer_count":         info.RelayPeerCount,
+		"accept_queue_drops":       info.AcceptQueueDrops,
+		"webhook_queue_dropped":    info.WebhookQueueDropped,
+		"webhook_circuit_skips":    info.WebhookCircuitSkips,
+		"beacon_addr":              info.BeaconAddr,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("health marshal: %v", err))

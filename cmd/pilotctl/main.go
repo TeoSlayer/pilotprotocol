@@ -2100,8 +2100,28 @@ func cmdDaemonStatus(args []string) {
 			fmt.Printf("  Hostname:    %s\n", h)
 		}
 		fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
-		fmt.Printf("  Peers:       %d\n", int(info["peers"].(float64)))
+		peers := int(info["peers"].(float64))
+		encPeers := 0
+		if ep, ok := info["encrypted_peers"].(float64); ok {
+			encPeers = int(ep)
+		}
+		relayPeers := 0
+		if rp, ok := info["relay_peer_count"].(float64); ok {
+			relayPeers = int(rp)
+		}
+		pending := 0
+		if hp, ok := info["handshake_pending_count"].(float64); ok {
+			pending = int(hp)
+		}
+		peerLine := fmt.Sprintf("%d", peers)
+		if peers > 0 {
+			peerLine = fmt.Sprintf("%d (%d encrypted, %d via relay)", peers, encPeers, relayPeers)
+		}
+		fmt.Printf("  Peers:       %s\n", peerLine)
 		fmt.Printf("  Connections: %d\n", int(info["connections"].(float64)))
+		if pending > 0 {
+			fmt.Printf("  Handshakes:  %d pending\n", pending)
+		}
 		return
 	}
 	output(result)
@@ -3420,6 +3440,9 @@ func cmdHandshake(args []string) {
 		justification = args[1]
 	}
 
+	if !jsonOutput {
+		fmt.Fprintf(os.Stderr, "sending handshake to node %d...\n", nodeID)
+	}
 	result, err := d.Handshake(nodeID, justification)
 	if err != nil {
 		fatalCode("connection_failed", "handshake: %v", err)
@@ -3747,16 +3770,28 @@ func cmdInfo(args []string) {
 	fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
 	fmt.Printf("  Connections: %d\n", int(info["connections"].(float64)))
 	fmt.Printf("  Ports:       %d\n", int(info["ports"].(float64)))
-	fmt.Printf("  Peers:       %d\n", int(info["peers"].(float64)))
+	totalPeers := int(info["peers"].(float64))
+	relayPeers := 0
+	if rp, ok := info["relay_peer_count"].(float64); ok {
+		relayPeers = int(rp)
+	}
+	directPeers := totalPeers - relayPeers
+	fmt.Printf("  Peers:       %d (%d direct, %d via relay)\n", totalPeers, directPeers, relayPeers)
 	authenticatedPeers := 0
 	if ap, ok := info["authenticated_peers"].(float64); ok {
 		authenticatedPeers = int(ap)
 	}
 	if encryptEnabled {
 		fmt.Printf("  Encryption:  enabled (X25519 + AES-256-GCM), %d/%d peers encrypted, %d authenticated\n",
-			encryptedPeers, int(info["peers"].(float64)), authenticatedPeers)
+			encryptedPeers, totalPeers, authenticatedPeers)
 	} else {
 		fmt.Printf("  Encryption:  disabled\n")
+	}
+	if pending, ok := info["handshake_pending_count"].(float64); ok && int(pending) > 0 {
+		fmt.Printf("  Handshakes:  %d pending approval\n", int(pending))
+	}
+	if beacon, ok := info["beacon_addr"].(string); ok && beacon != "" {
+		fmt.Printf("  Beacon:      %s\n", beacon)
 	}
 	hasIdentity := false
 	if id, ok := info["identity"].(bool); ok {
@@ -3853,13 +3888,44 @@ func cmdHealth() {
 	mins := (uptime % 3600) / 60
 	secs := uptime % 60
 
+	peers := int(health["peers"].(float64))
+	encPeers := 0
+	if ep, ok := health["encrypted_peers"].(float64); ok {
+		encPeers = int(ep)
+	}
+	relayPeers := 0
+	if rp, ok := health["relay_peer_count"].(float64); ok {
+		relayPeers = int(rp)
+	}
+	pending := 0
+	if hp, ok := health["handshake_pending_count"].(float64); ok {
+		pending = int(hp)
+	}
+	queueDrops := uint64(0)
+	if qd, ok := health["accept_queue_drops"].(float64); ok {
+		queueDrops = uint64(qd)
+	}
+	webhookDropped := uint64(0)
+	if wd, ok := health["webhook_queue_dropped"].(float64); ok {
+		webhookDropped = uint64(wd)
+	}
+
 	fmt.Printf("Daemon Health\n")
 	fmt.Printf("  Status:      %s\n", health["status"])
 	fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
 	fmt.Printf("  Connections: %d\n", int(health["connections"].(float64)))
-	fmt.Printf("  Peers:       %d\n", int(health["peers"].(float64)))
+	fmt.Printf("  Peers:       %d (%d encrypted, %d via relay)\n", peers, encPeers, relayPeers)
+	if pending > 0 {
+		fmt.Printf("  Handshakes:  %d pending\n", pending)
+	}
 	fmt.Printf("  Bytes Sent:  %s\n", formatBytes(uint64(health["bytes_sent"].(float64))))
 	fmt.Printf("  Bytes Recv:  %s\n", formatBytes(uint64(health["bytes_recv"].(float64))))
+	if queueDrops > 0 {
+		fmt.Printf("  Queue Drops: %d (accept queue full — increase system limits if persistent)\n", queueDrops)
+	}
+	if webhookDropped > 0 {
+		fmt.Printf("  Webhook:     %d events dropped\n", webhookDropped)
+	}
 }
 
 func cmdPeers(args []string) {
@@ -3945,9 +4011,9 @@ func cmdPeers(args []string) {
 
 	maxDisplay := 50
 	if showEndpoints {
-		fmt.Printf("%-10s  %-30s  %-20s  %s\n", "NODE ID", "ENDPOINT", "ENCRYPTED", "AUTH")
+		fmt.Printf("%-10s  %-30s  %-20s  %-16s  %-6s\n", "NODE ID", "ENDPOINT", "ENCRYPTED", "AUTH", "PATH")
 	} else {
-		fmt.Printf("%-10s  %-20s  %s\n", "NODE ID", "ENCRYPTED", "AUTH")
+		fmt.Printf("%-10s  %-20s  %-16s  %-6s\n", "NODE ID", "ENCRYPTED", "AUTH", "PATH")
 	}
 	displayed := 0
 	for _, p := range filtered {
@@ -3957,14 +4023,9 @@ func cmdPeers(args []string) {
 		}
 		displayed++
 		peer := p.(map[string]interface{})
-		encrypted := false
-		if e, ok := peer["encrypted"].(bool); ok {
-			encrypted = e
-		}
-		authenticated := false
-		if a, ok := peer["authenticated"].(bool); ok {
-			authenticated = a
-		}
+		encrypted, _ := peer["encrypted"].(bool)
+		authenticated, _ := peer["authenticated"].(bool)
+		relay, _ := peer["relay"].(bool)
 		encStr := "no"
 		if encrypted {
 			encStr = "yes (AES-256-GCM)"
@@ -3973,10 +4034,14 @@ func cmdPeers(args []string) {
 		if authenticated {
 			authStr = "yes (Ed25519)"
 		}
+		pathStr := "direct"
+		if relay {
+			pathStr = "relay"
+		}
 		if showEndpoints {
-			fmt.Printf("%-10d  %-30s  %-20s  %s\n", int(peer["node_id"].(float64)), peer["endpoint"], encStr, authStr)
+			fmt.Printf("%-10d  %-30s  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), peer["endpoint"], encStr, authStr, pathStr)
 		} else {
-			fmt.Printf("%-10d  %-20s  %s\n", int(peer["node_id"].(float64)), encStr, authStr)
+			fmt.Printf("%-10d  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), encStr, authStr, pathStr)
 		}
 	}
 }
@@ -4223,14 +4288,14 @@ func cmdPing(args []string) {
 							toServer.Round(time.Microsecond),
 							fromServer.Round(time.Microsecond))
 					}
-				} else if traceTime {
+				} else {
+					// Always show dial/echo breakdown — tells you whether RTT
+					// is dominated by relay setup or actual peer latency.
 					if connReused {
 						fmt.Printf("seq=%d bytes=%d time=%v  [echo=%v]%s\n", i, n, rtt, echoElapsed.Round(time.Microsecond), reusedTag)
 					} else {
 						fmt.Printf("seq=%d bytes=%d time=%v  [dial=%v echo=%v]\n", i, n, rtt, dialElapsed.Round(time.Microsecond), echoElapsed.Round(time.Microsecond))
 					}
-				} else {
-					fmt.Printf("seq=%d bytes=%d time=%v%s\n", i, n, rtt, reusedTag)
 				}
 			}
 		}
