@@ -33,6 +33,7 @@ var version = "dev"
 
 // Global flags
 var jsonOutput bool
+var verbose bool
 
 // Config paths
 const (
@@ -409,10 +410,14 @@ func fmtDuration(d time.Duration) string {
 // --- Connection helpers ---
 
 func connectDriver() *driver.Driver {
-	d, err := driver.Connect(getSocket())
+	sock := getSocket()
+	if verbose {
+		fmt.Fprintf(os.Stderr, "connecting to daemon socket %s\n", sock)
+	}
+	d, err := driver.Connect(sock)
 	if err != nil {
 		fatalHint("not_running",
-			"start the daemon with: pilotctl daemon start",
+			fmt.Sprintf("start the daemon with: pilotctl daemon start  (tried %s)", sock),
 			"daemon is not running")
 	}
 	return d
@@ -560,6 +565,222 @@ func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
 	return resolved, nil
 }
 
+// hasHelpFlag returns true when args contains -h or --help.
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// commandHelp holds concise usage text for each command. Looked up by
+// printCommandHelp when the user passes -h / --help after a command name.
+var commandHelp = map[string]string{
+	"send-message": `Usage: pilotctl send-message <address|hostname> --data <text> [flags]
+
+Send a message to a remote agent and optionally wait for the reply.
+
+Flags:
+  --data <text>         message payload (required)
+  --type text|json|binary  payload encoding (default: text)
+  --count <n>           send N times (default: 1)
+  --reuse-conn          reuse the connection across --count sends (saves ~1 RTT)
+  --wait [<dur>]        wait for a reply in the inbox (default timeout: 30s)
+  --trace               print per-step timing breakdown to stderr
+  --no-auto-handshake   skip automatic trust handshake with known agents
+
+Examples:
+  pilotctl send-message list-agents --data '/data {"search":"weather","limit":5}'
+  pilotctl send-message my-peer --data "hello" --wait
+  pilotctl send-message 0:0000.0000.400E --data "ping" --trace
+`,
+	"ping": `Usage: pilotctl ping <address|hostname> [flags]
+
+Send echo packets and report round-trip latency.
+
+Flags:
+  --count <n>           number of packets to send (default: 4)
+  --timeout <dur>       per-ping deadline (default: 30s)
+  --reuse-conn          reuse tunnel connection across packets
+  --trace               print per-step timing breakdown to stderr
+
+Examples:
+  pilotctl ping my-agent
+  pilotctl ping 0:0000.0000.400E --count 10 --trace
+`,
+	"bench": `Usage: pilotctl bench <address|hostname> [size_mb] [flags]
+
+Measure throughput to a remote node via the echo port.
+
+Flags:
+  --timeout <dur>       overall deadline (default: 30s)
+
+Examples:
+  pilotctl bench my-agent
+  pilotctl bench my-agent 10
+`,
+	"traceroute": `Usage: pilotctl traceroute <address|hostname> [flags]
+
+Probe the hop-by-hop path to a remote node.
+
+Flags:
+  --timeout <dur>       overall deadline (default: 30s)
+`,
+	"connect": `Usage: pilotctl connect <address|hostname> [port] [flags]
+
+Open an interactive tunnel to a remote node.
+
+Flags:
+  --message <msg>       send a message on connect
+  --timeout <dur>       connection timeout (default: 30s)
+`,
+	"send": `Usage: pilotctl send <address|hostname> <port> --data <msg> [flags]
+
+Send a raw message to a specific port on a remote node.
+
+Flags:
+  --data <msg>          message payload (required)
+  --timeout <dur>       timeout (default: 30s)
+`,
+	"recv": `Usage: pilotctl recv <port> [flags]
+
+Listen on a port and print incoming messages.
+
+Flags:
+  --count <n>           stop after N messages (default: unlimited)
+  --timeout <dur>       idle timeout (default: unlimited)
+`,
+	"listen": `Usage: pilotctl listen <port> [flags]
+
+Listen for datagrams on the given port and print them.
+
+Flags:
+  --count <n>           stop after N messages
+  --timeout <dur>       idle timeout
+`,
+	"find": `Usage: pilotctl find <hostname>
+
+Look up a hostname in the registry and print its pilot address.
+`,
+	"handshake": `Usage: pilotctl handshake <node_id|hostname> [justification]
+
+Initiate a trust handshake with another node.
+The remote node must approve the request before messages can flow.
+
+See also: pilotctl approve, pilotctl pending, pilotctl trust
+`,
+	"approve": `Usage: pilotctl approve <node_id>
+
+Approve a pending inbound trust handshake request.
+
+See also: pilotctl pending, pilotctl handshake
+`,
+	"peers": `Usage: pilotctl peers [flags]
+
+List currently connected peers.
+
+Flags:
+  --search <query>      filter by node ID or hostname substring
+  --show-endpoints      include UDP endpoint addresses in output
+`,
+	"inbox": `Usage: pilotctl inbox [flags]
+
+Show messages received via send-message from other agents.
+
+Flags:
+  --clear               delete all inbox messages after displaying them
+  --trace               include relative age and byte count per message
+
+Tip: use with send-message --wait to get a reply inline:
+  pilotctl send-message list-agents --data '/data {}' --wait
+`,
+	"info": `Usage: pilotctl info
+
+Print local daemon info: address, hostname, node ID, registry, beacon.
+`,
+	"health": `Usage: pilotctl health
+
+Report daemon health and connectivity status.
+`,
+	"daemon start": `Usage: pilotctl daemon start [flags]
+
+Flags:
+  --config <path>              path to config file (JSON)
+  --registry <addr>            registry address (default: $PILOT_REGISTRY or 34.71.57.205:9000)
+  --beacon <addr>              beacon address (default: $PILOT_BEACON or 34.71.57.205:9001)
+  --listen <addr>              UDP listen address (default: :0)
+  --socket <path>              Unix socket path (default: /tmp/pilot.sock)
+  --identity <path>            Ed25519 identity file path
+  --email <addr>               email for account identification and key recovery
+  --hostname <name>            discovery hostname (lowercase alphanumeric + hyphens)
+  --endpoint <host:port>       fixed public endpoint — skips STUN (for cloud VMs)
+  --public                     make this node publicly visible
+  --webhook <url>              HTTP(S) endpoint for event notifications
+  --admin-token <token>        admin token for network operations
+  --networks <ids>             comma-separated network IDs to auto-join
+  --trust-auto-approve         automatically approve all incoming trust handshakes
+  --log-level <level>          log level: debug, info, warn, error (default: info)
+  --log-format <fmt>           log format: text, json (default: text)
+  --no-encrypt                 disable tunnel encryption
+  --foreground                 run in foreground (no fork; for systemd / shell wrappers)
+  --wait <duration>            how long to wait for daemon to become ready (default: 15s)
+`,
+	"daemon stop":   "Usage: pilotctl daemon stop\n\nStop the running daemon gracefully.\n",
+	"daemon status": "Usage: pilotctl daemon status\n\nPrint current daemon status, address, and uptime.\n",
+	"register":      "Usage: pilotctl register [listen_addr]\n\nRegister this node with the registry.\n",
+	"lookup":        "Usage: pilotctl lookup <node_id>\n\nLook up a node by ID in the registry.\n",
+	"init": `Usage: pilotctl init --registry <addr> [flags]
+
+Initialize the local pilot config at ~/.pilot/config.json.
+
+Flags:
+  --registry <addr>     registry address (required)
+  --beacon <addr>       beacon address
+  --hostname <name>     hostname to register
+`,
+	"network": `Usage: pilotctl network <subcommand> [flags]
+
+Manage overlay networks.
+
+Subcommands:
+  list                  list networks this node belongs to
+  create <name>         create a new network
+  join <id>             join a network
+  leave <id>            leave a network
+  members <id>          list members of a network
+  invite <id> <node>    invite a node to a network
+  invites               list pending invitations
+  accept <id>           accept an invitation
+  delete <id>           delete a network (owner only)
+`,
+	"broadcast": "Usage: pilotctl broadcast <network_id> <message>\n\nBroadcast a message to all members of a network.\n",
+	"subscribe":  "Usage: pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]\n\nSubscribe to a pub/sub topic on a remote node.\n",
+	"publish":    "Usage: pilotctl publish <address|hostname> <topic> --data <message>\n\nPublish a message to a topic on a remote node.\n",
+	"send-file":  "Usage: pilotctl send-file <address|hostname> <filepath>\n\nSend a file to a remote node via the data-exchange port.\n",
+}
+
+// printCommandHelp prints the help text for a command and exits.
+// For subcommands like "daemon start", cmdArgs[0] is the subcommand.
+func printCommandHelp(cmd string, cmdArgs []string) {
+	// Try compound key first (e.g. "daemon start")
+	if len(cmdArgs) > 0 {
+		compound := cmd + " " + cmdArgs[0]
+		if txt, ok := commandHelp[compound]; ok {
+			fmt.Fprint(os.Stderr, txt)
+			os.Exit(0)
+		}
+	}
+	if txt, ok := commandHelp[cmd]; ok {
+		fmt.Fprint(os.Stderr, txt)
+		os.Exit(0)
+	}
+	// Fallback: tell the user where to look
+	fmt.Fprintf(os.Stderr, "No specific help for %q — run 'pilotctl' for the full command list.\n", cmd)
+	os.Exit(0)
+}
+
 // --- Usage ---
 
 func usage() {
@@ -667,12 +888,15 @@ Companion binaries:
 func main() {
 	loadFeatureFlags()
 
-	// Extract --json before subcommand
+	// Extract global flags before subcommand
 	var args []string
 	for _, a := range os.Args[1:] {
-		if a == "--json" {
+		switch a {
+		case "--json":
 			jsonOutput = true
-		} else {
+		case "--verbose", "-v":
+			verbose = true
+		default:
 			args = append(args, a)
 		}
 	}
@@ -683,6 +907,16 @@ func main() {
 
 	cmd := args[0]
 	cmdArgs := args[1:]
+
+	// Top-level help
+	if cmd == "-h" || cmd == "--help" {
+		usage()
+	}
+	// Per-command help: pilotctl <cmd> -h / --help
+	if hasHelpFlag(cmdArgs) {
+		printCommandHelp(cmd, cmdArgs)
+	}
+
 	extrasOnly := false
 
 dispatch:
@@ -1589,33 +1823,6 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 func cmdDaemonStart(args []string) {
 	flags, _ := parseFlags(args)
 
-	if flagBool(flags, "help") {
-		fmt.Fprint(os.Stderr, `Usage: pilotctl daemon start [flags]
-
-Flags:
-  --config <path>              path to config file (JSON)
-  --registry <addr>            registry address (default: $PILOT_REGISTRY or 34.71.57.205:9000)
-  --beacon <addr>              beacon address (default: $PILOT_BEACON or 34.71.57.205:9001)
-  --listen <addr>              UDP listen address (default: :0)
-  --socket <path>              Unix socket path (default: /tmp/pilot.sock)
-  --identity <path>            Ed25519 identity file path
-  --email <addr>               email for account identification and key recovery
-  --hostname <name>            discovery hostname (lowercase alphanumeric + hyphens)
-  --endpoint <host:port>       fixed public endpoint — skips STUN (for cloud VMs)
-  --public                     make this node publicly visible
-  --webhook <url>              HTTP(S) endpoint for event notifications
-  --admin-token <token>        admin token for network operations
-  --networks <ids>             comma-separated network IDs to auto-join
-  --trust-auto-approve         automatically approve all incoming trust handshakes
-  --log-level <level>          log level: debug, info, warn, error (default: info)
-  --log-format <fmt>           log format: text, json (default: text)
-  --no-encrypt                 disable tunnel encryption
-  --foreground                 run in foreground (no fork; for systemd / shell wrappers)
-  --wait <duration>            how long to wait for daemon to become ready (default: 15s)
-`)
-		os.Exit(0)
-	}
-
 	// Check if already running
 	if pid := readPID(); pid > 0 {
 		if processExists(pid) {
@@ -1696,7 +1903,7 @@ Flags:
 	os.Symlink(pidLogPath, symPath)
 
 	if !jsonOutput {
-		fmt.Fprintf(os.Stderr, "starting daemon (pid %d)...", pid)
+		fmt.Fprintf(os.Stderr, "starting daemon (pid %d, socket %s)...", pid, socketPath)
 	}
 
 	// Wait for daemon to become ready (socket appears and responds)
@@ -2831,9 +3038,16 @@ func cmdSendMessage(args []string) {
 	// IPC connect, hostname resolve, auto-handshake, dial, send, ACK recv.
 	traceTime := os.Getenv("PILOTCTL_TRACE_TIME") != "" || flagBool(flags, "trace")
 	t0 := time.Now()
+	var traceEvents []map[string]interface{}
 	tracef := func(label string) {
-		if traceTime {
-			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, float64(time.Since(t0).Microseconds())/1000.0)
+		if !traceTime {
+			return
+		}
+		ms := float64(time.Since(t0).Microseconds()) / 1000.0
+		if jsonOutput {
+			traceEvents = append(traceEvents, map[string]interface{}{"label": label, "ms": ms})
+		} else {
+			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, ms)
 		}
 	}
 
@@ -2949,13 +3163,9 @@ func cmdSendMessage(args []string) {
 	// Snapshot time before the send so --wait can find replies that arrive
 	// after this point even if the filesystem has 1-second mtime granularity.
 	inboxCutoff := time.Now().Add(-time.Second)
-	// agentHint is the target hostname used to filter inbox replies.
-	// For plain-hostname targets (no colon, not a dotted Pilot address) the
-	// inbox "agent" field should match the target directly.
-	agentHint := pos[0]
-	if strings.Contains(agentHint, ":") {
-		agentHint = "" // numeric/address form — match any new reply
-	}
+	// agentHint is the resolved pilot address used to filter inbox replies
+	// against the "from" field written by the daemon when it saves the message.
+	agentHint := target.String()
 
 	if sendCount == 1 {
 		cl := dialOnce()
@@ -2969,8 +3179,14 @@ func cmdSendMessage(args []string) {
 		for k, v := range r {
 			result[k] = v
 		}
+		if len(traceEvents) > 0 {
+			result["trace"] = traceEvents
+		}
 		outputOK(result)
 		if waitDur > 0 {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "waiting for reply from %s (up to %s)...\n", pos[0], waitDur)
+			}
 			reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
 			if err != nil {
 				fatalCode("timeout", "%v", err)
@@ -3785,9 +4001,16 @@ func cmdPing(args []string) {
 	// off so behavior is identical to previous versions unless opted in.
 	reuseConn := flagBool(flags, "reuse-conn") || os.Getenv("PILOT_PING_REUSE_CONN") != "" || featureEnabled("ping.reuse_conn")
 	t0 := time.Now()
+	var traceEvents []map[string]interface{}
 	tracef := func(label string) {
-		if traceTime {
-			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, float64(time.Since(t0).Microseconds())/1000.0)
+		if !traceTime {
+			return
+		}
+		ms := float64(time.Since(t0).Microseconds()) / 1000.0
+		if jsonOutput {
+			traceEvents = append(traceEvents, map[string]interface{}{"label": label, "ms": ms})
+		} else {
+			fmt.Fprintf(os.Stderr, "TRACE %-22s %12.3fms\n", label, ms)
 		}
 	}
 
@@ -4029,11 +4252,15 @@ func cmdPing(args []string) {
 		}
 	}
 	if jsonOutput {
-		output(map[string]interface{}{
+		out := map[string]interface{}{
 			"target":  target.String(),
 			"results": results,
 			"timeout": false,
-		})
+		}
+		if len(traceEvents) > 0 {
+			out["trace"] = traceEvents
+		}
+		output(out)
 	}
 	if allFailed {
 		os.Exit(1)
@@ -4498,8 +4725,8 @@ func waitForInboxReply(agentHint string, cutoff time.Time, timeout time.Duration
 				continue
 			}
 			if agentHint != "" {
-				agent, _ := msg["agent"].(string)
-				if agent != agentHint {
+				from, _ := msg["from"].(string)
+				if from != agentHint {
 					continue
 				}
 			}
