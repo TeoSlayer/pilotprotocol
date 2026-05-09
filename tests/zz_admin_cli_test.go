@@ -289,5 +289,3 @@ func TestAdminDeleteNetworkCleansMembers(t *testing.T) {
 		t.Fatalf("join replacement network: %v", err)
 	}
 }
-
-

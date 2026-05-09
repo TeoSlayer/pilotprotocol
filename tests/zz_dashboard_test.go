@@ -13,8 +13,8 @@ import (
 	"time"
 
 	icrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 // dashRegisterNode registers a test node with the given hostname via the registry client.

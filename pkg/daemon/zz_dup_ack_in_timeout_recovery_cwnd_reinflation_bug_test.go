@@ -70,7 +70,7 @@ func TestDupAckInTimeoutRecoveryDoesNotReinflateConn(t *testing.T) {
 	conn.RetxStop = make(chan struct{})
 
 	const (
-		seqA                = uint32(1000)
+		seqA                 = uint32(1000)
 		ssthreshAfterTimeout = 5 * MaxSegmentSize // 20480 — timeout halved from 10*MSS
 	)
 
@@ -83,11 +83,11 @@ func TestDupAckInTimeoutRecoveryDoesNotReinflateConn(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = MaxSegmentSize        // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
+	conn.CongWin = MaxSegmentSize // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
 	conn.SSThresh = ssthreshAfterTimeout
 	conn.DupAckCount = 0
-	conn.InRecovery = true               // set by the retransmission timeout
-	conn.FastRecovery = false            // cleared by retransmitUnacked
+	conn.InRecovery = true                     // set by the retransmission timeout
+	conn.FastRecovery = false                  // cleared by retransmitUnacked
 	conn.RecoveryPoint = seqA + MaxSegmentSize // = SendSeq (no new data)
 	conn.RTO = InitialRTO
 	conn.Unacked = []*retxEntry{{

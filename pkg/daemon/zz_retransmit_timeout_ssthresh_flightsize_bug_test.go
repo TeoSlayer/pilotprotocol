@@ -121,9 +121,9 @@ func TestTimeoutSSThreshUsesFlightSizeNotCongWin(t *testing.T) {
 	// Bug: ssthresh = CongWin/2 = 40960/2 = 20480 — uses window capacity, not
 	// actual bytes outstanding.
 	const (
-		flightSizeBytes = MaxSegmentSize               // 4096 — only entry in Unacked
-		wantSSThresh    = 2 * MaxSegmentSize           // max(4096/2=2048, 2*MSS=8192)
-		badSSThresh     = initialCongWin / 2           // 20480 — CongWin/2 (wrong)
+		flightSizeBytes = MaxSegmentSize     // 4096 — only entry in Unacked
+		wantSSThresh    = 2 * MaxSegmentSize // max(4096/2=2048, 2*MSS=8192)
+		badSSThresh     = initialCongWin / 2 // 20480 — CongWin/2 (wrong)
 	)
 	if ssthresh != wantSSThresh {
 		t.Errorf("RTO retransmit with CongWin=%d, FlightSize=%d: SSThresh=%d, want %d "+

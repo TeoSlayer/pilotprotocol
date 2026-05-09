@@ -63,13 +63,13 @@ func TestZeroWindowAdvertisementNotHonored(t *testing.T) {
 	// FAILS against unpatched code: PeerRecvWin>0 guard treats 0 as "unknown",
 	// EffectiveWindow returns CongWin=InitialCongWin, WindowAvailable=true.
 	if available {
-		t.Errorf("zero-window advertisement not honored: WindowAvailable()=true "+
-			"when PeerRecvWin=0 (peer sent Window=0); "+
-			"EffectiveWindow() guard 'c.PeerRecvWin > 0' treats 0 as the "+
-			"uninitialized/unknown sentinel, so an explicit zero-window "+
-			"advertisement is silently ignored and the sender is allowed to "+
-			"transmit data that the peer has no buffer space to accept; "+
-			"fix: initialize PeerRecvWin to -1 in NewConnection and change "+
+		t.Errorf("zero-window advertisement not honored: WindowAvailable()=true " +
+			"when PeerRecvWin=0 (peer sent Window=0); " +
+			"EffectiveWindow() guard 'c.PeerRecvWin > 0' treats 0 as the " +
+			"uninitialized/unknown sentinel, so an explicit zero-window " +
+			"advertisement is silently ignored and the sender is allowed to " +
+			"transmit data that the peer has no buffer space to accept; " +
+			"fix: initialize PeerRecvWin to -1 in NewConnection and change " +
 			"the guard to c.PeerRecvWin >= 0")
 	}
 }

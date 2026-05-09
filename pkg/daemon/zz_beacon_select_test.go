@@ -167,15 +167,15 @@ func TestPickBeaconStableAcrossSeparateListInstances(t *testing.T) {
 func TestFilterUnreachableDropsPrivateAndLoopback(t *testing.T) {
 	t.Parallel()
 	in := []string{
-		"34.71.57.205:9001",   // public — kept
-		"10.128.0.78:9001",    // private RFC1918 — dropped
-		"192.168.1.5:9001",    // private RFC1918 — dropped
-		"172.16.0.5:9001",     // private RFC1918 — dropped
-		"127.0.0.1:9001",      // loopback — dropped
-		"169.254.1.1:9001",    // link-local — dropped
-		"0.0.0.0:9001",        // unspecified — dropped
+		"34.71.57.205:9001",       // public — kept
+		"10.128.0.78:9001",        // private RFC1918 — dropped
+		"192.168.1.5:9001",        // private RFC1918 — dropped
+		"172.16.0.5:9001",         // private RFC1918 — dropped
+		"127.0.0.1:9001",          // loopback — dropped
+		"169.254.1.1:9001",        // link-local — dropped
+		"0.0.0.0:9001",            // unspecified — dropped
 		"beacon.example.com:9001", // DNS hostname — kept
-		"8.8.8.8:9001",        // public — kept
+		"8.8.8.8:9001",            // public — kept
 	}
 	got := filterUnreachable(in)
 	want := []string{

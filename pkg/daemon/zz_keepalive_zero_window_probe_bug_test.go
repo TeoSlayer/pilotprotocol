@@ -74,7 +74,7 @@ func TestKeepaliveProbeWithWindowDoesNotStallPeer(t *testing.T) {
 		SrcPort:  remotePort,
 		DstPort:  localPort,
 		Seq:      200,
-		Ack:      100,            // == conn.LastAck (dup-ACK path, keepalive-like)
+		Ack:      100,           // == conn.LastAck (dup-ACK path, keepalive-like)
 		Window:   senderRecvWin, // fixed: sender includes its recv window
 	}
 
@@ -148,7 +148,7 @@ func TestKeepaliveZeroWindowProbeStallsMechanism(t *testing.T) {
 			"(unexpected; receiver should always update PeerRecvWin from pkt.Window)",
 			peerRecvWin, avail)
 	} else {
-		t.Logf("confirmed: zero-window probe sets PeerRecvWin=0, avail=false — "+
+		t.Logf("confirmed: zero-window probe sets PeerRecvWin=0, avail=false — " +
 			"500ms stall mechanism documented; fix: idleSweepLoop must include Window: conn.RecvWindow()")
 	}
 }

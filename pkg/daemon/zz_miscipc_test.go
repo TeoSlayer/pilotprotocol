@@ -42,7 +42,11 @@ func miscTestDaemon(t *testing.T) (*Daemon, uint32) {
 	d.regConn = rc
 	d.identity = id
 	d.setNodeID_testhelper(nodeID)
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	return d, nodeID
 }
 

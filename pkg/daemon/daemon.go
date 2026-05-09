@@ -143,10 +143,10 @@ const (
 
 // Dial and retransmission constants.
 const (
-	DialDirectRetries    = 3                       // direct connection attempts before relay
-	DialMaxRetries       = 7                       // total attempts (direct + relay). 3 direct + 4 relay. With DialInitialRTO=250ms exponential-backoff capped at DialMaxRTO=8s, the relay phase is ~7.75s — covers cold-start handshake (key_exchange + flushPending + SYN/SYN-ACK round trip) for typical peers while keeping bad dials from blocking longer than the user's --timeout. The probe-and-adapt machinery (see srttHistory below) will let us shorten this for peers we've successfully dialed before.
-	DialInitialRTO       = 250 * time.Millisecond  // initial SYN retransmission timeout. Lowered from 1s — modern relay RTT is <200ms; waiting a full second before assuming loss makes cold dials feel like a stall. Three direct retries with exponential backoff (250→500→1000) still cover up to 1.75s of jitter before flipping to relay; that's plenty for an unhealthy direct path while letting the common case (peer is reachable, single retry needed) feel snappy.
-	DialMaxRTO           = 8 * time.Second         // max backoff for SYN retransmission
+	DialDirectRetries    = 3                      // direct connection attempts before relay
+	DialMaxRetries       = 7                      // total attempts (direct + relay). 3 direct + 4 relay. With DialInitialRTO=250ms exponential-backoff capped at DialMaxRTO=8s, the relay phase is ~7.75s — covers cold-start handshake (key_exchange + flushPending + SYN/SYN-ACK round trip) for typical peers while keeping bad dials from blocking longer than the user's --timeout. The probe-and-adapt machinery (see srttHistory below) will let us shorten this for peers we've successfully dialed before.
+	DialInitialRTO       = 250 * time.Millisecond // initial SYN retransmission timeout. Lowered from 1s — modern relay RTT is <200ms; waiting a full second before assuming loss makes cold dials feel like a stall. Three direct retries with exponential backoff (250→500→1000) still cover up to 1.75s of jitter before flipping to relay; that's plenty for an unhealthy direct path while letting the common case (peer is reachable, single retry needed) feel snappy.
+	DialMaxRTO           = 8 * time.Second        // max backoff for SYN retransmission
 	DialCheckInterval    = 10 * time.Millisecond  // poll interval for state changes during dial
 	RetxCheckInterval    = 100 * time.Millisecond // retransmission check ticker
 	MaxRetxAttempts      = 8                      // abandon connection after this many retransmissions
@@ -214,18 +214,18 @@ type hostnameCacheEntry struct {
 const hostnameCacheTTL = 60 * time.Second
 
 type Daemon struct {
-	config          Config
-	addrMu          sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
-	nodeID          uint32
-	addr            protocol.Addr
-	publicEndpoint  string       // host:port reported to the registry at registration
-	identityMu      sync.RWMutex // protects identity after hot rotate-key
-	identity        *crypto.Identity
-	regConn         *registry.Client
-	tunnels         *TunnelManager
-	ports           *PortManager
-	ipc             *IPCServer
-	handshakes      HandshakeService
+	config         Config
+	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
+	nodeID         uint32
+	addr           protocol.Addr
+	publicEndpoint string       // host:port reported to the registry at registration
+	identityMu     sync.RWMutex // protects identity after hot rotate-key
+	identity       *crypto.Identity
+	regConn        *registry.Client
+	tunnels        *TunnelManager
+	ports          *PortManager
+	ipc            *IPCServer
+	handshakes     HandshakeService
 
 	// network.* bus subscriber for daemon-internal reactions (managed
 	// engines + member-tag cache). Wired by subscribeNetworkInternalToBus
@@ -1904,12 +1904,12 @@ func (d *Daemon) webhookStats() WebhookStats {
 // subscribeNetworkInternalToBus wires the daemon-internal reactor for
 // network.* bus events. Today it owns:
 //   - network.joined      → start a managed engine if the payload
-//                            carries non-empty rules and no engine is
-//                            running for the network
+//     carries non-empty rules and no engine is
+//     running for the network
 //   - network.left        → stop the managed engine if one is running
 //   - network.tags_changed → already updated in the cache by
-//                            refreshMemberTagsAndDiff before publish;
-//                            event is observed for symmetry/logging
+//     refreshMemberTagsAndDiff before publish;
+//     event is observed for symmetry/logging
 //
 // When managed-engine moves to its own plugin, its half here will
 // move with it; the member-tag refresh side will stay daemon-internal
@@ -2308,7 +2308,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return
 		}
 
-		// Check global connection limit 
+		// Check global connection limit
 		if d.ports.TotalActiveConnections() >= d.config.maxTotalConnections() {
 			slog.Warn("max total connections reached, rejecting SYN", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.sendRST(pkt)
@@ -3264,7 +3264,7 @@ func (d *Daemon) retxLoop(conn *Connection) {
 				// stuck waiting for FIN-ACK keeps a retxLoop goroutine
 				// alive for ~MaxRetxAttempts × RTO ≈ 53 s, which under the
 				// §4.8 stress workload accumulates ~20 lingering loops
-                                // per rep (busts the goroutine-delta gate).
+				// per rep (busts the goroutine-delta gate).
 				if !d.unackedHasData(conn) {
 					return
 				}
@@ -3674,8 +3674,8 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 //   - hostnameCache — same pattern as resolveCache.
 func (d *Daemon) reapCaches() {
 	now := time.Now()
-	epEvictAfter := 12 * EndpointCacheTTL   // keep fallback for up to 1 h
-	rvEvictAfter := 2 * ResolveCacheTTL     // stale after TTL; keep 1 extra window
+	epEvictAfter := 12 * EndpointCacheTTL // keep fallback for up to 1 h
+	rvEvictAfter := 2 * ResolveCacheTTL   // stale after TTL; keep 1 extra window
 	hnEvictAfter := 2 * hostnameCacheTTL
 
 	d.epCacheMu.Lock()
@@ -3824,8 +3824,8 @@ func (d *Daemon) hostnameCachePath() string {
 
 // hostnameCacheDisk is the on-disk format for the hostname cache.
 type hostnameCacheDisk struct {
-	SavedAt   time.Time                          `json:"saved_at"`
-	Hostnames map[string]hostnameCacheDiskEntry  `json:"hostnames"`
+	SavedAt   time.Time                         `json:"saved_at"`
+	Hostnames map[string]hostnameCacheDiskEntry `json:"hostnames"`
 }
 
 type hostnameCacheDiskEntry struct {

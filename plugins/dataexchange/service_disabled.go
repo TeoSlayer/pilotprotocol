@@ -31,7 +31,7 @@ type Service struct{}
 // the real NewService.
 func NewService(_ ServiceConfig) *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "dataexchange-disabled" }
-func (s *Service) Order() int                                   { return 110 }
+func (s *Service) Name() string                                  { return "dataexchange-disabled" }
+func (s *Service) Order() int                                    { return 110 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }

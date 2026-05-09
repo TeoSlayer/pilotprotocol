@@ -8,11 +8,11 @@
 package identity
 
 import (
+	"bytes"
 	gocrypto "crypto"
 	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"

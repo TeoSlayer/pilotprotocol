@@ -120,11 +120,11 @@ func assertPayloadMatchesGolden(t *testing.T, topic string, payload map[string]a
 
 // TestWebhookCaptureReplayEvents pins the published payload schema
 // for every event the L11 webhook plugin forwards. Each sub-test:
-//   1. constructs a synthetic but representative payload that mirrors
-//      the map literal at the cited source line,
-//   2. publishes it via d.PublishEvent (same entrypoint daemon code
-//      uses internally),
-//   3. captures the bus event and compares to the frozen golden.
+//  1. constructs a synthetic but representative payload that mirrors
+//     the map literal at the cited source line,
+//  2. publishes it via d.PublishEvent (same entrypoint daemon code
+//     uses internally),
+//  3. captures the bus event and compares to the frozen golden.
 func TestWebhookCaptureReplayEvents(t *testing.T) {
 	t.Parallel()
 	d := daemon.New(daemon.Config{})

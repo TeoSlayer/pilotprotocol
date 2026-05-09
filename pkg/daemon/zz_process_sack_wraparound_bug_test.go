@@ -78,15 +78,15 @@ func TestProcessSACKWraparound(t *testing.T) {
 
 	// FIXED: use seqAfterOrEqual for both sides of the containment check.
 	if !sackedA {
-		t.Errorf("segment A (seq=0xFFFFF000, segEnd=0xFFFFF010) not sacked "+
-			"by block [0xFFFFF000, 0x00001000] — ProcessSACK raw 'segEnd <= Right' "+
-			"comparison fails at uint32 wraparound (0xFFFFF010 <= 0x00001000 = false); "+
+		t.Errorf("segment A (seq=0xFFFFF000, segEnd=0xFFFFF010) not sacked " +
+			"by block [0xFFFFF000, 0x00001000] — ProcessSACK raw 'segEnd <= Right' " +
+			"comparison fails at uint32 wraparound (0xFFFFF010 <= 0x00001000 = false); " +
 			"fix: use seqAfterOrEqual(b.Right, segEnd)")
 	}
 	if !sackedB {
-		t.Errorf("segment B (seq=0x00000010, segEnd=0x00000020) not sacked "+
-			"by block [0xFFFFF000, 0x00001000] — ProcessSACK raw 'e.seq >= Left' "+
-			"comparison fails at uint32 wraparound (0x00000010 >= 0xFFFFF000 = false); "+
+		t.Errorf("segment B (seq=0x00000010, segEnd=0x00000020) not sacked " +
+			"by block [0xFFFFF000, 0x00001000] — ProcessSACK raw 'e.seq >= Left' " +
+			"comparison fails at uint32 wraparound (0x00000010 >= 0xFFFFF000 = false); " +
 			"fix: use seqAfterOrEqual(e.seq, b.Left)")
 	}
 }

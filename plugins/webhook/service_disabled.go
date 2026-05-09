@@ -32,10 +32,10 @@ type Service struct{}
 // unconditional, so the type is always available).
 func NewService(_ string, _ ...Option) *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "webhook-disabled" }
-func (s *Service) Order() int                                   { return 90 }
+func (s *Service) Name() string                                  { return "webhook-disabled" }
+func (s *Service) Order() int                                    { return 90 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }
 
 // SetURL is a silent no-op when the plugin is disabled. Persisting
 // the URL would be misleading because nothing is going to deliver to

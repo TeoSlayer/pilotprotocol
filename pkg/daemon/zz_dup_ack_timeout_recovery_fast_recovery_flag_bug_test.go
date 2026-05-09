@@ -49,9 +49,9 @@ import (
 //     (same-episode dup ACKs must not set FastRecovery).
 //
 //  2. Narrow the step-6 guard from
-//       (oldDupAckCount >= 3 || wasFastRecovery) && wasInRecovery
+//     (oldDupAckCount >= 3 || wasFastRecovery) && wasInRecovery
 //     to
-//       wasFastRecovery && wasInRecovery
+//     wasFastRecovery && wasInRecovery
 //     so that step 6 only fires when FastRecovery was explicitly set
 //     (i.e. recovery was entered via fast retransmit for a new episode).
 //     This prevents leftover DupAckCount >= 3 from triggering spurious
@@ -71,10 +71,10 @@ func TestSameEpisodeDupAcksDoNotSetFastRecoveryFlag(t *testing.T) {
 
 	const (
 		seqA                 = uint32(1000)
-		seqB                 = seqA + MaxSegmentSize  // 5096 — SACKED by receiver
-		seqC                 = seqB + MaxSegmentSize  // 9192 — still outstanding
-		seqD                 = seqC + MaxSegmentSize  // 13288 — RecoveryPoint
-		ssthreshAfterTimeout = 5 * MaxSegmentSize     // 20480
+		seqB                 = seqA + MaxSegmentSize // 5096 — SACKED by receiver
+		seqC                 = seqB + MaxSegmentSize // 9192 — still outstanding
+		seqD                 = seqC + MaxSegmentSize // 13288 — RecoveryPoint
+		ssthreshAfterTimeout = 5 * MaxSegmentSize    // 20480
 	)
 
 	conn.Mu.Lock()
@@ -86,12 +86,12 @@ func TestSameEpisodeDupAcksDoNotSetFastRecoveryFlag(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = MaxSegmentSize        // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
+	conn.CongWin = MaxSegmentSize // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
 	conn.SSThresh = ssthreshAfterTimeout
 	conn.DupAckCount = 0
-	conn.InRecovery = true               // set by the retransmission timeout
-	conn.FastRecovery = false            // cleared by retransmitUnacked
-	conn.RecoveryPoint = seqD            // = SendSeq (no new data)
+	conn.InRecovery = true    // set by the retransmission timeout
+	conn.FastRecovery = false // cleared by retransmitUnacked
+	conn.RecoveryPoint = seqD // = SendSeq (no new data)
 	conn.RTO = InitialRTO
 	now := time.Now()
 	conn.Unacked = []*retxEntry{

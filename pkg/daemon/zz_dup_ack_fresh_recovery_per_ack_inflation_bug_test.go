@@ -72,12 +72,12 @@ func TestFreshFastRecoveryPerDupAckInflation(t *testing.T) {
 	now := time.Now()
 	c.RetxMu.Lock()
 	c.LastAck = seqA
-	c.DupAckCount = 3                          // third dup ACK just fired
-	c.InRecovery = true                        // entered by DupAckCount==3 path
-	c.FastRecovery = true                      // fast retransmit entered this episode
-	c.RecoveryPoint = sendSeq                  // set to sendSeq by DupAckCount==3 path
-	c.SSThresh = 2 * MaxSegmentSize            // halved: max(3*MSS/2, 2*MSS) = 2*MSS
-	c.CongWin = c.SSThresh + 3*MaxSegmentSize  // = 5*MSS = 20480
+	c.DupAckCount = 3                         // third dup ACK just fired
+	c.InRecovery = true                       // entered by DupAckCount==3 path
+	c.FastRecovery = true                     // fast retransmit entered this episode
+	c.RecoveryPoint = sendSeq                 // set to sendSeq by DupAckCount==3 path
+	c.SSThresh = 2 * MaxSegmentSize           // halved: max(3*MSS/2, 2*MSS) = 2*MSS
+	c.CongWin = c.SSThresh + 3*MaxSegmentSize // = 5*MSS = 20480
 	c.Unacked = []*retxEntry{
 		{seq: seqB, data: make([]byte, MaxSegmentSize), attempts: 2, sentAt: now}, // fast-retransmitted
 		{seq: seqC, data: make([]byte, MaxSegmentSize), attempts: 1, sentAt: now},

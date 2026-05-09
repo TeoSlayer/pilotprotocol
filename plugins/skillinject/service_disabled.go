@@ -23,7 +23,7 @@ type Service struct{}
 // real NewService.
 func NewService(_ Config) *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "skillinject-disabled" }
-func (s *Service) Order() int                                   { return 200 }
+func (s *Service) Name() string                                  { return "skillinject-disabled" }
+func (s *Service) Order() int                                    { return 200 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }

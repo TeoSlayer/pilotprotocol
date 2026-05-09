@@ -72,8 +72,8 @@ func TestFastRecoveryPartialAckNoAIMDInflation(t *testing.T) {
 	c.InRecovery = true
 	c.FastRecovery = true
 	c.RecoveryPoint = recoveryPoint
-	c.SSThresh = 2 * MaxSegmentSize            // 8192
-	c.CongWin = c.SSThresh + 3*MaxSegmentSize  // 5*MSS = 20480
+	c.SSThresh = 2 * MaxSegmentSize           // 8192
+	c.CongWin = c.SSThresh + 3*MaxSegmentSize // 5*MSS = 20480
 
 	now := time.Now()
 	c.Unacked = []*retxEntry{

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	
 )
 
 func testPolicy() *PolicyDocument {
@@ -37,7 +35,6 @@ func compileTestPolicy(t *testing.T) *CompiledPolicy {
 	}
 	return cp
 }
-
 
 func TestPolicyRunnerStatus(t *testing.T) {
 	t.Parallel()
@@ -535,4 +532,3 @@ func TestParamInt(t *testing.T) {
 		})
 	}
 }
-

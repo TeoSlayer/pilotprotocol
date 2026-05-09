@@ -294,7 +294,11 @@ func TestStopManagedStopsAllRegisteredEngines(t *testing.T) {
 func TestPeerTagsForReturnsEmptyWhenNoSources(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	got := d.peerTagsFor(42, nil)
 	if len(got) != 0 {
 		t.Fatalf("peerTagsFor with no sources = %v, want empty", got)
@@ -304,7 +308,11 @@ func TestPeerTagsForReturnsEmptyWhenNoSources(t *testing.T) {
 func TestPeerTagsForMergesNodeInfoAndLocal(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	d.cacheResolve(42, map[string]interface{}{
 		"tags": []interface{}{"service", "prod"},
 	})
@@ -318,7 +326,11 @@ func TestPeerTagsForMergesNodeInfoAndLocal(t *testing.T) {
 func TestPeerTagsForDedupsAcrossSources(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	d.cacheResolve(42, map[string]interface{}{
 		"tags": []interface{}{"service", "shared"},
 	})
@@ -332,7 +344,11 @@ func TestPeerTagsForDedupsAcrossSources(t *testing.T) {
 func TestPeerTagsForReturnsNodeInfoOnlyWhenNoLocal(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	d.cacheResolve(42, map[string]interface{}{
 		"tags": []interface{}{"service"},
 	})
@@ -345,7 +361,11 @@ func TestPeerTagsForReturnsNodeInfoOnlyWhenNoLocal(t *testing.T) {
 func TestPeerTagsForIgnoresNonStringTagEntries(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	d.cacheResolve(42, map[string]interface{}{
 		"tags": []interface{}{"service", 12345, nil, "prod"},
 	})

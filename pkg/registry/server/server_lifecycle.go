@@ -19,8 +19,8 @@ import (
 	dirpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/directory"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/events"
 	identpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/identity"
-	metrpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/metrics"
 	membpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/membership"
+	metrpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/metrics"
 	policypkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/policy"
 	replpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/replication"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/routing"
@@ -268,24 +268,24 @@ func New(beaconAddr string) *Server {
 
 func NewWithStore(beaconAddr, storePath string) *Server {
 	s := &Server{
-		nodes:              make(map[uint32]*NodeInfo),
-		networks:           make(map[uint16]*NetworkInfo),
-		pubKeyIdx:          make(map[string]uint32),
-		ownerIdx:           make(map[string]uint32),
-		hostnameIdx:        make(map[string]uint32),
-		maxNodes:           1_000_000,
-		nextNode:           1, // 0 is reserved
-		nextNet:            1, // 0 is backbone
-		beaconAddr:         beaconAddr,
-		storePath:          storePath,
-		startTime:          time.Now(),
-		inviteInbox: make(map[uint32][]*NetworkInvite),
-		beacons:            make(map[uint32]*beaconEntry),
-		replMgr:            replpkg.NewManager(),
-		deltaLog:           newDeltaLog(),
-		metrics:            metrpkg.NewStore(RecoveredPanicCount),
-		readyCh:            make(chan struct{}),
-		done:               make(chan struct{}),
+		nodes:           make(map[uint32]*NodeInfo),
+		networks:        make(map[uint16]*NetworkInfo),
+		pubKeyIdx:       make(map[string]uint32),
+		ownerIdx:        make(map[string]uint32),
+		hostnameIdx:     make(map[string]uint32),
+		maxNodes:        1_000_000,
+		nextNode:        1, // 0 is reserved
+		nextNet:         1, // 0 is backbone
+		beaconAddr:      beaconAddr,
+		storePath:       storePath,
+		startTime:       time.Now(),
+		inviteInbox:     make(map[uint32][]*NetworkInvite),
+		beacons:         make(map[uint32]*beaconEntry),
+		replMgr:         replpkg.NewManager(),
+		deltaLog:        newDeltaLog(),
+		metrics:         metrpkg.NewStore(RecoveredPanicCount),
+		readyCh:         make(chan struct{}),
+		done:            make(chan struct{}),
 		now:             time.Now,
 		netHourly:       make(map[uint16]*netHistoryRing),
 		netDaily:        make(map[uint16]*netHistoryRing),
@@ -294,23 +294,23 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 	}
 	s.staleNodeThresholdNs.Store(int64(defaultStaleNodeThreshold))
 	s.accept = acceptpkg.NewAcceptor(defaultMaxConnections, s) // R3.2: accept/TLS/rate-limit layer
-	s.authz = authzpkg.NewChecker("", "") // tokens set later via SetAdminToken / SetDashboardToken
+	s.authz = authzpkg.NewChecker("", "")                      // tokens set later via SetAdminToken / SetDashboardToken
 	s.listNodesCache.Cond = sync.NewCond(&s.listNodesCache.Mu)
-	s.routing = routing.NewStore(s)          // R1.4: beacon/punch routing sub-package
-	s.webhook = webhookpkg.NewStore()        // R1.3: webhook sub-package
-	s.webhook.Subscribe(s.bus)               // fan-out audit.entry events → webhook HTTP POST
-	s.auditStore = auditpkg.NewStore()       // R1.2: audit sub-package
-	s.auditStore.Subscribe(s.bus)            // async ring-buffer + exporter fan-out
+	s.routing = routing.NewStore(s)                    // R1.4: beacon/punch routing sub-package
+	s.webhook = webhookpkg.NewStore()                  // R1.3: webhook sub-package
+	s.webhook.Subscribe(s.bus)                         // fan-out audit.entry events → webhook HTTP POST
+	s.auditStore = auditpkg.NewStore()                 // R1.2: audit sub-package
+	s.auditStore.Subscribe(s.bus)                      // async ring-buffer + exporter fan-out
 	s.trust = trustpkg.NewStore(s, trustpkg.Callbacks{ // R2.1: trust sub-package
-		Save:                s.save,
-		Audit:               s.audit,
-		IncTrustReports:     s.metrics.TrustReports.Inc,
-		IncTrustRevocations: s.metrics.TrustRevocations.Inc,
+		Save:                 s.save,
+		Audit:                s.audit,
+		IncTrustReports:      s.metrics.TrustReports.Inc,
+		IncTrustRevocations:  s.metrics.TrustRevocations.Inc,
 		IncHandshakeRequests: s.metrics.HandshakeRequests.Inc,
 	})
 	s.identity = identpkg.NewStore(s, identpkg.Callbacks{ // R2.3: identity sub-package
-		Save:  s.save,
-		Audit: s.audit,
+		Save:                s.save,
+		Audit:               s.audit,
 		IncKeyRotations:     s.metrics.KeyRotations.Inc,
 		IncIDPVerifications: s.metrics.IdpVerifications.Inc,
 		RecordWAL: func(nodeID uint32, newPubKeyB64, rotatedAt string) {
@@ -476,7 +476,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 			IncInvitesSent:     s.metrics.InvitesSent.Inc,
 			IncInvitesAccepted: s.metrics.InvitesAccepted.Inc,
 			IncInvitesRejected: s.metrics.InvitesRejected.Inc,
-			IncRbacOps: func(op string) { s.metrics.RbacOps.WithLabel(op).Inc() },
+			IncRbacOps:         func(op string) { s.metrics.RbacOps.WithLabel(op).Inc() },
 		},
 		func() time.Time { return s.now() },
 	)
@@ -746,4 +746,3 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 
 	return s
 }
-

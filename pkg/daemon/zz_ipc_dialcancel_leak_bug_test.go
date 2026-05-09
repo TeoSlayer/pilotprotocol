@@ -41,8 +41,8 @@ func TestIPCDialCancelsLeakOnCompletedDials(t *testing.T) {
 	for i := 0; i < N; i++ {
 		_, cancel := context.WithCancel(context.Background())
 		id := ic.addDialCancel(cancel)
-		cancel()                  // simulate defer dialCancel()
-		ic.removeDialCancel(id)  // v1.9.1 fix: remove after dial completes
+		cancel()                // simulate defer dialCancel()
+		ic.removeDialCancel(id) // v1.9.1 fix: remove after dial completes
 	}
 
 	got := ic.dialCancelCount()

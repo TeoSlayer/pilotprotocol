@@ -9,7 +9,7 @@ import (
 )
 
 // BenchmarkConcurrentStreams5 measures aggregate throughput across 5 simultaneous streams.
-func BenchmarkConcurrentStreams5(b *testing.B)  { runConcurrentBench(b, 5) }
+func BenchmarkConcurrentStreams5(b *testing.B) { runConcurrentBench(b, 5) }
 
 // BenchmarkConcurrentStreams10 measures aggregate throughput across 10 simultaneous streams.
 func BenchmarkConcurrentStreams10(b *testing.B) { runConcurrentBench(b, 10) }
@@ -35,7 +35,10 @@ func runConcurrentBench(b *testing.B, n int) {
 	// Pre-create all n listeners on B, one per stream port.
 	// Ports benchPort … benchPort+n-1 (benchPort=9201, max n=25 → 9225).
 	type listenerState struct {
-		ln interface{ Accept() (net.Conn, error); Close() error }
+		ln interface {
+			Accept() (net.Conn, error)
+			Close() error
+		}
 	}
 
 	listeners := make([]*listenerState, n)

@@ -77,7 +77,7 @@ func TestNewEpisodeDupAcksInRecoveryHalveSSThresh(t *testing.T) {
 
 	const (
 		seqA                 = uint32(1000)
-		seqB                 = seqA + MaxSegmentSize  // 5096 — timeout-retransmitted, in Unacked
+		seqB                 = seqA + MaxSegmentSize   // 5096 — timeout-retransmitted, in Unacked
 		seqD                 = seqA + 2*MaxSegmentSize // 9192 — RecoveryPoint from timeout
 		seqE                 = seqA + 3*MaxSegmentSize // 13288 — new data, in Unacked
 		ssthreshAfterTimeout = 5 * MaxSegmentSize      // 20480 — halved from 10*MSS by timeout
@@ -93,12 +93,12 @@ func TestNewEpisodeDupAcksInRecoveryHalveSSThresh(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = MaxSegmentSize       // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
+	conn.CongWin = MaxSegmentSize        // RFC 5681 §3.1: post-timeout cwnd = 1 SMSS
 	conn.SSThresh = ssthreshAfterTimeout // 5*MSS, set by the retransmission timeout
 	conn.DupAckCount = 0
-	conn.InRecovery = true              // timeout set InRecovery=true
-	conn.FastRecovery = false           // cleared by timeout
-	conn.RecoveryPoint = seqD           // timeout's recovery window ends at seqD
+	conn.InRecovery = true    // timeout set InRecovery=true
+	conn.FastRecovery = false // cleared by timeout
+	conn.RecoveryPoint = seqD // timeout's recovery window ends at seqD
 	conn.RTO = InitialRTO
 	now := time.Now()
 	conn.Unacked = []*retxEntry{

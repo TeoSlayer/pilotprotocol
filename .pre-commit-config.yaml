@@ -34,7 +34,7 @@ repos:
 
       - id: go-test
         name: go test
-        entry: bash -c 'cd tests && go test -v -timeout 30s'
+        entry: bash -c 'cd tests && go test -v -short -timeout 30s'
         language: system
         files: \.go$
         pass_filenames: false

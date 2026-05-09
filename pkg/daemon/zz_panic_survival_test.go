@@ -20,10 +20,10 @@ import (
 func TestL1UnmarshalPanicSurvival(t *testing.T) {
 	t.Parallel()
 	cases := [][]byte{
-		nil,                            // nil slice
-		{},                             // empty
-		make([]byte, 10),               // shorter than header
-		make([]byte, 34),               // header-sized, all zeros — bad version
+		nil,              // nil slice
+		{},               // empty
+		make([]byte, 10), // shorter than header
+		make([]byte, 34), // header-sized, all zeros — bad version
 		append([]byte{}, badChecksumPacket()...),
 	}
 	for i, c := range cases {
@@ -76,8 +76,8 @@ func TestL2ReadLoopPanicSurvival(t *testing.T) {
 
 	// Burst of malformed frames.
 	bursts := [][]byte{
-		{0x09},                              // unknown beacon type
-		{'X', 'X', 'X', 'X'},                // unknown magic
+		{0x09},               // unknown beacon type
+		{'X', 'X', 'X', 'X'}, // unknown magic
 		append([]byte{'P', 'I', 'L', 'T'}, make([]byte, 5)...), // truncated PILT
 	}
 	for _, b := range bursts {

@@ -25,7 +25,7 @@ type Service struct{}
 // as the real NewService in service.go.
 func NewService() *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "updater-disabled" }
-func (s *Service) Order() int                                   { return 250 }
+func (s *Service) Name() string                                  { return "updater-disabled" }
+func (s *Service) Order() int                                    { return 250 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }

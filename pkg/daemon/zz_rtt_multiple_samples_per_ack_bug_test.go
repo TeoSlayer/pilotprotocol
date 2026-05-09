@@ -42,9 +42,9 @@ import (
 // With the bug (two updateRTT calls starting from SRTT=0):
 //   - Call 1: SRTT = 1000 ms, RTTVAR = 500 ms
 //   - Call 2: diff = |1000-10| = 990 ms
-//             RTTVAR = 500*3/4 + 990/4 = 375+247.5 = 622.5 ms
-//             SRTT   = 1000*7/8 + 10/8 = 875+1.25  = 876.25 ms
-//   → SRTT ≈ 876 ms, pulled down by the short-RTT segment
+//     RTTVAR = 500*3/4 + 990/4 = 375+247.5 = 622.5 ms
+//     SRTT   = 1000*7/8 + 10/8 = 875+1.25  = 876.25 ms
+//     → SRTT ≈ 876 ms, pulled down by the short-RTT segment
 //
 // With the fix (one updateRTT call using the first/oldest acked segment):
 //   - SRTT = 1000 ms (first measurement, set directly per RFC 6298 §2.2)

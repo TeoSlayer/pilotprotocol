@@ -76,4 +76,3 @@ func TestNodeInfo_AtomicLastSeen_Concurrent(t *testing.T) {
 		t.Errorf("final value %v is before base %v", got, base)
 	}
 }
-

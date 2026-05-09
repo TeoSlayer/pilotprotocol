@@ -106,8 +106,8 @@ func TestSubscribePrefixWildcard(t *testing.T) {
 
 	b.Publish(Event{Type: "foo.bar"})
 	b.Publish(Event{Type: "foo.baz"})
-	b.Publish(Event{Type: "foo"})        // no dot suffix — should NOT match
-	b.Publish(Event{Type: "fooz.bar"})   // wrong prefix — should NOT match
+	b.Publish(Event{Type: "foo"})      // no dot suffix — should NOT match
+	b.Publish(Event{Type: "fooz.bar"}) // wrong prefix — should NOT match
 	b.Publish(Event{Type: "foo.bar.qux"})
 
 	wantTypes := []string{"foo.bar", "foo.baz", "foo.bar.qux"}

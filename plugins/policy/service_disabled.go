@@ -26,10 +26,10 @@ type Service struct{}
 // real NewService (takes a Runtime, ignored under no_policy).
 func NewService(_ Runtime) *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "policy-disabled" }
-func (s *Service) Order() int                                   { return 140 }
+func (s *Service) Name() string                                  { return "policy-disabled" }
+func (s *Service) Order() int                                    { return 140 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }
 
 // Manager returns a no-op coreapi.PolicyManager.
 func (s *Service) Manager() coreapi.PolicyManager { return disabledManager{} }
@@ -43,8 +43,8 @@ type disabledManager struct{}
 func (disabledManager) Start(_ uint16, _ []byte) (coreapi.PolicyRunner, error) {
 	return nil, errPolicyDisabled
 }
-func (disabledManager) Stop(_ uint16)                       {}
-func (disabledManager) Get(_ uint16) coreapi.PolicyRunner   { return nil }
-func (disabledManager) All() []coreapi.PolicyRunner         { return nil }
-func (disabledManager) StopAll()                            {}
-func (disabledManager) LoadPersisted() error                { return nil }
+func (disabledManager) Stop(_ uint16)                     {}
+func (disabledManager) Get(_ uint16) coreapi.PolicyRunner { return nil }
+func (disabledManager) All() []coreapi.PolicyRunner       { return nil }
+func (disabledManager) StopAll()                          {}
+func (disabledManager) LoadPersisted() error              { return nil }

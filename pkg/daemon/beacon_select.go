@@ -9,7 +9,7 @@ import (
 // Pre-extraction names re-exposed as thin shims over routing/.
 // Canonical definitions live at pkg/daemon/routing/select.go (L4).
 
-func isUnreachableBeaconHost(host string) bool { return routing.IsUnreachableBeaconHost(host) }
+func isUnreachableBeaconHost(host string) bool  { return routing.IsUnreachableBeaconHost(host) }
 func filterUnreachable(addrs []string) []string { return routing.FilterUnreachable(addrs) }
 func parseBeaconList(s string) []string         { return routing.ParseBeaconList(s) }
 func pickBeacon(list []string, key []byte) string {

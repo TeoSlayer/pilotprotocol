@@ -14,12 +14,12 @@ import (
 // Order determines the start sequence. Lower numbers start first;
 // higher numbers stop first. Suggested ranges:
 //
-//	  10-49   Foundation (none today)
-//	  50-79   Trust / identity-adjacent (trustedagents)
-//	  80-99   Observability (webhook)
-//	 100-199  Application services (dataexchange, eventstream, tasks)
-//	 200-249  Sidecars (skillinject)
-//	 250+     Tooling-bound (updater)
+//	 10-49   Foundation (none today)
+//	 50-79   Trust / identity-adjacent (trustedagents)
+//	 80-99   Observability (webhook)
+//	100-199  Application services (dataexchange, eventstream, tasks)
+//	200-249  Sidecars (skillinject)
+//	250+     Tooling-bound (updater)
 //
 // Start receives Deps (the L10 surface). Implementations must NOT
 // retain references to anything outside Deps — that's the whole

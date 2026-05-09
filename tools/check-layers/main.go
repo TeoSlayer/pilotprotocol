@@ -81,17 +81,17 @@ type bootstrapCallSite struct {
 }
 
 type bootstrapException struct {
-	Description       string              `yaml:"description"`
-	AllowedCallSites  []bootstrapCallSite `yaml:"allowed_call_sites"`
+	Description      string              `yaml:"description"`
+	AllowedCallSites []bootstrapCallSite `yaml:"allowed_call_sites"`
 }
 
 type layersDoc struct {
-	Layers              map[string]layerSpec           `yaml:"layers"`
-	Utilities           layerSpec                      `yaml:"utilities"`
-	Excluded            layerSpec                      `yaml:"excluded"`
-	KnownTransitional   []transitional                 `yaml:"known_transitional"`
-	SideChannels        map[string]sideChannel         `yaml:"side_channels"`
-	BootstrapException  map[string]bootstrapException  `yaml:"bootstrap_exception"`
+	Layers             map[string]layerSpec          `yaml:"layers"`
+	Utilities          layerSpec                     `yaml:"utilities"`
+	Excluded           layerSpec                     `yaml:"excluded"`
+	KnownTransitional  []transitional                `yaml:"known_transitional"`
+	SideChannels       map[string]sideChannel        `yaml:"side_channels"`
+	BootstrapException map[string]bootstrapException `yaml:"bootstrap_exception"`
 }
 
 type pkgInfo struct {

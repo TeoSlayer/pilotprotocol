@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 // ---------------------------------------------------------------------------
@@ -1255,7 +1255,6 @@ func TestRegistryClientTrustReportRevoke(t *testing.T) {
 		t.Fatalf("expected revoke_trust_ok, got %v", revokeResp["type"])
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // Type structs

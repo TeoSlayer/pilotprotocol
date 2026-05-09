@@ -43,8 +43,8 @@ func (a policyManagerAdapter) All() []daemon.PolicyRunner {
 	return out
 }
 
-func (a policyManagerAdapter) StopAll()              { a.inner.StopAll() }
-func (a policyManagerAdapter) LoadPersisted() error  { return a.inner.LoadPersisted() }
+func (a policyManagerAdapter) StopAll()             { a.inner.StopAll() }
+func (a policyManagerAdapter) LoadPersisted() error { return a.inner.LoadPersisted() }
 
 // wrapRunner converts a coreapi.PolicyRunner to a daemon.PolicyRunner.
 // The methods are structurally compatible (PolicyEventType is a type
@@ -59,7 +59,7 @@ func wrapRunner(pr coreapi.PolicyRunner) daemon.PolicyRunner {
 
 type runnerAdapter struct{ inner coreapi.PolicyRunner }
 
-func (r runnerAdapter) NetworkID() uint16            { return r.inner.NetworkID() }
+func (r runnerAdapter) NetworkID() uint16                { return r.inner.NetworkID() }
 func (r runnerAdapter) HasMember(peerNodeID uint32) bool { return r.inner.HasMember(peerNodeID) }
 func (r runnerAdapter) EvaluatePortGate(eventType string, port uint16, peerNodeID uint32, payloadSize int, direction string, localTags, nodeInfoTags []string) bool {
 	return r.inner.EvaluatePortGate(eventType, port, peerNodeID, payloadSize, direction, localTags, nodeInfoTags)
@@ -67,9 +67,9 @@ func (r runnerAdapter) EvaluatePortGate(eventType string, port uint16, peerNodeI
 func (r runnerAdapter) EvaluateActions(eventType string, ctx map[string]any) {
 	r.inner.EvaluateActions(eventType, ctx)
 }
-func (r runnerAdapter) Status() map[string]any                   { return r.inner.Status() }
-func (r runnerAdapter) PeerList() []map[string]interface{}       { return r.inner.PeerList() }
-func (r runnerAdapter) ForceCycle() map[string]any               { return r.inner.ForceCycle() }
-func (r runnerAdapter) ReconcileNow()                            { r.inner.ReconcileNow() }
-func (r runnerAdapter) PolicyJSON() ([]byte, error)              { return r.inner.PolicyJSON() }
-func (r runnerAdapter) Stop()                                    { r.inner.Stop() }
+func (r runnerAdapter) Status() map[string]any             { return r.inner.Status() }
+func (r runnerAdapter) PeerList() []map[string]interface{} { return r.inner.PeerList() }
+func (r runnerAdapter) ForceCycle() map[string]any         { return r.inner.ForceCycle() }
+func (r runnerAdapter) ReconcileNow()                      { r.inner.ReconcileNow() }
+func (r runnerAdapter) PolicyJSON() ([]byte, error)        { return r.inner.PolicyJSON() }
+func (r runnerAdapter) Stop()                              { r.inner.Stop() }

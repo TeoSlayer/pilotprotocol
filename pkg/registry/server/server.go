@@ -13,12 +13,12 @@ import (
 	dashpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/dashboard"
 	dirpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/directory"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/events"
-	metrpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/metrics"
-	membpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/membership"
-	policypkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/policy"
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/routing"
 	identpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/identity"
+	membpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/membership"
+	metrpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/metrics"
+	policypkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/policy"
 	replpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/replication"
+	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/routing"
 	trustpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/trust"
 	walpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/wal"
 	webhookpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/webhook"
@@ -72,10 +72,10 @@ import (
 const numNodeShards = 256
 
 type Server struct {
-	mu           sync.RWMutex
-	nodeShards   [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
-	nodes        map[uint32]*NodeInfo
-	maxNodes     int // max registered nodes (0 = unlimited); prevents memory exhaustion
+	mu                sync.RWMutex
+	nodeShards        [numNodeShards]sync.RWMutex // per-node field locks (nodeID % N)
+	nodes             map[uint32]*NodeInfo
+	maxNodes          int // max registered nodes (0 = unlimited); prevents memory exhaustion
 	startTime         time.Time
 	restartEvents     []int64    // unix-millis of each process start after the first
 	downtimeIntervals [][2]int64 // [start,end] unix-millis pairs, pruned to last 30d
@@ -87,18 +87,17 @@ type Server struct {
 	// Extracted to pkg/registry/server/dashboard (R5.1).
 	dashboard *dashpkg.Handler
 
-	networks map[uint16]*NetworkInfo
-	pubKeyIdx    map[string]uint32 // base64(pubkey) -> nodeID for re-registration
-	ownerIdx     map[string]uint32 // owner -> nodeID for key rotation
-	hostnameIdx  map[string]uint32 // hostname -> nodeID (unique index)
-	nextNode     uint32
-	nextNet      uint16
-	readyCh      chan struct{}
+	networks    map[uint16]*NetworkInfo
+	pubKeyIdx   map[string]uint32 // base64(pubkey) -> nodeID for re-registration
+	ownerIdx    map[string]uint32 // owner -> nodeID for key rotation
+	hostnameIdx map[string]uint32 // hostname -> nodeID (unique index)
+	nextNode    uint32
+	nextNet     uint16
+	readyCh     chan struct{}
 
 	// accept manages the TCP accept loop, TLS config, rate limiting, and
 	// log sampling. Extracted to pkg/registry/server/accept (R3.2).
 	accept *acceptpkg.Acceptor
-
 
 	// Beacon coordination
 	beaconAddr string
@@ -234,8 +233,8 @@ type Server struct {
 	// listings ("data-exchange" 45k members, "high-trust-society" 28k) all
 	// route through the same singleflight + 1s-TTL cache. Each network
 	// (and the admin path, key=0) has its own state inside listNodesPerNet.
-	listNodesCache    listNodesCacheState            // legacy backbone admin cache
-	listNodesPerNetMu sync.Mutex                     // guards the map itself
+	listNodesCache    listNodesCacheState // legacy backbone admin cache
+	listNodesPerNetMu sync.Mutex          // guards the map itself
 	listNodesPerNet   map[uint16]*listNodesCacheState
 }
 
@@ -301,4 +300,3 @@ const defaultMaxConnections int64 = 1100000
 
 // (The maximum allowed wire message size lives in pkg/registry/wire as
 // wire.MaxMessageSize. It's referenced through the wire package now.)
-

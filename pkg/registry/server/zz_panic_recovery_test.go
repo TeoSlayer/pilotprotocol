@@ -55,8 +55,8 @@ func TestRecoverHandlerConcurrent(t *testing.T) {
 	t.Parallel()
 
 	var (
-		mu       sync.Mutex
-		seenSet  = map[uint64]struct{}{}
+		mu      sync.Mutex
+		seenSet = map[uint64]struct{}{}
 	)
 
 	const N = 32

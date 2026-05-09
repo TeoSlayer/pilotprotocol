@@ -47,19 +47,19 @@ type NetworkPolicy struct {
 
 // NetworkInfo holds the in-memory state for a single network.
 type NetworkInfo struct {
-	ID          uint16
-	Name        string
-	JoinRule    string
-	Token       string // for token-gated networks
-	Members     []uint32
-	MemberRoles map[uint32]Role     // per-member RBAC roles
-	MemberTags  map[uint32][]string // admin-assigned per-member tags (e.g. "service")
-	AdminToken  string              // per-network admin token (optional)
-	Policy      NetworkPolicy       // network policy (membership limits, port restrictions)
-	Rules       *wire.NetworkRules  // managed network rules (nil = normal network)
-	ExprPolicy  json.RawMessage     // programmable policy engine document (nil = none)
-	Enterprise  bool                // enterprise network (gates Phase 2-5 features)
-	Created     time.Time
+	ID           uint16
+	Name         string
+	JoinRule     string
+	Token        string // for token-gated networks
+	Members      []uint32
+	MemberRoles  map[uint32]Role     // per-member RBAC roles
+	MemberTags   map[uint32][]string // admin-assigned per-member tags (e.g. "service")
+	AdminToken   string              // per-network admin token (optional)
+	Policy       NetworkPolicy       // network policy (membership limits, port restrictions)
+	Rules        *wire.NetworkRules  // managed network rules (nil = normal network)
+	ExprPolicy   json.RawMessage     // programmable policy engine document (nil = none)
+	Enterprise   bool                // enterprise network (gates Phase 2-5 features)
+	Created      time.Time
 	RequestCount atomic.Int64 // per-network request counter (dashboard stats)
 }
 
@@ -173,7 +173,7 @@ type Callbacks struct {
 // mu pointer. This is intentional for the R4.1 phase — locking semantics
 // are preserved by using the same mutex as the server.
 type Store struct {
-	mu          *sync.RWMutex      // SHARED with Server
+	mu          *sync.RWMutex // SHARED with Server
 	networks    map[uint16]*NetworkInfo
 	inviteInbox map[uint32][]*NetworkInvite
 	nextNet     *uint16 // pointer into Server.nextNet — mutations propagate back

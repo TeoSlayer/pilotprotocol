@@ -37,7 +37,7 @@ func TestValidateRulesValid(t *testing.T) {
 func TestValidateRulesValidWithGrace(t *testing.T) {
 	t.Parallel()
 	r := &wire.NetworkRules{
-		Links:   5, Cycle: "1h", Prune: 1, PruneBy: "age",
+		Links: 5, Cycle: "1h", Prune: 1, PruneBy: "age",
 		Fill: 1, FillHow: "random", Grace: "30m",
 	}
 	if err := wire.ValidateRules(r); err != nil {

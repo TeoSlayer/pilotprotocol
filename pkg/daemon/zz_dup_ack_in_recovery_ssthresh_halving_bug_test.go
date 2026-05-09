@@ -58,10 +58,10 @@ func TestDupAckFastRetransmitInRecoveryDoesNotRehalveSSThresh(t *testing.T) {
 	// SSThresh halved once, CongWin = InitialCongWin, InRecovery = true.
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = InitialCongWin          // timeout set this (10*MSS)
-	conn.SSThresh = 10 * MaxSegmentSize    // timeout halved from 20*MSS → 10*MSS
-	conn.DupAckCount = 0                   // timeout reset this (iter-51)
-	conn.InRecovery = true                 // timeout set this
+	conn.CongWin = InitialCongWin       // timeout set this (10*MSS)
+	conn.SSThresh = 10 * MaxSegmentSize // timeout halved from 20*MSS → 10*MSS
+	conn.DupAckCount = 0                // timeout reset this (iter-51)
+	conn.InRecovery = true              // timeout set this
 	conn.RecoveryPoint = seqA + MaxSegmentSize
 	conn.RTO = InitialRTO
 	conn.Unacked = []*retxEntry{{

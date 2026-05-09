@@ -108,9 +108,9 @@ func TestReplaySalvageNilArgsIsNoop(t *testing.T) {
 	t.Parallel()
 	tm := NewTunnelManager()
 	pc := fakePC(t)
-	tm.replaySalvage(nil, pc, 1, nil)  // oldPC nil
-	tm.replaySalvage(pc, nil, 1, nil)  // newPC nil
-	tm.replaySalvage(pc, pc, 1, nil)   // addr nil
+	tm.replaySalvage(nil, pc, 1, nil) // oldPC nil
+	tm.replaySalvage(pc, nil, 1, nil) // newPC nil
+	tm.replaySalvage(pc, pc, 1, nil)  // addr nil
 	// no panic = pass
 }
 

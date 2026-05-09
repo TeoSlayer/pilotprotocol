@@ -36,10 +36,10 @@ type ManagedEngine struct {
 
 // managedPeer tracks a single managed peer's state.
 type managedPeer struct {
-	NodeID   uint32     `json:"node_id"`
-	Tags     []string   `json:"tags,omitempty"` // peer tags (policy engine)
-	AddedAt  time.Time  `json:"added_at"`
-	LastSeen time.Time  `json:"last_seen"`
+	NodeID   uint32    `json:"node_id"`
+	Tags     []string  `json:"tags,omitempty"` // peer tags (policy engine)
+	AddedAt  time.Time `json:"added_at"`
+	LastSeen time.Time `json:"last_seen"`
 }
 
 // managedSnapshot is the JSON format persisted to disk.

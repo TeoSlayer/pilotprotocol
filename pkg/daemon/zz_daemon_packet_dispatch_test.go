@@ -17,19 +17,19 @@ import (
 func newPacketDaemon(t *testing.T, client *registry.Client) (*Daemon, *net.UDPConn) {
 	t.Helper()
 	d := &Daemon{
-		nodeID:        42,
-		tunnels:       NewTunnelManager(),
-		ports:         NewPortManager(),
-		regConn:       client,
-		resolveCache:  make(map[uint32]*resolveEntry),
-		epCache:       make(map[uint32]*endpointEntry),
-		netPolicies:   make(map[uint16][]uint16),
-		managed:    make(map[uint16]*ManagedEngine),
-		memberTags: make(map[uint16][]string),
-		synTokens:     DefaultSYNRateLimit,
-		synLastFill:   time.Now(),
-		perSrcSYN:     make(map[uint32]*srcSYNBucket),
-		stopCh:        make(chan struct{}),
+		nodeID:       42,
+		tunnels:      NewTunnelManager(),
+		ports:        NewPortManager(),
+		regConn:      client,
+		resolveCache: make(map[uint32]*resolveEntry),
+		epCache:      make(map[uint32]*endpointEntry),
+		netPolicies:  make(map[uint16][]uint16),
+		managed:      make(map[uint16]*ManagedEngine),
+		memberTags:   make(map[uint16][]string),
+		synTokens:    DefaultSYNRateLimit,
+		synLastFill:  time.Now(),
+		perSrcSYN:    make(map[uint32]*srcSYNBucket),
+		stopCh:       make(chan struct{}),
 	}
 	d.ipc = NewIPCServer("", d)
 	if err := d.tunnels.Listen("127.0.0.1:0"); err != nil {

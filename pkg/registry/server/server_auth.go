@@ -202,7 +202,6 @@ func (s *Server) appendAudit(action string, netID uint16, nodeID uint32, attrs .
 	return &entry
 }
 
-
 // invalidateListNodesCacheForNetwork drops the cached pre-marshalled response
 // for the given network so the next list_nodes call rebuilds. Call it after
 // any mutation to network.Members (join, leave, kick, invite-accept, admin
@@ -236,7 +235,6 @@ func (s *Server) invalidateAdminListNodesCache() {
 	c.BuiltAt = time.Time{}
 	c.Mu.Unlock()
 }
-
 
 // verifyNodeSignature checks a signature for a registry write operation (H3 fix).
 // If the node has a public key, the signature is required and verified.

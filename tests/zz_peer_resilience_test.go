@@ -11,8 +11,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 // TestEndpointCacheFallback verifies that when a peer's endpoint has been

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 // TestBeaconRegisterAndList verifies beacon registration and listing via the registry.

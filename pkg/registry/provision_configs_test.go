@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/policy"
+	"github.com/TeoSlayer/pilotprotocol/internal/policy"
 )
 
 // TestShippedNetworkBlueprintsLoadAndValidate walks every blueprint JSON under

@@ -295,4 +295,3 @@ func (s *Server) SyncTimestamp(netID uint16) time.Time {
 	}
 	return time.Time{}
 }
-

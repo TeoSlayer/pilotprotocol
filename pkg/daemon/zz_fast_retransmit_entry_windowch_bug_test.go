@@ -24,12 +24,13 @@ import (
 // that was blocked by a full window may now have room — but is not told.
 //
 // Concrete example (window = 2 segments):
-//   initial:    CongWin = 2*MSS = 8192, BytesInFlight = 8192 (window full)
-//   3rd dup-ACK (fast retransmit):
-//               SSThresh = max(8192/2, MSS) = 4096
-//               CongWin  = 4096 + 3*4096 = 16384
-//               WindowAvailable = (8192 < 16384) = true
-//               → window opened but WindowCh NOT signaled (bug)
+//
+//	initial:    CongWin = 2*MSS = 8192, BytesInFlight = 8192 (window full)
+//	3rd dup-ACK (fast retransmit):
+//	            SSThresh = max(8192/2, MSS) = 4096
+//	            CongWin  = 4096 + 3*4096 = 16384
+//	            WindowAvailable = (8192 < 16384) = true
+//	            → window opened but WindowCh NOT signaled (bug)
 //
 // This differs from the iter-39 bug (which fixed the DupAckCount>3 path):
 // the DupAckCount==3 path on entry to fast recovery also inflates CongWin for
@@ -49,7 +50,7 @@ func TestFastRetransmitEntryInflatesWindowAndSignalsWindowCh(t *testing.T) {
 	// 2 in-flight segments filling a 2-segment congestion window.
 	conn.RetxMu.Lock()
 	conn.LastAck = 1000
-	conn.CongWin = numSegs * MaxSegmentSize  // 8192 bytes
+	conn.CongWin = numSegs * MaxSegmentSize // 8192 bytes
 	conn.SSThresh = 4 * conn.CongWin        // high: won't constrain
 	for i := 0; i < numSegs; i++ {
 		conn.Unacked = append(conn.Unacked, &retxEntry{

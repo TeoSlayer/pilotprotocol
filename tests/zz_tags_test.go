@@ -15,8 +15,8 @@ import (
 	"time"
 
 	icrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 )
 
 func TestSetTagsBasic(t *testing.T) {

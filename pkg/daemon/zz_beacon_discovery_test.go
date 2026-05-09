@@ -19,7 +19,7 @@ import (
 type fakeRegistry struct {
 	mu        sync.Mutex
 	beacons   []string
-	failNext  int   // if >0, the next N Send() calls error
+	failNext  int // if >0, the next N Send() calls error
 	calls     atomic.Int64
 	lastError error
 }

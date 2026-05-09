@@ -99,7 +99,6 @@ func TestHandleEchoConnExitsOnSendDataError(t *testing.T) {
 	}
 }
 
-
 // --- startBuiltinServices: with all enabled (defaults), binds 4 service ports ---
 
 func TestStartBuiltinServicesBindsAllEnabledByDefault(t *testing.T) {

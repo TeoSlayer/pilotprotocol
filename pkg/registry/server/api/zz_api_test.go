@@ -20,47 +20,49 @@ import (
 
 type stubDirectory struct{}
 
-func (stubDirectory) GetNode(uint32) (*api.NodeInfo, bool)  { return nil, false }
+func (stubDirectory) GetNode(uint32) (*api.NodeInfo, bool)   { return nil, false }
 func (stubDirectory) NodeCount() int                         { return 0 }
 func (stubDirectory) List() []*api.NodeInfo                  { return nil }
 func (stubDirectory) Online(time.Time) int                   { return 0 }
 func (stubDirectory) TaskExecutorCount() int                 { return 0 }
-func (stubDirectory) LookupByPubKey(string) (uint32, bool)  { return 0, false }
+func (stubDirectory) LookupByPubKey(string) (uint32, bool)   { return 0, false }
 func (stubDirectory) LookupByHostname(string) (uint32, bool) { return 0, false }
 
 var _ api.DirectoryView = stubDirectory{}
 
 type stubIdentity struct{}
 
-func (stubIdentity) Configured() bool                           { return false }
-func (stubIdentity) GetKeyInfo(uint32) (*api.KeyInfo, bool)     { return nil, false }
+func (stubIdentity) Configured() bool                       { return false }
+func (stubIdentity) GetKeyInfo(uint32) (*api.KeyInfo, bool) { return nil, false }
 
 var _ api.IdentityView = stubIdentity{}
 
 type stubMembership struct{}
 
 func (stubMembership) GetNetwork(uint16) (*api.NetworkInfo, bool) { return nil, false }
-func (stubMembership) Count() int                                  { return 0 }
-func (stubMembership) Networks() []*api.NetworkInfo                { return nil }
-func (stubMembership) Members(uint16) []uint32                     { return nil }
-func (stubMembership) NetworksFor(uint32) []uint16                 { return nil }
-func (stubMembership) MemberRole(uint16, uint32) (api.Role, error) { return "", errors.New("not found") }
-func (stubMembership) MemberTags(uint16, uint32) []string          { return nil }
-func (stubMembership) PendingInvites(uint32) int                   { return 0 }
+func (stubMembership) Count() int                                 { return 0 }
+func (stubMembership) Networks() []*api.NetworkInfo               { return nil }
+func (stubMembership) Members(uint16) []uint32                    { return nil }
+func (stubMembership) NetworksFor(uint32) []uint16                { return nil }
+func (stubMembership) MemberRole(uint16, uint32) (api.Role, error) {
+	return "", errors.New("not found")
+}
+func (stubMembership) MemberTags(uint16, uint32) []string { return nil }
+func (stubMembership) PendingInvites(uint32) int          { return 0 }
 
 var _ api.MembershipView = stubMembership{}
 
 type stubTrust struct{}
 
-func (stubTrust) Count() int                  { return 0 }
-func (stubTrust) IsTrusted(a, b uint32) bool  { return false }
+func (stubTrust) Count() int                 { return 0 }
+func (stubTrust) IsTrusted(a, b uint32) bool { return false }
 
 var _ api.TrustView = stubTrust{}
 
 type stubPolicy struct{}
 
-func (stubPolicy) Get(uint16) (*api.NetworkPolicy, bool)   { return nil, false }
-func (stubPolicy) GetExpr(uint16) ([]byte, bool)           { return nil, false }
+func (stubPolicy) Get(uint16) (*api.NetworkPolicy, bool) { return nil, false }
+func (stubPolicy) GetExpr(uint16) ([]byte, bool)         { return nil, false }
 
 var _ api.PolicyView = stubPolicy{}
 

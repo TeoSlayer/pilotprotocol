@@ -140,19 +140,19 @@ type BeaconStatsProvider interface {
 
 // DashboardStats is the public-safe data returned by the dashboard API.
 type DashboardStats struct {
-	TotalNodes      int            `json:"total_nodes"`
-	ActiveNodes     int            `json:"active_nodes"`
-	TotalTrustLinks int            `json:"-"`
-	TotalRequests   int64          `json:"total_requests"`
-	RelayForwarded  uint64         `json:"relay_forwarded,omitempty"`
-	RelayDropped    uint64         `json:"relay_dropped,omitempty"`
-	RelayNotFound   uint64         `json:"relay_not_found,omitempty"`
-	ReqPerDay       int64          `json:"req_per_day"`
-	UptimeSecs      int64          `json:"uptime_secs"`
-	Versions        map[string]int `json:"versions,omitempty"`
-	Networks        []NetworkStats `json:"networks,omitempty"` // only populated with dashboard token
-	Hourly          []StatsSample  `json:"hourly,omitempty"`
-	Daily           []StatsSample  `json:"daily,omitempty"`
+	TotalNodes        int                    `json:"total_nodes"`
+	ActiveNodes       int                    `json:"active_nodes"`
+	TotalTrustLinks   int                    `json:"-"`
+	TotalRequests     int64                  `json:"total_requests"`
+	RelayForwarded    uint64                 `json:"relay_forwarded,omitempty"`
+	RelayDropped      uint64                 `json:"relay_dropped,omitempty"`
+	RelayNotFound     uint64                 `json:"relay_not_found,omitempty"`
+	ReqPerDay         int64                  `json:"req_per_day"`
+	UptimeSecs        int64                  `json:"uptime_secs"`
+	Versions          map[string]int         `json:"versions,omitempty"`
+	Networks          []NetworkStats         `json:"networks,omitempty"` // only populated with dashboard token
+	Hourly            []StatsSample          `json:"hourly,omitempty"`
+	Daily             []StatsSample          `json:"daily,omitempty"`
 	RestartEvents     []int64                `json:"restart_events,omitempty"`
 	DowntimeIntervals [][2]int64             `json:"downtime_intervals,omitempty"`
 	Probes            map[string]*ProbeState `json:"probes,omitempty"`

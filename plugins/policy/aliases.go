@@ -68,7 +68,7 @@ const (
 )
 
 // Lang free-function re-exports. Functions can't be aliased — wrap.
-func Parse(data []byte) (*PolicyDocument, error)         { return policylang.Parse(data) }
-func Validate(doc *PolicyDocument) error                 { return policylang.Validate(doc) }
+func Parse(data []byte) (*PolicyDocument, error)           { return policylang.Parse(data) }
+func Validate(doc *PolicyDocument) error                   { return policylang.Validate(doc) }
 func Compile(doc *PolicyDocument) (*CompiledPolicy, error) { return policylang.Compile(doc) }
-func IsGateEvent(e EventType) bool                       { return policylang.IsGateEvent(e) }
+func IsGateEvent(e EventType) bool                         { return policylang.IsGateEvent(e) }

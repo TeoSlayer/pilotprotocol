@@ -20,13 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/internal/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	policylang "github.com/TeoSlayer/pilotprotocol/internal/policy"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 )
 
 var version = "dev"
@@ -49,9 +49,9 @@ func configDir() string {
 	return home + "/" + defaultConfigDir
 }
 
-func configPath() string      { return configDir() + "/" + defaultConfigFile }
-func pidFilePath() string     { return configDir() + "/" + defaultPIDFile }
-func logFilePath() string     { return configDir() + "/" + defaultLogFile }
+func configPath() string       { return configDir() + "/" + defaultConfigFile }
+func pidFilePath() string      { return configDir() + "/" + defaultPIDFile }
+func logFilePath() string      { return configDir() + "/" + defaultLogFile }
 func featureFlagsPath() string { return configDir() + "/feature-flags.json" }
 
 // featureFlags is the in-process cache of ~/.pilot/feature-flags.json.
@@ -1881,12 +1881,12 @@ func cmdContext() {
 				"set-webhook":    map[string]interface{}{"args": []string{"<url>"}, "description": "Set webhook URL for event push notifications"},
 				"clear-webhook":  map[string]interface{}{"args": []string{}, "description": "Clear the webhook URL"},
 				// Low-level / plumbing
-				"connect":    map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
-				"send":       map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
-				"recv":       map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Accept and print incoming stream messages"},
-				"dgram":      map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a UDP-style datagram"},
-				"listen":     map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Listen for incoming datagrams"},
-				"broadcast":  map[string]interface{}{"args": []string{"<network_id>", "<message>"}, "description": "Broadcast a datagram to all network members"},
+				"connect":   map[string]interface{}{"args": []string{"<address|hostname>", "[port]", "[--message <msg>]"}, "description": "Open a raw stream connection"},
+				"send":      map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a single raw message to a port"},
+				"recv":      map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Accept and print incoming stream messages"},
+				"dgram":     map[string]interface{}{"args": []string{"<address|hostname>", "<port>", "--data <msg>"}, "description": "Send a UDP-style datagram"},
+				"listen":    map[string]interface{}{"args": []string{"<port>", "[--count <n>]"}, "description": "Listen for incoming datagrams"},
+				"broadcast": map[string]interface{}{"args": []string{"<network_id>", "<message>"}, "description": "Broadcast a datagram to all network members"},
 				// Connection management
 				"connections": map[string]interface{}{"args": []string{}, "description": "List active daemon connections"},
 				"disconnect":  map[string]interface{}{"args": []string{"<conn_id>"}, "description": "Close a connection by ID"},

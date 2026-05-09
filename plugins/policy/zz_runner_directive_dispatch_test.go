@@ -5,8 +5,6 @@ package policy
 import (
 	"testing"
 	"time"
-
-	
 )
 
 // Iter-96 coverage for PolicyRunner.EvaluateGate + EvaluateActions
@@ -25,11 +23,11 @@ func newTestPR(t *testing.T, doc *PolicyDocument) *PolicyRunner {
 		t.Fatalf("compile policy: %v", err)
 	}
 	r := &fakeRuntime{}
-	
+
 	return &PolicyRunner{
 		netID:    1,
 		compiled: cp,
-		runtime: r,
+		runtime:  r,
 		peers:    map[uint32]*managedPeer{},
 	}
 }

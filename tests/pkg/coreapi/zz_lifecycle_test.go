@@ -105,8 +105,8 @@ type recordingStop struct {
 	stops *[]string
 }
 
-func (r *recordingStop) Name() string                                     { return r.name }
-func (r *recordingStop) Order() int                                       { return r.order }
+func (r *recordingStop) Name() string                                       { return r.name }
+func (r *recordingStop) Order() int                                         { return r.order }
 func (r *recordingStop) Start(ctx context.Context, deps coreapi.Deps) error { return nil }
 func (r *recordingStop) Stop(ctx context.Context) error {
 	*r.stops = append(*r.stops, r.name)

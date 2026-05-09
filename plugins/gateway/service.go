@@ -29,7 +29,7 @@ type Service struct{}
 // cmd/gateway.
 func NewService() *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "gateway" }
-func (s *Service) Order() int                                   { return 220 }
+func (s *Service) Name() string                                  { return "gateway" }
+func (s *Service) Order() int                                    { return 220 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }

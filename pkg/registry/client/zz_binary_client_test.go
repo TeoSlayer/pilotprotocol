@@ -24,12 +24,12 @@ import (
 // --- fakeBinaryServer: minimal TCP server speaking the binary wire protocol ---
 
 type fakeBinaryServer struct {
-	ln       net.Listener
-	handler  func(msgType byte, payload []byte) (respType byte, respPayload []byte)
-	mu       sync.Mutex
+	ln         net.Listener
+	handler    func(msgType byte, payload []byte) (respType byte, respPayload []byte)
+	mu         sync.Mutex
 	handshakes atomic.Uint32
-	frames   atomic.Uint32
-	done     chan struct{}
+	frames     atomic.Uint32
+	done       chan struct{}
 }
 
 func newFakeBinaryServer(t *testing.T, handler func(msgType byte, payload []byte) (byte, []byte)) *fakeBinaryServer {
@@ -256,14 +256,14 @@ func TestLookupHappyPathDecodesResult(t *testing.T) {
 			return wire.MsgError, wire.EncodeError("bad type")
 		}
 		return wire.MsgLookupOK, wire.EncodeLookupResp(
-			42,              // nodeID
-			true, false,     // public, taskExec
-			[]uint16{1, 2},  // networks
-			[]byte{0xAB},    // pubkey
-			"host.example",  // hostname
-			[]string{"t1"},  // tags
-			"1.2.3.4:444",   // realAddr
-			"ext-123",       // externalID
+			42,          // nodeID
+			true, false, // public, taskExec
+			[]uint16{1, 2}, // networks
+			[]byte{0xAB},   // pubkey
+			"host.example", // hostname
+			[]string{"t1"}, // tags
+			"1.2.3.4:444",  // realAddr
+			"ext-123",      // externalID
 		)
 	})
 

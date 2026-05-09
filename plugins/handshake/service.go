@@ -25,8 +25,8 @@ func NewService(rt Runtime) *Service {
 
 // --- coreapi.Service ---
 
-func (s *Service) Name() string  { return "handshake" }
-func (s *Service) Order() int    { return 60 }
+func (s *Service) Name() string { return "handshake" }
+func (s *Service) Order() int   { return 60 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error {
 	return s.mgr.Start()
 }

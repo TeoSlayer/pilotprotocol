@@ -21,11 +21,11 @@ type testEnv struct {
 	nextNet     uint16
 
 	// stub node registry
-	nodes    map[uint32]nodeRecord
-	audited  []string
-	saved    int
-	memChg   []uint16
-	listInv  []uint16
+	nodes   map[uint32]nodeRecord
+	audited []string
+	saved   int
+	memChg  []uint16
+	listInv []uint16
 
 	st *Store
 }
@@ -54,8 +54,8 @@ func newTestEnv() *testEnv {
 			},
 			RecordWALNetworkCreate: func(netID uint16, name, joinRule, token, adminToken string, enterprise bool, creatorNodeID uint32, createdAt string) {
 			},
-			RecordWALNetworkJoin: func(nodeID uint32, netID uint16) {},
-			RecordWALNetworkLeave: func(nodeID uint32, netID uint16) {},
+			RecordWALNetworkJoin:   func(nodeID uint32, netID uint16) {},
+			RecordWALNetworkLeave:  func(nodeID uint32, netID uint16) {},
 			RecordWALNetworkDelete: func(netID uint16) {},
 			InvalidateListNodesCache: func(netID uint16) {
 				e.listInv = append(e.listInv, netID)

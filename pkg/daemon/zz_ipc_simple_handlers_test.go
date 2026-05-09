@@ -479,4 +479,3 @@ func TestHandleSetWebhookValidHTTPSURLAcceptedAndEchoedBack(t *testing.T) {
 		t.Errorf("webhook = %v, want %q", resp["webhook"], url)
 	}
 }
-

@@ -65,8 +65,8 @@ func (f *fakeHandshakeService) PendingCount() int {
 	return len(f.pendingRecs)
 }
 
-func (f *fakeHandshakeService) SendRequest(uint32, string) error  { return f.sendErr }
-func (f *fakeHandshakeService) ApproveHandshake(uint32) error     { return f.approveErr }
+func (f *fakeHandshakeService) SendRequest(uint32, string) error     { return f.sendErr }
+func (f *fakeHandshakeService) ApproveHandshake(uint32) error        { return f.approveErr }
 func (f *fakeHandshakeService) RejectHandshake(uint32, string) error { return f.rejectErr }
 
 func (f *fakeHandshakeService) RevokeTrust(nodeID uint32) error {
@@ -96,9 +96,9 @@ func (f *fakeHandshakeService) WaitForTrust(nodeID uint32, _ time.Duration) bool
 }
 
 func (f *fakeHandshakeService) ProcessRelayedRequest(uint32, string) {}
-func (f *fakeHandshakeService) ProcessRelayedApproval(uint32)         {}
-func (f *fakeHandshakeService) ProcessRelayedRejection(uint32)        {}
-func (f *fakeHandshakeService) Stop()                                  { f.stopped = true }
+func (f *fakeHandshakeService) ProcessRelayedApproval(uint32)        {}
+func (f *fakeHandshakeService) ProcessRelayedRejection(uint32)       {}
+func (f *fakeHandshakeService) Stop()                                { f.stopped = true }
 
 // installFakeHandshake replaces d.handshakes with a fresh fake. The
 // returned fake is the value tests inspect / mutate before / after the

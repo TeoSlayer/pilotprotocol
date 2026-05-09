@@ -91,7 +91,7 @@ func TestKeepaliveAbsentForIdlePeer(t *testing.T) {
 	tm.envelope.Install(peerNodeID, pc)
 	// Mark peer as "long-idle": last send was 1 minute ago, well beyond
 	// any reasonable keepalive interval.
-	tm.routing.RecordOutboundSend(peerNodeID, time.Now().Add(-1 * time.Minute))
+	tm.routing.RecordOutboundSend(peerNodeID, time.Now().Add(-1*time.Minute))
 	tm.mu.Unlock()
 
 	// Mark the peerCrypto as ready so keepaliveSweep emits to this peer.
@@ -157,7 +157,7 @@ func TestKeepaliveSweepSkipsRecentlyActivePeers(t *testing.T) {
 	tm.peers[peerNodeID] = peerSock.LocalAddr().(*net.UDPAddr)
 	tm.envelope.Install(peerNodeID, pc)
 	// Recent send: 1 second ago, well under the 25 s threshold.
-	tm.routing.RecordOutboundSend(peerNodeID, time.Now().Add(-1 * time.Second))
+	tm.routing.RecordOutboundSend(peerNodeID, time.Now().Add(-1*time.Second))
 	tm.mu.Unlock()
 
 	if sent := tm.keepaliveSweep(time.Now()); sent != 0 {

@@ -136,8 +136,8 @@ func TestFastRetransmitNoopDoesNotAdjustCongestionState(t *testing.T) {
 	// InRecovery must remain false: no phantom recovery entry.
 	// Bug: 'c.InRecovery = true' fires unconditionally when !c.InRecovery.
 	if inRecovery {
-		t.Errorf("InRecovery=true after no-op fastRetransmit, want false; "+
-			"phantom InRecovery was set even though no packet was sent; "+
+		t.Errorf("InRecovery=true after no-op fastRetransmit, want false; " +
+			"phantom InRecovery was set even though no packet was sent; " +
 			"fix: gate 'c.InRecovery = true' on fastRetransmit returning true",
 		)
 	}

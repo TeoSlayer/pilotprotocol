@@ -53,7 +53,7 @@ func TestProcessAckPartialDoesNotResetSACKedState(t *testing.T) {
 	// Three entries: A is in-flight (unsacked), B and C are at the peer (sacked).
 	const (
 		seqA = uint32(1000)
-		seqB = uint32(1000 + MaxSegmentSize)  // = 5096
+		seqB = uint32(1000 + MaxSegmentSize)   // = 5096
 		seqC = uint32(1000 + 2*MaxSegmentSize) // = 9192
 	)
 
@@ -105,15 +105,15 @@ func TestProcessAckPartialDoesNotResetSACKedState(t *testing.T) {
 	// B must retain sacked=true — the peer confirmed receiving it via SACK;
 	// a partial ACK that doesn't cover B must not discard that information.
 	if !bSacked {
-		t.Errorf("ProcessAck partial ACK for A: B.sacked=false, want true; "+
-			"RFC 2018 §5 requires retaining SACK state above cumulative ACK; "+
+		t.Errorf("ProcessAck partial ACK for A: B.sacked=false, want true; " +
+			"RFC 2018 §5 requires retaining SACK state above cumulative ACK; " +
 			"fix: remove 'e.sacked = false' from the remaining-entries loop in ProcessAck",
 		)
 	}
 
 	// C must retain sacked=true for the same reason.
 	if !cSacked {
-		t.Errorf("ProcessAck partial ACK for A: C.sacked=false, want true; "+
+		t.Errorf("ProcessAck partial ACK for A: C.sacked=false, want true; " +
 			"RFC 2018 §5 requires retaining SACK state above cumulative ACK",
 		)
 	}

@@ -47,20 +47,20 @@ type SnapshotNode struct {
 
 // SnapshotNet is the JSON-serializable form of a single registry network.
 type SnapshotNet struct {
-	ID           uint16                     `json:"id"`
-	Name         string                     `json:"name"`
-	JoinRule     string                     `json:"join_rule"`
-	Token        string                     `json:"token,omitempty"`
-	Members      []uint32                   `json:"members"`
-	MemberRoles  map[string]string          `json:"member_roles,omitempty"` // nodeID -> role
-	MemberTags   map[string][]string        `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
-	AdminToken   string                     `json:"admin_token,omitempty"`  // per-network admin token
-	Policy       *membpkg.NetworkPolicy     `json:"policy,omitempty"`       // network policy
-	Rules        *wire.NetworkRules         `json:"rules,omitempty"`        // managed network rules
-	ExprPolicy   json.RawMessage            `json:"expr_policy,omitempty"`  // programmable policy engine document
-	Enterprise   bool                       `json:"enterprise,omitempty"`   // enterprise network flag
-	RequestCount int64                      `json:"request_count,omitempty"`
-	Created      string                     `json:"created"`
+	ID           uint16                 `json:"id"`
+	Name         string                 `json:"name"`
+	JoinRule     string                 `json:"join_rule"`
+	Token        string                 `json:"token,omitempty"`
+	Members      []uint32               `json:"members"`
+	MemberRoles  map[string]string      `json:"member_roles,omitempty"` // nodeID -> role
+	MemberTags   map[string][]string    `json:"member_tags,omitempty"`  // nodeID -> admin-assigned tags
+	AdminToken   string                 `json:"admin_token,omitempty"`  // per-network admin token
+	Policy       *membpkg.NetworkPolicy `json:"policy,omitempty"`       // network policy
+	Rules        *wire.NetworkRules     `json:"rules,omitempty"`        // managed network rules
+	ExprPolicy   json.RawMessage        `json:"expr_policy,omitempty"`  // programmable policy engine document
+	Enterprise   bool                   `json:"enterprise,omitempty"`   // enterprise network flag
+	RequestCount int64                  `json:"request_count,omitempty"`
+	Created      string                 `json:"created"`
 }
 
 // Snapshot is the JSON-serializable full registry state written by flushSave
@@ -87,21 +87,21 @@ type Snapshot struct {
 	StartTime     string `json:"start_time,omitempty"` // RFC3339 format
 	// Restart events: unix-millis of each process start after first. Lets the
 	// dashboard show brief redeploy "blips" while preserving cumulative uptime.
-	RestartEvents     []int64         `json:"restart_events,omitempty"`
-	DowntimeIntervals [][2]int64      `json:"downtime_intervals,omitempty"`
-	LastHeartbeat     int64           `json:"last_heartbeat,omitempty"`
+	RestartEvents     []int64                        `json:"restart_events,omitempty"`
+	DowntimeIntervals [][2]int64                     `json:"downtime_intervals,omitempty"`
+	LastHeartbeat     int64                          `json:"last_heartbeat,omitempty"`
 	ProbeStates       map[string]*dashpkg.ProbeState `json:"probe_states,omitempty"`
 	// Time-series history for dashboard charts
-	HourlyHistory    []dashpkg.StatsSample                    `json:"hourly_history,omitempty"`
-	DailyHistory     []dashpkg.StatsSample                    `json:"daily_history,omitempty"`
-	NetHourlyHistory map[string][]dashpkg.NetworkSampleEntry  `json:"net_hourly_history,omitempty"`
-	NetDailyHistory  map[string][]dashpkg.NetworkSampleEntry  `json:"net_daily_history,omitempty"`
+	HourlyHistory    []dashpkg.StatsSample                   `json:"hourly_history,omitempty"`
+	DailyHistory     []dashpkg.StatsSample                   `json:"daily_history,omitempty"`
+	NetHourlyHistory map[string][]dashpkg.NetworkSampleEntry `json:"net_hourly_history,omitempty"`
+	NetDailyHistory  map[string][]dashpkg.NetworkSampleEntry `json:"net_daily_history,omitempty"`
 	// Audit log persistence (most recent entries, capped at maxAuditEntries)
 	AuditLog []auditpkg.Entry `json:"audit_log,omitempty"`
 	// Enterprise config persistence
 	IDPConfig      *wire.BlueprintIdentityProvider `json:"idp_config,omitempty"`
 	AuditExportCfg *wire.BlueprintAuditExport      `json:"audit_export_config,omitempty"`
-	RBACPreAssign  map[string][]wire.BlueprintRole  `json:"rbac_pre_assign,omitempty"` // networkID -> roles
+	RBACPreAssign  map[string][]wire.BlueprintRole `json:"rbac_pre_assign,omitempty"` // networkID -> roles
 	// Integrity: SHA256 hex digest of all fields except Checksum
 	Checksum string `json:"checksum,omitempty"`
 }

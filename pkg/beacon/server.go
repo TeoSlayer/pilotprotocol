@@ -52,9 +52,9 @@ type Server struct {
 	peerMu    sync.RWMutex
 	healthOk  atomic.Bool
 
-	registryAddr        string // registry address for dynamic peer discovery
-	advertiseAddr       string // address to register (overrides auto-detect from TCP local addr)
-	registryAdminToken  string // admin token sent with beacon_register (required by SEC-002)
+	registryAddr       string // registry address for dynamic peer discovery
+	advertiseAddr      string // address to register (overrides auto-detect from TCP local addr)
+	registryAdminToken string // admin token sent with beacon_register (required by SEC-002)
 
 	done chan struct{} // closed on shutdown
 }

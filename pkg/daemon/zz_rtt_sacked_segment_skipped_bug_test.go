@@ -61,7 +61,7 @@ func TestRTTUpdateSkippedForSackedSegments(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = 1000
-	conn.SRTT = 0     // initial state — no RTT measurements yet
+	conn.SRTT = 0 // initial state — no RTT measurements yet
 	conn.RTTVAR = 0
 	conn.RTO = InitialRTO
 	conn.Unacked = []*retxEntry{
@@ -69,7 +69,7 @@ func TestRTTUpdateSkippedForSackedSegments(t *testing.T) {
 			seq:      1000,
 			data:     make([]byte, segLen),
 			attempts: 1,
-			sacked:   true, // peer reported this segment via SACK already
+			sacked:   true,                                  // peer reported this segment via SACK already
 			sentAt:   time.Now().Add(-5 * time.Millisecond), // sent 5ms ago
 		},
 	}
@@ -88,14 +88,14 @@ func TestRTTUpdateSkippedForSackedSegments(t *testing.T) {
 	// the cumulative ACK stay at SRTT=0/RTO=InitialRTO forever, using a
 	// 1s retransmit timeout on connections that may have 1ms RTT.
 	if srtt == 0 {
-		t.Errorf("ProcessAck with sacked segment (attempts=1, sacked=true): SRTT=0 "+
-			"after cumulative ACK covers the segment; "+
-			"'!e.sacked' guard prevents updateRTT for segments the peer already "+
-			"confirmed via SACK, so when all in-flight data is SACKed before the "+
-			"cumulative ACK arrives (common on SACK-heavy connections), the sender "+
-			"never refines SRTT from InitialRTO=1s, causing spurious retransmission "+
-			"and slow loss recovery; fix: remove the !e.sacked condition — "+
-			"once-sent segments (attempts==1) always yield valid RTT samples per "+
+		t.Errorf("ProcessAck with sacked segment (attempts=1, sacked=true): SRTT=0 " +
+			"after cumulative ACK covers the segment; " +
+			"'!e.sacked' guard prevents updateRTT for segments the peer already " +
+			"confirmed via SACK, so when all in-flight data is SACKed before the " +
+			"cumulative ACK arrives (common on SACK-heavy connections), the sender " +
+			"never refines SRTT from InitialRTO=1s, causing spurious retransmission " +
+			"and slow loss recovery; fix: remove the !e.sacked condition — " +
+			"once-sent segments (attempts==1) always yield valid RTT samples per " +
 			"RFC 6298 regardless of SACK state")
 	}
 }

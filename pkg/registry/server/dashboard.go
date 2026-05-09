@@ -43,7 +43,7 @@ func (s *Server) buildDashboardStatsPayload(authenticated bool) map[string]inter
 		samples := make([]map[string]interface{}, len(src.Hourly))
 		for i, h := range src.Hourly {
 			samples[i] = map[string]interface{}{
-				"ts":          h.Timestamp,
+				"ts":           h.Timestamp,
 				"online_nodes": h.OnlineNodes,
 			}
 		}
@@ -57,7 +57,7 @@ func (s *Server) buildDashboardStatsPayload(authenticated bool) map[string]inter
 		samples := make([]map[string]interface{}, len(daily))
 		for i, d := range daily {
 			samples[i] = map[string]interface{}{
-				"ts":          d.Timestamp,
+				"ts":           d.Timestamp,
 				"online_nodes": d.OnlineNodes,
 			}
 		}

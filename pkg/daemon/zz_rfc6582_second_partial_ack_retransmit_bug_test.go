@@ -31,8 +31,8 @@ import (
 // the second partial ACK, oldDupAckCount < 3 and the condition is false —
 // step 6 never runs for the second partial ACK:
 //
-//	  - fastRetransmit not called  → first still-unacked segment not retransmitted
-//	  - cwnd not deflated          → AIMD growth fires instead, inflating cwnd
+//   - fastRetransmit not called  → first still-unacked segment not retransmitted
+//   - cwnd not deflated          → AIMD growth fires instead, inflating cwnd
 //
 // Concrete scenario (after entering fast recovery):
 //
@@ -83,7 +83,7 @@ func TestSecondPartialAckInFastRecoveryRetransmitsFirstUnacked(t *testing.T) {
 	c.InRecovery = true
 	c.FastRecovery = true // set by fast retransmit entry (ProcessAck DupAckCount==3 path)
 	c.RecoveryPoint = seqD
-	c.DupAckCount = 1     // only 1 dup ACK between partial ACKs (< 3 threshold)
+	c.DupAckCount = 1 // only 1 dup ACK between partial ACKs (< 3 threshold)
 	c.SSThresh = 5 * MaxSegmentSize
 	c.CongWin = c.SSThresh + 3*MaxSegmentSize // 32768 — fast recovery inflated
 
@@ -108,11 +108,11 @@ func TestSecondPartialAckInFastRecoveryRetransmitsFirstUnacked(t *testing.T) {
 
 	pkts := cs.all()
 	if len(pkts) == 0 {
-		t.Errorf("RFC 6582 §3 step 6a: second partial ACK in fast recovery did not "+
-			"call fastRetransmit; bug: step 6 is gated on oldDupAckCount >= 3, but "+
-			"DupAckCount was reset to 0 by the first partial ACK and only reached 1 "+
-			"before the second partial ACK; fix: track fast-recovery entry with "+
-			"FastRecovery bool field, use '(oldDupAckCount >= 3 || wasFastRecovery) && "+
+		t.Errorf("RFC 6582 §3 step 6a: second partial ACK in fast recovery did not " +
+			"call fastRetransmit; bug: step 6 is gated on oldDupAckCount >= 3, but " +
+			"DupAckCount was reset to 0 by the first partial ACK and only reached 1 " +
+			"before the second partial ACK; fix: track fast-recovery entry with " +
+			"FastRecovery bool field, use '(oldDupAckCount >= 3 || wasFastRecovery) && " +
 			"wasInRecovery' so that every partial ACK during fast recovery fires step 6")
 	}
 }

@@ -265,10 +265,10 @@ func TestWALReplayRestoresNetworkCreate(t *testing.T) {
 
 	created := time.Now().UTC().Format(time.RFC3339)
 	appendWALDelta(t, storePath, DeltaNetworkCreate, 0, networkCreateDelta{
-		NetworkID:     17,
-		Name:          "fresh-net",
-		JoinRule:      "open",
-		CreatedAt:     created,
+		NetworkID: 17,
+		Name:      "fresh-net",
+		JoinRule:  "open",
+		CreatedAt: created,
 	})
 
 	s := NewWithStore("", storePath)

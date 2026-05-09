@@ -62,10 +62,10 @@ func TestEncodeSACKClampsToFour(t *testing.T) {
 func TestDecodeSACKRejectsBad(t *testing.T) {
 	t.Parallel()
 	cases := map[string][]byte{
-		"too short":    {0, 1, 2},
-		"wrong magic":  {'A', 'B', 'C', 'D', 0x01},
-		"zero count":   append([]byte("SACK"), 0x00),
-		"count > 4":    append([]byte("SACK"), 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+		"too short":     {0, 1, 2},
+		"wrong magic":   {'A', 'B', 'C', 'D', 0x01},
+		"zero count":    append([]byte("SACK"), 0x00),
+		"count > 4":     append([]byte("SACK"), 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 		"payload short": append([]byte("SACK"), 0x01, 0x00, 0x00),
 	}
 	for name, data := range cases {
@@ -519,11 +519,11 @@ func TestValidateWebhookURLAccepts(t *testing.T) {
 func TestValidateWebhookURLRejects(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"bad scheme":          "ftp://example.com/x",
-		"link-local":          "http://169.254.169.254/latest/meta-data/",
+		"bad scheme":           "ftp://example.com/x",
+		"link-local":           "http://169.254.169.254/latest/meta-data/",
 		"multicast link-local": "http://224.0.0.251/x",
-		"gcp metadata host":   "http://metadata.google.internal/x",
-		"gcp metadata alt":    "http://metadata.google.com/x",
+		"gcp metadata host":    "http://metadata.google.internal/x",
+		"gcp metadata alt":     "http://metadata.google.com/x",
 	}
 	for name, u := range cases {
 		if err := ValidateWebhookURL(u); err == nil {
@@ -550,12 +550,12 @@ func TestIsPrivateAddr(t *testing.T) {
 		"192.168.1.5:4000":  true,
 		"10.0.0.1:4000":     true,
 		"172.16.5.4:4000":   true,
-		"127.0.0.1:4000":    true,          // loopback
-		"169.254.5.5:4000":  true,          // link-local unicast
-		"8.8.8.8:4000":      false,         // public
-		"34.148.103.117:80": false,         // public GCP
-		"bad":               false,         // SplitHostPort fails
-		"host:80":           false,         // not an IP
+		"127.0.0.1:4000":    true,  // loopback
+		"169.254.5.5:4000":  true,  // link-local unicast
+		"8.8.8.8:4000":      false, // public
+		"34.148.103.117:80": false, // public GCP
+		"bad":               false, // SplitHostPort fails
+		"host:80":           false, // not an IP
 	}
 	for in, want := range cases {
 		if got := isPrivateAddr(in); got != want {

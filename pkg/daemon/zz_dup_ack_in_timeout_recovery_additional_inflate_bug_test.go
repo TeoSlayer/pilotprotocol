@@ -59,7 +59,7 @@ func TestAdditionalDupAckInTimeoutRecoveryDoesNotInflateConn(t *testing.T) {
 	conn.RetxStop = make(chan struct{})
 
 	const (
-		seqA                = uint32(1000)
+		seqA                 = uint32(1000)
 		ssthreshAfterTimeout = 5 * MaxSegmentSize
 	)
 
@@ -71,7 +71,7 @@ func TestAdditionalDupAckInTimeoutRecoveryDoesNotInflateConn(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = seqA
-	conn.CongWin = MaxSegmentSize        // post-timeout: 1 SMSS
+	conn.CongWin = MaxSegmentSize // post-timeout: 1 SMSS
 	conn.SSThresh = ssthreshAfterTimeout
 	conn.DupAckCount = 0
 	conn.InRecovery = true

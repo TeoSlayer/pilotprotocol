@@ -46,7 +46,10 @@ func TestBeaconRegisterAndList(t *testing.T) {
 	st := routing.NewStore(nil)
 
 	// Register two beacons.
-	for _, tc := range []struct{ id uint32; addr string }{
+	for _, tc := range []struct {
+		id   uint32
+		addr string
+	}{
 		{1, "1.2.3.4:9001"},
 		{2, "5.6.7.8:9001"},
 	} {

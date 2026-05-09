@@ -115,8 +115,8 @@ type TunnelManager struct {
 
 	// Rate-limit rekey-request responses triggered by "encrypted packet but no
 	// key" events. Prevents amplification if a peer floods us with gibberish.
-	rekeyMu       sync.Mutex
-	lastRekeyReq  map[uint32]time.Time
+	rekeyMu      sync.Mutex
+	lastRekeyReq map[uint32]time.Time
 
 	// routing is the L4 manager. It owns:
 	//   - relayPeers, relayPinned, blackholeMissCount, directClearCount,

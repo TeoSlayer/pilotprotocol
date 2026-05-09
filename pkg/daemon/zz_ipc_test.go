@@ -135,7 +135,7 @@ func TestHandleBindDoubleBindSendsError(t *testing.T) {
 	}
 	ic, client := newIPCTestConn(t)
 	reply := runHandler(t, client, func() { s.handleBind(ic, 0, []byte{0x23, 0x28}) }) // port 9000
-	assertErrorReply(t, reply, "port")                                               // "already bound" or similar
+	assertErrorReply(t, reply, "port")                                                 // "already bound" or similar
 }
 
 // --- handleDial ---
@@ -356,8 +356,8 @@ type fakeWebhookManager struct {
 	urls []string
 }
 
-func (f *fakeWebhookManager) SetURL(url string)    { f.urls = append(f.urls, url) }
-func (f *fakeWebhookManager) Stats() WebhookStats  { return WebhookStats{} }
+func (f *fakeWebhookManager) SetURL(url string)   { f.urls = append(f.urls, url) }
+func (f *fakeWebhookManager) Stats() WebhookStats { return WebhookStats{} }
 
 func TestHandleSetWebhookEmptyPayloadClearsWebhookAndRepliesOK(t *testing.T) {
 	t.Parallel()

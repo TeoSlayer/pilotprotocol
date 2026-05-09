@@ -440,4 +440,3 @@ func TestFindManagedEnginePresent(t *testing.T) {
 		t.Fatalf("netID=8 returned %v, want nil", got)
 	}
 }
-

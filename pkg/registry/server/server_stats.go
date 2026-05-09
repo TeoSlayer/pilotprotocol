@@ -92,8 +92,6 @@ func (s *Server) recordSample(r dashpkg.StatsSampleResult, daily bool) {
 	}
 }
 
-
-
 // --- Dashboard type aliases (R5.2) ---
 //
 // The following types have been moved to pkg/registry/server/dashboard.
@@ -433,15 +431,15 @@ func (s *Server) GetDashboardStatsExtended() DashboardStats {
 	probes := s.dashboard.GetProbeStates()
 
 	return DashboardStats{
-		TotalNodes:      int(s.nextNode - 1),
-		ActiveNodes:     activeCount,
-		TotalTrustLinks: s.trust.Count(),
-		TotalRequests:   s.requestCount.Load(),
-		ReqPerDay:       reqPerDay,
-		UptimeSecs:      int64(now.Sub(s.startTime).Seconds()),
-		Versions:        versions,
-		Networks:        networks,
-		Hourly:          hourly,
+		TotalNodes:        int(s.nextNode - 1),
+		ActiveNodes:       activeCount,
+		TotalTrustLinks:   s.trust.Count(),
+		TotalRequests:     s.requestCount.Load(),
+		ReqPerDay:         reqPerDay,
+		UptimeSecs:        int64(now.Sub(s.startTime).Seconds()),
+		Versions:          versions,
+		Networks:          networks,
+		Hourly:            hourly,
 		Daily:             daily,
 		RestartEvents:     restartEvents,
 		DowntimeIntervals: downtimeIntervals,

@@ -68,7 +68,7 @@ func TestFastRetransmitStopsAtMaxAttempts(t *testing.T) {
 	conn.Unacked = []*retxEntry{{
 		seq:      seqA,
 		data:     make([]byte, MaxSegmentSize),
-		attempts: MaxRetxAttempts, // already at the limit
+		attempts: MaxRetxAttempts,                         // already at the limit
 		sentAt:   time.Now().Add(-100 * time.Millisecond), // not past RTO
 		sacked:   false,
 	}}

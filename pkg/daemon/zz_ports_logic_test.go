@@ -491,7 +491,7 @@ func TestProcessAckGrowsCongWinInSlowStart(t *testing.T) {
 	t.Parallel()
 	c := newAckTestConn(t)
 	c.LastAck = 1000
-	c.CongWin = 4000       // < SSThresh → slow start
+	c.CongWin = 4000 // < SSThresh → slow start
 	c.SSThresh = 50000
 	c.Unacked = []*retxEntry{{seq: 1000, data: make([]byte, 1000), attempts: 1, sentAt: time.Now()}}
 

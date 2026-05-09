@@ -77,7 +77,7 @@ func TestNagleFlushAllSackedSendsImmediately(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.LastAck = 3000
-	conn.CongWin = 16 * MaxSegmentSize  // large — window is open
+	conn.CongWin = 16 * MaxSegmentSize // large — window is open
 	conn.SSThresh = conn.CongWin
 	conn.PeerRecvWin = 16 * MaxSegmentSize
 	// 3 entries, all sacked — peer has every byte.

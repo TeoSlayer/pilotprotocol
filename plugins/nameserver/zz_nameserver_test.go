@@ -98,10 +98,10 @@ func TestParseRequestErrors(t *testing.T) {
 		"",
 		"QUERY",
 		"QUERY X name",
-		"QUERY S 1",       // missing port
-		"QUERY S bad 80",  // bad net_id
-		"REGISTER A",      // missing name + addr
-		"REGISTER N name", // missing net_id
+		"QUERY S 1",              // missing port
+		"QUERY S bad 80",         // bad net_id
+		"REGISTER A",             // missing name + addr
+		"REGISTER N name",        // missing net_id
 		"REGISTER S name addr 1", // missing port
 		"UNKNOWN A name",
 	}

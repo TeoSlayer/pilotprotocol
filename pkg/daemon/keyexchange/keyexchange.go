@@ -120,8 +120,8 @@ type PostInstallEvent struct {
 	From          *net.UDPAddr
 	FromRelay     bool
 	Authenticated bool
-	HadCrypto     bool      // true if an entry existed before
-	KeyChanged    bool      // true if the peer's X25519 ephemeral key actually changed
+	HadCrypto     bool // true if an entry existed before
+	KeyChanged    bool // true if the peer's X25519 ephemeral key actually changed
 	OldCrypto     *Crypto
 	NewCrypto     *Crypto
 	PeerEd25519   ed25519.PublicKey // non-nil for auth path

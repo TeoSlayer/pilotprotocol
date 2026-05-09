@@ -112,9 +112,9 @@ func TestFastRetransmitSSThreshUsesFlightSizeNotCongWin(t *testing.T) {
 	// window capacity, not the measured flight size; using it overestimates SSThresh
 	// and causes the connection to resume from a rate higher than what caused the loss.
 	const (
-		flightSize   = 3 * MaxSegmentSize               // 12288 — sum of all Unacked
-		wantSSThresh = 2 * MaxSegmentSize               // max(flightSize/2=6144, 2*MSS=8192)
-		badSSThresh  = initialCongWin / 2               // 20480 — what CongWin/2 produces
+		flightSize   = 3 * MaxSegmentSize // 12288 — sum of all Unacked
+		wantSSThresh = 2 * MaxSegmentSize // max(flightSize/2=6144, 2*MSS=8192)
+		badSSThresh  = initialCongWin / 2 // 20480 — what CongWin/2 produces
 	)
 	if ssthresh != wantSSThresh {
 		t.Errorf("fast retransmit with CongWin=%d, FlightSize=%d: SSThresh=%d, want %d "+

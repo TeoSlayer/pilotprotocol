@@ -46,8 +46,8 @@ func (r HandshakeRuntime) Sign(msg []byte) []byte {
 	return id.Sign(msg)
 }
 
-func (r HandshakeRuntime) IdentityPath() string     { return r.d.IdentityPath() }
-func (r HandshakeRuntime) TrustAutoApprove() bool   { return r.d.TrustAutoApprove() }
+func (r HandshakeRuntime) IdentityPath() string   { return r.d.IdentityPath() }
+func (r HandshakeRuntime) TrustAutoApprove() bool { return r.d.TrustAutoApprove() }
 
 func (r HandshakeRuntime) IsTrusted(nodeID uint32) (string, bool) {
 	tc := r.d.GetTrustChecker()

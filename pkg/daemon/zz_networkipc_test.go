@@ -38,7 +38,11 @@ func netTestDaemon(t *testing.T) (*Daemon, uint32) {
 	d.regConn = rc
 	d.identity = id
 	d.setNodeID_testhelper(nodeID)
-	t.Cleanup(func() { if d.handshakes != nil { d.handshakes.Stop() } })
+	t.Cleanup(func() {
+		if d.handshakes != nil {
+			d.handshakes.Stop()
+		}
+	})
 	return d, nodeID
 }
 
@@ -293,7 +297,7 @@ func TestHandleNetworkRespondInviteNoInviteSendsError(t *testing.T) {
 	payload := make([]byte, 4)
 	payload[0] = SubNetworkRespondInvite
 	binary.BigEndian.PutUint16(payload[1:3], 0xBEEF) // non-existent network
-	payload[3] = 1                                    // accept=true
+	payload[3] = 1                                   // accept=true
 
 	reply := runHandler(t, client, func() { s.handleNetwork(ic, 0, payload) })
 	// Either registry rejects or reply is OK — the code path exercises the

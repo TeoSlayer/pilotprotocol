@@ -160,7 +160,6 @@ type ipcConn struct {
 	// per IPC connection.
 	dialCancels  map[uint64]context.CancelFunc
 	nextCancelID uint64
-
 }
 
 // ipcSendBuffer is the per-conn outbound channel capacity. 256 is large
@@ -223,7 +222,6 @@ func newIPCConn(c net.Conn) *ipcConn {
 	go ic.writeLoop()
 	return ic
 }
-
 
 // writeLoop is the sole writer to c.Conn. It exits when c.done is closed
 // (clean shutdown) or when ipcutil.Write fails (broken socket).
@@ -939,20 +937,20 @@ func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 func (s *IPCServer) handleHealth(conn *ipcConn, reqID uint64) {
 	info := s.daemon.Info()
 	data, err := json.Marshal(map[string]interface{}{
-		"status":         "ok",
-		"uptime_seconds": int64(info.Uptime.Seconds()),
-		"connections":    info.Connections,
-		"peers":          info.Peers,
-		"bytes_sent":               info.BytesSent,
-		"bytes_recv":               info.BytesRecv,
-		"encrypted_peers":          info.EncryptedPeers,
-		"authenticated_peers":      info.AuthenticatedPeers,
-		"handshake_pending_count":  info.HandshakePendingCount,
-		"relay_peer_count":         info.RelayPeerCount,
-		"accept_queue_drops":       info.AcceptQueueDrops,
-		"webhook_queue_dropped":    info.WebhookQueueDropped,
-		"webhook_circuit_skips":    info.WebhookCircuitSkips,
-		"beacon_addr":              info.BeaconAddr,
+		"status":                  "ok",
+		"uptime_seconds":          int64(info.Uptime.Seconds()),
+		"connections":             info.Connections,
+		"peers":                   info.Peers,
+		"bytes_sent":              info.BytesSent,
+		"bytes_recv":              info.BytesRecv,
+		"encrypted_peers":         info.EncryptedPeers,
+		"authenticated_peers":     info.AuthenticatedPeers,
+		"handshake_pending_count": info.HandshakePendingCount,
+		"relay_peer_count":        info.RelayPeerCount,
+		"accept_queue_drops":      info.AcceptQueueDrops,
+		"webhook_queue_dropped":   info.WebhookQueueDropped,
+		"webhook_circuit_skips":   info.WebhookCircuitSkips,
+		"beacon_addr":             info.BeaconAddr,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("health marshal: %v", err))

@@ -157,11 +157,11 @@ func (s *Server) GetIdentityWebhookURL() string {
 
 func (s *Server) provisionCallbacks() identpkg.ProvisionCallbacks {
 	return identpkg.ProvisionCallbacks{
-		FindOrCreateNetwork: s.findOrCreateNetwork,
-		EnableEnterprise:    s.enableEnterpriseLocked,
-		ApplyNetworkPolicy:  s.applyBlueprintPolicy,
-		ApplyExprPolicy:     s.applyBlueprintExprPolicy,
-		SetAuditWebhookURL:  s.SetWebhookURL,
+		FindOrCreateNetwork:     s.findOrCreateNetwork,
+		EnableEnterprise:        s.enableEnterpriseLocked,
+		ApplyNetworkPolicy:      s.applyBlueprintPolicy,
+		ApplyExprPolicy:         s.applyBlueprintExprPolicy,
+		SetAuditWebhookURL:      s.SetWebhookURL,
 		StoreRBACPreAssignments: s.storeRBACPreAssignments,
 		ConfigureAuditExport:    s.configureAuditExport,
 		IncProvisionsTotal:      s.metrics.ProvisionsTotal.Inc,

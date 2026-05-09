@@ -72,11 +72,11 @@ func TestValidateActionAccepts(t *testing.T) {
 func TestDurationFnValid(t *testing.T) {
 	t.Parallel()
 	cases := map[string]float64{
-		"1s":      1,
-		"1m":      60,
-		"1h":      3600,
-		"500ms":   0.5,
-		"1h30m":   5400,
+		"1s":    1,
+		"1m":    60,
+		"1h":    3600,
+		"500ms": 0.5,
+		"1h30m": 5400,
 	}
 	for in, want := range cases {
 		got, err := durationFn(in)

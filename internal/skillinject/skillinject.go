@@ -169,7 +169,7 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		if err != nil {
 			report.Outcomes = append(report.Outcomes, Outcome{
 				Tool: mt.Name, Kind: KindMarker,
-				Path: expandHome(mt.HeartbeatPath, home),
+				Path:   expandHome(mt.HeartbeatPath, home),
 				Action: ActionError,
 				Err:    fmt.Sprintf("fetch %s: %v", mt.HeartbeatTemplate, err),
 			})
@@ -181,7 +181,7 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		if err != nil {
 			report.Outcomes = append(report.Outcomes, Outcome{
 				Tool: mt.Name, Kind: KindMarker,
-				Path: expandHome(mt.HeartbeatPath, home),
+				Path:   expandHome(mt.HeartbeatPath, home),
 				Action: ActionError, Err: err.Error(),
 			})
 			continue

@@ -51,8 +51,8 @@ const (
 	cmdManagedOK         byte = 0x24
 	cmdRotateKey         byte = 0x25
 	cmdRotateKeyOK       byte = 0x26
-	cmdBroadcast   byte = 0x29
-	cmdBroadcastOK byte = 0x2A
+	cmdBroadcast         byte = 0x29
+	cmdBroadcastOK       byte = 0x2A
 )
 
 // Network sub-commands (must match daemon SubNetwork* constants)
@@ -105,13 +105,13 @@ type ipcClient struct {
 	// instead of sync.Mutex lets goroutines waiting for the semaphore be
 	// woken on doneCh close, preventing a deadlock when the daemon closes
 	// while many goroutines are queued behind a slow sendAndWait.
-	waitSem chan struct{}          // capacity 1
+	waitSem chan struct{}         // capacity 1
 	pending chan *pendingResponse // capacity 16; buffers reply frames from readLoop
 
-	recvMu sync.Mutex
-	recvChs  map[uint32]chan []byte // conn_id → data channel
-	pendRecv   map[uint32][][]byte // conn_id → buffered data before recvCh registered
-	pendAccept map[uint16][][]byte // port → buffered cmdAccept payloads before acceptCh registered (post-#99 race fix)
+	recvMu     sync.Mutex
+	recvChs    map[uint32]chan []byte // conn_id → data channel
+	pendRecv   map[uint32][][]byte    // conn_id → buffered data before recvCh registered
+	pendAccept map[uint16][][]byte    // port → buffered cmdAccept payloads before acceptCh registered (post-#99 race fix)
 
 	acceptMu  sync.Mutex
 	acceptChs map[uint16]chan []byte // H12 fix: per-port accept channels
@@ -190,7 +190,7 @@ func (c *ipcClient) readLoop() {
 			case c.pending <- &pendingResponse{cmd: cmd, payload: append([]byte(nil), payload...)}:
 			default:
 			}
-		// default: unknown cmd — silently drop (version mismatch, test injection, etc.)
+			// default: unknown cmd — silently drop (version mismatch, test injection, etc.)
 		}
 	}
 }

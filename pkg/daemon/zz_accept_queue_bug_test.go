@@ -17,11 +17,11 @@ import (
 // to call Accept and the queue has filled to AcceptQueueLen=64), the
 // SYN handler at pkg/daemon/daemon.go:1841 currently:
 //
-//   1. Sends the SYN-ACK back to the dialer
-//   2. Marks the connection StateEstablished
-//   3. Tries to push to AcceptCh
-//   4. On full: hits the `default` branch, sends a RST, removes the
-//      Connection, logs WARN
+//  1. Sends the SYN-ACK back to the dialer
+//  2. Marks the connection StateEstablished
+//  3. Tries to push to AcceptCh
+//  4. On full: hits the `default` branch, sends a RST, removes the
+//     Connection, logs WARN
 //
 // The RST is good — peer learns immediately. But:
 //   - No Daemon-level counter is incremented (no AcceptQueueDrops)

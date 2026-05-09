@@ -80,12 +80,12 @@ func TestFastRecoveryThirdDupAckSameEpisodeInflation(t *testing.T) {
 	// State after a partial ACK reset DupAckCount to 0 and 2 subsequent dup
 	// ACKs have already inflated CongWin by 2*MSS (iter-82 fix):
 	//   DupAckCount=2, CongWin = SSThresh + 3*MSS + 2*MSS = 7*MSS = 28672
-	c.LastAck = seqB       // partial ACK set LastAck to seqB; 3rd dup ACK repeats it
-	c.DupAckCount = 2      // two dup ACKs have already fired since the reset
+	c.LastAck = seqB  // partial ACK set LastAck to seqB; 3rd dup ACK repeats it
+	c.DupAckCount = 2 // two dup ACKs have already fired since the reset
 	c.InRecovery = true
 	c.FastRecovery = true
 	c.RecoveryPoint = recoveryPoint
-	c.SSThresh = 2 * MaxSegmentSize                        // 8192
+	c.SSThresh = 2 * MaxSegmentSize                              // 8192
 	c.CongWin = c.SSThresh + 3*MaxSegmentSize + 2*MaxSegmentSize // 7*MSS = 28672
 
 	now := time.Now()

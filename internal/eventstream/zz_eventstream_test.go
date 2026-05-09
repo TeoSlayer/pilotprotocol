@@ -56,7 +56,7 @@ func TestReadEventPayloadTooLarge(t *testing.T) {
 	t.Parallel()
 	// Write a valid topic then a payload length that exceeds 16MiB.
 	var buf bytes.Buffer
-	buf.Write([]byte{0x00, 0x01, 'x'}) // topic len=1, topic="x"
+	buf.Write([]byte{0x00, 0x01, 'x'})        // topic len=1, topic="x"
 	buf.Write([]byte{0x01, 0x00, 0x00, 0x01}) // payload len = 16MiB+1
 	_, err := eventstream.ReadEvent(&buf)
 	if err == nil || !strings.Contains(err.Error(), "too large") {

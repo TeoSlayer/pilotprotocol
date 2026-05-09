@@ -66,10 +66,10 @@ func TestRetransmitUnackedDoublesRTOOnEachTimeout(t *testing.T) {
 
 	conn.RetxMu.Lock()
 	conn.RTO = startRTO
-	conn.InRecovery = true          // simulate: already in recovery from first timeout
-	conn.RecoveryPoint = 9999       // high — won't exit recovery during this test
-	conn.CongWin = InitialCongWin   // already reduced by first timeout
-	conn.SSThresh = MaxSegmentSize  // already reduced
+	conn.InRecovery = true         // simulate: already in recovery from first timeout
+	conn.RecoveryPoint = 9999      // high — won't exit recovery during this test
+	conn.CongWin = InitialCongWin  // already reduced by first timeout
+	conn.SSThresh = MaxSegmentSize // already reduced
 	conn.LastAck = 1000
 	conn.Unacked = []*retxEntry{
 		// attempts=2: retransmitted once already — Karn's algorithm applies,

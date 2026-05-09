@@ -23,7 +23,7 @@ type Service struct{}
 // the real NewService.
 func NewService() *Service { return &Service{} }
 
-func (s *Service) Name() string                                 { return "eventstream-disabled" }
-func (s *Service) Order() int                                   { return 120 }
+func (s *Service) Name() string                                  { return "eventstream-disabled" }
+func (s *Service) Order() int                                    { return 120 }
 func (s *Service) Start(_ context.Context, _ coreapi.Deps) error { return nil }
-func (s *Service) Stop(_ context.Context) error                 { return nil }
+func (s *Service) Stop(_ context.Context) error                  { return nil }

@@ -143,4 +143,3 @@ func TestHandleEchoConnExitsWhenRecvBufClosed(t *testing.T) {
 		t.Fatal("handleEchoConn did not return after RecvBuf close")
 	}
 }
-
