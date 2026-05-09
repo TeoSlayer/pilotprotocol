@@ -840,8 +840,8 @@ Subcommands:
 List inbound trust handshake requests waiting for your approval.
 Each row shows the requesting node ID, their justification, and when they asked.
 
-To approve:  pilotctl approve <node_id>
-To reject:   pilotctl reject <node_id> [reason]
+To approve:  pilotctl approve <node_id|address|hostname>
+To reject:   pilotctl reject <node_id|address|hostname> [reason]
 
 Note: nodes in the embedded trusted-agents list are auto-approved on first contact.
 `,
@@ -863,7 +863,7 @@ auto-approved on first contact, without requiring manual pilotctl approve).
 These are well-known network services (list-agents, weather agents, etc.).
 To see live trust state, use: pilotctl trust
 `,
-	"untrust": `Usage: pilotctl untrust <node_id>
+	"untrust": `Usage: pilotctl untrust <node_id|address|hostname>
 
 Remove trust with a node. Future messages from or to that node will be blocked
 until a new handshake is completed.
@@ -871,14 +871,14 @@ until a new handshake is completed.
 This does not notify the remote node — they will see connection failures on
 their next attempt to reach you.
 `,
-	"reject": `Usage: pilotctl reject <node_id> [reason]
+	"reject": `Usage: pilotctl reject <node_id|address|hostname> [reason]
 
 Reject a pending inbound trust handshake request. The requesting node is
 notified with the optional reason string.
 
 To see pending requests: pilotctl pending
 `,
-	"approve": `Usage: pilotctl approve <node_id>
+	"approve": `Usage: pilotctl approve <node_id|address|hostname>
 
 Approve a pending inbound trust handshake request from the given node.
 Once approved, encrypted messages can flow in both directions (assuming they
@@ -918,9 +918,9 @@ nodes that already know its address or have mutual trust.
 Register this node with the registry at the configured address.
 Normally called automatically by the daemon at startup.
 `,
-	"lookup": `Usage: pilotctl lookup <node_id>
+	"lookup": `Usage: pilotctl lookup <node_id|address|hostname>
 
-Look up a node by numeric ID in the registry and print its address,
+Look up a node by numeric ID, pilot address, or hostname in the registry and print its address,
 hostname, and public key.
 `,
 
