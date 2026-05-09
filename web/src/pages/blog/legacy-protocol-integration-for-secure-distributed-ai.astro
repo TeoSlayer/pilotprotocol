@@ -1,0 +1,264 @@
+---
+import BlogLayout from "../../layouts/BlogLayout.astro";
+
+const bodyContent = `<script type="application/ld+json">
+      {
+  "@type": "Article",
+  "image": {
+    "url": "https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1778076415496_IT-manager-reviewing-protocol-integration-diagram.jpeg",
+    "@type": "ImageObject",
+    "caption": "IT manager reviewing protocol integration diagram"
+  },
+  "author": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "@context": "https://schema.org",
+  "headline": "Legacy protocol integration for secure distributed AI",
+  "publisher": {
+    "url": "https://pilotprotocol.network",
+    "name": "Pilotprotocol",
+    "@type": "Organization"
+  },
+  "inLanguage": "en-US",
+  "description": "Unlock seamless connections with distributed AI by explaining legacy protocol integration. Discover modern strategies that simplify integration now!",
+  "datePublished": "2026-05-06T14:18:21.689Z"
+}
+      </script>
+    <h1 id="legacy-protocol-integration-for-secure-distributed-ai" tabindex="-1">Legacy protocol integration for secure distributed AI</h1>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1778076415496_IT-manager-reviewing-protocol-integration-diagram.jpeg" alt="IT manager reviewing protocol integration diagram"></p>
+<hr>
+<blockquote>
+<p><strong>TL;DR:</strong></p>
+<ul>
+<li>Connecting legacy protocols to decentralized AI networks no longer requires complete system overhauls, thanks to modern middleware, protocol bridges, and P2P overlays.</li>
+<li>Hybrid integration approaches, combining middleware, gateways, and protocol wrapping, provide scalable, secure, and resilient solutions adaptable to complex operational environments.</li>
+</ul>
+</blockquote>
+<hr>
+<p>Legacy protocol integration with decentralized AI networks is widely assumed to require massive re-architecture, long timelines, and specialized expertise that most teams simply don’t have. That assumption is wrong. Modern tooling including middleware layers, protocol bridges, and P2P overlay networks now lets you connect HTTP, SOAP, Modbus, and other established protocols to distributed agent systems without complete system overhauls. This article covers the frameworks, security strategies, and edge cases you need to know, so you can build resilient, production-ready integrations with confidence.</p>
+<h2 id="table-of-contents" tabindex="-1">Table of Contents</h2>
+<ul>
+<li><a href="#why-is-legacy-protocol-integration-needed-in-distributed-ai?">Why is legacy protocol integration needed in distributed AI?</a></li>
+<li><a href="#core-integration-frameworks%3A-middleware%2C-gateways%2C-and-protocol-bridges">Core integration frameworks: Middleware, gateways, and protocol bridges</a></li>
+<li><a href="#securing-data-exchange%3A-gateways%2C-oracles%2C-and-privacy-risks">Securing data exchange: Gateways, oracles, and privacy risks</a></li>
+<li><a href="#edge-cases-and-best-practices%3A-nat%2C-firewalls%2C-and-key-management">Edge cases and best practices: NAT, firewalls, and key management</a></li>
+<li><a href="#a-candid-perspective%3A-why-hybrid-integration-wins-for-distributed-ai">A candid perspective: Why hybrid integration wins for distributed AI</a></li>
+<li><a href="#accelerate-secure-legacy-integration-with-pilot-protocol">Accelerate secure legacy integration with Pilot Protocol</a></li>
+<li><a href="#frequently-asked-questions">Frequently asked questions</a></li>
+</ul>
+<h2 id="key-takeaways" tabindex="-1">Key Takeaways</h2>
+<table>
+<thead>
+<tr>
+<th>Point</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Integration essentials</td>
+<td>Middleware, gateways, and protocol bridges form the backbone for secure legacy-decentralized connectivity.</td>
+</tr>
+<tr>
+<td>Security best practices</td>
+<td>Prioritize multi-gateway setups, modern cryptography, and certified oracles to mitigate vulnerabilities.</td>
+</tr>
+<tr>
+<td>Key operational challenges</td>
+<td>Address NAT, firewalls, and credential management using tools like relays, HSMs, and protocol auto-bridges.</td>
+</tr>
+<tr>
+<td>Hybrid approach wins</td>
+<td>Gradual, layered integration reduces risk versus abrupt system rewrites, supporting robust distributed AI deployments.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="why-is-legacy-protocol-integration-needed-in-distributed-ai" tabindex="-1">Why is legacy protocol integration needed in distributed AI?</h2>
+<p>Distributed AI architectures don’t operate in a vacuum. They run alongside industrial controllers, enterprise APIs, IoT sensors, and data platforms that were built years or even decades before peer-to-peer networking became viable. You can’t simply swap those systems out. The business logic, regulatory requirements, and operational dependencies run too deep.</p>
+<p>The core challenge is this: legacy protocols like HTTP, Modbus, and SOAP were designed for centralized, request-response environments. Distributed AI agent swarms, on the other hand, need dynamic discovery, mutual authentication, and resilient communication across cloud regions and network boundaries. Bridging that gap without breaking existing workflows is where integration architecture earns its value.</p>
+<p>Here are the most common pain points engineers run into:</p>
+<ul>
+<li><strong>Protocol mismatch</strong>: Legacy systems speak synchronous request-response; decentralized networks often use pub-sub, gossip, or event-driven messaging.</li>
+<li><strong>Security gaps</strong>: Older protocols frequently rely on network-level trust rather than cryptographic identity, which creates serious exposure when you connect them to open P2P environments.</li>
+<li><strong>NAT and firewall barriers</strong>: Industrial and enterprise systems sit behind restrictive networks that block peer discovery.</li>
+<li><strong>Auditability</strong>: Decentralized systems require verifiable, tamper-resistant logs that legacy protocols were never designed to produce.</li>
+</ul>
+<blockquote>
+<p>“P2P stacks like libp2p and Pilot enable <a href="https://dev.to/pstayet/connecting-legacy-http-ai-agents-over-p2p-networks-without-static-ips-5g93" rel="nofollow noopener noreferrer" target="_blank">agent swarms with legacy HTTP</a> compatibility via proxies, enhancing secure machine-to-machine communications in distributed setups.”</p>
+</blockquote>
+<p>This is why the integration question matters so much right now. AI agent deployments are moving from controlled cloud environments into heterogeneous infrastructure where legacy and decentralized systems must coexist. Understanding <a href="https://pilotprotocol.network/blog/decentralized-communication-protocols-ai-developers">decentralized communication protocols</a> is a necessary foundation before you pick any integration pattern.</p>
+<p>Now that you understand the big-picture challenge, let’s clarify the frameworks and tools available.</p>
+<h2 id="core-integration-frameworks-middleware-gateways-and-protocol-bridges" tabindex="-1">Core integration frameworks: Middleware, gateways, and protocol bridges</h2>
+<p>Three architectural patterns dominate real-world legacy-to-decentralized integration. Each solves a different set of problems, and each carries different tradeoffs. Understanding when to use which one is the skill that separates solid integrations from brittle ones.</p>
+<p><strong>Middleware</strong> sits between your legacy system and the decentralized network. It handles translation, event routing, and protocol normalization without touching either end system. <a href="https://chain.link/article/blockchain-legacy-system-integration" rel="nofollow noopener noreferrer" target="_blank">Chainlink’s middleware abstraction layers</a> like CRE and CCIP, for example, connect legacy REST and GraphQL APIs via oracles that handle blockchain events and data pushes without direct chain exposure. Middleware is flexible but adds latency and operational overhead.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1778076544186_image.jpeg" alt="Engineer developing middleware for system translation"></p>
+<p><strong>Gateways</strong> act as controlled entry points that translate incoming requests from one protocol space to another. They are fast and well-understood but introduce centralization risk. If the gateway goes down, connectivity stops.</p>
+<p><strong>Protocol bridges</strong> wrap one protocol inside another, allowing two incompatible systems to communicate without either side changing. <a href="https://github.com/denizumutdereli/agents-p2p-network" rel="nofollow noopener noreferrer" target="_blank">libp2p, for instance, enables P2P integration</a> via hybrid transports, circuit relays for NAT traversal, and protocol bridges that wrap legacy HTTP and TCP into P2P streams, allowing OpenAI-compatible endpoints to operate over decentralized networks. This is where <a href="https://pilotprotocol.network/blog/how-to-wrap-legacy-protocols-for-p2p-ai-networks">wrapping legacy protocols</a> becomes a practical skill rather than a theoretical one.</p>
+<p>Here’s a comparison to help you choose:</p>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Security</th>
+<th>Flexibility</th>
+<th>Auditability</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Middleware</td>
+<td>High, configurable</td>
+<td>Very high</td>
+<td>Strong, centralized logs</td>
+<td>Enterprise API integration, oracle pipelines</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>Medium, depends on config</td>
+<td>Medium</td>
+<td>Moderate</td>
+<td>HTTP-to-P2P translation, browser access to decentralized storage</td>
+</tr>
+<tr>
+<td>Protocol bridge</td>
+<td>High, cryptographic</td>
+<td>High</td>
+<td>Distributed, verifiable</td>
+<td>Wrapping Modbus, SOAP, or HTTP into P2P streams</td>
+</tr>
+</tbody>
+</table>
+<p>For specific scenarios, here’s a quick guide:</p>
+<ul>
+<li>Use <strong>middleware</strong> when you need event-driven workflows between blockchain smart contracts and legacy REST APIs.</li>
+<li>Use a <strong>gateway</strong> when legacy clients need read access to decentralized storage or P2P networks without any code changes.</li>
+<li>Use a <strong>protocol bridge</strong> when you need to wrap industrial protocols like Modbus for AI agent communication without upgrading hardware.</li>
+<li>Use <strong>hybrid combinations</strong> for high-availability deployments where a single failure mode is unacceptable.</li>
+</ul>
+<p>Exploring <a href="https://pilotprotocol.network/blog/protocol-wrapping-secure-peer-to-peer-ai-systems">protocol wrapping methods</a> in detail will help you implement these patterns correctly. For teams that need external support during complex migrations, <a href="https://nulifedigital.co.uk/services/software-solutions" target="_blank" rel="noopener">software integration solutions</a> can provide additional engineering guidance.</p>
+<p>Pro Tip: Gradual migration using protocol bridges is consistently safer than big-bang rewrites. Wrap your legacy endpoints in a protocol bridge first, validate behavior under production load, then incrementally replace legacy logic. This approach lets you prove correctness at each step and gives you a rollback path if something breaks.</p>
+<p>Armed with this toolbox, it’s critical to understand the security implications of each integration pattern.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1778077093971_Infographic-comparing-integration-patterns-and-security.jpeg" alt="Infographic comparing integration patterns and security"></p>
+<h2 id="securing-data-exchange-gateways-oracles-and-privacy-risks" tabindex="-1">Securing data exchange: Gateways, oracles, and privacy risks</h2>
+<p>Every integration pattern introduces a specific threat surface. Engineers who treat security as a post-deployment concern end up with hard-to-fix vulnerabilities. Address them at the design stage.</p>
+<p>The risks vary significantly by architecture. Here’s a focused breakdown:</p>
+<table>
+<thead>
+<tr>
+<th>Architecture</th>
+<th>Key risk</th>
+<th>Availability concern</th>
+<th>Recommended mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gateway</td>
+<td>Single point of failure, data exfiltration</td>
+<td>High if centralized</td>
+<td>Multi-gateway deployment, DNSLink fallback</td>
+</tr>
+<tr>
+<td>Oracle</td>
+<td>Oracle self-deception, stale data feeds</td>
+<td>Medium</td>
+<td>Threshold consensus, multiple data sources</td>
+</tr>
+<tr>
+<td>Proxy/bridge</td>
+<td>Credential exposure, replay attacks</td>
+<td>Low with proper config</td>
+<td>Mutual TLS, post-quantum crypto</td>
+</tr>
+<tr>
+<td>Middleware</td>
+<td>Centralized bottleneck, auth bypass</td>
+<td>Medium</td>
+<td>Rate limiting, anomaly detection</td>
+</tr>
+</tbody>
+</table>
+<p><a href="https://docs.btfs.io/docs/btfs-gateway" rel="nofollow noopener noreferrer" target="_blank">IPFS and BTFS gateways</a> bridge HTTP clients to decentralized storage by translating CIDs to HTTP paths, enabling legacy browsers and apps to access content. However, they introduce serious centralization risk if gateways fail or are compromised. This is a design tension you need to resolve explicitly, not hope away.</p>
+<p>Pro Tip: Deploy multiple independent gateways across separate providers and configure DNSLink to route clients to the fastest available instance. This reduces single-point-of-failure risk significantly and keeps availability high during planned maintenance or unexpected downtime.</p>
+<p>For industrial environments, the security picture is more complex. Many legacy protocols like Modbus and SOAP were designed with zero built-in cryptographic identity. <a href="https://www.sciencedirect.com/science/article/pii/S2214212625002364" rel="nofollow noopener noreferrer" target="_blank">Proxies and translation tunnels</a> now use DIDs (Decentralized Identifiers), Verifiable Credentials, post-quantum cryptography, and DHTs as Verifiable Data Registries to secure legacy industrial protocols in decentralized setups without requiring hardware upgrades. That’s a meaningful advancement.</p>
+<p>Here are the essential practices to prevent breaches when wrapping industrial protocols:</p>
+<ul>
+<li>Assign a DID to every legacy device at the integration boundary rather than relying on IP-based identity.</li>
+<li>Enforce mutual authentication on every session, not just the initial handshake.</li>
+<li>Use post-quantum key exchange algorithms for new integrations given the advancing timeline on quantum computing threats.</li>
+<li>Log all cross-boundary data flows to an immutable, distributed ledger for compliance and forensic purposes.</li>
+<li>Rotate credentials on a fixed schedule using automated tooling rather than manual processes.</li>
+</ul>
+<blockquote>
+<p>Building <a href="https://pilotprotocol.network/blog/trust-network-protocols-secure-decentralized-systems">trust in protocol security</a> requires layering cryptographic identity onto systems that were never designed with it in mind. That work is non-trivial but entirely achievable with the right tooling.</p>
+</blockquote>
+<p>For teams evaluating external implementation support, <a href="https://nulifedigital.co.uk/services/system-integration" target="_blank" rel="noopener">system integration guidance</a> is available from specialists with distributed systems experience.</p>
+<p>While patterns and security are crucial, real integrations hinge on navigating architectural edge cases and operational realities.</p>
+<h2 id="edge-cases-and-best-practices-nat-firewalls-and-key-management" tabindex="-1">Edge cases and best practices: NAT, firewalls, and key management</h2>
+<p>Most integration failures in production aren’t caused by architectural errors at the design stage. They’re caused by edge cases that teams didn’t plan for. These are the ones that consistently cause outages, security incidents, and performance degradation.</p>
+<p>Here are the most common edge cases ranked by frequency:</p>
+<ol>
+<li><strong>NAT and firewall traversal failures</strong>: Agents behind strict NAT or corporate firewalls can’t establish P2P connections without relay support. This is the most frequent production blocker.</li>
+<li><strong>Gateway and relay downtime</strong>: A single gateway or relay node going offline disconnects all dependent clients. Teams often underestimate how frequently this happens in cloud environments.</li>
+<li><strong>Key rotation failures</strong>: Poorly automated key rotation leads to expired credentials locking out agents mid-operation, causing cascading task failures across the fleet.</li>
+<li><strong>Oracle compromise</strong>: A compromised oracle node can feed false data to smart contracts or AI decision pipelines. CVE-level vulnerabilities like <a href="https://github.com/ipfs/service-worker-gateway/issues/972" rel="nofollow noopener noreferrer" target="_blank">oracle self-deception scenarios</a> where nodes validate their own false claims are a documented risk.</li>
+<li><strong>Protocol version drift</strong>: Legacy systems running older protocol versions may reject handshakes from upgraded bridge components, creating silent failures.</li>
+</ol>
+<p>For NAT and firewall issues specifically, here are the solutions that work:</p>
+<ul>
+<li>Enable libp2p auto-relay so agents can route through available relay nodes automatically when direct connections fail.</li>
+<li>Use hole-punching techniques combined with STUN-style coordination to establish direct connections whenever possible, falling back to relays only when necessary.</li>
+<li>Configure multiple relay nodes across different cloud regions to avoid geographic single-point-of-failure scenarios.</li>
+<li>Use overlay networks like Pilot Protocol that handle NAT traversal natively, removing the need to configure traversal logic per agent. A <a href="https://pilotprotocol.network/blog/nat-traversal-ai-agents-deep-dive">deep dive on NAT traversal</a> walks through the specifics in detail.</li>
+</ul>
+<p>Pro Tip: Use hardware security modules (HSMs) for credential and key management across your agent fleet. Password-based resets are a major attack vector. HSMs provide tamper-resistant key storage and enforce access policies at the hardware level, making them significantly harder to compromise than software-based keystores.</p>
+<p>Additional solutions worth prioritizing:</p>
+<ul>
+<li>Implement <a href="https://pilotprotocol.network/blog/openclaw-agents-behind-nat-zero-config">zero-config NAT solutions</a> that handle traversal automatically without per-deployment configuration.</li>
+<li>For agents needing direct connectivity in restricted environments, techniques for <a href="https://pilotprotocol.network/blog/connect-ai-agents-behind-nat-without-vpn">connecting behind NAT</a> without relying on a VPN are practical and well-documented.</li>
+</ul>
+<p>Real-world configuration improvements show an 800ms time-to-first-byte reduction by avoiding unnecessary gateway hints, along with improved node reachability through libp2p auto-relay. These aren’t marginal gains. At scale across hundreds of agents, they add up to meaningful performance and reliability improvements.</p>
+<p>Pulling together all these architectural and workflow lessons, it’s time for a candid assessment of what works and what doesn’t in the real world.</p>
+<h2 id="a-candid-perspective-why-hybrid-integration-wins-for-distributed-ai" tabindex="-1">A candid perspective: Why hybrid integration wins for distributed AI</h2>
+<p>Here’s what actual deployments consistently reveal: the integrations that fail aren’t the ones with complex architectures. They’re the ones that tried to keep it too simple.</p>
+<p>Teams reach for a single gateway because it’s fast to deploy. It works great in staging. Then in production, the gateway goes down, or gets overloaded, or sits in a geographic region with high latency for half your agents. The “simple” choice becomes the expensive one.</p>
+<p>The pattern that holds up is hybrid integration. Use middleware for event-driven flows where you need auditability. Use protocol bridges to wrap legacy endpoints without touching them. Use P2P overlay for agent-to-agent communication where direct, encrypted tunnels matter. Layer them intentionally rather than picking one and hoping it covers all your cases.</p>
+<p>Direct integration risks like exposing legacy authentication to blockchain-connected systems are well-documented, and the consensus is clear: middleware and oracle patterns consistently outperform native protocol changes. Hybrid modes allow gradual migration without big-bang rewrites, which is where most re-architecture projects fail anyway.</p>
+<p>The other honest lesson from real deployments is that composability matters more than elegance. An integration that uses three well-understood patterns in combination is easier to debug, easier to replace piece by piece, and easier to hand off to a new team member than a custom solution that cleverly consolidates everything into one. Incremental, composable upgrades prevent lock-in and give you room to evolve your architecture as decentralized networking standards mature.</p>
+<p>If you’re building <a href="https://pilotprotocol.network/blog/peer-to-peer-agent-communication-no-server">peer-to-peer agent strategies</a> for production systems, the hybrid approach isn’t a compromise. It’s the correct engineering decision.</p>
+<h2 id="accelerate-secure-legacy-integration-with-pilot-protocol" tabindex="-1">Accelerate secure legacy integration with Pilot Protocol</h2>
+<p>If you’re ready to move from architecture planning to actual implementation, Pilot Protocol is built for exactly this use case. It provides a production-grade P2P overlay for AI agents and distributed systems, with native support for wrapping legacy protocols like HTTP, gRPC, and SSH inside encrypted peer-to-peer tunnels. NAT traversal, mutual trust establishment, persistent virtual addresses, and multi-cloud connectivity are all built in, so you spend time on your integration logic rather than networking infrastructure.</p>
+<p><img src="https://csuxjmfbwmkxiegfpljm.supabase.co/storage/v1/object/public/blog-images/organization-24002/1774647725213_pilotprotocol.jpg" alt="https://pilotprotocol.network"></p>
+<p>Pilot Protocol removes the operational complexity that typically slows legacy-to-decentralized integrations. You get CLI tools, Python and Go SDKs, and a web console that let you deploy, monitor, and manage agent networks without standing up centralized brokers or message queues. Explore <a href="https://pilotprotocol.network/for/p2p">direct P2P integration for AI agents</a> and see how quickly you can connect your existing systems to a secure, decentralized agent network.</p>
+<h2 id="frequently-asked-questions" tabindex="-1">Frequently asked questions</h2>
+<h3 id="what-are-the-main-methods-for-integrating-legacy-protocols-with-decentralized-ai-networks" tabindex="-1">What are the main methods for integrating legacy protocols with decentralized AI networks?</h3>
+<p>The core methods include middleware layers, protocol bridges, and gateways that translate or wrap legacy protocols like HTTP or Modbus for peer-to-peer and blockchain networks. Legacy protocol integration primarily uses these patterns to enable secure data exchange without requiring changes to either end system.</p>
+<h3 id="how-do-decentralized-gateways-pose-security-risks-in-legacy-integrations" tabindex="-1">How do decentralized gateways pose security risks in legacy integrations?</h3>
+<p>Gateways introduce centralization and can create single points of failure or privacy risks if compromised or taken offline. IPFS and BTFS gateways specifically introduce centralization risks that undermine decentralization goals when they fail or are targeted.</p>
+<h3 id="what-are-the-best-practices-for-securing-legacy-industrial-protocols-in-a-decentralized-setup" tabindex="-1">What are the best practices for securing legacy industrial protocols in a decentralized setup?</h3>
+<p>Use cryptographic tools like DIDs, verifiable credentials, post-quantum encryption, and deploy multiple gateways to avoid single points of failure. Proxies and translation tunnels using DIDs, VCs, and post-quantum crypto are now the standard approach for securing industrial protocol integrations.</p>
+<h3 id="how-can-nat-and-firewall-issues-be-addressed-during-legacy-protocol-integration" tabindex="-1">How can NAT and firewall issues be addressed during legacy protocol integration?</h3>
+<p>Solutions include hybrid transports, circuit relays, and auto-relay methods as provided by stacks like libp2p, which bypass restrictive networking environments. libp2p hybrid transports combined with circuit relays are the most reliable production-tested approach for NAT traversal.</p>
+<h3 id="are-there-proven-performance-improvements-from-modern-integration-approaches" tabindex="-1">Are there proven performance improvements from modern integration approaches?</h3>
+<p>Qualitative gains have been observed, including reduced latency and improved node reachability by using multi-gateway and auto-relay approaches. Specific configuration changes show an 800ms TTFB reduction and measurable reachability improvements with libp2p auto-relay enabled.</p>
+<h2 id="recommended" tabindex="-1">Recommended</h2>
+<ul>
+<li><a href="https://pilotprotocol.network/blog/decentralized-communication-protocols-ai-developers">Decentralized communication protocols for AI developers</a></li>
+<li><a href="https://pilotprotocol.network/blog/trustless-protocols-that-secure-decentralized-ai-systems">Trustless protocols that secure decentralized AI systems</a></li>
+<li><a href="https://pilotprotocol.network/blog/secure-communication-protocols-distributed-ai-systems">Secure communication protocols for distributed AI systems</a></li>
+<li><a href="https://pilotprotocol.network/blog/cloud-networking-secure-peer-to-peer-distributed-ai">Cloud networking: Secure peer-to-peer for distributed AI</a></li>
+</ul>`;
+---
+<BlogLayout
+  title="Legacy protocol integration for secure distributed AI"
+  description="Unlock seamless connections with distributed AI by explaining legacy protocol integration. Discover modern strategies that simplify integration now!"
+  date="May 9, 2026"
+  tags={["blog"]}
+  canonicalPath="/blog/legacy-protocol-integration-for-secure-distributed-ai"
+  bannerImage="/blog/banners/legacy-protocol-integration-for-secure-distributed-ai.jpg"
+>
+  <Fragment set:html={bodyContent} />
+</BlogLayout>
