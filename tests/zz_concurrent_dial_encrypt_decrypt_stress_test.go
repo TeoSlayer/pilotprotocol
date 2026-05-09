@@ -127,28 +127,31 @@ func TestConcurrentDialEncryptDecrypt(t *testing.T) {
 		}(port)
 	}
 
-	// Capture baseline goroutine count AFTER listeners are warm so the
-	// per-rep delta only reflects the workload goroutines.
+	// Warm listeners, then allow any ambient parallel-test goroutines to
+	// stabilise before the first rep.
 	time.Sleep(200 * time.Millisecond)
 	runtime.GC()
-	baselineGoroutines := runtime.NumGoroutine()
-	t.Logf("baseline goroutine count: %d", baselineGoroutines)
+	t.Logf("pre-rep goroutine count: %d", runtime.NumGoroutine())
 
 	totalStart := time.Now()
 
 	for rep := 0; rep < numReps; rep++ {
-		t.Logf("--- rep %d/%d (deadline %s) ---", rep+1, numReps, repDuration)
+		// Snapshot baseline immediately before launching the rep's
+		// workload so the post-rep delta measures only goroutines that
+		// THIS rep created but did not drain. Using a single global
+		// baseline (taken before rep 1) was incorrect: over the 30 s
+		// rep other parallel tests start up and inflate the count,
+		// producing false-positive leak reports in CI.
+		runtime.GC()
+		baselineGoroutines := runtime.NumGoroutine()
+		t.Logf("--- rep %d/%d (deadline %s, baseline goroutines %d) ---",
+			rep+1, numReps, repDuration, baselineGoroutines)
 		runRep(t, a, b, listeners, repDuration, dialGoroutines, decryptGoroutines, rekeyGoroutines, heartbeatGoroutines)
 
-		// Goroutine drain check: poll up to 5 s for the count to fall
-		// back within tolerance of baseline. The doc spec
-		// (05-VERIFICATION.md §4.8) is "no goroutine deadlock" — i.e.
-		// goroutines must drain eventually, not within an arbitrary
-		// short window. Same pattern as T0.1
-		// (TestDaemonShutdownStopsGoroutines) which gives 5 s grace.
-		// Under §4.8's stress workload, a handful of conns may still
-		// be mid-FIN/TimeWait at rep stop; the deadline-polled loop
-		// gives them room to complete without flapping the gate.
+		// runRep calls wg.Wait() so all 1000 worker goroutines have
+		// already exited by the time we get here. The poll below catches
+		// goroutines NOT tracked by wg (e.g. daemon-internal goroutines
+		// started as a side-effect of the workload that didn't clean up).
 		runtime.GC()
 		drainDeadline := time.Now().Add(5 * time.Second)
 		var now int
@@ -162,7 +165,6 @@ func TestConcurrentDialEncryptDecrypt(t *testing.T) {
 				break
 			}
 			if time.Now().After(drainDeadline) {
-				// Dump goroutine stacks so we can identify the leaker.
 				buf := make([]byte, 1<<20)
 				n := runtime.Stack(buf, true)
 				t.Errorf("rep %d: goroutine leak detected: %d goroutines, baseline=%d, delta=%d (tolerance %d, waited 5s)\n%s",
