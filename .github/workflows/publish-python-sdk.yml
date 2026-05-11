@@ -155,10 +155,14 @@ jobs:
       # step using the same release tag for its version stamp.
       - name: Layout binaries into pilotprotocol/bin/
         shell: bash
+        env:
+          # Resolve GOOS at workflow-eval time so the run-script doesn't
+          # need its own case statement. bash 3.2 (macOS default) chokes
+          # on `case` inside `$(...)` command substitution.
+          GOOS: ${{ matrix.platform == 'macos' && 'darwin' || 'linux' }}
+          ARCH: ${{ matrix.release_arch }}
         run: |
           set -euo pipefail
-          GOOS=$(case "${{ matrix.platform }}" in linux) echo linux;; macos) echo darwin;; esac)
-          ARCH="${{ matrix.release_arch }}"
           ARCHIVE="pilot-${GOOS}-${ARCH}.tar.gz"
 
           BIN_DIR="sdk/python/pilotprotocol/bin"
