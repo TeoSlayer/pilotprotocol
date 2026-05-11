@@ -18,9 +18,16 @@
 
 import koffi from 'koffi';
 import { existsSync } from 'node:fs';
-import { homedir, platform } from 'node:os';
-import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { arch, homedir, platform } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// The npm sub-package shipping THIS host's libpilot. Mirrors cli.ts so
+// both code paths agree on where bundled binaries live.
+function subPackageName(): string {
+  return `pilotprotocol-${platform()}-${arch()}`;
+}
 
 // ---------------------------------------------------------------------------
 // Error class (defined here to avoid circular deps with client.ts)
@@ -56,20 +63,33 @@ export function findLibrary(): string {
     throw new Error(`PILOT_LIB_PATH=${envPath} does not exist`);
   }
 
-  // 2. ~/.pilot/bin/
+  // 2. ~/.pilot/bin/ — honors a curl-install of pilot if the user has one.
   const pilotBin = join(homedir(), '.pilot', 'bin', libName);
   if (existsSync(pilotBin)) return pilotBin;
 
-  // 3. <package>/bin/ (npm package layout: dist/ffi.js → ../bin/)
+  // 3. The matching optional sub-package (production npm install layout).
+  try {
+    const req = createRequire(import.meta.url);
+    const subPkgJson = req.resolve(`${subPackageName()}/package.json`);
+    const candidate = resolve(dirname(subPkgJson), 'bin', libName);
+    if (existsSync(candidate)) return candidate;
+  } catch {
+    // sub-package not installed — local dev path or wrong-platform host.
+  }
+
   const thisDir = resolve(fileURLToPath(import.meta.url), '..');
+
+  // 4. In-repo sub-package — populated by scripts/build-binaries.sh for
+  //    local dev without `npm install` of the sub-package.
+  const subPlat = subPackageName().replace(/^pilotprotocol-/, '');
+  const inRepoSub = resolve(thisDir, '..', '..', 'packages', subPlat, 'bin', libName);
+  if (existsSync(inRepoSub)) return inRepoSub;
+
+  // 5. Legacy flat dev layouts.
   const pkgBin = resolve(thisDir, '..', 'bin', libName);
   if (existsSync(pkgBin)) return pkgBin;
-
-  // 4. Same directory as this file
   const colocated = join(thisDir, libName);
   if (existsSync(colocated)) return colocated;
-
-  // 5. <repo>/bin/ (development layout — 3 levels up from dist/)
   const repoBin = resolve(thisDir, '..', '..', '..', 'bin', libName);
   if (existsSync(repoBin)) return repoBin;
 
@@ -77,12 +97,18 @@ export function findLibrary(): string {
     `Cannot find ${libName}.\n` +
     '\n' +
     'Expected locations:\n' +
-    `  - ~/.pilot/bin/${libName}\n` +
-    `  - ${pkgBin} (npm package)\n` +
+    `  - ~/.pilot/bin/${libName} (curl install)\n` +
+    `  - node_modules/${subPackageName()}/bin/${libName} (npm sub-package)\n` +
+    `  - ${inRepoSub} (in-repo dev sub-package)\n` +
+    `  - ${pkgBin} (legacy npm layout)\n` +
     `  - ${colocated} (colocated)\n` +
-    `  - ${repoBin} (development)\n` +
+    `  - ${repoBin} (legacy dev layout)\n` +
     '\n' +
-    'Build it with:\n' +
+    `If you installed via npm, the sub-package '${subPackageName()}'\n` +
+    'should have been installed automatically. Reinstall with:\n' +
+    '  npm install pilotprotocol\n' +
+    '\n' +
+    'For local development, build it with:\n' +
     '  cd sdk/node && ./scripts/build-binaries.sh\n' +
     '\n' +
     'Or set PILOT_LIB_PATH:\n' +

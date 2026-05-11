@@ -136,6 +136,37 @@ make test
 6. Ensure the project builds: `go build ./...`
 7. Submit a pull request with a clear description
 
+### Testing publish workflows (`ci_*` branches)
+
+`Publish Python SDK` and `Publish Node SDK` normally only fire on
+`release: published` events. Iterating on these workflows by cutting real
+releases is slow and side-effecting (every test wheel/npm package would
+be a permanent public artifact).
+
+**The convention: branches whose name starts with `ci_` get a permanent
+dry-run on every push.** A push to `ci_*` runs everything through the
+build jobs, the version-stamp assertions, and the dry-pack — but stops
+before the actual `twine upload` / `npm publish` steps. The publish jobs
+are gated on `github.event_name == 'release'`, so a push rehearsal never
+touches PyPI or npm.
+
+How it works:
+- On a release event, the workflows pull binaries from that release's tag.
+- On a `ci_*` push, they pull binaries from the **latest existing**
+  release (resolved via `gh release view --json tagName`) and use that as
+  the rehearsal target. This means: there must be at least one prior
+  release on GitHub for the rehearsal to have something to pull from.
+
+Naming:
+- `ci_workflow_iter` — fine
+- `ci_test_build_libpilot` — fine
+- `feature/ci-test` — **does not match**; the rehearsal trigger pattern is
+  `ci_*` literally. Any other branch name is silently ignored by the
+  publish workflows.
+
+Tip: use `gh run watch` after pushing to follow the run, and
+`gh run view --log-failed` to retrieve only failed-step logs.
+
 ### Code Style
 
 - Follow standard Go conventions (`gofmt`, `go vet`)

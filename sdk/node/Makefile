@@ -29,3 +29,10 @@ dist: binaries build
 
 clean:
 	rm -rf dist/ node_modules/ bin/ *.tgz
+	# Per-platform sub-package bin/ trees (populated by build-binaries.sh
+	# for local dev, by the publish workflow in CI). Wipe the contents but
+	# keep the per-platform package.json files in place.
+	find packages -mindepth 2 -maxdepth 3 -type f \
+	    \( -name 'pilot-*' -o -name 'pilotctl' -o -name 'libpilot.*' \) \
+	    -delete 2>/dev/null || true
+	find packages -mindepth 2 -maxdepth 3 -type d -name bin -empty -delete 2>/dev/null || true
