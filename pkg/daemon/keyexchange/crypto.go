@@ -44,6 +44,22 @@ const SalvageMaxAge = 5 * time.Second
 // L5 concept) and Crypto.DecryptFailCount (per-peer state).
 const DecryptFailDropThreshold = 5
 
+// OutsideWindowDropThreshold is how many consecutive outside-replay-window
+// rejections cause us to drop the peer's Crypto and trigger a fresh key
+// exchange. Tuned conservatively: ReplayWindowSize=256 means an in-spec
+// burst of late relay-buffered frames can produce a few outside-window
+// rejections normally. 30 consecutive without any successful decrypt is
+// strong evidence the peer's send counter is far behind our window
+// max-water-mark and no in-band recovery exists. Reset to 0 on success.
+const OutsideWindowDropThreshold = 30
+
+// OutsideWindowDropGrace mirrors DecryptFailDropGrace but for the
+// outside-window path. Reuses the same 3-second value: a freshly
+// installed Crypto can legitimately see a small flurry of stale
+// in-flight frames at low counters; only after the new state has had
+// time to drain those should we treat the persistence as divergence.
+const OutsideWindowDropGrace = 3 * time.Second
+
 // DecryptFailDropGrace is the minimum age a Crypto must reach before
 // repeated decrypt failures can drop it. Set above the typical relay RTT
 // (≤200 ms) plus a comfortable margin: stale ciphertext from before the
@@ -96,6 +112,18 @@ type Crypto struct {
 	// recovery without actually restarting. Reset to 0 on any successful
 	// decrypt.
 	DecryptFailCount int
+
+	// OutsideWindowCount tracks consecutive frames rejected because their
+	// counter was more than ReplayWindowSize behind MaxRecvNonce. A few
+	// of these are normal (late relay-buffered frames). A sustained burst
+	// means the peer's send counter and our receive window have diverged
+	// far enough that no in-band recovery is possible — the only signal
+	// the peer has to know there's a problem is silence, and the only
+	// fix is a fresh key exchange. Once this counter exceeds
+	// OutsideWindowDropThreshold AND the Crypto is older than
+	// OutsideWindowDropGrace, the daemon drops this Crypto and requests
+	// a rekey. Reset to 0 on any successful decrypt.
+	OutsideWindowCount int
 
 	// CreatedAt is when this Crypto was installed. Used by L5's
 	// handleAuthKeyExchange to decide between preserving existing state

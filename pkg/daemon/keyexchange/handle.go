@@ -141,8 +141,20 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 		m.SendKeyExchangeToNode(peerNodeID)
 		m.ClearPendingRekey(peerNodeID)
 	} else {
-		// Already had a session and peer didn't rotate — clear any
-		// outstanding pending state so we don't keep retrying.
+		// Already had a session and peer didn't rotate. If we have NO
+		// recent successful decrypt from this peer, our previous reply
+		// PILA may have been lost OR the peer dropped its crypto for us
+		// (e.g. via the DecryptFailDropGrace path after a relay-buffered
+		// stale-frame burst). In either case the peer needs our PILA to
+		// re-derive the shared secret — silence here is the asymmetric-
+		// crypto deadlock observed against list-agents on 2026-05-11.
+		// KeyExchangeReplyStaleThreshold (6 s) gates this so an active
+		// session with regular inbound traffic cannot trigger a reply
+		// loop. Don't reinstall locally — preserves our nonce counter
+		// and replay window for in-flight encrypted traffic.
+		if m.InboundDecryptStale(peerNodeID) {
+			m.SendKeyExchangeToNode(peerNodeID)
+		}
 		m.ClearPendingRekey(peerNodeID)
 	}
 	return true

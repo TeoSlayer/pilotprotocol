@@ -179,6 +179,36 @@ func (s *Store) ShouldDropOnDecryptFail(peerNodeID uint32, c *Crypto) bool {
 	return current == c
 }
 
+// ShouldDropOnOutsideWindow mirrors ShouldDropOnDecryptFail for the
+// outside-replay-window divergence path. Returns true when the peer's
+// OutsideWindowCount has reached OutsideWindowDropThreshold AND the
+// Crypto is older than OutsideWindowDropGrace AND it is still the
+// currently-installed entry for peerNodeID.
+//
+// The caller (L7 handleEncrypted) is responsible for dropping the
+// Crypto via CompareAndDrop and triggering a fresh key exchange when
+// this returns true. This is the symmetric-state recovery for the
+// case where our receive-window's high-water-mark has drifted so far
+// past the peer's actual send counter that no in-band signal exists.
+// Reproduces the rc3 list-agents bug on 2026-05-11 where MaxRecvNonce
+// stayed at 8518 while the sender's outbound counter sat at ~400.
+func (s *Store) ShouldDropOnOutsideWindow(peerNodeID uint32, c *Crypto) bool {
+	if c == nil {
+		return false
+	}
+	c.ReplayMu.Lock()
+	rejections := c.OutsideWindowCount
+	c.ReplayMu.Unlock()
+	if rejections < OutsideWindowDropThreshold {
+		return false
+	}
+	if time.Since(c.CreatedAt) < OutsideWindowDropGrace {
+		return false
+	}
+	current := s.Get(peerNodeID)
+	return current == c
+}
+
 // RecordSalvage stashes a plaintext send into the per-peer ring buffer.
 // On a subsequent peer-initiated rekey, DrainSalvage will hand back the
 // entries; the caller re-encrypts with the new key and re-sends —

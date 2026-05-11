@@ -155,6 +155,15 @@ func DecryptFrame(store *keyexchange.Store, data []byte) DecryptResult {
 		err := ErrReplay
 		if recvCounter < maxN && maxN-recvCounter >= keyexchange.ReplayWindowSize {
 			err = ErrOutsideWindow
+			// Track consecutive outside-window rejections. A sustained
+			// burst means the peer's send counter has diverged from our
+			// window's high-water-mark too far for in-band recovery —
+			// only a fresh key exchange resets both sides. The caller
+			// (L7) consults ShouldDropOnOutsideWindow to enforce the
+			// threshold + grace gate. Mirrors DecryptFailCount.
+			c.ReplayMu.Lock()
+			c.OutsideWindowCount++
+			c.ReplayMu.Unlock()
 		}
 		return DecryptResult{
 			PeerNodeID:   peerNodeID,
@@ -183,10 +192,13 @@ func DecryptFrame(store *keyexchange.Store, data []byte) DecryptResult {
 		}
 	}
 
-	// Successful decrypt — reset the AEAD failure counter.
+	// Successful decrypt — reset both fault counters under one lock.
 	c.ReplayMu.Lock()
 	if c.DecryptFailCount != 0 {
 		c.DecryptFailCount = 0
+	}
+	if c.OutsideWindowCount != 0 {
+		c.OutsideWindowCount = 0
 	}
 	c.ReplayMu.Unlock()
 

@@ -898,13 +898,34 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 			"peer_node_id", peerNodeID, "counter", res.Counter, "max", res.MaxRecvNonce)
 		// ErrOutsideWindow means the frame authenticated (valid AEAD) but the
 		// nonce counter is more than ReplayWindowSize behind the current max.
-		// This is a very late relay-buffered frame from the same key session,
-		// not a peer restart. If the peer restarted with a new key, their frames
-		// cannot authenticate against our old key (different AEAD key from new
-		// X25519 exchange) — those land as ErrAEAD, not here. Triggering rekey
-		// here caused the same storm as ErrReplay: each rekey produces early
-		// counters that the relay re-delivers far into the session as ErrOutsideWindow,
-		// firing another rekey, indefinitely.
+		// Most of the time this is a single late relay-buffered frame from the
+		// same key session — fine to ignore. Triggering rekey on every
+		// occurrence caused storms (each rekey produces early-counter frames
+		// the relay re-delivers, firing another rekey, indefinitely).
+		//
+		// Sustained outside-window rejections (≥OutsideWindowDropThreshold
+		// after the grace) are a different signal: the peer's send counter
+		// and our window's high-water-mark have diverged far enough that no
+		// in-band recovery exists. envelope.DecryptFrame increments
+		// OutsideWindowCount on every rejection and resets on any successful
+		// decrypt, so the gate self-clears the moment legitimate traffic
+		// arrives. When the gate trips, drop the diverged Crypto and request
+		// a fresh exchange — the bug-1 fix at handle.go ensures the peer
+		// receives our PILA even if its X25519 ephemeral is unchanged.
+		// Reproduces the recovery for the v1.10.0-rc3 list-agents bug
+		// (2026-05-11) where max=8518 stayed stuck while sender's counter
+		// was at ~400.
+		pc := tm.envelope.Get(peerNodeID)
+		if tm.envelope.ShouldDropOnOutsideWindow(peerNodeID, pc) {
+			if tm.envelope.CompareAndDrop(peerNodeID, pc) {
+				slog.Warn("tunnel: peer replay-window diverged irrecoverably, dropping session and re-handshaking",
+					"peer_node_id", peerNodeID,
+					"consecutive_outside_window", pc.OutsideWindowCount,
+					"max_recv_nonce", res.MaxRecvNonce,
+					"latest_counter", res.Counter)
+				tm.maybeRequestRekey(peerNodeID, from)
+			}
+		}
 		return
 	case envelope.ErrReplay:
 		slog.Warn("tunnel nonce replay detected",
