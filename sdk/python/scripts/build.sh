@@ -10,9 +10,20 @@ echo "Building Pilot Protocol Python SDK"
 echo "================================================================"
 echo ""
 
-# Step 1: Build all binaries
-echo "1. Building platform binaries..."
-./scripts/build-binaries.sh
+# Step 1: Build all binaries (CI publish workflows pre-populate pilotprotocol/bin/
+# from the release tarball and skip this step via PILOT_SKIP_BUILD_BINARIES=1).
+if [ "${PILOT_SKIP_BUILD_BINARIES:-0}" = "1" ]; then
+    echo "1. Skipping binary build (PILOT_SKIP_BUILD_BINARIES=1)"
+    if [ ! -f "pilotprotocol/bin/pilot-daemon" ]; then
+        echo "   Error: pilotprotocol/bin/ is empty but PILOT_SKIP_BUILD_BINARIES=1." >&2
+        echo "   The caller must populate it (e.g. extract from release tarball) first." >&2
+        exit 1
+    fi
+    echo "   Found pre-populated binaries in pilotprotocol/bin/"
+else
+    echo "1. Building platform binaries..."
+    ./scripts/build-binaries.sh
+fi
 echo ""
 
 # Step 2: Clean old builds

@@ -1,8 +1,27 @@
 name: Publish Python SDK
 
+# Pulls pre-built binaries from the matching GitHub release (built by
+# release.yml) instead of rebuilding the Go suite. This guarantees the
+# bytes shipped on PyPI are byte-identical to the bytes shipped on GitHub
+# Releases, preserves the version stamping (`-X main.version=$TAG`) and
+# the macOS ad-hoc codesign + xattr-strip done in release.yml.
+#
+# Triggered by `release: published` (after release.yml's tarballs exist).
+#
+# Branches whose name starts with `ci_` ALSO get a dry-run on every push.
+# This is the permanent rehearsal path for iterating on the workflow itself
+# without making a real release. The push run executes everything up to but
+# not including `twine upload` (the `publish` and `test-install` jobs are
+# gated to release events). Required naming convention — only `ci_*`
+# branches trigger the rehearsal; other branches are ignored.
+# See CONTRIBUTING.md → "Testing publish workflows" for the convention.
+
 on:
   release:
     types: [published]
+  push:
+    branches:
+      - 'ci_*'
 
 permissions:
   contents: write
@@ -32,28 +51,190 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            release_arch: amd64
           - os: macos-latest
             platform: macos
+            release_arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set version from release tag
+      - name: Resolve version + tag (release event or ci_* push)
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_ENV
+          # Release event: use the tag of the release being published.
+          # ci_* push: rehearse against the LATEST existing release.
+          # Either way, strip the leading "v" to get the bare PEP 440 version
+          # used by pyproject.toml and wheel filenames; keep the full tag for
+          # downloading release artifacts.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)
+            echo "ci_* push rehearsal: using latest release ${TAG} as test source"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION"     >> $GITHUB_ENV
+          echo "release_tag=$TAG"     >> $GITHUB_ENV
+          echo "Resolved: version=$VERSION, release_tag=$TAG"
+
+          # Update pyproject.toml so the wheel + sdist carry the release
+          # version. This is the single source of truth for "what version
+          # is this SDK?" — and it matches the release tag exactly.
           cd sdk/python
           sed -i.bak "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
           rm pyproject.toml.bak
-          echo "SDK version: $VERSION"
 
+      # Pull pre-built binaries from the GitHub release. Using the unauthenticated
+      # download URL avoids consuming gh API rate limits for public repos.
+      - name: Download release tarball
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ARCH="${{ matrix.release_arch }}"
+          # Map matrix.platform → GOOS naming used in the tarball filename.
+          case "${{ matrix.platform }}" in
+            linux) GOOS=linux ;;
+            macos) GOOS=darwin ;;
+            *)     echo "unsupported platform: ${{ matrix.platform }}"; exit 1 ;;
+          esac
+          ARCHIVE="pilot-${GOOS}-${ARCH}.tar.gz"
+          mkdir -p /tmp/pilot-release
+          echo "Downloading ${ARCHIVE} from release ${release_tag}..."
+          gh release download "${release_tag}" \
+            --repo "${{ github.repository }}" \
+            --pattern "${ARCHIVE}" \
+            --pattern "checksums.txt" \
+            --dir /tmp/pilot-release
+
+          # Verify SHA-256 against the release's checksums.txt.
+          cd /tmp/pilot-release
+          if [ -f checksums.txt ]; then
+            EXPECTED=$(grep " ${ARCHIVE}\$" checksums.txt | awk '{print $1}')
+            if [ -z "$EXPECTED" ]; then
+              echo "Warning: ${ARCHIVE} not in checksums.txt; skipping verification"
+            else
+              if command -v sha256sum >/dev/null 2>&1; then
+                ACTUAL=$(sha256sum "${ARCHIVE}" | awk '{print $1}')
+              else
+                ACTUAL=$(shasum -a 256 "${ARCHIVE}" | awk '{print $1}')
+              fi
+              if [ "$EXPECTED" != "$ACTUAL" ]; then
+                echo "Checksum mismatch for ${ARCHIVE}!" >&2
+                echo "  expected: $EXPECTED" >&2
+                echo "  actual:   $ACTUAL"   >&2
+                exit 1
+              fi
+              echo "  Verified SHA-256: $ACTUAL"
+            fi
+          fi
+
+      # The release tarball ships daemon, pilotctl, gateway, registry, beacon,
+      # rendezvous, nameserver, updater. The Python SDK only ships the four
+      # client-side binaries — registry/beacon/rendezvous/nameserver are
+      # server infrastructure not part of the user-facing wheel.
+      #
+      # The release uses bare names (`daemon`, `gateway`, `updater`); the SDK
+      # uses prefixed names (`pilot-daemon`, `pilot-gateway`, `pilot-updater`)
+      # to avoid colliding with system binaries on PATH. Rename here.
+      #
+      # libpilot is NOT in the release tarball — it's CGO-built in the next
+      # step using the same release tag for its version stamp.
+      - name: Layout binaries into pilotprotocol/bin/
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOS=$(case "${{ matrix.platform }}" in linux) echo linux;; macos) echo darwin;; esac)
+          ARCH="${{ matrix.release_arch }}"
+          ARCHIVE="pilot-${GOOS}-${ARCH}.tar.gz"
+
+          BIN_DIR="sdk/python/pilotprotocol/bin"
+          rm -rf "$BIN_DIR" && mkdir -p "$BIN_DIR"
+          tar -xzf "/tmp/pilot-release/${ARCHIVE}" -C "$BIN_DIR"
+
+          cd "$BIN_DIR"
+          # Drop infrastructure binaries — not shipped in the SDK.
+          rm -f registry beacon rendezvous nameserver
+
+          # Rename to SDK convention.
+          [ -f daemon ]  && mv daemon  pilot-daemon
+          [ -f gateway ] && mv gateway pilot-gateway
+          [ -f updater ] && mv updater pilot-updater
+
+          # .pilot-version marker — the seeder reads this to compare against
+          # whatever's installed at ~/.pilot/bin/. Always normalize to bare
+          # version (no leading "v") so it's symmetric with install.sh.
+          echo "${version}" > .pilot-version
+
+          echo ""
+          echo "pilotprotocol/bin/ after release-tarball extraction:"
+          ls -lh
+          echo ""
+          # Sanity: confirm version stamp made it through (release.yml builds
+          # with -X main.version=$TAG; SDK shouldn't drop it). Run against
+          # the runner's native arch only since cross-arch tarballs cannot
+          # be exec'd here.
+          if [ "${{ matrix.platform }}" = "linux" ] && [ -x pilotctl ]; then
+            STAMPED=$(./pilotctl version 2>&1 | head -1)
+            echo "pilotctl version → ${STAMPED}"
+            case "$STAMPED" in
+              *"${release_tag}"*|*"${version}"*)
+                echo "  ✓ version stamp matches release tag"
+                ;;
+              *)
+                echo "  ✗ version stamp '${STAMPED}' does not contain '${release_tag}'!" >&2
+                echo "  ✗ pilotctl version must report the release tag, not 'dev'." >&2
+                echo "  ✗ release.yml is supposed to build with -X main.version=\$GITHUB_REF_NAME." >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+      # Build libpilot.{so,dylib} — the CGO shared library used by the SDK
+      # via ctypes. Stamped with the same release tag (`-X main.version=$TAG`)
+      # so SDK provenance is consistent with the executables pulled from
+      # the release tarball. Codesigned ad-hoc on darwin (mirrors release.yml
+      # for the executables).
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Build libpilot CGO shared library
+        shell: bash
+        env:
+          GOOS: ${{ matrix.platform == 'macos' && 'darwin' || 'linux' }}
+          GOARCH: ${{ matrix.release_arch }}
+          CGO_ENABLED: '1'
+        run: |
+          set -euo pipefail
+          case "$GOOS" in
+            linux)  EXT=so ;;
+            darwin) EXT=dylib ;;
+          esac
+          BIN_DIR="sdk/python/pilotprotocol/bin"
+          LDFLAGS="-s -w -X main.version=${release_tag}"
+          echo "Building libpilot.$EXT for ${GOOS}/${GOARCH}, version=${release_tag}..."
+          go build -buildmode=c-shared -ldflags "$LDFLAGS" \
+            -o "${BIN_DIR}/libpilot.${EXT}" ./sdk/cgo
+          # Drop the auto-generated header — SDKs load via ctypes by symbol,
+          # not against the C header.
+          rm -f "${BIN_DIR}/libpilot.h"
+
+          if [ "$GOOS" = "darwin" ]; then
+            echo "Ad-hoc codesigning libpilot.${EXT}..."
+            codesign --force --sign - "${BIN_DIR}/libpilot.${EXT}"
+            xattr -cr "${BIN_DIR}/libpilot.${EXT}" || true
+          fi
+
+          echo ""
+          echo "Final pilotprotocol/bin/ contents (post-libpilot):"
+          ls -lh "$BIN_DIR"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -70,9 +251,12 @@ jobs:
 
       - name: Build wheel
         shell: bash
+        env:
+          PILOT_SKIP_BUILD_BINARIES: '1'
+          SKIP_TWINE_CHECK: '1'
         run: |
           cd sdk/python
-          chmod +x scripts/build-binaries.sh scripts/build.sh
+          chmod +x scripts/build.sh
           ./scripts/build.sh
 
       - name: Convert to manylinux wheel (Linux only)
@@ -113,6 +297,10 @@ jobs:
           retention-days: 7
 
   publish:
+    # Real publishes only fire on `release: published`. ci_* push rehearsals
+    # run everything up through wheel-build + version-stamp checks, then stop
+    # here so no test wheel reaches PyPI.
+    if: github.event_name == 'release'
     needs: build-wheels
     runs-on: ubuntu-latest
     steps:
@@ -174,6 +362,7 @@ jobs:
           echo "**Version:** ${{ steps.extract-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Install:** \`pip install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
           echo "**PyPI:** https://pypi.org/project/pilotprotocol/" >> $GITHUB_STEP_SUMMARY
+          echo "**Source:** Pulled binaries from release \`${{ github.event.release.tag_name }}\` (no rebuild)" >> $GITHUB_STEP_SUMMARY
 
   test-install:
     needs: publish
@@ -190,8 +379,38 @@ jobs:
       - name: Wait for PyPI propagation
         run: sleep 60
 
-      - name: Install and verify
+      - name: Resolve expected version from release tag
+        shell: bash
         run: |
-          pip install pilotprotocol
-          pilotctl info 2>&1 | head -1 || true
-          python -c "from pilotprotocol import Driver; print('SDK installed')"
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION"           >> $GITHUB_ENV
+          echo "release_tag=$TAG"           >> $GITHUB_ENV
+
+      - name: Install and verify version stamp matches release
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install --no-cache-dir pilotprotocol=="${version}"
+
+          # Smoke-load the FFI module — confirms libpilot loads on this host.
+          python -c "from pilotprotocol import Driver; print('SDK module imports OK')"
+
+          # Assert pilotctl reports the actual release tag (not 'dev').
+          # This is the regression test for the reported issue: pip-installed
+          # pilotprotocol must run pilotctl with the release version stamped in.
+          STAMPED=$(pilotctl version 2>&1 | head -1)
+          echo "pilotctl version → ${STAMPED}"
+          case "$STAMPED" in
+            *"${release_tag}"*|*"${version}"*)
+              echo "✓ pilotctl version reports the release tag"
+              ;;
+            *dev*|*unknown*|"")
+              echo "✗ pilotctl version reports '${STAMPED}' — looks unstamped." >&2
+              exit 1
+              ;;
+            *)
+              echo "✗ pilotctl version reports '${STAMPED}', expected to contain '${release_tag}' or '${version}'." >&2
+              exit 1
+              ;;
+          esac

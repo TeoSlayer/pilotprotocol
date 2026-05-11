@@ -58,6 +58,12 @@
   "dependencies": {
     "koffi": "^2.9.0"
   },
+  "optionalDependencies": {
+    "pilotprotocol-linux-x64": "0.1.1",
+    "pilotprotocol-linux-arm64": "0.1.1",
+    "pilotprotocol-darwin-x64": "0.1.1",
+    "pilotprotocol-darwin-arm64": "0.1.1"
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^5.7.0",
@@ -66,17 +72,8 @@
   "engines": {
     "node": ">=20"
   },
-  "os": [
-    "darwin",
-    "linux"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ],
   "files": [
     "dist/",
-    "bin/",
     "bin-stubs/"
   ]
 }

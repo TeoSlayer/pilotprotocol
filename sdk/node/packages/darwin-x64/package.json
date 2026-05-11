@@ -1,0 +1,15 @@
+{
+  "name": "pilotprotocol-darwin-x64",
+  "version": "0.0.0",
+  "description": "darwin-x64 native binaries for pilotprotocol (auto-installed via optionalDependencies — do not install directly)",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TeoSlayer/pilotprotocol",
+    "directory": "sdk/node/packages/darwin-x64"
+  },
+  "homepage": "https://pilotprotocol.network",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin/"]
+}

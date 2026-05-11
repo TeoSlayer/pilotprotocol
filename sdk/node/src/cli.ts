@@ -11,9 +11,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { arch as osArch, homedir, platform as osPlatform } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// The npm sub-package shipping THIS host's native binaries (esbuild pattern).
+// Main `pilotprotocol` declares all 4 as optionalDependencies; npm fetches
+// only the one matching this host's os+cpu fields.
+function subPackageName(): string {
+  return `pilotprotocol-${osPlatform()}-${osArch()}`;
+}
 
 /**
  * Ensure ~/.pilot/ directory and config.json exist.
@@ -43,17 +51,39 @@ function ensurePilotEnv(): void {
 }
 
 /**
- * Get absolute path to a bundled binary.
- * Searches in the package's bin/ directory (relative to this file's location).
+ * Resolve the absolute path to a bundled binary.
+ *
+ * Production layout: binaries live in the matching optional sub-package
+ *   `pilotprotocol-<os>-<arch>` (npm installs only the one for this host).
+ * Local-dev fallbacks (no `npm install` of the sub-package yet):
+ *   - in-repo `sdk/node/packages/<os>-<arch>/bin/` (build-binaries.sh writes here)
+ *   - legacy `sdk/node/bin/` (old flat layout)
  */
 function getBinaryPath(binaryName: string): string {
+  // 1. Optional sub-package resolved via Node's module resolver. Works
+  //    whether the sub-package is hoisted at the top level of node_modules
+  //    or nested next to the main package.
+  try {
+    const req = createRequire(import.meta.url);
+    const subPkgJson = req.resolve(`${subPackageName()}/package.json`);
+    const candidate = resolve(dirname(subPkgJson), 'bin', binaryName);
+    if (existsSync(candidate)) return candidate;
+  } catch {
+    // Sub-package not installed (local dev, or wrong-platform host).
+  }
+
   const thisDir = resolve(fileURLToPath(import.meta.url), '..');
 
-  // When compiled: dist/cli.js → look for ../bin/
+  // 2. In-repo sub-package layout — `scripts/build-binaries.sh` writes here
+  //    so local dev works without `npm install` of the sub-package itself.
+  const inRepoSub = resolve(
+    thisDir, '..', '..', 'packages', subPackageName().replace(/^pilotprotocol-/, ''), 'bin', binaryName,
+  );
+  if (existsSync(inRepoSub)) return inRepoSub;
+
+  // 3. Legacy flat dev layouts.
   const pkgBin = resolve(thisDir, '..', 'bin', binaryName);
   if (existsSync(pkgBin)) return pkgBin;
-
-  // Development: src/cli.ts → look for ../../bin/ (through sdk/node/)
   const devBin = resolve(thisDir, '..', '..', 'bin', binaryName);
   if (existsSync(devBin)) return devBin;
 
@@ -61,10 +91,16 @@ function getBinaryPath(binaryName: string): string {
     `Binary '${binaryName}' not found.\n` +
     '\n' +
     'Expected locations:\n' +
-    `  - ${pkgBin} (npm package)\n` +
-    `  - ${devBin} (development)\n` +
+    `  - node_modules/${subPackageName()}/bin/${binaryName} (npm sub-package)\n` +
+    `  - ${inRepoSub} (in-repo dev sub-package)\n` +
+    `  - ${pkgBin} (legacy npm layout)\n` +
+    `  - ${devBin} (legacy dev layout)\n` +
     '\n' +
-    'Build binaries with:\n' +
+    `If you installed via npm, the sub-package '${subPackageName()}'\n` +
+    'should have been installed automatically. Reinstall with:\n' +
+    '  npm install pilotprotocol\n' +
+    '\n' +
+    'For local development, build binaries with:\n' +
     '  cd sdk/node && ./scripts/build-binaries.sh\n',
   );
 }
