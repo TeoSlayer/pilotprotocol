@@ -18,7 +18,6 @@ import (
 // length-check error paths; the boundary is defense-in-depth for any
 // future code change that introduces a slice OOB.
 func TestL1UnmarshalPanicSurvival(t *testing.T) {
-	t.Parallel()
 	cases := [][]byte{
 		nil,              // nil slice
 		{},               // empty
@@ -38,7 +37,6 @@ func TestL1UnmarshalPanicSurvival(t *testing.T) {
 // known panic-free path returns "payload too large" for oversized
 // payloads; the boundary protects against future panic introductions.
 func TestL1MarshalPanicSurvival(t *testing.T) {
-	t.Parallel()
 	huge := make([]byte, 0xFFFF+1)
 	pkt := &protocol.Packet{
 		Version:  protocol.Version,
@@ -60,7 +58,6 @@ func TestL1MarshalPanicSurvival(t *testing.T) {
 // burst. Real edge case: junk magic bytes, truncated headers, a too-
 // short PILS frame.
 func TestL2ReadLoopPanicSurvival(t *testing.T) {
-	t.Parallel()
 	tm := NewTunnelManager()
 	if err := tm.Listen("127.0.0.1:0"); err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -126,7 +123,6 @@ func TestL2ReadLoopPanicSurvival(t *testing.T) {
 // deliver). The boundary keeps the function alive — process must not
 // crash. Real edge cases used.
 func TestL4BeaconMessagePanicSurvival(t *testing.T) {
-	t.Parallel()
 	tm := NewTunnelManager()
 	defer tm.Close()
 	from := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1}
@@ -151,7 +147,6 @@ func TestL4BeaconMessagePanicSurvival(t *testing.T) {
 // on a synthetic Daemon. With nil registry conn the function returns
 // cleanly; the boundary protects against future panic introductions.
 func TestL4BeaconRefreshTickPanicSurvival(t *testing.T) {
-	t.Parallel()
 	d := &Daemon{}
 	d.beaconRefreshTick(true)
 	d.beaconRefreshTick(false)
@@ -170,7 +165,6 @@ func TestL4BeaconRefreshTickPanicSurvival(t *testing.T) {
 // TestL5HandleAuthKeyExchangePanicSurvival drives handleAuthKeyExchange
 // with malformed inputs (too-short, all-zero). Real edge cases.
 func TestL5HandleAuthKeyExchangePanicSurvival(t *testing.T) {
-	t.Parallel()
 	tm := NewTunnelManager()
 	if err := tm.EnableEncryption(); err != nil {
 		t.Fatalf("EnableEncryption: %v", err)
@@ -184,7 +178,6 @@ func TestL5HandleAuthKeyExchangePanicSurvival(t *testing.T) {
 // TestL5HandleKeyExchangePanicSurvival drives handleKeyExchange with
 // malformed inputs.
 func TestL5HandleKeyExchangePanicSurvival(t *testing.T) {
-	t.Parallel()
 	tm := NewTunnelManager()
 	if err := tm.EnableEncryption(); err != nil {
 		t.Fatalf("EnableEncryption: %v", err)
@@ -200,7 +193,6 @@ func TestL5HandleKeyExchangePanicSurvival(t *testing.T) {
 // triggers a rate-limited rekey request and returns. The boundary
 // keeps the daemon alive across a burst.
 func TestL6HandleEncryptedPanicSurvival(t *testing.T) {
-	t.Parallel()
 	tm := NewTunnelManager()
 	if err := tm.EnableEncryption(); err != nil {
 		t.Fatalf("EnableEncryption: %v", err)
@@ -226,7 +218,6 @@ func TestL6HandleEncryptedPanicSurvival(t *testing.T) {
 // Uses test-only injection: replacing RetxSend with a panicking
 // closure is the cleanest way to hit a real code path with a panic.
 func TestL7RetxLoopPanicSurvival(t *testing.T) {
-	t.Parallel()
 	d := New(Config{
 		ListenAddr:   "127.0.0.1:0",
 		IdentityPath: t.TempDir() + "/identity.json",
@@ -285,7 +276,6 @@ func TestL7RetxLoopPanicSurvival(t *testing.T) {
 // a nil packet, which would nil-deref on pkt.Protocol. The boundary
 // must catch it.
 func TestL7RoutePacketPanicSurvival(t *testing.T) {
-	t.Parallel()
 	d := New(Config{
 		ListenAddr:   "127.0.0.1:0",
 		IdentityPath: t.TempDir() + "/identity.json",
@@ -310,7 +300,6 @@ func TestL7RoutePacketPanicSurvival(t *testing.T) {
 // no real unrecovered panic surface exists today. This test guarantees
 // the L9 boundary mechanism would catch one if introduced.
 func TestL9IPCHandlerPanicSurvival(t *testing.T) {
-	t.Parallel()
 	d := New(Config{
 		ListenAddr:   "127.0.0.1:0",
 		IdentityPath: t.TempDir() + "/identity.json",

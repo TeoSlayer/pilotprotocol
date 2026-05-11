@@ -136,28 +136,48 @@ func TestBrokerParityNormal(t *testing.T) {
 	}
 
 	// Receive must preserve topic + payload bytes exactly.
+	// waitForSubscription's probes ride the same topic, so the broker may
+	// deliver a left-over probe before the real event arrives. Loop on Recv
+	// and skip probes; bail only on the real payload (or timeout). The
+	// previous single-Recv form was flaky on macOS CI where the probe
+	// reached the subscriber before the real publish.
 	deadline := time.After(5 * time.Second)
 	type res struct {
 		evt *eventstream.Event
 		err error
 	}
-	ch := make(chan res, 1)
+	stopRecv := make(chan struct{})
+	recvCh := make(chan res, 4)
 	go func() {
-		evt, err := sub.Recv()
-		ch <- res{evt, err}
+		for {
+			evt, err := sub.Recv()
+			select {
+			case recvCh <- res{evt, err}:
+			case <-stopRecv:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
 	}()
+	defer close(stopRecv)
 
 	// Re-publish on a ticker in case the probe drained the real one.
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
-		case r := <-ch:
+		case r := <-recvCh:
 			if r.err != nil {
 				t.Fatalf("recv: %v", r.err)
 			}
 			if r.evt.Topic != "parity.normal" {
 				t.Fatalf("topic = %q, want %q", r.evt.Topic, "parity.normal")
+			}
+			if string(r.evt.Payload) == "__probe__" {
+				// Subscription-readiness probe — skip and keep reading.
+				continue
 			}
 			if string(r.evt.Payload) != string(want) {
 				t.Fatalf("payload mismatch: got %q want %q", r.evt.Payload, want)

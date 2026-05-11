@@ -194,12 +194,33 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
 
-# Resolve the latest release tag.
-# - Default path uses the unauthenticated /releases/latest/download/ redirect,
-#   which is not subject to the 60/hr api.github.com rate limit.
-# - PILOT_RC=1 still hits the API because pre-releases need the listing endpoint.
-if [ "${PILOT_RC:-}" = "1" ]; then
-    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+# Resolve the release tag.
+# - PILOT_RELEASE_TAG=v1.2.3  : explicit override, no network round-trip.
+# - PILOT_RC=1                : list releases via api.github.com and pick the
+#                               newest (incl. pre-releases). 403 rate-limited
+#                               output is detected and reported instead of
+#                               silently falling through to source-build with
+#                               an unstamped version.
+# - default                   : follow the /releases/latest/download/ redirect,
+#                               which uses the unauthenticated CDN and is not
+#                               subject to the 60/hr api.github.com rate limit.
+if [ -n "${PILOT_RELEASE_TAG:-}" ]; then
+    TAG="$PILOT_RELEASE_TAG"
+elif [ "${PILOT_RC:-}" = "1" ]; then
+    API_BODY="$TMPDIR/releases.json"
+    API_CODE=$(curl -sSL -o "$API_BODY" -w '%{http_code}' "https://api.github.com/repos/${REPO}/releases" 2>/dev/null || echo "000")
+    if [ "$API_CODE" = "403" ]; then
+        echo "Error: GitHub API rate-limited (403) while resolving the latest pre-release." >&2
+        echo "  Workarounds:" >&2
+        echo "    - retry in ~1 hour, OR" >&2
+        echo "    - pin the tag:  PILOT_RELEASE_TAG=vX.Y.Z-rcN curl ... | sh" >&2
+        echo "  Refusing to silently source-build an unstamped binary." >&2
+        exit 1
+    fi
+    if [ "$API_CODE" = "200" ]; then
+        TAG=$(grep '"tag_name"' "$API_BODY" | head -1 | cut -d'"' -f4 || true)
+    fi
+    rm -f "$API_BODY"
 else
     TAG=$(curl -fsSI "https://github.com/${REPO}/releases/latest/download/${ARCHIVE}" 2>/dev/null \
         | grep -i '^location:' \

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -541,7 +542,28 @@ func maybeAutoHandshake(d *driver.Driver, addr protocol.Addr, skip bool) {
 			fmt.Sprintf("run: pilotctl handshake %s", addr),
 			"refusing tunnel to private node %s without trust", addr)
 	}
-	// Public peer, no trust needed — proceed.
+	// Public peer — best-effort handshake so replies survive our local
+	// trust gate. Without this, a request/reply pattern (e.g. send-message
+	// --wait) gets its ACK back but the responder's reply SYN is silently
+	// rejected by our daemon (daemon.go SYN-trust-gate). The peer is
+	// public and the embedded trustedagents allowlist may not cover every
+	// public hostname (entries can become stale when a public agent is
+	// re-deployed under a new node ID), so we treat any registry-resolved
+	// public peer the same as a Trusted Agent. Auto-approve peers (most
+	// public agents are) finalise mutual trust in ~700-2400 ms; non-auto-
+	// approve peers still see the request in pending and the tunnel
+	// proceeds best-effort.
+	if _, err := d.Handshake(addr.Node, "auto-handshake: public peer"); err != nil {
+		// Handshake send failure is non-fatal — fall through to send.
+		return
+	}
+	if resp, err := d.WaitForTrust(addr.Node, 5000); err == nil {
+		if trusted, _ := resp["trusted"].(bool); trusted {
+			if !jsonOutput {
+				fmt.Fprintf(os.Stderr, "auto-handshake established trust with public peer %s\n", addr)
+			}
+		}
+	}
 }
 
 func parseAddrOrHostname(d *driver.Driver, arg string) (protocol.Addr, error) {
@@ -2111,8 +2133,93 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 	return daemonArgs, socketPath
 }
 
+// launchdAgentLabels enumerates known launchd labels for the daemon.
+// install.sh renamed `com.vulturelabs.pilot-daemon` to
+// `network.pilotprotocol.pilot-daemon`; the uninstall path handles both
+// for backward compat, and so does pilotctl. The first match wins.
+var launchdAgentLabels = []string{
+	"network.pilotprotocol.pilot-daemon",
+	"com.vulturelabs.pilot-daemon",
+}
+
+// launchdAgentPlist returns the path to the per-user launchd plist that
+// install.sh creates on macOS, if it exists; otherwise "". When non-empty
+// the daemon's lifecycle is owned by launchd (not by the PID file pilotctl
+// writes when it forks the daemon itself), and stop/start must go through
+// launchctl so KeepAlive doesn't immediately respawn what we kill.
+// Returns the plist path AND the label embedded in it.
+func launchdAgentPlist() (path, label string) {
+	if runtime.GOOS != "darwin" {
+		return "", ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", ""
+	}
+	for _, lbl := range launchdAgentLabels {
+		p := filepath.Join(home, "Library", "LaunchAgents", lbl+".plist")
+		if _, err := os.Stat(p); err == nil {
+			return p, lbl
+		}
+	}
+	return "", ""
+}
+
+// launchdAgentDomainTarget returns the gui/<UID>/<label> target used by
+// `launchctl bootout` / `launchctl kickstart`.
+func launchdAgentDomainTarget(label string) string {
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), label)
+}
+
+// launchdAgentLoaded reports whether the launchd label is currently
+// loaded in the user's gui domain (i.e. plist registered, KeepAlive etc.
+// are active even if the underlying process is briefly between restarts).
+func launchdAgentLoaded(label string) bool {
+	if label == "" {
+		return false
+	}
+	out, err := exec.Command("launchctl", "list", label).Output()
+	if err != nil {
+		return false
+	}
+	return len(out) > 0
+}
+
 func cmdDaemonStart(args []string) {
 	flags, _ := parseFlags(args)
+
+	// macOS install.sh installs a launchd plist. When present, route start
+	// through launchctl so the agent is registered and KeepAlive supervises
+	// the process; otherwise `pilotctl daemon stop` would have nothing to
+	// stop (KeepAlive immediately respawns) and the user sees flapping.
+	if plist, label := launchdAgentPlist(); plist != "" {
+		if launchdAgentLoaded(label) {
+			fatalHint("already_exists",
+				"stop it first with: pilotctl daemon stop",
+				"daemon is already running (launchd agent %s loaded)", label)
+		}
+		if err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist).Run(); err != nil {
+			fatalCode("internal", "launchctl bootstrap: %v", err)
+		}
+		// Poll socket until daemon is responsive.
+		waitDeadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(waitDeadline) {
+			if d, err := driver.Connect(getSocket()); err == nil {
+				if _, err := d.Info(); err == nil {
+					d.Close()
+					if jsonOutput {
+						outputOK(map[string]interface{}{"managed_by": "launchd", "label": label})
+					} else {
+						fmt.Printf("daemon started via launchd (label %s)\n  Socket: %s\n", label, getSocket())
+					}
+					return
+				}
+				d.Close()
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		fatalCode("timeout", "launchd loaded the agent but the socket did not become ready within 10s")
+	}
 
 	// Check if already running
 	if pid := readPID(); pid > 0 {
@@ -2254,6 +2361,32 @@ func cmdDaemonStart(args []string) {
 }
 
 func cmdDaemonStop() {
+	// macOS install.sh installs a launchd plist with KeepAlive=true. When
+	// we own it via launchd, SIGTERM to the PID respawns the process
+	// immediately — the right way to stop is `launchctl bootout`. Detect
+	// this case before falling back to PID-file management.
+	if plist, label := launchdAgentPlist(); plist != "" && launchdAgentLoaded(label) {
+		if err := exec.Command("launchctl", "bootout", launchdAgentDomainTarget(label)).Run(); err != nil {
+			fatalCode("internal", "launchctl bootout: %v", err)
+		}
+		// Wait for the daemon socket to disappear (launchd reaps the
+		// process); the agent stays unloaded across reboots until the
+		// user calls `pilotctl daemon start` (bootstrap) again.
+		waitDeadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(waitDeadline) {
+			if !launchdAgentLoaded(label) {
+				if jsonOutput {
+					outputOK(map[string]interface{}{"managed_by": "launchd", "label": label})
+				} else {
+					fmt.Printf("daemon stopped (launchd agent %s unloaded)\n", label)
+				}
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		fatalCode("timeout", "launchctl bootout returned but agent did not unload within 10s")
+	}
+
 	pid := readPID()
 	if pid <= 0 {
 		// Try socket
