@@ -132,9 +132,13 @@ jobs:
         run: |
           set -euo pipefail
           # Map: <go-arch> → <node-arch>
-          declare -A NODE_ARCH=([amd64]=x64 [arm64]=arm64)
+          # bash 3.2 (macOS default) doesn't support associative arrays;
+          # use a case statement so this is portable to both runners.
           for GOARCH in amd64 arm64; do
-            NODEARCH="${NODE_ARCH[$GOARCH]}"
+            case "$GOARCH" in
+              amd64) NODEARCH=x64   ;;
+              arm64) NODEARCH=arm64 ;;
+            esac
             ARCHIVE="/tmp/pilot-release/pilot-linux-${GOARCH}.tar.gz"
             BIN_DIR="sdk/node/packages/linux-${NODEARCH}/bin"
             rm -rf "$BIN_DIR" && mkdir -p "$BIN_DIR"
@@ -156,10 +160,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          declare -A NODE_ARCH=([amd64]=x64 [arm64]=arm64)
           LDFLAGS="-s -w -X main.version=${release_tag}"
           for GOARCH in amd64 arm64; do
-            NODEARCH="${NODE_ARCH[$GOARCH]}"
+            case "$GOARCH" in
+              amd64) NODEARCH=x64   ;;
+              arm64) NODEARCH=arm64 ;;
+            esac
             BIN_DIR="sdk/node/packages/linux-${NODEARCH}/bin"
             CC_OVERRIDE=""
             if [ "$GOARCH" = "arm64" ]; then
@@ -268,9 +274,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          declare -A NODE_ARCH=([amd64]=x64 [arm64]=arm64)
+          # bash 3.2 (macOS default) doesn't support associative arrays;
+          # use a case statement so this is portable to both runners.
           for GOARCH in amd64 arm64; do
-            NODEARCH="${NODE_ARCH[$GOARCH]}"
+            case "$GOARCH" in
+              amd64) NODEARCH=x64   ;;
+              arm64) NODEARCH=arm64 ;;
+            esac
             ARCHIVE="/tmp/pilot-release/pilot-darwin-${GOARCH}.tar.gz"
             BIN_DIR="sdk/node/packages/darwin-${NODEARCH}/bin"
             rm -rf "$BIN_DIR" && mkdir -p "$BIN_DIR"
@@ -290,12 +300,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          declare -A NODE_ARCH=([amd64]=x64 [arm64]=arm64)
           LDFLAGS="-s -w -X main.version=${release_tag}"
           for GOARCH in amd64 arm64; do
-            NODEARCH="${NODE_ARCH[$GOARCH]}"
+            case "$GOARCH" in
+              amd64) NODEARCH=x64   ; ARCH_FLAG=x86_64 ;;
+              arm64) NODEARCH=arm64 ; ARCH_FLAG=arm64  ;;
+            esac
             BIN_DIR="sdk/node/packages/darwin-${NODEARCH}/bin"
-            ARCH_FLAG=$([ "$GOARCH" = "amd64" ] && echo "x86_64" || echo "arm64")
             echo "Building libpilot.dylib for darwin/${GOARCH}, version=${release_tag}..."
             env CGO_ENABLED=1 GOOS=darwin GOARCH="$GOARCH" \
                 CC="clang -arch ${ARCH_FLAG}" \

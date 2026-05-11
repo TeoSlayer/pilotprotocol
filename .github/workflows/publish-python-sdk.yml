@@ -35,13 +35,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Run SDK integration tests
+      # Run the Python SDK's own unit tests. The previous `make test-sdk`
+      # under tests/integration/ was a stale reference (the Makefile is
+      # gone) — kept that step's spirit (gate publish on SDK tests passing)
+      # but pointed it at the pytest suite that actually exists.
+      - name: Run Python SDK unit tests
+        working-directory: sdk/python
         run: |
-          cd tests/integration
-          make test-sdk
+          pip install --upgrade pip
+          pip install -e .[dev]
+          pytest tests/ -v
         timeout-minutes: 10
 
   build-wheels:
