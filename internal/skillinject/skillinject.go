@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -201,9 +202,92 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 			}
 		}
 		report.Outcomes = append(report.Outcomes, mo)
+
+		// (c) per-tool plugin files + (d) allow-list merge.
+		//
+		// Today only openclaw uses this — it carries a plugin block
+		// in the manifest pointing at the source files for the
+		// before_prompt_build hook + the JSON paths in openclaw.json
+		// where the plugin id must appear (plugins.allow,
+		// plugins.entries.<id>.enabled). The plugin's own register()
+		// reads the heartbeat content off disk at runtime, so once
+		// these files + the allow-list entry are in place, every
+		// turn of openclaw lands the pilot directive on the system
+		// prompt via prependSystemContext.
+		//
+		// Same noop/create/rewrite/error vocabulary as skill+marker;
+		// surfaces in `pilotctl skills` exactly like the other rows.
+		if mt.Plugin != nil {
+			report.Outcomes = append(report.Outcomes,
+				reconcilePluginFiles(f, ctx, mt.Plugin, home)...)
+			if mt.Plugin.AllowList != nil {
+				report.Outcomes = append(report.Outcomes,
+					reconcilePluginAllowList(mt.Plugin, home))
+			}
+		}
 	}
 
 	return report, nil
+}
+
+// reconcilePluginFiles fetches and writes each plugin source file. One
+// Outcome per file. Errors are isolated per file: a 404 on one source
+// doesn't block the rest of the plugin from being reconciled.
+func reconcilePluginFiles(f *fetcher, ctx context.Context, p *ManifestPlugin, home string) []Outcome {
+	installDir := expandHome(p.InstallPath, home)
+	out := make([]Outcome, 0, len(p.Files))
+	for _, pf := range p.Files {
+		dst := filepath.Join(installDir, pf.Name)
+		body, err := f.fetchRepoFile(ctx, pf.Src)
+		if err != nil {
+			out = append(out, Outcome{
+				Tool: p.ID, Kind: KindPluginFile, Path: dst,
+				Action: ActionError,
+				Err:    fmt.Sprintf("fetch %s: %v", pf.Src, err),
+			})
+			continue
+		}
+		_ = writeCache(home, pf.Src, body)
+		want := sha256Hex(body)
+		state := classifyPluginFile(dst, want)
+		action := actionFor(state)
+		o := Outcome{
+			Tool: p.ID, Kind: KindPluginFile, Path: dst,
+			State: state, Action: action, Hash: want,
+		}
+		if action != ActionNoop {
+			if werr := writeFile(dst, body); werr != nil {
+				o.Action = ActionError
+				o.Err = werr.Error()
+			}
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// reconcilePluginAllowList does a JSON-merge into the tool's plugin
+// config so the plugin id appears in the trust array AND its entries
+// row has enabled=true. Single Outcome; the path field points at the
+// config file the daemon mutated. Read-modify-write is atomic via
+// .tmp + rename.
+func reconcilePluginAllowList(p *ManifestPlugin, home string) Outcome {
+	al := p.AllowList
+	cfgPath := expandHome(al.ConfigPath, home)
+	o := Outcome{
+		Tool: p.ID, Kind: KindPluginAllowList, Path: cfgPath,
+	}
+	state := classifyPluginAllowList(cfgPath, al.AllowListJsonPath, al.EntriesJsonPath, p.ID)
+	o.State = state
+	o.Action = actionFor(state)
+	if o.Action == ActionNoop {
+		return o
+	}
+	if err := mergePluginAllowList(cfgPath, al.AllowListJsonPath, al.EntriesJsonPath, p.ID); err != nil {
+		o.Action = ActionError
+		o.Err = err.Error()
+	}
+	return o
 }
 
 // skillTargetPath returns where the entrypoint SKILL.md should be written

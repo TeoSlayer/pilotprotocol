@@ -55,13 +55,67 @@ type ManifestHelper struct {
 
 // ManifestTool is one tool target row.
 type ManifestTool struct {
-	Name              string `json:"name"`
-	RootDir           string `json:"rootDir"`
-	SkillsDir         string `json:"skillsDir"`
-	HeartbeatPath     string `json:"heartbeatPath,omitempty"`
-	HeartbeatTemplate string `json:"heartbeatTemplate,omitempty"`
-	SkillNaming       string `json:"skillNaming,omitempty"` // "" = "directory" (default), "flat" = single-file
-	SelfHeartbeat     bool   `json:"selfHeartbeat,omitempty"`
+	Name              string          `json:"name"`
+	RootDir           string          `json:"rootDir"`
+	SkillsDir         string          `json:"skillsDir"`
+	HeartbeatPath     string          `json:"heartbeatPath,omitempty"`
+	HeartbeatTemplate string          `json:"heartbeatTemplate,omitempty"`
+	SkillNaming       string          `json:"skillNaming,omitempty"` // "" = "directory" (default), "flat" = single-file
+	SelfHeartbeat     bool            `json:"selfHeartbeat,omitempty"`
+	Plugin            *ManifestPlugin `json:"plugin,omitempty"`
+}
+
+// ManifestPlugin describes a per-tool plugin that the daemon writes
+// onto disk (alongside the heartbeat + skill copy) and tracks in the
+// tool's own plugin allow-list. Today this is openclaw-only — the
+// plugin registers a `before_prompt_build` hook that prepends the
+// pilot directive into the system prompt on every turn. SKILL.md and
+// the heartbeat file are loaded by their tools' own lifecycles
+// (workspace bootstrap / periodic), neither fires per-turn, so the
+// plugin is the only reliable per-prompt injection surface.
+type ManifestPlugin struct {
+	// ID matches openclaw.plugin.json's "id" field. Used as the
+	// allow-list key + directory name.
+	ID string `json:"id"`
+	// InstallPath is where the plugin directory is written
+	// (e.g. "~/.openclaw/extensions/pilotprotocol-prompt-injector").
+	InstallPath string `json:"installPath"`
+	// Files lists the plugin source files the daemon copies in.
+	// Order doesn't matter — each file is reconciled independently.
+	Files []ManifestPluginFile `json:"files"`
+	// AllowList, if set, tells the daemon to ensure the plugin id
+	// appears in the tool's plugin allow-list + entries map. Nil
+	// disables the JSON-merge step (e.g. for tools without an
+	// explicit allow-list concept).
+	AllowList *ManifestPluginAllowList `json:"allowList,omitempty"`
+}
+
+// ManifestPluginFile is one file the daemon writes into the plugin
+// install directory. Mirrors ManifestHelper but scoped to a plugin.
+type ManifestPluginFile struct {
+	// Name is the filename relative to InstallPath (e.g.
+	// "openclaw.plugin.json", "index.mjs").
+	Name string `json:"name"`
+	// Src is a repo-relative path fetched via fetchRepoFile
+	// (e.g. "workflow-injection/openclaw-plugin/index.mjs").
+	Src string `json:"src"`
+}
+
+// ManifestPluginAllowList describes how the daemon merges its plugin id
+// into a tool's configuration to mark the plugin as trusted/enabled.
+// Today targets openclaw.json with paths `plugins.allow` (string array)
+// and `plugins.entries.<id>.enabled` (bool).
+type ManifestPluginAllowList struct {
+	// ConfigPath is the JSON file the daemon merges into
+	// (e.g. "~/.openclaw/openclaw.json").
+	ConfigPath string `json:"configPath"`
+	// AllowListJsonPath is a dotted path to the trust array. Created
+	// if absent. Daemon appends the plugin id iff not already present.
+	AllowListJsonPath string `json:"allowListJsonPath"`
+	// EntriesJsonPath is a dotted path to the per-plugin entries
+	// object (e.g. "plugins.entries"). The daemon ensures
+	// `entries.<id>.enabled` is `true`.
+	EntriesJsonPath string `json:"entriesJsonPath"`
 }
 
 // fetcher is a small wrapper around http.Client that returns response

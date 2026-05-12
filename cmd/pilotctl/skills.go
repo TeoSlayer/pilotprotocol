@@ -112,14 +112,21 @@ func cmdSkillsStatus(_ []string) {
 	for _, tool := range tools {
 		fmt.Printf("[%s]\n", tool)
 		for _, o := range byTool[tool] {
-			label := "skill copy:    "
-			if o.Kind == skillinject.KindMarker {
-				label = "heartbeat ref: "
+			label := "skill copy:        "
+			switch o.Kind {
+			case skillinject.KindMarker:
+				label = "heartbeat ref:     "
+			case skillinject.KindHelper:
+				label = "helper:            "
+			case skillinject.KindPluginFile:
+				label = "plugin file:       "
+			case skillinject.KindPluginAllowList:
+				label = "plugin allow-list: "
 			}
 			fmt.Printf("  %s%s\n", label, o.Path)
-			fmt.Printf("                 state=%s  next_action=%s\n", o.State, o.Action)
+			fmt.Printf("                     state=%s  next_action=%s\n", o.State, o.Action)
 			if o.Err != "" {
-				fmt.Printf("                 ERROR: %s\n", o.Err)
+				fmt.Printf("                     ERROR: %s\n", o.Err)
 			}
 		}
 		fmt.Println()

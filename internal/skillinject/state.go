@@ -29,13 +29,16 @@ const (
 	ActionError   Action = "error"
 )
 
-// FileKind names which of a target's two files an Outcome is about.
+// FileKind names which of a target's managed surfaces an Outcome is
+// about.
 type FileKind string
 
 const (
-	KindSkill  FileKind = "skill"
-	KindMarker FileKind = "marker"
-	KindHelper FileKind = "helper"
+	KindSkill            FileKind = "skill"
+	KindMarker           FileKind = "marker"
+	KindHelper           FileKind = "helper"
+	KindPluginFile       FileKind = "plugin_file"
+	KindPluginAllowList  FileKind = "plugin_allowlist"
 )
 
 func actionFor(s State) Action {
@@ -103,6 +106,20 @@ func classifyMarker(path, wantShort string) State {
 		return StateAbsent
 	}
 	if m[1] == wantShort {
+		return StateIdentical
+	}
+	return StateDrifted
+}
+
+// classifyPluginFile inspects a plugin source file at path and returns
+// the State by content-hash comparison. Identical → noop; drifted →
+// rewrite; absent → create.
+func classifyPluginFile(path, wantHash string) State {
+	cur, err := os.ReadFile(path)
+	if err != nil {
+		return StateAbsent
+	}
+	if sha256Hex(cur) == wantHash {
 		return StateIdentical
 	}
 	return StateDrifted
