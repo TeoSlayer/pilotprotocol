@@ -32,18 +32,20 @@ type relayJob struct {
 }
 
 type Server struct {
-	mu      sync.RWMutex
-	conn    *net.UDPConn
-	nodes   map[uint32]*beaconNode // node_id → observed endpoint + last-seen
+	mu      sync.RWMutex   // protects registryAddr / advertiseAddr / registryAdminToken
+	conn    *net.UDPConn   // primary read+write socket; equal to conns[0]
+	conns   []*net.UDPConn // SO_REUSEPORT sockets — one per reader goroutine
+	nodes   *nodeMap       // sharded node_id → observed endpoint + last-seen
 	readyCh chan struct{}
 	relayCh chan relayJob // buffered channel for relay workers
 	pool    sync.Pool     // reusable payload buffers
 
 	// Relay counters (atomic for lock-free worker access)
-	relayForwarded atomic.Uint64 // successful relay deliveries
-	relayDropped   atomic.Uint64 // queue-full drops
-	relayNotFound  atomic.Uint64 // unknown destination drops
-	lastDropLog    atomic.Int64  // UnixNano of last drop warning (rate limit)
+	relayForwarded  atomic.Uint64 // successful relay deliveries
+	relayDropped    atomic.Uint64 // queue-full drops
+	relayNotFound   atomic.Uint64 // unknown destination drops
+	lastDropLog     atomic.Int64  // UnixNano of last drop warning (rate limit)
+	lastNotFoundLog atomic.Int64  // UnixNano of last not-found warning (rate limit)
 
 	// Peer mesh (gossip)
 	beaconID  uint32
@@ -84,7 +86,7 @@ func New() *Server {
 // peers is a list of peer beacon addresses for gossip exchange.
 func NewWithPeers(beaconID uint32, peers []string) *Server {
 	s := &Server{
-		nodes:     make(map[uint32]*beaconNode),
+		nodes:     newNodeMap(),
 		readyCh:   make(chan struct{}),
 		relayCh:   make(chan relayJob, relayQueueSize),
 		beaconID:  beaconID,
@@ -110,21 +112,32 @@ func NewWithPeers(beaconID uint32, peers []string) *Server {
 }
 
 func (s *Server) ListenAndServe(addr string) error {
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return fmt.Errorf("resolve: %w", err)
+	// Open one UDP socket per CPU core via SO_REUSEPORT (Linux) so the
+	// kernel flow-hashes incoming packets across N user-space readers.
+	// The pre-shard implementation used a single net.ListenUDP and one
+	// read goroutine, which became the throughput cliff under full
+	// fleet Discover load — see nodeMap doc for the lock side; this is
+	// the kernel side of the same fix.
+	readers := runtime.NumCPU()
+	if readers < 2 {
+		readers = 2
 	}
-
-	conn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return fmt.Errorf("listen: %w", err)
+	s.conns = make([]*net.UDPConn, 0, readers)
+	for i := 0; i < readers; i++ {
+		c, err := listenReusePort(addr)
+		if err != nil {
+			// Best-effort cleanup of any already-open sockets so we don't leak fds.
+			for _, opened := range s.conns {
+				_ = opened.Close()
+			}
+			return fmt.Errorf("listen %d: %w", i, err)
+		}
+		_ = c.SetReadBuffer(4 * 1024 * 1024) // 4MB per socket
+		s.conns = append(s.conns, c)
 	}
-	s.conn = conn
+	s.conn = s.conns[0] // sends go through the first socket; any one works
 
-	// Increase UDP receive buffer to handle bursts
-	_ = conn.SetReadBuffer(4 * 1024 * 1024) // 4MB
-
-	slog.Info("beacon listening", "addr", conn.LocalAddr(), "beacon_id", s.beaconID, "peers", len(s.peers))
+	slog.Info("beacon listening", "addr", s.conn.LocalAddr(), "beacon_id", s.beaconID, "peers", len(s.peers), "readers", readers)
 	close(s.readyCh)
 
 	// Start relay workers — two per CPU core to absorb WriteToUDP
@@ -152,6 +165,21 @@ func (s *Server) ListenAndServe(addr string) error {
 	// next tick without requiring a restart.
 	go s.registryDiscoveryLoop()
 
+	// Spawn N-1 reader goroutines; the last one runs inline so the caller
+	// blocks here as the existing API requires. All N sockets are bound
+	// to the same UDP port via SO_REUSEPORT — the kernel splits packets.
+	errCh := make(chan error, len(s.conns))
+	for i := 1; i < len(s.conns); i++ {
+		go func(c *net.UDPConn) { errCh <- s.readLoop(c) }(s.conns[i])
+	}
+	return s.readLoop(s.conns[0])
+}
+
+// readLoop is the per-socket receive path. One per SO_REUSEPORT socket;
+// each has its own 65535-byte buffer so there is no cross-goroutine
+// allocation contention. The kernel hands packets directly to whichever
+// socket's queue is shortest.
+func (s *Server) readLoop(conn *net.UDPConn) error {
 	buf := make([]byte, 65535)
 	for {
 		n, remote, err := conn.ReadFromUDP(buf)
@@ -165,7 +193,6 @@ func (s *Server) ListenAndServe(addr string) error {
 		if n < 1 {
 			continue
 		}
-
 		s.handlePacket(buf[:n], remote)
 	}
 }
@@ -189,10 +216,13 @@ func (s *Server) Close() error {
 	default:
 		close(s.done)
 	}
-	if s.conn != nil {
-		return s.conn.Close()
+	var firstErr error
+	for _, c := range s.conns {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+	return firstErr
 }
 
 // RelayForwarded returns the count of relay packets the beacon
@@ -231,19 +261,10 @@ func (s *Server) handleDiscover(data []byte, remote *net.UDPAddr) {
 
 	nodeID := binary.BigEndian.Uint32(data[0:4])
 
-	// Record this node's observed public endpoint
-	now := time.Now()
-	s.mu.Lock()
-	if existing, ok := s.nodes[nodeID]; ok {
-		existing.addr = remote
-		existing.lastSeen = now
-	} else if len(s.nodes) < maxBeaconNodes {
-		s.nodes[nodeID] = &beaconNode{addr: remote, lastSeen: now}
-	} else {
-		s.mu.Unlock()
-		return // at capacity — drop silently
+	// Record this node's observed public endpoint. Sharded — no global lock.
+	if _, atCap := s.nodes.Upsert(nodeID, remote, time.Now(), maxBeaconNodes); atCap {
+		return // shard at capacity — drop silently
 	}
-	s.mu.Unlock()
 
 	slog.Debug("beacon discover", "node_id", nodeID, "addr", remote)
 
@@ -277,22 +298,11 @@ func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
 	requesterID := binary.BigEndian.Uint32(data[0:4])
 	targetID := binary.BigEndian.Uint32(data[4:8])
 
-	// Update requester's endpoint (handles symmetric NAT port changes)
-	now := time.Now()
-	s.mu.Lock()
-	if existing, ok := s.nodes[requesterID]; ok {
-		existing.addr = remote
-		existing.lastSeen = now
-	} else if len(s.nodes) < maxBeaconNodes {
-		s.nodes[requesterID] = &beaconNode{addr: remote, lastSeen: now}
-	}
-	s.mu.Unlock()
+	// Update requester's endpoint (handles symmetric NAT port changes).
+	s.nodes.Upsert(requesterID, remote, time.Now(), maxBeaconNodes)
 
-	s.mu.RLock()
-	targetNode := s.nodes[targetID]
-	requesterNode := s.nodes[requesterID]
-	s.mu.RUnlock()
-
+	targetNode := s.nodes.Get(targetID)
+	requesterNode := s.nodes.Get(requesterID)
 	if targetNode == nil {
 		slog.Warn("punch target not found", "target_id", targetID)
 		return
@@ -372,14 +382,13 @@ func (s *Server) relayWorker() {
 		case job = <-s.relayCh:
 		}
 
-		// Tier 1: local node lookup
-		s.mu.RLock()
-		destNode, ok := s.nodes[job.destID]
+		// Tier 1: local node lookup — sharded, no global lock.
+		destNode := s.nodes.Get(job.destID)
 		var destAddr *net.UDPAddr
+		ok := destNode != nil
 		if ok {
 			destAddr = destNode.addr
 		}
-		s.mu.RUnlock()
 
 		if ok {
 			// Build relay deliver message in pre-allocated send buffer
@@ -427,9 +436,18 @@ func (s *Server) relayWorker() {
 			continue
 		}
 
-		// Tier 3: unknown destination
+		// Tier 3: unknown destination. Bump the counter for /api/stats,
+		// but rate-limit the per-packet log to ≤1/sec — the empty-s.nodes
+		// startup window (every daemon's first 60s after a beacon swap)
+		// otherwise floods journald at ~800 lines/sec and starves the
+		// read loops we just parallelised.
 		s.relayNotFound.Add(1)
-		slog.Warn("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
+		now := time.Now().UnixNano()
+		if last := s.lastNotFoundLog.Load(); now-last > int64(time.Second) {
+			if s.lastNotFoundLog.CompareAndSwap(last, now) {
+				slog.Warn("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
+			}
+		}
 		s.returnPayload(job.payload)
 	}
 }
@@ -460,17 +478,11 @@ func (s *Server) relayStatsLoop() {
 
 // SendPunchCommand tells a node to send UDP to a target endpoint.
 func (s *Server) SendPunchCommand(nodeID uint32, targetIP net.IP, targetPort uint16) error {
-	s.mu.RLock()
-	node, ok := s.nodes[nodeID]
-	var nodeAddr *net.UDPAddr
-	if ok {
-		nodeAddr = node.addr
-	}
-	s.mu.RUnlock()
-
-	if !ok {
+	node := s.nodes.Get(nodeID)
+	if node == nil {
 		return fmt.Errorf("node %d: %w", nodeID, protocol.ErrNodeNotFound)
 	}
+	nodeAddr := node.addr
 
 	ip := targetIP.To4()
 	if ip == nil {
@@ -512,13 +524,7 @@ func (s *Server) reapLoop() {
 
 func (s *Server) reapStaleNodes() {
 	threshold := time.Now().Add(-beaconNodeTTL)
-	s.mu.Lock()
-	for id, node := range s.nodes {
-		if node.lastSeen.Before(threshold) {
-			delete(s.nodes, id)
-		}
-	}
-	s.mu.Unlock()
+	s.nodes.ReapStale(threshold)
 }
 
 // --- Gossip ---
@@ -540,12 +546,7 @@ func (s *Server) gossipLoop() {
 }
 
 func (s *Server) sendGossip() {
-	s.mu.RLock()
-	nodeIDs := make([]uint32, 0, len(s.nodes))
-	for id := range s.nodes {
-		nodeIDs = append(nodeIDs, id)
-	}
-	s.mu.RUnlock()
+	nodeIDs := s.nodes.IDs()
 
 	if len(nodeIDs) > 65535 {
 		nodeIDs = nodeIDs[:65535] // cap at uint16 max
@@ -607,13 +608,11 @@ func (s *Server) handleSync(data []byte, remote *net.UDPAddr) {
 		}
 	}
 	// Add new entries (skip nodes we own locally)
-	s.mu.RLock()
 	for _, id := range nodeIDs {
-		if _, local := s.nodes[id]; !local {
+		if !s.nodes.Has(id) {
 			s.peerNodes[id] = remote
 		}
 	}
-	s.mu.RUnlock()
 	s.peerMu.Unlock()
 
 	slog.Debug("gossip sync received", "peer_beacon_id", peerBeaconID, "nodes", nodeCount, "from", remote)
@@ -834,7 +833,5 @@ func (s *Server) PeerNodeCount() int {
 
 // LocalNodeCount returns the number of locally registered nodes.
 func (s *Server) LocalNodeCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.nodes)
+	return s.nodes.Len()
 }
