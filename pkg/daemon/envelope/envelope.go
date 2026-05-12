@@ -164,6 +164,20 @@ func DecryptFrame(store *keyexchange.Store, data []byte) DecryptResult {
 			c.ReplayMu.Lock()
 			c.OutsideWindowCount++
 			c.ReplayMu.Unlock()
+		} else {
+			// In-window replay collision. Symmetric counterpart to
+			// OutsideWindowCount on the *other* side of the window:
+			// peer's counter is INSIDE [max-window, max] but at a
+			// position we've already marked. Sustained collisions mean
+			// the peer's send counter reset (peer restarted with a
+			// persistent X25519 identity, so no PILA was negotiated)
+			// and every frame they now produce lands on a bit we
+			// already set. Recovery is structurally identical to
+			// outside-window: gate via ShouldDropOnReplay (threshold +
+			// grace), then drop the Crypto and trigger a fresh exchange.
+			c.ReplayMu.Lock()
+			c.ReplayCount++
+			c.ReplayMu.Unlock()
 		}
 		return DecryptResult{
 			PeerNodeID:   peerNodeID,
@@ -192,13 +206,16 @@ func DecryptFrame(store *keyexchange.Store, data []byte) DecryptResult {
 		}
 	}
 
-	// Successful decrypt — reset both fault counters under one lock.
+	// Successful decrypt — reset all three fault counters under one lock.
 	c.ReplayMu.Lock()
 	if c.DecryptFailCount != 0 {
 		c.DecryptFailCount = 0
 	}
 	if c.OutsideWindowCount != 0 {
 		c.OutsideWindowCount = 0
+	}
+	if c.ReplayCount != 0 {
+		c.ReplayCount = 0
 	}
 	c.ReplayMu.Unlock()
 

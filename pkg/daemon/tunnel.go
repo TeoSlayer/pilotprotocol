@@ -200,7 +200,38 @@ func NewTunnelManager() *TunnelManager {
 	tm.kx.SetPublisher(tm.publishEvent)
 	tm.kx.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx.SetPostInstallHook(tm.onKeyInstalled)
+	tm.kx.SetPreRetransmitHook(tm.maybeForceRelayOnRekey)
 	return tm
+}
+
+// maybeForceRelayOnRekey is the cross-layer policy bridge between the
+// keyexchange retransmit loop and the routing layer's relay path.
+// Invoked once per peer per pending retransmit, BEFORE the frame goes
+// out, with the attempt count we are about to perform.
+//
+// After RekeyRelayFallbackAfter direct attempts, the cached endpoint
+// is overwhelmingly likely to be stale (e.g. local daemon restart that
+// changed our external NAT port, peer caching the dead direct addr).
+// The routing layer's own blackhole heuristic needs
+// BlackholeMissesRequired (=3) silent observations spaced at the rekey
+// cadence to engage on its own — by then the rekey budget is exhausted.
+// Force the flip here so the remaining attempts go via relay.
+//
+// Pinned-relay state is left alone; pinned-direct is respected (we
+// only set the unpinned relay flag); already-relay peers are a no-op.
+// Reproduces the recovery for the 2026-05-11 NAT-remapping wedge.
+func (tm *TunnelManager) maybeForceRelayOnRekey(peerNodeID uint32, attempt int) {
+	if attempt < keyexchange.RekeyRelayFallbackAfter {
+		return
+	}
+	if tm.routing.IsRelayPeer(peerNodeID) {
+		return
+	}
+	tm.routing.SetRelayPeer(peerNodeID, true)
+	slog.Info("rekey relay fallback: flipping peer to relay after silent direct attempts",
+		"peer_node_id", peerNodeID,
+		"attempt", attempt,
+		"fallback_after", keyexchange.RekeyRelayFallbackAfter)
 }
 
 // peerAddr is the L4-side hook the keyexchange manager uses to find a
@@ -933,16 +964,47 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		tm.publishEvent("security.nonce_replay", map[string]interface{}{
 			"peer_node_id": peerNodeID, "counter": res.Counter,
 		})
-		// ErrReplay means the frame authenticated (valid AEAD) but the nonce
-		// counter was already seen. This is duplicate delivery — the same
-		// encrypted frame arrived on both direct and relay paths, or the relay
-		// re-delivered a buffered frame. A peer restart sends KeyInit first
-		// (handled in the KeyInit path), then data frames with a fresh counter
-		// that authenticate against the new key. Those new-key frames produce
-		// ErrAEAD against our old key (handled below), not ErrReplay. Triggering
-		// a rekey here caused a storm: each rekey produces early low-counter
-		// frames (1–40) that the relay then re-delivers, all land as replay, all
-		// fire another rekey, ad infinitum.
+		// ErrReplay means the frame authenticated (valid AEAD) but the
+		// nonce counter was already seen. Two distinct causes share this
+		// signal:
+		//
+		// 1. Duplicate delivery — the same frame arrived on both direct
+		//    and relay paths, or the relay re-delivered a buffered frame.
+		//    Occasional, isolated. Triggering rekey would storm: each
+		//    rekey emits early low-counter frames (1–40) that the relay
+		//    re-delivers as replays, firing another rekey indefinitely.
+		// 2. Peer counter reset after restart with persistent X25519
+		//    identity — peer sends counter=1,2,3... but our MaxRecvNonce
+		//    is still ~50 from the pre-restart session. Every frame
+		//    lands at a counter we've already marked in the bitmap and
+		//    is dropped before AEAD-Open even runs, so DecryptFailCount
+		//    and OutsideWindowCount stay at 0 and no other gate engages.
+		//    Wedge persists until peer's counter naturally climbs past
+		//    our max — but with no traffic flowing, it never does.
+		//    Reproduces the rc5 list-agents wedge (2026-05-11).
+		//
+		// The differentiating signal is *sustained* same-peer replays.
+		// envelope.DecryptFrame increments ReplayCount on every
+		// in-window replay rejection and resets it on any successful
+		// decrypt. The threshold + grace gate distinguishes case (2)
+		// from case (1): ReplayDropThreshold=30 in a row with no
+		// intervening success is structurally impossible under
+		// duplicate-delivery (typically 1–3 collisions per frame pair)
+		// and certain under counter-reset. CompareAndDrop ensures we
+		// drop only the same Crypto we observed wedge — protecting
+		// against the storm above where a rekey installs a fresh
+		// Crypto that immediately sees its own early replays.
+		pc := tm.envelope.Get(peerNodeID)
+		if tm.envelope.ShouldDropOnReplay(peerNodeID, pc) {
+			if tm.envelope.CompareAndDrop(peerNodeID, pc) {
+				slog.Warn("tunnel: peer counter reset detected, dropping session and re-handshaking",
+					"peer_node_id", peerNodeID,
+					"consecutive_replays", pc.ReplayCount,
+					"max_recv_nonce", res.MaxRecvNonce,
+					"latest_counter", res.Counter)
+				tm.maybeRequestRekey(peerNodeID, from)
+			}
+		}
 		return
 	case envelope.ErrAEAD:
 		atomic.AddUint64(&tm.EncryptFail, 1)

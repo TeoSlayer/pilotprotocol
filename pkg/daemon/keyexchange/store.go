@@ -209,6 +209,38 @@ func (s *Store) ShouldDropOnOutsideWindow(peerNodeID uint32, c *Crypto) bool {
 	return current == c
 }
 
+// ShouldDropOnReplay is the symmetric counterpart to
+// ShouldDropOnOutsideWindow for the in-window replay-collision path.
+// Returns true when ReplayCount has reached ReplayDropThreshold AND
+// the Crypto is older than ReplayDropGrace AND it is still the
+// currently-installed entry for peerNodeID.
+//
+// The caller (L7 handleEncrypted) is responsible for the side effect:
+// drop via CompareAndDrop and request a fresh key exchange. This
+// reproduces the recovery for the rc5 list-agents wedge (2026-05-11)
+// where peer daemons restarted but kept their persisted X25519
+// identity — no PILA was sent, their send counter reset to 1, our
+// MaxRecvNonce stayed at ~50, every subsequent frame from the peer
+// landed at an already-marked counter and was dropped before
+// AEAD-Open ever ran. Neither DecryptFailCount nor OutsideWindowCount
+// incremented, so the existing recovery gates never engaged.
+func (s *Store) ShouldDropOnReplay(peerNodeID uint32, c *Crypto) bool {
+	if c == nil {
+		return false
+	}
+	c.ReplayMu.Lock()
+	replays := c.ReplayCount
+	c.ReplayMu.Unlock()
+	if replays < ReplayDropThreshold {
+		return false
+	}
+	if time.Since(c.CreatedAt) < ReplayDropGrace {
+		return false
+	}
+	current := s.Get(peerNodeID)
+	return current == c
+}
+
 // RecordSalvage stashes a plaintext send into the per-peer ring buffer.
 // On a subsequent peer-initiated rekey, DrainSalvage will hand back the
 // entries; the caller re-encrypts with the new key and re-sends —

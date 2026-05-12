@@ -64,6 +64,24 @@ const (
 	// give up — peer is presumed gone.
 	MaxRekeyAttempts = 5
 
+	// RekeyRelayFallbackAfter is the attempt count at which the rekey
+	// loop's PreRetransmitHook is invited to flip the peer's routing
+	// path to relay. The first attempt goes direct on the optimistic
+	// assumption the cached endpoint still resolves; once that has
+	// silently failed RekeyRelayFallbackAfter times, the routing layer's
+	// blackhole heuristic typically hasn't yet accumulated enough silent
+	// observations to flip on its own (BlackholeMissesRequired=3
+	// observations × 4s = 12s, and rekey gives up at 24s), so we'd
+	// burn the remaining budget on the dead direct path. Forcing the
+	// flip here guarantees ≥3 attempts go via relay before give-up.
+	//
+	// Reproduces the recovery for the 2026-05-11 Mac-restart NAT-
+	// remapping wedge: peer endpoint caches pointed at the Mac's old
+	// external port (NAT recycled after daemon restart), every direct
+	// rekey landed in a black hole, and the loop exhausted all 6
+	// attempts before the blackhole heuristic could engage.
+	RekeyRelayFallbackAfter = 2
+
 	// KeyExchangeReplyStaleThreshold: when an auth_key_exchange arrives
 	// and we already have crypto for the peer with no inbound traffic in
 	// this window, reply with our key_exchange too (in case our previous
@@ -113,6 +131,15 @@ type EventPublisher func(topic string, payload map[string]any)
 // context for the daemon to do peer-endpoint bookkeeping, salvage
 // replay, flushPending, etc. Implemented in tunnel.go.
 type PostInstallHook func(ev PostInstallEvent)
+
+// PreRetransmitHook is invoked by RekeyRetransmitTick once per peer that
+// is about to be retransmitted, BEFORE SendKeyExchangeToNode runs. The
+// hook receives the peer ID and the upcoming attempt count (1 for the
+// first retransmit, 2 for the second, ...). Used by tunnel.go to flip
+// the peer's routing path to relay once direct attempts have failed
+// often enough that the next direct attempt is unlikely to succeed.
+// Implemented in tunnel.go.
+type PreRetransmitHook func(peerNodeID uint32, attempt int)
 
 // PostInstallEvent describes a freshly-installed Crypto.
 type PostInstallEvent struct {
@@ -166,6 +193,7 @@ type Manager struct {
 	addrLookup  PeerAddrLookup
 	publisher   EventPublisher
 	postInstall PostInstallHook
+	preRetx     PreRetransmitHook
 }
 
 // New returns a fresh Manager. The Manager installs into store; pass
@@ -202,6 +230,12 @@ func (m *Manager) SetPublisher(p EventPublisher) { m.publisher = p }
 // SetPostInstallHook wires the post-install daemon callback (peer
 // endpoint bookkeeping, salvage replay, etc.).
 func (m *Manager) SetPostInstallHook(h PostInstallHook) { m.postInstall = h }
+
+// SetPreRetransmitHook wires a callback invoked once per peer immediately
+// before each rekey retransmit. The daemon uses this to apply cross-layer
+// policy (e.g. force the peer onto the relay path) without leaking
+// routing concerns into the keyexchange package.
+func (m *Manager) SetPreRetransmitHook(h PreRetransmitHook) { m.preRetx = h }
 
 // SetLocalNodeIDFn supplies the closure used to read our own node ID
 // (atomic read living in the daemon).

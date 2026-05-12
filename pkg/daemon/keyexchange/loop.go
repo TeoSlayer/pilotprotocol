@@ -84,6 +84,14 @@ func (m *Manager) RekeyRetransmitTick() {
 			"peer_node_id", r.peerNodeID,
 			"attempt", r.attempts+1,
 			"max", MaxRekeyAttempts+1)
+		// Cross-layer policy hook: lets tunnel.go flip the peer's
+		// routing path (e.g. to relay) before this attempt goes out.
+		// Receives the upcoming attempt count (r.attempts is the
+		// count BEFORE this send; the +1 reflects what we're about
+		// to do). Nil-safe.
+		if m.preRetx != nil {
+			m.preRetx(r.peerNodeID, r.attempts+1)
+		}
 		// SendKeyExchangeToNode calls MarkPendingRekey, which bumps the
 		// counter and lastSentAt — we don't need to do that ourselves.
 		m.SendKeyExchangeToNode(r.peerNodeID)

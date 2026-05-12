@@ -60,6 +60,36 @@ const OutsideWindowDropThreshold = 30
 // time to drain those should we treat the persistence as divergence.
 const OutsideWindowDropGrace = 3 * time.Second
 
+// ReplayDropThreshold is how many consecutive in-window replay
+// rejections trigger a Crypto drop + fresh key exchange. Symmetric
+// counterpart to OutsideWindowDropThreshold for the *other* side of
+// the window: the peer's send counter is INSIDE our ReplayWindowSize
+// range but at positions we've already seen.
+//
+// Reproduces the rc5 list-agents wedge (2026-05-11): peer daemon
+// restarts but keeps its persisted X25519 identity, so no PILA is
+// negotiated; the peer's send counter resets to 1 while our
+// MaxRecvNonce sits at ~50. Every subsequent frame from the peer
+// authenticates with the same key, lands at counter=1..50, and is
+// dropped as a replay before AEAD-Open ever runs — neither
+// DecryptFailCount nor OutsideWindowCount increment, so the existing
+// recovery paths never engage. Sustained replays are the only signal
+// that the peer's counter and our window are mis-aligned.
+//
+// 30 matches OutsideWindowDropThreshold for the same reason: a
+// legitimate duplicate-delivery burst (direct + relay both delivering
+// the same frame) typically tops out at 1–3 collisions per frame
+// pair; 30 consecutive same-peer replays without any successful
+// decrypt cleanly distinguishes the wedge from legitimate
+// duplication. Reset to 0 on successful decrypt.
+const ReplayDropThreshold = 30
+
+// ReplayDropGrace mirrors OutsideWindowDropGrace. A freshly installed
+// Crypto can legitimately see a few replays as both direct and relay
+// paths catch up to the new key; only after the new state has had
+// time to drain those should we treat the persistence as divergence.
+const ReplayDropGrace = 3 * time.Second
+
 // DecryptFailDropGrace is the minimum age a Crypto must reach before
 // repeated decrypt failures can drop it. Set above the typical relay RTT
 // (≤200 ms) plus a comfortable margin: stale ciphertext from before the
@@ -124,6 +154,20 @@ type Crypto struct {
 	// OutsideWindowDropGrace, the daemon drops this Crypto and requests
 	// a rekey. Reset to 0 on any successful decrypt.
 	OutsideWindowCount int
+
+	// ReplayCount tracks consecutive in-window replay rejections (counter
+	// within ReplayWindowSize of MaxRecvNonce but already marked in the
+	// bitmap). Distinct from OutsideWindowCount, which handles the
+	// counter-far-behind case. A few replays are normal (duplicate
+	// delivery across direct + relay paths); a sustained burst means
+	// peer's send counter reset (peer restart with persistent identity)
+	// and our window's high-water-mark sits ahead of every frame the
+	// peer can now produce — the wedge resolves only when peer's counter
+	// climbs past our max, but with no traffic in flight it never will.
+	// Once this counter exceeds ReplayDropThreshold AND the Crypto is
+	// older than ReplayDropGrace, drop the Crypto and request rekey.
+	// Reset to 0 on any successful decrypt.
+	ReplayCount int
 
 	// CreatedAt is when this Crypto was installed. Used by L5's
 	// handleAuthKeyExchange to decide between preserving existing state
