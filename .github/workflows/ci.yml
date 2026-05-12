@@ -36,12 +36,17 @@ jobs:
           go build ./cmd/updater
 
       - name: Test
-        run: go test -parallel 4 -count=1 -timeout 120s ./tests/ ./pkg/beacon/
+        # 300s matches the release workflow + pre-push hook. The tests/
+        # integration suite reliably takes 120-140s on these runners
+        # (lots of UDP socket churn), which was right at the prior 120s
+        # ceiling and tipped over after some recent additions. Bumped
+        # to the same budget as release.yml so the two surfaces agree.
+        run: go test -parallel 4 -count=1 -timeout 300s ./tests/ ./pkg/beacon/
 
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 120s
+          cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 300s
           go tool cover -func=coverage.out | tail -1
 
   website:
