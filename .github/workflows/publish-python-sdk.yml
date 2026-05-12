@@ -73,7 +73,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -155,7 +155,7 @@ jobs:
           echo "Version: $VERSION"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -201,7 +201,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
