@@ -30,13 +30,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
 
-      - name: Run SDK integration tests
+      - name: Install dev dependencies + run unit tests
         run: |
-          cd tests/integration
-          make test-sdk
+          cd sdk/python
+          make install-dev
+          make test
         timeout-minutes: 10
 
   build-wheels:
