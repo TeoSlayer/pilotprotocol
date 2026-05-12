@@ -4339,61 +4339,68 @@ func (d *Daemon) idleSweepLoop() {
 			// resolveCache and hostnameCache: strictly TTL-gated on read; evict after 2× TTL.
 			d.reapCaches()
 
-			// Send keepalive probes to connections idle beyond keepalive interval.
-			// Dead-peer detection: if 3 consecutive probes go unanswered, RST + close.
-			idle := d.ports.IdleConnections(keepaliveInterval)
-			for _, conn := range idle {
-				conn.Mu.Lock()
-				st := conn.State
-				sendSeq := conn.SendSeq
-				recvAck := conn.RecvAck
-				kaUnacked := conn.KeepaliveUnacked
-				conn.Mu.Unlock()
-				if st != StateEstablished {
-					continue
-				}
-				if kaUnacked >= 3 {
-					slog.Warn("dead peer detected (3 keepalives unanswered), sending RST",
-						"conn_id", conn.ID, "remote_addr", conn.RemoteAddr, "remote_port", conn.RemotePort)
-					rst := &protocol.Packet{
-						Version:  protocol.Version,
-						Flags:    protocol.FlagRST,
-						Protocol: protocol.ProtoStream,
-						Src:      conn.LocalAddr,
-						Dst:      conn.RemoteAddr,
-						SrcPort:  conn.LocalPort,
-						DstPort:  conn.RemotePort,
-					}
-					d.tunnels.Send(conn.RemoteAddr.Node, rst)
-					conn.Mu.Lock()
-					conn.State = StateClosed
-					conn.Mu.Unlock()
-					conn.CloseRecvBuf()
-					d.ports.RemoveConnection(conn.ID)
-					d.publishEvent("conn.dead_peer", map[string]interface{}{
-						"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
-						"local_port": conn.LocalPort, "conn_id": conn.ID,
-					})
-					continue
-				}
-				conn.Mu.Lock()
-				conn.KeepaliveUnacked++
-				conn.Mu.Unlock()
-				probe := &protocol.Packet{
-					Version:  protocol.Version,
-					Flags:    protocol.FlagACK,
-					Protocol: protocol.ProtoStream,
-					Src:      conn.LocalAddr,
-					Dst:      conn.RemoteAddr,
-					SrcPort:  conn.LocalPort,
-					DstPort:  conn.RemotePort,
-					Seq:      sendSeq,
-					Ack:      recvAck,
-					Window:   conn.RecvWindow(),
-				}
-				d.tunnels.Send(conn.RemoteAddr.Node, probe)
-			}
+			// Keepalive probes + dead-peer detection. See keepaliveSweep for
+			// details. Extracted into its own method so tests can drive a
+			// single tick without standing up the full ticker loop.
+			d.keepaliveSweep(keepaliveInterval)
 		}
+	}
+}
+
+// keepaliveSweep runs one iteration of the keepalive-probe / dead-peer
+// detection loop. For each connection idle beyond `keepaliveInterval`:
+//   - If it's in StateEstablished and 3 prior probes already went unanswered,
+//     close it politely via CloseConnection (sends FIN, transitions to
+//     StateFinWait, retx on the FIN segment). This is intentionally NOT a
+//     RST: an idle StateEstablished connection is the expected steady-state
+//     after a successful request/reply cycle (pilot's pseudo-TCP has no
+//     half-close API), so RST'ing it poisons the peer's session table and
+//     cascades into "dial: connection refused" on the peer's next outbound
+//     to us — observed fleet-wide as bursts of N successful sends followed
+//     by total loss of reachability for a peer. CloseConnection's FIN lets
+//     the peer cleanly transition to TimeWait; both sides reap themselves
+//     without any RST poisoning.
+//   - Otherwise, increment KeepaliveUnacked and send a probe packet.
+//
+// Exposed for tests. Production callsite is idleSweepLoop.
+func (d *Daemon) keepaliveSweep(keepaliveInterval time.Duration) {
+	idle := d.ports.IdleConnections(keepaliveInterval)
+	for _, conn := range idle {
+		conn.Mu.Lock()
+		st := conn.State
+		sendSeq := conn.SendSeq
+		recvAck := conn.RecvAck
+		kaUnacked := conn.KeepaliveUnacked
+		conn.Mu.Unlock()
+		if st != StateEstablished {
+			continue
+		}
+		if kaUnacked >= 3 {
+			slog.Info("idle peer reaped (3 keepalives unanswered, sending FIN)",
+				"conn_id", conn.ID, "remote_addr", conn.RemoteAddr, "remote_port", conn.RemotePort)
+			d.publishEvent("conn.dead_peer", map[string]interface{}{
+				"remote_addr": conn.RemoteAddr.String(), "remote_port": conn.RemotePort,
+				"local_port": conn.LocalPort, "conn_id": conn.ID,
+			})
+			d.CloseConnection(conn)
+			continue
+		}
+		conn.Mu.Lock()
+		conn.KeepaliveUnacked++
+		conn.Mu.Unlock()
+		probe := &protocol.Packet{
+			Version:  protocol.Version,
+			Flags:    protocol.FlagACK,
+			Protocol: protocol.ProtoStream,
+			Src:      conn.LocalAddr,
+			Dst:      conn.RemoteAddr,
+			SrcPort:  conn.LocalPort,
+			DstPort:  conn.RemotePort,
+			Seq:      sendSeq,
+			Ack:      recvAck,
+			Window:   conn.RecvWindow(),
+		}
+		d.tunnels.Send(conn.RemoteAddr.Node, probe)
 	}
 }
 
