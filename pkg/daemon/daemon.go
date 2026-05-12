@@ -24,6 +24,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
@@ -2805,6 +2806,22 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	// Ensure we have a tunnel to the destination
 	if err := d.ensureTunnel(dstAddr.Node); err != nil {
 		return nil, err
+	}
+
+	// Auto-initiate handshake toward known trusted agents when we have no
+	// local trust entry yet. Scoped to the trusted-agents list so we don't
+	// spray handshakes at arbitrary peers. Fires non-blocking so the
+	// SYN-retry loop succeeds once the peer approves.
+	//
+	// d.handshakes is wired post-construction (see RegisterHandshakeService);
+	// integration tests that build a Daemon directly without the plugin set
+	// see it as nil — guard so this code path is a no-op there rather than
+	// a nil-deref. The on-wire SYN still goes out below; we just skip the
+	// proactive handshake when the plugin isn't loaded.
+	if d.handshakes != nil && !d.handshakes.IsTrusted(dstAddr.Node) {
+		if _, ok := trustedagents.IsTrusted(dstAddr.Node); ok {
+			go d.handshakes.SendRequest(dstAddr.Node, "")
+		}
 	}
 
 	localPort := d.ports.AllocEphemeralPort()

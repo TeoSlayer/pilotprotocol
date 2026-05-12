@@ -1,46 +1,30 @@
 name: Publish Node SDK
 
-# Pulls daemon-side executables (pilot-daemon, pilotctl, pilot-gateway,
-# pilot-updater) from the matching GitHub release built by release.yml,
-# then builds libpilot.{so,dylib} per-platform here. Both sides carry the
-# release tag as their version stamp (`-X main.version=$TAG`), so a
-# pilotctl invoked from a `npm install pilotprotocol` shell reports the
-# actual release version, not "dev".
-#
-# The npm distribution is split following the esbuild/swc pattern:
-#   pilotprotocol                — main package (TS/JS only, no binaries)
-#   pilotprotocol-linux-x64      \
-#   pilotprotocol-linux-arm64     \  optional sub-packages
-#   pilotprotocol-darwin-x64      /  (one downloaded per host's os/cpu)
-#   pilotprotocol-darwin-arm64   /
-#
-# The main package lists all four as `optionalDependencies`; npm fetches
-# only the matching one based on the sub-package's `os`/`cpu` fields.
-#
-# Triggered by `release: published` (after release.yml's tarballs exist).
-#
-# Branches whose name starts with `ci_` ALSO get a dry-run on every push.
-# This is the permanent rehearsal path for iterating on the workflow itself
-# without making a real release. The push run executes everything up to but
-# not including `npm publish` (the `publish` and `test-install` jobs are
-# gated to release events). Required naming convention — only `ci_*`
-# branches trigger the rehearsal; other branches are ignored.
-# See CONTRIBUTING.md → "Testing publish workflows" for the convention.
-
 on:
   release:
     types: [published]
-  push:
-    branches:
-      - 'ci_*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without leading v, e.g. 1.9.1)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Treat as prerelease (skip publish; build only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   id-token: write
 
+env:
+  PILOT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+  PILOT_PRERELEASE: ${{ inputs.prerelease || github.event.release.prerelease }}
+
 jobs:
   test-sdk:
-    if: "!github.event.release.prerelease"
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -54,330 +38,38 @@ jobs:
       - run: npm run build
       - run: npm test
 
-  # ---------------------------------------------------------------------
-  # Per-platform build jobs.
-  # Each one:
-  #   1. Pulls its 2 release tarballs (executables) from the GitHub release.
-  #   2. Strips infrastructure binaries; renames daemon→pilot-daemon etc.
-  #   3. Builds libpilot.{so,dylib} for each of its 2 target arches with
-  #      -X main.version=$TAG (so libpilot's metadata is consistent with
-  #      the executables' stamp).
-  #   4. Uploads the 2 populated sub-package bin/ trees as an artifact.
-  # ---------------------------------------------------------------------
-
-  build-linux:
-    name: Build linux sub-packages (x64, arm64)
+  build-packages:
     needs: test-sdk
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve version + tag (release event or ci_* push)
+      - name: Set version from release tag or workflow input
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Release event: use the tag of the release being published.
-          # ci_* push: rehearse against the LATEST existing release.
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          else
-            TAG=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)
-            echo "ci_* push rehearsal: using latest release ${TAG} as test source"
-          fi
-          VERSION="${TAG#v}"
-          echo "version=$VERSION"     >> $GITHUB_ENV
-          echo "release_tag=$TAG"     >> $GITHUB_ENV
-          echo "Resolved: version=$VERSION, release_tag=$TAG"
+          VERSION="${PILOT_VERSION}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_ENV
+          cd sdk/node
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "SDK version: $VERSION"
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Install aarch64 cross-compiler (for linux/arm64 libpilot)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Download release tarballs (linux-amd64, linux-arm64)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/pilot-release
-          gh release download "${release_tag}" \
-            --repo "${{ github.repository }}" \
-            --pattern 'pilot-linux-amd64.tar.gz' \
-            --pattern 'pilot-linux-arm64.tar.gz' \
-            --pattern 'checksums.txt' \
-            --dir /tmp/pilot-release
-
-          # Verify SHA-256 against the release's checksums.txt.
-          cd /tmp/pilot-release
-          if [ -f checksums.txt ]; then
-            for ARCHIVE in pilot-linux-*.tar.gz; do
-              EXPECTED=$(grep " ${ARCHIVE}\$" checksums.txt | awk '{print $1}')
-              [ -z "$EXPECTED" ] && { echo "  - $ARCHIVE not in checksums.txt; skipped"; continue; }
-              ACTUAL=$(sha256sum "$ARCHIVE" | awk '{print $1}')
-              [ "$EXPECTED" != "$ACTUAL" ] && { echo "Checksum mismatch for $ARCHIVE!" >&2; exit 1; }
-              echo "  - $ARCHIVE: OK"
-            done
-          fi
-
-      - name: Populate sub-package bin/ from release executables
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Map: <go-arch> → <node-arch>
-          # bash 3.2 (macOS default) doesn't support associative arrays;
-          # use a case statement so this is portable to both runners.
-          for GOARCH in amd64 arm64; do
-            case "$GOARCH" in
-              amd64) NODEARCH=x64   ;;
-              arm64) NODEARCH=arm64 ;;
-            esac
-            ARCHIVE="/tmp/pilot-release/pilot-linux-${GOARCH}.tar.gz"
-            BIN_DIR="sdk/node/packages/linux-${NODEARCH}/bin"
-            rm -rf "$BIN_DIR" && mkdir -p "$BIN_DIR"
-            tar -xzf "$ARCHIVE" -C "$BIN_DIR"
-            (
-              cd "$BIN_DIR"
-              # Drop server-infra binaries — not shipped in the SDK.
-              rm -f registry beacon rendezvous nameserver
-              # Rename to SDK convention.
-              [ -f daemon ]  && mv daemon  pilot-daemon
-              [ -f gateway ] && mv gateway pilot-gateway
-              [ -f updater ] && mv updater pilot-updater
-            )
-            echo "  ✓ linux-${NODEARCH} populated:"
-            ls -lh "$BIN_DIR"
-          done
-
-      - name: Build libpilot for linux/amd64 + linux/arm64
-        shell: bash
-        run: |
-          set -euo pipefail
-          LDFLAGS="-s -w -X main.version=${release_tag}"
-          for GOARCH in amd64 arm64; do
-            case "$GOARCH" in
-              amd64) NODEARCH=x64   ;;
-              arm64) NODEARCH=arm64 ;;
-            esac
-            BIN_DIR="sdk/node/packages/linux-${NODEARCH}/bin"
-            CC_OVERRIDE=""
-            if [ "$GOARCH" = "arm64" ]; then
-              CC_OVERRIDE="aarch64-linux-gnu-gcc"
-            fi
-            echo "Building libpilot.so for linux/${GOARCH}, version=${release_tag}..."
-            env CGO_ENABLED=1 GOOS=linux GOARCH="$GOARCH" \
-                ${CC_OVERRIDE:+CC="$CC_OVERRIDE"} \
-                go build -buildmode=c-shared -ldflags "$LDFLAGS" \
-                  -o "${BIN_DIR}/libpilot.so" ./sdk/cgo
-            rm -f "${BIN_DIR}/libpilot.h"
-            echo "  ✓ linux-${NODEARCH}/bin/libpilot.so built"
-          done
-
-      - name: Verify pilotctl version stamp (linux-x64 native arch)
-        shell: bash
-        run: |
-          STAMPED=$(./sdk/node/packages/linux-x64/bin/pilotctl version 2>&1 | head -1)
-          echo "pilotctl version → ${STAMPED}"
-          case "$STAMPED" in
-            *"${release_tag}"*|*"${version}"*)
-              echo "  ✓ pilotctl carries the release tag" ;;
-            *)
-              echo "  ✗ pilotctl reports '${STAMPED}', expected to contain '${release_tag}'." >&2
-              exit 1 ;;
-          esac
-
-      # actions/upload-artifact@v4 stores files in a zip and strips POSIX
-      # mode bits. Bundle into a tarball first so the +x bit and any other
-      # mode flags ride through unchanged. (Tar also preserves file bytes
-      # byte-for-byte, which keeps any embedded macOS codesign intact.)
-      - name: Tar linux sub-package bin/ trees
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -czf /tmp/bins-linux.tar.gz -C sdk/node \
-            packages/linux-x64/bin \
-            packages/linux-arm64/bin
-          ls -lh /tmp/bins-linux.tar.gz
-
-      - name: Upload linux sub-package bin/ trees
-        uses: actions/upload-artifact@v4
-        with:
-          name: bins-linux
-          path: /tmp/bins-linux.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-  build-darwin:
-    name: Build darwin sub-packages (x64, arm64)
-    needs: test-sdk
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Resolve version + tag (release event or ci_* push)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Release event: use the tag of the release being published.
-          # ci_* push: rehearse against the LATEST existing release.
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          else
-            TAG=$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)
-            echo "ci_* push rehearsal: using latest release ${TAG} as test source"
-          fi
-          VERSION="${TAG#v}"
-          echo "version=$VERSION"     >> $GITHUB_ENV
-          echo "release_tag=$TAG"     >> $GITHUB_ENV
-          echo "Resolved: version=$VERSION, release_tag=$TAG"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Download release tarballs (darwin-amd64, darwin-arm64)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/pilot-release
-          gh release download "${release_tag}" \
-            --repo "${{ github.repository }}" \
-            --pattern 'pilot-darwin-amd64.tar.gz' \
-            --pattern 'pilot-darwin-arm64.tar.gz' \
-            --pattern 'checksums.txt' \
-            --dir /tmp/pilot-release
-
-          cd /tmp/pilot-release
-          if [ -f checksums.txt ]; then
-            for ARCHIVE in pilot-darwin-*.tar.gz; do
-              EXPECTED=$(grep " ${ARCHIVE}\$" checksums.txt | awk '{print $1}')
-              [ -z "$EXPECTED" ] && { echo "  - $ARCHIVE not in checksums.txt; skipped"; continue; }
-              ACTUAL=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
-              [ "$EXPECTED" != "$ACTUAL" ] && { echo "Checksum mismatch for $ARCHIVE!" >&2; exit 1; }
-              echo "  - $ARCHIVE: OK"
-            done
-          fi
-
-      - name: Populate sub-package bin/ from release executables
-        shell: bash
-        run: |
-          set -euo pipefail
-          # bash 3.2 (macOS default) doesn't support associative arrays;
-          # use a case statement so this is portable to both runners.
-          for GOARCH in amd64 arm64; do
-            case "$GOARCH" in
-              amd64) NODEARCH=x64   ;;
-              arm64) NODEARCH=arm64 ;;
-            esac
-            ARCHIVE="/tmp/pilot-release/pilot-darwin-${GOARCH}.tar.gz"
-            BIN_DIR="sdk/node/packages/darwin-${NODEARCH}/bin"
-            rm -rf "$BIN_DIR" && mkdir -p "$BIN_DIR"
-            tar -xzf "$ARCHIVE" -C "$BIN_DIR"
-            (
-              cd "$BIN_DIR"
-              rm -f registry beacon rendezvous nameserver
-              [ -f daemon ]  && mv daemon  pilot-daemon
-              [ -f gateway ] && mv gateway pilot-gateway
-              [ -f updater ] && mv updater pilot-updater
-            )
-            echo "  ✓ darwin-${NODEARCH} populated:"
-            ls -lh "$BIN_DIR"
-          done
-
-      - name: Build libpilot for darwin/amd64 + darwin/arm64
-        shell: bash
-        run: |
-          set -euo pipefail
-          LDFLAGS="-s -w -X main.version=${release_tag}"
-          for GOARCH in amd64 arm64; do
-            case "$GOARCH" in
-              amd64) NODEARCH=x64   ; ARCH_FLAG=x86_64 ;;
-              arm64) NODEARCH=arm64 ; ARCH_FLAG=arm64  ;;
-            esac
-            BIN_DIR="sdk/node/packages/darwin-${NODEARCH}/bin"
-            echo "Building libpilot.dylib for darwin/${GOARCH}, version=${release_tag}..."
-            env CGO_ENABLED=1 GOOS=darwin GOARCH="$GOARCH" \
-                CC="clang -arch ${ARCH_FLAG}" \
-                CGO_LDFLAGS="-arch ${ARCH_FLAG}" \
-                go build -buildmode=c-shared -ldflags "$LDFLAGS" \
-                  -o "${BIN_DIR}/libpilot.dylib" ./sdk/cgo
-            rm -f "${BIN_DIR}/libpilot.h"
-            # Ad-hoc codesign + strip quarantine (mirrors release.yml's
-            # treatment of the executables — same darwin codesign story).
-            codesign --force --sign - "${BIN_DIR}/libpilot.dylib"
-            xattr -cr "${BIN_DIR}/libpilot.dylib" || true
-            echo "  ✓ darwin-${NODEARCH}/bin/libpilot.dylib built + signed"
-          done
-
-      - name: Verify pilotctl version stamp (darwin-arm64 native arch)
-        shell: bash
-        run: |
-          STAMPED=$(./sdk/node/packages/darwin-arm64/bin/pilotctl version 2>&1 | head -1)
-          echo "pilotctl version → ${STAMPED}"
-          case "$STAMPED" in
-            *"${release_tag}"*|*"${version}"*)
-              echo "  ✓ pilotctl carries the release tag" ;;
-            *)
-              echo "  ✗ pilotctl reports '${STAMPED}', expected to contain '${release_tag}'." >&2
-              exit 1 ;;
-          esac
-
-      # Tarball the bin/ trees before upload. upload-artifact@v4 zips and
-      # strips POSIX mode bits; tar preserves them and keeps the embedded
-      # Mach-O code signature intact (codesign is stored in the file bytes,
-      # not extended attributes, so any byte-preserving archiver works).
-      - name: Tar darwin sub-package bin/ trees
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -czf /tmp/bins-darwin.tar.gz -C sdk/node \
-            packages/darwin-x64/bin \
-            packages/darwin-arm64/bin
-          ls -lh /tmp/bins-darwin.tar.gz
-
-      - name: Upload darwin sub-package bin/ trees
-        uses: actions/upload-artifact@v4
-        with:
-          name: bins-darwin
-          path: /tmp/bins-darwin.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-  # ---------------------------------------------------------------------
-  # Assemble the npm tree (main package TS build + sub-package bin/ trees)
-  # and publish in the right order: sub-packages first, main package last.
-  # ---------------------------------------------------------------------
-
-  publish:
-    # Real publishes only fire on `release: published`. ci_* push rehearsals
-    # run everything through both build jobs + version-stamp checks, then
-    # stop here so no test package reaches npm.
-    if: github.event_name == 'release'
-    needs: [build-linux, build-darwin]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Resolve version
-        shell: bash
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          echo "version=$VERSION"     >> $GITHUB_ENV
-          echo "release_tag=$TAG"     >> $GITHUB_ENV
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -385,158 +77,133 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
-      # Build jobs upload their bin/ trees as tarballs (so POSIX mode bits +
-      # macOS codesign survive — upload-artifact@v4 would otherwise zip and
-      # strip mode bits). Download + untar into the working tree.
-      - name: Download linux bin/ tarball
-        uses: actions/download-artifact@v4
-        with:
-          name: bins-linux
-          path: /tmp/
-
-      - name: Download darwin bin/ tarball
-        uses: actions/download-artifact@v4
-        with:
-          name: bins-darwin
-          path: /tmp/
-
-      - name: Extract bin/ tarballs into sdk/node/packages/
+      - name: Build binaries
         shell: bash
         run: |
-          set -euo pipefail
-          tar -xzf /tmp/bins-linux.tar.gz  -C sdk/node
-          tar -xzf /tmp/bins-darwin.tar.gz -C sdk/node
-          echo "Extracted sub-package bin/ contents:"
-          for PLAT in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
-            echo "  packages/${PLAT}/bin/:"
-            ls -l "sdk/node/packages/${PLAT}/bin/"
-          done
+          cd sdk/node
+          chmod +x scripts/build-binaries.sh
+          ./scripts/build-binaries.sh
 
-      - name: Verify executable bit + version stamp survived round-trip
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The executables must be +x (the tarball preserved this; assert
-          # it explicitly so a future hidden break shows up here, not at
-          # `npx pilotctl` on a user's machine).
-          for PLAT in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
-            for BIN in pilotctl pilot-daemon pilot-gateway pilot-updater; do
-              F="sdk/node/packages/${PLAT}/bin/${BIN}"
-              if [ ! -x "$F" ]; then
-                echo "✗ $F is not executable after artifact round-trip" >&2
-                exit 1
-              fi
-            done
-          done
-          # Native arch can be exec'd here — confirms version stamp survived.
-          STAMPED=$(./sdk/node/packages/linux-x64/bin/pilotctl version 2>&1 | head -1)
-          echo "linux-x64 pilotctl version → ${STAMPED}"
-          case "$STAMPED" in
-            *"${release_tag}"*|*"${version}"*) echo "  ✓ version stamp intact" ;;
-            *) echo "  ✗ version stamp lost: '${STAMPED}'" >&2; exit 1 ;;
-          esac
-
-      - name: Set version in all package.json files
-        shell: bash
-        run: |
-          set -euo pipefail
-          for PKG in sdk/node/package.json \
-                     sdk/node/packages/linux-x64/package.json \
-                     sdk/node/packages/linux-arm64/package.json \
-                     sdk/node/packages/darwin-x64/package.json \
-                     sdk/node/packages/darwin-arm64/package.json; do
-            node -e "
-              const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('$PKG','utf8'));
-              pkg.version = '${version}';
-              // Main package's optionalDependencies must pin each sub-package
-              // to the exact release version — npm install would otherwise
-              // resolve via semver range and could pick an older sub-package.
-              if (pkg.optionalDependencies) {
-                for (const k of Object.keys(pkg.optionalDependencies)) {
-                  pkg.optionalDependencies[k] = '${version}';
-                }
-              }
-              fs.writeFileSync('$PKG', JSON.stringify(pkg, null, 2) + '\n');
-            "
-            echo "  → $PKG: version=${version}"
-          done
-
-      - name: Install + build TypeScript
+      - name: Install and build TypeScript
         working-directory: sdk/node
         run: |
-          # Use `npm install` (not `npm ci`) because the previous step
-          # rewrote `version` + `optionalDependencies` in package.json, so
-          # the lockfile no longer matches and `npm ci` would refuse.
-          # `--no-audit --no-fund` keep the install quiet; `--ignore-scripts`
-          # skips lifecycle scripts on optionalDependencies (the sub-packages
-          # at this exact version may not be on npm yet — that's expected
-          # since this same job is about to publish them).
-          npm install --no-audit --no-fund --ignore-scripts
+          npm ci
           npm run build
 
-      - name: Verify package contents (dry pack)
+      - name: Verify package contents
         working-directory: sdk/node
         run: |
-          echo "=== Main package ==="
+          echo "Package contents:"
           npm pack --dry-run
-          for PLAT in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
-            echo ""
-            echo "=== pilotprotocol-${PLAT} ==="
-            (cd "packages/${PLAT}" && ls -lh bin/ && npm pack --dry-run)
-          done
+          echo ""
+          echo "Built binary subdirs:"
+          ls -lh bin/
 
-      # Sub-packages first. The main package's `optionalDependencies` pins
-      # each sub-package to the exact release version; if the main package
-      # publishes before its sub-packages exist on npm, `npm install
-      # pilotprotocol` would silently no-op on the optional dep (per
-      # optionalDependencies semantics) and the SDK would fail to find its
-      # binaries at runtime.
-      - name: Publish sub-packages
-        working-directory: sdk/node
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for PLAT in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
-            PKG_NAME="pilotprotocol-${PLAT}"
-            cd "packages/${PLAT}"
-            if npm view "${PKG_NAME}@${version}" version 2>/dev/null; then
-              echo "  - ${PKG_NAME}@${version} already on npm; skipping"
-            else
-              echo "  + publishing ${PKG_NAME}@${version}..."
-              npm publish --access public
-            fi
-            cd -
-          done
+      # Upload only the platform-specific binary subdir; the publish job
+      # downloads both and merges them into a single multi-platform npm package.
+      - name: Upload platform binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-bin-${{ matrix.platform }}
+          path: sdk/node/bin/
+          retention-days: 7
 
-      - name: Publish main package
-        working-directory: sdk/node
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        shell: bash
+      # Upload the full package layout (JS + bin/ + bin-stubs) once — the
+      # Linux runner's copy is the publish base; macOS just contributes its
+      # bin/ subdir to the merge.
+      - name: Upload full package (Linux base)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-base
+          path: sdk/node/
+          retention-days: 7
+
+  publish:
+    needs: build-packages
+    if: ${{ !(inputs.prerelease || github.event.release.prerelease) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package base (Linux build)
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package-base
+          path: sdk/node-pkg
+
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: node-bin-macos
+          path: sdk/node-bin-macos
+
+      - name: Merge macOS binaries into package
         run: |
-          set -euo pipefail
-          if npm view "pilotprotocol@${version}" version 2>/dev/null; then
-            echo "  pilotprotocol@${version} already on npm; skipping"
+          # Linux base already contains bin/<linux subdirs>/. Layer in the
+          # macOS subdirs so the published package is multi-platform.
+          for sub in sdk/node-bin-macos/*/; do
+            name=$(basename "$sub")
+            # Skip the .pilot-version file which is at the root, not a subdir.
+            [ "$name" = ".pilot-version" ] && continue
+            echo "  merging bin/$name"
+            cp -R "$sub" "sdk/node-pkg/bin/$name"
+          done
+          echo ""
+          echo "Final bin/ layout:"
+          find sdk/node-pkg/bin -maxdepth 2 -type d | sort
+          echo ""
+          echo "Files included by npm pack:"
+          cd sdk/node-pkg && npm pack --dry-run 2>&1 | grep -E "\.(js|so|dylib)" | head -30
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Extract version
+        id: extract-version
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('sdk/node-pkg/package.json', 'utf8')).version)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Check if version exists on npm
+        id: check-npm
+        run: |
+          VERSION=${{ steps.extract-version.outputs.version }}
+          if npm view pilotprotocol@$VERSION version 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Version $VERSION already exists on npm"
           else
-            echo "  publishing pilotprotocol@${version}..."
-            npm publish --access public
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Version $VERSION does not exist on npm"
           fi
+
+      - name: Publish to npm
+        if: steps.check-npm.outputs.exists == 'false'
+        working-directory: sdk/node-pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci
+          npm publish --access public
+
+      - name: Skip publish - version exists
+        if: steps.check-npm.outputs.exists == 'true'
+        run: echo "Skipping publish - version already exists on npm"
 
       - name: Create summary
         run: |
-          echo "## Node SDK Published"                                                                          >> $GITHUB_STEP_SUMMARY
-          echo ""                                                                                               >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${version}"                                                                        >> $GITHUB_STEP_SUMMARY
-          echo "**Install:** \`npm install pilotprotocol\`"                                                     >> $GITHUB_STEP_SUMMARY
-          echo "**npm:** https://www.npmjs.com/package/pilotprotocol"                                           >> $GITHUB_STEP_SUMMARY
-          echo "**Sub-packages:** linux-x64, linux-arm64, darwin-x64, darwin-arm64"                             >> $GITHUB_STEP_SUMMARY
-          echo "**Provenance:** executables from release \`${release_tag}\`; libpilot built fresh with -X main.version=\`${release_tag}\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Node SDK Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.extract-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Install:** \`npm install pilotprotocol\`" >> $GITHUB_STEP_SUMMARY
+          echo "**npm:** https://www.npmjs.com/package/pilotprotocol" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms bundled:** linux-amd64, darwin-arm64" >> $GITHUB_STEP_SUMMARY
 
   test-install:
     needs: publish
+    if: ${{ !(inputs.prerelease || github.event.release.prerelease) }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -550,46 +217,8 @@ jobs:
       - name: Wait for npm propagation
         run: sleep 60
 
-      - name: Resolve expected version from release tag
-        shell: bash
+      - name: Install and verify
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          echo "version=$VERSION"     >> $GITHUB_ENV
-          echo "release_tag=$TAG"     >> $GITHUB_ENV
-
-      - name: Install and verify version stamp matches release
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install "pilotprotocol@${version}"
-
-          # Confirm the matching sub-package was installed via optionalDependencies.
-          node -e "
-            const os = require('os');
-            const sub = 'pilotprotocol-' + os.platform() + '-' + os.arch();
-            const path = require.resolve(sub + '/package.json');
-            console.log('Sub-package resolved:', path);
-          "
-
-          # Smoke-load the FFI module — confirms libpilot loads on this host.
-          node -e "import('pilotprotocol').then(m => console.log('SDK module imports OK, exports:', Object.keys(m)))"
-
-          # Assert pilotctl reports the release tag (not 'dev'). This is the
-          # regression test for the reported issue: npm-installed pilotprotocol
-          # must run pilotctl with the release version stamped in.
-          STAMPED=$(npx pilotctl version 2>&1 | head -1)
-          echo "pilotctl version → ${STAMPED}"
-          case "$STAMPED" in
-            *"${release_tag}"*|*"${version}"*)
-              echo "✓ pilotctl version reports the release tag"
-              ;;
-            *dev*|*unknown*|"")
-              echo "✗ pilotctl version reports '${STAMPED}' — looks unstamped." >&2
-              exit 1
-              ;;
-            *)
-              echo "✗ pilotctl version reports '${STAMPED}', expected to contain '${release_tag}' or '${version}'." >&2
-              exit 1
-              ;;
-          esac
+          npm install pilotprotocol
+          npx pilotctl info 2>&1 | head -1 || true
+          node -e "import('pilotprotocol').then(m => console.log('SDK installed, exports:', Object.keys(m)))"

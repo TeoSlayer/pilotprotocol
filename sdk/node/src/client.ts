@@ -109,6 +109,28 @@ export class Conn {
     checkErr(ptr);
   }
 
+  /**
+   * Set the read deadline. Pass a Date (absolute time), a number of
+   * milliseconds from now, or null to clear.
+   *
+   * After the deadline passes, in-flight and subsequent `read()` calls
+   * fail with a "deadline exceeded" PilotError.
+   */
+  setReadDeadline(deadline: Date | number | null): void {
+    if (this._closed) throw new PilotError('connection closed');
+    const lib = getLib();
+    let nanos: bigint;
+    if (deadline === null) {
+      nanos = 0n;
+    } else if (deadline instanceof Date) {
+      nanos = BigInt(deadline.getTime()) * 1_000_000n;
+    } else {
+      nanos = BigInt(Date.now() + deadline) * 1_000_000n;
+    }
+    const ptr = lib.PilotConnSetReadDeadline(this._h, nanos);
+    checkErr(ptr);
+  }
+
   /** Support TC39 explicit resource management. */
   [Symbol.dispose](): void {
     this.close();
@@ -195,6 +217,16 @@ export class Driver {
     return this._callJSON('PilotInfo');
   }
 
+  /** Lightweight health check from the daemon. */
+  health(): Record<string, unknown> {
+    return this._callJSON('PilotHealth');
+  }
+
+  /** Rotate the daemon's Ed25519 identity at the registry. */
+  rotateKey(): Record<string, unknown> {
+    return this._callJSON('PilotRotateKey');
+  }
+
   // -- Handshake / Trust --
 
   /** Send a trust handshake request to a remote node. */
@@ -272,10 +304,17 @@ export class Driver {
 
   // -- Streams --
 
-  /** Open a stream connection to addr (format: "N:XXXX.YYYY.YYYY:PORT"). */
-  dial(addr: string): Conn {
+  /**
+   * Open a stream connection to addr (format: "N:XXXX.YYYY.YYYY:PORT").
+   * If `timeoutMs` is provided, the dial is cancelled if the daemon does
+   * not respond within that many milliseconds.
+   */
+  dial(addr: string, timeoutMs?: number): Conn {
     const lib = getLib();
-    const res = lib.PilotDial(this._h, addr);
+    const res =
+      typeof timeoutMs === 'number'
+        ? lib.PilotDialTimeout(this._h, addr, BigInt(Math.max(0, Math.floor(timeoutMs))))
+        : lib.PilotDial(this._h, addr);
     const handle = unwrapHandleErr(res);
     return new Conn(handle);
   }
@@ -300,9 +339,114 @@ export class Driver {
     checkErr(ptr);
   }
 
+  /**
+   * Broadcast an unreliable datagram to every member of a network.
+   * Requires the daemon's admin token; see Driver.Broadcast in pkg/driver.
+   */
+  broadcast(networkId: number, port: number, data: Buffer | Uint8Array | string, adminToken: string): void {
+    const lib = getLib();
+    const src = typeof data === 'string' ? Buffer.from(data) : data;
+    const buf = Buffer.allocUnsafe(src.length);
+    Buffer.from(src).copy(buf);
+    const ptr = lib.PilotBroadcast(this._h, networkId, port, buf, buf.length, adminToken);
+    checkErr(ptr);
+  }
+
   /** Receive the next incoming datagram (blocks). */
   recvFrom(): Record<string, unknown> {
     return this._callJSON('PilotRecvFrom');
+  }
+
+  // -- Networks --
+
+  /** List all networks known to the registry. */
+  networkList(): Record<string, unknown> {
+    return this._callJSON('PilotNetworkList');
+  }
+
+  /** Join a network by ID, optionally with a token for token-gated networks. */
+  networkJoin(networkId: number, token = ''): Record<string, unknown> {
+    return this._callJSON('PilotNetworkJoin', networkId, token);
+  }
+
+  /** Leave a network by ID. */
+  networkLeave(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotNetworkLeave', networkId);
+  }
+
+  /** List all members of a network. */
+  networkMembers(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotNetworkMembers', networkId);
+  }
+
+  /** Invite a target node to a network (requires admin token on daemon). */
+  networkInvite(networkId: number, targetNodeId: number): Record<string, unknown> {
+    return this._callJSON('PilotNetworkInvite', networkId, targetNodeId);
+  }
+
+  /** Return pending network invites for this node. */
+  networkPollInvites(): Record<string, unknown> {
+    return this._callJSON('PilotNetworkPollInvites');
+  }
+
+  /** Accept or reject a pending network invite. */
+  networkRespondInvite(networkId: number, accept: boolean): Record<string, unknown> {
+    return this._callJSON('PilotNetworkRespondInvite', networkId, accept ? 1 : 0);
+  }
+
+  // -- Managed networks --
+
+  /** Adjust a peer's score in a managed network. */
+  managedScore(networkId: number, nodeId: number, delta: number, topic = ''): Record<string, unknown> {
+    return this._callJSON('PilotManagedScore', networkId, nodeId, delta, topic);
+  }
+
+  /** Return the status of a managed network engine. */
+  managedStatus(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotManagedStatus', networkId);
+  }
+
+  /** Return ranked peers in a managed network. */
+  managedRankings(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotManagedRankings', networkId);
+  }
+
+  /** Force a prune/fill cycle in a managed network. */
+  managedForceCycle(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotManagedForceCycle', networkId);
+  }
+
+  /** Refresh the managed network's peer set from the registry without a policy cycle. */
+  managedReconcile(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotManagedReconcile', networkId);
+  }
+
+  // -- Policy --
+
+  /** Retrieve the active policy for a network. */
+  policyGet(networkId: number): Record<string, unknown> {
+    return this._callJSON('PilotPolicyGet', networkId);
+  }
+
+  /** Apply a policy document to a network. */
+  policySet(networkId: number, policy: Record<string, unknown> | string | Buffer): Record<string, unknown> {
+    let json: string;
+    if (typeof policy === 'string') json = policy;
+    else if (Buffer.isBuffer(policy)) json = policy.toString('utf-8');
+    else json = JSON.stringify(policy);
+    return this._callJSON('PilotPolicySet', networkId, json);
+  }
+
+  // -- Member tags --
+
+  /** Retrieve admin-assigned member tags for a node in a network. */
+  memberTagsGet(networkId: number, nodeId: number): Record<string, unknown> {
+    return this._callJSON('PilotMemberTagsGet', networkId, nodeId);
+  }
+
+  /** Set admin-assigned member tags for a node in a network. */
+  memberTagsSet(networkId: number, nodeId: number, tags: string[]): Record<string, unknown> {
+    return this._callJSON('PilotMemberTagsSet', networkId, nodeId, JSON.stringify(tags));
   }
 
   // -- High-level service methods --

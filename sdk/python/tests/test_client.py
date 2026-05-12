@@ -66,6 +66,17 @@ def _mock_write_result(n: int = 0, err: bytes | None = None):
     return types.SimpleNamespace(n=n, err=err)
 
 
+def _unwrap(x):
+    """Coerce a ctypes-wrapped scalar into its plain Python value.
+
+    The Driver wraps ints in ctypes types (c_uint16, c_int32, etc.) before
+    calling into the C library. Real ctypes converts those to plain ints at
+    the FFI boundary, but our FakeLib receives them as objects, so we strip
+    the wrapper here for clean assertions.
+    """
+    return x.value if hasattr(x, "value") else x
+
+
 class FakeLib:
     """Mimics the ctypes.CDLL object with controllable return values."""
 
@@ -157,6 +168,101 @@ class FakeLib:
 
     def PilotSendTo(self, h, addr, data, data_len):
         return None
+
+    # --- 1.9.1 additions ---
+
+    def PilotHealth(self, h):
+        return self._json_returns.get("PilotHealth", _json_ok({"ok": True, "uptime_s": 42}))
+
+    def PilotRotateKey(self, h):
+        return self._json_returns.get("PilotRotateKey", _json_ok({"new_pubkey": "abc"}))
+
+    def PilotDialTimeout(self, h, addr, timeout_ms):
+        # capture for assertions
+        self._last_dial_timeout = (addr, _unwrap(timeout_ms))
+        return _HandleErr(handle=11, err=None)
+
+    def PilotConnSetReadDeadline(self, h, deadline_unix_nanos):
+        # capture deadline for assertions
+        self._last_set_read_deadline = _unwrap(deadline_unix_nanos)
+        return None
+
+    def PilotBroadcast(self, h, network_id, port, data, data_len, admin_token):
+        self._last_broadcast = {
+            "network_id": _unwrap(network_id),
+            "port": _unwrap(port),
+            "data_len": _unwrap(data_len),
+            "admin_token": admin_token,
+        }
+        return self._json_returns.get("PilotBroadcast", None)
+
+    def PilotNetworkList(self, h):
+        return self._json_returns.get("PilotNetworkList", _json_ok({"networks": [{"id": 0}]}))
+
+    def PilotNetworkJoin(self, h, network_id, token):
+        self._last_network_join = (_unwrap(network_id), token)
+        return self._json_returns.get("PilotNetworkJoin", _json_ok({"status": "joined"}))
+
+    def PilotNetworkLeave(self, h, network_id):
+        return self._json_returns.get("PilotNetworkLeave", _json_ok({"status": "left"}))
+
+    def PilotNetworkMembers(self, h, network_id):
+        return self._json_returns.get("PilotNetworkMembers", _json_ok({"members": []}))
+
+    def PilotNetworkInvite(self, h, network_id, target_node_id):
+        self._last_network_invite = (_unwrap(network_id), _unwrap(target_node_id))
+        return self._json_returns.get("PilotNetworkInvite", _json_ok({"status": "invited"}))
+
+    def PilotNetworkPollInvites(self, h):
+        return self._json_returns.get("PilotNetworkPollInvites", _json_ok({"invites": []}))
+
+    def PilotNetworkRespondInvite(self, h, network_id, accept):
+        self._last_network_respond = (_unwrap(network_id), _unwrap(accept))
+        return self._json_returns.get(
+            "PilotNetworkRespondInvite", _json_ok({"status": "responded"})
+        )
+
+    def PilotManagedScore(self, h, network_id, node_id, delta, topic):
+        self._last_managed_score = (
+            _unwrap(network_id), _unwrap(node_id), _unwrap(delta), topic,
+        )
+        return self._json_returns.get("PilotManagedScore", _json_ok({"status": "ok"}))
+
+    def PilotManagedStatus(self, h, network_id):
+        return self._json_returns.get(
+            "PilotManagedStatus", _json_ok({"network_id": _unwrap(network_id)})
+        )
+
+    def PilotManagedRankings(self, h, network_id):
+        return self._json_returns.get("PilotManagedRankings", _json_ok({"rankings": []}))
+
+    def PilotManagedForceCycle(self, h, network_id):
+        return self._json_returns.get("PilotManagedForceCycle", _json_ok({"status": "cycled"}))
+
+    def PilotManagedReconcile(self, h, network_id):
+        return self._json_returns.get(
+            "PilotManagedReconcile",
+            _json_ok({"network_id": _unwrap(network_id), "peers": []}),
+        )
+
+    def PilotPolicyGet(self, h, network_id):
+        return self._json_returns.get(
+            "PilotPolicyGet",
+            _json_ok({"network_id": _unwrap(network_id), "policy": {}}),
+        )
+
+    def PilotPolicySet(self, h, network_id, policy_json):
+        self._last_policy_set = (_unwrap(network_id), policy_json)
+        return self._json_returns.get("PilotPolicySet", _json_ok({"status": "applied"}))
+
+    def PilotMemberTagsGet(self, h, network_id, node_id):
+        return self._json_returns.get("PilotMemberTagsGet", _json_ok({"tags": []}))
+
+    def PilotMemberTagsSet(self, h, network_id, node_id, tags_json):
+        self._last_member_tags_set = (
+            _unwrap(network_id), _unwrap(node_id), tags_json,
+        )
+        return self._json_returns.get("PilotMemberTagsSet", _json_ok({"status": "ok"}))
 
 
 @pytest.fixture(autouse=True)
@@ -616,8 +722,301 @@ class TestListenerErrorPaths:
     def test_del_catches_exceptions(self, fake_lib):
         """Test Listener.__del__ catches close() exceptions."""
         fake_lib.PilotListenerClose = lambda h: _json_err("error")
-        
+
         ln = client_mod.Listener(20)
         # Should not raise even though close() would raise
         ln.__del__()
         assert ln._closed
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: health / rotate-key
+# ---------------------------------------------------------------------------
+
+class TestDriverHealth:
+    def test_health_success(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.health()
+        assert r["ok"] is True
+        assert r["uptime_s"] == 42
+
+    def test_health_error(self, fake_lib):
+        fake_lib._json_returns["PilotHealth"] = _json_err("daemon down")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="daemon down"):
+            d.health()
+
+
+class TestDriverRotateKey:
+    def test_rotate_key(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.rotate_key()
+        assert r["new_pubkey"] == "abc"
+
+    def test_rotate_identity_alias(self, fake_lib):
+        d = client_mod.Driver()
+        # rotate_identity should delegate to rotate_key
+        r = d.rotate_identity()
+        assert r["new_pubkey"] == "abc"
+
+    def test_rotate_key_error(self, fake_lib):
+        fake_lib._json_returns["PilotRotateKey"] = _json_err("registry rejected")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="registry rejected"):
+            d.rotate_key()
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: dial timeout
+# ---------------------------------------------------------------------------
+
+class TestDriverDialTimeout:
+    def test_dial_without_timeout_uses_pilot_dial(self, fake_lib):
+        # No timeout → original PilotDial path (handle=10)
+        d = client_mod.Driver()
+        conn = d.dial("0:0001.0000.0002:8080")
+        assert conn._h == 10
+
+    def test_dial_with_timeout_uses_pilot_dial_timeout(self, fake_lib):
+        d = client_mod.Driver()
+        conn = d.dial("0:0001.0000.0002:8080", timeout=2.5)
+        # Timeout path returns handle=11
+        assert conn._h == 11
+        # 2.5 s = 2500 ms
+        assert fake_lib._last_dial_timeout == (b"0:0001.0000.0002:8080", 2500)
+
+    def test_dial_timeout_zero_floor(self, fake_lib):
+        d = client_mod.Driver()
+        d.dial("0:0001.0000.0002:8080", timeout=-1.0)
+        # Negative → clamped to 0 ms
+        _, ms = fake_lib._last_dial_timeout
+        assert ms == 0
+
+    def test_dial_timeout_error(self, fake_lib):
+        fake_lib.PilotDialTimeout = lambda h, addr, ms: _mock_handle_err(
+            handle=0, err=_json_err("dial timeout")
+        )
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="dial timeout"):
+            d.dial("bad:addr", timeout=1.0)
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: Conn.set_read_deadline
+# ---------------------------------------------------------------------------
+
+class TestConnReadDeadline:
+    def test_clear_deadline_with_none(self, fake_lib):
+        conn = client_mod.Conn(10)
+        conn.set_read_deadline(None)
+        assert fake_lib._last_set_read_deadline == 0
+
+    def test_set_deadline_seconds_to_nanos(self, fake_lib):
+        conn = client_mod.Conn(10)
+        # 1700000000.5 s → 1_700_000_000_500_000_000 ns
+        conn.set_read_deadline(1_700_000_000.5)
+        assert fake_lib._last_set_read_deadline == 1_700_000_000_500_000_000
+
+    def test_set_deadline_on_closed_conn_raises(self, fake_lib):
+        conn = client_mod.Conn(10)
+        conn.close()
+        with pytest.raises(PilotError, match="closed"):
+            conn.set_read_deadline(0.0)
+
+    def test_set_deadline_propagates_error(self, fake_lib):
+        fake_lib.PilotConnSetReadDeadline = lambda h, d: _json_err("bad handle")
+        conn = client_mod.Conn(10)
+        with pytest.raises(PilotError, match="bad handle"):
+            conn.set_read_deadline(None)
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: broadcast
+# ---------------------------------------------------------------------------
+
+class TestDriverBroadcast:
+    def test_broadcast_passes_args(self, fake_lib):
+        d = client_mod.Driver()
+        d.broadcast(7, 1234, b"hello", "secret")
+        captured = fake_lib._last_broadcast
+        assert captured["network_id"] == 7
+        assert captured["port"] == 1234
+        assert captured["data_len"] == 5
+        assert captured["admin_token"] == b"secret"
+
+    def test_broadcast_propagates_error(self, fake_lib):
+        fake_lib._json_returns["PilotBroadcast"] = _json_err("admin token required")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="admin token required"):
+            d.broadcast(0, 9000, b"x", "")
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: networks
+# ---------------------------------------------------------------------------
+
+class TestDriverNetworks:
+    def test_network_list(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_list()
+        assert "networks" in r
+
+    def test_network_join_passes_args(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_join(7, "joinme")
+        assert r["status"] == "joined"
+        assert fake_lib._last_network_join == (7, b"joinme")
+
+    def test_network_join_default_empty_token(self, fake_lib):
+        d = client_mod.Driver()
+        d.network_join(2)
+        assert fake_lib._last_network_join == (2, b"")
+
+    def test_network_leave(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_leave(7)
+        assert r["status"] == "left"
+
+    def test_network_members(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_members(7)
+        assert "members" in r
+
+    def test_network_invite(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_invite(7, 4242)
+        assert r["status"] == "invited"
+        assert fake_lib._last_network_invite == (7, 4242)
+
+    def test_network_poll_invites(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.network_poll_invites()
+        assert "invites" in r
+
+    def test_network_respond_invite_accept(self, fake_lib):
+        d = client_mod.Driver()
+        d.network_respond_invite(7, True)
+        assert fake_lib._last_network_respond == (7, 1)
+
+    def test_network_respond_invite_reject(self, fake_lib):
+        d = client_mod.Driver()
+        d.network_respond_invite(7, False)
+        assert fake_lib._last_network_respond == (7, 0)
+
+    def test_network_join_error(self, fake_lib):
+        fake_lib._json_returns["PilotNetworkJoin"] = _json_err("token rejected")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="token rejected"):
+            d.network_join(7, "wrong")
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: managed networks
+# ---------------------------------------------------------------------------
+
+class TestDriverManaged:
+    def test_managed_score_passes_args(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.managed_score(7, 4242, -3, "spam")
+        assert r["status"] == "ok"
+        assert fake_lib._last_managed_score == (7, 4242, -3, b"spam")
+
+    def test_managed_score_default_topic(self, fake_lib):
+        d = client_mod.Driver()
+        d.managed_score(0, 1, 5)
+        assert fake_lib._last_managed_score == (0, 1, 5, b"")
+
+    def test_managed_score_negative_delta_preserved(self, fake_lib):
+        # int32 delta — make sure negative numbers survive
+        d = client_mod.Driver()
+        d.managed_score(0, 1, -100000, "x")
+        assert fake_lib._last_managed_score[2] == -100000
+
+    def test_managed_status(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.managed_status(42)
+        assert r["network_id"] == 42
+
+    def test_managed_rankings(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.managed_rankings(42)
+        assert "rankings" in r
+
+    def test_managed_force_cycle(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.managed_force_cycle(42)
+        assert r["status"] == "cycled"
+
+    def test_managed_reconcile(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.managed_reconcile(42)
+        assert r["network_id"] == 42
+        assert r["peers"] == []
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: policy
+# ---------------------------------------------------------------------------
+
+class TestDriverPolicy:
+    def test_policy_get(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.policy_get(7)
+        assert r["network_id"] == 7
+
+    def test_policy_set_dict_serializes_to_json(self, fake_lib):
+        d = client_mod.Driver()
+        d.policy_set(7, {"min_score": 3, "tags": ["good"]})
+        net_id, payload = fake_lib._last_policy_set
+        assert net_id == 7
+        # The payload was JSON-serialized
+        assert json.loads(payload) == {"min_score": 3, "tags": ["good"]}
+
+    def test_policy_set_string_passthrough(self, fake_lib):
+        d = client_mod.Driver()
+        d.policy_set(0, '{"raw":true}')
+        _, payload = fake_lib._last_policy_set
+        assert payload == b'{"raw":true}'
+
+    def test_policy_set_bytes_passthrough(self, fake_lib):
+        d = client_mod.Driver()
+        d.policy_set(0, b'{"raw":1}')
+        _, payload = fake_lib._last_policy_set
+        assert payload == b'{"raw":1}'
+
+    def test_policy_set_error(self, fake_lib):
+        fake_lib._json_returns["PilotPolicySet"] = _json_err("invalid policy")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="invalid policy"):
+            d.policy_set(0, {})
+
+
+# ---------------------------------------------------------------------------
+# 1.9.1 additions: member tags
+# ---------------------------------------------------------------------------
+
+class TestDriverMemberTags:
+    def test_member_tags_get(self, fake_lib):
+        d = client_mod.Driver()
+        r = d.member_tags_get(7, 4242)
+        assert "tags" in r
+
+    def test_member_tags_set_serializes_list(self, fake_lib):
+        d = client_mod.Driver()
+        d.member_tags_set(7, 4242, ["gpu", "fast"])
+        net_id, node_id, tags_json = fake_lib._last_member_tags_set
+        assert net_id == 7
+        assert node_id == 4242
+        assert json.loads(tags_json) == ["gpu", "fast"]
+
+    def test_member_tags_set_empty_list(self, fake_lib):
+        d = client_mod.Driver()
+        d.member_tags_set(7, 4242, [])
+        _, _, tags_json = fake_lib._last_member_tags_set
+        assert json.loads(tags_json) == []
+
+    def test_member_tags_set_error(self, fake_lib):
+        fake_lib._json_returns["PilotMemberTagsSet"] = _json_err("not admin")
+        d = client_mod.Driver()
+        with pytest.raises(PilotError, match="not admin"):
+            d.member_tags_set(7, 1, ["x"])

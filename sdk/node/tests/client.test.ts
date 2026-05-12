@@ -85,6 +85,132 @@ function createFakeLib(): PilotLib & {
     },
     PilotConnClose(_h: bigint) { return null as string | null; },
     PilotSendTo(_h: bigint, _addr: string, _data: Buffer, _len: number) { return null as string | null; },
+
+    // ---- 1.9.1 additions ----
+
+    // Captured-arg fields for assertions (typed loosely on purpose)
+    _lastDialTimeout: null as null | { addr: string; ms: bigint },
+    _lastSetReadDeadline: null as bigint | null,
+    _lastBroadcast: null as null | {
+      networkId: number;
+      port: number;
+      dataLen: number;
+      adminToken: string;
+      payload: Buffer;
+    },
+    _lastNetworkJoin: null as null | { networkId: number; token: string },
+    _lastNetworkInvite: null as null | { networkId: number; targetNodeId: number },
+    _lastNetworkRespond: null as null | { networkId: number; accept: number },
+    _lastManagedScore: null as null | {
+      networkId: number;
+      nodeId: number;
+      delta: number;
+      topic: string;
+    },
+    _lastPolicySet: null as null | { networkId: number; policyJson: string },
+    _lastMemberTagsSet: null as null | {
+      networkId: number;
+      nodeId: number;
+      tagsJson: string;
+    },
+
+    PilotHealth(_h: bigint) {
+      return fake._jsonReturns['PilotHealth'] ?? jsonOk({ ok: true, uptime_s: 42 });
+    },
+    PilotRotateKey(_h: bigint) {
+      return fake._jsonReturns['PilotRotateKey'] ?? jsonOk({ new_pubkey: 'abc' });
+    },
+    PilotDialTimeout(_h: bigint, addr: string, timeoutMs: bigint) {
+      fake._lastDialTimeout = { addr, ms: timeoutMs };
+      return { handle: 11n, err: null as string | null };
+    },
+    PilotConnSetReadDeadline(_h: bigint, deadlineUnixNanos: bigint) {
+      fake._lastSetReadDeadline = deadlineUnixNanos;
+      return null as string | null;
+    },
+    PilotBroadcast(
+      _h: bigint,
+      networkId: number,
+      port: number,
+      data: Buffer,
+      dataLen: number,
+      adminToken: string,
+    ) {
+      fake._lastBroadcast = {
+        networkId,
+        port,
+        dataLen,
+        adminToken,
+        payload: Buffer.from(data.subarray(0, dataLen)),
+      };
+      return fake._jsonReturns['PilotBroadcast'] ?? null;
+    },
+    PilotNetworkList(_h: bigint) {
+      return fake._jsonReturns['PilotNetworkList'] ?? jsonOk({ networks: [{ id: 0 }] });
+    },
+    PilotNetworkJoin(_h: bigint, networkId: number, token: string) {
+      fake._lastNetworkJoin = { networkId, token };
+      return fake._jsonReturns['PilotNetworkJoin'] ?? jsonOk({ status: 'joined' });
+    },
+    PilotNetworkLeave(_h: bigint, _networkId: number) {
+      return fake._jsonReturns['PilotNetworkLeave'] ?? jsonOk({ status: 'left' });
+    },
+    PilotNetworkMembers(_h: bigint, _networkId: number) {
+      return fake._jsonReturns['PilotNetworkMembers'] ?? jsonOk({ members: [] });
+    },
+    PilotNetworkInvite(_h: bigint, networkId: number, targetNodeId: number) {
+      fake._lastNetworkInvite = { networkId, targetNodeId };
+      return fake._jsonReturns['PilotNetworkInvite'] ?? jsonOk({ status: 'invited' });
+    },
+    PilotNetworkPollInvites(_h: bigint) {
+      return fake._jsonReturns['PilotNetworkPollInvites'] ?? jsonOk({ invites: [] });
+    },
+    PilotNetworkRespondInvite(_h: bigint, networkId: number, accept: number) {
+      fake._lastNetworkRespond = { networkId, accept };
+      return fake._jsonReturns['PilotNetworkRespondInvite'] ?? jsonOk({ status: 'responded' });
+    },
+    PilotManagedScore(
+      _h: bigint,
+      networkId: number,
+      nodeId: number,
+      delta: number,
+      topic: string,
+    ) {
+      fake._lastManagedScore = { networkId, nodeId, delta, topic };
+      return fake._jsonReturns['PilotManagedScore'] ?? jsonOk({ status: 'ok' });
+    },
+    PilotManagedStatus(_h: bigint, networkId: number) {
+      return fake._jsonReturns['PilotManagedStatus'] ?? jsonOk({ network_id: networkId });
+    },
+    PilotManagedRankings(_h: bigint, _networkId: number) {
+      return fake._jsonReturns['PilotManagedRankings'] ?? jsonOk({ rankings: [] });
+    },
+    PilotManagedForceCycle(_h: bigint, _networkId: number) {
+      return fake._jsonReturns['PilotManagedForceCycle'] ?? jsonOk({ status: 'cycled' });
+    },
+    PilotManagedReconcile(_h: bigint, networkId: number) {
+      return (
+        fake._jsonReturns['PilotManagedReconcile'] ??
+        jsonOk({ network_id: networkId, peers: [] })
+      );
+    },
+    PilotPolicyGet(_h: bigint, networkId: number) {
+      return (
+        fake._jsonReturns['PilotPolicyGet'] ??
+        jsonOk({ network_id: networkId, policy: {} })
+      );
+    },
+    PilotPolicySet(_h: bigint, networkId: number, policyJson: string) {
+      fake._lastPolicySet = { networkId, policyJson };
+      return fake._jsonReturns['PilotPolicySet'] ?? jsonOk({ status: 'applied' });
+    },
+    PilotMemberTagsGet(_h: bigint, _networkId: number, _nodeId: number) {
+      return fake._jsonReturns['PilotMemberTagsGet'] ?? jsonOk({ tags: [] });
+    },
+    PilotMemberTagsSet(_h: bigint, networkId: number, nodeId: number, tagsJson: string) {
+      fake._lastMemberTagsSet = { networkId, nodeId, tagsJson };
+      return fake._jsonReturns['PilotMemberTagsSet'] ?? jsonOk({ status: 'ok' });
+    },
   };
 
   return fake;
@@ -588,6 +714,365 @@ describe('Driver sendFile', () => {
     const d = new Driver();
     expect(() => d.sendFile('0:0001.0000.0001', '/nonexistent/file.txt')).toThrow(PilotError);
     expect(() => d.sendFile('0:0001.0000.0001', '/nonexistent/file.txt')).toThrow('File not found');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: health / rotate-key
+// ---------------------------------------------------------------------------
+
+describe('Driver health', () => {
+  it('returns the daemon health blob', () => {
+    const d = new Driver();
+    const r = d.health();
+    expect(r['ok']).toBe(true);
+    expect(r['uptime_s']).toBe(42);
+    d.close();
+  });
+
+  it('throws on health error', () => {
+    fakeLib._jsonReturns['PilotHealth'] = jsonErr('daemon down');
+    const d = new Driver();
+    expect(() => d.health()).toThrow('daemon down');
+    d.close();
+  });
+});
+
+describe('Driver rotateKey', () => {
+  it('returns new key info', () => {
+    const d = new Driver();
+    expect(d.rotateKey()).toEqual({ new_pubkey: 'abc' });
+    d.close();
+  });
+
+  it('throws on error', () => {
+    fakeLib._jsonReturns['PilotRotateKey'] = jsonErr('registry rejected');
+    const d = new Driver();
+    expect(() => d.rotateKey()).toThrow('registry rejected');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: dial timeout
+// ---------------------------------------------------------------------------
+
+describe('Driver dial timeout', () => {
+  it('uses PilotDial when no timeout', () => {
+    const d = new Driver();
+    const conn = d.dial('0:0001.0000.0002:8080');
+    // Default PilotDial returns handle 10
+    expect(conn).toBeInstanceOf(Conn);
+    expect(fakeLib._lastDialTimeout).toBeNull();
+    conn.close();
+    d.close();
+  });
+
+  it('uses PilotDialTimeout when timeoutMs is given', () => {
+    const d = new Driver();
+    const conn = d.dial('0:0001.0000.0002:8080', 2500);
+    expect(conn).toBeInstanceOf(Conn);
+    expect(fakeLib._lastDialTimeout).not.toBeNull();
+    expect(fakeLib._lastDialTimeout?.addr).toBe('0:0001.0000.0002:8080');
+    expect(fakeLib._lastDialTimeout?.ms).toBe(2500n);
+    conn.close();
+    d.close();
+  });
+
+  it('clamps negative timeoutMs to 0', () => {
+    const d = new Driver();
+    d.dial('0:0001.0000.0002:8080', -10);
+    expect(fakeLib._lastDialTimeout?.ms).toBe(0n);
+    d.close();
+  });
+
+  it('throws on dial-timeout error', () => {
+    fakeLib.PilotDialTimeout = (_h: bigint, _addr: string, _ms: bigint) => ({
+      handle: 0n,
+      err: jsonErr('dial timeout'),
+    });
+    const d = new Driver();
+    expect(() => d.dial('bad:addr', 1000)).toThrow('dial timeout');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: Conn.setReadDeadline
+// ---------------------------------------------------------------------------
+
+describe('Conn setReadDeadline', () => {
+  it('clears the deadline with null', () => {
+    const conn = new Conn(10n);
+    conn.setReadDeadline(null);
+    expect(fakeLib._lastSetReadDeadline).toBe(0n);
+  });
+
+  it('converts a Date to nanoseconds', () => {
+    const conn = new Conn(10n);
+    const d = new Date(1700000000500); // 1.7e12 ms = 1.7e21 ns? No: 1.7e12 ms * 1e6 = 1.7e18 ns
+    conn.setReadDeadline(d);
+    expect(fakeLib._lastSetReadDeadline).toBe(BigInt(1700000000500) * 1_000_000n);
+  });
+
+  it('treats a number as ms-from-now', () => {
+    const before = Date.now();
+    const conn = new Conn(10n);
+    conn.setReadDeadline(5000);
+    const after = Date.now();
+    const got = fakeLib._lastSetReadDeadline ?? 0n;
+    // Expected nanos must be in [before+5000, after+5000] ms range
+    const lo = BigInt(before + 5000) * 1_000_000n;
+    const hi = BigInt(after + 5000) * 1_000_000n;
+    expect(got >= lo).toBe(true);
+    expect(got <= hi).toBe(true);
+  });
+
+  it('throws if the connection is closed', () => {
+    const conn = new Conn(10n);
+    conn.close();
+    expect(() => conn.setReadDeadline(null)).toThrow('connection closed');
+  });
+
+  it('propagates errors from Go', () => {
+    fakeLib.PilotConnSetReadDeadline = (_h: bigint, _d: bigint) => jsonErr('bad handle');
+    const conn = new Conn(10n);
+    expect(() => conn.setReadDeadline(null)).toThrow('bad handle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: broadcast
+// ---------------------------------------------------------------------------
+
+describe('Driver broadcast', () => {
+  it('passes networkId, port, payload, and admin token', () => {
+    const d = new Driver();
+    d.broadcast(7, 1234, Buffer.from('hello'), 'secret');
+    expect(fakeLib._lastBroadcast).not.toBeNull();
+    expect(fakeLib._lastBroadcast?.networkId).toBe(7);
+    expect(fakeLib._lastBroadcast?.port).toBe(1234);
+    expect(fakeLib._lastBroadcast?.dataLen).toBe(5);
+    expect(fakeLib._lastBroadcast?.adminToken).toBe('secret');
+    expect(fakeLib._lastBroadcast?.payload.toString()).toBe('hello');
+    d.close();
+  });
+
+  it('accepts a string payload', () => {
+    const d = new Driver();
+    d.broadcast(0, 9999, 'ping', 'tok');
+    expect(fakeLib._lastBroadcast?.payload.toString()).toBe('ping');
+    d.close();
+  });
+
+  it('throws when daemon rejects the broadcast', () => {
+    fakeLib._jsonReturns['PilotBroadcast'] = jsonErr('admin token required');
+    const d = new Driver();
+    expect(() => d.broadcast(0, 9000, Buffer.from('x'), '')).toThrow('admin token required');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: networks
+// ---------------------------------------------------------------------------
+
+describe('Driver networks', () => {
+  it('networkList', () => {
+    const d = new Driver();
+    const r = d.networkList();
+    expect(r).toHaveProperty('networks');
+    d.close();
+  });
+
+  it('networkJoin passes networkId and token', () => {
+    const d = new Driver();
+    expect(d.networkJoin(7, 'joinme')).toEqual({ status: 'joined' });
+    expect(fakeLib._lastNetworkJoin).toEqual({ networkId: 7, token: 'joinme' });
+    d.close();
+  });
+
+  it('networkJoin defaults token to empty string', () => {
+    const d = new Driver();
+    d.networkJoin(2);
+    expect(fakeLib._lastNetworkJoin?.token).toBe('');
+    d.close();
+  });
+
+  it('networkLeave', () => {
+    const d = new Driver();
+    expect(d.networkLeave(7)).toEqual({ status: 'left' });
+    d.close();
+  });
+
+  it('networkMembers', () => {
+    const d = new Driver();
+    expect(d.networkMembers(7)).toHaveProperty('members');
+    d.close();
+  });
+
+  it('networkInvite captures both ids', () => {
+    const d = new Driver();
+    expect(d.networkInvite(7, 4242)).toEqual({ status: 'invited' });
+    expect(fakeLib._lastNetworkInvite).toEqual({ networkId: 7, targetNodeId: 4242 });
+    d.close();
+  });
+
+  it('networkPollInvites', () => {
+    const d = new Driver();
+    expect(d.networkPollInvites()).toHaveProperty('invites');
+    d.close();
+  });
+
+  it('networkRespondInvite accept=true → 1', () => {
+    const d = new Driver();
+    d.networkRespondInvite(7, true);
+    expect(fakeLib._lastNetworkRespond).toEqual({ networkId: 7, accept: 1 });
+    d.close();
+  });
+
+  it('networkRespondInvite accept=false → 0', () => {
+    const d = new Driver();
+    d.networkRespondInvite(7, false);
+    expect(fakeLib._lastNetworkRespond).toEqual({ networkId: 7, accept: 0 });
+    d.close();
+  });
+
+  it('networkJoin propagates daemon error', () => {
+    fakeLib._jsonReturns['PilotNetworkJoin'] = jsonErr('token rejected');
+    const d = new Driver();
+    expect(() => d.networkJoin(7, 'wrong')).toThrow('token rejected');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: managed
+// ---------------------------------------------------------------------------
+
+describe('Driver managed', () => {
+  it('managedScore captures all args', () => {
+    const d = new Driver();
+    d.managedScore(7, 4242, -3, 'spam');
+    expect(fakeLib._lastManagedScore).toEqual({
+      networkId: 7,
+      nodeId: 4242,
+      delta: -3,
+      topic: 'spam',
+    });
+    d.close();
+  });
+
+  it('managedScore default topic is empty', () => {
+    const d = new Driver();
+    d.managedScore(0, 1, 5);
+    expect(fakeLib._lastManagedScore?.topic).toBe('');
+    d.close();
+  });
+
+  it('managedStatus echoes networkId', () => {
+    const d = new Driver();
+    expect(d.managedStatus(42)).toEqual({ network_id: 42 });
+    d.close();
+  });
+
+  it('managedRankings', () => {
+    const d = new Driver();
+    expect(d.managedRankings(42)).toHaveProperty('rankings');
+    d.close();
+  });
+
+  it('managedForceCycle', () => {
+    const d = new Driver();
+    expect(d.managedForceCycle(42)).toEqual({ status: 'cycled' });
+    d.close();
+  });
+
+  it('managedReconcile', () => {
+    const d = new Driver();
+    const r = d.managedReconcile(42);
+    expect(r['network_id']).toBe(42);
+    expect(r['peers']).toEqual([]);
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: policy
+// ---------------------------------------------------------------------------
+
+describe('Driver policy', () => {
+  it('policyGet', () => {
+    const d = new Driver();
+    expect(d.policyGet(7)).toEqual({ network_id: 7, policy: {} });
+    d.close();
+  });
+
+  it('policySet serializes a dict to JSON', () => {
+    const d = new Driver();
+    d.policySet(7, { min_score: 3, tags: ['good'] });
+    expect(fakeLib._lastPolicySet?.networkId).toBe(7);
+    expect(JSON.parse(fakeLib._lastPolicySet?.policyJson ?? '')).toEqual({
+      min_score: 3,
+      tags: ['good'],
+    });
+    d.close();
+  });
+
+  it('policySet passes a string through unchanged', () => {
+    const d = new Driver();
+    d.policySet(0, '{"raw":true}');
+    expect(fakeLib._lastPolicySet?.policyJson).toBe('{"raw":true}');
+    d.close();
+  });
+
+  it('policySet decodes a Buffer to UTF-8', () => {
+    const d = new Driver();
+    d.policySet(0, Buffer.from('{"raw":1}'));
+    expect(fakeLib._lastPolicySet?.policyJson).toBe('{"raw":1}');
+    d.close();
+  });
+
+  it('policySet propagates daemon error', () => {
+    fakeLib._jsonReturns['PilotPolicySet'] = jsonErr('invalid policy');
+    const d = new Driver();
+    expect(() => d.policySet(0, {})).toThrow('invalid policy');
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.9.1 additions: member tags
+// ---------------------------------------------------------------------------
+
+describe('Driver memberTags', () => {
+  it('memberTagsGet', () => {
+    const d = new Driver();
+    expect(d.memberTagsGet(7, 4242)).toHaveProperty('tags');
+    d.close();
+  });
+
+  it('memberTagsSet serializes the list', () => {
+    const d = new Driver();
+    d.memberTagsSet(7, 4242, ['gpu', 'fast']);
+    expect(fakeLib._lastMemberTagsSet?.networkId).toBe(7);
+    expect(fakeLib._lastMemberTagsSet?.nodeId).toBe(4242);
+    expect(JSON.parse(fakeLib._lastMemberTagsSet?.tagsJson ?? '')).toEqual(['gpu', 'fast']);
+    d.close();
+  });
+
+  it('memberTagsSet handles empty list', () => {
+    const d = new Driver();
+    d.memberTagsSet(7, 4242, []);
+    expect(JSON.parse(fakeLib._lastMemberTagsSet?.tagsJson ?? '')).toEqual([]);
+    d.close();
+  });
+
+  it('memberTagsSet propagates daemon error', () => {
+    fakeLib._jsonReturns['PilotMemberTagsSet'] = jsonErr('not admin');
+    const d = new Driver();
+    expect(() => d.memberTagsSet(7, 1, ['x'])).toThrow('not admin');
     d.close();
   });
 });

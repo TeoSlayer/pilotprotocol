@@ -18,15 +18,14 @@
 
 import koffi from 'koffi';
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { arch, homedir, platform } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { homedir, arch, platform } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runtimeLibraryPath } from './runtime.js';
 
-// The npm sub-package shipping THIS host's libpilot. Mirrors cli.ts so
-// both code paths agree on where bundled binaries live.
-function subPackageName(): string {
-  return `pilotprotocol-${platform()}-${arch()}`;
+function platformSubdir(): string {
+  const goArch = arch() === 'x64' ? 'amd64' : arch();
+  return `${platform()}-${goArch}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,40 +55,36 @@ export function findLibrary(): string {
     throw new Error(`unsupported platform: ${platform()}`);
   }
 
-  // 1. PILOT_LIB_PATH env var
+  // 1. PILOT_LIB_PATH env var (explicit override — bypasses the seeder).
   const envPath = process.env['PILOT_LIB_PATH'];
   if (envPath) {
     if (existsSync(envPath)) return envPath;
     throw new Error(`PILOT_LIB_PATH=${envPath} does not exist`);
   }
 
-  // 2. ~/.pilot/bin/ — honors a curl-install of pilot if the user has one.
+  // 2. The seeded library at ~/.pilot/bin/ (canonical runtime).
+  try {
+    return runtimeLibraryPath();
+  } catch {
+    // Seeder failed (read-only home, missing wheel binary) — fall through
+    // to the legacy locations so the SDK still loads in dev / weird envs.
+  }
+
+  // 3. ~/.pilot/bin/ (already-installed copy, no seeding).
   const pilotBin = join(homedir(), '.pilot', 'bin', libName);
   if (existsSync(pilotBin)) return pilotBin;
 
-  // 3. The matching optional sub-package (production npm install layout).
-  try {
-    const req = createRequire(import.meta.url);
-    const subPkgJson = req.resolve(`${subPackageName()}/package.json`);
-    const candidate = resolve(dirname(subPkgJson), 'bin', libName);
-    if (existsSync(candidate)) return candidate;
-  } catch {
-    // sub-package not installed — local dev path or wrong-platform host.
-  }
-
+  // 4. <package>/bin/<os>-<arch>/ (npm package layout: dist/ffi.js → ../bin/).
   const thisDir = resolve(fileURLToPath(import.meta.url), '..');
-
-  // 4. In-repo sub-package — populated by scripts/build-binaries.sh for
-  //    local dev without `npm install` of the sub-package.
-  const subPlat = subPackageName().replace(/^pilotprotocol-/, '');
-  const inRepoSub = resolve(thisDir, '..', '..', 'packages', subPlat, 'bin', libName);
-  if (existsSync(inRepoSub)) return inRepoSub;
-
-  // 5. Legacy flat dev layouts.
-  const pkgBin = resolve(thisDir, '..', 'bin', libName);
+  const sub = platformSubdir();
+  const pkgBin = resolve(thisDir, '..', 'bin', sub, libName);
   if (existsSync(pkgBin)) return pkgBin;
+
+  // 5. Same directory as this file.
   const colocated = join(thisDir, libName);
   if (existsSync(colocated)) return colocated;
+
+  // 6. <repo>/bin/ (development layout — 3 levels up from dist/).
   const repoBin = resolve(thisDir, '..', '..', '..', 'bin', libName);
   if (existsSync(repoBin)) return repoBin;
 
@@ -97,18 +92,12 @@ export function findLibrary(): string {
     `Cannot find ${libName}.\n` +
     '\n' +
     'Expected locations:\n' +
-    `  - ~/.pilot/bin/${libName} (curl install)\n` +
-    `  - node_modules/${subPackageName()}/bin/${libName} (npm sub-package)\n` +
-    `  - ${inRepoSub} (in-repo dev sub-package)\n` +
-    `  - ${pkgBin} (legacy npm layout)\n` +
+    `  - ~/.pilot/bin/${libName}\n` +
+    `  - ${pkgBin} (npm package, ${sub})\n` +
     `  - ${colocated} (colocated)\n` +
-    `  - ${repoBin} (legacy dev layout)\n` +
+    `  - ${repoBin} (development)\n` +
     '\n' +
-    `If you installed via npm, the sub-package '${subPackageName()}'\n` +
-    'should have been installed automatically. Reinstall with:\n' +
-    '  npm install pilotprotocol\n' +
-    '\n' +
-    'For local development, build it with:\n' +
+    'Build it with:\n' +
     '  cd sdk/node && ./scripts/build-binaries.sh\n' +
     '\n' +
     'Or set PILOT_LIB_PATH:\n' +
@@ -127,6 +116,8 @@ export interface PilotLib {
 
   // JSON-RPC (return JSON string or null)
   PilotInfo(h: bigint): string | null;
+  PilotHealth(h: bigint): string | null;
+  PilotRotateKey(h: bigint): string | null;
   PilotHandshake(h: bigint, nodeId: number, justification: string): string | null;
   PilotApproveHandshake(h: bigint, nodeId: number): string | null;
   PilotRejectHandshake(h: bigint, nodeId: number, reason: string): string | null;
@@ -136,14 +127,40 @@ export interface PilotLib {
   PilotResolveHostname(h: bigint, hostname: string): string | null;
   PilotSetHostname(h: bigint, hostname: string): string | null;
   PilotSetVisibility(h: bigint, public_: number): string | null;
+  PilotSetTaskExec(h: bigint, enabled: number): string | null;
   PilotDeregister(h: bigint): string | null;
   PilotSetTags(h: bigint, tagsJson: string): string | null;
   PilotSetWebhook(h: bigint, url: string): string | null;
   PilotDisconnect(h: bigint, connId: number): string | null;
   PilotRecvFrom(h: bigint): string | null;
 
+  // Networks
+  PilotNetworkList(h: bigint): string | null;
+  PilotNetworkJoin(h: bigint, networkId: number, token: string): string | null;
+  PilotNetworkLeave(h: bigint, networkId: number): string | null;
+  PilotNetworkMembers(h: bigint, networkId: number): string | null;
+  PilotNetworkInvite(h: bigint, networkId: number, targetNodeId: number): string | null;
+  PilotNetworkPollInvites(h: bigint): string | null;
+  PilotNetworkRespondInvite(h: bigint, networkId: number, accept: number): string | null;
+
+  // Managed networks
+  PilotManagedScore(h: bigint, networkId: number, nodeId: number, delta: number, topic: string): string | null;
+  PilotManagedStatus(h: bigint, networkId: number): string | null;
+  PilotManagedRankings(h: bigint, networkId: number): string | null;
+  PilotManagedForceCycle(h: bigint, networkId: number): string | null;
+  PilotManagedReconcile(h: bigint, networkId: number): string | null;
+
+  // Policy
+  PilotPolicyGet(h: bigint, networkId: number): string | null;
+  PilotPolicySet(h: bigint, networkId: number, policyJson: string): string | null;
+
+  // Member tags
+  PilotMemberTagsGet(h: bigint, networkId: number, nodeId: number): string | null;
+  PilotMemberTagsSet(h: bigint, networkId: number, nodeId: number, tagsJson: string): string | null;
+
   // Stream connections
   PilotDial(h: bigint, addr: string): { handle: bigint; err: string | null };
+  PilotDialTimeout(h: bigint, addr: string, timeoutMs: bigint): { handle: bigint; err: string | null };
   PilotListen(h: bigint, port: number): { handle: bigint; err: string | null };
   PilotListenerAccept(h: bigint): { handle: bigint; err: string | null };
   PilotListenerClose(h: bigint): string | null;
@@ -152,9 +169,11 @@ export interface PilotLib {
   PilotConnRead(h: bigint, bufSize: number): { n: number; data: Buffer | null; err: string | null };
   PilotConnWrite(h: bigint, data: Buffer, dataLen: number): { n: number; err: string | null };
   PilotConnClose(h: bigint): string | null;
+  PilotConnSetReadDeadline(h: bigint, deadlineUnixNanos: bigint): string | null;
 
   // Datagrams
   PilotSendTo(h: bigint, addr: string, data: Buffer, dataLen: number): string | null;
+  PilotBroadcast(h: bigint, networkId: number, port: number, data: Buffer, dataLen: number, adminToken: string): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +211,8 @@ export function loadLibrary(path?: string): PilotLib {
   const rawConnect = lib.func('PilotConnect', HandleErrStruct, ['str']);
   const rawClose = lib.func('PilotClose', 'void *', ['uint64']);
   const rawInfo = lib.func('PilotInfo', 'void *', ['uint64']);
+  const rawHealth = lib.func('PilotHealth', 'void *', ['uint64']);
+  const rawRotateKey = lib.func('PilotRotateKey', 'void *', ['uint64']);
   const rawHandshake = lib.func('PilotHandshake', 'void *', ['uint64', 'uint32', 'str']);
   const rawApproveHandshake = lib.func('PilotApproveHandshake', 'void *', ['uint64', 'uint32']);
   const rawRejectHandshake = lib.func('PilotRejectHandshake', 'void *', ['uint64', 'uint32', 'str']);
@@ -201,19 +222,39 @@ export function loadLibrary(path?: string): PilotLib {
   const rawResolveHostname = lib.func('PilotResolveHostname', 'void *', ['uint64', 'str']);
   const rawSetHostname = lib.func('PilotSetHostname', 'void *', ['uint64', 'str']);
   const rawSetVisibility = lib.func('PilotSetVisibility', 'void *', ['uint64', 'int']);
+  const rawSetTaskExec = lib.func('PilotSetTaskExec', 'void *', ['uint64', 'int']);
   const rawDeregister = lib.func('PilotDeregister', 'void *', ['uint64']);
   const rawSetTags = lib.func('PilotSetTags', 'void *', ['uint64', 'str']);
   const rawSetWebhook = lib.func('PilotSetWebhook', 'void *', ['uint64', 'str']);
   const rawDisconnect = lib.func('PilotDisconnect', 'void *', ['uint64', 'uint32']);
   const rawRecvFrom = lib.func('PilotRecvFrom', 'void *', ['uint64']);
+  const rawNetworkList = lib.func('PilotNetworkList', 'void *', ['uint64']);
+  const rawNetworkJoin = lib.func('PilotNetworkJoin', 'void *', ['uint64', 'uint16', 'str']);
+  const rawNetworkLeave = lib.func('PilotNetworkLeave', 'void *', ['uint64', 'uint16']);
+  const rawNetworkMembers = lib.func('PilotNetworkMembers', 'void *', ['uint64', 'uint16']);
+  const rawNetworkInvite = lib.func('PilotNetworkInvite', 'void *', ['uint64', 'uint16', 'uint32']);
+  const rawNetworkPollInvites = lib.func('PilotNetworkPollInvites', 'void *', ['uint64']);
+  const rawNetworkRespondInvite = lib.func('PilotNetworkRespondInvite', 'void *', ['uint64', 'uint16', 'int']);
+  const rawManagedScore = lib.func('PilotManagedScore', 'void *', ['uint64', 'uint16', 'uint32', 'int32', 'str']);
+  const rawManagedStatus = lib.func('PilotManagedStatus', 'void *', ['uint64', 'uint16']);
+  const rawManagedRankings = lib.func('PilotManagedRankings', 'void *', ['uint64', 'uint16']);
+  const rawManagedForceCycle = lib.func('PilotManagedForceCycle', 'void *', ['uint64', 'uint16']);
+  const rawManagedReconcile = lib.func('PilotManagedReconcile', 'void *', ['uint64', 'uint16']);
+  const rawPolicyGet = lib.func('PilotPolicyGet', 'void *', ['uint64', 'uint16']);
+  const rawPolicySet = lib.func('PilotPolicySet', 'void *', ['uint64', 'uint16', 'str']);
+  const rawMemberTagsGet = lib.func('PilotMemberTagsGet', 'void *', ['uint64', 'uint16', 'uint32']);
+  const rawMemberTagsSet = lib.func('PilotMemberTagsSet', 'void *', ['uint64', 'uint16', 'uint32', 'str']);
   const rawDial = lib.func('PilotDial', HandleErrStruct, ['uint64', 'str']);
+  const rawDialTimeout = lib.func('PilotDialTimeout', HandleErrStruct, ['uint64', 'str', 'uint64']);
   const rawListen = lib.func('PilotListen', HandleErrStruct, ['uint64', 'uint16']);
   const rawListenerAccept = lib.func('PilotListenerAccept', HandleErrStruct, ['uint64']);
   const rawListenerClose = lib.func('PilotListenerClose', 'void *', ['uint64']);
   const rawConnRead = lib.func('PilotConnRead', ReadResultStruct, ['uint64', 'int']);
   const rawConnWrite = lib.func('PilotConnWrite', WriteResultStruct, ['uint64', 'void *', 'int']);
   const rawConnClose = lib.func('PilotConnClose', 'void *', ['uint64']);
+  const rawConnSetReadDeadline = lib.func('PilotConnSetReadDeadline', 'void *', ['uint64', 'int64']);
   const rawSendTo = lib.func('PilotSendTo', 'void *', ['uint64', 'str', 'void *', 'int']);
+  const rawBroadcast = lib.func('PilotBroadcast', 'void *', ['uint64', 'uint16', 'uint16', 'void *', 'int', 'str']);
 
   /** Decode a void* C string, free the pointer, return JS string. */
   function decodeAndFree(ptr: unknown): string | null {
@@ -237,6 +278,8 @@ export function loadLibrary(path?: string): PilotLib {
     PilotConnect: (socketPath) => unwrapHandle(rawConnect(socketPath)),
     PilotClose: (h) => decodeAndFree(rawClose(h)),
     PilotInfo: wrapJSON(rawInfo),
+    PilotHealth: wrapJSON(rawHealth),
+    PilotRotateKey: wrapJSON(rawRotateKey),
     PilotHandshake: wrapJSON(rawHandshake),
     PilotApproveHandshake: wrapJSON(rawApproveHandshake),
     PilotRejectHandshake: wrapJSON(rawRejectHandshake),
@@ -246,12 +289,30 @@ export function loadLibrary(path?: string): PilotLib {
     PilotResolveHostname: wrapJSON(rawResolveHostname),
     PilotSetHostname: wrapJSON(rawSetHostname),
     PilotSetVisibility: wrapJSON(rawSetVisibility),
+    PilotSetTaskExec: wrapJSON(rawSetTaskExec),
     PilotDeregister: wrapJSON(rawDeregister),
     PilotSetTags: wrapJSON(rawSetTags),
     PilotSetWebhook: wrapJSON(rawSetWebhook),
     PilotDisconnect: wrapJSON(rawDisconnect),
     PilotRecvFrom: wrapJSON(rawRecvFrom),
+    PilotNetworkList: wrapJSON(rawNetworkList),
+    PilotNetworkJoin: wrapJSON(rawNetworkJoin),
+    PilotNetworkLeave: wrapJSON(rawNetworkLeave),
+    PilotNetworkMembers: wrapJSON(rawNetworkMembers),
+    PilotNetworkInvite: wrapJSON(rawNetworkInvite),
+    PilotNetworkPollInvites: wrapJSON(rawNetworkPollInvites),
+    PilotNetworkRespondInvite: wrapJSON(rawNetworkRespondInvite),
+    PilotManagedScore: wrapJSON(rawManagedScore),
+    PilotManagedStatus: wrapJSON(rawManagedStatus),
+    PilotManagedRankings: wrapJSON(rawManagedRankings),
+    PilotManagedForceCycle: wrapJSON(rawManagedForceCycle),
+    PilotManagedReconcile: wrapJSON(rawManagedReconcile),
+    PilotPolicyGet: wrapJSON(rawPolicyGet),
+    PilotPolicySet: wrapJSON(rawPolicySet),
+    PilotMemberTagsGet: wrapJSON(rawMemberTagsGet),
+    PilotMemberTagsSet: wrapJSON(rawMemberTagsSet),
     PilotDial: (h, addr) => unwrapHandle(rawDial(h, addr)),
+    PilotDialTimeout: (h, addr, timeoutMs) => unwrapHandle(rawDialTimeout(h, addr, timeoutMs)),
     PilotListen: (h, port) => unwrapHandle(rawListen(h, port)),
     PilotListenerAccept: (h) => unwrapHandle(rawListenerAccept(h)),
     PilotListenerClose: (h) => decodeAndFree(rawListenerClose(h)),
@@ -273,9 +334,14 @@ export function loadLibrary(path?: string): PilotLib {
       return { n: res.n as number, err: decodeAndFree(res.err) };
     },
     PilotConnClose: (h) => decodeAndFree(rawConnClose(h)),
+    PilotConnSetReadDeadline: (h, deadlineUnixNanos) =>
+      decodeAndFree(rawConnSetReadDeadline(h, deadlineUnixNanos)),
     PilotSendTo(h, addr, buf, dataLen) {
       // Pass Buffer directly — koffi handles byteOffset correctly for void*
       return decodeAndFree(rawSendTo(h, addr, buf, dataLen));
+    },
+    PilotBroadcast(h, networkId, port, buf, dataLen, adminToken) {
+      return decodeAndFree(rawBroadcast(h, networkId, port, buf, dataLen, adminToken));
     },
   };
 }
