@@ -3,6 +3,7 @@
 package skillinject
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -52,21 +53,56 @@ func classifyPluginAllowList(configPath, allowJsonPath, entriesJsonPath, pluginI
 	return StateDrifted
 }
 
-// mergePluginAllowList atomically rewrites the tool's plugin config
-// JSON so that the allow-list at allowJsonPath contains pluginID and
-// the entries map at entriesJsonPath has {pluginID: {"enabled": true}}.
-// Preserves all other keys byte-for-byte modulo Go's JSON
-// re-serialization (consistent 2-space indent, no key reordering
-// beyond what encoding/json guarantees — alphabetical for map keys).
+// BackupSuffix is appended to the original config file path before
+// mergePluginAllowList overwrites it. Kept distinct from openclaw's
+// own .bak / .bak.N rotation so we can identify our own snapshots
+// and not interfere with the tool's rolling backup chain.
+const BackupSuffix = ".pilot-bak"
+
+// mergePluginAllowList rewrites the tool's plugin config JSON so the
+// allow-list at allowJsonPath contains pluginID and the entries map
+// at entriesJsonPath has {pluginID: {"enabled": true}}. Preserves all
+// other keys (modulo Go's JSON re-marshal: 2-space indent + map keys
+// alphabetically sorted, which is stable across runs so subsequent
+// idempotent ticks produce byte-identical files).
 //
-// If the config file is missing, it is created with only the managed
-// keys. The daemon does NOT create the parent directory tree beyond
-// the file itself; the tool's own install is expected to provide it.
+// Safety contract — defense in depth, because openclaw.json is the
+// user's live config and corrupting it would brick their tool:
 //
-// Failure semantics: any read/parse/write error returns the error
-// without partial writes (uses .tmp + rename).
+//	(1) The original bytes are read into memory and held throughout
+//	    the operation as `originalBytes`. Every failure path below
+//	    has a way back to those bytes.
+//	(2) If parsing the user's config fails, we refuse to write —
+//	    we never overwrite a malformed file the user might be
+//	    mid-editing. Caller surfaces the error in the next tick.
+//	(3) If the post-merge marshal produces a different shape than
+//	    we expected (lost a key, scrambled a value), we refuse to
+//	    write and return an error. This is the "verification before
+//	    swap" rung — a paranoid round-trip self-check.
+//	(4) Before atomically swapping the file, we write a sidecar
+//	    backup at <path>.pilot-bak with the original bytes. If
+//	    anything explodes between this point and the rename, the
+//	    backup is on disk and a human can restore manually.
+//	(5) The swap itself uses .tmp + rename, which is atomic on
+//	    every POSIX filesystem we care about — no torn writes.
+//	(6) After the swap, we read the file back and re-parse it.
+//	    If it doesn't parse, or the round-trip lost a top-level key
+//	    that was in the original, we ROLL BACK from the .pilot-bak
+//	    snapshot. This catches kernel/FS-level corruption that
+//	    slipped past the in-memory checks.
+//
+// If the config file is missing, the merge creates it with only the
+// managed keys. No backup is written in that case (nothing to
+// preserve).
 func mergePluginAllowList(configPath, allowJsonPath, entriesJsonPath, pluginID string) error {
-	var obj map[string]any
+	// (1) Snapshot the original bytes IN MEMORY. From here on,
+	// `originalBytes` is our point-of-no-return — every failure
+	// path below restores or aborts cleanly.
+	var (
+		originalBytes []byte
+		originalExisted bool
+		obj             map[string]any
+	)
 	raw, err := os.ReadFile(configPath)
 	switch {
 	case err != nil && os.IsNotExist(err):
@@ -74,12 +110,25 @@ func mergePluginAllowList(configPath, allowJsonPath, entriesJsonPath, pluginID s
 	case err != nil:
 		return fmt.Errorf("read plugin config: %w", err)
 	default:
+		originalBytes = append([]byte(nil), raw...) // defensive copy
+		originalExisted = true
+		// (2) Refuse to operate on a malformed config. The user
+		// might be mid-edit; respecting their state is more
+		// important than landing our merge this tick.
 		if uerr := json.Unmarshal(raw, &obj); uerr != nil {
 			return fmt.Errorf("parse plugin config (refusing to overwrite a malformed user config): %w", uerr)
 		}
 		if obj == nil {
 			obj = map[string]any{}
 		}
+	}
+
+	// Snapshot which top-level keys the user had BEFORE we mutated
+	// the in-memory map. Used by the post-swap verification step
+	// (6) to catch silent key loss across the round-trip.
+	originalTopKeys := make(map[string]struct{}, len(obj))
+	for k := range obj {
+		originalTopKeys[k] = struct{}{}
 	}
 
 	if err := ensureAllowListEntry(obj, allowJsonPath, pluginID); err != nil {
@@ -95,18 +144,105 @@ func mergePluginAllowList(configPath, allowJsonPath, entriesJsonPath, pluginID s
 	}
 	next = append(next, '\n')
 
+	// (3) Self-check: round-trip the bytes we're about to write
+	// through Unmarshal and make sure they still parse and still
+	// contain every top-level key the user originally had. This
+	// catches any in-memory corruption between mutate and write.
+	if err := verifyMarshalRoundTrip(next, originalTopKeys, pluginID, allowJsonPath, entriesJsonPath); err != nil {
+		return fmt.Errorf("pre-write verification failed (refusing to write): %w", err)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("ensure parent dir for plugin config: %w", err)
 	}
-	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, next, 0o644); err != nil {
-		return fmt.Errorf("write tmp plugin config: %w", err)
+
+	// (4) Drop a sidecar backup of the original bytes BEFORE we
+	// swap. Skipped when no original existed (nothing to back up)
+	// or when the proposed write is byte-identical to the original
+	// (no risk of data loss anyway).
+	if originalExisted && !bytes.Equal(originalBytes, next) {
+		bakPath := configPath + BackupSuffix
+		if err := writeFileAtomic(bakPath, originalBytes, 0o644); err != nil {
+			return fmt.Errorf("write pre-merge backup: %w", err)
+		}
 	}
-	if err := os.Rename(tmp, configPath); err != nil {
+
+	// (5) Atomic swap: write tmp, rename.
+	if err := writeFileAtomic(configPath, next, 0o644); err != nil {
+		return fmt.Errorf("write plugin config: %w", err)
+	}
+
+	// (6) Post-swap verification. Read the file back, re-parse, and
+	// confirm every original top-level key survived AND our managed
+	// keys are present. If anything is off, restore from the
+	// .pilot-bak snapshot and return an error so the next tick
+	// retries cleanly.
+	if err := verifyOnDiskResult(configPath, originalTopKeys, pluginID, allowJsonPath, entriesJsonPath); err != nil {
+		if originalExisted {
+			if rbErr := writeFileAtomic(configPath, originalBytes, 0o644); rbErr != nil {
+				return fmt.Errorf("post-write verification failed (%v); ROLLBACK ALSO FAILED (%v); manual restore: cp %s%s %s",
+					err, rbErr, configPath, BackupSuffix, configPath)
+			}
+			return fmt.Errorf("post-write verification failed; rolled back from in-memory snapshot: %w", err)
+		}
+		return fmt.Errorf("post-write verification failed (no rollback — no original existed): %w", err)
+	}
+
+	return nil
+}
+
+// writeFileAtomic writes content to path via .tmp + rename. Used by
+// both the live-config swap and the .pilot-bak snapshot so both share
+// the same atomicity guarantee.
+func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, content, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("rename plugin config into place: %w", err)
+		return err
 	}
 	return nil
+}
+
+// verifyMarshalRoundTrip parses bytes that are about to be written and
+// confirms (a) they parse cleanly, (b) every key that was in the
+// original top-level object is still present, (c) our id is in the
+// allow-list, (d) our entry has enabled=true. Pre-write rung in the
+// safety contract: catches in-memory corruption before it hits disk.
+func verifyMarshalRoundTrip(bytes []byte, originalTopKeys map[string]struct{}, pluginID, allowJsonPath, entriesJsonPath string) error {
+	var rt map[string]any
+	if err := json.Unmarshal(bytes, &rt); err != nil {
+		return fmt.Errorf("re-parse: %w", err)
+	}
+	for k := range originalTopKeys {
+		if _, ok := rt[k]; !ok {
+			return fmt.Errorf("top-level key %q lost during marshal", k)
+		}
+	}
+	if !allowListContains(rt, allowJsonPath, pluginID) {
+		return fmt.Errorf("allow-list missing plugin id %q after marshal", pluginID)
+	}
+	if !entryEnabled(rt, entriesJsonPath, pluginID) {
+		return fmt.Errorf("entries.%s.enabled missing or not true after marshal", pluginID)
+	}
+	return nil
+}
+
+// verifyOnDiskResult reads the file we just wrote and re-runs the
+// same checks as verifyMarshalRoundTrip. Post-swap rung in the safety
+// contract: catches filesystem-level corruption that slipped past the
+// in-memory check (truncated write, page-cache mismatch, etc.). Note:
+// this is paranoid; in practice it should never fire after a
+// successful writeFileAtomic. The cost is one fs.ReadFile per tick
+// per managed config.
+func verifyOnDiskResult(configPath string, originalTopKeys map[string]struct{}, pluginID, allowJsonPath, entriesJsonPath string) error {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read-back: %w", err)
+	}
+	return verifyMarshalRoundTrip(raw, originalTopKeys, pluginID, allowJsonPath, entriesJsonPath)
 }
 
 // walkObject traverses obj along a dotted path, materializing missing
