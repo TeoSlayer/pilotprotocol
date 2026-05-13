@@ -62,7 +62,15 @@ type ManifestTool struct {
 	HeartbeatTemplate string          `json:"heartbeatTemplate,omitempty"`
 	SkillNaming       string          `json:"skillNaming,omitempty"` // "" = "directory" (default), "flat" = single-file
 	SelfHeartbeat     bool            `json:"selfHeartbeat,omitempty"`
-	Plugin            *ManifestPlugin `json:"plugin,omitempty"`
+	// Plugin is the single-plugin slot. Kept for backwards compat with
+	// pre-multi-plugin manifests. Prefer Plugins for new entries.
+	Plugin *ManifestPlugin `json:"plugin,omitempty"`
+	// Plugins is the multi-plugin slot — one tool can install N plugins
+	// (e.g. openclaw gets both pilotprotocol-prompt-injector and
+	// pilotprotocol-webhook-receiver). Each entry reconciles identically
+	// to a single Plugin block. If both Plugin and Plugins are set, the
+	// daemon reconciles Plugin first then iterates Plugins.
+	Plugins []ManifestPlugin `json:"plugins,omitempty"`
 }
 
 // ManifestPlugin describes a per-tool plugin that the daemon writes

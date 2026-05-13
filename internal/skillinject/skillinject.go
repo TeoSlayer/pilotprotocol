@@ -225,6 +225,18 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 					reconcilePluginAllowList(mt.Plugin, home))
 			}
 		}
+		// Multi-plugin slot — same reconcile shape, repeated per entry.
+		// A tool can declare both `plugin` (legacy single) and `plugins`
+		// (the array); the daemon installs all of them.
+		for i := range mt.Plugins {
+			p := &mt.Plugins[i]
+			report.Outcomes = append(report.Outcomes,
+				reconcilePluginFiles(f, ctx, p, home)...)
+			if p.AllowList != nil {
+				report.Outcomes = append(report.Outcomes,
+					reconcilePluginAllowList(p, home))
+			}
+		}
 	}
 
 	return report, nil
