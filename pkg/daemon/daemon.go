@@ -1772,6 +1772,24 @@ func (d *Daemon) SetWebhookURL(url string) {
 	d.webhookManager.SetURL(url)
 }
 
+// SetWebhookTopics hot-swaps the event-topic allow-list. Empty/nil =
+// forward all events (legacy). No-op if no manager is registered.
+func (d *Daemon) SetWebhookTopics(topics []string) {
+	if d.webhookManager == nil {
+		return
+	}
+	d.webhookManager.SetTopics(topics)
+}
+
+// WebhookTopics returns the currently-configured topic allow-list (or
+// nil for "forward all"). Used by daemon Info / pilotctl introspection.
+func (d *Daemon) WebhookTopics() []string {
+	if d.webhookManager == nil {
+		return nil
+	}
+	return d.webhookManager.Topics()
+}
+
 // RegisterWebhookManager wires the L11 webhook plugin into the daemon
 // (T4.1). cmd/daemon (composition root) constructs the plugin and
 // calls this with an adapter satisfying the daemon-local interface.

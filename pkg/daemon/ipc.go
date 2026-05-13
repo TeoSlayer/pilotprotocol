@@ -47,9 +47,11 @@ const (
 	CmdDeregisterOK      byte = 0x18
 	CmdSetTags           byte = 0x19
 	CmdSetTagsOK         byte = 0x1A
-	CmdSetWebhook        byte = 0x1B
-	CmdSetWebhookOK      byte = 0x1C
-	CmdNetwork           byte = 0x1F
+	CmdSetWebhook         byte = 0x1B
+	CmdSetWebhookOK       byte = 0x1C
+	CmdSetWebhookTopics   byte = 0x1D
+	CmdSetWebhookTopicsOK byte = 0x1E
+	CmdNetwork            byte = 0x1F
 	CmdNetworkOK         byte = 0x20
 	CmdHealth            byte = 0x21
 	CmdHealthOK          byte = 0x22
@@ -630,6 +632,8 @@ func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []by
 		s.handleSetTags(conn, reqID, payload)
 	case CmdSetWebhook:
 		s.handleSetWebhook(conn, reqID, payload)
+	case CmdSetWebhookTopics:
+		s.handleSetWebhookTopics(conn, reqID, payload)
 	case CmdNetwork:
 		s.handleNetwork(conn, reqID, payload)
 	case CmdHealth:
@@ -1176,6 +1180,25 @@ func (s *IPCServer) handleSetWebhook(conn *ipcConn, reqID uint64, payload []byte
 	data, _ := json.Marshal(result)
 	if err := conn.writeReply(CmdSetWebhookOK, reqID, data); err != nil {
 		slog.Debug("IPC set_webhook reply failed", "err", err)
+	}
+}
+
+// handleSetWebhookTopics swaps the event-topic allow-list. Payload is
+// JSON: either an array of strings (the topic names) or empty/null
+// (clears the filter — forwards every event, legacy default).
+func (s *IPCServer) handleSetWebhookTopics(conn *ipcConn, reqID uint64, payload []byte) {
+	var topics []string
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &topics); err != nil {
+			s.sendError(conn, reqID, fmt.Sprintf("invalid topics payload: %v", err))
+			return
+		}
+	}
+	s.daemon.SetWebhookTopics(topics)
+	result := map[string]interface{}{"topics": topics}
+	data, _ := json.Marshal(result)
+	if err := conn.writeReply(CmdSetWebhookTopicsOK, reqID, data); err != nil {
+		slog.Debug("IPC set_webhook_topics reply failed", "err", err)
 	}
 }
 

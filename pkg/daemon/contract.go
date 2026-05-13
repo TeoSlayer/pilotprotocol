@@ -145,6 +145,15 @@ type WebhookManager interface {
 	// delivery (no-op until set again).
 	SetURL(url string)
 
+	// SetTopics hot-swaps the event-topic allow-list. Empty/nil =
+	// forward every event (legacy pre-filter behavior). A non-empty
+	// list filters at the bridge before each Emit.
+	SetTopics(topics []string)
+
+	// Topics returns a snapshot of the current allow-list for
+	// introspection. Nil/empty = "forward all."
+	Topics() []string
+
 	// Stats returns dispatcher counters for daemon Info. All-zero
 	// when no client is configured (nil-safe at the plugin level).
 	Stats() WebhookStats

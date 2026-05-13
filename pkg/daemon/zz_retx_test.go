@@ -21,6 +21,8 @@ import (
 type retxFakeWebhookManager struct{ urls []string }
 
 func (f *retxFakeWebhookManager) SetURL(url string)   { f.urls = append(f.urls, url) }
+func (f *retxFakeWebhookManager) SetTopics([]string)  {}
+func (f *retxFakeWebhookManager) Topics() []string    { return nil }
 func (f *retxFakeWebhookManager) Stats() WebhookStats { return WebhookStats{} }
 
 func TestSetWebhookURLDelegatesToRegisteredManager(t *testing.T) {

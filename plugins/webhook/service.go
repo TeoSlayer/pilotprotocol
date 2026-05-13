@@ -20,6 +20,10 @@ import (
 //
 // The URL can be hot-swapped at runtime via SetURL — that path is
 // invoked from cmd/daemon when IPC's set-webhook handler fires.
+//
+// As of the topic-filter change, the bridge optionally consults a
+// per-Service allow-list before forwarding; empty allow-list = legacy
+// "forward every event" behavior. See SetTopics for the operator path.
 type Service struct {
 	mu sync.Mutex
 
@@ -30,6 +34,11 @@ type Service struct {
 	client *Client
 	cancel func()
 	done   chan struct{}
+
+	// topics is the optional event-topic allow-list. nil/empty = forward
+	// all events (legacy behavior). When set, the bridge loop matches
+	// ev.Topic against this set and drops misses. Read/written under mu.
+	topics map[string]struct{}
 }
 
 // Stats is the snapshot of per-Client counters needed by daemon's
@@ -69,8 +78,29 @@ func (s *Service) Start(_ context.Context, deps coreapi.Deps) error {
 			url = persisted
 		}
 	}
+	// Load the persisted topic allow-list, if any. Missing file = nil
+	// map = forward-all (pre-filter behavior).
+	if topics, err := LoadPersistedTopics(); err == nil && len(topics) > 0 {
+		s.topics = topicSet(topics)
+	}
 	s.startClientLocked(url)
 	return nil
+}
+
+// topicSet converts a list into the lookup set used on the hot path.
+// Caller owns the input slice; the returned map is a fresh allocation.
+func topicSet(topics []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(topics))
+	for _, t := range topics {
+		if t == "" {
+			continue
+		}
+		m[t] = struct{}{}
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 func (s *Service) Stop(_ context.Context) error {
@@ -96,6 +126,41 @@ func (s *Service) SetURL(url string) {
 	} else {
 		slog.Info("webhook cleared")
 	}
+}
+
+// SetTopics swaps the event-topic allow-list. An empty / nil slice
+// disables filtering (forward every event — pre-filter default).
+// Persists to ~/.pilot/webhook_topics so it survives daemon restart.
+// The bridge goroutine doesn't have to be restarted — it reads the
+// filter from the Service on every event under s.mu.
+func (s *Service) SetTopics(topics []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.topics = topicSet(topics)
+	if err := SavePersistedTopics(topics); err != nil {
+		slog.Warn("failed to persist webhook topics", "err", err)
+	}
+	if len(s.topics) == 0 {
+		slog.Info("webhook topic filter cleared (forwarding all events)")
+	} else {
+		slog.Info("webhook topic filter updated", "count", len(s.topics))
+	}
+}
+
+// Topics returns the current allow-list as a sorted slice for
+// inspection by daemon Info() / pilotctl introspection. Nil/empty
+// return means "forward all."
+func (s *Service) Topics() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.topics) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s.topics))
+	for t := range s.topics {
+		out = append(out, t)
+	}
+	return out
 }
 
 // Stats returns dispatcher counters for the daemon's Info() response.
@@ -138,6 +203,7 @@ func (s *Service) startClientLocked(url string) {
 	s.done = done
 	wc := s.client
 	events := s.deps.Events
+	svc := s // captured for the filter probe; the map is read under svc.mu
 	go func() {
 		defer close(done)
 		// L11 panic boundary: a panic in Emit (or in the channel
@@ -146,6 +212,17 @@ func (s *Service) startClientLocked(url string) {
 		// restart the bridge.
 		defer coreapi.RecoverPlugin("webhook", "bridgeLoop", events, nil)
 		for ev := range ch {
+			// Topic filter, if configured. Holding mu briefly is cheap
+			// here — the map lookup is O(1) and contention is bounded
+			// by the rare SetTopics call. nil map = forward everything.
+			svc.mu.Lock()
+			topics := svc.topics
+			svc.mu.Unlock()
+			if topics != nil {
+				if _, ok := topics[ev.Topic]; !ok {
+					continue
+				}
+			}
 			wc.Emit(ev.Topic, ev.Payload)
 		}
 	}()

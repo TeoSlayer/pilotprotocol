@@ -357,6 +357,8 @@ type fakeWebhookManager struct {
 }
 
 func (f *fakeWebhookManager) SetURL(url string)   { f.urls = append(f.urls, url) }
+func (f *fakeWebhookManager) SetTopics([]string)  {}
+func (f *fakeWebhookManager) Topics() []string    { return nil }
 func (f *fakeWebhookManager) Stats() WebhookStats { return WebhookStats{} }
 
 func TestHandleSetWebhookEmptyPayloadClearsWebhookAndRepliesOK(t *testing.T) {

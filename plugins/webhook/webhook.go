@@ -88,6 +88,67 @@ func Validate(rawURL string) error {
 	return urlvalidate.Validate(rawURL)
 }
 
+// topicsPath is the file where the configured topic allow-list is
+// persisted so `pilotctl set-webhook --topics ...` survives daemon
+// restart. One topic per line, blank lines + leading "#" comments
+// ignored. Empty file / missing file = forward every event (legacy
+// behavior, pre-filter).
+func topicsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".pilot", "webhook_topics"), nil
+}
+
+// LoadPersistedTopics reads the previously-saved topic allow-list.
+// Returns (nil, nil) when no file exists (treated as "forward all" by
+// the bridge — same as before this feature landed).
+func LoadPersistedTopics() ([]string, error) {
+	path, err := topicsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]string, 0, 8)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out, nil
+}
+
+// SavePersistedTopics writes the topic allow-list (one per line) to
+// ~/.pilot/webhook_topics. An empty / nil slice deletes the file —
+// "forward all" is the default, and an empty file would be ambiguous
+// (filter to nothing vs filter to all).
+func SavePersistedTopics(topics []string) error {
+	path, err := topicsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	if len(topics) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	body := strings.Join(topics, "\n") + "\n"
+	return os.WriteFile(path, []byte(body), 0600)
+}
+
 // Event is the JSON payload POSTed to the webhook endpoint.
 type Event struct {
 	EventID   uint64      `json:"event_id"`

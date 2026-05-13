@@ -317,6 +317,20 @@ func (d *Driver) SetWebhook(url string) (map[string]interface{}, error) {
 	return d.jsonRPC(msg, cmdSetWebhookOK, "set_webhook")
 }
 
+// SetWebhookTopics sets or clears the daemon's webhook event-topic
+// allow-list. Empty / nil slice clears the filter (forward every
+// event, legacy default). Non-empty slice filters at the bridge.
+func (d *Driver) SetWebhookTopics(topics []string) (map[string]interface{}, error) {
+	body, err := json.Marshal(topics)
+	if err != nil {
+		return nil, err
+	}
+	msg := make([]byte, 1+len(body))
+	msg[0] = cmdSetWebhookTopics
+	copy(msg[1:], body)
+	return d.jsonRPC(msg, cmdSetWebhookTopicsOK, "set_webhook_topics")
+}
+
 // RotateKey asks the daemon to rotate its Ed25519 identity at the registry.
 // The daemon generates a new keypair, signs proof of the current key, calls
 // registry.RotateKey, then atomically swaps and persists the new identity.

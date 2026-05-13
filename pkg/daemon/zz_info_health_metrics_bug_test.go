@@ -22,6 +22,8 @@ import (
 type infoFakeWebhookManager struct{ stats WebhookStats }
 
 func (f *infoFakeWebhookManager) SetURL(string)       {}
+func (f *infoFakeWebhookManager) SetTopics([]string)  {}
+func (f *infoFakeWebhookManager) Topics() []string    { return nil }
 func (f *infoFakeWebhookManager) Stats() WebhookStats { return f.stats }
 
 func TestInfoZerosWebhookCountersWhenNoManagerRegistered(t *testing.T) {

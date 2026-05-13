@@ -41,9 +41,11 @@ const (
 	cmdDeregisterOK      byte = 0x18
 	cmdSetTags           byte = 0x19
 	cmdSetTagsOK         byte = 0x1A
-	cmdSetWebhook        byte = 0x1B
-	cmdSetWebhookOK      byte = 0x1C
-	cmdNetwork           byte = 0x1F
+	cmdSetWebhook         byte = 0x1B
+	cmdSetWebhookOK       byte = 0x1C
+	cmdSetWebhookTopics   byte = 0x1D
+	cmdSetWebhookTopicsOK byte = 0x1E
+	cmdNetwork            byte = 0x1F
 	cmdNetworkOK         byte = 0x20
 	cmdHealth            byte = 0x21
 	cmdHealthOK          byte = 0x22
@@ -183,7 +185,7 @@ func (c *ipcClient) readLoop() {
 			c.dispatchPush(cmd, payload)
 		case cmdBindOK, cmdDialOK, cmdError, cmdInfoOK, cmdHandshakeOK,
 			cmdResolveHostnameOK, cmdSetHostnameOK, cmdSetVisibilityOK,
-			cmdDeregisterOK, cmdSetTagsOK, cmdSetWebhookOK, cmdNetworkOK,
+			cmdDeregisterOK, cmdSetTagsOK, cmdSetWebhookOK, cmdSetWebhookTopicsOK, cmdNetworkOK,
 			cmdHealthOK, cmdManagedOK, cmdRotateKeyOK, cmdBroadcastOK:
 			// Known response cmds: route to pending for the in-flight sendAndWait.
 			select {

@@ -230,7 +230,9 @@ func main() {
 // than in the plugin to keep the plugin free of pkg/daemon imports.
 type webhookManagerAdapter struct{ svc *webhook.Service }
 
-func (a webhookManagerAdapter) SetURL(url string) { a.svc.SetURL(url) }
+func (a webhookManagerAdapter) SetURL(url string)            { a.svc.SetURL(url) }
+func (a webhookManagerAdapter) SetTopics(topics []string)    { a.svc.SetTopics(topics) }
+func (a webhookManagerAdapter) Topics() []string             { return a.svc.Topics() }
 func (a webhookManagerAdapter) Stats() daemon.WebhookStats {
 	s := a.svc.Stats()
 	return daemon.WebhookStats{Dropped: s.Dropped, CircuitSkips: s.CircuitSkips}

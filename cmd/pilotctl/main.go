@@ -2896,10 +2896,36 @@ func cmdClearHostname() {
 }
 
 func cmdSetWebhook(args []string) {
-	if len(args) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl set-webhook <url>")
+	// Flags accepted after the positional <url>:
+	//   --topics <a,b,c>   only forward events with these topics (empty = forward all)
+	//   --clear-topics     clear any previously-set topic filter (= forward all)
+	var url string
+	var topics []string
+	var topicsSet, clearTopics bool
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--topics":
+			if i+1 >= len(args) {
+				fatalCode("invalid_argument", "--topics requires a comma-separated list")
+			}
+			topicsSet = true
+			for _, t := range strings.Split(args[i+1], ",") {
+				if tt := strings.TrimSpace(t); tt != "" {
+					topics = append(topics, tt)
+				}
+			}
+			i++
+		case "--clear-topics":
+			clearTopics = true
+		default:
+			if url == "" && !strings.HasPrefix(args[i], "--") {
+				url = args[i]
+			}
+		}
 	}
-	url := args[0]
+	if url == "" {
+		fatalCode("invalid_argument", "usage: pilotctl set-webhook <url> [--topics t1,t2,...] [--clear-topics]")
+	}
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		fatalCode("invalid_argument", "webhook URL must start with http:// or https://")
 	}
@@ -2907,6 +2933,11 @@ func cmdSetWebhook(args []string) {
 	// Persist to config so it survives daemon restart
 	cfg := loadConfig()
 	cfg["webhook"] = url
+	if topicsSet {
+		cfg["webhook_topics"] = topics
+	} else if clearTopics {
+		delete(cfg, "webhook_topics")
+	}
 	if err := saveConfig(cfg); err != nil {
 		fatalCode("internal", "save config: %v", err)
 	}
@@ -2916,19 +2947,38 @@ func cmdSetWebhook(args []string) {
 	d, err := driver.Connect(getSocket())
 	if err == nil {
 		_, err = d.SetWebhook(url)
-		d.Close()
 		if err == nil {
 			applied = true
+			// Topic filter is a separate IPC call; apply when --topics
+			// or --clear-topics was given. Don't touch the daemon's
+			// current topic filter if neither flag was set.
+			if topicsSet {
+				_, _ = d.SetWebhookTopics(topics)
+			} else if clearTopics {
+				_, _ = d.SetWebhookTopics(nil)
+			}
 		}
+		d.Close()
 	}
 
 	if jsonOutput {
-		outputOK(map[string]interface{}{
+		out := map[string]interface{}{
 			"webhook": url,
 			"applied": applied,
-		})
+		}
+		if topicsSet {
+			out["topics"] = topics
+		} else if clearTopics {
+			out["topics_cleared"] = true
+		}
+		outputOK(out)
 	} else {
 		fmt.Printf("webhook set: %s\n", url)
+		if topicsSet {
+			fmt.Printf("topic filter: %s\n", strings.Join(topics, ","))
+		} else if clearTopics {
+			fmt.Printf("topic filter cleared (forwarding all events)\n")
+		}
 		if applied {
 			fmt.Printf("applied to running daemon\n")
 		} else {

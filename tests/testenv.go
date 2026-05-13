@@ -271,7 +271,9 @@ func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *
 // in production.
 type testWebhookAdapter struct{ svc *webhook.Service }
 
-func (a testWebhookAdapter) SetURL(url string) { a.svc.SetURL(url) }
+func (a testWebhookAdapter) SetURL(url string)         { a.svc.SetURL(url) }
+func (a testWebhookAdapter) SetTopics(topics []string) { a.svc.SetTopics(topics) }
+func (a testWebhookAdapter) Topics() []string          { return a.svc.Topics() }
 func (a testWebhookAdapter) Stats() daemon.WebhookStats {
 	s := a.svc.Stats()
 	return daemon.WebhookStats{Dropped: s.Dropped, CircuitSkips: s.CircuitSkips}
