@@ -39,6 +39,7 @@ const (
 	KindHelper           FileKind = "helper"
 	KindPluginFile       FileKind = "plugin_file"
 	KindPluginAllowList  FileKind = "plugin_allowlist"
+	KindWebhookRoute     FileKind = "webhook_route"
 )
 
 func actionFor(s State) Action {

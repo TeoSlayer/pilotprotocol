@@ -71,6 +71,45 @@ type ManifestTool struct {
 	// to a single Plugin block. If both Plugin and Plugins are set, the
 	// daemon reconciles Plugin first then iterates Plugins.
 	Plugins []ManifestPlugin `json:"plugins,omitempty"`
+	// WebhookRoutes is the per-tool list of routes the daemon merges
+	// into a YAML config (today hermes — see ManifestWebhookRoute). One
+	// tool can declare any number; each reconciles independently.
+	WebhookRoutes []ManifestWebhookRoute `json:"webhookRoutes,omitempty"`
+}
+
+// ManifestWebhookRoute describes a route the daemon adds to a YAML
+// config file so the tool's built-in webhook receiver accepts pilot
+// events at a known path. Modeled on hermes-agent's
+// platforms.webhook.extra.routes schema (one named route entry per
+// agent integration, HMAC-signed, optional event allow-list,
+// optional prompt template).
+//
+// The daemon owns the named route — operators should not hand-edit
+// the same RouteName under RoutesYamlPath; the reconcile loop will
+// overwrite it. Other keys in the file (including other routes) are
+// preserved.
+//
+// Comment-preservation caveat: the current implementation parses YAML
+// to a generic map and re-marshals, which loses inline comments on
+// any node it touches. Comments on keys outside the modified subtree
+// survive only if the YAML library happens to preserve them across
+// the round-trip — yaml.v3's default does not. A future upgrade to
+// yaml.Node-mode editing would close this gap.
+type ManifestWebhookRoute struct {
+	// ConfigPath is the YAML file the daemon merges into
+	// (e.g. "~/.hermes/config.yaml").
+	ConfigPath string `json:"configPath"`
+	// RoutesYamlPath is the dotted path to the routes map. Created if
+	// absent; intermediate maps are materialized.
+	// e.g. "platforms.webhook.extra.routes".
+	RoutesYamlPath string `json:"routesYamlPath"`
+	// RouteName is the key under RoutesYamlPath where our entry goes
+	// (e.g. "pilot-events"). The daemon owns this key.
+	RouteName string `json:"routeName"`
+	// Route is the YAML body to assign at RoutesYamlPath.RouteName.
+	// Free-form so future schema additions don't require a Go change —
+	// the daemon passes it through verbatim.
+	Route map[string]interface{} `json:"route"`
 }
 
 // ManifestPlugin describes a per-tool plugin that the daemon writes

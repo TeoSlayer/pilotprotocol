@@ -237,6 +237,14 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 					reconcilePluginAllowList(p, home))
 			}
 		}
+
+		// Webhook-route slot — one entry per route the daemon merges
+		// into the tool's YAML config. Today this is hermes-only
+		// (config.yaml under platforms.webhook.extra.routes).
+		for i := range mt.WebhookRoutes {
+			report.Outcomes = append(report.Outcomes,
+				reconcileWebhookRoute(&mt.WebhookRoutes[i], home))
+		}
 	}
 
 	return report, nil
@@ -276,6 +284,27 @@ func reconcilePluginFiles(f *fetcher, ctx context.Context, p *ManifestPlugin, ho
 		out = append(out, o)
 	}
 	return out
+}
+
+// reconcileWebhookRoute merges a named route into a YAML config so the
+// tool's webhook receiver accepts pilot events. Single Outcome per
+// route; the path field points at the YAML file mutated. Same
+// classify→action→merge shape as plugin reconciliation; the YAML merge
+// itself follows the 6-step safety contract in mergeWebhookRoute.
+func reconcileWebhookRoute(r *ManifestWebhookRoute, home string) Outcome {
+	cfgPath := expandHome(r.ConfigPath, home)
+	o := Outcome{Tool: r.RouteName, Kind: KindWebhookRoute, Path: cfgPath}
+	state := classifyWebhookRoute(cfgPath, r.RoutesYamlPath, r.RouteName, r.Route)
+	o.State = state
+	o.Action = actionFor(state)
+	if o.Action == ActionNoop {
+		return o
+	}
+	if err := mergeWebhookRoute(cfgPath, r.RoutesYamlPath, r.RouteName, r.Route); err != nil {
+		o.Action = ActionError
+		o.Err = err.Error()
+	}
+	return o
 }
 
 // reconcilePluginAllowList does a JSON-merge into the tool's plugin
