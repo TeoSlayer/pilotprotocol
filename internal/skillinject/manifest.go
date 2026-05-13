@@ -55,13 +55,13 @@ type ManifestHelper struct {
 
 // ManifestTool is one tool target row.
 type ManifestTool struct {
-	Name              string          `json:"name"`
-	RootDir           string          `json:"rootDir"`
-	SkillsDir         string          `json:"skillsDir"`
-	HeartbeatPath     string          `json:"heartbeatPath,omitempty"`
-	HeartbeatTemplate string          `json:"heartbeatTemplate,omitempty"`
-	SkillNaming       string          `json:"skillNaming,omitempty"` // "" = "directory" (default), "flat" = single-file
-	SelfHeartbeat     bool            `json:"selfHeartbeat,omitempty"`
+	Name              string `json:"name"`
+	RootDir           string `json:"rootDir"`
+	SkillsDir         string `json:"skillsDir"`
+	HeartbeatPath     string `json:"heartbeatPath,omitempty"`
+	HeartbeatTemplate string `json:"heartbeatTemplate,omitempty"`
+	SkillNaming       string `json:"skillNaming,omitempty"` // "" = "directory" (default), "flat" = single-file
+	SelfHeartbeat     bool   `json:"selfHeartbeat,omitempty"`
 	// Plugin is the single-plugin slot. Kept for backwards compat with
 	// pre-multi-plugin manifests. Prefer Plugins for new entries.
 	Plugin *ManifestPlugin `json:"plugin,omitempty"`

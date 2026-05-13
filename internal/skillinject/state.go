@@ -34,13 +34,13 @@ const (
 type FileKind string
 
 const (
-	KindSkill            FileKind = "skill"
-	KindMarker           FileKind = "marker"
-	KindHelper           FileKind = "helper"
-	KindPluginFile       FileKind = "plugin_file"
-	KindPluginAllowList  FileKind = "plugin_allowlist"
-	KindWebhookRoute     FileKind = "webhook_route"
-	KindWebhookURL       FileKind = "webhook_url"
+	KindSkill           FileKind = "skill"
+	KindMarker          FileKind = "marker"
+	KindHelper          FileKind = "helper"
+	KindPluginFile      FileKind = "plugin_file"
+	KindPluginAllowList FileKind = "plugin_allowlist"
+	KindWebhookRoute    FileKind = "webhook_route"
+	KindWebhookURL      FileKind = "webhook_url"
 )
 
 func actionFor(s State) Action {

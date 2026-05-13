@@ -224,4 +224,3 @@ func TestManifest_WebhookRoutesUnmarshal(t *testing.T) {
 		t.Fatalf("Route.secret=%v", wr[0].Route["secret"])
 	}
 }
-
