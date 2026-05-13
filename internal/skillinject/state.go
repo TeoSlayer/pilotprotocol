@@ -40,6 +40,7 @@ const (
 	KindPluginFile       FileKind = "plugin_file"
 	KindPluginAllowList  FileKind = "plugin_allowlist"
 	KindWebhookRoute     FileKind = "webhook_route"
+	KindWebhookURL       FileKind = "webhook_url"
 )
 
 func actionFor(s State) Action {

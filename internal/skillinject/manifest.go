@@ -75,6 +75,15 @@ type ManifestTool struct {
 	// into a YAML config (today hermes — see ManifestWebhookRoute). One
 	// tool can declare any number; each reconciles independently.
 	WebhookRoutes []ManifestWebhookRoute `json:"webhookRoutes,omitempty"`
+	// WebhookURL, if set, tells the daemon to write this URL into
+	// ~/.pilot/webhook_url so its webhook plugin POSTs events to the
+	// tool's receiver. Set per-tool with the canonical default port and
+	// path (e.g. openclaw → http://127.0.0.1:18789/pilot-webhook).
+	// When multiple tools declare a URL, the daemon picks the first one
+	// whose RootDir exists on disk — manifest order is the tiebreaker.
+	// Operators wanting multi-tool delivery can run pilotctl set-webhook
+	// explicitly.
+	WebhookURL string `json:"webhookURL,omitempty"`
 }
 
 // ManifestWebhookRoute describes a route the daemon adds to a YAML

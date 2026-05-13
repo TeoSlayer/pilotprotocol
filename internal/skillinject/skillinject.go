@@ -247,6 +247,12 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		}
 	}
 
+	// One pilot-wide webhook URL across all installed tools. Picks the
+	// first manifest tool whose rootDir exists. Noop if nothing asks
+	// for a URL or the file is already correct.
+	report.Outcomes = append(report.Outcomes,
+		reconcileWebhookURL(home, manifest.Tools))
+
 	return report, nil
 }
 
