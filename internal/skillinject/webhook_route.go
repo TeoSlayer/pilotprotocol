@@ -15,17 +15,7 @@ import (
 
 // classifyWebhookRoute inspects the target YAML config and reports
 // whether the named route at the dotted path already matches the
-// desired Route body.
-//
-//   - StateIdentical: route exists at the path and DeepEqual to the
-//     manifest's body. No write needed.
-//   - StateDrifted: route exists but differs, OR the file exists but
-//     the path / entry is absent. Daemon merges + rewrites.
-//   - StateDrifted (with create-on-write semantics): file missing.
-//     Same response — the merge function creates it.
-//
-// Same idiom as classifyPluginAllowList: read-only inspection here,
-// the mutation lives in mergeWebhookRoute.
+// desired Route body. Read-only; mutation lives in mergeWebhookRoute.
 func classifyWebhookRoute(configPath, routesYamlPath, routeName string, want map[string]interface{}) State {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {

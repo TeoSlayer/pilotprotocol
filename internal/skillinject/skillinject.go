@@ -104,7 +104,7 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 	_ = writeCache(home, entrypointRel, skillBody)
 
 	skillHash := sha256Hex(skillBody)
-	skillShort := skillHash[:12]
+	skillHashPrefix := skillHash[:12]
 
 	report := &Report{At: time.Now().UTC()}
 
@@ -112,18 +112,18 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 	// are tool-agnostic and referenced from every tool's heartbeat
 	// directive. Failure is best-effort: we record an error outcome and
 	// continue with skill/marker reconciliation.
-	for _, h := range manifest.Helpers {
-		dst := expandHome(h.Dst, home)
-		o := Outcome{Tool: h.Name, Kind: KindHelper, Path: dst}
-		body, err := f.fetchRepoFile(ctx, h.Src)
+	for _, helper := range manifest.Helpers {
+		dst := expandHome(helper.Dst, home)
+		o := Outcome{Tool: helper.Name, Kind: KindHelper, Path: dst}
+		body, err := f.fetchRepoFile(ctx, helper.Src)
 		if err != nil {
 			o.Action = ActionError
-			o.Err = fmt.Sprintf("fetch %s: %v", h.Src, err)
+			o.Err = fmt.Sprintf("fetch %s: %v", helper.Src, err)
 			report.Outcomes = append(report.Outcomes, o)
 			continue
 		}
 		o.Hash = sha256Hex(body)
-		state, err := writeHelper(dst, body, ParseFileMode(h.Mode))
+		state, err := writeHelper(dst, body, ParseFileMode(helper.Mode))
 		o.State = state
 		switch {
 		case err != nil:
@@ -139,19 +139,19 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		report.Outcomes = append(report.Outcomes, o)
 	}
 
-	for _, mt := range manifest.Tools {
-		rootDir := expandHome(mt.RootDir, home)
+	for _, tool := range manifest.Tools {
+		rootDir := expandHome(tool.RootDir, home)
 		if !dirExists(rootDir) {
-			report.Skipped = append(report.Skipped, mt.Name)
+			report.Skipped = append(report.Skipped, tool.Name)
 			continue
 		}
 
 		// (a) skill copy
-		skillPath := skillTargetPath(mt, manifest.Entrypoint, home)
+		skillPath := skillTargetPath(tool, manifest.Entrypoint, home)
 		state := classifySkill(skillPath, skillHash)
 		action := actionFor(state)
 		o := Outcome{
-			Tool: mt.Name, Kind: KindSkill, Path: skillPath,
+			Tool: tool.Name, Kind: KindSkill, Path: skillPath,
 			State: state, Action: action, Hash: skillHash,
 		}
 		if action != ActionNoop {
@@ -163,40 +163,40 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		report.Outcomes = append(report.Outcomes, o)
 
 		// (b) heartbeat marker, if this tool has a separate heartbeat file
-		if mt.HeartbeatPath == "" || mt.HeartbeatTemplate == "" {
+		if tool.HeartbeatPath == "" || tool.HeartbeatTemplate == "" {
 			continue
 		}
-		tmplBody, err := f.fetchRepoFile(ctx, mt.HeartbeatTemplate)
+		tmplBody, err := f.fetchRepoFile(ctx, tool.HeartbeatTemplate)
 		if err != nil {
 			report.Outcomes = append(report.Outcomes, Outcome{
-				Tool: mt.Name, Kind: KindMarker,
-				Path:   expandHome(mt.HeartbeatPath, home),
+				Tool: tool.Name, Kind: KindMarker,
+				Path:   expandHome(tool.HeartbeatPath, home),
 				Action: ActionError,
-				Err:    fmt.Sprintf("fetch %s: %v", mt.HeartbeatTemplate, err),
+				Err:    fmt.Sprintf("fetch %s: %v", tool.HeartbeatTemplate, err),
 			})
 			continue
 		}
-		_ = writeCache(home, mt.HeartbeatTemplate, tmplBody)
+		_ = writeCache(home, tool.HeartbeatTemplate, tmplBody)
 
 		ref, err := renderHeartbeat(tmplBody, heartbeatVars{EntrypointPath: skillPath})
 		if err != nil {
 			report.Outcomes = append(report.Outcomes, Outcome{
-				Tool: mt.Name, Kind: KindMarker,
-				Path:   expandHome(mt.HeartbeatPath, home),
+				Tool: tool.Name, Kind: KindMarker,
+				Path:   expandHome(tool.HeartbeatPath, home),
 				Action: ActionError, Err: err.Error(),
 			})
 			continue
 		}
 
-		hbPath := expandHome(mt.HeartbeatPath, home)
-		mState := classifyMarker(hbPath, skillShort)
+		hbPath := expandHome(tool.HeartbeatPath, home)
+		mState := classifyMarker(hbPath, skillHashPrefix)
 		mAction := actionFor(mState)
 		mo := Outcome{
-			Tool: mt.Name, Kind: KindMarker, Path: hbPath,
-			State: mState, Action: mAction, Hash: skillShort,
+			Tool: tool.Name, Kind: KindMarker, Path: hbPath,
+			State: mState, Action: mAction, Hash: skillHashPrefix,
 		}
 		if mAction != ActionNoop {
-			if err := writeMarker(hbPath, ref, skillShort); err != nil {
+			if err := writeMarker(hbPath, ref, skillHashPrefix); err != nil {
 				mo.Action = ActionError
 				mo.Err = err.Error()
 			}
@@ -204,46 +204,28 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 		report.Outcomes = append(report.Outcomes, mo)
 
 		// (c) per-tool plugin files + (d) allow-list merge.
-		//
-		// Today only openclaw uses this — it carries a plugin block
-		// in the manifest pointing at the source files for the
-		// before_prompt_build hook + the JSON paths in openclaw.json
-		// where the plugin id must appear (plugins.allow,
-		// plugins.entries.<id>.enabled). The plugin's own register()
-		// reads the heartbeat content off disk at runtime, so once
-		// these files + the allow-list entry are in place, every
-		// turn of openclaw lands the pilot directive on the system
-		// prompt via prependSystemContext.
-		//
-		// Same noop/create/rewrite/error vocabulary as skill+marker;
-		// surfaces in `pilotctl skills` exactly like the other rows.
-		if mt.Plugin != nil {
+		if tool.Plugin != nil {
 			report.Outcomes = append(report.Outcomes,
-				reconcilePluginFiles(f, ctx, mt.Plugin, home)...)
-			if mt.Plugin.AllowList != nil {
+				reconcilePluginFiles(f, ctx, tool.Plugin, home)...)
+			if tool.Plugin.AllowList != nil {
 				report.Outcomes = append(report.Outcomes,
-					reconcilePluginAllowList(mt.Plugin, home))
+					reconcilePluginAllowList(tool.Plugin, home))
 			}
 		}
-		// Multi-plugin slot — same reconcile shape, repeated per entry.
-		// A tool can declare both `plugin` (legacy single) and `plugins`
-		// (the array); the daemon installs all of them.
-		for i := range mt.Plugins {
-			p := &mt.Plugins[i]
+		// A tool can declare both `plugin` (legacy single) and `plugins` (array).
+		for i := range tool.Plugins {
+			plugin := &tool.Plugins[i]
 			report.Outcomes = append(report.Outcomes,
-				reconcilePluginFiles(f, ctx, p, home)...)
-			if p.AllowList != nil {
+				reconcilePluginFiles(f, ctx, plugin, home)...)
+			if plugin.AllowList != nil {
 				report.Outcomes = append(report.Outcomes,
-					reconcilePluginAllowList(p, home))
+					reconcilePluginAllowList(plugin, home))
 			}
 		}
 
-		// Webhook-route slot — one entry per route the daemon merges
-		// into the tool's YAML config. Today this is hermes-only
-		// (config.yaml under platforms.webhook.extra.routes).
-		for i := range mt.WebhookRoutes {
+		for i := range tool.WebhookRoutes {
 			report.Outcomes = append(report.Outcomes,
-				reconcileWebhookRoute(&mt.WebhookRoutes[i], home))
+				reconcileWebhookRoute(&tool.WebhookRoutes[i], home))
 		}
 	}
 

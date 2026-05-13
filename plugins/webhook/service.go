@@ -201,9 +201,8 @@ func (s *Service) startClientLocked(url string) {
 	s.cancel = cancel
 	done := make(chan struct{})
 	s.done = done
-	wc := s.client
+	client := s.client
 	events := s.deps.Events
-	svc := s // captured for the filter probe; the map is read under svc.mu
 	go func() {
 		defer close(done)
 		// L11 panic boundary: a panic in Emit (or in the channel
@@ -212,18 +211,17 @@ func (s *Service) startClientLocked(url string) {
 		// restart the bridge.
 		defer coreapi.RecoverPlugin("webhook", "bridgeLoop", events, nil)
 		for ev := range ch {
-			// Topic filter, if configured. Holding mu briefly is cheap
-			// here — the map lookup is O(1) and contention is bounded
-			// by the rare SetTopics call. nil map = forward everything.
-			svc.mu.Lock()
-			topics := svc.topics
-			svc.mu.Unlock()
+			// Topic filter: nil map = forward everything. Holding mu
+			// briefly is cheap — lookup is O(1), SetTopics is rare.
+			s.mu.Lock()
+			topics := s.topics
+			s.mu.Unlock()
 			if topics != nil {
 				if _, ok := topics[ev.Topic]; !ok {
 					continue
 				}
 			}
-			wc.Emit(ev.Topic, ev.Payload)
+			client.Emit(ev.Topic, ev.Payload)
 		}
 	}()
 }
