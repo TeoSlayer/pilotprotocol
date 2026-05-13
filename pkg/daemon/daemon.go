@@ -159,27 +159,22 @@ const (
 const (
 	ZeroWinProbeInitial = 500 * time.Millisecond // initial zero-window probe interval
 	ZeroWinProbeMax     = 30 * time.Second       // max zero-window probe backoff
-	// P1-004: stop probing after this many attempts so a peer stuck at
+	// stop probing after this many attempts so a peer stuck at
 	// window=0 (crashed, deadlocked, or adversarial) doesn't leak a
 	// goroutine + timer + probe packets indefinitely. ~30 probes at the
 	// 30s cap is ~15 minutes of trying, which matches the idle sweep.
 	MaxZeroWindowProbes = 30
 )
 
-// RelayProbeInterval is how often we probe relay-flagged peers for direct connectivity.
 const RelayProbeInterval = 5 * time.Minute
 
-// EndpointCacheTTL is how long a cached endpoint is considered fresh.
-// After this, the entry is stale but still usable as a fallback.
+// EndpointCacheTTL: stale entries are kept as a fallback after this.
 const EndpointCacheTTL = 5 * time.Minute
 
-// ResolveCacheTTL is how long a registry resolve response is cached.
-// During cron bursts, agents resolve the same peers repeatedly — this
-// avoids hitting the registry for the same node within the TTL window.
+// ResolveCacheTTL: during cron bursts, agents resolve the same peers repeatedly — avoids registry hits within the window.
 const ResolveCacheTTL = 60 * time.Second
 
-// DefaultNetworkSyncInterval is how often the daemon refreshes network
-// memberships, port policies, and member tags from the registry.
+// DefaultNetworkSyncInterval: how often memberships, port policies, and member tags are refreshed from the registry.
 const DefaultNetworkSyncInterval = 5 * time.Minute
 
 // networkSnapshot is the JSON format persisted to {identityDir}/networks.json.
@@ -216,7 +211,7 @@ const hostnameCacheTTL = 60 * time.Second
 
 type Daemon struct {
 	config         Config
-	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint (H6 fix)
+	addrMu         sync.RWMutex // protects nodeID, addr, publicEndpoint
 	nodeID         uint32
 	addr           protocol.Addr
 	publicEndpoint string       // host:port reported to the registry at registration
@@ -230,7 +225,7 @@ type Daemon struct {
 
 	// network.* bus subscriber for daemon-internal reactions (managed
 	// engines + member-tag cache). Wired by subscribeNetworkInternalToBus
-	// during Start; torn down before tunnels in doStop. (T4.3.)
+	// during Start; torn down before tunnels in doStop.
 	netSubMu   sync.Mutex
 	netSubStop func()
 
@@ -241,7 +236,7 @@ type Daemon struct {
 
 	// In-process event bus. Core layers Publish; the webhook plugin
 	// (and any other observability plugin) Subscribe. Replaces inline
-	// webhook.Emit calls (T4.1).
+	// webhook.Emit calls.
 	bus *inProcessBus
 
 	// Webhook plugin handle, set via RegisterWebhookManager. Daemon-
@@ -251,7 +246,7 @@ type Daemon struct {
 
 	// Trust checker registered by the trustedagents plugin via
 	// RegisterTrustChecker. Daemon-local interface (primitive
-	// signatures) so daemon doesn't import pkg/coreapi (T7.1).
+	// signatures) so daemon doesn't import pkg/coreapi.
 	trustChecker TrustChecker
 
 	// Policy plugin handle, set via RegisterPolicyManager. Daemon-
@@ -312,7 +307,7 @@ type Daemon struct {
 	managedMu sync.Mutex
 	managed   map[uint16]*ManagedEngine
 
-	// policyRunners moved to plugins/policy as part of T2.3. Daemon
+	// policyRunners moved to plugins/policy Daemon
 	// now consults policyManager (above).
 
 	// Cached member tags: netID -> local node's admin-assigned tags
@@ -328,7 +323,7 @@ type Daemon struct {
 }
 
 const perSourceSYNLimit = 10     // max SYNs per source per second
-const maxPerSrcSYNEntries = 4096 // max tracked source entries (M9 fix)
+const maxPerSrcSYNEntries = 4096 // max tracked source entries
 
 type srcSYNBucket struct {
 	tokens   int
@@ -397,7 +392,7 @@ func New(cfg Config) *Daemon {
 	d.bus = newInProcessBus(d.NodeID)
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	// HandshakeService is wired post-construction by the composition
-	// root via RegisterHandshakeService (T3.3 — handshake plugin moved
+	// root via RegisterHandshakeService (handshake plugin moved
 	// to plugins/handshake). Tests that don't register the plugin will
 	// see d.handshakes == nil; the trust-gate / IPC paths guard against
 	// that.
@@ -439,7 +434,7 @@ func (d *Daemon) allowSYNFromSource(srcNode uint32) bool {
 	b, ok := d.perSrcSYN[srcNode]
 	now := time.Now()
 	if !ok {
-		// Cap the map size to prevent unbounded growth (M9 fix)
+		// Cap the map size to prevent unbounded growth
 		if len(d.perSrcSYN) >= maxPerSrcSYNEntries {
 			return false // reject when map is full
 		}
@@ -669,7 +664,7 @@ func (d *Daemon) Start() error {
 	}
 	d.regConn = rc
 
-	// H3 fix: set signer for authenticated registry operations
+	// Set signer for authenticated registry operations
 	if d.identity != nil {
 		id := d.identity
 		rc.SetSigner(func(challenge string) string {
@@ -740,13 +735,13 @@ func (d *Daemon) Start() error {
 
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
 
-	// T4.1: webhook is now a bus subscriber owned by plugins/webhook.
+	// webhook is now a bus subscriber owned by plugins/webhook.
 	// cmd/daemon (composition root) constructs the plugin and starts
 	// it via plugins/runtime.StartPlugins AFTER Daemon.Start returns.
 	// All d.webhook.Emit sites have been migrated to d.publishEvent.
 	// (SetEventBus moved earlier — see step 2b above. Issue #99: read/write
 	// race against the tunnel readLoop with `-race` under §4.8.)
-	// T4.3: daemon-internal reaction to network.* events (managed
+	// daemon-internal reaction to network.* events (managed
 	// engines + member-tag cache). Must wire BEFORE the first
 	// reconcileMembership tick so the inaugural delta is observed.
 	d.subscribeNetworkInternalToBus()
@@ -810,13 +805,22 @@ func (d *Daemon) Start() error {
 		}
 	}
 
-	// Set hostname if configured
-	if d.config.Hostname != "" {
-		if _, err := d.regConn.SetHostname(d.nodeID, d.config.Hostname); err != nil {
-			slog.Warn("failed to set hostname", "hostname", d.config.Hostname, "error", err)
-		} else {
-			slog.Info("hostname set", "hostname", d.config.Hostname)
-		}
+	// Set hostname. If the operator configured one, use it verbatim;
+	// otherwise auto-generate `pilot-<8-hex of nodeID>`. The default is
+	// stable across restarts (derived from a stable node-ID), unique
+	// per node (nodeID is 32-bit and registry-allocated), and matches
+	// the registry's hostname regex `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`.
+	// Operators can override later via `pilotctl set-hostname <name>`.
+	hostname := d.config.Hostname
+	autoGenerated := false
+	if hostname == "" {
+		hostname = defaultHostnameForNode(d.nodeID)
+		autoGenerated = true
+	}
+	if _, err := d.regConn.SetHostname(d.nodeID, hostname); err != nil {
+		slog.Warn("failed to set hostname", "hostname", hostname, "auto", autoGenerated, "error", err)
+	} else {
+		slog.Info("hostname set", "hostname", hostname, "auto", autoGenerated)
 	}
 
 	// Auto-join configured networks
@@ -851,7 +855,7 @@ func (d *Daemon) Start() error {
 	// 7. Start packet router
 	go d.routeLoop()
 
-	// 8. Start heartbeat — split per layer (T4.3, P9/P10):
+	// 8. Start heartbeat — split per layer:
 	//    - trustRepublishLoop          (L5/L8): registry heartbeat + reregister
 	//    - tunnelKeepaliveLoop         (L4):    beacon NAT-mapping refresh
 	//    - handshakePollLoop           (L11):   relayed-handshake polling
@@ -914,7 +918,7 @@ func (d *Daemon) Start() error {
 	// dataexchange, eventstream, tasks, policy) is owned by
 	// plugins/runtime — cmd/daemon (composition root) calls
 	// runtime.StartPlugins(ctx) AFTER this Start returns. This
-	// inversion is T7.1: pkg/daemon no longer imports pkg/coreapi.
+	// inversion pkg/daemon no longer imports pkg/coreapi.
 
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
@@ -1075,7 +1079,6 @@ func (d *Daemon) autoJoinNetworks() {
 	}
 }
 
-// stopping returns true if Stop() has been called.
 func (d *Daemon) stopping() bool {
 	select {
 	case <-d.stopCh:
@@ -1171,12 +1174,12 @@ func (d *Daemon) doStop() {
 	// L11 plugin lifecycle is owned by plugins/runtime — cmd/daemon
 	// (composition root) calls runtime.StopPlugins(ctx) BEFORE
 	// invoking Daemon.Stop. By the time we get here, plugins are
-	// already stopped. (T7.1.)
+	// already stopped.
 
 	d.ipc.Close()
 	d.tunnels.Close()
 
-	// T4.3: drain the network.* internal subscriber so no in-flight
+	// drain the network.* internal subscriber so no in-flight
 	// reconcileMembership tick lingers after Stop returns.
 	d.netSubMu.Lock()
 	netStop := d.netSubStop
@@ -1186,7 +1189,7 @@ func (d *Daemon) doStop() {
 		netStop()
 	}
 
-	// T4.1: webhook lifecycle (bus subscribe + HTTP client) is owned
+	// webhook lifecycle (bus subscribe + HTTP client) is owned
 	// by plugins/webhook. cmd/daemon stops plugins after Daemon.Stop
 	// so the daemon.shutting_down event published above flows through
 	// the bus to the still-subscribed plugin, which drains its
@@ -1242,7 +1245,6 @@ func (d *Daemon) startManaged() {
 	}
 }
 
-// stopManaged stops all managed engines.
 func (d *Daemon) stopManaged() {
 	d.managedMu.Lock()
 	engines := make(map[uint16]*ManagedEngine, len(d.managed))
@@ -1256,7 +1258,6 @@ func (d *Daemon) stopManaged() {
 	}
 }
 
-// StartManagedEngine starts a managed engine for a newly joined network.
 func (d *Daemon) StartManagedEngine(netID uint16, rules *registrywire.NetworkRules) {
 	d.managedMu.Lock()
 	defer d.managedMu.Unlock()
@@ -1270,7 +1271,7 @@ func (d *Daemon) StartManagedEngine(netID uint16, rules *registrywire.NetworkRul
 	d.managed[netID] = me
 }
 
-// StopManagedEngine stops a managed engine (e.g., on network leave).
+// StopManagedEngine: no-op when no engine is running for netID.
 func (d *Daemon) StopManagedEngine(netID uint16) {
 	d.managedMu.Lock()
 	me, ok := d.managed[netID]
@@ -1284,7 +1285,7 @@ func (d *Daemon) StopManagedEngine(netID uint16) {
 	}
 }
 
-// GetManagedEngine returns the managed engine for a network, or nil.
+// GetManagedEngine: returns nil when the network has no managed engine.
 func (d *Daemon) GetManagedEngine(netID uint16) *ManagedEngine {
 	d.managedMu.Lock()
 	defer d.managedMu.Unlock()
@@ -1468,7 +1469,7 @@ func (d *Daemon) evaluatePortPolicy(eventType PolicyEventType, netID uint16, por
 
 // nodeInfoTagsFor returns the registry-level tags assigned to a peer
 // (`pilotctl set-tags`). The plugin merges these with policy-local
-// tags inside EvaluatePortGate (T2.3). Replaces the daemon-side
+// tags inside EvaluatePortGate. Replaces the daemon-side
 // peerTagsFor merge that previously lived alongside runPolicyGate.
 func (d *Daemon) nodeInfoTagsFor(peerNodeID uint32) []string {
 	var tags []string
@@ -1486,8 +1487,7 @@ func (d *Daemon) nodeInfoTagsFor(peerNodeID uint32) []string {
 	return tags
 }
 
-// GetPolicyRunner returns the policy runner for a network, or nil.
-// Delegates to the registered policy manager.
+// GetPolicyRunner: returns nil when no policy manager is wired or the network has no runner.
 func (d *Daemon) GetPolicyRunner(netID uint16) PolicyRunner {
 	if d.policyManager == nil {
 		return nil
@@ -1495,8 +1495,7 @@ func (d *Daemon) GetPolicyRunner(netID uint16) PolicyRunner {
 	return d.policyManager.Get(netID)
 }
 
-// StartPolicyRunner compiles a policy JSON and registers a runner via
-// the policy manager. Errors when no manager is registered.
+// StartPolicyRunner: errors when no policy manager is registered.
 func (d *Daemon) StartPolicyRunner(netID uint16, policyJSON json.RawMessage) error {
 	if d.policyManager == nil {
 		return fmt.Errorf("policy plugin not registered")
@@ -1507,8 +1506,7 @@ func (d *Daemon) StartPolicyRunner(netID uint16, policyJSON json.RawMessage) err
 	return nil
 }
 
-// StopPolicyRunner stops the policy runner for a network. No-op if no
-// manager is registered or no runner exists for netID.
+// StopPolicyRunner: no-op when policyManager is nil or no runner for netID.
 func (d *Daemon) StopPolicyRunner(netID uint16) {
 	if d.policyManager == nil {
 		return
@@ -1520,7 +1518,7 @@ func (d *Daemon) StopPolicyRunner(netID uint16) {
 // cmd/daemon (composition root) constructs the plugin and calls this.
 // Takes the daemon-local PolicyManager interface (primitive
 // signatures only); the plugin's manager satisfies it via structural
-// typing without daemon importing pkg/coreapi (T7.1).
+// typing without daemon importing pkg/coreapi.
 func (d *Daemon) RegisterPolicyManager(pm PolicyManager) {
 	d.policyManager = pm
 }
@@ -1537,9 +1535,8 @@ func (d *Daemon) RegisterTrustChecker(tc TrustChecker) {
 	d.trustChecker = tc
 }
 
-// NewConnReadWriter wraps a Connection with the daemon's net.Conn
-// adapter. plugins/runtime uses this to expose the conn as a
-// coreapi.Stream without needing access to the unexported connAdapter.
+// NewConnReadWriter: lets plugins/runtime expose a conn as coreapi.Stream
+// without importing the unexported connAdapter.
 func (d *Daemon) NewConnReadWriter(conn *Connection) ConnReadWriter {
 	return newConnAdapter(d, conn)
 }
@@ -1552,7 +1549,7 @@ type ConnReadWriter interface {
 	Close() error
 }
 
-// --- Public accessors used by the policy plugin's Runtime adapter (T2.3) ---
+// --- Public accessors used by the policy plugin's Runtime adapter ---
 
 func (d *Daemon) PublishEvent(topic string, payload map[string]any) {
 	d.publishEvent(topic, payload)
@@ -1567,9 +1564,7 @@ func (d *Daemon) RegConnListNodes(netID uint16, token string) (map[string]any, e
 	return d.regConn.ListNodes(netID, token)
 }
 
-// TrustedPeers returns the trust records held by the registered
-// handshake service. Returns nil when no handshake plugin is wired
-// (e.g. unit tests that bypass plugins/runtime).
+// TrustedPeers: nil when no handshake plugin is wired (e.g. unit tests).
 func (d *Daemon) TrustedPeers() []HandshakeTrustRecord {
 	if d.handshakes == nil {
 		return nil
@@ -1592,16 +1587,14 @@ func (d *Daemon) HandshakeSendRequest(nodeID uint32, reason string) error {
 }
 
 // RegisterHandshakeService installs the daemon-wide HandshakeService
-// implementation provided by the handshake plugin (T3.3). Called from
+// implementation provided by the handshake plugin. Called from
 // the composition root after constructing the plugin's Service.
 // Replaces any previously-registered service.
 func (d *Daemon) RegisterHandshakeService(svc HandshakeService) {
 	d.handshakes = svc
 }
 
-// HandshakeService returns the registered HandshakeService (or nil if
-// no handshake plugin has been registered). Mostly used by daemon
-// internals; external callers prefer the typed wrappers above.
+// HandshakeService: nil when no handshake plugin has been registered.
 func (d *Daemon) HandshakeService() HandshakeService { return d.handshakes }
 
 // handshakePendingCount returns the pending-handshake count for the
@@ -1614,22 +1607,15 @@ func handshakePendingCount(svc HandshakeService) int {
 	return svc.PendingCount()
 }
 
-// IdentityPath returns the configured identity file path, or "" if the
-// daemon runs without persistent identity. Exposed so the handshake
-// plugin can derive its trust.json store path from the same directory.
+// IdentityPath: "" when the daemon runs without persistent identity.
+// Exposed so the handshake plugin can derive its trust.json store path.
 func (d *Daemon) IdentityPath() string { return d.config.IdentityPath }
 
-// TrustAutoApprove reports whether the daemon was started with the
-// trust-auto-approve flag set. Exposed for the handshake plugin's
-// auto-accept gate.
+// TrustAutoApprove: exposed for the handshake plugin's auto-accept gate.
 func (d *Daemon) TrustAutoApprove() bool { return d.config.TrustAutoApprove }
 
-// RegistryClient returns the underlying L8 registry-side-channel
-// client (or nil if no registry is configured). Exposed so the
-// handshake plugin can issue Lookup/ReportTrust/RevokeTrust /
-// RequestHandshake / RespondHandshake / PollHandshakes against the
-// same client the daemon uses elsewhere — there is no separate
-// connection or auth context.
+// RegistryClient: nil when no registry is configured. Shared with the
+// handshake plugin so both sides use the same connection and auth context.
 func (d *Daemon) RegistryClient() *registry.Client { return d.regConn }
 
 // peerTagsFor returns the merged tag set for a peer as seen by the policy
@@ -1678,14 +1664,12 @@ func (d *Daemon) peerTagsFor(peerNodeID uint32, localTags []string) []string {
 	return merged
 }
 
-// SetMemberTags updates the cached member tags for the local node in a network.
 func (d *Daemon) SetMemberTags(netID uint16, tags []string) {
 	d.memberTagsMu.Lock()
 	d.memberTags[netID] = tags
 	d.memberTagsMu.Unlock()
 }
 
-// GetMemberTags returns the cached member tags for the local node in a network.
 func (d *Daemon) GetMemberTags(netID uint16) []string {
 	d.memberTagsMu.RLock()
 	tags := d.memberTags[netID]
@@ -1781,8 +1765,7 @@ func (d *Daemon) SetWebhookTopics(topics []string) {
 	d.webhookManager.SetTopics(topics)
 }
 
-// WebhookTopics returns the currently-configured topic allow-list (or
-// nil for "forward all"). Used by daemon Info / pilotctl introspection.
+// WebhookTopics: nil means "forward all".
 func (d *Daemon) WebhookTopics() []string {
 	if d.webhookManager == nil {
 		return nil
@@ -1790,14 +1773,13 @@ func (d *Daemon) WebhookTopics() []string {
 	return d.webhookManager.Topics()
 }
 
-// RegisterWebhookManager wires the L11 webhook plugin into the daemon
-// (T4.1). cmd/daemon (composition root) constructs the plugin and
+// RegisterWebhookManager: cmd/daemon (composition root) constructs the plugin and
 // calls this with an adapter satisfying the daemon-local interface.
 func (d *Daemon) RegisterWebhookManager(wm WebhookManager) {
 	d.webhookManager = wm
 }
 
-// Identity returns the daemon's Ed25519 identity (may be nil if unset).
+// Identity: may be nil if the daemon has no persistent identity configured.
 func (d *Daemon) Identity() *crypto.Identity {
 	d.identityMu.RLock()
 	defer d.identityMu.RUnlock()
@@ -1861,12 +1843,11 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	return resp, nil
 }
 
-// AddTunnelPeer registers a peer's address in the tunnel manager (for testing/manual setup).
+// AddTunnelPeer: for testing or manual peer wiring — bypasses normal endpoint discovery.
 func (d *Daemon) AddTunnelPeer(nodeID uint32, addr *net.UDPAddr) {
 	d.tunnels.AddPeer(nodeID, addr)
 }
 
-// TunnelAddr returns the local UDP address of the tunnel listener.
 func (d *Daemon) TunnelAddr() net.Addr { return d.tunnels.LocalAddr() }
 
 func (d *Daemon) Addr() protocol.Addr {
@@ -1875,27 +1856,20 @@ func (d *Daemon) Addr() protocol.Addr {
 	return d.addr
 }
 
-// --- Accessors for the plugin-runtime package (T7.1) ---
+// --- Accessors for the plugin-runtime package ---
 //
 // These let plugins/runtime construct coreapi-typed adapters
 // (daemonStreams, daemonEventBus, daemonPolo) without pkg/daemon
 // importing pkg/coreapi.
 
-// Ports returns the daemon's port manager. Plugins/runtime uses this
-// to bind a coreapi.Listener for plugin services.
 func (d *Daemon) Ports() *PortManager { return d.ports }
 
-// Bus returns the daemon's in-process pub/sub bus. Plugins/runtime
-// uses it to construct a coreapi.EventBus adapter.
 func (d *Daemon) Bus() *inProcessBus { return d.bus }
 
-// Tunnels returns the daemon's tunnel manager. Mostly for in-tree
-// plugins that want direct access (tests + unusual integrations).
+// Tunnels: direct tunnel access for in-tree plugins and tests.
 func (d *Daemon) Tunnels() *TunnelManager { return d.tunnels }
 
-// publishEvent is the daemon-internal helper for publishing to the bus.
-// All event-bus subscribers (including the L11 webhook plugin via its
-// "*" subscription) receive the event. Nil-safe.
+// publishEvent: nil-safe; all bus subscribers receive it, including the L11 webhook plugin via "*" subscription.
 func (d *Daemon) publishEvent(topic string, payload map[string]any) {
 	if d == nil || d.bus == nil {
 		return
@@ -1903,16 +1877,12 @@ func (d *Daemon) publishEvent(topic string, payload map[string]any) {
 	d.bus.Publish(topic, payload)
 }
 
-// publishEventInternal is the entry point used by daemonEventBus.
-// Same dispatch as publishEvent — both go through the bus, which
-// fans out to all subscribers.
+// publishEventInternal: same dispatch as publishEvent; both funnel through the bus.
 func (d *Daemon) publishEventInternal(topic string, payload map[string]any) {
 	d.publishEvent(topic, payload)
 }
 
-// webhookStats fetches counters from the registered WebhookManager.
-// Returns the zero-value WebhookStats if no manager is registered —
-// keeps Info() nil-safe in unit tests that bypass plugins/runtime.
+// webhookStats: zero-value WebhookStats when no manager is registered — keeps Info() nil-safe in tests.
 func (d *Daemon) webhookStats() WebhookStats {
 	if d.webhookManager == nil {
 		return WebhookStats{}
@@ -2040,7 +2010,6 @@ func networkIDFromBusPayload(p map[string]any) (uint16, bool) {
 	}
 }
 
-// DaemonInfo holds status information about the running daemon.
 type NetworkMembership struct {
 	NetworkID uint16 `json:"network_id"`
 	Address   string `json:"address"`
@@ -2086,7 +2055,6 @@ type DaemonInfo struct {
 	BeaconAddr     string // active beacon address
 }
 
-// Info returns current daemon status.
 func (d *Daemon) Info() *DaemonInfo {
 	d.ports.mu.RLock()
 	numConns := 0
@@ -2241,7 +2209,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			existing.Mu.Lock()
 			st := existing.State
 			eAck := existing.RecvAck
-			// P1-001: prefer the recorded SYN-ACK sequence over `SendSeq-1`.
+			// prefer the recorded SYN-ACK sequence over `SendSeq-1`.
 			// Once data has been sent on this connection, SendSeq has drifted
 			// forward and `SendSeq-1` is no longer the original SYN-ACK seq.
 			var eSeq uint32
@@ -2350,7 +2318,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			"dst_port": pkt.DstPort, "conn_id": conn.ID,
 		})
 
-		// Process peer's receive window from SYN (H9 fix: always update, including Window==0)
+		// Always update peer's receive window from SYN, including Window==0.
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
@@ -2436,7 +2404,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.ExpectedSeq = pkt.Seq + 1 // first data segment after SYN-ACK
 		conn.RecvMu.Unlock()
 
-		// Process peer's receive window from SYN-ACK (H9 fix: always update)
+		// Always update peer's receive window from SYN-ACK.
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
@@ -2550,7 +2518,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.KeepaliveUnacked = 0
 		conn.Mu.Unlock()
 
-		// Update peer's receive window (H9 fix: always update, honor Window==0)
+		// Always update peer's receive window, honoring Window==0.
 		conn.RetxMu.Lock()
 		prevPeerWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
@@ -2972,26 +2940,18 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	}
 }
 
-// NagleTimeout is the maximum time to buffer small writes before flushing.
+// NagleTimeout: buffers small writes before flushing.
 const NagleTimeout = 40 * time.Millisecond
 
-// DelayedACKTimeout is the max time to delay an ACK (RFC 1122 suggests 500ms max, we use 40ms).
+// DelayedACKTimeout: RFC 1122 suggests 500ms max; we use 40ms.
 const DelayedACKTimeout = 40 * time.Millisecond
 
-// DelayedACKThreshold is the number of segments to receive before sending an ACK immediately.
+// DelayedACKThreshold: send ACK immediately after this many segments.
 const DelayedACKThreshold = 2
 
-// SendData sends data over an established connection.
-// Implements Nagle's algorithm: small writes are coalesced into MSS-sized
-// segments unless NoDelay is set. Large writes (>= MSS) are sent immediately.
-// ErrSendBufFull is returned by SendData when the per-connection
-// NagleBuf would exceed MaxNagleBuf if the caller's write were
-// appended. Callers must back off and retry — typically by waiting
-// for a webhook or polling the connection's send-buffer state.
-//
-// This error replaces the silent unbounded-growth behavior that
-// could OOM the daemon when an application wrote faster than the
-// network drained. Pinned by TestSendDataNagleBufGrowsUnbounded.
+// ErrSendBufFull: NagleBuf at capacity. SendData coalesces small writes into MSS-sized
+// segments (Nagle); when the buffer fills, callers must back off and retry rather than
+// queueing more — prevents OOM under slow/lossy peers.
 var ErrSendBufFull = errors.New("send buffer full")
 
 func (d *Daemon) SendData(conn *Connection, data []byte) error {
@@ -3169,7 +3129,7 @@ func (d *Daemon) sendSegment(conn *Connection, data []byte) error {
 			}
 			d.tunnels.Send(conn.RemoteAddr.Node, probe)
 			probeCount++
-			// P1-004: give up after MaxZeroWindowProbes rather than
+			// give up after MaxZeroWindowProbes rather than
 			// probing a dead peer forever. RST the connection so the
 			// sender sees an error instead of an opaque hang.
 			if probeCount >= MaxZeroWindowProbes {
@@ -3265,8 +3225,8 @@ func (d *Daemon) startRetxLoop(conn *Connection) {
 func (d *Daemon) retxLoop(conn *Connection) {
 	ticker := time.NewTicker(RetxCheckInterval)
 	defer ticker.Stop()
-	// L7 panic boundary (architecture-notes/03-INVARIANTS.md §8 +
-	// P1-002): a panic inside retransmitUnacked would silently kill the
+	// L7 panic boundary (architecture-notes/03-INVARIANTS.md §8):
+	// a panic inside retransmitUnacked would silently kill the
 	// retransmit goroutine, stranding the connection with unacked
 	// segments. Tear down THIS connection only — other connections in
 	// the daemon must continue. recoverLayer publishes the bus event so
@@ -3407,7 +3367,7 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 			if conn.RTO > 10*time.Second {
 				conn.RTO = 10 * time.Second
 			}
-			// P2-009: add 0-25% random jitter so many connections that
+			// add 0-25% random jitter so many connections that
 			// started at the same time don't retransmit in lockstep
 			// under shared congestion. Cap still applies after jitter.
 			jitter := time.Duration(rand.Int63n(int64(conn.RTO / 4)))
@@ -3479,10 +3439,8 @@ func (d *Daemon) retransmitUnacked(conn *Connection) {
 	}
 }
 
-// CloseConnection sends FIN and enters FIN_WAIT. The FIN is tracked in the
-// retransmission buffer so it will be retried if lost — the existing retxLoop
-// handles it. When FIN-ACK is received the connection moves to TIME_WAIT and
-// is eventually reaped by idleSweepLoop.
+// CloseConnection: FIN is tracked in the retx buffer so retxLoop retries on loss.
+// FIN-ACK → TIME_WAIT → reaped by idleSweepLoop.
 func (d *Daemon) CloseConnection(conn *Connection) {
 	// Capture every conn field this function reads under Mu; reading them
 	// post-unlock would race with concurrent state mutations from
@@ -3540,7 +3498,7 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 		conn.RetxMu.Unlock()
 	}
 	conn.CloseRecvBuf()
-	// P1-003: stop a pending delayed-ACK timer so it doesn't fire after
+	// stop a pending delayed-ACK timer so it doesn't fire after
 	// the connection is gone and queue an ACK for a dead peer. ACKTimer
 	// is guarded by AckMu (see Connection field comment), NOT Mu — taking
 	// Mu here would have raced with handleStreamPacket's delayed-ACK
@@ -3557,9 +3515,7 @@ func (d *Daemon) CloseConnection(conn *Connection) {
 	conn.Mu.Unlock()
 }
 
-// SendDatagram sends an unreliable unicast packet. Broadcast addresses
-// (Node=0xFFFFFFFF) are rejected — use BroadcastDatagram, which requires
-// an admin token.
+// SendDatagram: rejects broadcast addresses (Node=0xFFFFFFFF) — use BroadcastDatagram (requires admin token).
 func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte) error {
 	if dstAddr.IsBroadcast() {
 		return fmt.Errorf("broadcast address requires admin token: use BroadcastDatagram")
@@ -3599,12 +3555,8 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 	return d.tunnels.Send(dstAddr.Node, pkt)
 }
 
-// BroadcastDatagram is the admin-gated entry point for sending a datagram
-// to every member of a network. The admin token must be non-empty and equal
-// to the daemon's configured Config.AdminToken (constant-time compare). With
-// a valid token, broadcast is permitted on every network including the
-// backbone (network 0); membership of the sender is NOT required — admin
-// tokens are root-level. Per-recipient outbound port policy still applies.
+// BroadcastDatagram: admin token required (constant-time compare); permitted on all networks including 0 (backbone);
+// sender membership not required; per-recipient outbound port policy still applies.
 func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, adminToken string) error {
 	if d.config.AdminToken == "" {
 		return fmt.Errorf("broadcast denied: daemon has no admin token configured")
@@ -3769,7 +3721,7 @@ func (d *Daemon) isEndpointStale(nodeID uint32) bool {
 	return time.Since(e.cachedAt) > EndpointCacheTTL
 }
 
-// CachedEndpoint returns a previously cached endpoint for a peer (exported for testing).
+// CachedEndpoint: exported for testing.
 func (d *Daemon) CachedEndpoint(nodeID uint32) (string, bool) {
 	return d.cachedEndpoint(nodeID)
 }
@@ -4046,7 +3998,7 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	return nil
 }
 
-// T4.3 (P9/P10): The legacy heartbeatLoop spanned L4 + L5/L8 + L11 — registry
+// The legacy heartbeatLoop spanned L4 + L5/L8 + L11 — registry
 // trust republish, beacon NAT-mapping refresh, relayed-handshake polling, and
 // observability heartbeat publish were chained off a single ticker, with the
 // downstream concerns gated on a successful registry heartbeat. That violated
@@ -4303,10 +4255,16 @@ func (d *Daemon) reRegister() {
 			slog.Warn("re-registration: failed to restore visibility", "error", err)
 		}
 	}
-	if d.config.Hostname != "" {
-		if _, err := d.regConn.SetHostname(nodeID, d.config.Hostname); err != nil {
-			slog.Warn("re-registration: failed to restore hostname", "error", err)
-		}
+	// Re-registration restores the same hostname we picked on the
+	// initial Start path — either operator-configured or the auto
+	// pilot-<hex> default. Idempotent: the registry's setNodeHostname
+	// handler is a no-op when the value matches what's already stored.
+	hostname := d.config.Hostname
+	if hostname == "" {
+		hostname = defaultHostnameForNode(nodeID)
+	}
+	if _, err := d.regConn.SetHostname(nodeID, hostname); err != nil {
+		slog.Warn("re-registration: failed to restore hostname", "hostname", hostname, "error", err)
 	}
 
 	if d.stopping() {
@@ -4461,7 +4419,7 @@ func (d *Daemon) relayProbeLoop() {
 		case <-ticker.C:
 			relayPeers := d.tunnels.RelayPeerIDs()
 			for _, nodeID := range relayPeers {
-				// P1-010 fix: send a targeted direct probe without flipping
+				// send a targeted direct probe without flipping
 				// the relay flag. If the peer's direct path has recovered, the
 				// response will arrive on tm.sock from their real address;
 				// handleEncrypted auto-clears relay mode on a successful
@@ -4498,7 +4456,7 @@ func (d *Daemon) relayProbeLoop() {
 // subscribeNetworkInternalToBus below for the daemon-internal half
 // (managed engines + member-tag cache). Plugin-side reactions (policy
 // runners) live in plugins/policy/service.go and subscribe via
-// coreapi.Deps.Events. (T4.3.)
+// coreapi.Deps.Events.
 // ---------------------------------------------------------------------------
 
 // networkSyncLoop periodically reconciles local membership with the registry.
@@ -4532,7 +4490,7 @@ func (d *Daemon) networkSyncLoop() {
 // tag changes vs. local state, refreshes the L7-internal port-policy
 // cache, publishes network.* bus events for each delta, and persists
 // a snapshot. It does NOT start or stop policy runners or managed
-// engines directly — those are bus subscribers' responsibility (T4.3).
+// engines directly — those are bus subscribers' responsibility.
 func (d *Daemon) reconcileMembership() {
 	if d.regConn == nil {
 		return
@@ -4845,7 +4803,6 @@ func (d *Daemon) loadNetworkSnapshot() {
 	slog.Info("loaded network snapshot", "networks", len(snap.Networks), "synced_at", snap.SyncedAt)
 }
 
-// lookupPeerPubKey fetches a peer's Ed25519 public key from the registry.
 func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 	resp, err := d.regConn.Lookup(nodeID)
 	if err != nil {
@@ -4860,8 +4817,6 @@ func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 	return crypto.DecodePublicKey(pubKeyB64)
 }
 
-// pollRelayedHandshakes checks the registry for handshake requests and
-// responses relayed to this node and processes them.
 func (d *Daemon) pollRelayedHandshakes() {
 	resp, err := d.regConn.PollHandshakes(d.NodeID())
 	if err != nil {
@@ -4932,4 +4887,18 @@ func resolveLocalAddr(addr string) string {
 		return "[::1]:" + port
 	}
 	return addr
+}
+
+// defaultHostnameForNode is the auto-generated hostname assigned when
+// Config.Hostname is empty. Format: "pilot-" + 8 lowercase hex digits
+// of the node ID. Stable across restarts (nodeID is the daemon's
+// persistent identity), unique per node (32-bit nodeID is registry-
+// allocated), and matches the registry's hostname regex
+// `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$` (14 chars, starts/ends
+// alphanumeric, contains only [a-z0-9-]).
+//
+// The operator can override at any time via `pilotctl set-hostname
+// <name>`; setNodeHostname on the registry is a plain swap.
+func defaultHostnameForNode(nodeID uint32) string {
+	return fmt.Sprintf("pilot-%08x", nodeID)
 }
