@@ -7,6 +7,7 @@ package dataexchange
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -239,6 +240,7 @@ func (s *Service) saveInboxMessage(frame *internaldx.Frame, from protocol.Addr) 
 		"type":        internaldx.TypeName(frame.Type),
 		"from":        from.String(),
 		"data":        string(frame.Payload),
+		"data_b64":    base64.StdEncoding.EncodeToString(frame.Payload),
 		"bytes":       len(frame.Payload),
 		"received_at": ts.Format(time.RFC3339Nano),
 	}
