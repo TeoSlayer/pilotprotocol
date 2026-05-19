@@ -1,0 +1,240 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import '../../styles/system.css';
+
+const title = "Compatibility — Pilot Protocol";
+const description = "Per-environment deployment modes for pilot-daemon. UDP transport vs single-port-443 compat mode across PaaS, serverless, k8s, agent sandboxes, VMs, and corporate networks.";
+const canonicalUrl = "https://pilotprotocol.network/for/compatibility";
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<BaseHead title={title} description={description} canonicalUrl={canonicalUrl} />
+<script type="application/ld+json" set:html={JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "name": title,
+  "description": description,
+  "url": canonicalUrl,
+  "publisher": {"@type": "Organization", "name": "Vulture Labs", "url": "https://vulturelabs.com"}
+})}></script>
+<style>
+  .compat-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.92rem; }
+  .compat-table th, .compat-table td { border: 1px solid var(--kumo-line, #21262d); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  .compat-table th { background: var(--kumo-recessed, #161b22); font-weight: 600; }
+  .compat-table tr.section-row td { background: var(--kumo-tint, #0d1117); font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.05em; }
+  .yes { color: #3fb950; }
+  .no  { color: #f85149; }
+  .partial { color: #d29922; }
+  .mode-udp { color: #58a6ff; font-weight: 600; }
+  .mode-compat { color: #3fb950; font-weight: 600; }
+  .mode-proxy { color: #d29922; font-weight: 600; }
+  .mode-wrong { color: #8b949e; font-style: italic; }
+  .caveats { font-size: 0.85rem; color: var(--kumo-muted, #8b949e); }
+  .install-block { background: var(--kumo-panel2, #0d1117); border-radius: 6px; padding: 1rem 1.25rem; margin: 1rem 0; overflow-x: auto; }
+  .install-block pre { margin: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; margin: 1rem 0; }
+  .legend > span { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .egress-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+  .egress-table th, .egress-table td { border: 1px solid var(--kumo-line, #21262d); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  .egress-table th { background: var(--kumo-recessed, #161b22); }
+</style>
+</head>
+<body>
+
+<Nav active="for" />
+
+<section class="page-head">
+  <div class="wrap">
+    <div class="eyebrow">Compatibility</div>
+    <h1>Where pilot-daemon runs.<br/><em>Pick the right mode.</em></h1>
+    <p class="lede">
+      Pilot daemon ships two transports. <code>-transport=udp</code> is the default — direct peer paths, lowest latency, fine on
+      home networks, cloud VMs, k8s with open egress. <code>-transport=compat</code> tunnels everything through a single
+      outbound TCP/443 to <code>registry.pilotprotocol.network</code> + <code>beacon.pilotprotocol.network</code> for environments
+      that block UDP or restrict egress. This page maps every common environment to the right mode.
+    </p>
+  </div>
+</section>
+
+<section class="content">
+  <div class="wrap" style="max-width: 980px; margin: 0 auto; padding: 2rem 1rem;">
+
+    <h2>Two modes, one binary</h2>
+
+    <ul>
+      <li><strong>UDP mode</strong> (<code>-transport=udp</code>, default). The daemon binds a public UDP socket; peers reach you directly or via beacon hole-punch. Lowest latency. Needs outbound UDP/4000 (and inbound on it if you want a public node).</li>
+      <li><strong>Compat mode</strong> (<code>-transport=compat</code>, since v1.10.1; <strong>single-port-443</strong> since v1.10.3). The daemon opens long-lived TCP/443 connections only — WebSocket Secure to the beacon for the data plane, TLS to the registry for control. Zero UDP. Same overlay; same Ed25519 trust; ~1.5–2× latency overhead from the beacon hop.</li>
+    </ul>
+
+    <p>v1.10.3 made compat mode <strong>truly</strong> 443-only: the registry channel migrated from raw TCP/9000 to TLS on the same TCP/443 listener, multiplexed by SNI on nginx. A compat daemon's <code>lsof</code> now shows exactly one outbound port: 443.</p>
+
+    <h2>Platform matrix</h2>
+
+    <div class="legend">
+      <span><span class="mode-udp">udp</span> — default UDP transport</span>
+      <span><span class="mode-compat">compat</span> — <code>-transport=compat</code> on TCP/443</span>
+      <span><span class="mode-proxy">compat+proxy</span> — needs <code>HTTPS_PROXY</code> (v1.10.4+, not shipped)</span>
+      <span><span class="mode-wrong">wrong runtime</span> — no daemon</span>
+    </div>
+
+    <table class="compat-table">
+      <thead>
+        <tr>
+          <th>Platform</th>
+          <th>UDP out</th>
+          <th>Long-lived?</th>
+          <th>Mode</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="section-row"><td colspan="5">Container hosting / PaaS</td></tr>
+        <tr><td>Render</td><td class="no">❌</td><td class="yes">✅</td><td><span class="mode-compat">compat</span></td><td>UDP blocked. The v1.10.2 motivating case. Single TCP/443 works as of v1.10.3.</td></tr>
+        <tr><td>Railway</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Default-allow egress on both protocols.</td></tr>
+        <tr><td>Fly.io Machines</td><td class="no">❌ (shared v4)</td><td class="yes">✅</td><td><span class="mode-compat">compat</span></td><td>UDP needs dedicated IPv4; even then app-level UDP egress is flaky.</td></tr>
+        <tr><td>Heroku Common Runtime</td><td class="partial">partial</td><td class="partial">~24h dyno cycle</td><td><span class="mode-compat">compat</span></td><td>App-level UDP undocumented. Dyno restarts every ~24h — daemon re-registers fine.</td></tr>
+        <tr><td>DigitalOcean App Platform</td><td class="partial">unknown</td><td class="yes">✅</td><td><span class="mode-compat">compat</span></td><td>Safer default; can't open SSH/SMTP ports.</td></tr>
+        <tr><td>Northflank</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>UDP + TCP both first-class.</td></tr>
+        <tr><td>Coolify / CapRover (self-hosted VPS)</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Inherits host firewall — open UDP/4000 manually.</td></tr>
+
+        <tr class="section-row"><td colspan="5">Serverless / functions</td></tr>
+        <tr><td>AWS Lambda</td><td class="partial">VPC+NAT</td><td class="no">❌ 15-min hard cap</td><td><span class="mode-wrong">wrong runtime</span></td><td>15-min timeout kills tunnel; cold starts re-register. Use the SDK in the handler, not the daemon.</td></tr>
+        <tr><td>Google Cloud Run</td><td class="partial">via VPC connector</td><td class="yes">w/ min-instances=1</td><td><span class="mode-compat">compat</span></td><td>Inbound is HTTPS-only; daemon runs as background goroutine alongside the HTTP listener.</td></tr>
+        <tr><td>Vercel Functions / Netlify Functions / GCP Cloud Functions</td><td>n/a</td><td class="no">❌ ephemeral</td><td><span class="mode-wrong">wrong runtime</span></td><td>No persistent process model.</td></tr>
+        <tr><td>Cloudflare Workers</td><td class="no">❌</td><td class="no">❌</td><td><span class="mode-wrong">wrong runtime</span></td><td>No long-lived sockets, no UDP, no <code>listen()</code>.</td></tr>
+
+        <tr class="section-row"><td colspan="5">VMs / IaaS</td></tr>
+        <tr><td>Bare metal / EC2 / GCE / Azure VM / DO Droplet / Hetzner / Linode</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Open UDP/4000 in security group; use <code>-public</code> to advertise.</td></tr>
+
+        <tr class="section-row"><td colspan="5">Kubernetes</td></tr>
+        <tr><td>Vanilla k8s / EKS / GKE / AKS / k3s / k0s / OpenShift / kind</td><td class="yes">✅ (default CNI)</td><td class="yes">✅</td><td><span class="mode-udp">udp</span> or <span class="mode-compat">compat</span></td><td>Use compat under <code>NetworkPolicy</code> default-deny. DaemonSet or sidecar pattern.</td></tr>
+
+        <tr class="section-row"><td colspan="5">Coding-agent sandboxes</td></tr>
+        <tr><td>Cursor Cloud Agents</td><td class="partial">allowlist-driven</td><td class="yes">task-bound</td><td><span class="mode-udp">udp</span> if allowlisted, else <span class="mode-compat">compat</span></td><td>Add <code>*.pilotprotocol.network</code> + <code>34.71.57.205</code> to the egress allowlist.</td></tr>
+        <tr><td>Replit Agent / Docker AI Sandbox</td><td class="no">❌</td><td class="yes">✅</td><td><span class="mode-proxy">compat+proxy</span></td><td>Raw TCP/UDP blocked. All egress through <code>host.docker.internal:3128</code> proxy. Needs HTTPS_PROXY support — tracked for v1.10.4+.</td></tr>
+        <tr><td>Devin (Cognition)</td><td class="no">❌</td><td class="yes">✅</td><td><span class="mode-proxy">compat+proxy</span></td><td>Same Docker AI Sandbox model — filtering proxy blocks raw sockets.</td></tr>
+        <tr><td>Modal Sandboxes</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Default-allow. Set sandbox timeout long for persistent run.</td></tr>
+        <tr><td>E2B Sandboxes</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>IP/CIDR rules only; Pilot endpoints allowed by default.</td></tr>
+        <tr><td>Daytona Sandboxes</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Default-allow; iptables-based.</td></tr>
+        <tr><td>GitHub Codespaces</td><td class="yes">✅ IPv4</td><td class="partial">30-min idle stop</td><td><span class="mode-udp">udp</span></td><td>Idle stop kills daemon; restart on resume. Use <code>devcontainer.json</code> <code>postCreateCommand</code>.</td></tr>
+        <tr><td>Gitpod</td><td class="yes">✅</td><td class="partial">idle stop</td><td><span class="mode-udp">udp</span></td><td>UDP/4242 to control plane already open. Configure <code>.gitpod.yml</code> task.</td></tr>
+        <tr><td>Coder (workspaces)</td><td class="partial">template-dependent</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td>Inherits underlying provider (EC2/k8s/Docker).</td></tr>
+        <tr><td>Manus Sandbox</td><td class="yes">✅</td><td class="yes">✅ (VM-backed)</td><td><span class="mode-udp">udp</span></td><td>Default-allow w/ configurable egress rules.</td></tr>
+        <tr><td>Lovable / v0.dev / Bolt.new (WebContainers)</td><td class="no">❌</td><td class="no">❌ in-browser</td><td><span class="mode-wrong">wrong runtime</span></td><td>UI generators / browser sandboxes — no POSIX sockets.</td></tr>
+
+        <tr class="section-row"><td colspan="5">Desktop / local dev</td></tr>
+        <tr><td>macOS LaunchAgent</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td><code>install.sh</code> writes <code>~/Library/LaunchAgents/network.pilotprotocol.daemon.plist</code> and loads it.</td></tr>
+        <tr><td>Linux systemd unit (user or system)</td><td class="yes">✅</td><td class="yes">✅</td><td><span class="mode-udp">udp</span></td><td><code>install.sh</code> with sudo enables the system unit + auto-updater.</td></tr>
+        <tr><td>tmux/screen (manual run)</td><td class="yes">✅</td><td class="partial">while session lives</td><td><span class="mode-udp">udp</span></td><td>Ad-hoc dev only — no auto-restart.</td></tr>
+        <tr><td>Windows</td><td>—</td><td>—</td><td><span class="mode-wrong">not shipped</span></td><td>No Windows binary in v1.10.3.</td></tr>
+
+        <tr class="section-row"><td colspan="5">Browser / WASM</td></tr>
+        <tr><td>Browser tab / WASM</td><td class="no">❌</td><td>n/a</td><td><span class="mode-wrong">wrong runtime</span></td><td>Use the JS SDK over WSS instead of running a daemon.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Corporate network egress models</h2>
+
+    <table class="egress-table">
+      <thead>
+        <tr><th>Egress model</th><th>Examples</th><th>Compat mode today</th><th>Needed</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Open egress</td><td>home, most cloud VMs, default Docker</td><td>UDP works — use default</td><td>nothing</td></tr>
+        <tr><td>Default-deny, TCP/443 only</td><td>hotel/airport/conference wifi, locked corp wifi</td><td>v1.10.3 compat works as-is — single TCP/443 outbound</td><td><code>-transport=compat</code></td></tr>
+        <tr><td>HTTP <code>CONNECT</code> proxy</td><td>corp networks with explicit proxy URL</td><td>partial — Go's <code>net/http</code> honors <code>HTTPS_PROXY</code> for the WSS dial, but the registry TLS dial is <code>net.Dial</code> and currently ignores it</td><td>v1.10.4: route registry TLS through <code>HTTPS_PROXY</code></td></tr>
+        <tr><td>Transparent TLS interception</td><td>Zscaler, Fortinet SSL Deep Inspection, Palo Alto, BlueCoat, Cisco Umbrella, Netskope</td><td>works if <code>-tls-trust=system</code> (corp CA already in OS trust store — the v1.10.3 default)</td><td>already supported</td></tr>
+        <tr><td>HTTP-proxy-only sandbox (no raw TCP)</td><td>Replit Agent, Devin, Docker AI Sandbox</td><td>blocked — daemon needs raw TCP to <code>:443</code></td><td>v1.10.4: tunnel WSS + registry through <code>HTTPS_PROXY</code> via <code>CONNECT</code></td></tr>
+        <tr><td>Domain-name allowlist</td><td>Cursor Cloud Agents, enterprise Zscaler PAC</td><td>works once user adds <code>*.pilotprotocol.network</code> + <code>34.71.57.205</code></td><td>doc-only</td></tr>
+        <tr><td>DPI / protocol allowlist</td><td>Great Firewall, Iran-style filters</td><td>blocked — no domain fronting / ECH today</td><td>out of scope</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Worked install examples</h2>
+
+    <h3>1. Render free-tier worker (UDP blocked)</h3>
+    <div class="install-block">
+<pre><code><span class="cmt"># Dockerfile</span>
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y curl ca-certificates \\
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://pilotprotocol.network/install.sh | \\
+    sh -s -- --email you@example.com
+ENTRYPOINT ["/root/.pilot/bin/pilot-daemon", "-transport=compat"]</code></pre>
+    </div>
+    <p class="caveats">No port exposed — Render allows arbitrary outbound TCP/443. Zero UDP, zero TCP/9000.</p>
+
+    <h3>2. AWS Lambda — don't</h3>
+    <p>Lambda has a 15-minute hard timeout and freezes the execution environment between invocations. A Lambda Extension can host a sidecar process but only while the function is warm. <strong>Wrong runtime</strong> for <code>pilot-daemon</code>. If you want Pilot-from-Lambda, call the registry directly via the JS or Python SDK over HTTPS during the handler invocation; don't try to run the daemon.</p>
+
+    <h3>3. Kubernetes sidecar in an egress-only pod</h3>
+    <div class="install-block">
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-pilot
+spec:
+  containers:
+    - name: app
+      image: your/app:latest
+    - name: pilot
+      image: debian:bookworm-slim
+      command: ["/bin/sh", "-c"]
+      args:
+        - curl -fsSL https://pilotprotocol.network/install.sh | \\
+          sh -s -- --email pilot@example.com &&
+          exec /root/.pilot/bin/pilot-daemon -transport=compat \\
+            -socket /shared/pilot.sock
+      volumeMounts:
+        - {"{ name: pilot-sock, mountPath: /shared }"}
+  volumes:
+    - {"{ name: pilot-sock, emptyDir: {} }"}</code></pre>
+    </div>
+    <p class="caveats">Works under any <code>NetworkPolicy</code> that permits egress to TCP/443. App container talks to daemon over <code>/shared/pilot.sock</code>.</p>
+
+    <h3>4. macOS dev laptop (LaunchAgent)</h3>
+    <div class="install-block">
+<pre><code>curl -fsSL https://pilotprotocol.network/install.sh | \\
+  sh -s -- --email you@example.com</code></pre>
+    </div>
+    <p class="caveats">Installer writes <code>~/Library/LaunchAgents/network.pilotprotocol.daemon.plist</code> and loads it. Defaults to <code>-transport=udp</code>; flip to compat only if your network blocks UDP/4000.</p>
+
+    <h3>5. Forced-compat systemd unit (locked-down corp Linux)</h3>
+    <div class="install-block">
+<pre><code>sudo curl -fsSL https://pilotprotocol.network/install.sh | \\
+  sudo PILOT_ALLOW_ROOT=1 sh -s -- --email you@example.com
+sudo systemctl edit pilot-daemon   <span class="cmt"># add: ExecStart override with -transport=compat</span>
+sudo systemctl restart pilot-daemon</code></pre>
+    </div>
+
+    <h2>How compat mode actually works</h2>
+
+    <p>The compat daemon opens outbound to <strong>only TCP/443</strong>:</p>
+    <ul>
+      <li><code>beacon.pilotprotocol.network:443</code> — long-lived WebSocket Secure connection carrying the data plane. Every Pilot peer-to-peer packet becomes one binary WS frame.</li>
+      <li><code>registry.pilotprotocol.network:443</code> — TLS connection pool for control: registration, heartbeats, resolve, hostname lookup.</li>
+    </ul>
+
+    <p>nginx on the rendezvous host listens on TCP/443 in stream mode, pre-reads the TLS ClientHello's SNI field, and routes accordingly: registry traffic to a TLS-terminating server that proxies plain bytes to the existing registry on <code>:9000</code>; everything else to the existing HTTP vhost terminator on <code>:14443</code>. No code changes on the registry side. The daemon's <code>-registry-trust=system</code> path verifies the public Let's Encrypt cert.</p>
+
+    <p>End-to-end Ed25519 trust is unchanged. TLS provides the encrypted channel between daemon and rendezvous; Ed25519 still protects peer-to-peer identity and payload integrity, exactly as in UDP mode.</p>
+
+    <h2>Further reading</h2>
+
+    <ul>
+      <li><a href="/docs/firewalls">Docs: Firewalls &amp; Compat Mode</a> — flag reference + detailed semantics</li>
+      <li><a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/SPEC-compat-mode.md">SPEC-compat-mode.md</a> — wire format, PKI, rollout plan</li>
+      <li><a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/RUNBOOK-compat-443-only.md">RUNBOOK-compat-443-only.md</a> — operator runbook for the single-port-443 nginx setup</li>
+      <li><a href="https://github.com/TeoSlayer/pilotprotocol/releases/tag/v1.10.3">v1.10.3 release notes</a> — what changed</li>
+    </ul>
+
+  </div>
+</section>
+
+<Footer />
+
+</body>
+</html>
