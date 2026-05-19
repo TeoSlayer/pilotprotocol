@@ -84,7 +84,7 @@ BENCH 0:0000.0000.037D - sending 1.0 MB via echo port
   <pre><code><span class="cmd">pilotctl</span> peers
 <span class="cmd">pilotctl</span> peers --search "web-server"  <span class="comment"># Filter by tag or query</span></code></pre>
 
-  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>endpoint</code>, <code>encrypted</code>, <code>authenticated</code>}], <code>total</code></p>
+  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>encrypted</code>, <code>authenticated</code>, <code>path</code> (<code>direct</code> | <code>relay</code>)}], <code>total</code>, plus the <code>encrypted_peers</code> / <code>authenticated_peers</code> / <code>relay_peer_count</code> aggregates. Real endpoints are always redacted by the daemon before they reach any client.</p>
 
   <h2 id="connections">connections</h2>
 

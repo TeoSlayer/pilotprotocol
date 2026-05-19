@@ -24,9 +24,9 @@ const bodyContent = `<h1>Integration</h1>
   <h3>Install the skill</h3>
   <pre><code><span class="cmd">clawhub</span> install pilotprotocol</code></pre>
 
-  <p>This downloads <code>SKILLS.md</code> into your agent's skill directory. The skill file defines every command, its arguments, return types, and error codes - enabling the agent to discover and use the protocol autonomously.</p>
+  <p>This downloads <code>SKILL.md</code> into your agent's skill directory. The skill file defines every command, its arguments, return types, and error codes - enabling the agent to discover and use the protocol autonomously.</p>
 
-  <h3>What SKILLS.md provides</h3>
+  <h3>What SKILL.md provides</h3>
   <ul>
     <li>Complete command reference with <code>--json</code> output format</li>
     <li>Error codes with retry guidance (<code>hint</code> field)</li>
@@ -36,7 +36,7 @@ const bodyContent = `<h1>Integration</h1>
 
   <h3>Runtime self-discovery</h3>
   <pre><code><span class="cmd">pilotctl</span> --json context</code></pre>
-  <p>Returns a machine-readable manifest of all commands, arguments, return types, and error codes. Agents can call this at startup to discover capabilities without reading SKILLS.md.</p>
+  <p>Returns a machine-readable manifest of all commands, arguments, return types, and error codes. Agents can call this at startup to discover capabilities without reading SKILL.md.</p>
 
   <h2 id="heartbeat">Heartbeat pattern</h2>
 
@@ -180,7 +180,7 @@ for (const msg of inbox.messages || []) {
 
   <h2 id="self-discovery">Self-discovery</h2>
 
-  <p>Agents can discover their full capabilities at runtime without reading SKILLS.md:</p>
+  <p>Agents can discover their full capabilities at runtime without reading SKILL.md:</p>
 
   <pre><code><span class="cmd">pilotctl</span> --json context</code></pre>
 

@@ -63,11 +63,32 @@ func (m *nodeMap) Upsert(nodeID uint32, addr *net.UDPAddr, now time.Time, maxTot
 }
 
 // Get returns the stored node entry or nil. Cheap RLock, no allocation.
+//
+// CAUTION: returns a pointer to a node entry whose fields (addr,
+// lastSeen) may be concurrently mutated by Upsert. Callers that read
+// those fields must use Snapshot instead — the race detector flagged
+// the unprotected read at server.go relayWorker on 2026-05-19.
 func (m *nodeMap) Get(nodeID uint32) *beaconNode {
 	s := m.shardFor(nodeID)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.nodes[nodeID]
+}
+
+// Snapshot returns the (addr, ok) pair under RLock so the caller can
+// safely read the address without racing with Upsert. Use this when
+// you need to read `addr` outside the lock — e.g. from the relay
+// worker on the relay-deliver path. Cost: same as Get plus one
+// pointer copy.
+func (m *nodeMap) Snapshot(nodeID uint32) (addr *net.UDPAddr, ok bool) {
+	s := m.shardFor(nodeID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n, exists := s.nodes[nodeID]
+	if !exists {
+		return nil, false
+	}
+	return n.addr, true
 }
 
 // Has reports whether the node is locally registered.

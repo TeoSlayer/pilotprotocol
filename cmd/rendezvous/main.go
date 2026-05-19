@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"flag"
 	"log"
 	"log/slog"
@@ -41,6 +42,7 @@ func main() {
 	staleThreshold := flag.Duration("stale-threshold", 30*time.Minute, "how long since last heartbeat before a node is considered stale on the dashboard (e.g. 30m, 5m). Default 30m tolerates client reconnect storms; smaller values give faster dashboard reflection of disconnects.")
 	mutexProfileFraction := flag.Int("mutex-profile-fraction", 1000, "rate for runtime mutex contention profiling (1/N events sampled; 0 = off). Always-on at low overhead so profile data is available without runtime reconfiguration.")
 	blockProfileRate := flag.Int("block-profile-rate", 10000, "rate for runtime blocking profile in nanoseconds (0 = off). Captures goroutines blocked on chan/select/Cond — same rationale as -mutex-profile-fraction.")
+	wssAddr := flag.String("wss-addr", "", "compat-mode WSS bridge bind address (e.g. ':8443' or '127.0.0.1:8443'). Empty disables. Production deploys put Caddy in front for TLS termination on :443; the Go binary speaks plain WS upstream on this addr.")
 	flag.Parse()
 
 	if *configPath != "" {
@@ -65,13 +67,10 @@ func main() {
 
 	slog.Info("starting rendezvous server", "version", version)
 
-	// Start beacon
+	// Construct beacon (don't Serve yet — we wire WSS after the
+	// registry exists so the WSS pubkey lookup can read from the
+	// in-process registry's pubkey index).
 	b := beacon.New()
-	go func() {
-		if err := b.ListenAndServe(*beaconAddr); err != nil {
-			log.Fatalf("beacon: %v", err)
-		}
-	}()
 
 	// Start registry
 	r := registry.NewWithStore(*beaconAddr, *storePath)
@@ -107,6 +106,29 @@ func main() {
 		r.SetStandby(*standbyPrimary)
 		slog.Info("running as hot standby", "primary", *standbyPrimary)
 	}
+
+	// Optional compat-mode WSS bridge. Enabled with -wss-addr. The
+	// pubkey resolver reads the in-process registry's index — no
+	// extra RPC needed since they share memory in this binary.
+	if *wssAddr != "" {
+		if err := b.EnableCompatWSS(*wssAddr, func(nodeID uint32) (ed25519.PublicKey, bool) {
+			raw, ok := r.LookupPublicKey(nodeID)
+			if !ok {
+				return nil, false
+			}
+			return ed25519.PublicKey(raw), true
+		}); err != nil {
+			log.Fatalf("compat WSS bridge: %v", err)
+		}
+	}
+
+	// Start beacon now that any WSS bridge is in place.
+	go func() {
+		if err := b.ListenAndServe(*beaconAddr); err != nil {
+			log.Fatalf("beacon: %v", err)
+		}
+	}()
+
 	go func() {
 		if err := r.ListenAndServe(*registryAddr); err != nil {
 			log.Fatalf("registry: %v", err)

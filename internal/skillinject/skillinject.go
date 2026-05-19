@@ -94,6 +94,11 @@ func Tick(ctx context.Context, cfg Config) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Cache the manifest so `pilotctl skills disable` can find everything
+	// we wrote without depending on the network. Best-effort.
+	if manifestBytes, mErr := manifestJSON(manifest); mErr == nil {
+		_ = writeCache(home, manifestCacheRel, manifestBytes)
+	}
 
 	// Fetch entrypoint SKILL.md once; all tools get the same body.
 	entrypointRel := fmt.Sprintf("skills/%s/SKILL.md", manifest.Entrypoint)

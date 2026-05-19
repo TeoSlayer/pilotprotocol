@@ -20,9 +20,11 @@ const bodyContent = `<h1>CLI Reference</h1>
       <li><a href="#service-agents">Service Agents</a></li>
       <li><a href="#diagnostics">Diagnostics</a></li>
       <li><a href="#managed">Managed Networks</a></li>
+      <li><a href="#member-tags">Member Tags</a></li>
       <li><a href="#policy">Network Policies</a></li>
       <li><a href="#enterprise">Enterprise Admin</a></li>
       <li><a href="#registry">Registry</a></li>
+      <li><a href="#meta">Meta</a></li>
       <li><a href="#gateway">Gateway</a></li>
     </ul>
   </div>
@@ -62,7 +64,7 @@ const bodyContent = `<h1>CLI Reference</h1>
   [--socket &lt;path&gt;] [--config &lt;path&gt;] [--webhook &lt;url&gt;]
   [--admin-token &lt;token&gt;] [--networks &lt;ids&gt;]</code></pre>
   <p>Starts as a background process. Blocks until registered, prints status, then exits. Use <code>--foreground</code> to run in the current process.</p>
-  <p><strong>Note:</strong> <code>--email</code> is required on first registration. It is saved to <code>~/.pilot/config.json</code> and not needed on subsequent starts.</p>
+  <p><strong>Note:</strong> <code>--email</code> is optional. If omitted, the daemon synthesises one from the public-key fingerprint (<code>&lt;fingerprint&gt;@nodes.pilotprotocol.network</code>); when supplied, it persists to <code>~/.pilot/config.json</code> and is not needed on subsequent starts. <code>--trust-auto-approve</code> auto-accepts every incoming handshake (useful for service-agent nodes).</p>
   <p>Returns: <code>node_id</code>, <code>address</code>, <code>pid</code>, <code>socket</code>, <code>hostname</code>, <code>log_file</code></p>
 
   <h3 id="daemon-stop">daemon stop</h3>
@@ -122,18 +124,31 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>filename</code>, <code>bytes</code>, <code>destination</code>, <code>ack</code></p>
 
   <h3 id="send-message">send-message</h3>
-  <pre><code><span class="cmd">pilotctl</span> send-message &lt;address|hostname&gt; --data "&lt;text&gt;" [--type text|json|binary]</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> send-message &lt;address|hostname&gt; --data "&lt;text&gt;" [--type text|json|binary]
+              [--count &lt;n&gt;] [--reuse-conn] [--wait [&lt;dur&gt;]] [--trace] [--no-auto-handshake]</code></pre>
   <p>Sends a typed message via data exchange (port 1001). Default type: <code>text</code>.</p>
+  <ul>
+    <li><code>--count &lt;n&gt;</code> — send N times (default 1).</li>
+    <li><code>--reuse-conn</code> — reuse the underlying connection across <code>--count</code> sends (saves ~1 RTT each).</li>
+    <li><code>--wait [&lt;dur&gt;]</code> — block until a reply lands in <code>~/.pilot/inbox/</code>. Default 30s. Use this with service agents instead of polling the inbox.</li>
+    <li><code>--no-auto-handshake</code> — skip the implicit trust handshake with known agents.</li>
+    <li><code>--trace</code> — print per-step timing on stderr.</li>
+  </ul>
   <p>Returns: <code>target</code>, <code>type</code>, <code>bytes</code>, <code>ack</code></p>
+
+  <h3 id="dgram">dgram</h3>
+  <pre><code><span class="cmd">pilotctl</span> dgram &lt;address|hostname&gt; &lt;port&gt; --data "&lt;msg&gt;"</code></pre>
+  <p>Sends a single unreliable datagram (UDP-style — no ACK, no retry, no ordering). Use for telemetry, heartbeats, or anything where freshness matters more than reliability.</p>
 
   <h3 id="listen">listen</h3>
   <pre><code><span class="cmd">pilotctl</span> listen &lt;port&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
   <p>Listens for datagrams. Without <code>--count</code>: streams NDJSON indefinitely.</p>
   <p>Returns: <code>messages</code> [{<code>src_addr</code>, <code>src_port</code>, <code>data</code>, <code>bytes</code>}], <code>timeout</code> (bool)</p>
 
-  <h3 id="broadcast">broadcast <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(WIP - not yet available)</span></h3>
-  <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt;</code></pre>
-  <p>Will send a datagram to all members of a network. Returns <code>"not available yet"</code> in the current release.</p>
+  <h3 id="broadcast">broadcast</h3>
+  <pre><code><span class="cmd">pilotctl</span> broadcast &lt;network_id&gt; &lt;message&gt; [--port &lt;port&gt;]</code></pre>
+  <p>Fans a best-effort datagram out to every member of the network. The daemon iterates registered members and sends one datagram each; there is no per-recipient ACK.</p>
+  <p>Returns: <code>network_id</code>, <code>port</code>, <code>bytes</code></p>
 
   <h3 id="subscribe">subscribe</h3>
   <pre><code><span class="cmd">pilotctl</span> subscribe &lt;address|hostname&gt; &lt;topic&gt; [--count &lt;n&gt;] [--timeout &lt;dur&gt;]</code></pre>
@@ -205,9 +220,9 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>files</code> [{<code>name</code>, <code>bytes</code>, <code>modified</code>, <code>path</code>}], <code>total</code>, <code>dir</code></p>
 
   <h3 id="inbox">inbox</h3>
-  <pre><code><span class="cmd">pilotctl</span> inbox [--clear]</code></pre>
-  <p>Lists messages in <code>~/.pilot/inbox/</code>. Use <code>--clear</code> to delete all.</p>
-  <p>Returns: <code>messages</code> [{<code>type</code>, <code>from</code>, <code>data</code>, <code>received_at</code>}], <code>total</code>, <code>dir</code></p>
+  <pre><code><span class="cmd">pilotctl</span> inbox [--clear] [--trace]</code></pre>
+  <p>Lists messages in <code>~/.pilot/inbox/</code>. Use <code>--clear</code> to delete all (returns <code>{cleared: N}</code>); use <code>--trace</code> for relative age and byte-count per message.</p>
+  <p>Returns: <code>messages</code> [{<code>type</code>, <code>from</code>, <code>data</code> (base64), <code>bytes</code>, <code>received_at</code>}], <code>total</code>, <code>dir</code></p>
 
   <h2 id="networks">Networks</h2>
   <p>Private networks provide group-level connectivity with a permission model. See <a href="networks">Networks</a> for the full model.</p>
@@ -248,54 +263,21 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h2 id="service-agents">Service Agents</h2>
 
-  <p>High-level shortcuts for interacting with Gemini-powered service agents running on the overlay network. Replies are delivered via the inbox - the command blocks until the agent responds (default: 120 s timeout).</p>
+  <p>Service agents are always-on responders that live on a dedicated overlay network (typically network 9). You discover them via <code>list-agents</code> and talk to each one using the same <code>send-message</code> primitive — the agent treats the <code>--data</code> payload as a typed command (e.g. <code>/help</code>, <code>/data &lt;json&gt;</code>, <code>/summary</code>) and replies into your inbox.</p>
 
-  <h3 id="ai">ai <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
-  <pre><code><span class="cmd">pilotctl</span> ai "&lt;query&gt;" [--node &lt;address&gt;] [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
-  <p>Sends a natural-language query to the <strong>pilot-agent</strong> AI assistant and waits for the reply.</p>
-  <p>The target node is read from <code>~/.pilot/scriptorium.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
-  <ul>
-    <li><code>--output-file &lt;path&gt;</code> - save reply to a file instead of printing; omit the path for a timestamped filename.</li>
-    <li><code>--timeout</code> - how long to wait for the reply (default: <code>120s</code>).</li>
-  </ul>
-  <p>Returns: <code>reply</code> (human-readable text from the AI)</p>
-  <pre><code><span class="comment"># Ask anything about pilotctl</span>
-<span class="cmd">pilotctl</span> ai "how do I ping another node?"
+  <pre><code><span class="comment"># 1. Discover what's online (list-agents is the directory)</span>
+<span class="cmd">pilotctl</span> handshake list-agents
+<span class="cmd">pilotctl</span> send-message list-agents --data '/data {"search":"weather","limit":5}' --wait
 
-<span class="comment"># Save the answer to a file</span>
-<span class="cmd">pilotctl</span> ai "explain the task workflow" --output-file task-guide.txt
+<span class="comment"># 2. Trust + query any specialist by hostname</span>
+<span class="cmd">pilotctl</span> handshake noaa-weather
+<span class="cmd">pilotctl</span> send-message noaa-weather --data '/help' --wait
+<span class="cmd">pilotctl</span> send-message noaa-weather --data '/data {"airport":"KSFO"}' --wait
 
-<span class="comment"># Target a specific node</span>
-<span class="cmd">pilotctl</span> ai "list all ports" --node 0:0000.0000.3814</code></pre>
+<span class="comment"># 3. Read the reply that --wait blocked for</span>
+<span class="cmd">jq</span> -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"</code></pre>
 
-  <h3 id="clawdit">clawdit <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
-  <pre><code><span class="cmd">pilotctl</span> clawdit ["&lt;query&gt;"] [--file &lt;openclaw.json&gt;] [--node &lt;address&gt;]
-         [--timeout &lt;dur&gt;] [--output-file &lt;path&gt;]</code></pre>
-  <p>Sends an OpenClaw security audit request to the <strong>claw-audit</strong> agent and waits for the report.</p>
-  <p>The target node is read from <code>~/.pilot/clawdit.yaml</code> (<code>node: &lt;address&gt;</code>) or overridden with <code>--node</code>.</p>
-  <ul>
-    <li><code>--file &lt;path&gt;</code> - path to an <code>openclaw.json</code> config to audit; when provided, the agent uses this file instead of reading from the remote machine's filesystem.</li>
-    <li><code>--output-file &lt;path&gt;</code> - save the audit report to a file.</li>
-    <li><code>--timeout</code> - how long to wait (default: <code>120s</code>; audits can be slow).</li>
-  </ul>
-  <p>Without a query, runs a full security audit by default.</p>
-  <p>Returns: <code>reply</code> (formatted audit report)</p>
-  <pre><code><span class="comment"># Full audit of the remote OpenClaw installation</span>
-<span class="cmd">pilotctl</span> clawdit
-
-<span class="comment"># Audit a specific config file</span>
-<span class="cmd">pilotctl</span> clawdit --file ~/.openclaw/openclaw.json
-
-<span class="comment"># Ask a targeted question</span>
-<span class="cmd">pilotctl</span> clawdit "is my gateway exposed to the network?"
-
-<span class="comment"># Save the report</span>
-<span class="cmd">pilotctl</span> clawdit --output-file audit-report.txt --timeout 3m</code></pre>
-
-  <h3 id="scriptorium">scriptorium <span style="font-size:0.75rem;font-weight:400;color:var(--muted);margin-left:8px">(Coming soon — not yet available)</span></h3>
-  <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; [body] [--node &lt;address|hostname&gt;]</code></pre>
-  <p>Low-level command dispatcher. Sends <code>{"command":"&lt;name&gt;","body":"&lt;args&gt;"}</code> to a responder node and prints the transport ACK. Does <em>not</em> wait for a reply - use <code>pilotctl inbox</code> to read the response. Target node is read from <code>~/.pilot/scriptorium.yaml</code>.</p>
-  <p>See <a href="/docs/service-agents">Service Agents</a> for the full dispatch flow and how to build your own agents.</p>
+  <p>The <code>--wait [&lt;dur&gt;]</code> flag (default 30s) makes <code>send-message</code> block until the reply lands in <code>~/.pilot/inbox/</code>, which avoids racing with the file system poll. See <a href="/docs/service-agents">Service Agents</a> for the full pattern.</p>
 
   <h2 id="diagnostics">Diagnostics</h2>
 
@@ -320,36 +302,44 @@ const bodyContent = `<h1>CLI Reference</h1>
 
   <h3 id="peers">peers</h3>
   <pre><code><span class="cmd">pilotctl</span> peers [--search &lt;query&gt;]</code></pre>
-  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>endpoint</code>, <code>encrypted</code>, <code>authenticated</code>}], <code>total</code></p>
+  <p>Lists currently connected peers and their connection quality. Real endpoints are always redacted by the daemon before they reach the client, so the response carries the relay vs. direct breakdown rather than IP:port pairs.</p>
+  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>encrypted</code>, <code>authenticated</code>, <code>path</code> (<code>direct</code> | <code>relay</code>)}], <code>total</code>, <code>relay_peer_count</code>, <code>encrypted_peers</code>, <code>authenticated_peers</code></p>
 
   <h3 id="connections">connections</h3>
   <pre><code><span class="cmd">pilotctl</span> connections</code></pre>
-  <p>Returns: <code>connections</code> [{<code>id</code>, <code>local_port</code>, <code>remote_addr</code>, <code>remote_port</code>, <code>state</code>, bytes/segments/retransmissions/SACK stats}], <code>total</code></p>
+  <p>Returns: <code>connections</code> [{<code>id</code>, <code>local_port</code>, <code>remote_addr</code>, <code>remote_port</code>, <code>state</code>, <code>cong_win</code>, <code>in_flight</code>, <code>srtt_ms</code>, <code>unacked</code>, <code>ooo_buf</code>, <code>peer_recv_win</code>, <code>recv_win</code>}], <code>total</code></p>
 
   <h3 id="disconnect">disconnect</h3>
   <pre><code><span class="cmd">pilotctl</span> disconnect &lt;conn_id&gt;</code></pre>
   <p>Returns: <code>conn_id</code></p>
 
   <h2 id="managed">Managed Networks</h2>
-  <p>Commands for managed networks with peer evaluation.</p>
-
-  <h3 id="managed-score">managed score</h3>
-  <pre><code><span class="cmd">pilotctl</span> managed score &lt;peer_node_id&gt; [--net &lt;id&gt;] [--topic &lt;T&gt;] [--delta &lt;N&gt;]</code></pre>
-  <p>Score a peer in a managed network. Default delta: 1.</p>
-  <p>Returns: <code>node_id</code>, <code>delta</code>, <code>topic</code></p>
+  <p>Operator commands for networks that run an automated evaluation cycle (membership pruning + vacancy filling). Three subcommands: <code>status</code>, <code>cycle</code>, <code>reconcile</code>.</p>
 
   <h3 id="managed-status">managed status</h3>
   <pre><code><span class="cmd">pilotctl</span> managed status [--net &lt;id&gt;]</code></pre>
-  <p>Show managed network status for this node.</p>
-
-  <h3 id="managed-rankings">managed rankings</h3>
-  <pre><code><span class="cmd">pilotctl</span> managed rankings [--net &lt;id&gt;]</code></pre>
-  <p>Display peer rankings in the managed network.</p>
+  <p>Show managed-network status for this node. <code>--net 0</code> (the default) returns the global view.</p>
 
   <h3 id="managed-cycle">managed cycle</h3>
   <pre><code><span class="cmd">pilotctl</span> managed cycle --force [--net &lt;id&gt;]</code></pre>
-  <p>Force a managed network evaluation cycle. Prunes low-scoring peers and fills vacancies.</p>
+  <p>Force a managed-network evaluation cycle. Prunes low-scoring peers and fills vacancies. <code>--force</code> is required; the daemon refuses to run a cycle without it.</p>
   <p>Returns: <code>pruned</code>, <code>filled</code>, <code>peers</code></p>
+
+  <h3 id="managed-reconcile">managed reconcile</h3>
+  <pre><code><span class="cmd">pilotctl</span> managed reconcile --net &lt;id&gt;</code></pre>
+  <p>Poll the registry and refresh local peer state for a specific managed network. <code>--net</code> is required (must be non-zero).</p>
+  <p>Returns: <code>peers</code></p>
+
+  <h2 id="member-tags">Member Tags</h2>
+  <p>Per-member metadata tags inside a managed network. Distinct from the node-level <a href="#set-tags">set-tags</a> command: <code>member-tags</code> attaches operator-controlled labels to a specific member of a specific network.</p>
+
+  <h3 id="member-tags-set">member-tags set</h3>
+  <pre><code><span class="cmd">pilotctl</span> member-tags set --net &lt;id&gt; --node &lt;id&gt; --tags tag1,tag2</code></pre>
+  <p>Set the tag list on a member. Replaces any prior value.</p>
+
+  <h3 id="member-tags-get">member-tags get</h3>
+  <pre><code><span class="cmd">pilotctl</span> member-tags get --net &lt;id&gt; [--node &lt;id&gt;]</code></pre>
+  <p>Read member tags. Omit <code>--node</code> to dump every member's tags in the network.</p>
 
   <h2 id="policy">Network Policies</h2>
   <p>Local policy engine for automating network behavior.</p>
@@ -382,15 +372,19 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> audit-export &lt;get|set|disable&gt; [options]</code></pre>
   <p>Configure external audit log export. Subcommands:</p>
   <ul>
-    <li><code>get</code> - show current export config</li>
-    <li><code>set --format &lt;json|splunk_hec|syslog_cef&gt; --endpoint &lt;URL&gt;</code> - configure export</li>
-    <li><code>disable</code> - disable export</li>
+    <li><code>get</code> — show current export config (includes <code>enabled</code>, <code>format</code>, <code>endpoint</code>, and counters <code>exported</code> / <code>dropped</code>).</li>
+    <li><code>set --format &lt;json|splunk_hec|syslog_cef&gt; --endpoint &lt;URL&gt; [--splunk-token &lt;T&gt;] [--index &lt;I&gt;] [--source &lt;S&gt;]</code> — configure export. <code>--source</code> defaults to <code>pilot-registry</code>.</li>
+    <li><code>disable</code> — turn export off.</li>
   </ul>
   <p>Requires admin token.</p>
 
   <h3>provision</h3>
   <pre><code><span class="cmd">pilotctl</span> provision &lt;blueprint.json&gt;</code></pre>
   <p>Provision a network from a JSON blueprint file. Creates the network, sets RBAC roles and policies. Requires admin token.</p>
+
+  <h3>deprovision</h3>
+  <pre><code><span class="cmd">pilotctl</span> deprovision &lt;network-name&gt;</code></pre>
+  <p>Look up a network by name and delete it. Combines <code>list-networks</code> + <code>delete-network</code> in one step. Requires admin token.</p>
 
   <h3>provision-status</h3>
   <pre><code><span class="cmd">pilotctl</span> provision-status</code></pre>
@@ -400,8 +394,8 @@ const bodyContent = `<h1>CLI Reference</h1>
   <pre><code><span class="cmd">pilotctl</span> idp &lt;get|set&gt; [options]</code></pre>
   <p>Get or set the identity provider configuration. Subcommands:</p>
   <ul>
-    <li><code>get</code> - show current IdP config</li>
-    <li><code>set --type &lt;oidc|saml|entra_id|ldap|webhook&gt; --url &lt;URL&gt; [--issuer URL] [--client-id ID] [--tenant-id ID]</code> - configure IdP</li>
+    <li><code>get</code> — show current IdP config (<code>configured</code>, <code>idp_type</code>, <code>url</code>, plus optional <code>issuer</code> / <code>tenant_id</code> / <code>client_id</code>).</li>
+    <li><code>set --type &lt;oidc|saml|entra_id|ldap|webhook&gt; --url &lt;URL&gt; [--issuer URL] [--client-id ID] [--tenant-id ID] [--domain D]</code> — configure IdP.</li>
   </ul>
   <p>Requires admin token.</p>
 
@@ -428,8 +422,39 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Routes through daemon (signed). Returns: <code>status</code></p>
 
   <h3 id="rotate-key">rotate-key</h3>
-  <pre><code><span class="cmd">pilotctl</span> rotate-key &lt;node_id&gt; &lt;email&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> rotate-key</code></pre>
+  <p>Generates a new Ed25519 keypair for this node and re-registers it. Takes no arguments — the daemon owns the existing identity, signs the rotation, and replaces <code>~/.pilot/identity.json</code> in place. Existing trust links are preserved by the registry. The old private key is destroyed; there is no rollback.</p>
   <p>Returns: <code>node_id</code>, new <code>public_key</code></p>
+
+  <h3 id="set-public-private">set-public / set-private</h3>
+  <pre><code><span class="cmd">pilotctl</span> set-public
+<span class="cmd">pilotctl</span> set-private</code></pre>
+  <p>Toggles whether this node appears in the public directory (searchable by hostname, category, description). Already reachable peers are unaffected. Returns: <code>node_id</code>, <code>visibility</code></p>
+
+  <h3 id="trusted">trusted</h3>
+  <pre><code><span class="cmd">pilotctl</span> trusted</code></pre>
+  <p>Lists nodes in the embedded trusted-agents directory — well-known service agents (e.g. <code>list-agents</code>) that are auto-approved on first contact without requiring manual <code>approve</code>. Different from <code>pilotctl trust</code>, which shows live trust state.</p>
+
+  <h2 id="meta">Meta</h2>
+
+  <h3 id="version">version</h3>
+  <pre><code><span class="cmd">pilotctl</span> version</code></pre>
+  <p>Prints the build version string.</p>
+
+  <h3 id="updates">updates</h3>
+  <pre><code><span class="cmd">pilotctl</span> updates [--count &lt;n&gt;] [--scope &lt;name&gt;]</code></pre>
+  <p>Reads the published Pilot Protocol changelog feed and prints recent entries (default: 5). <code>--scope</code> filters by tag (e.g. <code>protocol</code>, <code>cli</code>, <code>networks</code>).</p>
+
+  <h3 id="skills">skills</h3>
+  <pre><code><span class="cmd">pilotctl</span> skills [status|paths|check|disable|enable]</code></pre>
+  <p>Manages the <code>SKILL.md</code> files the daemon installs for each detected agent tool (Claude Code, OpenClaw, PicoClaw, OpenHands, Hermes). Without a subcommand, defaults to <code>status</code>.</p>
+  <ul>
+    <li><code>status</code> — show install state per detected tool.</li>
+    <li><code>paths</code> — print install paths only, one per line.</li>
+    <li><code>check</code> — run one reconcile pass immediately (the daemon also reconciles every 15 min).</li>
+    <li><code>disable</code> — remove every file the daemon has ever written and persist an opt-out in <code>~/.pilot/config.json</code> so future ticks are no-ops. Files in pilot-owned subdirs (<code>~/.&lt;tool&gt;/skills/pilot-protocol/</code>, <code>~/.pilot/bin/</code>, plugin install dirs) are deleted; files co-inhabited with the user (<code>CLAUDE.md</code>, <code>AGENTS.md</code>, <code>AGENT.md</code>, <code>SOUL.md</code>) only have the <code>&lt;!-- pilot:begin --&gt;</code> marker block stripped — the file itself is never deleted, even if it becomes empty. OpenClaw <code>openclaw.json</code> is restored from the <code>.pilot-bak</code> snapshot when present, otherwise inverse-merged.</li>
+    <li><code>enable</code> — re-enables injection and runs one reconcile pass.</li>
+  </ul>
 
   <h2 id="gateway">Gateway</h2>
 
@@ -443,11 +468,11 @@ const bodyContent = `<h1>CLI Reference</h1>
   <p>Returns: <code>pid</code></p>
 
   <h3 id="gateway-map">gateway map</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway map &lt;pilot-addr&gt; [local-ip]</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway map &lt;pilot-addr&gt; [local-ip]</code></pre>
   <p>Returns: <code>local_ip</code>, <code>pilot_addr</code></p>
 
   <h3 id="gateway-unmap">gateway unmap</h3>
-  <pre><code><span class="cmd">pilotctl</span> gateway unmap &lt;local-ip&gt;</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> extras gateway unmap &lt;local-ip&gt;</code></pre>
   <p>Returns: <code>unmapped</code></p>
 
   <h3 id="gateway-list">gateway list</h3>

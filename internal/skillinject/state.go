@@ -34,11 +34,11 @@ const (
 type FileKind string
 
 const (
-	KindSkill            FileKind = "skill"
-	KindMarker           FileKind = "marker"
-	KindHelper           FileKind = "helper"
-	KindPluginFile       FileKind = "plugin_file"
-	KindPluginAllowList  FileKind = "plugin_allowlist"
+	KindSkill           FileKind = "skill"
+	KindMarker          FileKind = "marker"
+	KindHelper          FileKind = "helper"
+	KindPluginFile      FileKind = "plugin_file"
+	KindPluginAllowList FileKind = "plugin_allowlist"
 )
 
 func actionFor(s State) Action {

@@ -63,7 +63,7 @@ const bodyContent = `<h1>Enterprise</h1>
     </tbody>
   </table>
 
-  <p>Attempting an enterprise operation on a non-enterprise network returns an error. The <code>set_network_enterprise</code> command toggles the flag without affecting existing membership.</p>
+  <p>Attempting an enterprise operation on a non-enterprise network returns an error. The flag is toggled by the registry's <code>set_network_enterprise</code> RPC (also reachable via the Go SDK's <code>registry.Client.SetNetworkEnterprise</code>); membership is preserved across the toggle.</p>
 
   <h2 id="next">What&rsquo;s next</h2>
 

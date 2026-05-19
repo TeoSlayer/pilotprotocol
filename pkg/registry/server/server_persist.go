@@ -23,14 +23,19 @@ import (
 )
 
 // flushSaveBufPool reuses the bytes buffer that backs the snapshot JSON
-// across save ticks. Pre-grown to 128 MB so the first save at fleet
-// scale (~50-100 MB JSON) doesn't grow it further. After the first
-// save the pool always returns a buffer at peak capacity, so subsequent
-// saves do zero allocation in the encode path. Eliminates the ~1 GB
-// live `bytes.growSlice` heap that was driving GC STW pauses.
+// across save ticks. After the first few saves the pool returns a
+// buffer at peak capacity, so subsequent saves do zero allocation in
+// the encode path. Eliminates the ~1 GB live `bytes.growSlice` heap
+// that was driving GC STW pauses in fleet-scale production.
+//
+// Starts at 1 MB; bytes.Buffer grows organically up to whatever the
+// real snapshot needs. Production fleet (~50-100 MB JSON) hits steady
+// state within a few saves; CI runners with empty registries stay at
+// 1 MB. The 128 MB pre-grow that lived here previously caused CI OOM
+// flakes under 4-way parallel integration tests.
 var flushSaveBufPool = sync.Pool{
 	New: func() interface{} {
-		b := make([]byte, 0, 128*1024*1024)
+		b := make([]byte, 0, 1*1024*1024)
 		return &b
 	},
 }

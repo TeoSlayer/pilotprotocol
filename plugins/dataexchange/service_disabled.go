@@ -20,8 +20,9 @@ import (
 // dataexchange.NewService(dataexchange.ServiceConfig{...}) call site
 // compiles unchanged when the plugin is disabled.
 type ServiceConfig struct {
-	ReceivedDir string
-	InboxDir    string
+	ReceivedDir   string
+	InboxDir      string
+	IncludeBase64 bool
 }
 
 // Service is a no-op replacement for the real plugin Service.

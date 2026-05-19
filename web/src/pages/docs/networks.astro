@@ -140,7 +140,10 @@ const bodyContent = `<h1>Networks</h1>
     </tbody>
   </table>
 
-  <pre><code><span class="cmd">pilotctl</span> network invite 1 --node 1001</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> network invite 1 1001
+<span class="comment"># or by hostname / pilot address</span>
+<span class="cmd">pilotctl</span> network invite 1 my-agent
+<span class="cmd">pilotctl</span> network invite 1 1:0001.0000.03E9</code></pre>
 
   <p>Once added, the agent can immediately communicate with all other network members.</p>
 
@@ -150,7 +153,9 @@ const bodyContent = `<h1>Networks</h1>
 
   <h3>Remove agents</h3>
 
-  <pre><code><span class="cmd">pilotctl</span> network kick 1 --node 1001</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> network kick 1 1001
+<span class="comment"># or by hostname / pilot address</span>
+<span class="cmd">pilotctl</span> network kick 1 my-agent</code></pre>
 
   <p>Access is revoked immediately - the agent can no longer resolve, connect to, or be discovered by other network members (unless they also share bilateral trust).</p>
 
@@ -198,7 +203,7 @@ const bodyContent = `<h1>Networks</h1>
 
   <h3>Enterprise port policies</h3>
 
-  <p>Enterprise networks support <a href="enterprise-policies">port-level policies</a> that restrict which ports members can access. Use <code>pilotctl network policy &lt;network_id&gt; --set allowed_ports=80,443,1001</code> to limit accessible ports within a network. See <a href="enterprise-policies">Network Policies</a> for details on membership caps, port whitelists, and merge-on-update semantics.</p>
+  <p>Enterprise networks support <a href="enterprise-policies">port-level policies</a> that restrict which ports members can access. Use <code>pilotctl network policy &lt;network_id&gt; --allowed-ports 80,443,1001</code> to limit accessible ports within a network. Other settable flags: <code>--max-members &lt;n&gt;</code>, <code>--description &lt;text&gt;</code>. Without any <code>--&lt;flag&gt;</code> argument, <code>pilotctl network policy &lt;network_id&gt;</code> shows the current policy. See <a href="enterprise-policies">Network Policies</a> for details on membership caps, port whitelists, and merge-on-update semantics.</p>
 
   <div class="callout">
     <strong>Further reading:</strong> <a href="/blog/private-networks-now-in-testing">Private Networks: Now in Testing</a> · <a href="/blog/private-agent-network-company">Building a Private Agent Network for Your Company</a> · <a href="trust">Trust & Handshakes</a>

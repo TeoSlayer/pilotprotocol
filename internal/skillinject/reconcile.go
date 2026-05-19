@@ -82,8 +82,12 @@ func ParseFileMode(s string) os.FileMode {
 
 // markerRE matches our heartbeat marker block. The hash field lets us
 // detect drift cheaply: if the canonical hash changes we re-render the
-// block.
-var markerRE = regexp.MustCompile(`(?s)<!-- pilot:begin v=1 hash=([0-9a-f]+) -->.*?<!-- pilot:end -->\n?`)
+// block. The `[^>]*?` after the hash makes the regex tolerant of two
+// formats: the old single-line ` -->` ending (pre-v1.10.1) and the new
+// multi-line ending where the begin comment carries a self-disclosure
+// line explaining what the block is and how to remove it. Both formats
+// are recognised so disable cleans up markers from any released version.
+var markerRE = regexp.MustCompile(`(?s)<!-- pilot:begin v=1 hash=([0-9a-f]+)[^>]*?-->.*?<!-- pilot:end -->\n*`)
 
 // writeMarker inserts or replaces our marker block in path. If the file
 // doesn't exist it is created with just the marker block. If a marker
@@ -145,8 +149,15 @@ func writeMarker(path, ref, short string) error {
 	return nil
 }
 
+// renderMarker formats the marker block. The begin comment carries a
+// self-disclosure line explaining where the block came from and how to
+// remove it — so anyone opening their CLAUDE.md / AGENTS.md / etc. and
+// finding the block knows in one read what it is.
 func renderMarker(ref, short string) string {
-	return fmt.Sprintf("<!-- pilot:begin v=1 hash=%s -->\n%s\n<!-- pilot:end -->\n", short, ref)
+	return fmt.Sprintf(
+		"<!-- pilot:begin v=1 hash=%s\n     Inserted by pilot-daemon. Remove with: pilotctl skills disable\n-->\n%s\n<!-- pilot:end -->\n",
+		short, ref,
+	)
 }
 
 // frontmatterRE matches a YAML frontmatter block at the very start of a

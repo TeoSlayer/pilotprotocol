@@ -15,6 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/ipv4"
+
+	bwss "github.com/TeoSlayer/pilotprotocol/pkg/beacon/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
@@ -32,13 +35,15 @@ type relayJob struct {
 }
 
 type Server struct {
-	mu      sync.RWMutex   // protects registryAddr / advertiseAddr / registryAdminToken
-	conn    *net.UDPConn   // primary read+write socket; equal to conns[0]
-	conns   []*net.UDPConn // SO_REUSEPORT sockets — one per reader goroutine
-	nodes   *nodeMap       // sharded node_id → observed endpoint + last-seen
-	readyCh chan struct{}
-	relayCh chan relayJob // buffered channel for relay workers
-	pool    sync.Pool     // reusable payload buffers
+	mu             sync.RWMutex       // protects registryAddr / advertiseAddr / registryAdminToken
+	conn           *net.UDPConn       // primary read+write socket; equal to conns[0]
+	conns          []*net.UDPConn     // SO_REUSEPORT sockets — one per reader goroutine
+	sendBatchConns []*ipv4.PacketConn // ipv4 wrappers of conns[i] for WriteBatch (sendmmsg) — one per worker fd
+	nodes          *nodeMap           // sharded node_id → observed endpoint + last-seen
+	readyCh        chan struct{}
+	relayCh        chan relayJob // buffered channel for relay workers
+	pool           sync.Pool     // reusable payload buffers (inner relay payload)
+	outBufPool     sync.Pool     // reusable outbound packet buffers (header + payload)
 
 	// Relay counters (atomic for lock-free worker access)
 	relayForwarded  atomic.Uint64 // successful relay deliveries
@@ -48,20 +53,35 @@ type Server struct {
 	lastNotFoundLog atomic.Int64  // UnixNano of last not-found warning (rate limit)
 
 	// Peer mesh (gossip)
-	beaconID  uint32
-	peers     []*net.UDPAddr          // peer beacon addresses
-	peerNodes map[uint32]*net.UDPAddr // nodeID → peer beacon that owns it
-	peerMu    sync.RWMutex
-	healthOk  atomic.Bool
+	beaconID    uint32
+	peers       []*net.UDPAddr                          // peer beacon addresses (slow path, peerMu)
+	peerNodes   atomic.Pointer[map[uint32]*net.UDPAddr] // nodeID → peer beacon (hot read, copy-on-write)
+	peerWriteMu sync.Mutex                              // serialises copy-on-write writers to peerNodes
+	peerMu      sync.RWMutex                            // protects s.peers only (peerNodes is atomic)
+	healthOk    atomic.Bool
 
 	registryAddr       string // registry address for dynamic peer discovery
 	advertiseAddr      string // address to register (overrides auto-detect from TCP local addr)
 	registryAdminToken string // admin token sent with beacon_register (required by SEC-002)
 
+	// Compat-mode WSS bridge. Set via EnableCompatWSS. When non-nil,
+	// the relay worker checks for a WSS-connected destination BEFORE
+	// the UDP tier-1/2 lookups. Inbound WSS frames feed into
+	// handlePacket the same way UDP datagrams do.
+	wssServer *bwss.Server
+
 	done chan struct{} // closed on shutdown
 }
 
-const relayQueueSize = 131072 // 128K buffered relay jobs before backpressure
+// relayQueueSize is the buffered channel depth between the read loop
+// and the relay workers. Bumped from 128K → 512K on 2026-05-14 after
+// the LB started dropping ~56 packets/sec under 171k+ active nodes —
+// inbound relay rate was slightly exceeding the workers' drain rate,
+// queue pinned at cap, every further enqueue dropped. 4× buffer +
+// 2× workers (see ListenAndServe) gives the workers more slack to
+// absorb bursts; per-job memory is small (relayJob = senderID(4) +
+// destID(4) + a pooled []byte payload), so worst-case bump is ~50MB.
+const relayQueueSize = 524288
 
 // maxRelayPayload caps the relay payload size. UDP itself limits datagrams to ~65KB,
 // but this provides defense-in-depth against future transport changes.
@@ -86,15 +106,23 @@ func New() *Server {
 // peers is a list of peer beacon addresses for gossip exchange.
 func NewWithPeers(beaconID uint32, peers []string) *Server {
 	s := &Server{
-		nodes:     newNodeMap(),
-		readyCh:   make(chan struct{}),
-		relayCh:   make(chan relayJob, relayQueueSize),
-		beaconID:  beaconID,
-		peerNodes: make(map[uint32]*net.UDPAddr),
-		done:      make(chan struct{}),
+		nodes:    newNodeMap(),
+		readyCh:  make(chan struct{}),
+		relayCh:  make(chan relayJob, relayQueueSize),
+		beaconID: beaconID,
+		done:     make(chan struct{}),
 	}
+	emptyPeers := make(map[uint32]*net.UDPAddr)
+	s.peerNodes.Store(&emptyPeers)
 	s.pool.New = func() interface{} {
 		b := make([]byte, 1500)
+		return &b
+	}
+	// outBufs hold "header + relay payload". maxRelayPayload caps the
+	// payload at 65535; longest header is BeaconMsgRelay (1+4+4 = 9
+	// bytes). Pre-size to 65544 so every slice fits with no growSlice.
+	s.outBufPool.New = func() interface{} {
+		b := make([]byte, maxRelayPayload+9)
 		return &b
 	}
 	s.healthOk.Store(true)
@@ -111,6 +139,77 @@ func NewWithPeers(beaconID uint32, peers []string) *Server {
 	return s
 }
 
+// EnableCompatWSS attaches a WSS-bridge listener for compat-mode
+// daemons. After Start, the beacon's relay worker checks the WSS
+// peer map BEFORE the UDP tier-1/2 lookups: relay packets destined
+// for a WSS-connected daemon are written over WSS instead of UDP.
+// Inbound WSS frames feed into handlePacket the same way UDP
+// datagrams do, so the existing dispatch logic (BeaconMsgRelay,
+// BeaconMsgDiscover, etc.) handles them without changes.
+//
+// pubKeyLookup must return the Ed25519 pubkey registered for nodeID.
+// In the rendezvous binary this is plumbed to the in-process
+// registry's pubkey index.
+//
+// Call this BEFORE ListenAndServe so the wssServer is in place
+// when the first UDP datagram arrives.
+func (s *Server) EnableCompatWSS(bindAddr string, pubKeyLookup bwss.PubKeyLookupFn) error {
+	if s.wssServer != nil {
+		return fmt.Errorf("beacon: compat WSS already enabled")
+	}
+	ws, err := bwss.New(bwss.Config{
+		BindAddr:     bindAddr,
+		PubKeyLookup: pubKeyLookup,
+		OnFrame: func(senderID uint32, frame []byte) {
+			// A WSS frame from a compat peer carries a raw Pilot
+			// beacon-protocol packet (the same bytes the daemon
+			// would have written to UDP). Dispatch it through
+			// handlePacket so the existing BeaconMsgRelay /
+			// BeaconMsgDiscover / BeaconMsgPunchRequest branches
+			// handle it identically. The synthetic remote address
+			// is informational only — handlers that need a real
+			// remote addr (e.g. handleDiscover replies) skip the
+			// reply when the source is a WSS peer; see fast-path
+			// notes in those handlers.
+			synth := &net.UDPAddr{
+				IP:   net.ParseIP("192.0.2.1"),
+				Port: int(senderID & 0xFFFF),
+			}
+			s.handlePacket(frame, synth)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("beacon: create WSS server: %w", err)
+	}
+	if err := ws.Start(); err != nil {
+		return fmt.Errorf("beacon: start WSS server: %w", err)
+	}
+	s.wssServer = ws
+	slog.Info("beacon compat WSS bridge enabled", "bind", ws.Addr())
+	return nil
+}
+
+// WSSMetrics returns the live WSS-bridge metrics, or zero values if
+// EnableCompatWSS was never called. Used by the dashboard / Prom
+// scrape to expose compat-mode visibility.
+func (s *Server) WSSMetrics() bwss.Metrics {
+	if s.wssServer == nil {
+		return bwss.Metrics{}
+	}
+	return s.wssServer.Metrics()
+}
+
+// CloseCompatWSS shuts down the WSS bridge. Idempotent. Used by
+// graceful shutdown paths and tests.
+func (s *Server) CloseCompatWSS() error {
+	if s.wssServer == nil {
+		return nil
+	}
+	err := s.wssServer.Close()
+	s.wssServer = nil
+	return err
+}
+
 func (s *Server) ListenAndServe(addr string) error {
 	// Open one UDP socket per CPU core via SO_REUSEPORT (Linux) so the
 	// kernel flow-hashes incoming packets across N user-space readers.
@@ -118,9 +217,21 @@ func (s *Server) ListenAndServe(addr string) error {
 	// read goroutine, which became the throughput cliff under full
 	// fleet Discover load — see nodeMap doc for the lock side; this is
 	// the kernel side of the same fix.
-	readers := runtime.NumCPU()
+	// 2× NumCPU readers (16 → 32 on the LB box). More SO_REUSEPORT
+	// buckets means the kernel's 5-tuple hash spreads chatty source
+	// IPs across more sockets; we previously saw one socket pinned
+	// at 8MB Recv-Q while others sat idle when a handful of busy
+	// peers hashed to the same fd.
+	readers := runtime.NumCPU() * 2
 	if readers < 2 {
 		readers = 2
+	}
+	// Non-Linux platforms (Mac dev / Windows / etc.) lack flow-hashing
+	// SO_REUSEPORT semantics; a second bind to the same UDP port fails
+	// with EADDRINUSE. MaxReusePortShards is 1 there, 0 (= unlimited)
+	// on Linux.
+	if MaxReusePortShards > 0 && readers > MaxReusePortShards {
+		readers = MaxReusePortShards
 	}
 	s.conns = make([]*net.UDPConn, 0, readers)
 	for i := 0; i < readers; i++ {
@@ -132,22 +243,70 @@ func (s *Server) ListenAndServe(addr string) error {
 			}
 			return fmt.Errorf("listen %d: %w", i, err)
 		}
-		_ = c.SetReadBuffer(4 * 1024 * 1024) // 4MB per socket
+		// 16 MB per socket — matches the kernel net.core.rmem_max ceiling.
+		// Was 8 MB; bumped after observing kernel RcvbufErrors under bursty
+		// load (the 8 MB per-fd buffer couldn't absorb 30-second bursts
+		// before the readLoop drained it). Read and write set symmetrically
+		// so outbound bursts have equal headroom.
+		_ = c.SetReadBuffer(16 * 1024 * 1024)  // 16MB per socket — UDP recv (was 8MB)
+		_ = c.SetWriteBuffer(16 * 1024 * 1024) // 16MB per socket — UDP send (was 8MB)
 		s.conns = append(s.conns, c)
 	}
-	s.conn = s.conns[0] // sends go through the first socket; any one works
+	s.conn = s.conns[0] // non-relay sends (Discover replies, gossip, etc.) go through fd 0
+	// One ipv4 wrapper per UDP fd. Pre-2026-05-14 all workers shared a
+	// single wrapper of s.conn[0], which serialised every WriteBatch on
+	// that one fd's kernel-side socket lock — workers hit ~190k/sec
+	// aggregate forward rate even with sendmmsg, and the LB started
+	// dropping ~160k/sec relay packets when inbound exceeded that ceiling.
+	// Fanning workers across the SO_REUSEPORT fds removes the per-fd
+	// contention; each fd takes ~12k/sec instead of one fd taking 190k/sec.
+	//
+	// Fan-out only works when all sockets share the same local port
+	// (true on Linux via SO_REUSEPORT). On non-Linux platforms
+	// (Darwin/test rigs) listenReusePort falls back to plain ListenUDP,
+	// so each conn gets a different ephemeral port — sending from a
+	// non-canonical port breaks any peer that dialed conns[0]'s port.
+	// In that case we route all sends through the canonical fd.
+	basePort := s.conns[0].LocalAddr().(*net.UDPAddr).Port
+	sharedPort := true
+	for _, c := range s.conns[1:] {
+		if c.LocalAddr().(*net.UDPAddr).Port != basePort {
+			sharedPort = false
+			break
+		}
+	}
+	if sharedPort {
+		s.sendBatchConns = make([]*ipv4.PacketConn, len(s.conns))
+		for i, c := range s.conns {
+			s.sendBatchConns[i] = ipv4.NewPacketConn(c)
+		}
+	} else {
+		s.sendBatchConns = []*ipv4.PacketConn{ipv4.NewPacketConn(s.conn)}
+	}
 
 	slog.Info("beacon listening", "addr", s.conn.LocalAddr(), "beacon_id", s.beaconID, "peers", len(s.peers), "readers", readers)
 	close(s.readyCh)
 
-	// Start relay workers — two per CPU core to absorb WriteToUDP
-	// syscall latency. Each worker processes relay jobs independently.
-	workers := runtime.NumCPU() * 2
-	if workers < 4 {
-		workers = 4
+	// Start relay workers. The 2026-05-14 hotfix wave:
+	//   1. Bumped count 2× → 4× CPU cores (more parallel WriteBatch calls)
+	//   2. Switched from per-packet WriteToUDP to sendmmsg via ipv4.WriteBatch
+	//      (each worker batches up to 32 messages then flushes; saves
+	//      ~32× syscall overhead under steady load).
+	//   3. Brought count back down to 1× CPU. With 4× workers the inbound
+	//      rate (~200k/sec post-recvmmsg) spread to ~3k/sec per worker,
+	//      which hit the 500µs flush timer with only 1-2 packets in the
+	//      batch — most sendmmsg calls were tiny, wasting the batch path.
+	//      At 1× workers each gets ~12k/sec, so the 2ms flush window
+	//      fills batches to ~24 packets (near the 32 cap). Same total
+	//      drain capacity, ~4× fewer sendmmsg syscalls.
+	// Each worker is one goroutine + a 32-slot ipv4.Message buffer + a
+	// 32-slot payload-return slice (~6 KB).
+	workers := runtime.NumCPU()
+	if workers < 8 {
+		workers = 8
 	}
 	for i := 0; i < workers; i++ {
-		go s.relayWorker()
+		go s.relayWorker(s.sendBatchConns[i%len(s.sendBatchConns)])
 	}
 
 	// Start relay stats logger (every 60s)
@@ -175,25 +334,48 @@ func (s *Server) ListenAndServe(addr string) error {
 	return s.readLoop(s.conns[0])
 }
 
-// readLoop is the per-socket receive path. One per SO_REUSEPORT socket;
-// each has its own 65535-byte buffer so there is no cross-goroutine
-// allocation contention. The kernel hands packets directly to whichever
-// socket's queue is shortest.
+// readBatchCap is the upper bound on packets one readLoop pulls per
+// recvmmsg syscall. Mirrors the send side's relayBatchCap. 32 was
+// chosen so each socket can drain its Recv-Q in 32-packet chunks
+// instead of one-by-one — under the 2026-05-14 LB load the kernel
+// Recv-Q was running 50-95% full on most SO_REUSEPORT sockets and
+// RcvbufErrors was accumulating at ~250/s, because the prior
+// per-packet ReadFromUDP path paid one syscall per packet.
+const readBatchCap = 32
+
+// readLoop is the per-socket receive path. One per SO_REUSEPORT socket.
+// Uses ipv4.PacketConn.ReadBatch (recvmmsg on Linux) to pull up to
+// readBatchCap packets in a single syscall, then dispatches each
+// synchronously through handlePacket. Each message has its own
+// pre-allocated 65535-byte buffer so there is no cross-goroutine
+// allocation contention. On non-Linux platforms the x/net/ipv4
+// fallback degrades to per-message ReadFrom, preserving correctness.
 func (s *Server) readLoop(conn *net.UDPConn) error {
-	buf := make([]byte, 65535)
+	pc := ipv4.NewPacketConn(conn)
+	msgs := make([]ipv4.Message, readBatchCap)
+	for i := range msgs {
+		msgs[i].Buffers = [][]byte{make([]byte, 65535)}
+	}
 	for {
-		n, remote, err := conn.ReadFromUDP(buf)
+		n, err := pc.ReadBatch(msgs, 0)
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
 				return nil
 			}
-			slog.Debug("beacon read error", "err", err)
+			slog.Debug("beacon read batch error", "err", err)
 			continue
 		}
-		if n < 1 {
-			continue
+		for i := 0; i < n; i++ {
+			m := &msgs[i]
+			if m.N < 1 {
+				continue
+			}
+			addr, ok := m.Addr.(*net.UDPAddr)
+			if !ok {
+				continue
+			}
+			s.handlePacket(m.Buffers[0][:m.N], addr)
 		}
-		s.handlePacket(buf[:n], remote)
 	}
 }
 
@@ -327,7 +509,8 @@ func (s *Server) handlePunchRequest(data []byte, remote *net.UDPAddr) {
 }
 
 // dispatchRelay parses the relay header and dispatches to a worker goroutine.
-// The read loop stays fast — no locks, no syscalls, no allocations on the hot path.
+// The read loop stays fast — no locks (other than a sharded RLock for the
+// pre-check), no syscalls, no allocations on the hot path.
 func (s *Server) dispatchRelay(data []byte) {
 	if len(data) < 8 {
 		return
@@ -335,6 +518,52 @@ func (s *Server) dispatchRelay(data []byte) {
 
 	senderID := binary.BigEndian.Uint32(data[0:4])
 	destID := binary.BigEndian.Uint32(data[4:8])
+
+	// Pre-check destination presence before paying the per-packet
+	// payload-copy + queue-enqueue + worker-dequeue costs. Without
+	// this, every relay for an unknown destination still went all the
+	// way through to a worker, which did the same lookup, dropped,
+	// and counted not_found. Profile snapshot during the 171k-active
+	// nodes overload (2026-05-14) showed ~65% of relay dispatches
+	// fell into the worker not-found path — pure wasted work that
+	// also kept the relay queue at cap (queue-full drops cascade).
+	//
+	// Doing the lookup here at the read loop:
+	//   - cuts worker queue pressure (the productive 35% gets through
+	//     freely; nothing else even enters the queue)
+	//   - frees the ~15% of total CPU workers were burning on not-found
+	//   - pays a sharded RLock + map-get per inbound relay packet,
+	//     measured ~50ns and contention-free (64 shards distribute
+	//     by destID)
+	//
+	// Race: a destination could send Discover concurrently with a
+	// sender's relay arriving. With this pre-check, the relay drops
+	// in that microsecond window. UDP is best-effort; sender retries
+	// (existing 3-attempt path in pkg/daemon/daemon.go relay branch)
+	// will catch the next iteration once Discover has propagated.
+	if s.nodes.Get(destID) == nil {
+		// Tier-2 fallback: check the peer mesh. peerNodes is an
+		// atomic.Pointer to a map; reads are lock-free (a single
+		// pointer load + map lookup). Writes copy-on-write under
+		// peerWriteMu — see handleSync. At 300k+ relays/sec the
+		// previous peerMu RLock showed up as 11% CPU in lock2/futex.
+		peerMap := *s.peerNodes.Load()
+		_, peerOk := peerMap[destID]
+		// Tier-WSS fallback (compat mode): if the dest isn't in
+		// the local UDP table or the peer mesh, it might be a
+		// compat-mode daemon connected via WSS. Skip the
+		// not-found drop in that case — the worker's Tier-0 check
+		// will do the actual WSS write.
+		wssOk := s.wssServer != nil && s.wssServer.IsConnected(destID)
+		if !peerOk && !wssOk {
+			// Same accounting as the worker's Tier-3 path would do,
+			// minus the per-packet log line — relayStatsLoop surfaces
+			// the count every 60s, which is the only visibility we
+			// actually use today.
+			s.relayNotFound.Add(1)
+			return
+		}
+	}
 
 	// Copy payload into a pooled buffer so we don't hold the read buffer
 	payload := data[8:]
@@ -353,7 +582,9 @@ func (s *Server) dispatchRelay(data []byte) {
 	select {
 	case s.relayCh <- relayJob{senderID: senderID, destID: destID, payload: buf}:
 	default:
-		// Queue full — drop packet (UDP is best-effort)
+		// Queue full — drop packet (UDP is best-effort). Rare now that
+		// the pre-check filters not-found at the read loop, but still
+		// possible if found-traffic alone exceeds worker drain rate.
 		s.relayDropped.Add(1)
 		now := time.Now().UnixNano()
 		if last := s.lastDropLog.Load(); now-last > int64(time.Second) {
@@ -366,89 +597,174 @@ func (s *Server) dispatchRelay(data []byte) {
 	}
 }
 
-// relayWorker processes relay jobs: dest lookup and UDP send.
-// Multiple workers run in parallel to distribute the WriteToUDP syscalls.
-// 3-tier destination lookup:
-//  1. Local nodes map → send MsgRelayDeliver directly to agent
-//  2. Peer nodes map → forward original MsgRelay to peer beacon
-//  3. Neither → drop (unknown dest)
-func (s *Server) relayWorker() {
-	sendBuf := make([]byte, 1500) // per-worker send buffer, no allocations
+// relayBatchCap is the upper bound on packets a worker batches before
+// flushing via sendmmsg. 32 is the sweet spot: large enough that the
+// per-syscall overhead is amortised across many packets, small enough
+// that batch-fill latency stays sub-millisecond under steady load.
+const relayBatchCap = 32
+
+// relayFlushAfter caps the latency a packet spends sitting in a worker's
+// batch waiting for siblings. Bumped 500µs → 2ms on 2026-05-14 when
+// post-recvmmsg measurements showed batches typically flushing on the
+// timer (not the cap), with only 1-2 packets in the batch. 2 ms paired
+// with 1× CPU workers gets each batch near the 32 cap before flushing.
+// 2 ms is still negligible vs network jitter (the LB sits 50-150 ms
+// from end-user daemons; another 2 ms of buffering is invisible).
+const relayFlushAfter = 2 * time.Millisecond
+
+// relayWorker processes relay jobs: dest lookup and batched UDP send.
+// Workers maintain a local batch of up to relayBatchCap messages and
+// flush via ipv4.PacketConn.WriteBatch (sendmmsg on Linux) when the
+// batch fills OR when relayFlushAfter elapses since the first message.
+//
+// 3-tier destination lookup is unchanged from the pre-batching code:
+//  1. Local nodes map → MsgRelayDeliver directly to agent
+//  2. Peer nodes map → forward MsgRelay to peer beacon
+//  3. Neither → drop (unknown dest, counter only — no per-packet log)
+//
+// Each worker is pinned to one of the SO_REUSEPORT fds (round-robin in
+// ListenAndServe). Because the kernel takes a per-fd socket lock on
+// every send, sharing one fd across all workers serialised every
+// WriteBatch globally — the send-side bottleneck before fan-out.
+// With per-fd workers, sends parallelise across fds and the only
+// serialisation left is per-worker (its own batch state).
+func (s *Server) relayWorker(sendConn *ipv4.PacketConn) {
+	msgs := make([]ipv4.Message, 0, relayBatchCap)
+	payloadsToReturn := make([][]byte, 0, relayBatchCap)
+	outBufsToReturn := make([]*[]byte, 0, relayBatchCap)
+
+	flush := func() {
+		if len(msgs) == 0 {
+			return
+		}
+		n, err := sendConn.WriteBatch(msgs, 0)
+		if err != nil {
+			slog.Debug("relay write batch failed", "n", n, "of", len(msgs), "err", err)
+		}
+		if n > 0 {
+			s.relayForwarded.Add(uint64(n))
+		}
+		for _, p := range payloadsToReturn {
+			s.returnPayload(p)
+		}
+		for _, b := range outBufsToReturn {
+			*b = (*b)[:cap(*b)]
+			s.outBufPool.Put(b)
+		}
+		msgs = msgs[:0]
+		payloadsToReturn = payloadsToReturn[:0]
+		outBufsToReturn = outBufsToReturn[:0]
+	}
+
+	timer := time.NewTimer(relayFlushAfter)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	timerActive := false
+
 	for {
-		var job relayJob
 		select {
 		case <-s.done:
+			flush()
 			return
-		case job = <-s.relayCh:
-		}
-
-		// Tier 1: local node lookup — sharded, no global lock.
-		destNode := s.nodes.Get(job.destID)
-		var destAddr *net.UDPAddr
-		ok := destNode != nil
-		if ok {
-			destAddr = destNode.addr
-		}
-
-		if ok {
-			// Build relay deliver message in pre-allocated send buffer
-			msgLen := 1 + 4 + len(job.payload)
-			if cap(sendBuf) < msgLen {
-				sendBuf = make([]byte, msgLen)
-			}
-			msg := sendBuf[:msgLen]
-			msg[0] = protocol.BeaconMsgRelayDeliver
-			binary.BigEndian.PutUint32(msg[1:5], job.senderID)
-			copy(msg[5:], job.payload)
-
-			if _, err := s.conn.WriteToUDP(msg, destAddr); err != nil {
-				slog.Warn("beacon relay send failed", "dest_node_id", job.destID, "err", err)
-			} else {
-				s.relayForwarded.Add(1)
-			}
-			s.returnPayload(job.payload)
+		case <-timer.C:
+			timerActive = false
+			flush()
 			continue
-		}
-
-		// Tier 2: peer beacon lookup
-		s.peerMu.RLock()
-		peerAddr, peerOk := s.peerNodes[job.destID]
-		s.peerMu.RUnlock()
-
-		if peerOk {
-			// Forward the original MsgRelay to the peer beacon
-			fwdLen := 1 + 4 + 4 + len(job.payload)
-			if cap(sendBuf) < fwdLen {
-				sendBuf = make([]byte, fwdLen)
+		case job := <-s.relayCh:
+			// Tier 0: compat-mode WSS destination. Bypass the
+			// sendmmsg batching path entirely — WSS writes go to a
+			// per-conn TCP stream, no batching benefit. The WSS
+			// frame is shaped exactly like a local-UDP delivery
+			// (BeaconMsgRelayDeliver + senderID + payload) so the
+			// receiving compat daemon's L4 dispatcher routes it
+			// identically to a UDP-arrived relay-deliver packet.
+			if s.wssServer != nil && s.wssServer.IsConnected(job.destID) {
+				obp := s.outBufPool.Get().(*[]byte)
+				outBuf := *obp
+				outBuf = outBuf[:1+4+len(job.payload)]
+				outBuf[0] = protocol.BeaconMsgRelayDeliver
+				binary.BigEndian.PutUint32(outBuf[1:5], job.senderID)
+				copy(outBuf[5:], job.payload)
+				if s.wssServer.WriteFrame(job.destID, outBuf) {
+					s.relayForwarded.Add(1)
+				} else {
+					// Conn dropped between IsConnected and Write —
+					// the WSS server has already disconnected the
+					// peer. Count as not-found rather than dropped:
+					// the dest is genuinely gone.
+					s.relayNotFound.Add(1)
+				}
+				s.returnPayload(job.payload)
+				*obp = outBuf[:cap(outBuf)]
+				s.outBufPool.Put(obp)
+				continue
 			}
-			fwd := sendBuf[:fwdLen]
-			fwd[0] = protocol.BeaconMsgRelay
-			binary.BigEndian.PutUint32(fwd[1:5], job.senderID)
-			binary.BigEndian.PutUint32(fwd[5:9], job.destID)
-			copy(fwd[9:], job.payload)
 
-			if _, err := s.conn.WriteToUDP(fwd, peerAddr); err != nil {
-				slog.Warn("beacon relay forward to peer failed", "dest_node_id", job.destID, "peer", peerAddr, "err", err)
+			// Tier 1: local node lookup — sharded, RLock + snapshot.
+			// We use Snapshot (not Get) so the addr read happens under
+			// the shard's RLock — Upsert writes `addr` under that same
+			// lock, and the race detector flagged the previous Get+read
+			// pattern on 2026-05-19.
+			localAddr, localOk := s.nodes.Snapshot(job.destID)
+			obp := s.outBufPool.Get().(*[]byte)
+			outBuf := *obp
+			var addr *net.UDPAddr
+			if localOk {
+				addr = localAddr
+				outBuf = outBuf[:1+4+len(job.payload)]
+				outBuf[0] = protocol.BeaconMsgRelayDeliver
+				binary.BigEndian.PutUint32(outBuf[1:5], job.senderID)
+				copy(outBuf[5:], job.payload)
 			} else {
-				s.relayForwarded.Add(1)
+				// Tier 2: peer beacon lookup. peerNodes is an
+				// atomic.Pointer; reads are lock-free.
+				peerMap := *s.peerNodes.Load()
+				peerAddr, peerOk := peerMap[job.destID]
+				if !peerOk {
+					// Tier 3: unknown dest. Counter only — the
+					// per-packet slog.Warn that used to live here cost
+					// real CPU on every miss (rate-limited or not).
+					// relayStatsLoop's periodic INFO already surfaces
+					// the count to operators.
+					s.relayNotFound.Add(1)
+					s.returnPayload(job.payload)
+					*obp = (*obp)[:cap(*obp)]
+					s.outBufPool.Put(obp)
+					continue
+				}
+				addr = peerAddr
+				outBuf = outBuf[:1+4+4+len(job.payload)]
+				outBuf[0] = protocol.BeaconMsgRelay
+				binary.BigEndian.PutUint32(outBuf[1:5], job.senderID)
+				binary.BigEndian.PutUint32(outBuf[5:9], job.destID)
+				copy(outBuf[9:], job.payload)
 			}
-			s.returnPayload(job.payload)
-			continue
-		}
+			*obp = outBuf
 
-		// Tier 3: unknown destination. Bump the counter for /api/stats,
-		// but rate-limit the per-packet log to ≤1/sec — the empty-s.nodes
-		// startup window (every daemon's first 60s after a beacon swap)
-		// otherwise floods journald at ~800 lines/sec and starves the
-		// read loops we just parallelised.
-		s.relayNotFound.Add(1)
-		now := time.Now().UnixNano()
-		if last := s.lastNotFoundLog.Load(); now-last > int64(time.Second) {
-			if s.lastNotFoundLog.CompareAndSwap(last, now) {
-				slog.Warn("relay dest not found", "dest_node_id", job.destID, "sender_node_id", job.senderID)
+			msgs = append(msgs, ipv4.Message{
+				Buffers: [][]byte{outBuf},
+				Addr:    addr,
+			})
+			payloadsToReturn = append(payloadsToReturn, job.payload)
+			outBufsToReturn = append(outBufsToReturn, obp)
+
+			if len(msgs) >= relayBatchCap {
+				if timerActive {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timerActive = false
+				}
+				flush()
+			} else if !timerActive {
+				timer.Reset(relayFlushAfter)
+				timerActive = true
 			}
 		}
-		s.returnPayload(job.payload)
 	}
 }
 
@@ -599,21 +915,24 @@ func (s *Server) handleSync(data []byte, remote *net.UDPAddr) {
 		nodeIDs[i] = binary.BigEndian.Uint32(data[6+4*i : 6+4*i+4])
 	}
 
-	// Update peer node map: clear old entries for this peer, add new ones
-	s.peerMu.Lock()
-	// Remove all entries pointing to this peer
-	for id, addr := range s.peerNodes {
-		if addr.IP.Equal(remote.IP) && addr.Port == remote.Port {
-			delete(s.peerNodes, id)
+	// Update peer node map via copy-on-write. peerWriteMu serialises
+	// concurrent gossip writers; readers (on the relay hot path) load
+	// the pointer lock-free.
+	s.peerWriteMu.Lock()
+	cur := *s.peerNodes.Load()
+	next := make(map[uint32]*net.UDPAddr, len(cur)+len(nodeIDs))
+	for id, addr := range cur {
+		if !(addr.IP.Equal(remote.IP) && addr.Port == remote.Port) {
+			next[id] = addr
 		}
 	}
-	// Add new entries (skip nodes we own locally)
 	for _, id := range nodeIDs {
 		if !s.nodes.Has(id) {
-			s.peerNodes[id] = remote
+			next[id] = remote
 		}
 	}
-	s.peerMu.Unlock()
+	s.peerNodes.Store(&next)
+	s.peerWriteMu.Unlock()
 
 	slog.Debug("gossip sync received", "peer_beacon_id", peerBeaconID, "nodes", nodeCount, "from", remote)
 }
@@ -826,9 +1145,7 @@ func (s *Server) SetHealthy(ok bool) {
 
 // PeerNodeCount returns the number of nodes known via gossip from peer beacons.
 func (s *Server) PeerNodeCount() int {
-	s.peerMu.RLock()
-	defer s.peerMu.RUnlock()
-	return len(s.peerNodes)
+	return len(*s.peerNodes.Load())
 }
 
 // LocalNodeCount returns the number of locally registered nodes.

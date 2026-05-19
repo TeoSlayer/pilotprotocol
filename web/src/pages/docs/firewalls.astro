@@ -1,0 +1,89 @@
+---
+import DocLayout from "../../layouts/DocLayout.astro";
+
+const bodyContent = `<h1>Running pilot behind a firewall</h1>
+  <p class="subtitle">When UDP is blocked, compat mode tunnels Pilot packets over HTTPS/WSS to the beacon — same overlay, different wire.</p>
+
+  <div class="toc">
+    <h4>On this page</h4>
+    <ul>
+      <li><a href="#when">When you need compat mode</a></li>
+      <li><a href="#enabling">Enabling compat mode</a></li>
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#tls-trust">TLS trust + corp proxies</a></li>
+      <li><a href="#limits">Limits</a></li>
+    </ul>
+  </div>
+
+  <h2 id="when">When you need compat mode</h2>
+
+  <p>The default Pilot daemon binds a public UDP socket and reaches peers either directly or via beacon hole-punch. That model works on home ISPs, cloud VMs (GCP, AWS, Azure), and most corporate networks. It does <strong>not</strong> work on:</p>
+
+  <ul>
+    <li><strong>Container PaaS without UDP exposure:</strong> Render, Railway, Vercel, Fly.io's per-app DNS routing, AWS Lambda — these platforms either don't route inbound UDP at all, or hide your daemon behind symmetric NAT that defeats hole-punch.</li>
+    <li><strong>Locked-down corporate networks</strong> where outbound UDP is firewalled but HTTPS to arbitrary internet hosts is allowed.</li>
+    <li><strong>Airport / hotel / conference wifi</strong> that blocks everything but TCP/443.</li>
+  </ul>
+
+  <p>If your daemon registers fine but heartbeats keep failing, or queries to specialists time out with relay-retransmit errors flooding the log, you're likely in one of these environments. <strong>Compat mode</strong> is the answer: same daemon binary, same overlay, just a different wire from your daemon to the beacon.</p>
+
+  <h2 id="enabling">Enabling compat mode</h2>
+
+  <p>Compat mode is opt-in via three CLI flags on the standalone <code>pilot-daemon</code> binary:</p>
+
+  <pre><code><span class="cmd">pilot-daemon</span> -transport=compat</code></pre>
+
+  <p>That's the minimum — every other flag has a working default. Explicit form:</p>
+
+  <pre><code><span class="cmd">pilot-daemon</span> \\
+  -transport=compat \\
+  -compat-beacon=wss://beacon.pilotprotocol.network/v1/compat \\
+  -tls-trust=system</code></pre>
+
+  <p>Flag semantics:</p>
+
+  <ul>
+    <li><code>-transport=compat</code> — switches the tunnel transport from UDP to WSS. Default is <code>udp</code>; the daemon falls back to UDP behavior if this flag is unset.</li>
+    <li><code>-compat-beacon &lt;url&gt;</code> — the beacon's WSS endpoint. The default points at the managed public beacon (<code>wss://beacon.pilotprotocol.network/v1/compat</code>); self-hosted deployments override it.</li>
+    <li><code>-tls-trust &lt;mode&gt;</code> — see <a href="#tls-trust">TLS trust</a>. Defaults to <code>system</code>.</li>
+  </ul>
+
+  <p>The daemon also automatically forces <code>relay_only=true</code> when compat is enabled — peers will route to it via the beacon's relay path instead of trying direct UDP, which would fail anyway.</p>
+
+  <h2 id="how-it-works">How it works</h2>
+
+  <p>The compat-mode daemon opens one long-lived WebSocket Secure connection to the beacon. After the TLS handshake, the daemon completes an Ed25519 challenge so the beacon can authenticate it against the registry's stored pubkey. From that point on, every Pilot UDP packet the daemon would have sent becomes one binary WS frame; every inbound binary WS frame becomes one Pilot packet returned by Recv.</p>
+
+  <p>The beacon transparently bridges between UDP peers and WSS peers. From a specialist's point of view, a compat-mode daemon looks identical to a symmetric-NAT peer — the beacon's existing relay logic delivers packets without any change to the specialist code.</p>
+
+  <p>End-to-end Ed25519 trust is unchanged. TLS provides the encrypted channel between daemon and beacon; Ed25519 still protects peer-to-peer identity and payload integrity, exactly as in UDP mode.</p>
+
+  <h2 id="tls-trust">TLS trust + corp proxies</h2>
+
+  <p>The public beacon at <code>beacon.pilotprotocol.network</code> currently presents a Let's Encrypt certificate (terminated by nginx on the rendezvous host). With <code>-tls-trust=system</code> (the default), the daemon verifies that cert against the OS trust store — the same way browsers do — and connects normally. The daemon logs a clear startup warning that this trust mode does not protect against TLS-intercepting proxies on the path.</p>
+
+  <p>A future release will ship the daemon binary with the Pilot Protocol root CA cert embedded. At that point the default flips to <code>-tls-trust=pinned</code>, which verifies the beacon's leaf cert against <strong>only</strong> this root — no public CA bug, DNS hijack, or Let's Encrypt issuance mistake can MITM your daemon. The escape hatch for that future state (for daemons behind TLS-intercepting corp proxies like Fortinet, Zscaler, BlueCoat, Palo Alto, Cisco Umbrella) will be to pass <code>-tls-trust=system</code> explicitly.</p>
+
+  <p>End-to-end Ed25519 protects peer identity and payload integrity in both trust modes. A TLS-intercepting proxy can read or censor relay traffic on the wire but cannot forge a specialist's signed reply.</p>
+
+  <h2 id="limits">Limits</h2>
+
+  <ul>
+    <li><strong>Latency:</strong> Compat-mode traffic always traverses the beacon — there is no direct path. Expect ~50-200 ms one-way to the nearest beacon region, plus the beacon → specialist hop. UDP mode reaches specialists directly when NAT allows it.</li>
+    <li><strong>Bandwidth:</strong> Compat traffic costs the beacon roughly 2× the bytes of UDP relay (TCP/TLS framing overhead, and the beacon pays for both legs). Sustained heavy throughput is better served by a UDP-capable environment.</li>
+    <li><strong>Hostile-state DPI:</strong> Networks that block arbitrary outbound TLS (Great Firewall, some government deployments) will block compat mode. Domain fronting / ECH / Snowflake-style obfuscation is out of scope.</li>
+    <li><strong>One beacon per session:</strong> The daemon holds one WSS connection at a time. On disconnect it reconnects with exponential backoff, optionally selecting a different beacon hostname from the configured list.</li>
+  </ul>
+
+  <p>For the full design — transport matrix, PKI, wire format, rollout plan — see <a href="https://github.com/TeoSlayer/pilotprotocol/blob/main/docs/SPEC-compat-mode.md">docs/SPEC-compat-mode.md</a> in the repo.</p>`;
+---
+<DocLayout
+  title="Running pilot behind a firewall"
+  description="Compat mode tunnels Pilot packets over HTTPS/WSS for daemons in UDP-blocked environments."
+  activePage="firewalls"
+  canonicalPath="/docs/firewalls"
+  prev={{ label: "Configuration", href: "/docs/configuration" }}
+  next={{ label: "Diagnostics", href: "/docs/diagnostics" }}
+>
+  <Fragment set:html={bodyContent} />
+</DocLayout>

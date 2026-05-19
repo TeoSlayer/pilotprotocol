@@ -19,3 +19,9 @@ func listenReusePort(addr string) (*net.UDPConn, error) {
 	}
 	return net.ListenUDP("udp", udpAddr)
 }
+
+// MaxReusePortShards caps how many SO_REUSEPORT sockets the beacon
+// opens. On non-Linux platforms this is 1 — without kernel flow-hash,
+// opening more would just fail with "address already in use" on the
+// second bind. Production (Linux) uses the default 2× NumCPU.
+const MaxReusePortShards = 1

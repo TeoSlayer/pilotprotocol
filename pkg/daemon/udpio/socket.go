@@ -49,13 +49,18 @@ import (
 	// TODO: fold internal/pool into this package once tests/fuzz_fsutil_pool_test.go
 	// is rewritten or relocated. See 03-INVARIANTS.md §6.5.
 	"github.com/TeoSlayer/pilotprotocol/internal/pool"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
 )
 
 // ErrClosed is returned by Recv after Close has been called and any
 // in-flight ReadFromUDP has returned. Send returns the underlying
 // net.OpError directly; the caller decides how to interpret kernel-
 // surfaced ICMP-unreachable errors (see pkg/daemon handleSendError).
-var ErrClosed = errors.New("udpio: socket closed")
+//
+// Aliased to transport.ErrClosed so both UDP and WSS transports return
+// the same sentinel. Callers use errors.Is(err, udpio.ErrClosed) or
+// errors.Is(err, transport.ErrClosed) interchangeably.
+var ErrClosed = transport.ErrClosed
 
 // Socket owns a *net.UDPConn and the pool-backed read buffer used by
 // Recv. It does NOT own a goroutine — the dispatcher goroutine that

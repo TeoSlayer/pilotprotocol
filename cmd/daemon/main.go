@@ -67,12 +67,16 @@ func main() {
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
+	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "include raw base64 payload (`data_b64`) alongside `data` in inbox messages — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
 	beaconRTTProbe := flag.Bool("beacon-rtt-probe", false, "probe beacon RTT before selection; override hash pick when >2× slower than best (ablation test, default off)")
+	transportMode := flag.String("transport", "udp", "tunnel transport: 'udp' (default) or 'compat' (WSS to beacon, opt-in, for UDP-blocked environments)")
+	compatBeacon := flag.String("compat-beacon", "wss://beacon.pilotprotocol.network/v1/compat", "beacon WSS URL for -transport=compat")
+	tlsTrust := flag.String("tls-trust", "system", "TLS trust store for -transport=compat: 'system' (OS trust store; current default while compat mode uses Let's Encrypt certs on beacon.pilotprotocol.network) or 'pinned' (Pilot CA root embedded in the daemon binary; will become the default in a future release once production root ships)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
@@ -140,6 +144,9 @@ func main() {
 		Version:               version,
 		TrustAutoApprove:      *trustAutoApprove,
 		BeaconRTTProbe:        *beaconRTTProbe,
+		TransportMode:         *transportMode,
+		CompatBeaconURL:       *compatBeacon,
+		CompatTLSTrust:        *tlsTrust,
 	})
 
 	// L11 plugin lifecycle (T7.1): composition root owns the
@@ -158,7 +165,9 @@ func main() {
 	}
 
 	if !*noDataExchange {
-		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{})); err != nil {
+		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{
+			IncludeBase64: *dataExchangeB64,
+		})); err != nil {
 			log.Fatalf("register dataexchange: %v", err)
 		}
 	}

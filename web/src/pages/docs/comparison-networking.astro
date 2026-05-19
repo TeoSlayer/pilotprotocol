@@ -21,7 +21,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
   <p>Pilot Protocol, Tailscale, ZeroTier, and Nebula are all overlay networks. They all create virtual addresses, encrypt traffic, and traverse NATs. The difference is <strong>who they are built for</strong>:</p>
 
   <ul>
-    <li><strong>Pilot Protocol</strong> - An overlay network built for autonomous AI agents. Provides virtual addresses, port-based services, a bilateral trust model, peer discovery with tags, and built-in application services (data exchange, task delegation, pub/sub). No external Go dependencies.</li>
+    <li><strong>Pilot Protocol</strong> - An overlay network built for autonomous AI agents. Provides virtual addresses, port-based services, a bilateral trust model, peer discovery with tags, and built-in application services (data exchange and pub/sub). No external Go dependencies.</li>
     <li><strong>Tailscale</strong> - A VPN mesh built on WireGuard for connecting human users and servers. Manages device access through an admin console, integrates with SSO/OIDC, and provides Magic DNS.</li>
     <li><strong>ZeroTier</strong> - A virtual Ethernet switch that creates flat L2 networks. Devices join a network ID and get an IP. Managed through a central controller.</li>
     <li><strong>Nebula</strong> - Slack's overlay network for connecting servers at scale. Certificate-based identity, firewall rules in config files, designed for infrastructure teams.</li>
@@ -41,7 +41,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
       <tr><td><strong>Trust model</strong></td><td>Bilateral handshake (agent-initiated)</td><td>Centralized ACLs (admin console)</td></tr>
       <tr><td><strong>Discovery</strong></td><td>Registry + tags + hostnames</td><td>Magic DNS + admin console</td></tr>
       <tr><td><strong>Identity</strong></td><td>Ed25519 key pair (self-generated)</td><td>SSO/OIDC provider</td></tr>
-      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>Taildrop, Funnel, Serve</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub</td><td>Taildrop, Funnel, Serve</td></tr>
       <tr><td><strong>Admin experience</strong></td><td>CLI + config files</td><td>Polished admin console</td></tr>
       <tr><td><strong>Account required</strong></td><td>No</td><td>Yes (Google, Microsoft, GitHub, etc.)</td></tr>
       <tr><td><strong>Transport</strong></td><td>UDP with custom reliable transport</td><td>WireGuard (kernel or userspace)</td></tr>
@@ -63,7 +63,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
       <tr><td><strong>Ports</strong></td><td>16-bit ports with well-known assignments</td><td>Standard IP ports</td></tr>
       <tr><td><strong>Trust</strong></td><td>Bilateral handshake</td><td>Network controller approval</td></tr>
       <tr><td><strong>Discovery</strong></td><td>Tags, hostnames, registry search</td><td>Network member list</td></tr>
-      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>None</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub</td><td>None</td></tr>
       <tr><td><strong>Account required</strong></td><td>No</td><td>Yes (for managed networks)</td></tr>
       <tr><td><strong>Self-hosted</strong></td><td>Yes (rendezvous server)</td><td>Yes (controller)</td></tr>
       <tr><td><strong>Free tier</strong></td><td>Unlimited (open source)</td><td>25 devices</td></tr>
@@ -85,7 +85,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
       <tr><td><strong>Firewall</strong></td><td>Per-port accept rules</td><td>YAML config rules</td></tr>
       <tr><td><strong>Discovery</strong></td><td>Registry + tags + hostnames</td><td>Lighthouse nodes + static hosts</td></tr>
       <tr><td><strong>Configuration</strong></td><td>JSON config + CLI flags</td><td>YAML files + CA PKI</td></tr>
-      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub, tasks</td><td>None</td></tr>
+      <tr><td><strong>Application services</strong></td><td>Echo, data exchange, pub/sub</td><td>None</td></tr>
       <tr><td><strong>PKI required</strong></td><td>No</td><td>Yes (nebula-cert CA)</td></tr>
       <tr><td><strong>NAT traversal</strong></td><td>STUN + hole-punch + relay</td><td>Lighthouse + punch</td></tr>
       <tr><td><strong>License</strong></td><td>AGPL-3.0</td><td>MIT</td></tr>
@@ -138,8 +138,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
       <tr><td>Trust model</td><td>Bilateral</td><td>Central ACL</td><td>Controller</td><td>Certificates</td><td>None</td></tr>
       <tr><td>Peer discovery</td><td>Registry+tags</td><td>Magic DNS</td><td>Controller</td><td>Lighthouse</td><td>DHT+mDNS</td></tr>
       <tr><td>Port multiplexing</td><td>16-bit ports</td><td>IP ports</td><td>IP ports</td><td>IP ports</td><td>Protocol IDs</td></tr>
-      <tr><td>Built-in services</td><td>7 ports</td><td>None</td><td>None</td><td>None</td><td>Pubsub only</td></tr>
-      <tr><td>Task delegation</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+      <tr><td>Built-in services</td><td>Echo, Data&nbsp;Exchange, Event&nbsp;Stream</td><td>None</td><td>None</td><td>None</td><td>Pubsub only</td></tr>
       <tr><td>Pub/Sub</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
       <tr><td>Self-hosted</td><td>Yes</td><td>Headscale</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
       <tr><td>License</td><td>AGPL-3.0</td><td>BSD-3/Prop.</td><td>BSL 1.1</td><td>MIT</td><td>MIT/Apache</td></tr>
@@ -153,7 +152,7 @@ const bodyContent = `<h1>Pilot Protocol vs Tailscale vs ZeroTier vs Nebula</h1>
   <ul>
     <li>You are building with AI agents that need to find, trust, and communicate with each other</li>
     <li>You want lightweight networking with no accounts, no PKI, no cloud platform to manage</li>
-    <li>You need built-in application services (data exchange, task delegation, pub/sub) out of the box</li>
+    <li>You need built-in application services (data exchange and pub/sub) out of the box</li>
     <li>Agents need to dynamically discover peers by tags, hostnames, or capabilities</li>
     <li>You want agents to negotiate trust at runtime without a central authority</li>
   </ul>

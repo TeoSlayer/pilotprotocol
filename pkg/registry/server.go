@@ -1040,6 +1040,28 @@ func (s *Server) SetAdminToken(token string) {
 	s.mu.Unlock()
 }
 
+// LookupPublicKey returns the Ed25519 pubkey registered for nodeID,
+// or (nil, false) if the node is unknown. Safe to call concurrently.
+//
+// Used by the in-process beacon's compat-mode WSS bridge to
+// authenticate daemons during the post-upgrade challenge. The lookup
+// is sharded under s.mu.RLock and copies the key slice so the caller
+// can hold the result past the lock release.
+func (s *Server) LookupPublicKey(nodeID uint32) ([]byte, bool) {
+	s.mu.RLock()
+	node, ok := s.nodes[nodeID]
+	if !ok || node == nil || len(node.PublicKey) == 0 {
+		s.mu.RUnlock()
+		return nil, false
+	}
+	// Copy: node.PublicKey is mutable across RotateKey. Returning the
+	// raw slice would race with a concurrent rotation.
+	out := make([]byte, len(node.PublicKey))
+	copy(out, node.PublicKey)
+	s.mu.RUnlock()
+	return out, true
+}
+
 // SetMaxNodes sets the maximum number of registered nodes. For testing.
 func (s *Server) SetMaxNodes(n int) {
 	s.mu.Lock()
@@ -6610,8 +6632,16 @@ func (s *Server) replicaPushLoop() {
 			dirty = true
 		case <-ticker.C:
 			if dirty {
-				if data := s.snapshotJSON(); data != nil {
-					s.replMgr.push(data)
+				// Skip the snapshot build entirely if no replicas are
+				// attached — snapshotJSON walks the full registry state
+				// (170k+ nodes, ~50-100 MB) and allocates ~1 GB/sec at
+				// load. Re-checked every tick so a freshly-attached
+				// replica picks up on the next dirty cycle. Cheap: hasSubs
+				// is a single mutex-protected len(map) read.
+				if s.replMgr.hasSubs() {
+					if data := s.snapshotJSON(); data != nil {
+						s.replMgr.push(data)
+					}
 				}
 				dirty = false
 			}
@@ -6622,7 +6652,7 @@ func (s *Server) replicaPushLoop() {
 				dirty = true
 			default:
 			}
-			if dirty {
+			if dirty && s.replMgr.hasSubs() {
 				if data := s.snapshotJSON(); data != nil {
 					s.replMgr.push(data)
 				}

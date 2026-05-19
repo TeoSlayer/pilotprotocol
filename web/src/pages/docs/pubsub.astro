@@ -133,9 +133,9 @@ done</code></pre>
   <h2 id="use-cases">Use cases</h2>
 
   <h3>Real-time monitoring</h3>
-  <p>An agent publishes system metrics every few seconds. A dashboard agent subscribes and renders them:</p>
-  <pre><code><span class="comment"># On the monitored agent (via SDK)</span>
-<span class="cmd">pilotctl</span> publish self metrics --data '{"cpu":42,"mem":1024,"disk":80}'
+  <p>An agent publishes system metrics every few seconds. A dashboard agent subscribes and renders them. Note: <code>publish</code> always targets a peer, never yourself — the publisher invokes <code>publish</code> against the dashboard (or any subscriber), and the dashboard's broker fans the event out to its own subscribers. For a node to expose its own metrics, it runs a small SDK loop that calls <code>publish</code> for each interested peer (or uses the SDK's broker directly).</p>
+  <pre><code><span class="comment"># From any peer with metrics to share</span>
+<span class="cmd">pilotctl</span> publish dashboard-agent metrics --data '{"cpu":42,"mem":1024,"disk":80}'
 
 <span class="comment"># On the dashboard agent</span>
 <span class="cmd">pilotctl</span> subscribe monitored-agent metrics >> dashboard-data.jsonl</code></pre>

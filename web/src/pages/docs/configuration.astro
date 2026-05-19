@@ -52,6 +52,9 @@ const bodyContent = `<h1>Configuration</h1>
     <tbody>
       <tr><td>PILOT_SOCKET</td><td>/tmp/pilot.sock</td><td>Path to the daemon IPC socket</td></tr>
       <tr><td>PILOT_REGISTRY</td><td>34.71.57.205:9000</td><td>Registry server address</td></tr>
+      <tr><td>PILOT_BEACON</td><td>34.71.57.205:9001</td><td>Beacon server address (used for STUN, NAT punch, and relay)</td></tr>
+      <tr><td>PILOT_DAEMON_BIN</td><td>(auto-discovered)</td><td>Override path to the <code>pilot-daemon</code> binary (otherwise pilotctl looks next to itself, then in <code>$PATH</code>)</td></tr>
+      <tr><td>PILOT_GATEWAY_BIN</td><td>(auto-discovered)</td><td>Override path to the <code>pilot-gateway</code> binary</td></tr>
       <tr><td>PILOT_HOSTNAME</td><td>(none)</td><td>Hostname to set during install. If unset, the node is assigned an internal hostname of the form <code>pilot-XXXXXXXX</code> (8 hex chars = first 4 bytes of <code>SHA-256(public_key)</code>)</td></tr>
       <tr><td>PILOT_ADMIN_TOKEN</td><td>(none)</td><td>Admin token for enterprise operations</td></tr>
       <tr><td>PILOT_HOME</td><td>~/.pilot</td><td>Directory where pilot stores identity, config, and received files</td></tr>
@@ -63,7 +66,7 @@ const bodyContent = `<h1>Configuration</h1>
   <h2 id="directory">Directory structure</h2>
 
   <pre><code>~/.pilot/
-  bin/                <span class="comment"># Installed binaries (daemon, pilotctl, gateway, updater)</span>
+  bin/                <span class="comment"># Installed binaries (pilot-daemon, pilotctl, pilot-gateway, pilot-updater)</span>
   bin/.pilot-version  <span class="comment"># Current version (used by auto-updater)</span>
   config.json         <span class="comment"># Configuration file</span>
   identity.json       <span class="comment"># Ed25519 keypair (persistent identity)</span>
@@ -77,6 +80,8 @@ const bodyContent = `<h1>Configuration</h1>
 
   <h2 id="daemon-flags">Daemon flags</h2>
 
+  <p>These flags forward from <code>pilotctl daemon start</code> to the underlying <code>pilot-daemon</code> binary.</p>
+
   <table>
     <thead><tr><th>Flag</th><th>Description</th></tr></thead>
     <tbody>
@@ -85,29 +90,47 @@ const bodyContent = `<h1>Configuration</h1>
       <tr><td>--listen &lt;addr&gt;</td><td>Local UDP listen address (default: :0)</td></tr>
       <tr><td>--endpoint &lt;addr&gt;</td><td>Fixed public endpoint for cloud VMs (skips STUN)</td></tr>
       <tr><td>--identity &lt;path&gt;</td><td>Path to identity key file</td></tr>
-      <tr><td>--email &lt;addr&gt;</td><td>Email address for account identification and key recovery (required on first start)</td></tr>
+      <tr><td>--email &lt;addr&gt;</td><td>Email address for account identification and key recovery</td></tr>
       <tr><td>--hostname &lt;name&gt;</td><td>Register with this hostname</td></tr>
       <tr><td>--public</td><td>Start as a public node</td></tr>
       <tr><td>--no-encrypt</td><td>Disable tunnel encryption</td></tr>
       <tr><td>--foreground</td><td>Run in the current process (don't fork)</td></tr>
-      <tr><td>--keepalive &lt;dur&gt;</td><td>Keepalive probe interval (default 30s)</td></tr>
-      <tr><td>--idle-timeout &lt;dur&gt;</td><td>Idle connection timeout (default 120s)</td></tr>
-      <tr><td>--syn-rate-limit &lt;n&gt;</td><td>Max SYN packets per second (default 100)</td></tr>
-      <tr><td>--max-conns-per-port &lt;n&gt;</td><td>Max connections per port (default 1024)</td></tr>
-      <tr><td>--max-conns-total &lt;n&gt;</td><td>Max total connections (default 4096)</td></tr>
-      <tr><td>--time-wait &lt;dur&gt;</td><td>TIME_WAIT duration (default 10s)</td></tr>
-      <tr><td>--registry-tls</td><td>Enable TLS for registry connection</td></tr>
-      <tr><td>--registry-fingerprint &lt;hex&gt;</td><td>SHA-256 fingerprint of registry TLS cert</td></tr>
-      <tr><td>--no-echo</td><td>Disable echo service (port 7)</td></tr>
-      <tr><td>--no-dataexchange</td><td>Disable data exchange (port 1001)</td></tr>
-      <tr><td>--no-eventstream</td><td>Disable event stream (port 1002)</td></tr>
+      <tr><td>--trust-auto-approve</td><td>Auto-approve every incoming trust handshake</td></tr>
       <tr><td>--log-level &lt;level&gt;</td><td>Log level: debug, info, warn, error</td></tr>
       <tr><td>--log-format &lt;fmt&gt;</td><td>Log format: text or json</td></tr>
-      <tr><td>--socket &lt;path&gt;</td><td>IPC socket path</td></tr>
+      <tr><td>--socket &lt;path&gt;</td><td>IPC socket path (default <code>/tmp/pilot.sock</code>)</td></tr>
       <tr><td>--config &lt;path&gt;</td><td>Config file path</td></tr>
       <tr><td>--webhook &lt;url&gt;</td><td>Webhook URL for event notifications</td></tr>
-      <tr><td>--admin-token &lt;token&gt;</td><td>Admin token for enterprise operations</td></tr>
+      <tr><td>--admin-token &lt;token&gt;</td><td>Admin token for network create/admin operations</td></tr>
       <tr><td>--networks &lt;ids&gt;</td><td>Comma-separated network IDs to auto-join on startup</td></tr>
+      <tr><td>--wait &lt;dur&gt;</td><td>How long to wait for the daemon to become ready (default 15s)</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="daemon-advanced-flags">pilot-daemon-only tuning flags</h3>
+
+  <p>The following flags accept tuning values but are only consumed when you invoke the <code>pilot-daemon</code> binary directly (for systemd unit files, container entrypoints, embedded driver harnesses, etc.). They are <em>not</em> forwarded by <code>pilotctl daemon start</code>; the daemon uses the defaults below.</p>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>-keepalive &lt;dur&gt;</td><td>30s</td><td>Keepalive probe interval</td></tr>
+      <tr><td>-idle-timeout &lt;dur&gt;</td><td>120s</td><td>Idle connection timeout</td></tr>
+      <tr><td>-syn-rate-limit &lt;n&gt;</td><td>100</td><td>Max SYN packets per second</td></tr>
+      <tr><td>-max-conns-per-port &lt;n&gt;</td><td>1024</td><td>Max connections per port</td></tr>
+      <tr><td>-max-conns-total &lt;n&gt;</td><td>4096</td><td>Max total connections</td></tr>
+      <tr><td>-time-wait &lt;dur&gt;</td><td>10s</td><td>TIME_WAIT duration</td></tr>
+      <tr><td>-registry-tls</td><td>false</td><td>Enable TLS for registry connection</td></tr>
+      <tr><td>-registry-fingerprint &lt;hex&gt;</td><td>(none)</td><td>SHA-256 fingerprint of registry TLS cert</td></tr>
+      <tr><td>-no-echo</td><td>false</td><td>Disable the built-in echo service (port 7)</td></tr>
+      <tr><td>-no-dataexchange</td><td>false</td><td>Disable the built-in data exchange (port 1001)</td></tr>
+      <tr><td>-dataexchange-b64</td><td>false</td><td>Include a lossless <code>data_b64</code> field alongside <code>data</code> in inbox messages — opt in when payloads are binary (e.g. zlib-compressed envelopes)</td></tr>
+      <tr><td>-no-eventstream</td><td>false</td><td>Disable the built-in event stream (port 1002)</td></tr>
+      <tr><td>-relay-only</td><td>false</td><td>Hide real_addr from peers; reach only via beacon-relay</td></tr>
+      <tr><td>-transport &lt;mode&gt;</td><td>udp</td><td>Tunnel transport: <code>udp</code> (default — binds a UDP socket, today's behavior) or <code>compat</code> (opt-in — tunnels Pilot packets over WSS to the beacon for daemons in UDP-blocked environments such as Docker on Render/Railway/Vercel/Lambda). See <a href="firewalls">Running pilot behind a firewall</a>.</td></tr>
+      <tr><td>-compat-beacon &lt;url&gt;</td><td>wss://beacon.pilotprotocol.network/v1/compat</td><td>WSS endpoint used when <code>-transport=compat</code></td></tr>
+      <tr><td>-tls-trust &lt;mode&gt;</td><td>system</td><td>Compat-mode TLS trust store: <code>system</code> (default — OS trust store; matches the public beacon's Let's Encrypt cert) or <code>pinned</code> (Pilot CA root embedded in the daemon binary; rejects any cert not signed by it). Default will flip back to <code>pinned</code> in a future release once the production Pilot CA root ships embedded in client binaries. End-to-end Ed25519 protects payload identity in both modes.</td></tr>
+      <tr><td>-fake-listen-addr &lt;addr&gt;</td><td>(none)</td><td>Advertise this listen_addr to the registry instead of the real one</td></tr>
     </tbody>
   </table>
 

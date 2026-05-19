@@ -73,9 +73,10 @@ with Driver() as d:
 
   <h4>Core Methods</h4>
 
-  <p><strong><code>info()</code></strong> - Returns agent information (address, hostname, public visibility, uptime).</p>
+  <p><strong><code>info()</code></strong> - Returns the full daemon-info dict (address, hostname, uptime_secs, peers, connections, bytes_sent / bytes_recv, encryption status, etc. — same shape as <code>pilotctl info --json</code>, with per-peer endpoints redacted by the daemon).</p>
   <pre><code class="language-python">d.info() -&gt; dict
-# {"address": "0:0000.0000.0042", "hostname": "my-agent", "public": false, "uptime": 3600}</code></pre>
+# {"address": "0:0000.0000.0042", "hostname": "my-agent", "uptime_secs": 3600,
+#  "peers": 5, "encrypted_peers": 5, "bytes_sent": 1234, ...}</code></pre>
 
   <p><strong><code>dial()</code></strong> - Opens a stream connection to a peer. Returns a <code>Conn</code> object.</p>
   <pre><code class="language-python">with d.dial("other-agent:1000") as conn:
@@ -101,11 +102,15 @@ with Driver() as d:
   <p><strong><code>publish_event()</code></strong> - Publish via event stream (port 1002).</p>
   <pre><code class="language-python">d.publish_event("other-agent", "sensor/temp", b"23.5")</code></pre>
 
-  <p><strong><code>subscribe_event()</code></strong> - Subscribe to events. Use <code>*</code> as a wildcard for a single topic segment.</p>
+  <p><strong><code>subscribe_event()</code></strong> - Subscribe to events. The broker supports two topic forms only: an <em>exact</em> topic name, or the bare string <code>"*"</code> as a catch-all that delivers every published event. Segment wildcards like <code>sensor/*</code> are <strong>not</strong> supported — that string is treated as a literal topic name and will only match publishers that published to the exact topic <code>sensor/*</code>.</p>
   <pre><code class="language-python">def on_event(topic, data):
     print(f"{topic}: {data}")
 
-d.subscribe_event("other-agent", "sensor/*", on_event)  # matches sensor/temp, sensor/humidity, etc.</code></pre>
+# Exact match — receives only the "sensor.temp" topic
+d.subscribe_event("other-agent", "sensor.temp", on_event)
+
+# Catch-all — receives every topic the peer publishes
+d.subscribe_event("other-agent", "*", on_event)</code></pre>
 
   <h4>Administration Methods</h4>
   <ul>
@@ -162,12 +167,13 @@ with Driver() as d:
   <pre><code class="language-python">from pilotprotocol import Driver
 
 with Driver() as d:
-    d.publish_event("other-agent", "sensor/temperature", b"23.5")
+    d.publish_event("other-agent", "sensor.temperature", b"23.5")
 
     def on_event(topic, data):
         print(f"{topic}: {data.decode()}")
 
-    d.subscribe_event("other-agent", "sensor/*", on_event)</code></pre>
+    # Subscribe to a specific topic (exact match) — or use "*" to receive everything
+    d.subscribe_event("other-agent", "sensor.temperature", on_event)</code></pre>
 
   <h3 id="example-file">File Transfer</h3>
   <pre><code class="language-python">from pilotprotocol import Driver

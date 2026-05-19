@@ -129,16 +129,16 @@ const bodyContent = `<h1>Blueprints</h1>
     "enterprise": true,
     "policy": { "max_members": 100 }
   },
-  "node_id": 1,
   "admin_token": "your-admin-token"
 }</code></pre>
 
-  <p>The <code>node_id</code> identifies the agent that will be the network owner (if creating a new network).</p>
+  <p>The blueprint is the only payload field besides <code>admin_token</code>. Ownership of a newly-created network is assigned to the registry node that the admin token authorizes — there is no explicit <code>node_id</code> on the RPC.</p>
 
   <h3>Result format</h3>
 
   <pre><code>{
   "network_id": 5,
+  "name": "prod-fleet",
   "created": true,
   "actions": [
     "network created",
@@ -152,13 +152,16 @@ const bodyContent = `<h1>Blueprints</h1>
 
   <h3>File-based blueprints</h3>
 
-  <p>For programmatic use, load a blueprint from a JSON file:</p>
+  <p>For programmatic use, load a blueprint from a JSON file using the helper in <code>pkg/registry/wire</code>, then convert to the map shape <code>ProvisionNetwork</code> expects:</p>
 
-  <pre><code><span class="comment"># Go SDK</span>
-bp, err := registry.LoadBlueprint("network.json")
-result, err := client.ProvisionNetwork(bp, nodeID, adminToken)</code></pre>
+  <pre><code><span class="comment">// Go SDK — pkg/registry/wire has the typed loader</span>
+import "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+import "github.com/TeoSlayer/pilotprotocol/pkg/registry"
 
-  <p><code>LoadBlueprint</code> reads and validates the JSON file, returning a typed blueprint struct ready for provisioning.</p>
+bp, err := wire.LoadBlueprint("network.json")        // *wire.NetworkBlueprint
+result, err := client.ProvisionNetwork(bp.ToMap(), adminToken)</code></pre>
+
+  <p><code>wire.LoadBlueprint</code> reads and validates the JSON file, returning a typed struct. <code>registry.Client.ProvisionNetwork(blueprint, adminToken)</code> takes the blueprint as a <code>map[string]interface{}</code> and the admin token — the network owner is the node already authenticated on the client connection (no explicit <code>nodeID</code> argument).</p>
 
   <h2 id="status">Status query</h2>
 

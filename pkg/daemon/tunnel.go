@@ -7,6 +7,7 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,6 +22,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
+	wssTransport "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
@@ -67,11 +70,19 @@ const (
 // TunnelManager manages real UDP tunnels to peer daemons.
 type TunnelManager struct {
 	mu sync.RWMutex
-	// sock is the L2 datagram-I/O socket. Owns the *net.UDPConn FD and
-	// the pool-backed read buffer. Send / Recv on tm.sock are "dumb"
-	// primitives — relay wrapping, per-peer counters, and magic-byte
-	// dispatch all live in this file (L4 routing). See pkg/daemon/udpio.
-	sock *udpio.Socket
+	// sock is the L2 datagram-I/O transport. Send / Recv on tm.sock are
+	// "dumb" primitives — relay wrapping, per-peer counters, and
+	// magic-byte dispatch all live in this file (L4 routing).
+	//
+	// The Transport interface lets the daemon plug in either the UDP
+	// socket (today's *udpio.Socket — owns a *net.UDPConn FD + pool-
+	// backed read buffer) or the compat-mode WSS tunnel (planned —
+	// tunnels Pilot packets over a WebSocket to the beacon for
+	// daemons in UDP-blocked environments). Switching transports does
+	// not change anything above L2: the readLoop drives Recv exactly
+	// the same way, and routing.WriteFrame writes through Send the
+	// same way. See pkg/daemon/transport + docs/SPEC-compat-mode.md.
+	sock transport.Transport
 	// peers maps node_id → real UDP endpoint. Owned by L4 (routing).
 	peers map[uint32]*net.UDPAddr
 	// envelope is the L5-owned per-peer crypto Store (named "envelope"
@@ -640,7 +651,14 @@ func (tm *TunnelManager) getPeerPubKey(nodeID uint32) (ed25519.PublicKey, error)
 	return tm.kx.GetPeerPubKey(nodeID)
 }
 
-// Listen starts the UDP listener for incoming tunnel traffic.
+// Listen starts the UDP listener for incoming tunnel traffic. This is
+// the default path used when the daemon is launched without
+// -transport=compat. The transport is *udpio.Socket; behavior is
+// unchanged from pre-v1.10.2.
+//
+// Daemons running in UDP-blocked environments (Docker on
+// Render/Railway/Vercel/Lambda) use ConnectCompat instead — see that
+// method and docs/SPEC-compat-mode.md.
 func (tm *TunnelManager) Listen(addr string) error {
 	sock, err := udpio.Listen(addr)
 	if err != nil {
@@ -665,6 +683,48 @@ func (tm *TunnelManager) Listen(addr string) error {
 	// TunnelKeepaliveInterval to peers we've been silent to, preventing
 	// consumer-NAT idle-timeout from silently breaking long-lived
 	// peer relationships with bursty connection cycles.
+	go tm.keepaliveLoop()
+	return nil
+}
+
+// ConnectCompatConfig configures the compat-mode (WSS) transport.
+// NodeID is filled in by the caller after registration; everything
+// else comes from CLI flags / daemon config.
+type ConnectCompatConfig struct {
+	BeaconURL string
+	TLSConfig *tls.Config
+	Identity  *crypto.Identity
+	NodeID    uint32
+}
+
+// ConnectCompat opens a compat-mode (WSS) tunnel to the beacon
+// instead of binding a UDP socket. Replaces Listen for daemons
+// running in UDP-blocked environments. The daemon must already have
+// a registered node ID — call this after Register completes.
+//
+// On success the readLoop, key-exchange loop, and keepalive loop are
+// started identically to the UDP path. From every other layer's
+// perspective the daemon is just talking to the beacon and reaching
+// peers via relay; the routing manager already handles that case
+// today for symmetric-NAT peers.
+func (tm *TunnelManager) ConnectCompat(ctx context.Context, cfg ConnectCompatConfig) error {
+	wssTr, err := wssTransport.Dial(ctx, wssTransport.Config{
+		URL:       cfg.BeaconURL,
+		TLSConfig: cfg.TLSConfig,
+		Identity:  cfg.Identity,
+		NodeID:    cfg.NodeID,
+	})
+	if err != nil {
+		return fmt.Errorf("compat dial: %w", err)
+	}
+	tm.sock = wssTr
+	tm.routing.SetSocket(wssTr)
+
+	tm.readWg.Add(1)
+	go tm.readLoop()
+
+	tm.kxCtx, tm.kxCancel = context.WithCancel(context.Background())
+	go tm.kx.Loop(tm.kxCtx)
 	go tm.keepaliveLoop()
 	return nil
 }

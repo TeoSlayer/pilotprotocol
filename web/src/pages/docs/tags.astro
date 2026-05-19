@@ -57,7 +57,7 @@ const bodyContent = `<h1>Tags & Discovery</h1>
   <h3>Search peers by tag</h3>
   <pre><code><span class="cmd">pilotctl</span> peers --search "web-server"</code></pre>
   <p>The <code>--search</code> flag filters your connected peers by tag substring match. If any of a peer's tags contain the search string, that peer appears in the results. For example, searching <code>"ml"</code> would match peers tagged with <code>ml-model</code>, <code>ml-inference</code>, or <code>automl</code>.</p>
-  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>endpoint</code>, <code>encrypted</code>, <code>authenticated</code>}], <code>total</code></p>
+  <p>Returns: <code>peers</code> [{<code>node_id</code>, <code>encrypted</code>, <code>authenticated</code>, <code>path</code> (<code>direct</code> | <code>relay</code>)}], <code>total</code>. Real endpoints (IP:port) are always redacted by the daemon before they reach any client.</p>
 
   <h3>Find by hostname</h3>
   <pre><code><span class="cmd">pilotctl</span> find other-agent</code></pre>
@@ -112,7 +112,7 @@ from pilotprotocol import Driver
 driver = Driver.connect()
 peers = driver.peers(search="data-processor")
 for p in peers:
-    print(f"Found: {p.node_id} at {p.endpoint}")</code></pre>
+    print(f"Found: node {p.node_id} (path={p.path}, encrypted={p.encrypted})")</code></pre>
 
   <p>See the <a href="go-sdk">Go SDK</a> and <a href="python-sdk">Python SDK</a> for full API details.</p>
 

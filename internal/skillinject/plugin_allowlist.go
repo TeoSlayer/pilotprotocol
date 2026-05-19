@@ -99,7 +99,7 @@ func mergePluginAllowList(configPath, allowJsonPath, entriesJsonPath, pluginID s
 	// `originalBytes` is our point-of-no-return — every failure
 	// path below restores or aborts cleanly.
 	var (
-		originalBytes []byte
+		originalBytes   []byte
 		originalExisted bool
 		obj             map[string]any
 	)

@@ -26,6 +26,11 @@ import (
 type ServiceConfig struct {
 	ReceivedDir string
 	InboxDir    string
+	// IncludeBase64 adds a lossless `data_b64` field to inbox JSON
+	// alongside `data`. Off by default — only enable when binary
+	// payloads (e.g. zlib-compressed envelopes) need to round-trip
+	// without UTF-8 mangling.
+	IncludeBase64 bool
 }
 
 // Service is the L11 plugin adapter. Daemon (L7) holds it only as
@@ -240,9 +245,11 @@ func (s *Service) saveInboxMessage(frame *internaldx.Frame, from protocol.Addr) 
 		"type":        internaldx.TypeName(frame.Type),
 		"from":        from.String(),
 		"data":        string(frame.Payload),
-		"data_b64":    base64.StdEncoding.EncodeToString(frame.Payload),
 		"bytes":       len(frame.Payload),
 		"received_at": ts.Format(time.RFC3339Nano),
+	}
+	if s.cfg.IncludeBase64 {
+		msg["data_b64"] = base64.StdEncoding.EncodeToString(frame.Payload)
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {

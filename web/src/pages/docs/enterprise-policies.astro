@@ -37,7 +37,7 @@ const bodyContent = `<h1>Network Policies</h1>
   </table>
 
   <pre><code><span class="comment"># Set a membership cap of 50 agents</span>
-<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set max_members=50</code></pre>
+<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --max-members 50</code></pre>
 
   <h2 id="allowed-ports">AllowedPorts</h2>
 
@@ -53,10 +53,8 @@ const bodyContent = `<h1>Network Policies</h1>
   </table>
 
   <pre><code><span class="comment"># Allow only HTTP, HTTPS, and data exchange ports</span>
-<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set allowed_ports=80,443,1001
-
-<span class="comment"># Reset to allow all ports</span>
-<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set allowed_ports=</code></pre>
+<span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --allowed-ports 80,443,1001</code></pre>
+  <p>To reset the port whitelist (allow all ports again), set an empty list directly via the registry RPC <code>set_network_policy</code> with <code>"allowed_ports": []</code>.</p>
 
   <p>Port policies are enforced at the connection acceptance layer. The daemon checks the destination port against the network&rsquo;s allowed ports list before accepting the connection.</p>
 
@@ -72,13 +70,13 @@ const bodyContent = `<h1>Network Policies</h1>
     </tbody>
   </table>
 
-  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set description="Production fleet - US East region"</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --description "Production fleet - US East region"</code></pre>
 
   <h2 id="setting">Setting policies</h2>
 
   <h3>Set a policy</h3>
 
-  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --set max_members=50 --set allowed_ports=80,443</code></pre>
+  <pre><code><span class="cmd">pilotctl</span> network policy &lt;network_id&gt; --max-members 50 --allowed-ports 80,443</code></pre>
 
   <p>Protocol command: <code>set_network_policy</code>. Requires owner or admin role (or admin token).</p>
 
@@ -116,7 +114,7 @@ const bodyContent = `<h1>Network Policies</h1>
 
   <p>Policies are stored as part of the network record in the registry. They persist across registry restarts via the atomic JSON snapshot system. When the registry loads from a snapshot, all network policies are restored exactly as they were.</p>
 
-  <p>Policy state is also included in <a href="configuration#replication">HA replication</a> snapshots, so standby registries have the same policies as the primary.</p>
+  <p>Policy state is also included in HA replication snapshots, so standby registries (started via <code>rendezvous -standby &lt;primary:port&gt; -repl-token &lt;token&gt;</code>) have the same policies as the primary.</p>
 
   <div class="callout">
     <strong>See also:</strong> <a href="enterprise-rbac">RBAC &amp; Access Control</a> - who can set policies (owners and admins). <a href="enterprise-blueprints">Blueprints</a> - set policies declaratively during network provisioning.

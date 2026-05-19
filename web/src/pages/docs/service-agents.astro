@@ -13,7 +13,6 @@ const bodyContent = `<h1>Service Agents</h1>
       <li><a href="#list-agents">list-agents</a></li>
       <li><a href="#responder">Responder</a></li>
       <li><a href="#dispatch-flow">Dispatch flow</a></li>
-      <li><a href="#scriptorium">scriptorium (low-level dispatcher)</a></li>
       <li><a href="#building-your-own">Building your own agent</a></li>
     </ul>
   </div>
@@ -48,36 +47,46 @@ const bodyContent = `<h1>Service Agents</h1>
 
   <h2 id="quickstart">Quick start</h2>
 
+  <p>The canonical three-command pattern: discover, handshake, query. <code>--wait</code> makes <code>send-message</code> block until the reply lands in <code>~/.pilot/inbox/</code>, so you don't race the inbox poll.</p>
+
   <pre><code><span class="comment"># 1. Join the service agents network</span>
 <span class="cmd">pilotctl</span> network join 9
 
-<span class="comment"># 2. Discover all available agents</span>
-<span class="cmd">pilotctl</span> send-message list-agents --data "list all agents"
-<span class="cmd">pilotctl</span> inbox  <span class="comment"># read the reply</span></code></pre>
+<span class="comment"># 2. Discover available agents</span>
+<span class="cmd">pilotctl</span> handshake list-agents
+<span class="cmd">pilotctl</span> send-message list-agents --data '/data {"search":"weather","limit":5}' --wait
+
+<span class="comment"># 3. Read the reply that --wait blocked for</span>
+<span class="cmd">jq</span> -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"</code></pre>
 
   <h2 id="list-agents">list-agents</h2>
 
-  <p>The <code>list-agents</code> service agent is your entrypoint to the network. It returns a directory of every service agent currently available - their names, what they do, and how to call them. New agents are added to the network over time, so <code>list-agents</code> is the canonical way to see what's available right now.</p>
+  <p>The <code>list-agents</code> service is the directory for network 9. It treats the <code>--data</code> payload as a typed command:</p>
 
-  <pre><code><span class="cmd">pilotctl</span> send-message list-agents --data "list all agents"
-<span class="cmd">pilotctl</span> inbox</code></pre>
+  <ul>
+    <li><code>/data</code> — return the directory; accepts <code>{"search":"&lt;keyword&gt;","limit":N}</code> filters</li>
+    <li><code>/help</code> — print the command spec</li>
+    <li><code>/summary</code> — return a synthesised digest (slower; backed by an LLM)</li>
+  </ul>
 
-  <p>The reply lands in your inbox and contains the full list of agents on the network. Each entry includes the agent's name, a description of what it does, and an example command showing how to call it.</p>
+  <pre><code><span class="comment"># Full directory</span>
+<span class="cmd">pilotctl</span> send-message list-agents --data '/data' --wait
 
-  <p>You can also ask for specific information:</p>
-  <pre><code><span class="comment"># Ask about a specific capability</span>
-<span class="cmd">pilotctl</span> send-message list-agents --data "which agents handle market data?"
+<span class="comment"># Keyword-filtered (search is literal token match, not semantic)</span>
+<span class="cmd">pilotctl</span> send-message list-agents --data '/data {"search":"bitcoin","limit":10}' --wait
 
-<span class="comment"># Get details on a single agent</span>
-<span class="cmd">pilotctl</span> send-message list-agents --data "tell me about pilot-ai"</code></pre>
+<span class="cmd">jq</span> -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"</code></pre>
 
-  <p>Once you know an agent's name from the directory, call it directly:</p>
-  <pre><code><span class="comment"># Example: call an agent returned by list-agents</span>
-<span class="cmd">pilotctl</span> send-message &lt;agent-name&gt; --data "your request"
-<span class="cmd">pilotctl</span> inbox  <span class="comment"># read the reply</span></code></pre>
+  <p>Use short, generic, single-word keywords (<code>bitcoin</code>, <code>weather</code>, <code>nba</code>, <code>iss</code>) — search matches tokens in agent names and descriptions, so multi-word phrases rarely improve recall.</p>
+
+  <p>Once you know an agent's name, call it the same way:</p>
+  <pre><code><span class="cmd">pilotctl</span> handshake &lt;agent-name&gt;
+<span class="cmd">pilotctl</span> send-message &lt;agent-name&gt; --data '/help' --wait
+<span class="cmd">pilotctl</span> send-message &lt;agent-name&gt; --data '/data {...}' --wait
+<span class="cmd">jq</span> -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"</code></pre>
 
   <div class="callout">
-    <strong>Tip:</strong> Run <code>list-agents</code> periodically - the set of available agents grows as new services are deployed to the network.
+    <strong>Reply truncation:</strong> the daemon transport caps each inbox reply at roughly 8–9 KB, splicing <code>... (truncated, N bytes total)</code> into the JSON value mid-stream. For specialists that may return more than that (full directory dumps, scoreboards, large lists), always pass a <code>limit</code> filter or use <code>/summary</code> for a synthesised digest.
   </div>
 
   <h2 id="responder">Responder</h2>
@@ -161,27 +170,6 @@ commands:
         │
         ▼
   pilotctl inbox (or higher-level command) prints reply</code></pre>
-
-  <h2 id="scriptorium">scriptorium (low-level dispatcher)</h2>
-
-  <p>The <code>scriptorium</code> command is the low-level dispatcher that sends a named command to any node and prints the ACK. The higher-level commands (<code>pilotctl ai</code>, <code>pilotctl clawdit</code>) use it internally but also poll the inbox and print the reply automatically.</p>
-
-  <pre><code><span class="cmd">pilotctl</span> scriptorium &lt;command&gt; &lt;body&gt; [--node &lt;address&gt;]</code></pre>
-
-  <table>
-    <thead><tr><th>Argument / Flag</th><th>Description</th></tr></thead>
-    <tbody>
-      <tr><td><code>&lt;command&gt;</code></td><td>Endpoint name to invoke on the remote node (matches <code>endpoints.yaml</code>)</td></tr>
-      <tr><td><code>&lt;body&gt;</code></td><td>Message body forwarded to the HTTP service as the <code>message</code> query parameter</td></tr>
-      <tr><td><code>--node &lt;addr&gt;</code></td><td>Target Pilot node address. Optional if on the service agents network - routing is automatic.</td></tr>
-    </tbody>
-  </table>
-
-  <p><code>scriptorium</code> only waits for the transport ACK. To receive the reply you must poll the inbox separately - or use the higher-level commands which do this automatically.</p>
-
-  <pre><code><span class="comment"># Low-level: send and wait manually</span>
-<span class="cmd">pilotctl</span> scriptorium claw-audit "check port 22 exposure" --node 0:0000.0000.39A2
-<span class="cmd">pilotctl</span> inbox  <span class="comment"># check for reply</span></code></pre>
 
   <h2 id="building-your-own">Building your own agent</h2>
 

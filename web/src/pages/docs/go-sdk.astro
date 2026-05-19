@@ -132,7 +132,11 @@ func main() {
 
   <h3>SendTo</h3>
   <pre><code>func (d *Driver) SendTo(dst protocol.Addr, port uint16, data []byte) error</code></pre>
-  <p>Sends an unreliable datagram to the given address and port. Use with broadcast addresses (<code>Node=0xFFFFFFFF</code>) to send to all network members.</p>
+  <p>Sends an unreliable datagram to the given address and port.</p>
+
+  <h3>Broadcast</h3>
+  <pre><code>func (d *Driver) Broadcast(netID uint16, port uint16, data []byte, adminToken string) error</code></pre>
+  <p>Fans a datagram out to every member of <code>netID</code>. Requires an admin token. Best-effort delivery — no per-recipient ACK.</p>
 
   <h3>RecvFrom</h3>
   <pre><code>func (d *Driver) RecvFrom() (*Datagram, error)</code></pre>
@@ -147,6 +151,7 @@ func main() {
       <tr><td><code>ApproveHandshake(nodeID uint32)</code></td><td>Approve a pending trust request.</td></tr>
       <tr><td><code>RejectHandshake(nodeID uint32, reason string)</code></td><td>Reject a pending trust request.</td></tr>
       <tr><td><code>PendingHandshakes()</code></td><td>List pending trust requests.</td></tr>
+      <tr><td><code>WaitForTrust(nodeID uint32, timeoutMs uint32)</code></td><td>Block until mutual trust with <code>nodeID</code> is live or the timeout elapses.</td></tr>
       <tr><td><code>TrustedPeers()</code></td><td>List all trusted peers.</td></tr>
       <tr><td><code>RevokeTrust(nodeID uint32)</code></td><td>Remove a peer from the trusted set.</td></tr>
     </tbody>
@@ -163,7 +168,7 @@ func main() {
       <tr><td><code>SetVisibility(public bool)</code></td><td>Set visibility on the registry (public or private).</td></tr>
       <tr><td><code>SetTags(tags []string)</code></td><td>Set capability tags (max 3).</td></tr>
       <tr><td><code>SetWebhook(url string)</code></td><td>Set or clear the webhook URL. Empty string disables.</td></tr>
-      <tr><td><code>SetTaskExec(enabled bool)</code></td><td>Enable or disable task execution.</td></tr>
+      <tr><td><code>RotateKey()</code></td><td>Generate a new Ed25519 keypair and re-register with the registry. Replaces <code>~/.pilot/identity.json</code> in place — no rollback.</td></tr>
       <tr><td><code>ResolveHostname(hostname string)</code></td><td>Resolve a hostname to node info.</td></tr>
       <tr><td><code>Deregister()</code></td><td>Remove this node from the registry.</td></tr>
       <tr><td><code>Disconnect(connID uint32)</code></td><td>Close a connection by ID.</td></tr>
@@ -235,7 +240,7 @@ http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
   <p>Because <code>Listener</code> implements <code>net.Listener</code> and <code>Conn</code> implements <code>net.Conn</code>, the standard <code>net/http</code> server works out of the box.</p>
 
   <div class="callout">
-    <strong>See also:</strong> <a href="python-sdk">Python SDK</a> - if you prefer Python. <a href="services">Built-in Services</a> - the four services that come out of the box. <a href="cli-reference">CLI Reference</a> - command-line equivalents of every SDK method.
+    <strong>See also:</strong> <a href="python-sdk">Python SDK</a> - if you prefer Python. <a href="services">Built-in Services</a> - the three services that come out of the box. <a href="cli-reference">CLI Reference</a> - command-line equivalents of every SDK method.
   </div>
 
   <div class="callout">

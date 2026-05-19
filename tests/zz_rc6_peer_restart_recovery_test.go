@@ -149,7 +149,11 @@ func TestRC6PeerRestartRecoveryEndToEnd(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(c interface{ Read([]byte) (int, error); Write([]byte) (int, error); Close() error }) {
+			go func(c interface {
+				Read([]byte) (int, error)
+				Write([]byte) (int, error)
+				Close() error
+			}) {
 				defer c.Close()
 				buf := make([]byte, 1024)
 				n, err := c.Read(buf)

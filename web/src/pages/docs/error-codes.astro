@@ -43,7 +43,7 @@ const bodyContent = `<h1>Error Codes</h1>
       <tr><td><code>network ID space exhausted</code></td><td>All 65,535 network IDs are allocated.</td><td>Delete unused networks to free IDs.</td></tr>
       <tr><td><code>network not found</code></td><td>The specified network ID does not exist.</td><td>Verify the network ID with <code>pilotctl network list</code>.</td></tr>
       <tr><td><code>node already registered</code></td><td>This node is already registered in the backbone.</td><td>Use <code>pilotctl deregister</code> first, or check for stale identity at <code>~/.pilot/identity.json</code>.</td></tr>
-      <tr><td><code>email required</code></td><td>Registration requires an email address.</td><td>Pass <code>--email</code> flag to the daemon or set it in <code>config.json</code>.</td></tr>
+      <tr><td><code>invalid email</code></td><td>The <code>--email</code> flag (or <code>email</code> config key) is malformed.</td><td>Use a valid <code>local@domain</code> address, or omit the flag and let the daemon synthesise <code>&lt;fingerprint&gt;@nodes.pilotprotocol.network</code>.</td></tr>
       <tr><td><code>invalid admin token</code></td><td>The admin token does not match the registry&rsquo;s configured token.</td><td>Check the admin token in your configuration.</td></tr>
       <tr><td><code>hostname already taken</code></td><td>Another node has already registered this hostname.</td><td>Choose a different hostname.</td></tr>
     </tbody>

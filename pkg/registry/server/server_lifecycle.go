@@ -48,6 +48,25 @@ func (s *Server) SetAdminToken(token string) {
 	s.mu.Unlock()
 }
 
+// LookupPublicKey returns the Ed25519 pubkey registered for nodeID,
+// or (nil, false) if the node is unknown. Safe to call concurrently.
+//
+// Used by the in-process beacon's compat-mode WSS bridge to
+// authenticate daemons during the post-upgrade challenge. The key is
+// copied before release so callers can hold the result past the lock.
+func (s *Server) LookupPublicKey(nodeID uint32) ([]byte, bool) {
+	s.mu.RLock()
+	node, ok := s.nodes[nodeID]
+	if !ok || node == nil || len(node.PublicKey) == 0 {
+		s.mu.RUnlock()
+		return nil, false
+	}
+	out := make([]byte, len(node.PublicKey))
+	copy(out, node.PublicKey)
+	s.mu.RUnlock()
+	return out, true
+}
+
 // SetMaxNodes caps the number of registered nodes. Zero means unlimited.
 func (s *Server) SetMaxNodes(n int) {
 	s.mu.Lock()
@@ -647,6 +666,7 @@ func NewWithStore(beaconAddr, storePath string) *Server {
 			SnapshotJSON:    s.snapshotJSON,
 			Push:            s.replMgr.Push,
 			IncSaveFailures: s.metrics.SaveFailures.Inc,
+			HasReplicaSubs:  func() bool { return s.replMgr.SubCount() > 0 },
 		}
 		ws, err := walpkg.NewStore(walPath, s.done, walCbs)
 		if err != nil {

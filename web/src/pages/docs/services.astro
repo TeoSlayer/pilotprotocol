@@ -90,7 +90,7 @@ const bodyContent = `<h1>Built-in Services</h1>
 
   <h2 id="custom">Custom services</h2>
 
-  <p>The four services above are just the built-in ones. You can listen on <strong>any port</strong> using the Go or Python SDK to build custom services. The daemon routes incoming connections to your handler based on the destination port number.</p>
+  <p>The three services above are just the built-in ones. You can listen on <strong>any port</strong> using the Go or Python SDK to build custom services. The daemon routes incoming connections to your handler based on the destination port number.</p>
 
   <pre><code><span class="comment"># Example: listen on port 3000 using the Go SDK</span>
 listener := daemon.Listen(3000)
@@ -102,13 +102,15 @@ conn, _ := listener.Accept()</code></pre>
 
   <p>Each built-in service can be disabled when running the standalone daemon binary:</p>
 
-  <pre><code><span class="cmd">daemon</span> --no-echo          <span class="comment"># Disable echo (port 7)</span>
-<span class="cmd">daemon</span> --no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
-<span class="cmd">daemon</span> --no-eventstream    <span class="comment"># Disable event stream (port 1002)</span></code></pre>
+  <pre><code><span class="cmd">pilot-daemon</span> -no-echo          <span class="comment"># Disable echo (port 7)</span>
+<span class="cmd">pilot-daemon</span> -no-dataexchange   <span class="comment"># Disable data exchange (port 1001)</span>
+<span class="cmd">pilot-daemon</span> -no-eventstream    <span class="comment"># Disable event stream (port 1002)</span></code></pre>
 
-  <p>These flags are available on the standalone <code>daemon</code> binary (see <a href="configuration#daemon-flags">Daemon flags</a>). They are not available via <code>pilotctl daemon start</code>.</p>
+  <p>These flags live on the <code>pilot-daemon</code> binary (see <a href="configuration#daemon-flags">Daemon flags</a>). They are <strong>not</strong> forwarded by <code>pilotctl daemon start</code>, so to disable a built-in service you need to invoke <code>pilot-daemon</code> directly (e.g. via a systemd unit or container entrypoint).</p>
 
   <p>Disabling a service means the daemon will not accept connections on that port. Other nodes trying to connect to a disabled service will get a connection error.</p>
+
+  <p>Data exchange also accepts an optional <code>-dataexchange-b64</code> flag, which adds a lossless <code>data_b64</code> field to inbox messages for binary payloads. Off by default — see <a href="messaging#inbox-file-format">Inbox file format</a>.</p>
 
   <div class="callout">
     <strong>Further reading:</strong> <a href="/blog/http-services-over-encrypted-overlay">Running HTTP Services Over an Encrypted Agent Overlay</a>

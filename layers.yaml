@@ -21,9 +21,11 @@
 
 layers:
   L2:
-    description: Datagram I/O — UDP send/recv
+    description: Datagram I/O — UDP send/recv + compat-mode WSS transport
     packages:
       - github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport
+      - github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss
   L4:
     description: Peer discovery & routing — beacons, relay, NAT
     packages:

@@ -25,6 +25,8 @@ import (
 //	pilotctl skills status    — show per-tool install paths + state
 //	pilotctl skills paths     — print just the install paths
 //	pilotctl skills check     — run one reconcile pass right now
+//	pilotctl skills disable   — remove every file we wrote + opt out of future ticks
+//	pilotctl skills enable    — opt back in + run one reconcile pass
 func cmdSkills(args []string) {
 	sub := "status"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
@@ -38,9 +40,13 @@ func cmdSkills(args []string) {
 		cmdSkillsPaths(args)
 	case "check":
 		cmdSkillsCheck(args)
+	case "disable":
+		cmdSkillsDisable(args)
+	case "enable":
+		cmdSkillsEnable(args)
 	default:
 		fatalHint("invalid_argument",
-			"available: status, paths, check",
+			"available: status, paths, check, disable, enable",
 			"unknown skills subcommand: %s", sub)
 	}
 }
@@ -206,6 +212,136 @@ func skillsHomeRel(p string) string {
 }
 
 var _ = skillsHomeRel // reserved for future use; keeps gofmt happy
+
+// cmdSkillsDisable removes every file the daemon has ever written via
+// the skillinject manifest and persists an opt-out flag in
+// ~/.pilot/config.json so subsequent reconcile ticks are no-ops. The
+// removal path is the inverse of `check`: files in subdirs we own
+// (pilot-protocol/, ~/.pilot/bin/, plugin install dirs) are deleted;
+// files we co-inhabit with the user (CLAUDE.md, AGENTS.md, AGENT.md,
+// SOUL.md) only have our marker block stripped — never the whole file.
+func cmdSkillsDisable(_ []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fatalCode("internal", "home dir: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	report, uErr := skillinject.Uninstall(ctx, skillinject.Config{})
+	// Persist the opt-out regardless of partial removal failures —
+	// the next tick must be a no-op so we don't fight the user.
+	persistErr := skillinject.SetEnabled(home, false)
+
+	if jsonOutput {
+		out := map[string]interface{}{
+			"disabled": true,
+			"at":       report.At,
+			"removals": report.Removals,
+		}
+		if report.ManifestOffline {
+			out["manifest_offline"] = true
+		}
+		if uErr != nil {
+			out["error"] = uErr.Error()
+		}
+		if persistErr != nil {
+			out["persist_error"] = persistErr.Error()
+		}
+		output(out)
+		return
+	}
+
+	fmt.Println("Pilot Protocol skill — disabled")
+	fmt.Println("================================")
+	if report.ManifestOffline {
+		fmt.Println("(network unreachable; using cached manifest)")
+	}
+	if uErr != nil {
+		fmt.Printf("warning: %v\n", uErr)
+	}
+	counts := report.Counts()
+	for _, k := range []skillinject.RemovalKind{
+		skillinject.RemovalDeleted,
+		skillinject.RemovalStripped,
+		skillinject.RemovalMerged,
+		skillinject.RemovalRestored,
+		skillinject.RemovalNoop,
+		skillinject.RemovalError,
+	} {
+		if counts[k] == 0 {
+			continue
+		}
+		fmt.Printf("  %-10s %d\n", string(k)+":", counts[k])
+	}
+
+	if len(report.Removals) > 0 {
+		fmt.Println()
+		fmt.Println("Paths processed:")
+		for _, x := range report.Removals {
+			if x.Action == skillinject.RemovalNoop {
+				continue
+			}
+			fmt.Printf("  [%s] %s — %s\n", x.Action, x.Path, x.Tool)
+			if x.Err != "" {
+				fmt.Printf("        ERROR: %s\n", x.Err)
+			}
+		}
+	}
+
+	if persistErr != nil {
+		fmt.Printf("\nwarning: opt-out flag could not be persisted: %v\n", persistErr)
+		fmt.Println("(future daemon ticks may re-install — fix permissions on ~/.pilot/config.json and re-run)")
+	} else {
+		fmt.Println()
+		fmt.Println("Opt-out persisted at ~/.pilot/config.json — future ticks are no-ops.")
+		fmt.Println("To re-enable: pilotctl skills enable")
+	}
+}
+
+// cmdSkillsEnable flips the opt-out flag off and runs one reconcile
+// pass so the user sees what got installed without waiting for the
+// next 15-minute tick.
+func cmdSkillsEnable(_ []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fatalCode("internal", "home dir: %v", err)
+	}
+	if err := skillinject.SetEnabled(home, true); err != nil {
+		fatalCode("internal", "persist enabled flag: %v", err)
+	}
+
+	report, err := runTick()
+	if err != nil {
+		fatalCode("internal", "skills tick: %v", err)
+	}
+	c := report.Counts()
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"enabled":  true,
+			"checked":  len(report.Outcomes),
+			"creates":  c[skillinject.ActionCreate],
+			"rewrites": c[skillinject.ActionRewrite],
+			"errors":   c[skillinject.ActionError],
+			"skipped":  report.Skipped,
+		})
+		return
+	}
+
+	fmt.Println("Pilot Protocol skill — enabled")
+	fmt.Println("===============================")
+	fmt.Printf("Reconcile complete — %d files checked.\n", len(report.Outcomes))
+	fmt.Printf("  noop:      %d\n", c[skillinject.ActionNoop])
+	fmt.Printf("  create:    %d\n", c[skillinject.ActionCreate])
+	fmt.Printf("  rewrite:   %d\n", c[skillinject.ActionRewrite])
+	if c[skillinject.ActionError] > 0 {
+		fmt.Printf("  errors:    %d (run `pilotctl skills status` for detail)\n", c[skillinject.ActionError])
+	}
+	if len(report.Skipped) > 0 {
+		fmt.Printf("Not installed (skipped): %s\n", strings.Join(report.Skipped, ", "))
+	}
+}
 
 // printSkillInstallSummary is called from cmdInfo to surface the agent
 // skill install paths in the standard daemon diagnostic. Quiet (no header)

@@ -40,3 +40,8 @@ func listenReusePort(addr string) (*net.UDPConn, error) {
 	}
 	return pc.(*net.UDPConn), nil
 }
+
+// MaxReusePortShards is unlimited on Linux — the kernel flow-hashes
+// across all open SO_REUSEPORT sockets. 0 means "use the configured
+// 2× NumCPU default in ListenAndServe."
+const MaxReusePortShards = 0
