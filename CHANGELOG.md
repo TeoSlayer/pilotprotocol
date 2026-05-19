@@ -7,6 +7,95 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.10.3] - 2026-05-19
+
+### Added
+- **Compat mode is now single-port-443.** A new `-registry-trust system` flag
+  on `pilot-daemon` lets the registry client validate the production cert via
+  the OS x509 root store instead of requiring a pinned SHA-256 fingerprint.
+  When `-transport=compat` is selected and the operator hasn't overridden
+  `-registry`, the daemon now auto-targets
+  `registry.pilotprotocol.network:443` with TLS + system trust — same
+  hostname:port as the existing beacon WSS bridge. The two endpoints are
+  multiplexed on a single nginx `listen 443;` via the stream module's
+  `ssl_preread` SNI router (see `docs/RUNBOOK-compat-443-only.md`).
+  Net effect: a daemon running in Render, Replit Agent, or any other
+  managed-claw sandbox that allows only outbound TCP/443 can now register +
+  resolve + tunnel data — **zero TCP/9000, zero UDP**.
+
+### Changed
+- `pilot-daemon -registry-tls` no longer requires `-registry-fingerprint` if
+  `-registry-trust=system` is set. The two modes coexist:
+    - `pinned` (default): cert pinned by SHA-256 fingerprint — back-compat
+      with the existing single-VM deploy
+    - `system`: OS root store — works against any publicly-trusted CA cert,
+      i.e. the Let's Encrypt cert on `registry.pilotprotocol.network`
+
+### Tests
+- `tests/zz_compat_registry_tls_test.go::TestCompatRegistryTLSPinned` —
+  spins up an in-process TLS registry + beacon, points a compat daemon at
+  the TLS registry with a pinned cert, and verifies Register + WSS bridge
+  attach end-to-end.
+- `tests/zz_compat_registry_tls_test.go::TestCompatRegistryTrustSystemRejectsBadCert` —
+  pins that `-registry-trust=system` refuses an untrusted self-signed cert
+  (MITM defence-in-depth).
+
+### Ops / deployment
+
+Single runbook covers the production rollout:
+[`docs/RUNBOOK-compat-443-only.md`](docs/RUNBOOK-compat-443-only.md). Steps:
+
+1. DNS A record `registry.pilotprotocol.network → 34.71.57.205`
+2. `certbot certonly --nginx -d registry.pilotprotocol.network`
+3. Move existing nginx HTTP-on-443 vhosts (`beacon.*`, `console.*`,
+   `polo.*`) to internal `listen 127.0.0.1:14443 ssl;`
+4. Add nginx `stream {}` block: `ssl_preread` on, SNI map →
+   `registry.*` to a stream-mode TLS terminator on 14444 (which proxies
+   plain TCP to the existing registry on `127.0.0.1:9000`),
+   everything else to 14443.
+5. Smoke-test via `openssl s_client` + a real compat daemon.
+
+Rollback is one `nginx -t && systemctl reload nginx` after restoring the
+sed-backed-up sites-enabled files.
+
+### Operational changes applied to `pilot-service-agents` (2026-05-19)
+
+These are server-side ops changes that landed alongside the v1.10.3 code work
+to make all 435+ specialist agents responsive under high traffic:
+
+- **`/usr/local/bin/responder-wave-restart.sh` was no-op'd**. Original backed
+  up alongside as `responder-wave-restart.sh.full-backup-1779223695`. The
+  every-~10-min wave restart was killing in-flight reply queues across all
+  agents (each restart SIGTERM'd Python responder workers mid-`pilot-send-stdin`
+  subprocess), so list-agents queries from outside the fleet timed out
+  even though dispatch worked. Reply latency dropped from 30s+ timeouts to
+  sub-second after disabling.
+- **Per-agent systemd drop-in
+  `/etc/systemd/system/pilot-responder-*.service.d/high-traffic.conf`** on
+  all 435 responders:
+    - `RESPONDER_REPLY_WORKERS=16` (default `2`)
+    - `RESPONDER_INBOX_WORKERS=6` (default `2`)
+    - `RESPONDER_REPLY_QUEUE_MAX=2048`, `RESPONDER_INBOX_QUEUE_MAX=2048`
+    - `RESPONDER_STALE_REPLY_AFTER=60s` (default `60s`),
+      `RESPONDER_INBOX_MAX_AGE=60s`
+    16 workers absorb the swarm noise (failing sends to unreachable swarm
+    nodes each pin a worker for the hardcoded 25s `pilot-send-stdin`
+    timeout) while leaving slots for legitimate user traffic.
+- **`/opt/pilot-dashboard/metrics-snapshot.json` despiked**. The
+  restart-wave at 21:29:54 UTC inflated cumulative request counters by
+  2,866,001 over 133s (21,548 req/s artefact). A second pass at 21:34:11
+  added another 903,719 over 103s (8,740 req/s). Both spikes flattened to
+  the 300 req/s baseline rate; the excess subtracted from all subsequent
+  entries to keep cumulative totals consistent. Backup at
+  `metrics-snapshot.json.pre-despike-1779227221`.
+- **`/opt/pilot-dashboard/server.py::/api/metrics-history` default range**
+  changed from "all 17,280 samples" to **720 samples (1 hour at 5s
+  intervals)**. The full buffer is ~213 MB JSON which crashed the
+  network-stats page when fetched with no query params; the default now
+  returns ~9 MB in ~1.6s. Callers that want the full 24h window can still
+  pass `?range=17280`. Backup at
+  `server.py.pre-metricshistory-default-1779227619`.
+
 ## [1.10.2] - 2026-05-19
 
 ### Fixed

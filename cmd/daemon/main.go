@@ -52,7 +52,8 @@ func main() {
 	fakeListenAddr := flag.String("fake-listen-addr", "", "advertise this listen_addr to the registry instead of the real one (real socket binding unaffected)")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
-	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate")
+	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate (required when -registry-trust=pinned)")
+	registryTrust := flag.String("registry-trust", "pinned", "trust store for -registry-tls: 'pinned' (verify cert against -registry-fingerprint) or 'system' (OS x509 root store — used for compat-mode registry on registry.pilotprotocol.network:443 with Let's Encrypt)")
 	identityPath := flag.String("identity", "", "path to persist Ed25519 identity (enables stable identity across restarts)")
 	email := flag.String("email", "", "email address for account identification and key recovery")
 	owner := flag.String("owner", "", "(deprecated: use -email) owner identifier for key rotation recovery")
@@ -111,6 +112,29 @@ func main() {
 		config.ApplyToFlags(cfg)
 	}
 
+	// Compat-mode 443-only defaults. When -transport=compat is selected
+	// and the operator hasn't explicitly overridden -registry/-registry-tls/
+	// -registry-trust, route the registry to its TLS hostname (TCP/443
+	// via nginx SNI routing on the production rendezvous box) so the
+	// daemon really does use a single port. The TCP/9000 fallback is
+	// still available to anyone who passes -registry explicitly.
+	if *transportMode == "compat" {
+		explicit := map[string]bool{}
+		flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+		if !explicit["registry"] && os.Getenv("PILOT_REGISTRY") == "" {
+			v := "registry.pilotprotocol.network:443"
+			registryAddr = &v
+		}
+		if !explicit["registry-tls"] {
+			v := true
+			registryTLS = &v
+		}
+		if !explicit["registry-trust"] {
+			v := "system"
+			registryTrust = &v
+		}
+	}
+
 	logging.Setup(*logLevel, *logFormat)
 
 	d := daemon.New(daemon.Config{
@@ -123,6 +147,7 @@ func main() {
 		Encrypt:               *encrypt,
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,
+		RegistryTrust:         *registryTrust,
 		IdentityPath:          *identityPath,
 		Email:                 *email,
 		Owner:                 *owner,

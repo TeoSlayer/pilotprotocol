@@ -75,6 +75,13 @@ type Config struct {
 	Encrypt             bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
 	RegistryTLS         bool   // use TLS for registry connection
 	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning
+	// RegistryTrust selects which trust store verifies the registry's
+	// certificate when RegistryTLS=true. "pinned" (default) requires
+	// RegistryFingerprint and is what production deploys use today.
+	// "system" trusts the OS x509 root store — the path for compat-mode
+	// daemons pointing at registry.pilotprotocol.network:443 with its
+	// Let's Encrypt certificate. Mirrors -tls-trust on the WSS side.
+	RegistryTrust string
 	IdentityPath        string // path to persist Ed25519 identity (empty = no persistence)
 	Email               string // email address for account identification and key recovery
 	Owner               string // deprecated: use Email instead
@@ -695,10 +702,26 @@ func (d *Daemon) Start() error {
 	registryDialBackoff := 500 * time.Millisecond
 	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
 		if d.config.RegistryTLS {
-			if d.config.RegistryFingerprint == "" {
-				return fmt.Errorf("registry TLS requires RegistryFingerprint for certificate pinning")
+			trust := d.config.RegistryTrust
+			if trust == "" {
+				// Back-compat: RegistryTLS=true used to imply pinning;
+				// require fingerprint if the operator didn't pick a
+				// trust store explicitly.
+				trust = "pinned"
 			}
-			rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
+			switch trust {
+			case "pinned":
+				if d.config.RegistryFingerprint == "" {
+					return fmt.Errorf("registry TLS with -registry-trust=pinned requires RegistryFingerprint")
+				}
+				rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
+			case "system":
+				// OS x509 root store — for registry.pilotprotocol.network
+				// served by Let's Encrypt + nginx SNI routing on 443.
+				rc, err = registry.DialTLSPool(d.config.RegistryAddr, &tls.Config{MinVersion: tls.VersionTLS12}, regConnPoolSize)
+			default:
+				return fmt.Errorf("invalid -registry-trust %q: must be 'pinned' or 'system'", trust)
+			}
 		} else {
 			rc, err = registry.DialPool(d.config.RegistryAddr, regConnPoolSize)
 		}
