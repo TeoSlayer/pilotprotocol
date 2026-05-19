@@ -22,23 +22,25 @@ const bodyContent = `<h1>Running pilot behind a firewall</h1>
   <ul>
     <li><strong>Container PaaS without UDP exposure:</strong> Render, Railway, Vercel, Fly.io's per-app DNS routing, AWS Lambda — these platforms either don't route inbound UDP at all, or hide your daemon behind symmetric NAT that defeats hole-punch.</li>
     <li><strong>Locked-down corporate networks</strong> where outbound UDP is firewalled but HTTPS to arbitrary internet hosts is allowed.</li>
-    <li><strong>Airport / hotel / conference wifi</strong> that blocks everything but TCP/443.</li>
+    <li><strong>Airport / hotel / conference wifi</strong> that blocks everything but TCP/443. As of v1.10.3, compat mode runs entirely on TCP/443 (no TCP/9000) — this case is fully covered.</li>
   </ul>
 
   <p>If your daemon registers fine but heartbeats keep failing, or queries to specialists time out with relay-retransmit errors flooding the log, you're likely in one of these environments. <strong>Compat mode</strong> is the answer: same daemon binary, same overlay, just a different wire from your daemon to the beacon.</p>
 
   <h2 id="enabling">Enabling compat mode</h2>
 
-  <p>Compat mode is opt-in via three CLI flags on the standalone <code>pilot-daemon</code> binary:</p>
+  <p>Compat mode is opt-in via one CLI flag on the standalone <code>pilot-daemon</code> binary:</p>
 
   <pre><code><span class="cmd">pilot-daemon</span> -transport=compat</code></pre>
 
-  <p>That's the minimum — every other flag has a working default. Explicit form:</p>
+  <p>That's it — every other flag has a working default. As of v1.10.3 the daemon uses <strong>a single outbound TCP/443 connection</strong> for everything: the beacon WSS bridge AND the registry. Explicit form:</p>
 
   <pre><code><span class="cmd">pilot-daemon</span> \\
   -transport=compat \\
   -compat-beacon=wss://beacon.pilotprotocol.network/v1/compat \\
-  -tls-trust=system</code></pre>
+  -tls-trust=system \\
+  -registry=registry.pilotprotocol.network:443 \\
+  -registry-tls -registry-trust=system</code></pre>
 
   <p>Flag semantics:</p>
 
@@ -46,13 +48,24 @@ const bodyContent = `<h1>Running pilot behind a firewall</h1>
     <li><code>-transport=compat</code> — switches the tunnel transport from UDP to WSS. Default is <code>udp</code>; the daemon falls back to UDP behavior if this flag is unset.</li>
     <li><code>-compat-beacon &lt;url&gt;</code> — the beacon's WSS endpoint. The default points at the managed public beacon (<code>wss://beacon.pilotprotocol.network/v1/compat</code>); self-hosted deployments override it.</li>
     <li><code>-tls-trust &lt;mode&gt;</code> — see <a href="#tls-trust">TLS trust</a>. Defaults to <code>system</code>.</li>
+    <li><code>-registry &lt;host:port&gt;</code> — auto-defaults to <code>registry.pilotprotocol.network:443</code> in compat mode. Overrides the standard <code>34.71.57.205:9000</code> UDP-mode default; you can still pass a custom registry host:port if you self-host.</li>
+    <li><code>-registry-tls</code> + <code>-registry-trust=system</code> — auto-enabled in compat mode. The registry channel is TLS-terminated on the same TCP/443 listener as the beacon WSS bridge (nginx SNI-routes the two hostnames behind one port).</li>
   </ul>
 
   <p>The daemon also automatically forces <code>relay_only=true</code> when compat is enabled — peers will route to it via the beacon's relay path instead of trying direct UDP, which would fail anyway.</p>
 
   <h2 id="how-it-works">How it works</h2>
 
-  <p>The compat-mode daemon opens one long-lived WebSocket Secure connection to the beacon. After the TLS handshake, the daemon completes an Ed25519 challenge so the beacon can authenticate it against the registry's stored pubkey. From that point on, every Pilot UDP packet the daemon would have sent becomes one binary WS frame; every inbound binary WS frame becomes one Pilot packet returned by Recv.</p>
+  <p>The compat-mode daemon opens outbound connections to <strong>only TCP/443</strong> — multiplexed by SNI through a single nginx listener on the rendezvous host:</p>
+
+  <ul>
+    <li><code>beacon.pilotprotocol.network:443</code> — long-lived WebSocket Secure connection that carries the data plane (peer-to-peer Pilot frames, wrapped as binary WS messages).</li>
+    <li><code>registry.pilotprotocol.network:443</code> — TLS connection pool for the registry RPC channel (registration, heartbeats, resolve, hostname lookup). Same wire protocol as the legacy UDP-mode <code>tcp:9000</code>, just wrapped in TLS.</li>
+  </ul>
+
+  <p>nginx pre-reads the TLS ClientHello's SNI field and routes registry traffic to its TLS terminator (which proxies plain bytes to the existing registry server), while beacon traffic terminates on the existing WSS-aware vhost. No code change on the registry side; the daemon's <code>-registry-trust=system</code> path verifies the public Let's Encrypt cert.</p>
+
+  <p>After the TLS handshake, the daemon completes an Ed25519 challenge so the beacon can authenticate it against the registry's stored pubkey. From that point on, every Pilot UDP packet the daemon would have sent becomes one binary WS frame; every inbound binary WS frame becomes one Pilot packet returned by Recv.</p>
 
   <p>The beacon transparently bridges between UDP peers and WSS peers. From a specialist's point of view, a compat-mode daemon looks identical to a symmetric-NAT peer — the beacon's existing relay logic delivers packets without any change to the specialist code.</p>
 
