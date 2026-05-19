@@ -289,6 +289,13 @@ type StoreCallbacks struct {
 	Push func([]byte)
 	// IncSaveFailures increments the save-failure metric counter.
 	IncSaveFailures func()
+	// HasReplicaSubs reports whether any replication subscriber is
+	// currently attached. replicaPushLoop uses this to skip the full
+	// snapshot build when no replicas are listening — at fleet scale
+	// the snapshot allocates ~1 GB/sec, so skipping is a large win
+	// for deployments that run without replicas. May be nil; nil is
+	// treated as "always push" for backward compat.
+	HasReplicaSubs func() bool
 }
 
 // Store manages the WAL file, save channels, standby flag, and replication
@@ -464,8 +471,10 @@ func (st *Store) replicaPushLoop() {
 			dirty = true
 		case <-ticker.C:
 			if dirty {
-				if data := st.cbs.SnapshotJSON(); data != nil {
-					st.cbs.Push(data)
+				if st.cbs.HasReplicaSubs == nil || st.cbs.HasReplicaSubs() {
+					if data := st.cbs.SnapshotJSON(); data != nil {
+						st.cbs.Push(data)
+					}
 				}
 				dirty = false
 			}
@@ -476,7 +485,7 @@ func (st *Store) replicaPushLoop() {
 				dirty = true
 			default:
 			}
-			if dirty {
+			if dirty && (st.cbs.HasReplicaSubs == nil || st.cbs.HasReplicaSubs()) {
 				if data := st.cbs.SnapshotJSON(); data != nil {
 					st.cbs.Push(data)
 				}

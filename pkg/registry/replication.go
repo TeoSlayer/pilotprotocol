@@ -36,6 +36,17 @@ func newReplicationManager() *replicationManager {
 	}
 }
 
+// hasSubs reports whether any replication subscriber is currently
+// connected. Used by replicaPushLoop to skip building the full
+// snapshot (which can be 50-100 MB and allocate 1 GB/sec at 170k
+// nodes) when no replicas are attached — most rendezvous deployments
+// run without replicas in steady state.
+func (rm *replicationManager) hasSubs() bool {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	return len(rm.subs) > 0
+}
+
 // addSub registers a connection as a replication subscriber.
 func (rm *replicationManager) addSub(conn net.Conn) {
 	rm.mu.Lock()

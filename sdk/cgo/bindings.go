@@ -143,6 +143,19 @@ func PilotHandshake(h C.uint64_t, nodeID C.uint32_t, justification *C.char) *C.c
 	return okJSON(r)
 }
 
+//export PilotWaitForTrust
+func PilotWaitForTrust(h C.uint64_t, nodeID C.uint32_t, timeoutMs C.uint32_t) *C.char {
+	d, err := driverFromHandle(h)
+	if err != nil {
+		return errJSON(err)
+	}
+	r, err := d.WaitForTrust(uint32(nodeID), uint32(timeoutMs))
+	if err != nil {
+		return errJSON(err)
+	}
+	return okJSON(r)
+}
+
 //export PilotApproveHandshake
 func PilotApproveHandshake(h C.uint64_t, nodeID C.uint32_t) *C.char {
 	d, err := driverFromHandle(h)

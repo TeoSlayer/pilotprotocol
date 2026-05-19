@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
@@ -19,6 +21,19 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
 )
+
+// flushSaveBufPool reuses the bytes buffer that backs the snapshot JSON
+// across save ticks. Pre-grown to 128 MB so the first save at fleet
+// scale (~50-100 MB JSON) doesn't grow it further. After the first
+// save the pool always returns a buffer at peak capacity, so subsequent
+// saves do zero allocation in the encode path. Eliminates the ~1 GB
+// live `bytes.growSlice` heap that was driving GC STW pauses.
+var flushSaveBufPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 0, 128*1024*1024)
+		return &b
+	},
+}
 
 // rawNodeCopy holds raw node fields copied under RLock (no encoding).
 // base64/time.Format happens outside the lock to minimize lock hold time.
@@ -383,22 +398,47 @@ func (s *Server) flushSave() error {
 	}
 	s.auditMu.Unlock()
 
-	// Compute checksum: marshal once without checksum (omitempty omits it), hash,
-	// then inject the checksum into the JSON without a second marshal.
+	// Compute checksum: encode once without checksum (omitempty omits it), hash,
+	// then inject the checksum into the JSON without a second encode.
+	//
+	// 2026-05-14: switched from json.Marshal (one-shot allocate) to json.Encoder
+	// writing into a pooled bytes.Buffer. At 170k+ active nodes the snapshot is
+	// ~50-100 MB and was the dominant heap allocator (~1 GB live, GC pressure
+	// causing kernel UDP drops during STW pauses). The pooled buffer is reused
+	// across save ticks — the underlying slice grows once and stays at peak,
+	// no per-tick allocation thereafter.
 	snap.Checksum = ""
-	data, err := json.Marshal(snap)
-	if err != nil {
-		slog.Error("registry save marshal error", "err", err)
-		return fmt.Errorf("marshal snapshot: %w", err)
+	bp := flushSaveBufPool.Get().(*[]byte)
+	buf := bytes.NewBuffer((*bp)[:0])
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(snap); err != nil {
+		*bp = buf.Bytes()[:0]
+		flushSaveBufPool.Put(bp)
+		slog.Error("registry save encode error", "err", err)
+		return fmt.Errorf("encode snapshot: %w", err)
+	}
+	data := buf.Bytes()
+	// json.Encoder.Encode appends a newline; drop it to match prior Marshal output.
+	if len(data) > 0 && data[len(data)-1] == '\n' {
+		data = data[:len(data)-1]
 	}
 	hash := sha256.Sum256(data)
 	checksum := hex.EncodeToString(hash[:])
-	// Insert "checksum":"<hex>" before the closing brace. json.Marshal of a struct
-	// always produces a JSON object ending with '}' (no trailing whitespace).
+	// Insert "checksum":"<hex>" before the closing brace. json.Encoder of a struct
+	// always produces a JSON object ending with '}' (after newline trim).
 	if len(data) == 0 || data[len(data)-1] != '}' {
-		return fmt.Errorf("marshal snapshot: unexpected JSON format (expected trailing '}')")
+		*bp = buf.Bytes()[:0]
+		flushSaveBufPool.Put(bp)
+		return fmt.Errorf("encode snapshot: unexpected JSON format (expected trailing '}')")
 	}
 	data = append(data[:len(data)-1], []byte(`,"checksum":"`+checksum+`"}`)...)
+	defer func() {
+		// Return the (possibly grown) underlying buffer to the pool. AtomicWrite
+		// has copied data to disk by this point, so it is safe to release.
+		*bp = data[:0]
+		flushSaveBufPool.Put(bp)
+	}()
 
 	// Persist to disk atomically
 	if s.storePath != "" {
