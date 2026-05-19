@@ -719,6 +719,11 @@ func (tm *TunnelManager) ConnectCompat(ctx context.Context, cfg ConnectCompatCon
 	}
 	tm.sock = wssTr
 	tm.routing.SetSocket(wssTr)
+	// In compat mode every outbound L2 frame must travel beacon-wrapped:
+	// the WSS pipe terminates at the beacon, not at peers, so raw frames
+	// would be received as unknown beacon-protocol packets and dropped.
+	// Force the routing manager to wrap every send in BeaconMsgRelay.
+	tm.routing.SetForceRelay(true)
 
 	tm.readWg.Add(1)
 	go tm.readLoop()

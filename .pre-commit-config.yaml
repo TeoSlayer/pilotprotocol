@@ -32,17 +32,28 @@ repos:
         files: \.go$
         pass_filenames: false
 
+      # `go-test` and `go-coverage` are too slow for the pre-commit
+      # stage (the tests/ package's integration suite alone is ~2 min,
+      # `make coverage` is 5+ min). Pre-push already runs the full
+      # release gauntlet on v* tag pushes (.git/hooks/pre-push), and
+      # CI runs it on every PR. Leaving these here as `manual` stages
+      # so they're still one command away locally:
+      #
+      #   pre-commit run --hook-stage manual go-test
+      #   pre-commit run --hook-stage manual go-coverage
+
       - id: go-test
-        name: go test
-        entry: bash -c 'cd tests && go test -v -short -timeout 30s'
+        name: go test (manual)
+        entry: bash -c 'go test -parallel 4 -count=1 -timeout 300s ./tests/ ./pkg/beacon/'
         language: system
         files: \.go$
         pass_filenames: false
+        stages: [manual]
 
       - id: go-coverage
-        name: update coverage badge
+        name: update coverage badge (manual)
         entry: make coverage
         language: system
         files: \.go$
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [manual]

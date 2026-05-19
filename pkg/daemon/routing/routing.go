@@ -132,6 +132,28 @@ type Manager struct {
 
 	// localNodeIDFn supplies our own node ID for relay-wrapping headers.
 	localNodeIDFn LocalNodeIDFn
+
+	// forceRelay, when true, makes WriteFrame always wrap outbound
+	// frames in BeaconMsgRelay regardless of blackhole heuristics or
+	// pinning. Set by TunnelManager.ConnectCompat for compat-mode
+	// daemons whose only path to peers is the beacon's WSS bridge.
+	// Without this, fresh peers receive raw L2 frames through the WSS
+	// pipe; the beacon's handlePacket sees no BeaconMsg prefix and
+	// drops them silently — outbound-initiated handshakes never
+	// complete and the daemon looks dead from the peer's side.
+	forceRelay atomic.Bool
+}
+
+// SetForceRelay toggles the every-send-must-be-relayed flag. Called
+// by TunnelManager.ConnectCompat. Idempotent.
+func (m *Manager) SetForceRelay(v bool) {
+	m.forceRelay.Store(v)
+}
+
+// ForceRelay reports the current forceRelay flag. Exposed for tests
+// and the dashboard.
+func (m *Manager) ForceRelay() bool {
+	return m.forceRelay.Load()
 }
 
 // New returns a fresh Manager with empty state. The Socket may be nil

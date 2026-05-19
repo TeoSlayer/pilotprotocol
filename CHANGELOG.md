@@ -7,6 +7,62 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.10.2] - 2026-05-19
+
+### Fixed
+- **Compat mode: outbound-initiated dials to fresh peers**. In v1.10.1, a
+  compat-mode (WSS-only) daemon's first SYN to a peer went raw through the WSS
+  pipe because `routing.WriteFrame` only wrapped frames in `BeaconMsgRelay`
+  after the blackhole heuristic flipped the peer to relay mode (3 misses, ~8s
+  silence). For brand-new peers, the unwrapped frame reached the beacon as an
+  unknown protocol byte and was dropped silently — every outbound-initiated
+  dial timed out. Managed claws (Docker on Render/Railway/Lambda, UDP-blocked
+  corp networks) could RECEIVE traffic via the bridge but couldn't INITIATE
+  connections to UDP-only peers. Fix: a `forceRelay` flag on `routing.Manager`
+  set by `TunnelManager.ConnectCompat`, so every outbound write in compat mode
+  is BeaconMsgRelay-wrapped regardless of blackhole state.
+
+### Added
+- `tests/zz_compat_dial_test.go` — end-to-end regression test: a compat daemon
+  dials a UDP peer's echo service through an in-process beacon and asserts the
+  three-way handshake completes and echo data flows both ways.
+- `tests/compat/zz_real_beacon_test.go` — 4 integration tests exercising the
+  production beacon binary's WSS↔UDP bridge with real `bwss.Server` +
+  `dwss.Transport` (not the synthetic in-memory bridge used by the existing
+  4-cell matrix).
+- `beacon.Server.WSSAddr()` and `WSSIsConnected(nodeID)` — exposed for tests
+  that bind to `:0` and need to wait for post-handshake WSS registration.
+
+### Platform compatibility
+
+Researched egress policies of common managed-claw / agent-sandbox platforms.
+Verified live: a fresh compat daemon (`node_id=205787`) fetched the
+weather-agent list from `list-agents` over **TCP/443 (beacon WSS) + TCP/9000
+(registry), zero UDP**. From that, the picture is:
+
+| Platform                | UDP egress         | TCP arbitrary port   | UDP mode works  | Compat mode works |
+|-------------------------|--------------------|----------------------|-----------------|-------------------|
+| Render                  | ❌ blocked         | ✅                   | No              | **✅ Yes**        |
+| Railway                 | ✅                 | ✅                   | ✅              | ✅                |
+| Fly.io                  | ✅                 | ✅                   | ✅              | ✅                |
+| AWS Lambda              | ✅ (port 25 blkd)  | ✅                   | ✅              | ✅                |
+| Google Cloud Run        | ✅ (via VPC)       | ✅                   | ✅              | ✅                |
+| Vercel Functions        | (ephemeral; wrong runtime for a persistent daemon)                | —               | —                 |
+| Modal Sandboxes         | ✅ default-allow   | ✅                   | ✅              | ✅                |
+| E2B Sandboxes           | ✅ (IP rules only) | ✅                   | ✅              | ✅                |
+| Daytona Sandboxes       | ✅ default-allow   | ✅                   | ✅              | ✅                |
+| Cursor Cloud Agents     | allowlist-driven   | allowlist-driven     | only if allowed | only if allowed   |
+| Replit Agent / Docker AI Sandbox | ❌ hard-blocked | ❌ hard-blocked  | No              | ❌ No (needs `HTTPS_PROXY`) |
+| Devin (Cognition)       | undocumented; likely Docker-AI-class | ❌  | No              | likely No         |
+
+**v1.10.2 fully unblocks**: Render (the original Garry Tan report case).
+**Already worked in v1.10.0 UDP mode**: Railway, Fly.io, Lambda, Cloud Run,
+Modal, E2B, Daytona.
+**Still blocked in v1.10.2**: platforms enforcing the Docker AI Sandbox
+HTTP-proxy-only egress model (Replit Agent, Devin, locked-down Cursor
+sandboxes). These need an `HTTP_PROXY`/`HTTPS_PROXY`-honoring transport and
+a registry-over-WSS bridge — tracked for v1.10.3.
+
 ## [1.10.1] - 2026-05-19
 
 ### Fixed

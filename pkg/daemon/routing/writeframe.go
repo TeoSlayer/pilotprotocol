@@ -31,6 +31,15 @@ func (m *Manager) WriteFrame(nodeID uint32, addr *net.UDPAddr, frame []byte, cou
 	_ = silentFor
 	_ = misses
 
+	// Compat-mode daemons have no usable direct UDP path — the only
+	// way for an outbound packet to reach a peer is wrapped in
+	// BeaconMsgRelay so the beacon's relayWorker can route it (over
+	// UDP if the peer is a regular UDP node, over WSS if the peer
+	// is itself in compat mode).
+	if m.forceRelay.Load() {
+		shouldRelay = true
+	}
+
 	m.mu.RLock()
 	bAddr := m.beaconAddr
 	sock := m.sock

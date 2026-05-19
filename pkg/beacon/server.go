@@ -199,6 +199,27 @@ func (s *Server) WSSMetrics() bwss.Metrics {
 	return s.wssServer.Metrics()
 }
 
+// WSSAddr returns the actual listen address of the compat WSS
+// bridge. Empty string if EnableCompatWSS was never called. Used by
+// tests that bind to :0 and need to discover the real port.
+func (s *Server) WSSAddr() string {
+	if s.wssServer == nil {
+		return ""
+	}
+	return s.wssServer.Addr()
+}
+
+// WSSIsConnected reports whether a compat-mode daemon is currently
+// connected via the WSS bridge for the given nodeID. False if the
+// bridge isn't enabled. Used by tests that need to wait for the
+// post-handshake registration to land.
+func (s *Server) WSSIsConnected(nodeID uint32) bool {
+	if s.wssServer == nil {
+		return false
+	}
+	return s.wssServer.IsConnected(nodeID)
+}
+
 // CloseCompatWSS shuts down the WSS bridge. Idempotent. Used by
 // graceful shutdown paths and tests.
 func (s *Server) CloseCompatWSS() error {
