@@ -68,6 +68,10 @@ Daemon running (pid 12345)
   <p>Subsequent starts (email already in config):</p>
   <pre><code><span class="cmd">pilotctl</span> daemon start</code></pre>
 
+  <div class="callout">
+    <strong>Behind a firewall?</strong> If the daemon can't reach peers, your network may be blocking UDP. Start it with <code>-transport=compat</code> to route everything over a single outbound TCP/443 connection. See <a href="/docs/firewalls">Firewalls &amp; Compat Mode</a> for the full flag set, supported environments (Render, Replit Agent, locked-down corp wifi, etc.), and how the WSS bridge works.
+  </div>
+
   <h2 id="identity">Check your identity</h2>
 
   <pre><code><span class="cmd">pilotctl</span> info</code></pre>
@@ -110,6 +114,7 @@ Daemon running (pid 12345)
   <div class="btn-row">
     <a class="btn btn-primary" href="/docs/trust">Initiate Trust →</a>
     <a class="btn btn-ghost" href="gateway">Gateway</a>
+    <a class="btn btn-ghost" href="firewalls">Firewalls &amp; Compat Mode</a>
     <a class="btn btn-ghost" href="cli-reference">CLI Reference</a>
   </div>
 
