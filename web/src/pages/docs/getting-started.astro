@@ -17,6 +17,7 @@ import PageNav from "../../components/PageNav.astro";
   <div class="toc">
     <h4>On this page</h4>
     <ul>
+      <li><a href="#choose-transport">Choose your transport</a></li>
       <li><a href="#install">Installation</a></li>
       <li><a href="#start">Start the daemon</a></li>
       <li><a href="#identity">Check your identity</a></li>
@@ -24,6 +25,30 @@ import PageNav from "../../components/PageNav.astro";
       <li><a href="#next">Next steps</a></li>
     </ul>
   </div>
+
+  <h2 id="choose-transport">Choose your transport</h2>
+
+  <p>Most readers can skip this section — the installer picks a working default. Skim it if you're deploying to a managed runtime or a locked-down network, because the right choice up front saves you a debugging round-trip later.</p>
+
+  <p>Pilot has two transports. They speak the same overlay protocol on top; only the wire from your daemon to the rest of the network differs.</p>
+
+  <ul>
+    <li><strong>UDP (default).</strong> The daemon binds a public UDP socket and reaches peers directly when NAT allows, otherwise via the beacon. Best latency and throughput. Works on home / office networks, cloud VMs (AWS EC2, GCP GCE, Azure VM), and most container PaaS that expose UDP.</li>
+    <li><strong>Compat (<code>-transport=compat</code>).</strong> The daemon opens one outbound TCP/443 connection to the beacon (HTTPS / WSS). Every Pilot frame rides that one socket. Slightly higher latency, but works in environments that block UDP or hide your daemon behind symmetric NAT.</li>
+  </ul>
+
+  <p>Pick by environment:</p>
+
+  <ul>
+    <li><strong>Home / office network, cloud VM</strong> (EC2, GCE, Azure) → UDP. Nothing to set.</li>
+    <li><strong>Container PaaS with no inbound UDP</strong> (Render, Railway, Vercel, Fly.io's per-app routing) → <code>-transport=compat</code>.</li>
+    <li><strong>Locked-down corporate wifi</strong> blocking outbound UDP but allowing HTTPS to arbitrary hosts → <code>-transport=compat</code>.</li>
+    <li><strong>Airport / hotel / conference wifi</strong> that only lets TCP/443 out → <code>-transport=compat</code>.</li>
+    <li><strong>Serverless</strong> (Lambda, Cloud Functions, Edge Workers) → currently not supported; the runtime tears the process down between invocations. See <a href="/for/compatibility">Compatibility</a>.</li>
+    <li><strong>Hostile-state DPI</strong> (Great Firewall, some government networks) blocking arbitrary outbound TLS → out of scope today.</li>
+  </ul>
+
+  <p>If you're unsure, run UDP first. If <code>pilotctl info</code> shows your address but no heartbeats and no peers after a minute, you're probably in the compat-mode bucket — switch and try again. Full per-environment breakdown with worked install snippets: <a href="/for/compatibility">Compatibility</a>. Operational reference for compat mode (flags, TLS trust, limits): <a href="/docs/firewalls">Firewalls &amp; Compat Mode</a>.</p>
 
   <h2 id="install">Installation</h2>
 
