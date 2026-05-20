@@ -69,7 +69,7 @@ const groups: CategoryGroup[] = [
     blurb: 'A mix. Modal/E2B/Daytona/Codespaces are open; Docker-AI-Sandbox-class (Replit Agent, Devin) blocks raw TCP.',
     cards: [
       { name: 'Cursor Cloud Agents',    mode: 'allowlist',     modeClass: 'compat', note: 'Add *.pilotprotocol.network + 34.71.57.205 to the egress allowlist.' },
-      { name: 'Replit Agent',           mode: 'compat+proxy',  modeClass: 'proxy',  note: 'Docker AI Sandbox — raw TCP/UDP blocked. HTTPS_PROXY support tracked for v1.10.4.' },
+      { name: 'Replit Agent',           mode: 'compat+proxy',  modeClass: 'proxy',  note: 'Docker AI Sandbox — raw TCP/UDP blocked. HTTPS_PROXY support tracked on GitHub.' },
       { name: 'Devin (Cognition)',      mode: 'compat+proxy',  modeClass: 'proxy',  note: 'Same Docker AI Sandbox model.' },
       { name: 'Modal Sandboxes',        mode: 'udp',           modeClass: 'udp',    note: 'Default-allow. Long timeout for persistent run.' },
       { name: 'E2B Sandboxes',          mode: 'udp',           modeClass: 'udp',    note: 'IP/CIDR rules only; Pilot endpoints allowed by default.' },
@@ -104,9 +104,9 @@ const groups: CategoryGroup[] = [
 const egress = [
   { model: 'Open egress',                  examples: 'home wifi, most cloud VMs, default Docker',     today: '✓ UDP works — use default',                                                                  needed: 'nothing' },
   { model: 'Default-deny, TCP/443 only',   examples: 'hotel / airport / locked corp wifi',            today: '✓ Compat works as-is — single TCP/443 outbound',                                              needed: '-transport=compat' },
-  { model: 'HTTP CONNECT proxy',           examples: 'corp networks with explicit proxy URL',         today: '~ WSS dial honors HTTPS_PROXY; registry TLS dial does not',                                   needed: 'v1.10.4: registry through HTTPS_PROXY' },
+  { model: 'HTTP CONNECT proxy',           examples: 'corp networks with explicit proxy URL',         today: '~ WSS dial honors HTTPS_PROXY; registry TLS dial does not',                                   needed: 'tracked on GitHub — registry over HTTPS_PROXY' },
   { model: 'Transparent TLS interception', examples: 'Zscaler, Fortinet, Palo Alto, BlueCoat, Netskope', today: '✓ Works with -tls-trust=system (corp CA in OS store — v1.10.3 default)',                  needed: 'already supported' },
-  { model: 'HTTP-proxy-only sandbox',      examples: 'Replit Agent, Devin, Docker AI Sandbox',        today: '✗ Blocked — daemon needs raw TCP to :443',                                                    needed: 'v1.10.4: full HTTPS_PROXY via CONNECT' },
+  { model: 'HTTP-proxy-only sandbox',      examples: 'Replit Agent, Devin, Docker AI Sandbox',        today: '✗ Blocked — daemon needs raw TCP to :443',                                                    needed: 'tracked on GitHub — HTTPS_PROXY via CONNECT' },
   { model: 'Domain-name allowlist',        examples: 'Cursor Cloud Agents, Zscaler PAC',              today: '✓ Works after adding *.pilotprotocol.network + 34.71.57.205',                                 needed: 'doc-only' },
   { model: 'DPI / protocol allowlist',     examples: 'Great Firewall, Iran-style filters',            today: '✗ Blocked — no domain fronting / ECH today',                                                  needed: 'out of scope' },
 ];
@@ -358,7 +358,7 @@ const egress = [
     <div class="compat-legend">
       <span><span class="sw" style="background: oklch(0.88 0.22 125);"></span><b>udp</b> — default UDP transport</span>
       <span><span class="sw" style="background: oklch(0.85 0.16 230);"></span><b>compat</b> — <code>-transport=compat</code></span>
-      <span><span class="sw" style="background: oklch(0.80 0.16 75);"></span><b>compat+proxy</b> — needs HTTPS_PROXY (v1.10.4+)</span>
+      <span><span class="sw" style="background: oklch(0.80 0.16 75);"></span><b>compat+proxy</b> — needs HTTPS_PROXY (<a href="https://github.com/TeoSlayer/pilotprotocol/issues" style="color: inherit; text-decoration: underline; text-decoration-color: var(--ink-faint);">tracked on GitHub</a>)</span>
       <span><span class="sw" style="background: var(--ink-faint);"></span><b>wrong runtime</b> — no daemon</span>
     </div>
 
