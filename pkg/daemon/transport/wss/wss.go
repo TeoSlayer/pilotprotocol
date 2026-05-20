@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -154,8 +155,18 @@ type Transport struct {
 	closeOnce sync.Once
 	closed    atomic.Bool
 
-	// readDoneCh closes when the read goroutine exits.
-	readDoneCh chan struct{}
+	// superviseDoneCh closes when the supervisor goroutine exits.
+	// Replaces the old readDoneCh — the supervisor owns the read loop
+	// AND the reconnect lifecycle, so its exit is the canonical "done".
+	superviseDoneCh chan struct{}
+
+	// lifetimeCtx is cancelled by Close so that any blocking conn.Read
+	// or dial-in-progress unwinds promptly. Without this, the
+	// underlying websocket library's Read can sit on a closed-but-not-
+	// signaled TCP socket for many seconds (observed in tests, where
+	// httptest + TLS layers buffer the close).
+	lifetimeCtx    context.Context
+	lifetimeCancel context.CancelFunc
 }
 
 // recvItem is the unit shipped from the read goroutine to Recv().
@@ -194,38 +205,53 @@ func Dial(ctx context.Context, cfg Config) (*Transport, error) {
 	// Synthetic local + beacon addresses. The IPs are reserved
 	// documentation ranges (RFC 5737) so they cannot collide with a
 	// real UDP peer. Ports are 0 — they're not meaningful for WS.
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
 	t := &Transport{
-		cfg:        cfg,
-		localAddr:  &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 0},
-		beaconAddr: &net.UDPAddr{IP: net.ParseIP("192.0.2.2"), Port: 0},
-		recvCh:     make(chan recvItem, cfg.RecvBuffer),
-		readDoneCh: make(chan struct{}),
+		cfg:             cfg,
+		localAddr:       &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 0},
+		beaconAddr:      &net.UDPAddr{IP: net.ParseIP("192.0.2.2"), Port: 0},
+		recvCh:          make(chan recvItem, cfg.RecvBuffer),
+		superviseDoneCh: make(chan struct{}),
+		lifetimeCtx:     lifetimeCtx,
+		lifetimeCancel:  lifetimeCancel,
 	}
 
+	// First dial happens inline so Dial returns a "ready" Transport.
+	// Subsequent reconnects happen in the supervisor goroutine.
+	conn, err := t.dialAndAuth(dialCtx)
+	if err != nil {
+		return nil, err
+	}
+	t.connMu.Lock()
+	t.conn = conn
+	t.connMu.Unlock()
+
+	go t.supervise()
+	return t, nil
+}
+
+// dialAndAuth opens a fresh WS connection and completes the Ed25519
+// auth handshake. Used by the initial Dial and by the supervisor
+// goroutine when reconnecting. Returns the live (authenticated) conn
+// or an error. Caller stores the conn under connMu.
+func (t *Transport) dialAndAuth(ctx context.Context) (*websocket.Conn, error) {
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: cfg.TLSConfig.Clone(),
+			TLSClientConfig: t.cfg.TLSConfig.Clone(),
 		},
 	}
-	conn, _, err := websocket.Dial(dialCtx, cfg.URL, &websocket.DialOptions{
+	conn, _, err := websocket.Dial(ctx, t.cfg.URL, &websocket.DialOptions{
 		HTTPClient:   httpClient,
 		Subprotocols: []string{"pilot.v1"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wss dial: %w", err)
 	}
-
-	if err := t.runAuth(dialCtx, conn); err != nil {
+	if err := t.runAuth(ctx, conn); err != nil {
 		conn.Close(websocket.StatusPolicyViolation, "auth failed")
 		return nil, fmt.Errorf("wss auth: %w", err)
 	}
-
-	t.connMu.Lock()
-	t.conn = conn
-	t.connMu.Unlock()
-
-	go t.readLoop()
-	return t, nil
+	return conn, nil
 }
 
 // runAuth performs the post-upgrade challenge/response. Reads one
@@ -281,9 +307,23 @@ func (t *Transport) runAuth(ctx context.Context, conn *websocket.Conn) error {
 	return nil
 }
 
+// ErrReconnecting is returned by Send while the supervisor is
+// re-establishing the WSS connection. Caller's higher-level retry
+// loop (key-exchange retransmit, dial-retry, etc.) will refire once
+// the conn is back. Distinct from ErrClosed so callers can choose
+// to retry instead of tearing down.
+var ErrReconnecting = errors.New("wss: reconnecting")
+
 // Send writes frame as one binary WS frame. The dst argument is
 // ignored — every send goes to the single beacon at the other end
 // of this Transport. Returns (len(frame), nil) on success.
+//
+// If the underlying conn has died and the supervisor has not yet
+// reinstalled a fresh one, Send returns ErrReconnecting immediately
+// (without waiting). On a Write error against a live conn, Send
+// clears t.conn so future calls don't slam the dead pipe — the
+// supervisor's read loop will hit the same break and trigger the
+// reconnect sequence.
 func (t *Transport) Send(frame []byte, _ *net.UDPAddr) (int, error) {
 	if t.closed.Load() {
 		return 0, transport.ErrClosed
@@ -292,7 +332,7 @@ func (t *Transport) Send(frame []byte, _ *net.UDPAddr) (int, error) {
 	conn := t.conn
 	t.connMu.RUnlock()
 	if conn == nil {
-		return 0, transport.ErrClosed
+		return 0, ErrReconnecting
 	}
 	t.writeMu.Lock()
 	err := conn.Write(context.Background(), websocket.MessageBinary, frame)
@@ -301,6 +341,16 @@ func (t *Transport) Send(frame []byte, _ *net.UDPAddr) (int, error) {
 		if t.closed.Load() {
 			return 0, transport.ErrClosed
 		}
+		// Mark conn nil so subsequent sends fail fast with
+		// ErrReconnecting instead of repeatedly tripping the same
+		// error through the dead conn. The supervisor's read loop
+		// will independently observe the break and start the
+		// reconnect sequence.
+		t.connMu.Lock()
+		if t.conn == conn {
+			t.conn = nil
+		}
+		t.connMu.Unlock()
 		return 0, fmt.Errorf("wss send: %w", err)
 	}
 	return len(frame), nil
@@ -328,11 +378,18 @@ func (t *Transport) LocalAddr() *net.UDPAddr {
 }
 
 // Close shuts down the WSS connection. Idempotent. After Close, the
-// read goroutine exits and subsequent Recv calls return ErrClosed.
+// supervisor goroutine exits, no further reconnect attempts fire,
+// and subsequent Send/Recv calls return ErrClosed.
 func (t *Transport) Close() error {
 	var closeErr error
 	t.closeOnce.Do(func() {
 		t.closed.Store(true)
+		// Cancel lifetimeCtx FIRST so the supervisor's in-flight
+		// conn.Read / Dial unblock immediately. Without this, the
+		// supervisor can sit on a blocked Read for tens of seconds
+		// when the underlying TCP isn't cleanly shut down (TLS+
+		// httptest in tests; nginx restart in prod).
+		t.lifetimeCancel()
 		t.connMu.Lock()
 		conn := t.conn
 		t.conn = nil
@@ -340,42 +397,125 @@ func (t *Transport) Close() error {
 		if conn != nil {
 			closeErr = conn.Close(websocket.StatusNormalClosure, "")
 		}
-		// Wait for the read goroutine to drain so we don't race on
-		// recvCh close.
-		<-t.readDoneCh
+		// Wait for supervisor (read loop + reconnect loop) to drain
+		// so we don't race on recvCh close.
+		<-t.superviseDoneCh
 		close(t.recvCh)
 	})
 	return closeErr
 }
 
-// readLoop drains binary frames from the WS connection into recvCh.
-// Exits on Close() or on the first read error. Errors are surfaced to
-// Recv() callers as the last recvItem before the channel closes.
-func (t *Transport) readLoop() {
-	defer close(t.readDoneCh)
+// supervise runs the read loop AND drives auto-reconnect. It is the
+// only goroutine that mutates t.conn during normal operation.
+//
+// Loop body:
+//  1. drainReads(conn) — blocks on conn.Read until error or Close()
+//  2. close the dead conn, clear t.conn
+//  3. sleep backoff (exponential, capped) — also bail on Close()
+//  4. dialAndAuth — on success, install new conn and continue
+//
+// On Close(), the loop exits and the recvCh is drained-and-closed by
+// Close itself.
+func (t *Transport) supervise() {
+	defer close(t.superviseDoneCh)
+
+	const (
+		minBackoff = 250 * time.Millisecond
+		maxBackoff = 30 * time.Second
+	)
+	backoff := minBackoff
 
 	for {
-		if t.closed.Load() {
-			return
-		}
+		// 1. Read until the conn dies (or Close).
 		t.connMu.RLock()
 		conn := t.conn
 		t.connMu.RUnlock()
 		if conn == nil {
+			// Close happened concurrently with reconnect — exit.
+			return
+		}
+		t.drainReads(conn)
+		if t.closed.Load() {
 			return
 		}
 
-		msgType, body, err := conn.Read(context.Background())
+		// 2. Tear down the dead conn.
+		slog.Warn("wss transport: connection lost, reconnecting", "backoff", backoff)
+		t.connMu.Lock()
+		old := t.conn
+		t.conn = nil
+		t.connMu.Unlock()
+		if old != nil {
+			_ = old.Close(websocket.StatusAbnormalClosure, "reconnecting")
+		}
+
+		// 3. Backoff, but wake immediately on Close.
+		if t.sleepOrClosed(backoff) {
+			return
+		}
+
+		// 4. Re-dial + re-auth. Each attempt gets DialTimeout budget,
+		// but is also cancelled by Close() via lifetimeCtx so the
+		// supervisor never lingers on a dead dial past shutdown.
+		dialCtx, cancel := context.WithTimeout(t.lifetimeCtx, t.cfg.DialTimeout)
+		newConn, err := t.dialAndAuth(dialCtx)
+		cancel()
+		if t.closed.Load() {
+			// Close raced with a successful reconnect — drop the new
+			// conn rather than installing it.
+			if newConn != nil {
+				_ = newConn.Close(websocket.StatusNormalClosure, "shutting down")
+			}
+			return
+		}
 		if err != nil {
-			if !t.closed.Load() {
-				// Surface the error to the next Recv() then exit.
-				// Don't block on a full channel — drop oldest if
-				// the consumer is stuck.
-				select {
-				case t.recvCh <- recvItem{err: fmt.Errorf("wss read: %w", err)}:
-				default:
+			slog.Warn("wss transport: reconnect failed", "err", err, "next_backoff", backoff*2)
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
 				}
 			}
+			continue
+		}
+
+		// Success — install conn, reset backoff, loop back to read.
+		t.connMu.Lock()
+		t.conn = newConn
+		t.connMu.Unlock()
+		slog.Info("wss transport: reconnected")
+		backoff = minBackoff
+	}
+}
+
+// drainReads pumps binary frames from the supplied conn into recvCh
+// until the read fails or Close fires. Errors during reading are
+// surfaced to Recv() ONLY if the transport is being torn down by
+// Close — transient errors trigger reconnect instead.
+func (t *Transport) drainReads(conn *websocket.Conn) {
+	for {
+		if t.closed.Load() {
+			return
+		}
+		// lifetimeCtx unblocks this Read on Close even if the TLS+
+		// httptest layer is still buffering the peer's close frame.
+		msgType, body, err := conn.Read(t.lifetimeCtx)
+		if err != nil {
+			if t.closed.Load() {
+				// Close raced with the read error — surface ErrClosed
+				// rather than the underlying conn-closed error so the
+				// caller's existing error checks work.
+				select {
+				case t.recvCh <- recvItem{err: transport.ErrClosed}:
+				default:
+				}
+				return
+			}
+			// Transient: log + return so supervise() can reconnect.
+			// Do NOT surface to Recv — the caller's higher-level retry
+			// logic (key-exchange retransmit, dial retry) will refire
+			// once supervise installs a fresh conn.
+			slog.Debug("wss transport: read error, supervisor will reconnect", "err", err)
 			return
 		}
 
@@ -395,8 +535,30 @@ func (t *Transport) readLoop() {
 		copy(frameCopy, body)
 		select {
 		case t.recvCh <- recvItem{frame: frameCopy}:
-		case <-t.readDoneCh:
+		case <-t.superviseDoneCh:
 			return
+		}
+	}
+}
+
+// sleepOrClosed blocks for d, returning true if Close fired during the
+// wait. Lets the supervisor abandon a long backoff promptly.
+func (t *Transport) sleepOrClosed(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	// Poll closed flag at a coarse cadence so we don't need an explicit
+	// notify channel. With max backoff 30s and 100ms poll, Close
+	// latency is bounded at 100ms — fine.
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return false
+		case <-tick.C:
+			if t.closed.Load() {
+				return true
+			}
 		}
 	}
 }

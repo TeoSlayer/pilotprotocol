@@ -82,9 +82,9 @@ type Config struct {
 	// daemons pointing at registry.pilotprotocol.network:443 with its
 	// Let's Encrypt certificate. Mirrors -tls-trust on the WSS side.
 	RegistryTrust string
-	IdentityPath        string // path to persist Ed25519 identity (empty = no persistence)
-	Email               string // email address for account identification and key recovery
-	Owner               string // deprecated: use Email instead
+	IdentityPath  string // path to persist Ed25519 identity (empty = no persistence)
+	Email         string // email address for account identification and key recovery
+	Owner         string // deprecated: use Email instead
 
 	Endpoint string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
 	Public   bool   // make this node's endpoint publicly discoverable

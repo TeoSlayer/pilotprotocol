@@ -42,6 +42,15 @@ type fakeBeacon struct {
 	// recordedFrames captures binary frames received from the daemon
 	// for assertion. Append-only; guarded by srv close.
 	recordedFrames [][]byte
+
+	// killAfterFrame, when >0, makes the echo loop close the
+	// active WS conn AFTER receiving (and not echoing) that frame.
+	// Used by TestReconnect_AfterServerCloseRestoresSendAndRecv to
+	// simulate a transient connection break. The next dial that
+	// arrives at the same fakeBeacon httptest server will get a
+	// fresh handle() — including a fresh auth handshake — so the
+	// supervisor's redial path is exercised end-to-end.
+	killAfterFrame int
 }
 
 func newFakeBeacon(t *testing.T, expectedNodeID uint32) *fakeBeacon {
@@ -141,12 +150,24 @@ func (fb *fakeBeacon) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Echo loop: binary frames in → binary frames out (prefix "echo:")
+	frameCount := 0
 	for {
 		_, body, err := conn.Read(r.Context())
 		if err != nil {
 			return
 		}
+		frameCount++
 		fb.recordedFrames = append(fb.recordedFrames, append([]byte(nil), body...))
+		// Reconnect simulation: at killAfterFrame, eat the frame and
+		// drop the underlying TCP immediately so the daemon's
+		// supervisor has to redial. CloseNow skips the graceful WS
+		// close handshake — that's exactly what an nginx restart or
+		// a TCP RST looks like from the client side, and it makes
+		// the client's pending conn.Read unblock right away.
+		if fb.killAfterFrame > 0 && frameCount == fb.killAfterFrame {
+			_ = conn.CloseNow()
+			return
+		}
 		out := append([]byte("echo:"), body...)
 		if err := conn.Write(r.Context(), websocket.MessageBinary, out); err != nil {
 			return
@@ -328,6 +349,134 @@ func TestRecv_AfterClose(t *testing.T) {
 func TestTransportSatisfiesInterface(t *testing.T) {
 	t.Parallel()
 	var _ transport.Transport = (*wss.Transport)(nil)
+}
+
+// TestReconnect_AfterServerCloseRestoresSendAndRecv pins the bug we
+// observed in v1.10.2/1.10.3 production: when the WSS connection
+// dies (network blip, beacon nginx restart, GFW spoofed RST), the
+// daemon's transport must redial+reauth and resume traffic. Before
+// the supervisor goroutine landed, the conn stayed broken until the
+// caller manually restarted pilot-daemon — every Send/Recv between
+// the break and the restart was lost.
+//
+// Scheme:
+//
+//  1. spin up a fakeBeacon with a configurable "kill the active conn
+//     after N echoes" behavior
+//  2. dial a transport, send+recv one frame (confirms baseline works)
+//  3. send a second frame — fakeBeacon eats it and forcibly closes
+//     the WS conn (simulates the break)
+//  4. send a third frame — must succeed after the supervisor's
+//     reconnect+reauth, and the echo must come back via Recv
+func TestReconnect_AfterServerCloseRestoresSendAndRecv(t *testing.T) {
+	t.Parallel()
+	id := mustID(t)
+	const nodeID uint32 = 909
+	fb := newFakeBeacon(t, nodeID)
+	// After the second binary frame, close the active conn so the
+	// daemon has to reconnect.
+	fb.killAfterFrame = 2
+
+	tr, err := wss.Dial(context.Background(), wss.Config{
+		URL:         fb.url(),
+		TLSConfig:   fb.tlsConfig(),
+		Identity:    id,
+		NodeID:      nodeID,
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer tr.Close()
+
+	// 1. Baseline round-trip works.
+	if _, err := tr.Send([]byte("first"), nil); err != nil {
+		t.Fatalf("Send #1: %v", err)
+	}
+	frame, _, err := tr.Recv()
+	if err != nil {
+		t.Fatalf("Recv #1: %v", err)
+	}
+	if string(frame) != "echo:first" {
+		t.Fatalf("Recv #1 = %q, want %q", frame, "echo:first")
+	}
+
+	// 2. Send the "kill" frame — the fakeBeacon's killAfterFrame=2
+	// will eat this frame and CloseNow() the conn. This Send may
+	// return success even though the bytes get lost on the dying
+	// conn (TCP-write succeeded into the local buffer; the peer
+	// closes before the bytes are read). This models production
+	// where the WSS transport cannot detect a send was lost — the
+	// CALLER'S retransmit layer (key-exchange retx, dial-retry) is
+	// what re-sends the data after a response timeout.
+	if _, err := tr.Send([]byte("kill"), nil); err != nil {
+		t.Fatalf("Send #2 (kill): %v", err)
+	}
+
+	// 3. Wait for the supervisor to actually observe the break AND
+	// reconnect. We detect this by polling Send — once it returns
+	// ErrReconnecting, the supervisor has torn down the old conn.
+	// Then we keep retrying until Send succeeds (new conn installed).
+	// Generous deadline: covers 250ms backoff + dial + auth.
+	deadline := time.Now().Add(10 * time.Second)
+	sawReconnecting := false
+	for time.Now().Before(deadline) {
+		_, sendErr := tr.Send([]byte("probe"), nil)
+		if errors.Is(sendErr, wss.ErrReconnecting) {
+			sawReconnecting = true
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if sendErr != nil {
+			// "wss send: failed to write msg" against the dying conn
+			// is expected during the brief window before the
+			// supervisor flips conn to nil.
+			if strings.Contains(sendErr.Error(), "wss send:") {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("Send probe unexpected error: %v", sendErr)
+		}
+		// sendErr == nil: only trust this if we ALSO observed
+		// ErrReconnecting at some point — otherwise we may have
+		// caught a Send that wrote into the dying-conn buffer
+		// (returns nil but the bytes are lost). Once we've seen
+		// ErrReconnecting AND then a nil error, the supervisor has
+		// reinstalled a healthy conn.
+		if sawReconnecting {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !sawReconnecting {
+		t.Fatalf("supervisor never marked the conn as reconnecting")
+	}
+
+	// 4. Echo for "probe" should arrive on the new conn. (wss.Transport
+	// doesn't expose SetReadDeadline, so put the Recv in a goroutine
+	// with a separate timeout — same as the daemon's real consumers.)
+	recvDone := make(chan struct {
+		body []byte
+		err  error
+	}, 1)
+	go func() {
+		body, _, err := tr.Recv()
+		recvDone <- struct {
+			body []byte
+			err  error
+		}{body, err}
+	}()
+	select {
+	case r := <-recvDone:
+		if r.err != nil {
+			t.Fatalf("Recv after reconnect: %v", r.err)
+		}
+		if string(r.body) != "echo:probe" {
+			t.Fatalf("Recv after reconnect = %q, want %q", r.body, "echo:probe")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("Recv after reconnect timed out (no echo for 'probe')")
+	}
 }
 
 func mustID(t *testing.T) *crypto.Identity {

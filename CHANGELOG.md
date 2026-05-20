@@ -7,6 +7,42 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.10.4] - 2026-05-19
+
+### Fixed
+- **Compat-mode WSS connection auto-recovers from drops.** Before this
+  fix, when the daemon's WSS connection to the beacon died (network
+  blip, nginx restart, GFW-style spoofed RST, peer-side hangup), the
+  transport stayed permanently dead — every subsequent `Send` returned
+  `wss send: failed to write msg: use of closed network connection`
+  and a manual daemon restart was the only recovery. Observed in
+  production today (v1.10.3) twice in one hour.
+
+  The new design introduces a supervisor goroutine that owns both the
+  read loop AND the reconnect lifecycle. When the underlying conn
+  fails, the supervisor:
+    1. tears down the dead conn
+    2. waits with exponential backoff (250 ms → 30 s cap)
+    3. re-dials + re-auths against the same `-compat-beacon` URL
+    4. installs the fresh conn and resumes reading
+  All under `lifetimeCtx`, so `Close()` interrupts an in-flight dial
+  or read within ~100 ms.
+
+  `Send` now returns the new `wss.ErrReconnecting` (instead of a raw
+  conn-write error) when no live conn is installed — caller's
+  higher-level retransmit (key-exchange retx, dial-retry, write-frame
+  retry) refires naturally on the next conn. Transient read errors
+  during the gap are no longer surfaced to `Recv()` so the daemon's
+  tunnel read loop doesn't tear itself down over a temporary blip.
+
+### Tests
+- `pkg/daemon/transport/wss/zz_wss_test.go::TestReconnect_AfterServerCloseRestoresSendAndRecv`
+  — `fakeBeacon` is configured to `CloseNow()` the WS conn after the
+  second incoming frame. The test then drives a polling probe loop
+  and asserts the supervisor (a) flags ErrReconnecting during the
+  reconnect window and (b) successfully echoes a third frame on the
+  newly-established conn.
+
 ## [1.10.3] - 2026-05-19
 
 ### Added
