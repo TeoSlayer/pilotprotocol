@@ -51,6 +51,14 @@ type fakeBeacon struct {
 	// fresh handle() — including a fresh auth handshake — so the
 	// supervisor's redial path is exercised end-to-end.
 	killAfterFrame int
+
+	// failNextDials, when >0, makes handle() refuse upgrades for that
+	// many subsequent connection attempts (counter decrements each
+	// time). Used to simulate transient beacon-side outages so the
+	// supervisor must keep retrying with backoff. The handler closes
+	// the underlying TCP without completing the WS upgrade — same
+	// shape as nginx returning 502 while the beacon process restarts.
+	failNextDials int
 }
 
 func newFakeBeacon(t *testing.T, expectedNodeID uint32) *fakeBeacon {
@@ -77,6 +85,15 @@ func (fb *fakeBeacon) tlsConfig() *tls.Config {
 }
 
 func (fb *fakeBeacon) handle(w http.ResponseWriter, r *http.Request) {
+	// Outage simulation: refuse the upgrade entirely. The httptest
+	// server returns 503; the daemon's websocket.Dial fails with a
+	// "did not return status 101" error which the supervisor treats
+	// as a transient dial failure and retries with backoff.
+	if fb.failNextDials > 0 {
+		fb.failNextDials--
+		http.Error(w, "beacon outage (test)", http.StatusServiceUnavailable)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{"pilot.v1"},
 	})
@@ -476,6 +493,110 @@ func TestReconnect_AfterServerCloseRestoresSendAndRecv(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("Recv after reconnect timed out (no echo for 'probe')")
+	}
+}
+
+// TestReconnect_SurvivesFailedRedialAttempts is the regression test
+// for the supervisor early-exit bug. The supervisor must keep retrying
+// with backoff even when the FIRST redial attempt fails — production
+// daemons used to wedge here, sitting with t.conn=nil forever.
+//
+// Sequence: dial → server kills conn → server refuses 3 redial
+// attempts → server recovers → daemon must reconnect and ferry a new
+// frame round trip.
+func TestReconnect_SurvivesFailedRedialAttempts(t *testing.T) {
+	t.Parallel()
+	id := mustID(t)
+	const nodeID uint32 = 4242
+	fb := newFakeBeacon(t, nodeID)
+	fb.killAfterFrame = 2
+
+	tr, err := wss.Dial(context.Background(), wss.Config{
+		URL:         fb.url(),
+		TLSConfig:   fb.tlsConfig(),
+		Identity:    id,
+		NodeID:      nodeID,
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer tr.Close()
+
+	// Baseline round-trip.
+	if _, err := tr.Send([]byte("first"), nil); err != nil {
+		t.Fatalf("Send #1: %v", err)
+	}
+	if _, _, err := tr.Recv(); err != nil {
+		t.Fatalf("Recv #1: %v", err)
+	}
+
+	// Arm the outage NOW that the initial dial is established. The
+	// kill on frame #2 (below) will sever the conn; the next 3
+	// redial attempts then hit the 503 path. With backoff
+	// 250ms → 500ms → 1s, the supervisor spends ~1.75s in the
+	// "failed reconnect" loop before the fourth attempt succeeds.
+	fb.failNextDials = 3
+
+	// Trigger the kill. The second frame is eaten by fakeBeacon
+	// (killAfterFrame=2).
+	if _, err := tr.Send([]byte("kill"), nil); err != nil {
+		t.Fatalf("Send kill: %v", err)
+	}
+
+	// Poll Send until the supervisor reconnects to the now-recovered
+	// server. Generous deadline: cumulative backoff with one cap step
+	// is ~4s, plus the dial+auth cost.
+	deadline := time.Now().Add(15 * time.Second)
+	sawReconnecting := false
+	for time.Now().Before(deadline) {
+		_, sendErr := tr.Send([]byte("probe"), nil)
+		if errors.Is(sendErr, wss.ErrReconnecting) {
+			sawReconnecting = true
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if sendErr != nil {
+			if strings.Contains(sendErr.Error(), "wss send:") {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("Send probe unexpected error: %v", sendErr)
+		}
+		if sawReconnecting {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !sawReconnecting {
+		t.Fatalf("supervisor never marked the conn as reconnecting — did the kill not land?")
+	}
+	if fb.failNextDials != 0 {
+		t.Fatalf("expected supervisor to exhaust failNextDials, %d remaining", fb.failNextDials)
+	}
+
+	// New conn is alive — Recv the echo for "probe".
+	recvDone := make(chan struct {
+		body []byte
+		err  error
+	}, 1)
+	go func() {
+		body, _, err := tr.Recv()
+		recvDone <- struct {
+			body []byte
+			err  error
+		}{body, err}
+	}()
+	select {
+	case r := <-recvDone:
+		if r.err != nil {
+			t.Fatalf("Recv after recovery: %v", r.err)
+		}
+		if string(r.body) != "echo:probe" {
+			t.Fatalf("Recv after recovery = %q, want %q", r.body, "echo:probe")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Recv after recovery timed out — supervisor wedged")
 	}
 }
 

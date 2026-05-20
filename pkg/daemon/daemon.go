@@ -2924,6 +2924,17 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 		return nil, err
 	}
 
+	// Compat mode: the daemon has no public UDP socket, so any direct
+	// SYN we send out can't reach the peer. Pre-flip the routing
+	// state to relay BEFORE the first SYN so it goes out via the
+	// beacon WSS bridge on the first try, not after a 25-78s direct
+	// retry budget burns. Same reasoning as the directRetries=0
+	// branch in the retransmit loop below — we just need it earlier
+	// so the initial SYN is correctly routed.
+	if d.config.TransportMode == "compat" && !d.tunnels.IsRelayPeer(dstAddr.Node) {
+		d.tunnels.SetRelayPeer(dstAddr.Node, true)
+	}
+
 	// Auto-initiate handshake toward known trusted agents when we have no
 	// local trust entry yet. Scoped to the trusted-agents list so we don't
 	// spray handshakes at arbitrary peers. Fires non-blocking so the
@@ -2993,9 +3004,12 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	retries := 0
 	directRetries := DialDirectRetries
 	maxRetries := DialMaxRetries
-	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node) // may already be relay from prior attempt
+	// relayActive is set when this peer is pinned to relay via either a
+	// prior attempt's fallback OR the compat-mode pre-flip above. Either
+	// way the direct retry budget would burn for nothing — skip it.
+	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node)
 	if relayActive {
-		directRetries = 0 // skip direct phase, go straight to relay
+		directRetries = 0
 	}
 	rto := DialInitialRTO
 	timer := time.NewTimer(rto)

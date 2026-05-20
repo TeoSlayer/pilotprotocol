@@ -7,6 +7,87 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.10.5] - 2026-05-20
+
+### Fixed
+- **WSS reconnect supervisor no longer wedges on a failed first redial.**
+  v1.10.4 introduced the reconnect supervisor but contained an
+  early-exit bug: when the supervisor cleared `t.conn` after a read
+  failure and then the first redial attempt itself failed (network
+  hiccup, beacon 5xx, nginx restart still in progress), the next
+  loop iteration saw `conn == nil` at the top and `return`ed,
+  killing the supervisor goroutine for the lifetime of the daemon.
+  Operators saw a long stretch of `wss: reconnecting` Warn lines
+  followed by silence; every subsequent `Send` then returned
+  `ErrReconnecting` forever and only a daemon restart recovered.
+  Observed in production today on a v1.10.4 daemon that ran ~10 h
+  before the supervisor exited.
+
+  The supervisor now treats `t.closed.Load()` as the only exit
+  condition. A nil `conn` at iteration start just skips
+  `drainReads` and goes straight to backoff + redial — so a
+  transient outage drains the backoff budget instead of killing
+  the goroutine. Regression-pinned by
+  `TestReconnect_SurvivesFailedRedialAttempts` (3 forced 503
+  redial failures followed by recovery).
+
+- **Duplicate key_exchange frames coalesced; no more "encrypted
+  tunnel established" log storm.** Direct + relay copies of the
+  same PILA frame plus peer-side retransmits caused the daemon to
+  fire the full side-effect path (log, `tunnel.established` bus
+  event, PostInstallHook with salvage replay + flushPending) 4–5×
+  per peer within milliseconds. A new
+  `DuplicateHandshakeDebounce = 250 ms` window coalesces
+  same-X25519-pubkey frames arriving on top of a freshly-installed
+  Crypto.
+
+  Crucially, the SendKeyExchangeToNode-when-stale path is NOT
+  gated by the debounce: the asymmetric-recovery scenario (peer
+  dropped crypto for us, retransmits PILA, our InboundDecryptStale
+  is true) still elicits our PILA reply so the peer can re-derive
+  the shared secret. Regression-pinned by
+  `TestDuplicatePILACoalescedSuppressesLogAndHook`,
+  `TestDuplicatePILAOutsideDebounceFiresHookAgain`, and
+  `TestDuplicatePILAStillRepliesForAsymmetricRecovery`. The
+  existing `TestAsymmetricRecoveryRepliesOnDuplicatePILAWhenStale`
+  also still passes.
+
+- **Compat-mode dial no longer burns 25–78 s on direct-retry
+  attempts that can't succeed.** A compat-mode daemon has no
+  public UDP socket — its data plane lives entirely on the WSS
+  bridge to the beacon. Pre-v1.10.5, every outbound dial still
+  ran the full 3-attempt direct phase before falling back to
+  relay; each attempt consumed an ephemeral port and idled for
+  the SYN-RTO budget. Under fan-out (e.g. the trusted-agents
+  auto-handshake on first dial) this exhausted local ephemeral
+  ports on macOS.
+
+  `DialConnectionContext` now pre-flips the peer's routing state
+  to relay BEFORE sending the initial SYN when `-transport=compat`,
+  and the existing `relayActive → directRetries=0` branch picks
+  it up — first SYN goes out via the WSS bridge on the first try.
+
+### Tests
+- `pkg/daemon/transport/wss/zz_wss_test.go::TestReconnect_SurvivesFailedRedialAttempts`
+  — `fakeBeacon` accepts an initial dial, kills the conn on
+  the 2nd binary frame, then refuses the next 3 redial attempts
+  with 503. Pre-fix: supervisor exits, test wedges out.
+  Post-fix: supervisor exhausts the 503 streak with exponential
+  backoff and the 4th attempt succeeds; a probe frame round-trips
+  on the fresh conn.
+- `pkg/daemon/keyexchange/zz_duplicate_debounce_test.go` — three
+  scenarios covering coalescing inside the window, re-firing
+  after the window, and asymmetric-recovery preservation.
+
+### Verified
+- Live smoke test against `beacon.pilotprotocol.network` from a
+  fresh v1.10.5 daemon: `-transport compat` binds only TCP/443,
+  WSS auth completes, trust handshake with `list-agents` lands
+  within ~88 s of first dial, `send-message list-agents` returns
+  2521 bytes of structured JSON in ~3 s end-to-end. No
+  `wss: reconnecting` storm, no "tunnel established" log noise
+  burst.
+
 ## [1.10.4] - 2026-05-19
 
 ### Fixed

@@ -93,6 +93,31 @@ const (
 	// Prevents the "bounce" where a transient outbound packet immediately
 	// restarts a cycle that just exhausted MaxRekeyAttempts.
 	rekeyGaveUpCooldown = 60 * time.Second
+
+	// DuplicateHandshakeDebounce is the window during which a repeated
+	// key_exchange frame from the same peer carrying the SAME X25519
+	// ephemeral key is treated as a duplicate of an already-handled
+	// handshake. Inside the window the frame is logged at Debug and the
+	// observable side effects are skipped: no "encrypted tunnel
+	// established" log line, no tunnel.established bus event, no
+	// PostInstallHook invocation, and no reply key_exchange.
+	//
+	// Why this matters: peers retransmit their PILA via the
+	// keyexchange.loop's RekeyRetransmitInterval (4 s) PLUS direct +
+	// relay copies of the same frame can both land within ms when the
+	// beacon relay is hot. Both legs of every duplicate used to fire
+	// the postInstall hook (peer-endpoint update, salvage replay,
+	// flushPending) and produce a noisy log burst that operators
+	// mistook for a real handshake storm. Real rekey (peer's ephemeral
+	// key actually changed) is NOT debounced — keyChanged forces the
+	// full path so salvage + flushPending run.
+	//
+	// 250 ms is short enough that an actual second handshake (caused
+	// by a real key rotation, not a duplicate frame) still progresses
+	// promptly, and long enough to coalesce the direct+relay arrival
+	// window plus most peer-side retransmits caused by an early ACK
+	// being dropped.
+	DuplicateHandshakeDebounce = 250 * time.Millisecond
 )
 
 // PendingRekeyState tracks a key-exchange we sent and are waiting on.

@@ -408,14 +408,18 @@ func (t *Transport) Close() error {
 // supervise runs the read loop AND drives auto-reconnect. It is the
 // only goroutine that mutates t.conn during normal operation.
 //
-// Loop body:
-//  1. drainReads(conn) — blocks on conn.Read until error or Close()
-//  2. close the dead conn, clear t.conn
-//  3. sleep backoff (exponential, capped) — also bail on Close()
-//  4. dialAndAuth — on success, install new conn and continue
+// Loop body, per iteration:
+//  1. If we have a live conn, drainReads(conn) blocks until the conn
+//     dies or Close fires. If we don't (Send() cleared it on a write
+//     error, or the previous reconnect attempt failed), skip straight
+//     to the backoff + redial steps.
+//  2. Sleep backoff (exponential, capped) — bail on Close.
+//  3. dialAndAuth — on success, install new conn and reset backoff;
+//     on failure, bump backoff and try again.
 //
-// On Close(), the loop exits and the recvCh is drained-and-closed by
-// Close itself.
+// Only Close() can stop the supervisor. A failed reconnect attempt
+// MUST NOT make the supervisor exit — otherwise a single bad dial
+// permanently wedges the transport.
 func (t *Transport) supervise() {
 	defer close(t.superviseDoneCh)
 
@@ -426,35 +430,36 @@ func (t *Transport) supervise() {
 	backoff := minBackoff
 
 	for {
-		// 1. Read until the conn dies (or Close).
-		t.connMu.RLock()
-		conn := t.conn
-		t.connMu.RUnlock()
-		if conn == nil {
-			// Close happened concurrently with reconnect — exit.
-			return
-		}
-		t.drainReads(conn)
 		if t.closed.Load() {
 			return
 		}
 
-		// 2. Tear down the dead conn.
-		slog.Warn("wss transport: connection lost, reconnecting", "backoff", backoff)
-		t.connMu.Lock()
-		old := t.conn
-		t.conn = nil
-		t.connMu.Unlock()
-		if old != nil {
-			_ = old.Close(websocket.StatusAbnormalClosure, "reconnecting")
+		// 1. If a live conn is installed, drain it until the read fails
+		// or Close fires. Otherwise (Send cleared it, or last dial
+		// failed), skip straight to redial.
+		t.connMu.RLock()
+		conn := t.conn
+		t.connMu.RUnlock()
+		if conn != nil {
+			t.drainReads(conn)
+			if t.closed.Load() {
+				return
+			}
+			slog.Warn("wss transport: connection lost, reconnecting", "backoff", backoff)
+			t.connMu.Lock()
+			if t.conn == conn {
+				t.conn = nil
+			}
+			t.connMu.Unlock()
+			_ = conn.Close(websocket.StatusAbnormalClosure, "reconnecting")
 		}
 
-		// 3. Backoff, but wake immediately on Close.
+		// 2. Backoff, but wake immediately on Close.
 		if t.sleepOrClosed(backoff) {
 			return
 		}
 
-		// 4. Re-dial + re-auth. Each attempt gets DialTimeout budget,
+		// 3. Re-dial + re-auth. Each attempt gets DialTimeout budget,
 		// but is also cancelled by Close() via lifetimeCtx so the
 		// supervisor never lingers on a dead dial past shutdown.
 		dialCtx, cancel := context.WithTimeout(t.lifetimeCtx, t.cfg.DialTimeout)
@@ -469,13 +474,12 @@ func (t *Transport) supervise() {
 			return
 		}
 		if err != nil {
-			slog.Warn("wss transport: reconnect failed", "err", err, "next_backoff", backoff*2)
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
+			nextBackoff := backoff * 2
+			if nextBackoff > maxBackoff {
+				nextBackoff = maxBackoff
 			}
+			slog.Warn("wss transport: reconnect failed", "err", err, "next_backoff", nextBackoff)
+			backoff = nextBackoff
 			continue
 		}
 
