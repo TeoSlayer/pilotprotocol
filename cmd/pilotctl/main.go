@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
-	"github.com/TeoSlayer/pilotprotocol/internal/eventstream"
+	"github.com/pilot-protocol/eventstream"
 	policylang "github.com/TeoSlayer/pilotprotocol/internal/policy"
 	"github.com/pilot-protocol/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"

@@ -23,7 +23,7 @@ import (
 	// are allowed. The daemon proper imports only pkg/coreapi
 	// interfaces.
 	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/pilot-protocol/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
 	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"

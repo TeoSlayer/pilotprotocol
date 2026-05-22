@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/pilot-protocol/eventstream"
 )
 
 func TestEventRoundTrip(t *testing.T) {

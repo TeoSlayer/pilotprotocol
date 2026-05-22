@@ -30,3 +30,7 @@ replace github.com/pilot-protocol/skillinject => ../skillinject
 require github.com/pilot-protocol/webhook v0.0.0
 
 replace github.com/pilot-protocol/webhook => ../webhook
+
+require github.com/pilot-protocol/eventstream v0.0.0
+
+replace github.com/pilot-protocol/eventstream => ../eventstream

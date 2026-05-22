@@ -13,9 +13,9 @@ import (
 	"time"
 
 	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
-	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
+	internales "github.com/pilot-protocol/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/webhook"
 )
 
