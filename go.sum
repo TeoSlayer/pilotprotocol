@@ -28,8 +28,6 @@ github.com/pilot-protocol/skillinject v0.1.0 h1:gs912gqmxl0ifIvswefjx8BzPCmoBWS7
 github.com/pilot-protocol/skillinject v0.1.0/go.mod h1:303GIB6j95ZhnoYeTlYzlBDhUbO01PB/6KGohm4DcJs=
 github.com/pilot-protocol/trustedagents v0.1.0 h1:rCX0IQxfZ84Q4dSgw01WJgjHUODRnI3iAon1t+NuFGE=
 github.com/pilot-protocol/trustedagents v0.1.0/go.mod h1:uVySmuMPb6N7AOCnvLHN2I9C9ggqEpfBmAZwVuP5Xaw=
-github.com/pilot-protocol/updater v0.1.0 h1:FU+25V+lN2uzWnkDKcJJ/T6hdldFpO1LTdYNfOTfRas=
-github.com/pilot-protocol/updater v0.1.0/go.mod h1:CqWfbc2Ii+nnaKZ1p4Np9lipNiMCQA5E0u9cnH6xH+Q=
 github.com/pilot-protocol/webhook v0.1.0 h1:SnIcn+IdHvzoJt+OFzGJbkBHurjNBD0xSc6HAUvExAg=
 github.com/pilot-protocol/webhook v0.1.0/go.mod h1:c0du05MMy8FYnlc2YGqUWxRgTP8pRWTrtIdNuRhf6uk=
 golang.org/x/net v0.54.0 h1:2zJIZAxAHV/OHCDTCOHAYehQzLfSXuf/5SoL/Dv6w/w=

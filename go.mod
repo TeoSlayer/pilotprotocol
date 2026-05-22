@@ -17,7 +17,6 @@ require (
 	github.com/pilot-protocol/runtime v0.1.0
 	github.com/pilot-protocol/skillinject v0.1.0
 	github.com/pilot-protocol/trustedagents v0.1.0
-	github.com/pilot-protocol/updater v0.1.0
 	github.com/pilot-protocol/webhook v0.1.0
 )
 
