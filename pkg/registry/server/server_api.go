@@ -8,10 +8,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	identpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/identity"
 	walpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/wal"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // ConnCount returns the current number of active connections (for testing).

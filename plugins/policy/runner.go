@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/pilot-protocol/common/fsutil"
 )
 
 // PolicyRunner manages a compiled policy for a single network.

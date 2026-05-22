@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/pilot-protocol/common/fsutil"
 )
 
 func TestAtomicWriteCreatesFile(t *testing.T) {

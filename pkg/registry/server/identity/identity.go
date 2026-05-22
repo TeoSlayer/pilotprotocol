@@ -24,10 +24,10 @@ import (
 	"sync"
 	"time"
 
-	pilotcrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server/events"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	pilotcrypto "github.com/pilot-protocol/common/crypto"
 )
 
 // BlueprintIdentityProvider is a type alias so callers don't need to import wire.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // captureBusEvents subscribes to the daemon's bus on `pattern` and

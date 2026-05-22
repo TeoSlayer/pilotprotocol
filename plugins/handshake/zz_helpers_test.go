@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	"github.com/TeoSlayer/pilotprotocol/tests/regtestutil"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // startTestRegistry is a thin alias for regtestutil.StartTestRegistry

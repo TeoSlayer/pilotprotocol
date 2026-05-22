@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Iter-99 coverage for handshake.go 0% functions that don't require a live

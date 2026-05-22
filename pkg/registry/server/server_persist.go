@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	dashpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/dashboard"
 	trustpkg "github.com/TeoSlayer/pilotprotocol/pkg/registry/server/trust"
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
+	"github.com/pilot-protocol/common/fsutil"
 )
 
 // flushSaveBufPool reuses the bytes buffer that backs the snapshot JSON

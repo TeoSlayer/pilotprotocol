@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // TestBuildHeartbeatOkMatchesJSONMarshal pins the wire-format contract: the

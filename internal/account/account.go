@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
+	"github.com/pilot-protocol/common/fsutil"
 )
 
 // Account holds persisted account information alongside the identity file.

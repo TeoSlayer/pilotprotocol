@@ -23,13 +23,13 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/fsutil"
 	"github.com/pilot-protocol/trustedagents"
 )
 

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	icrypto "github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	icrypto "github.com/pilot-protocol/common/crypto"
 )
 
 // ======================

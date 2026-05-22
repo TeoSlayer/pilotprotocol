@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // HandleAuthFrame processes an authenticated key exchange packet (PILA).

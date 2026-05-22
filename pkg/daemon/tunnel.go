@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
@@ -26,6 +25,7 @@ import (
 	wssTransport "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Type aliases letting existing pkg/daemon code (tests + L5/L7) refer

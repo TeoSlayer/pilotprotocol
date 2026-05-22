@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // newIPCTestConn returns (serverConn, clientConn). Wrap serverConn in ipcConn

@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // SeedRegistry populates a registry with test nodes, tags, and trust relationships

@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // maxHandshakeInbox limits the number of pending handshake requests per node.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // newTestHM is provided by test_helpers_test.go. Returns a fresh

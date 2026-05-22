@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
@@ -21,6 +20,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
 	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	pluginsruntime "github.com/TeoSlayer/pilotprotocol/plugins/runtime"
+	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/webhook"

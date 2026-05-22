@@ -14,8 +14,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Role is a member's permission level within a network. Values match the

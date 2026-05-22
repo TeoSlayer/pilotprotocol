@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // ---------------------------------------------------------------------------

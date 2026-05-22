@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/TeoSlayer/pilotprotocol/tests/regtestutil"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // startTestRegistry is a thin alias for regtestutil.StartTestRegistry so

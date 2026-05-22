@@ -47,7 +47,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Tunable timing constants. Frozen wire-adjacent behavior — changing

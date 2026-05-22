@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // TestRBACOwnerRole verifies that the creator of a network gets the owner role.
