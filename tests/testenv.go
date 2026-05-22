@@ -23,7 +23,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
 	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	pluginsruntime "github.com/TeoSlayer/pilotprotocol/plugins/runtime"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 // setClientSigner configures a registry client with a signer for the given identity.

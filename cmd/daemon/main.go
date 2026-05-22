@@ -29,7 +29,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
 	"github.com/pilot-protocol/skillinject"
 	"github.com/pilot-protocol/trustedagents"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 var version = "dev"

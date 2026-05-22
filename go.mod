@@ -26,3 +26,7 @@ replace github.com/pilot-protocol/trustedagents => ../trustedagents
 require github.com/pilot-protocol/skillinject v0.0.0
 
 replace github.com/pilot-protocol/skillinject => ../skillinject
+
+require github.com/pilot-protocol/webhook v0.0.0
+
+replace github.com/pilot-protocol/webhook => ../webhook

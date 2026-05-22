@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 // ---------------------------------------------------------------------------

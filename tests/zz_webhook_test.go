@@ -16,7 +16,7 @@ import (
 	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 // webhookCollector is a test HTTP server that records received webhook events.
