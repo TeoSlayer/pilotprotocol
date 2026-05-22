@@ -28,7 +28,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
 	"github.com/TeoSlayer/pilotprotocol/plugins/skillinject"
-	"github.com/TeoSlayer/pilotprotocol/plugins/trustedagents"
+	"github.com/pilot-protocol/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
 )
 
