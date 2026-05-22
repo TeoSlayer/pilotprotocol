@@ -22,11 +22,11 @@ import (
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
 	// interfaces.
-	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/handshake"
 	"github.com/pilot-protocol/policy"
+	"github.com/pilot-protocol/runtime"
 	"github.com/pilot-protocol/skillinject"
 	"github.com/pilot-protocol/trustedagents"
 	"github.com/pilot-protocol/webhook"

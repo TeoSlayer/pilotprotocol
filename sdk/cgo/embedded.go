@@ -37,9 +37,9 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
 	"github.com/pilot-protocol/handshake"
 	"github.com/pilot-protocol/policy"
+	"github.com/pilot-protocol/runtime"
 	"github.com/pilot-protocol/skillinject"
 )
 

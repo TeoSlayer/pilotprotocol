@@ -44,7 +44,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
-	pluginsruntime "github.com/TeoSlayer/pilotprotocol/plugins/runtime"
+	pluginsruntime "github.com/pilot-protocol/runtime"
 )
 
 // TestRC6PeerRestartRecoveryEndToEnd is the real e2e validation for the
