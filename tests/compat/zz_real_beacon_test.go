@@ -28,10 +28,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
-	bwss "github.com/TeoSlayer/pilotprotocol/pkg/beacon/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/beacon"
+	bwss "github.com/pilot-protocol/beacon/wss"
 	"github.com/pilot-protocol/common/crypto"
 )
 

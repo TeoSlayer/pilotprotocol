@@ -18,7 +18,7 @@ replace github.com/pilot-protocol/app-store/integration => ../app-store/integrat
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/pilot-protocol/trustedagents v0.0.0
-	golang.org/x/net v0.54.0
+	golang.org/x/net v0.54.0 // indirect
 )
 
 replace github.com/pilot-protocol/trustedagents => ../trustedagents
@@ -70,3 +70,7 @@ replace github.com/pilot-protocol/runtime => ../runtime
 require github.com/pilot-protocol/rendezvous v0.0.0
 
 replace github.com/pilot-protocol/rendezvous => ../rendezvous
+
+require github.com/pilot-protocol/beacon v0.0.0
+
+replace github.com/pilot-protocol/beacon => ../beacon

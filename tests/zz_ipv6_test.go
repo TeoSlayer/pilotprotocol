@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/pilot-protocol/beacon"
 	registry "github.com/pilot-protocol/rendezvous"
 )
 

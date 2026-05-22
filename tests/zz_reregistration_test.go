@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/beacon"
 	"github.com/pilot-protocol/common/crypto"
 	registry "github.com/pilot-protocol/rendezvous"
 )
