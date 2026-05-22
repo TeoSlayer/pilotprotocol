@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
-	"github.com/TeoSlayer/pilotprotocol/plugins/updater"
+	"github.com/pilot-protocol/updater"
 )
 
 var version = "dev"

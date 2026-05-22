@@ -38,3 +38,7 @@ replace github.com/pilot-protocol/eventstream => ../eventstream
 require github.com/pilot-protocol/dataexchange v0.0.0
 
 replace github.com/pilot-protocol/dataexchange => ../dataexchange
+
+require github.com/pilot-protocol/updater v0.0.0
+
+replace github.com/pilot-protocol/updater => ../updater
