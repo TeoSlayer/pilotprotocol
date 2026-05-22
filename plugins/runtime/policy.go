@@ -4,7 +4,7 @@ package runtime
 
 import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
+	"github.com/pilot-protocol/policy"
 )
 
 // PolicyRuntime adapts *daemon.Daemon to the policy.Runtime interface.

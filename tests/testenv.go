@@ -18,11 +18,11 @@ import (
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	pluginsruntime "github.com/TeoSlayer/pilotprotocol/plugins/runtime"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/policy"
 	"github.com/pilot-protocol/webhook"
 )
 

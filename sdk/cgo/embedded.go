@@ -38,8 +38,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
+	"github.com/pilot-protocol/policy"
 	"github.com/pilot-protocol/skillinject"
 )
 

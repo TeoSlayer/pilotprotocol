@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
+	"github.com/pilot-protocol/policy"
 )
 
 // TestShippedNetworkBlueprintsLoadAndValidate walks every blueprint JSON

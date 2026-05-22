@@ -3,7 +3,7 @@ module github.com/TeoSlayer/pilotprotocol
 go 1.25.3
 
 require (
-	github.com/expr-lang/expr v1.17.8
+	github.com/expr-lang/expr v1.17.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -54,3 +54,7 @@ replace github.com/pilot-protocol/common => ../common
 require github.com/pilot-protocol/nameserver v0.0.0
 
 replace github.com/pilot-protocol/nameserver => ../nameserver
+
+require github.com/pilot-protocol/policy v0.0.0
+
+replace github.com/pilot-protocol/policy => ../policy

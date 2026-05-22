@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/policy"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	policy "github.com/pilot-protocol/policy/policylang"
 )
 
 func TestParseValidPolicy(t *testing.T) {
