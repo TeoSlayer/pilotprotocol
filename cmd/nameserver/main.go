@@ -12,7 +12,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
+	"github.com/pilot-protocol/nameserver"
 )
 
 // driverPortListener wraps *driver.Driver so its Listen method satisfies

@@ -50,3 +50,7 @@ replace github.com/pilot-protocol/gateway => ../gateway
 require github.com/pilot-protocol/common v0.0.0
 
 replace github.com/pilot-protocol/common => ../common
+
+require github.com/pilot-protocol/nameserver v0.0.0
+
+replace github.com/pilot-protocol/nameserver => ../nameserver
