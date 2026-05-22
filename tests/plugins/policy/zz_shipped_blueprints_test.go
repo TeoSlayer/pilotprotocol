@@ -28,7 +28,7 @@ func TestShippedNetworkBlueprintsLoadAndValidate(t *testing.T) {
 	}
 	// tests/plugins/policy/<this_file> → repo root via three ".."
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
-	configDir := filepath.Join(repoRoot, "configs", "networks")
+	configDir := filepath.Join(repoRoot, "..", "configs", "networks") /* sibling pilot-protocol/configs repo */
 
 	matches, err := filepath.Glob(filepath.Join(configDir, "*.json"))
 	if err != nil {

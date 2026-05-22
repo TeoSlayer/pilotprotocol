@@ -27,7 +27,7 @@ func TestProvisionEveryShippedBlueprint(t *testing.T) {
 		t.Fatal("cannot locate test source file")
 	}
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..")
-	configDir := filepath.Join(repoRoot, "configs", "networks")
+	configDir := filepath.Join(repoRoot, "..", "configs", "networks") /* sibling pilot-protocol/configs repo */
 
 	matches, err := filepath.Glob(filepath.Join(configDir, "*.json"))
 	if err != nil {

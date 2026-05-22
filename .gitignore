@@ -184,3 +184,6 @@ survey*.mjs
 k8s/
 tests/integration/local/logs.rerun*
 scripts/pilot-geo-exporter/
+
+# Accidentally-quoted home-dir alias (e.g. `cp foo ~/` with quoted ~)
+~/
