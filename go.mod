@@ -42,3 +42,7 @@ replace github.com/pilot-protocol/dataexchange => ../dataexchange
 require github.com/pilot-protocol/updater v0.0.0
 
 replace github.com/pilot-protocol/updater => ../updater
+
+require github.com/pilot-protocol/gateway v0.0.0
+
+replace github.com/pilot-protocol/gateway => ../gateway

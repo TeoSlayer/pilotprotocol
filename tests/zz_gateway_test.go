@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/plugins/gateway"
+	"github.com/pilot-protocol/gateway"
 )
 
 func TestMappingTableAutoAssign(t *testing.T) {

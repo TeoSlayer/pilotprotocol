@@ -18,7 +18,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/plugins/gateway"
+	"github.com/pilot-protocol/gateway"
 )
 
 var version = "dev"
