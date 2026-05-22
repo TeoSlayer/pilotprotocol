@@ -58,3 +58,7 @@ replace github.com/pilot-protocol/nameserver => ../nameserver
 require github.com/pilot-protocol/policy v0.0.0
 
 replace github.com/pilot-protocol/policy => ../policy
+
+require github.com/pilot-protocol/handshake v0.0.0
+
+replace github.com/pilot-protocol/handshake => ../handshake

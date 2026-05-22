@@ -11,7 +11,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
+	"github.com/pilot-protocol/handshake"
 )
 
 // handshakeCloseDelay matches plugins/handshake.HandshakeCloseDelay.
