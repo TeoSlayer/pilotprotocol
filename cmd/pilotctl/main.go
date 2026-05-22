@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
-	"github.com/pilot-protocol/eventstream"
 	policylang "github.com/TeoSlayer/pilotprotocol/internal/policy"
-	"github.com/pilot-protocol/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/dataexchange"
+	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/trustedagents"
 )
 
 var version = "dev"

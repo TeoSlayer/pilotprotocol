@@ -21,7 +21,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/pilot-protocol/dataexchange"
 )
 
 // signHandshake signs the handshake challenge for M12-authenticated requests.

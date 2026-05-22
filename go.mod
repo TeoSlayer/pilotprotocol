@@ -34,3 +34,7 @@ replace github.com/pilot-protocol/webhook => ../webhook
 require github.com/pilot-protocol/eventstream v0.0.0
 
 replace github.com/pilot-protocol/eventstream => ../eventstream
+
+require github.com/pilot-protocol/dataexchange v0.0.0
+
+replace github.com/pilot-protocol/dataexchange => ../dataexchange

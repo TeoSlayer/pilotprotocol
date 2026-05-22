@@ -26,11 +26,11 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
-	"github.com/pilot-protocol/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	"github.com/pilot-protocol/trustedagents"
 )
 
 // isRegistryRejectingUsErr returns true when the registry's response to a

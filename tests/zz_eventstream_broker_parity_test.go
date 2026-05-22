@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	internales "github.com/pilot-protocol/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/eventstream"
+	internales "github.com/pilot-protocol/eventstream"
 )
 
 // waitForSubscription publishes a probe payload from `pub` repeatedly

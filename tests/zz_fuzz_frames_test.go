@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 )
 
