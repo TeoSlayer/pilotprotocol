@@ -40,7 +40,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
 	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
 	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
-	"github.com/TeoSlayer/pilotprotocol/plugins/skillinject"
+	"github.com/pilot-protocol/skillinject"
 )
 
 type embeddedNode struct {

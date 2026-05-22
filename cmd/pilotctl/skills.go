@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/skillinject"
+	"github.com/pilot-protocol/skillinject"
 )
 
 // cmdSkills is the user-facing surface for the daemon's auto-installed
