@@ -16,12 +16,12 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/handshake"
 	"github.com/pilot-protocol/policy"
+	registry "github.com/pilot-protocol/rendezvous"
 	pluginsruntime "github.com/pilot-protocol/runtime"
 	"github.com/pilot-protocol/webhook"
 )

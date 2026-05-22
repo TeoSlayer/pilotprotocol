@@ -43,7 +43,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	registry "github.com/pilot-protocol/rendezvous"
 	pluginsruntime "github.com/pilot-protocol/runtime"
 )
 

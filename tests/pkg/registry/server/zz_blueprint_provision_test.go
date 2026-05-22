@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/rendezvous"
 )
 
 // --- LoadBlueprint -------------------------------------------------------

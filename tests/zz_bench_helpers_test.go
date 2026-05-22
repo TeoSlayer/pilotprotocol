@@ -15,7 +15,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 const (

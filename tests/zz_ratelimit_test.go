@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // testClock provides a controllable time source for rate limiter tests.

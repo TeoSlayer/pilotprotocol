@@ -66,3 +66,7 @@ replace github.com/pilot-protocol/handshake => ../handshake
 require github.com/pilot-protocol/runtime v0.0.0
 
 replace github.com/pilot-protocol/runtime => ../runtime
+
+require github.com/pilot-protocol/rendezvous v0.0.0
+
+replace github.com/pilot-protocol/rendezvous => ../rendezvous

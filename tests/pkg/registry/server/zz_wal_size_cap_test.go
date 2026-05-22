@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/rendezvous"
 )
 
 // TestWALAppendRefusesWhenAtCap ensures Append returns an error rather

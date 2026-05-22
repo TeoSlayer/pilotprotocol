@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/policy"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 func TestMemberTagsSetGet(t *testing.T) {

@@ -23,8 +23,8 @@ import (
 	"time"
 
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	icrypto "github.com/pilot-protocol/common/crypto"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 func TestEndToEnd(t *testing.T) {

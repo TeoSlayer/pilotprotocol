@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
 	"github.com/pilot-protocol/common/crypto"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // startTestRegistryWithAdmin starts a registry with admin token and returns client, server, cleanup.

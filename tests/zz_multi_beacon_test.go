@@ -13,7 +13,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // protocolAddr constructs a protocol.Addr for the given network and node IDs.
