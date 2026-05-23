@@ -1,6 +1,0 @@
-apiVersion: v2
-name: pilot-integration-tests
-description: Pilot Protocol integration tests as Kubernetes Jobs.
-type: application
-version: 0.1.0
-appVersion: "0.1.0"
