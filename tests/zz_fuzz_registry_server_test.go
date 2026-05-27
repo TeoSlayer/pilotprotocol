@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//go:build nightly
+
 package tests
 
 import (
@@ -17,36 +19,6 @@ import (
 	"github.com/pilot-protocol/common/crypto"
 	registry "github.com/pilot-protocol/rendezvous"
 )
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func startTestServer(t *testing.T) *registry.Server {
-	t.Helper()
-	s := registry.New("")
-	go s.ListenAndServe("127.0.0.1:0")
-	select {
-	case <-s.Ready():
-	case <-time.After(3 * time.Second):
-		t.Fatal("registry server did not start in time")
-	}
-	return s
-}
-
-func startTestServerWithStore(t *testing.T) (*registry.Server, string) {
-	t.Helper()
-	dir := t.TempDir()
-	storePath := filepath.Join(dir, "registry.json")
-	s := registry.NewWithStore("", storePath)
-	go s.ListenAndServe("127.0.0.1:0")
-	select {
-	case <-s.Ready():
-	case <-time.After(3 * time.Second):
-		t.Fatal("registry server did not start in time")
-	}
-	return s, storePath
-}
 
 // regTestNodeWithKey registers a node using a fresh identity and sets the
 // client signer so subsequent authenticated operations succeed.
