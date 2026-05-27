@@ -199,11 +199,22 @@ func (s *Store) ShouldDropOnOutsideWindow(peerNodeID uint32, c *Crypto) bool {
 	c.ReplayMu.Lock()
 	rejections := c.OutsideWindowCount
 	c.ReplayMu.Unlock()
-	if rejections < OutsideWindowDropThreshold {
+	if rejections == 0 {
 		return false
 	}
-	if time.Since(c.CreatedAt) < OutsideWindowDropGrace {
-		return false
+	age := time.Since(c.CreatedAt)
+	// Aged-Crypto fast path: a session that has lived past
+	// AgedCryptoFastDropAge cannot be in a transient post-rekey
+	// drain state. ANY outside-window event from it is real
+	// divergence — drop on the first occurrence so very-quiet
+	// peers recover without needing to send the full threshold.
+	if age < AgedCryptoFastDropAge {
+		if rejections < OutsideWindowDropThreshold {
+			return false
+		}
+		if age < OutsideWindowDropGrace {
+			return false
+		}
 	}
 	current := s.Get(peerNodeID)
 	return current == c
@@ -231,11 +242,23 @@ func (s *Store) ShouldDropOnReplay(peerNodeID uint32, c *Crypto) bool {
 	c.ReplayMu.Lock()
 	replays := c.ReplayCount
 	c.ReplayMu.Unlock()
-	if replays < ReplayDropThreshold {
+	if replays == 0 {
 		return false
 	}
-	if time.Since(c.CreatedAt) < ReplayDropGrace {
-		return false
+	age := time.Since(c.CreatedAt)
+	// Aged-Crypto fast path: see ShouldDropOnOutsideWindow comment.
+	// A settled (>AgedCryptoFastDropAge) session cannot be in
+	// post-rekey duplicate-delivery drain — a single replay is
+	// real divergence (peer restart). Quiet peers that send only
+	// 1 frame after restart recover here instead of waiting for
+	// the count threshold they may never reach.
+	if age < AgedCryptoFastDropAge {
+		if replays < ReplayDropThreshold {
+			return false
+		}
+		if age < ReplayDropGrace {
+			return false
+		}
 	}
 	current := s.Get(peerNodeID)
 	return current == c

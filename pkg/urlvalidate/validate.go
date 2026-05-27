@@ -52,7 +52,16 @@ func Validate(rawURL string) error {
 		}
 	}
 	switch strings.ToLower(host) {
-	case "metadata.google.internal", "metadata.google.com":
+	case
+		// GCP
+		"metadata.google.internal",
+		"metadata.google.com",
+		// AWS (DNS names that reach the EC2 instance metadata service
+		// without traversing the link-local IP path)
+		"ec2.internal",
+		"instance-data-service.ec2.internal",
+		// Azure (IMDS DNS endpoint)
+		"metadata.azure.com":
 		return fmt.Errorf("URL cannot target cloud metadata endpoint %s", host)
 	}
 	return nil

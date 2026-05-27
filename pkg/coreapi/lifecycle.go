@@ -4,6 +4,7 @@ package coreapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -88,7 +89,7 @@ func (sr *ServiceRegistry) StartAll(ctx context.Context, deps Deps) error {
 	sr.mu.Unlock()
 
 	for _, s := range queue {
-		if err := s.Start(ctx, deps); err != nil {
+		if err := startWithPanicRecovery(ctx, s, deps); err != nil {
 			return err
 		}
 		sr.mu.Lock()
@@ -96,6 +97,28 @@ func (sr *ServiceRegistry) StartAll(ctx context.Context, deps Deps) error {
 		sr.mu.Unlock()
 	}
 	return nil
+}
+
+// startWithPanicRecovery calls s.Start(ctx, deps) inside a defer
+// recover() so a buggy plugin panicking during initialization (nil
+// deref, index OOB, channel-send on nil, etc.) surfaces as a normal
+// Start error rather than crashing the entire daemon process.
+//
+// Without this wrapper, every plugin's Init bug becomes a single-
+// point-of-failure for the host: the whole daemon dies, every OTHER
+// plugin goes offline with it, and the operator's only signal is a
+// stack trace.
+//
+// Behaviour preserved on normal error returns: the surrounding
+// StartAll loop still aborts on first failure and leaves earlier
+// services running for the caller's Stop() to drain.
+func startWithPanicRecovery(ctx context.Context, s Service, deps Deps) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin %q Start panicked: %v", s.Name(), r)
+		}
+	}()
+	return s.Start(ctx, deps)
 }
 
 // StopAll stops every started service in reverse order. Errors from

@@ -173,7 +173,13 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 		// session with regular inbound traffic cannot trigger a reply
 		// loop. Don't reinstall locally — preserves our nonce counter
 		// and replay window for in-flight encrypted traffic.
-		if m.InboundDecryptStale(peerNodeID) {
+		//
+		// MarkReplyKeyExchangeSent additionally rate-limits this reply
+		// at KeyExchangeReplyMinInterval (1 s). Without this gate, two
+		// peers can both observe InboundDecryptStale on every incoming
+		// PILA and ping-pong replies at the relay's send cadence — the
+		// 466-establish-events storm against nasa-apod on 2026-05-26.
+		if m.InboundDecryptStale(peerNodeID) && m.MarkReplyKeyExchangeSent(peerNodeID) {
 			m.SendKeyExchangeToNode(peerNodeID)
 		}
 		m.ClearPendingRekey(peerNodeID)

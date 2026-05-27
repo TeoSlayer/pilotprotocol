@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package secure
+package secure_test
 
 import (
 	"crypto/ed25519"
@@ -10,27 +10,29 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
 )
 
 // runLookupHandshake connects two net.Pipe ends, runs HandshakeWithLookup on
 // each side concurrently, and returns both resulting SecureConns (or errors).
 // NOTE: callers must NOT mark tests t.Parallel() since HandshakeWithLookup
 // mutates the global replay cache (see iter 12 lesson).
-func runLookupHandshake(t *testing.T, serverCfg, clientCfg *HandshakeConfig, serverLookup, clientLookup PeerPubKeyLookup) (*SecureConn, error, *SecureConn, error) {
+func runLookupHandshake(t *testing.T, serverCfg, clientCfg *secure.HandshakeConfig, serverLookup, clientLookup secure.PeerPubKeyLookup) (*secure.SecureConn, error, *secure.SecureConn, error) {
 	t.Helper()
 	s, c := net.Pipe()
 	type result struct {
-		sc  *SecureConn
+		sc  *secure.SecureConn
 		err error
 	}
 	srvCh := make(chan result, 1)
 	cliCh := make(chan result, 1)
 	go func() {
-		sc, err := HandshakeWithLookup(s, true, serverCfg, serverLookup)
+		sc, err := secure.HandshakeWithLookup(s, true, serverCfg, serverLookup)
 		srvCh <- result{sc, err}
 	}()
 	go func() {
-		sc, err := HandshakeWithLookup(c, false, clientCfg, clientLookup)
+		sc, err := secure.HandshakeWithLookup(c, false, clientCfg, clientLookup)
 		cliCh <- result{sc, err}
 	}()
 	select {
@@ -55,7 +57,7 @@ func newEd25519KeyPair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 }
 
 func TestHandshakeWithLookupHappyPath(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	serverPub, serverPriv := newEd25519KeyPair(t)
 	clientPub, clientPriv := newEd25519KeyPair(t)
 	const srvID, cliID = uint32(0x10001), uint32(0x20002)
@@ -74,8 +76,8 @@ func TestHandshakeWithLookupHappyPath(t *testing.T) {
 	}
 
 	srvSC, srvErr, cliSC, cliErr := runLookupHandshake(t,
-		&HandshakeConfig{NodeID: srvID, Signer: serverPriv},
-		&HandshakeConfig{NodeID: cliID, Signer: clientPriv},
+		&secure.HandshakeConfig{NodeID: srvID, Signer: serverPriv},
+		&secure.HandshakeConfig{NodeID: cliID, Signer: clientPriv},
 		srvLookup, cliLookup)
 
 	if srvErr != nil {
@@ -121,7 +123,7 @@ func TestHandshakeWithLookupHappyPath(t *testing.T) {
 }
 
 func TestHandshakeWithLookupServerRejectsUnknownPeer(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	serverPub, serverPriv := newEd25519KeyPair(t)
 	_, clientPriv := newEd25519KeyPair(t)
 	const srvID, cliID = uint32(0x30003), uint32(0x40004)
@@ -135,8 +137,8 @@ func TestHandshakeWithLookupServerRejectsUnknownPeer(t *testing.T) {
 	}
 
 	_, srvErr, _, _ := runLookupHandshake(t,
-		&HandshakeConfig{NodeID: srvID, Signer: serverPriv},
-		&HandshakeConfig{NodeID: cliID, Signer: clientPriv},
+		&secure.HandshakeConfig{NodeID: srvID, Signer: serverPriv},
+		&secure.HandshakeConfig{NodeID: cliID, Signer: clientPriv},
 		srvLookup, cliLookup)
 
 	// Server reads client's auth frame AFTER writing its own, then looks up
@@ -149,7 +151,7 @@ func TestHandshakeWithLookupServerRejectsUnknownPeer(t *testing.T) {
 }
 
 func TestHandshakeWithLookupClientRejectsUnknownServer(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	_, serverPriv := newEd25519KeyPair(t)
 	clientPub, clientPriv := newEd25519KeyPair(t)
 	const srvID, cliID = uint32(0x50005), uint32(0x60006)
@@ -163,8 +165,8 @@ func TestHandshakeWithLookupClientRejectsUnknownServer(t *testing.T) {
 	cliLookup := func(_ uint32) ed25519.PublicKey { return nil }
 
 	_, srvErr, _, cliErr := runLookupHandshake(t,
-		&HandshakeConfig{NodeID: srvID, Signer: serverPriv},
-		&HandshakeConfig{NodeID: cliID, Signer: clientPriv},
+		&secure.HandshakeConfig{NodeID: srvID, Signer: serverPriv},
+		&secure.HandshakeConfig{NodeID: cliID, Signer: clientPriv},
 		srvLookup, cliLookup)
 
 	if cliErr == nil {
@@ -176,7 +178,7 @@ func TestHandshakeWithLookupClientRejectsUnknownServer(t *testing.T) {
 }
 
 func TestHandshakeWithLookupBadSignatureRejected(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	serverPub, serverPriv := newEd25519KeyPair(t)
 	_, clientPriv := newEd25519KeyPair(t)
 	// Third unrelated pubkey — server will look up client by nodeID but
@@ -198,8 +200,8 @@ func TestHandshakeWithLookupBadSignatureRejected(t *testing.T) {
 	}
 
 	_, srvErr, _, _ := runLookupHandshake(t,
-		&HandshakeConfig{NodeID: srvID, Signer: serverPriv},
-		&HandshakeConfig{NodeID: cliID, Signer: clientPriv},
+		&secure.HandshakeConfig{NodeID: srvID, Signer: serverPriv},
+		&secure.HandshakeConfig{NodeID: cliID, Signer: clientPriv},
 		srvLookup, cliLookup)
 
 	if srvErr == nil {
@@ -208,17 +210,17 @@ func TestHandshakeWithLookupBadSignatureRejected(t *testing.T) {
 }
 
 func TestHandshakeWithLookupNoAuthSkipsLookup(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	s, c := net.Pipe()
 	srvCh := make(chan error, 1)
 	cliCh := make(chan error, 1)
 	// No signer in cfg — auth is skipped, lookup is never called.
 	go func() {
-		_, err := HandshakeWithLookup(s, true, nil, nil)
+		_, err := secure.HandshakeWithLookup(s, true, nil, nil)
 		srvCh <- err
 	}()
 	go func() {
-		_, err := HandshakeWithLookup(c, false, nil, nil)
+		_, err := secure.HandshakeWithLookup(c, false, nil, nil)
 		cliCh <- err
 	}()
 	select {
@@ -247,18 +249,18 @@ func TestNewServerSetsFields(t *testing.T) {
 	t.Parallel()
 	called := false
 	h := func(_ net.Conn) { called = true }
-	s := NewServer(nil, h)
-	if s.driver != nil {
+	s := secure.NewServer(nil, h)
+	if s.Driver() != nil {
 		t.Error("driver should be nil")
 	}
-	if s.handler == nil {
+	if s.Handler() == nil {
 		t.Fatal("handler nil")
 	}
-	if s.authSigner != nil || s.authNodeID != 0 || s.peerLookup != nil {
+	if s.AuthSigner() != nil || s.AuthNodeID() != 0 || s.PeerLookup() != nil {
 		t.Error("unauth server should not populate auth fields")
 	}
 	// Sanity: handler invocable.
-	s.handler(nil)
+	s.Handler()(nil)
 	if !called {
 		t.Error("handler not invoked")
 	}
@@ -269,14 +271,14 @@ func TestNewAuthServerSetsFields(t *testing.T) {
 	_, priv := newEd25519KeyPair(t)
 	lookup := func(_ uint32) ed25519.PublicKey { return nil }
 	h := func(_ net.Conn) {}
-	s := NewAuthServer(nil, h, 0xABCD1234, priv, lookup)
-	if s.authNodeID != 0xABCD1234 {
-		t.Errorf("authNodeID = %#x", s.authNodeID)
+	s := secure.NewAuthServer(nil, h, 0xABCD1234, priv, lookup)
+	if s.AuthNodeID() != 0xABCD1234 {
+		t.Errorf("authNodeID = %#x", s.AuthNodeID())
 	}
-	if s.authSigner == nil {
+	if s.AuthSigner() == nil {
 		t.Error("authSigner nil")
 	}
-	if s.peerLookup == nil {
+	if s.PeerLookup() == nil {
 		t.Error("peerLookup nil")
 	}
 }

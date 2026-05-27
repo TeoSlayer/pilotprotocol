@@ -123,6 +123,16 @@ type TunnelManager struct {
 	// Pending sends waiting for key exchange to complete
 	pendMu  sync.Mutex
 	pending map[uint32][][]byte // node_id → queued frames
+	// lastPendDropLog records when we last logged a "tunnel pending queue
+	// full; dropped oldest" warning for a peer. The drop counter
+	// (PendingDrops) still increments on every drop so metrics are exact;
+	// the log is throttled to one entry per peer per
+	// pendingDropLogInterval (5 s). Without throttling the warning fires
+	// per drop, and a single dial-flap storm against an unresponsive peer
+	// produces 4927 entries in a minute (observed against advice-slip on
+	// 2026-05-26), which both fills the operator's log and burns CPU on
+	// slog formatting.
+	lastPendDropLog map[uint32]time.Time
 
 	// Rate-limit rekey-request responses triggered by "encrypted packet but no
 	// key" events. Prevents amplification if a peer floods us with gibberish.
@@ -196,13 +206,14 @@ const RecvChSize = 8192
 func NewTunnelManager() *TunnelManager {
 	store := keyexchange.NewStore()
 	tm := &TunnelManager{
-		peers:        make(map[uint32]*net.UDPAddr),
-		envelope:     store,
-		pending:      make(map[uint32][][]byte),
-		lastRekeyReq: make(map[uint32]time.Time),
-		recvCh:       make(chan *IncomingPacket, RecvChSize),
-		done:         make(chan struct{}),
-		routing:      routing.New(),
+		peers:           make(map[uint32]*net.UDPAddr),
+		envelope:        store,
+		pending:         make(map[uint32][][]byte),
+		lastPendDropLog: make(map[uint32]time.Time),
+		lastRekeyReq:    make(map[uint32]time.Time),
+		recvCh:          make(chan *IncomingPacket, RecvChSize),
+		done:            make(chan struct{}),
+		routing:         routing.New(),
 	}
 	tm.routing.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx = keyexchange.New(store)
@@ -273,6 +284,29 @@ const (
 // requests triggered by "encrypted packet but no key" events for the same peer.
 // Prevents amplification if a peer streams unreadable frames at us.
 const rekeyRequestInterval = 3 * time.Second
+
+// pendingDropLogInterval throttles the "tunnel pending queue full;
+// dropped oldest" warning to one per peer per interval. The drop
+// counter (PendingDrops) increments on every drop regardless, so
+// metric accuracy is unaffected.
+const pendingDropLogInterval = 5 * time.Second
+
+// reapPendDropLog evicts lastPendDropLog entries older than
+// pendingDropLogInterval. Without periodic reaping, every peer that
+// ever triggered a queue-full warn keeps a permanent entry — a slow
+// leak under churn (peers cycling through fresh node IDs). Called
+// from the idleSweepLoop tick.
+func (tm *TunnelManager) reapPendDropLog() {
+	now := time.Now()
+	threshold := now.Add(-pendingDropLogInterval)
+	tm.pendMu.Lock()
+	for nodeID, t := range tm.lastPendDropLog {
+		if t.Before(threshold) {
+			delete(tm.lastPendDropLog, nodeID)
+		}
+	}
+	tm.pendMu.Unlock()
+}
 
 // maxRekeyRequesters caps lastRekeyReq so a peer spraying unreadable frames
 // from rotated/spoofed node IDs cannot grow the map without bound. Real
@@ -424,7 +458,20 @@ func (tm *TunnelManager) SetBeaconAddr(addr string) error {
 
 // SetRelayPeer marks a peer as needing relay through the beacon (symmetric NAT).
 // Thin shim over routing.Manager.SetRelayPeer.
+//
+// The log line fires only when the peer is being newly flipped TO relay
+// (i.e. it wasn't already relay-marked). Without this guard, every dial
+// to a dead-direct peer logs the flip even when the peer has been on
+// relay for the whole session — producing the 8866-events log storm
+// observed against advice-slip on 2026-05-26 (one event per concurrent
+// DialConnection that hit its direct-retry budget, each one just
+// reasserting the same already-set flag).
 func (tm *TunnelManager) SetRelayPeer(nodeID uint32, relay bool) {
+	if relay && tm.routing.IsRelayPeer(nodeID) {
+		// Idempotent reassertion — no state change, no log.
+		tm.routing.SetRelayPeer(nodeID, relay)
+		return
+	}
 	tm.routing.SetRelayPeer(nodeID, relay)
 	if relay {
 		slog.Info("peer marked for relay", "node_id", nodeID)
@@ -435,6 +482,17 @@ func (tm *TunnelManager) SetRelayPeer(nodeID uint32, relay bool) {
 // Thin shim over routing.Manager.IsRelayPeer.
 func (tm *TunnelManager) IsRelayPeer(nodeID uint32) bool {
 	return tm.routing.IsRelayPeer(nodeID)
+}
+
+// IsRelayPinned reports whether the peer's relay flag was set by an
+// authoritative signal (registry relay_only=true, beacon admit, or the
+// ICMP-unreachable HandleSendError threshold). Unpinned flags are
+// advisory and may be cleared by direct-path observations OR by the
+// dial-loop on dial failure (so a transiently-broken relay path doesn't
+// trap subsequent dials in a relay-only retry loop).
+// Thin shim over routing.Manager.IsRelayPinned.
+func (tm *TunnelManager) IsRelayPinned(nodeID uint32) bool {
+	return tm.routing.IsRelayPinned(nodeID)
 }
 
 // RelayPeerIDs returns the node IDs of all relay-flagged peers.
@@ -483,6 +541,9 @@ const sendErrThreshold = routing.SendErrThreshold
 // the public BytesSent / PktsSent atomics and logs flips that the
 // routing-side heuristic triggers.
 func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
+	if diagShouldDropFrame() {
+		return nil
+	}
 	// Pre-check blackhole heuristic so we can log flips with the same
 	// detail the pre-extraction code emitted.
 	wasRelay := tm.routing.IsRelayPeer(nodeID)
@@ -920,6 +981,21 @@ func (tm *TunnelManager) onKeyInstalled(ev keyexchange.PostInstallEvent) {
 	peerNodeID := ev.PeerNodeID
 	from := ev.From
 	fromRelay := ev.FromRelay
+
+	// A valid PILA install is proof of peer liveness — the Ed25519
+	// signature was verified by HandleAuthFrame before this hook fires
+	// (or for the unauthenticated path, the X25519 derivation succeeded,
+	// which also proves a live peer at the source address). Record it
+	// as a successful inbound event so handle.go's stale-recovery branch
+	// (InboundDecryptStale-gated reply) stops re-firing on every PILA
+	// arrival when AEAD data has not yet started flowing — e.g. when the
+	// peer's replay window holds back all encrypted data while the
+	// OutsideWindowDropThreshold gate works toward recovery. Without
+	// this, lastInboundDecrypt stays empty across the whole rekey
+	// settle-in window, the asymmetric-recovery branch keeps firing,
+	// and the per-peer 1s reply cooldown holds the ping-pong back but
+	// never lets the staleness flag clear.
+	tm.recordInboundDecrypt(peerNodeID)
 
 	tm.mu.Lock()
 	if !fromRelay {
@@ -1461,12 +1537,29 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		}
 		tm.pending[nodeID] = append(q, data)
 		qlen := len(tm.pending[nodeID])
+		// Per-peer log throttle: emit at most one "queue full" warn per
+		// pendingDropLogInterval. The drop counter (PendingDrops) is
+		// authoritative for metrics; the log is for human observability.
+		// Without throttling, a single sustained dial-flap against an
+		// unresponsive peer produces thousands of identical warns per
+		// minute (4927 in 60 s observed against advice-slip).
+		shouldLog := false
+		if dropped {
+			now := time.Now()
+			last := tm.lastPendDropLog[nodeID]
+			if last.IsZero() || now.Sub(last) >= pendingDropLogInterval {
+				tm.lastPendDropLog[nodeID] = now
+				shouldLog = true
+			}
+		}
 		tm.pendMu.Unlock()
 		if dropped {
-			slog.Warn("tunnel pending queue full; dropped oldest",
-				"peer_node_id", nodeID,
-				"queue_len", qlen,
-				"limit", maxPendingPerPeer)
+			if shouldLog {
+				slog.Warn("tunnel pending queue full; dropped oldest",
+					"peer_node_id", nodeID,
+					"queue_len", qlen,
+					"limit", maxPendingPerPeer)
+			}
 			// The new packet IS queued (line above appended it). What was
 			// dropped is the oldest packet, not this one. Callers that
 			// errors.Is(err, ErrPendingDropped) can treat this as transient

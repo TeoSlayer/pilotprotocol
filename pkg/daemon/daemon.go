@@ -90,16 +90,6 @@ type Config struct {
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
 
-	// FakeListenAddr overrides the listen_addr advertised to the
-	// registry. Real socket binding still uses ListenAddr; only the
-	// registered metadata is rewritten. Intended for synthetic-fleet
-	// scenarios where a daemon should appear at a country-residential
-	// address while still operating on a real OS socket. Endpoint
-	// learning on the data path is packet-driven, so peer responses
-	// continue to reach the real socket regardless of the advertised
-	// addr (see pkg/daemon/tunnel.go peerAddr learning).
-	FakeListenAddr string
-
 	// RelayOnly hides this node's real_addr from peer resolve/lookup
 	// responses. Peers reach this node only via the beacon-relay path,
 	// so this node's public IP is never exposed to other daemons.
@@ -760,10 +750,6 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-		slog.Info("using fake listen addr for registration", "fake_addr", registrationAddr)
-	}
 	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -2999,16 +2985,28 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	conn.Mu.Unlock()
 
 	// Wait for ESTABLISHED with SYN retransmission.
-	// Phase 1: Direct connection (3 retries).
-	// Phase 2: Relay through beacon if direct fails (3 more retries).
+	// Phase 1: Direct connection (DialDirectRetries attempts).
+	// Phase 2: Relay through beacon if direct fails (remaining attempts).
 	retries := 0
 	directRetries := DialDirectRetries
 	maxRetries := DialMaxRetries
-	// relayActive is set when this peer is pinned to relay via either a
-	// prior attempt's fallback OR the compat-mode pre-flip above. Either
-	// way the direct retry budget would burn for nothing — skip it.
+	// relayActive is set when this peer is currently flagged for relay.
+	// We distinguish between PINNED flags (authoritative: registry
+	// relay_only=true, beacon-admitted symmetric-NAT, ICMP-unreachable
+	// threshold) and UNPINNED flags (set by a previous dial's failed
+	// direct phase). Pinned: skip the direct retry budget entirely.
+	// Unpinned: still try direct first — a previous dial's loss-induced
+	// flip should not trap subsequent dials in relay-only mode when
+	// the relay path is itself unhealthy (the 2026-05-26 worktree
+	// diagnostic showed 80% wedge rate at 20% drop because the dial's
+	// SetRelayPeer was sticky across dials).
 	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node)
-	if relayActive {
+	relayPinned := d.tunnels.IsRelayPinned(dstAddr.Node)
+	// relayActivatedHere tracks whether THIS dial was the one that
+	// flipped the peer to relay. On failure we clear our own (unpinned)
+	// flip so the next dial isn't trapped in relay-only mode.
+	relayActivatedHere := false
+	if relayActive && relayPinned {
 		directRetries = 0
 	}
 	rto := DialInitialRTO
@@ -3027,6 +3025,13 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 			// "ID 13/14/15 SYN_SENT" orphan rows in `pilotctl info`
 			// after Ctrl+C — gone within ~1 ms of the cancel.
 			d.ports.RemoveConnection(conn.ID)
+			// Same cleanup as the maxRetries-exhausted path: if THIS
+			// dial flipped the peer to advisory relay, drop the flag so
+			// the next dial isn't trapped probing a (possibly broken)
+			// relay path. Pinned flags are untouched.
+			if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
+				d.tunnels.SetRelayPeer(dstAddr.Node, false)
+			}
 			return nil, ctx.Err()
 		case <-check.C:
 			conn.Mu.Lock()
@@ -3043,6 +3048,14 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				return conn, nil
 			}
 			if st == StateClosed {
+				// Symmetric with the ctx.Done and retries>maxRetries arms:
+				// the connection is finished from this dial's perspective,
+				// so release the slot immediately. StaleConnections does
+				// catch StateClosed entries on its next tick, but until
+				// then the conn occupies an ephemeral port AND counts toward
+				// MaxTotalConnections — making the next dial fail under
+				// burst even though nothing real holds the slot.
+				d.ports.RemoveConnection(conn.ID)
 				return nil, protocol.ErrConnRefused
 			}
 		case <-timer.C:
@@ -3057,6 +3070,7 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
 				d.tunnels.SetRelayPeer(dstAddr.Node, true)
 				relayActive = true
+				relayActivatedHere = true
 				rto = DialInitialRTO // reset backoff for relay phase
 			}
 
@@ -3068,6 +3082,15 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				// next dial fetches fresh registry data instead of
 				// re-dialing the same dead address for ResolveCacheTTL.
 				d.forgetPeerResolution(dstAddr.Node)
+				// Clear our advisory relay flip so the NEXT dial gets a
+				// fresh shot at direct. Without this, one failed dial
+				// pins the peer to a (possibly broken) relay path for
+				// every subsequent dial — the 80%-wedge pattern from
+				// the lossy diagnostic. Pinned peers (authoritative
+				// signals) are untouched.
+				if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
+					d.tunnels.SetRelayPeer(dstAddr.Node, false)
+				}
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
@@ -4353,9 +4376,6 @@ func (d *Daemon) reRegister() {
 	d.identityMu.RLock()
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
 	d.identityMu.RUnlock()
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-	}
 	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -4480,6 +4500,11 @@ func (d *Daemon) idleSweepLoop() {
 
 			// Reap stale per-source SYN rate limit buckets
 			d.reapPerSrcSYN()
+
+			// Reap stale "queue full" log-throttle entries so
+			// lastPendDropLog doesn't accumulate one slot per
+			// unique-peer-ever-throttled.
+			d.tunnels.reapPendDropLog()
 
 			// Evict expired entries from the three peer-resolution caches.
 			// epCache: stale-but-usable after EndpointCacheTTL; evict after 1 hour.
