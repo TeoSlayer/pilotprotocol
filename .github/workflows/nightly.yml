@@ -21,6 +21,26 @@ permissions:
   contents: read
 
 jobs:
+  integration:
+    name: Integration suite (default tags)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Integration tests
+        # The full ./tests/ default-tag suite (~300 tests). Moved out of
+        # PR CI in PR #121 — sustained 15m timeouts on public runners.
+        run: |
+          go test -parallel 4 -count=1 -timeout 30m \
+            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
+            ./tests/
+
   full:
     name: Full test suite (nightly tag)
     runs-on: ubuntu-latest
