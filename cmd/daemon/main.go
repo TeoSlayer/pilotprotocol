@@ -49,7 +49,6 @@ func main() {
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
 	socketPath := flag.String("socket", "/tmp/pilot.sock", "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")
-	fakeListenAddr := flag.String("fake-listen-addr", "", "advertise this listen_addr to the registry instead of the real one (real socket binding unaffected)")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
 	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate (required when -registry-trust=pinned)")
@@ -143,7 +142,6 @@ func main() {
 		ListenAddr:            *listenAddr,
 		SocketPath:            *socketPath,
 		Endpoint:              *endpoint,
-		FakeListenAddr:        *fakeListenAddr,
 		Encrypt:               *encrypt,
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,

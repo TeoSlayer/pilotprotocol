@@ -90,16 +90,6 @@ type Config struct {
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
 
-	// FakeListenAddr overrides the listen_addr advertised to the
-	// registry. Real socket binding still uses ListenAddr; only the
-	// registered metadata is rewritten. Intended for synthetic-fleet
-	// scenarios where a daemon should appear at a country-residential
-	// address while still operating on a real OS socket. Endpoint
-	// learning on the data path is packet-driven, so peer responses
-	// continue to reach the real socket regardless of the advertised
-	// addr (see pkg/daemon/tunnel.go peerAddr learning).
-	FakeListenAddr string
-
 	// RelayOnly hides this node's real_addr from peer resolve/lookup
 	// responses. Peers reach this node only via the beacon-relay path,
 	// so this node's public IP is never exposed to other daemons.
@@ -760,10 +750,6 @@ func (d *Daemon) Start() error {
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-		slog.Info("using fake listen addr for registration", "fake_addr", registrationAddr)
-	}
 	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -4353,9 +4339,6 @@ func (d *Daemon) reRegister() {
 	d.identityMu.RLock()
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
 	d.identityMu.RUnlock()
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-	}
 	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
