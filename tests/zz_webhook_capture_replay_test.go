@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//go:build nightly
+
 // Webhook capture-replay (T4.1 §4.7).
 //
 // For each of the nine events listed in 04-EXTRACTION.md §T4.1, we

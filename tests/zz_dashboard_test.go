@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//go:build nightly
+
 package tests
 
 import (
@@ -12,42 +14,10 @@ import (
 	"testing"
 	"time"
 
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	icrypto "github.com/pilot-protocol/common/crypto"
 	registry "github.com/pilot-protocol/rendezvous"
 )
 
-// dashRegisterNode registers a test node with the given hostname via the registry client.
-func dashRegisterNode(t *testing.T, addr, hostname string) {
-	t.Helper()
-	ident, err := icrypto.GenerateIdentity()
-	if err != nil {
-		t.Fatalf("generate identity: %v", err)
-	}
-
-	rc, err := registryclient.Dial(addr)
-	if err != nil {
-		t.Fatalf("dial registry: %v", err)
-	}
-	defer rc.Close()
-
-	msg := map[string]interface{}{
-		"type":        "register",
-		"listen_addr": "127.0.0.1:4000",
-		"public_key":  icrypto.EncodePublicKey(ident.PublicKey),
-	}
-	if hostname != "" {
-		msg["hostname"] = hostname
-	}
-
-	resp, err := rc.Send(msg)
-	if err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	if resp["type"] != "register_ok" {
-		t.Fatalf("expected register_ok, got %v", resp["type"])
-	}
-}
+// dashRegisterNode lives in zz_dashboard_helper_test.go (default-tag).
 
 func TestDashboardStatsEmpty(t *testing.T) {
 	t.Parallel()
