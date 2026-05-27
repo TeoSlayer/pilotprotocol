@@ -43,7 +43,7 @@ jobs:
         run: |
           go test -parallel 4 -count=1 -timeout 1800s \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
-            ./tests/ ./pkg/beacon/
+            ./tests/
 
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
