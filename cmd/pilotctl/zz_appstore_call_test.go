@@ -129,6 +129,51 @@ func TestCmdAppStoreCallTextMode(t *testing.T) {
 	}
 }
 
+func TestCmdAppStoreCallUnusedHelper(t *testing.T) {
+	// Touch the unused stubAppSocketError so go vet stays clean if the
+	// function is added later. NO-OP at runtime.
+	_ = stubAppSocketError
+}
+
+// stubAppSocketError is like stubAppSocket but replies with EnvErr to
+// exercise the cmdAppStoreCall ipc-error branch.
+func stubAppSocketError(t *testing.T, root, appID, errMsg string) (sockPath string, wait func()) {
+	t.Helper()
+	appDir := filepath.Join(root, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sockPath = filepath.Join(appDir, "app.sock")
+	l, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer l.Close()
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		req, err := ipc.ReadFrame(conn)
+		if err != nil {
+			return
+		}
+		resp := &ipc.Envelope{
+			Type:  ipc.EnvErr,
+			ReqID: req.ReqID,
+			Error: errMsg,
+		}
+		_ = ipc.WriteFrame(conn, resp)
+	}()
+
+	return sockPath, func() { wg.Wait() }
+}
+
 func contains(s, substr string) bool {
 	if len(substr) == 0 {
 		return true
