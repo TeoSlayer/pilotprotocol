@@ -23,9 +23,16 @@ func TestDataExchangePolicy(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
 
-	// Read the policy file (blueprint format: extract expr_policy)
+	// Read the policy file (blueprint format: extract expr_policy).
+	// Lives in the sibling pilot-protocol/configs repo since the
+	// monorepo split; only reachable when web4 is checked out next
+	// to its siblings. Skip cleanly when running in isolation (CI
+	// runners that only checkout web4).
 	blueprintJSON, err := os.ReadFile("../../configs/networks/data-exchange-policy.json")
 	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("policy fixture not reachable (sibling pilot-protocol/configs not checked out): %v", err)
+		}
 		t.Fatalf("read policy: %v", err)
 	}
 	var blueprint struct {
@@ -270,6 +277,9 @@ func TestDataExchangePolicyUnit(t *testing.T) {
 
 	policyJSON, err := os.ReadFile("../../configs/networks/data-exchange-policy.json")
 	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("policy fixture not reachable (sibling pilot-protocol/configs not checked out): %v", err)
+		}
 		t.Fatalf("read policy: %v", err)
 	}
 
