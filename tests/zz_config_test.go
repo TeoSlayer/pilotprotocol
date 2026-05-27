@@ -39,7 +39,11 @@ func TestConfigLoadAndApply(t *testing.T) {
 	addr := flag.String("addr", ":9000", "")
 	logLevel := flag.String("log-level", "info", "")
 	encrypt := flag.Bool("encrypt", false, "")
-	flag.Parse() // no args, nothing explicitly set
+	// Use the swapped-in FlagSet's Parse with an explicit empty arg
+	// slice. flag.Parse() reads os.Args[1:] which under `go test`
+	// includes -test.paniconexit0 etc; the fresh FlagSet doesn't
+	// know those flags and errors out.
+	flag.CommandLine.Parse([]string{})
 
 	config.ApplyToFlags(cfg)
 
@@ -93,7 +97,7 @@ func TestConfigUnderscoreVariant(t *testing.T) {
 	defer func() { flag.CommandLine = oldCommandLine }()
 
 	logLevel := flag.String("log-level", "info", "")
-	flag.Parse()
+	flag.CommandLine.Parse([]string{}) // same reason as TestConfigLoadAndApply
 
 	config.ApplyToFlags(cfg)
 
