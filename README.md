@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/pilot.png" alt="Pilot Protocol" width="200">
+  <img src="https://pilotprotocol.network/img/pilot.png" alt="Pilot Protocol" width="200">
 </p>
 
 <h1 align="center">Pilot Protocol</h1>
