@@ -1,23 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package config
+package config_test
 
 import (
 	"flag"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 )
 
 func TestLoadValidJSON(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.json")
 	body := `{"log_level":"debug","port":8080,"verbose":true}`
 	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(path)
+	cfg, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -33,21 +34,19 @@ func TestLoadValidJSON(t *testing.T) {
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	t.Parallel()
-	_, err := Load("/nonexistent/path/cfg.json")
+	_, err := config.Load("/nonexistent/path/cfg.json")
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
 }
 
 func TestLoadMalformedJSON(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.json")
 	if err := os.WriteFile(path, []byte("{not json"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Load(path)
+	_, err := config.Load(path)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -83,7 +82,7 @@ func TestApplyToFlagsSetsUnsetFlags(t *testing.T) {
 		"port":      float64(8080),
 		"verbose":   true,
 	}
-	ApplyToFlags(cfg)
+	config.ApplyToFlags(cfg)
 
 	if level != "debug" {
 		t.Errorf("log-level = %q, want debug", level)
@@ -107,7 +106,7 @@ func TestApplyToFlagsPreservesExplicitlySetFlags(t *testing.T) {
 	}
 
 	cfg := map[string]interface{}{"log-level": "debug"}
-	ApplyToFlags(cfg)
+	config.ApplyToFlags(cfg)
 
 	if level != "warn" {
 		t.Errorf("log-level = %q, want warn (explicit flag must win over config)", level)
@@ -124,7 +123,7 @@ func TestApplyToFlagsUnderscoreVariantMatches(t *testing.T) {
 
 	// Config uses underscore; flag uses hyphen. ApplyToFlags should match them.
 	cfg := map[string]interface{}{"log_level": "debug"}
-	ApplyToFlags(cfg)
+	config.ApplyToFlags(cfg)
 
 	if level != "debug" {
 		t.Errorf("log-level = %q, want debug (underscore→hyphen match)", level)
@@ -144,7 +143,7 @@ func TestApplyToFlagsHyphenVariantTakesPrecedenceOverUnderscore(t *testing.T) {
 		"log-level": "debug",
 		"log_level": "warn",
 	}
-	ApplyToFlags(cfg)
+	config.ApplyToFlags(cfg)
 
 	if level != "debug" {
 		t.Errorf("log-level = %q, want debug (exact match wins)", level)
@@ -158,7 +157,7 @@ func TestApplyToFlagsIgnoresUnknownKeys(t *testing.T) {
 	if err := fs.Parse(nil); err != nil {
 		t.Fatal(err)
 	}
-	ApplyToFlags(map[string]interface{}{"unrelated-flag": "xyz"})
+	config.ApplyToFlags(map[string]interface{}{"unrelated-flag": "xyz"})
 	if level != "info" {
 		t.Errorf("log-level changed unexpectedly: %q", level)
 	}
@@ -172,7 +171,7 @@ func TestApplyToFlagsSkipsUnsupportedTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Nested map / array — should be silently skipped (not panic)
-	ApplyToFlags(map[string]interface{}{
+	config.ApplyToFlags(map[string]interface{}{
 		"log-level": map[string]interface{}{"nested": "value"},
 	})
 	if level != "info" {

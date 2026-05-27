@@ -7,8 +7,9 @@ import (
 	"encoding/binary"
 	"log/slog"
 	"net"
+	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // HandleAuthFrame processes an authenticated key exchange packet (PILA).
@@ -89,6 +90,12 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 	oldPC := m.env.Get(peerNodeID)
 	hadCrypto := oldPC != nil
 	keyChanged := hadCrypto && oldPC.PeerX25519Key != pc.PeerX25519Key
+	// duplicate := same-pubkey frame arriving inside the debounce
+	// window of a freshly-installed Crypto. See
+	// DuplicateHandshakeDebounce — the goal is to coalesce the direct+
+	// relay arrival pair and peer-side retransmits without dropping
+	// real recovery work.
+	duplicate := hadCrypto && !keyChanged && time.Since(oldPC.CreatedAt) < DuplicateHandshakeDebounce
 	// Only replace the installed envelope.Crypto when there is no
 	// existing entry OR the peer's X25519 ephemeral key actually changed.
 	// Replacing on a duplicate key_exchange (same pubkey — common under
@@ -103,31 +110,45 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 	// Cache the verified peer pubkey.
 	m.SetPeerPubKey(peerNodeID, peerEd25519PubKey)
 
-	if keyChanged {
-		slog.Info("peer rekeyed (auth), re-establishing tunnel", "peer_node_id", peerNodeID)
+	// Side-effect gate: the log line, tunnel.established bus event, and
+	// PostInstallHook fire ONLY when this is not a coalesced duplicate.
+	// A real rekey (keyChanged) or a first-time install always falls
+	// through to the side effects. The recovery-reply path below (the
+	// SendKeyExchangeToNode call) is NOT gated on `duplicate` — the
+	// asymmetric-recovery case (B dropped crypto for A while A retains
+	// it) requires A to reply on B's retransmit even though A sees it
+	// as a duplicate. Pinned by
+	// TestAsymmetricRecoveryRepliesOnDuplicatePILAWhenStale.
+	if duplicate {
+		slog.Debug("auth key exchange: duplicate frame coalesced",
+			"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt), "relay", fromRelay)
 	} else {
-		slog.Info("encrypted tunnel established", "auth", true,
-			"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
-	}
-	m.publish("tunnel.established", map[string]any{
-		"peer_node_id":  peerNodeID,
-		"authenticated": true,
-		"relay":         fromRelay,
-		"rekeyed":       keyChanged,
-	})
-
-	if m.postInstall != nil {
-		m.postInstall(PostInstallEvent{
-			PeerNodeID:    peerNodeID,
-			From:          from,
-			FromRelay:     fromRelay,
-			Authenticated: true,
-			HadCrypto:     hadCrypto,
-			KeyChanged:    keyChanged,
-			OldCrypto:     oldPC,
-			NewCrypto:     pc,
-			PeerEd25519:   peerEd25519PubKey,
+		if keyChanged {
+			slog.Info("peer rekeyed (auth), re-establishing tunnel", "peer_node_id", peerNodeID)
+		} else {
+			slog.Info("encrypted tunnel established", "auth", true,
+				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
+		}
+		m.publish("tunnel.established", map[string]any{
+			"peer_node_id":  peerNodeID,
+			"authenticated": true,
+			"relay":         fromRelay,
+			"rekeyed":       keyChanged,
 		})
+
+		if m.postInstall != nil {
+			m.postInstall(PostInstallEvent{
+				PeerNodeID:    peerNodeID,
+				From:          from,
+				FromRelay:     fromRelay,
+				Authenticated: true,
+				HadCrypto:     hadCrypto,
+				KeyChanged:    keyChanged,
+				OldCrypto:     oldPC,
+				NewCrypto:     pc,
+				PeerEd25519:   peerEd25519PubKey,
+			})
+		}
 	}
 
 	if !hadCrypto || keyChanged {
@@ -152,7 +173,13 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 		// session with regular inbound traffic cannot trigger a reply
 		// loop. Don't reinstall locally — preserves our nonce counter
 		// and replay window for in-flight encrypted traffic.
-		if m.InboundDecryptStale(peerNodeID) {
+		//
+		// MarkReplyKeyExchangeSent additionally rate-limits this reply
+		// at KeyExchangeReplyMinInterval (1 s). Without this gate, two
+		// peers can both observe InboundDecryptStale on every incoming
+		// PILA and ping-pong replies at the relay's send cadence — the
+		// 466-establish-events storm against nasa-apod on 2026-05-26.
+		if m.InboundDecryptStale(peerNodeID) && m.MarkReplyKeyExchangeSent(peerNodeID) {
 			m.SendKeyExchangeToNode(peerNodeID)
 		}
 		m.ClearPendingRekey(peerNodeID)
@@ -218,36 +245,45 @@ func (m *Manager) HandleUnauthFrame(data []byte, from *net.UDPAddr, fromRelay bo
 	oldPC := m.env.Get(peerNodeID)
 	hadCrypto := oldPC != nil
 	keyChanged := hadCrypto && oldPC.PeerX25519Key != pc.PeerX25519Key
+	// duplicate := same-pubkey frame arriving inside DuplicateHandshakeDebounce
+	// of a freshly-installed Crypto. See HandleAuthFrame for the
+	// rationale; same coalescing window applies to PILK as well.
+	duplicate := hadCrypto && !keyChanged && time.Since(oldPC.CreatedAt) < DuplicateHandshakeDebounce
 	// Same rationale as HandleAuthFrame: don't replace on a duplicate
 	// key_exchange (same pubkey).
 	if !hadCrypto || keyChanged {
 		m.env.Install(peerNodeID, pc)
 	}
 
-	if keyChanged {
-		slog.Info("peer rekeyed, re-establishing tunnel", "peer_node_id", peerNodeID)
+	if duplicate {
+		slog.Debug("unauth key exchange: duplicate frame coalesced",
+			"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt), "relay", fromRelay)
 	} else {
-		slog.Info("encrypted tunnel established",
-			"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
-	}
-	m.publish("tunnel.established", map[string]any{
-		"peer_node_id":  peerNodeID,
-		"authenticated": false,
-		"relay":         fromRelay,
-		"rekeyed":       keyChanged,
-	})
-
-	if m.postInstall != nil {
-		m.postInstall(PostInstallEvent{
-			PeerNodeID:    peerNodeID,
-			From:          from,
-			FromRelay:     fromRelay,
-			Authenticated: false,
-			HadCrypto:     hadCrypto,
-			KeyChanged:    keyChanged,
-			OldCrypto:     oldPC,
-			NewCrypto:     pc,
+		if keyChanged {
+			slog.Info("peer rekeyed, re-establishing tunnel", "peer_node_id", peerNodeID)
+		} else {
+			slog.Info("encrypted tunnel established",
+				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
+		}
+		m.publish("tunnel.established", map[string]any{
+			"peer_node_id":  peerNodeID,
+			"authenticated": false,
+			"relay":         fromRelay,
+			"rekeyed":       keyChanged,
 		})
+
+		if m.postInstall != nil {
+			m.postInstall(PostInstallEvent{
+				PeerNodeID:    peerNodeID,
+				From:          from,
+				FromRelay:     fromRelay,
+				Authenticated: false,
+				HadCrypto:     hadCrypto,
+				KeyChanged:    keyChanged,
+				OldCrypto:     oldPC,
+				NewCrypto:     pc,
+			})
+		}
 	}
 
 	// Respond with our key if this is a new peer or the peer rekeyed.

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
+	"github.com/pilot-protocol/eventstream"
+	internales "github.com/pilot-protocol/eventstream"
 )
 
 // disableES disables the built-in eventstream service so tests can bind port 1002 via driver.

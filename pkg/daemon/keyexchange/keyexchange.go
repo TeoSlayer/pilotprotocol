@@ -47,7 +47,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Tunable timing constants. Frozen wire-adjacent behavior — changing
@@ -88,11 +88,61 @@ const (
 	// reply was dropped). Loosens handleAuthKeyExchange's "send back" gate.
 	KeyExchangeReplyStaleThreshold = 6 * time.Second
 
+	// KeyExchangeReplyMinInterval: minimum gap between two reply-PILAs to
+	// the same peer in the asymmetric-recovery branch of HandleAuthFrame.
+	// Without this gate the staleness reply path forms a symmetric ping-
+	// pong: both sides see InboundDecryptStale (no AEAD traffic yet) on
+	// every incoming PILA and reply with another PILA. The next PILA
+	// arrives in <100 ms, the staleness test still passes, and the loop
+	// runs forever — 466 "encrypted tunnel established" events for one
+	// peer in 90 s, observed against nasa-apod on 2026-05-26.
+	//
+	// 1 s is long enough that the ping-pong cannot sustain itself (the
+	// peer's retransmit cadence is RekeyRetransmitInterval=4s), short
+	// enough that a genuinely lost reply on a slow path still recovers
+	// inside the user-visible dial budget (DialMaxRetries gives ~24 s).
+	KeyExchangeReplyMinInterval = 1 * time.Second
+
 	// rekeyGaveUpCooldown is how long after giving up on a rekey cycle
 	// before MarkPendingRekey starts a new one for the same peer.
 	// Prevents the "bounce" where a transient outbound packet immediately
 	// restarts a cycle that just exhausted MaxRekeyAttempts.
-	rekeyGaveUpCooldown = 60 * time.Second
+	//
+	// Was 60s; shortened to 5s after the 2026-05-26 worktree diagnostic
+	// showed that under moderate packet loss (15-30%) the L5 rekey loop
+	// can exhaust its 24s attempt budget from bad luck, then freeze ALL
+	// traffic to the peer for the full minute because every SendTo
+	// queues into the per-peer pending buffer (which fills at 64 frames
+	// and starts dropping). 5s is still long enough to prevent the
+	// original "bounce" pattern (a doomed cycle followed by an immediate
+	// retry) but short enough that genuine packet-loss transients
+	// self-heal rather than wedge for a minute.
+	rekeyGaveUpCooldown = 5 * time.Second
+
+	// DuplicateHandshakeDebounce is the window during which a repeated
+	// key_exchange frame from the same peer carrying the SAME X25519
+	// ephemeral key is treated as a duplicate of an already-handled
+	// handshake. Inside the window the frame is logged at Debug and the
+	// observable side effects are skipped: no "encrypted tunnel
+	// established" log line, no tunnel.established bus event, no
+	// PostInstallHook invocation, and no reply key_exchange.
+	//
+	// Why this matters: peers retransmit their PILA via the
+	// keyexchange.loop's RekeyRetransmitInterval (4 s) PLUS direct +
+	// relay copies of the same frame can both land within ms when the
+	// beacon relay is hot. Both legs of every duplicate used to fire
+	// the postInstall hook (peer-endpoint update, salvage replay,
+	// flushPending) and produce a noisy log burst that operators
+	// mistook for a real handshake storm. Real rekey (peer's ephemeral
+	// key actually changed) is NOT debounced — keyChanged forces the
+	// full path so salvage + flushPending run.
+	//
+	// 250 ms is short enough that an actual second handshake (caused
+	// by a real key rotation, not a duplicate frame) still progresses
+	// promptly, and long enough to coalesce the direct+relay arrival
+	// window plus most peer-side retransmits caused by an early ACK
+	// being dropped.
+	DuplicateHandshakeDebounce = 250 * time.Millisecond
 )
 
 // PendingRekeyState tracks a key-exchange we sent and are waiting on.
@@ -187,6 +237,12 @@ type Manager struct {
 	// transient outbound traffic doesn't immediately restart a doomed
 	// rekey cycle (the "bounce" pattern).
 	rekeyGaveUp map[uint32]time.Time
+	// lastKeyExchangeReply records when we last sent a PILA in the
+	// asymmetric-recovery branch (HandleAuthFrame "no recent decrypt"
+	// path). MarkReplyKeyExchangeSent returns false within
+	// KeyExchangeReplyMinInterval to break the symmetric ping-pong
+	// described on that constant.
+	lastKeyExchangeReply map[uint32]time.Time
 
 	// Side-effect hooks plumbed in from the daemon.
 	sender      FrameSender
@@ -204,11 +260,12 @@ func New(store *Store) *Manager {
 		store = NewStore()
 	}
 	return &Manager{
-		env:                store,
-		peerPubKeys:        make(map[uint32]ed25519.PublicKey),
-		pendingRekey:       make(map[uint32]*PendingRekeyState),
-		lastInboundDecrypt: make(map[uint32]time.Time),
-		rekeyGaveUp:        make(map[uint32]time.Time),
+		env:                  store,
+		peerPubKeys:          make(map[uint32]ed25519.PublicKey),
+		pendingRekey:         make(map[uint32]*PendingRekeyState),
+		lastInboundDecrypt:   make(map[uint32]time.Time),
+		rekeyGaveUp:          make(map[uint32]time.Time),
+		lastKeyExchangeReply: make(map[uint32]time.Time),
 	}
 }
 
@@ -506,6 +563,28 @@ func (m *Manager) InboundDecryptStale(peerNodeID uint32) bool {
 	return time.Since(t) > KeyExchangeReplyStaleThreshold
 }
 
+// MarkReplyKeyExchangeSent is the per-peer rate-limit for the
+// asymmetric-recovery reply in HandleAuthFrame. Returns true and
+// records the timestamp when the caller IS permitted to send;
+// returns false when another reply went out within
+// KeyExchangeReplyMinInterval and the caller MUST stay silent.
+//
+// The check-and-record is atomic under rkPendingMu so two
+// concurrent HandleAuthFrame goroutines (direct + relay copy past
+// DuplicateHandshakeDebounce) cannot both pass.
+func (m *Manager) MarkReplyKeyExchangeSent(peerNodeID uint32) bool {
+	now := time.Now()
+	m.rkPendingMu.Lock()
+	defer m.rkPendingMu.Unlock()
+	if last, ok := m.lastKeyExchangeReply[peerNodeID]; ok {
+		if now.Sub(last) < KeyExchangeReplyMinInterval {
+			return false
+		}
+	}
+	m.lastKeyExchangeReply[peerNodeID] = now
+	return true
+}
+
 // RemovePeer wipes per-peer L5 state (called from TunnelManager.RemovePeer).
 func (m *Manager) RemovePeer(nodeID uint32) {
 	m.pubKeysMu.Lock()
@@ -515,5 +594,6 @@ func (m *Manager) RemovePeer(nodeID uint32) {
 	m.rkPendingMu.Lock()
 	delete(m.pendingRekey, nodeID)
 	delete(m.lastInboundDecrypt, nodeID)
+	delete(m.lastKeyExchangeReply, nodeID)
 	m.rkPendingMu.Unlock()
 }

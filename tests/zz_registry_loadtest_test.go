@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // ---------------------------------------------------------------------------

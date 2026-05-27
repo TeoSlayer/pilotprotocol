@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/fsutil"
+	"github.com/pilot-protocol/dataexchange"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // signHandshake signs the handshake challenge for M12-authenticated requests.

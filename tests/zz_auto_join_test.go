@@ -14,7 +14,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 func TestAutoJoinNetworks(t *testing.T) {

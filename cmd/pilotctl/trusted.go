@@ -5,7 +5,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
+	"github.com/pilot-protocol/trustedagents"
 )
 
 func cmdTrusted(args []string) {

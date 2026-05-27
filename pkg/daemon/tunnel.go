@@ -7,6 +7,7 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -17,12 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
+	wssTransport "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // Type aliases letting existing pkg/daemon code (tests + L5/L7) refer
@@ -67,11 +70,19 @@ const (
 // TunnelManager manages real UDP tunnels to peer daemons.
 type TunnelManager struct {
 	mu sync.RWMutex
-	// sock is the L2 datagram-I/O socket. Owns the *net.UDPConn FD and
-	// the pool-backed read buffer. Send / Recv on tm.sock are "dumb"
-	// primitives — relay wrapping, per-peer counters, and magic-byte
-	// dispatch all live in this file (L4 routing). See pkg/daemon/udpio.
-	sock *udpio.Socket
+	// sock is the L2 datagram-I/O transport. Send / Recv on tm.sock are
+	// "dumb" primitives — relay wrapping, per-peer counters, and
+	// magic-byte dispatch all live in this file (L4 routing).
+	//
+	// The Transport interface lets the daemon plug in either the UDP
+	// socket (today's *udpio.Socket — owns a *net.UDPConn FD + pool-
+	// backed read buffer) or the compat-mode WSS tunnel (planned —
+	// tunnels Pilot packets over a WebSocket to the beacon for
+	// daemons in UDP-blocked environments). Switching transports does
+	// not change anything above L2: the readLoop drives Recv exactly
+	// the same way, and routing.WriteFrame writes through Send the
+	// same way. See pkg/daemon/transport + docs/SPEC-compat-mode.md.
+	sock transport.Transport
 	// peers maps node_id → real UDP endpoint. Owned by L4 (routing).
 	peers map[uint32]*net.UDPAddr
 	// envelope is the L5-owned per-peer crypto Store (named "envelope"
@@ -112,6 +123,16 @@ type TunnelManager struct {
 	// Pending sends waiting for key exchange to complete
 	pendMu  sync.Mutex
 	pending map[uint32][][]byte // node_id → queued frames
+	// lastPendDropLog records when we last logged a "tunnel pending queue
+	// full; dropped oldest" warning for a peer. The drop counter
+	// (PendingDrops) still increments on every drop so metrics are exact;
+	// the log is throttled to one entry per peer per
+	// pendingDropLogInterval (5 s). Without throttling the warning fires
+	// per drop, and a single dial-flap storm against an unresponsive peer
+	// produces 4927 entries in a minute (observed against advice-slip on
+	// 2026-05-26), which both fills the operator's log and burns CPU on
+	// slog formatting.
+	lastPendDropLog map[uint32]time.Time
 
 	// Rate-limit rekey-request responses triggered by "encrypted packet but no
 	// key" events. Prevents amplification if a peer floods us with gibberish.
@@ -185,13 +206,14 @@ const RecvChSize = 8192
 func NewTunnelManager() *TunnelManager {
 	store := keyexchange.NewStore()
 	tm := &TunnelManager{
-		peers:        make(map[uint32]*net.UDPAddr),
-		envelope:     store,
-		pending:      make(map[uint32][][]byte),
-		lastRekeyReq: make(map[uint32]time.Time),
-		recvCh:       make(chan *IncomingPacket, RecvChSize),
-		done:         make(chan struct{}),
-		routing:      routing.New(),
+		peers:           make(map[uint32]*net.UDPAddr),
+		envelope:        store,
+		pending:         make(map[uint32][][]byte),
+		lastPendDropLog: make(map[uint32]time.Time),
+		lastRekeyReq:    make(map[uint32]time.Time),
+		recvCh:          make(chan *IncomingPacket, RecvChSize),
+		done:            make(chan struct{}),
+		routing:         routing.New(),
 	}
 	tm.routing.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx = keyexchange.New(store)
@@ -262,6 +284,29 @@ const (
 // requests triggered by "encrypted packet but no key" events for the same peer.
 // Prevents amplification if a peer streams unreadable frames at us.
 const rekeyRequestInterval = 3 * time.Second
+
+// pendingDropLogInterval throttles the "tunnel pending queue full;
+// dropped oldest" warning to one per peer per interval. The drop
+// counter (PendingDrops) increments on every drop regardless, so
+// metric accuracy is unaffected.
+const pendingDropLogInterval = 5 * time.Second
+
+// reapPendDropLog evicts lastPendDropLog entries older than
+// pendingDropLogInterval. Without periodic reaping, every peer that
+// ever triggered a queue-full warn keeps a permanent entry — a slow
+// leak under churn (peers cycling through fresh node IDs). Called
+// from the idleSweepLoop tick.
+func (tm *TunnelManager) reapPendDropLog() {
+	now := time.Now()
+	threshold := now.Add(-pendingDropLogInterval)
+	tm.pendMu.Lock()
+	for nodeID, t := range tm.lastPendDropLog {
+		if t.Before(threshold) {
+			delete(tm.lastPendDropLog, nodeID)
+		}
+	}
+	tm.pendMu.Unlock()
+}
 
 // maxRekeyRequesters caps lastRekeyReq so a peer spraying unreadable frames
 // from rotated/spoofed node IDs cannot grow the map without bound. Real
@@ -413,7 +458,20 @@ func (tm *TunnelManager) SetBeaconAddr(addr string) error {
 
 // SetRelayPeer marks a peer as needing relay through the beacon (symmetric NAT).
 // Thin shim over routing.Manager.SetRelayPeer.
+//
+// The log line fires only when the peer is being newly flipped TO relay
+// (i.e. it wasn't already relay-marked). Without this guard, every dial
+// to a dead-direct peer logs the flip even when the peer has been on
+// relay for the whole session — producing the 8866-events log storm
+// observed against advice-slip on 2026-05-26 (one event per concurrent
+// DialConnection that hit its direct-retry budget, each one just
+// reasserting the same already-set flag).
 func (tm *TunnelManager) SetRelayPeer(nodeID uint32, relay bool) {
+	if relay && tm.routing.IsRelayPeer(nodeID) {
+		// Idempotent reassertion — no state change, no log.
+		tm.routing.SetRelayPeer(nodeID, relay)
+		return
+	}
 	tm.routing.SetRelayPeer(nodeID, relay)
 	if relay {
 		slog.Info("peer marked for relay", "node_id", nodeID)
@@ -424,6 +482,17 @@ func (tm *TunnelManager) SetRelayPeer(nodeID uint32, relay bool) {
 // Thin shim over routing.Manager.IsRelayPeer.
 func (tm *TunnelManager) IsRelayPeer(nodeID uint32) bool {
 	return tm.routing.IsRelayPeer(nodeID)
+}
+
+// IsRelayPinned reports whether the peer's relay flag was set by an
+// authoritative signal (registry relay_only=true, beacon admit, or the
+// ICMP-unreachable HandleSendError threshold). Unpinned flags are
+// advisory and may be cleared by direct-path observations OR by the
+// dial-loop on dial failure (so a transiently-broken relay path doesn't
+// trap subsequent dials in a relay-only retry loop).
+// Thin shim over routing.Manager.IsRelayPinned.
+func (tm *TunnelManager) IsRelayPinned(nodeID uint32) bool {
+	return tm.routing.IsRelayPinned(nodeID)
 }
 
 // RelayPeerIDs returns the node IDs of all relay-flagged peers.
@@ -472,6 +541,9 @@ const sendErrThreshold = routing.SendErrThreshold
 // the public BytesSent / PktsSent atomics and logs flips that the
 // routing-side heuristic triggers.
 func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []byte) error {
+	if diagShouldDropFrame() {
+		return nil
+	}
 	// Pre-check blackhole heuristic so we can log flips with the same
 	// detail the pre-extraction code emitted.
 	wasRelay := tm.routing.IsRelayPeer(nodeID)
@@ -640,7 +712,14 @@ func (tm *TunnelManager) getPeerPubKey(nodeID uint32) (ed25519.PublicKey, error)
 	return tm.kx.GetPeerPubKey(nodeID)
 }
 
-// Listen starts the UDP listener for incoming tunnel traffic.
+// Listen starts the UDP listener for incoming tunnel traffic. This is
+// the default path used when the daemon is launched without
+// -transport=compat. The transport is *udpio.Socket; behavior is
+// unchanged from pre-v1.10.2.
+//
+// Daemons running in UDP-blocked environments (Docker on
+// Render/Railway/Vercel/Lambda) use ConnectCompat instead — see that
+// method and docs/SPEC-compat-mode.md.
 func (tm *TunnelManager) Listen(addr string) error {
 	sock, err := udpio.Listen(addr)
 	if err != nil {
@@ -665,6 +744,53 @@ func (tm *TunnelManager) Listen(addr string) error {
 	// TunnelKeepaliveInterval to peers we've been silent to, preventing
 	// consumer-NAT idle-timeout from silently breaking long-lived
 	// peer relationships with bursty connection cycles.
+	go tm.keepaliveLoop()
+	return nil
+}
+
+// ConnectCompatConfig configures the compat-mode (WSS) transport.
+// NodeID is filled in by the caller after registration; everything
+// else comes from CLI flags / daemon config.
+type ConnectCompatConfig struct {
+	BeaconURL string
+	TLSConfig *tls.Config
+	Identity  *crypto.Identity
+	NodeID    uint32
+}
+
+// ConnectCompat opens a compat-mode (WSS) tunnel to the beacon
+// instead of binding a UDP socket. Replaces Listen for daemons
+// running in UDP-blocked environments. The daemon must already have
+// a registered node ID — call this after Register completes.
+//
+// On success the readLoop, key-exchange loop, and keepalive loop are
+// started identically to the UDP path. From every other layer's
+// perspective the daemon is just talking to the beacon and reaching
+// peers via relay; the routing manager already handles that case
+// today for symmetric-NAT peers.
+func (tm *TunnelManager) ConnectCompat(ctx context.Context, cfg ConnectCompatConfig) error {
+	wssTr, err := wssTransport.Dial(ctx, wssTransport.Config{
+		URL:       cfg.BeaconURL,
+		TLSConfig: cfg.TLSConfig,
+		Identity:  cfg.Identity,
+		NodeID:    cfg.NodeID,
+	})
+	if err != nil {
+		return fmt.Errorf("compat dial: %w", err)
+	}
+	tm.sock = wssTr
+	tm.routing.SetSocket(wssTr)
+	// In compat mode every outbound L2 frame must travel beacon-wrapped:
+	// the WSS pipe terminates at the beacon, not at peers, so raw frames
+	// would be received as unknown beacon-protocol packets and dropped.
+	// Force the routing manager to wrap every send in BeaconMsgRelay.
+	tm.routing.SetForceRelay(true)
+
+	tm.readWg.Add(1)
+	go tm.readLoop()
+
+	tm.kxCtx, tm.kxCancel = context.WithCancel(context.Background())
+	go tm.kx.Loop(tm.kxCtx)
 	go tm.keepaliveLoop()
 	return nil
 }
@@ -855,6 +981,21 @@ func (tm *TunnelManager) onKeyInstalled(ev keyexchange.PostInstallEvent) {
 	peerNodeID := ev.PeerNodeID
 	from := ev.From
 	fromRelay := ev.FromRelay
+
+	// A valid PILA install is proof of peer liveness — the Ed25519
+	// signature was verified by HandleAuthFrame before this hook fires
+	// (or for the unauthenticated path, the X25519 derivation succeeded,
+	// which also proves a live peer at the source address). Record it
+	// as a successful inbound event so handle.go's stale-recovery branch
+	// (InboundDecryptStale-gated reply) stops re-firing on every PILA
+	// arrival when AEAD data has not yet started flowing — e.g. when the
+	// peer's replay window holds back all encrypted data while the
+	// OutsideWindowDropThreshold gate works toward recovery. Without
+	// this, lastInboundDecrypt stays empty across the whole rekey
+	// settle-in window, the asymmetric-recovery branch keeps firing,
+	// and the per-peer 1s reply cooldown holds the ping-pong back but
+	// never lets the staleness flag clear.
+	tm.recordInboundDecrypt(peerNodeID)
 
 	tm.mu.Lock()
 	if !fromRelay {
@@ -1396,12 +1537,29 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		}
 		tm.pending[nodeID] = append(q, data)
 		qlen := len(tm.pending[nodeID])
+		// Per-peer log throttle: emit at most one "queue full" warn per
+		// pendingDropLogInterval. The drop counter (PendingDrops) is
+		// authoritative for metrics; the log is for human observability.
+		// Without throttling, a single sustained dial-flap against an
+		// unresponsive peer produces thousands of identical warns per
+		// minute (4927 in 60 s observed against advice-slip).
+		shouldLog := false
+		if dropped {
+			now := time.Now()
+			last := tm.lastPendDropLog[nodeID]
+			if last.IsZero() || now.Sub(last) >= pendingDropLogInterval {
+				tm.lastPendDropLog[nodeID] = now
+				shouldLog = true
+			}
+		}
 		tm.pendMu.Unlock()
 		if dropped {
-			slog.Warn("tunnel pending queue full; dropped oldest",
-				"peer_node_id", nodeID,
-				"queue_len", qlen,
-				"limit", maxPendingPerPeer)
+			if shouldLog {
+				slog.Warn("tunnel pending queue full; dropped oldest",
+					"peer_node_id", nodeID,
+					"queue_len", qlen,
+					"limit", maxPendingPerPeer)
+			}
 			// The new packet IS queued (line above appended it). What was
 			// dropped is the oldest packet, not this one. Callers that
 			// errors.Is(err, ErrPendingDropped) can treat this as transient

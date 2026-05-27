@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
 	"github.com/TeoSlayer/pilotprotocol/internal/pool"
+	"github.com/pilot-protocol/common/fsutil"
 )
 
 // ---------------------------------------------------------------------------

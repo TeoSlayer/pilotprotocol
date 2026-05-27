@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
+	"github.com/pilot-protocol/nameserver"
 )
 
 // ---------------------------------------------------------------------------

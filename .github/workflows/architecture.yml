@@ -13,11 +13,15 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: P1 - layer imports
-        run: go run ./tools/check-layers ./...
+      # check-layers extracted to pilot-protocol/check-layers; the
+      # layer-import + test-import gates that used to live here now
+      # run from that sibling repo against any consumer that imports
+      # web4 packages.
 
-      - name: P5 - test imports stay in layer
-        run: go run ./tools/check-layers --tests ./...
+      # plugin-matrix removed: every plugin (updater, skillinject,
+      # trustedagents, nameserver, dataexchange, eventstream, tasks,
+      # gateway, policy, webhook) extracted to its own sibling repo,
+      # and the no_<plugin> build tags they exercised left with them.
 
       - name: Lock-graph race detection (sec 4.8)
         run: go test -race -timeout 5m ./pkg/daemon ./pkg/registry/... ./pkg/secure
@@ -29,31 +33,3 @@ jobs:
 
       - name: P4/P9 - goroutine reaping
         run: go test ./tests -run "TestDaemonShutdown|TestStreamLifecycleGoroutines|TestPluginShutdown"
-
-  plugin-matrix:
-    name: Plugin matrix (no_${{ matrix.plugin }})
-    needs: gates
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        plugin:
-          - updater
-          - skillinject
-          - trustedagents
-          - nameserver
-          - dataexchange
-          - eventstream
-          - tasks
-          - gateway
-          - policy
-          - webhook
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Build & test with plugin disabled
-        run: go test -tags=no_${{ matrix.plugin }} ./pkg/daemon/... ./pkg/coreapi/...

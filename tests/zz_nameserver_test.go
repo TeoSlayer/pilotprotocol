@@ -11,7 +11,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"github.com/TeoSlayer/pilotprotocol/plugins/nameserver"
+	"github.com/pilot-protocol/nameserver"
 )
 
 // nsDriverPortListener wraps *driver.Driver for nameserver.PortListener.

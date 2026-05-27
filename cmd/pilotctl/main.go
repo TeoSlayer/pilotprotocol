@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
-	"github.com/TeoSlayer/pilotprotocol/internal/eventstream"
-	policylang "github.com/TeoSlayer/pilotprotocol/internal/policy"
-	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/dataexchange"
+	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/policy/policylang"
+	"github.com/pilot-protocol/trustedagents"
 )
 
 var version = "dev"
@@ -1072,6 +1072,13 @@ Publish a message to a topic on a remote node.
 Send a file to a remote node via the reliable data-exchange stream.
 The receiver gets the filename and contents; an ACK is printed on success.
 `,
+
+	// appstore: keep the help block here in lockstep with
+	// AppStoreHelpText in appstore.go (the const it's pulled from).
+	// Without this registration, `pilotctl appstore <sub> --help`
+	// falls through pilotctl's per-command help intercept and
+	// prints "No specific help" — confusing for an RC-shipped CLI.
+	"appstore": AppStoreHelpText,
 }
 
 // printCommandHelp prints the help text for a command and exits.
@@ -1255,6 +1262,10 @@ dispatch:
 
 	case "skills":
 		cmdSkills(cmdArgs)
+		return
+
+	case "appstore":
+		cmdAppStore(cmdArgs)
 		return
 
 	// Bootstrap

@@ -44,41 +44,26 @@ These tests validate the entire stack (Go binaries + Python SDK) against **agent
 cmd/                    # Binary entry points
   daemon/               # Core network daemon
   pilotctl/             # CLI tool
-  rendezvous/           # Combined registry + beacon server
-  gateway/              # IP-to-Pilot bridge
-  registry/             # Standalone registry (split deployment)
-  beacon/               # Standalone beacon (split deployment)
-  nameserver/           # DNS-equivalent nameserver (WIP)
 pkg/                    # Library packages
+  coreapi/              # Service interfaces (Deps, Listener, plugin contracts)
   protocol/             # Wire format, addresses, headers, checksums
   daemon/               # Daemon core: connections, ports, transport, services
   driver/               # Client-side IPC driver (Unix socket)
-  registry/             # Registry server + client + replication
-  beacon/               # STUN-based NAT traversal
-  gateway/              # TCP-to-Pilot proxy bridge
+  registry/client/      # Daemon-side registry client
+  registry/wire/        # Registry wire types
   secure/               # X25519 + AES-256-GCM encrypted connections
-  dataexchange/         # Typed frame protocol (port 1001)
-  eventstream/          # Pub/sub event broker (port 1002)
-  nameserver/           # DNS-equivalent name resolution (WIP)
   config/               # JSON config file support
   logging/              # Structured logging setup (slog)
-examples/               # Example applications
-  echo/                 # Standalone echo server (now built into daemon)
-  webserver/            # HTTP server over Pilot port 80
-  dataexchange/         # Data exchange client
-  eventstream/          # Event stream pub/sub client
-  client/               # Basic client example
-  httpclient/           # HTTP client over Pilot
-  secure/               # Secure connection example
-  config/               # Config file example
-sdk/                    # Language SDKs
-  python/               # Python SDK (see sdk/python/CONTRIBUTING.md)
-  cgo/                  # CGO bindings
-tests/                  # Integration tests (39 test files, 202+ passing)
-docs/                   # Documentation
-  SPEC.md               # Wire specification
-  WHITEPAPER.pdf        # Protocol whitepaper (LaTeX source: WHITEPAPER.tex)
+  urlvalidate/          # URL allow/deny-list validation
+internal/               # Internal helpers (account, ipcutil, pool, transport, validate)
+tests/                  # Integration tests against daemon binaries
+  integration/local/    # Docker-based integration suite
 ```
+
+The rest of the protocol — plugins, the rendezvous server, the beacon,
+the SDKs, the website, the docs — lives in **sibling repos** under
+[github.com/pilot-protocol](https://github.com/pilot-protocol). See
+each repo's own `CONTRIBUTING.md` for contributing to those.
 
 ## Lock discipline (required reading for registry/daemon contributors)
 
@@ -104,19 +89,6 @@ Concrete rules:
 4. **List endpoints (`list_nodes`, `list_networks`) go through the
    singleflight cache.** Re-marshalling JSON for every caller while
    `s.mu` is held drives global-lock contention to a cliff under load.
-
-## Contributing to the Python SDK
-
-See the **[Python SDK Contributing Guide](sdk/python/CONTRIBUTING.md)**.
-
-Quick start for Python SDK development:
-```bash
-cd sdk/python
-python -m venv venv
-source venv/bin/activate
-pip install -e .[dev]
-make test
-```
 
 ## How to Contribute
 
@@ -200,9 +172,9 @@ Tip: use `gh run watch` after pushing to follow the run, and
 
 ## Areas for Contribution
 
-- **Python SDK**: Improve the Python SDK, add examples, enhance documentation (see [sdk/python/CONTRIBUTING.md](sdk/python/CONTRIBUTING.md))
-- **Nameserver** (port 53): DNS-equivalent name resolution is WIP and needs implementation
-- **Tests**: expanding coverage, especially for edge cases in transport and security
+- **Daemon core**: protocol, driver, transport, encryption — this repo
+- **Tests**: expand coverage in `tests/`, especially edge cases in transport and security
+- **Sibling repos**: improvements to specific plugins, SDKs, or the rendezvous server live in their own repos under [github.com/pilot-protocol](https://github.com/pilot-protocol)
 - **Documentation**: improving examples, tutorials, architecture docs
 - **Performance**: profiling and optimizing the transport layer
 - **Platform support**: testing on different OS/architectures

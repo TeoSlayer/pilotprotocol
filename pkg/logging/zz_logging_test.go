@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package logging
+package logging_test
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 )
 
 func TestSetupWriterJSONFormat(t *testing.T) {
@@ -16,7 +18,7 @@ func TestSetupWriterJSONFormat(t *testing.T) {
 	defer slog.SetDefault(saved)
 
 	var buf bytes.Buffer
-	SetupWriter(&buf, "info", "json")
+	logging.SetupWriter(&buf, "info", "json")
 	slog.Info("hello", "k", "v")
 
 	line := strings.TrimSpace(buf.String())
@@ -43,7 +45,7 @@ func TestSetupWriterTextFormat(t *testing.T) {
 	defer slog.SetDefault(saved)
 
 	var buf bytes.Buffer
-	SetupWriter(&buf, "info", "text")
+	logging.SetupWriter(&buf, "info", "text")
 	slog.Info("hello", "k", "v")
 
 	out := buf.String()
@@ -64,7 +66,7 @@ func TestSetupWriterDefaultFormatIsText(t *testing.T) {
 	defer slog.SetDefault(saved)
 
 	var buf bytes.Buffer
-	SetupWriter(&buf, "info", "unknown-format")
+	logging.SetupWriter(&buf, "info", "unknown-format")
 	slog.Info("msg")
 
 	out := strings.TrimSpace(buf.String())
@@ -95,7 +97,7 @@ func TestSetupWriterLevelsGateOutput(t *testing.T) {
 			defer slog.SetDefault(saved)
 
 			var buf bytes.Buffer
-			SetupWriter(&buf, tc.level, "text")
+			logging.SetupWriter(&buf, tc.level, "text")
 
 			slog.Debug("D")
 			slog.Info("I")
@@ -130,7 +132,7 @@ func TestSetupCaseInsensitive(t *testing.T) {
 	defer slog.SetDefault(saved)
 
 	var buf bytes.Buffer
-	SetupWriter(&buf, "DEBUG", "JSON")
+	logging.SetupWriter(&buf, "DEBUG", "JSON")
 	slog.Debug("dbg-msg")
 	line := strings.TrimSpace(buf.String())
 	if !strings.HasPrefix(line, "{") {
@@ -152,7 +154,7 @@ func TestSetupUsesStderrByDefault(t *testing.T) {
 	saved := slog.Default()
 	defer slog.SetDefault(saved)
 
-	Setup("info", "text")
+	logging.Setup("info", "text")
 	if slog.Default() == nil {
 		t.Fatal("slog.Default() is nil after Setup")
 	}

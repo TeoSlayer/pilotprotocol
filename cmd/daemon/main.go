@@ -22,14 +22,14 @@ import (
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
 	// interfaces.
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
-	"github.com/TeoSlayer/pilotprotocol/plugins/runtime"
-	"github.com/TeoSlayer/pilotprotocol/plugins/skillinject"
-	"github.com/TeoSlayer/pilotprotocol/plugins/trustedagents"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/dataexchange"
+	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/handshake"
+	"github.com/pilot-protocol/policy"
+	"github.com/pilot-protocol/runtime"
+	"github.com/pilot-protocol/skillinject"
+	"github.com/pilot-protocol/trustedagents"
+	"github.com/pilot-protocol/webhook"
 )
 
 var version = "dev"
@@ -49,10 +49,10 @@ func main() {
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
 	socketPath := flag.String("socket", "/tmp/pilot.sock", "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")
-	fakeListenAddr := flag.String("fake-listen-addr", "", "advertise this listen_addr to the registry instead of the real one (real socket binding unaffected)")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
-	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate")
+	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate (required when -registry-trust=pinned)")
+	registryTrust := flag.String("registry-trust", "pinned", "trust store for -registry-tls: 'pinned' (verify cert against -registry-fingerprint) or 'system' (OS x509 root store — used for compat-mode registry on registry.pilotprotocol.network:443 with Let's Encrypt)")
 	identityPath := flag.String("identity", "", "path to persist Ed25519 identity (enables stable identity across restarts)")
 	email := flag.String("email", "", "email address for account identification and key recovery")
 	owner := flag.String("owner", "", "(deprecated: use -email) owner identifier for key rotation recovery")
@@ -67,12 +67,16 @@ func main() {
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
+	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "include raw base64 payload (`data_b64`) alongside `data` in inbox messages — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
 	beaconRTTProbe := flag.Bool("beacon-rtt-probe", false, "probe beacon RTT before selection; override hash pick when >2× slower than best (ablation test, default off)")
+	transportMode := flag.String("transport", "udp", "tunnel transport: 'udp' (default) or 'compat' (WSS to beacon, opt-in, for UDP-blocked environments)")
+	compatBeacon := flag.String("compat-beacon", "wss://beacon.pilotprotocol.network/v1/compat", "beacon WSS URL for -transport=compat")
+	tlsTrust := flag.String("tls-trust", "system", "TLS trust store for -transport=compat: 'system' (OS trust store; current default while compat mode uses Let's Encrypt certs on beacon.pilotprotocol.network) or 'pinned' (Pilot CA root embedded in the daemon binary; will become the default in a future release once production root ships)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
@@ -107,6 +111,29 @@ func main() {
 		config.ApplyToFlags(cfg)
 	}
 
+	// Compat-mode 443-only defaults. When -transport=compat is selected
+	// and the operator hasn't explicitly overridden -registry/-registry-tls/
+	// -registry-trust, route the registry to its TLS hostname (TCP/443
+	// via nginx SNI routing on the production rendezvous box) so the
+	// daemon really does use a single port. The TCP/9000 fallback is
+	// still available to anyone who passes -registry explicitly.
+	if *transportMode == "compat" {
+		explicit := map[string]bool{}
+		flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+		if !explicit["registry"] && os.Getenv("PILOT_REGISTRY") == "" {
+			v := "registry.pilotprotocol.network:443"
+			registryAddr = &v
+		}
+		if !explicit["registry-tls"] {
+			v := true
+			registryTLS = &v
+		}
+		if !explicit["registry-trust"] {
+			v := "system"
+			registryTrust = &v
+		}
+	}
+
 	logging.Setup(*logLevel, *logFormat)
 
 	d := daemon.New(daemon.Config{
@@ -115,10 +142,10 @@ func main() {
 		ListenAddr:            *listenAddr,
 		SocketPath:            *socketPath,
 		Endpoint:              *endpoint,
-		FakeListenAddr:        *fakeListenAddr,
 		Encrypt:               *encrypt,
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,
+		RegistryTrust:         *registryTrust,
 		IdentityPath:          *identityPath,
 		Email:                 *email,
 		Owner:                 *owner,
@@ -140,6 +167,9 @@ func main() {
 		Version:               version,
 		TrustAutoApprove:      *trustAutoApprove,
 		BeaconRTTProbe:        *beaconRTTProbe,
+		TransportMode:         *transportMode,
+		CompatBeaconURL:       *compatBeacon,
+		CompatTLSTrust:        *tlsTrust,
 	})
 
 	// L11 plugin lifecycle (T7.1): composition root owns the
@@ -158,7 +188,9 @@ func main() {
 	}
 
 	if !*noDataExchange {
-		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{})); err != nil {
+		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{
+			IncludeBase64: *dataExchangeB64,
+		})); err != nil {
 			log.Fatalf("register dataexchange: %v", err)
 		}
 	}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-package secure
+package secure_test
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
 )
 
 // pipePair returns two connected net.Conn endpoints (in-process pipe).
@@ -31,31 +33,31 @@ func genIdentity(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 }
 
 // handshakeBoth runs both ends of Handshake concurrently and returns errors.
-func handshakeBoth(t *testing.T, a, b net.Conn, cfgA, cfgB *HandshakeConfig) (*SecureConn, *SecureConn) {
+func handshakeBoth(t *testing.T, a, b net.Conn, cfgA, cfgB *secure.HandshakeConfig) (*secure.SecureConn, *secure.SecureConn) {
 	t.Helper()
 	type result struct {
-		sc  *SecureConn
+		sc  *secure.SecureConn
 		err error
 	}
 	chA := make(chan result, 1)
 	chB := make(chan result, 1)
 	go func() {
-		var sc *SecureConn
+		var sc *secure.SecureConn
 		var err error
 		if cfgA != nil {
-			sc, err = Handshake(a, true, cfgA)
+			sc, err = secure.Handshake(a, true, cfgA)
 		} else {
-			sc, err = Handshake(a, true)
+			sc, err = secure.Handshake(a, true)
 		}
 		chA <- result{sc, err}
 	}()
 	go func() {
-		var sc *SecureConn
+		var sc *secure.SecureConn
 		var err error
 		if cfgB != nil {
-			sc, err = Handshake(b, false, cfgB)
+			sc, err = secure.Handshake(b, false, cfgB)
 		} else {
-			sc, err = Handshake(b, false)
+			sc, err = secure.Handshake(b, false)
 		}
 		chB <- result{sc, err}
 	}()
@@ -130,7 +132,6 @@ func TestEncryptedReadBuffersLeftover(t *testing.T) {
 }
 
 func TestEncryptedHidesPlaintextOnWire(t *testing.T) {
-	t.Parallel()
 	// Use a tap to capture raw bytes, then verify plaintext is not present.
 	a, b := pipePair()
 	defer a.Close()
@@ -182,7 +183,7 @@ func TestNonceUniquenessAcrossWrites(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAuthenticatedHandshakeMutual(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 
 	srvPub, srvPriv := genIdentity(t)
 	cliPub, cliPriv := genIdentity(t)
@@ -191,8 +192,8 @@ func TestAuthenticatedHandshakeMutual(t *testing.T) {
 	defer a.Close()
 	defer b.Close()
 
-	cfgServer := &HandshakeConfig{NodeID: 100, Signer: srvPriv, PeerPubKey: cliPub}
-	cfgClient := &HandshakeConfig{NodeID: 200, Signer: cliPriv, PeerPubKey: srvPub}
+	cfgServer := &secure.HandshakeConfig{NodeID: 100, Signer: srvPriv, PeerPubKey: cliPub}
+	cfgClient := &secure.HandshakeConfig{NodeID: 200, Signer: cliPriv, PeerPubKey: srvPub}
 
 	server, client := handshakeBoth(t, a, b, cfgServer, cfgClient)
 
@@ -205,7 +206,7 @@ func TestAuthenticatedHandshakeMutual(t *testing.T) {
 }
 
 func TestAuthenticatedHandshakeWrongPeerKeyFails(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 
 	_, srvPriv := genIdentity(t)
 	_, cliPriv := genIdentity(t)
@@ -215,14 +216,14 @@ func TestAuthenticatedHandshakeWrongPeerKeyFails(t *testing.T) {
 	defer a.Close()
 	defer b.Close()
 
-	cfgServer := &HandshakeConfig{NodeID: 1, Signer: srvPriv, PeerPubKey: wrongPub}
-	cfgClient := &HandshakeConfig{NodeID: 2, Signer: cliPriv, PeerPubKey: wrongPub}
+	cfgServer := &secure.HandshakeConfig{NodeID: 1, Signer: srvPriv, PeerPubKey: wrongPub}
+	cfgClient := &secure.HandshakeConfig{NodeID: 2, Signer: cliPriv, PeerPubKey: wrongPub}
 
 	type r struct{ err error }
 	chA := make(chan r, 1)
 	chB := make(chan r, 1)
-	go func() { _, err := Handshake(a, true, cfgServer); chA <- r{err} }()
-	go func() { _, err := Handshake(b, false, cfgClient); chB <- r{err} }()
+	go func() { _, err := secure.Handshake(a, true, cfgServer); chA <- r{err} }()
+	go func() { _, err := secure.Handshake(b, false, cfgClient); chB <- r{err} }()
 
 	rA := <-chA
 	rB := <-chB
@@ -236,7 +237,7 @@ func TestAuthenticatedHandshakeWrongPeerKeyFails(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandshakeWithTimestampOffsetExpiredFails(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	srvPub, srvPriv := genIdentity(t)
 	cliPub, cliPriv := genIdentity(t)
 
@@ -244,18 +245,18 @@ func TestHandshakeWithTimestampOffsetExpiredFails(t *testing.T) {
 	defer a.Close()
 	defer b.Close()
 
-	cfgServer := &HandshakeConfig{NodeID: 1, Signer: srvPriv, PeerPubKey: cliPub}
-	cfgClient := &HandshakeConfig{NodeID: 2, Signer: cliPriv, PeerPubKey: srvPub}
+	cfgServer := &secure.HandshakeConfig{NodeID: 1, Signer: srvPriv, PeerPubKey: cliPub}
+	cfgClient := &secure.HandshakeConfig{NodeID: 2, Signer: cliPriv, PeerPubKey: srvPub}
 
 	// Server uses normal timestamp; client uses 10s offset → exceeds 5s skew.
 	chA := make(chan error, 1)
 	chB := make(chan error, 1)
 	go func() {
-		_, err := HandshakeWithTimestampOffset(a, true, cfgServer, 0)
+		_, err := secure.HandshakeWithTimestampOffset(a, true, cfgServer, 0)
 		chA <- err
 	}()
 	go func() {
-		_, err := HandshakeWithTimestampOffset(b, false, cfgClient, 10*time.Second)
+		_, err := secure.HandshakeWithTimestampOffset(b, false, cfgClient, 10*time.Second)
 		chB <- err
 	}()
 
@@ -273,52 +274,52 @@ func TestHandshakeWithTimestampOffsetExpiredFails(t *testing.T) {
 }
 
 func TestReplayCacheRejectsRepeat(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckAndRecordNonce(nonce); err != nil {
+	if err := secure.CheckAndRecordNonce(nonce); err != nil {
 		t.Fatalf("first record: %v", err)
 	}
 	// Same nonce again → replay
-	err := CheckAndRecordNonce(nonce)
+	err := secure.CheckAndRecordNonce(nonce)
 	if err == nil || !strings.Contains(err.Error(), "replay") {
 		t.Fatalf("expected replay error, got %v", err)
 	}
 }
 
 func TestCheckReplayNonceDoesNotRecord(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		t.Fatal(err)
 	}
 	// CheckReplayNonce should report not-present (nil err) without inserting.
-	if err := CheckReplayNonce(nonce); err != nil {
+	if err := secure.CheckReplayNonce(nonce); err != nil {
 		t.Fatalf("expected fresh nonce nil err, got %v", err)
 	}
 	// Then we can record it
-	if err := CheckAndRecordNonce(nonce); err != nil {
+	if err := secure.CheckAndRecordNonce(nonce); err != nil {
 		t.Fatal(err)
 	}
 	// Now CheckReplayNonce should report replay
-	if err := CheckReplayNonce(nonce); err == nil {
+	if err := secure.CheckReplayNonce(nonce); err == nil {
 		t.Fatal("expected replay error from CheckReplayNonce")
 	}
 }
 
 func TestInjectReplayNonceTriggersReplay(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		t.Fatal(err)
 	}
-	InjectReplayNonce(nonce)
-	if err := CheckAndRecordNonce(nonce); err == nil {
+	secure.InjectReplayNonce(nonce)
+	if err := secure.CheckAndRecordNonce(nonce); err == nil {
 		t.Fatal("expected replay after inject")
 	}
 }
@@ -328,13 +329,12 @@ func TestInjectReplayNonceTriggersReplay(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBuildAuthSignMessageStable(t *testing.T) {
-	t.Parallel()
 	x25519 := bytes.Repeat([]byte{0xAB}, 32)
 	var nonce [16]byte
 	for i := range nonce {
 		nonce[i] = byte(i)
 	}
-	got := BuildAuthSignMessage(0xDEADBEEF, x25519, 0x1122334455667788, nonce)
+	got := secure.BuildAuthSignMessage(0xDEADBEEF, x25519, 0x1122334455667788, nonce)
 	// Layout: domain(18) + nodeID(4) + pub(32) + ts(8) + nonce(16) = 78
 	if len(got) != 18+4+32+8+16 {
 		t.Errorf("len = %d, want 78", len(got))
@@ -360,8 +360,8 @@ func TestBuildAuthSignMessageDifferentInputsDiffer(t *testing.T) {
 	x := bytes.Repeat([]byte{0x00}, 32)
 	var n1, n2 [16]byte
 	n2[0] = 1
-	a := BuildAuthSignMessage(1, x, 100, n1)
-	b := BuildAuthSignMessage(1, x, 100, n2)
+	a := secure.BuildAuthSignMessage(1, x, 100, n1)
+	b := secure.BuildAuthSignMessage(1, x, 100, n2)
 	if bytes.Equal(a, b) {
 		t.Fatal("messages with different nonces should differ")
 	}
@@ -372,35 +372,35 @@ func TestBuildAuthSignMessageDifferentInputsDiffer(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifyAuthFrameWrongSize(t *testing.T) {
-	_, err := VerifyAuthFrame(make([]byte, 10), nil, nil, time.Now())
+	_, err := secure.VerifyAuthFrame(make([]byte, 10), nil, nil, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "wrong size") {
 		t.Fatalf("expected wrong-size err, got %v", err)
 	}
 }
 
 func TestVerifyAuthFrameExpiredTimestamp(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	pub, priv := genIdentity(t)
 	x25519 := bytes.Repeat([]byte{0xAB}, 32)
 	expiredTS := uint64(time.Now().Add(-time.Hour).Unix())
 	var nonce [16]byte
 	rand.Read(nonce[:])
 
-	frame := make([]byte, AuthFrameLen)
+	frame := make([]byte, secure.AuthFrameLen)
 	binary.BigEndian.PutUint32(frame[0:4], 42)
 	binary.BigEndian.PutUint64(frame[4:12], expiredTS)
 	copy(frame[12:28], nonce[:])
-	sig := ed25519.Sign(priv, BuildAuthSignMessage(42, x25519, expiredTS, nonce))
+	sig := ed25519.Sign(priv, secure.BuildAuthSignMessage(42, x25519, expiredTS, nonce))
 	copy(frame[28:92], sig)
 
-	_, err := VerifyAuthFrame(frame, pub, x25519, time.Now())
+	_, err := secure.VerifyAuthFrame(frame, pub, x25519, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("expected expired err, got %v", err)
 	}
 }
 
 func TestVerifyAuthFrameReplayDetected(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	pub, priv := genIdentity(t)
 	x25519 := bytes.Repeat([]byte{0xAB}, 32)
 	now := time.Now()
@@ -409,27 +409,27 @@ func TestVerifyAuthFrameReplayDetected(t *testing.T) {
 	rand.Read(nonce[:])
 
 	build := func() []byte {
-		frame := make([]byte, AuthFrameLen)
+		frame := make([]byte, secure.AuthFrameLen)
 		binary.BigEndian.PutUint32(frame[0:4], 42)
 		binary.BigEndian.PutUint64(frame[4:12], ts)
 		copy(frame[12:28], nonce[:])
-		sig := ed25519.Sign(priv, BuildAuthSignMessage(42, x25519, ts, nonce))
+		sig := ed25519.Sign(priv, secure.BuildAuthSignMessage(42, x25519, ts, nonce))
 		copy(frame[28:92], sig)
 		return frame
 	}
 
-	if _, err := VerifyAuthFrame(build(), pub, x25519, now); err != nil {
+	if _, err := secure.VerifyAuthFrame(build(), pub, x25519, now); err != nil {
 		t.Fatalf("first verify: %v", err)
 	}
 	// Second verify with the SAME nonce → replay
-	_, err := VerifyAuthFrame(build(), pub, x25519, now)
+	_, err := secure.VerifyAuthFrame(build(), pub, x25519, now)
 	if err == nil || !strings.Contains(err.Error(), "replay") {
 		t.Fatalf("expected replay error, got %v", err)
 	}
 }
 
 func TestVerifyAuthFrameBadSignature(t *testing.T) {
-	ResetReplayCache()
+	secure.ResetReplayCache()
 	pub, _ := genIdentity(t) // verifier key
 	_, otherPriv := genIdentity(t)
 	x25519 := bytes.Repeat([]byte{0xAB}, 32)
@@ -438,15 +438,15 @@ func TestVerifyAuthFrameBadSignature(t *testing.T) {
 	var nonce [16]byte
 	rand.Read(nonce[:])
 
-	frame := make([]byte, AuthFrameLen)
+	frame := make([]byte, secure.AuthFrameLen)
 	binary.BigEndian.PutUint32(frame[0:4], 42)
 	binary.BigEndian.PutUint64(frame[4:12], ts)
 	copy(frame[12:28], nonce[:])
 	// Sign with a DIFFERENT key → verification must fail
-	sig := ed25519.Sign(otherPriv, BuildAuthSignMessage(42, x25519, ts, nonce))
+	sig := ed25519.Sign(otherPriv, secure.BuildAuthSignMessage(42, x25519, ts, nonce))
 	copy(frame[28:92], sig)
 
-	_, err := VerifyAuthFrame(frame, pub, x25519, now)
+	_, err := secure.VerifyAuthFrame(frame, pub, x25519, now)
 	if err == nil || !strings.Contains(err.Error(), "verification failed") {
 		t.Fatalf("expected sig verify err, got %v", err)
 	}
@@ -458,7 +458,7 @@ func TestVerifyAuthFrameBadSignature(t *testing.T) {
 
 func TestReadExactSuccess(t *testing.T) {
 	t.Parallel()
-	got, err := ReadExact(bytes.NewReader([]byte("hello world")), 5)
+	got, err := secure.ReadExact(bytes.NewReader([]byte("hello world")), 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestReadExactSuccess(t *testing.T) {
 
 func TestReadExactShortFails(t *testing.T) {
 	t.Parallel()
-	_, err := ReadExact(bytes.NewReader([]byte("hi")), 5)
+	_, err := secure.ReadExact(bytes.NewReader([]byte("hi")), 5)
 	if err == nil {
 		t.Fatal("expected error reading 5 from 2-byte source")
 	}
@@ -479,7 +479,7 @@ func TestReadExactShortFails(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SecureConn passthrough methods
+// secure.SecureConn passthrough methods
 // ---------------------------------------------------------------------------
 
 func TestSecureConnAddrAndDeadlinePassthrough(t *testing.T) {
@@ -544,7 +544,7 @@ func TestHandshakeRejectsBadPeerKey(t *testing.T) {
 		_, _ = b.Read(buf)
 	}()
 
-	_, err := Handshake(a, true)
+	_, err := secure.Handshake(a, true)
 	// Either ECDH or NewPublicKey may reject — both valid.
 	if err == nil {
 		t.Skip("server accepted; some Go versions accept all-1s as pubkey — skip")

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // handleNetwork sub-command dispatch coverage. All happy paths use the real

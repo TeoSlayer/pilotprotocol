@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/rendezvous"
 )
 
 // TestValidateBlueprintRejectsSSRFURLs guards against a regression where

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/common/crypto"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // TestPacketVersionValidation verifies that Unmarshal rejects packets with a

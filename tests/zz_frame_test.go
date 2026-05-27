@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/pilot-protocol/dataexchange"
 )
 
 func TestFrameTextRoundTrip(t *testing.T) {

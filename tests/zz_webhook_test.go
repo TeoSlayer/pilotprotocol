@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
-	internales "github.com/TeoSlayer/pilotprotocol/internal/eventstream"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	internaldx "github.com/pilot-protocol/dataexchange"
+	"github.com/pilot-protocol/eventstream"
+	internales "github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/webhook"
 )
 
 // webhookCollector is a test HTTP server that records received webhook events.

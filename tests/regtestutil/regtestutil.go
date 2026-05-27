@@ -16,7 +16,7 @@ import (
 	"time"
 
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // StartTestRegistry boots an in-process registry on 127.0.0.1:0 and dials

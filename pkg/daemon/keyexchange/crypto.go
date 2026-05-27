@@ -46,19 +46,23 @@ const DecryptFailDropThreshold = 5
 
 // OutsideWindowDropThreshold is how many consecutive outside-replay-window
 // rejections cause us to drop the peer's Crypto and trigger a fresh key
-// exchange. Tuned conservatively: ReplayWindowSize=256 means an in-spec
-// burst of late relay-buffered frames can produce a few outside-window
-// rejections normally. 30 consecutive without any successful decrypt is
-// strong evidence the peer's send counter is far behind our window
-// max-water-mark and no in-band recovery exists. Reset to 0 on success.
-const OutsideWindowDropThreshold = 30
+// exchange. Originally 30 — that was rate-gated on the peer continuing
+// to send 30 packets, which wedges quiet control-plane peers
+// indefinitely (a peer that handshakes once a day and otherwise stays
+// silent never generates enough traffic to trip the gate). 5 still
+// distinguishes a normal late-relay flurry (typically 1–3 frames) from
+// a real divergence, and recovers in seconds for quiet peers too. The
+// salvage ring (SalvageMaxEntries=4) further bounds the legitimate
+// outside-window burst on rekey. Reset to 0 on success.
+const OutsideWindowDropThreshold = 5
 
 // OutsideWindowDropGrace mirrors DecryptFailDropGrace but for the
-// outside-window path. Reuses the same 3-second value: a freshly
-// installed Crypto can legitimately see a small flurry of stale
-// in-flight frames at low counters; only after the new state has had
-// time to drain those should we treat the persistence as divergence.
-const OutsideWindowDropGrace = 3 * time.Second
+// outside-window path. Tightened from 3s to 1s alongside the
+// OutsideWindowDropThreshold drop (30→5): the grace exists to absorb
+// in-flight stale frames after a rekey, which take ≤1 RTT (≤200 ms on
+// relay) to drain; 1 s leaves comfortable margin without holding a
+// diverged session for the full original 3 s.
+const OutsideWindowDropGrace = 1 * time.Second
 
 // ReplayDropThreshold is how many consecutive in-window replay
 // rejections trigger a Crypto drop + fresh key exchange. Symmetric
@@ -76,19 +80,42 @@ const OutsideWindowDropGrace = 3 * time.Second
 // recovery paths never engage. Sustained replays are the only signal
 // that the peer's counter and our window are mis-aligned.
 //
-// 30 matches OutsideWindowDropThreshold for the same reason: a
+// 5 matches OutsideWindowDropThreshold (was 30, dropped to 5): a
 // legitimate duplicate-delivery burst (direct + relay both delivering
 // the same frame) typically tops out at 1–3 collisions per frame
-// pair; 30 consecutive same-peer replays without any successful
-// decrypt cleanly distinguishes the wedge from legitimate
-// duplication. Reset to 0 on successful decrypt.
-const ReplayDropThreshold = 30
+// pair; 5 consecutive same-peer replays without any successful decrypt
+// still cleanly distinguishes the wedge from legitimate duplication,
+// while letting quiet control-plane peers recover within seconds
+// rather than waiting hours for 30 packets they may never send.
+// Reset to 0 on successful decrypt.
+const ReplayDropThreshold = 5
 
-// ReplayDropGrace mirrors OutsideWindowDropGrace. A freshly installed
-// Crypto can legitimately see a few replays as both direct and relay
-// paths catch up to the new key; only after the new state has had
-// time to drain those should we treat the persistence as divergence.
-const ReplayDropGrace = 3 * time.Second
+// ReplayDropGrace mirrors OutsideWindowDropGrace. Tightened from 3s
+// to 1s alongside the ReplayDropThreshold drop (30→5): the grace
+// exists to absorb a small relay-vs-direct duplicate-delivery flurry
+// after a rekey (~1 RTT), which 1 s comfortably covers.
+const ReplayDropGrace = 1 * time.Second
+
+// AgedCryptoFastDropAge is the age past which a Crypto is treated as
+// "settled": no rekey, no in-flight drain, no duplicate-delivery
+// storm. Once a session has lived this long, *any* ErrReplay or
+// ErrOutsideWindow from it is real divergence (peer counter-reset
+// after a restart), not transient noise — so the count thresholds
+// are bypassed and the drop fires on the first event.
+//
+// This is the recovery path for "very quiet" peers (control-plane
+// agents that handshake once a day and otherwise rarely talk): they
+// would never send enough frames to trip ReplayDropThreshold within
+// a useful window. With this fast-path, even a single frame after
+// the peer's restart triggers re-handshake in ~1 RTT.
+//
+// 1 minute is well past:
+//   - relay RTT (≤200 ms)
+//   - SalvageMaxAge (5 s)
+//   - any legitimate in-flight drain after a rekey
+//
+// so it can never fire on a freshly-installed Crypto.
+const AgedCryptoFastDropAge = 1 * time.Minute
 
 // DecryptFailDropGrace is the minimum age a Crypto must reach before
 // repeated decrypt failures can drop it. Set above the typical relay RTT

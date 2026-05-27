@@ -12,18 +12,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
-	"github.com/TeoSlayer/pilotprotocol/plugins/eventstream"
-	"github.com/TeoSlayer/pilotprotocol/plugins/handshake"
-	"github.com/TeoSlayer/pilotprotocol/plugins/policy"
-	pluginsruntime "github.com/TeoSlayer/pilotprotocol/plugins/runtime"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/beacon"
+	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/dataexchange"
+	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/handshake"
+	"github.com/pilot-protocol/policy"
+	registry "github.com/pilot-protocol/rendezvous"
+	pluginsruntime "github.com/pilot-protocol/runtime"
+	"github.com/pilot-protocol/webhook"
 )
 
 // setClientSigner configures a registry client with a signer for the given identity.

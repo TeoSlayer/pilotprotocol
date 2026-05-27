@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -22,13 +23,14 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/internal/fsutil"
-	"github.com/TeoSlayer/pilotprotocol/internal/trustedagents"
+	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/fsutil"
+	"github.com/pilot-protocol/trustedagents"
 )
 
 // isRegistryRejectingUsErr returns true when the registry's response to a
@@ -73,23 +75,20 @@ type Config struct {
 	Encrypt             bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
 	RegistryTLS         bool   // use TLS for registry connection
 	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning
-	IdentityPath        string // path to persist Ed25519 identity (empty = no persistence)
-	Email               string // email address for account identification and key recovery
-	Owner               string // deprecated: use Email instead
+	// RegistryTrust selects which trust store verifies the registry's
+	// certificate when RegistryTLS=true. "pinned" (default) requires
+	// RegistryFingerprint and is what production deploys use today.
+	// "system" trusts the OS x509 root store — the path for compat-mode
+	// daemons pointing at registry.pilotprotocol.network:443 with its
+	// Let's Encrypt certificate. Mirrors -tls-trust on the WSS side.
+	RegistryTrust string
+	IdentityPath  string // path to persist Ed25519 identity (empty = no persistence)
+	Email         string // email address for account identification and key recovery
+	Owner         string // deprecated: use Email instead
 
 	Endpoint string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
-
-	// FakeListenAddr overrides the listen_addr advertised to the
-	// registry. Real socket binding still uses ListenAddr; only the
-	// registered metadata is rewritten. Intended for synthetic-fleet
-	// scenarios where a daemon should appear at a country-residential
-	// address while still operating on a real OS socket. Endpoint
-	// learning on the data path is packet-driven, so peer responses
-	// continue to reach the real socket regardless of the advertised
-	// addr (see pkg/daemon/tunnel.go peerAddr learning).
-	FakeListenAddr string
 
 	// RelayOnly hides this node's real_addr from peer resolve/lookup
 	// responses. Peers reach this node only via the beacon-relay path,
@@ -121,6 +120,21 @@ type Config struct {
 
 	// Feature flags — ablation testing. All default false (current behavior).
 	BeaconRTTProbe bool // probe beacon RTT; override hash pick when >2× slower than best
+
+	// Compat-mode transport. Default empty ("" or "udp") = today's
+	// behavior: bind a UDP socket via udpio.Listen. Set "compat" to
+	// dial WSS to BeaconURL instead (for daemons in UDP-blocked
+	// environments — Docker on Render/Railway/Vercel/Lambda).
+	// See docs/SPEC-compat-mode.md.
+	TransportMode string // "" | "udp" | "compat"
+	// CompatBeaconURL is the wss:// URL of the beacon when
+	// TransportMode=compat. Ignored otherwise.
+	CompatBeaconURL string
+	// CompatTLSTrust selects the TLS trust store for compat mode:
+	// "pinned" (default; only the Pilot root CA embedded in the
+	// binary) or "system" (OS trust store; escape hatch for daemons
+	// behind TLS-intercepting corp proxies).
+	CompatTLSTrust string
 
 	// Tuning (zero = use defaults)
 	KeepaliveInterval     time.Duration // default 60s
@@ -559,8 +573,28 @@ func (d *Daemon) Start() error {
 
 	// 1. Discover our public endpoint via beacon using a temporary UDP socket.
 	// If -endpoint is set, skip STUN and use the fixed address (for cloud VMs).
+	// In compat mode (TransportMode=compat) we skip STUN entirely — the
+	// daemon doesn't bind a public UDP socket, so endpoint discovery is
+	// meaningless. The daemon registers with a placeholder addr and
+	// relay_only=true; peers reach it through the beacon's WSS bridge.
+	// Reject unknown -transport values up front rather than silently
+	// falling through to UDP. Empty string is allowed (means "udp",
+	// preserving zero-Config callers).
+	switch d.config.TransportMode {
+	case "", "udp", "compat":
+		// ok
+	default:
+		return fmt.Errorf("invalid -transport %q: must be 'udp' or 'compat'", d.config.TransportMode)
+	}
+
 	var registrationAddr string
-	if d.config.Endpoint != "" {
+	if d.config.TransportMode == "compat" {
+		registrationAddr = "0.0.0.0:0" // placeholder — relay_only daemons hide this from peers
+		d.config.RelayOnly = true
+		slog.Info("compat mode enabled — skipping STUN; will dial WSS beacon after register",
+			"compat_beacon", d.config.CompatBeaconURL,
+			"tls_trust", d.config.CompatTLSTrust)
+	} else if d.config.Endpoint != "" {
 		registrationAddr = d.config.Endpoint
 		slog.Info("using fixed endpoint", "endpoint", registrationAddr)
 	} else {
@@ -598,28 +632,40 @@ func (d *Daemon) Start() error {
 	// New() so it's safe to publish here.
 	d.tunnels.SetEventBus(d.bus)
 
-	// 3. Start UDP listener for tunnel traffic
-	if err := d.tunnels.Listen(d.config.ListenAddr); err != nil {
-		return fmt.Errorf("tunnel listen: %w", err)
-	}
-	actualAddr := d.tunnels.LocalAddr().String()
-	slog.Info("tunnel listening", "addr", actualAddr)
+	// 3. Start UDP listener for tunnel traffic. Compat-mode daemons
+	// skip this — the WSS transport is dialed after register, once we
+	// know our node ID for the auth challenge.
+	var actualAddr string
+	if d.config.TransportMode == "compat" {
+		actualAddr = "0.0.0.0:0" // synthetic; no real local socket bound
+		d.lanAddrs = nil         // no LAN advertisement for compat daemons
+	} else {
+		if err := d.tunnels.Listen(d.config.ListenAddr); err != nil {
+			return fmt.Errorf("tunnel listen: %w", err)
+		}
+		actualAddr = d.tunnels.LocalAddr().String()
+		slog.Info("tunnel listening", "addr", actualAddr)
 
-	// Collect LAN addresses using the actual tunnel port (not config port which may be 0)
-	_, actualPort, _ := net.SplitHostPort(actualAddr)
-	if actualPort == "" || actualPort == "0" {
-		actualPort = "4000"
+		// Collect LAN addresses using the actual tunnel port (not config port which may be 0)
+		_, actualPort, _ := net.SplitHostPort(actualAddr)
+		if actualPort == "" || actualPort == "0" {
+			actualPort = "4000"
+		}
+		d.lanAddrs = collectLANAddrs(actualPort)
 	}
-	d.lanAddrs = collectLANAddrs(actualPort)
 
 	// If STUN discovered a public endpoint, keep it. The temp socket and
 	// tunnel socket bind the same local port, so endpoint-independent NAT
 	// (like Cloud NAT) maps them to the same external IP:port.
 	// Only fall back to the local address if STUN didn't run or failed.
-	stunHost, _, splitErr := net.SplitHostPort(registrationAddr)
-	isLocalAddr := splitErr != nil || stunHost == "" || stunHost == "127.0.0.1" || stunHost == "::1" || stunHost == "0.0.0.0" || stunHost == "::"
-	if isLocalAddr {
-		registrationAddr = resolveLocalAddr(actualAddr)
+	// In compat mode the placeholder registrationAddr ("0.0.0.0:0") is
+	// intentional — we never reveal a UDP endpoint — so skip this fix-up.
+	if d.config.TransportMode != "compat" {
+		stunHost, _, splitErr := net.SplitHostPort(registrationAddr)
+		isLocalAddr := splitErr != nil || stunHost == "" || stunHost == "127.0.0.1" || stunHost == "::1" || stunHost == "0.0.0.0" || stunHost == "::"
+		if isLocalAddr {
+			registrationAddr = resolveLocalAddr(actualAddr)
+		}
 	}
 
 	// 3. Identity is already loaded/generated at the top of Start (step 0)
@@ -646,10 +692,26 @@ func (d *Daemon) Start() error {
 	registryDialBackoff := 500 * time.Millisecond
 	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
 		if d.config.RegistryTLS {
-			if d.config.RegistryFingerprint == "" {
-				return fmt.Errorf("registry TLS requires RegistryFingerprint for certificate pinning")
+			trust := d.config.RegistryTrust
+			if trust == "" {
+				// Back-compat: RegistryTLS=true used to imply pinning;
+				// require fingerprint if the operator didn't pick a
+				// trust store explicitly.
+				trust = "pinned"
 			}
-			rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
+			switch trust {
+			case "pinned":
+				if d.config.RegistryFingerprint == "" {
+					return fmt.Errorf("registry TLS with -registry-trust=pinned requires RegistryFingerprint")
+				}
+				rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
+			case "system":
+				// OS x509 root store — for registry.pilotprotocol.network
+				// served by Let's Encrypt + nginx SNI routing on 443.
+				rc, err = registry.DialTLSPool(d.config.RegistryAddr, &tls.Config{MinVersion: tls.VersionTLS12}, regConnPoolSize)
+			default:
+				return fmt.Errorf("invalid -registry-trust %q: must be 'pinned' or 'system'", trust)
+			}
 		} else {
 			rc, err = registry.DialPool(d.config.RegistryAddr, regConnPoolSize)
 		}
@@ -669,20 +731,25 @@ func (d *Daemon) Start() error {
 	}
 	d.regConn = rc
 
-	// H3 fix: set signer for authenticated registry operations
+	// H3 fix: set signer for authenticated registry operations.
+	// Read d.identity under d.identityMu on every call so RotateKey (or any
+	// future rebind of d.identity) is picked up without re-installing the
+	// signer. Capturing the pointer at SetSigner time would diverge from
+	// node.PublicKey on the registry after a rotation, producing the symptom
+	// "registry: signature verification failed" on every heartbeat.
 	if d.identity != nil {
-		id := d.identity
 		rc.SetSigner(func(challenge string) string {
-			sig := id.Sign([]byte(challenge))
-			return base64.StdEncoding.EncodeToString(sig)
+			d.identityMu.RLock()
+			cur := d.identity
+			d.identityMu.RUnlock()
+			if cur == nil {
+				return ""
+			}
+			return base64.StdEncoding.EncodeToString(cur.Sign([]byte(challenge)))
 		})
 	}
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-		slog.Info("using fake listen addr for registration", "fake_addr", registrationAddr)
-	}
 	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -730,6 +797,30 @@ func (d *Daemon) Start() error {
 	if d.identity != nil {
 		d.tunnels.SetIdentity(d.identity)
 		d.tunnels.SetPeerVerifyFunc(d.lookupPeerPubKey)
+	}
+
+	// Compat mode: now that we have the node ID, dial the beacon over
+	// WSS and install that as the tunnel transport. The readLoop and
+	// keepalive loop start inside ConnectCompat, mirroring what
+	// Listen() does for UDP. See docs/SPEC-compat-mode.md.
+	if d.config.TransportMode == "compat" {
+		tlsCfg, terr := buildCompatTLSConfig(d.config.CompatTLSTrust)
+		if terr != nil {
+			return fmt.Errorf("compat tls config: %w", terr)
+		}
+		ccCtx, ccCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer ccCancel()
+		if cerr := d.tunnels.ConnectCompat(ccCtx, ConnectCompatConfig{
+			BeaconURL: d.config.CompatBeaconURL,
+			TLSConfig: tlsCfg,
+			Identity:  d.identity,
+			NodeID:    d.nodeID,
+		}); cerr != nil {
+			return fmt.Errorf("compat connect: %w", cerr)
+		}
+		slog.Info("compat mode tunnel up",
+			"node_id", d.nodeID,
+			"beacon", d.config.CompatBeaconURL)
 	}
 
 	// Stash the registration endpoint for Info() readers — used by tests
@@ -1824,8 +1915,19 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	d.identityMu.Unlock()
 
 	d.tunnels.SetIdentity(newID)
+	// The signer installed in Start() reads d.identity under d.identityMu
+	// on every call, so this SetSigner re-bind is no longer load-bearing —
+	// kept for symmetry with the original RotateKey contract. The closure
+	// here also goes through the mutex to stay consistent if d.identity
+	// ever rotates again.
 	d.regConn.SetSigner(func(c string) string {
-		return base64.StdEncoding.EncodeToString(newID.Sign([]byte(c)))
+		d.identityMu.RLock()
+		cur := d.identity
+		d.identityMu.RUnlock()
+		if cur == nil {
+			return ""
+		}
+		return base64.StdEncoding.EncodeToString(cur.Sign([]byte(c)))
 	})
 
 	if d.config.IdentityPath != "" {
@@ -2808,6 +2910,17 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 		return nil, err
 	}
 
+	// Compat mode: the daemon has no public UDP socket, so any direct
+	// SYN we send out can't reach the peer. Pre-flip the routing
+	// state to relay BEFORE the first SYN so it goes out via the
+	// beacon WSS bridge on the first try, not after a 25-78s direct
+	// retry budget burns. Same reasoning as the directRetries=0
+	// branch in the retransmit loop below — we just need it earlier
+	// so the initial SYN is correctly routed.
+	if d.config.TransportMode == "compat" && !d.tunnels.IsRelayPeer(dstAddr.Node) {
+		d.tunnels.SetRelayPeer(dstAddr.Node, true)
+	}
+
 	// Auto-initiate handshake toward known trusted agents when we have no
 	// local trust entry yet. Scoped to the trusted-agents list so we don't
 	// spray handshakes at arbitrary peers. Fires non-blocking so the
@@ -2872,14 +2985,29 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	conn.Mu.Unlock()
 
 	// Wait for ESTABLISHED with SYN retransmission.
-	// Phase 1: Direct connection (3 retries).
-	// Phase 2: Relay through beacon if direct fails (3 more retries).
+	// Phase 1: Direct connection (DialDirectRetries attempts).
+	// Phase 2: Relay through beacon if direct fails (remaining attempts).
 	retries := 0
 	directRetries := DialDirectRetries
 	maxRetries := DialMaxRetries
-	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node) // may already be relay from prior attempt
-	if relayActive {
-		directRetries = 0 // skip direct phase, go straight to relay
+	// relayActive is set when this peer is currently flagged for relay.
+	// We distinguish between PINNED flags (authoritative: registry
+	// relay_only=true, beacon-admitted symmetric-NAT, ICMP-unreachable
+	// threshold) and UNPINNED flags (set by a previous dial's failed
+	// direct phase). Pinned: skip the direct retry budget entirely.
+	// Unpinned: still try direct first — a previous dial's loss-induced
+	// flip should not trap subsequent dials in relay-only mode when
+	// the relay path is itself unhealthy (the 2026-05-26 worktree
+	// diagnostic showed 80% wedge rate at 20% drop because the dial's
+	// SetRelayPeer was sticky across dials).
+	relayActive := d.tunnels.IsRelayPeer(dstAddr.Node)
+	relayPinned := d.tunnels.IsRelayPinned(dstAddr.Node)
+	// relayActivatedHere tracks whether THIS dial was the one that
+	// flipped the peer to relay. On failure we clear our own (unpinned)
+	// flip so the next dial isn't trapped in relay-only mode.
+	relayActivatedHere := false
+	if relayActive && relayPinned {
+		directRetries = 0
 	}
 	rto := DialInitialRTO
 	timer := time.NewTimer(rto)
@@ -2897,6 +3025,13 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 			// "ID 13/14/15 SYN_SENT" orphan rows in `pilotctl info`
 			// after Ctrl+C — gone within ~1 ms of the cancel.
 			d.ports.RemoveConnection(conn.ID)
+			// Same cleanup as the maxRetries-exhausted path: if THIS
+			// dial flipped the peer to advisory relay, drop the flag so
+			// the next dial isn't trapped probing a (possibly broken)
+			// relay path. Pinned flags are untouched.
+			if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
+				d.tunnels.SetRelayPeer(dstAddr.Node, false)
+			}
 			return nil, ctx.Err()
 		case <-check.C:
 			conn.Mu.Lock()
@@ -2913,6 +3048,14 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				return conn, nil
 			}
 			if st == StateClosed {
+				// Symmetric with the ctx.Done and retries>maxRetries arms:
+				// the connection is finished from this dial's perspective,
+				// so release the slot immediately. StaleConnections does
+				// catch StateClosed entries on its next tick, but until
+				// then the conn occupies an ephemeral port AND counts toward
+				// MaxTotalConnections — making the next dial fail under
+				// burst even though nothing real holds the slot.
+				d.ports.RemoveConnection(conn.ID)
 				return nil, protocol.ErrConnRefused
 			}
 		case <-timer.C:
@@ -2927,6 +3070,7 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				slog.Info("direct dial timed out, switching to relay", "node_id", dstAddr.Node)
 				d.tunnels.SetRelayPeer(dstAddr.Node, true)
 				relayActive = true
+				relayActivatedHere = true
 				rto = DialInitialRTO // reset backoff for relay phase
 			}
 
@@ -2938,6 +3082,15 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				// next dial fetches fresh registry data instead of
 				// re-dialing the same dead address for ResolveCacheTTL.
 				d.forgetPeerResolution(dstAddr.Node)
+				// Clear our advisory relay flip so the NEXT dial gets a
+				// fresh shot at direct. Without this, one failed dial
+				// pins the peer to a (possibly broken) relay path for
+				// every subsequent dial — the 80%-wedge pattern from
+				// the lossy diagnostic. Pinned peers (authoritative
+				// signals) are untouched.
+				if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
+					d.tunnels.SetRelayPeer(dstAddr.Node, false)
+				}
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
@@ -4223,9 +4376,6 @@ func (d *Daemon) reRegister() {
 	d.identityMu.RLock()
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
 	d.identityMu.RUnlock()
-	if d.config.FakeListenAddr != "" {
-		registrationAddr = d.config.FakeListenAddr
-	}
 	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
@@ -4350,6 +4500,11 @@ func (d *Daemon) idleSweepLoop() {
 
 			// Reap stale per-source SYN rate limit buckets
 			d.reapPerSrcSYN()
+
+			// Reap stale "queue full" log-throttle entries so
+			// lastPendDropLog doesn't accumulate one slot per
+			// unique-peer-ever-throttled.
+			d.tunnels.reapPendDropLog()
 
 			// Evict expired entries from the three peer-resolution caches.
 			// epCache: stale-but-usable after EndpointCacheTTL; evict after 1 hour.
@@ -4914,4 +5069,26 @@ func resolveLocalAddr(addr string) string {
 		return "[::1]:" + port
 	}
 	return addr
+}
+
+// buildCompatTLSConfig returns the tls.Config used to verify the
+// beacon's certificate in compat mode. trust=="pinned" (default)
+// returns a config trusting only the Pilot root(s) embedded in the
+// daemon binary. trust=="system" falls back to the OS trust store —
+// the escape hatch for daemons behind TLS-intercepting corp proxies.
+// Any other value is rejected.
+func buildCompatTLSConfig(trust string) (*tls.Config, error) {
+	switch trust {
+	case "", "pinned":
+		pool, err := compat.PinnedRoots()
+		if err != nil {
+			return nil, fmt.Errorf("load pinned roots: %w", err)
+		}
+		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	case "system":
+		slog.Warn("compat mode: TLS trust relaxed to OS store — TLS-intercepting proxies on the path can read/alter relay traffic; end-to-end Ed25519 still protects payload identity")
+		return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+	default:
+		return nil, fmt.Errorf("invalid -tls-trust %q: must be 'pinned' or 'system'", trust)
+	}
 }

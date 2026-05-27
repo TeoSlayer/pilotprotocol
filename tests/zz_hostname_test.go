@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/common/crypto"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // startTestRegistry starts a registry on a random port and returns the client and cleanup func.

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	internaldx "github.com/TeoSlayer/pilotprotocol/internal/dataexchange"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/plugins/dataexchange"
+	"github.com/pilot-protocol/dataexchange"
+	internaldx "github.com/pilot-protocol/dataexchange"
 )
 
 func TestDataExchange(t *testing.T) {

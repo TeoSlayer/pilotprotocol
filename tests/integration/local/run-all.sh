@@ -92,14 +92,12 @@ test_chaos_loss30_all_ops.sh
 test_size_file_100mb.sh
 test_force_relay_task.sh
 test_rendezvous_restart_midflight.sh
-test_policy_shipped_configs.sh
 test_gateway_http_message.sh
 test_nat_conntrack_timeout.sh
 test_splitbrain_heal.sh
 test_task_accept_expiry.sh
 test_receiver_sigkill_midtask.sh
 test_race_polo_read_write.sh
-test_net_mutual_admiration_shipped.sh
 test_beacon_restart_midflight.sh
 test_sec_sybil_reputation.sh
 "

@@ -599,6 +599,68 @@ func TestWriteFrame_RelayWhenPinned(t *testing.T) {
 	}
 }
 
+// TestWriteFrame_ForceRelayWrapsFreshPeer pins compat-mode behavior:
+// when forceRelay is set, every outbound — even to a fresh peer with
+// no prior blackhole observations — must be wrapped in BeaconMsgRelay
+// and addressed to the beacon. Regression test for the v1.10.1 bug
+// where managed-claw daemons silently failed to talk to UDP-only
+// peers because the first send went raw through the WSS pipe and the
+// beacon dropped it as an unknown protocol packet.
+func TestWriteFrame_ForceRelayWrapsFreshPeer(t *testing.T) {
+	t.Parallel()
+	m := routing.New()
+	const ourID uint32 = 0xC0FFEE01
+	const peerID uint32 = 0xBADCAFE0
+	m.SetLocalNodeIDFn(func() uint32 { return ourID })
+	beacon := &net.UDPAddr{IP: net.ParseIP("198.51.100.20"), Port: 9001}
+	m.SetBeaconAddrUDP(beacon)
+	sock := &fakeSocket{}
+	m.SetSocket(sock)
+
+	// Critical: peer is FRESH — no SetRelayPeer / SetRelayPeerPinned /
+	// blackhole flips. Only forceRelay is on.
+	m.SetForceRelay(true)
+	if !m.ForceRelay() {
+		t.Fatal("ForceRelay() returned false after SetForceRelay(true)")
+	}
+
+	// addr is nil — caller doesn't even know the peer's direct UDP
+	// endpoint yet. This mirrors the real compat-mode caller, where
+	// peers maps only get populated after the first relay reply.
+	frame := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE}
+	out, err := m.WriteFrame(peerID, nil, frame, routing.CounterTarget{})
+	if err != nil {
+		t.Fatalf("WriteFrame with forceRelay should not error on fresh peer: %v", err)
+	}
+	if !out.WasRelay {
+		t.Fatal("expected relay-wrapped send under forceRelay, got direct")
+	}
+
+	got := sock.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 send, got %d", len(got))
+	}
+	if !addrsEqual(got[0].dst, beacon) {
+		t.Fatalf("dst: got %v want beacon %v", got[0].dst, beacon)
+	}
+	wire := got[0].frame
+	if len(wire) != 1+4+4+len(frame) {
+		t.Fatalf("wire len=%d want %d", len(wire), 1+4+4+len(frame))
+	}
+	if wire[0] != protocol.BeaconMsgRelay {
+		t.Fatalf("wire[0]=0x%02x want 0x%02x (BeaconMsgRelay)", wire[0], protocol.BeaconMsgRelay)
+	}
+	if got := binary.BigEndian.Uint32(wire[1:5]); got != ourID {
+		t.Fatalf("sender nodeID=0x%08x want 0x%08x", got, ourID)
+	}
+	if got := binary.BigEndian.Uint32(wire[5:9]); got != peerID {
+		t.Fatalf("dst nodeID=0x%08x want 0x%08x", got, peerID)
+	}
+	if !equalBytes(wire[9:], frame) {
+		t.Fatalf("payload mismatch: got %x want %x", wire[9:], frame)
+	}
+}
+
 func TestWriteFrame_NoAddressNoBeacon(t *testing.T) {
 	t.Parallel()
 	m := routing.New()

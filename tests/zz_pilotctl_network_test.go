@@ -16,7 +16,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	"github.com/TeoSlayer/pilotprotocol/plugins/webhook"
+	"github.com/pilot-protocol/webhook"
 )
 
 // TestPilotctlNetworkJoinToken verifies joining a token-gated network via the driver.

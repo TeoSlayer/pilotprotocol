@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/crypto"
-	"github.com/TeoSlayer/pilotprotocol/pkg/beacon"
 	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/server"
+	"github.com/pilot-protocol/beacon"
+	"github.com/pilot-protocol/common/crypto"
+	registry "github.com/pilot-protocol/rendezvous"
 )
 
 // syncLogBuf is a goroutine-safe bytes.Buffer for slog handlers. The slog
