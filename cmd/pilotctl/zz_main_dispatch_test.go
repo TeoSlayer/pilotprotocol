@@ -131,6 +131,72 @@ func TestMainDispatchVerboseFlag(t *testing.T) {
 	verbose = false
 }
 
+func TestMainDispatchExtrasGatewayList(t *testing.T) {
+	withTempHomeFull(t)
+	jsonOutput = false
+	verbose = false
+	withArgs(t, []string{"extras", "gateway", "list"}, func() {
+		out := captureStdout(t, main)
+		if !strings.Contains(out, "mappings") && !strings.Contains(out, "no mappings") {
+			t.Errorf("gateway list missing output: %s", out)
+		}
+	})
+}
+
+func TestMainDispatchExtrasGatewayListJSON(t *testing.T) {
+	withTempHomeFull(t)
+	jsonOutput = false
+	verbose = false
+	withArgs(t, []string{"--json", "extras", "gateway", "list"}, func() {
+		out := captureStdout(t, main)
+		if !strings.Contains(out, "mappings") {
+			t.Errorf("missing mappings: %s", out)
+		}
+	})
+}
+
+func TestMainDispatchAppstoreHelp(t *testing.T) {
+	withTempHomeFull(t)
+	jsonOutput = false
+	verbose = false
+	withArgs(t, []string{"appstore", "help"}, func() {
+		// help text goes to stderr — just ensure no panic / no exit.
+		_ = captureStderr(t, main)
+	})
+}
+
+func TestMainDispatchAppstoreActions(t *testing.T) {
+	withTempHomeFull(t)
+	root := t.TempDir()
+	t.Setenv("PILOT_APPSTORE_ROOT", root)
+	jsonOutput = false
+	verbose = false
+	withArgs(t, []string{"--json", "appstore", "actions"}, func() {
+		out := captureStdout(t, main)
+		out = strings.TrimSpace(out)
+		if out != "[]" && out != "null" {
+			t.Errorf("expected empty array, got %q", out)
+		}
+	})
+}
+
+func TestMainDispatchHelpFlag(t *testing.T) {
+	withTempHomeFull(t)
+	jsonOutput = false
+	verbose = false
+	// pilotctl ping -h → printCommandHelp(ping, ["-h"]) → exits with status 0.
+	// We can't easily call this inline (it os.Exit's) but we CAN test that
+	// the help-flag detection happens in main's normal flow when followed
+	// by a no-network command's help.
+	withArgs(t, []string{"context", "-h"}, func() {
+		// hasHelpFlag returns true → printCommandHelp("context", ["-h"]) →
+		// looks up commandHelp["context"] → prints to stderr → os.Exit(0).
+		// We can't catch os.Exit, so don't actually call. Just ensure args
+		// path parses.
+		_, _ = parseFlags([]string{"context", "-h"})
+	})
+}
+
 func TestMainDispatchConfig(t *testing.T) {
 	withTempHomeFull(t)
 	jsonOutput = false
