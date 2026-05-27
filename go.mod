@@ -1,6 +1,6 @@
 module github.com/TeoSlayer/pilotprotocol
 
-go 1.25.3
+go 1.25.10
 
 require (
 	github.com/coder/websocket v1.8.14
@@ -22,6 +22,6 @@ require (
 
 require (
 	github.com/expr-lang/expr v1.17.8 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
