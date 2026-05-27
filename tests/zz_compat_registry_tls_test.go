@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//go:build nightly
+
 // Compat-mode TLS-registry regression test. Spins up a registry server
 // with an auto-generated self-signed cert and an in-process beacon
 // with WSS bridge, then starts a compat daemon that pins the registry

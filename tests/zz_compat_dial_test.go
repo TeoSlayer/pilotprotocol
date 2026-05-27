@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+//go:build nightly
+
 // End-to-end compat-mode regression test. Drives a real Daemon.Dial
 // flow from a compat-mode (WSS-only) daemon to a UDP-mode peer
 // attached to the same beacon. Verifies the SYN → SYN-ACK → ACK
