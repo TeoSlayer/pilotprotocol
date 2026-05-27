@@ -25,16 +25,12 @@ jobs:
         run: go vet ./...
 
       - name: Build
+        # cmd/{registry,beacon,rendezvous,nameserver,gateway,updater,pilot-ca}
+        # were extracted to sibling pilot-protocol/* repos; only daemon
+        # and pilotctl ship from this repo now.
         run: |
           go build ./cmd/daemon
-          go build ./cmd/registry
-          go build ./cmd/beacon
-          go build ./cmd/rendezvous
           go build ./cmd/pilotctl
-          go build ./cmd/nameserver
-          go build ./cmd/gateway
-          go build ./cmd/updater
-          go build ./cmd/pilot-ca
 
       - name: Test
         # 300s matches the release workflow + pre-push hook. The tests/
@@ -52,41 +48,3 @@ jobs:
         run: |
           cd tests && go test -parallel 4 -count=1 -coverprofile=coverage.out -covermode=atomic -timeout 1200s
           go tool cover -func=coverage.out | tail -1
-
-  website:
-    name: Website
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-  node-sdk:
-    name: Node SDK
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sdk/node
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
