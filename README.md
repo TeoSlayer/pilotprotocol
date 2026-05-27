@@ -12,9 +12,9 @@
 <p align="center">
   <a href="https://pilotprotocol.network/docs/"><strong>Docs</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
-  <a href="docs/SPEC.md"><strong>Wire Spec</strong></a>
+  <a href="https://github.com/pilot-protocol/docs/blob/main/SPEC.md"><strong>Wire Spec</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
-  <a href="docs/WHITEPAPER.pdf"><strong>Whitepaper</strong></a>
+  <a href="https://github.com/pilot-protocol/docs/blob/main/WHITEPAPER.pdf"><strong>Whitepaper</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
   <a href="https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html"><strong>IETF Draft</strong></a>
   <span>&nbsp;&middot;&nbsp;</span>
@@ -40,7 +40,7 @@
 ---
 
 <p align="center">
-  <img src="docs/media/pilot-demo.gif" alt="Pilot Protocol Demo — two agents: install, trust, data exchange" width="960">
+  <img src="https://raw.githubusercontent.com/pilot-protocol/docs/main/media/pilot-demo.gif" alt="Pilot Protocol Demo — two agents: install, trust, data exchange" width="960">
 </p>
 
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, authenticated encrypted channels, and a trust model** -- all layered on top of standard UDP.
@@ -282,8 +282,8 @@ go test -parallel 4 -count=1 ./tests/
 | Document | Description |
 |----------|-------------|
 | **[Docs Site](https://pilotprotocol.network/docs/)** | Guides, CLI reference, deployment, configuration, and integration patterns |
-| **[Wire Specification](docs/SPEC.md)** | Packet format, addressing, flags, checksums |
-| **[Whitepaper (PDF)](docs/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
+| **[Wire Specification](https://github.com/pilot-protocol/docs/blob/main/SPEC.md)** | Packet format, addressing, flags, checksums |
+| **[Whitepaper (PDF)](https://github.com/pilot-protocol/docs/blob/main/WHITEPAPER.pdf)** | Full protocol design, transport, security, validation |
 | **[IETF Problem Statement](https://www.ietf.org/archive/id/draft-teodor-pilot-problem-statement-01.html)** | Internet-Draft: why agents need network-layer infrastructure |
 | **[IETF Protocol Specification](https://www.ietf.org/archive/id/draft-teodor-pilot-protocol-01.html)** | Internet-Draft: full protocol spec in IETF format |
 | **[Agent Skills](https://github.com/TeoSlayer/pilot-skills)** | Installable agent skill catalog for Pilot Protocol |
