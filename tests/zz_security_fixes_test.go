@@ -507,9 +507,14 @@ func TestResolveTOCTOUConcurrency(t *testing.T) {
 		close(waitDone)
 	}()
 
+	// 60s budget: the test spins 50 revoke/report cycles + a continuous
+	// resolve loop on shared registry state. Under -parallel 4 on CI
+	// runners the 15s prior budget intermittently misses; bumping to
+	// 60s gives margin without slowing the happy path (cycles run in
+	// ~5s in isolation).
 	select {
 	case <-waitDone:
-	case <-time.After(15 * time.Second):
+	case <-time.After(60 * time.Second):
 		close(done)
 		t.Fatal("TOCTOU test timed out")
 	}

@@ -309,11 +309,17 @@ func TestConnectionAfterPeerRestart(t *testing.T) {
 	bDrv.Close()
 	bDaemon.Stop()
 
-	// Server A should eventually get an error
+	// Server A should eventually get an error.
+	// 60s budget: peer-crash detection traverses several round-trips
+	// (peer FIN/RST → connection-state transition → server Read returns
+	// error). On CI runners under -parallel 4 with many other daemons
+	// running, the 30s prior budget intermittently misses; doubling
+	// gives comfortable margin without making the test slow on the
+	// happy path (still returns in ~3s in isolation).
 	select {
 	case err := <-serverErr:
 		t.Logf("server got error after peer crash: %v", err)
-	case <-time.After(30 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("server did not detect peer crash within timeout")
 	}
 }
