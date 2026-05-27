@@ -33,15 +33,14 @@ jobs:
           go build ./cmd/pilotctl
 
       - name: Test
-        # tests/ has grown past the prior 900s ceiling: 30+ new
-        # zz_*_test.go added coverage for accessors / edge paths,
-        # local repro hits the 900s wall against ./tests/ too (not
-        # just CI). Bumped to 1800s — matches the Coverage step
-        # right below and the architecture-gates stress harness.
-        # If this keeps creeping, split tests/ into faster slices
-        # rather than continuing to bump the ceiling.
+        # Default tags only — every fuzz / scaling / stress / load /
+        # diag file is now gated with //go:build nightly and runs in
+        # nightly.yml instead. PR CI exercises the 800 correctness
+        # tests; nightly.yml runs the full 1001 (200 extra).
+        # If new "slow" tests need to land, add //go:build nightly to
+        # the test file rather than bumping this ceiling.
         run: |
-          go test -parallel 4 -count=1 -timeout 1800s \
+          go test -parallel 4 -count=1 -timeout 900s \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
             ./tests/
 

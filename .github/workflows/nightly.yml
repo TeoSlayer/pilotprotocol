@@ -1,0 +1,56 @@
+name: nightly
+
+# Runs the full ./tests/ suite WITHOUT default-tag filtering, plus
+# everything gated behind //go:build nightly (fuzz / scaling / stress /
+# loadtest). These are the heavy correctness + perf-regression checks
+# that don't fit in the PR CI budget.
+#
+# Triggered on:
+#   - schedule: 06:00 UTC daily (after most US/EU work has stopped)
+#   - workflow_dispatch: manual run from the Actions tab
+#
+# A failure here does NOT block PRs but DOES post-mortem regressions
+# the PR-CI Test step let through.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: Full test suite (nightly tag)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Full test (default + nightly)
+        # 30m timeout: fuzz / scaling / stress files have wide variance.
+        # 200 extra tests beyond what PR CI sees, including:
+        #   - 7 fuzz suites (daemon, protocol, config, crypto,
+        #     fsutil_pool, ipc, secure, registry)
+        #   - zz_scaling_test.go (16 funcs)
+        #   - zz_stress_test.go (1 func)
+        # The skip list mirrors PR CI: those tests are known-slow
+        # and run sufficiently via the architecture-gates stress
+        # harness instead.
+        run: |
+          go test -tags nightly -parallel 4 -count=1 -timeout 30m \
+            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
+            ./tests/
+
+      - name: Benchmark sanity (no upload)
+        # Quick benchmark smoke — just confirms zz_bench_*_test.go still
+        # compiles + runs one iteration each. Real numbers come from
+        # benchstat against a fresh laptop run, not GitHub runners.
+        run: |
+          go test -run='^$' -bench='.' -benchtime=1x -count=1 -timeout 20m ./tests/
