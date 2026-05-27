@@ -96,6 +96,39 @@ func TestCmdAppStoreCallHappyPath(t *testing.T) {
 	}
 }
 
+func TestCmdAppStoreCallTextMode(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "pilotctl-call-text-")
+	if err != nil {
+		t.Fatalf("mktemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Setenv("PILOT_APPSTORE_ROOT", root)
+	appID := "io.test.call.text"
+	appDir := filepath.Join(root, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "manifest.json"),
+		minimalManifestJSON(appID, nil), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	replyJSON := []byte(`{"out":42}`)
+	_, wait := stubAppSocket(t, root, appID, replyJSON)
+	defer wait()
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+	out := captureStdout(t, func() {
+		cmdAppStoreCall([]string{appID, "echo"})
+	})
+	// Text mode pretty-prints the JSON.
+	if !contains(out, "out") || !contains(out, "42") {
+		t.Errorf("expected pretty JSON in: %q", out)
+	}
+}
+
 func contains(s, substr string) bool {
 	if len(substr) == 0 {
 		return true
