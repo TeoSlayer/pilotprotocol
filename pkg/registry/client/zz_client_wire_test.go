@@ -222,14 +222,19 @@ func TestCloseClosesRealConn(t *testing.T) {
 func TestSetSignerReturnsSignature(t *testing.T) {
 	t.Parallel()
 	c := &Client{}
-	if got := c.sign("whatever"); got != "" {
-		t.Fatalf("expected empty sig with no signer, got %q", got)
+	sig, err := c.sign("whatever")
+	if err == nil {
+		t.Fatalf("expected error with no signer, got sig=%q", sig)
 	}
 	c.SetSigner(func(challenge string) string {
 		return "sig(" + challenge + ")"
 	})
-	if got := c.sign("abc"); got != "sig(abc)" {
-		t.Fatalf("expected sig(abc), got %q", got)
+	sig, err = c.sign("abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sig != "sig(abc)" {
+		t.Fatalf("expected sig(abc), got %q", sig)
 	}
 }
 
@@ -474,6 +479,7 @@ func TestReportTrustAndRevokeTrustFormat(t *testing.T) {
 	defer srv.close()
 	c, _ := Dial(srv.addr())
 	defer c.Close()
+	c.SetSigner(func(ch string) string { return "SIG:" + ch })
 
 	for name, fn := range map[string]func() (map[string]interface{}, error){
 		"report_trust": func() (map[string]interface{}, error) { return c.ReportTrust(1, 2) },
@@ -502,6 +508,7 @@ func TestSetVisibilityPublicFlagSerialized(t *testing.T) {
 	defer srv.close()
 	c, _ := Dial(srv.addr())
 	defer c.Close()
+	c.SetSigner(func(ch string) string { return "SIG:" + ch })
 
 	resp, err := c.SetVisibility(9, true)
 	if err != nil {

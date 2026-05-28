@@ -221,6 +221,7 @@ func TestSignedWrappersIncludeCorrectChallenge(t *testing.T) {
 func TestSetKeyExpiryFormatsRFC3339(t *testing.T) {
 	t.Parallel()
 	c, _ := echoOnlyClient(t)
+	c.SetSigner(func(ch string) string { return "SIG:" + ch })
 	moment := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	resp, _ := c.SetKeyExpiry(9, moment)
 	echo := assertEcho(t, resp)
