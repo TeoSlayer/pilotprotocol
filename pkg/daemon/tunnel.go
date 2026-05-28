@@ -1637,6 +1637,18 @@ func (tm *TunnelManager) IsEncrypted(nodeID uint32) bool {
 	return tm.envelope.IsReady(nodeID)
 }
 
+// LastDirectRecv returns the last time a direct-path packet was received
+// from the given peer (zero value if none). Thin wrapper over routing.Manager.
+func (tm *TunnelManager) LastDirectRecv(nodeID uint32) time.Time {
+	return tm.routing.LastDirectRecv(nodeID)
+}
+
+// LastOutboundSend returns the last outbound send timestamp for the
+// given peer, and whether a timestamp was ever recorded.
+func (tm *TunnelManager) LastOutboundSend(nodeID uint32) (time.Time, bool) {
+	return tm.routing.LastOutboundSend(nodeID)
+}
+
 // PeerCount returns the number of known peers.
 func (tm *TunnelManager) PeerCount() int {
 	tm.mu.RLock()

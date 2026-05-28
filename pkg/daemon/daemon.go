@@ -4468,6 +4468,46 @@ func (d *Daemon) reRegister() {
 	}
 }
 
+// reapStalePeers removes tunnel peers that have no active connections
+// and haven't been contacted for peerReapIdleTimeout. Called periodically
+// from idleSweepLoop to prevent unbounded growth of per-peer maps
+// (tm.peers, routing relay/blackhole/send-err maps, keyexchange
+// pubkey/rekey state) in long-running daemons with peer churn.
+func (d *Daemon) reapStalePeers() {
+	const peerReapIdleTimeout = 5 * time.Minute
+
+	active := d.ports.ActiveNodeIDs()
+	now := time.Now()
+	peers := d.tunnels.PeerList()
+
+	for _, p := range peers {
+		if active[p.NodeID] {
+			continue // has active connection — keep
+		}
+
+		lastDirect := d.tunnels.LastDirectRecv(p.NodeID)
+		lastOutbound, ok := d.tunnels.LastOutboundSend(p.NodeID)
+
+		// Find the latest known contact.
+		latest := lastDirect
+		if ok && lastOutbound.After(latest) {
+			latest = lastOutbound
+		}
+
+		if latest.IsZero() {
+			// Never contacted — fresh peer entry, don't reap yet.
+			continue
+		}
+
+		if now.Sub(latest) > peerReapIdleTimeout {
+			slog.Debug("reaping stale peer", "node_id", p.NodeID,
+				"last_contact", latest.Round(time.Second),
+				"has_encryption", p.Encrypted)
+			d.tunnels.RemovePeer(p.NodeID)
+		}
+	}
+}
+
 // idleSweepLoop periodically sends keepalive probes and closes dead connections.
 func (d *Daemon) idleSweepLoop() {
 	ticker := time.NewTicker(DefaultIdleSweepInterval)
@@ -4510,6 +4550,11 @@ func (d *Daemon) idleSweepLoop() {
 			// epCache: stale-but-usable after EndpointCacheTTL; evict after 1 hour.
 			// resolveCache and hostnameCache: strictly TTL-gated on read; evict after 2× TTL.
 			d.reapCaches()
+
+			// Reap stale tunnel peers that have no active connections and
+			// haven't been contacted recently. Prevents unbounded growth of
+			// per-peer maps in long-running daemons with peer churn.
+			d.reapStalePeers()
 
 			// Keepalive probes + dead-peer detection. See keepaliveSweep
 			// for details. Extracted into its own method so tests can
