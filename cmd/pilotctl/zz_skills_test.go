@@ -120,3 +120,36 @@ func TestPrintSkillInstallSummaryNoOutcomes(t *testing.T) {
 	// Quiet when no outcomes — no panic, prints nothing significant.
 	_ = captureStdout(t, printSkillInstallSummary)
 }
+
+// TestCLISkillsEnable_RejectsNoArgs pins the PILOT-189 fix: pre-fix the
+// command silently ran the global re-enable + reconcile regardless of
+// input. Now it must refuse and print a usage hint when no skill id is
+// supplied — the install/uninstall side effects belong behind an
+// explicit argument, not a typo.
+func TestCLISkillsEnable_RejectsNoArgs(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runCLI(t, []string{"skills", "enable"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when no skill id supplied, got 0\nstderr=%s", stderr)
+	}
+	low := strings.ToLower(stderr)
+	if !strings.Contains(low, "usage") && !strings.Contains(low, "skill id required") {
+		t.Errorf("expected 'usage' or 'skill id required' in stderr, got: %s", stderr)
+	}
+}
+
+// TestCLISkillsDisable_RejectsNoArgs is the symmetric pin for the
+// disable path — pre-fix it would tear down every managed file on a
+// bare `pilotctl skills disable`. Now it bails out unless the caller
+// specifies what to disable.
+func TestCLISkillsDisable_RejectsNoArgs(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runCLI(t, []string{"skills", "disable"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit when no skill id supplied, got 0\nstderr=%s", stderr)
+	}
+	low := strings.ToLower(stderr)
+	if !strings.Contains(low, "usage") && !strings.Contains(low, "skill id required") {
+		t.Errorf("expected 'usage' or 'skill id required' in stderr, got: %s", stderr)
+	}
+}
