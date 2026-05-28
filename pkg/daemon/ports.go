@@ -1327,7 +1327,9 @@ func (c *Connection) ProcessSACK(blocks []SACKBlock) {
 	for _, e := range c.Unacked {
 		segEnd := e.seq + uint32(len(e.data))
 		for _, b := range blocks {
-			if seqAfterOrEqual(e.seq, b.Left) && seqAfterOrEqual(b.Right, segEnd) {
+			// RFC 2018 §3: a SACK block covers any segment that overlaps
+			// it, not just segments fully contained within the block.
+			if !seqAfterOrEqual(e.seq, b.Right) && !seqAfterOrEqual(b.Left, segEnd) {
 				e.sacked = true
 				break
 			}
