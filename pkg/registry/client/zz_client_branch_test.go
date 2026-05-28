@@ -3,6 +3,7 @@
 package client
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net"
@@ -353,7 +354,7 @@ func TestClientReconnectExhaustsAttempts(t *testing.T) {
 
 	c := &Client{addr: addr}
 	c.mu.Lock()
-	err := c.reconnect()
+	err := c.reconnect(context.Background())
 	c.mu.Unlock()
 	if err == nil {
 		t.Fatalf("expected reconnect failure")

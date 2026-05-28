@@ -304,7 +304,7 @@ func (c *Client) Close() error {
 
 // reconnect re-establishes the TCP connection to the registry.
 // Must be called with c.mu held.
-func (c *Client) reconnect() error {
+func (c *Client) reconnect(ctx context.Context) error {
 	if c.closed {
 		return fmt.Errorf("client closed")
 	}
@@ -320,7 +320,7 @@ func (c *Client) reconnect() error {
 	for attempts := 0; attempts < 5; attempts++ {
 		if c.tlsConfig != nil {
 			dialer := &tls.Dialer{Config: c.tlsConfig, NetDialer: &net.Dialer{Timeout: 5 * time.Second}}
-			conn, err = dialer.DialContext(context.Background(), "tcp", c.addr)
+			conn, err = dialer.DialContext(ctx, "tcp", c.addr)
 		} else {
 			conn, err = net.DialTimeout("tcp", c.addr, 5*time.Second)
 		}
@@ -330,7 +330,11 @@ func (c *Client) reconnect() error {
 			return nil
 		}
 		slog.Warn("registry reconnect failed", "attempt", attempts+1, "err", err)
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
@@ -339,7 +343,17 @@ func (c *Client) reconnect() error {
 	return fmt.Errorf("reconnect failed after 5 attempts: %w", err)
 }
 
+// Send sends a registry message without a deadline. For shutdown-safe use
+// that respects context cancellation, prefer SendContext.
 func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error) {
+	return c.SendContext(context.Background(), msg)
+}
+
+// SendContext sends a registry message with context propagation through
+// reconnect retries. Callers should pass a context with deadline or
+// cancellation (e.g. daemon shutdown context) so that reconnect backoff
+// does not block graceful stop.
+func (c *Client) SendContext(ctx context.Context, msg map[string]interface{}) (map[string]interface{}, error) {
 	// Nil receiver — return a sentinel rather than panicking. Every
 	// exported wrapper method (Register, Lookup, Resolve, …) funnels
 	// through Send, so this single guard turns "calling a registry
@@ -353,7 +367,7 @@ func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error
 	// run the round-trip on it without touching c.mu. Multiple Send
 	// callers can run concurrently on different pooled conns.
 	if c.pool.free != nil {
-		return c.sendPool(msg)
+		return c.sendPool(ctx, msg)
 	}
 
 	c.mu.Lock()
@@ -363,7 +377,7 @@ func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error
 	if err != nil && resp == nil && !c.closed {
 		// Connection-level failure (no response received) — reconnect and retry once.
 		// Server error responses (resp != nil) do NOT trigger reconnection.
-		if reconnErr := c.reconnect(); reconnErr != nil {
+		if reconnErr := c.reconnect(ctx); reconnErr != nil {
 			return nil, fmt.Errorf("send failed and reconnect failed: %w", err)
 		}
 		resp, err = c.sendLocked(msg)
@@ -374,7 +388,7 @@ func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error
 // sendPool runs Send on a free pooled connection. It blocks only when
 // every pooled conn is busy (capacity exhausted) — one concurrent Send
 // per pool entry can be in flight at a time.
-func (c *Client) sendPool(msg map[string]interface{}) (map[string]interface{}, error) {
+func (c *Client) sendPool(ctx context.Context, msg map[string]interface{}) (map[string]interface{}, error) {
 	// Cheap closed check — avoids a wedged caller waiting on a free
 	// channel that nobody will ever return to once Close has run.
 	c.mu.Lock()
@@ -405,7 +419,7 @@ func (c *Client) sendPool(msg map[string]interface{}) (map[string]interface{}, e
 	if err != nil && resp == nil && !c.isClosed() {
 		// Connection-level failure on this entry — reconnect THIS entry
 		// only (other pool entries are unaffected) and retry once.
-		if reconnErr := c.reconnectEntry(entry); reconnErr != nil {
+		if reconnErr := c.reconnectEntry(ctx, entry); reconnErr != nil {
 			return nil, fmt.Errorf("send failed and reconnect failed: %w", err)
 		}
 		resp, err = c.sendOnEntry(entry, msg)
@@ -433,7 +447,7 @@ func (c *Client) sendOnEntry(entry *pooledConn, msg map[string]interface{}) (map
 
 // reconnectEntry redials a single pool entry. Caller must hold entry.mu.
 // This is the per-entry analogue of Client.reconnect.
-func (c *Client) reconnectEntry(entry *pooledConn) error {
+func (c *Client) reconnectEntry(ctx context.Context, entry *pooledConn) error {
 	if c.isClosed() {
 		return fmt.Errorf("client closed")
 	}
@@ -448,7 +462,7 @@ func (c *Client) reconnectEntry(entry *pooledConn) error {
 	for attempts := 0; attempts < 5; attempts++ {
 		if c.tlsConfig != nil {
 			dialer := &tls.Dialer{Config: c.tlsConfig, NetDialer: &net.Dialer{Timeout: 5 * time.Second}}
-			conn, err = dialer.DialContext(context.Background(), "tcp", c.addr)
+			conn, err = dialer.DialContext(ctx, "tcp", c.addr)
 		} else {
 			conn, err = net.DialTimeout("tcp", c.addr, 5*time.Second)
 		}
@@ -466,7 +480,11 @@ func (c *Client) reconnectEntry(entry *pooledConn) error {
 			return nil
 		}
 		slog.Warn("registry pool conn reconnect failed", "attempt", attempts+1, "err", err)
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
