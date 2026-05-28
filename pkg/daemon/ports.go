@@ -570,6 +570,24 @@ func (pm *PortManager) StaleConnections(timeWaitDur time.Duration) []*Connection
 	return stale
 }
 
+// ActiveNodeIDs returns the set of node IDs with at least one
+// non-closed, non-timewait connection. Used by the peer reaper
+// to identify stale tunnel entries that can be safely removed.
+func (pm *PortManager) ActiveNodeIDs() map[uint32]bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	nodes := make(map[uint32]bool)
+	for _, c := range pm.connections {
+		c.Mu.Lock()
+		st := c.State
+		c.Mu.Unlock()
+		if st != StateClosed && st != StateTimeWait {
+			nodes[c.RemoteAddr.Node] = true
+		}
+	}
+	return nodes
+}
+
 // IdleConnections returns connections that have been idle longer than the given duration.
 func (pm *PortManager) IdleConnections(maxIdle time.Duration) []*Connection {
 	pm.mu.RLock()
