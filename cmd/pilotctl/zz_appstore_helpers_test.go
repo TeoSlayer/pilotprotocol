@@ -86,12 +86,11 @@ func TestValidationErrSummary(t *testing.T) {
 
 func TestHumanDuration(t *testing.T) {
 	t.Parallel()
-	// NOTE: humanDuration has a known bug: TrimSuffix("...30m", "0m") strips
-	// the "0m" suffix from "30m" producing "...3". The comments say the intent
-	// is to strip Go's noisy zero components ("1h0m0s" → "1h") but the
-	// implementation also strips legitimate trailing zeros inside
-	// non-zero values. We pin the *current* behavior so a future fix
-	// must update this test deliberately.
+	// humanDuration decomposes the duration into h/m/s components and
+	// emits only the non-zero ones. The previous implementation used
+	// strings.TrimSuffix(s, "0m") which over-stripped — "1h30m0s" became
+	// "1h3" and "10m0s" became "1". The cases marked "fixed:" below pin
+	// the corrected behavior so the bug can't quietly come back.
 	cases := []struct {
 		in   time.Duration
 		want string
@@ -99,11 +98,13 @@ func TestHumanDuration(t *testing.T) {
 		{0, "0s"},
 		{24 * time.Hour, "24h"},
 		{time.Hour, "1h"},
-		{time.Hour + 30*time.Minute, "1h3"}, // buggy: "1h30m" → strip "0m" → "1h3"
-		{10 * time.Minute, "1"},             // buggy: "10m0s" → "10m" → "1"
+		{time.Hour + 30*time.Minute, "1h30m"}, // fixed: was "1h3"
+		{10 * time.Minute, "10m"},             // fixed: was "1"
+		{2*time.Hour + 5*time.Minute + 30*time.Second, "2h5m30s"}, // fixed: was "2h5m3"
+		{time.Hour, "1h"}, // fixed canonical: "1h0m0s" -> "1h"
 		{45 * time.Second, "45s"},
-		{time.Hour + 11*time.Minute, "1h11m"}, // last char "1m" — "0m" suffix absent → preserved
-		{5 * time.Minute, "5m"},               // "5m0s" → "5m" → no "0m" suffix → preserved
+		{time.Hour + 11*time.Minute, "1h11m"},
+		{5 * time.Minute, "5m"},
 		{2*time.Hour + 5*time.Minute + 1*time.Second, "2h5m1s"},
 	}
 	for _, tc := range cases {
