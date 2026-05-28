@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -17,6 +18,14 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 )
+
+// ErrNoRegistry is returned from every exported *Client method when the
+// receiver is a typed nil pointer. Callers (loadPolicyRunners,
+// ManagedEngine.fetchMembers, Daemon.Info → nodeNetworks, etc.) sometimes
+// invoke registry methods before the client is configured; returning this
+// sentinel instead of panicking lets them treat "no registry" as a
+// recoverable condition.
+var ErrNoRegistry = errors.New("registry client not configured")
 
 // Client talks to a registry server over TCP (optionally TLS).
 // It automatically reconnects if the connection drops.
@@ -88,13 +97,22 @@ type pooledConn struct {
 // SetSigner. We guard the field with c.mu to keep that race-free; reads via
 // sign() take the same lock so the loaded function pointer is consistent.
 func (c *Client) SetSigner(fn func(challenge string) string) {
+	if c == nil {
+		return
+	}
 	c.mu.Lock()
 	c.signer = fn
 	c.mu.Unlock()
 }
 
 // sign returns a signature for the challenge, or empty string if no signer is set.
+// Tolerates a nil receiver so wrapper methods (Resolve, Heartbeat, …) that
+// compute a signature before delegating to Send don't crash before Send's
+// own nil-guard can return ErrNoRegistry.
 func (c *Client) sign(challenge string) string {
+	if c == nil {
+		return ""
+	}
 	c.mu.Lock()
 	fn := c.signer
 	c.mu.Unlock()
@@ -242,6 +260,9 @@ func DialTLSPinned(addr, fingerprint string) (*Client, error) {
 }
 
 func (c *Client) Close() error {
+	if c == nil {
+		return nil
+	}
 	c.mu.Lock()
 	c.closed = true
 	conn := c.conn
@@ -319,6 +340,15 @@ func (c *Client) reconnect() error {
 }
 
 func (c *Client) Send(msg map[string]interface{}) (map[string]interface{}, error) {
+	// Nil receiver — return a sentinel rather than panicking. Every
+	// exported wrapper method (Register, Lookup, Resolve, …) funnels
+	// through Send, so this single guard turns "calling a registry
+	// method on a nil client" into a recoverable error for every
+	// caller (loadPolicyRunners, ManagedEngine.fetchMembers,
+	// Daemon.Info → nodeNetworks, etc.).
+	if c == nil {
+		return nil, ErrNoRegistry
+	}
 	// Pool-enabled path (DialPool / DialTLSPool): pick a free conn and
 	// run the round-trip on it without touching c.mu. Multiple Send
 	// callers can run concurrently on different pooled conns.
@@ -875,6 +905,9 @@ func (c *Client) ResolveHostnameAs(requesterID uint32, hostname string) (map[str
 
 // CheckTrust checks if a trust pair or shared network exists between two nodes.
 func (c *Client) CheckTrust(nodeA, nodeB uint32) (bool, error) {
+	if c == nil {
+		return false, ErrNoRegistry
+	}
 	resp, err := c.Send(map[string]interface{}{
 		"type":    "check_trust",
 		"node_id": nodeA,
