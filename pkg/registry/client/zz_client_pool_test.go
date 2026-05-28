@@ -3,6 +3,7 @@
 package client
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -479,7 +480,7 @@ func TestReconnectEntrySyncsPrimary(t *testing.T) {
 	oldConn := c.conn
 	primary.mu.Lock()
 	_ = primary.conn.Close()
-	if err := c.reconnectEntry(primary); err != nil {
+	if err := c.reconnectEntry(context.Background(), primary); err != nil {
 		primary.mu.Unlock()
 		t.Fatalf("reconnectEntry: %v", err)
 	}
@@ -514,7 +515,7 @@ func TestReconnectEntryFailsWhenClosed(t *testing.T) {
 	}
 	c.Close()
 
-	if err := c.reconnectEntry(c.pool.entries[0]); err == nil {
+	if err := c.reconnectEntry(context.Background(), c.pool.entries[0]); err == nil {
 		t.Fatalf("reconnectEntry on closed client should fail")
 	}
 }
