@@ -21,12 +21,12 @@ import (
 //
 // Subcommands:
 //
-//	pilotctl skills           — alias for `status`
-//	pilotctl skills status    — show per-tool install paths + state
-//	pilotctl skills paths     — print just the install paths
-//	pilotctl skills check     — run one reconcile pass right now
-//	pilotctl skills disable   — remove every file we wrote + opt out of future ticks
-//	pilotctl skills enable    — opt back in + run one reconcile pass
+//	pilotctl skills                       — alias for `status`
+//	pilotctl skills status                — show per-tool install paths + state
+//	pilotctl skills paths                 — print just the install paths
+//	pilotctl skills check                 — run one reconcile pass right now
+//	pilotctl skills disable <skill|all>   — remove every file we wrote + opt out of future ticks
+//	pilotctl skills enable  <skill|all>   — opt back in + run one reconcile pass
 func cmdSkills(args []string) {
 	sub := "status"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
@@ -220,7 +220,16 @@ var _ = skillsHomeRel // reserved for future use; keeps gofmt happy
 // (pilot-protocol/, ~/.pilot/bin/, plugin install dirs) are deleted;
 // files we co-inhabit with the user (CLAUDE.md, AGENTS.md, AGENT.md,
 // SOUL.md) only have our marker block stripped — never the whole file.
-func cmdSkillsDisable(_ []string) {
+//
+// Requires an explicit skill id (or `all`) to avoid the foot-gun where a
+// stray invocation silently nukes every managed file. Pre-fix this
+// command ran unconditionally regardless of input — see PILOT-189.
+func cmdSkillsDisable(args []string) {
+	if len(args) == 0 {
+		fatalHint("invalid_argument",
+			"usage: pilotctl skills disable <skill-id|all>",
+			"skill id required")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fatalCode("internal", "home dir: %v", err)
@@ -302,7 +311,16 @@ func cmdSkillsDisable(_ []string) {
 // cmdSkillsEnable flips the opt-out flag off and runs one reconcile
 // pass so the user sees what got installed without waiting for the
 // next 15-minute tick.
-func cmdSkillsEnable(_ []string) {
+//
+// Requires an explicit skill id (or `all`) so a stray invocation
+// can't silently re-install everything. Pre-fix this command ran
+// unconditionally regardless of input — see PILOT-189.
+func cmdSkillsEnable(args []string) {
+	if len(args) == 0 {
+		fatalHint("invalid_argument",
+			"usage: pilotctl skills enable <skill-id|all>",
+			"skill id required")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fatalCode("internal", "home dir: %v", err)
