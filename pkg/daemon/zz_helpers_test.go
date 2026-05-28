@@ -399,6 +399,45 @@ func TestProcessSACKMarksEntries(t *testing.T) {
 	}
 }
 
+func TestProcessSACKPartialOverlap(t *testing.T) {
+	t.Parallel()
+	// RFC 2018 §3: SACK blocks may partially cover a segment.
+	// A segment at [200, 205) should be marked sacked even when
+	// the SACK block only partially overlaps (e.g. [195, 203)).
+	c := &Connection{}
+	c.TrackSend(100, []byte("hello"))  // [100, 105)
+	c.TrackSend(200, []byte("world"))  // [200, 205)
+	c.TrackSend(300, []byte("!!!"))    // [300, 303)
+
+	// SACK block partially overlaps [200, 205) from the left
+	c.ProcessSACK([]SACKBlock{{Left: 195, Right: 203}})
+	if !c.Unacked[1].sacked {
+		t.Error("segment [200,205) should be sacked when SACK block [195,203) partially overlaps")
+	}
+	if c.Unacked[0].sacked {
+		t.Error("segment [100,105) should not be sacked — no overlap with [195,203)")
+	}
+
+	// Reset and test right-side partial overlap
+	c2 := &Connection{}
+	c2.TrackSend(100, []byte("hello")) // [100, 105)
+	c2.TrackSend(200, []byte("world")) // [200, 205)
+	c2.TrackSend(300, []byte("!!!"))   // [300, 303)
+	c2.ProcessSACK([]SACKBlock{{Left: 202, Right: 210}})
+	if !c2.Unacked[1].sacked {
+		t.Error("segment [200,205) should be sacked when SACK block [202,210) partially overlaps")
+	}
+
+	// Reset and test segment fully containing the SACK block
+	c3 := &Connection{}
+	c3.TrackSend(100, []byte("hello")) // [100, 105)
+	c3.TrackSend(200, []byte("world")) // [200, 205)
+	c3.ProcessSACK([]SACKBlock{{Left: 201, Right: 204}})
+	if !c3.Unacked[1].sacked {
+		t.Error("segment [200,205) should be sacked when it fully contains SACK block [201,204)")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CloseRecvBuf + DeliverInOrder basic paths
 // ---------------------------------------------------------------------------
