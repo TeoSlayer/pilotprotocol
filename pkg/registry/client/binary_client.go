@@ -274,5 +274,9 @@ func (c *BinaryClient) sendJSONLocked(msg map[string]interface{}) (map[string]in
 	if errMsg, ok := resp["error"].(string); ok {
 		return resp, fmt.Errorf("registry: %s", errMsg)
 	}
+	// PILOT-132: reject valid JSON that lacks the expected "type" envelope key.
+	if _, hasType := resp["type"]; !hasType && len(resp) > 0 {
+		return resp, fmt.Errorf("registry: malformed response (missing 'type' field)")
+	}
 	return resp, nil
 }
