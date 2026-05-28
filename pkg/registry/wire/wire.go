@@ -17,6 +17,13 @@ import (
 	"time"
 )
 
+// maxCount caps wire-controlled list lengths to prevent a malicious
+// peer from triggering large allocations (e.g. netCount=65535 →
+// 130 KB make()). All frames are bounded by MaxMessageSize (64 MiB)
+// but per-field allocations without caps can cause memory pressure
+// before the overall frame limit is reached.
+const maxCount = 1024
+
 // WriteMessageDeadline bounds how long a single JSON response write can
 // take. If a client is slow to drain (overloaded host, kernel buffer
 // pressure) we'd otherwise hold the request goroutine + response payload
@@ -376,6 +383,9 @@ func DecodeLookupResp(payload []byte) (LookupResult, error) {
 	}
 	netCount := int(binary.BigEndian.Uint16(payload[off : off+2]))
 	off += 2
+	if netCount > maxCount {
+		return r, fmt.Errorf("network count %d exceeds cap %d", netCount, maxCount)
+	}
 	r.Networks = make([]uint16, netCount)
 	for i := 0; i < netCount; i++ {
 		if off+2 > len(payload) {
@@ -415,6 +425,9 @@ func DecodeLookupResp(payload []byte) (LookupResult, error) {
 	}
 	tagCount := int(payload[off])
 	off++
+	if tagCount > maxCount {
+		return r, fmt.Errorf("tag count %d exceeds cap %d", tagCount, maxCount)
+	}
 	r.Tags = make([]string, tagCount)
 	for i := 0; i < tagCount; i++ {
 		if off >= len(payload) {
@@ -490,6 +503,9 @@ func DecodeResolveResp(payload []byte) (ResolveResult, error) {
 	}
 	lanCount := int(binary.BigEndian.Uint16(payload[off : off+2]))
 	off += 2
+	if lanCount > maxCount {
+		return r, fmt.Errorf("lan_addrs count %d exceeds cap %d", lanCount, maxCount)
+	}
 	r.LANAddrs = make([]string, lanCount)
 	for i := 0; i < lanCount; i++ {
 		if off+2 > len(payload) {
