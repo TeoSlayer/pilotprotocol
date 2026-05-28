@@ -42,8 +42,11 @@ const (
 	defaultConfigFile = "config.json"
 	defaultPIDFile    = "pilot.pid"
 	defaultLogFile    = "pilot.log"
-	defaultSocket     = "/tmp/pilot.sock"
 )
+
+func defaultSocket() string {
+	return driver.DefaultSocketPath()
+}
 
 func configDir() string {
 	home, _ := os.UserHomeDir()
@@ -227,7 +230,7 @@ func getSocket() string {
 	if s, ok := cfg["socket"].(string); ok && s != "" {
 		return s
 	}
-	return defaultSocket
+	return defaultSocket()
 }
 
 func getRegistry() string {
@@ -1571,7 +1574,7 @@ func cmdInit(args []string) {
 	registryAddr := flagString(flags, "registry", "34.71.57.205:9000")
 	beaconAddr := flagString(flags, "beacon", "127.0.0.1:9001")
 	hostname := flagString(flags, "hostname", "")
-	socketPath := flagString(flags, "socket", defaultSocket)
+	socketPath := flagString(flags, "socket", defaultSocket())
 
 	cfg := loadConfig()
 	cfg["registry"] = registryAddr

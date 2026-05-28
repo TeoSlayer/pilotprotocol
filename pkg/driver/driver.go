@@ -6,12 +6,26 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
 
-const DefaultSocketPath = "/tmp/pilot.sock"
+// DefaultSocketPath returns the default Unix socket path for IPC.
+// On Linux it prefers $XDG_RUNTIME_DIR (typically /run/user/<uid>,
+// which is private to the user); falls back to /tmp/pilot.sock.
+// On macOS /tmp is already per-user via SIP, so /tmp/pilot.sock is safe.
+func DefaultSocketPath() string {
+	if runtime.GOOS == "linux" {
+		if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
+			return filepath.Join(xdg, "pilot.sock")
+		}
+	}
+	return "/tmp/pilot.sock"
+}
 
 // Handshake sub-commands (must match daemon SubHandshake* constants)
 const (
@@ -47,7 +61,7 @@ type Driver struct {
 // Connect creates a new driver connected to the local daemon.
 func Connect(socketPath string) (*Driver, error) {
 	if socketPath == "" {
-		socketPath = DefaultSocketPath
+		socketPath = DefaultSocketPath()
 	}
 
 	ipc, err := newIPCClient(socketPath)
