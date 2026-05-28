@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -405,9 +405,9 @@ func TestProcessSACKPartialOverlap(t *testing.T) {
 	// A segment at [200, 205) should be marked sacked even when
 	// the SACK block only partially overlaps (e.g. [195, 203)).
 	c := &Connection{}
-	c.TrackSend(100, []byte("hello"))  // [100, 105)
-	c.TrackSend(200, []byte("world"))  // [200, 205)
-	c.TrackSend(300, []byte("!!!"))    // [300, 303)
+	c.TrackSend(100, []byte("hello")) // [100, 105)
+	c.TrackSend(200, []byte("world")) // [200, 205)
+	c.TrackSend(300, []byte("!!!"))   // [300, 303)
 
 	// SACK block partially overlaps [200, 205) from the left
 	c.ProcessSACK([]SACKBlock{{Left: 195, Right: 203}})

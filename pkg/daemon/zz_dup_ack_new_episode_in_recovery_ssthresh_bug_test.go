@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestNewEpisodeDupAcksInRecoveryHalveSSThresh verifies that when three dup ACKs

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 	"github.com/pilot-protocol/common/fsutil"
+	registry "github.com/pilot-protocol/common/registry/wire"
 )
 
 // ManagedEngine runs the managed network cycle for a single network.

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/protocol"
+	registry "github.com/pilot-protocol/common/registry/client"
 )
 
 // newWireDaemon wires a Daemon with a tunnel bound to a real 127.0.0.1 UDP

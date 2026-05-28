@@ -2,7 +2,7 @@
 
 package daemon
 
-import "github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
+import "github.com/pilot-protocol/common/urlvalidate"
 
 // ValidateWebhookURL is a thin shim over urlvalidate.Validate. Lives
 // in pkg/daemon (rather than plugins/webhook) so the IPC handler in

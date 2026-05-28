@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registry "github.com/pilot-protocol/common/registry/client"
 )
 
 // newSimpleHandlerDaemon wires the minimum set of fields needed to exercise

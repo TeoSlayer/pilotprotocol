@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/ipcutil"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // Round-3 coverage push: drive cmdConnect/cmdSend/cmdRecv/cmdDgram/

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // readLargeFrame reads one UDP datagram with a 64KB buffer (sufficient for

@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/fsutil"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 	"github.com/pilot-protocol/dataexchange"
 	registry "github.com/pilot-protocol/rendezvous"
 )

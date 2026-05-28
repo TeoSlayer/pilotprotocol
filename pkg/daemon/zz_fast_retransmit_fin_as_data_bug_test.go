@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestFastRetransmitFINEntryAsFlagACK verifies that when 3 dup ACKs fire fast

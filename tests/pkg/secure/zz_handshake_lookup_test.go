@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
+	"github.com/pilot-protocol/common/secure"
 )
 
 // runLookupHandshake connects two net.Pipe ends, runs HandshakeWithLookup on

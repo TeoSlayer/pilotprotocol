@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/ipcutil"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // Iter-110 coverage for the remaining gaps in ipc.go handleBind (53.6%),

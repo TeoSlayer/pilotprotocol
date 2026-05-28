@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/ipcutil"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // IPC commands (daemon ↔ driver)

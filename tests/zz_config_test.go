@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/config"
+	"github.com/pilot-protocol/common/config"
 )
 
 // NOTE: These tests modify the global flag.CommandLine and cannot use t.Parallel().

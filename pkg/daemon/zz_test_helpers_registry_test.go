@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/ipcutil"
+	registry "github.com/pilot-protocol/common/registry/client"
 )
 
 // startFakeRegistry stands up an in-process TCP listener that speaks the

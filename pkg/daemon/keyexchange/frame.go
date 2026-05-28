@@ -5,7 +5,7 @@ package keyexchange
 import (
 	"encoding/binary"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // Wire-format constants. Frozen — golden-corpus tested.

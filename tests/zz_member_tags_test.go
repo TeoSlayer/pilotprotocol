@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	"github.com/pilot-protocol/common/crypto"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 	"github.com/pilot-protocol/policy"
 	registry "github.com/pilot-protocol/rendezvous"
 )

@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // DiscoverEndpoint sends a STUN-style discover to the beacon over the

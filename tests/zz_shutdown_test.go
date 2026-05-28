@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/driver"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // TestGracefulShutdown verifies the documented shutdown contract: Stop()

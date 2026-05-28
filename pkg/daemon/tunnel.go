@@ -24,8 +24,8 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
 	wssTransport "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // Type aliases letting existing pkg/daemon code (tests + L5/L7) refer

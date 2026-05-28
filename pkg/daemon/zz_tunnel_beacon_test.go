@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 func TestRegisterWithBeaconNilBeaconAddrIsNoop(t *testing.T) {

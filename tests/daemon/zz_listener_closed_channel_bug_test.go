@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestListenerSendAfterUnbindSafe verifies that sending a connection to a

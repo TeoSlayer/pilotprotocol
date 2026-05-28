@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // withTempHomeFull isolates HOME so config/socket/registry helpers don't

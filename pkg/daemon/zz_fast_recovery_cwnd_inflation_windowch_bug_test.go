@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestFastRecoveryExtraACKInflationSignalsWindowCh verifies that the CongWin

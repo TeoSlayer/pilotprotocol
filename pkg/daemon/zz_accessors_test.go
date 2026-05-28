@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	"github.com/pilot-protocol/common/protocol"
+	registry "github.com/pilot-protocol/common/registry/wire"
 )
 
 // --- SetMemberTags / GetMemberTags ---

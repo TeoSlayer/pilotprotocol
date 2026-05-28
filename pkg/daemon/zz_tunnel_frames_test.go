@@ -10,8 +10,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 func TestBuildKeyExchangeFrameWithoutPubKeyReturnsNil(t *testing.T) {

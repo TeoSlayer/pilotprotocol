@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // BenchmarkLatencyUnderLoad measures p50/p95/p99 round-trip latency for small

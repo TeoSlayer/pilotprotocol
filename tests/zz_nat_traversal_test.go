@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/pilot-protocol/beacon"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestBeaconPunchRequest verifies that the beacon correctly handles
