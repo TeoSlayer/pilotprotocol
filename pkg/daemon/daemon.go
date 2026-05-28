@@ -2438,7 +2438,9 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
+		// prevWin==-1 is the sentinel (no advertisement yet); don't signal
+		// window-opened on the first transition (unknown→zero would fire).
+		winOpened := prevWin != -1 && conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if winOpened && conn.WindowCh != nil {
 			select {
@@ -2524,7 +2526,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		winOpened := conn.PeerRecvWin > prevWin && conn.WindowAvailable()
+		winOpened := prevWin != -1 && conn.PeerRecvWin > prevWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if winOpened && conn.WindowCh != nil {
 			select {
@@ -2638,7 +2640,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		conn.RetxMu.Lock()
 		prevPeerWin := conn.PeerRecvWin
 		conn.PeerRecvWin = int(pkt.Window) * MaxSegmentSize
-		peerWinOpened := conn.PeerRecvWin > prevPeerWin && conn.WindowAvailable()
+		peerWinOpened := prevPeerWin != -1 && conn.PeerRecvWin > prevPeerWin && conn.WindowAvailable()
 		conn.RetxMu.Unlock()
 		if peerWinOpened && conn.WindowCh != nil {
 			select {
