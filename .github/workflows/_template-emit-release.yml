@@ -1,0 +1,85 @@
+name: notify-orchestrator
+
+# TEMPLATE — copy this file into any sibling repo's `.github/workflows/` and
+# rename to `notify-orchestrator.yml`. The repo's `release.yml` (or whatever
+# workflow tags releases) gains this step at its end. Whenever the repo tags
+# a release, this workflow notifies the central orchestrator at
+# `web4/.github/workflows/orchestrator.yml`, which then computes the set of
+# downstream nodes that need a bump and dispatches to each.
+#
+# Required secret on this repo:
+#   ORCHESTRATOR_DISPATCH_TOKEN — repository_dispatch scope on web4. Prefer a
+#   GitHub App token; one App installation can cover every sibling so the
+#   secret is the same value everywhere.
+#
+# Placeholders to fill before adopting:
+#   <NODE>   — the package name as it appears in deps.json (e.g. "policy",
+#              "handshake", "libpilot"). Must match exactly.
+#
+# Example wiring at the end of a sibling's release.yml:
+#
+#   notify:
+#     needs: release
+#     uses: ./.github/workflows/notify-orchestrator.yml
+#     with:
+#       node: policy
+#     secrets:
+#       ORCHESTRATOR_DISPATCH_TOKEN: ${{ secrets.ORCHESTRATOR_DISPATCH_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      node:
+        description: 'Node name in web4/.github/deps.json'
+        required: true
+        type: string
+    secrets:
+      ORCHESTRATOR_DISPATCH_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      node:
+        description: 'Node name in web4/.github/deps.json'
+        required: true
+      version:
+        description: 'Tag to notify about (e.g. v1.0.5). Defaults to github.ref_name when called from a release workflow.'
+        required: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit package-released
+        env:
+          TOKEN:   ${{ secrets.ORCHESTRATOR_DISPATCH_TOKEN }}
+          NODE:    ${{ inputs.node }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::ORCHESTRATOR_DISPATCH_TOKEN unset — skipping notification."
+            exit 0
+          fi
+          IS_PRE=false
+          case "$VERSION" in
+            *-rc*|*-beta*|*-alpha*) IS_PRE=true ;;
+          esac
+
+          payload=$(jq -nc \
+            --arg pkg "$NODE" \
+            --arg ver "$VERSION" \
+            --argjson pre "$IS_PRE" \
+            '{event_type:"package-released", client_payload:{package:$pkg, version:$ver, is_prerelease:$pre}}')
+
+          HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            "https://api.github.com/repos/TeoSlayer/pilotprotocol/dispatches" \
+            -d "$payload")
+
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "orchestrator notify failed (HTTP $HTTP_CODE):"
+            cat /tmp/resp
+            exit 1
+          fi
+          echo "orchestrator notified: ${NODE} ${VERSION} (is_prerelease=${IS_PRE})"

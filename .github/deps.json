@@ -1,0 +1,174 @@
+{
+  "$schema": "https://pilotprotocol.network/.well-known/deps.schema.json",
+  "version": 1,
+  "description": "Canonical dependency graph of every Pilot Protocol repo. Read by .github/workflows/orchestrator.yml to compute which downstream nodes need a bump when any package ships a release. This is the SINGLE source of truth — keep it in sync whenever a repo gains or drops an upstream dependency.",
+  "nodes": {
+    "web4": {
+      "repo": "TeoSlayer/pilotprotocol",
+      "type": "hub",
+      "go_module": "github.com/TeoSlayer/pilotprotocol",
+      "depends_on": []
+    },
+
+    "beacon": {
+      "repo": "pilot-protocol/beacon",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/beacon",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "dataexchange": {
+      "repo": "pilot-protocol/dataexchange",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/dataexchange",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "eventstream": {
+      "repo": "pilot-protocol/eventstream",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/eventstream",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "examples": {
+      "repo": "pilot-protocol/examples",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/examples",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "gateway": {
+      "repo": "pilot-protocol/gateway",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/gateway",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "handshake": {
+      "repo": "pilot-protocol/handshake",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/handshake",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "nameserver": {
+      "repo": "pilot-protocol/nameserver",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/nameserver",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "policy": {
+      "repo": "pilot-protocol/policy",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/policy",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "rendezvous": {
+      "repo": "pilot-protocol/rendezvous",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/rendezvous",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "runtime": {
+      "repo": "pilot-protocol/runtime",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/runtime",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "skillinject": {
+      "repo": "pilot-protocol/skillinject",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/skillinject",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "trustedagents": {
+      "repo": "pilot-protocol/trustedagents",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/trustedagents",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "updater": {
+      "repo": "pilot-protocol/updater",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/updater",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "webhook": {
+      "repo": "pilot-protocol/webhook",
+      "type": "go-sibling",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/webhook",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "app-store": {
+      "repo": "pilot-protocol/app-store",
+      "type": "go-app",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/app-store/integration",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+
+    "libpilot": {
+      "repo": "pilot-protocol/libpilot",
+      "type": "ffi-fan-in",
+      "go_module": "github.com/TeoSlayer/pilotprotocol/libpilot",
+      "depends_on": ["web4", "handshake", "policy", "runtime", "skillinject"],
+      "bump_policy": {
+        "stable_only": true,
+        "open_pr_instead_of_main": true,
+        "_note": "FFI fan-in feeds all 3 SDKs at build time — a bad bump cascades to every SDK. Use PR + CI gate."
+      }
+    },
+
+    "sdk-node": {
+      "repo": "pilot-protocol/sdk-node",
+      "type": "sdk",
+      "package_manager": "npm",
+      "depends_on": ["libpilot"],
+      "bump_policy": { "stable_only": true, "open_pr_instead_of_main": true }
+    },
+    "sdk-python": {
+      "repo": "pilot-protocol/sdk-python",
+      "type": "sdk",
+      "package_manager": "pypi",
+      "depends_on": ["libpilot"],
+      "bump_policy": { "stable_only": true, "open_pr_instead_of_main": true }
+    },
+    "sdk-swift": {
+      "repo": "pilot-protocol/sdk-swift",
+      "type": "sdk",
+      "package_manager": "swiftpm",
+      "depends_on": ["libpilot"],
+      "bump_policy": { "stable_only": true, "open_pr_instead_of_main": true }
+    },
+
+    "homebrew-pilot": {
+      "repo": "TeoSlayer/homebrew-pilot",
+      "type": "package-tap",
+      "depends_on": ["web4"],
+      "bump_policy": { "stable_only": true, "auto_commit_main": true }
+    },
+    "website": {
+      "repo": "pilot-protocol/website",
+      "type": "surface",
+      "depends_on": ["web4"],
+      "bump_policy": {
+        "stable_only": false,
+        "auto_commit_main": true,
+        "_note": "Edge channel also publishes; manifest preserves latest_stable when upstream is prerelease."
+      }
+    },
+
+    "cosift":   { "repo": "pilot-protocol/cosift",   "type": "freeloader", "depends_on": [] },
+    "pilot-ca": { "repo": "pilot-protocol/pilot-ca", "type": "freeloader", "depends_on": [] },
+    "wallet":   { "repo": "pilot-protocol/wallet",   "type": "indirect",   "depends_on": ["app-store"] }
+  }
+}

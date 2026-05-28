@@ -1,0 +1,204 @@
+name: orchestrator
+
+# Central release orchestrator. Any repo in the constellation that ships a
+# release `repository_dispatch`es to this workflow with:
+#
+#   { event_type: "package-released",
+#     client_payload: { package: "<node>", version: "v1.2.3", is_prerelease: false } }
+#
+# The orchestrator reads `.github/deps.json` (the canonical dependency graph),
+# computes the reverse-transitive closure of `package` — i.e. every node that
+# imports the released one, directly or through a chain — and emits a
+# `bump-upstream` dispatch to each one. The receivers (one per repo) decide
+# whether to commit-to-main, open a PR, or skip based on their own bump_policy.
+#
+# Why centralize:
+#   - The dependency graph lives in exactly one place; no repo needs to know
+#     who its dependents are. Add or remove an edge by editing deps.json here.
+#   - Topological order is computed once, not negotiated by receivers.
+#   - One token (SHOCKWAVE_DISPATCH_TOKEN) covers every fan-out hop.
+#
+# Why deps.json over a fancier graph store:
+#   - Reviewable: changes show up as PR diffs.
+#   - Auditable: `git log` tells you when an edge was added.
+#   - No runtime infra: this workflow is the whole system.
+
+on:
+  repository_dispatch:
+    types: [package-released]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Upstream package node name (must exist in deps.json)'
+        required: true
+      version:
+        description: 'Upstream version (e.g. v1.10.6)'
+        required: true
+      is_prerelease:
+        description: 'true if the upstream tag is a prerelease'
+        required: false
+        default: 'false'
+      dry_run:
+        description: 'When true, print the closure but do not dispatch'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  fan-out:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve inputs
+        id: input
+        env:
+          DISPATCH_PKG:  ${{ github.event.client_payload.package }}
+          DISPATCH_VER:  ${{ github.event.client_payload.version }}
+          DISPATCH_PRE:  ${{ github.event.client_payload.is_prerelease }}
+          MANUAL_PKG:    ${{ inputs.package }}
+          MANUAL_VER:    ${{ inputs.version }}
+          MANUAL_PRE:    ${{ inputs.is_prerelease }}
+          MANUAL_DRYRUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "package=$MANUAL_PKG"   >> "$GITHUB_OUTPUT"
+            echo "version=$MANUAL_VER"   >> "$GITHUB_OUTPUT"
+            echo "is_pre=$MANUAL_PRE"    >> "$GITHUB_OUTPUT"
+            echo "dry_run=$MANUAL_DRYRUN" >> "$GITHUB_OUTPUT"
+          else
+            echo "package=$DISPATCH_PKG" >> "$GITHUB_OUTPUT"
+            echo "version=$DISPATCH_VER" >> "$GITHUB_OUTPUT"
+            echo "is_pre=$DISPATCH_PRE"  >> "$GITHUB_OUTPUT"
+            echo "dry_run=false"          >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute reverse-transitive closure
+        id: closure
+        env:
+          PKG: ${{ steps.input.outputs.package }}
+        run: |
+          python3 - <<'PY' > /tmp/closure.json
+          import json, sys, os
+          from collections import defaultdict, deque
+
+          deps = json.load(open(".github/deps.json"))
+          pkg  = os.environ["PKG"]
+          if pkg not in deps["nodes"]:
+              print(f"::error::package '{pkg}' not in deps.json", file=sys.stderr)
+              sys.exit(1)
+
+          # Build child map: children[upstream] = [downstream, ...]
+          children = defaultdict(list)
+          for node, info in deps["nodes"].items():
+              for up in info.get("depends_on", []):
+                  children[up].append(node)
+
+          # BFS by depth so we can emit a topologically-ordered list.
+          depth = {pkg: 0}
+          order = []
+          q = deque([pkg])
+          while q:
+              n = q.popleft()
+              for c in children.get(n, []):
+                  # Use max depth across all paths to root — guarantees a
+                  # node's upstream peers in the closure are all visited
+                  # before it is.
+                  new_d = depth[n] + 1
+                  if c not in depth or new_d > depth[c]:
+                      depth[c] = new_d
+                      q.append(c)
+
+          targets = sorted(
+              (c for c in depth if c != pkg),
+              key=lambda c: (depth[c], c),
+          )
+
+          out = []
+          for t in targets:
+              info = deps["nodes"][t]
+              out.append({
+                  "node": t,
+                  "repo": info["repo"],
+                  "depth": depth[t],
+                  "bump_policy": info.get("bump_policy", {}),
+                  "type": info.get("type", "unknown"),
+              })
+
+          json.dump({"upstream": pkg, "targets": out}, sys.stdout, indent=2)
+          PY
+
+          cat /tmp/closure.json
+          echo "payload=$(jq -c . /tmp/closure.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Fan-out dispatch (or dry-run report)
+        if: steps.input.outputs.dry_run != 'true'
+        env:
+          TOKEN:    ${{ secrets.SHOCKWAVE_DISPATCH_TOKEN }}
+          UPSTREAM: ${{ steps.input.outputs.package }}
+          VERSION:  ${{ steps.input.outputs.version }}
+          IS_PRE:   ${{ steps.input.outputs.is_pre }}
+          CLOSURE:  ${{ steps.closure.outputs.payload }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::SHOCKWAVE_DISPATCH_TOKEN unset — skipping fan-out."
+            echo "Action required: set the secret and re-run with workflow_dispatch."
+            exit 0
+          fi
+
+          summary="| node | depth | type | result |\n|---|---|---|---|\n"
+          # Iterate the closure JSON's targets array.
+          echo "$CLOSURE" | jq -c '.targets[]' | while read -r t; do
+            REPO=$(echo "$t"  | jq -r '.repo')
+            NODE=$(echo "$t"  | jq -r '.node')
+            DEPTH=$(echo "$t" | jq -r '.depth')
+            TYPE=$(echo "$t"  | jq -r '.type')
+            STABLE_ONLY=$(echo "$t" | jq -r '.bump_policy.stable_only // false')
+
+            # Per-receiver stable-only gate: orchestrator could skip the
+            # dispatch entirely when the upstream is a prerelease AND the
+            # receiver says stable_only. Saves the receiver an API call.
+            if [ "$IS_PRE" = "true" ] && [ "$STABLE_ONLY" = "true" ]; then
+              printf "  ~ skip %-22s depth=%s (stable_only and upstream is prerelease)\n" "$NODE" "$DEPTH"
+              summary="${summary}| ${NODE} | ${DEPTH} | ${TYPE} | skipped (prerelease) |\n"
+              continue
+            fi
+
+            payload=$(jq -nc \
+              --arg upstream "$UPSTREAM" \
+              --arg version  "$VERSION" \
+              --argjson pre  "$IS_PRE" \
+              '{event_type:"bump-upstream", client_payload:{upstream:$upstream, version:$version, is_prerelease:$pre}}')
+
+            HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://api.github.com/repos/${REPO}/dispatches" \
+              -d "$payload")
+
+            if [ "$HTTP_CODE" = "204" ]; then
+              printf "  ✓ dispatched to %-25s depth=%s\n" "$REPO" "$DEPTH"
+              summary="${summary}| ${NODE} | ${DEPTH} | ${TYPE} | ✓ dispatched |\n"
+            else
+              printf "  ✗ %-25s HTTP=%s\n" "$REPO" "$HTTP_CODE"
+              cat /tmp/resp
+              summary="${summary}| ${NODE} | ${DEPTH} | ${TYPE} | ✗ HTTP ${HTTP_CODE} |\n"
+            fi
+          done
+
+          printf "## Orchestrator fan-out for %s %s\n\nUpstream is_prerelease: %s\n\n%s" \
+            "$UPSTREAM" "$VERSION" "$IS_PRE" "$summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run summary only
+        if: steps.input.outputs.dry_run == 'true'
+        env:
+          CLOSURE: ${{ steps.closure.outputs.payload }}
+        run: |
+          echo "## Dry-run closure for ${{ steps.input.outputs.package }}" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "$CLOSURE" | jq . >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

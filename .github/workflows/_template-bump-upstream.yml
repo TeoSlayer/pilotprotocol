@@ -1,0 +1,139 @@
+name: bump-upstream
+
+# TEMPLATE — copy this file into a Go-sibling repo's `.github/workflows/`
+# and rename to `bump-upstream.yml`. It receives a `bump-upstream` dispatch
+# from web4's orchestrator and rewrites the local `go.mod` to require the
+# new version of the upstream that just shipped.
+#
+# Behavior:
+#   - If client_payload.is_prerelease == true and this repo's policy is
+#     stable_only (the orchestrator already filtered, but we re-check), skip.
+#   - `go mod edit -require=<module>@<version>`
+#   - `go mod tidy`
+#   - Commit to main OR open a PR depending on BUMP_MODE below.
+#
+# Tunables (set as repo variables or hardcode):
+#   BUMP_MODE              auto-commit | pr      (default: auto-commit)
+#   UPSTREAM_MODULE_PATH   the import path of the upstream — e.g.
+#                          "github.com/TeoSlayer/pilotprotocol". Each
+#                          sibling has the same hub path; FFI nodes like
+#                          libpilot may receive multiple upstreams (the
+#                          orchestrator sends one dispatch per upstream).
+#
+# This template targets Go modules. SDK repos (sdk-node, sdk-python,
+# sdk-swift) need their own variants — see the per-SDK bump templates.
+
+on:
+  repository_dispatch:
+    types: [bump-upstream]
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: 'Upstream node name (informational)'
+        required: true
+      version:
+        description: 'Upstream version (e.g. v1.10.6)'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  BUMP_MODE: auto-commit
+  UPSTREAM_MODULE_PATH: github.com/TeoSlayer/pilotprotocol
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve incoming dispatch
+        id: input
+        env:
+          DISPATCH_UP:  ${{ github.event.client_payload.upstream }}
+          DISPATCH_VER: ${{ github.event.client_payload.version }}
+          DISPATCH_PRE: ${{ github.event.client_payload.is_prerelease }}
+          MANUAL_UP:    ${{ inputs.upstream }}
+          MANUAL_VER:   ${{ inputs.version }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            UP="$MANUAL_UP"; VER="$MANUAL_VER"; PRE="false"
+          else
+            UP="$DISPATCH_UP"; VER="$DISPATCH_VER"; PRE="$DISPATCH_PRE"
+          fi
+          # Re-check the prerelease gate — defense in depth in case a
+          # mis-configured orchestrator forgets to filter.
+          if [ "$PRE" = "true" ]; then
+            echo "::notice::upstream ${UP} ${VER} is a prerelease; skipping (stable_only policy)"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "upstream=$UP" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "skip=0" >> "$GITHUB_OUTPUT"
+
+      - name: Bump go.mod
+        if: steps.input.outputs.skip != '1'
+        env:
+          VER: ${{ steps.input.outputs.version }}
+        run: |
+          # The upstream module path is the hub module — siblings require
+          # it directly. Sub-package nodes (handshake, policy, ...) are
+          # currently part of the same Go module, so the require line
+          # always points at the hub path. If a sibling later becomes its
+          # own top-level Go module, set UPSTREAM_MODULE_PATH per-repo.
+          go mod edit -require="${UPSTREAM_MODULE_PATH}@${VER}"
+          go mod tidy
+          echo "=== updated go.mod ==="
+          grep "${UPSTREAM_MODULE_PATH}" go.mod || true
+
+      - name: Verify build still works
+        if: steps.input.outputs.skip != '1'
+        run: go build ./... || (echo "::error::build broke after bump"; exit 1)
+
+      - name: Commit (auto-commit mode)
+        if: steps.input.outputs.skip != '1' && env.BUMP_MODE == 'auto-commit'
+        env:
+          UP:  ${{ steps.input.outputs.upstream }}
+          VER: ${{ steps.input.outputs.version }}
+        run: |
+          if git diff --quiet go.mod go.sum; then
+            echo "go.mod unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "pilot-release-bot"
+          git config user.email "release-bot@pilotprotocol.network"
+          git add go.mod go.sum
+          git commit -m "deps: bump ${UP} to ${VER}" \
+                     -m "Triggered by orchestrator dispatch from upstream release."
+          git push origin HEAD:main
+
+      - name: Open PR (pr mode)
+        if: steps.input.outputs.skip != '1' && env.BUMP_MODE == 'pr'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UP:  ${{ steps.input.outputs.upstream }}
+          VER: ${{ steps.input.outputs.version }}
+        run: |
+          if git diff --quiet go.mod go.sum; then
+            echo "go.mod unchanged — nothing to commit."
+            exit 0
+          fi
+          BRANCH="bump-${UP}-${VER}"
+          git config user.name  "pilot-release-bot"
+          git config user.email "release-bot@pilotprotocol.network"
+          git checkout -b "$BRANCH"
+          git add go.mod go.sum
+          git commit -m "deps: bump ${UP} to ${VER}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "deps: bump ${UP} to ${VER}" \
+            --body "Orchestrator dispatch from upstream release ${UP} ${VER}." \
+            --base main \
+            --head "$BRANCH"
