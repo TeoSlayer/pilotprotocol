@@ -1,0 +1,3 @@
+This file exists solely so test code can embed it via //go:embed
+without colliding with the production *.pem glob. Do not remove —
+zz_pinnedroots_coverage_test.go references it.
