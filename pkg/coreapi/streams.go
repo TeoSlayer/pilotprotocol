@@ -5,7 +5,6 @@ package coreapi
 import (
 	"context"
 	"io"
-	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 )
@@ -15,8 +14,11 @@ import (
 type Addr = protocol.Addr
 
 // Stream is one bidirectional ordered byte stream between two
-// (Addr, port) endpoints. It mirrors net.Conn so plugins can wrap it
-// behind any io-aware library.
+// (Addr, port) endpoints. It satisfies io.ReadWriteCloser with
+// Pilot Protocol addressing extensions. Deadline methods are
+// intentionally excluded — the runtime currently cannot honor
+// them, and removing them from the interface forces callers to
+// get a compile-time signal rather than a silent no-op.
 type Stream interface {
 	io.ReadWriteCloser
 
@@ -24,10 +26,6 @@ type Stream interface {
 	LocalPort() uint16
 	RemoteAddr() Addr
 	RemotePort() uint16
-
-	SetDeadline(t time.Time) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
 }
 
 // Listener accepts inbound streams on a single well-known or ephemeral
