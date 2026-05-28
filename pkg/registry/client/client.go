@@ -105,21 +105,24 @@ func (c *Client) SetSigner(fn func(challenge string) string) {
 	c.mu.Unlock()
 }
 
-// sign returns a signature for the challenge, or empty string if no signer is set.
-// Tolerates a nil receiver so wrapper methods (Resolve, Heartbeat, …) that
-// compute a signature before delegating to Send don't crash before Send's
-// own nil-guard can return ErrNoRegistry.
-func (c *Client) sign(challenge string) string {
+// sign returns a signature for the challenge. It returns an error when the
+// signer is unavailable or returns an empty signature. A nil receiver returns
+// ErrNoRegistry so callers can rely on errors.Is.
+func (c *Client) sign(challenge string) (string, error) {
 	if c == nil {
-		return ""
+		return "", ErrNoRegistry
 	}
 	c.mu.Lock()
 	fn := c.signer
 	c.mu.Unlock()
 	if fn == nil {
-		return ""
+		return "", fmt.Errorf("registry client: no signer configured (call SetSigner first)")
 	}
-	return fn(challenge)
+	sig := fn(challenge)
+	if sig == "" {
+		return "", fmt.Errorf("registry client: signer returned empty signature for %q", challenge)
+	}
+	return sig, nil
 }
 
 func Dial(addr string) (*Client, error) {
@@ -602,9 +605,11 @@ func (c *Client) Resolve(nodeID, requesterID uint32) (map[string]interface{}, er
 		"node_id":      nodeID,
 		"requester_id": requesterID,
 	}
-	if sig := c.sign(fmt.Sprintf("resolve:%d:%d", requesterID, nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("resolve:%d:%d", requesterID, nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -614,9 +619,11 @@ func (c *Client) ReportTrust(nodeID, peerID uint32) (map[string]interface{}, err
 		"node_id": nodeID,
 		"peer_id": peerID,
 	}
-	if sig := c.sign(fmt.Sprintf("report_trust:%d:%d", nodeID, peerID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("report_trust:%d:%d", nodeID, peerID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -626,9 +633,11 @@ func (c *Client) RevokeTrust(nodeID, peerID uint32) (map[string]interface{}, err
 		"node_id": nodeID,
 		"peer_id": peerID,
 	}
-	if sig := c.sign(fmt.Sprintf("revoke_trust:%d:%d", nodeID, peerID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("revoke_trust:%d:%d", nodeID, peerID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -638,9 +647,11 @@ func (c *Client) SetVisibility(nodeID uint32, public bool) (map[string]interface
 		"node_id": nodeID,
 		"public":  public,
 	}
-	if sig := c.sign(fmt.Sprintf("set_visibility:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("set_visibility:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -694,7 +705,8 @@ func (c *Client) JoinNetwork(nodeID uint32, networkID uint16, token string, invi
 		"token":      token,
 		"inviter_id": inviterID,
 	}
-	if sig := c.sign(fmt.Sprintf("join_network:%d:%d", nodeID, networkID)); sig != "" {
+	sig, err := c.sign(fmt.Sprintf("join_network:%d:%d", nodeID, networkID))
+	if err == nil {
 		msg["signature"] = sig
 	} else if adminToken != "" {
 		msg["admin_token"] = adminToken
@@ -708,7 +720,8 @@ func (c *Client) LeaveNetwork(nodeID uint32, networkID uint16, adminToken string
 		"node_id":    nodeID,
 		"network_id": networkID,
 	}
-	if sig := c.sign(fmt.Sprintf("leave_network:%d:%d", nodeID, networkID)); sig != "" {
+	sig, err := c.sign(fmt.Sprintf("leave_network:%d:%d", nodeID, networkID))
+	if err == nil {
 		msg["signature"] = sig
 	} else if adminToken != "" {
 		msg["admin_token"] = adminToken
@@ -783,9 +796,11 @@ func (c *Client) Deregister(nodeID uint32) (map[string]interface{}, error) {
 		"type":    "deregister",
 		"node_id": nodeID,
 	}
-	if sig := c.sign(fmt.Sprintf("deregister:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("deregister:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -794,9 +809,11 @@ func (c *Client) Heartbeat(nodeID uint32) (map[string]interface{}, error) {
 		"type":    "heartbeat",
 		"node_id": nodeID,
 	}
-	if sig := c.sign(fmt.Sprintf("heartbeat:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("heartbeat:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -807,9 +824,11 @@ func (c *Client) Punch(requesterID, nodeA, nodeB uint32) (map[string]interface{}
 		"node_a":       nodeA,
 		"node_b":       nodeB,
 	}
-	if sig := c.sign(fmt.Sprintf("punch:%d:%d", nodeA, nodeB)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("punch:%d:%d", nodeA, nodeB))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -836,9 +855,11 @@ func (c *Client) PollHandshakes(nodeID uint32) (map[string]interface{}, error) {
 		"type":    "poll_handshakes",
 		"node_id": nodeID,
 	}
-	if sig := c.sign(fmt.Sprintf("poll_handshakes:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("poll_handshakes:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -866,9 +887,11 @@ func (c *Client) SetHostname(nodeID uint32, hostname string) (map[string]interfa
 		"node_id":  nodeID,
 		"hostname": hostname,
 	}
-	if sig := c.sign(fmt.Sprintf("set_hostname:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("set_hostname:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -879,9 +902,11 @@ func (c *Client) SetTags(nodeID uint32, tags []string) (map[string]interface{}, 
 		"node_id": nodeID,
 		"tags":    tags,
 	}
-	if sig := c.sign(fmt.Sprintf("set_tags:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("set_tags:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -928,9 +953,11 @@ func (c *Client) InviteToNetwork(networkID uint16, inviterID, targetNodeID uint3
 		"inviter_id":     inviterID,
 		"target_node_id": targetNodeID,
 	}
-	if sig := c.sign(fmt.Sprintf("invite:%d:%d:%d", inviterID, networkID, targetNodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("invite:%d:%d:%d", inviterID, networkID, targetNodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	if adminToken != "" {
 		msg["admin_token"] = adminToken
 	}
@@ -943,9 +970,11 @@ func (c *Client) PollInvites(nodeID uint32) (map[string]interface{}, error) {
 		"type":    "poll_invites",
 		"node_id": nodeID,
 	}
-	if sig := c.sign(fmt.Sprintf("poll_invites:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("poll_invites:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -957,9 +986,11 @@ func (c *Client) RespondInvite(nodeID uint32, networkID uint16, accept bool) (ma
 		"network_id": networkID,
 		"accept":     accept,
 	}
-	if sig := c.sign(fmt.Sprintf("respond_invite:%d:%d", nodeID, networkID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("respond_invite:%d:%d", nodeID, networkID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
@@ -1079,9 +1110,11 @@ func (c *Client) SetKeyExpiry(nodeID uint32, expiresAt time.Time) (map[string]in
 		"node_id":    nodeID,
 		"expires_at": expiresAt.Format(time.RFC3339),
 	}
-	if sig := c.sign(fmt.Sprintf("set_key_expiry:%d", nodeID)); sig != "" {
-		msg["signature"] = sig
+	sig, err := c.sign(fmt.Sprintf("set_key_expiry:%d", nodeID))
+	if err != nil {
+		return nil, err
 	}
+	msg["signature"] = sig
 	return c.Send(msg)
 }
 
