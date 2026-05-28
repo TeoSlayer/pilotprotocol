@@ -1,3 +1,36 @@
+# ----------------------------------------------------------------------------
+# TODO(org-move): re-create secrets on the destination org before this repo
+# is transferred to `pilot-protocol/`. None of the secrets below survive a
+# repo transfer — they live on the SOURCE org (TeoSlayer) and need to be
+# created fresh on `pilot-protocol` so this workflow keeps working.
+#
+# Secrets currently expected by `release.yml` and other workflows in this
+# repo (`ci.yml`, `nightly.yml`, `architecture.yml`, `codeql.yml`):
+#
+#   GITHUB_TOKEN              - auto-issued, no action needed
+#
+# Secrets that need to be added BACK once the matching workflows are
+# restored (we removed `update-homebrew.yml` in PR #122 to drop the
+# cross-org PAT; auto-publish workflows for npm/PyPI never landed):
+#
+#   HOMEBREW_TAP_TOKEN        - PAT or GitHub App token with `contents:write`
+#                                on `pilot-protocol/homebrew-pilot`.
+#                                Prefer a GitHub App over a PAT — see
+#                                `actions/create-github-app-token@v1`.
+#   NPM_TOKEN                 - if PILOT-203 lands sdk-node auto-publish.
+#   PYPI_TOKEN                - if PILOT-203 lands sdk-python auto-publish.
+#   COSIGN_KEY / COSIGN_PASS  - if PILOT-114 lands updater binary signing.
+#
+# When the migration happens, mirror the secrets via:
+#   gh secret set HOMEBREW_TAP_TOKEN --repo pilot-protocol/<new-repo> --body <value>
+# (Reading the value from the old org first; GitHub never exposes secrets,
+# so the original cleartext source is required.)
+#
+# Track the migration in the org-move runbook; do not delete this comment
+# until every workflow file that previously referenced a secret has either
+# (a) been re-wired against the new secret, or (b) been confirmed retired.
+# ----------------------------------------------------------------------------
+
 name: Release
 
 on:
