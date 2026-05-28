@@ -1,0 +1,35 @@
+{
+  "_purpose": "Small hand-maintained sidecar that the auto-generator (scripts/build-deps.py) merges into the auto-derived deps.json. Holds the things that CANNOT be derived from manifests: bump policy, freeloader markings, friendly notes. Keep this file as small as possible.",
+  "nodes": {
+    "common":       { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "beacon":       { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "dataexchange": { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "eventstream":  { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "gateway":      { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "handshake":    { "bump_policy": { "stable_only": true,  "auto_commit_main": true, "_note": "Imports web4/pkg/daemon — daemon-plugin coupling. Bumps coordinated with web4." } },
+    "nameserver":   { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "policy":       { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "rendezvous":   { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "runtime":      { "bump_policy": { "stable_only": true,  "auto_commit_main": true, "_note": "Imports web4/pkg/daemon — daemon-plugin coupling. Bumps coordinated with web4." } },
+    "skillinject":  { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "trustedagents":{ "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "updater":      { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "webhook":      { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "app-store":    { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "libpilot":     { "bump_policy": { "stable_only": true,  "open_pr_instead_of_main": true, "_note": "FFI fan-in; bad bump cascades to all SDKs." } },
+    "examples":     { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "web4":         { "bump_policy": { "stable_only": true,  "open_pr_instead_of_main": true } },
+    "sdk-node":     { "bump_policy": { "stable_only": true,  "open_pr_instead_of_main": true } },
+    "sdk-python":   { "bump_policy": { "stable_only": true,  "open_pr_instead_of_main": true } },
+    "sdk-swift":    { "bump_policy": { "stable_only": true,  "open_pr_instead_of_main": true } },
+    "homebrew-pilot": { "bump_policy": { "stable_only": true,  "auto_commit_main": true } },
+    "website":      { "bump_policy": { "stable_only": false, "auto_commit_main": true, "_note": "Edge channel also publishes; manifest preserves latest_stable when upstream is prerelease." } }
+  },
+  "manual_nodes": {
+    "homebrew-pilot": { "repo": "TeoSlayer/homebrew-pilot", "depends_on": ["web4"] },
+    "website":        { "repo": "pilot-protocol/website",   "depends_on": ["web4"] },
+    "cosift":         { "repo": "pilot-protocol/cosift",    "depends_on": [] },
+    "pilot-ca":       { "repo": "pilot-protocol/pilot-ca",  "depends_on": [] },
+    "wallet":         { "repo": "pilot-protocol/wallet",    "depends_on": ["app-store"] }
+  }
+}

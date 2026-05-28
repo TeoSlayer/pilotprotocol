@@ -390,53 +390,43 @@ jobs:
           echo "manifest dispatch accepted (HTTP 204)"
 
   # ----------------------------------------------------------------------------
-  # shockwave
+  # notify-orchestrator
   #
-  # Notify every package that derives from web4 (Homebrew formula + SDKs) that
-  # a new release exists. Each downstream repo runs its own bump workflow on
-  # receiving `repository_dispatch` event_type=upstream-release.
+  # The hardcoded shockwave fan-out has been superseded by the central
+  # orchestrator at .github/workflows/orchestrator.yml. Instead of release.yml
+  # knowing about every downstream consumer, it just announces "web4 shipped
+  # vX.Y.Z" and the orchestrator (which reads .github/deps.json) computes the
+  # reverse-transitive closure and dispatches per-target bumps.
   #
-  # Receivers (each must have a workflow listening for `upstream-release`):
-  #   - pilot-protocol/homebrew-pilot   → bump Formula/pilot.rb
-  #   - pilot-protocol/sdk-node         → bump pkg version + npm publish
-  #   - pilot-protocol/sdk-python       → bump pyproject + PyPI publish
-  #   - pilot-protocol/sdk-swift        → bump Package.swift binaryTarget
-  #
-  # Soft-fail per receiver: a missing token or a 404 on one repo MUST NOT block
-  # the others. The job summary at the end lists which targets succeeded so a
-  # missed dispatch is visible without grepping logs.
+  # Soft-fail: missing token emits a warning and exits 0; release flow not
+  # blocked.
   # ----------------------------------------------------------------------------
-  shockwave:
-    name: Shockwave fan-out
+  notify-orchestrator:
+    name: Notify orchestrator
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch to downstream consumers
+      - name: Emit package-released
         env:
-          SHOCKWAVE_TOKEN: ${{ secrets.SHOCKWAVE_DISPATCH_TOKEN }}
+          TOKEN: ${{ secrets.SHOCKWAVE_DISPATCH_TOKEN }}
           TAG: ${{ github.ref_name }}
           IS_PRE: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
         run: |
-          if [ -z "$SHOCKWAVE_TOKEN" ]; then
-            echo "::warning::SHOCKWAVE_DISPATCH_TOKEN secret unset — skipping fan-out."
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::SHOCKWAVE_DISPATCH_TOKEN unset — orchestrator not notified."
             exit 0
           fi
-          summary=""
-          for repo in homebrew-pilot sdk-node sdk-python sdk-swift; do
-            payload=$(jq -nc --arg tag "$TAG" --argjson pre "$IS_PRE" \
-              '{event_type:"upstream-release", client_payload:{tag:$tag, is_prerelease:$pre}}')
-            HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
-              -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${SHOCKWAVE_TOKEN}" \
-              "https://api.github.com/repos/pilot-protocol/${repo}/dispatches" \
-              -d "$payload")
-            if [ "$HTTP_CODE" = "204" ]; then
-              summary="${summary}  ✓ ${repo}\n"
-            else
-              summary="${summary}  ✗ ${repo} (HTTP ${HTTP_CODE})\n"
-              echo "::warning::shockwave dispatch failed for ${repo}: HTTP ${HTTP_CODE}"
-              cat /tmp/resp
-            fi
-          done
-          printf "Shockwave fan-out summary:\n${summary}" >> "$GITHUB_STEP_SUMMARY"
+          payload=$(jq -nc --arg tag "$TAG" --argjson pre "$IS_PRE" \
+            '{event_type:"package-released", client_payload:{package:"web4", version:$tag, is_prerelease:$pre}}')
+          HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d "$payload")
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "orchestrator notify failed (HTTP $HTTP_CODE):"
+            cat /tmp/resp
+            exit 1
+          fi
+          echo "orchestrator notified: web4 ${TAG} (is_prerelease=${IS_PRE})"
