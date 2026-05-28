@@ -227,6 +227,7 @@ func Dial(ctx context.Context, cfg Config) (*Transport, error) {
 	t.connMu.Unlock()
 
 	go t.supervise()
+	go t.idlePing()
 	return t, nil
 }
 
@@ -541,6 +542,37 @@ func (t *Transport) drainReads(conn *websocket.Conn) {
 		case t.recvCh <- recvItem{frame: frameCopy}:
 		case <-t.superviseDoneCh:
 			return
+		}
+	}
+}
+
+// idlePing sends websocket Ping frames at the configured IdlePingInterval
+// to keep the WSS connection alive through proxy idle timeouts. Runs until
+// Close() fires via lifetimeCtx. Skips pings while the supervisor is
+// reconnecting (conn == nil).
+func (t *Transport) idlePing() {
+	ticker := time.NewTicker(t.cfg.IdlePingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-t.lifetimeCtx.Done():
+			return
+		case <-ticker.C:
+			if t.closed.Load() {
+				return
+			}
+			t.connMu.RLock()
+			conn := t.conn
+			t.connMu.RUnlock()
+			if conn == nil {
+				continue
+			}
+			t.writeMu.Lock()
+			err := conn.Ping(t.lifetimeCtx)
+			t.writeMu.Unlock()
+			if err != nil {
+				slog.Debug("wss transport: idle ping failed", "err", err)
+			}
 		}
 	}
 }

@@ -600,6 +600,48 @@ func TestReconnect_SurvivesFailedRedialAttempts(t *testing.T) {
 	}
 }
 
+// TestIdlePing_KeepsConnectionAlive verifies that the idle-ping
+// goroutine runs without interfering with Send/Recv. The bug was that
+// IdlePingInterval was stored but no goroutine ever sent websocket
+// Ping frames — corporate proxies would idle-timeout the WS connection
+// and the daemon would wedge on Recv forever.
+func TestIdlePing_KeepsConnectionAlive(t *testing.T) {
+	t.Parallel()
+	id := mustID(t)
+	fb := newFakeBeacon(t, 1)
+
+	tr, err := wss.Dial(context.Background(), wss.Config{
+		URL:              fb.url(),
+		TLSConfig:        fb.tlsConfig(),
+		Identity:         id,
+		NodeID:           1,
+		IdlePingInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer tr.Close()
+
+	// Wait long enough for several ping cycles to fire. If the ping
+	// goroutine panics or deadlocks (e.g., holds writeMu while the
+	// transport is closed), the Send/Recv round-trip below will hang.
+	time.Sleep(200 * time.Millisecond)
+
+	// Send/Recv must still work after idle pings have fired.
+	payload := []byte("after-pings")
+	if _, err := tr.Send(payload, nil); err != nil {
+		t.Fatalf("Send after idle pings: %v", err)
+	}
+	frame, _, err := tr.Recv()
+	if err != nil {
+		t.Fatalf("Recv after idle pings: %v", err)
+	}
+	want := append([]byte("echo:"), payload...)
+	if string(frame) != string(want) {
+		t.Errorf("Recv = %q; want %q", frame, want)
+	}
+}
+
 func mustID(t *testing.T) *crypto.Identity {
 	t.Helper()
 	id, err := crypto.GenerateIdentity()
