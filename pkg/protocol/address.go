@@ -58,7 +58,12 @@ func (a Addr) MarshalTo(buf []byte, offset int) {
 }
 
 // UnmarshalAddr reads a 6-byte address from buf.
+// Returns a zero address if buf is shorter than AddrSize (6 bytes),
+// rather than panicking on the out-of-bounds slice (PILOT-133).
 func UnmarshalAddr(buf []byte) Addr {
+	if len(buf) < AddrSize {
+		return Addr{}
+	}
 	return Addr{
 		Network: binary.BigEndian.Uint16(buf[0:2]),
 		Node:    binary.BigEndian.Uint32(buf[2:6]),
