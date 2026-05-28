@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // TestSetHostnameViaIPC verifies the driver → IPC → daemon → registry round-trip

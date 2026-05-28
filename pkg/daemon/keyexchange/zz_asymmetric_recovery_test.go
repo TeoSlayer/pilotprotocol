@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // frameRecorder captures frames sent via Manager.SetSender so tests can

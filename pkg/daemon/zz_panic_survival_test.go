@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestL1UnmarshalPanicSurvival drives protocol.Unmarshal through its

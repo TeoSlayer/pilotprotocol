@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // TestPrivateNodeResolveBlocked verifies that a private node cannot be resolved

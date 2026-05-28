@@ -300,3 +300,50 @@ func TestClassifyDaemonError(t *testing.T) {
 type simpleErr struct{ s string }
 
 func (e *simpleErr) Error() string { return e.s }
+
+func TestNearestCommandSuggestion(t *testing.T) {
+	t.Parallel()
+	cands := []string{"ping", "peers", "info", "init", "handshake", "send-message", "trust"}
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"pin", "ping"},    // one deletion: ping → pin
+		{"pings", "ping"},  // one insertion
+		{"Peers", "peers"}, // case-insensitive
+		{"handshak", "handshake"},
+		{"init", "init"}, // exact match
+		{"send-mesage", "send-message"},
+		{"potato", ""}, // too far from anything
+		{"x", ""},      // too short to match anything in cands
+		{"", ""},       // empty input
+	}
+	for _, tc := range cases {
+		if got := nearestCommand(tc.in, cands); got != tc.want {
+			t.Errorf("nearestCommand(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestKnownTopLevelCommandsDedupesCompounds(t *testing.T) {
+	t.Parallel()
+	out := knownTopLevelCommands()
+	seen := make(map[string]int)
+	for _, c := range out {
+		seen[c]++
+		if strings.Contains(c, " ") {
+			t.Errorf("compound key leaked into top-level list: %q", c)
+		}
+	}
+	for c, n := range seen {
+		if n > 1 {
+			t.Errorf("duplicate top-level token %q (count=%d)", c, n)
+		}
+	}
+	// Sanity: a few well-known commands must surface.
+	for _, must := range []string{"daemon", "send-message", "ping", "appstore"} {
+		if _, ok := seen[must]; !ok {
+			t.Errorf("expected %q in knownTopLevelCommands(), got %v", must, out)
+		}
+	}
+}

@@ -29,10 +29,10 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
 	"github.com/pilot-protocol/beacon"
 	bwss "github.com/pilot-protocol/beacon/wss"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // startRealBeacon brings up a real *beacon.Server with its compat WSS

@@ -10,8 +10,8 @@ package tests
 import (
 	"testing"
 
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	icrypto "github.com/pilot-protocol/common/crypto"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 func dashRegisterNode(t *testing.T, addr, hostname string) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/pilot-protocol/common/ipcutil"
 )
 
 // pairedConn returns two ends of a Unix-style pipe wrapped as net.Conn so we

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/pilot-protocol/common/driver"
 )
 
 // TestIPCDisconnectRecovery tests that driver operations return errors when

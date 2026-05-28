@@ -14,7 +14,7 @@ import (
 
 	registry "github.com/pilot-protocol/rendezvous"
 
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // TestInviteRequiresAcceptance verifies the full invite flow:

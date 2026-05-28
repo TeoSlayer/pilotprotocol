@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/pilot-protocol/common/config"
+	"github.com/pilot-protocol/common/driver"
+	"github.com/pilot-protocol/common/logging"
 
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi

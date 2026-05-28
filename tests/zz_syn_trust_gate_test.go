@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // localUDPAddr converts a daemon's tunnel address to a localhost UDPAddr

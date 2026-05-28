@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/driver"
+	"github.com/pilot-protocol/common/protocol"
+	registry "github.com/pilot-protocol/common/registry/client"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/policy/policylang"
@@ -187,6 +187,100 @@ func fatalHint(code, hint, format string, args ...interface{}) {
 
 func fatal(format string, args ...interface{}) {
 	fatalCode("internal", format, args...)
+}
+
+// nearestCommand returns the closest match from candidates by case-folded
+// Levenshtein distance, but only if it's within a tolerance proportional
+// to the input length. Returns "" when no suggestion is useful — typing
+// "potato" should not suggest "ping". Empty input or empty candidates
+// also produce "".
+func nearestCommand(input string, candidates []string) string {
+	if input == "" || len(candidates) == 0 {
+		return ""
+	}
+	in := strings.ToLower(input)
+	best := ""
+	bestDist := -1
+	for _, c := range candidates {
+		d := levenshteinDistance(in, strings.ToLower(c))
+		if bestDist == -1 || d < bestDist {
+			best = c
+			bestDist = d
+		}
+	}
+	// Only suggest if distance is small. Tolerate one typo for short
+	// inputs (≤3 chars) and up to two for longer.
+	threshold := 2
+	if len(in) <= 3 {
+		threshold = 1
+	}
+	if bestDist > threshold {
+		return ""
+	}
+	return best
+}
+
+// levenshteinDistance returns the edit distance between a and b. Used by
+// nearestCommand to surface "did you mean" suggestions for typo'd
+// subcommand names.
+func levenshteinDistance(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			m := del
+			if ins < m {
+				m = ins
+			}
+			if sub < m {
+				m = sub
+			}
+			curr[j] = m
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
+}
+
+// knownTopLevelCommands returns the set of top-level command tokens
+// pilotctl recognizes, derived from the commandHelp registry. Compound
+// keys like "daemon start" contribute only their first token, so the
+// suggestion engine matches what the user types at position 0.
+func knownTopLevelCommands() []string {
+	seen := make(map[string]struct{}, len(commandHelp))
+	out := make([]string, 0, len(commandHelp))
+	for k := range commandHelp {
+		first := k
+		if i := strings.IndexByte(k, ' '); i > 0 {
+			first = k[:i]
+		}
+		if _, ok := seen[first]; ok {
+			continue
+		}
+		seen[first] = struct{}{}
+		out = append(out, first)
+	}
+	return out
 }
 
 // parseNodeID parses a string as a uint32 node ID or exits with an error (M18 fix).
@@ -1556,12 +1650,17 @@ dispatch:
 		runDaemonInternal(cmdArgs)
 
 	default:
+		hint := "run 'pilotctl' for the full command list"
 		if jsonOutput {
-			fatalHint("invalid_argument",
-				"run 'pilotctl context' for the full command list",
-				"unknown command: %s", cmd)
+			hint = "run 'pilotctl context' for the full command list"
 		}
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
+		if suggestion := nearestCommand(cmd, knownTopLevelCommands()); suggestion != "" {
+			hint = "did you mean 'pilotctl " + suggestion + "'? " + hint
+		}
+		if jsonOutput {
+			fatalHint("invalid_argument", hint, "unknown command: %s", cmd)
+		}
+		fmt.Fprintf(os.Stderr, "unknown command: %s\nhint:  %s\n\n", cmd, hint)
 		usage()
 	}
 }

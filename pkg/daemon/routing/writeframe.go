@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // WriteFrame ships a raw UDP frame to a peer. Routes through the beacon

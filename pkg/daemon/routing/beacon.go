@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // RegisterWithBeacon sends a MsgDiscover to the beacon from the tunnel

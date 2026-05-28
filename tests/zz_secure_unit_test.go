@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
+	"github.com/pilot-protocol/common/secure"
 )
 
 func TestSecureHandshakeAndRoundTrip(t *testing.T) {

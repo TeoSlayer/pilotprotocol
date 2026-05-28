@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
 	icrypto "github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/protocol"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // ======================

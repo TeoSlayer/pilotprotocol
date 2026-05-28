@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestWireFormatGolden is the P6 wire-protocol invariance gate. It reads each

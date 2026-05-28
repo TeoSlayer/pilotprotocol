@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/protocol"
+	registry "github.com/pilot-protocol/common/registry/client"
 )
 
 // newPacketDaemon fully wires a Daemon for packet-dispatch tests: real UDP

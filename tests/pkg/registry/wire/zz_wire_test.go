@@ -7,7 +7,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	"github.com/pilot-protocol/common/registry/wire"
 )
 
 func TestWireFrameRoundTrip(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // peerSetup holds two L5 Managers + Stores with mutually derived Crypto

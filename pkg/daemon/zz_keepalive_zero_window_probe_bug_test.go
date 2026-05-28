@@ -5,7 +5,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestKeepaliveProbeWithWindowDoesNotStallPeer verifies that a keepalive probe

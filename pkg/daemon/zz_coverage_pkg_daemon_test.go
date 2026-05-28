@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	registrywire "github.com/pilot-protocol/common/registry/wire"
 )
 
 // This file targets ~32% of pkg/daemon statements that were uncovered at

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestKeepaliveAbsentForIdlePeer reproduces the "NAT mapping idle-times

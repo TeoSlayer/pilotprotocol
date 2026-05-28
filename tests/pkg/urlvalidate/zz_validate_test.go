@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/urlvalidate"
+	"github.com/pilot-protocol/common/urlvalidate"
 )
 
 func TestValidate(t *testing.T) {

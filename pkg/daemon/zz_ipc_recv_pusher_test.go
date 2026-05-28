@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/pilot-protocol/common/ipcutil"
 )
 
 // Iter-109 coverage for startRecvPusher (0% baseline) — the goroutine

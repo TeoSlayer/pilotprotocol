@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/ipcutil"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // newPipePair returns a connected pair. The server side is wrapped in ipcConn
