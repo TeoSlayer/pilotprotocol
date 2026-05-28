@@ -1618,3 +1618,38 @@ func TestConnAdapterDeadlineSettersNoOp(t *testing.T) {
 		t.Fatalf("SetWriteDeadline: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// RegConnListNodes: nil regConn returns a typed error rather than panicking.
+// ---------------------------------------------------------------------------
+
+func TestRegConnListNodesNilRegConnReturnsError(t *testing.T) {
+	t.Parallel()
+	d := New(Config{})
+	if _, err := d.RegConnListNodes(1, ""); err == nil {
+		t.Fatal("expected error when regConn is nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// prewarmTrustedResolves: nil handshake service returns immediately.
+// ---------------------------------------------------------------------------
+
+func TestPrewarmTrustedResolvesNilHandshakeNoOp(t *testing.T) {
+	t.Parallel()
+	d := New(Config{})
+	// Pre-close stopCh so even if the function tried to sleep, it would
+	// bail. With nil handshakes the function returns before sleeping.
+	close(d.stopCh)
+	d.prewarmTrustedResolves()
+}
+
+func TestPrewarmTrustedResolvesEmptyTrustedListReturns(t *testing.T) {
+	t.Parallel()
+	d := New(Config{})
+	d.RegisterHandshakeService(&fakeHandshakeService{}) // empty
+	// Without pre-closing stopCh, the 2s sleep would run. Override here
+	// so the test completes quickly: closed stopCh wakes the select.
+	close(d.stopCh)
+	d.prewarmTrustedResolves()
+}
