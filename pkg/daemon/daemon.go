@@ -252,6 +252,7 @@ type Daemon struct {
 	stopCh          chan struct{}         // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
 	stopOnce        sync.Once             // ensures stopCh is closed exactly once
+	bgWG            sync.WaitGroup        // tracks daemon-scoped background goroutines
 
 	// In-process event bus. Core layers Publish; the webhook plugin
 	// (and any other observability plugin) Subscribe. Replaces inline
@@ -940,26 +941,34 @@ func (d *Daemon) Start() error {
 	d.startBuiltinServices()
 
 	// 7. Start packet router
-	go d.routeLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.routeLoop() }()
 
 	// 8. Start heartbeat — split per layer (T4.3, P9/P10):
 	//    - trustRepublishLoop          (L5/L8): registry heartbeat + reregister
 	//    - tunnelKeepaliveLoop         (L4):    beacon NAT-mapping refresh
 	//    - handshakePollLoop           (L11):   relayed-handshake polling
 	//    - observabilityHeartbeatLoop  (L11):   agent.heartbeat bus publish
-	go d.trustRepublishLoop()
-	go d.tunnelKeepaliveLoop()
-	go d.handshakePollLoop()
-	go d.observabilityHeartbeatLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.trustRepublishLoop() }()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.tunnelKeepaliveLoop() }()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.handshakePollLoop() }()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.observabilityHeartbeatLoop() }()
 
 	// 9. Start idle connection sweeper
-	go d.idleSweepLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.idleSweepLoop() }()
 
 	// 10. Start relay→direct fallback probe (checks every 5 min)
-	go d.relayProbeLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.relayProbeLoop() }()
 
 	// 11. Start network sync (refreshes memberships/policies every 5 min)
-	go d.networkSyncLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.networkSyncLoop() }()
 
 	// 12. Start beacon discovery refresh loop. Refreshes the beacon list
 	// from the registry every 60s ± jitter so MIG autoscale events
@@ -968,7 +977,8 @@ func (d *Daemon) Start() error {
 	// benefit: if the registry knows about additional beacons, this
 	// daemon will discover them and may migrate to a different one if
 	// hash-pick lands on a fresher beacon.
-	go d.beaconRefreshLoop()
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.beaconRefreshLoop() }()
 
 	// 12b. Earlier rc2-dev iterations pre-warmed trusted peers at
 	// startup. Two variants were tried and both made things worse:
@@ -1189,6 +1199,10 @@ func (d *Daemon) Stop() error {
 }
 
 func (d *Daemon) doStop() {
+	// Wait for all daemon-scoped background goroutines to notice
+	// stopCh and exit before tearing down shared infrastructure.
+	d.bgWG.Wait()
+
 	// v1.9.1: emit a shutdown signal BEFORE any teardown so operators
 	// can distinguish planned drain from crash. Auto-scalers and
 	// webhook-driven dashboards rely on this transition event;
@@ -2263,8 +2277,16 @@ func (d *Daemon) Info() *DaemonInfo {
 }
 
 func (d *Daemon) routeLoop() {
-	for incoming := range d.tunnels.RecvCh() {
-		d.routePacketWithRecover(incoming.Packet, incoming.From)
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case incoming, ok := <-d.tunnels.RecvCh():
+			if !ok {
+				return
+			}
+			d.routePacketWithRecover(incoming.Packet, incoming.From)
+		}
 	}
 }
 
