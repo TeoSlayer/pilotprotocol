@@ -1468,28 +1468,50 @@ func validationErrSummary(errs []error) string {
 
 // humanDuration formats a Duration cleanly: "24h", "1h30m", "10m",
 // "45s". Go's Duration.String() emits "24h0m0s" which is fine for
-// machines but noisy for humans — strip trailing zero components.
+// machines but noisy for humans — drop any trailing zero components.
 // Sub-second durations stay as "Xms" / "Xµs" via the stdlib default.
+//
+// The previous implementation used strings.TrimSuffix(s, "0m") which
+// over-stripped: "1h30m0s" → "1h30m" → "1h3" and "10m0s" → "10m" → "1".
+// We now decompose the duration into h/m/s components and emit only the
+// non-zero ones (e.g. "1h30m0s" → "1h30m", "10m0s" → "10m",
+// "2h5m30s" → "2h5m30s", "1h0m0s" → "1h").
 func humanDuration(d time.Duration) string {
 	if d == 0 {
 		return "0s"
 	}
-	// Round to whole seconds for anything ≥1s so we don't render
-	// "23h29m58.948334s"; sub-second durations (e.g. test fixtures
-	// with 100ms intervals) keep their precision via the stdlib default.
-	if d >= time.Second {
-		d = d.Round(time.Second)
-	}
-	s := d.String()
-	// Collapse the two common eyesores from Duration.String():
-	//   "1h0m0s" → "1h", "1h30m0s" → "1h30m", "1m0s" → "1m".
-	s = strings.TrimSuffix(s, "0s")
-	s = strings.TrimSuffix(s, "0m")
-	if s == "" {
-		// All-zero compacted away — fall back to the raw form.
+	// Sub-second durations (e.g. test fixtures with 100ms intervals)
+	// keep their precision via the stdlib default — the h/m/s
+	// decomposition below has nothing to render.
+	if d < time.Second {
 		return d.String()
 	}
-	return s
+	// Round to whole seconds for anything ≥1s so we don't render
+	// "23h29m58.948334s".
+	d = d.Round(time.Second)
+
+	hours := int64(d / time.Hour)
+	d -= time.Duration(hours) * time.Hour
+	minutes := int64(d / time.Minute)
+	d -= time.Duration(minutes) * time.Minute
+	seconds := int64(d / time.Second)
+
+	var b strings.Builder
+	if hours > 0 {
+		fmt.Fprintf(&b, "%dh", hours)
+	}
+	if minutes > 0 {
+		fmt.Fprintf(&b, "%dm", minutes)
+	}
+	if seconds > 0 {
+		fmt.Fprintf(&b, "%ds", seconds)
+	}
+	if b.Len() == 0 {
+		// d rounded to zero — shouldn't happen given d ≥ 1s above,
+		// but fall back to the stdlib default for safety.
+		return d.String()
+	}
+	return b.String()
 }
 
 // capDecl is the local pilotctl-side projection of a manifest cap.
