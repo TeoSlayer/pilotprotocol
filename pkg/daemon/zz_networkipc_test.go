@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"testing"
@@ -38,6 +39,12 @@ func netTestDaemon(t *testing.T) (*Daemon, uint32) {
 	d.regConn = rc
 	d.identity = id
 	d.setNodeID_testhelper(nodeID)
+	// Wire the signer so registry calls requiring signatures work.
+	// In production, daemon.Start() does this; the test fixture skips
+	// Start() and must replicate the signer setup explicitly (PILOT-128).
+	rc.SetSigner(func(challenge string) string {
+		return base64.StdEncoding.EncodeToString(id.Sign([]byte(challenge)))
+	})
 	t.Cleanup(func() {
 		if d.handshakes != nil {
 			d.handshakes.Stop()

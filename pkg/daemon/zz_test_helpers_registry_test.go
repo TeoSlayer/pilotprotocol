@@ -77,6 +77,14 @@ func startFakeRegistry(t *testing.T, respond func(req map[string]interface{}) ma
 		t.Fatalf("dial fake registry: %v", err)
 	}
 
+	// Configure a no-op test signer. After PILOT-128 the registry client
+	// refuses to send any signed request when no signer is set. The fake
+	// registry doesn't verify signatures, so any non-empty string suffices.
+	// Tests that need the no-signer error path should call client.SetSigner(nil).
+	client.SetSigner(func(challenge string) string {
+		return "test-sig:" + challenge
+	})
+
 	cleanup := func() {
 		quitMu.Lock()
 		if closed {
