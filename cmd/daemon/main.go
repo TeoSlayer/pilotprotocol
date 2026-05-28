@@ -17,6 +17,7 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/config"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
 	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
 
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
@@ -47,7 +48,7 @@ func main() {
 	registryAddr := flag.String("registry", registryDefault, "registry server address (or $PILOT_REGISTRY)")
 	beaconAddr := flag.String("beacon", beaconDefault, "beacon server address (or $PILOT_BEACON)")
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
-	socketPath := flag.String("socket", "/tmp/pilot.sock", "Unix socket path for IPC")
+	socketPath := flag.String("socket", driver.DefaultSocketPath(), "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")

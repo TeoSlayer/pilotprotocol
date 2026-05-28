@@ -54,8 +54,8 @@ func TestGetSocketEnvPrecedence(t *testing.T) {
 
 func TestGetSocketDefault(t *testing.T) {
 	withTempHomeFull(t)
-	if got := getSocket(); got != defaultSocket {
-		t.Errorf("default = %s, want %s", got, defaultSocket)
+	if got := getSocket(); got != defaultSocket() {
+		t.Errorf("default = %s, want %s", got, defaultSocket())
 	}
 }
 
