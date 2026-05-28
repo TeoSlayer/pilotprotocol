@@ -86,6 +86,58 @@ func TestAddrMarshalToOffset(t *testing.T) {
 	}
 }
 
+func TestUnmarshalAddrShortBuffer(t *testing.T) {
+	t.Parallel()
+	// PILOT-133: UnmarshalAddr must not panic on short buffers.
+	// It should return a zero address instead of indexing out of bounds.
+
+	// 0 bytes
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("UnmarshalAddr panicked on 0-byte buffer: %v", r)
+			}
+		}()
+		a := UnmarshalAddr([]byte{})
+		if !a.IsZero() {
+			t.Errorf("expected zero addr for empty buffer, got %+v", a)
+		}
+	}()
+
+	// 3 bytes
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("UnmarshalAddr panicked on 3-byte buffer: %v", r)
+			}
+		}()
+		a := UnmarshalAddr([]byte{0x00, 0x01, 0x02})
+		if !a.IsZero() {
+			t.Errorf("expected zero addr for short buffer, got %+v", a)
+		}
+	}()
+
+	// 5 bytes (one short)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("UnmarshalAddr panicked on 5-byte buffer: %v", r)
+			}
+		}()
+		a := UnmarshalAddr([]byte{0x00, 0x01, 0xDE, 0xAD, 0xBE})
+		if !a.IsZero() {
+			t.Errorf("expected zero addr for 5-byte buffer, got %+v", a)
+		}
+	}()
+
+	// 6 bytes (valid, should work normally)
+	a := UnmarshalAddr([]byte{0x00, 0x01, 0xDE, 0xAD, 0xBE, 0xEF})
+	want := Addr{Network: 0x0001, Node: 0xDEADBEEF}
+	if a != want {
+		t.Errorf("valid 6-byte buffer: got %+v, want %+v", a, want)
+	}
+}
+
 func TestAddrStringFormat(t *testing.T) {
 	t.Parallel()
 	a := Addr{Network: 0x00A3, Node: 0xF2910004}
