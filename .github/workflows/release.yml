@@ -1,34 +1,38 @@
 # ----------------------------------------------------------------------------
-# TODO(org-move): re-create secrets on the destination org before this repo
-# is transferred to `pilot-protocol/`. None of the secrets below survive a
-# repo transfer — they live on the SOURCE org (TeoSlayer) and need to be
-# created fresh on `pilot-protocol` so this workflow keeps working.
+# Releases continue from this repo as normal — both before and after the
+# planned move to `pilot-protocol/`. This comment is just a reminder for
+# migration day; it does NOT gate any release.
 #
-# Secrets currently expected by `release.yml` and other workflows in this
-# repo (`ci.yml`, `nightly.yml`, `architecture.yml`, `codeql.yml`):
+# Why the reminder: GitHub repo transfers do not carry secrets across orgs.
+# The current setup only needs GITHUB_TOKEN (auto-issued), so a transfer
+# today would not break anything. But future work will re-introduce
+# secrets, and they must be re-created on the destination org BEFORE the
+# transfer flips DNS — otherwise the first release after the move silently
+# falls back to no-op or fails.
 #
-#   GITHUB_TOKEN              - auto-issued, no action needed
+# Pending (not blocking releases now — will block IF the linked work
+# lands before the org migration):
 #
-# Secrets that need to be added BACK once the matching workflows are
-# restored (we removed `update-homebrew.yml` in PR #122 to drop the
-# cross-org PAT; auto-publish workflows for npm/PyPI never landed):
-#
-#   HOMEBREW_TAP_TOKEN        - PAT or GitHub App token with `contents:write`
-#                                on `pilot-protocol/homebrew-pilot`.
-#                                Prefer a GitHub App over a PAT — see
-#                                `actions/create-github-app-token@v1`.
+#   HOMEBREW_TAP_TOKEN        - re-introduced when Homebrew auto-publish
+#                                returns. Prefer a GitHub App over a PAT
+#                                via `actions/create-github-app-token@v1`.
 #   NPM_TOKEN                 - if PILOT-203 lands sdk-node auto-publish.
 #   PYPI_TOKEN                - if PILOT-203 lands sdk-python auto-publish.
 #   COSIGN_KEY / COSIGN_PASS  - if PILOT-114 lands updater binary signing.
 #
-# When the migration happens, mirror the secrets via:
-#   gh secret set HOMEBREW_TAP_TOKEN --repo pilot-protocol/<new-repo> --body <value>
-# (Reading the value from the old org first; GitHub never exposes secrets,
-# so the original cleartext source is required.)
+# Migration steps (when the day comes):
+#   1. List secrets on the source org with `gh secret list --repo <src>`.
+#   2. For each non-auto-issued secret, recreate it on the destination
+#      using the original cleartext value (GitHub never reveals existing
+#      secret values).
+#   3. Transfer the repo via Settings → "Transfer ownership" or
+#      `gh api repos/<src>/transfer -f new_owner=<dst>`.
+#   4. Re-verify a release tag triggers this workflow successfully.
 #
-# Track the migration in the org-move runbook; do not delete this comment
-# until every workflow file that previously referenced a secret has either
-# (a) been re-wired against the new secret, or (b) been confirmed retired.
+# Track the migration in the org-move runbook. Do NOT delete this comment
+# until either: (a) the migration has completed and every reintroduced
+# secret is wired against the destination org, or (b) auto-publish and
+# binary signing have been formally retired.
 # ----------------------------------------------------------------------------
 
 name: Release
@@ -273,3 +277,166 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+
+  # ----------------------------------------------------------------------------
+  # publish-manifest
+  #
+  # Regenerates `pilotprotocol.network/.well-known/latest.json` from the tag we
+  # just shipped, then hands it off to `pilot-protocol/website` via
+  # `repository_dispatch`. The website side commits the JSON to main, which
+  # triggers the Cloudflare Pages deploy.
+  #
+  # The manifest is the single source of truth that every install surface
+  # (install.sh, Homebrew formula, SDK release helpers) reads to decide which
+  # version is current. Failing here does NOT roll the release back — the
+  # GitHub release is already live — but it does mean install.sh will keep
+  # serving the old tag until the manifest is republished. The step is best-
+  # effort and prints a clear hint when the dispatch token is missing.
+  # ----------------------------------------------------------------------------
+  publish-manifest:
+    name: Publish version manifest
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build manifest JSON from this release
+        id: build
+        env:
+          TAG: ${{ github.ref_name }}
+          IS_PRE: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+        run: |
+          # Pull the just-published checksums.txt directly from the GitHub
+          # release (it landed there in the previous job).
+          curl -fsSL -o checksums.txt \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/checksums.txt"
+
+          sha_for() {
+            grep " $1\$" checksums.txt | awk '{print $1}'
+          }
+
+          DARWIN_AMD64=$(sha_for "pilot-darwin-amd64.tar.gz")
+          DARWIN_ARM64=$(sha_for "pilot-darwin-arm64.tar.gz")
+          LINUX_AMD64=$(sha_for "pilot-linux-amd64.tar.gz")
+          LINUX_ARM64=$(sha_for "pilot-linux-arm64.tar.gz")
+
+          # Refuse to publish a manifest with missing checksums — install.sh
+          # would silently skip verification.
+          for v in "$DARWIN_AMD64" "$DARWIN_ARM64" "$LINUX_AMD64" "$LINUX_ARM64"; do
+            if [ -z "$v" ]; then
+              echo "error: checksums.txt missing one or more platform entries"
+              cat checksums.txt
+              exit 1
+            fi
+          done
+
+          # When the new tag is a prerelease, leave latest_stable alone and
+          # bump only latest_prerelease + channels.edge. The website receiver
+          # merges into the existing manifest.
+          if [ "$IS_PRE" = "true" ]; then
+            STABLE="" ; EDGE="$TAG"
+          else
+            STABLE="$TAG" ; EDGE="$TAG"
+          fi
+
+          UPDATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          OWNER_REPO="${GITHUB_REPOSITORY}"
+
+          cat > manifest.json <<EOF
+          {
+            "\$schema": "https://pilotprotocol.network/.well-known/latest.schema.json",
+            "updated_at": "${UPDATED_AT}",
+            "tag": "${TAG}",
+            "is_prerelease": ${IS_PRE},
+            "proposed_stable": "${STABLE}",
+            "proposed_edge": "${EDGE}",
+            "release_notes_url": "https://github.com/${OWNER_REPO}/releases/tag/${TAG}",
+            "homebrew_formula_url": "https://github.com/TeoSlayer/homebrew-pilot/raw/main/Formula/pilotprotocol.rb",
+            "platforms": {
+              "darwin-amd64": { "url": "https://github.com/${OWNER_REPO}/releases/download/${TAG}/pilot-darwin-amd64.tar.gz", "sha256": "${DARWIN_AMD64}" },
+              "darwin-arm64": { "url": "https://github.com/${OWNER_REPO}/releases/download/${TAG}/pilot-darwin-arm64.tar.gz", "sha256": "${DARWIN_ARM64}" },
+              "linux-amd64":  { "url": "https://github.com/${OWNER_REPO}/releases/download/${TAG}/pilot-linux-amd64.tar.gz",  "sha256": "${LINUX_AMD64}"  },
+              "linux-arm64":  { "url": "https://github.com/${OWNER_REPO}/releases/download/${TAG}/pilot-linux-arm64.tar.gz",  "sha256": "${LINUX_ARM64}"  }
+            }
+          }
+          EOF
+          cat manifest.json
+
+          # Escape for JSON embedding in the dispatch payload.
+          PAYLOAD=$(jq -c '{event_type:"manifest-update", client_payload:{manifest:.}}' manifest.json)
+          echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch to website
+        env:
+          # SHOCKWAVE_DISPATCH_TOKEN must have `repository_dispatch` scope on
+          # pilot-protocol/website. Prefer a GitHub App token over a PAT —
+          # see actions/create-github-app-token@v1.
+          SHOCKWAVE_TOKEN: ${{ secrets.SHOCKWAVE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$SHOCKWAVE_TOKEN" ]; then
+            echo "::warning::SHOCKWAVE_DISPATCH_TOKEN secret unset — skipping manifest dispatch."
+            echo "Action required: set the secret and re-run this workflow to publish ${{ github.ref_name }}."
+            exit 0
+          fi
+          HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${SHOCKWAVE_TOKEN}" \
+            "https://api.github.com/repos/pilot-protocol/website/dispatches" \
+            -d '${{ steps.build.outputs.payload }}')
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "dispatch failed (HTTP $HTTP_CODE):"
+            cat /tmp/resp
+            exit 1
+          fi
+          echo "manifest dispatch accepted (HTTP 204)"
+
+  # ----------------------------------------------------------------------------
+  # shockwave
+  #
+  # Notify every package that derives from web4 (Homebrew formula + SDKs) that
+  # a new release exists. Each downstream repo runs its own bump workflow on
+  # receiving `repository_dispatch` event_type=upstream-release.
+  #
+  # Receivers (each must have a workflow listening for `upstream-release`):
+  #   - pilot-protocol/homebrew-pilot   → bump Formula/pilot.rb
+  #   - pilot-protocol/sdk-node         → bump pkg version + npm publish
+  #   - pilot-protocol/sdk-python       → bump pyproject + PyPI publish
+  #   - pilot-protocol/sdk-swift        → bump Package.swift binaryTarget
+  #
+  # Soft-fail per receiver: a missing token or a 404 on one repo MUST NOT block
+  # the others. The job summary at the end lists which targets succeeded so a
+  # missed dispatch is visible without grepping logs.
+  # ----------------------------------------------------------------------------
+  shockwave:
+    name: Shockwave fan-out
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch to downstream consumers
+        env:
+          SHOCKWAVE_TOKEN: ${{ secrets.SHOCKWAVE_DISPATCH_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          IS_PRE: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+        run: |
+          if [ -z "$SHOCKWAVE_TOKEN" ]; then
+            echo "::warning::SHOCKWAVE_DISPATCH_TOKEN secret unset — skipping fan-out."
+            exit 0
+          fi
+          summary=""
+          for repo in homebrew-pilot sdk-node sdk-python sdk-swift; do
+            payload=$(jq -nc --arg tag "$TAG" --argjson pre "$IS_PRE" \
+              '{event_type:"upstream-release", client_payload:{tag:$tag, is_prerelease:$pre}}')
+            HTTP_CODE=$(curl -sS -o /tmp/resp -w '%{http_code}' \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${SHOCKWAVE_TOKEN}" \
+              "https://api.github.com/repos/pilot-protocol/${repo}/dispatches" \
+              -d "$payload")
+            if [ "$HTTP_CODE" = "204" ]; then
+              summary="${summary}  ✓ ${repo}\n"
+            else
+              summary="${summary}  ✗ ${repo} (HTTP ${HTTP_CODE})\n"
+              echo "::warning::shockwave dispatch failed for ${repo}: HTTP ${HTTP_CODE}"
+              cat /tmp/resp
+            fi
+          done
+          printf "Shockwave fan-out summary:\n${summary}" >> "$GITHUB_STEP_SUMMARY"
