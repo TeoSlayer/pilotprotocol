@@ -6393,7 +6393,7 @@ func cmdPolicySet(args []string) {
 	d := connectDriver()
 	defer d.Close()
 
-	resp, err := d.PolicySet(netID, policyJSON)
+	resp, err := d.PolicySet(netID, policyJSON, adminToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: policy saved to registry but daemon apply failed: %v\n", err)
 		return

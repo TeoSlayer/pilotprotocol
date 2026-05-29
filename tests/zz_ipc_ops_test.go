@@ -395,7 +395,7 @@ func TestPolicySetGetViaIPC(t *testing.T) {
 	}
 
 	// Apply policy to daemon via IPC
-	setResult, err := di.Driver.PolicySet(netID, policyJSON)
+	setResult, err := di.Driver.PolicySet(netID, policyJSON, "")
 	if err != nil {
 		t.Fatalf("PolicySet: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestManagedOpsViaIPCWithPolicyRunner(t *testing.T) {
 
 	// Set policy with cycle/prune rules
 	policyJSON := []byte(`{"version":1,"config":{"cycle":"1h","max_peers":50},"rules":[{"name":"cycle","on":"cycle","match":"true","actions":[{"type":"prune","params":{"count":2,"by":"age"}}]}]}`)
-	_, err = di.Driver.PolicySet(netID, policyJSON)
+	_, err = di.Driver.PolicySet(netID, policyJSON, "")
 	if err != nil {
 		t.Fatalf("PolicySet: %v", err)
 	}

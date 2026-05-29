@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -1686,8 +1687,30 @@ func (s *IPCServer) handleManaged(conn *ipcConn, reqID uint64, payload []byte) {
 			}
 			data, _ := json.Marshal(resp)
 			s.ipcWriteManagedOK(conn, reqID, data)
-		case 0x01: // set — reload policy from registry
-			policyJSON := rest[3:]
+		case 0x01: // set — apply policy from registry (admin-token gated)
+			// Wire: [netID(2)][tokenLen(2)][token...][policyJSON...]
+			if len(rest) < 5 {
+				s.sendError(conn, reqID, "managed policy set: missing token length")
+				return
+			}
+			tokenLen := binary.BigEndian.Uint16(rest[3:5])
+			if len(rest) < 5+int(tokenLen) {
+				s.sendError(conn, reqID, "managed policy set: truncated token")
+				return
+			}
+			token := string(rest[5 : 5+tokenLen])
+			policyJSON := rest[5+tokenLen:]
+
+			// Validate admin token if the daemon has one configured.
+			// Without this gate any same-UID process can inject a
+			// policy that disables network gates.
+			if s.daemon.AdminToken() != "" {
+				if subtle.ConstantTimeCompare([]byte(token), []byte(s.daemon.AdminToken())) != 1 {
+					s.sendError(conn, reqID, "managed policy set: invalid admin token")
+					return
+				}
+			}
+
 			if len(policyJSON) == 0 {
 				s.sendError(conn, reqID, "managed policy set: missing policy JSON")
 				return

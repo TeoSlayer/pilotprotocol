@@ -185,6 +185,15 @@ if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
     fi
 fi
 
+# --- Validate email (prevent shell/XML injection) ---
+
+if [ -n "$EMAIL" ]; then
+    if ! echo "$EMAIL" | grep -qE '^[A-Za-z0-9@._+-]+$'; then
+        echo "  Error: EMAIL contains invalid characters (only A-Z a-z 0-9 @ . _ + - allowed)"
+        exit 1
+    fi
+fi
+
 # --- Detect existing installation ---
 
 UPDATING=false
