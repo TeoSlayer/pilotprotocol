@@ -2002,6 +2002,21 @@ func (d *Daemon) Identity() *crypto.Identity {
 	return d.identity
 }
 
+// Sign signs msg with the daemon's Ed25519 private key. Returns nil
+// when no identity is loaded (in-memory tests, pre-bootstrap).
+//
+// Required by daemonapi.Daemon (common@v0.4.3). The adapter at
+// zz_daemonapi_conformance.go forwards to this directly.
+func (d *Daemon) Sign(msg []byte) []byte {
+	d.identityMu.RLock()
+	id := d.identity
+	d.identityMu.RUnlock()
+	if id == nil {
+		return nil
+	}
+	return id.Sign(msg)
+}
+
 // RotateKey generates a new Ed25519 keypair, proves ownership of the current
 // key to the registry via a `rotate:<node_id>` signature, atomically swaps the
 // in-memory identity on success, and persists it to disk. Returns the

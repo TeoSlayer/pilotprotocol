@@ -12,6 +12,67 @@ import (
 	registry "github.com/pilot-protocol/common/registry/client"
 )
 
+// --- Connection.Info ------------------------------------------------
+//
+// daemonapi.Connection requires Info() ConnectionInfo. Bolted onto
+// *Connection here (rather than ports.go) so the I/O-heavy types in
+// ports.go stay free of plugin-API concerns and the interface
+// fulfilment lives next to its adapter siblings.
+
+// Info returns an endpoint snapshot for plugin consumption. Required
+// by daemonapi.Connection (common@v0.4.3).
+func (c *Connection) Info() daemonapi.ConnectionInfo {
+	return daemonapi.ConnectionInfo{
+		LocalAddr:  c.LocalAddr,
+		LocalPort:  c.LocalPort,
+		RemoteAddr: c.RemoteAddr,
+		RemotePort: c.RemotePort,
+	}
+}
+
+// --- PortAllocator + Listener adapters ------------------------------
+//
+// daemonapi.PortAllocator wants Bind to return daemonapi.Listener.
+// daemonapi.Listener wants Accept/Port/Close methods. The concrete
+// *PortManager and *Listener types use channel-shaped APIs (TrySend,
+// AcceptCh) that pre-date daemonapi, so we wrap them here without
+// changing the engine's call sites.
+
+// portAllocatorAdapter wraps *PortManager so its Bind returns the
+// daemonapi.Listener interface (via a listenerAdapter) instead of
+// the daemon-engine-typed *Listener.
+type portAllocatorAdapter struct{ pm *PortManager }
+
+func (a portAllocatorAdapter) Bind(port uint16) (daemonapi.Listener, error) {
+	ln, err := a.pm.Bind(port)
+	if err != nil {
+		return nil, err
+	}
+	return listenerAdapter{ln: ln}, nil
+}
+
+func (a portAllocatorAdapter) Unbind(port uint16) { a.pm.Unbind(port) }
+
+// listenerAdapter wraps *Listener so it satisfies daemonapi.Listener:
+// channel-shaped AcceptCh becomes an Accept() method, the Port field
+// becomes a Port() method, and close() becomes Close().
+type listenerAdapter struct{ ln *Listener }
+
+func (a listenerAdapter) Accept() (daemonapi.Connection, bool) {
+	conn, ok := <-a.ln.AcceptCh
+	if !ok {
+		return nil, false
+	}
+	return conn, true
+}
+
+func (a listenerAdapter) Port() uint16 { return a.ln.Port }
+
+func (a listenerAdapter) Close() error {
+	a.ln.close()
+	return nil
+}
+
 // daemonAPIAdapter wraps a *Daemon to satisfy daemonapi.Daemon.
 //
 // Why an adapter instead of changing *Daemon's method signatures:
@@ -49,6 +110,7 @@ func (a daemonAPIAdapter) Stop() error  { return a.d.Stop() }
 func (a daemonAPIAdapter) NodeID() uint32             { return a.d.NodeID() }
 func (a daemonAPIAdapter) Identity() *crypto.Identity { return a.d.Identity() }
 func (a daemonAPIAdapter) IdentityPath() string       { return a.d.IdentityPath() }
+func (a daemonAPIAdapter) Sign(msg []byte) []byte     { return a.d.Sign(msg) }
 
 // --- Configuration ---------------------------------------------------
 
@@ -95,7 +157,9 @@ func (a daemonAPIAdapter) NewConnReadWriter(c daemonapi.Connection) daemonapi.Co
 	return a.d.NewConnReadWriter(conn)
 }
 
-func (a daemonAPIAdapter) Ports() daemonapi.PortAllocator    { return a.d.Ports() }
+func (a daemonAPIAdapter) Ports() daemonapi.PortAllocator {
+	return portAllocatorAdapter{pm: a.d.Ports()}
+}
 func (a daemonAPIAdapter) Tunnels() daemonapi.TunnelRegistry { return a.d.Tunnels() }
 
 // --- Registry --------------------------------------------------------

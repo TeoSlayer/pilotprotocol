@@ -189,7 +189,15 @@ func main() {
 	// L11 plugin lifecycle (T7.1): composition root owns the
 	// ServiceRegistry via plugins/runtime. Daemon never imports
 	// pkg/coreapi.
-	rt := runtime.New(d)
+	//
+	// runtime + the per-plugin Runtime constructors take a
+	// daemonapi.Daemon. *Daemon doesn't satisfy that interface
+	// directly (engine-typed Connection/PortAllocator/etc.); the
+	// adapter at pkg/daemon/zz_daemonapi_conformance.go does. We
+	// resolve it once via d.DaemonAPI() and thread the shared value
+	// everywhere — keeps the type assertion in one place.
+	dapi := d.DaemonAPI()
+	rt := runtime.New(dapi)
 
 	ta := trustedagents.NewService()
 	if err := rt.Register(ta); err != nil {
@@ -215,14 +223,14 @@ func main() {
 		}
 	}
 
-	policySvc := policy.NewService(runtime.NewPolicyRuntime(d))
+	policySvc := policy.NewService(runtime.NewPolicyRuntime(dapi))
 	if err := rt.Register(policySvc); err != nil {
 		log.Fatalf("register policy: %v", err)
 	}
 	d.RegisterPolicyManager(runtime.AsDaemonPolicyManager(policySvc.Manager()))
 
 	// Manual trust-handshake (port 444) — extracted from pkg/daemon in T3.3.
-	hsSvc := handshake.NewService(runtime.NewHandshakeRuntime(d))
+	hsSvc := handshake.NewService(runtime.NewHandshakeRuntime(dapi))
 	if err := rt.Register(hsSvc); err != nil {
 		log.Fatalf("register handshake: %v", err)
 	}

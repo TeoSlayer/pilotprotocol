@@ -218,7 +218,12 @@ func (env *TestEnv) AddDaemonOnly(opts ...func(*daemon.Config)) (*daemon.Daemon,
 // corresponding plugin is skipped. Returns the runtime so callers
 // can call StartPlugins/StopPlugins around d.Start/d.Stop.
 func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *pluginsruntime.Runtime {
-	rt := pluginsruntime.New(d)
+	// runtime + per-plugin Runtime constructors expect daemonapi.Daemon.
+	// *Daemon satisfies that interface via the adapter at
+	// pkg/daemon/zz_daemonapi_conformance.go; we resolve it once and
+	// thread the shared value everywhere — same shape as cmd/daemon.
+	dapi := d.DaemonAPI()
+	rt := pluginsruntime.New(dapi)
 	if !cfg.DisableDataExchange {
 		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{})); err != nil {
 			t.Fatalf("register dataexchange: %v", err)
@@ -230,7 +235,7 @@ func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *
 		}
 	}
 	if !cfg.DisablePolicyRunner {
-		policySvc := policy.NewService(pluginsruntime.NewPolicyRuntime(d))
+		policySvc := policy.NewService(pluginsruntime.NewPolicyRuntime(dapi))
 		if err := rt.Register(policySvc); err != nil {
 			t.Fatalf("register policy: %v", err)
 		}
@@ -239,7 +244,7 @@ func registerStandardPlugins(t testingT, d *daemon.Daemon, cfg *daemon.Config) *
 	// Handshake plugin (T3.3) — registered by default so production
 	// behavior matches: tests that don't want it can flip a Disable*
 	// flag on Config (none today, since smoke + e2e all need handshake).
-	hsSvc := handshake.NewService(pluginsruntime.NewHandshakeRuntime(d))
+	hsSvc := handshake.NewService(pluginsruntime.NewHandshakeRuntime(dapi))
 	if err := rt.Register(hsSvc); err != nil {
 		t.Fatalf("register handshake: %v", err)
 	}
