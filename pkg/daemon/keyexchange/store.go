@@ -111,11 +111,37 @@ func (s *Store) IsReady(peerNodeID uint32) bool {
 	return c != nil && c.Ready
 }
 
+
+// wipeCryptoSecrets clears any sensitive plaintext on a Crypto's salvage
+// ring before the Crypto is dropped. PILOT-146: previously Drop simply
+// did a map delete, leaving the salvage plaintext bytes alive on the heap
+// until GC. Explicitly zero them on the way out so a heap dump taken
+// shortly after eviction cannot recover the just-evicted plaintext.
+//
+// Caller must hold whatever lock(s) protect c.Salvage if there could be
+// concurrent access — internal use only.
+func wipeCryptoSecrets(c *Crypto) {
+	if c == nil {
+		return
+	}
+	c.SalvageMu.Lock()
+	for i := range c.Salvage {
+		for j := range c.Salvage[i].Plaintext {
+			c.Salvage[i].Plaintext[j] = 0
+		}
+		c.Salvage[i].Plaintext = nil
+	}
+	c.Salvage = nil
+	c.SalvageMu.Unlock()
+}
+
 // Drop removes the Crypto for peerNodeID. Safe even if no entry exists.
 func (s *Store) Drop(peerNodeID uint32) {
 	s.mu.Lock()
+	c := s.crypto[peerNodeID]
 	delete(s.crypto, peerNodeID)
 	s.mu.Unlock()
+	wipeCryptoSecrets(c) // PILOT-146: zero salvage plaintext on eviction
 }
 
 // CompareAndDrop deletes the entry only if the currently-installed
@@ -124,11 +150,14 @@ func (s *Store) Drop(peerNodeID uint32) {
 // concurrent rekey already replaced.
 func (s *Store) CompareAndDrop(peerNodeID uint32, expected *Crypto) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.crypto[peerNodeID] != expected {
+		s.mu.Unlock()
 		return false
 	}
+	c := s.crypto[peerNodeID]
 	delete(s.crypto, peerNodeID)
+	s.mu.Unlock()
+	wipeCryptoSecrets(c) // PILOT-146
 	return true
 }
 
