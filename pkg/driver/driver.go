@@ -228,21 +228,27 @@ func (d *Driver) Handshake(nodeID uint32, justification string) (map[string]inte
 }
 
 // ApproveHandshake approves a pending trust handshake request.
-func (d *Driver) ApproveHandshake(nodeID uint32) (map[string]interface{}, error) {
-	msg := make([]byte, 6)
+func (d *Driver) ApproveHandshake(nodeID uint32, adminToken string) (map[string]interface{}, error) {
+	tokenBytes := []byte(adminToken)
+	msg := make([]byte, 1+1+2+len(tokenBytes)+4)
 	msg[0] = cmdHandshake
 	msg[1] = subHandshakeApprove
-	binary.BigEndian.PutUint32(msg[2:6], nodeID)
+	binary.BigEndian.PutUint16(msg[2:4], uint16(len(tokenBytes)))
+	copy(msg[4:4+len(tokenBytes)], tokenBytes)
+	binary.BigEndian.PutUint32(msg[4+len(tokenBytes):], nodeID)
 	return d.jsonRPC(msg, cmdHandshakeOK, "approve")
 }
 
 // RejectHandshake rejects a pending trust handshake request.
-func (d *Driver) RejectHandshake(nodeID uint32, reason string) (map[string]interface{}, error) {
-	msg := make([]byte, 1+1+4+len(reason))
+func (d *Driver) RejectHandshake(nodeID uint32, reason string, adminToken string) (map[string]interface{}, error) {
+	tokenBytes := []byte(adminToken)
+	msg := make([]byte, 1+1+2+len(tokenBytes)+4+len(reason))
 	msg[0] = cmdHandshake
 	msg[1] = subHandshakeReject
-	binary.BigEndian.PutUint32(msg[2:6], nodeID)
-	copy(msg[6:], reason)
+	binary.BigEndian.PutUint16(msg[2:4], uint16(len(tokenBytes)))
+	copy(msg[4:4+len(tokenBytes)], tokenBytes)
+	binary.BigEndian.PutUint32(msg[4+len(tokenBytes):], nodeID)
+	copy(msg[4+len(tokenBytes)+4:], reason)
 	return d.jsonRPC(msg, cmdHandshakeOK, "reject")
 }
 
@@ -274,11 +280,14 @@ func (d *Driver) TrustedPeers() (map[string]interface{}, error) {
 }
 
 // RevokeTrust removes a peer from the trusted set and notifies the registry.
-func (d *Driver) RevokeTrust(nodeID uint32) (map[string]interface{}, error) {
-	msg := make([]byte, 6)
+func (d *Driver) RevokeTrust(nodeID uint32, adminToken string) (map[string]interface{}, error) {
+	tokenBytes := []byte(adminToken)
+	msg := make([]byte, 1+1+2+len(tokenBytes)+4)
 	msg[0] = cmdHandshake
 	msg[1] = subHandshakeRevoke
-	binary.BigEndian.PutUint32(msg[2:6], nodeID)
+	binary.BigEndian.PutUint16(msg[2:4], uint16(len(tokenBytes)))
+	copy(msg[4:4+len(tokenBytes)], tokenBytes)
+	binary.BigEndian.PutUint32(msg[4+len(tokenBytes):], nodeID)
 	return d.jsonRPC(msg, cmdHandshakeOK, "revoke")
 }
 

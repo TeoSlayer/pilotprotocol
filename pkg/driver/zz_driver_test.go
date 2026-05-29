@@ -481,10 +481,10 @@ func TestHandshakeFamilyRoundTrips(t *testing.T) {
 	if _, err := drv.Handshake(99, "please"); err != nil {
 		t.Fatalf("Handshake: %v", err)
 	}
-	if _, err := drv.ApproveHandshake(100); err != nil {
+	if _, err := drv.ApproveHandshake(100, ""); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
-	if _, err := drv.RejectHandshake(101, "no"); err != nil {
+	if _, err := drv.RejectHandshake(101, "no", ""); err != nil {
 		t.Fatalf("Reject: %v", err)
 	}
 	if _, err := drv.PendingHandshakes(); err != nil {
@@ -493,7 +493,7 @@ func TestHandshakeFamilyRoundTrips(t *testing.T) {
 	if _, err := drv.TrustedPeers(); err != nil {
 		t.Fatalf("Trusted: %v", err)
 	}
-	if _, err := drv.RevokeTrust(102); err != nil {
+	if _, err := drv.RevokeTrust(102, ""); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 

@@ -3960,7 +3960,8 @@ func cmdApprove(args []string) {
 
 	nodeID := resolveToNodeID(d, args[0])
 
-	result, err := d.ApproveHandshake(nodeID)
+	adminToken := getAdminToken()
+	result, err := d.ApproveHandshake(nodeID, adminToken)
 	if err != nil {
 		fatalCode("connection_failed", "approve: %v", err)
 	}
@@ -3986,7 +3987,8 @@ func cmdReject(args []string) {
 		reason = args[1]
 	}
 
-	result, err := d.RejectHandshake(nodeID, reason)
+	adminToken := getAdminToken()
+	result, err := d.RejectHandshake(nodeID, reason, adminToken)
 	if err != nil {
 		fatalCode("connection_failed", "reject: %v", err)
 	}
@@ -4006,7 +4008,8 @@ func cmdUntrust(args []string) {
 	defer d.Close()
 
 	nodeID := resolveToNodeID(d, args[0])
-	_, err := d.RevokeTrust(nodeID)
+	adminToken := getAdminToken()
+	_, err := d.RevokeTrust(nodeID, adminToken)
 	if err != nil {
 		fatalCode("connection_failed", "untrust: %v", err)
 	}

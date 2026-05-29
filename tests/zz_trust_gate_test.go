@@ -94,7 +94,7 @@ func TestWaitForTrustFastPathAfterTrust(t *testing.T) {
 	}
 
 	// B approves → both sides become trusted.
-	if _, err := b.Driver.ApproveHandshake(a.Daemon.NodeID()); err != nil {
+	if _, err := b.Driver.ApproveHandshake(a.Daemon.NodeID(), ""); err != nil {
 		t.Fatalf("B approve: %v", err)
 	}
 
@@ -171,7 +171,7 @@ func TestWaitForTrustBlocksUntilApproved(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	if _, err := b.Driver.ApproveHandshake(a.Daemon.NodeID()); err != nil {
+	if _, err := b.Driver.ApproveHandshake(a.Daemon.NodeID(), ""); err != nil {
 		t.Fatalf("B approve: %v", err)
 	}
 

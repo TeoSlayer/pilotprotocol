@@ -189,7 +189,7 @@ func TestHandshakePendingApproveReject(t *testing.T) {
 	}
 
 	// B approves A
-	_, err = drvB.ApproveHandshake(daemonA.NodeID())
+	_, err = drvB.ApproveHandshake(daemonA.NodeID(), "")
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestHandshakePendingApproveReject(t *testing.T) {
 	}
 
 	// B rejects C
-	_, err = drvB.RejectHandshake(daemonC.NodeID(), "not authorized")
+	_, err = drvB.RejectHandshake(daemonC.NodeID(), "not authorized", "")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestHandshakeRevokeTrust(t *testing.T) {
 	}
 
 	// A revokes trust in B
-	_, err := drvA.RevokeTrust(daemonB.NodeID())
+	_, err := drvA.RevokeTrust(daemonB.NodeID(), "")
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestHandshakeRejectReason(t *testing.T) {
 	}
 
 	// B rejects with reason
-	_, err = drvB.RejectHandshake(daemonA.NodeID(), "not authorized for this network")
+	_, err = drvB.RejectHandshake(daemonA.NodeID(), "not authorized for this network", "")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}

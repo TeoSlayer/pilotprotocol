@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -191,6 +192,8 @@ var ErrIPCClosed = errors.New("ipc: connection closed")
 // blocks until enqueue or close. The constant is unused in production
 // code paths.
 var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
+
+var errHandshakeAuth = errors.New("ipc: handshake requires admin token")
 
 // IPCEnvelopeHeaderSize is the size of the per-message header that sits
 // inside the ipcutil length-framed envelope: 1 byte cmd.
@@ -1232,6 +1235,10 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte)
 		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeApprove:
+		rest, err := s.checkHandshakeAdminToken(conn, reqID, rest, "approve")
+		if err != nil {
+			return // error already sent
+		}
 		if len(rest) < 4 {
 			s.sendError(conn, reqID, "handshake approve: missing node_id")
 			return
@@ -1248,6 +1255,10 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte)
 		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeReject:
+		rest, err := s.checkHandshakeAdminToken(conn, reqID, rest, "reject")
+		if err != nil {
+			return // error already sent
+		}
 		if len(rest) < 4 {
 			s.sendError(conn, reqID, "handshake reject: missing node_id")
 			return
@@ -1301,6 +1312,10 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte)
 		s.ipcWriteHandshakeOK(conn, reqID, data)
 
 	case SubHandshakeRevoke:
+		rest, err := s.checkHandshakeAdminToken(conn, reqID, rest, "revoke")
+		if err != nil {
+			return // error already sent
+		}
 		if len(rest) < 4 {
 			s.sendError(conn, reqID, "handshake revoke: missing node_id")
 			return
@@ -1338,6 +1353,32 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte)
 	default:
 		s.sendError(conn, reqID, fmt.Sprintf("handshake: unknown sub-command 0x%02X", sub))
 	}
+}
+
+// checkHandshakeAdminToken verifies the admin token prefix when the daemon
+// has an admin token configured. Handshake approve/reject/revoke are
+// privileged state-mutation verbs — they require the same token gate as
+// BroadcastDatagram. When no admin token is configured, the check is a
+// no-op (backward-compatible with pre-token daemon configs).
+func (s *IPCServer) checkHandshakeAdminToken(conn *ipcConn, reqID uint64, rest []byte, verb string) ([]byte, error) {
+	if len(rest) < 2 {
+		s.sendError(conn, reqID, fmt.Sprintf("handshake %s: missing admin token header", verb))
+		return nil, errHandshakeAuth
+	}
+	tokenLen := binary.BigEndian.Uint16(rest[0:2])
+	if len(rest) < 2+int(tokenLen) {
+		s.sendError(conn, reqID, fmt.Sprintf("handshake %s: truncated admin token", verb))
+		return nil, errHandshakeAuth
+	}
+	payload := rest[2+tokenLen:]
+	if s.daemon.config.AdminToken != "" {
+		token := string(rest[2 : 2+tokenLen])
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.daemon.config.AdminToken)) != 1 {
+			s.sendError(conn, reqID, fmt.Sprintf("handshake %s: invalid admin token", verb))
+			return nil, errHandshakeAuth
+		}
+	}
+	return payload, nil
 }
 
 func (s *IPCServer) ipcWriteHandshakeOK(conn *ipcConn, reqID uint64, data []byte) {
