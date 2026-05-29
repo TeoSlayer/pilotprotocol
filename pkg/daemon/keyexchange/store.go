@@ -111,7 +111,6 @@ func (s *Store) IsReady(peerNodeID uint32) bool {
 	return c != nil && c.Ready
 }
 
-
 // wipeCryptoSecrets clears any sensitive plaintext on a Crypto's salvage
 // ring before the Crypto is dropped. PILOT-146: previously Drop simply
 // did a map delete, leaving the salvage plaintext bytes alive on the heap

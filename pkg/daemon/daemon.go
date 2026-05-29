@@ -86,10 +86,10 @@ type Config struct {
 	Email         string // email address for account identification and key recovery
 	Owner         string // deprecated: use Email instead
 
-	Endpoint           string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
-	AdvertiseEndpoint  string // override STUN-discovered endpoint for registry advertisement (host:port) — for k8s pods where STUN returns unreachable IPs
-	Public   bool   // make this node's endpoint publicly discoverable
-	Hostname string // hostname for discovery (empty = none)
+	Endpoint          string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
+	AdvertiseEndpoint string // override STUN-discovered endpoint for registry advertisement (host:port) — for k8s pods where STUN returns unreachable IPs
+	Public            bool   // make this node's endpoint publicly discoverable
+	Hostname          string // hostname for discovery (empty = none)
 
 	// RelayOnly hides this node's real_addr from peer resolve/lookup
 	// responses. Peers reach this node only via the beacon-relay path,
@@ -148,13 +148,13 @@ type Config struct {
 
 // Default tuning constants (used when Config fields are zero).
 const (
-	DefaultKeepaliveInterval     = 60 * time.Second
-	DefaultIdleTimeout           = 120 * time.Second
-	DefaultIdleSweepInterval     = 15 * time.Second
+	DefaultKeepaliveInterval = 60 * time.Second
+	DefaultIdleTimeout       = 120 * time.Second
+	DefaultIdleSweepInterval = 15 * time.Second
 	// hostnameReannounceInterval is how often the daemon re-sets its
 	// hostname with the registry. This heals hostname resolution after
 	// a registry restart/roll wipes the in-memory hostname store.
-	hostnameReannounceInterval = 60 * time.Second
+	hostnameReannounceInterval   = 60 * time.Second
 	DefaultSYNRateLimit          = 100
 	DefaultMaxConnectionsPerPort = 1024
 	DefaultMaxTotalConnections   = 65536
