@@ -66,15 +66,20 @@ func TestWriteLoopExitsOnWriteDeadline(t *testing.T) {
 	}()
 
 	// Fill sendCh + keep writing until ipcWrite blocks.
+	//
+	// Each iteration allocates its own message copy in the main
+	// goroutine BEFORE spawning the writer — `msg` is reused across
+	// iterations, so doing the copy inside the goroutine raced with
+	// the next iteration's msg[0] = ... write. Caught by -race on
+	// ubuntu-latest in the Architecture-gates job (zz_ipc_write_deadline_test
+	// race report 2026-05-29).
 	const msgSize = 4096
 	msg := make([]byte, msgSize)
 	for i := 0; i < ipcSendBuffer+10; i++ {
 		msg[0] = byte(i & 0xFF)
-		go func(m []byte) {
-			m2 := make([]byte, len(m))
-			copy(m2, m)
-			ic.ipcWrite(m2)
-		}(msg)
+		m := make([]byte, msgSize)
+		copy(m, msg)
+		go func() { ic.ipcWrite(m) }()
 	}
 
 	// Give writeLoop time to fill the kernel send buffer.

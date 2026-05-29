@@ -110,21 +110,42 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 	// Cache the verified peer pubkey.
 	m.SetPeerPubKey(peerNodeID, peerEd25519PubKey)
 
-	// Side-effect gate: the log line, tunnel.established bus event, and
-	// PostInstallHook fire ONLY when this is not a coalesced duplicate.
-	// A real rekey (keyChanged) or a first-time install always falls
-	// through to the side effects. The recovery-reply path below (the
-	// SendKeyExchangeToNode call) is NOT gated on `duplicate` — the
-	// asymmetric-recovery case (B dropped crypto for A while A retains
-	// it) requires A to reply on B's retransmit even though A sees it
-	// as a duplicate. Pinned by
-	// TestAsymmetricRecoveryRepliesOnDuplicatePILAWhenStale.
+	// Side-effect routing:
+	//
+	//  - duplicate (same X25519 ephemeral within DuplicateHandshakeDebounce)
+	//    is a tight direct+relay arrival pair or peer-side retransmit
+	//    burst. All side effects suppressed.
+	//
+	//  - sameSession (hadCrypto && !keyChanged, past the debounce window)
+	//    is the peer's slow keepalive retransmit. The session was
+	//    established by the earlier PILA; nothing was installed by
+	//    this one. The bus event and PostInstallHook STILL fire so
+	//    downstream observers can refresh endpoint observation /
+	//    keep-alive bookkeeping (pinned by
+	//    TestDuplicatePILAOutsideDebounceFiresHookAgain), but the
+	//    Info-level "encrypted tunnel established" log is demoted to
+	//    Debug: observed against list-agents on 2026-05-29, a peer
+	//    sending a PILA every ~8 s while relayed data is being dropped
+	//    floods the operator log with 35 false "established" lines per
+	//    peer per 5 minutes. Pinned by
+	//    TestSameSessionPILALogsAtDebugButFiresHook.
+	//
+	//  - default (first install or real rekey): everything fires at
+	//    Info level.
+	//
+	// The recovery-reply path below (SendKeyExchangeToNode) is gated
+	// independently — see TestAsymmetricRecoveryRepliesOnDuplicatePILAWhenStale.
+	sameSession := hadCrypto && !keyChanged
 	if duplicate {
 		slog.Debug("auth key exchange: duplicate frame coalesced",
 			"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt), "relay", fromRelay)
 	} else {
 		if keyChanged {
 			slog.Info("peer rekeyed (auth), re-establishing tunnel", "peer_node_id", peerNodeID)
+		} else if sameSession {
+			slog.Debug("auth key exchange: same-session keepalive",
+				"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt),
+				"endpoint", from, "relay", fromRelay)
 		} else {
 			slog.Info("encrypted tunnel established", "auth", true,
 				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
@@ -255,12 +276,21 @@ func (m *Manager) HandleUnauthFrame(data []byte, from *net.UDPAddr, fromRelay bo
 		m.env.Install(peerNodeID, pc)
 	}
 
+	// Same routing as HandleAuthFrame: duplicate suppresses everything;
+	// sameSession (past-debounce same-key keepalive) keeps the bus event
+	// + postInstall hook firing for endpoint refresh but demotes the
+	// Info log to Debug.
+	sameSession := hadCrypto && !keyChanged
 	if duplicate {
 		slog.Debug("unauth key exchange: duplicate frame coalesced",
 			"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt), "relay", fromRelay)
 	} else {
 		if keyChanged {
 			slog.Info("peer rekeyed, re-establishing tunnel", "peer_node_id", peerNodeID)
+		} else if sameSession {
+			slog.Debug("unauth key exchange: same-session keepalive",
+				"peer_node_id", peerNodeID, "age", time.Since(oldPC.CreatedAt),
+				"endpoint", from, "relay", fromRelay)
 		} else {
 			slog.Info("encrypted tunnel established",
 				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
