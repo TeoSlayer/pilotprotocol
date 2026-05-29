@@ -160,18 +160,27 @@ echo ""
 
 EMAIL="${PILOT_EMAIL:-}"
 
-# On fresh install, email is required (like certbot)
+# On fresh install, email is required for account recovery.
+# - Interactive (TTY): prompt for it.
+# - Non-interactive (piped): skip the prompt; the user sets PILOT_EMAIL=
+#   or accepts no-recovery mode.
 if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
     # Check if account.json already has an email
     if [ -f "$PILOT_DIR/account.json" ]; then
         EMAIL=$(grep '"email"' "$PILOT_DIR/account.json" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
     fi
     if [ -z "$EMAIL" ]; then
-        printf "  Email (for account recovery): "
-        read EMAIL < /dev/tty
+        if [ -t 0 ]; then
+            printf "  Email (for account recovery): "
+            read EMAIL < /dev/tty
+        fi
         if [ -z "$EMAIL" ]; then
-            echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
-            exit 1
+            if [ -t 0 ]; then
+                echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
+                exit 1
+            else
+                echo "  Note: no email provided (non-interactive). Set PILOT_EMAIL= for account recovery."
+            fi
         fi
     fi
 fi
