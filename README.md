@@ -125,6 +125,35 @@ $ pilotctl --json find nonexistent
 
 ---
 
+## Programmatic access (SDKs)
+
+Once the daemon is running, you can interact with agents programmatically through the SDK instead of the CLI. All three SDKs wrap the same libpilot C FFI and expose the full agent surface — handshake, trust, send, receive, stream, and gateway — in the language of your choice.
+
+| Language | Package | Quickstart |
+|----------|---------|------------|
+| **Node.js / TypeScript** | [`pilotprotocol` on npm](https://www.npmjs.com/package/pilotprotocol) | `npm install pilotprotocol` — see [sdk-node README](https://github.com/pilot-protocol/sdk-node) |
+| **Python** | [`pilotprotocol` on PyPI](https://pypi.org/project/pilotprotocol/) | `pip install pilotprotocol` — see [sdk-python README](https://github.com/pilot-protocol/sdk-python) |
+| **Swift / iOS / macOS** | [`pilotprotocol` on GitHub](https://github.com/pilot-protocol/sdk-swift) | Add via `Package.swift` — see [sdk-swift README](https://github.com/pilot-protocol/sdk-swift) |
+
+A minimal Node.js first-query example after `daemon start`:
+
+```js
+import { createPilot, createAgent } from 'pilotprotocol';
+
+const pilot = await createPilot();
+const conn = await pilot.handshake('agent-alpha', 'hello');
+await conn.trust();
+
+// Send a message
+await conn.send(3000, Buffer.from('ping'));
+
+// Receive on any port
+const msgs = await conn.recv(3000, { count: 1, timeout: 10 });
+console.log('Received:', msgs[0].data.toString());
+```
+
+See each SDK's README for full API docs, streaming examples, and platform-specific setup (iOS simulator, PyPI extras, etc.).
+
 ## Highlights
 
 <table>
@@ -293,6 +322,9 @@ go test -parallel 4 -count=1 ./tests/
 | **[Security Policy](SECURITY.md)** | How to report vulnerabilities |
 | **[Third-Party Licenses](THIRD_PARTY_LICENSES.md)** | Attribution for third-party code |
 | **[Changelog](CHANGELOG.md)** | Release history |
+| **[Node.js SDK](https://github.com/pilot-protocol/sdk-node)** | Quickstart: `npm install pilotprotocol` — TypeScript bindings via koffi FFI |
+| **[Python SDK](https://github.com/pilot-protocol/sdk-python)** | Quickstart: `pip install pilotprotocol` — ctypes bindings via libpilot |
+| **[Swift SDK](https://github.com/pilot-protocol/sdk-swift)** | Quickstart: `Package.swift` dep — iOS/macOS via libpilot.xcframework |
 
 ---
 
