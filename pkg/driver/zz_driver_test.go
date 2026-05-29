@@ -550,7 +550,7 @@ func TestRegistryWrappersEncodeCorrectly(t *testing.T) {
 	if _, err := drv.SetTags([]string{"a", "b"}); err != nil {
 		t.Fatalf("SetTags: %v", err)
 	}
-	if _, err := drv.SetWebhook("https://x/y"); err != nil {
+	if _, err := drv.SetWebhook("https://x/y", ""); err != nil {
 		t.Fatalf("SetWebhook: %v", err)
 	}
 
@@ -566,8 +566,10 @@ func TestRegistryWrappersEncodeCorrectly(t *testing.T) {
 				t.Errorf("ResolveHostname host = %q", f[1:])
 			}
 		case cmdSetWebhook:
-			if string(f[1:]) != "https://x/y" {
-				t.Errorf("SetWebhook url = %q", f[1:])
+			// wire format: [cmd(1)][tokenLen(2)][token...][url...]
+			// tokenLen=0, so url starts at f[3:]
+			if string(f[3:]) != "https://x/y" {
+				t.Errorf("SetWebhook url = %q", f[3:])
 			}
 		}
 	}

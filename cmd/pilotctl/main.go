@@ -2969,9 +2969,10 @@ func cmdSetWebhook(args []string) {
 
 	// Apply to running daemon (best-effort — daemon may not be running)
 	applied := false
+	adminToken := getAdminToken()
 	d, err := driver.Connect(getSocket())
 	if err == nil {
-		_, err = d.SetWebhook(url)
+		_, err = d.SetWebhook(url, adminToken)
 		d.Close()
 		if err == nil {
 			applied = true
@@ -3002,9 +3003,10 @@ func cmdClearWebhook() {
 
 	// Apply to running daemon (best-effort)
 	applied := false
+	adminToken := getAdminToken()
 	d, err := driver.Connect(getSocket())
 	if err == nil {
-		_, err = d.SetWebhook("")
+		_, err = d.SetWebhook("", adminToken)
 		d.Close()
 		if err == nil {
 			applied = true

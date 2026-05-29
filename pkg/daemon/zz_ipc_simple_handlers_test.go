@@ -437,7 +437,7 @@ func TestHandleSetWebhookEmptyPayloadClearsWebhookReturnsOK(t *testing.T) {
 	t.Parallel()
 	_, s := newSimpleHandlerDaemon(t, nil)
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte{}) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte{0x00, 0x00}) })
 
 	if reply[0] != CmdSetWebhookOK {
 		t.Fatalf("opcode 0x%02X, want CmdSetWebhookOK", reply[0])
@@ -455,7 +455,7 @@ func TestHandleSetWebhookInvalidURLReturnsError(t *testing.T) {
 	t.Parallel()
 	_, s := newSimpleHandlerDaemon(t, nil)
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte("ftp://example.com/hook")) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, append([]byte{0x00, 0x00}, []byte("ftp://example.com/hook")...)) })
 	if reply[0] != CmdError {
 		t.Fatalf("opcode 0x%02X, want CmdError on invalid URL", reply[0])
 	}
@@ -466,7 +466,7 @@ func TestHandleSetWebhookValidHTTPSURLAcceptedAndEchoedBack(t *testing.T) {
 	_, s := newSimpleHandlerDaemon(t, nil)
 	ic, client := newIPCTestConn(t)
 	url := "https://example.com/hook"
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte(url)) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, append([]byte{0x00, 0x00}, []byte(url)...)) })
 
 	if reply[0] != CmdSetWebhookOK {
 		t.Fatalf("opcode 0x%02X, want CmdSetWebhookOK", reply[0])

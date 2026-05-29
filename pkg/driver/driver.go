@@ -323,11 +323,16 @@ func (d *Driver) SetTags(tags []string) (map[string]interface{}, error) {
 }
 
 // SetWebhook sets or clears the daemon's webhook URL at runtime.
-// An empty URL disables the webhook.
-func (d *Driver) SetWebhook(url string) (map[string]interface{}, error) {
-	msg := make([]byte, 1+len(url))
+// An empty URL disables the webhook. The adminToken must match the
+// daemon's configured AdminToken (empty passes through).
+// Wire format: [cmd(1)][tokenLen(2)][token...][url...]
+func (d *Driver) SetWebhook(url, adminToken string) (map[string]interface{}, error) {
+	tokenLen := len(adminToken)
+	msg := make([]byte, 3+tokenLen+len(url))
 	msg[0] = cmdSetWebhook
-	copy(msg[1:], url)
+	binary.BigEndian.PutUint16(msg[1:3], uint16(tokenLen))
+	copy(msg[3:], adminToken)
+	copy(msg[3+tokenLen:], url)
 	return d.jsonRPC(msg, cmdSetWebhookOK, "set_webhook")
 }
 

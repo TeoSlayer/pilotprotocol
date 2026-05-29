@@ -160,7 +160,7 @@ func TestSetWebhookViaIPC(t *testing.T) {
 	di := env.AddDaemon()
 
 	// Set webhook
-	result, err := di.Driver.SetWebhook("http://localhost:9999/hooks")
+	result, err := di.Driver.SetWebhook("http://localhost:9999/hooks", "")
 	if err != nil {
 		t.Fatalf("set webhook: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestSetWebhookViaIPC(t *testing.T) {
 	}
 
 	// Clear webhook
-	result, err = di.Driver.SetWebhook("")
+	result, err = di.Driver.SetWebhook("", "")
 	if err != nil {
 		t.Fatalf("clear webhook: %v", err)
 	}

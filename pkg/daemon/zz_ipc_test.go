@@ -367,7 +367,7 @@ func TestHandleSetWebhookEmptyPayloadClearsWebhookAndRepliesOK(t *testing.T) {
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
 
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, nil) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte{0x00, 0x00}) })
 
 	if reply[0] != CmdSetWebhookOK {
 		t.Fatalf("reply[0] = 0x%02X, want CmdSetWebhookOK", reply[0])
@@ -390,7 +390,7 @@ func TestHandleSetWebhookInvalidSchemeSendsError(t *testing.T) {
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
 
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte("ftp://evil.example.com/hook")) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, append([]byte{0x00, 0x00}, []byte("ftp://evil.example.com/hook")...)) })
 	assertErrorReply(t, reply, "scheme")
 }
 
@@ -402,7 +402,7 @@ func TestHandleSetWebhookValidHTTPSConfiguresAndRepliesOK(t *testing.T) {
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
 
-	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, []byte("https://example.com/hook")) })
+	reply := runHandler(t, client, func() { s.handleSetWebhook(ic, 0, append([]byte{0x00, 0x00}, []byte("https://example.com/hook")...)) })
 
 	if reply[0] != CmdSetWebhookOK {
 		t.Fatalf("reply[0] = 0x%02X, want CmdSetWebhookOK", reply[0])

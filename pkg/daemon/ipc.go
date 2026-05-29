@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -191,6 +192,8 @@ var ErrIPCClosed = errors.New("ipc: connection closed")
 // blocks until enqueue or close. The constant is unused in production
 // code paths.
 var ErrIPCBackpressure = errors.New("ipc: backpressure (client too slow)")
+
+var errSetWebhookAuth = errors.New("ipc: set_webhook requires admin token")
 
 // IPCEnvelopeHeaderSize is the size of the per-message header that sits
 // inside the ipcutil length-framed envelope: 1 byte cmd.
@@ -1171,8 +1174,30 @@ func (s *IPCServer) handleRotateKey(conn *ipcConn, reqID uint64) {
 	}
 }
 
+// handleSetWebhook services CmdSetWebhook — admin-token-gated webhook URL change.
+// Wire payload: [tokenLen(2)][token...][url...]
+//
+// On success, replies with CmdSetWebhookOK carrying {"webhook": url}.
+// On failure, replies with CmdError.
 func (s *IPCServer) handleSetWebhook(conn *ipcConn, reqID uint64, payload []byte) {
-	url := string(payload) // empty string = clear webhook
+	// Admin token required: [tokenLen(2)][token...][url...]
+	if len(payload) < 2 {
+		s.sendError(conn, reqID, "set_webhook: missing admin token")
+		return
+	}
+	tokenLen := binary.BigEndian.Uint16(payload[0:2])
+	if len(payload) < 2+int(tokenLen) {
+		s.sendError(conn, reqID, "set_webhook: truncated admin token")
+		return
+	}
+	if s.daemon.config.AdminToken != "" {
+		token := string(payload[2 : 2+tokenLen])
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.daemon.config.AdminToken)) != 1 {
+			s.sendError(conn, reqID, "set_webhook: invalid admin token")
+			return
+		}
+	}
+	url := string(payload[2+tokenLen:]) // empty string = clear webhook
 	if url != "" {
 		if err := ValidateWebhookURL(url); err != nil {
 			s.sendError(conn, reqID, err.Error())
