@@ -445,6 +445,8 @@ type IPCServer struct {
 	daemon     *Daemon
 	mu         sync.Mutex
 	clients    map[*ipcConn]bool
+	closeOnce  sync.Once
+	done       chan struct{}
 }
 
 func NewIPCServer(socketPath string, d *Daemon) *IPCServer {
@@ -452,6 +454,7 @@ func NewIPCServer(socketPath string, d *Daemon) *IPCServer {
 		socketPath: socketPath,
 		daemon:     d,
 		clients:    make(map[*ipcConn]bool),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -483,6 +486,13 @@ func (s *IPCServer) Start() error {
 }
 
 func (s *IPCServer) Close() error {
+	// PILOT-253: Close the done channel BEFORE closing the listener
+	// so that acceptLoop — which may be mid-Accept — sees the signal
+	// and refuses any newly-accepted connection that races past the
+	// listener close. Without this gate, a conn accepted concurrently
+	// with listener.Close() would spawn an untracked handleClient
+	// goroutine that outlives Close().
+	s.closeOnce.Do(func() { close(s.done) })
 	if s.listener != nil {
 		s.listener.Close()
 	}
@@ -517,6 +527,19 @@ func (s *IPCServer) acceptLoop() {
 			continue
 		}
 		s.mu.Lock()
+		// PILOT-253: Reject connections that raced past listener.Close().
+		// Accept may succeed concurrently with Close() closing the
+		// listener — the kernel-level accept dequeues a pending
+		// connection before the close takes effect. Without this check,
+		// the conn spawns an untracked handleClient goroutine that
+		// holds resources past Close().
+		select {
+		case <-s.done:
+			s.mu.Unlock()
+			conn.Close()
+			return
+		default:
+		}
 		full := len(s.clients) >= MaxIPCClients
 		if !full {
 			ic := newIPCConn(conn)
