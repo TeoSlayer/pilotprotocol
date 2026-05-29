@@ -104,7 +104,7 @@ func TestDataExchangePolicy(t *testing.T) {
 
 	// Deploy policy to each daemon via driver IPC (starts policy runner, bootstraps peers+tags)
 	for name, d := range map[string]*DaemonInfo{"svc1": svc1, "svc2": svc2, "reg1": reg1, "reg2": reg2} {
-		if _, err := d.Driver.PolicySet(netID, policyJSON); err != nil {
+		if _, err := d.Driver.PolicySet(netID, policyJSON, ""); err != nil {
 			t.Fatalf("policy set %s: %v", name, err)
 		}
 	}
