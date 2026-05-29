@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/pilot-protocol/app-store v0.1.0
 	github.com/pilot-protocol/beacon v0.1.0
-	github.com/pilot-protocol/common v0.1.0
+	github.com/pilot-protocol/common v0.4.0
 	github.com/pilot-protocol/dataexchange v0.1.0
 	github.com/pilot-protocol/eventstream v0.1.0
 	github.com/pilot-protocol/gateway v0.1.0
@@ -22,6 +22,7 @@ require (
 
 require (
 	github.com/expr-lang/expr v1.17.8 // indirect
+	github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 )

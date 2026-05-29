@@ -8,6 +8,8 @@ github.com/pilot-protocol/beacon v0.1.0 h1:jXO8duAzzpB8K+9It0QwR9BRupgKZ8IQhuwqy
 github.com/pilot-protocol/beacon v0.1.0/go.mod h1:PejZP5sZ4s5Lrtc0wdYHSEJVc7cn6E8yqo0R4CV+iUo=
 github.com/pilot-protocol/common v0.1.0 h1:m8mZZATgeBiFoqhWXPnskw2u0lNkWxHp0IagZK35V1g=
 github.com/pilot-protocol/common v0.1.0/go.mod h1:4YZWHK5nhM+4RLmYTspLxxAFbyBII7yzQDAHq3Ul2ck=
+github.com/pilot-protocol/common v0.4.0 h1:lH1WdQBU5Zan1rAqF/kYpcJO6vBoYVWXrWUNwMX10jA=
+github.com/pilot-protocol/common v0.4.0/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.1.0 h1:JJ29lL/LxDd1+szKFoEVxakzT93Tid3zoaAUBVGNKV4=
 github.com/pilot-protocol/dataexchange v0.1.0/go.mod h1:mXD17Vh0Eup+M//YhCm4j6D/DyFaZM7JzN5xexBdfLs=
 github.com/pilot-protocol/eventstream v0.1.0 h1:uHNTNTMA9MasBBpi2nCRkvFmFvTxbKCk7azPfuILkvY=
@@ -28,6 +30,8 @@ github.com/pilot-protocol/skillinject v0.1.0 h1:gs912gqmxl0ifIvswefjx8BzPCmoBWS7
 github.com/pilot-protocol/skillinject v0.1.0/go.mod h1:303GIB6j95ZhnoYeTlYzlBDhUbO01PB/6KGohm4DcJs=
 github.com/pilot-protocol/trustedagents v0.1.0 h1:rCX0IQxfZ84Q4dSgw01WJgjHUODRnI3iAon1t+NuFGE=
 github.com/pilot-protocol/trustedagents v0.1.0/go.mod h1:uVySmuMPb6N7AOCnvLHN2I9C9ggqEpfBmAZwVuP5Xaw=
+github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f h1:1dyunPeEOriqTv1xbt0fuDwieA5V5NLU1nVSC2714jU=
+github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f/go.mod h1:/I0uhVk1SljAOEYmjTdI/6CP7UmemmV4WB22ai1FxUw=
 github.com/pilot-protocol/webhook v0.1.0 h1:SnIcn+IdHvzoJt+OFzGJbkBHurjNBD0xSc6HAUvExAg=
 github.com/pilot-protocol/webhook v0.1.0/go.mod h1:c0du05MMy8FYnlc2YGqUWxRgTP8pRWTrtIdNuRhf6uk=
 golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=
