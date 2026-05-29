@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
+	"github.com/pilot-protocol/common/secure"
 )
 
 // pipePair returns two connected net.Conn endpoints (in-process pipe).

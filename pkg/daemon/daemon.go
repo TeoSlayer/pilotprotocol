@@ -25,11 +25,12 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
 	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
-	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/common/daemonapi"
 	"github.com/pilot-protocol/common/fsutil"
+	"github.com/pilot-protocol/common/protocol"
+	registry "github.com/pilot-protocol/common/registry/client"
+	registrywire "github.com/pilot-protocol/common/registry/wire"
 	"github.com/pilot-protocol/trustedagents"
 )
 
@@ -2001,6 +2002,21 @@ func (d *Daemon) Identity() *crypto.Identity {
 	return d.identity
 }
 
+// Sign signs msg with the daemon's Ed25519 private key. Returns nil
+// when no identity is loaded (in-memory tests, pre-bootstrap).
+//
+// Required by daemonapi.Daemon (common@v0.4.3). The adapter at
+// zz_daemonapi_conformance.go forwards to this directly.
+func (d *Daemon) Sign(msg []byte) []byte {
+	d.identityMu.RLock()
+	id := d.identity
+	d.identityMu.RUnlock()
+	if id == nil {
+		return nil
+	}
+	return id.Sign(msg)
+}
+
 // RotateKey generates a new Ed25519 keypair, proves ownership of the current
 // key to the registry via a `rotate:<node_id>` signature, atomically swaps the
 // in-memory identity on success, and persists it to disk. Returns the
@@ -2095,7 +2111,7 @@ func (d *Daemon) Ports() *PortManager { return d.ports }
 
 // Bus returns the daemon's in-process pub/sub bus. Plugins/runtime
 // uses it to construct a coreapi.EventBus adapter.
-func (d *Daemon) Bus() *inProcessBus { return d.bus }
+func (d *Daemon) Bus() daemonapi.EventBus { return d.bus }
 
 // Tunnels returns the daemon's tunnel manager. Mostly for in-tree
 // plugins that want direct access (tests + unusual integrations).

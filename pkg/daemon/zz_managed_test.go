@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	registry "github.com/pilot-protocol/common/registry/wire"
 )
 
 func testRules() *registry.NetworkRules {

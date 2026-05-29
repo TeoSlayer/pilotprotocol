@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	registry "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
+	registry "github.com/pilot-protocol/common/registry/wire"
 	"github.com/pilot-protocol/policy"
 )
 

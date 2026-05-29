@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestIPCConnCountIncludesClosedConns verifies that connCount() reflects

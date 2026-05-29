@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/pilot-protocol/common/ipcutil"
 )
 
 // ---------------------------------------------------------------------------

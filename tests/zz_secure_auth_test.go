@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/secure"
+	"github.com/pilot-protocol/common/secure"
 )
 
 // generateTestIdentity creates a random Ed25519 keypair for testing.

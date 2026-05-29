@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestKeepaliveDeadPeerSendsFinNotRst is the smoking-gun regression:

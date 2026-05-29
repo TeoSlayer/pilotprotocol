@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/coreapi"
+	"github.com/pilot-protocol/common/coreapi"
 )
 
 type fakeService struct {

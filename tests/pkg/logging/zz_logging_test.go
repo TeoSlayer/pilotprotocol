@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/logging"
+	"github.com/pilot-protocol/common/logging"
 )
 
 func TestSetupWriterJSONFormat(t *testing.T) {

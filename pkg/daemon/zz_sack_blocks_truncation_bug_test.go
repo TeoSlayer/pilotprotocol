@@ -5,7 +5,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // TestSACKBlocksTruncationKeepsHighestSeq verifies that when OOOBuf holds

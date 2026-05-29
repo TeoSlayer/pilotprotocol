@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"github.com/pilot-protocol/common/daemonapi"
 	"strings"
 	"sync"
 	"time"
@@ -12,12 +13,7 @@ import (
 // adapts this to coreapi.Event when wrapping the bus for plugin Deps.
 // Defined here (instead of importing pkg/coreapi) to keep pkg/daemon
 // free of L10 imports (T7.1).
-type Event struct {
-	Topic   string
-	NodeID  uint32
-	Time    time.Time
-	Payload map[string]any
-}
+type Event = daemonapi.Event
 
 // inProcessBus is the daemon's in-memory pub/sub event bus.
 //

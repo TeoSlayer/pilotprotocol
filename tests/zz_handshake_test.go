@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	"github.com/pilot-protocol/common/driver"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 func TestHandshakeMutualAutoApprove(t *testing.T) {

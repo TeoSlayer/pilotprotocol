@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
+	"github.com/pilot-protocol/common/protocol"
 )
 
 // ErrEphemeralExhausted is returned by callers of AllocEphemeralPort when

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
-	registryclient "github.com/TeoSlayer/pilotprotocol/pkg/registry/client"
+	registryclient "github.com/pilot-protocol/common/registry/client"
 )
 
 // TestResolveHostnamePrivateNodeRequiresTrust verifies that resolving a private

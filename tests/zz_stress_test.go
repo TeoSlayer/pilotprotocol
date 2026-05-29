@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/driver"
+	"github.com/pilot-protocol/common/driver"
 )
 
 func TestStressConcurrentConnections(t *testing.T) {

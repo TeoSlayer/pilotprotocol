@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/pilot-protocol/common/ipcutil"
 )
 
 // TestWriteLoopExitsOnWriteDeadline verifies that when a Unix socket peer

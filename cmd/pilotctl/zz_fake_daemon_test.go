@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
+	"github.com/pilot-protocol/common/ipcutil"
 )
 
 // IPC cmd codes — must match pkg/driver/ipc.go and cmd/daemon/ipc.go.

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	registrywire "github.com/TeoSlayer/pilotprotocol/pkg/registry/wire"
 	"github.com/pilot-protocol/common/crypto"
+	registrywire "github.com/pilot-protocol/common/registry/wire"
 )
 
 // Round-2 coverage push for pkg/daemon. Round-1 (zz_coverage_pkg_daemon_test.go)
