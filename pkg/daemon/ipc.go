@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pilot-protocol/common/ipcutil"
@@ -422,11 +423,18 @@ func (s *IPCServer) Start() error {
 	// Remove stale socket
 	os.Remove(s.socketPath)
 
+	// PILOT-246: Set umask before Listen so the Unix socket is created
+	// with 0600 permissions directly, eliminating the TOCTOU window
+	// between Listen and the explicit Chmod that follows.
+	oldUmask := syscall.Umask(0o177)
 	ln, err := net.Listen("unix", s.socketPath)
+	syscall.Umask(oldUmask) // restore immediately
 	if err != nil {
 		return fmt.Errorf("listen unix %s: %w", s.socketPath, err)
 	}
-	// Restrict socket access to owner only
+	// Restrict socket access to owner only (belt-and-suspenders —
+	// umask already ensures 0600 from creation, but explicit Chmod
+	// catches any platform where umask semantics differ).
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
 		ln.Close()
 		return fmt.Errorf("chmod socket %s: %w", s.socketPath, err)
@@ -452,6 +460,7 @@ func (s *IPCServer) Close() error {
 	return nil
 }
 
+
 func (s *IPCServer) acceptLoop() {
 	for {
 		// P2-002: always accept then immediately reject-and-close when
@@ -463,6 +472,14 @@ func (s *IPCServer) acceptLoop() {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			return
+		}
+		// PILOT-246: Reject connections from other UIDs — only same-UID
+		// processes may issue IPC commands. Without this, any local
+		// process can connect and control the daemon.
+		if err := checkPeerUID(conn); err != nil {
+			slog.Warn("IPC rejected cross-UID connection", "err", err)
+			conn.Close()
+			continue
 		}
 		s.mu.Lock()
 		full := len(s.clients) >= MaxIPCClients
