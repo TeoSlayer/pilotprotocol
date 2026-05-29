@@ -223,6 +223,22 @@ if [ -n "$TAG" ]; then
     if curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE" 2>/dev/null; then
         # Verify SHA-256 against release checksums.txt when available
         if curl -fsSL "$CHECKSUMS_URL" -o "$TMPDIR/checksums.txt" 2>/dev/null; then
+            # Verify checksums.txt provenance via GitHub SLSA attestation.
+            # The release workflow (release.yml) attests checksums.txt via
+            # actions/attest-build-provenance@v2 (PILOT-120, PR #166).
+            # If gh CLI is available, verify before trusting any digest.
+            if command -v gh >/dev/null 2>&1; then
+                if gh attestation verify "$TMPDIR/checksums.txt" --repo "$REPO" 2>/dev/null; then
+                    echo "  Verified checksums.txt attestation"
+                else
+                    echo "Error: checksums.txt attestation verification failed"
+                    echo "  The file may have been tampered with. Aborting."
+                    exit 1
+                fi
+            else
+                echo "  Note: gh CLI not found — skipping attestation verification"
+                echo "  Install gh: https://cli.github.com/"
+            fi
             EXPECTED=$(grep " ${ARCHIVE}\$" "$TMPDIR/checksums.txt" | awk '{print $1}')
             if [ -n "$EXPECTED" ]; then
                 if command -v shasum >/dev/null 2>&1; then
