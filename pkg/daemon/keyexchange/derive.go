@@ -3,6 +3,7 @@
 package keyexchange
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
@@ -13,9 +14,9 @@ import (
 	"time"
 )
 
-// HKDFInfo is the frozen HKDF info string used to derive AEAD keys
-// from the X25519 shared secret. Changing it would break wire
-// compatibility with every existing peer — DO NOT change.
+// HKDFInfo is the domain-separation prefix for the HKDF info string.
+// It is prepended to the sorted peer-pair public keys to form the
+// full info string. Changing this prefix breaks wire compatibility.
 const HKDFInfo = "pilot-tunnel-v1"
 
 // DeriveSecret computes a shared AES-256-GCM cipher from the peer's
@@ -41,12 +42,26 @@ func (m *Manager) DeriveSecret(peerPubKeyBytes []byte) (*Crypto, error) {
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
+	// Build HKDF info with peer-pair binding: sorted(localPub, peerPub)
+	// so both sides derive the same key but the key is bound to the
+	// specific peer pair, preventing cross-session key confusion.
+	localPub := m.PubKey()
+	if localPub == nil {
+		return nil, fmt.Errorf("no local public key")
+	}
+	var info []byte
+	if bytes.Compare(localPub, peerPubKeyBytes) < 0 {
+		info = append(append(append([]byte(HKDFInfo+":"), localPub...), ':'), peerPubKeyBytes...)
+	} else {
+		info = append(append(append([]byte(HKDFInfo+":"), peerPubKeyBytes...), ':'), localPub...)
+	}
+
 	// HKDF-SHA256 key derivation (H1 fix).
 	mac := hmac.New(sha256.New, nil) // HKDF-Extract: PRK = HMAC-SHA256(nil salt, IKM)
 	mac.Write(shared)
 	prk := mac.Sum(nil)
 	mac = hmac.New(sha256.New, prk) // HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
-	mac.Write([]byte(HKDFInfo))
+	mac.Write(info)
 	mac.Write([]byte{0x01})
 	key := mac.Sum(nil)
 
