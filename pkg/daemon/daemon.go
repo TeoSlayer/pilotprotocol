@@ -679,6 +679,8 @@ func (d *Daemon) Start() error {
 		if err := d.tunnels.EnableEncryption(); err != nil {
 			return fmt.Errorf("tunnel encryption: %w", err)
 		}
+	} else {
+		slog.Warn("tunnel encryption is disabled — all connections will send plaintext")
 	}
 
 	// 2b. Wire the event bus into the tunnel layer BEFORE starting the
