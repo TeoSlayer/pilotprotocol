@@ -565,6 +565,48 @@ func maybeAutoHandshake(d *driver.Driver, addr protocol.Addr, skip bool) {
 			if !jsonOutput {
 				fmt.Fprintf(os.Stderr, "auto-handshake established trust with public peer %s\n", addr)
 			}
+			return
+		}
+		// PILOT-220: on fresh daemon starts the handshake ACK path
+		// may not be fully routed within the initial 5 s window.
+		// When the local trust gate drops the reply SYN because
+		// trust isn't finalised, send-message --wait times out.
+		// Poll WaitForTrust while a pending handshake exists (up
+		// to 16 s extra) so trust finalises before the first user
+		// query hits the wire.
+	} else {
+		// WaitForTrust not supported (old daemon); proceed best-effort.
+		return
+	}
+	for poll := 0; poll < 8; poll++ {
+		time.Sleep(2 * time.Second)
+		pending, err := d.PendingHandshakes()
+		if err != nil {
+			break
+		}
+		hasPending := false
+		if list, ok := pending["pending"].([]interface{}); ok {
+			for _, item := range list {
+				m, okMap := item.(map[string]interface{})
+				if !okMap {
+					continue
+				}
+				if nid, okNid := m["node_id"].(float64); okNid && uint32(nid) == addr.Node {
+					hasPending = true
+					break
+				}
+			}
+		}
+		if !hasPending {
+			break // handshake resolved (accepted or rejected); stop polling
+		}
+		if resp, err := d.WaitForTrust(addr.Node, 0); err == nil {
+			if trusted, _ := resp["trusted"].(bool); trusted {
+				if !jsonOutput {
+					fmt.Fprintf(os.Stderr, "auto-handshake established trust with public peer %s\n", addr)
+				}
+				break
+			}
 		}
 	}
 }
