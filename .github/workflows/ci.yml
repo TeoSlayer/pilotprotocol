@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read   # PILOT-113: least-privilege default
+
 jobs:
   go:
     name: Go (${{ matrix.os }})

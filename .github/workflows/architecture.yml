@@ -2,6 +2,9 @@ name: architecture-gates
 
 on: [pull_request, push]
 
+permissions:
+  contents: read   # PILOT-113: least-privilege default
+
 jobs:
   gates:
     name: Architecture gates
