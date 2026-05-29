@@ -557,16 +557,24 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 		// Conn.Write() calls (header + payload); if those raced in
 		// worker goroutines, SendData would append in the wrong order
 		// and the receiver would see a corrupted frame. CmdSendTo
-		// follows the same pattern. CmdClose stays in the concurrent
-		// dispatch lane: by the time it arrives, all prior CmdSends on
-		// the same conn have already returned from their inline call,
-		// so the data is in NagleBuf and Close's FIN goes out after.
+		// follows the same pattern. CmdHealth also dispatches inline
+		// so health checks bypass the per-client semaphore — when all
+		// dispatch slots are occupied by goroutines parked in ipcWrite
+		// (PILOT-218 write-deadline deadlock), CmdHealth must still
+		// respond so the operator can detect the stuck daemon.
+		// CmdClose stays in the concurrent dispatch lane: by the time
+		// it arrives, all prior CmdSends on the same conn have already
+		// returned from their inline call, so the data is in NagleBuf
+		// and Close's FIN goes out after.
 		switch cmd {
 		case CmdSend:
 			s.handleSend(conn, reqID, payload)
 			continue
 		case CmdSendTo:
 			s.handleSendTo(conn, reqID, payload)
+			continue
+		case CmdHealth:
+			s.handleHealth(conn, reqID)
 			continue
 		}
 
