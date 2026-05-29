@@ -1,0 +1,45 @@
+# DISPATCHER TEMPLATE — copy this into each source-component repo
+# (rendezvous, web4, etc.) as .github/workflows/notify-canary.yml.
+#
+# What it does: on push to ANY branch, it tells pilot-canary to rebuild
+# itself with THIS branch for THIS component, plus latest-stable for
+# everything else.
+#
+# Setup steps for each source repo:
+#   1. Drop this file into the repo at .github/workflows/notify-canary.yml
+#   2. Edit `component:` below to match this repo's name in pilot-canary's
+#      resolve step (rendezvous, web4, etc.)
+#   3. Add a repo secret `CANARY_DISPATCH_TOKEN`:
+#        gh secret set CANARY_DISPATCH_TOKEN --repo <this-repo> \
+#          --body "$(security find-generic-password -s github-openclaw-pat -a $USER -w)"
+#      (matthew-pilot's PAT has the `repo` + `workflow` scopes needed)
+#
+# That's it. Every push fires a canary rebuild.
+
+name: Notify canary of changes
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch repository_dispatch to pilot-canary
+        env:
+          GH_TOKEN: ${{ secrets.CANARY_DISPATCH_TOKEN }}
+          # CHANGE THIS to match your component name in pilot-canary's resolve step
+          COMPONENT: web4
+          REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching: component=$COMPONENT  ref=$REF"
+          gh api -X POST /repos/pilot-protocol/pilot-canary/dispatches \
+            -f event_type=component-changed \
+            -f client_payload[component]="$COMPONENT" \
+            -f client_payload[ref]="$REF" \
+            -f client_payload[source_repo]="${{ github.repository }}" \
+            -f client_payload[source_sha]="${{ github.sha }}"
