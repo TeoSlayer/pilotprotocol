@@ -301,6 +301,17 @@ func (c *ipcConn) ipcWrite(data []byte) error {
 		return ErrIPCClosed
 	default:
 	}
+	// Also fast-fail if writeLoop has exited (e.g. SetWriteDeadline
+	// fired on a stalled client). The slow-path select catches the
+	// same condition, but a successful sendCh enqueue can be chosen
+	// over a closed writeDone when both are ready, and a message that
+	// lands on sendCh after writeLoop has exited will sit there
+	// orphaned. Pinned by TestWriteLoopExitsOnWriteDeadline:103.
+	select {
+	case <-c.writeDone:
+		return ErrIPCClosed
+	default:
+	}
 	// Fast path: try non-blocking enqueue.
 	select {
 	case c.sendCh <- data:
