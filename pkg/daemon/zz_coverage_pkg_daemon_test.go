@@ -1388,11 +1388,16 @@ func TestHandleManagedPolicyGetNoEngine(t *testing.T) {
 
 func TestHandleRotateKeyNoIdentitySendsError(t *testing.T) {
 	t.Parallel()
-	d := New(Config{}) // no identity
+	d := New(Config{AdminToken: "test"}) // no identity, but admin token configured
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
+	// send valid admin token; RotateKey should still fail because identity is nil
+	token := "test"
+	payload := make([]byte, 2+len(token))
+	binary.BigEndian.PutUint16(payload[0:2], uint16(len(token)))
+	copy(payload[2:], token)
 	reply := runHandler(t, client, func() {
-		s.handleRotateKey(ic, 0)
+		s.handleRotateKey(ic, 0, payload)
 	})
 	if reply[0] != CmdError {
 		t.Fatalf("expected error reply; got 0x%02X", reply[0])

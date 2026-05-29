@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -805,13 +806,18 @@ func TestHandleRotateKeyHappyPath(t *testing.T) {
 	t.Cleanup(func() { reg.Close() })
 	t.Cleanup(func() { rc.Close() })
 
-	d := New(Config{})
+	d := New(Config{AdminToken: "test-token"})
 	d.regConn = rc
 	registerSelfOnRegistry(t, d)
 
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
-	reply := runHandler(t, client, func() { s.handleRotateKey(ic, 0) })
+	// Wire payload: [tokenLen(2)][token...]
+	token := "test-token"
+	payload := make([]byte, 2+len(token))
+	binary.BigEndian.PutUint16(payload[0:2], uint16(len(token)))
+	copy(payload[2:], token)
+	reply := runHandler(t, client, func() { s.handleRotateKey(ic, 0, payload) })
 
 	if len(reply) < 1 {
 		t.Fatalf("rotate-key reply too short: %d", len(reply))

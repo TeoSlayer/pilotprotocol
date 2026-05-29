@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -645,7 +646,7 @@ func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []by
 	case CmdManaged:
 		s.handleManaged(conn, reqID, payload)
 	case CmdRotateKey:
-		s.handleRotateKey(conn, reqID)
+		s.handleRotateKey(conn, reqID, payload)
 	default:
 		s.sendError(conn, reqID, fmt.Sprintf("unknown command: 0x%02X", cmd))
 	}
@@ -1155,7 +1156,34 @@ func (s *IPCServer) handleSetTags(conn *ipcConn, reqID uint64, payload []byte) {
 	}
 }
 
-func (s *IPCServer) handleRotateKey(conn *ipcConn, reqID uint64) {
+// handleRotateKey services CmdRotateKey — admin-token-gated key rotation.
+// Wire payload: [tokenLen(2)][token...]
+//
+// On success, replies with CmdRotateKeyOK carrying the new public key.
+// On failure, replies with CmdError — "rotate_key denied: daemon has no
+// admin token configured" or "rotate_key denied: invalid admin token".
+func (s *IPCServer) handleRotateKey(conn *ipcConn, reqID uint64, payload []byte) {
+	// Admin token required: [tokenLen(2)][token...]
+	if len(payload) < 2 {
+		s.sendError(conn, reqID, "rotate_key: missing admin token")
+		return
+	}
+	tokenLen := binary.BigEndian.Uint16(payload[0:2])
+	if len(payload) < 2+int(tokenLen) {
+		s.sendError(conn, reqID, "rotate_key: truncated admin token")
+		return
+	}
+	token := string(payload[2 : 2+tokenLen])
+
+	if s.daemon.config.AdminToken == "" {
+		s.sendError(conn, reqID, "rotate_key denied: daemon has no admin token configured")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.daemon.config.AdminToken)) != 1 {
+		s.sendError(conn, reqID, "rotate_key denied: invalid admin token")
+		return
+	}
+
 	result, err := s.daemon.RotateKey()
 	if err != nil {
 		s.sendError(conn, reqID, err.Error())

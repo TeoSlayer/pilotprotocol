@@ -124,7 +124,7 @@ func TestDriverRotateKey(t *testing.T) {
 	}
 	defer drv.Close()
 
-	result, err := drv.RotateKey()
+	result, err := drv.RotateKey("")
 	if err != nil {
 		t.Fatalf("RotateKey: %v", err)
 	}

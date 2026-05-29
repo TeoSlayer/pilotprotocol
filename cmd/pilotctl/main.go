@@ -2814,7 +2814,8 @@ func cmdRotateKey(args []string) {
 	_ = args
 	d := connectDriver()
 	defer d.Close()
-	resp, err := d.RotateKey()
+	adminToken := getAdminToken()
+	resp, err := d.RotateKey(adminToken)
 	if err != nil {
 		fatalCode("connection_failed", "rotate-key: %v", err)
 	}

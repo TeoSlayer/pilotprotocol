@@ -334,8 +334,16 @@ func (d *Driver) SetWebhook(url string) (map[string]interface{}, error) {
 // RotateKey asks the daemon to rotate its Ed25519 identity at the registry.
 // The daemon generates a new keypair, signs proof of the current key, calls
 // registry.RotateKey, then atomically swaps and persists the new identity.
-func (d *Driver) RotateKey() (map[string]interface{}, error) {
-	return d.jsonRPC([]byte{cmdRotateKey}, cmdRotateKeyOK, "rotate_key")
+// RotateKey sends a key-rotation request to the daemon. The adminToken
+// must match the daemon's configured AdminToken (empty = denied). The
+// wire format is [cmd(1)][tokenLen(2)][token...].
+func (d *Driver) RotateKey(adminToken string) (map[string]interface{}, error) {
+	tokenLen := len(adminToken)
+	msg := make([]byte, 3+tokenLen)
+	msg[0] = cmdRotateKey
+	binary.BigEndian.PutUint16(msg[1:3], uint16(tokenLen))
+	copy(msg[3:], adminToken)
+	return d.jsonRPC(msg, cmdRotateKeyOK, "rotate_key")
 }
 
 // Disconnect closes a connection by ID. Used by administrative tools.
