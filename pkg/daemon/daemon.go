@@ -86,7 +86,8 @@ type Config struct {
 	Email         string // email address for account identification and key recovery
 	Owner         string // deprecated: use Email instead
 
-	Endpoint string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
+	Endpoint           string // fixed public endpoint (host:port) — skips STUN discovery (for cloud VMs)
+	AdvertiseEndpoint  string // override STUN-discovered endpoint for registry advertisement (host:port) — for k8s pods where STUN returns unreachable IPs
 	Public   bool   // make this node's endpoint publicly discoverable
 	Hostname string // hostname for discovery (empty = none)
 
@@ -645,6 +646,18 @@ func (d *Daemon) Start() error {
 				slog.Debug("discovered public endpoint", "endpoint", pubAddr)
 			}
 		}
+	}
+
+	// 1b. Override discovered endpoint for environments where STUN
+	// returns an unreachable address (e.g. k8s pods behind CNI — STUN
+	// returns the worker node's external IP, which is unreachable
+	// from other pods in the same cluster). -advertise-endpoint lets
+	// the deployment YAML set the pod's cluster-IP:hostPort so peers
+	// route through the correct intra-cluster address.
+	if d.config.AdvertiseEndpoint != "" {
+		registrationAddr = d.config.AdvertiseEndpoint
+		slog.Info("overriding STUN-discovered endpoint with -advertise-endpoint",
+			"advertised", registrationAddr)
 	}
 
 	// 2. Enable tunnel encryption if configured

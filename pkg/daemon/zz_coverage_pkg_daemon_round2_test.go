@@ -1316,3 +1316,51 @@ func TestSubscribeNetworkInternalDeliversJoined(t *testing.T) {
 	}
 	d.StopManagedEngine(81)
 }
+
+// TestAdvertiseEndpointOverridesSTUN verifies that when AdvertiseEndpoint
+// is set in the daemon config, the daemon uses it as the public endpoint
+// instead of whatever STUN would have discovered. This is the k8s pod
+// use case: STUN returns the worker node's external IP (unreachable from
+// other pods), so the deployment YAML sets -advertise-endpoint to the
+// pod's cluster-IP:hostPort.
+func TestAdvertiseEndpointOverridesRegistration(t *testing.T) {
+	t.Parallel()
+	reg, rc := startTestRegistry(t)
+	t.Cleanup(func() { reg.Close() })
+	rc.Close()
+
+	idDir := t.TempDir()
+	sockDir, err := os.MkdirTemp("", "pds")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockDir) })
+
+	// Simulate a pod IP that STUN would never return
+	advertised := "10.42.1.99:4000"
+
+	d := New(Config{
+		ListenAddr:          "127.0.0.1:0",
+		BeaconAddr:          "", // skip STUN — no beacon
+		RegistryAddr:        reg.Addr().String(),
+		SocketPath:          sockDir + "/s",
+		IdentityPath:        idDir + "/i",
+		Email:               "advertise@example.test",
+		AdvertiseEndpoint:   advertised,
+		DisablePolicyRunner: true,
+	})
+
+	if err := d.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer d.Stop()
+
+	// Wait a beat for registration to settle.
+	time.Sleep(500 * time.Millisecond)
+
+	info := d.Info()
+	if info.Endpoint != advertised {
+		t.Fatalf("expected endpoint %s, got %s", advertised, info.Endpoint)
+	}
+	t.Logf("endpoint correctly set to %s", info.Endpoint)
+}

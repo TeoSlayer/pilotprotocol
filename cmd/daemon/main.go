@@ -50,6 +50,7 @@ func main() {
 	listenAddr := flag.String("listen", ":0", "UDP listen address for tunnel traffic")
 	socketPath := flag.String("socket", driver.DefaultSocketPath(), "Unix socket path for IPC")
 	endpoint := flag.String("endpoint", "", "fixed public endpoint (host:port) — skips STUN (for cloud VMs with known IPs)")
+	advertiseEndpoint := flag.String("advertise-endpoint", "", "override STUN-discovered endpoint for registry advertisement (host:port) — for k8s pods where STUN returns unreachable IPs. When set, STUN still runs but the advertised address uses this value")
 	encrypt := flag.Bool("encrypt", true, "enable tunnel-layer encryption (X25519 + AES-256-GCM)")
 	registryTLS := flag.Bool("registry-tls", false, "use TLS for registry connection")
 	registryFingerprint := flag.String("registry-fingerprint", "", "hex SHA-256 fingerprint of registry TLS certificate (required when -registry-trust=pinned)")
@@ -143,6 +144,7 @@ func main() {
 		ListenAddr:            *listenAddr,
 		SocketPath:            *socketPath,
 		Endpoint:              *endpoint,
+		AdvertiseEndpoint:     *advertiseEndpoint,
 		Encrypt:               *encrypt,
 		RegistryTLS:           *registryTLS,
 		RegistryFingerprint:   *registryFingerprint,
