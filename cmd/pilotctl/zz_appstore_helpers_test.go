@@ -3,7 +3,12 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,7 +231,7 @@ func TestParseCapsFromGrantsMinuteWindow(t *testing.T) {
 
 func TestLoadCapStateRecordsMissingFile(t *testing.T) {
 	t.Parallel()
-	got := loadCapStateRecords(filepath.Join(t.TempDir(), "does-not-exist.jsonl"))
+	got := loadCapStateRecords(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), nil)
 	if got != nil {
 		t.Errorf("missing file should return nil, got %v", got)
 	}
@@ -245,7 +250,7 @@ not-json garbage line
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	recs := loadCapStateRecords(path)
+	recs := loadCapStateRecords(path, nil)
 	if len(recs) != 3 {
 		t.Fatalf("got %d records, want 3 (malformed should be skipped): %+v", len(recs), recs)
 	}
@@ -255,6 +260,71 @@ not-json garbage line
 	if recs[2].asset != "USDC" || recs[2].amount != 7 {
 		t.Errorf("third rec wrong: %+v", recs[2])
 	}
+}
+
+func TestLoadCapStateRecordsHMACChain(t *testing.T) {
+	t.Parallel()
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	recordHMAC := func(at, asset string, amount uint64, prev []byte) string {
+		c, _ := json.Marshal(capStateJSONNoHMAC{At: mustParseTime(at), Asset: asset, Amount: amount})
+		mac := hmac.New(sha256.New, key)
+		mac.Write(c)
+		mac.Write(prev)
+		return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cap-state.jsonl")
+	h1 := recordHMAC("2026-05-27T10:00:00Z", "USDC", 5, nil)
+	h2 := recordHMAC("2026-05-27T10:05:00Z", "ETH", 2, mustDecodeB64(h1))
+	h3 := recordHMAC("2026-05-27T10:10:00Z", "USDC", 7, mustDecodeB64(h2))
+
+	// Valid chain: 3 records.
+	os.WriteFile(path, []byte(fmt.Sprintf(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5,"hmac":"%s"}
+{"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":2,"hmac":"%s"}
+{"at":"2026-05-27T10:10:00Z","asset":"USDC","amount":7,"hmac":"%s"}
+`, h1, h2, h3)), 0o600)
+	if recs := loadCapStateRecords(path, key); len(recs) != 3 {
+		t.Fatalf("got %d records, want 3", len(recs))
+	}
+
+	// Tampered: amount changed but HMAC not recomputed → skipped.
+	os.WriteFile(path, []byte(fmt.Sprintf(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5,"hmac":"%s"}
+{"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":9999,"hmac":"%s"}
+`, h1, h2)), 0o600)
+	if recs := loadCapStateRecords(path, key); len(recs) != 1 {
+		t.Fatalf("got %d after tamper, want 1", len(recs))
+	}
+
+	// Backward-compat: no HMAC → pass through.
+	os.WriteFile(path, []byte(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5}`+"\n"), 0o600)
+	if recs := loadCapStateRecords(path, key); len(recs) != 1 {
+		t.Fatalf("got %d for no-HMAC, want 1", len(recs))
+	}
+
+	// nil key → no verification (all pass through).
+	os.WriteFile(path, []byte(`{"at":"2026-05-27T10:00:00Z","asset":"ETH","amount":2,"hmac":"bogus"}`+"\n"), 0o600)
+	if recs := loadCapStateRecords(path, nil); len(recs) != 1 {
+		t.Fatalf("got %d with nil key, want 1", len(recs))
+	}
+}
+
+func mustParseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func mustDecodeB64(s string) []byte {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
 
 func TestSHA256FileHandlesMissing(t *testing.T) {
