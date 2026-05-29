@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write          # PILOT-120: OIDC for SLSA attestation
+  attestations: write      # PILOT-120: actions/attest-build-provenance
 
 jobs:
   test:
@@ -230,6 +232,18 @@ jobs:
           cd release
           sha256sum *.tar.gz > checksums.txt
           cat checksums.txt
+
+      # PILOT-120: SLSA build provenance attestation via Sigstore.
+      # Attests every release tarball + checksums.txt. Consumers (updater,
+      # install.sh) can verify with `gh attestation verify` or `cosign`
+      # to prove the artifact was built by THIS workflow on this repo,
+      # not substituted somewhere downstream.
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/*.tar.gz
+            release/checksums.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
