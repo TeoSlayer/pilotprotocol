@@ -150,6 +150,10 @@ const (
 	DefaultKeepaliveInterval     = 60 * time.Second
 	DefaultIdleTimeout           = 120 * time.Second
 	DefaultIdleSweepInterval     = 15 * time.Second
+	// hostnameReannounceInterval is how often the daemon re-sets its
+	// hostname with the registry. This heals hostname resolution after
+	// a registry restart/roll wipes the in-memory hostname store.
+	hostnameReannounceInterval = 60 * time.Second
 	DefaultSYNRateLimit          = 100
 	DefaultMaxConnectionsPerPort = 1024
 	DefaultMaxTotalConnections   = 65536
@@ -988,6 +992,16 @@ func (d *Daemon) Start() error {
 	// hash-pick lands on a fresher beacon.
 	d.bgWG.Add(1)
 	go func() { defer d.bgWG.Done(); d.beaconRefreshLoop() }()
+
+	// 13. Start periodic hostname re-announcement. Pilot rendezvous
+	// servers (including the canary registry) keep the hostname store
+	// purely in-memory; a server restart/roll wipes it. Without
+	// periodic re-announce, daemons that set their hostname once at
+	// startup become unresolvable by hostname until they restart.
+	// Re-announcing every ~60 s (the same cadence as beacon refresh)
+	// ensures self-healing within one interval after a registry roll.
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.hostnameReannounceLoop() }()
 
 	// 12b. Earlier rc2-dev iterations pre-warmed trusted peers at
 	// startup. Two variants were tried and both made things worse:
@@ -4537,6 +4551,28 @@ func (d *Daemon) reapStalePeers() {
 				"last_contact", latest.Round(time.Second),
 				"has_encryption", p.Encrypted)
 			d.tunnels.RemovePeer(p.NodeID)
+		}
+	}
+}
+
+// hostnameReannounceLoop periodically re-sets the daemon's hostname
+// with the registry, so hostname resolution self-heals after a registry
+// restart/roll that wipes the in-memory hostname store.
+func (d *Daemon) hostnameReannounceLoop() {
+	ticker := time.NewTicker(hostnameReannounceInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-ticker.C:
+			if d.config.Hostname == "" || d.regConn == nil {
+				continue
+			}
+			if _, err := d.regConn.SetHostname(d.NodeID(), d.config.Hostname); err != nil {
+				slog.Debug("hostname reannounce failed", "hostname", d.config.Hostname, "error", err)
+			}
 		}
 	}
 }
