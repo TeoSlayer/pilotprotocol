@@ -364,8 +364,21 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     fi
     if [ "$CAN_SUDO" = true ]; then
     echo "Setting up systemd service..."
+    # PILOT-150: hostname is interpolated unquoted into the systemd unit's
+    # ExecStart line. systemd word-splits on whitespace, so a hostname
+    # like "my host" would arrive at the daemon as `-hostname my` (the
+    # `host` token becomes a separate, ignored arg). Reject anything
+    # outside the RFC 1123 hostname charset early instead.
     HOSTNAME_FLAG=""
     if [ -n "$PILOT_HOSTNAME" ]; then
+        case "$PILOT_HOSTNAME" in
+            *[!A-Za-z0-9.-]* )
+                echo "Error: PILOT_HOSTNAME contains characters outside [A-Za-z0-9.-] — got: $PILOT_HOSTNAME"
+                echo "  RFC 1123 hostnames are restricted to that charset. Refusing to write"
+                echo "  a systemd unit that would silently truncate at the first whitespace."
+                exit 1
+                ;;
+        esac
         HOSTNAME_FLAG="-hostname $PILOT_HOSTNAME"
     fi
     PUBLIC_FLAG=""
@@ -581,14 +594,14 @@ else
 fi
 echo ""
 echo "  Per-tool target paths:"
-echo "    Claude Code   ~/.claude/skills/pilot-protocol/SKILL.md"
+echo "    Claude Code   ~/.claude/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.claude/CLAUDE.md"
-echo "    OpenClaw      ~/.openclaw/skills/pilot-protocol/SKILL.md"
+echo "    OpenClaw      ~/.openclaw/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.openclaw/workspace/AGENTS.md"
-echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilot-protocol/SKILL.md"
+echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.picoclaw/workspace/AGENT.md"
-echo "    OpenHands     ~/.openhands/microagents/pilot-protocol.md (self-heartbeat)"
-echo "    Hermes        ~/.hermes/skills/pilot-protocol/SKILL.md"
+echo "    OpenHands     ~/.openhands/microagents/pilotctl.md (self-heartbeat)"
+echo "    Hermes        ~/.hermes/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.hermes/SOUL.md"
 echo ""
 echo "  Inspect / force a refresh anytime:"
