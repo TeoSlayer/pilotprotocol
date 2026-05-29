@@ -704,7 +704,7 @@ func TestManagedFamilyRoundTrips(t *testing.T) {
 	if _, err := drv.PolicyGet(5); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := drv.PolicySet(5, []byte(`{"version":1}`)); err != nil {
+	if _, err := drv.PolicySet(5, []byte(`{"version":1}`), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := drv.MemberTagsGet(5, 99); err != nil {
