@@ -576,6 +576,31 @@ func (d *Daemon) Start() error {
 	}
 	_ = synthesised // reserved for future log/metric tagging
 
+	// 0b. Auto-detect transport mode. PILOT_TRANSPORT env var lets the
+	// operator force a mode at install time. When nothing is set, probe
+	// UDP reachability to the beacon; on UDP-blocked hosts the daemon
+	// auto-falls back to compat (WSS/443) so it can reach peers without
+	// a manual restart.
+	if envTransport := os.Getenv("PILOT_TRANSPORT"); envTransport != "" && d.config.TransportMode == "" {
+		switch envTransport {
+		case "udp", "compat":
+			d.config.TransportMode = envTransport
+			slog.Info("transport set from PILOT_TRANSPORT env", "mode", envTransport)
+		default:
+			slog.Warn("ignoring unknown PILOT_TRANSPORT value", "value", envTransport, "valid", "udp, compat")
+		}
+	}
+	if d.config.TransportMode == "" {
+		stunBeacon := firstBeacon(d.config.BeaconAddr)
+		if stunBeacon != "" && !probeUDPReachable(stunBeacon) {
+			d.config.TransportMode = "compat"
+			slog.Warn("UDP probe to beacon failed — auto-falling back to compat mode (WSS/443)",
+				"beacon", stunBeacon,
+				"compat_beacon", d.config.CompatBeaconURL,
+				"hint", "set PILOT_TRANSPORT=udp to force UDP")
+		}
+	}
+
 	// 1. Discover our public endpoint via beacon using a temporary UDP socket.
 	// If -endpoint is set, skip STUN and use the fixed address (for cloud VMs).
 	// In compat mode (TransportMode=compat) we skip STUN entirely — the
@@ -1043,6 +1068,55 @@ func (d *Daemon) Start() error {
 	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
 	return nil
+}
+
+// probeUDPReachable checks whether UDP communication to the target address
+// is possible. It creates a UDP socket, sends a small probe, and waits
+// briefly for any response (ICMP unreachable, beacon echo, etc.). If the
+// OS permits UDP socket creation and the send completes without error,
+// UDP is considered reachable. Silently-dropped UDP (corporate proxies
+// that don't reject at the socket layer) will still return true — set
+// PILOT_TRANSPORT=compat for those environments.
+func probeUDPReachable(beaconAddr string) bool {
+	host, port, err := net.SplitHostPort(beaconAddr)
+	if err != nil {
+		return false
+	}
+
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, port))
+	if err != nil {
+		return false
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+		return false
+	}
+
+	if _, err := conn.Write([]byte{0x00}); err != nil {
+		return false
+	}
+
+	// Try a brief read — in environments that actively reject UDP
+	// (ICMP port-unreachable, firewall RST) this surfaces the error
+	// quickly. On silently-dropped networks this times out and we
+	// conservatively return true (UDP appears reachable at the socket
+	// layer; operator can set PILOT_TRANSPORT=compat if needed).
+	buf := make([]byte, 1)
+	_, err = conn.Read(buf)
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return true // timeout → socket layer OK, just no response
+		}
+		return false // hard error → UDP likely blocked
+	}
+	return true
 }
 
 // discoverWithTempSocket does STUN discovery on a temporary UDP socket
