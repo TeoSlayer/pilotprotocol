@@ -232,7 +232,18 @@ if [ -n "$TAG" ]; then
                 [ -n "$ACTUAL" ] && echo "  Verified SHA-256"
             fi
         fi
-        tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
+        # macOS bsdtar can fail silently on GitHub gzip archives.
+        # Try tar -xzf first; fall back to gunzip|tar on failure.
+        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
+            echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
+            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x -C "$TMPDIR"
+        fi
+        if [ ! -f "$TMPDIR/pilotctl" ]; then
+            echo "Error: failed to extract binaries from ${ARCHIVE}"
+            echo "Try downloading manually from:"
+            echo "  ${URL}"
+            exit 1
+        fi
     else
         TAG=""
     fi
