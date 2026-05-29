@@ -18,7 +18,6 @@ import (
 
 	"github.com/TeoSlayer/pilotprotocol/internal/ipcutil"
 	"github.com/TeoSlayer/pilotprotocol/pkg/protocol"
-	"golang.org/x/sys/unix"
 )
 
 // IPC commands (daemon ↔ driver)
@@ -460,35 +459,6 @@ func (s *IPCServer) Close() error {
 	return nil
 }
 
-// checkPeerUID verifies that a Unix-domain socket connection comes from
-// a process with the same UID as the daemon. Returns nil if the peer is
-// same-UID, or an error if the socket is not Unix-domain or the peer UID
-// differs. This is the primary IPC access control for PILOT-246.
-func checkPeerUID(conn net.Conn) error {
-	unixConn, ok := conn.(*net.UnixConn)
-	if !ok {
-		return fmt.Errorf("IPC: not a unix socket")
-	}
-	rawConn, err := unixConn.SyscallConn()
-	if err != nil {
-		return fmt.Errorf("IPC: SyscallConn: %w", err)
-	}
-	var ucred *unix.Ucred
-	var getErr error
-	ctrlErr := rawConn.Control(func(fd uintptr) {
-		ucred, getErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	})
-	if ctrlErr != nil {
-		return fmt.Errorf("IPC: Control: %w", ctrlErr)
-	}
-	if getErr != nil {
-		return fmt.Errorf("IPC: SO_PEERCRED: %w", getErr)
-	}
-	if ucred.Uid != uint32(os.Getuid()) {
-		return fmt.Errorf("IPC: peer UID %d != daemon UID %d", ucred.Uid, os.Getuid())
-	}
-	return nil
-}
 
 func (s *IPCServer) acceptLoop() {
 	for {
