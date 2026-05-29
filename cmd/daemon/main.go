@@ -38,12 +38,16 @@ var version = "dev"
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
 	registryDefault := "34.71.57.205:9000"
+	registryFromEnv := false
 	if v := os.Getenv("PILOT_REGISTRY"); v != "" {
 		registryDefault = v
+		registryFromEnv = true
 	}
 	beaconDefault := "34.71.57.205:9001"
+	beaconFromEnv := false
 	if v := os.Getenv("PILOT_BEACON"); v != "" {
 		beaconDefault = v
+		beaconFromEnv = true
 	}
 	registryAddr := flag.String("registry", registryDefault, "registry server address (or $PILOT_REGISTRY)")
 	beaconAddr := flag.String("beacon", beaconDefault, "beacon server address (or $PILOT_BEACON)")
@@ -137,6 +141,13 @@ func main() {
 	}
 
 	logging.Setup(*logLevel, *logFormat)
+
+	if registryFromEnv {
+		slog.Warn("PILOT_REGISTRY env var overrides compiled default — registry address redirected to " + *registryAddr + ". If this is unexpected, check the daemon's environment for tampering.")
+	}
+	if beaconFromEnv {
+		slog.Warn("PILOT_BEACON env var overrides compiled default — beacon address redirected to " + *beaconAddr + ". If this is unexpected, check the daemon's environment for tampering.")
+	}
 
 	d := daemon.New(daemon.Config{
 		RegistryAddr:          *registryAddr,
