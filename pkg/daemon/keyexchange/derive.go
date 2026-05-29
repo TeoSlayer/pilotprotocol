@@ -74,9 +74,18 @@ func (m *Manager) DeriveSecret(peerPubKeyBytes []byte) (*Crypto, error) {
 		return nil, fmt.Errorf("gcm: %w", err)
 	}
 
-	// Zero intermediate key material (H4 fix).
+	// Zero intermediate key material.
+	//   - shared: H4 fix
+	//   - key: PILOT-147 — the HKDF-derived AES key. Go's aes.NewCipher
+	//     copies the bytes into its internal expanded-key schedule, so
+	//     zeroing the input slice doesn't reach the schedule itself
+	//     (stdlib doesn't expose a way to reach it). But it does ensure
+	//     the input bytes don't linger as a second copy on the heap.
 	for i := range shared {
 		shared[i] = 0
+	}
+	for i := range key {
+		key[i] = 0
 	}
 	for i := range key {
 		key[i] = 0
