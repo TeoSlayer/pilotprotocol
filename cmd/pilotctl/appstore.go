@@ -14,12 +14,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -30,6 +34,7 @@ import (
 
 	"github.com/pilot-protocol/app-store/pkg/ipc"
 	"github.com/pilot-protocol/app-store/pkg/manifest"
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // cryptoSHA256 is named so the sha256 import isn't ambiguous-looking.
@@ -1375,7 +1380,11 @@ func cmdAppStoreCaps(args []string) {
 	}
 
 	caps := parseCapsFromGrants(m.Grants)
-	records := loadCapStateRecords(filepath.Join(appDir, "cap-state.jsonl"))
+
+	// Derive HMAC key from daemon identity for cap-state integrity.
+	// Falls back to nil (no verification) if identity is unavailable.
+	hmacKey := loadCapStateHMACKey()
+	records := loadCapStateRecords(filepath.Join(appDir, "cap-state.jsonl"), hmacKey)
 
 	now := time.Now()
 	reports := make([]capUsageReport, 0, len(caps))
@@ -1556,25 +1565,71 @@ func parseCapsFromGrants(grants []manifest.Grant) []capDecl {
 	return out
 }
 
+// deriveCapStateHMACKey derives a 32-byte HMAC-SHA256 key from the
+// daemon's Ed25519 identity private key using HKDF with
+// info="pilot-cap-state-v1". Returns nil if privKey is empty.
+func deriveCapStateHMACKey(privKey ed25519.PrivateKey) []byte {
+	if len(privKey) == 0 {
+		return nil
+	}
+	// HKDF-Extract: PRK = HMAC-SHA256(salt=nil, IKM=privateKey)
+	mac := hmac.New(sha256.New, nil)
+	mac.Write(privKey)
+	prk := mac.Sum(nil)
+	// HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
+	mac = hmac.New(sha256.New, prk)
+	mac.Write([]byte("pilot-cap-state-v1"))
+	mac.Write([]byte{0x01})
+	return mac.Sum(nil)
+}
+
+// loadCapStateHMACKey loads the daemon identity from ~/.pilot/identity.json
+// and derives the cap-state HMAC key. Returns nil if unavailable.
+func loadCapStateHMACKey() []byte {
+	identityPath := configDir() + "/identity.json"
+	id, err := crypto.LoadIdentity(identityPath)
+	if err != nil || id == nil {
+		return nil
+	}
+	return deriveCapStateHMACKey(id.PrivateKey)
+}
+
+// capStateJSON is the on-disk JSON format for one cap-state.jsonl line.
+type capStateJSON struct {
+	At     time.Time `json:"at"`
+	Asset  string    `json:"asset"`
+	Amount uint64    `json:"amount"`
+	HMAC   string    `json:"hmac,omitempty"` // base64 HMAC-SHA256 (chained)
+}
+
+// capStateJSONNoHMAC is the canonical form for HMAC computation.
+type capStateJSONNoHMAC struct {
+	At     time.Time `json:"at"`
+	Asset  string    `json:"asset"`
+	Amount uint64    `json:"amount"`
+}
+
 // capStateRecord is the local pilotctl-side projection of one
-// cap-state.jsonl line written by the wallet.
+// cap-state.jsonl line. hmacOK is true when HMAC verified or absent.
 type capStateRecord struct {
 	at     time.Time
 	asset  string
 	amount uint64
+	hmacOK bool
 }
 
-// loadCapStateRecords reads the wallet's persistent spend log. Missing
-// file returns an empty slice (the wallet may not have spent yet).
-// Malformed lines are skipped — a single bad line shouldn't blank
-// out the whole report.
-func loadCapStateRecords(path string) []capStateRecord {
+// loadCapStateRecords reads the wallet's persistent spend log.
+// When hmacKey is non-nil, records with a "hmac" field are verified
+// against the chained HMAC-SHA256; tampered records are skipped.
+// Records without "hmac" pass through (backward-compat).
+func loadCapStateRecords(path string, hmacKey []byte) []capStateRecord {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 	var out []capStateRecord
+	var prevHMAC []byte
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 4*1024), 1024*1024)
 	for scanner.Scan() {
@@ -1582,15 +1637,44 @@ func loadCapStateRecords(path string) []capStateRecord {
 		if len(raw) == 0 {
 			continue
 		}
-		var j struct {
-			At     time.Time `json:"at"`
-			Asset  string    `json:"asset"`
-			Amount uint64    `json:"amount"`
-		}
-		if err := json.Unmarshal(raw, &j); err != nil {
+
+		// Parse the full JSON line including optional HMAC.
+		var line capStateJSON
+		if err := json.Unmarshal(raw, &line); err != nil {
 			continue
 		}
-		out = append(out, capStateRecord{at: j.At, asset: j.Asset, amount: j.Amount})
+
+		rec := capStateRecord{at: line.At, asset: line.Asset, amount: line.Amount, hmacOK: true}
+
+		// HMAC verification — only when key is available AND this line
+		// carries an HMAC field (post-migration or wallet-written).
+		if hmacKey != nil && line.HMAC != "" {
+			canonical, _ := json.Marshal(capStateJSONNoHMAC{
+				At: line.At, Asset: line.Asset, Amount: line.Amount,
+			})
+
+			mac := hmac.New(sha256.New, hmacKey)
+			mac.Write(canonical)
+			mac.Write(prevHMAC)
+			expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+			if !hmac.Equal([]byte(expected), []byte(line.HMAC)) {
+				slog.Warn("cap-state record HMAC mismatch — skipping (possible tampering)",
+					"path", path,
+					"at", line.At.Format(time.RFC3339),
+				)
+				continue
+			}
+			rec.hmacOK = true
+			prevHMAC, _ = base64.StdEncoding.DecodeString(line.HMAC)
+		} else if hmacKey != nil && line.HMAC == "" {
+			// Record without HMAC — backward-compat. Accept it,
+			// but reset the chain so the next HMAC-bearing record
+			// starts a fresh chain.
+			prevHMAC = nil
+		}
+
+		out = append(out, rec)
 	}
 	return out
 }
