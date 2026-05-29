@@ -168,6 +168,23 @@ type ipcConn struct {
 // avg 256B/msg ≈ 64 MB worst case).
 const ipcSendBuffer = 256
 
+// ipcWriteTimeout caps how long writeLoop will wait inside a single
+// ipcutil.Write before treating the client as stalled. A stalled client
+// (stops reading from the socket) fills the kernel send buffer and
+// blocks ipcutil.Write indefinitely; without this deadline the dispatch
+// goroutines park in ipcWrite, the per-client semaphore exhausts, the
+// read loop blocks, and the daemon appears dead even though it isn't.
+// On deadline, writeLoop closes the connection and exits, unblocking
+// every parked ipcWrite caller via writeDone. Pinned by
+// TestWriteLoopExitsOnWriteDeadline.
+const ipcWriteTimeout = 10 * time.Second
+
+// ipcDrainTimeout is the per-message deadline used on the drain path
+// during Close. Shorter than ipcWriteTimeout because Close already
+// signalled the conn is going away — there's no point waiting the full
+// active-write budget for already-doomed messages.
+const ipcDrainTimeout = 3 * time.Second
+
 // ipcMaxInflightPerClient caps how many in-flight dispatch goroutines a
 // single IPC client may have. Each request becomes a goroutine that
 // handles the command and writes the reply (concurrent dispatch — see
@@ -235,16 +252,24 @@ func (c *ipcConn) writeLoop() {
 	for {
 		select {
 		case msg := <-c.sendCh:
+			// Bound the active write to ipcWriteTimeout (PILOT-218). The
+			// commit that added the test (1eff4fa3) intended to include
+			// this deadline but the writeLoop changes never landed; the
+			// test has been failing -race ever since. SetWriteDeadline
+			// errors are non-fatal (no-op on net.Pipe, etc.) so swallow.
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout))
 			if err := ipcutil.Write(c.Conn, msg); err != nil {
 				c.Conn.Close()
 				return
 			}
 		case <-c.done:
 			// Best-effort drain of pending messages so callers that already
-			// pushed before Close() don't lose their data.
+			// pushed before Close() don't lose their data. Shorter deadline
+			// per message because Close already signalled teardown.
 			for {
 				select {
 				case msg := <-c.sendCh:
+					_ = c.Conn.SetWriteDeadline(time.Now().Add(ipcDrainTimeout))
 					if err := ipcutil.Write(c.Conn, msg); err != nil {
 						c.Conn.Close()
 						return
