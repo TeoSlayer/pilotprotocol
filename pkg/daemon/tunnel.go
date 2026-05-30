@@ -159,6 +159,12 @@ type TunnelManager struct {
 	// bus subscriber — see Daemon.subscribeWebhookToBus.
 	bus *inProcessBus
 
+	// Per-source-IP rate limiter for PILA/PILK frames. Prevents CPU
+	// DoS via Ed25519 verify / X25519 scalar mult from rotating
+	// spoofed node IDs. See PILOT-265.
+	kxRateLimMu sync.Mutex
+	kxRateLim   map[string]*srcKxBucket
+
 	// Metrics
 	BytesSent   uint64
 	BytesRecv   uint64
@@ -185,6 +191,22 @@ const maxPendingPerPeer = 64
 // maxPendingPeers limits the total number of peers with pending key exchanges.
 const maxPendingPeers = 256
 
+// perSourceKxLimit is the max PILA/PILK frames per source IP per second
+// accepted before Ed25519 verify / X25519 scalar mult. An attacker sending
+// rotating spoofed node IDs can saturate a daemon's CPU; this rate limit
+// drops excess frames at the tunnel readLoop layer before any crypto work.
+// Must be ≥ 1 to allow legitimate retransmit pairs.
+const perSourceKxLimit = 5
+
+// maxPerSrcKxEntries caps the tracked source IP map to prevent unbounded
+// growth from address scanning.
+const maxPerSrcKxEntries = 4096
+
+type srcKxBucket struct {
+	tokens   int
+	lastFill time.Time
+}
+
 // ErrPendingDropped is returned by sendEncryptedToNode when the per-peer
 // pending queue was already at maxPendingPerPeer and the oldest queued
 // packet had to be dropped to make room for the new one. The CALLER's
@@ -196,6 +218,51 @@ const maxPendingPeers = 256
 // after the queue drains). Surfacing it as a typed error also lets
 // pilotctl render a "tunnel handshaking" hint instead of an opaque
 // "send SYN: pending queue full" message.
+// allowKxFromSource checks per-source-IP rate limit for PILA/PILK frames.
+// An attacker can saturate CPU with Ed25519 verify / X25519 scalar mult by
+// sending frames with rotating spoofed node IDs (see PILOT-265). This gate
+// runs before any crypto operation in handleAuthKeyExchange / handleKeyExchange.
+//
+// Relay-delivered frames (fromRelay=true) bypass this check because the
+// source IP is always the beacon — rate-limiting there would incorrectly
+// penalise all relay traffic.
+func (tm *TunnelManager) allowKxFromSource(addr *net.UDPAddr) bool {
+	if addr == nil {
+		return true
+	}
+	key := addr.IP.String()
+	tm.kxRateLimMu.Lock()
+	defer tm.kxRateLimMu.Unlock()
+
+	b, ok := tm.kxRateLim[key]
+	now := time.Now()
+	if !ok {
+		if len(tm.kxRateLim) >= maxPerSrcKxEntries {
+			return false
+		}
+		tm.kxRateLim[key] = &srcKxBucket{tokens: perSourceKxLimit - 1, lastFill: now}
+		return true
+	}
+
+	elapsed := now.Sub(b.lastFill)
+	if elapsed > 0 {
+		refill := int(elapsed.Seconds() * float64(perSourceKxLimit))
+		if refill > 0 {
+			b.tokens += refill
+			if b.tokens > perSourceKxLimit {
+				b.tokens = perSourceKxLimit
+			}
+			b.lastFill = now
+		}
+	}
+
+	if b.tokens > 0 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
 var ErrPendingDropped = errors.New("pending queue full: oldest queued packet dropped while key exchange pending")
 
 // RecvChSize is the capacity of the incoming packet channel.
@@ -214,6 +281,7 @@ func NewTunnelManager() *TunnelManager {
 		recvCh:          make(chan *IncomingPacket, RecvChSize),
 		done:            make(chan struct{}),
 		routing:         routing.New(),
+		kxRateLim:       make(map[string]*srcKxBucket),
 	}
 	tm.routing.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx = keyexchange.New(store)
@@ -966,6 +1034,13 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 	if !tm.encrypt || tm.privKey == nil {
 		return
 	}
+	// Per-source-IP rate limit on PILA — before Ed25519 verify + X25519
+	// scalar mult. Relay frames are not source-limited (IP is always
+	// the beacon).
+	if !fromRelay && !tm.allowKxFromSource(from) {
+		slog.Debug("auth key exchange rate-limited (source IP)", "from", from)
+		return
+	}
 	tm.kx.HandleAuthFrame(data, from, fromRelay)
 }
 
@@ -982,6 +1057,12 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromRelay bool) {
 	defer recoverLayer("L5", "handleKeyExchange", tm.bus, nil)
 	if !tm.encrypt || tm.privKey == nil {
+		return
+	}
+	// Per-source-IP rate limit on PILK — before X25519 scalar mult.
+	// Relay frames are not source-limited (IP is always the beacon).
+	if !fromRelay && !tm.allowKxFromSource(from) {
+		slog.Debug("key exchange rate-limited (source IP)", "from", from)
 		return
 	}
 	tm.kx.HandleUnauthFrame(data, from, fromRelay)
