@@ -57,8 +57,8 @@ set -e
 # error.
 
 REPO="TeoSlayer/pilotprotocol"
-REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"
-BEACON="${PILOT_BEACON:-34.71.57.205:9001}"
+REGISTRY="${PILOT_REGISTRY:-registry.pilotprotocol.network:9000}"
+BEACON="${PILOT_BEACON:-registry.pilotprotocol.network:9001}"
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
 
