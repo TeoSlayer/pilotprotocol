@@ -59,6 +59,15 @@ set -e
 REPO="TeoSlayer/pilotprotocol"
 REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"
 BEACON="${PILOT_BEACON:-34.71.57.205:9001}"
+# PILOT-270: validate REGISTRY/BEACON to prevent JSON injection into config.json
+if ! echo "$REGISTRY" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
+    echo "Error: REGISTRY contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
+    exit 1
+fi
+if ! echo "$BEACON" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
+    echo "Error: BEACON contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
+    exit 1
+fi
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
 
