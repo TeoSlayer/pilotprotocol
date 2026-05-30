@@ -36,17 +36,18 @@ func TestAllocEphemeralPortReturnsZeroOnUInt16Overflow(t *testing.T) {
 	t.Parallel()
 	pm := NewPortManager()
 
-	// Pre-fill every ephemeral port with an active connection. The
-	// connection map is keyed by ID, not LocalPort — portInUse
-	// iterates values and matches LocalPort. Use uint32(p) as the
-	// ID so each entry is unique.
+	// Pre-fill every ephemeral port with an active connection. After the
+	// switch to a bitmap-backed allocator, the bitmap is the canonical
+	// "in use" state — go through NewConnection so both the map and the
+	// bitmap stay in sync. Each NewConnection allocation also bumps
+	// nextConnID and marks the ephemeral bit; we don't care about the
+	// generated ID, only that the bitmap reflects full occupancy.
+	addr := protocol.Addr{Network: 0, Node: 42}
 	for p := int(protocol.PortEphemeralMin); p <= int(protocol.PortEphemeralMax); p++ {
-		port := uint16(p)
-		pm.connections[uint32(port)] = &Connection{
-			ID:        uint32(port),
-			LocalPort: port,
-			State:     StateEstablished,
-		}
+		c := pm.NewConnection(uint16(p), addr, 0)
+		c.Mu.Lock()
+		c.State = StateEstablished
+		c.Mu.Unlock()
 	}
 
 	got := pm.AllocEphemeralPort()
