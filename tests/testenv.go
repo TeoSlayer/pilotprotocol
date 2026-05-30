@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// IMPORTANT — Do not copy-paste daemon.Config values from this file into
+// production code without review. In particular, AddDaemon and AddDaemonOnly
+// both set Public: true so that test daemons can freely exchange messages
+// without the handshake trust gate. Real deployments should use Public: false
+// to enforce peer authentication. See pkg/daemon/services.go:166-170 for the
+// trust-gate logic.
+
 package tests
 
 import (
