@@ -33,6 +33,11 @@ import (
 //go:embed roots/*.pem
 var rootsFS embed.FS
 
+// skipDevPems controls whether development root certs (files starting
+// with "dev-") are excluded from the trust pool. Default true;
+// roots_dev.go (compiled with -tags dev) sets it to false via init().
+var skipDevPems = true
+
 // PinnedRoots returns a CertPool containing every root cert embedded
 // in the daemon binary. Used when -tls-trust=pinned (the default).
 //
@@ -48,6 +53,11 @@ func PinnedRoots() (*x509.CertPool, error) {
 	loaded := 0
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pem") {
+			continue
+		}
+		// Skip development root certs in production builds;
+		// roots_dev.go (//go:build dev) disables this guard.
+		if skipDevPems && strings.HasPrefix(e.Name(), "dev-") {
 			continue
 		}
 		body, err := rootsFS.ReadFile("roots/" + e.Name())
