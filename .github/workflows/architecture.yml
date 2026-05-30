@@ -27,7 +27,11 @@ jobs:
       # and the no_<plugin> build tags they exercised left with them.
 
       - name: Lock-graph race detection (sec 4.8)
-        run: go test -race -timeout 5m ./pkg/daemon ./pkg/registry/... ./pkg/secure
+        # pkg/registry/ and pkg/secure/ extracted to pilot-protocol/{rendezvous,common}
+        # in PR #155; lock-graph coverage for those layers now runs from
+        # their own repos. pkg/daemon stays — that's where the daemon-side
+        # lock graph (Store.mu, ReplayMu, SalvageMu, tm.mu, …) actually lives.
+        run: go test -race -timeout 5m ./pkg/daemon/...
 
       - name: Lock-graph stress harness (sec 4.8) — TestConcurrentDialEncryptDecrypt
         # 1000 goroutines × 30 s × 3 reps = ~90 s wall time. Race-clean,
