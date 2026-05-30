@@ -2093,6 +2093,13 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	d.identity = newID
 	d.identityMu.Unlock()
 
+	// Zero the old private key so it doesn't linger on the heap
+	// until GC — a long-lived daemon can keep it alive for hours.
+	// ed25519.PrivateKey is a []byte (seed || public).
+	for i := range current.PrivateKey {
+		current.PrivateKey[i] = 0
+	}
+
 	d.tunnels.SetIdentity(newID)
 	// The signer installed in Start() reads d.identity under d.identityMu
 	// on every call, so this SetSigner re-bind is no longer load-bearing —
