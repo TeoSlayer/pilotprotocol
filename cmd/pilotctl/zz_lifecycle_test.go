@@ -263,7 +263,7 @@ func TestSkillsHomeRel(t *testing.T) {
 // sensible default and no admin/email/public bits added.
 func TestBuildDaemonArgsDefaults(t *testing.T) {
 	withTempHomeFull(t)
-	args, sock := buildDaemonArgs([]string{})
+	args, sock, _ := buildDaemonArgs([]string{})
 	if sock == "" {
 		t.Fatal("socket path should be set")
 	}
@@ -275,7 +275,8 @@ func TestBuildDaemonArgsDefaults(t *testing.T) {
 		}
 	}
 	// Optional bits MUST NOT be present without their flags.
-	for _, k := range []string{"--public", "--admin-token", "--webhook", "--networks", "--trust-auto-approve"} {
+	// --admin-token is no longer passed via argv (PILOT-290).
+	for _, k := range []string{"--public", "--webhook", "--networks", "--trust-auto-approve"} {
 		if strings.Contains(got, k) {
 			t.Errorf("unexpected default flag %s in %v", k, args)
 		}
@@ -284,7 +285,7 @@ func TestBuildDaemonArgsDefaults(t *testing.T) {
 
 func TestBuildDaemonArgsHonorsFlags(t *testing.T) {
 	withTempHomeFull(t)
-	args, _ := buildDaemonArgs([]string{
+	args, _, adminTok := buildDaemonArgs([]string{
 		"--registry", "r.x:9000",
 		"--beacon", "b.x:9001",
 		"--listen", "1.2.3.4:4000",
@@ -309,7 +310,6 @@ func TestBuildDaemonArgsHonorsFlags(t *testing.T) {
 		"--hostname my-host":             "hostname flag",
 		"--public":                       "public flag",
 		"--webhook https://hook.example": "webhook flag",
-		"--admin-token tok":              "admin-token flag",
 		"--networks 1,2,3":               "networks flag",
 		"--trust-auto-approve":           "trust auto-approve flag",
 		"--log-level debug":              "log-level flag",
@@ -320,13 +320,17 @@ func TestBuildDaemonArgsHonorsFlags(t *testing.T) {
 			t.Errorf("%s: expected %q in %v", label, fragment, args)
 		}
 	}
+	// Admin token is now returned separately, not passed via argv (PILOT-290).
+	if adminTok != "tok" {
+		t.Errorf("admin-token flag: expected %q, got %q", "tok", adminTok)
+	}
 }
 
 // TestBuildDaemonArgsOwnerAlias verifies the legacy `-owner` flag is
 // honored as an alias for `--email` when no email is given explicitly.
 func TestBuildDaemonArgsOwnerAlias(t *testing.T) {
 	withTempHomeFull(t)
-	args, _ := buildDaemonArgs([]string{"-owner", "legacy@example.com"})
+	args, _, _ := buildDaemonArgs([]string{"-owner", "legacy@example.com"})
 	if !strings.Contains(strings.Join(args, " "), "--email legacy@example.com") {
 		t.Errorf("expected --email passthrough from -owner: %v", args)
 	}
@@ -346,7 +350,7 @@ func TestBuildDaemonArgsConfigFallback(t *testing.T) {
 	if err := saveConfig(cfg); err != nil {
 		t.Fatalf("saveConfig: %v", err)
 	}
-	args, _ := buildDaemonArgs([]string{})
+	args, _, _ := buildDaemonArgs([]string{})
 	got := strings.Join(args, " ")
 	for _, want := range []string{
 		"--registry cfg.example:9000",
