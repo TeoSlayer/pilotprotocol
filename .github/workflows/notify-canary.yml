@@ -28,7 +28,25 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
+      # The dispatch step requires CANARY_DISPATCH_TOKEN to be set as a
+      # repo secret (see header). Until an operator runs the `gh secret set`,
+      # treat "secret absent" as a skip, not a failure — this workflow runs
+      # on every PR and push, so a hard fail here would gate the entire
+      # check rollup on a credential that's intentionally not committed.
+      - name: Check token presence
+        id: token_check
+        env:
+          TOKEN: ${{ secrets.CANARY_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "::notice::CANARY_DISPATCH_TOKEN not set in repo secrets — skipping canary dispatch"
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dispatch repository_dispatch to pilot-canary
+        if: steps.token_check.outputs.have_token == 'true'
         env:
           GH_TOKEN: ${{ secrets.CANARY_DISPATCH_TOKEN }}
           # CHANGE THIS to match your component name in pilot-canary's resolve step
