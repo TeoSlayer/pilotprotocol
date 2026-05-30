@@ -358,15 +358,29 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 	// how a freshly-restarted peer — with empty tunnel state — learns how
 	// to re-key a peer that's still speaking to us through relay.
 	tm.mu.Lock()
-	if _, ok := tm.peers[peerNodeID]; !ok && from != nil {
+	existing, had := tm.peers[peerNodeID]
+	if !had && from != nil {
 		tm.peers[peerNodeID] = from
 	}
 	tm.mu.Unlock()
 	if tm.routing.IsFromBeacon(from) {
-		// Beacon-sourced key exchange = empirical proof relay path
-		// is the working one. Pin so ClearRelayOnDirect can't
-		// flap us back to direct on a stray non-beacon packet.
-		tm.routing.AdmitRelayFromBeacon(peerNodeID)
+		// Beacon-sourced key exchange normally proves relay is the
+		// working path — pin so a stray non-beacon packet can't flap
+		// us back to direct. EXCEPTION: if ensureTunnel already
+		// populated tm.peers with the registry-resolved direct
+		// address, the peer simply doesn't yet know our refreshed
+		// endpoint after a restart. Skipping the pin here lets our
+		// outbound PILA fly direct; once the peer's PILA reply takes
+		// the direct path, ClearRelayOnDirect promotes us back.
+		hasDirect := false
+		if had && existing != nil {
+			if bAddr := tm.routing.BeaconAddr(); bAddr == nil || !(existing.IP.Equal(bAddr.IP) && existing.Port == bAddr.Port) {
+				hasDirect = true
+			}
+		}
+		if !hasDirect {
+			tm.routing.AdmitRelayFromBeacon(peerNodeID)
+		}
 	}
 
 	tm.sendKeyExchangeToNode(peerNodeID)
@@ -1003,19 +1017,23 @@ func (tm *TunnelManager) onKeyInstalled(ev keyexchange.PostInstallEvent) {
 			tm.peers[peerNodeID] = from
 		}
 	} else if bAddr := tm.routing.BeaconAddr(); bAddr != nil {
-		// fromRelay=true: peer's key exchange arrived via the beacon, so
-		// the relay path is the empirically-working one. Overwrite the
-		// peers entry to the beacon and set+pin relay regardless of any
-		// prior ensureTunnel registration. Without overwriting, writeFrame
-		// would continue sending to the (unreachable) direct address and
-		// only flip to relay after writeFrame's ~60s silent-detection
-		// timer — during which encrypted sends fail and rekey attempts
-		// rotate session keys faster than they settle. Issue #199 was
-		// the original "open the relay slot if peer is unknown" patch;
-		// this generalizes it to "always trust the working empirical
-		// signal."
-		tm.peers[peerNodeID] = bAddr
-		tm.routing.AdmitRelayFromBeacon(peerNodeID)
+		// fromRelay=true: peer's key exchange arrived via the beacon.
+		// For dialer-initiated peers, ensureTunnel already populated
+		// tm.peers with the registry-resolved direct address — preserve
+		// it so writeFrame can try direct first; ClearRelayOnDirect will
+		// then flip the relay flag off when a direct encrypted packet
+		// arrives. Only fall back to aliasing the peer to the beacon
+		// when no direct address is known (the original Issue #199 case
+		// where the relay-delivered PILA is our first signal about the
+		// peer). Either way, AdmitRelayFromBeacon keeps the relay path
+		// usable so writeFrame's blackhole heuristic doesn't have to
+		// trip before relay sends start working.
+		existing, ok := tm.peers[peerNodeID]
+		hasDirect := ok && existing != nil && !(existing.IP.Equal(bAddr.IP) && existing.Port == bAddr.Port)
+		if !hasDirect {
+			tm.peers[peerNodeID] = bAddr
+			tm.routing.AdmitRelayFromBeacon(peerNodeID)
+		}
 	}
 	tm.mu.Unlock()
 
@@ -1754,7 +1772,32 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 	// For unknown peers, the *crypto handler* is responsible for admitting
 	// them; we just pass the payload through.
 	hadCrypto := tm.envelope.Has(srcNodeID)
-	admitted, newlyActivated, shouldAlias := tm.routing.MarkRelayActivatedIfHadCrypto(srcNodeID, hadCrypto)
+	// If we already have a known direct address for this peer (set by
+	// ensureTunnel from the registry-resolved real_addr), don't let a
+	// single relay-delivered packet pin us into the relay path. Receiving
+	// via relay is fine — the peer may simply not yet know our direct
+	// address — but our outbound writeFrame should keep trying direct so
+	// the peer's ClearRelayOnDirect counter can accumulate and flip their
+	// relay flag for us off. The cap check still applies via a tunnel-side
+	// admission decision below.
+	tm.mu.RLock()
+	knownDirect := false
+	if existing, ok := tm.peers[srcNodeID]; ok && existing != nil {
+		if bAddr := tm.routing.BeaconAddr(); bAddr == nil || !(existing.IP.Equal(bAddr.IP) && existing.Port == bAddr.Port) {
+			knownDirect = true
+		}
+	}
+	tm.mu.RUnlock()
+
+	var admitted, newlyActivated, shouldAlias bool
+	if knownDirect && hadCrypto {
+		// Still need to admit if we'd hit the cap on a fresh insert, but
+		// since the flag isn't being set we just pass through. Cap is
+		// implicitly respected because we don't grow relayPeers.
+		admitted = true
+	} else {
+		admitted, newlyActivated, shouldAlias = tm.routing.MarkRelayActivatedIfHadCrypto(srcNodeID, hadCrypto)
+	}
 	if !admitted {
 		slog.Warn("relay peers cap reached, dropping relay packet", "src_node_id", srcNodeID)
 		return

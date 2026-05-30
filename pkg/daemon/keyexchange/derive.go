@@ -3,7 +3,6 @@
 package keyexchange
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
@@ -42,26 +41,15 @@ func (m *Manager) DeriveSecret(peerPubKeyBytes []byte) (*Crypto, error) {
 		return nil, fmt.Errorf("ecdh: %w", err)
 	}
 
-	// Build HKDF info with peer-pair binding: sorted(localPub, peerPub)
-	// so both sides derive the same key but the key is bound to the
-	// specific peer pair, preventing cross-session key confusion.
-	localPub := m.PubKey()
-	if localPub == nil {
-		return nil, fmt.Errorf("no local public key")
-	}
-	var info []byte
-	if bytes.Compare(localPub, peerPubKeyBytes) < 0 {
-		info = append(append(append([]byte(HKDFInfo+":"), localPub...), ':'), peerPubKeyBytes...)
-	} else {
-		info = append(append(append([]byte(HKDFInfo+":"), peerPubKeyBytes...), ':'), localPub...)
-	}
-
-	// HKDF-SHA256 key derivation (H1 fix).
+	// HKDF-SHA256 key derivation (H1 fix). Info string is the bare
+	// HKDFInfo constant for wire compatibility with peers that have not
+	// yet upgraded to the peer-pair-bound variant (PILOT-144). Reintroduce
+	// pair binding only once all production specialists are upgraded.
 	mac := hmac.New(sha256.New, nil) // HKDF-Extract: PRK = HMAC-SHA256(nil salt, IKM)
 	mac.Write(shared)
 	prk := mac.Sum(nil)
 	mac = hmac.New(sha256.New, prk) // HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)
-	mac.Write(info)
+	mac.Write([]byte(HKDFInfo))
 	mac.Write([]byte{0x01})
 	key := mac.Sum(nil)
 

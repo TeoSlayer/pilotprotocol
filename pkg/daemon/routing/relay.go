@@ -124,6 +124,17 @@ func (m *Manager) ClearRelayOnDirect(peerNodeID uint32, from *net.UDPAddr) bool 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.beaconAddr != nil && from.IP.Equal(m.beaconAddr.IP) && from.Port == m.beaconAddr.Port {
+		// Relay decrypt — peer is alive. Reset the blackhole miss
+		// counter so writeFrame doesn't trip the silent-direct heuristic
+		// while the peer is reachable via relay. This prevents the
+		// "8s silent → flip to relay-pin" auto-flip from firing for
+		// peers that happen to route their first replies through the
+		// beacon (race vs the hole-punched direct path). Without this,
+		// every dialer-initiated session would eventually pin to relay
+		// even when direct is working — the very regression the patches
+		// in handleRelayDeliver / onKeyInstalled / maybeRequestRekey
+		// were designed to prevent.
+		m.blackholeMissCount[peerNodeID] = 0
 		return false
 	}
 	// A direct packet just arrived. Reset blackholeMissCount unconditionally.

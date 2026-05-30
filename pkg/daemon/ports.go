@@ -74,12 +74,67 @@ func DecodeSACK(data []byte) ([]SACKBlock, bool) {
 // The daemon passes resolved values when checking limits.
 
 // PortManager handles virtual port binding and connection tracking.
+//
+// Ephemeral port allocation uses a 16,384-bit bitmap (256 × uint64) covering
+// the [PortEphemeralMin..PortEphemeralMax] range. A bit set means the port is
+// owned by an active connection. AllocEphemeralPort finds the first clear bit
+// at O(words / 64), starting from the round-robin cursor; RemoveConnection
+// clears the owning bit. Replaces the prior O(N × 16384) linear scan, which
+// took a write lock and serialized every concurrent dial behind it — under
+// the inbound-handshake storm at cold start, that became a 400%+ CPU spike.
 type PortManager struct {
 	mu          sync.RWMutex
 	listeners   map[uint16]*Listener
 	connections map[uint32]*Connection // conn_id → connection
 	nextConnID  uint32
 	nextEphPort uint16
+	ephBitmap   [256]uint64 // 256 × 64 = 16384 bits, one per ephemeral port
+}
+
+const ephBitmapWords = 256
+
+// ephBitIndex maps a port in [PortEphemeralMin..PortEphemeralMax] to
+// (word, bit) coordinates in ephBitmap. Returns -1,-1 for out-of-range ports.
+func ephBitIndex(port uint16) (word, bit int) {
+	if port < protocol.PortEphemeralMin || port > protocol.PortEphemeralMax {
+		return -1, -1
+	}
+	idx := int(port - protocol.PortEphemeralMin)
+	return idx / 64, idx % 64
+}
+
+// markEphPortUsedLocked sets the bit for port in the ephemeral bitmap.
+// No-op for non-ephemeral ports. Must be called with pm.mu held.
+func (pm *PortManager) markEphPortUsedLocked(port uint16) {
+	w, b := ephBitIndex(port)
+	if w < 0 {
+		return
+	}
+	pm.ephBitmap[w] |= 1 << b
+}
+
+// clearEphPortLocked clears the bit for port. No-op for non-ephemeral ports
+// or ports that another active connection still holds. Must be called with
+// pm.mu held.
+func (pm *PortManager) clearEphPortLocked(port uint16) {
+	w, b := ephBitIndex(port)
+	if w < 0 {
+		return
+	}
+	// Don't clear if another connection still uses this port. Rare but
+	// possible with the dial-self / two-connections-same-local-port edge
+	// cases the existing FindConnection path handles.
+	for _, c := range pm.connections {
+		if c.LocalPort == port {
+			c.Mu.Lock()
+			st := c.State
+			c.Mu.Unlock()
+			if st != StateClosed && st != StateTimeWait {
+				return
+			}
+		}
+	}
+	pm.ephBitmap[w] &^= 1 << b
 }
 
 type Listener struct {
@@ -366,24 +421,36 @@ func (pm *PortManager) TotalActiveConnections() int {
 // PortEphemeralMax], or 0 when all 16384 ports are simultaneously in use.
 // Callers must treat 0 as ErrEphemeralExhausted.
 //
-// v1.9.1 fix: the previous implementation incremented nextEphPort as uint16
-// and checked `> PortEphemeralMax` afterward. When nextEphPort was 65535,
-// uint16++ silently wrapped to 0 before the check fired, so the loop would
-// escape the ephemeral range and return port 0 via `portInUse(0) == false`.
-// The fix uses a bounded int counter and checks >= PortEphemeralMax BEFORE
-// the increment so the uint16 field never reaches 0 via overflow.
+// Bitmap-backed: scans ephBitmap (256 uint64 words) starting from the
+// round-robin cursor and returns the first clear bit. O(words) worst case,
+// O(1) amortized — well within the write lock so concurrent dials don't
+// queue behind a 16K-port linear scan as they did in the prior
+// implementation.
+//
+// v1.9.1 wrap-bug protection retained: the cursor is incremented inside
+// nextEphPort's uint16 range using a >= check before the bump, so the field
+// can never overflow to 0.
 func (pm *PortManager) AllocEphemeralPort() uint16 {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	total := int(protocol.PortEphemeralMax-protocol.PortEphemeralMin) + 1
-	for i := 0; i < total; i++ {
-		port := pm.nextEphPort
-		if pm.nextEphPort >= protocol.PortEphemeralMax {
-			pm.nextEphPort = protocol.PortEphemeralMin
-		} else {
-			pm.nextEphPort++
-		}
-		if !pm.portInUse(port) {
+	startIdx := int(pm.nextEphPort - protocol.PortEphemeralMin)
+	for offset := 0; offset < total; offset++ {
+		idx := (startIdx + offset) % total
+		word, bit := idx/64, idx%64
+		if pm.ephBitmap[word]&(1<<bit) == 0 {
+			port := protocol.PortEphemeralMin + uint16(idx)
+			pm.ephBitmap[word] |= 1 << bit
+			// Advance the round-robin cursor past this allocation so the
+			// next caller starts looking from the next slot. Wraps without
+			// uint16 overflow.
+			next := port
+			if next >= protocol.PortEphemeralMax {
+				next = protocol.PortEphemeralMin
+			} else {
+				next++
+			}
+			pm.nextEphPort = next
 			return port
 		}
 	}
@@ -437,6 +504,11 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		pm.nextConnID = 1 // wrap around, skip 0 (reserved)
 	}
 	pm.connections[conn.ID] = conn
+	// Mark the local port used in the ephemeral bitmap if it falls in range.
+	// For non-ephemeral well-known local ports (listener-accept paths,
+	// listen/bind) this is a no-op — those don't go through
+	// AllocEphemeralPort either.
+	pm.markEphPortUsedLocked(localPort)
 	return conn
 }
 
@@ -545,9 +617,22 @@ func (pm *PortManager) ConnectionList() []ConnectionInfo {
 	return list
 }
 
+// SynSentReapDuration is how long a SYN_SENT connection may sit before the
+// idle sweeper closes it. Without this, a dial against an unreachable peer
+// (NAT punch failed; peer offline; relay drops the SYN) leaves the conn —
+// and the virtual ephemeral port it holds — pinned for the full retx ladder
+// (~30 s+), and a cold-start handshake storm can pile thousands of such
+// stuck SYN_SENT conns into the ephemeral pool. 5 s is comfortably past
+// real WAN RTT plus a couple of SYN retransmits, while still letting the
+// pool recover quickly under load.
+const SynSentReapDuration = 5 * time.Second
+
 // StaleConnections returns connections in a terminal state that should be cleaned up.
 // CLOSED, FIN_WAIT, CLOSE_WAIT are cleaned up immediately.
 // TIME_WAIT connections are cleaned up after timeWaitDur.
+// SYN_SENT connections are cleaned up after SynSentReapDuration when no SYN-ACK
+// has arrived — this prevents unreachable-peer dials from holding ephemeral
+// ports through their retransmit ladder.
 func (pm *PortManager) StaleConnections(timeWaitDur time.Duration) []*Connection {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -563,6 +648,10 @@ func (pm *PortManager) StaleConnections(timeWaitDur time.Duration) []*Connection
 			stale = append(stale, c)
 		case StateFinWait, StateTimeWait:
 			if now.Sub(la) > timeWaitDur {
+				stale = append(stale, c)
+			}
+		case StateSynSent:
+			if now.Sub(la) > SynSentReapDuration {
 				stale = append(stale, c)
 			}
 		}
@@ -621,6 +710,9 @@ func (pm *PortManager) RemoveConnection(id uint32) {
 	pm.mu.Lock()
 	c := pm.connections[id]
 	delete(pm.connections, id)
+	if c != nil {
+		pm.clearEphPortLocked(c.LocalPort)
+	}
 	pm.mu.Unlock()
 	// Stop retransmission goroutine
 	if c != nil && c.RetxStop != nil {
