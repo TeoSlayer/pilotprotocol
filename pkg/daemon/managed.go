@@ -344,26 +344,39 @@ func (me *ManagedEngine) fill(members []uint32) int {
 }
 
 // fetchMembers calls list_nodes on the registry for this network.
+// Retries with exponential backoff on transient failures.
 func (me *ManagedEngine) fetchMembers() ([]uint32, error) {
-	resp, err := me.daemon.regConn.ListNodes(me.netID, me.daemon.config.AdminToken)
-	if err != nil {
-		return nil, err
-	}
+	const maxAttempts = 5
+	var lastErr error
+	backoff := 1 * time.Second
 
-	nodesRaw, ok := resp["nodes"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("unexpected list_nodes response")
-	}
-
-	var members []uint32
-	for _, n := range nodesRaw {
-		if m, ok := n.(map[string]interface{}); ok {
-			if id, ok := m["node_id"].(float64); ok {
-				members = append(members, uint32(id))
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		resp, err := me.daemon.regConn.ListNodes(me.netID, me.daemon.config.AdminToken)
+		if err == nil {
+			nodesRaw, ok := resp["nodes"].([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("unexpected list_nodes response")
 			}
+
+			var members []uint32
+			for _, n := range nodesRaw {
+				if m, ok := n.(map[string]interface{}); ok {
+					if id, ok := m["node_id"].(float64); ok {
+						members = append(members, uint32(id))
+					}
+				}
+			}
+			return members, nil
+		}
+
+		lastErr = err
+		if attempt < maxAttempts-1 {
+			time.Sleep(backoff)
+			backoff *= 2
 		}
 	}
-	return members, nil
+
+	return nil, fmt.Errorf("fetchMembers: failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // persist saves the managed state to disk.
