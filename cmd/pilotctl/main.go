@@ -2352,9 +2352,14 @@ func cmdDaemonStart(args []string) {
 	logFile.Close()
 	os.Rename(tmpLogPath, pidLogPath)
 	// Update pilot.log symlink to point at the current PID's log.
+	// Atomically replace via temp file to avoid TOCTOU race (the
+	// gap between Remove and Symlink is exploitable by a local
+	// attacker with write access to the config directory).
 	symPath := logFilePath()
-	os.Remove(symPath)
-	os.Symlink(pidLogPath, symPath)
+	tmpSymPath := symPath + ".tmp"
+	os.Remove(tmpSymPath) // clean stale temp from prior crash
+	os.Symlink(pidLogPath, tmpSymPath)
+	os.Rename(tmpSymPath, symPath)
 
 	if !jsonOutput {
 		fmt.Fprintf(os.Stderr, "starting daemon (pid %d, socket %s)...", pid, socketPath)
