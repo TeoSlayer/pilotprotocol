@@ -2288,6 +2288,18 @@ func cmdDaemonStart(args []string) {
 		os.Remove(pidFilePath())
 	}
 
+	// Atomically claim the PID file to prevent concurrent daemon starts.
+	// O_CREAT|O_EXCL ensures only one pilotctl daemon start can succeed;
+	// a second concurrent invocation fails here before spawning a daemon.
+	if f, err := os.OpenFile(pidFilePath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+		fatalHint("already_exists",
+			"stop it first with: pilotctl daemon stop",
+			"another daemon start is in progress (PID file locked)")
+	} else {
+		_, _ = f.WriteString("0\n")
+		f.Close()
+	}
+
 	daemonArgs, socketPath := buildDaemonArgs(args)
 
 	// Clean up stale socket
