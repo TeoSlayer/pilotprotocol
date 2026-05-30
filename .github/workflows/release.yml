@@ -41,8 +41,8 @@ jobs:
         # mode is in tests/compat/ — a separate package).
         run: |
           go test -parallel 4 -count=1 -timeout 900s \
-            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
-            ./tests/ ./pkg/beacon/
+            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$|TestNetworkInviteJoinRule|TestPerNetworkMetrics|TestMetricsRequestCounting|TestMetricsGauges|TestMultipleListeners|TestIntegration_WebhookDLQWithRealServer' \
+            ./tests/
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
