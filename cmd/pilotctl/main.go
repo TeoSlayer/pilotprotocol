@@ -1075,6 +1075,18 @@ Flags:
   --count <n>      number of entries to show (default: 5)
   --scope <name>   filter by scope tag (e.g. protocol, cli, networks)
 `,
+	"quickstart": `Usage: pilotctl quickstart
+
+Print a guided 3-step getting-started flow:
+  1. Start the daemon
+  2. Discover specialist agents via the directory
+  3. Handshake + query a specialist
+
+Run it again after each step — it detects whether the daemon is already
+running and guides you to the next action.
+
+Also available as machine-readable JSON with --json.
+`,
 	"context": `Usage: pilotctl context
 
 Print machine-readable metadata for every command: name, description,
@@ -1217,6 +1229,9 @@ Diagnostic commands:
   pilotctl broadcast <network_id> <message>
   pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
 
+Getting started:
+  pilotctl quickstart                 guided 3-step walkthrough (check daemon → discover → query)
+
 Agent tool discovery:
   pilotctl context
   pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
@@ -1311,6 +1326,10 @@ dispatch:
 
 	case "appstore":
 		cmdAppStore(cmdArgs)
+		return
+
+	case "quickstart":
+		cmdQuickstart(cmdArgs)
 		return
 
 	// Bootstrap
@@ -1676,6 +1695,121 @@ func cmdConfig(args []string) {
 
 // ===================== CONTEXT =====================
 
+// ===================== QUICKSTART =====================
+
+func cmdQuickstart(args []string) {
+	flags, _ := parseFlags(args)
+	_ = flags // consume flags (--json etc.) but quickstart ignores extras
+
+	// Check daemon status
+	d, err := driver.Connect(getSocket())
+	daemonRunning := err == nil
+	if daemonRunning {
+		_, infoErr := d.Info()
+		d.Close()
+		if infoErr != nil {
+			daemonRunning = false
+		}
+	}
+
+	if jsonOutput {
+		output(map[string]interface{}{
+			"quickstart": []map[string]interface{}{
+				{
+					"step":        1,
+					"title":       "Start the daemon",
+					"command":     "pilotctl daemon start",
+					"description": "Launch the Pilot Protocol daemon. Registers your node and connects to the overlay network.",
+					"done":        daemonRunning,
+				},
+				{
+					"step":        2,
+					"title":       "Discover specialist agents",
+					"command":     "pilotctl send-message list-agents --data '/data {\"search\":\"\",\"limit\":10}' --wait",
+					"description": "Query the public directory. Filter with keywords: weather, crypto, news, joke, etc.",
+					"done":        false,
+				},
+				{
+					"step":        3,
+					"title":       "Handshake + query a specialist",
+					"command":     "pilotctl handshake <hostname>  →  pilotctl send-message <hostname> --data '/data {...}' --wait",
+					"description": "Establish trust with a specialist, then query it. Send /help first to learn its schema.",
+					"done":        false,
+				},
+			},
+		})
+		return
+	}
+
+	fmt.Println("╔══════════════════════════════════════════════════╗")
+	fmt.Println("║     Pilot Protocol — Getting Started (3 steps)    ║")
+	fmt.Println("╚══════════════════════════════════════════════════╝")
+	fmt.Println()
+
+	if !daemonRunning {
+		fmt.Println("❯ Step 1 — Start the daemon")
+		fmt.Println()
+		fmt.Println("  pilotctl daemon start")
+		fmt.Println()
+		fmt.Println("  This registers your node with the network.")
+		fmt.Println("  You'll get a Node ID and address back.")
+		fmt.Println()
+		fmt.Println("  Tips:")
+		fmt.Println("    --hostname <name>   make this node discoverable by name")
+		fmt.Println("    --public             allow directory lookups from other nodes")
+		fmt.Println("    --trust-auto-approve accept all incoming handshakes automatically")
+		fmt.Println()
+		fmt.Println("  After starting, run: pilotctl quickstart")
+		return
+	}
+
+	fmt.Println("✓  Step 1 — Daemon is running")
+	fmt.Println()
+
+	fmt.Println("❯ Step 2 — Discover specialist agents")
+	fmt.Println()
+	fmt.Println("  The Pilot overlay has ~436 specialist agents covering")
+	fmt.Println("  weather, crypto, news, sports, transit, science, and more.")
+	fmt.Println()
+	fmt.Println("  List them:")
+	fmt.Println("    pilotctl send-message list-agents \\")
+	fmt.Println("      --data '/data {\"search\":\"\",\"limit\":10}' --wait")
+	fmt.Println()
+	fmt.Println("  Filter by keyword:")
+	fmt.Println("    weather  → forecasts, METAR, aviation")
+	fmt.Println("    crypto   → Bitcoin, tickers, exchange rates")
+	fmt.Println("    news     → Hacker News, GDELT, RSS feeds")
+	fmt.Println("    sports   → NBA, NFL, MLB, F1, scores")
+	fmt.Println("    joke     → dad jokes, Chuck Norris one-liners")
+	fmt.Println()
+
+	fmt.Println("❯ Step 3 — Handshake + query a specialist")
+	fmt.Println()
+	fmt.Println("  Pick a hostname from Step 2 and use the 3-command pattern:")
+	fmt.Println()
+	fmt.Println("  1) Learn the specialist's API:")
+	fmt.Println("     pilotctl send-message <hostname> --data '/help' --wait")
+	fmt.Println()
+	fmt.Println("  2) Establish trust:")
+	fmt.Println("     pilotctl handshake <hostname>")
+	fmt.Println()
+	fmt.Println("  3) Query it:")
+	fmt.Println("     pilotctl send-message <hostname> \\")
+	fmt.Println("       --data '/data {\"<filter>\":\"<value>\"}' --wait")
+	fmt.Println()
+	fmt.Println("  Example flow:")
+	fmt.Println("     pilotctl send-message list-agents \\")
+	fmt.Println("       --data '/data {\"search\":\"weather\",\"limit\":3}' --wait")
+	fmt.Println("     pilotctl send-message weather-specialist --data '/help' --wait")
+	fmt.Println("     pilotctl handshake weather-specialist")
+	fmt.Println("     pilotctl send-message weather-specialist \\")
+	fmt.Println("       --data '/data {\"city\":\"San Francisco\"}' --wait")
+	fmt.Println()
+	fmt.Println("───")
+	fmt.Println("More:  pilotctl --help   |   pilotctl context   (machine-readable)")
+	fmt.Println("Docs:  https://docs.pilotprotocol.network")
+}
+
 func cmdContext() {
 	ctx := map[string]interface{}{
 		"version": "1.3",
@@ -1683,6 +1817,13 @@ func cmdContext() {
 
 		// ── Core agent commands ──────────────────────────────────────────────
 		"commands": map[string]interface{}{
+			// Getting started
+			"quickstart": map[string]interface{}{
+				"args":        []string{"[--json]"},
+				"description": "Guided 3-step getting-started walkthrough. Checks daemon status, then guides through discovery → handshake → query. Re-run after each step; it detects progress.",
+				"returns":     "quickstart [{step, title, command, description, done}]",
+			},
+
 			// Setup & identity
 			"init": map[string]interface{}{
 				"args":        []string{"--registry <addr>", "--beacon <addr>", "--hostname <name>", "[--socket <path>]"},
