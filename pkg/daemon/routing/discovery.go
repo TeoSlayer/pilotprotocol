@@ -23,6 +23,11 @@ const BeaconRefreshInterval = 60 * time.Second
 // The first refresh fires at t = rand[0..BeaconRefreshJitter).
 const BeaconRefreshJitter = 10 * time.Second
 
+// BeaconCacheMaxAge is the maximum age of an on-disk beacon cache
+// before it is considered stale and rejected in favor of the
+// operator-configured bootstrap list.
+const BeaconCacheMaxAge = 1 * time.Hour
+
 // BeaconCacheFilename is the on-disk fallback used when the registry
 // is unreachable at cold-start. Lives next to the identity file.
 const BeaconCacheFilename = "beacons.json"
@@ -140,6 +145,28 @@ func LoadBeaconCache(identityPath string) ([]string, error) {
 	// have persisted a list that included private VPC IPs before this
 	// fix was in place.
 	return FilterUnreachable(entry.Addrs), nil
+}
+
+// BeaconCacheSavedAt reads the SavedAt timestamp from the on-disk cache
+// without deserialising the full addr list.  Returns (time.Time{}, nil)
+// when the file does not exist.
+func BeaconCacheSavedAt(identityPath string) (time.Time, error) {
+	path := BeaconCachePath(identityPath)
+	if path == "" {
+		return time.Time{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("read beacon cache for SavedAt: %w", err)
+	}
+	var entry BeaconCacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return time.Time{}, fmt.Errorf("parse beacon cache for SavedAt: %w", err)
+	}
+	return entry.SavedAt, nil
 }
 
 // BeaconSelectionState tracks the daemon's beacon picks across refresh
