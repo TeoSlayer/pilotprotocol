@@ -3122,7 +3122,21 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	// proactive handshake when the plugin isn't loaded.
 	if d.handshakes != nil && !d.handshakes.IsTrusted(dstAddr.Node) {
 		if _, ok := trustedagents.IsTrusted(dstAddr.Node); ok {
-			go d.handshakes.SendRequest(dstAddr.Node, "")
+			// Route through HandshakeSendRequest (not the plugin's raw
+			// SendRequest) so the per-peer in-flight dedup catches the
+			// recursive case: this proactive auto-handshake fires from
+			// within DialConnection, and SendRequest itself eventually
+			// calls back into DialConnection on port 444, which re-checks
+			// this same gate. Without dedup that's a self-driving fanout
+			// — verified locally 2026-05-31: ~12k "direct handshake
+			// failed" entries within 800 ms for a single trusted-agents
+			// peer, all from the recursive go-fired chain. The wrapper's
+			// LoadOrStore caps it at one in-flight call per peer.
+			//
+			// Returns are intentionally discarded — the goroutine is best
+			// effort, just like before. ErrHandshakeInFlight short-circuit
+			// is the dedup hit, which is the success case.
+			go func() { _ = d.HandshakeSendRequest(dstAddr.Node, "") }()
 		}
 	}
 
