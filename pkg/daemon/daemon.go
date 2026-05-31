@@ -248,6 +248,19 @@ type Daemon struct {
 	ipc            *IPCServer
 	handshakes     HandshakeService
 
+	// handshakeInFlight tracks peers with an outbound trust-handshake
+	// currently in progress on this daemon. Per-peer keyed
+	// (nodeID → struct{}). Inserted on entry to HandshakeSendRequest,
+	// removed on return. Concurrent callers for the same peer observe
+	// the existing entry and short-circuit with ErrHandshakeInFlight so
+	// they do not race a second DialConnection on port 444 — which under
+	// a burst (e.g. parallel `pilotctl handshake` commands) was capable
+	// of saturating the ephemeral-port bitmap for a few seconds before
+	// the SYN_SENT reaper recovered the pool. Per-peer dedup keeps
+	// concurrent intent to the same target collapsed to one in-flight
+	// dial regardless of caller count.
+	handshakeInFlight sync.Map
+
 	// network.* bus subscriber for daemon-internal reactions (managed
 	// engines + member-tag cache). Wired by subscribeNetworkInternalToBus
 	// during Start; torn down before tunnels in doStop. (T4.3.)
@@ -1800,10 +1813,36 @@ func (d *Daemon) HandshakeRevokeTrust(nodeID uint32) error {
 	return d.handshakes.RevokeTrust(nodeID)
 }
 
+// ErrHandshakeInFlight is returned by HandshakeSendRequest when another
+// outbound handshake to the same peer is currently in progress on this
+// daemon. Callers can treat this as a soft success: the existing in-flight
+// call will produce a trust outcome shortly. Surfaced through the IPC
+// SubHandshakeSend handler as a distinct "in_flight" reply status so
+// pilotctl users get a clean signal rather than a generic error.
+var ErrHandshakeInFlight = errors.New("handshake already in flight to this peer")
+
+// HandshakeSendRequest issues an outbound trust handshake to peerNodeID
+// via the registered handshake plugin, deduped per-peer.
+//
+// Concurrent callers for the same peer (e.g. a burst of `pilotctl
+// handshake <agent>` commands) coalesce: the first call records its
+// intent in d.handshakeInFlight and proceeds; any subsequent caller that
+// observes the entry returns immediately with ErrHandshakeInFlight
+// without firing a second DialConnection. The first call's deferred
+// delete frees the slot when the underlying SendRequest returns.
+//
+// This collapses the dial-side fanout: N callers → 1 DialConnection → 1
+// ephemeral port held during the dial budget, rather than N callers → N
+// dials → N ports. Eliminates the port-pool saturation footprint that
+// otherwise appeared in the daemon log under parallel handshake bursts.
 func (d *Daemon) HandshakeSendRequest(nodeID uint32, reason string) error {
 	if d.handshakes == nil {
 		return fmt.Errorf("handshake service not registered")
 	}
+	if _, loaded := d.handshakeInFlight.LoadOrStore(nodeID, struct{}{}); loaded {
+		return ErrHandshakeInFlight
+	}
+	defer d.handshakeInFlight.Delete(nodeID)
 	return d.handshakes.SendRequest(nodeID, reason)
 }
 
