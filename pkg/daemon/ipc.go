@@ -496,7 +496,6 @@ func (s *IPCServer) Close() error {
 	return nil
 }
 
-
 func (s *IPCServer) acceptLoop() {
 	for {
 		// P2-002: always accept then immediately reject-and-close when
@@ -1275,7 +1274,21 @@ func (s *IPCServer) handleHandshake(conn *ipcConn, reqID uint64, payload []byte)
 		if len(rest) > 4 {
 			justification = string(rest[4:])
 		}
-		if err := s.daemon.handshakes.SendRequest(nodeID, justification); err != nil {
+		if err := s.daemon.HandshakeSendRequest(nodeID, justification); err != nil {
+			if errors.Is(err, ErrHandshakeInFlight) {
+				// Soft success: another caller is already running the
+				// same handshake. Reply with a distinct status so
+				// clients can distinguish "I started one" from "one
+				// was already running" without treating either as
+				// failure. Per-peer dedup prevents the dial-burst
+				// port-pool saturation that motivated this path.
+				data, _ := json.Marshal(map[string]interface{}{
+					"status":  "in_flight",
+					"node_id": nodeID,
+				})
+				s.ipcWriteHandshakeOK(conn, reqID, data)
+				return
+			}
 			s.sendError(conn, reqID, fmt.Sprintf("handshake request: %v", err))
 			return
 		}
