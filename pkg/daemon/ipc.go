@@ -149,6 +149,11 @@ type ipcConn struct {
 	closeOnce sync.Once
 	writeDone chan struct{}
 
+	// peerPID is the PID of the connected process (Linux SO_PEERCRED,
+	// 0 on Darwin/other). Used for IPC whitelist matching (PILOT-346).
+	peerPID    int32
+	whitelisted bool // bypasses per-client dial quota (PILOT-346)
+
 	// dialCancels holds cancel funcs for in-flight DialConnection calls
 	// this client started. On Close() we fire them all so the daemon's
 	// dial loops bail out immediately instead of grinding to their full
@@ -229,14 +234,17 @@ const MaxConnsPerIPCClient = 4096
 
 // newIPCConn wraps a net.Conn and starts the per-conn writer goroutine.
 // All callers must use this constructor (not &ipcConn{...}) so the writer
-// is properly initialized.
-func newIPCConn(c net.Conn) *ipcConn {
+// is properly initialized. peerPID is the PID of the connected process
+// (0 on non-Linux); whitelisted bypasses the per-client dial quota.
+func newIPCConn(c net.Conn, peerPID int32, whitelisted bool) *ipcConn {
 	ic := &ipcConn{
 		Conn:        c,
 		sendCh:      make(chan []byte, ipcSendBuffer),
 		done:        make(chan struct{}),
 		writeDone:   make(chan struct{}),
 		dialCancels: make(map[uint64]context.CancelFunc),
+		peerPID:     peerPID,
+		whitelisted: whitelisted,
 	}
 	go ic.writeLoop()
 	return ic
@@ -511,15 +519,34 @@ func (s *IPCServer) acceptLoop() {
 		// PILOT-246: Reject connections from other UIDs — only same-UID
 		// processes may issue IPC commands. Without this, any local
 		// process can connect and control the daemon.
-		if err := checkPeerUID(conn); err != nil {
+		peerPID, err := checkPeerUID(conn)
+		if err != nil {
 			slog.Warn("IPC rejected cross-UID connection", "err", err)
 			conn.Close()
 			continue
 		}
+
+		// PILOT-346: Check if the connecting process is in the IPC
+		// whitelist. Whitelisted clients bypass the per-client dial
+		// connection quota (MaxConnsPerIPCClient).
+		var whitelisted bool
+		if peerPID > 0 && len(s.daemon.config.IPCWhitelist) > 0 {
+			name := resolveProcessName(peerPID)
+			if name != "" {
+				for _, w := range s.daemon.config.IPCWhitelist {
+					if name == w {
+						whitelisted = true
+						slog.Info("IPC whitelisted client connected", "pid", peerPID, "name", name)
+						break
+					}
+				}
+			}
+		}
+
 		s.mu.Lock()
 		full := len(s.clients) >= MaxIPCClients
 		if !full {
-			ic := newIPCConn(conn)
+			ic := newIPCConn(conn, peerPID, whitelisted)
 			s.clients[ic] = true
 			s.mu.Unlock()
 			go s.handleClient(ic)
@@ -757,9 +784,13 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 	// P2-002: reject dial if this client already owns MaxConnsPerIPCClient
 	// connections. Avoids the single-client DoS where one buggy driver
 	// exhausts the global connection table.
-	if n := conn.connCount(); n >= MaxConnsPerIPCClient {
-		s.sendError(conn, reqID, fmt.Sprintf("dial: per-client connection quota (%d) reached", MaxConnsPerIPCClient))
-		return
+	// PILOT-346: whitelisted clients (trusted integrations) bypass the
+	// per-client quota limit.
+	if !conn.whitelisted {
+		if n := conn.connCount(); n >= MaxConnsPerIPCClient {
+			s.sendError(conn, reqID, fmt.Sprintf("dial: per-client connection quota (%d) reached", MaxConnsPerIPCClient))
+			return
+		}
 	}
 
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])

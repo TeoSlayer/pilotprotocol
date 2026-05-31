@@ -30,7 +30,7 @@ func TestIPCDialCancelsLeakOnCompletedDials(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() { clientConn.Close(); serverConn.Close() })
 
-	ic := newIPCConn(serverConn)
+	ic := newIPCConn(serverConn, 0, false)
 	t.Cleanup(func() { ic.Close() })
 
 	const N = 1000

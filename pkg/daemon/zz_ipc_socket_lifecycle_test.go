@@ -420,7 +420,7 @@ func TestCheckPeerUIDRejectsNonUnixSocket(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	if err := checkPeerUID(server); err == nil {
+	if _, err := checkPeerUID(server); err == nil {
 		t.Fatal("checkPeerUID should reject non-Unix conn")
 	}
 }
@@ -440,7 +440,7 @@ func TestCheckPeerUIDAcceptsSameUIDUnixSocket(t *testing.T) {
 	}
 	defer conn.Close()
 
-	if err := checkPeerUID(conn); err != nil {
+	if _, err := checkPeerUID(conn); err != nil {
 		t.Fatalf("checkPeerUID should accept same-UID connection: %v", err)
 	}
 }

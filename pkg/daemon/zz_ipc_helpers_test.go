@@ -19,7 +19,7 @@ import (
 func newPipePair(t *testing.T) (*ipcConn, net.Conn) {
 	t.Helper()
 	client, server := net.Pipe()
-	ic := newIPCConn(server)
+	ic := newIPCConn(server, 0, false)
 	t.Cleanup(func() {
 		ic.Close()
 		client.Close()
@@ -222,7 +222,7 @@ func TestIPCServerCloseClosesClients(t *testing.T) {
 
 	client, server := net.Pipe()
 	t.Cleanup(func() { client.Close() })
-	ic := newIPCConn(server)
+	ic := newIPCConn(server, 0, false)
 	s.clients[ic] = true
 
 	if err := s.Close(); err != nil {
