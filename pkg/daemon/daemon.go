@@ -1325,7 +1325,19 @@ func (d *Daemon) Stop() error {
 func (d *Daemon) doStop() {
 	// Wait for all daemon-scoped background goroutines to notice
 	// stopCh and exit before tearing down shared infrastructure.
-	d.bgWG.Wait()
+	// Use a 5-second timeout to prevent a hung goroutine (e.g.
+	// blocked on registry I/O during an outage) from blocking
+	// shutdown forever. Leaked goroutines are the lesser evil.
+	done := make(chan struct{})
+	go func() {
+		d.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		slog.Warn("timed out waiting for background goroutines to exit", "leaked", true)
+	}
 
 	// v1.9.1: emit a shutdown signal BEFORE any teardown so operators
 	// can distinguish planned drain from crash. Auto-scalers and
