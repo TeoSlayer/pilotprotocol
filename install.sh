@@ -57,8 +57,17 @@ set -e
 # error.
 
 REPO="TeoSlayer/pilotprotocol"
-REGISTRY="${PILOT_REGISTRY:-registry.pilotprotocol.network:9000}"
-BEACON="${PILOT_BEACON:-registry.pilotprotocol.network:9001}"
+REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"
+BEACON="${PILOT_BEACON:-34.71.57.205:9001}"
+# PILOT-270: validate REGISTRY/BEACON to prevent JSON injection into config.json
+if ! echo "$REGISTRY" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
+    echo "Error: REGISTRY contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
+    exit 1
+fi
+if ! echo "$BEACON" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
+    echo "Error: BEACON contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
+    exit 1
+fi
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
 
@@ -118,6 +127,10 @@ if [ "${1}" = "uninstall" ]; then
     fi
 
     # Remove pilot directory (binaries, config, identity, received files)
+    if [ -h "$PILOT_DIR" ]; then
+        echo "  Refusing to uninstall: $PILOT_DIR is a symlink"
+        exit 1
+    fi
     if [ -d "$PILOT_DIR" ]; then
         rm -rf "$PILOT_DIR"
         echo "  Removed $PILOT_DIR"
@@ -266,11 +279,18 @@ if [ -n "$TAG" ]; then
                 [ -n "$ACTUAL" ] && echo "  Verified SHA-256"
             fi
         fi
+        # GNU tar preserves ownership and permissions from the archive by
+        # default (including setuid/setgid bits). BSD tar ignores ownership
+        # without root, so these flags are only needed on GNU tar.
+        TAR_SAFE=""
+        if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+            TAR_SAFE="--no-same-owner --no-same-permissions"
+        fi
         # macOS bsdtar can fail silently on GitHub gzip archives.
         # Try tar -xzf first; fall back to gunzip|tar on failure.
-        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
+        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
             echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
-            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x -C "$TMPDIR"
+            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x $TAR_SAFE -C "$TMPDIR"
         fi
         if [ ! -f "$TMPDIR/pilotctl" ]; then
             echo "Error: failed to extract binaries from ${ARCHIVE}"
@@ -340,10 +360,10 @@ chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
 
 LINK_DIR="/usr/local/bin"
 if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
-    ln -sf "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
-    ln -sf "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
-    ln -sf "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
-    [ -f "$BIN_DIR/pilot-updater" ] && ln -sf "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
+    ln -sfn "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
+    ln -sfn "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
+    ln -sfn "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-updater" ] && ln -sfn "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
     echo "  Symlinked to ${LINK_DIR}"
 fi
 
