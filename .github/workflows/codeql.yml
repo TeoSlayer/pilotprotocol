@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "0 6 * * 1" # weekly, Monday 6 AM UTC
 
+# Workflow-level default — least privilege. The analyze job elevates
+# security-events to write for the CodeQL upload step.
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze Go

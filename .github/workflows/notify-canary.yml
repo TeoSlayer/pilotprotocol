@@ -24,6 +24,11 @@ on:
   pull_request:
     branches: ['**']
 
+# Workflow-level default — least privilege. This workflow only reads
+# the repo and dispatches an external event using its own PAT secret.
+permissions:
+  contents: read
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
