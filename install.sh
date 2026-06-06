@@ -349,10 +349,10 @@ chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
 
 LINK_DIR="/usr/local/bin"
 if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
-    ln -sf "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
-    ln -sf "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
-    ln -sf "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
-    [ -f "$BIN_DIR/pilot-updater" ] && ln -sf "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
+    ln -sfn "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
+    ln -sfn "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
+    ln -sfn "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-updater" ] && ln -sfn "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
     echo "  Symlinked to ${LINK_DIR}"
 fi
 
