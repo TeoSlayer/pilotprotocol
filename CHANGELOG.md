@@ -7,7 +7,7 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
-## [Unreleased]
+## [1.10.7] - 2026-06-06
 
 ### Fixed
 - **Auto-handshake dial-storm against unreachable trusted agents no longer
