@@ -1150,6 +1150,12 @@ func cmdAppStoreInstall(args []string) {
 // as the per-app supervisor.log.
 const pilotctlAuditFileName = ".pilotctl-audit.log"
 
+// pilotctlAuditMaxSize is the size cap for the root-level audit log.
+// When reached, the log is rotated to .pilotctl-audit.log.1 (single
+// rotation — only one historical file kept). At ~150 B/event this gives
+// roughly 700,000 entries before rotation, or decades of heavy use.
+const pilotctlAuditMaxSize = 100 * 1024 * 1024 // 100 MiB
+
 // pilotctlAuditEvent is one row of the root-level audit log.
 // Operator-side counterpart to the supervisor's auditEvent; lives in
 // a different file because the use cases differ — supervisor.log
@@ -1191,6 +1197,20 @@ func writePilotctlAudit(installRoot string, ev pilotctlAuditEvent) {
 	}
 	body = append(body, '\n')
 	path := filepath.Join(installRoot, pilotctlAuditFileName)
+
+	// Rotate if the log exceeds the size cap. Single-rotation model:
+	// .pilotctl-audit.log → .pilotctl-audit.log.1, then start fresh.
+	// Best-effort — rotation failure doesn't block the audit write.
+	// Matches the supervisor.log.1 pattern so readers that already
+	// handle supervisor.log rotation can consume this with no changes.
+	if fi, err := os.Stat(path); err == nil && fi.Size() >= pilotctlAuditMaxSize {
+		rotatedPath := path + ".1"
+		if err := os.Rename(path, rotatedPath); err != nil {
+			fmt.Fprintf(os.Stderr, "warn: pilotctl audit rotate %s → %s: %v\n",
+				path, rotatedPath, err)
+		}
+	}
+
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warn: pilotctl audit open %s: %v\n", path, err)
