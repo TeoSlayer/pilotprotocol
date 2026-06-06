@@ -7,6 +7,41 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [Unreleased]
+
+### Fixed
+- **Auto-handshake dial-storm against unreachable trusted agents no longer
+  saturates the ephemeral-port pool.** When `DialConnection` targeted a
+  peer in the `trustedagents` allowlist that wasn't yet trusted, it
+  unconditionally spawned `go HandshakeSendRequest(peer, "")` on every
+  call. The existing per-peer in-flight dedup collapsed CONCURRENT
+  callers to a single underlying `SendRequest`, but did NOT collapse
+  SEQUENTIAL ones: when `sendMessage` returned fast (e.g. hit
+  `ErrEphemeralExhausted` in microseconds, or the registry-relay
+  fallback completed), the in-flight slot was released immediately and
+  the next dial re-fired the goroutine — re-entering `SendRequest`,
+  re-emitting `"direct handshake failed, relaying via registry"`, and
+  re-allocating an ephemeral port.
+
+  In steady state against a reachable-but-key-exchange-stuck peer
+  (`blockchain-ticker`, node 19418, on 2026-06-06) this produced
+  ~4000 log lines per second — 1 GB of `daemon.log` written in under
+  four hours — while every outbound dial to that peer and every
+  concurrent tenant of the port pool failed with `"ephemeral ports
+  exhausted"`. `pilotctl info`, `pilotctl peers`, and new specialist
+  handshakes all wedged because the IPC server couldn't get a port
+  through the saturated bitmap.
+
+  Fix: `Daemon.shouldAutoHandshake` adds a per-peer time-keyed gate
+  (`autoHandshakeCooldown` = 30 s) that runs BEFORE the goroutine
+  spawn in `DialConnection`. Concurrent racers atomic-CAS for the
+  slot; sequential callers within the cooldown window short-circuit
+  silently and never reach `HandshakeSendRequest`. Explicit
+  `pilotctl handshake <peer>` IPC calls bypass the gate so user
+  intent is never throttled. Regression-pinned by
+  `TestShouldAutoHandshake*` (six cases including a 50k-call tight
+  loop that asserts exactly one spawn).
+
 ## [1.10.5] - 2026-05-20
 
 ### Fixed
