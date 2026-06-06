@@ -275,11 +275,18 @@ if [ -n "$TAG" ]; then
                 [ -n "$ACTUAL" ] && echo "  Verified SHA-256"
             fi
         fi
+        # GNU tar preserves ownership and permissions from the archive by
+        # default (including setuid/setgid bits). BSD tar ignores ownership
+        # without root, so these flags are only needed on GNU tar.
+        TAR_SAFE=""
+        if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+            TAR_SAFE="--no-same-owner --no-same-permissions"
+        fi
         # macOS bsdtar can fail silently on GitHub gzip archives.
         # Try tar -xzf first; fall back to gunzip|tar on failure.
-        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
+        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
             echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
-            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x -C "$TMPDIR"
+            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x $TAR_SAFE -C "$TMPDIR"
         fi
         if [ ! -f "$TMPDIR/pilotctl" ]; then
             echo "Error: failed to extract binaries from ${ARCHIVE}"
