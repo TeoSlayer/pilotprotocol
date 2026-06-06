@@ -87,6 +87,11 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	flag.Parse()
+	if *adminToken == "" {
+		if v := os.Getenv("PILOT_ADMIN_TOKEN"); v != "" {
+			*adminToken = v
+		}
+	}
 
 	if *showVersion {
 		fmt.Println(version)

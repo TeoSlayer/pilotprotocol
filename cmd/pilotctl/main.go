@@ -2110,7 +2110,7 @@ func gatewayBinaryPath() string {
 // unset. This keeps existing pilotctl invocations working unchanged —
 // the only difference is that the daemon runs in a separate
 // `pilot-daemon` process rather than re-execing pilotctl.
-func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
+func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adminToken string) {
 	flags, _ := parseFlags(args)
 
 	cfg := loadConfig()
@@ -2168,7 +2168,7 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 			webhookURL = w
 		}
 	}
-	adminToken := flagString(flags, "admin-token", "")
+	adminToken = flagString(flags, "admin-token", "")
 	if adminToken == "" {
 		if a, ok := cfg["admin_token"].(string); ok {
 			adminToken = a
@@ -2211,16 +2211,15 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 	if webhookURL != "" {
 		daemonArgs = append(daemonArgs, "--webhook", webhookURL)
 	}
-	if adminToken != "" {
-		daemonArgs = append(daemonArgs, "--admin-token", adminToken)
-	}
+	// adminToken is passed via PILOT_ADMIN_TOKEN env var to avoid
+	// leaking the secret in /proc/<pid>/cmdline (PILOT-290).
 	if networks != "" {
 		daemonArgs = append(daemonArgs, "--networks", networks)
 	}
 	if trustAutoApprove {
 		daemonArgs = append(daemonArgs, "--trust-auto-approve")
 	}
-	return daemonArgs, socketPath
+	return daemonArgs, socketPath, adminToken
 }
 
 // launchdAgentLabels enumerates known launchd labels for the daemon.
@@ -2322,7 +2321,7 @@ func cmdDaemonStart(args []string) {
 		os.Remove(pidFilePath())
 	}
 
-	daemonArgs, socketPath := buildDaemonArgs(args)
+	daemonArgs, socketPath, adminToken := buildDaemonArgs(args)
 
 	// Clean up stale socket
 	if _, err := os.Stat(socketPath); err == nil {
@@ -2345,9 +2344,14 @@ func cmdDaemonStart(args []string) {
 	// or shell wrappers.
 	if flagBool(flags, "foreground") {
 		// syscall.Exec needs argv[0] to be the binary name. Pass the
-		// full env unchanged.
+		// full env. Inject PILOT_ADMIN_TOKEN so the daemon doesn't
+		// need the token on its argv (PILOT-290).
 		execArgs := append([]string{daemonBin}, daemonArgs...)
-		if err := syscall.Exec(daemonBin, execArgs, os.Environ()); err != nil {
+		env := os.Environ()
+		if adminToken != "" {
+			env = append(env, "PILOT_ADMIN_TOKEN="+adminToken)
+		}
+		if err := syscall.Exec(daemonBin, execArgs, env); err != nil {
 			fatalCode("internal", "exec %s: %v", daemonBin, err)
 		}
 		return
@@ -2372,6 +2376,11 @@ func cmdDaemonStart(args []string) {
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	proc.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// Pass admin token via env, not argv, to avoid leaking in
+	// /proc/<pid>/cmdline (PILOT-290).
+	if adminToken != "" {
+		proc.Env = append(os.Environ(), "PILOT_ADMIN_TOKEN="+adminToken)
+	}
 
 	if err := proc.Start(); err != nil {
 		fatalCode("internal", "start daemon: %v", err)
