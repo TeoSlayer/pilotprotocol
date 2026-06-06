@@ -127,6 +127,10 @@ if [ "${1}" = "uninstall" ]; then
     fi
 
     # Remove pilot directory (binaries, config, identity, received files)
+    if [ -h "$PILOT_DIR" ]; then
+        echo "  Refusing to uninstall: $PILOT_DIR is a symlink"
+        exit 1
+    fi
     if [ -d "$PILOT_DIR" ]; then
         rm -rf "$PILOT_DIR"
         echo "  Removed $PILOT_DIR"
