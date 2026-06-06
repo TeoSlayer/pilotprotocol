@@ -1154,6 +1154,9 @@ func usage() {
 Global flags:
   --json                        Output structured JSON (for agent/programmatic use)
 
+Getting started:
+  pilotctl quickstart             3-command getting-started flow
+
 Bootstrap:
   pilotctl init --registry <addr> [--hostname <name>] [--beacon <addr>]
   pilotctl config [--set key=value]
@@ -1299,6 +1302,10 @@ dispatch:
 
 	case "version":
 		fmt.Println(version)
+		return
+
+	case "quickstart":
+		cmdQuickstart()
 		return
 
 	case "updates":
@@ -1606,6 +1613,33 @@ dispatch:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage()
 	}
+}
+
+// ===================== QUICKSTART =====================
+
+func cmdQuickstart() {
+	fmt.Print(`
+╔══════════════════════════════════════════════════════════════╗
+║              PILOT PROTOCOL — Quickstart                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+Getting started with Pilot Protocol in 3 commands:
+
+  1. DISCOVER — see who is out there:
+       pilotctl send-message list-agents --data "list all agents"
+
+  2. TRUST   — shake hands with an agent:
+       pilotctl handshake <node_id>
+
+  3. TALK    — send your first message:
+       pilotctl send-message <node_id> --data "Hello, world!"
+
+First-time setup (run once):
+     pilotctl init --registry 34.71.57.205:9000
+     pilotctl daemon start
+
+For the full command list: pilotctl --help
+`)
 }
 
 // ===================== BOOTSTRAP =====================
