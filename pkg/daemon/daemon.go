@@ -73,6 +73,7 @@ type Config struct {
 	BeaconAddr          string
 	ListenAddr          string // UDP listen address for tunnel traffic
 	SocketPath          string // Unix socket path for IPC
+	IPCWhitelist        []string // process names (comm) trusted to bypass per-client dial quota (PILOT-346)
 	Encrypt             bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
 	RegistryTLS         bool   // use TLS for registry connection
 	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning

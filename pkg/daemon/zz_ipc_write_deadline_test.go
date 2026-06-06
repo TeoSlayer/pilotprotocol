@@ -59,7 +59,7 @@ func TestWriteLoopExitsOnWriteDeadline(t *testing.T) {
 	}
 	server := res.conn
 
-	ic := newIPCConn(server)
+	ic := newIPCConn(server, 0, false)
 	defer func() {
 		ic.Close()
 		client.Close()
@@ -114,7 +114,7 @@ func TestHealthHandlerInlineDispatch(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	ic := newIPCConn(server)
+	ic := newIPCConn(server, 0, false)
 	defer ic.Close()
 
 	// Minimal daemon — handleHealth only needs Info().

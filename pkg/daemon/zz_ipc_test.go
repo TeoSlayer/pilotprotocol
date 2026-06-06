@@ -22,7 +22,7 @@ import (
 func newIPCTestConn(t *testing.T) (*ipcConn, net.Conn) {
 	t.Helper()
 	server, client := net.Pipe()
-	ic := newIPCConn(server)
+	ic := newIPCConn(server, 0, false)
 	t.Cleanup(func() {
 		_ = ic.Close() // signals writer goroutine to drain + exit
 		_ = client.Close()

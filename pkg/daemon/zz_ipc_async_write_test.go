@@ -31,7 +31,7 @@ func pairedConn(t *testing.T) (server, client net.Conn) {
 func TestIPCConnAsyncWriteSerializesConcurrent(t *testing.T) {
 	t.Parallel()
 	server, client := pairedConn(t)
-	conn := newIPCConn(server)
+	conn := newIPCConn(server, 0, false)
 	defer conn.Close()
 
 	const writers = 16
@@ -106,7 +106,7 @@ func TestIPCConnAsyncWriteSerializesConcurrent(t *testing.T) {
 func TestIPCConnAsyncWriteRejectsAfterClose(t *testing.T) {
 	t.Parallel()
 	server, _ := pairedConn(t)
-	conn := newIPCConn(server)
+	conn := newIPCConn(server, 0, false)
 	conn.Close()
 
 	err := conn.ipcWrite([]byte("late"))
@@ -130,7 +130,7 @@ func TestIPCConnAsyncWriteRejectsAfterClose(t *testing.T) {
 func TestIPCConnAsyncWriteBlocksUntilClose(t *testing.T) {
 	t.Parallel()
 	server, client := pairedConn(t)
-	conn := newIPCConn(server)
+	conn := newIPCConn(server, 0, false)
 	defer client.Close() // intentionally do NOT read — block forever
 
 	// Fill the buffer + writer's in-flight slot. ipcSendBuffer + 1
@@ -191,7 +191,7 @@ func TestIPCConnAsyncWriteBlocksUntilClose(t *testing.T) {
 func TestIPCConnCloseDrainsBufferedMessages(t *testing.T) {
 	t.Parallel()
 	server, client := pairedConn(t)
-	conn := newIPCConn(server)
+	conn := newIPCConn(server, 0, false)
 
 	const N = 20
 	for i := 0; i < N; i++ {
