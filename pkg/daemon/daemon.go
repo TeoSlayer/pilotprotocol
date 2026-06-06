@@ -242,6 +242,14 @@ type Daemon struct {
 	publicEndpoint string       // host:port reported to the registry at registration
 	identityMu     sync.RWMutex // protects identity after hot rotate-key
 	identity       *crypto.Identity
+	// rotateKeyMu serializes RotateKey calls. Without it, two concurrent
+	// rotations capture the same `current = d.identity` snapshot under
+	// identityMu.RLock(), then race: one finishes first, swaps, and zeros
+	// the OLD PrivateKey buffer while the other is still inside
+	// current.Sign(challenge) reading from the same bytes. Serializing
+	// rotation eliminates the shared-buffer hazard without changing the
+	// existing RLock/RUnlock pattern for non-rotating Sign callers.
+	rotateKeyMu sync.Mutex
 	regConn        *registry.Client
 	tunnels        *TunnelManager
 	ports          *PortManager
@@ -2061,6 +2069,12 @@ func (d *Daemon) Sign(msg []byte) []byte {
 // in-memory identity on success, and persists it to disk. Returns the
 // registry response on success.
 func (d *Daemon) RotateKey() (map[string]interface{}, error) {
+	// Serialize rotations: see comment on rotateKeyMu. Two concurrent
+	// RotateKey calls would otherwise race on the OLD PrivateKey buffer
+	// (one zeros it while the other is still signing with it).
+	d.rotateKeyMu.Lock()
+	defer d.rotateKeyMu.Unlock()
+
 	d.identityMu.RLock()
 	current := d.identity
 	d.identityMu.RUnlock()
@@ -2092,6 +2106,13 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	d.identityMu.Lock()
 	d.identity = newID
 	d.identityMu.Unlock()
+
+	// Zero the old private key so it doesn't linger on the heap
+	// until GC — a long-lived daemon can keep it alive for hours.
+	// ed25519.PrivateKey is a []byte (seed || public).
+	for i := range current.PrivateKey {
+		current.PrivateKey[i] = 0
+	}
 
 	d.tunnels.SetIdentity(newID)
 	// The signer installed in Start() reads d.identity under d.identityMu
