@@ -1727,18 +1727,41 @@ func (s *IPCServer) handleManaged(conn *ipcConn, reqID uint64, payload []byte) {
 			netID = binary.BigEndian.Uint16(rest[0:2])
 		}
 
-		var result map[string]interface{}
-		if pr := s.findPolicyRunner(netID); pr != nil {
-			result = pr.ForceCycle()
-		} else if me := s.findManagedEngine(netID); me != nil {
-			result = me.ForceCycle()
-		} else {
+		// PILOT-309: ForceCycle is synchronous and calls fetchMembers →
+		// ListNodes which is a network call with no timeout. A hung/slow
+		// registry would wedge the IPC handler goroutine indefinitely.
+		// Run the cycle in a background goroutine with a 5s deadline.
+		pr := s.findPolicyRunner(netID)
+		me := s.findManagedEngine(netID)
+		if pr == nil && me == nil {
 			s.sendError(conn, reqID, "managed: no active managed networks")
 			return
 		}
 
-		data, _ := json.Marshal(result)
-		s.ipcWriteManagedOK(conn, reqID, data)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		type cycleResult struct {
+			data map[string]interface{}
+		}
+		ch := make(chan cycleResult, 1)
+		go func() {
+			var r map[string]interface{}
+			if pr != nil {
+				r = pr.ForceCycle()
+			} else {
+				r = me.ForceCycle()
+			}
+			ch <- cycleResult{data: r}
+		}()
+
+		select {
+		case cr := <-ch:
+			data, _ := json.Marshal(cr.data)
+			s.ipcWriteManagedOK(conn, reqID, data)
+		case <-ctx.Done():
+			s.sendError(conn, reqID, "managed: force cycle timed out after 5s")
+		}
 
 	case SubManagedReconcile:
 		// [2-byte netID]. Poll the registry for the network's member list
