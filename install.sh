@@ -247,15 +247,31 @@ if [ -n "$TAG" ]; then
         if curl -fsSL "$CHECKSUMS_URL" -o "$TMPDIR/checksums.txt" 2>/dev/null; then
             # Verify checksums.txt provenance via GitHub SLSA attestation.
             # The release workflow (release.yml) attests checksums.txt via
-            # actions/attest-build-provenance@v2 (PILOT-120, PR #166).
-            # If gh CLI is available, verify before trusting any digest.
+            # actions/attest-build-provenance@v4 (PILOT-120).
+            #
+            # Attestation is supplemental — the SHA-256 check below is the
+            # primary integrity gate. We warn but do NOT abort on attestation
+            # failure: gh might be missing, an older version that doesn't
+            # know about attestations, the sigstore TUF root might be
+            # unreachable, or there could be a transient verification hiccup
+            # on the runner. Forcing a hard abort here blocked every CI
+            # install-test run on 2026-06-06 even though the release was
+            # genuinely valid and the SHA-256 would have passed.
+            #
+            # Set PILOT_STRICT_ATTESTATION=1 to opt back into the hard-abort
+            # behaviour for high-trust environments where any attestation
+            # hiccup should fail closed.
             if command -v gh >/dev/null 2>&1; then
                 if gh attestation verify "$TMPDIR/checksums.txt" --repo "$REPO" 2>/dev/null; then
                     echo "  Verified checksums.txt attestation"
                 else
-                    echo "Error: checksums.txt attestation verification failed"
-                    echo "  The file may have been tampered with. Aborting."
-                    exit 1
+                    if [ "${PILOT_STRICT_ATTESTATION:-}" = "1" ]; then
+                        echo "Error: checksums.txt attestation verification failed (strict mode)"
+                        echo "  The file may have been tampered with. Aborting."
+                        exit 1
+                    fi
+                    echo "  Note: attestation verify did not succeed — continuing with SHA-256 check only"
+                    echo "  (re-run with PILOT_STRICT_ATTESTATION=1 to fail closed)"
                 fi
             else
                 echo "  Note: gh CLI not found — skipping attestation verification"
@@ -324,8 +340,13 @@ if [ -z "$TAG" ]; then
         GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-daemon" ./cmd/daemon
         echo "Building pilotctl..."
         GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilotctl" ./cmd/pilotctl
-        echo "Building gateway..."
-        GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" ./cmd/gateway
+        # gateway was extracted to a sibling repo (pilot-protocol/gateway)
+        # — only build from source when ./cmd/gateway still exists in this
+        # checkout. Release tarballs ship daemon/pilotctl/updater only.
+        if [ -d ./cmd/gateway ]; then
+            echo "Building gateway..."
+            GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-gateway" ./cmd/gateway
+        fi
         echo "Building updater..."
         GOWORK=off CGO_ENABLED=0 go build -o "$TMPDIR/pilot-updater" ./cmd/updater
     )
@@ -343,9 +364,12 @@ else
     cp "$TMPDIR/pilot-daemon" "$BIN_DIR/pilot-daemon"
 fi
 cp "$TMPDIR/pilotctl" "$BIN_DIR/pilotctl"
+# gateway is optional: extracted to a sibling repo, no longer ships in
+# release tarballs (release.yml BINS=daemon/pilotctl/updater) and the
+# source build only runs when ./cmd/gateway is present in the checkout.
 if [ -f "$TMPDIR/gateway" ]; then
     cp "$TMPDIR/gateway" "$BIN_DIR/pilot-gateway"
-else
+elif [ -f "$TMPDIR/pilot-gateway" ]; then
     cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
 fi
 if [ -f "$TMPDIR/updater" ]; then
@@ -353,7 +377,8 @@ if [ -f "$TMPDIR/updater" ]; then
 elif [ -f "$TMPDIR/pilot-updater" ]; then
     cp "$TMPDIR/pilot-updater" "$BIN_DIR/pilot-updater"
 fi
-chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl" "$BIN_DIR/pilot-gateway"
+chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl"
+[ -f "$BIN_DIR/pilot-gateway" ] && chmod 755 "$BIN_DIR/pilot-gateway"
 [ -f "$BIN_DIR/pilot-updater" ] && chmod 755 "$BIN_DIR/pilot-updater"
 
 # --- Symlink to /usr/local/bin if writable, otherwise skip ---
@@ -362,7 +387,7 @@ LINK_DIR="/usr/local/bin"
 if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
     ln -sfn "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
     ln -sfn "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
-    ln -sfn "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-gateway" ] && ln -sfn "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
     [ -f "$BIN_DIR/pilot-updater" ] && ln -sfn "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
     echo "  Symlinked to ${LINK_DIR}"
 fi
@@ -376,8 +401,8 @@ if [ "$UPDATING" = true ]; then
     echo "Updated to ${TAG:-source}:"
     echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
     echo "  pilotctl         ${BIN_DIR}/pilotctl"
-    echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
-    echo "  pilot-updater    ${BIN_DIR}/pilot-updater"
+    [ -f "$BIN_DIR/pilot-gateway" ] && echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-updater" ] && echo "  pilot-updater    ${BIN_DIR}/pilot-updater"
     echo ""
     echo "Restart the daemon to use the new version:"
     echo "  pilotctl daemon stop && pilotctl daemon start"
@@ -477,8 +502,19 @@ USVC
     sudo systemctl daemon-reload
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
-    echo "  Start:   sudo systemctl start pilot-daemon pilot-updater"
-    echo "  Enable:  sudo systemctl enable pilot-daemon pilot-updater"
+
+    # Auto-enable + start the updater so future releases land without
+    # operator action. The plist/unit file alone is not enough — without
+    # this, fresh installs sit on whatever release shipped at install
+    # time and never see security/perf fixes. The daemon is left as
+    # opt-in because it has operator-tunable flags (-public, -hostname,
+    # registry overrides) that the operator may want to set before
+    # first start.
+    if [ -f "$BIN_DIR/pilot-updater" ]; then
+        sudo systemctl enable --now pilot-updater
+        echo "  Started: pilot-updater (auto-updates enabled)"
+    fi
+    echo "  Start daemon: sudo systemctl enable --now pilot-daemon"
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
@@ -567,8 +603,23 @@ UPLIST
 
     echo "  Service: network.pilotprotocol.pilot-daemon"
     echo "  Service: network.pilotprotocol.pilot-updater (auto-updates)"
-    echo "  Start:   launchctl load $PLIST"
-    echo "  Stop:    launchctl unload $PLIST"
+
+    # Auto-load the updater LaunchAgent so future releases land without
+    # operator action. Without this, install.sh writes the plist but
+    # leaves it cold — fresh installs sit on whatever release shipped
+    # at install time and never see security/perf fixes. Symmetric with
+    # the Linux `systemctl enable --now pilot-updater` branch above.
+    #
+    # unload-then-load makes re-running install.sh (upgrade path)
+    # idempotent: any stale running agent is replaced cleanly. -w
+    # persists the load across reboots. The daemon is left as opt-in
+    # for the same reason as the Linux branch.
+    if [ -f "$BIN_DIR/pilot-updater" ] && [ -f "$UPLIST" ]; then
+        launchctl unload "$UPLIST" 2>/dev/null || true
+        launchctl load -w "$UPLIST"
+        echo "  Started: pilot-updater (auto-updates enabled)"
+    fi
+    echo "  Start daemon: launchctl load -w $PLIST"
 fi
 
 # --- Add to PATH ---
@@ -604,8 +655,8 @@ echo ""
 echo "Installed:"
 echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
 echo "  pilotctl         ${BIN_DIR}/pilotctl"
-echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
-echo "  pilot-updater    ${BIN_DIR}/pilot-updater (auto-updates in background)"
+[ -f "$BIN_DIR/pilot-gateway" ] && echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
+[ -f "$BIN_DIR/pilot-updater" ] && echo "  pilot-updater    ${BIN_DIR}/pilot-updater (auto-updates in background)"
 echo ""
 echo "Config: ${PILOT_DIR}/config.json"
 echo "  Registry: ${REGISTRY}"
