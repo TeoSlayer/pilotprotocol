@@ -174,7 +174,7 @@ jobs:
       # to prove the artifact was built by THIS workflow on this repo,
       # not substituted somewhere downstream.
       - name: Attest build provenance (SLSA)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             release/*.tar.gz
