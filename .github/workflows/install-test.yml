@@ -1,0 +1,93 @@
+name: Install Test
+
+# Exercises install.sh on Linux + macOS runners and asserts the
+# auto-updater is actually enabled and running after install — the gate
+# that catches regressions in the install-time updater wiring.
+#
+# Why this matters: install.sh historically wrote the systemd unit /
+# LaunchAgent plist but did NOT activate it. Operators read past the
+# echoed "Start: systemctl enable --now pilot-updater" instructions and
+# their installs stayed pinned on the release shipping at install time,
+# never picking up security or perf fixes. This workflow fails fast if
+# install.sh ever drops the auto-enable step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - .github/workflows/install-test.yml
+  pull_request:
+    paths:
+      - install.sh
+      - .github/workflows/install-test.yml
+
+# install.sh writes to ~/.pilot, ~/Library/LaunchAgents, and
+# /etc/systemd/system. Each runner is ephemeral, so no teardown is
+# required between runs.
+permissions:
+  contents: read
+
+jobs:
+  install-linux:
+    name: install.sh + updater enabled (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install.sh (non-interactive)
+        env:
+          PILOT_EMAIL: ci@example.com
+        run: bash install.sh
+
+      - name: Assert pilot-updater service is enabled
+        run: |
+          if ! systemctl is-enabled pilot-updater; then
+            echo "::error::pilot-updater is not enabled after install.sh"
+            echo "--- systemctl status pilot-updater ---"
+            sudo systemctl status pilot-updater || true
+            exit 1
+          fi
+
+      - name: Assert pilot-updater service is active
+        run: |
+          # The updater starts, polls GitHub once, sleeps. It will be
+          # 'active (running)' once it loops, or 'activating' very
+          # briefly at first start. Accept either as evidence it was
+          # successfully launched by systemd.
+          state=$(systemctl is-active pilot-updater || true)
+          case "$state" in
+            active|activating)
+              echo "pilot-updater is $state — pass"
+              ;;
+            *)
+              echo "::error::pilot-updater is $state (expected active/activating)"
+              echo "--- journalctl -u pilot-updater ---"
+              sudo journalctl -u pilot-updater --no-pager -n 50 || true
+              exit 1
+              ;;
+          esac
+
+  install-macos:
+    name: install.sh + updater loaded (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install.sh (non-interactive)
+        env:
+          PILOT_EMAIL: ci@example.com
+        run: bash install.sh
+
+      - name: Assert pilot-updater LaunchAgent is loaded
+        run: |
+          uid=$(id -u)
+          if ! launchctl print "gui/${uid}/network.pilotprotocol.pilot-updater" >/dev/null 2>&1; then
+            echo "::error::network.pilotprotocol.pilot-updater is not loaded after install.sh"
+            echo "--- launchctl list | grep pilot ---"
+            launchctl list | grep -i pilot || true
+            echo "--- ~/.pilot/updater.log ---"
+            tail -50 ~/.pilot/updater.log 2>/dev/null || echo "(no log)"
+            exit 1
+          fi
+          echo "pilot-updater LaunchAgent is loaded — pass"
