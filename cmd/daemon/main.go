@@ -137,6 +137,7 @@ func main() {
 		if !explicit["registry-trust"] {
 			v := "system"
 			registryTrust = &v
+			slog.Warn("compat-mode registry-trust defaulted to 'system' (Let's Encrypt validation). Override with -registry-trust=pinned if using pinned certificates (supply -registry-fingerprint).")
 		}
 	}
 
