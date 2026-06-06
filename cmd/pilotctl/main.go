@@ -1154,6 +1154,9 @@ func usage() {
 Global flags:
   --json                        Output structured JSON (for agent/programmatic use)
 
+Getting started:
+  pilotctl quickstart             3-command getting-started flow
+
 Bootstrap:
   pilotctl init --registry <addr> [--hostname <name>] [--beacon <addr>]
   pilotctl config [--set key=value]
@@ -1299,6 +1302,10 @@ dispatch:
 
 	case "version":
 		fmt.Println(version)
+		return
+
+	case "quickstart":
+		cmdQuickstart()
 		return
 
 	case "updates":
@@ -1606,6 +1613,33 @@ dispatch:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
 		usage()
 	}
+}
+
+// ===================== QUICKSTART =====================
+
+func cmdQuickstart() {
+	fmt.Print(`
+╔══════════════════════════════════════════════════════════════╗
+║              PILOT PROTOCOL — Quickstart                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+Getting started with Pilot Protocol in 3 commands:
+
+  1. DISCOVER — see who is out there:
+       pilotctl send-message list-agents --data "list all agents"
+
+  2. TRUST   — shake hands with an agent:
+       pilotctl handshake <node_id>
+
+  3. TALK    — send your first message:
+       pilotctl send-message <node_id> --data "Hello, world!"
+
+First-time setup (run once):
+     pilotctl init --registry 34.71.57.205:9000
+     pilotctl daemon start
+
+For the full command list: pilotctl --help
+`)
 }
 
 // ===================== BOOTSTRAP =====================
@@ -2076,7 +2110,7 @@ func gatewayBinaryPath() string {
 // unset. This keeps existing pilotctl invocations working unchanged —
 // the only difference is that the daemon runs in a separate
 // `pilot-daemon` process rather than re-execing pilotctl.
-func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
+func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adminToken string) {
 	flags, _ := parseFlags(args)
 
 	cfg := loadConfig()
@@ -2134,7 +2168,7 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 			webhookURL = w
 		}
 	}
-	adminToken := flagString(flags, "admin-token", "")
+	adminToken = flagString(flags, "admin-token", "")
 	if adminToken == "" {
 		if a, ok := cfg["admin_token"].(string); ok {
 			adminToken = a
@@ -2177,16 +2211,15 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string) {
 	if webhookURL != "" {
 		daemonArgs = append(daemonArgs, "--webhook", webhookURL)
 	}
-	if adminToken != "" {
-		daemonArgs = append(daemonArgs, "--admin-token", adminToken)
-	}
+	// adminToken is passed via PILOT_ADMIN_TOKEN env var to avoid
+	// leaking the secret in /proc/<pid>/cmdline (PILOT-290).
 	if networks != "" {
 		daemonArgs = append(daemonArgs, "--networks", networks)
 	}
 	if trustAutoApprove {
 		daemonArgs = append(daemonArgs, "--trust-auto-approve")
 	}
-	return daemonArgs, socketPath
+	return daemonArgs, socketPath, adminToken
 }
 
 // launchdAgentLabels enumerates known launchd labels for the daemon.
@@ -2300,7 +2333,7 @@ func cmdDaemonStart(args []string) {
 		f.Close()
 	}
 
-	daemonArgs, socketPath := buildDaemonArgs(args)
+	daemonArgs, socketPath, adminToken := buildDaemonArgs(args)
 
 	// Clean up stale socket
 	if _, err := os.Stat(socketPath); err == nil {
@@ -2323,9 +2356,14 @@ func cmdDaemonStart(args []string) {
 	// or shell wrappers.
 	if flagBool(flags, "foreground") {
 		// syscall.Exec needs argv[0] to be the binary name. Pass the
-		// full env unchanged.
+		// full env. Inject PILOT_ADMIN_TOKEN so the daemon doesn't
+		// need the token on its argv (PILOT-290).
 		execArgs := append([]string{daemonBin}, daemonArgs...)
-		if err := syscall.Exec(daemonBin, execArgs, os.Environ()); err != nil {
+		env := os.Environ()
+		if adminToken != "" {
+			env = append(env, "PILOT_ADMIN_TOKEN="+adminToken)
+		}
+		if err := syscall.Exec(daemonBin, execArgs, env); err != nil {
 			fatalCode("internal", "exec %s: %v", daemonBin, err)
 		}
 		return
@@ -2350,6 +2388,11 @@ func cmdDaemonStart(args []string) {
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	proc.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// Pass admin token via env, not argv, to avoid leaking in
+	// /proc/<pid>/cmdline (PILOT-290).
+	if adminToken != "" {
+		proc.Env = append(os.Environ(), "PILOT_ADMIN_TOKEN="+adminToken)
+	}
 
 	if err := proc.Start(); err != nil {
 		fatalCode("internal", "start daemon: %v", err)
@@ -2364,9 +2407,14 @@ func cmdDaemonStart(args []string) {
 	logFile.Close()
 	os.Rename(tmpLogPath, pidLogPath)
 	// Update pilot.log symlink to point at the current PID's log.
+	// Atomically replace via temp file to avoid TOCTOU race (the
+	// gap between Remove and Symlink is exploitable by a local
+	// attacker with write access to the config directory).
 	symPath := logFilePath()
-	os.Remove(symPath)
-	os.Symlink(pidLogPath, symPath)
+	tmpSymPath := symPath + ".tmp"
+	os.Remove(tmpSymPath) // clean stale temp from prior crash
+	os.Symlink(pidLogPath, tmpSymPath)
+	os.Rename(tmpSymPath, symPath)
 
 	if !jsonOutput {
 		fmt.Fprintf(os.Stderr, "starting daemon (pid %d, socket %s)...", pid, socketPath)
