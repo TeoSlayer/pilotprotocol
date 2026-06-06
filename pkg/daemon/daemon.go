@@ -1443,6 +1443,31 @@ func (d *Daemon) doStop() {
 	// so the daemon.shutting_down event published above flows through
 	// the bus to the still-subscribed plugin, which drains its
 	// internal queue on Stop().
+
+	// Defense-in-depth: flush identity to disk on shutdown.
+	// Today all identity mutations persist eagerly (GenerateIdentity
+	// in startNetworked and RotateKey save synchronously), but a
+	// future code path that mutates d.identity in-memory without a
+	// write would lose the change on next start. Writing here ensures
+	// identity on disk always reflects the shutdown state.
+	//
+	// d.identity can be nil here — many short-lived test daemons
+	// (and any daemon that stops before startNetworked has loaded /
+	// generated an identity) reach doStop without ever populating it.
+	// SaveIdentity dereferences the second arg unconditionally, so
+	// passing nil panics with SIGSEGV (see TestL7RetxLoopPanicSurvival).
+	// Read under identityMu so a concurrent RotateKey on the shutdown
+	// path can't tear the pointer load either.
+	if d.config.IdentityPath != "" {
+		d.identityMu.RLock()
+		id := d.identity
+		d.identityMu.RUnlock()
+		if id != nil {
+			if err := crypto.SaveIdentity(d.config.IdentityPath, id); err != nil {
+				slog.Warn("identity flush on shutdown failed", "error", err)
+			}
+		}
+	}
 }
 
 // startManaged detects managed networks this node belongs to and starts engines.
