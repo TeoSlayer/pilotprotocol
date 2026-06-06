@@ -380,6 +380,19 @@ func flagBool(flags map[string]string, key string) bool {
 	return ok && (v == "true" || v == "1" || v == "")
 }
 
+// flagNetID returns --net as a uint16 network ID, refusing to silently
+// truncate values that don't fit. Without the bounds check, `--net 70000`
+// becomes uint16(70000 & 0xFFFF)=4464 and the command operates on the
+// wrong network — caught by CodeQL "Incorrect conversion between integer
+// types" (alerts #21, #23, #24, #25, #32).
+func flagNetID(flags map[string]string) uint16 {
+	n := flagInt(flags, "net", 0)
+	if n < 0 || n > 0xFFFF {
+		fatalCode("invalid_argument", "--net must be in 0..65535, got %d", n)
+	}
+	return uint16(n)
+}
+
 // fmtDuration formats a duration as a compact human-readable string
 // ("3s", "2m5s", "1h4m", "2d3h") for --trace output.
 func fmtDuration(d time.Duration) string {
@@ -6328,7 +6341,7 @@ func cmdDirectoryStatus(args []string) {
 
 func cmdManagedStatus(args []string) {
 	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
+	netID := flagNetID(flags)
 
 	d := connectDriver()
 	defer d.Close()
@@ -6342,7 +6355,7 @@ func cmdManagedStatus(args []string) {
 
 func cmdManagedCycle(args []string) {
 	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
+	netID := flagNetID(flags)
 	force := flagBool(flags, "force")
 
 	if !force {
@@ -6366,7 +6379,7 @@ func cmdManagedCycle(args []string) {
 
 func cmdManagedReconcile(args []string) {
 	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
+	netID := flagNetID(flags)
 	if netID == 0 {
 		fatalCode("invalid_argument", "usage: pilotctl managed reconcile --net <id>")
 	}
@@ -6389,7 +6402,7 @@ func cmdManagedReconcile(args []string) {
 
 func cmdPolicyGet(args []string) {
 	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
+	netID := flagNetID(flags)
 	if netID == 0 {
 		fatalCode("invalid_argument", "usage: pilotctl policy get --net <id>")
 	}
@@ -6406,7 +6419,7 @@ func cmdPolicyGet(args []string) {
 
 func cmdPolicySet(args []string) {
 	flags, _ := parseFlags(args)
-	netID := uint16(flagInt(flags, "net", 0))
+	netID := flagNetID(flags)
 	file := flagString(flags, "file", "")
 	inline := flagString(flags, "inline", "")
 
