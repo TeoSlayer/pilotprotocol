@@ -4,7 +4,9 @@ package tests
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -50,7 +52,17 @@ func resolveLocalAddr(addr net.Addr) string {
 }
 
 // TestAdminToken is the admin token used in tests for network creation.
-const TestAdminToken = "test-admin-secret"
+// Generated randomly at init time so that a test environment accidentally
+// deployed against staging/production won't share a predictable secret.
+var TestAdminToken string
+
+func init() {
+	b := make([]byte, 32)
+	if _, err := crand.Read(b); err != nil {
+		panic("failed to generate random admin token: " + err.Error())
+	}
+	TestAdminToken = "sk-test-" + hex.EncodeToString(b)
+}
 
 // TestEnv manages a complete Pilot Protocol test environment with
 // OS-assigned ports and proper readiness signaling (no time.Sleep).
