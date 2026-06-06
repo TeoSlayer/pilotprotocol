@@ -1427,9 +1427,22 @@ func (d *Daemon) doStop() {
 	// future code path that mutates d.identity in-memory without a
 	// write would lose the change on next start. Writing here ensures
 	// identity on disk always reflects the shutdown state.
+	//
+	// d.identity can be nil here — many short-lived test daemons
+	// (and any daemon that stops before startNetworked has loaded /
+	// generated an identity) reach doStop without ever populating it.
+	// SaveIdentity dereferences the second arg unconditionally, so
+	// passing nil panics with SIGSEGV (see TestL7RetxLoopPanicSurvival).
+	// Read under identityMu so a concurrent RotateKey on the shutdown
+	// path can't tear the pointer load either.
 	if d.config.IdentityPath != "" {
-		if err := crypto.SaveIdentity(d.config.IdentityPath, d.identity); err != nil {
-			slog.Warn("identity flush on shutdown failed", "error", err)
+		d.identityMu.RLock()
+		id := d.identity
+		d.identityMu.RUnlock()
+		if id != nil {
+			if err := crypto.SaveIdentity(d.config.IdentityPath, id); err != nil {
+				slog.Warn("identity flush on shutdown failed", "error", err)
+			}
 		}
 	}
 }
