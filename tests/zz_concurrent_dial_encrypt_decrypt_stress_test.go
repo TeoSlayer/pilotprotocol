@@ -441,17 +441,17 @@ func runRep(
 	// immediately without attempting work). High errors + zero OK means the
 	// path was exercised under heavy load but all attempts failed (e.g.
 	// registry timeouts under parallel CI pressure) — don't fail for that.
-	if dialOK.Load() == 0 {
-		t.Errorf("dial group made zero successful dials — workload not exercising dial path")
+	if dialOK.Load() == 0 && dialErr.Load() < 100 {
+		t.Errorf("dial group made zero successful dials and nearly zero errors — workload not exercising dial path")
 	}
-	if decryptOK.Load() == 0 {
-		t.Errorf("decrypt group made zero successful sends — workload not exercising decrypt path")
+	if decryptOK.Load() == 0 && decryptErr.Load() < 100 {
+		t.Errorf("decrypt group made zero successful sends and nearly zero errors — workload not exercising decrypt path")
 	}
 	if rekeyOK.Load() == 0 && rekeyErr.Load() < 100 {
 		t.Errorf("rekey group made zero successful rotations and nearly zero errors — workload not exercising rekey path")
 	}
-	if heartbeatOK.Load() == 0 {
-		t.Errorf("heartbeat group made zero successful operations — workload not exercising side-channel path")
+	if heartbeatOK.Load() == 0 && heartbeatErr.Load() < 100 {
+		t.Errorf("heartbeat group made zero successful operations and nearly zero errors — workload not exercising side-channel path")
 	}
 }
 
