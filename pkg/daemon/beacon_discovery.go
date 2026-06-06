@@ -49,6 +49,7 @@ const (
 	beaconRefreshInterval = routing.BeaconRefreshInterval
 	beaconRefreshJitter   = routing.BeaconRefreshJitter
 	beaconCacheFilename   = routing.BeaconCacheFilename
+	beaconCacheMaxAge     = routing.BeaconCacheMaxAge
 )
 
 type beaconLister = routing.BeaconLister
@@ -166,6 +167,23 @@ func (d *Daemon) beaconRefreshTick(firstTick bool) {
 		if firstTick {
 			cached, cacheErr := loadBeaconCache(d.config.IdentityPath)
 			if cacheErr == nil && len(cached) > 0 {
+				// Reject the cache if it is older than BeaconCacheMaxAge.
+				// A stale cache keeps the daemon trying offline beacons
+				// indefinitely; fall through to the bootstrap list instead.
+				savedAt, savedAtErr := routing.BeaconCacheSavedAt(d.config.IdentityPath)
+				if savedAtErr == nil {
+					age := time.Since(savedAt)
+					if age > beaconCacheMaxAge {
+						slog.Warn("beacon discovery: rejecting stale on-disk cache",
+							"err", err,
+							"cache_age", age.Truncate(time.Second),
+							"max_age", beaconCacheMaxAge,
+						)
+						slog.Debug("beacon discovery skipped (registry error, stale cache)",
+							"err", err)
+						return
+					}
+				}
 				slog.Info("beacon discovery: using on-disk cache (registry unreachable)",
 					"err", err, "cached_count", len(cached))
 				discovered = cached
