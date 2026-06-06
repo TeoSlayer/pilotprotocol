@@ -270,6 +270,28 @@ type Daemon struct {
 	// dial regardless of caller count.
 	handshakeInFlight sync.Map
 
+	// autoHandshakeLastAttempt records the last time DialConnection's
+	// inline trusted-agents auto-handshake (daemon.go ~3139) fired for
+	// a peer (nodeID → time.Time). Used by shouldAutoHandshake to
+	// throttle the dial-driven fanout: handshakeInFlight only collapses
+	// CONCURRENT callers, not SEQUENTIAL ones — when SendRequest
+	// returns fast (e.g. sendMessage hits ErrEphemeralExhausted in
+	// microseconds, or the registry-relay fallback completes), the
+	// in-flight slot is released immediately and the next DialConnection
+	// caller re-fires the goroutine, re-enters SendRequest, and emits
+	// another "direct handshake failed" log line. Without a cooldown,
+	// this produced a 4k-log-line-per-second storm against
+	// blockchain-ticker (node 19418) on 2026-06-06 — daemon log grew
+	// to 1 GB in under four hours while every outbound dial to that
+	// peer (and any concurrent tenant of the port pool) failed with
+	// "ephemeral ports exhausted".
+	//
+	// Distinct from handshakeInFlight (concurrent-burst dedup): this is
+	// a separate time-keyed gate that runs only on the DialConnection
+	// auto-spawn path, so explicit user-initiated `pilotctl handshake`
+	// IPC calls are NOT throttled.
+	autoHandshakeLastAttempt sync.Map
+
 	// network.* bus subscriber for daemon-internal reactions (managed
 	// engines + member-tag cache). Wired by subscribeNetworkInternalToBus
 	// during Start; torn down before tunnels in doStop. (T4.3.)
@@ -1869,6 +1891,48 @@ func (d *Daemon) HandshakeRevokeTrust(nodeID uint32) error {
 // pilotctl users get a clean signal rather than a generic error.
 var ErrHandshakeInFlight = errors.New("handshake already in flight to this peer")
 
+// autoHandshakeCooldown is the per-peer minimum gap between
+// DialConnection-driven auto-handshake spawns. Sized to match the dial
+// budget (~25-78s of direct-retry + relay) so a peer that's unreachable
+// can't drive log/dial fanout faster than the dial itself takes. The
+// next caller still gets an auto-handshake — just not 4000 of them per
+// second from the same hot dial path.
+const autoHandshakeCooldown = 30 * time.Second
+
+// shouldAutoHandshake reports whether DialConnection's inline
+// trusted-agents auto-handshake should fire for peer. Returns true the
+// first time it sees the peer and after autoHandshakeCooldown has
+// elapsed since the last spawn. Records the spawn time atomically so
+// concurrent racers see one winner; subsequent callers within the
+// cooldown window observe a recent timestamp and return false without
+// spawning a goroutine.
+//
+// Gates only the dial-driven auto-spawn path: explicit
+// `pilotctl handshake <peer>` IPC calls hit HandshakeSendRequest
+// directly and are unaffected (so a user explicitly retrying is never
+// silently dropped).
+func (d *Daemon) shouldAutoHandshake(peer uint32) bool {
+	now := time.Now()
+	prev, loaded := d.autoHandshakeLastAttempt.LoadOrStore(peer, now)
+	if !loaded {
+		return true
+	}
+	prevTime, ok := prev.(time.Time)
+	if !ok {
+		// Defensive — value type mismatch should be impossible, but if
+		// it happens, overwrite and proceed rather than wedge.
+		d.autoHandshakeLastAttempt.Store(peer, now)
+		return true
+	}
+	if now.Sub(prevTime) < autoHandshakeCooldown {
+		return false
+	}
+	// Cooldown expired — race to claim the slot. CompareAndSwap means at
+	// most one of N concurrent racers wins; the rest skip this round and
+	// will try again on the next dial after cooldown.
+	return d.autoHandshakeLastAttempt.CompareAndSwap(peer, prev, now)
+}
+
 // HandshakeSendRequest issues an outbound trust handshake to peerNodeID
 // via the registered handshake plugin, deduped per-peer.
 //
@@ -3194,10 +3258,26 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 			// peer, all from the recursive go-fired chain. The wrapper's
 			// LoadOrStore caps it at one in-flight call per peer.
 			//
+			// The in-flight dedup catches CONCURRENT racers. It does NOT
+			// catch the SEQUENTIAL retry storm that emerges when the
+			// underlying SendRequest returns fast (e.g. sendMessage hits
+			// ErrEphemeralExhausted): the slot is released within
+			// microseconds and the next DialConnection re-fires the
+			// goroutine immediately, producing 4k+ "direct handshake
+			// failed" log lines per second (1 GB of daemon log in <4 h
+			// observed against blockchain-ticker, node 19418, on
+			// 2026-06-06). shouldAutoHandshake adds a per-peer time
+			// cooldown so the auto-spawn fires at most once per
+			// autoHandshakeCooldown, regardless of caller volume.
+			// Explicit `pilotctl handshake` IPC calls still bypass this
+			// gate.
+			//
 			// Returns are intentionally discarded — the goroutine is best
 			// effort, just like before. ErrHandshakeInFlight short-circuit
 			// is the dedup hit, which is the success case.
-			go func() { _ = d.HandshakeSendRequest(dstAddr.Node, "") }()
+			if d.shouldAutoHandshake(dstAddr.Node) {
+				go func() { _ = d.HandshakeSendRequest(dstAddr.Node, "") }()
+			}
 		}
 	}
 
