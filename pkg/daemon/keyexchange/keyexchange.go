@@ -45,6 +45,7 @@ import (
 	"crypto/ed25519"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pilot-protocol/common/crypto"
@@ -243,6 +244,13 @@ type Manager struct {
 	// KeyExchangeReplyMinInterval to break the symmetric ping-pong
 	// described on that constant.
 	lastKeyExchangeReply map[uint32]time.Time
+
+	// PILOT-344: per-peer whitelist for the reply-interval gate.
+	// Whitelisted peers always pass MarkReplyKeyExchangeSent so trusted
+	// nodes never get gated by the 1s asymmetric-recovery throttle.
+	// Read on the hot path under atomic.Pointer; populated at startup
+	// via SetReplyWhitelist.
+	replyWhitelist atomic.Pointer[map[uint32]struct{}]
 
 	// Side-effect hooks plumbed in from the daemon.
 	sender      FrameSender
@@ -573,16 +581,43 @@ func (m *Manager) InboundDecryptStale(peerNodeID uint32) bool {
 // concurrent HandleAuthFrame goroutines (direct + relay copy past
 // DuplicateHandshakeDebounce) cannot both pass.
 func (m *Manager) MarkReplyKeyExchangeSent(peerNodeID uint32) bool {
+	// PILOT-344: trusted-peer whitelist bypasses the interval gate.
+	// The check is outside rkPendingMu so an atomic.Pointer load is all
+	// we need; we still record the timestamp below for consistency with
+	// the cleanup loop.
+	whitelisted := false
+	if wl := m.replyWhitelist.Load(); wl != nil {
+		if _, ok := (*wl)[peerNodeID]; ok {
+			whitelisted = true
+		}
+	}
 	now := time.Now()
 	m.rkPendingMu.Lock()
 	defer m.rkPendingMu.Unlock()
-	if last, ok := m.lastKeyExchangeReply[peerNodeID]; ok {
-		if now.Sub(last) < KeyExchangeReplyMinInterval {
-			return false
+	if !whitelisted {
+		if last, ok := m.lastKeyExchangeReply[peerNodeID]; ok {
+			if now.Sub(last) < KeyExchangeReplyMinInterval {
+				return false
+			}
 		}
 	}
 	m.lastKeyExchangeReply[peerNodeID] = now
 	return true
+}
+
+// SetReplyWhitelist replaces the trusted-peer whitelist for the
+// asymmetric-recovery reply interval gate (PILOT-344). Whitelisted
+// peers always pass MarkReplyKeyExchangeSent. Safe to call concurrently
+// with the hot path — backed by an atomic.Pointer.
+func (m *Manager) SetReplyWhitelist(nodeIDs []uint32) {
+	wm := make(map[uint32]struct{}, len(nodeIDs))
+	for _, id := range nodeIDs {
+		if id == 0 {
+			continue
+		}
+		wm[id] = struct{}{}
+	}
+	m.replyWhitelist.Store(&wm)
 }
 
 // RemovePeer wipes per-peer L5 state (called from TunnelManager.RemovePeer).
