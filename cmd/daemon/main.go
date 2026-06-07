@@ -67,6 +67,13 @@ func main() {
 	synRate := flag.Int("syn-rate-limit", 0, "max SYN packets per second (default 100)")
 	maxConnsPerPort := flag.Int("max-conns-per-port", 0, "max connections per port (default 1024)")
 	maxConnsTotal := flag.Int("max-conns-total", 0, "max total connections (default 4096)")
+	// PILOT-343/344/345 rate-limit whitelists. Comma-separated trusted-peer
+	// node IDs (decimal uint32). Env fallbacks let deployments configure
+	// without editing flag strings. Empty default preserves backwards
+	// compatibility — fleets that don't set them behave exactly as before.
+	synWhitelist := flag.String("syn-whitelist", "", "PILOT-343: comma-separated trusted source node IDs that bypass the SYN rate limit. Env: PILOT_SYN_WHITELIST.")
+	replyWhitelist := flag.String("reply-whitelist", "", "PILOT-344: comma-separated trusted peer node IDs that bypass the keyexchange reply interval gate. Env: PILOT_REPLY_WHITELIST.")
+	rekeyWhitelist := flag.String("rekey-whitelist", "", "PILOT-345: comma-separated trusted peer node IDs that bypass the tunnel-rekey interval and 4096 cap. Env: PILOT_REKEY_WHITELIST.")
 	timeWait := flag.Duration("time-wait", 0, "TIME_WAIT duration (default 10s)")
 	public := flag.Bool("public", false, "make this node's endpoint publicly visible (default: private)")
 	relayOnly := flag.Bool("relay-only", false, "hide real_addr from peers; reach this node only via beacon-relay path. Privacy stance: peers cannot enumerate this daemon's public IP. Trade-off: relay adds one beacon hop. Default false (current direct-first behavior).")
@@ -260,6 +267,15 @@ func main() {
 	if err := rt.StartPlugins(context.Background()); err != nil {
 		log.Fatalf("plugin startup: %v", err)
 	}
+
+	// PILOT-343/344/345: apply rate-limit whitelists BEFORE Start so the
+	// first inbound SYN/PILA/encrypted-frame already sees them. Each
+	// helper tolerates empty/garbage input — bad tokens log a warning
+	// and are dropped so a typo in env doesn't fail-fast the daemon.
+	applyNodeIDWhitelist("syn", *synWhitelist, "PILOT_SYN_WHITELIST", d.SetSYNWhitelist)
+	applyNodeIDWhitelist("reply", *replyWhitelist, "PILOT_REPLY_WHITELIST", d.SetReplyWhitelist)
+	applyNodeIDWhitelist("rekey", *rekeyWhitelist, "PILOT_REKEY_WHITELIST", d.SetRekeyWhitelist)
+
 	if err := d.Start(); err != nil {
 		log.Fatalf("daemon start: %v", err)
 	}
@@ -316,4 +332,44 @@ func parseNetworkIDs(s string) []uint16 {
 		ids = append(ids, uint16(n))
 	}
 	return ids
+}
+
+// parseNodeIDs parses a comma-separated string of uint32 node IDs.
+// Garbage tokens are logged and skipped — a typo in env shouldn't
+// fail-fast the daemon.
+func parseNodeIDs(s string) []uint32 {
+	if s == "" {
+		return nil
+	}
+	var ids []uint32
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.ParseUint(p, 10, 32)
+		if err != nil {
+			log.Printf("warning: invalid node ID %q: %v", p, err)
+			continue
+		}
+		ids = append(ids, uint32(n))
+	}
+	return ids
+}
+
+// applyNodeIDWhitelist resolves flag, falls back to env, parses the
+// comma-separated list, and applies via the provided setter. Logs one
+// line on success showing the count so deployments can sanity-check
+// what landed.
+func applyNodeIDWhitelist(name, flagVal, envName string, set func([]uint32)) {
+	raw := flagVal
+	if raw == "" {
+		raw = os.Getenv(envName)
+	}
+	if raw == "" {
+		return
+	}
+	ids := parseNodeIDs(raw)
+	set(ids)
+	log.Printf("%s-rate-limit whitelist configured: %d node(s)", name, len(ids))
 }
