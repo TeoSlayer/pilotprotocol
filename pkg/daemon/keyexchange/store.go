@@ -310,11 +310,21 @@ func (s *Store) RecordSalvage(c *Crypto, plaintext []byte) {
 	cutoff := now.Add(-SalvageMaxAge)
 	c.SalvageMu.Lock()
 	// Trim aged entries from the head.
+	// PILOT-146: zero the plaintext bytes before reslicing — otherwise the
+	// backing array still holds the cleartext until GC walks it, which an
+	// arena-co-resident attacker could (theoretically) observe before
+	// reuse.
 	for len(c.Salvage) > 0 && c.Salvage[0].When.Before(cutoff) {
+		for i := range c.Salvage[0].Plaintext {
+			c.Salvage[0].Plaintext[i] = 0
+		}
 		c.Salvage = c.Salvage[1:]
 	}
 	// Bound size — drop oldest.
 	if len(c.Salvage) >= SalvageMaxEntries {
+		for i := range c.Salvage[0].Plaintext {
+			c.Salvage[0].Plaintext[i] = 0
+		}
 		c.Salvage = c.Salvage[1:]
 	}
 	cp := make([]byte, len(plaintext))
@@ -342,6 +352,11 @@ func (s *Store) DrainSalvage(c *Crypto) []SalvageEntry {
 	out := entries[:0]
 	for _, e := range entries {
 		if e.When.Before(cutoff) {
+			// PILOT-146: aged entry not returned to caller — zero its
+			// plaintext before the slice header drops the reference.
+			for i := range e.Plaintext {
+				e.Plaintext[i] = 0
+			}
 			continue
 		}
 		out = append(out, e)
