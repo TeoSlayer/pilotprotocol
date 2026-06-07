@@ -62,6 +62,19 @@ func startFakeRegistry(t *testing.T, respond func(req map[string]interface{}) ma
 					if resp == nil {
 						resp = map[string]interface{}{}
 					}
+					// common@v0.4.7 (PILOT-132) rejects any non-empty
+					// registry response that lacks a "type" envelope
+					// field. The fake-registry callbacks predate that
+					// requirement and rarely set "type" explicitly;
+					// inject a default so we don't have to update every
+					// single test. Tests that exercise a specific type
+					// (e.g. error envelopes) still win — we only fill
+					// the field when the callback didn't.
+					if len(resp) > 0 {
+						if _, hasType := resp["type"]; !hasType {
+							resp["type"] = "response"
+						}
+					}
 					out, _ := json.Marshal(resp)
 					if err := ipcutil.Write(c, out); err != nil {
 						return
