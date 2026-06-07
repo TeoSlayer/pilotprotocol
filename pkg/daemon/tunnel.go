@@ -143,6 +143,11 @@ type TunnelManager struct {
 	// Whitelisted peers can always trigger a rekey request without
 	// being throttled or counted against the 4096 bound.
 	rekeyWhitelist atomic.Pointer[map[uint32]struct{}]
+	// PILOT-345 wildcard: when true, every peer bypasses both the
+	// rekeyRequestInterval gate and the maxRekeyRequesters map cap.
+	// Used on service-agent boxes where all rekey requests should be
+	// honored without rate-limiting.
+	rekeyWhitelistAll atomic.Bool
 
 	// routing is the L4 manager. It owns:
 	//   - relayPeers, relayPinned, blackholeMissCount, directClearCount,
@@ -411,9 +416,12 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 	}
 	// PILOT-345: whitelisted peers skip both the interval gate and the
 	// map cap. They still record a timestamp so the prune sweep can
-	// reclaim entries if the whitelist shrinks later.
+	// reclaim entries if the whitelist shrinks later. The wildcard
+	// (rekeyWhitelistAll) lets service-agent boxes pass every peer.
 	whitelisted := false
-	if wl := tm.rekeyWhitelist.Load(); wl != nil {
+	if tm.rekeyWhitelistAll.Load() {
+		whitelisted = true
+	} else if wl := tm.rekeyWhitelist.Load(); wl != nil {
 		if _, ok := (*wl)[peerNodeID]; ok {
 			whitelisted = true
 		}
@@ -557,6 +565,19 @@ func (tm *TunnelManager) SetRekeyWhitelist(nodeIDs []uint32) {
 		wm[id] = struct{}{}
 	}
 	tm.rekeyWhitelist.Store(&wm)
+}
+
+// SetRekeyWhitelistMatchAll toggles wildcard mode (PILOT-345). When
+// true, every peer bypasses both the rekeyRequestInterval gate and
+// the maxRekeyRequesters cap.
+func (tm *TunnelManager) SetRekeyWhitelistMatchAll(on bool) {
+	tm.rekeyWhitelistAll.Store(on)
+}
+
+// SetReplyWhitelistMatchAll proxies wildcard toggle to the embedded
+// keyexchange.Manager (PILOT-344 wildcard).
+func (tm *TunnelManager) SetReplyWhitelistMatchAll(on bool) {
+	tm.kx.SetReplyWhitelistMatchAll(on)
 }
 
 // SetReplyWhitelist is the cmd/daemon-facing proxy that forwards to the
