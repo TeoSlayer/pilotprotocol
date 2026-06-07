@@ -4,12 +4,10 @@ github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
 github.com/pilot-protocol/app-store v0.2.0 h1:/SbLPa2dKnvhv0ITeaYMZw/2KXXxWDRuYUdM5z9eyKk=
 github.com/pilot-protocol/app-store v0.2.0/go.mod h1:f0umeJxswDG8/CctHpSFMlr5GLtE2GlPKkijIQErZuc=
-github.com/pilot-protocol/beacon v0.2.2 h1:G1P5wuBK75LTSGHhpjNsN7bWi8JiZ0bWk3yjWcQNkwA=
-github.com/pilot-protocol/beacon v0.2.2/go.mod h1:k/cHbldwYkkF7dN1WDlaDPGqiRfFgIAmiB71fXSPYW0=
-github.com/pilot-protocol/common v0.4.4 h1:Y5AJ2PMNwy+2eb4DJfLdJlle+d/Z9UBWTN6czMA84cY=
-github.com/pilot-protocol/common v0.4.4/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
-github.com/pilot-protocol/common v0.4.5 h1:WX7jQcJoWJe+GtynZ+gz0f3re7DIRpi3RWo2SEnZJYo=
-github.com/pilot-protocol/common v0.4.5/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
+github.com/pilot-protocol/beacon v0.2.5 h1:5+pkSPoA35r+u4Hfrph/ZfOltOyiy8lh1sCfK5XqXKs=
+github.com/pilot-protocol/beacon v0.2.5/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
+github.com/pilot-protocol/common v0.4.7 h1:cljZiC3haHvB9sokuUs/+IHNU9ZAnpNtv32V355R/eQ=
+github.com/pilot-protocol/common v0.4.7/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.0 h1:ldE6AyrES1uvdnn1NBl0KZ7C+SSWNtmeHHU3CQhwSCo=
 github.com/pilot-protocol/dataexchange v0.2.0/go.mod h1:JVy2+hr/IjzMPshxjExbGO/4SbJTs7ZJ7iYvT/ODF3Q=
 github.com/pilot-protocol/eventstream v0.2.2 h1:E0IjveK7K+dsIbE/5hD3N821FkHzxVsx1tiAORMzt8k=
