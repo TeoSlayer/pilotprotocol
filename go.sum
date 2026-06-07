@@ -22,10 +22,8 @@ github.com/pilot-protocol/policy v0.2.1 h1:s3aMgeDFVYzDNBcdvO4mzDRlrRF5CvMepW7az
 github.com/pilot-protocol/policy v0.2.1/go.mod h1:jzsAO71uGlRVyduPrQmS/UeqSwUpeUO/CjykHm/IfXM=
 github.com/pilot-protocol/policy v0.2.2 h1:Co8sqZ4lRQfFA0Ot8l33VhsEwfiEVqcPz+kHY49QbkM=
 github.com/pilot-protocol/policy v0.2.2/go.mod h1:jzsAO71uGlRVyduPrQmS/UeqSwUpeUO/CjykHm/IfXM=
-github.com/pilot-protocol/rendezvous v0.2.2 h1:YkiHeY0Wl4pmpuBmXDhewSV05sjvquNlz2S/CHjkxTc=
-github.com/pilot-protocol/rendezvous v0.2.2/go.mod h1:bVGb1Mc93faQ+bG3R/nt/wv53cHv0SgLzpf8SZc/dqY=
-github.com/pilot-protocol/rendezvous v0.2.3 h1:wB1RTnGSJ6walu8aTdpSNPUFKVoyEaZTviGZi+YCAFk=
-github.com/pilot-protocol/rendezvous v0.2.3/go.mod h1:bVGb1Mc93faQ+bG3R/nt/wv53cHv0SgLzpf8SZc/dqY=
+github.com/pilot-protocol/rendezvous v0.2.4 h1:nxYm12RzEUA6zzNGcnDqxNcGBSIALL5uRH9zX+Q0CSg=
+github.com/pilot-protocol/rendezvous v0.2.4/go.mod h1:w7SC0nZCmWPyc7hxdFZ200zQVA75UoaC25MznUQXNFE=
 github.com/pilot-protocol/runtime v0.3.0 h1:OVPv7hyaAZsw5EPWtf2XQGfCqxgaM/iANPhIYOMp+0w=
 github.com/pilot-protocol/runtime v0.3.0/go.mod h1:GfFEIji0w7H9SSNR9Wl2q72pd2OYN3PHY9Qhcbvyrqk=
 github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrYElXZ1zs=
