@@ -372,6 +372,13 @@ type Daemon struct {
 	// under atomic.Pointer on the hot path to avoid locking. Populated
 	// at startup via SetSYNWhitelist.
 	synWhitelist atomic.Pointer[map[uint32]struct{}]
+	// PILOT-343 wildcard: when true, every source bypasses both SYN
+	// gates regardless of the synWhitelist contents. Set by passing
+	// "*" via env / -syn-whitelist, or directly via
+	// SetSYNWhitelistMatchAll(true). Used on service-agent boxes
+	// where the SYN-flood protection blocks legitimate high-volume
+	// query traffic.
+	synWhitelistAll atomic.Bool
 
 	// Network port policies: netID -> allowed ports (nil/empty = all allowed)
 	netPolicyMu sync.RWMutex
@@ -561,6 +568,30 @@ func (d *Daemon) SetSYNWhitelist(nodeIDs []uint32) {
 		m[id] = struct{}{}
 	}
 	d.synWhitelist.Store(&m)
+}
+
+// SetSYNWhitelistMatchAll toggles SYN wildcard mode (PILOT-343). When
+// true, every source bypasses both SYN gates regardless of the
+// SetSYNWhitelist contents. Use on service-agent boxes that should
+// accept all callers without SYN-rate limiting.
+func (d *Daemon) SetSYNWhitelistMatchAll(on bool) {
+	d.synWhitelistAll.Store(on)
+}
+
+// SetReplyWhitelistMatchAll proxies to the embedded keyexchange.Manager
+// (PILOT-344 wildcard).
+func (d *Daemon) SetReplyWhitelistMatchAll(on bool) {
+	if d.tunnels != nil {
+		d.tunnels.SetReplyWhitelistMatchAll(on)
+	}
+}
+
+// SetRekeyWhitelistMatchAll proxies to the TunnelManager (PILOT-345
+// wildcard).
+func (d *Daemon) SetRekeyWhitelistMatchAll(on bool) {
+	if d.tunnels != nil {
+		d.tunnels.SetRekeyWhitelistMatchAll(on)
+	}
 }
 
 // SetReplyWhitelist proxies to the embedded keyexchange.Manager (PILOT-344).
@@ -2745,7 +2776,9 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// where the SYN-flood protection would otherwise interfere with
 		// legitimate high-rate connection bursts.
 		synWhitelisted := false
-		if wl := d.synWhitelist.Load(); wl != nil {
+		if d.synWhitelistAll.Load() {
+			synWhitelisted = true
+		} else if wl := d.synWhitelist.Load(); wl != nil {
 			if _, ok := (*wl)[pkt.Src.Node]; ok {
 				synWhitelisted = true
 			}
