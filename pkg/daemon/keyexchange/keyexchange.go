@@ -251,6 +251,10 @@ type Manager struct {
 	// Read on the hot path under atomic.Pointer; populated at startup
 	// via SetReplyWhitelist.
 	replyWhitelist atomic.Pointer[map[uint32]struct{}]
+	// PILOT-344 wildcard: when true, every peer bypasses the reply
+	// interval gate regardless of replyWhitelist contents. Used on
+	// service-agent boxes that respond to many distinct callers.
+	replyWhitelistAll atomic.Bool
 
 	// Side-effect hooks plumbed in from the daemon.
 	sender      FrameSender
@@ -584,9 +588,12 @@ func (m *Manager) MarkReplyKeyExchangeSent(peerNodeID uint32) bool {
 	// PILOT-344: trusted-peer whitelist bypasses the interval gate.
 	// The check is outside rkPendingMu so an atomic.Pointer load is all
 	// we need; we still record the timestamp below for consistency with
-	// the cleanup loop.
+	// the cleanup loop. The wildcard (replyWhitelistAll) lets
+	// service-agent boxes pass every caller.
 	whitelisted := false
-	if wl := m.replyWhitelist.Load(); wl != nil {
+	if m.replyWhitelistAll.Load() {
+		whitelisted = true
+	} else if wl := m.replyWhitelist.Load(); wl != nil {
 		if _, ok := (*wl)[peerNodeID]; ok {
 			whitelisted = true
 		}
@@ -618,6 +625,12 @@ func (m *Manager) SetReplyWhitelist(nodeIDs []uint32) {
 		wm[id] = struct{}{}
 	}
 	m.replyWhitelist.Store(&wm)
+}
+
+// SetReplyWhitelistMatchAll toggles wildcard mode (PILOT-344). When
+// true, every peer bypasses MarkReplyKeyExchangeSent's interval gate.
+func (m *Manager) SetReplyWhitelistMatchAll(on bool) {
+	m.replyWhitelistAll.Store(on)
 }
 
 // RemovePeer wipes per-peer L5 state (called from TunnelManager.RemovePeer).
