@@ -367,6 +367,11 @@ type Daemon struct {
 	// Per-source SYN rate limiter
 	perSrcSYNMu sync.Mutex
 	perSrcSYN   map[uint32]*srcSYNBucket // source nodeID -> bucket
+	// PILOT-343: trusted source nodes that bypass BOTH the global SYN
+	// rate limit and the per-source SYN limit. Empty by default. Read
+	// under atomic.Pointer on the hot path to avoid locking. Populated
+	// at startup via SetSYNWhitelist.
+	synWhitelist atomic.Pointer[map[uint32]struct{}]
 
 	// Network port policies: netID -> allowed ports (nil/empty = all allowed)
 	netPolicyMu sync.RWMutex
@@ -541,6 +546,21 @@ func (d *Daemon) reapPerSrcSYN() {
 			delete(d.perSrcSYN, id)
 		}
 	}
+}
+
+// SetSYNWhitelist replaces the trusted-source whitelist for SYN rate
+// limits (PILOT-343). Nodes in the set bypass BOTH allowSYN() and
+// allowSYNFromSource(). Empty slice clears the whitelist. Safe to
+// call at any time — the underlying field is an atomic.Pointer.
+func (d *Daemon) SetSYNWhitelist(nodeIDs []uint32) {
+	m := make(map[uint32]struct{}, len(nodeIDs))
+	for _, id := range nodeIDs {
+		if id == 0 {
+			continue
+		}
+		m[id] = struct{}{}
+	}
+	d.synWhitelist.Store(&m)
 }
 
 func (d *Daemon) Start() error {
@@ -2703,15 +2723,26 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			return // silent drop — don't reveal policy to attacker
 		}
 
+		// PILOT-343: whitelisted source nodes bypass both SYN rate gates.
+		// Used for trusted operator peers (paired daemons, test rigs)
+		// where the SYN-flood protection would otherwise interfere with
+		// legitimate high-rate connection bursts.
+		synWhitelisted := false
+		if wl := d.synWhitelist.Load(); wl != nil {
+			if _, ok := (*wl)[pkt.Src.Node]; ok {
+				synWhitelisted = true
+			}
+		}
+
 		// SYN rate limiting
-		if !d.allowSYN() {
+		if !synWhitelisted && !d.allowSYN() {
 			slog.Warn("SYN rate limit exceeded", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.publishEvent("security.syn_rate_limited", map[string]interface{}{
 				"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
 			})
 			return // silently drop — don't even RST (avoid amplification)
 		}
-		if !d.allowSYNFromSource(pkt.Src.Node) {
+		if !synWhitelisted && !d.allowSYNFromSource(pkt.Src.Node) {
 			slog.Warn("per-source SYN rate limit exceeded", "src_node", pkt.Src.Node, "src_port", pkt.SrcPort)
 			return
 		}
