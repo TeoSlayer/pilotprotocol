@@ -1,0 +1,36 @@
+name: cli-reference-check
+
+# PILOT-54: regenerates docs/cli-reference.md from `pilotctl --help` and
+# fails if the committed copy is stale. Stops doc drift from being a
+# silent contributor problem — drift becomes a CI red.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'cmd/pilotctl/**'
+      - 'docs/cli-reference.md'
+      - 'scripts/gen-cli-reference.sh'
+      - '.github/workflows/cli-reference-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: docs/cli-reference.md up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Regenerate
+        run: scripts/gen-cli-reference.sh
+      - name: Diff committed vs regenerated
+        run: |
+          if ! git diff --exit-code docs/cli-reference.md; then
+            echo "::error::docs/cli-reference.md is stale. Run scripts/gen-cli-reference.sh and commit the result."
+            exit 1
+          fi
