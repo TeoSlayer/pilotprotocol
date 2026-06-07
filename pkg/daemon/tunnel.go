@@ -138,6 +138,11 @@ type TunnelManager struct {
 	// key" events. Prevents amplification if a peer floods us with gibberish.
 	rekeyMu      sync.Mutex
 	lastRekeyReq map[uint32]time.Time
+	// PILOT-345: per-peer whitelist that bypasses BOTH the
+	// rekeyRequestInterval gate AND the maxRekeyRequesters map cap.
+	// Whitelisted peers can always trigger a rekey request without
+	// being throttled or counted against the 4096 bound.
+	rekeyWhitelist atomic.Pointer[map[uint32]struct{}]
 
 	// routing is the L4 manager. It owns:
 	//   - relayPeers, relayPinned, blackholeMissCount, directClearCount,
@@ -404,14 +409,23 @@ func (tm *TunnelManager) maybeRequestRekey(peerNodeID uint32, from *net.UDPAddr)
 	if tm.sock == nil {
 		return false
 	}
+	// PILOT-345: whitelisted peers skip both the interval gate and the
+	// map cap. They still record a timestamp so the prune sweep can
+	// reclaim entries if the whitelist shrinks later.
+	whitelisted := false
+	if wl := tm.rekeyWhitelist.Load(); wl != nil {
+		if _, ok := (*wl)[peerNodeID]; ok {
+			whitelisted = true
+		}
+	}
 	tm.rekeyMu.Lock()
 	last, known := tm.lastRekeyReq[peerNodeID]
 	now := time.Now()
-	if known && now.Sub(last) < rekeyRequestInterval {
+	if !whitelisted && known && now.Sub(last) < rekeyRequestInterval {
 		tm.rekeyMu.Unlock()
 		return false
 	}
-	if !known && !tm.pruneRekeyBudgetLocked(now) {
+	if !whitelisted && !known && !tm.pruneRekeyBudgetLocked(now) {
 		tm.rekeyMu.Unlock()
 		return false
 	}
@@ -527,6 +541,22 @@ func (tm *TunnelManager) SetIdentity(id *crypto.Identity) {
 // key from the registry. Forwards to keyexchange.Manager.
 func (tm *TunnelManager) SetPeerVerifyFunc(fn func(uint32) (ed25519.PublicKey, error)) {
 	tm.kx.SetPeerVerifyFunc(keyexchange.VerifyFunc(fn))
+}
+
+// SetRekeyWhitelist replaces the per-peer whitelist for the
+// maybeRequestRekey gate (PILOT-345). Whitelisted peers bypass BOTH
+// the rekeyRequestInterval (3 s) and the maxRekeyRequesters (4096)
+// map cap. Empty slice clears the whitelist. Safe to call
+// concurrently with maybeRequestRekey.
+func (tm *TunnelManager) SetRekeyWhitelist(nodeIDs []uint32) {
+	wm := make(map[uint32]struct{}, len(nodeIDs))
+	for _, id := range nodeIDs {
+		if id == 0 {
+			continue
+		}
+		wm[id] = struct{}{}
+	}
+	tm.rekeyWhitelist.Store(&wm)
 }
 
 // SetBeaconAddr configures the beacon address for NAT hole-punching and relay.
