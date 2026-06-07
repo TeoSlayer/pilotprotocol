@@ -7,6 +7,42 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [Unreleased]
+
+### Added
+- **Reply-on-connection** — answers ride back on the connection the sender
+  opened, eliminating the dial-back for opted-in requests. Two halves, each
+  independently rollable and backwards-compatible:
+  - **Daemon `--auto-answer <url>` (SPECIALISED — service/directory agents
+    ONLY; regular nodes must not set it).** When set, a `TypeAutoAnswer` request
+    is dispatched to `<url>` (the local responder's `/dispatch`) and the reply is
+    written back on the same connection, then the connection closes after exactly
+    one request + one reply. Plain requests are untouched and still use the inbox
+    path, so enabling this never changes how the node serves ordinary senders.
+  - **`pilotctl send-message --reply-on-conn`** (env `PILOT_REPLY_ON_CONN=1`) —
+    sends the request as `TypeAutoAnswer` and reads the reply off the connection
+    into `~/.pilot/inbox/` (same format as a dial-back reply), with no `--wait`
+    and no dial-back. **Always safe — never worse than a plain send:** against an
+    `--auto-answer` agent the reply comes on the connection; against any other
+    agent it falls back to a normal dial-back (an updated agent saved it; an
+    old/stock agent acks the frame as `UNKNOWN`, which triggers an automatic
+    resend as plain `TEXT`). The on-connection benefit is gained only against
+    `--auto-answer` agents.
+- The reply lands as an ordinary inbox message — `pilotctl inbox` reads it
+  unchanged.
+
+### Notes / limitations
+- Reply-on-connection helps senders that **run a client which reads the reply**
+  (updated `pilotctl`/SDK). It does not change the ceiling for transient clients
+  with no daemon/inbox.
+- The new loop is gated on the **request type**, so it is safe to enable
+  `--auto-answer` on a live directory agent without disturbing current traffic.
+- **Sender-side fan-out is out of scope:** a single requester daemon opening
+  *many* simultaneous dials (dozens) can see sender-side `dial` failures under
+  NAT/relay pressure — a property of overloading one sender daemon, not of the
+  receiver (which dropped zero replies in testing). Regular senders issue a few
+  dials and are unaffected.
+
 ## [1.10.7] - 2026-06-06
 
 ### Fixed

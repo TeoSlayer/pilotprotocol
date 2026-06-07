@@ -3649,6 +3649,39 @@ func cmdSendMessage(args []string) {
 	}
 	msgType := flagString(flags, "type", "text")
 
+	// --reply-on-conn opts this request into reply-on-connection: send it as a
+	// TypeAutoAnswer frame and read the reply the receiver writes back on the
+	// SAME connection (into the inbox), instead of relying on a dial-back.
+	//
+	// ALWAYS SAFE — never worse than a plain send. Against an --auto-answer agent
+	// the reply rides back on this connection (so it works even when this sender
+	// is NAT'd / has no public port / is transient). Against ANY other agent it
+	// transparently falls back to a normal dial-back: an updated agent saved the
+	// request, and an old/stock agent (which acks the frame as UNKNOWN) triggers
+	// an automatic resend as plain TEXT — either way the reply is dial-backed
+	// exactly as for a normal send. Current senders that don't set it are
+	// untouched. Env: PILOT_REPLY_ON_CONN=1.
+	replyOnConn := flagBool(flags, "reply-on-conn") || os.Getenv("PILOT_REPLY_ON_CONN") != ""
+	if replyOnConn {
+		// reply-on-connection carries the request as a text query, so true binary
+		// would be lossily url-escaped — reject it rather than diverge silently
+		// from a plain --type binary send.
+		if msgType == "binary" {
+			fatalCode("invalid_argument", "--reply-on-conn does not support --type binary")
+		}
+		// --trace sends a TypeTrace frame for timing and is incompatible with
+		// reply-on-connection; trace wins, so disable reply-on-conn handling to
+		// avoid a spurious fallback resend (double inbox entry).
+		if traceTime {
+			replyOnConn = false
+		}
+		// An --auto-answer receiver closes after one request+reply, so a reused
+		// connection can't carry a second send. Dial fresh per send instead.
+		if reuseConn {
+			reuseConn = false
+		}
+	}
+
 	// Auto-handshake to peers in the embedded trusted-agents list.
 	// Best-effort: warns on stderr and continues if handshake fails.
 	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
@@ -3687,12 +3720,16 @@ func cmdSendMessage(args []string) {
 			sentAtNs, sendErr = cl.SendTrace(innerType, []byte(data))
 		} else {
 			sendStart := time.Now()
-			switch msgType {
-			case "text":
+			switch {
+			case replyOnConn:
+				// Opt in to reply-on-connection (TypeAutoAnswer); the reply is
+				// read off this connection below and saved to the inbox.
+				sendErr = cl.SendAutoAnswer(data)
+			case msgType == "text":
 				sendErr = cl.SendText(data)
-			case "json":
+			case msgType == "json":
 				sendErr = cl.SendJSON([]byte(data))
-			case "binary":
+			case msgType == "binary":
 				sendErr = cl.SendBinary([]byte(data))
 			}
 			sentAtNs = sendStart.UnixNano()
@@ -3713,7 +3750,62 @@ func cmdSendMessage(args []string) {
 			"reused": reused,
 		}
 		if ack != nil {
-			r["ack"] = string(ack.Payload)
+			ackStr := string(ack.Payload)
+			r["ack"] = ackStr
+			// reply-on-connection delivery + GUARANTEED fallback. With
+			// --reply-on-conn we sent a TypeAutoAnswer request; decide whether a
+			// reply is (or will be) delivered, and if not, fall back so the flag
+			// is ALWAYS at least as good as a plain send:
+			//   * ACK+REPLY        → an --auto-answer agent's reply follows on
+			//                        THIS connection; read it into the inbox.
+			//   * ack names the AUTOANSWER type → an updated, non-auto-answering
+			//                        agent saved the request; it will dial back.
+			//   * anything else (an OLD/stock daemon acks UNKNOWN and does NOT
+			//                        save it; or the on-connection read failed)
+			//                        → resend as plain TEXT so ANY daemon saves
+			//                        it and the responder dial-backs the reply.
+			if replyOnConn {
+				delivered := false
+				switch replyOnConnOutcome(ackStr) {
+				case replyOnConnRead:
+					// Read window is tied to the receiver's autoAnswerWindow (40s)
+					// plus margin — NOT to --wait. --wait bounds the later inbox
+					// poll; capping the on-connection read by a small --wait would
+					// abandon a reply the receiver has already committed to send
+					// (it skipped the inbox) and force a needless resend.
+					_ = cl.SetReadDeadline(time.Now().Add(45 * time.Second))
+					reply, rerr := cl.Recv()
+					_ = cl.SetReadDeadline(time.Time{})
+					if rerr == nil && reply != nil && len(reply.Payload) > 0 {
+						if p, serr := saveReplyToInbox(target.String(), reply.Type, reply.Payload); serr == nil {
+							r["reply_bytes"] = len(reply.Payload)
+							r["reply_inbox"] = p
+							delivered = true
+						} else {
+							r["reply_error"] = serr.Error()
+						}
+					} else if rerr != nil {
+						r["reply_error"] = rerr.Error()
+					}
+				case replyOnConnDelivered:
+					// Understood by an updated daemon and saved for dial-back.
+					delivered = true
+				}
+				if !delivered {
+					// Old/stock receiver (or a lost on-connection reply): resend
+					// as a plain TEXT message — exactly the pre-feature path — so
+					// the receiver saves it and the reply is dial-backed. This is
+					// what makes --reply-on-conn never worse than a plain send.
+					if rc, derr := dataexchange.Dial(d, target); derr == nil {
+						_ = rc.SendText(data)
+						_, _ = rc.Recv() // consume ack
+						_ = rc.Close()
+						r["fallback"] = "dialback"
+					} else {
+						r["fallback_error"] = derr.Error()
+					}
+				}
+			}
 		}
 		if traceTime {
 			r["total_ms"] = float64(time.Duration(ackRecvAtNs-sentAtNs).Microseconds()) / 1000.0
@@ -5273,9 +5365,70 @@ func cmdReceived(args []string) {
 	fmt.Printf("\ntotal: %d\n", len(files))
 }
 
+// reply-on-connection sender outcomes, decided from the receiver's ack.
+const (
+	replyOnConnRead      = "read"      // --auto-answer agent: read the reply on this connection
+	replyOnConnDelivered = "delivered" // updated agent understood + saved it: a dial-back is coming
+	replyOnConnResend    = "resend"    // old/stock agent did not understand it: resend as plain TEXT
+)
+
+// replyOnConnOutcome decides what a --reply-on-conn sender must do, from the
+// receiver's ack payload. This is the core of the "always safe" guarantee: only
+// an "ACK+REPLY" ack carries a reply on the connection; only a daemon that knows
+// the AUTOANSWER type echoes it in the ack (so it understood and saved the
+// request for dial-back); everything else is an old/stock daemon that acked the
+// frame as UNKNOWN without saving it, so the sender must resend as plain TEXT.
+func replyOnConnOutcome(ackPayload string) string {
+	switch {
+	case strings.HasPrefix(ackPayload, "ACK+REPLY"):
+		return replyOnConnRead
+	case strings.Contains(ackPayload, dataexchange.TypeName(dataexchange.TypeAutoAnswer)):
+		return replyOnConnDelivered
+	default:
+		return replyOnConnResend
+	}
+}
+
+// saveReplyToInbox writes a reply-on-connection frame to ~/.pilot/inbox/ in the
+// exact shape the daemon's dataexchange service uses, so it is indistinguishable
+// from a dial-back reply to `pilotctl inbox` and any inbox tooling. Returns the
+// written path. This is how a reply-aware sender lands the answer in its own
+// inbox without ever being dialed back.
+func saveReplyToInbox(from string, frameType uint32, payload []byte) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".pilot", "inbox")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	ts := time.Now()
+	msg := map[string]interface{}{
+		"type":        dataexchange.TypeName(frameType),
+		"from":        from,
+		"data":        string(payload),
+		"bytes":       len(payload),
+		"received_at": ts.Format(time.RFC3339Nano),
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return "", err
+	}
+	// Nanosecond stamp + pid keep the filename unique without the daemon's
+	// shared atomic sequence counter.
+	filename := fmt.Sprintf("%s-%s-%06d.json", dataexchange.TypeName(frameType),
+		ts.Format("20060102-150405.000000000"), os.Getpid()%1000000)
+	destPath := filepath.Join(dir, filename)
+	if err := os.WriteFile(destPath, data, 0600); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
 // cmdInbox lists or clears messages received via data exchange (port 1001).
 // waitForInboxReply polls ~/.pilot/inbox/ until a JSON file arrives that is
-// newer than cutoff and (if agentHint is non-empty) has a matching "agent"
+// newer than cutoff and (if agentHint is non-empty) has a matching "from"
 // field. Returns the parsed message or an error on timeout.
 func waitForInboxReply(agentHint string, cutoff time.Time, timeout time.Duration) (map[string]interface{}, error) {
 	home, err := os.UserHomeDir()

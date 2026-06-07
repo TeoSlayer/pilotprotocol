@@ -7,7 +7,7 @@ require (
 	github.com/pilot-protocol/app-store v0.2.0
 	github.com/pilot-protocol/beacon v0.2.5
 	github.com/pilot-protocol/common v0.4.8
-	github.com/pilot-protocol/dataexchange v0.2.0
+	github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260607214932-68dd65364867
 	github.com/pilot-protocol/eventstream v0.2.2
 	github.com/pilot-protocol/handshake v0.2.1
 	github.com/pilot-protocol/nameserver v0.2.1
@@ -18,10 +18,10 @@ require (
 	github.com/pilot-protocol/trustedagents v0.2.3
 	github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f
 	github.com/pilot-protocol/webhook v0.2.0
+	golang.org/x/sys v0.45.0
 )
 
 require (
 	github.com/expr-lang/expr v1.17.8 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
 )

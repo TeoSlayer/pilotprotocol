@@ -6,8 +6,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -34,6 +37,34 @@ import (
 )
 
 var version = "dev"
+
+// newAutoAnswerReplyHook builds the dataexchange ReplyHook for --auto-answer: it
+// dispatches each request to the responder's HTTP endpoint and returns the body
+// as a TEXT reply. The read is bounded at the data-exchange frame limit — the
+// same effective ceiling the normal inbox→dial-back path hits — so
+// reply-on-connection delivers byte-for-byte what a dial-back would, never
+// truncating a large reply. Returns ok=false (no reply written) on transport
+// error or an empty body, which lets the sender fall back to a dial-back.
+func newAutoAnswerReplyHook(endpoint string, hc *http.Client) func(reqType uint32, payload []byte) (uint32, []byte, bool) {
+	return func(reqType uint32, payload []byte) (uint32, []byte, bool) {
+		resp, err := hc.Get(endpoint + "?message=" + url.QueryEscape(string(payload)))
+		if err != nil {
+			return 0, nil, false
+		}
+		defer resp.Body.Close()
+		// Only a 200 carries a real reply. 204 (dropped by loop-prevention) and
+		// any error status (e.g. 400 "missing message") must NOT be delivered as
+		// a reply — returning ok=false lets the sender fall back to a dial-back.
+		if resp.StatusCode != http.StatusOK {
+			return 0, nil, false
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, dataexchange.MaxFrameSize))
+		if len(body) == 0 {
+			return 0, nil, false
+		}
+		return dataexchange.TypeText, body, true
+	}
+}
 
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
@@ -80,6 +111,7 @@ func main() {
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
+	autoAnswer := flag.String("auto-answer", "", "SPECIALISED — directory/service agents ONLY (e.g. list-agents); regular nodes MUST leave this empty. Enables reply-on-connection: an opted-in request (TypeAutoAnswer, from `send-message --reply-on-conn`) is dispatched to this HTTP endpoint and the reply is written back on the SAME connection the sender opened, then the connection closes (exactly 1 request + 1 response — no loop). This lets a sender receive the answer in its inbox with no dial-back, even when it is unreachable. Plain requests are unaffected and still flow through the normal inbox path, so setting this never changes how this node serves ordinary senders. A regular node has no reason to hold connections open to generate replies and should never set this.")
 	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "include raw base64 payload (`data_b64`) alongside `data` in inbox messages — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
@@ -223,9 +255,21 @@ func main() {
 	}
 
 	if !*noDataExchange {
-		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{
-			IncludeBase64: *dataExchangeB64,
-		})); err != nil {
+		dxCfg := dataexchange.ServiceConfig{IncludeBase64: *dataExchangeB64}
+		if *autoAnswer != "" {
+			ru := *autoAnswer
+			// Timeout chain (must be strictly increasing so no stage cuts off
+			// the one beneath it): responder fetch (35s, the service call) <
+			// this ReplyHook HTTP client (38s, the /dispatch round trip that
+			// CONTAINS that fetch) < service autoAnswerWindow watchdog (40s) <=
+			// sender on-connection read window (45s). At 38s this client gives
+			// the responder's 35s fetch room to finish before the daemon gives up.
+			hc := &http.Client{Timeout: 38 * time.Second}
+			dxCfg.AutoAnswer = true
+			dxCfg.ReplyHook = newAutoAnswerReplyHook(ru, hc)
+			slog.Info("dataexchange auto-answer (reply-on-connection) enabled", "endpoint", ru)
+		}
+		if err := rt.Register(dataexchange.NewService(dxCfg)); err != nil {
 			log.Fatalf("register dataexchange: %v", err)
 		}
 	}

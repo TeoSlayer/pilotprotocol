@@ -10,6 +10,8 @@ github.com/pilot-protocol/common v0.4.8 h1:eS2Bc+XcZWJ/qhwwOZbXwIWhtNdOijuoEp716
 github.com/pilot-protocol/common v0.4.8/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.0 h1:ldE6AyrES1uvdnn1NBl0KZ7C+SSWNtmeHHU3CQhwSCo=
 github.com/pilot-protocol/dataexchange v0.2.0/go.mod h1:JVy2+hr/IjzMPshxjExbGO/4SbJTs7ZJ7iYvT/ODF3Q=
+github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260607214932-68dd65364867 h1:rbh9s8sB33wl++71TarNIZsLTYgnYBR2vBhteUXosYQ=
+github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260607214932-68dd65364867/go.mod h1:tIFRJOxjM3UwtT0VjHJX3xBZ6BUpWY4TQDrPvURz/bo=
 github.com/pilot-protocol/eventstream v0.2.2 h1:E0IjveK7K+dsIbE/5hD3N821FkHzxVsx1tiAORMzt8k=
 github.com/pilot-protocol/eventstream v0.2.2/go.mod h1:gUjoMEItW1SRJYEq39VlcIeDe2LcE5B18/4bcaUJNrs=
 github.com/pilot-protocol/handshake v0.2.0 h1:uLeV8iNHcsHbcVH+GZ9p7uuIbObA8BReDByF5XGjzB8=
