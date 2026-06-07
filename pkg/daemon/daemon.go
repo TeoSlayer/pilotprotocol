@@ -563,6 +563,23 @@ func (d *Daemon) SetSYNWhitelist(nodeIDs []uint32) {
 	d.synWhitelist.Store(&m)
 }
 
+// SetReplyWhitelist proxies to the embedded keyexchange.Manager (PILOT-344).
+// Trusted peers bypass the 1-second asymmetric-recovery reply gate.
+func (d *Daemon) SetReplyWhitelist(nodeIDs []uint32) {
+	if d.tunnels != nil {
+		d.tunnels.SetReplyWhitelist(nodeIDs)
+	}
+}
+
+// SetRekeyWhitelist proxies to the TunnelManager (PILOT-345). Trusted
+// peers bypass the 3-second rekey-request interval and the 4096
+// requester-map cap.
+func (d *Daemon) SetRekeyWhitelist(nodeIDs []uint32) {
+	if d.tunnels != nil {
+		d.tunnels.SetRekeyWhitelist(nodeIDs)
+	}
+}
+
 func (d *Daemon) Start() error {
 	// Warm the hostname cache from disk before the IPC server comes up,
 	// so the first send-message after restart hits the cache instead of

@@ -559,6 +559,13 @@ func (tm *TunnelManager) SetRekeyWhitelist(nodeIDs []uint32) {
 	tm.rekeyWhitelist.Store(&wm)
 }
 
+// SetReplyWhitelist is the cmd/daemon-facing proxy that forwards to the
+// embedded keyexchange.Manager (PILOT-344). Trusted peers bypass the
+// 1-second asymmetric-recovery reply gate.
+func (tm *TunnelManager) SetReplyWhitelist(nodeIDs []uint32) {
+	tm.kx.SetReplyWhitelist(nodeIDs)
+}
+
 // SetBeaconAddr configures the beacon address for NAT hole-punching and relay.
 // Thin shim over routing.Manager.SetBeaconAddr.
 func (tm *TunnelManager) SetBeaconAddr(addr string) error {
