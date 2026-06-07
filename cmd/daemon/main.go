@@ -272,9 +272,9 @@ func main() {
 	// first inbound SYN/PILA/encrypted-frame already sees them. Each
 	// helper tolerates empty/garbage input — bad tokens log a warning
 	// and are dropped so a typo in env doesn't fail-fast the daemon.
-	applyNodeIDWhitelist("syn", *synWhitelist, "PILOT_SYN_WHITELIST", d.SetSYNWhitelist)
-	applyNodeIDWhitelist("reply", *replyWhitelist, "PILOT_REPLY_WHITELIST", d.SetReplyWhitelist)
-	applyNodeIDWhitelist("rekey", *rekeyWhitelist, "PILOT_REKEY_WHITELIST", d.SetRekeyWhitelist)
+	applyNodeIDWhitelist("syn", *synWhitelist, "PILOT_SYN_WHITELIST", d.SetSYNWhitelist, d.SetSYNWhitelistMatchAll)
+	applyNodeIDWhitelist("reply", *replyWhitelist, "PILOT_REPLY_WHITELIST", d.SetReplyWhitelist, d.SetReplyWhitelistMatchAll)
+	applyNodeIDWhitelist("rekey", *rekeyWhitelist, "PILOT_REKEY_WHITELIST", d.SetRekeyWhitelist, d.SetRekeyWhitelistMatchAll)
 
 	if err := d.Start(); err != nil {
 		log.Fatalf("daemon start: %v", err)
@@ -361,12 +361,32 @@ func parseNodeIDs(s string) []uint32 {
 // comma-separated list, and applies via the provided setter. Logs one
 // line on success showing the count so deployments can sanity-check
 // what landed.
-func applyNodeIDWhitelist(name, flagVal, envName string, set func([]uint32)) {
+//
+// PILOT-343/344/345 wildcard: the literal tokens "*" and "all" mean
+// "every source bypasses this rate limit." Used on service-agent boxes
+// where the rate limit interferes with legitimate high-volume query
+// traffic. Wildcard takes effect via the matchAll setter; the per-ID
+// list is still applied (so a mixed list like "*,12345" works the
+// same as "*" alone — the bool just short-circuits the map lookup).
+func applyNodeIDWhitelist(name, flagVal, envName string, set func([]uint32), setAll func(bool)) {
 	raw := flagVal
 	if raw == "" {
 		raw = os.Getenv(envName)
 	}
 	if raw == "" {
+		return
+	}
+	all := false
+	for _, t := range strings.Split(raw, ",") {
+		t = strings.TrimSpace(t)
+		if t == "*" || t == "all" {
+			all = true
+			break
+		}
+	}
+	if all {
+		setAll(true)
+		log.Printf("%s-rate-limit whitelist: wildcard '*' — every source bypasses", name)
 		return
 	}
 	ids := parseNodeIDs(raw)
