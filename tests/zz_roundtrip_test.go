@@ -109,9 +109,6 @@ func TestDaemonRoundtripHandshakeAndSendMessage(t *testing.T) {
 		recv <- recvResult{data: buf[:n], err: err}
 	}()
 
-	dialCtx, dialCancel := time.NewTimer(2*time.Second), make(chan struct{})
-	_ = dialCancel
-	dialCtx.Stop()
 	conn, err := a.Driver.DialAddrTimeout(b.Daemon.Addr(), port, 2*time.Second)
 	if err != nil {
 		t.Fatalf("A dial B:%d: %v", port, err)
