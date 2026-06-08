@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "updated_at": "2026-06-08T10:25:00Z",
+  "updated_at": "2026-06-08T08:00:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
       "version": "0.3.0",
       "description": "On-overlay USDC payments — ed25519 + EIP-3009 receipts.",
       "bundle_url": "https://github.com/TeoSlayer/pilotprotocol/releases/download/wallet-v0.3.0/io.pilot.wallet-0.3.0.tar.gz",
-      "bundle_sha256": "REPLACE_AT_RELEASE_TIME"
+      "bundle_sha256": "99a1168589b79d3cb715557207e607eeddd63110189f0a43a4281374c8106c3d"
     }
   ]
 }
