@@ -67,6 +67,8 @@ func cmdAppStore(args []string) {
 		cmdAppStoreGenKey(args[1:])
 	case "sign":
 		cmdAppStoreSign(args[1:])
+	case "catalogue", "catalog":
+		cmdAppStoreCatalogue(args[1:])
 	case "restart":
 		cmdAppStoreRestart(args[1:])
 	case "caps":
@@ -77,7 +79,7 @@ func cmdAppStore(args []string) {
 		appStoreHelp()
 	default:
 		fatalHint("invalid_argument",
-			"available: list, status, audit, uninstall, verify, install, gen-key, sign, restart, caps, actions, call",
+			"available: list, status, audit, uninstall, verify, install, gen-key, sign, catalogue, restart, caps, actions, call",
 			"unknown appstore subcommand: %s", args[0])
 	}
 }
@@ -99,8 +101,10 @@ Usage:
                                              duration: Go syntax (e.g. 10m, 1h, 24h)
   pilotctl appstore uninstall <id> --yes     remove an installed app from the install root
   pilotctl appstore verify <bundle-dir>      sha256-check a pre-install bundle against its manifest
-  pilotctl appstore install <bundle-dir> [--force]
-                                             stage + atomically place a verified bundle into the install root
+  pilotctl appstore catalogue                list apps available for one-command install
+  pilotctl appstore install <app-id-or-dir> [--force]
+                                             install by catalogue ID (fetches + verifies + extracts)
+                                             OR by local bundle directory (offline / dev path)
   pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
   pilotctl appstore sign --key <key-file> <manifest>
                                              sign (or re-sign) a manifest's store.signature so the supervisor accepts it
@@ -967,10 +971,10 @@ type installReport struct {
 func cmdAppStoreInstall(args []string) {
 	if len(args) < 1 {
 		fatalHint("invalid_argument",
-			"usage: pilotctl appstore install <bundle-dir> [--force]",
-			"missing bundle dir")
+			"usage: pilotctl appstore install <app-id-or-dir> [--force]",
+			"missing app id or bundle dir")
 	}
-	bundleDir := args[0]
+	target := args[0]
 	force := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -981,6 +985,17 @@ func cmdAppStoreInstall(args []string) {
 				"available flags: --force",
 				"unknown install flag: %s", args[i])
 		}
+	}
+
+	// Resolve `target` to a local bundle dir. If it's a catalogue ID
+	// (e.g. "io.pilot.wallet"), fetch + verify the tarball and unpack
+	// into a tempdir. If it's already a directory, use it as-is. The
+	// rest of this function operates only on the directory.
+	bundleDir, err := resolveInstallTarget(target)
+	if err != nil {
+		fatalHint("invalid_argument",
+			"the argument must be either a catalogue ID (`pilotctl appstore catalogue` to list) or a path to a bundle dir containing manifest.json",
+			"%v", err)
 	}
 
 	// 1. Validate the bundle — same shape as verify. Reusing the
