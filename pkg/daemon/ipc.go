@@ -151,7 +151,7 @@ type ipcConn struct {
 
 	// peerPID is the PID of the connected process (Linux SO_PEERCRED,
 	// 0 on Darwin/other). Used for IPC whitelist matching (PILOT-346).
-	peerPID    int32
+	peerPID     int32
 	whitelisted bool // bypasses per-client dial quota (PILOT-346)
 
 	// dialCancels holds cancel funcs for in-flight DialConnection calls
