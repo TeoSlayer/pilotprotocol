@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
 	// interfaces.
+	"github.com/pilot-protocol/app-store/plugin/appstore"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
 	"github.com/pilot-protocol/handshake"
@@ -258,6 +260,28 @@ func main() {
 		log.Fatalf("register webhook: %v", err)
 	}
 	d.RegisterWebhookManager(webhookManagerAdapter{svc: webhookSvc})
+
+	// App store — ALWAYS on. The supervisor scans <home>/.pilot/apps
+	// every 2s, verifies each installed bundle's manifest signature
+	// against its embedded publisher, and spawns the app's binary under
+	// a child supervisor with an IPC socket the daemon brokers to. No
+	// flag gates this: apps are installed individually (via
+	// `pilotctl appstore install`), but the supervisor is part of every
+	// daemon process from now on.
+	//
+	// Default-on rationale: pilotctl appstore install/list/call all
+	// assume the supervisor is running. Gating it behind a flag would
+	// silently break those commands on hosts that forgot to enable it.
+	appstoreInstallRoot := ""
+	if home, herr := os.UserHomeDir(); herr == nil {
+		appstoreInstallRoot = filepath.Join(home, ".pilot", "apps")
+	}
+	if err := rt.Register(&appstoreAdapter{svc: appstore.NewService(appstore.Config{
+		InstallRoot:    appstoreInstallRoot,
+		RescanInterval: 2 * time.Second,
+	})}); err != nil {
+		log.Fatalf("register appstore: %v", err)
+	}
 
 	// T4.1: subscribe plugins to the bus BEFORE Daemon.Start so the
 	// webhook plugin captures the node.registered / agent.registered

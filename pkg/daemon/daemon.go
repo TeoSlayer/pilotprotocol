@@ -71,12 +71,12 @@ var (
 type Config struct {
 	RegistryAddr        string
 	BeaconAddr          string
-	ListenAddr          string // UDP listen address for tunnel traffic
-	SocketPath          string // Unix socket path for IPC
+	ListenAddr          string   // UDP listen address for tunnel traffic
+	SocketPath          string   // Unix socket path for IPC
 	IPCWhitelist        []string // process names (comm) trusted to bypass per-client dial quota (PILOT-346)
-	Encrypt             bool   // enable tunnel-layer encryption (X25519 + AES-256-GCM)
-	RegistryTLS         bool   // use TLS for registry connection
-	RegistryFingerprint string // hex SHA-256 fingerprint for TLS cert pinning
+	Encrypt             bool     // enable tunnel-layer encryption (X25519 + AES-256-GCM)
+	RegistryTLS         bool     // use TLS for registry connection
+	RegistryFingerprint string   // hex SHA-256 fingerprint for TLS cert pinning
 	// RegistryTrust selects which trust store verifies the registry's
 	// certificate when RegistryTLS=true. "pinned" (default) requires
 	// RegistryFingerprint and is what production deploys use today.
@@ -251,11 +251,11 @@ type Daemon struct {
 	// rotation eliminates the shared-buffer hazard without changing the
 	// existing RLock/RUnlock pattern for non-rotating Sign callers.
 	rotateKeyMu sync.Mutex
-	regConn        *registry.Client
-	tunnels        *TunnelManager
-	ports          *PortManager
-	ipc            *IPCServer
-	handshakes     HandshakeService
+	regConn     *registry.Client
+	tunnels     *TunnelManager
+	ports       *PortManager
+	ipc         *IPCServer
+	handshakes  HandshakeService
 
 	// handshakeInFlight tracks peers with an outbound trust-handshake
 	// currently in progress on this daemon. Per-peer keyed
