@@ -63,6 +63,10 @@ func cmdAppStore(args []string) {
 		cmdAppStoreVerify(args[1:])
 	case "install":
 		cmdAppStoreInstall(args[1:])
+	case "gen-key":
+		cmdAppStoreGenKey(args[1:])
+	case "sign":
+		cmdAppStoreSign(args[1:])
 	case "restart":
 		cmdAppStoreRestart(args[1:])
 	case "caps":
@@ -73,7 +77,7 @@ func cmdAppStore(args []string) {
 		appStoreHelp()
 	default:
 		fatalHint("invalid_argument",
-			"available: list, status, audit, uninstall, verify, install, restart, caps, actions, call",
+			"available: list, status, audit, uninstall, verify, install, gen-key, sign, restart, caps, actions, call",
 			"unknown appstore subcommand: %s", args[0])
 	}
 }
@@ -97,6 +101,9 @@ Usage:
   pilotctl appstore verify <bundle-dir>      sha256-check a pre-install bundle against its manifest
   pilotctl appstore install <bundle-dir> [--force]
                                              stage + atomically place a verified bundle into the install root
+  pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
+  pilotctl appstore sign --key <key-file> <manifest>
+                                             sign (or re-sign) a manifest's store.signature so the supervisor accepts it
   pilotctl appstore restart <id>             ask the daemon to clear crash-loop suspension and respawn this app
   pilotctl appstore caps <id>                show the manifest's spend caps and current rolling-window usage
   pilotctl appstore actions [--tail N] [--event NAME]
