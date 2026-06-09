@@ -4,6 +4,8 @@ github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
 github.com/pilot-protocol/app-store v0.2.0 h1:/SbLPa2dKnvhv0ITeaYMZw/2KXXxWDRuYUdM5z9eyKk=
 github.com/pilot-protocol/app-store v0.2.0/go.mod h1:f0umeJxswDG8/CctHpSFMlr5GLtE2GlPKkijIQErZuc=
+github.com/pilot-protocol/app-store v1.0.0-rc1.0.20260609015400-d02db7da3924 h1:pUK7tOsFIqYr2vwcfKT4t81+ntuVDbyffajkJa+2A3U=
+github.com/pilot-protocol/app-store v1.0.0-rc1.0.20260609015400-d02db7da3924/go.mod h1:f0umeJxswDG8/CctHpSFMlr5GLtE2GlPKkijIQErZuc=
 github.com/pilot-protocol/beacon v0.2.5 h1:5+pkSPoA35r+u4Hfrph/ZfOltOyiy8lh1sCfK5XqXKs=
 github.com/pilot-protocol/beacon v0.2.5/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
 github.com/pilot-protocol/common v0.4.8 h1:eS2Bc+XcZWJ/qhwwOZbXwIWhtNdOijuoEp716kQE+/c=
