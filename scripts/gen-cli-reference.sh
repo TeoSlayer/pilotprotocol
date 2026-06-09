@@ -25,7 +25,12 @@ TMP="$(mktemp)"
     echo '> Source: [`cmd/pilotctl/main.go`](../cmd/pilotctl/main.go).'
     echo ''
     echo '```text'
-    ./pilotctl --help
+    # pilotctl --help writes to stderr (so the same banner appears
+    # for `pilotctl <bad-flag>`) and exits non-zero by Go's flag
+    # convention. Capture stderr → stdout so it lands in the doc,
+    # and swallow the exit code so `set -euo pipefail` doesn't
+    # abort before the diff step runs.
+    ./pilotctl --help 2>&1 || true
     echo '```'
 } > "$TMP"
 
