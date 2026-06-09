@@ -114,8 +114,10 @@ Usage:
   pilotctl appstore caps <id>                show the manifest's spend caps and current rolling-window usage
   pilotctl appstore actions [--tail N] [--event NAME]
                                              show the pilotctl-side action log (install/uninstall — survives app removal)
-  pilotctl appstore call <id> <method> [json-args]
+  pilotctl appstore call <id> <method> [json-args] [--timeout 2m]
                                              dispatch an IPC call into an app
+                                             (--timeout / $PILOT_APPSTORE_CALL_TIMEOUT;
+                                              default 120s — raise for slow methods)
 
 Install root is taken from $PILOT_APPSTORE_ROOT or ~/.pilot/apps.
 `
@@ -1894,10 +1896,41 @@ func cmdAppStoreActions(args []string) {
 
 // ── call ───────────────────────────────────────────────────────────────
 
+// callTimeoutDefault bounds how long `appstore call` waits for an app's reply.
+// It must comfortably exceed the slowest legitimate method (e.g. multi-step
+// research / cold LLM synthesis), which can run tens of seconds. Override per
+// call with --timeout, or globally with $PILOT_APPSTORE_CALL_TIMEOUT.
+const callTimeoutDefault = 120 * time.Second
+
 func cmdAppStoreCall(args []string) {
+	// Resolve the reply timeout (env default, then --timeout flag) and strip
+	// the flag from the positional args so <app-id> <method> [json] still parse.
+	callTimeout := callTimeoutDefault
+	if v := os.Getenv("PILOT_APPSTORE_CALL_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			callTimeout = d
+		}
+	}
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--timeout" && i+1 < len(args):
+			if d, err := time.ParseDuration(args[i+1]); err == nil && d > 0 {
+				callTimeout = d
+			}
+			i++
+		case strings.HasPrefix(args[i], "--timeout="):
+			if d, err := time.ParseDuration(strings.TrimPrefix(args[i], "--timeout=")); err == nil && d > 0 {
+				callTimeout = d
+			}
+		default:
+			pos = append(pos, args[i])
+		}
+	}
+	args = pos
 	if len(args) < 2 {
 		fatalHint("invalid_argument",
-			"usage: pilotctl appstore call <app-id> <method> [json-args]",
+			"usage: pilotctl appstore call <app-id> <method> [json-args] [--timeout 2m]",
 			"missing arguments")
 	}
 	appID := args[0]
@@ -1920,7 +1953,7 @@ func cmdAppStoreCall(args []string) {
 			"socket %s not present: %v", sockPath, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dialer := &net.Dialer{Timeout: 3 * time.Second}
 	conn, err := dialer.DialContext(ctx, "unix", sockPath)
@@ -1930,7 +1963,9 @@ func cmdAppStoreCall(args []string) {
 			"dial %s: %v", sockPath, err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+	// Reply deadline (not the dial): bounds the whole call so a slow method
+	// (research, cold LLM) isn't cut off. Tune with --timeout / env.
+	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	// args is a JSON value, but ipc.Call takes a Go value. Marshal it
 	// back into a json.RawMessage so the wrapper round-trips cleanly.
