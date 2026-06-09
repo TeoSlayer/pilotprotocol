@@ -102,9 +102,11 @@ Usage:
   pilotctl appstore uninstall <id> --yes     remove an installed app from the install root
   pilotctl appstore verify <bundle-dir>      sha256-check a pre-install bundle against its manifest
   pilotctl appstore catalogue                list apps available for one-command install
-  pilotctl appstore install <app-id-or-dir> [--force]
+  pilotctl appstore install <app-id> [--force]
                                              install by catalogue ID (fetches + verifies + extracts)
-                                             OR by local bundle directory (offline / dev path)
+  pilotctl appstore install <bundle-dir> --local [--force]
+                                             sideload a local bundle (sandbox: fs.read/fs.write
+                                             under $APP, audit.log; no net, no key.sign, no hooks)
   pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
   pilotctl appstore sign --key <key-file> <manifest>
                                              sign (or re-sign) a manifest's store.signature so the supervisor accepts it
