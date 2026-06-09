@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-08T09:25:00Z",
+  "updated_at": "2026-06-09T23:30:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -8,6 +8,13 @@
       "description": "On-overlay USDC payments \u2014 multichain (Base + Ethereum + Polygon).",
       "bundle_url": "https://github.com/TeoSlayer/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54"
+    },
+    {
+      "id": "io.pilot.cosift",
+      "version": "0.1.2",
+      "description": "cosift search / answer / research over the public web corpus (with cosift.help discovery).",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/cosift-v0.1.2/io.pilot.cosift-0.1.2.tar.gz",
+      "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0"
     }
   ]
 }
