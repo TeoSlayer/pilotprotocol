@@ -102,9 +102,11 @@ Usage:
   pilotctl appstore uninstall <id> --yes     remove an installed app from the install root
   pilotctl appstore verify <bundle-dir>      sha256-check a pre-install bundle against its manifest
   pilotctl appstore catalogue                list apps available for one-command install
-  pilotctl appstore install <app-id-or-dir> [--force]
+  pilotctl appstore install <app-id> [--force]
                                              install by catalogue ID (fetches + verifies + extracts)
-                                             OR by local bundle directory (offline / dev path)
+  pilotctl appstore install <bundle-dir> --local [--force]
+                                             sideload a local bundle (sandbox: fs.read/fs.write
+                                             under $APP, audit.log; no net, no key.sign, no hooks)
   pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
   pilotctl appstore sign --key <key-file> <manifest>
                                              sign (or re-sign) a manifest's store.signature so the supervisor accepts it
@@ -145,6 +147,7 @@ type appListEntry struct {
 	BinaryPresent   bool     `json:"binary_present"`
 	Suspended       bool     `json:"suspended,omitempty"`
 	ManifestValid   bool     `json:"manifest_valid"`
+	Sideloaded      bool     `json:"sideloaded,omitempty"`
 }
 
 func cmdAppStoreList(_ []string) {
@@ -185,6 +188,7 @@ func cmdAppStoreList(_ []string) {
 		// budget is spent. Detecting it from disk lets list report
 		// "suspended" without daemon IPC.
 		_, suspErr := os.Stat(filepath.Join(dir, ".suspended"))
+		_, sideErr := os.Stat(filepath.Join(dir, manifest.SideloadMarkerName))
 		// Run the manifest's semantic Validate too — an app the
 		// supervisor will silently skip should be VISIBLY broken in
 		// list output, not look like a normal "stopped" app.
@@ -199,6 +203,7 @@ func cmdAppStoreList(_ []string) {
 			BinaryPresent:   binErr == nil,
 			Suspended:       suspErr == nil,
 			ManifestValid:   validationOK,
+			Sideloaded:      sideErr == nil,
 		})
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
@@ -226,7 +231,11 @@ func cmdAppStoreList(_ []string) {
 			state = "ready"
 		}
 		fmt.Printf("  %s\n", a.ID)
-		fmt.Printf("    version:  %s (manifest v%d, %s)\n", a.AppVersion, a.ManifestVersion, a.Protection)
+		versionLine := fmt.Sprintf("%s (manifest v%d, %s)", a.AppVersion, a.ManifestVersion, a.Protection)
+		if a.Sideloaded {
+			versionLine += " [sideloaded]"
+		}
+		fmt.Printf("    version:  %s\n", versionLine)
 		fmt.Printf("    state:    %s\n", state)
 		if len(a.Methods) > 0 {
 			fmt.Printf("    methods:  %v\n", a.Methods)
@@ -971,31 +980,44 @@ type installReport struct {
 func cmdAppStoreInstall(args []string) {
 	if len(args) < 1 {
 		fatalHint("invalid_argument",
-			"usage: pilotctl appstore install <app-id-or-dir> [--force]",
+			"usage: pilotctl appstore install <app-id-or-dir> [--force] [--local]",
 			"missing app id or bundle dir")
 	}
 	target := args[0]
 	force := false
+	allowLocal := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--force", "-f":
 			force = true
+		case "--local":
+			// Required acknowledgement when installing from a local
+			// directory. Catalogue installs ignore this; path installs
+			// without --local fail closed so a typo'd app id (which
+			// happens to also exist as a directory in the cwd) can't
+			// silently sideload an unsigned bundle.
+			allowLocal = true
 		default:
 			fatalHint("invalid_argument",
-				"available flags: --force",
+				"available flags: --force, --local",
 				"unknown install flag: %s", args[i])
 		}
 	}
 
-	// Resolve `target` to a local bundle dir. If it's a catalogue ID
-	// (e.g. "io.pilot.wallet"), fetch + verify the tarball and unpack
-	// into a tempdir. If it's already a directory, use it as-is. The
-	// rest of this function operates only on the directory.
-	bundleDir, err := resolveInstallTarget(target)
+	// Resolve `target` to a local bundle dir and a source tag.
+	// Catalogue path = signed, runs the standard signature gate.
+	// Local path = sideload, requires --local AND must satisfy the
+	// sideload allow-list before the supervisor will load it.
+	bundleDir, source, err := resolveInstallTarget(target)
 	if err != nil {
 		fatalHint("invalid_argument",
 			"the argument must be either a catalogue ID (`pilotctl appstore catalogue` to list) or a path to a bundle dir containing manifest.json",
 			"%v", err)
+	}
+	if source == installSourceLocal && !allowLocal {
+		fatalHint("invalid_argument",
+			"local sideloads carry no catalogue signature; pass --local to confirm you trust this bundle's source. The supervisor will clamp the manifest to a small allow-list (fs.read/fs.write under $APP, audit.log). No net.dial, key.sign, ipc.call to other apps, or daemon hooks.",
+			"refusing to install local path %q without --local", target)
 	}
 
 	// 1. Validate the bundle — same shape as verify. Reusing the
@@ -1025,6 +1047,18 @@ func cmdAppStoreInstall(args []string) {
 		fatalHint("invalid_argument",
 			"refusing to install a manifest the supervisor will reject; fix the listed issues and re-run",
 			"manifest validation: %s", validationErrSummary(errs))
+	}
+	if source == installSourceLocal {
+		// Same allow-list the supervisor enforces at scan time. We
+		// check it here too so users find out at install time, not at
+		// the next supervisor poll, what they need to strip from the
+		// manifest. Failing closed: no marker is planted unless the
+		// manifest passes.
+		if err := manifest.EnforceSideloadPolicy(m); err != nil {
+			fatalHint("invalid_argument",
+				"sideloaded apps may only declare audit.log, fs.read $APP/*, fs.write $APP/*. Remove the offending grant or use the catalogue install path for a reviewed app.",
+				"%v", err)
+		}
 	}
 	srcBin := filepath.Join(bundleDir, m.Binary.Path)
 	if _, err := os.Stat(srcBin); err != nil {
@@ -1090,6 +1124,21 @@ func cmdAppStoreInstall(args []string) {
 		fatalHint("integrity_error",
 			"the staged copy does not match the bundle — possible disk-level corruption",
 			"staged binary sha256 mismatch: manifest=%s staged=%s", m.Binary.SHA256, got)
+	}
+
+	if source == installSourceLocal {
+		// Plant the sentinel before the atomic rename so the moment
+		// the dir appears under InstallRoot it's already tagged
+		// sideloaded — there's no window where the supervisor could
+		// scan a sideloaded dir and treat it as catalogue-trusted.
+		// 0o400: read-only to the owning user; the file's mere
+		// existence is the signal, no content needed.
+		markerPath := filepath.Join(stagingDir, manifest.SideloadMarkerName)
+		if err := os.WriteFile(markerPath, nil, 0o400); err != nil {
+			_ = os.RemoveAll(stagingDir)
+			fatalHint("io_error", "check install root permissions",
+				"write sideload marker: %v", err)
+		}
 	}
 
 	// 4. Atomic swap. Rename of directories is atomic on Linux/macOS
@@ -1162,6 +1211,11 @@ func cmdAppStoreInstall(args []string) {
 	}
 	fmt.Printf("installed %s v%s (manifest v%d) → %s\n",
 		report.AppID, report.AppVersion, report.ManifestVersion, report.InstalledTo)
+	if source == installSourceLocal {
+		fmt.Println("mode: SIDELOADED — manifest-level allow-list applied (audit.log, fs.read/$APP, fs.write/$APP).")
+		fmt.Println("      this is NOT an OS sandbox: a malicious binary that ignores its manifest can still")
+		fmt.Println("      misbehave at the syscall level. Only install paths from sources you trust.")
+	}
 	fmt.Println("note: the daemon rescans the install root periodically —")
 	fmt.Println("      this app will be picked up within ~30s (no daemon restart needed)")
 }

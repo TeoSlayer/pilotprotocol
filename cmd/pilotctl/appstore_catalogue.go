@@ -133,11 +133,30 @@ func cmdAppStoreCatalogue(_ []string) {
 	}
 }
 
+// installSource tags how a bundle reached the install command.
+// The install path uses this to switch between catalogue-signed and
+// sideloaded trust regimes.
+type installSource int
+
+const (
+	// installSourceCatalogue: target matched a catalogue entry; the
+	// bundle was downloaded and sha-verified against the catalogue
+	// pin. Goes through the standard signed-manifest install.
+	installSourceCatalogue installSource = iota
+	// installSourceLocal: target was a local directory path. No
+	// publisher signature is expected; the install command applies
+	// the sideload allow-list policy and plants `.sideloaded` so the
+	// supervisor uses the sideloaded trust regime at runtime.
+	installSourceLocal
+)
+
 // resolveInstallTarget turns the user's `target` arg into a local
-// bundle directory the existing install code can consume. If `target`
-// matches a catalogue ID, the catalogue entry is fetched, verified,
-// and unpacked. Otherwise `target` is treated as a local path.
-func resolveInstallTarget(target string) (string, error) {
+// bundle directory the existing install code can consume, plus a
+// source tag indicating which trust regime the bundle came from. If
+// `target` matches a catalogue ID, the catalogue entry is fetched,
+// verified, and unpacked. Otherwise `target` is treated as a local
+// path and the caller is expected to apply sideload policy.
+func resolveInstallTarget(target string) (string, installSource, error) {
 	c, err := loadCatalogue()
 	if err != nil {
 		// Catalogue-lookup failure doesn't preclude a local-dir install
@@ -148,15 +167,16 @@ func resolveInstallTarget(target string) (string, error) {
 	} else {
 		for _, e := range c.Apps {
 			if target == e.ID {
-				return fetchAndUnpackBundle(e)
+				dir, err := fetchAndUnpackBundle(e)
+				return dir, installSourceCatalogue, err
 			}
 		}
 	}
 	info, err := os.Stat(target)
 	if err == nil && info.IsDir() {
-		return target, nil
+		return target, installSourceLocal, nil
 	}
-	return "", fmt.Errorf("not a catalogue ID or a bundle dir: %q (try `pilotctl appstore catalogue` to list installable apps)", target)
+	return "", installSourceLocal, fmt.Errorf("not a catalogue ID or a bundle dir: %q (try `pilotctl appstore catalogue` to list installable apps)", target)
 }
 
 // fetchAndUnpackBundle downloads the catalogue entry's tarball,

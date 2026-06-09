@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pilot-protocol/app-store/pkg/manifest"
 )
 
 // minimalManifestJSON returns a manifest that passes JSON Parse but
@@ -54,7 +56,7 @@ func validManifestJSON(id, binSHA string) []byte {
 		"grants": []any{
 			map[string]any{
 				"cap":    "fs.read",
-				"target": "/tmp/data",
+				"target": "$APP/data",
 			},
 		},
 		"protection": "shareable",
@@ -511,7 +513,9 @@ func TestCmdAppStoreInstallHappyPath(t *testing.T) {
 	prev := jsonOutput
 	defer func() { jsonOutput = prev }()
 	jsonOutput = true
-	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir}) })
+	// Local-path installs now require --local; without it the install
+	// command refuses (see TestCmdAppStoreInstallRefusesLocalPathWithoutFlag).
+	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir, "--local"}) })
 	var rpt installReport
 	if err := json.Unmarshal([]byte(out), &rpt); err != nil {
 		t.Fatalf("parse: %v\n%s", err, out)
@@ -519,13 +523,17 @@ func TestCmdAppStoreInstallHappyPath(t *testing.T) {
 	if rpt.AppID != "io.test.install" {
 		t.Errorf("AppID = %q", rpt.AppID)
 	}
-	// App should live under root/<id>/
+	// App should live under root/<id>/ and carry the .sideloaded marker
+	// — local-path installs are sideloads by definition.
 	installedPath := filepath.Join(root, "io.test.install")
 	if _, err := os.Stat(filepath.Join(installedPath, "manifest.json")); err != nil {
 		t.Errorf("manifest not placed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(installedPath, "bin", "app")); err != nil {
 		t.Errorf("binary not placed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installedPath, manifest.SideloadMarkerName)); err != nil {
+		t.Errorf("sideload marker not planted: %v", err)
 	}
 }
 
@@ -537,10 +545,10 @@ func TestCmdAppStoreInstallRefusesDuplicate(t *testing.T) {
 	defer func() { jsonOutput = prev }()
 	jsonOutput = true
 	// First install OK.
-	_ = captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir}) })
+	_ = captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir, "--local"}) })
 	// Second install would fatalCode — can't catch os.Exit inline. But
 	// install with --force should succeed.
-	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir, "--force"}) })
+	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir, "--force", "--local"}) })
 	var rpt installReport
 	if err := json.Unmarshal([]byte(out), &rpt); err != nil {
 		t.Fatalf("force install parse: %v\n%s", err, out)
@@ -699,8 +707,8 @@ func TestCmdAppStoreInstallTextMode(t *testing.T) {
 	prev := jsonOutput
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
-	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir}) })
-	for _, frag := range []string{"installed", "io.test.install.text", "daemon rescans"} {
+	out := captureStdout(t, func() { cmdAppStoreInstall([]string{bundleDir, "--local"}) })
+	for _, frag := range []string{"installed", "io.test.install.text", "daemon rescans", "SIDELOADED"} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("missing %q in: %s", frag, out)
 		}
