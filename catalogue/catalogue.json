@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-06-09T19:00:00Z",
+  "updated_at": "2026-06-09T20:30:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -11,10 +11,10 @@
     },
     {
       "id": "io.pilot.cosift",
-      "version": "0.1.1",
-      "description": "cosift search / answer / research over the public web corpus (no config needed).",
-      "bundle_url": "https://github.com/TeoSlayer/pilotprotocol/releases/download/cosift-v0.1.1/io.pilot.cosift-0.1.1.tar.gz",
-      "bundle_sha256": "b607b5ef2f48f356bfb00ba680cefe4982f65dc992a43049e8f7e944986e7841"
+      "version": "0.1.2",
+      "description": "cosift search / answer / research over the public web corpus (with cosift.help discovery).",
+      "bundle_url": "https://github.com/TeoSlayer/pilotprotocol/releases/download/cosift-v0.1.2/io.pilot.cosift-0.1.2.tar.gz",
+      "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0"
     }
   ]
 }
