@@ -7,6 +7,27 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.11.0] - 2026-06-09
+
+### Added
+- **Local app sideloading — `pilotctl appstore install <dir> --local`.** Install
+  an app bundle directly from a local directory during development, without
+  publishing it to the signed catalogue. Sideloaded apps run under a clamped
+  grant set (filesystem under `$APP` and `audit.log` only — no `net.dial`, no
+  inter-app `ipc.call`, no daemon hooks), so an unreviewed local bundle cannot
+  reach the network or other apps. Catalogue installs are unaffected and keep
+  the grants their signed manifest declares. (#240)
+
+### Fixed
+- **`pilotctl appstore call` no longer times out on legitimately slow app
+  methods.** The command hard-coded an 8-second socket read deadline, which cut
+  off any method that ran longer — multi-step research, cold LLM synthesis —
+  with a spurious `i/o timeout` even though the app and its backend had
+  completed normally. The reply deadline now defaults to **120s** and is
+  configurable per call with `--timeout <duration>` or globally via
+  `$PILOT_APPSTORE_CALL_TIMEOUT`; the dial timeout for the local socket stays
+  short, so fast calls still fail fast. (#244)
+
 ## [1.10.7] - 2026-06-06
 
 ### Fixed
