@@ -487,6 +487,11 @@ func TestCmdSendMessageText(t *testing.T) {
 	if data["target"] == nil {
 		t.Errorf("missing target")
 	}
+	// "to" carries the resolved destination address so --json consumers
+	// learn what a hostname argument resolved to.
+	if to, _ := data["to"].(string); to != "0:0000.0000.002A" {
+		t.Errorf("to = %q, want resolved address 0:0000.0000.002A", to)
+	}
 }
 
 func TestCmdSendMessageJSON(t *testing.T) {
@@ -609,6 +614,9 @@ func TestCmdPingJSON(t *testing.T) {
 	data := env["data"].(map[string]interface{})
 	if data["target"] == nil {
 		t.Errorf("missing target: %v", data)
+	}
+	if to, _ := data["to"].(string); to != "0:0000.0000.002A" {
+		t.Errorf("to = %q, want resolved address 0:0000.0000.002A", to)
 	}
 	results := data["results"].([]interface{})
 	if len(results) != 1 {

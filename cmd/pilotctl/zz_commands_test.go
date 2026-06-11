@@ -189,7 +189,7 @@ func TestCmdContextEmitsJSON(t *testing.T) {
 	defer func() { jsonOutput = prev }()
 	jsonOutput = true
 
-	out := captureStdout(t, cmdContext)
+	out := captureStdout(t, func() { cmdContext(nil) })
 	var env map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &env); err != nil {
 		t.Fatalf("envelope: %v", err)
@@ -218,7 +218,7 @@ func TestCmdContextPrettyText(t *testing.T) {
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
 
-	out := captureStdout(t, cmdContext)
+	out := captureStdout(t, func() { cmdContext(nil) })
 	// Pretty mode prints an indented JSON map; both modes should mention
 	// some core commands.
 	if !strings.Contains(out, "send-message") {
@@ -274,5 +274,70 @@ func TestRedactPeerEndpointsDeepNesting(t *testing.T) {
 	}
 	if l2["id"] != 99 {
 		t.Errorf("l2.id preserved? got %v", l2["id"])
+	}
+}
+
+// --- context <command>: single-entry lookup ---
+
+func TestCmdContextSingleCommand(t *testing.T) {
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+
+	out := captureStdout(t, func() { cmdContext([]string{"send-message"}) })
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("envelope: %v\n%s", err, out)
+	}
+	data, ok := env["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("data not a map: %v", env)
+	}
+	// Only the one entry — args/description/returns, no catalog keys.
+	for _, key := range []string{"args", "description", "returns"} {
+		if _, ok := data[key]; !ok {
+			t.Errorf("entry missing %q: %v", key, data)
+		}
+	}
+	for _, absent := range []string{"commands", "extras", "version"} {
+		if _, ok := data[absent]; ok {
+			t.Errorf("single-command lookup leaked catalog key %q", absent)
+		}
+	}
+}
+
+func TestCmdContextMultiWordCommand(t *testing.T) {
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+
+	out := captureStdout(t, func() { cmdContext([]string{"daemon", "start"}) })
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("envelope: %v\n%s", err, out)
+	}
+	data := env["data"].(map[string]interface{})
+	desc, _ := data["description"].(string)
+	if !strings.Contains(desc, "daemon") {
+		t.Errorf("daemon start entry description = %q", desc)
+	}
+}
+
+func TestCmdContextUnknownCommand(t *testing.T) {
+	t.Parallel()
+	stdout, stderr, code := runCLI(t, []string{"--json", "context", "no-such-cmd"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit, stdout=%s", stdout)
+	}
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(stderr), &env); err != nil {
+		t.Fatalf("stderr not JSON: %v\n%s", err, stderr)
+	}
+	if env["code"] != "not_found" {
+		t.Errorf("code = %v, want not_found", env["code"])
+	}
+	msg, _ := env["message"].(string)
+	if !strings.Contains(msg, "no-such-cmd") || !strings.Contains(msg, "send-message") {
+		t.Errorf("error should name the input and list valid commands: %s", msg)
 	}
 }

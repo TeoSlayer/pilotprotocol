@@ -166,7 +166,7 @@ func TestCmdReceivedWithFilesTextMode(t *testing.T) {
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
 	out := captureStdout(t, func() { cmdReceived(nil) })
-	for _, frag := range []string{"Received files", "report.pdf", "total"} {
+	for _, frag := range []string{"Received files — 1", "report.pdf", "--clear"} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("missing %q in: %s", frag, out)
 		}
@@ -291,5 +291,138 @@ func TestCmdReceivedClear(t *testing.T) {
 	data := env["data"].(map[string]interface{})
 	if data["cleared"] != float64(2) {
 		t.Errorf("cleared = %v", data["cleared"])
+	}
+}
+
+// --- received: --limit / --since (text-mode bounding + age filter) ---
+
+// writeRecvFiles drops n files into ~/.pilot/received with mtimes spaced
+// one hour apart, oldest first (f0 = oldest). Returns the dir.
+func writeRecvFiles(t *testing.T, home string, n int) string {
+	t.Helper()
+	dir := filepath.Join(home, ".pilot", "received")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < n; i++ {
+		p := filepath.Join(dir, "f"+string(rune('0'+i))+".bin")
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mt := time.Now().Add(-time.Duration(n-i) * time.Hour)
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestCmdReceivedLimitTextMode(t *testing.T) {
+	tmp := withTempHomeFull(t)
+	writeRecvFiles(t, tmp, 4)
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+	out := captureStdout(t, func() { cmdReceived([]string{"--limit", "2"}) })
+	if !strings.Contains(out, "Received files — 4") {
+		t.Errorf("expected total 4 in header: %s", out)
+	}
+	if !strings.Contains(out, "showing 2 newest") {
+		t.Errorf("expected 'showing 2 newest': %s", out)
+	}
+	// Newest two are f3 and f2; oldest two must be elided.
+	for _, want := range []string{"f3.bin", "f2.bin"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q: %s", want, out)
+		}
+	}
+	for _, not := range []string{"f1.bin", "f0.bin"} {
+		if strings.Contains(out, not) {
+			t.Errorf("unexpected %q (beyond limit): %s", not, out)
+		}
+	}
+}
+
+// JSON stays unbounded unless --limit is explicit (back-compat, mirrors
+// cmdTrust). "total"/"shown" are always present.
+func TestCmdReceivedJSONUnboundedByDefault(t *testing.T) {
+	tmp := withTempHomeFull(t)
+	writeRecvFiles(t, tmp, 12)
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	out := captureStdout(t, func() { cmdReceived(nil) })
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	data := env["data"].(map[string]interface{})
+	if data["total"] != float64(12) || data["shown"] != float64(12) {
+		t.Errorf("total=%v shown=%v, want 12/12 (JSON unbounded by default)", data["total"], data["shown"])
+	}
+	// Explicit --limit bounds JSON too.
+	out = captureStdout(t, func() { cmdReceived([]string{"--limit", "3"}) })
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	data = env["data"].(map[string]interface{})
+	if data["total"] != float64(12) || data["shown"] != float64(3) {
+		t.Errorf("total=%v shown=%v, want 12/3 with explicit --limit", data["total"], data["shown"])
+	}
+}
+
+func TestCmdReceivedSince(t *testing.T) {
+	tmp := withTempHomeFull(t)
+	writeRecvFiles(t, tmp, 4) // mtimes: 4h, 3h, 2h, 1h ago
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	// 2.5h window → f2 (2h) and f3 (1h) match.
+	out := captureStdout(t, func() { cmdReceived([]string{"--since", "150m"}) })
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	data := env["data"].(map[string]interface{})
+	if data["total"] != float64(2) {
+		t.Errorf("total = %v, want 2 (files within 150m)", data["total"])
+	}
+	files := data["files"].([]interface{})
+	first := files[0].(map[string]interface{})
+	if first["name"] != "f3.bin" {
+		t.Errorf("newest-first violated: first = %v", first["name"])
+	}
+}
+
+func TestCmdReceivedSinceInvalid(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runCLI(t, []string{"received", "--since", "not-a-time"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit for bad --since")
+	}
+	if !strings.Contains(stderr, "--since") {
+		t.Errorf("expected --since mention in stderr: %s", stderr)
+	}
+}
+
+func TestCmdReceivedClearBefore(t *testing.T) {
+	tmp := withTempHomeFull(t)
+	dir := writeRecvFiles(t, tmp, 4) // 4h, 3h, 2h, 1h ago
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	// Only files older than 2.5h (f0, f1) get cleared.
+	out := captureStdout(t, func() { cmdReceived([]string{"--clear", "--before", "150m"}) })
+	var env map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	data := env["data"].(map[string]interface{})
+	if data["cleared"] != float64(2) || data["remaining"] != float64(2) {
+		t.Errorf("cleared=%v remaining=%v, want 2/2", data["cleared"], data["remaining"])
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files left, got %d", len(entries))
 	}
 }

@@ -75,35 +75,43 @@ func TestCmdInfoText(t *testing.T) {
 	out := captureStdout(t, func() {
 		withText(func() { cmdInfo(nil) })
 	})
-	if !strings.Contains(out, "Pilot Protocol Daemon") {
+	if !strings.Contains(out, "pilot-daemon") {
 		t.Errorf("missing banner: %s", out)
 	}
-	if !strings.Contains(out, "Version:") {
-		t.Errorf("missing Version line: %s", out)
+	if !strings.Contains(out, "v1.7.1") {
+		t.Errorf("missing version: %s", out)
 	}
-	if !strings.Contains(out, "Node ID:     42") {
-		t.Errorf("missing Node ID: %s", out)
+	if !strings.Contains(out, "node 42") {
+		t.Errorf("missing node id: %s", out)
 	}
-	if !strings.Contains(out, "Hostname:    alice") {
-		t.Errorf("missing Hostname: %s", out)
+	if !strings.Contains(out, "alice") {
+		t.Errorf("missing hostname: %s", out)
 	}
-	if !strings.Contains(out, "Uptime:      01:02:05") {
+	if !strings.Contains(out, "up 1h2m") {
 		t.Errorf("missing uptime: %s", out)
 	}
-	if !strings.Contains(out, "Encryption:  enabled") {
-		t.Errorf("missing encryption line: %s", out)
+	if !strings.Contains(out, "5 peers (4 encrypted · 1 relay · 4 direct)") {
+		t.Errorf("missing peer breakdown: %s", out)
 	}
-	if !strings.Contains(out, "Beacon:") {
+	if !strings.Contains(out, "2 pending handshake(s)") || !strings.Contains(out, "pilotctl pending") {
+		t.Errorf("missing pending handshake warning with hint: %s", out)
+	}
+	if !strings.Contains(out, "beacon 34.71.57.205:9001") {
 		t.Errorf("missing beacon line: %s", out)
 	}
-	if !strings.Contains(out, "Identity:    persistent") {
+	if !strings.Contains(out, "Ed25519 01234567…") || !strings.Contains(out, "persistent") {
 		t.Errorf("missing identity line: %s", out)
 	}
-	if !strings.Contains(out, "Networks:    2") {
-		t.Errorf("missing networks count: %s", out)
+	if !strings.Contains(out, "networks") || !strings.Contains(out, "5:0000.0000.002A") {
+		t.Errorf("missing networks line: %s", out)
 	}
-	if !strings.Contains(out, "ESTABLISHED") {
-		t.Errorf("missing conn list: %s", out)
+	// Connections are summarized, not dumped — detail lives in
+	// `pilotctl connections`.
+	if !strings.Contains(out, "3 connections") || !strings.Contains(out, "pilotctl connections") {
+		t.Errorf("missing connections summary: %s", out)
+	}
+	if !strings.Contains(out, "↑ 1.0 MB") || !strings.Contains(out, "↓ 512.0 KB") {
+		t.Errorf("missing traffic line: %s", out)
 	}
 }
 
@@ -139,10 +147,10 @@ func TestCmdInfoEphemeralIdentity(t *testing.T) {
 	out := captureStdout(t, func() {
 		withText(func() { cmdInfo(nil) })
 	})
-	if !strings.Contains(out, "Identity:    ephemeral") {
+	if !strings.Contains(out, "ephemeral (not persisted)") {
 		t.Errorf("missing ephemeral identity: %s", out)
 	}
-	if !strings.Contains(out, "Encryption:  disabled") {
+	if !strings.Contains(out, "encryption disabled") {
 		t.Errorf("missing disabled encryption: %s", out)
 	}
 }
@@ -174,16 +182,16 @@ func TestCmdHealthText(t *testing.T) {
 	out := captureStdout(t, func() {
 		withText(func() { cmdHealth() })
 	})
-	if !strings.Contains(out, "Daemon Health") {
+	if !strings.Contains(out, "pilot-daemon") {
 		t.Errorf("missing banner: %s", out)
 	}
-	if !strings.Contains(out, "Status:      ok") {
+	if !strings.Contains(out, "ok") {
 		t.Errorf("missing status: %s", out)
 	}
-	if !strings.Contains(out, "Uptime:      01:02:05") {
+	if !strings.Contains(out, "uptime 01:02:05") {
 		t.Errorf("missing uptime: %s", out)
 	}
-	if !strings.Contains(out, "Handshakes:  2 pending") {
+	if !strings.Contains(out, "2 pending handshake(s)") {
 		t.Errorf("missing handshake line: %s", out)
 	}
 }
@@ -208,10 +216,10 @@ func TestCmdHealthWithDrops(t *testing.T) {
 	out := captureStdout(t, func() {
 		withText(func() { cmdHealth() })
 	})
-	if !strings.Contains(out, "Queue Drops: 5") {
+	if !strings.Contains(out, "5 accept-queue drop(s)") {
 		t.Errorf("missing queue drops: %s", out)
 	}
-	if !strings.Contains(out, "Webhook:     3 events dropped") {
+	if !strings.Contains(out, "3 webhook event(s) dropped") {
 		t.Errorf("missing webhook drops: %s", out)
 	}
 }
@@ -253,14 +261,40 @@ func TestCmdPeersTextWithPeers(t *testing.T) {
 	out := captureStdout(t, func() {
 		withText(func() { cmdPeers(nil) })
 	})
-	if !strings.Contains(out, "42") || !strings.Contains(out, "99") {
-		t.Errorf("missing peer IDs: %s", out)
+	// Headline summary + exceptions: node 99 is unencrypted so it is the
+	// only row; node 42 is healthy and stays in the summary count.
+	if !strings.Contains(out, "2 peers") {
+		t.Errorf("missing peer count: %s", out)
 	}
-	if !strings.Contains(out, "relay") || !strings.Contains(out, "direct") {
-		t.Errorf("missing path types: %s", out)
+	if !strings.Contains(out, "1 encrypted+authenticated") {
+		t.Errorf("missing secure count: %s", out)
+	}
+	if !strings.Contains(out, "1 relay") || !strings.Contains(out, "1 direct") {
+		t.Errorf("missing path breakdown: %s", out)
+	}
+	if !strings.Contains(out, "node 99") || !strings.Contains(out, "unencrypted") {
+		t.Errorf("missing exception row for node 99: %s", out)
+	}
+	if strings.Contains(out, "node 42") {
+		t.Errorf("healthy peer should not be listed as exception: %s", out)
 	}
 	if strings.Contains(out, "1.2.3.4") {
 		t.Errorf("endpoint should have been stripped: %s", out)
+	}
+
+	// --all shows every peer in the table. The fake daemon serves a single
+	// connection, so spin up a fresh one for the second invocation.
+	sd2 := newStreamDaemon(t)
+	sd2.useDaemonNoRegistry(t)
+	sd2.onJSON(tdCmdInfo, tdCmdInfoOK, payload)
+	outAll := captureStdout(t, func() {
+		withText(func() { cmdPeers([]string{"--all"}) })
+	})
+	if !strings.Contains(outAll, "42") || !strings.Contains(outAll, "99") {
+		t.Errorf("--all missing peer IDs: %s", outAll)
+	}
+	if !strings.Contains(outAll, "relay") || !strings.Contains(outAll, "direct") {
+		t.Errorf("--all missing path types: %s", outAll)
 	}
 }
 
@@ -403,13 +437,21 @@ func TestCmdTrustWithPeers(t *testing.T) {
 		]
 	}`)
 	out := captureStdout(t, func() {
-		withText(func() { cmdTrust() })
+		withText(func() { cmdTrust(nil) })
 	})
-	if !strings.Contains(out, "42") || !strings.Contains(out, "99") {
+	if !strings.Contains(out, "node 42") || !strings.Contains(out, "node 99") {
 		t.Errorf("missing peer IDs: %s", out)
 	}
-	if !strings.Contains(out, "yes") {
-		t.Errorf("missing mutual yes: %s", out)
+	if !strings.Contains(out, "Trusted peers — 2") {
+		t.Errorf("missing header: %s", out)
+	}
+	// node 99 is mutual=false → tagged one-way; node 42 is mutual → untagged.
+	if !strings.Contains(out, "one-way") {
+		t.Errorf("missing one-way tag for asymmetric peer: %s", out)
+	}
+	// Newest first: 99 (1700000100) before 42 (1700000000).
+	if strings.Index(out, "node 99") > strings.Index(out, "node 42") {
+		t.Errorf("not sorted newest-first: %s", out)
 	}
 }
 
@@ -418,7 +460,7 @@ func TestCmdTrustEmptyR4(t *testing.T) {
 	sd.useDaemonNoRegistry(t)
 	sd.onJSON(tdCmdHandshake, tdCmdHandshakeOK, `{"trusted":[]}`)
 	out := captureStdout(t, func() {
-		withText(func() { cmdTrust() })
+		withText(func() { cmdTrust(nil) })
 	})
 	if !strings.Contains(out, "no trusted peers") {
 		t.Errorf("%s", out)
@@ -430,10 +472,13 @@ func TestCmdTrustJSON(t *testing.T) {
 	sd.useDaemonNoRegistry(t)
 	sd.onJSON(tdCmdHandshake, tdCmdHandshakeOK, `{"trusted":[]}`)
 	out := captureStdout(t, func() {
-		withJSON(func() { cmdTrust() })
+		withJSON(func() { cmdTrust(nil) })
 	})
 	if !strings.Contains(out, `"trusted":[]`) {
 		t.Errorf("%s", out)
+	}
+	if !strings.Contains(out, `"total":0`) {
+		t.Errorf("missing total: %s", out)
 	}
 }
 

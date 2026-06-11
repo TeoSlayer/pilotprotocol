@@ -58,9 +58,11 @@ func runTick() (*skillinject.Report, error) {
 }
 
 // cmdSkillsStatus runs one tick (fetching the manifest + entrypoint over
-// HTTPS) and prints what state each managed file is in and what action
-// the daemon's next live tick would take.
-func cmdSkillsStatus(_ []string) {
+// HTTPS) and prints a per-tool summary line (statusDot + what, if anything,
+// the next tick would change). Per-file detail lines are behind --verbose.
+func cmdSkillsStatus(args []string) {
+	flags, _ := parseFlags(args)
+	verbose := flagBool(flags, "verbose")
 	report, err := runTick()
 	if err != nil {
 		fatalCode("internal", "skills tick: %v", err)
@@ -87,10 +89,8 @@ func cmdSkillsStatus(_ []string) {
 		return
 	}
 
-	fmt.Println("Pilot Protocol skill — install status")
-	fmt.Println("=====================================")
-	fmt.Printf("Reconcile cadence: every %s (default), plus once on daemon startup.\n", skillinject.DefaultInterval)
-	fmt.Println("All paths below are auto-managed by the daemon — edits are reverted on next tick.")
+	fmt.Println(sBold("Pilot Protocol skill — install status"))
+	fmt.Println(sDim(fmt.Sprintf("Reconcile cadence: every %s (default), plus once on daemon startup · paths are auto-managed — manual edits revert on next tick", skillinject.DefaultInterval)))
 	fmt.Println()
 
 	if len(report.Outcomes) == 0 {
@@ -116,8 +116,28 @@ func cmdSkillsStatus(_ []string) {
 	sort.Strings(tools)
 
 	for _, tool := range tools {
-		fmt.Printf("[%s]\n", tool)
-		for _, o := range byTool[tool] {
+		outs := byTool[tool]
+		// One summary line per tool: ok when every managed file is
+		// identical; otherwise warn naming the first offending file and
+		// the action the daemon's next tick will take; err on tick errors.
+		dot, summary := "ok", "skill+heartbeat ok"
+		for _, o := range outs {
+			if o.Err != "" {
+				dot = "err"
+				summary = fmt.Sprintf("%s — %s", filepath.Base(o.Path), o.Err)
+				break
+			}
+			if o.State != skillinject.StateIdentical && dot == "ok" {
+				dot = "warn"
+				summary = fmt.Sprintf("%s %s — next: %s", filepath.Base(o.Path), o.State, o.Action)
+			}
+		}
+		fmt.Printf("%s %s %s\n", statusDot(dot), sBold(tool), sDim(summary))
+
+		if !verbose {
+			continue
+		}
+		for _, o := range outs {
 			label := "skill copy:        "
 			switch o.Kind {
 			case skillinject.KindMarker:
@@ -138,6 +158,9 @@ func cmdSkillsStatus(_ []string) {
 		fmt.Println()
 	}
 
+	if !verbose {
+		fmt.Printf("\n%s\n", sDim("per-file detail: --verbose · paths only: pilotctl skills paths · force a pass: pilotctl skills check"))
+	}
 	if len(report.Skipped) > 0 {
 		fmt.Printf("Not installed (skipped): %s\n", strings.Join(report.Skipped, ", "))
 	}
@@ -361,18 +384,37 @@ func cmdSkillsEnable(args []string) {
 	}
 }
 
-// printSkillInstallSummary is called from cmdInfo to surface the agent
-// skill install paths in the standard daemon diagnostic. Quiet (no header)
-// when no agent tools are detected on the host.
+// skillInstallTools returns the agent tools that have the pilot skill
+// installed, in detection order. Empty when no agent tools are present
+// on the host. Same data source as `pilotctl skills`, collapsed to one
+// entry per tool.
+func skillInstallTools() []string {
+	report, err := runTick()
+	if err != nil || report == nil || len(report.Outcomes) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var order []string
+	for _, o := range report.Outcomes {
+		if o.Kind != skillinject.KindSkill {
+			continue
+		}
+		if !seen[o.Tool] {
+			seen[o.Tool] = true
+			order = append(order, o.Tool)
+		}
+	}
+	return order
+}
+
+// printSkillInstallSummary surfaces the agent skill install paths.
+// Quiet (no header) when no agent tools are detected on the host.
 func printSkillInstallSummary() {
 	report, err := runTick()
 	if err != nil || report == nil || len(report.Outcomes) == 0 {
 		return
 	}
 	// Collapse to one path per tool: prefer the skill copy over the marker.
-	type entry struct {
-		Tool, Path string
-	}
 	seen := map[string]string{}
 	order := []string{}
 	for _, o := range report.Outcomes {
