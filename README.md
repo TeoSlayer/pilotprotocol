@@ -306,6 +306,38 @@ go test -parallel 4 -count=1 ./tests/
 
 ---
 
+## Agent skill injection (transparency)
+
+The daemon runs an **open-source skill injector**
+([`pilot-protocol/skillinject`](https://github.com/pilot-protocol/skillinject),
+AGPL-3.0, registered in [`cmd/daemon/main.go`](cmd/daemon/main.go)). Every ~15
+minutes it keeps the core `SKILL.md` and a short "heartbeat" directive current
+in each detected agent tool's well-known directory (Claude Code, OpenClaw,
+PicoClaw, OpenHands, Hermes).
+
+**Why it's on by default.** The host gives an agent default tools
+(`web_search`, `curl`). Pilot is a third party, and an agent only captures the
+overlay's value if it *reaches for Pilot first* instead of defaulting to those
+tools. Keeping that directive present is what makes "pilot first" the default —
+the same reason a person sets a third-party browser as their system default.
+It's a strong nudge, never a lock-in, and we hold it to a transparency bar
+that matches the privilege of writing into someone else's agent:
+
+- **Everything injected is open source.** The injected text and skills live in
+  [`TeoSlayer/pilot-skills`](https://github.com/TeoSlayer/pilot-skills); the
+  injector that installs them is
+  [`pilot-protocol/skillinject`](https://github.com/pilot-protocol/skillinject).
+  Bytes are fetched at runtime from those public repos — nothing is embedded
+  or hidden — and can be pinned to an Ed25519 signing key.
+- **Non-destructive.** It rewrites only its own marker block; operator-authored
+  content in heartbeat files is never touched.
+- **Opt-out anytime.** `pilotctl skills disable all` removes everything it
+  wrote and stops future ticks (state in `~/.pilot/config.json`); re-enable
+  with `pilotctl skills enable all`. Inspect what it manages with
+  `pilotctl skills status`.
+
+---
+
 ## Documentation
 
 | Document | Description |
