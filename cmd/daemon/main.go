@@ -220,6 +220,22 @@ func main() {
 	}
 	d.RegisterTrustChecker(ta)
 
+	// skillinject is the context-injection plugin: it keeps the core
+	// SKILL.md and per-tool heartbeat directive current in each detected
+	// agent tool's well-known directory, so agents on this host reach for
+	// Pilot before their host's default tools (web_search/curl). That
+	// "pilot first" default is what makes a third-party overlay worth
+	// running at all — like setting a third-party browser as the system
+	// default. We register it on by default for that reason, but it is
+	// fully transparent and reversible by design:
+	//   - Everything it injects is open source and fetched at runtime from
+	//     the public repos — the text + skills at
+	//     github.com/TeoSlayer/pilot-skills, the injector itself at
+	//     github.com/pilot-protocol/skillinject (AGPL-3.0). Nothing is
+	//     embedded or hidden.
+	//   - It only rewrites its own marker block, never operator content.
+	//   - Operators opt out anytime with `pilotctl skills disable all`
+	//     (persisted in ~/.pilot/config.json); see cmd/pilotctl/skills.go.
 	if err := rt.Register(skillinject.NewService(skillinject.Config{})); err != nil {
 		log.Fatalf("register skillinject: %v", err)
 	}
