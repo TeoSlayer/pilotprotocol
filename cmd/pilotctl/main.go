@@ -1176,10 +1176,31 @@ Flags:
 
 Publish a message to a topic on a remote node.
 `,
-	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath>
+	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>]
 
-Send a file to a remote node via the reliable data-exchange stream.
-The receiver gets the filename and contents; an ACK is printed on success.
+Send a file to a remote node via the data-exchange stream. Files are
+capped at 256 MiB (the data-exchange frame ceiling).
+
+Flags:
+  --timeout <dur>       give up if the receiver does not ACK within this
+                        window (default 90s). Use a value comfortably
+                        larger than (file size / expected throughput) +
+                        receiver disk-flush time. On timeout the sender
+                        exits with a non-zero code and a clear hint
+                        instead of hanging until SO_KEEPALIVE trips
+                        (~120s by default on the OS).
+
+What you see during a transfer (TTY only):
+  sending <file> to <target>… <Ns>            self-rewriting elapsed line
+  (--json suppresses it for agent consumption)
+
+Reliability caveats (current implementation):
+  - File is transferred as a single atomic frame; on any error the
+    receiver may end up with no file or a partial one.
+  - No resume protocol — a dropped transfer means a full retry.
+  - End-to-end integrity is the tunnel's AEAD tag; there is no
+    application-level content hash. See
+    docs/PROPOSAL-reliable-file-transfer.md for the planned fix.
 `,
 
 	// appstore: keep the help block here in lockstep with
@@ -3642,25 +3663,54 @@ func cmdDgram(args []string) {
 	}
 }
 
+// cmdSendFile transfers a file via the dataexchange overlay stream.
+//
+// Until the chunked streaming protocol lands (see
+// docs/PROPOSAL-reliable-file-transfer.md), this M0 implementation gives
+// us four reliability primitives without changing the wire format:
+//
+//  1. **Bounded ACK wait.** The original code blocked on `client.Recv()`
+//     forever; if the receiver crashed mid-write, the sender hung until
+//     SO_KEEPALIVE finally fired (~120s on most kernels). We now wrap the
+//     receive in a context with a configurable `--timeout` (default 90s)
+//     and close the connection on expiry so the underlying goroutine
+//     unblocks.
+//  2. **Progress indicator.** While the transfer is in flight, an
+//     elapsed-time line is rewritten on stderr (TTY-only, hidden under
+//     --json) so the user knows the command is alive. Uses the existing
+//     startWaitProgress helper.
+//  3. **Throughput in the result.** The JSON output now carries
+//     elapsed_ms and a megabits-per-second rate, so agents can see at a
+//     glance whether the transfer was abnormally slow.
+//  4. **Sharper error messages.** Timeouts and receiver-side ERR ACKs
+//     get distinct exit codes and surface the next command to run
+//     ("pilotctl ping" / "pilotctl peers"), matching the house pattern.
 func cmdSendFile(args []string) {
-	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath>")
+	flags, pos := parseFlags(args)
+	if len(pos) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>]")
 	}
+
+	// Default 90s is comfortable for transfers up to a hundred MiB over
+	// a relay path; users with bigger files or slower peers should bump
+	// it explicitly. We intentionally do not derive timeout from file
+	// size — that hides the failure mode where the receiver hangs
+	// post-write (the actual symptom of the original bug).
+	timeout := flagDuration(flags, "timeout", 90*time.Second)
 
 	d := connectDriver()
 	defer d.Close()
 
-	target, err := parseAddrOrHostname(d, args[0])
+	target, err := parseAddrOrHostname(d, pos[0])
 	if err != nil {
 		fatalCode("invalid_argument", "%v", err)
 	}
 
 	// Auto-handshake to peers in the embedded trusted-agents list.
 	// Best-effort: warns on stderr and continues if handshake fails.
-	// (send-file uses positional args — no flag map; pass false.)
 	maybeAutoHandshake(d, target, false)
 
-	filePath := args[1]
+	filePath := pos[1]
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -3677,7 +3727,8 @@ func cmdSendFile(args []string) {
 	// streaming a quarter-gigabyte just to have the receiver close.
 	if len(data) > dataexchange.MaxFrameSize {
 		fatalCode("invalid_argument",
-			"file too large: %d bytes (max %d)", len(data), dataexchange.MaxFrameSize)
+			"file too large: %d bytes (max %d). The chunked-streaming protocol planned in docs/PROPOSAL-reliable-file-transfer.md will lift this; until then split the file or compress it.",
+			len(data), dataexchange.MaxFrameSize)
 	}
 
 	filename := filepath.Base(filePath)
@@ -3693,25 +3744,66 @@ func cmdSendFile(args []string) {
 	}
 	defer client.Close()
 
+	stop := startWaitProgress(fmt.Sprintf("sending %s to %s", filename, target))
+	start := time.Now()
+
 	if err := client.SendFile(filename, data); err != nil {
+		stop()
 		fatalCode("connection_failed", "send failed: %v", err)
 	}
 
-	// Read ACK
-	ack, err := client.Recv()
-	if err != nil {
-		// Sender wrote all bytes but never got the receiver's ACK back
-		// (likely receiver crashed or restarted mid-transfer). That's
-		// not a silent success — surface as a loud error so callers
-		// don't mistake it for full delivery.
-		fatalCode("connection_failed",
-			"send wrote all bytes but no ACK from receiver: %v", err)
+	// Wait for the ACK with a bounded deadline. The dataexchange.Client
+	// does not expose a Recv-with-context, so we run the read in a
+	// goroutine and race it against a timer. On timeout we close the
+	// connection — that unblocks the goroutine's ReadFrame with an
+	// error, which we then drop on the floor because we've already
+	// decided the transfer is a failure.
+	type ackResult struct {
+		frame *dataexchange.Frame
+		err   error
+	}
+	ackCh := make(chan ackResult, 1)
+	go func() {
+		f, err := client.Recv()
+		ackCh <- ackResult{f, err}
+	}()
+
+	var ack *dataexchange.Frame
+	select {
+	case res := <-ackCh:
+		ack = res.frame
+		if res.err != nil {
+			stop()
+			// Sender wrote all bytes but never got the receiver's ACK
+			// back (likely receiver crashed or restarted mid-transfer).
+			fatalHint("connection_failed",
+				"the receiver may have crashed or restarted mid-transfer · check reachability: pilotctl ping "+target.String(),
+				"send wrote all bytes but no ACK from receiver: %v", res.err)
+		}
+	case <-time.After(timeout):
+		stop()
+		// Closing the conn lets the goroutine unwind. We deliberately
+		// don't wait for it here — we've already given the receiver its
+		// budget.
+		_ = client.Close()
+		fatalHint("timeout",
+			"the receiver did not ACK within "+timeout.String()+" · check reachability: pilotctl ping "+target.String()+" · for very large files try --timeout 5m",
+			"send-file timed out waiting for ACK from %s after %s", target, timeout)
+	}
+
+	stop()
+	elapsed := time.Since(start)
+	mbps := 0.0
+	if elapsed > 0 {
+		mbps = (float64(len(data)) * 8.0) / (1e6 * elapsed.Seconds())
 	}
 
 	result := map[string]interface{}{
-		"filename":    filename,
-		"bytes":       len(data),
-		"destination": target.String(),
+		"filename":        filename,
+		"bytes":           len(data),
+		"destination":     target.String(),
+		"elapsed_ms":      elapsed.Milliseconds(),
+		"throughput_mbps": mbps,
 	}
 	if ack != nil {
 		ackText := string(ack.Payload)
