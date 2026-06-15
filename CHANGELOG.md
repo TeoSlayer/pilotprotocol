@@ -7,6 +7,27 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.12.0] - 2026-06-15
+
+### Added
+- **`pilotctl appstore view <id>` — a detail page for store apps.** Shows a
+  human-app-store-style listing: structured description, vendor, latest
+  changelog (`--all-changelog` for full history), download/installed size,
+  source-code URL, license, methods, and — when the app is installed — its
+  verified integrity state and granted permissions. Works whether or not the
+  app is installed, and whether or not it is in the catalogue (a sideloaded app
+  renders from local manifest facts). `--json` emits the merged report. The
+  catalogue listing now also shows vendor, categories, license, and size, plus
+  a `view:` hint. (app store)
+- **Catalogue schema v2 + per-app detail docs.** The catalogue index gains
+  optional teaser fields (`display_name`, `vendor`, `categories`,
+  `bundle_size`, `source_url`, `license`) and a `metadata_url` +
+  `metadata_sha256` pin to a per-app `catalogue/apps/<id>/metadata.json` detail
+  document, fetched lazily by `view` and sha-verified the same way bundles are.
+  v1 catalogues still load unchanged, and an older `pilotctl` ignores the new
+  fields — the bump is backward and forward compatible. The `reviews` slot in
+  the detail schema is reserved for a future signed reviews service. (app store)
+
 ## [1.11.0] - 2026-06-09
 
 ### Added
