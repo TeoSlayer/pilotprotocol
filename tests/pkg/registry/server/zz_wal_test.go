@@ -308,26 +308,81 @@ func TestReplayRejectsOversizedEntry(t *testing.T) {
 	}
 }
 
-func TestReplayErrorsOnTruncatedData(t *testing.T) {
+// TestReplayToleratesTornTail asserts the WAL's torn-tail recovery
+// contract: a length prefix written without (all of) its payload — e.g. a
+// crash between the length write and the data write — is tolerated.
+// Replay applies every complete entry and drops the torn tail, returning
+// no error. (Mirrors rendezvous wal.TestWALReplayTornTail; this package's
+// older expectation of a hard error predated that deliberate relaxation.)
+func TestReplayToleratesTornTail(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "x.wal")
 
-	// Claim length 100 but only write 3 bytes of data.
-	var lb [4]byte
-	binary.LittleEndian.PutUint32(lb[:], 100)
-	raw := append(lb[:], []byte("abc")...)
-	if err := os.WriteFile(p, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("lone torn record replays nothing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		p := filepath.Join(dir, "x.wal")
 
-	w, _ := server.NewWAL(p)
-	defer w.Close()
+		// Claim length 100 but only write 3 bytes of data.
+		var lb [4]byte
+		binary.LittleEndian.PutUint32(lb[:], 100)
+		if err := os.WriteFile(p, append(lb[:], []byte("abc")...), 0600); err != nil {
+			t.Fatal(err)
+		}
 
-	_, err := w.Replay(func(server.DeltaEntry) error { return nil })
-	if err == nil {
-		t.Fatalf("expected error on truncated data")
-	}
+		w, _ := server.NewWAL(p)
+		defer w.Close()
+
+		count, err := w.Replay(func(server.DeltaEntry) error { return nil })
+		if err != nil {
+			t.Fatalf("Replay should tolerate a torn tail, got error: %v", err)
+		}
+		if count != 0 {
+			t.Fatalf("Replay count = %d, want 0 (torn tail dropped)", count)
+		}
+	})
+
+	t.Run("complete entry survives a trailing torn tail", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		p := filepath.Join(dir, "x.wal")
+
+		w, _ := server.NewWAL(p)
+		if err := w.Append(server.DeltaEntry{SeqNo: 1, Type: server.DeltaRegister, NodeID: 42}); err != nil {
+			t.Fatal(err)
+		}
+		_ = w.Close()
+
+		// Append a torn record (length prefix, no payload) after the
+		// complete entry, simulating a crash mid-append.
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lb [4]byte
+		binary.LittleEndian.PutUint32(lb[:], 512)
+		if _, err := f.Write(lb[:]); err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+
+		w2, _ := server.NewWAL(p)
+		defer w2.Close()
+
+		var replayed []server.DeltaEntry
+		count, err := w2.Replay(func(e server.DeltaEntry) error {
+			replayed = append(replayed, e)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Replay should tolerate a torn tail, got error: %v", err)
+		}
+		if count != 1 || len(replayed) != 1 {
+			t.Fatalf("Replay count = %d (replayed %d), want 1 complete entry", count, len(replayed))
+		}
+		if replayed[0].NodeID != 42 {
+			t.Errorf("replayed entry NodeID = %d, want 42", replayed[0].NodeID)
+		}
+	})
 }
 
 func TestReplayLeavesFileAtEndForAppend(t *testing.T) {
