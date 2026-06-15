@@ -1673,6 +1673,47 @@ func (tm *TunnelManager) SendDirectProbe(nodeID uint32, pkt *protocol.Packet) er
 	return werr
 }
 
+// SendDirectProbeTo sends an encrypted probe to an EXPLICIT address rather
+// than the stored peers[] entry. This is the relay→direct upgrade primitive:
+// a relay-flagged peer's stored address is the beacon placeholder, so
+// SendDirectProbe can't reach its real endpoint — but after a coordinated
+// hole-punch we know the peer's real reflexive address (from the registry
+// resolve) and the NAT conntrack pinhole is open. The encrypted probe that
+// lands there triggers the peer's ClearRelayOnDirect, promoting the path to
+// direct. Caller is responsible for having punched first (RequestHolePunch)
+// so the pinhole is open. Best-effort; returns the send error.
+func (tm *TunnelManager) SendDirectProbeTo(nodeID uint32, addr *net.UDPAddr, pkt *protocol.Packet) error {
+	if addr == nil {
+		return fmt.Errorf("nil addr for node %d", nodeID)
+	}
+	if tm.routing.IsFromBeacon(addr) {
+		return fmt.Errorf("addr for node %d is beacon placeholder", nodeID)
+	}
+	pc := tm.envelope.Get(nodeID)
+	data, err := pkt.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	var frame []byte
+	if tm.encrypt {
+		if pc == nil || !pc.Ready {
+			return fmt.Errorf("no crypto for node %d", nodeID)
+		}
+		frame = tm.encryptFrame(pc, data)
+	} else {
+		frame = make([]byte, 4+len(data))
+		copy(frame[0:4], protocol.TunnelMagic[:])
+		copy(frame[4:], data)
+	}
+	n, werr := tm.sock.Send(frame, addr)
+	if werr == nil {
+		atomic.AddUint64(&tm.PktsSent, 1)
+		atomic.AddUint64(&tm.BytesSent, uint64(n))
+		tm.routing.RecordOutboundSend(nodeID, time.Now())
+	}
+	return werr
+}
+
 // clearRelayOnDirectLocked is the legacy shim for tests that drive
 // clear-on-direct directly. Delegates to routing.Manager.ClearRelayOnDirect.
 func (tm *TunnelManager) clearRelayOnDirectLocked(peerNodeID uint32, from *net.UDPAddr) bool {

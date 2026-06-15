@@ -1176,10 +1176,11 @@ Flags:
 
 Publish a message to a topic on a remote node.
 `,
-	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>]
+	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>] [--prefer-direct]
 
 Send a file to a remote node via the data-exchange stream. Files are
-capped at 256 MiB (the data-exchange frame ceiling).
+capped at 256 MiB (the data-exchange frame ceiling) unless both daemons
+have raised PILOT_DATAEXCHANGE_MAX_FRAME — see the dataexchange package.
 
 Flags:
   --timeout <dur>       give up if the receiver does not ACK within this
@@ -1189,6 +1190,15 @@ Flags:
                         exits with a non-zero code and a clear hint
                         instead of hanging until SO_KEEPALIVE trips
                         (~120s by default on the OS).
+  --prefer-direct       drop the existing tunnel + sticky relay flag for
+                        this peer before dialing, so the daemon retries
+                        a direct UDP path instead of reusing the
+                        beacon-mediated relay tunnel. Useful when ping
+                        works but send-file hangs — typical sign of a
+                        relay path that established once and got stuck.
+                        Best-effort: if the peer is genuinely behind a
+                        symmetric NAT the daemon will still fall back to
+                        relay within the dial retry budget.
 
 What you see during a transfer (TTY only):
   sending <file> to <target>… <Ns>            self-rewriting elapsed line
@@ -1538,6 +1548,8 @@ dispatch:
 		cmdTrust(cmdArgs)
 	case "trusted":
 		cmdTrusted(cmdArgs)
+	case "prefer-direct":
+		cmdPreferDirect(cmdArgs)
 
 	// Networks
 	case "network":
@@ -3710,7 +3722,64 @@ func cmdSendFile(args []string) {
 	// Best-effort: warns on stderr and continues if handshake fails.
 	maybeAutoHandshake(d, target, false)
 
+	// --prefer-direct breaks the daemon out of a stuck-on-relay tunnel
+	// BEFORE we dial port 1001. Without this, a previously-established
+	// relay tunnel is reused and the dial inherits its broken stream
+	// behavior. We send the IPC, log what the daemon reset, and proceed
+	// regardless — an old daemon returns "unknown command" which we
+	// treat as a best-effort hint, not a hard failure.
+	if flagBool(flags, "prefer-direct") {
+		resp, perr := d.PreferDirect(target.Node)
+		switch {
+		case perr != nil && strings.Contains(perr.Error(), "unknown command"):
+			fmt.Fprintln(os.Stderr, sDim("--prefer-direct: daemon does not support it (pre-v1.12.0); proceeding with existing tunnel"))
+		case perr != nil:
+			fmt.Fprintln(os.Stderr, sDim("--prefer-direct: "+perr.Error()+" (continuing)"))
+		default:
+			had, _ := resp["had_tunnel"].(bool)
+			wasActive, _ := resp["was_relay_active"].(bool)
+			wasPinned, _ := resp["was_relay_pinned"].(bool)
+			fmt.Fprintln(os.Stderr, sDim(fmt.Sprintf("--prefer-direct: tunnel=%v relay_was_active=%v relay_was_pinned=%v",
+				had, wasActive, wasPinned)))
+		}
+	}
+
 	filePath := pos[1]
+	filename := filepath.Base(filePath)
+
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fatalCode("not_found", "file not found: %s", filePath)
+		}
+		if os.IsPermission(err) {
+			fatalCode("internal", "permission denied: %s", filePath)
+		}
+		fatalCode("internal", "stat file: %v", err)
+	}
+	if fi.IsDir() {
+		fatalCode("invalid_argument", "%s is a directory, not a file", filePath)
+	}
+	size := fi.Size()
+
+	// Streamed transfer (default): chunked, ACK'd, resumable, end-to-end
+	// SHA-256 verified — no per-frame size cap, and big files no longer
+	// collapse into one giant frame that stalls over relay (or over a
+	// direct link that flips to relay under one-way load). Falls back to
+	// the single-frame TypeFile path when the receiver is too old to
+	// understand TypeFileStream (it never sends an INIT-ACK).
+	if !flagBool(flags, "no-stream") {
+		if res, serr := streamSendFile(d, target, filePath, filename, size, timeout); serr == nil {
+			outputOK(res)
+			return
+		} else if !errors.Is(serr, dataexchange.ErrStreamUnsupported) {
+			fatalHint("connection_failed",
+				"check reachability: pilotctl ping "+target.String()+" · for very large/slow links raise --timeout",
+				"streamed send-file failed: %v", serr)
+		}
+		fmt.Fprintln(os.Stderr, sDim("receiver does not support streamed transfer (pre-v1.12.0); falling back to single-frame TypeFile"))
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -3725,13 +3794,11 @@ func cmdSendFile(args []string) {
 	// Reject files that would exceed the data-exchange frame cap before
 	// opening the connection — keeps the failure path clean and avoids
 	// streaming a quarter-gigabyte just to have the receiver close.
-	if len(data) > dataexchange.MaxFrameSize {
+	if uint32(len(data)) > dataexchange.MaxFrameSize {
 		fatalCode("invalid_argument",
-			"file too large: %d bytes (max %d). The chunked-streaming protocol planned in docs/PROPOSAL-reliable-file-transfer.md will lift this; until then split the file or compress it.",
+			"file too large: %d bytes (max %d) for the legacy single-frame path. Use the default streamed transfer (omit --no-stream) against a v1.12.0+ receiver.",
 			len(data), dataexchange.MaxFrameSize)
 	}
-
-	filename := filepath.Base(filePath)
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
@@ -3816,6 +3883,54 @@ func cmdSendFile(args []string) {
 		}
 	}
 	outputOK(result)
+}
+
+// streamSendFile transfers filePath with the chunked, ACK'd, resumable
+// TypeFileStream protocol. It returns a result map on success; the sentinel
+// dataexchange.ErrStreamUnsupported tells the caller to fall back to the
+// single-frame TypeFile path (the receiver is too old). timeout bounds the
+// wait for any single ACK and for the receiver's final verification.
+func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename string, size int64, timeout time.Duration) (map[string]interface{}, error) {
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	stop := startWaitProgress(fmt.Sprintf("streaming %s to %s", filename, target))
+	start := time.Now()
+	res, serr := client.SendFileStream(filename, f, size, timeout)
+	stop()
+	if serr != nil {
+		return nil, serr
+	}
+	if !res.OK {
+		return nil, fmt.Errorf("receiver rejected file: %s", res.Message)
+	}
+
+	elapsed := time.Since(start)
+	mbps := 0.0
+	if elapsed > 0 {
+		mbps = (float64(res.TotalBytes) * 8.0) / (1e6 * elapsed.Seconds())
+	}
+	return map[string]interface{}{
+		"filename":        filename,
+		"bytes":           res.TotalBytes,
+		"bytes_sent":      res.BytesSent,
+		"bytes_resumed":   res.BytesResumed,
+		"sha256":          res.Sha256,
+		"destination":     target.String(),
+		"elapsed_ms":      elapsed.Milliseconds(),
+		"throughput_mbps": mbps,
+		"transport":       "filestream",
+		"verified":        res.OK,
+	}, nil
 }
 
 func cmdSendMessage(args []string) {
@@ -4301,6 +4416,44 @@ func cmdReject(args []string) {
 	} else {
 		fmt.Printf("handshake from node %d rejected\n", nodeID)
 	}
+}
+
+// cmdPreferDirect drops the daemon's tunnel + sticky routing state for a
+// peer so the next dial retries a fresh direct UDP path.
+//
+// Use case: ping <peer> works (the small UDP fits through the beacon
+// relay just fine) but send-file <peer> hangs ~120s and EOFs — symptom
+// of a relay-mediated tunnel that established once and got stuck for
+// stream traffic. Calling prefer-direct + retrying the dial routes the
+// next attempt through ensureTunnel's resolve-and-punch path, which
+// usually re-establishes a working direct UDP path.
+func cmdPreferDirect(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl prefer-direct <node_id|address|hostname>")
+	}
+	d := connectDriver()
+	defer d.Close()
+
+	nodeID := resolveToNodeID(d, args[0])
+	resp, err := d.PreferDirect(nodeID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unknown command") {
+			fatalHint("not_implemented",
+				"upgrade the daemon: brew upgrade pilotprotocol  (or re-run install.sh)",
+				"daemon does not support prefer-direct (pre-v1.12.0)")
+		}
+		fatalCode("connection_failed", "prefer-direct: %v", err)
+	}
+	if jsonOutput {
+		outputOK(resp)
+		return
+	}
+	had, _ := resp["had_tunnel"].(bool)
+	wasActive, _ := resp["was_relay_active"].(bool)
+	wasPinned, _ := resp["was_relay_pinned"].(bool)
+	fmt.Printf("reset routing state for node %d\n", nodeID)
+	fmt.Println(sDim(fmt.Sprintf("  tunnel was up: %v · relay was active: %v · relay was pinned: %v", had, wasActive, wasPinned)))
+	fmt.Println(sDim("  next dial will re-resolve from registry and prefer direct; falls back to relay if direct still fails"))
 }
 
 func cmdUntrust(args []string) {
