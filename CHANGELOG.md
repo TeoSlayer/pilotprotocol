@@ -7,7 +7,7 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
-## [Unreleased]
+## [1.12.0] - 2026-06-15
 
 ### Added
 - **`pilotctl appstore view <id>` — a detail page for store apps.** Shows a
