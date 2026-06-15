@@ -144,19 +144,55 @@ from a remote — operators relying on a catalogue do so over `https` only).
    `bundle_sha256`, the teaser fields, **and** the new `metadata_sha256`
    from step 5. Commit everything together — the index pin and the detail
    doc must change in the same commit or `view` will reject a stale pin.
-   The change goes live the moment the commit lands on `main` and the raw
-   URLs serve the new bytes — no daemon restart, no pilotctl release.
 
-> **Pin discipline:** `metadata_sha256` must be the sha256 of the exact
-> committed `metadata.json` bytes. Edit the doc, then recompute — never the
-> other way round. A mismatch makes `view` fall back to the teaser and warn.
+   > **Pin discipline:** `metadata_sha256` must be the sha256 of the exact
+   > committed `metadata.json` bytes. Edit the doc, then recompute — never
+   > the other way round. A mismatch makes `view` fall back to the teaser
+   > and warn.
+7. **Re-sign the catalogue** (the signature covers the exact `catalogue.json`
+   bytes, so it must be regenerated on every edit — including the
+   `metadata_sha256` pin change from step 6):
+   ```bash
+   pilotctl appstore sign-catalogue --key /secure/path/catalog-signing.key \
+     catalogue/catalogue.json
+   ```
+   This writes `catalogue.json.sig` (detached, base64 ed25519). Commit
+   `catalogue.json`, `catalogue.json.sig`, **and** the updated
+   `apps/<id>/metadata.json` together. The change goes live the moment they
+   land on `main` and the raw URLs serve the new bytes — no daemon restart,
+   no pilotctl release.
+
+`pilotctl` fetches `catalogue.json` **and** `catalogue.json.sig` and
+verifies the signature against the embedded catalogue public key before
+trusting any entry. An unsigned, missing-signature, or tampered catalogue
+is refused (fail-closed).
+
+## Catalogue signing key
+
+The catalogue is signed with a dedicated ed25519 key, separate from any
+app-publisher key. The **private** key is held by the release pipeline and
+is never committed. The **public** key is compiled into pilotctl and the
+daemon at `internal/catalogtrust` (`publicKeyB64`) and can be rotated at
+build time without a code change:
+
+```bash
+go build -ldflags \
+  "-X github.com/TeoSlayer/pilotprotocol/internal/catalogtrust.publicKeyB64=<new-b64-pubkey>" \
+  ./cmd/pilotctl ./cmd/daemon
+```
+
+To rotate: generate a new keypair, store the private key securely, update
+the embedded public key (source default or `-ldflags`), and re-sign the
+catalogue. `sign-catalogue` refuses to sign with a key that doesn't match
+the embedded public key, so a mismatch is caught before publishing a dead
+signature.
 
 ## Trust model
 
 | Layer | Trust anchor | Verifies |
 |---|---|---|
 | User trusts pilotctl | Project release pipeline (signed pilotctl binary) | The catalogue URL is correct |
-| pilotctl trusts the catalogue | Future: signed against `EmbeddedCatalogPubkey`; today: the raw URL itself | App IDs map to specific bundle URLs + SHAs |
+| pilotctl trusts the catalogue | Detached ed25519 signature against the embedded catalogue key (`internal/catalogtrust`) | The app list (IDs → bundle URLs + SHAs) is authentic; a substituted catalogue is rejected |
 | pilotctl trusts the bundle | Embedded `bundle_sha256` matches downloaded bytes | A CDN substitute is rejected |
 | pilotctl trusts the detail doc | Index `metadata_sha256` matches fetched `metadata.json` | A substituted listing is rejected (`view` falls back to the teaser) |
 | Daemon trusts the manifest | Embedded ed25519 publisher pubkey verifies the signature | The bundle's manifest hasn't been tampered with |

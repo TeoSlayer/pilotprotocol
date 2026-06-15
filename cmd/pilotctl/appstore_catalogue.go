@@ -33,8 +33,11 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -46,6 +49,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
 )
 
 // defaultCatalogueURL points at the canonical catalogue.json on main.
@@ -112,14 +117,25 @@ func catalogueURL() string {
 // garbage.
 func loadCatalogue() (*catalogue, error) {
 	u := catalogueURL()
-	body, err := openURL(u)
+	data, err := fetchAll(u)
 	if err != nil {
 		return nil, fmt.Errorf("fetch catalogue from %s: %w", u, err)
 	}
-	defer body.Close()
-	data, err := io.ReadAll(io.LimitReader(body, 1<<20)) // 1 MiB cap
+	// Fail-closed signature gate: the catalogue must carry a detached
+	// ed25519 signature (at <url>.sig) that verifies against the embedded
+	// catalogue public key. A compromised CDN/host can't substitute a
+	// different app list (pointing installs at hostile bundle URLs)
+	// without also forging this signature.
+	sigRaw, err := fetchAll(u + ".sig")
 	if err != nil {
-		return nil, fmt.Errorf("read catalogue body: %w", err)
+		return nil, fmt.Errorf("fetch catalogue signature %s.sig: %w (the catalogue must be signed; see catalogue/README.md)", u, err)
+	}
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigRaw)))
+	if err != nil {
+		return nil, fmt.Errorf("decode catalogue signature: %w", err)
+	}
+	if err := catalogtrust.Verify(data, sig); err != nil {
+		return nil, fmt.Errorf("catalogue signature: %w", err)
 	}
 	var c catalogue
 	if err := json.Unmarshal(data, &c); err != nil {
@@ -133,6 +149,87 @@ func loadCatalogue() (*catalogue, error) {
 		return nil, fmt.Errorf("unsupported catalogue version %d (pilotctl understands versions 1 and 2)", c.Version)
 	}
 	return &c, nil
+}
+
+// fetchAll opens raw via openURL and reads the whole body (1 MiB cap).
+func fetchAll(raw string) ([]byte, error) {
+	body, err := openURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	data, err := io.ReadAll(io.LimitReader(body, 1<<20)) // 1 MiB cap
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return data, nil
+}
+
+// cmdAppStoreSignCatalogue signs a catalogue.json with the catalogue
+// signing key, writing a detached base64 ed25519 signature to
+// <catalogue>.sig. The signing key must match the embedded catalogue
+// public key (catalogtrust.PublicKey) — otherwise pilotctl would reject
+// the signature at load, so we refuse to produce a dead signature.
+//
+//	pilotctl appstore sign-catalogue --key <key-file> <catalogue.json>
+func cmdAppStoreSignCatalogue(args []string) {
+	var keyFile string
+	rest := args
+	for len(rest) > 0 && (rest[0] == "--key" || rest[0] == "-k") {
+		if len(rest) < 2 {
+			fatalHint("invalid_argument", "--key takes a path", "missing value after %s", rest[0])
+		}
+		keyFile = rest[1]
+		rest = rest[2:]
+	}
+	if keyFile == "" || len(rest) == 0 {
+		fatalHint("invalid_argument",
+			"usage: pilotctl appstore sign-catalogue --key <key-file> <catalogue.json>",
+			"missing --key or catalogue path")
+	}
+	cataloguePath := rest[0]
+
+	keyHex, err := os.ReadFile(keyFile)
+	if err != nil {
+		fatalHint("io_error", "the key path doesn't exist or is unreadable", "read key: %v", err)
+	}
+	privBytes, err := hex.DecodeString(strings.TrimSpace(string(keyHex)))
+	if err != nil {
+		fatalHint("invalid_argument", "the file should be a single hex-encoded ed25519 private key", "decode key: %v", err)
+	}
+	if len(privBytes) != ed25519.PrivateKeySize {
+		fatalHint("invalid_argument", fmt.Sprintf("expected %d bytes; got %d", ed25519.PrivateKeySize, len(privBytes)), "key length mismatch")
+	}
+	priv := ed25519.PrivateKey(privBytes)
+	pub := priv.Public().(ed25519.PublicKey)
+
+	// Guard: refuse to sign with a key that doesn't match the embedded
+	// trust anchor — the resulting .sig would never verify in the wild.
+	embed := catalogtrust.PublicKey()
+	if embed == nil {
+		fatalHint("internal_error", "rebuild pilotctl with a valid embedded catalogue key", "embedded catalogue public key is missing/malformed")
+	}
+	if !bytes.Equal(pub, embed) {
+		fatalHint("invalid_argument",
+			"this key does not match the embedded catalogue public key; pilotctl would reject the signature. Use the release catalogue key, or rebuild pilotctl with -ldflags overriding catalogtrust.publicKeyB64",
+			"signing key pubkey %s != embedded %s",
+			base64.StdEncoding.EncodeToString(pub), base64.StdEncoding.EncodeToString(embed))
+	}
+
+	data, err := os.ReadFile(cataloguePath)
+	if err != nil {
+		fatalHint("io_error", "pass the path to a catalogue.json file", "read catalogue: %v", err)
+	}
+	sig := ed25519.Sign(priv, data)
+	if err := catalogtrust.Verify(data, sig); err != nil {
+		fatalHint("internal_error", "self-verify after signing failed — bug", "%v", err)
+	}
+	sigPath := cataloguePath + ".sig"
+	if err := os.WriteFile(sigPath, []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644); err != nil {
+		fatalHint("io_error", "check the catalogue dir is writable", "write signature: %v", err)
+	}
+	fmt.Printf("signed %s\n", cataloguePath)
+	fmt.Printf("signature: %s\n", sigPath)
 }
 
 func cmdAppStoreCatalogue(_ []string) {
