@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pilot App Store — Catalogue</title>
+<meta name="description" content="Apps installable via pilotctl appstore install — the Pilot Protocol app store catalogue." />
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131823; --panel2: #1b2230; --line: #273043;
+    --fg: #e6e9ef; --muted: #93a0b5; --accent: #5b8cff; --ok: #46d39a; --code: #0f1420;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header { padding: 56px 24px 28px; max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 14px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 0 24px 64px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--line); border-radius: 14px; padding: 20px 20px 18px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .card h2 { font-size: 18px; margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .ver { color: var(--ok); font-size: 13px; font-weight: 600; background: rgba(70,211,154,.12); padding: 2px 8px; border-radius: 999px; }
+  .desc { color: var(--fg); margin: 0; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 4px 0 2px; }
+  .methods { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0; overflow-x: auto; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--fg); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .foot { color: var(--muted); font-size: 13px; margin-top: 36px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .err { background: #2a1620; border: 1px solid #5a2740; color: #ffb4c4; padding: 16px; border-radius: 12px; }
+  .sha { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pilot App Store</h1>
+  <p class="sub">Apps installable with <code>pilotctl appstore install &lt;id&gt;</code> over the Pilot overlay network.</p>
+  <p class="meta" id="meta"></p>
+</header>
+<main>
+  <div id="content"><p class="muted">Loading catalogue…</p></div>
+  <p class="foot">
+    The catalogue is fetched from <code id="src"></code> and is signed (detached ed25519);
+    <code>pilotctl</code> verifies the signature before any install.
+  </p>
+</main>
+<script>
+// Same-origin catalogue copied next to this page at deploy time. Override
+// with ?src= for local testing against another catalogue URL.
+const params = new URLSearchParams(location.search);
+const SRC = params.get("src") || "./catalogue.json";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function card(app) {
+  const c = el("div", "card");
+  const h = el("h2");
+  h.appendChild(el("span", null, app.id || "(unknown id)"));
+  if (app.version) h.appendChild(el("span", "ver", "v" + app.version));
+  c.appendChild(h);
+
+  if (app.description) c.appendChild(el("p", "desc", app.description));
+
+  // Methods aren't part of the v1 catalogue schema (they live in each
+  // app's manifest); render them when an entry provides them.
+  if (Array.isArray(app.methods) && app.methods.length) {
+    c.appendChild(el("div", "label", "Methods"));
+    const m = el("div", "methods");
+    app.methods.forEach(x => m.appendChild(el("span", "pill", x)));
+    c.appendChild(m);
+  }
+
+  c.appendChild(el("div", "label", "Install"));
+  const pre = el("pre");
+  pre.appendChild(el("code", null, "pilotctl appstore install " + (app.id || "")));
+  c.appendChild(pre);
+
+  if (app.bundle_url) {
+    const row = el("div", "row");
+    const a = el("a", null, "bundle ↗");
+    a.href = app.bundle_url; a.rel = "noopener"; a.target = "_blank";
+    row.appendChild(a);
+    if (app.bundle_sha256) row.appendChild(el("span", "sha", app.bundle_sha256.slice(0, 16) + "…"));
+    c.appendChild(row);
+  }
+  return c;
+}
+
+async function render() {
+  const content = document.getElementById("content");
+  document.getElementById("src").textContent = SRC;
+  try {
+    const res = await fetch(SRC, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const cat = await res.json();
+    document.getElementById("meta").textContent =
+      "Schema v" + cat.version + (cat.updated_at ? " · updated " + cat.updated_at : "") +
+      " · " + (cat.apps ? cat.apps.length : 0) + " app(s)";
+    content.textContent = "";
+    if (!cat.apps || !cat.apps.length) {
+      content.appendChild(el("p", "muted", "The catalogue is empty."));
+      return;
+    }
+    const grid = el("div", "grid");
+    cat.apps.forEach(a => grid.appendChild(card(a)));
+    content.appendChild(grid);
+  } catch (e) {
+    content.innerHTML = "";
+    const box = el("div", "err", "Could not load the catalogue: " + e.message);
+    content.appendChild(box);
+  }
+}
+render();
+</script>
+</body>
+</html>
