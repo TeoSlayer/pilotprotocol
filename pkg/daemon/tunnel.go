@@ -407,6 +407,25 @@ func (tm *TunnelManager) pruneRekeyBudgetLocked(now time.Time) bool {
 	return len(tm.lastRekeyReq) < maxRekeyRequesters
 }
 
+// ClearRekeyGaveUp lifts the per-peer give-up cooldown so a fresh rekey
+// cycle can start immediately. Thin shim over keyexchange.Manager so the
+// IPC layer (pkg/daemon/ipc.go handlePreferDirect) can reach it without
+// importing the keyexchange package directly.
+func (tm *TunnelManager) ClearRekeyGaveUp(peerNodeID uint32) {
+	tm.kx.ClearRekeyGaveUp(peerNodeID)
+}
+
+// ClearLastRekeyReq drops the per-peer rate-limit timestamp recorded by
+// maybeRequestRekey. After a forced reset (pilotctl prefer-direct) the
+// next "encrypted packet but no key" event must be allowed to fire a
+// fresh PILA immediately — without this, the 3-second gate can silently
+// swallow the first packet that would otherwise re-establish the tunnel.
+func (tm *TunnelManager) ClearLastRekeyReq(peerNodeID uint32) {
+	tm.rekeyMu.Lock()
+	delete(tm.lastRekeyReq, peerNodeID)
+	tm.rekeyMu.Unlock()
+}
+
 // maybeRequestRekey conditionally sends a key-exchange to a peer that sent us
 // an encrypted packet we can't decrypt. Rate-limited per peer. Returns true if
 // we actually sent one.
@@ -1419,6 +1438,33 @@ func (tm *TunnelManager) deriveSecret(peerPubKeyBytes []byte) (*peerCrypto, erro
 // BOOTSTRAP-EXCEPTION marker — moved with the function).
 func (tm *TunnelManager) sendKeyExchangeToNode(peerNodeID uint32) {
 	tm.kx.SendKeyExchangeToNode(peerNodeID)
+
+	// Dual-NAT convergence fix: when a peer is not (yet) relay-flagged but
+	// a beacon is available, ALSO push the key-exchange via relay. For two
+	// peers both behind NAT the direct PILA never lands, and the tunnel
+	// only reconverges after slow blackhole detection flips the path to
+	// relay — measured 28s–3min on the Mac↔GCP-VM rig, far longer than the
+	// dial/send timeouts. The relay copy converges in ~1 RTT. This is a
+	// no-op once the peer is relay-flagged (the primary send already went
+	// via relay), and relayProbeLoop keeps probing direct so a genuine
+	// direct path still upgrades the peer out of relay. Best-effort: a
+	// failed relay copy just falls back to the existing slow path.
+	if tm.routing.IsRelayPeer(peerNodeID) || tm.routing.BeaconAddr() == nil {
+		return
+	}
+	var frame []byte
+	if tm.kx.HasIdentity() {
+		frame = tm.kx.BuildAuthFrame()
+	}
+	if frame == nil {
+		frame = tm.kx.BuildUnauthFrame()
+	}
+	if frame == nil {
+		return
+	}
+	if err := tm.routing.SendRelayFrame(peerNodeID, frame); err != nil {
+		slog.Debug("kx relay-copy send failed", "peer_node_id", peerNodeID, "error", err)
+	}
 }
 
 // markPendingRekey is the legacy shim for keyexchange.Manager.MarkPendingRekey.

@@ -82,3 +82,33 @@ func (m *Manager) WriteFrame(nodeID uint32, addr *net.UDPAddr, frame []byte, cou
 	_, _ = m.HandleSendError(nodeID, err)
 	return SendOutcome{}, err
 }
+
+// SendRelayFrame sends a frame to a peer via the beacon relay path
+// unconditionally — ignoring the per-peer relay flag and the blackhole
+// heuristic. Used by the key-exchange convergence path to guarantee a
+// dual-NAT peer receives the PILA via relay even before its relay flag
+// has been set. Without this, two peers both behind NAT only reconverge
+// after slow blackhole detection flips the direct path to relay
+// (measured 28s–3min on the Mac↔GCP-VM rig). Returns ErrNoAddress if no
+// beacon is configured. Does not bump the per-peer outbound-send
+// timestamp (this is an out-of-band copy, not the primary path).
+func (m *Manager) SendRelayFrame(nodeID uint32, frame []byte) error {
+	m.mu.RLock()
+	bAddr := m.beaconAddr
+	sock := m.sock
+	m.mu.RUnlock()
+	if bAddr == nil {
+		return ErrNoAddress
+	}
+	if sock == nil {
+		return fmt.Errorf("routing: socket not set")
+	}
+	// MsgRelay: [0x05][senderNodeID(4)][destNodeID(4)][frame...]
+	msg := make([]byte, 1+4+4+len(frame))
+	msg[0] = protocol.BeaconMsgRelay
+	binary.BigEndian.PutUint32(msg[1:5], m.localNodeID())
+	binary.BigEndian.PutUint32(msg[5:9], nodeID)
+	copy(msg[9:], frame)
+	_, err := sock.Send(msg, bAddr)
+	return err
+}
