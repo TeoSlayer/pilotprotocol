@@ -110,6 +110,7 @@ utilities:
     - github.com/TeoSlayer/pilotprotocol/internal/account
     - github.com/TeoSlayer/pilotprotocol/internal/validate
     - github.com/TeoSlayer/pilotprotocol/internal/nodesapi
+    - github.com/TeoSlayer/pilotprotocol/internal/motd
     - github.com/TeoSlayer/pilotprotocol/pkg/secure
     - github.com/TeoSlayer/pilotprotocol/pkg/config
     - github.com/TeoSlayer/pilotprotocol/pkg/logging

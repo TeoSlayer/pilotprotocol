@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/account"
+	"github.com/TeoSlayer/pilotprotocol/internal/motd"
 	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/pilot-protocol/common/crypto"
@@ -120,6 +122,13 @@ type Config struct {
 
 	// Version
 	Version string // binary version string (injected via LDFLAGS at build time)
+
+	// Message of the day. The daemon polls MOTDFeedURL every MOTDInterval,
+	// selects the entry dated for the current UTC day, mirrors it to
+	// ~/.pilot/motd.json, and pilotctl renders it as a banner. An empty
+	// MOTDFeedURL disables polling entirely (no goroutine, no network).
+	MOTDFeedURL  string
+	MOTDInterval time.Duration // zero = motd.DefaultInterval
 
 	// Feature flags — ablation testing. All default false (current behavior).
 	BeaconRTTProbe bool // probe beacon RTT; override hash pick when >2× slower than best
@@ -358,6 +367,13 @@ type Daemon struct {
 	nodeNetworksCacheMu sync.Mutex
 	nodeNetworksCache   []uint16
 	nodeNetworksCacheAt time.Time
+
+	// Message of the day: the text active for the current UTC day, set by
+	// motdPollLoop from the remote feed and mirrored to ~/.pilot/motd.json
+	// for the CLI banner. Empty means no banner. The daemon is the only
+	// component that fetches the feed; pilotctl reads the mirror.
+	motdMu sync.RWMutex
+	motd   string
 
 	// SYN rate limiter (token bucket)
 	synMu       sync.Mutex
@@ -1155,6 +1171,14 @@ func (d *Daemon) Start() error {
 	// ensures self-healing within one interval after a registry roll.
 	d.bgWG.Add(1)
 	go func() { defer d.bgWG.Done(); d.hostnameReannounceLoop() }()
+
+	// 14. Start message-of-the-day poll loop. Fetches the MOTD feed on an
+	// interval and mirrors today's (UTC) entry to ~/.pilot/motd.json so
+	// pilotctl can render the banner without any network or IPC call. The
+	// loop returns immediately (cheap no-op goroutine) when no feed URL is
+	// configured. This is the ONLY component that fetches the MOTD feed.
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.motdPollLoop() }()
 
 	// 12b. Earlier rc2-dev iterations pre-warmed trusted peers at
 	// startup. Two variants were tried and both made things worse:
@@ -2540,6 +2564,8 @@ type DaemonInfo struct {
 
 	RelayPeerCount int    // peers currently on relay path (symmetric NAT)
 	BeaconAddr     string // active beacon address
+
+	MOTD string // message-of-the-day active for the current UTC day ("" = none)
 }
 
 // Info returns current daemon status.
@@ -2631,7 +2657,16 @@ func (d *Daemon) Info() *DaemonInfo {
 		WebhookCircuitSkips:   d.webhookStats().CircuitSkips,
 		RelayPeerCount:        len(d.tunnels.RelayPeerIDs()),
 		BeaconAddr:            d.config.BeaconAddr,
+		MOTD:                  d.currentMOTD(),
 	}
+}
+
+// currentMOTD returns the message-of-the-day text active for the current
+// UTC day, or "" if none. Safe for concurrent callers.
+func (d *Daemon) currentMOTD() string {
+	d.motdMu.RLock()
+	defer d.motdMu.RUnlock()
+	return d.motd
 }
 
 func (d *Daemon) routeLoop() {
@@ -4405,6 +4440,87 @@ func (d *Daemon) prewarmTrustedResolves() {
 		}
 	}
 	slog.Info("prewarm complete", "peers_warmed", warmed)
+}
+
+// motdMirrorPath returns the on-disk location of the message-of-the-day
+// mirror that pilotctl reads. It sits next to the persisted identity
+// (normally ~/.pilot/), falling back to $HOME/.pilot when the daemon runs
+// without identity persistence so the CLI — which always looks in
+// ~/.pilot — still finds it. Empty only if the home directory can't be
+// determined.
+func (d *Daemon) motdMirrorPath() string {
+	if d.config.IdentityPath != "" {
+		return filepath.Join(filepath.Dir(d.config.IdentityPath), "motd.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".pilot", "motd.json")
+}
+
+// motdPollLoop periodically fetches the MOTD feed, selects the entry active
+// for the current UTC day, stores it in d.motd, and mirrors it to disk for
+// the CLI. A cleared/empty feed (or a removed entry) propagates within one
+// interval as a cleared mirror, so the banner disappears on its own. The
+// loop is a cheap no-op when no feed URL is configured.
+func (d *Daemon) motdPollLoop() {
+	url := d.config.MOTDFeedURL
+	if url == "" {
+		return
+	}
+	interval := d.config.MOTDInterval
+	if interval <= 0 {
+		interval = motd.DefaultInterval
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Fire once on startup so the banner is warm shortly after boot,
+	// then settle into the interval.
+	d.refreshMOTD(client, url)
+
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case <-t.C:
+			d.refreshMOTD(client, url)
+		}
+	}
+}
+
+// refreshMOTD performs one fetch+select+mirror cycle. On a fetch error it
+// keeps the last good mirror in place (offline tolerance) — a stale mirror
+// can't show an out-of-date message because the CLI re-validates the UTC
+// day on read.
+func (d *Daemon) refreshMOTD(client *http.Client, url string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	feed, err := motd.Fetch(ctx, client, url)
+	if err != nil {
+		slog.Debug("motd fetch failed; keeping last mirror", "err", err)
+		return
+	}
+
+	now := time.Now()
+	msg, active := motd.SelectForToday(feed, now)
+
+	d.motdMu.Lock()
+	if active {
+		d.motd = msg.Text
+	} else {
+		d.motd = ""
+	}
+	d.motdMu.Unlock()
+
+	if path := d.motdMirrorPath(); path != "" {
+		if err := motd.WriteMirror(path, msg, now); err != nil {
+			slog.Debug("motd mirror write failed", "err", err, "path", path)
+		}
+	}
 }
 
 // hostnameCachePath returns the on-disk location of the persisted

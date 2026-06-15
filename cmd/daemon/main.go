@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/internal/motd"
 	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/config"
 	"github.com/pilot-protocol/common/driver"
@@ -95,11 +96,16 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
+	motdFeedURL := flag.String("motd-feed-url", motd.DefaultFeedURL, "message-of-the-day feed URL (empty to disable); overridden by $PILOT_MOTD_URL")
+	motdInterval := flag.Duration("motd-interval", 0, "message-of-the-day poll interval (default 15m)")
 	flag.Parse()
 	if *adminToken == "" {
 		if v := os.Getenv("PILOT_ADMIN_TOKEN"); v != "" {
 			*adminToken = v
 		}
+	}
+	if v := os.Getenv("PILOT_MOTD_URL"); v != "" {
+		*motdFeedURL = v
 	}
 
 	if *showVersion {
@@ -199,6 +205,8 @@ func main() {
 		TransportMode:         *transportMode,
 		CompatBeaconURL:       *compatBeacon,
 		CompatTLSTrust:        *tlsTrust,
+		MOTDFeedURL:           *motdFeedURL,
+		MOTDInterval:          *motdInterval,
 	})
 
 	// L11 plugin lifecycle (T7.1): composition root owns the
