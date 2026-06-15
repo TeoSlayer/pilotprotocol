@@ -10,6 +10,8 @@ github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260609061942-8852c785a264 
 github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260609061942-8852c785a264/go.mod h1:zoCxHYoNdj0V44OkG3Yzcye0jnwZDVUcJgAvR5Z1kwc=
 github.com/pilot-protocol/beacon v0.2.5 h1:5+pkSPoA35r+u4Hfrph/ZfOltOyiy8lh1sCfK5XqXKs=
 github.com/pilot-protocol/beacon v0.2.5/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
+github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
+github.com/pilot-protocol/beacon v0.2.6/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
 github.com/pilot-protocol/common v0.4.8 h1:eS2Bc+XcZWJ/qhwwOZbXwIWhtNdOijuoEp716kQE+/c=
 github.com/pilot-protocol/common v0.4.8/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.0 h1:ldE6AyrES1uvdnn1NBl0KZ7C+SSWNtmeHHU3CQhwSCo=
@@ -28,6 +30,8 @@ github.com/pilot-protocol/policy v0.2.2 h1:Co8sqZ4lRQfFA0Ot8l33VhsEwfiEVqcPz+kHY
 github.com/pilot-protocol/policy v0.2.2/go.mod h1:jzsAO71uGlRVyduPrQmS/UeqSwUpeUO/CjykHm/IfXM=
 github.com/pilot-protocol/rendezvous v0.2.4 h1:nxYm12RzEUA6zzNGcnDqxNcGBSIALL5uRH9zX+Q0CSg=
 github.com/pilot-protocol/rendezvous v0.2.4/go.mod h1:w7SC0nZCmWPyc7hxdFZ200zQVA75UoaC25MznUQXNFE=
+github.com/pilot-protocol/rendezvous v0.2.5-0.20260615154750-f09cf1a708b0 h1:kKeSXIEfE677+yanooStfSnneQ3dFCb22WPJbyj+yng=
+github.com/pilot-protocol/rendezvous v0.2.5-0.20260615154750-f09cf1a708b0/go.mod h1:Gv1BwKx5oBUZCMNpCxa9enBFa6uy9hHDSI2r28QdIrg=
 github.com/pilot-protocol/runtime v0.3.0 h1:OVPv7hyaAZsw5EPWtf2XQGfCqxgaM/iANPhIYOMp+0w=
 github.com/pilot-protocol/runtime v0.3.0/go.mod h1:GfFEIji0w7H9SSNR9Wl2q72pd2OYN3PHY9Qhcbvyrqk=
 github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrYElXZ1zs=
