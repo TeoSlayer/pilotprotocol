@@ -282,7 +282,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 - Detects your platform (linux/darwin, amd64/arm64)
 - Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
-- Installs `pilot-daemon`, `pilotctl`, `pilot-gateway`, and `pilot-updater` to `~/.pilot/bin`
+- Installs the core binaries `pilot-daemon`, `pilotctl`, and `pilot-updater` to `~/.pilot/bin` (plus the optional `pilot-gateway` when it's present in the build)
 - Adds `~/.pilot/bin` to your PATH
 - Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
 - Sets up system services (**Linux**: systemd, **macOS**: launchd) for daemon and auto-updater
@@ -293,6 +293,14 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 **From source** (requires Go 1.25+): `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
 
 </details>
+
+**Binaries.** Three are vital — the protocol's core functionality depends on
+them: `pilot-daemon` (the node itself), `pilotctl` (the CLI you drive it with),
+and `pilot-updater` (the background auto-updater, installed when automatic
+updates are enabled). `pilot-gateway` is **optional**: it powers the TCP/HTTP
+gateway extras, ships only when built (release tarballs carry daemon/pilotctl/updater
+only), and the core runs fine without it. The language SDKs are libraries
+(npm / PyPI / Swift) over the `libpilot` C FFI — not a standalone binary.
 
 ---
 
