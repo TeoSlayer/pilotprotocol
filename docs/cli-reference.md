@@ -61,7 +61,7 @@ Management commands:
   pilotctl disconnect <conn_id>
 
 Mailbox:
-  pilotctl received [--clear]
+  pilotctl received [--limit <n>] [--since <dur>] [--clear [--before <dur>]]
   pilotctl inbox [--clear]
 
 Service Agents:

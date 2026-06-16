@@ -270,11 +270,19 @@ func TestCmdInboxMixedTypesOrdering(t *testing.T) {
 	if len(msgs) != 3 {
 		t.Fatalf("got %d msgs", len(msgs))
 	}
-	// First by timestamp suffix: "1st", "2nd", "3rd".
-	for i, want := range []string{"1st", "2nd", "3rd"} {
+	// Newest first by timestamp suffix: "3rd", "2nd", "1st". Default JSON
+	// output carries a bounded preview, not the full body — agents use
+	// --latest / --full / read <id> for full bodies.
+	for i, want := range []string{"3rd", "2nd", "1st"} {
 		m := msgs[i].(map[string]interface{})
-		if m["data"] != want {
-			t.Errorf("msgs[%d].data = %v, want %q", i, m["data"], want)
+		if m["preview"] != want {
+			t.Errorf("msgs[%d].preview = %v, want %q", i, m["preview"], want)
+		}
+		if _, hasData := m["data"]; hasData {
+			t.Errorf("msgs[%d] carries full data in default mode; want preview only", i)
+		}
+		if id, _ := m["id"].(string); id == "" {
+			t.Errorf("msgs[%d] missing stable id", i)
 		}
 	}
 }

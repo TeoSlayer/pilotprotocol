@@ -231,6 +231,20 @@ func formatBytes(b uint64) string {
 	}
 }
 
+// fmtCount renders a large count compactly: 1234 → "1.2K", 5400000 → "5.4M".
+func fmtCount(n uint64) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fB", float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 10_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
 // --- Env / config helpers ---
 
 func getSocket() string {
@@ -738,7 +752,7 @@ Send echo packets and report round-trip latency.
 
 Flags:
   --count <n>           number of packets to send (default: 4)
-  --timeout <dur>       per-ping deadline (default: 30s)
+  --timeout <dur>       per-ping deadline (default: 5s)
   --reuse-conn          reuse tunnel connection across packets
   --trace               print per-step timing breakdown to stderr
 
@@ -809,42 +823,56 @@ See also: pilotctl approve, pilotctl pending, pilotctl trust
 `,
 	"peers": `Usage: pilotctl peers [flags]
 
-List currently connected peers and their connection quality.
+Summarize currently connected peers. Shows a one-line breakdown
+(encrypted+authenticated / relay / direct) and then only the exceptions —
+peers that are unencrypted or unauthenticated.
 
-Columns: NODE ID, ENCRYPTED, AUTH, PATH (direct/relay)
-  PATH=relay means this peer is behind symmetric NAT and traffic goes through
-  the beacon. It's normal but adds ~50-150ms latency vs a direct path.
+PATH=relay means a peer is behind symmetric NAT and traffic goes through
+the beacon. It's normal but adds ~50-150ms latency vs a direct path.
 
 Flags:
+  --all                 full peer table instead of exceptions only
+  --limit <n>           rows to show (default 20, 0 = all)
   --search <query>      filter by node ID substring
 
 See also: pilotctl ping <node_id>  — measure RTT to a specific peer
 `,
-	"inbox": `Usage: pilotctl inbox [flags]
+	"inbox": `Usage: pilotctl inbox [read <id>] [flags]
 
-Show messages received via send-message from other agents.
+Show messages received from other agents — newest first, 10 by default.
+
+Subcommands:
+  read <id>             print the full body of one message
 
 Flags:
-  --clear               delete all inbox messages after displaying them
-  --trace               include relative age and byte count per message
+  --latest              full body of the single newest message (after filters)
+  --limit <n>           how many to show (default 10, 0 = all)
+  --from <peer>         only messages from this address or hostname
+  --since <dur|ts>      only messages newer than a duration (5m, 1h) or RFC3339 time
+  --full                full bodies instead of one-line previews
+  --clear               delete the matched messages (all if no filters)
+  --before <dur>        with --clear: only delete messages older than this
 
-Tip: use with send-message --wait to get a reply inline:
-  pilotctl send-message list-agents --data '/data {}' --wait
+Agent patterns:
+  pilotctl --json inbox --latest                     # newest reply, full body
+  pilotctl --json inbox --from list-agents --limit 3 # last 3 from one peer
+  pilotctl inbox --clear --before 24h                # keep today, purge older
+
+Tip: send-message --wait already returns the matching reply inline; the
+inbox is for replies that arrive later or that you want to re-read.
 `,
 	"info": `Usage: pilotctl info [flags]
 
-Print full daemon state: address, hostname, uptime, peers, encryption,
-beacon, active connections, traffic counters.
+Print full daemon state, grouped:
+  identity   hostname, address, node ID, key fingerprint, email
+  network    peers (encrypted/relay/direct), pending handshakes,
+             beacon, connections, ports
+  traffic    cumulative bytes and packet counts since start
+  skills     agent tools with the pilot skill installed
 
-Key fields:
-  Peers        total / direct / relay breakdown
-  Encryption   per-peer encrypted + authenticated counts
-  Beacon       which beacon was picked for relay and NAT traversal
-  Handshakes   pending approvals (run 'pilotctl pending' to act on them)
-  Traffic      cumulative bytes and packet counts since start
-
-See also: pilotctl health  — lightweight status check
-          pilotctl peers   — per-peer detail
+See also: pilotctl health       — lightweight status check
+          pilotctl peers        — per-peer detail
+          pilotctl connections  — per-connection detail
 `,
 	"health": `Usage: pilotctl health
 
@@ -938,15 +966,20 @@ To reject:   pilotctl reject <node_id|address|hostname> [reason]
 
 Note: nodes in the embedded trusted-agents list are auto-approved on first contact.
 `,
-	"trust": `Usage: pilotctl trust
+	"trust": `Usage: pilotctl trust [flags]
 
-List all nodes this daemon currently trusts, with mutual status and approval time.
+List the nodes this daemon currently trusts, newest first (20 by default).
 
-MUTUAL=yes means the other node also approved you — messages flow freely.
-MUTUAL=no means you approved them but they haven't approved you yet, or vice versa.
+Mutual trust is the norm and prints nothing; rows tagged "one-way" mean
+you approved them but they haven't approved you yet, or vice versa.
+
+Flags:
+  --limit <n>           rows to show (default 20, 0 = all)
+  --search <substr>     filter by node ID (or hostname when known)
 
 See also: pilotctl pending   — incoming requests waiting for your approval
           pilotctl handshake — initiate trust with a new peer
+          pilotctl untrust   — revoke trust with a node
 `,
 	"trusted": `Usage: pilotctl trusted
 
@@ -1060,11 +1093,14 @@ Sends FIN to the remote side.
 	// Messaging
 	"received": `Usage: pilotctl received [flags]
 
-Show raw received messages (lower-level than inbox — includes all ports,
-not just the data-exchange inbox port).
+List files received via send-file (~/.pilot/received/), newest first.
+Shows the 10 newest by default.
 
 Flags:
-  --clear    delete all received messages after displaying them
+  --limit <n>             show at most N files (default: 10, 0 = all)
+  --since <dur|rfc3339>   only files newer than a duration (5m, 1h) or timestamp
+  --clear                 delete the matched files
+  --before <dur>          with --clear: only delete files older than <dur>
 `,
 	"dgram": `Usage: pilotctl dgram <address|hostname> <port> --data <msg>
 
@@ -1101,13 +1137,15 @@ Flags:
   --count <n>      number of entries to show (default: 5)
   --scope <name>   filter by scope tag (e.g. protocol, cli, networks)
 `,
-	"context": `Usage: pilotctl context
+	"context": `Usage: pilotctl context [command]
 
 Print machine-readable metadata for every command: name, description,
 argument templates, and return field names. Used by agent tools (Claude Code,
 OpenClaw, etc.) to auto-generate command invocations.
 
-Output is a JSON object keyed by command name.
+With no argument, prints the full catalog as a JSON object keyed by command
+name. With a command name (e.g. 'pilotctl context send-message' or
+'pilotctl context daemon start'), prints only that command's entry.
 `,
 	"skills": `Usage: pilotctl skills [subcommand]
 
@@ -1116,9 +1154,9 @@ Manage the SKILL.md files the daemon installs for each detected agent tool
 use pilotctl without manual setup.
 
 Subcommands:
-  status    (default) show install state for each detected tool
-  paths     print install paths only — one per line, shell-friendly
-  check     run one reconcile pass right now (re-installs if missing/outdated)
+  status [--verbose]   (default) per-tool install state; --verbose adds per-file detail
+  paths                print install paths only — one per line, shell-friendly
+  check                run one reconcile pass right now (re-installs if missing/outdated)
 
 The daemon reconciles skill files every 15 minutes automatically.
 `,
@@ -1138,10 +1176,41 @@ Flags:
 
 Publish a message to a topic on a remote node.
 `,
-	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath>
+	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>] [--prefer-direct]
 
-Send a file to a remote node via the reliable data-exchange stream.
-The receiver gets the filename and contents; an ACK is printed on success.
+Send a file to a remote node via the data-exchange stream. Files are
+capped at 256 MiB (the data-exchange frame ceiling) unless both daemons
+have raised PILOT_DATAEXCHANGE_MAX_FRAME — see the dataexchange package.
+
+Flags:
+  --timeout <dur>       give up if the receiver does not ACK within this
+                        window (default 90s). Use a value comfortably
+                        larger than (file size / expected throughput) +
+                        receiver disk-flush time. On timeout the sender
+                        exits with a non-zero code and a clear hint
+                        instead of hanging until SO_KEEPALIVE trips
+                        (~120s by default on the OS).
+  --prefer-direct       drop the existing tunnel + sticky relay flag for
+                        this peer before dialing, so the daemon retries
+                        a direct UDP path instead of reusing the
+                        beacon-mediated relay tunnel. Useful when ping
+                        works but send-file hangs — typical sign of a
+                        relay path that established once and got stuck.
+                        Best-effort: if the peer is genuinely behind a
+                        symmetric NAT the daemon will still fall back to
+                        relay within the dial retry budget.
+
+What you see during a transfer (TTY only):
+  sending <file> to <target>… <Ns>            self-rewriting elapsed line
+  (--json suppresses it for agent consumption)
+
+Reliability caveats (current implementation):
+  - File is transferred as a single atomic frame; on any error the
+    receiver may end up with no file or a partial one.
+  - No resume protocol — a dropped transfer means a full retry.
+  - End-to-end integrity is the tunnel's AEAD tag; there is no
+    application-level content hash. See
+    docs/PROPOSAL-reliable-file-transfer.md for the planned fix.
 `,
 
 	// appstore: keep the help block here in lockstep with
@@ -1229,7 +1298,7 @@ Management commands:
   pilotctl disconnect <conn_id>
 
 Mailbox:
-  pilotctl received [--clear]
+  pilotctl received [--limit <n>] [--since <dur>] [--clear [--before <dur>]]
   pilotctl inbox [--clear]
 
 Service Agents:
@@ -1359,7 +1428,7 @@ dispatch:
 	case "config":
 		cmdConfig(cmdArgs)
 	case "context":
-		cmdContext()
+		cmdContext(cmdArgs)
 
 	// Daemon lifecycle
 	case "daemon":
@@ -1476,9 +1545,11 @@ dispatch:
 	case "pending":
 		cmdPending()
 	case "trust":
-		cmdTrust()
+		cmdTrust(cmdArgs)
 	case "trusted":
 		cmdTrusted(cmdArgs)
+	case "prefer-direct":
+		cmdPreferDirect(cmdArgs)
 
 	// Networks
 	case "network":
@@ -1738,13 +1809,47 @@ func cmdConfig(args []string) {
 	if _, ok := cfg["socket"]; !ok {
 		cfg["socket"] = getSocket()
 	}
-	output(cfg)
+	if jsonOutput {
+		output(cfg)
+		return
+	}
+
+	// Human mode: aligned key-value list, config_path pinned to the top
+	// (it's the answer to "which file am I editing?"). Keys are padded
+	// before styling so ANSI escapes don't break the column alignment.
+	keys := make([]string, 0, len(cfg))
+	width := len("config_path")
+	for k := range cfg {
+		if k == "config_path" {
+			continue
+		}
+		keys = append(keys, k)
+		if len(k) > width {
+			width = len(k)
+		}
+	}
+	sort.Strings(keys)
+
+	renderValue := func(v interface{}) string {
+		if s, ok := v.(string); ok {
+			return s
+		}
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+	fmt.Printf("%s  %s\n", sDim(fmt.Sprintf("%-*s", width, "config_path")), sAccent(renderValue(cfg["config_path"])))
+	for _, k := range keys {
+		fmt.Printf("%s  %s\n", sDim(fmt.Sprintf("%-*s", width, k)), renderValue(cfg[k]))
+	}
 }
 
 // ===================== CONTEXT =====================
 
-func cmdContext() {
-	ctx := map[string]interface{}{
+// contextCatalog returns the full machine-readable command catalog that
+// `pilotctl context` dumps. Kept as a function so cmdContext can also
+// serve single-command lookups without holding the map at package scope.
+func contextCatalog() map[string]interface{} {
+	return map[string]interface{}{
 		"version": "1.3",
 		"note":    "Core commands cover everything an agent needs. Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is a separate installed binary.",
 
@@ -1909,7 +2014,7 @@ func cmdContext() {
 			"send-message": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "--data <text>", "[--type text|json|binary]", "[--count <n>]", "[--reuse-conn]"},
 				"description": "Send a typed message to a node via data exchange (port 1001). --count N sends N messages; --reuse-conn shares one connection across all N (env: PILOT_SENDMSG_REUSE_CONN=1). Default type: text",
-				"returns":     "target, type, bytes, ack, reuse_conn",
+				"returns":     "target, to, type, bytes, ack, reuse_conn",
 			},
 			"send-file": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "<filepath>"},
@@ -1917,14 +2022,14 @@ func cmdContext() {
 				"returns":     "filename, bytes, destination, ack",
 			},
 			"inbox": map[string]interface{}{
-				"args":        []string{"[--clear]"},
-				"description": "List received messages (~/.pilot/inbox/). --clear to delete all",
-				"returns":     "messages [{type, from, data, received_at}], total, dir",
+				"args":        []string{"[read <id>]", "[--latest]", "[--limit <n>]", "[--from <peer>]", "[--since <dur>]", "[--full]", "[--clear [--before <dur>]]"},
+				"description": "List received messages newest-first (~/.pilot/inbox/). Default limit 10 with previews; --latest for the newest full body; read <id> for one message",
+				"returns":     "messages [{id, from, received_at, type, bytes, preview|data}], total, shown, dir",
 			},
 			"received": map[string]interface{}{
-				"args":        []string{"[--clear]"},
-				"description": "List received files (~/.pilot/received/). --clear to delete all",
-				"returns":     "files [{name, bytes, modified, path}], total, dir",
+				"args":        []string{"[--limit <n>]", "[--since <dur|rfc3339>]", "[--clear [--before <dur>]]"},
+				"description": "List received files (~/.pilot/received/) newest-first. Default limit 10 in text mode; --clear deletes the matched set",
+				"returns":     "files [{name, bytes, modified, path}], total, shown, dir",
 			},
 
 			// Pub/Sub
@@ -1948,7 +2053,7 @@ func cmdContext() {
 			"ping": map[string]interface{}{
 				"args":        []string{"<address|hostname>", "[--count <n>]", "[--timeout <dur>]"},
 				"description": "Ping a node via echo port (port 7). Default 4 pings",
-				"returns":     "target, results [{seq, bytes, rtt_ms, error}], timeout (bool)",
+				"returns":     "target, to, results [{seq, bytes, rtt_ms, error}], timeout (bool)",
 			},
 		},
 
@@ -2061,7 +2166,42 @@ func cmdContext() {
 		},
 		"config_file": "~/.pilot/config.json",
 	}
-	output(ctx)
+}
+
+// cmdContext prints the full command catalog, or — with a positional
+// argument — only that command's entry: `pilotctl context send-message`
+// returns the one JSON object instead of the whole ~18 KB dump.
+// Multi-word commands work too: `pilotctl context daemon start`.
+func cmdContext(args []string) {
+	ctx := contextCatalog()
+	_, pos := parseFlags(args)
+	if len(pos) == 0 {
+		output(ctx)
+		return
+	}
+	name := strings.Join(pos, " ")
+	commands, _ := ctx["commands"].(map[string]interface{})
+	if entry, ok := commands[name]; ok {
+		output(entry)
+		return
+	}
+	// Fall back to the extras and gateway catalogs so e.g.
+	// `pilotctl context policy set` resolves too.
+	for _, section := range []string{"extras", "pilot_gateway"} {
+		sec, _ := ctx[section].(map[string]interface{})
+		cmds, _ := sec["commands"].(map[string]interface{})
+		if entry, ok := cmds[name]; ok {
+			output(entry)
+			return
+		}
+	}
+	valid := make([]string, 0, len(commands))
+	for k := range commands {
+		valid = append(valid, k)
+	}
+	sort.Strings(valid)
+	fatalCode("not_found", "unknown command %q — valid: %s (extras/gateway names also accepted)",
+		name, strings.Join(valid, ", "))
 }
 
 func cmdExtrasHelp() {
@@ -2632,8 +2772,8 @@ func cmdDaemonStatus(args []string) {
 		if jsonOutput {
 			output(result)
 		} else {
-			fmt.Println("Daemon: stopped")
-			fmt.Printf("  start with: pilotctl daemon start\n")
+			fmt.Printf("%s %s stopped\n", statusDot("err"), sBold("pilot-daemon"))
+			fmt.Printf("  %s\n", sDim("start: pilotctl daemon start"))
 		}
 		return
 	}
@@ -2642,7 +2782,12 @@ func cmdDaemonStatus(args []string) {
 	info, err := d.Info()
 	if err != nil {
 		result["responsive"] = false
-		output(result)
+		if jsonOutput {
+			output(result)
+		} else {
+			fmt.Printf("%s %s unresponsive %s\n", statusDot("err"), sBold("pilot-daemon"), sDim("— socket accepted the connection but info failed"))
+			fmt.Printf("  %s\n", sDim("restart: pilotctl daemon stop && pilotctl daemon start"))
+		}
 		return
 	}
 
@@ -2658,21 +2803,27 @@ func cmdDaemonStatus(args []string) {
 	result["connections"] = int(info["connections"].(float64))
 
 	if !jsonOutput {
+		// The socket responded, so the daemon IS running — regardless of
+		// what the PID file says (it may be missing or stale when the
+		// daemon was started by launchd/systemd instead of pilotctl).
 		uptime := info["uptime_secs"].(float64)
 		hours := int(uptime) / 3600
 		mins := (int(uptime) % 3600) / 60
 		secs := int(uptime) % 60
-		statusStr := "stopped"
+		fmt.Printf("%s %s running\n", statusDot("ok"), sBold("pilot-daemon"))
+		meta := fmt.Sprintf("uptime %02d:%02d:%02d", hours, mins, secs)
 		if running {
-			statusStr = "running"
+			meta += fmt.Sprintf(" · pid %d", pid)
 		}
-		fmt.Printf("Daemon: %s (pid %d)\n", statusStr, pid)
-		fmt.Printf("  Node ID:     %d\n", int(info["node_id"].(float64)))
-		fmt.Printf("  Address:     %s\n", info["address"])
+		meta += fmt.Sprintf(" · %d connection(s)", int(info["connections"].(float64)))
+		fmt.Printf("  %s\n", sDim(meta))
+
+		nodeLine := fmt.Sprintf("%d · %s", int(info["node_id"].(float64)), info["address"])
 		if h, ok := info["hostname"].(string); ok && h != "" {
-			fmt.Printf("  Hostname:    %s\n", h)
+			nodeLine += " · " + h
 		}
-		fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
+		fmt.Printf("  node      %s\n", sAccent(nodeLine))
+
 		peers := int(info["peers"].(float64))
 		encPeers := 0
 		if ep, ok := info["encrypted_peers"].(float64); ok {
@@ -2686,14 +2837,12 @@ func cmdDaemonStatus(args []string) {
 		if hp, ok := info["handshake_pending_count"].(float64); ok {
 			pending = int(hp)
 		}
-		peerLine := fmt.Sprintf("%d", peers)
-		if peers > 0 {
-			peerLine = fmt.Sprintf("%d (%d encrypted, %d via relay)", peers, encPeers, relayPeers)
+		fmt.Printf("  peers     %s %s\n", sBold(fmt.Sprintf("%d", peers)), sDim(fmt.Sprintf("(%d encrypted, %d via relay)", encPeers, relayPeers)))
+		if !running {
+			fmt.Printf("  %s\n", sDim("pid file stale — daemon was likely started by launchd/systemd"))
 		}
-		fmt.Printf("  Peers:       %s\n", peerLine)
-		fmt.Printf("  Connections: %d\n", int(info["connections"].(float64)))
 		if pending > 0 {
-			fmt.Printf("  Handshakes:  %d pending\n", pending)
+			fmt.Printf("  %s %s\n", sWarn(fmt.Sprintf("%d pending handshake(s)", pending)), sDim("— review with: pilotctl pending"))
 		}
 		return
 	}
@@ -3526,25 +3675,111 @@ func cmdDgram(args []string) {
 	}
 }
 
+// cmdSendFile transfers a file via the dataexchange overlay stream.
+//
+// Until the chunked streaming protocol lands (see
+// docs/PROPOSAL-reliable-file-transfer.md), this M0 implementation gives
+// us four reliability primitives without changing the wire format:
+//
+//  1. **Bounded ACK wait.** The original code blocked on `client.Recv()`
+//     forever; if the receiver crashed mid-write, the sender hung until
+//     SO_KEEPALIVE finally fired (~120s on most kernels). We now wrap the
+//     receive in a context with a configurable `--timeout` (default 90s)
+//     and close the connection on expiry so the underlying goroutine
+//     unblocks.
+//  2. **Progress indicator.** While the transfer is in flight, an
+//     elapsed-time line is rewritten on stderr (TTY-only, hidden under
+//     --json) so the user knows the command is alive. Uses the existing
+//     startWaitProgress helper.
+//  3. **Throughput in the result.** The JSON output now carries
+//     elapsed_ms and a megabits-per-second rate, so agents can see at a
+//     glance whether the transfer was abnormally slow.
+//  4. **Sharper error messages.** Timeouts and receiver-side ERR ACKs
+//     get distinct exit codes and surface the next command to run
+//     ("pilotctl ping" / "pilotctl peers"), matching the house pattern.
 func cmdSendFile(args []string) {
-	if len(args) < 2 {
-		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath>")
+	flags, pos := parseFlags(args)
+	if len(pos) < 2 {
+		fatalCode("invalid_argument", "usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>]")
 	}
+
+	// Default 90s is comfortable for transfers up to a hundred MiB over
+	// a relay path; users with bigger files or slower peers should bump
+	// it explicitly. We intentionally do not derive timeout from file
+	// size — that hides the failure mode where the receiver hangs
+	// post-write (the actual symptom of the original bug).
+	timeout := flagDuration(flags, "timeout", 90*time.Second)
 
 	d := connectDriver()
 	defer d.Close()
 
-	target, err := parseAddrOrHostname(d, args[0])
+	target, err := parseAddrOrHostname(d, pos[0])
 	if err != nil {
 		fatalCode("invalid_argument", "%v", err)
 	}
 
 	// Auto-handshake to peers in the embedded trusted-agents list.
 	// Best-effort: warns on stderr and continues if handshake fails.
-	// (send-file uses positional args — no flag map; pass false.)
 	maybeAutoHandshake(d, target, false)
 
-	filePath := args[1]
+	// --prefer-direct breaks the daemon out of a stuck-on-relay tunnel
+	// BEFORE we dial port 1001. Without this, a previously-established
+	// relay tunnel is reused and the dial inherits its broken stream
+	// behavior. We send the IPC, log what the daemon reset, and proceed
+	// regardless — an old daemon returns "unknown command" which we
+	// treat as a best-effort hint, not a hard failure.
+	if flagBool(flags, "prefer-direct") {
+		resp, perr := d.PreferDirect(target.Node)
+		switch {
+		case perr != nil && strings.Contains(perr.Error(), "unknown command"):
+			fmt.Fprintln(os.Stderr, sDim("--prefer-direct: daemon does not support it (pre-v1.12.0); proceeding with existing tunnel"))
+		case perr != nil:
+			fmt.Fprintln(os.Stderr, sDim("--prefer-direct: "+perr.Error()+" (continuing)"))
+		default:
+			had, _ := resp["had_tunnel"].(bool)
+			wasActive, _ := resp["was_relay_active"].(bool)
+			wasPinned, _ := resp["was_relay_pinned"].(bool)
+			fmt.Fprintln(os.Stderr, sDim(fmt.Sprintf("--prefer-direct: tunnel=%v relay_was_active=%v relay_was_pinned=%v",
+				had, wasActive, wasPinned)))
+		}
+	}
+
+	filePath := pos[1]
+	filename := filepath.Base(filePath)
+
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fatalCode("not_found", "file not found: %s", filePath)
+		}
+		if os.IsPermission(err) {
+			fatalCode("internal", "permission denied: %s", filePath)
+		}
+		fatalCode("internal", "stat file: %v", err)
+	}
+	if fi.IsDir() {
+		fatalCode("invalid_argument", "%s is a directory, not a file", filePath)
+	}
+	size := fi.Size()
+
+	// Streamed transfer (default): chunked, ACK'd, resumable, end-to-end
+	// SHA-256 verified — no per-frame size cap, and big files no longer
+	// collapse into one giant frame that stalls over relay (or over a
+	// direct link that flips to relay under one-way load). Falls back to
+	// the single-frame TypeFile path when the receiver is too old to
+	// understand TypeFileStream (it never sends an INIT-ACK).
+	if !flagBool(flags, "no-stream") {
+		if res, serr := streamSendFile(d, target, filePath, filename, size, timeout); serr == nil {
+			outputOK(res)
+			return
+		} else if !errors.Is(serr, dataexchange.ErrStreamUnsupported) {
+			fatalHint("connection_failed",
+				"check reachability: pilotctl ping "+target.String()+" · for very large/slow links raise --timeout",
+				"streamed send-file failed: %v", serr)
+		}
+		fmt.Fprintln(os.Stderr, sDim("receiver does not support streamed transfer (pre-v1.12.0); falling back to single-frame TypeFile"))
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -3559,12 +3794,11 @@ func cmdSendFile(args []string) {
 	// Reject files that would exceed the data-exchange frame cap before
 	// opening the connection — keeps the failure path clean and avoids
 	// streaming a quarter-gigabyte just to have the receiver close.
-	if len(data) > dataexchange.MaxFrameSize {
+	if uint32(len(data)) > dataexchange.MaxFrameSize {
 		fatalCode("invalid_argument",
-			"file too large: %d bytes (max %d)", len(data), dataexchange.MaxFrameSize)
+			"file too large: %d bytes (max %d) for the legacy single-frame path. Use the default streamed transfer (omit --no-stream) against a v1.12.0+ receiver.",
+			len(data), dataexchange.MaxFrameSize)
 	}
-
-	filename := filepath.Base(filePath)
 
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
@@ -3577,25 +3811,66 @@ func cmdSendFile(args []string) {
 	}
 	defer client.Close()
 
+	stop := startWaitProgress(fmt.Sprintf("sending %s to %s", filename, target))
+	start := time.Now()
+
 	if err := client.SendFile(filename, data); err != nil {
+		stop()
 		fatalCode("connection_failed", "send failed: %v", err)
 	}
 
-	// Read ACK
-	ack, err := client.Recv()
-	if err != nil {
-		// Sender wrote all bytes but never got the receiver's ACK back
-		// (likely receiver crashed or restarted mid-transfer). That's
-		// not a silent success — surface as a loud error so callers
-		// don't mistake it for full delivery.
-		fatalCode("connection_failed",
-			"send wrote all bytes but no ACK from receiver: %v", err)
+	// Wait for the ACK with a bounded deadline. The dataexchange.Client
+	// does not expose a Recv-with-context, so we run the read in a
+	// goroutine and race it against a timer. On timeout we close the
+	// connection — that unblocks the goroutine's ReadFrame with an
+	// error, which we then drop on the floor because we've already
+	// decided the transfer is a failure.
+	type ackResult struct {
+		frame *dataexchange.Frame
+		err   error
+	}
+	ackCh := make(chan ackResult, 1)
+	go func() {
+		f, err := client.Recv()
+		ackCh <- ackResult{f, err}
+	}()
+
+	var ack *dataexchange.Frame
+	select {
+	case res := <-ackCh:
+		ack = res.frame
+		if res.err != nil {
+			stop()
+			// Sender wrote all bytes but never got the receiver's ACK
+			// back (likely receiver crashed or restarted mid-transfer).
+			fatalHint("connection_failed",
+				"the receiver may have crashed or restarted mid-transfer · check reachability: pilotctl ping "+target.String(),
+				"send wrote all bytes but no ACK from receiver: %v", res.err)
+		}
+	case <-time.After(timeout):
+		stop()
+		// Closing the conn lets the goroutine unwind. We deliberately
+		// don't wait for it here — we've already given the receiver its
+		// budget.
+		_ = client.Close()
+		fatalHint("timeout",
+			"the receiver did not ACK within "+timeout.String()+" · check reachability: pilotctl ping "+target.String()+" · for very large files try --timeout 5m",
+			"send-file timed out waiting for ACK from %s after %s", target, timeout)
+	}
+
+	stop()
+	elapsed := time.Since(start)
+	mbps := 0.0
+	if elapsed > 0 {
+		mbps = (float64(len(data)) * 8.0) / (1e6 * elapsed.Seconds())
 	}
 
 	result := map[string]interface{}{
-		"filename":    filename,
-		"bytes":       len(data),
-		"destination": target.String(),
+		"filename":        filename,
+		"bytes":           len(data),
+		"destination":     target.String(),
+		"elapsed_ms":      elapsed.Milliseconds(),
+		"throughput_mbps": mbps,
 	}
 	if ack != nil {
 		ackText := string(ack.Payload)
@@ -3608,6 +3883,54 @@ func cmdSendFile(args []string) {
 		}
 	}
 	outputOK(result)
+}
+
+// streamSendFile transfers filePath with the chunked, ACK'd, resumable
+// TypeFileStream protocol. It returns a result map on success; the sentinel
+// dataexchange.ErrStreamUnsupported tells the caller to fall back to the
+// single-frame TypeFile path (the receiver is too old). timeout bounds the
+// wait for any single ACK and for the receiver's final verification.
+func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename string, size int64, timeout time.Duration) (map[string]interface{}, error) {
+	client, err := dataexchange.Dial(d, target)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	stop := startWaitProgress(fmt.Sprintf("streaming %s to %s", filename, target))
+	start := time.Now()
+	res, serr := client.SendFileStream(filename, f, size, timeout)
+	stop()
+	if serr != nil {
+		return nil, serr
+	}
+	if !res.OK {
+		return nil, fmt.Errorf("receiver rejected file: %s", res.Message)
+	}
+
+	elapsed := time.Since(start)
+	mbps := 0.0
+	if elapsed > 0 {
+		mbps = (float64(res.TotalBytes) * 8.0) / (1e6 * elapsed.Seconds())
+	}
+	return map[string]interface{}{
+		"filename":        filename,
+		"bytes":           res.TotalBytes,
+		"bytes_sent":      res.BytesSent,
+		"bytes_resumed":   res.BytesResumed,
+		"sha256":          res.Sha256,
+		"destination":     target.String(),
+		"elapsed_ms":      elapsed.Milliseconds(),
+		"throughput_mbps": mbps,
+		"transport":       "filestream",
+		"verified":        res.OK,
+	}, nil
 }
 
 func cmdSendMessage(args []string) {
@@ -3776,6 +4099,7 @@ func cmdSendMessage(args []string) {
 		r := sendOne(cl, 0, false)
 		result := map[string]interface{}{
 			"target": target.String(),
+			"to":     target.String(),
 			"type":   msgType,
 		}
 		for k, v := range r {
@@ -3789,7 +4113,9 @@ func cmdSendMessage(args []string) {
 			if !jsonOutput {
 				fmt.Fprintf(os.Stderr, "waiting for reply from %s (up to %s)...\n", pos[0], waitDur)
 			}
+			stop := startWaitProgress("waiting for reply")
 			reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
+			stop()
 			if err != nil {
 				fatalCode("timeout", "%v", err)
 			}
@@ -3810,6 +4136,7 @@ func cmdSendMessage(args []string) {
 		}
 		outputOK(map[string]interface{}{
 			"target":     target.String(),
+			"to":         target.String(),
 			"type":       msgType,
 			"reuse_conn": true,
 			"results":    results,
@@ -3828,6 +4155,7 @@ func cmdSendMessage(args []string) {
 		}
 		outputOK(map[string]interface{}{
 			"target":     target.String(),
+			"to":         target.String(),
 			"type":       msgType,
 			"reuse_conn": false,
 			"results":    results,
@@ -4038,8 +4366,7 @@ func cmdHandshake(args []string) {
 			fmt.Printf("already trusted with node %d — ready to communicate\n", nodeID)
 		} else {
 			fmt.Printf("handshake request sent to node %d\n", nodeID)
-			fmt.Printf("  next: node %d must approve — or send a handshake back for auto-approval\n", nodeID)
-			fmt.Printf("  check: pilotctl trust\n")
+			fmt.Println(sDim("  they must approve on their side · check status: pilotctl trust · propagation can take ~60s"))
 		}
 	}
 }
@@ -4062,7 +4389,7 @@ func cmdApprove(args []string) {
 		output(result)
 	} else {
 		fmt.Printf("trust established with node %d\n", nodeID)
-		fmt.Printf("  try: pilotctl ping %d\n", nodeID)
+		fmt.Println(sDim(fmt.Sprintf("  trust is now mutual — message them: pilotctl send-message %d --data \"hi\"", nodeID)))
 	}
 }
 
@@ -4091,6 +4418,44 @@ func cmdReject(args []string) {
 	}
 }
 
+// cmdPreferDirect drops the daemon's tunnel + sticky routing state for a
+// peer so the next dial retries a fresh direct UDP path.
+//
+// Use case: ping <peer> works (the small UDP fits through the beacon
+// relay just fine) but send-file <peer> hangs ~120s and EOFs — symptom
+// of a relay-mediated tunnel that established once and got stuck for
+// stream traffic. Calling prefer-direct + retrying the dial routes the
+// next attempt through ensureTunnel's resolve-and-punch path, which
+// usually re-establishes a working direct UDP path.
+func cmdPreferDirect(args []string) {
+	if len(args) < 1 {
+		fatalCode("invalid_argument", "usage: pilotctl prefer-direct <node_id|address|hostname>")
+	}
+	d := connectDriver()
+	defer d.Close()
+
+	nodeID := resolveToNodeID(d, args[0])
+	resp, err := d.PreferDirect(nodeID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unknown command") {
+			fatalHint("not_implemented",
+				"upgrade the daemon: brew upgrade pilotprotocol  (or re-run install.sh)",
+				"daemon does not support prefer-direct (pre-v1.12.0)")
+		}
+		fatalCode("connection_failed", "prefer-direct: %v", err)
+	}
+	if jsonOutput {
+		outputOK(resp)
+		return
+	}
+	had, _ := resp["had_tunnel"].(bool)
+	wasActive, _ := resp["was_relay_active"].(bool)
+	wasPinned, _ := resp["was_relay_pinned"].(bool)
+	fmt.Printf("reset routing state for node %d\n", nodeID)
+	fmt.Println(sDim(fmt.Sprintf("  tunnel was up: %v · relay was active: %v · relay was pinned: %v", had, wasActive, wasPinned)))
+	fmt.Println(sDim("  next dial will re-resolve from registry and prefer direct; falls back to relay if direct still fails"))
+}
+
 func cmdUntrust(args []string) {
 	if len(args) < 1 {
 		fatalCode("invalid_argument", "usage: pilotctl untrust <node_id|address|hostname>")
@@ -4103,7 +4468,12 @@ func cmdUntrust(args []string) {
 	if err != nil {
 		fatalCode("connection_failed", "untrust: %v", err)
 	}
-	outputOK(map[string]interface{}{"node_id": nodeID})
+	if jsonOutput {
+		outputOK(map[string]interface{}{"node_id": nodeID})
+		return
+	}
+	fmt.Printf("trust revoked for node %d\n", nodeID)
+	fmt.Println(sDim(fmt.Sprintf("  re-establish later: pilotctl handshake %d", nodeID)))
 }
 
 func cmdPending() {
@@ -4131,18 +4501,28 @@ func cmdPending() {
 		return
 	}
 
-	fmt.Printf("%-10s  %-40s  %s\n", "NODE ID", "JUSTIFICATION", "RECEIVED")
+	fmt.Printf("%s\n\n", sBold(fmt.Sprintf("Pending handshakes — %d", len(pending))))
+	now := time.Now()
 	for _, p := range pending {
 		req := p.(map[string]interface{})
 		nodeID := int(req["node_id"].(float64))
 		justification, _ := req["justification"].(string)
 		receivedAt := int64(req["received_at"].(float64))
 		t := time.Unix(receivedAt, 0)
-		fmt.Printf("%-10d  %-40s  %s\n", nodeID, justification, t.Format("2006-01-02 15:04:05"))
+		fmt.Printf("  %s %s\n", sAccent(fmt.Sprintf("node %d", nodeID)), sDim(fmt.Sprintf("· %s ago (%s)", fmtDuration(now.Sub(t)), t.Format("2006-01-02 15:04"))))
+		if justification != "" {
+			fmt.Printf("  %s\n", inboxPreview(justification, 160))
+		}
+		fmt.Printf("  %s\n\n", sDim(fmt.Sprintf("accept: pilotctl approve %d · decline: pilotctl reject %d \"reason\"", nodeID, nodeID)))
 	}
 }
 
-func cmdTrust() {
+func cmdTrust(args []string) {
+	flags, _ := parseFlags(args)
+	limit := flagInt(flags, "limit", 20)
+	_, limitExplicit := flags["limit"]
+	search := flagString(flags, "search", "")
+
 	d := connectDriver()
 	defer d.Close()
 
@@ -4156,19 +4536,75 @@ func cmdTrust() {
 		trusted = []interface{}{}
 	}
 
+	// Filter by --search (node id substring; hostname too when present).
+	if search != "" {
+		needle := strings.ToLower(search)
+		var matched []interface{}
+		for _, t := range trusted {
+			rec, _ := t.(map[string]interface{})
+			if rec == nil {
+				continue
+			}
+			nodeIDStr := fmt.Sprintf("%d", int(rec["node_id"].(float64)))
+			hostname, _ := rec["hostname"].(string)
+			if strings.Contains(nodeIDStr, needle) || strings.Contains(strings.ToLower(hostname), needle) {
+				matched = append(matched, t)
+			}
+		}
+		trusted = matched
+		if trusted == nil {
+			trusted = []interface{}{}
+		}
+	}
+
+	// Newest first by approval time.
+	sort.SliceStable(trusted, func(i, j int) bool {
+		ri, _ := trusted[i].(map[string]interface{})
+		rj, _ := trusted[j].(map[string]interface{})
+		ai, _ := ri["approved_at"].(float64)
+		aj, _ := rj["approved_at"].(float64)
+		return ai > aj
+	})
+
+	total := len(trusted)
+
 	if jsonOutput {
-		output(map[string]interface{}{"trusted": trusted})
+		// Shape unchanged; "total" is the pre-limit count. The list is
+		// only bounded when --limit is passed explicitly so existing
+		// agent invocations keep seeing the full set.
+		list := trusted
+		if limitExplicit && limit > 0 && len(list) > limit {
+			list = list[:limit]
+		}
+		output(map[string]interface{}{"trusted": list, "total": total})
 		return
 	}
 
-	if len(trusted) == 0 {
-		fmt.Println("no trusted peers")
-		fmt.Println("  establish trust: pilotctl handshake <node_id|hostname> \"reason\"")
+	if total == 0 {
+		if search != "" {
+			fmt.Printf("no trusted peers matching %q\n", search)
+		} else {
+			fmt.Println("no trusted peers")
+			fmt.Println("  establish trust: pilotctl handshake <node_id|hostname> \"reason\"")
+		}
 		return
 	}
 
-	fmt.Printf("%-10s  %-10s  %-10s  %s\n", "NODE ID", "MUTUAL", "NETWORK", "APPROVED AT")
-	for _, t := range trusted {
+	shown := trusted
+	if limit > 0 && len(shown) > limit {
+		shown = shown[:limit]
+	}
+	header := sBold(fmt.Sprintf("Trusted peers — %d", total))
+	qualifier := ""
+	if search != "" {
+		qualifier = fmt.Sprintf(" · matching %q", search)
+	}
+	if len(shown) < total {
+		qualifier += fmt.Sprintf(" · showing %d newest", len(shown))
+	}
+	fmt.Printf("%s%s\n\n", header, sDim(qualifier))
+
+	for _, t := range shown {
 		rec := t.(map[string]interface{})
 		nodeID := int(rec["node_id"].(float64))
 		mutual := false
@@ -4182,16 +4618,22 @@ func cmdTrust() {
 		approvedAt := int64(rec["approved_at"].(float64))
 		at := time.Unix(approvedAt, 0)
 
-		mutualStr := "no"
-		if mutual {
-			mutualStr = "yes"
+		id := sAccent(fmt.Sprintf("node %d", nodeID))
+		if hostname, _ := rec["hostname"].(string); hostname != "" {
+			id += " " + sAccent(hostname)
 		}
-		netStr := "-"
+		meta := fmt.Sprintf("· approved %s", at.Format("2006-01-02 15:04"))
 		if network > 0 {
-			netStr = fmt.Sprintf("%d", network)
+			meta += fmt.Sprintf(" · net %d", network)
 		}
-		fmt.Printf("%-10d  %-10s  %-10s  %s\n", nodeID, mutualStr, netStr, at.Format("2006-01-02 15:04:05"))
+		line := fmt.Sprintf("  %s %s", id, sDim(meta))
+		if !mutual {
+			// MUTUAL=yes is the norm — only the asymmetric case is news.
+			line += " " + sWarn("one-way")
+		}
+		fmt.Println(line)
 	}
+	fmt.Printf("\n%s\n", sDim("show more: --limit <n> (0 = all) · search: --search <substr> · revoke: pilotctl untrust <id> · json: --json"))
 }
 
 // ===================== MANAGEMENT =====================
@@ -4309,11 +4751,8 @@ func cmdInfo(args []string) {
 		return
 	}
 
-	// Human-readable
+	// Human-readable: health-style grouped layout.
 	uptime := info["uptime_secs"].(float64)
-	hours := int(uptime) / 3600
-	mins := (int(uptime) % 3600) / 60
-	secs := int(uptime) % 60
 
 	bytesSent := uint64(info["bytes_sent"].(float64))
 	bytesRecv := uint64(info["bytes_recv"].(float64))
@@ -4329,111 +4768,102 @@ func cmdInfo(args []string) {
 		encryptedPeers = int(ep)
 	}
 
-	fmt.Printf("Pilot Protocol Daemon\n")
+	const labelW = 10
+	label := func(s string) string { return "  " + sDim(fmt.Sprintf("%-*s", labelW, s)) + " " }
+	cont := "  " + strings.Repeat(" ", labelW) + " "
+
+	// Headline: ● pilot-daemon v1.10.9 · up 56h12m
+	head := statusDot("ok") + " " + sBold("pilot-daemon")
 	if v, ok := info["version"].(string); ok && v != "" {
-		fmt.Printf("  Version:     %s\n", v)
+		head += " " + v
 	}
-	fmt.Printf("  Node ID:     %d\n", int(info["node_id"].(float64)))
-	fmt.Printf("  Address:     %s\n", info["address"])
+	fmt.Printf("%s %s\n\n", head, sDim("· up "+fmtDuration(time.Duration(uptime)*time.Second)))
+
+	// identity — hostname · address · node id, then key/persistence/email.
+	var idParts []string
 	if hostname, ok := info["hostname"].(string); ok && hostname != "" {
-		fmt.Printf("  Hostname:    %s\n", hostname)
+		idParts = append(idParts, sAccent(hostname))
 	}
-	fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
-	fmt.Printf("  Connections: %d\n", int(info["connections"].(float64)))
-	fmt.Printf("  Ports:       %d\n", int(info["ports"].(float64)))
+	idParts = append(idParts, sAccent(fmt.Sprint(info["address"])))
+	idParts = append(idParts, fmt.Sprintf("node %d", int(info["node_id"].(float64))))
+	fmt.Printf("%s%s\n", label("identity"), strings.Join(idParts, " · "))
+
+	hasIdentity := false
+	if id, ok := info["identity"].(bool); ok {
+		hasIdentity = id
+	}
+	var keyParts []string
+	if hasIdentity {
+		pubKey, _ := info["public_key"].(string)
+		if len(pubKey) > 8 {
+			pubKey = pubKey[:8] + "…"
+		}
+		keyParts = append(keyParts, "Ed25519 "+pubKey, "persistent")
+	} else {
+		keyParts = append(keyParts, "ephemeral (not persisted)")
+	}
+	if email, ok := info["email"].(string); ok && email != "" {
+		// Synthetic emails are auto-derived from the public-key fingerprint
+		// and end with @nodes.pilotprotocol.network — tag them so users see
+		// at a glance whether this node has a real identity.
+		if strings.HasSuffix(email, "@nodes.pilotprotocol.network") {
+			keyParts = append(keyParts, email+" "+sDim("(auto-generated — set your own: pilotctl set-email <addr>)"))
+		} else {
+			keyParts = append(keyParts, email)
+		}
+	}
+	fmt.Printf("%s%s\n", cont, strings.Join(keyParts, " · "))
+
+	// network — peers breakdown + pending, then beacon/connections/ports.
 	totalPeers := int(info["peers"].(float64))
 	relayPeers := 0
 	if rp, ok := info["relay_peer_count"].(float64); ok {
 		relayPeers = int(rp)
 	}
 	directPeers := totalPeers - relayPeers
-	fmt.Printf("  Peers:       %d (%d direct, %d via relay)\n", totalPeers, directPeers, relayPeers)
-	authenticatedPeers := 0
-	if ap, ok := info["authenticated_peers"].(float64); ok {
-		authenticatedPeers = int(ap)
-	}
-	if encryptEnabled {
-		fmt.Printf("  Encryption:  enabled (X25519 + AES-256-GCM), %d/%d peers encrypted, %d authenticated\n",
-			encryptedPeers, totalPeers, authenticatedPeers)
-	} else {
-		fmt.Printf("  Encryption:  disabled\n")
+	netLine := fmt.Sprintf("%d peers %s", totalPeers,
+		sDim(fmt.Sprintf("(%d encrypted · %d relay · %d direct)", encryptedPeers, relayPeers, directPeers)))
+	if !encryptEnabled {
+		netLine += " · " + sWarn("encryption disabled")
 	}
 	if pending, ok := info["handshake_pending_count"].(float64); ok && int(pending) > 0 {
-		fmt.Printf("  Handshakes:  %d pending approval\n", int(pending))
+		netLine += " · " + sWarn(fmt.Sprintf("%d pending handshake(s)", int(pending))) + " " + sDim("— pilotctl pending")
 	}
+	fmt.Printf("%s%s\n", label("network"), netLine)
+
+	var infraParts []string
 	if beacon, ok := info["beacon_addr"].(string); ok && beacon != "" {
-		fmt.Printf("  Beacon:      %s\n", beacon)
+		infraParts = append(infraParts, "beacon "+sAccent(beacon))
 	}
-	hasIdentity := false
-	if id, ok := info["identity"].(bool); ok {
-		hasIdentity = id
+	connList, _ := info["conn_list"].([]interface{})
+	connsPart := fmt.Sprintf("%d connections", int(info["connections"].(float64)))
+	if len(connList) > 0 {
+		connsPart += " " + sDim("(details: pilotctl connections)")
 	}
-	if hasIdentity {
-		pubKey, _ := info["public_key"].(string)
-		fingerprint := pubKey
-		if len(fingerprint) > 16 {
-			fingerprint = fingerprint[:16] + "..."
-		}
-		fmt.Printf("  Identity:    persistent (Ed25519 %s)\n", fingerprint)
-	} else {
-		fmt.Printf("  Identity:    ephemeral (not persisted)\n")
-	}
-	if email, ok := info["email"].(string); ok && email != "" {
-		// Tag synthetic emails so users (and agents inspecting the output)
-		// can tell at a glance whether this node has a real identity.
-		// Synthetic emails are auto-derived from the public-key fingerprint
-		// and end with @nodes.pilotprotocol.network. To replace one, run
-		// `pilotctl set-email <your-real-address>`.
-		if strings.HasSuffix(email, "@nodes.pilotprotocol.network") {
-			fmt.Printf("  Email:       %s  (auto-generated; optional — `pilotctl set-email <addr>` to set your own)\n", email)
-		} else {
-			fmt.Printf("  Email:       %s\n", email)
-		}
-	}
+	infraParts = append(infraParts, connsPart)
+	infraParts = append(infraParts, fmt.Sprintf("%d ports", int(info["ports"].(float64))))
+	fmt.Printf("%s%s\n", cont, strings.Join(infraParts, " · "))
+
+	// networks — joined overlay networks, one compact line.
 	if nets, ok := info["networks"].([]interface{}); ok && len(nets) > 0 {
-		fmt.Printf("  Networks:    %d\n", len(nets))
+		var netParts []string
 		for _, n := range nets {
 			nm, _ := n.(map[string]interface{})
-			netID := int(nm["network_id"].(float64))
 			addr, _ := nm["address"].(string)
-			fmt.Printf("    - network %d: %s\n", netID, addr)
+			netParts = append(netParts, sAccent(addr))
 		}
+		fmt.Printf("%s%d %s\n", label("networks"), len(nets), sDim("— ")+strings.Join(netParts, " · "))
 	}
-	fmt.Printf("  Traffic:     %s sent / %s recv\n", formatBytes(bytesSent), formatBytes(bytesRecv))
-	fmt.Printf("  Packets:     %d sent / %d recv\n", pktsSent, pktsRecv)
 
-	printSkillInstallSummary()
+	// traffic — ↑ sent · ↓ received with compact packet counts.
+	fmt.Printf("%s↑ %s %s · ↓ %s %s\n", label("traffic"),
+		formatBytes(bytesSent), sDim(fmt.Sprintf("(%s pkts)", fmtCount(pktsSent))),
+		formatBytes(bytesRecv), sDim(fmt.Sprintf("(%s pkts)", fmtCount(pktsRecv))))
 
-	connList, ok := info["conn_list"].([]interface{})
-	if ok && len(connList) > 0 {
-		maxDisplay := 50
-		fmt.Printf("\nActive connections: %d\n", len(connList))
-		fmt.Printf("  %-4s  %-6s  %-22s  %-6s  %-11s  %-8s  %-8s  %-6s\n",
-			"ID", "LOCAL", "REMOTE ADDR", "RPORT", "STATE", "CWND", "FLIGHT", "SRTT")
-		displayed := 0
-		for _, c := range connList {
-			if displayed >= maxDisplay {
-				fmt.Printf("\n  ... and %d more connections (showing first %d)\n", len(connList)-maxDisplay, maxDisplay)
-				break
-			}
-			displayed++
-			conn := c.(map[string]interface{})
-			recoveryStr := ""
-			if inRec, ok := conn["in_recovery"].(bool); ok && inRec {
-				recoveryStr = " [RECOVERY]"
-			}
-			fmt.Printf("  %-4d  %-6d  %-22s  %-6d  %-11s  %-8s  %-8s  %.0fms%s\n",
-				int(conn["id"].(float64)),
-				int(conn["local_port"].(float64)),
-				conn["remote_addr"],
-				int(conn["remote_port"].(float64)),
-				conn["state"],
-				formatBytes(uint64(conn["cong_win"].(float64))),
-				formatBytes(uint64(conn["in_flight"].(float64))),
-				conn["srtt_ms"].(float64),
-				recoveryStr,
-			)
-		}
+	// skills — tool names only; full paths live in `pilotctl skills`.
+	if tools := skillInstallTools(); len(tools) > 0 {
+		fmt.Printf("%sinstalled in %s   %s\n", label("skills"),
+			strings.Join(tools, " · "), sDim("(details: pilotctl skills)"))
 	}
 }
 
@@ -4481,27 +4911,33 @@ func cmdHealth() {
 		webhookDropped = uint64(wd)
 	}
 
-	fmt.Printf("Daemon Health\n")
-	fmt.Printf("  Status:      %s\n", health["status"])
-	fmt.Printf("  Uptime:      %02d:%02d:%02d\n", hours, mins, secs)
-	fmt.Printf("  Connections: %d\n", int(health["connections"].(float64)))
-	fmt.Printf("  Peers:       %d (%d encrypted, %d via relay)\n", peers, encPeers, relayPeers)
-	if pending > 0 {
-		fmt.Printf("  Handshakes:  %d pending\n", pending)
+	status, _ := health["status"].(string)
+	dotState := "ok"
+	if status != "ok" {
+		dotState = "err"
 	}
-	fmt.Printf("  Bytes Sent:  %s\n", formatBytes(uint64(health["bytes_sent"].(float64))))
-	fmt.Printf("  Bytes Recv:  %s\n", formatBytes(uint64(health["bytes_recv"].(float64))))
+	fmt.Printf("%s %s %s\n", statusDot(dotState), sBold("pilot-daemon"), status)
+	fmt.Printf("  %s\n", sDim(fmt.Sprintf("uptime %02d:%02d:%02d · %d connection(s)", hours, mins, secs, int(health["connections"].(float64)))))
+	fmt.Printf("  peers     %s %s\n", sBold(fmt.Sprintf("%d", peers)), sDim(fmt.Sprintf("(%d encrypted, %d via relay)", encPeers, relayPeers)))
+	fmt.Printf("  traffic   %s\n", sDim(fmt.Sprintf("↑ %s  ↓ %s",
+		formatBytes(uint64(health["bytes_sent"].(float64))),
+		formatBytes(uint64(health["bytes_recv"].(float64))))))
+	if pending > 0 {
+		fmt.Printf("  %s %s\n", sWarn(fmt.Sprintf("%d pending handshake(s)", pending)), sDim("— review with: pilotctl pending"))
+	}
 	if queueDrops > 0 {
-		fmt.Printf("  Queue Drops: %d (accept queue full — increase system limits if persistent)\n", queueDrops)
+		fmt.Printf("  %s %s\n", sWarn(fmt.Sprintf("%d accept-queue drop(s)", queueDrops)), sDim("— increase system limits if persistent"))
 	}
 	if webhookDropped > 0 {
-		fmt.Printf("  Webhook:     %d events dropped\n", webhookDropped)
+		fmt.Printf("  %s\n", sWarn(fmt.Sprintf("%d webhook event(s) dropped", webhookDropped)))
 	}
 }
 
 func cmdPeers(args []string) {
 	flags, _ := parseFlags(args)
 	search := flagString(flags, "search", "")
+	showAll := flagBool(flags, "all")
+	limit := flagInt(flags, "limit", 20)
 
 	d := connectDriver()
 	defer d.Close()
@@ -4539,15 +4975,40 @@ func cmdPeers(args []string) {
 		filtered = append(filtered, cp)
 	}
 
+	// Summary counts. "secure" = encrypted AND authenticated; everything
+	// else is an exception worth surfacing.
+	total := len(filtered)
+	encCount, secure, relayCount := 0, 0, 0
+	var exceptions []map[string]interface{}
+	for _, p := range filtered {
+		peer := p.(map[string]interface{})
+		enc, _ := peer["encrypted"].(bool)
+		auth, _ := peer["authenticated"].(bool)
+		rly, _ := peer["relay"].(bool)
+		if enc {
+			encCount++
+		}
+		if rly {
+			relayCount++
+		}
+		if enc && auth {
+			secure++
+		} else {
+			exceptions = append(exceptions, peer)
+		}
+	}
+	direct := total - relayCount
+
 	if jsonOutput {
 		output(map[string]interface{}{
-			"peers": filtered,
-			"total": len(filtered),
+			"peers":     filtered,
+			"total":     total,
+			"encrypted": encCount,
 		})
 		return
 	}
 
-	if len(filtered) == 0 {
+	if total == 0 {
 		if search != "" {
 			fmt.Printf("no peers matching %q\n", search)
 		} else {
@@ -4557,32 +5018,78 @@ func cmdPeers(args []string) {
 		return
 	}
 
-	fmt.Printf("%-10s  %-20s  %-16s  %-6s\n", "NODE ID", "ENCRYPTED", "AUTH", "PATH")
-	displayed := 0
-	for _, p := range filtered {
-		if displayed >= 50 {
-			fmt.Printf("\n... and %d more peers (showing first 50)\n", len(filtered)-50)
-			break
-		}
-		displayed++
-		peer := p.(map[string]interface{})
-		encrypted, _ := peer["encrypted"].(bool)
-		authenticated, _ := peer["authenticated"].(bool)
-		relay, _ := peer["relay"].(bool)
-		encStr := "no"
-		if encrypted {
-			encStr = "yes (AES-256-GCM)"
-		}
-		authStr := "no"
-		if authenticated {
-			authStr = "yes (Ed25519)"
-		}
-		pathStr := "direct"
-		if relay {
-			pathStr = "relay"
-		}
-		fmt.Printf("%-10d  %-20s  %-16s  %-6s\n", int(peer["node_id"].(float64)), encStr, authStr, pathStr)
+	noun := "peers"
+	if total == 1 {
+		noun = "peer"
 	}
+	dotState := "ok"
+	if len(exceptions) > 0 {
+		dotState = "warn"
+	}
+	fmt.Printf("%s %s %s\n", statusDot(dotState),
+		sBold(fmt.Sprintf("%d %s", total, noun)),
+		sDim(fmt.Sprintf("— %d encrypted+authenticated · %d relay · %d direct", secure, relayCount, direct)))
+
+	if showAll {
+		fmt.Printf("\n%-10s  %-10s  %-10s  %-6s\n", "NODE ID", "ENCRYPTED", "AUTH", "PATH")
+		shown := 0
+		for _, p := range filtered {
+			if limit > 0 && shown >= limit {
+				fmt.Printf("%s\n", sDim(fmt.Sprintf("  … and %d more — show more: --limit %d (0 = all)", total-shown, total)))
+				break
+			}
+			shown++
+			peer := p.(map[string]interface{})
+			enc, _ := peer["encrypted"].(bool)
+			auth, _ := peer["authenticated"].(bool)
+			rly, _ := peer["relay"].(bool)
+			encStr := "yes"
+			if !enc {
+				encStr = sWarn(fmt.Sprintf("%-10s", "no"))
+			} else {
+				encStr = fmt.Sprintf("%-10s", encStr)
+			}
+			authStr := "yes"
+			if !auth {
+				authStr = sWarn(fmt.Sprintf("%-10s", "no"))
+			} else {
+				authStr = fmt.Sprintf("%-10s", authStr)
+			}
+			pathStr := sOK("direct")
+			if rly {
+				pathStr = sDim("relay")
+			}
+			fmt.Printf("%-10d  %s  %s  %s\n", int(peer["node_id"].(float64)), encStr, authStr, pathStr)
+		}
+	} else if len(exceptions) > 0 {
+		fmt.Println()
+		shown := 0
+		for _, peer := range exceptions {
+			if limit > 0 && shown >= limit {
+				fmt.Printf("  %s\n", sDim(fmt.Sprintf("… and %d more exception(s) — show more: --limit %d", len(exceptions)-shown, len(exceptions))))
+				break
+			}
+			shown++
+			enc, _ := peer["encrypted"].(bool)
+			auth, _ := peer["authenticated"].(bool)
+			rly, _ := peer["relay"].(bool)
+			var probs []string
+			if !enc {
+				probs = append(probs, "unencrypted")
+			}
+			if !auth {
+				probs = append(probs, "unauthenticated")
+			}
+			pathStr := "direct"
+			if rly {
+				pathStr = "relay"
+			}
+			fmt.Printf("  %s %s %s\n", statusDot("warn"),
+				sAccent(fmt.Sprintf("node %d", int(peer["node_id"].(float64)))),
+				sDim(fmt.Sprintf("— %s · %s", strings.Join(probs, " · "), pathStr)))
+		}
+	}
+	fmt.Printf("\n%s\n", sDim("list all: --all · search: --search <query> · json: --json"))
 }
 
 func cmdPing(args []string) {
@@ -4592,7 +5099,9 @@ func cmdPing(args []string) {
 	}
 
 	count := flagInt(flags, "count", 4)
-	timeout := flagDuration(flags, "timeout", 30*time.Second)
+	// Default 5s (not the 30s used elsewhere): ping is a reachability probe,
+	// and a fast verdict beats a patient one. Override with --timeout.
+	timeout := flagDuration(flags, "timeout", 5*time.Second)
 
 	// --trace (or PILOTCTL_TRACE_TIME=1) prints per-step timing to stderr:
 	// startup overhead, IPC connect, hostname lookup, and per-packet
@@ -4632,6 +5141,17 @@ func cmdPing(args []string) {
 
 	if !jsonOutput {
 		fmt.Printf("PING %s\n", target)
+	}
+
+	// On dial/echo failure, print one actionable hint (text mode only,
+	// once per invocation) mirroring the send-message dial-timeout hint.
+	hintPrinted := false
+	printFailHint := func() {
+		if jsonOutput || hintPrinted {
+			return
+		}
+		hintPrinted = true
+		fmt.Fprintln(os.Stderr, sDim("hint: peer may be relay-converging after a beacon roll (~30s) — check reachability: pilotctl peers · trust state: pilotctl trust"))
 	}
 
 	var results []map[string]interface{}
@@ -4695,6 +5215,7 @@ func cmdPing(args []string) {
 			if jsonOutput {
 				output(map[string]interface{}{
 					"target":  target.String(),
+					"to":      target.String(),
 					"results": results,
 					"timeout": true,
 				})
@@ -4710,16 +5231,24 @@ func cmdPing(args []string) {
 		var dialElapsed time.Duration
 		connReused := false
 
+		// Per-attempt progress line: dial+echo against a slow or ghost
+		// peer can silently block up to perAttempt (>=10s). Stopped
+		// before any stdout print so the animation never interleaves
+		// with seq=N result lines. stopProgress is idempotent.
+		stopProgress := startWaitProgress(fmt.Sprintf("pinging %s", target))
+
 		if reuseConn {
 			if sharedConn == nil {
 				var dialErr error
 				sharedConn, dialElapsed, dialErr = dialOnce()
 				if dialErr != nil {
+					stopProgress()
 					r := map[string]interface{}{"seq": i, "error": dialErr.Error()}
 					results = append(results, r)
 					if !jsonOutput {
 						fmt.Printf("seq=%d error: %v\n", i, dialErr)
 					}
+					printFailHint()
 					if i < count-1 {
 						time.Sleep(time.Second)
 					}
@@ -4733,11 +5262,13 @@ func cmdPing(args []string) {
 			var dialErr error
 			conn, dialElapsed, dialErr = dialOnce()
 			if dialErr != nil {
+				stopProgress()
 				r := map[string]interface{}{"seq": i, "error": dialErr.Error()}
 				results = append(results, r)
 				if !jsonOutput {
 					fmt.Printf("seq=%d error: %v\n", i, dialErr)
 				}
+				printFailHint()
 				if i < count-1 {
 					time.Sleep(time.Second)
 				}
@@ -4766,6 +5297,7 @@ func cmdPing(args []string) {
 		n, readErr := conn.Read(buf)
 		recvAtNs := time.Now().UnixNano()
 		echoElapsed := time.Since(echoStart)
+		stopProgress()
 
 		if !reuseConn {
 			conn.Close()
@@ -4795,6 +5327,7 @@ func cmdPing(args []string) {
 			if !jsonOutput {
 				fmt.Printf("seq=%d error: %v\n", i, err)
 			}
+			printFailHint()
 		} else {
 			r["bytes"] = n
 			// Parse TRCE response: [TRCE][sent_at_ns][server_recv_at_ns]
@@ -4858,6 +5391,7 @@ func cmdPing(args []string) {
 	if jsonOutput {
 		out := map[string]interface{}{
 			"target":  target.String(),
+			"to":      target.String(),
 			"results": results,
 			"timeout": false,
 		}
@@ -4900,10 +5434,15 @@ func cmdTraceroute(args []string) {
 		connDone <- conn
 	}()
 
+	// Tunnel negotiation against a slow or unreachable peer blocks here
+	// silently for up to --timeout; show elapsed progress on a TTY.
+	stopProgress := startWaitProgress(fmt.Sprintf("tracing %s", target))
 	var conn *driver.Conn
 	select {
 	case conn = <-connDone:
+		stopProgress()
 	case <-time.After(timeout):
+		stopProgress()
 		fatalCode("timeout", "dial timeout")
 	}
 
@@ -5038,9 +5577,14 @@ func cmdBench(args []string) {
 	}
 	sendDuration := time.Since(start)
 
+	// Waiting for the full echo to come back is the silent half of the
+	// benchmark — on a slow path it can run to --timeout with no output.
+	stopProgress := startWaitProgress(fmt.Sprintf("benchmarking %s", target))
 	select {
 	case <-recvDone:
+		stopProgress()
 	case <-time.After(timeout):
+		stopProgress()
 		if !jsonOutput {
 			fmt.Printf("warning: receive timed out (got %s of %s)\n",
 				formatBytes(uint64(recvTotal)), formatBytes(uint64(totalSize)))
@@ -5203,8 +5747,22 @@ func cmdBroadcast(args []string) {
 
 // ===================== MAILBOX =====================
 
+// receivedFile is one entry in ~/.pilot/received/ — a file delivered by
+// the daemon's data-exchange service (filenames carry no sender info).
+type receivedFile struct {
+	name string
+	size int64
+	mod  time.Time
+	path string
+}
+
 // cmdReceived lists or clears files received via data exchange (port 1001).
 // Files are saved to ~/.pilot/received/ by the daemon's built-in service.
+//
+// Same agent-first shape as cmdInbox: newest-first, bounded by default
+// (--limit 10), filterable by age (--since <dur|rfc3339>), clearable with
+// --clear [--before <dur>]. JSON stays unbounded unless --limit is passed
+// explicitly so existing agent invocations keep seeing the full set.
 func cmdReceived(args []string) {
 	flags, _ := parseFlags(args)
 
@@ -5214,35 +5772,26 @@ func cmdReceived(args []string) {
 	}
 	dir := filepath.Join(home, ".pilot", "received")
 
-	if flagBool(flags, "clear") {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				fatalCode("not_found", "no received files")
-			}
-			fatalCode("internal", "read directory: %v", err)
-		}
-		count := 0
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			os.Remove(filepath.Join(dir, e.Name()))
-			count++
-		}
-		if jsonOutput {
-			outputOK(map[string]interface{}{"cleared": count})
+	// --since accepts a duration (5m, 1h) or an RFC3339 timestamp.
+	var sinceCutoff time.Time
+	if s := flagString(flags, "since", ""); s != "" {
+		if d, derr := time.ParseDuration(s); derr == nil {
+			sinceCutoff = time.Now().Add(-d)
+		} else if t, terr := time.Parse(time.RFC3339, s); terr == nil {
+			sinceCutoff = t
 		} else {
-			fmt.Printf("cleared %d received file(s)\n", count)
+			fatalCode("invalid_argument", "--since must be a duration (5m, 1h) or an RFC3339 timestamp")
 		}
-		return
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if flagBool(flags, "clear") {
+				fatalCode("not_found", "no received files")
+			}
 			if jsonOutput {
-				output(map[string]interface{}{"files": []interface{}{}, "total": 0})
+				output(map[string]interface{}{"files": []interface{}{}, "total": 0, "shown": 0})
 			} else {
 				fmt.Println("no received files")
 				fmt.Println("  files appear here when someone sends: pilotctl send-file <your-hostname> <file>")
@@ -5252,45 +5801,115 @@ func cmdReceived(args []string) {
 		fatalCode("internal", "read directory: %v", err)
 	}
 
-	var files []map[string]interface{}
+	var all []receivedFile
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
+		info, ierr := e.Info()
+		if ierr != nil {
 			continue
 		}
-		files = append(files, map[string]interface{}{
-			"name":     e.Name(),
-			"bytes":    info.Size(),
-			"modified": info.ModTime().Format(time.RFC3339),
-			"path":     filepath.Join(dir, e.Name()),
+		all = append(all, receivedFile{
+			name: e.Name(),
+			size: info.Size(),
+			mod:  info.ModTime(),
+			path: filepath.Join(dir, e.Name()),
 		})
 	}
+	// Newest first.
+	sort.Slice(all, func(i, j int) bool { return all[i].mod.After(all[j].mod) })
+
+	var filtered []receivedFile
+	for _, f := range all {
+		if !sinceCutoff.IsZero() && f.mod.Before(sinceCutoff) {
+			continue
+		}
+		filtered = append(filtered, f)
+	}
+
+	// --clear deletes the matched set (everything if no filters given).
+	// --before <dur> restricts the clear to files older than the duration.
+	if flagBool(flags, "clear") {
+		var beforeCutoff time.Time
+		if b := flagString(flags, "before", ""); b != "" {
+			d, derr := time.ParseDuration(b)
+			if derr != nil {
+				fatalCode("invalid_argument", "--before must be a duration (24h, 30m)")
+			}
+			beforeCutoff = time.Now().Add(-d)
+		}
+		count := 0
+		for _, f := range filtered {
+			if !beforeCutoff.IsZero() && !f.mod.Before(beforeCutoff) {
+				continue
+			}
+			if os.Remove(f.path) == nil {
+				count++
+			}
+		}
+		if jsonOutput {
+			outputOK(map[string]interface{}{"cleared": count, "remaining": len(all) - count})
+		} else {
+			fmt.Printf("cleared %d received file(s), %d remaining\n", count, len(all)-count)
+		}
+		return
+	}
+
+	limit := flagInt(flags, "limit", 10)
+	_, limitExplicit := flags["limit"]
+	total := len(filtered)
 
 	if jsonOutput {
+		// Back-compat: the list is only bounded when --limit is passed
+		// explicitly; "total" is always the pre-limit count.
+		list := filtered
+		if limitExplicit && limit > 0 && len(list) > limit {
+			list = list[:limit]
+		}
+		files := make([]map[string]interface{}, 0, len(list))
+		for _, f := range list {
+			files = append(files, map[string]interface{}{
+				"name":     f.name,
+				"bytes":    f.size,
+				"modified": f.mod.Format(time.RFC3339),
+				"path":     f.path,
+			})
+		}
 		output(map[string]interface{}{
 			"files": files,
-			"total": len(files),
+			"total": total,
+			"shown": len(files),
 			"dir":   dir,
 		})
 		return
 	}
 
-	if len(files) == 0 {
+	if total == 0 {
+		if !sinceCutoff.IsZero() {
+			fmt.Println("no received files match the filters")
+			return
+		}
 		fmt.Println("no received files")
 		fmt.Println("  files appear here when someone sends: pilotctl send-file <your-hostname> <file>")
 		return
 	}
 
-	fmt.Printf("Received files (%s):\n\n", dir)
-	fmt.Printf("  %-40s  %-10s  %s\n", "NAME", "SIZE", "RECEIVED")
-	for _, f := range files {
-		fmt.Printf("  %-40s  %-10s  %s\n",
-			f["name"], formatBytes(uint64(f["bytes"].(int64))), f["modified"])
+	shown := filtered
+	if limit > 0 && len(shown) > limit {
+		shown = shown[:limit]
 	}
-	fmt.Printf("\ntotal: %d\n", len(files))
+	qualifier := ""
+	if len(shown) < total {
+		qualifier = fmt.Sprintf(" · showing %d newest", len(shown))
+	}
+	fmt.Printf("%s%s\n\n", sBold(fmt.Sprintf("Received files — %d", total)), sDim(qualifier+" · "+dir))
+	now := time.Now()
+	for _, f := range shown {
+		fmt.Printf("  %s\n", sAccent(f.name))
+		fmt.Printf("  %s\n\n", sDim(fmt.Sprintf("%s ago · %s", fmtDuration(now.Sub(f.mod)), formatBytes(uint64(f.size)))))
+	}
+	fmt.Println(sDim("filters: --since <dur> --limit <n> (0 = all) · clear: --clear [--before 24h] · json: --json"))
 }
 
 // cmdInbox lists or clears messages received via data exchange (port 1001).
@@ -5341,10 +5960,109 @@ func waitForInboxReply(agentHint string, cutoff time.Time, timeout time.Duration
 	return nil, fmt.Errorf("no reply from %q within %s", agentHint, timeout)
 }
 
+// inboxMessage is one parsed inbox entry plus its stable ID — the filename
+// without .json, already unique: {TYPE}-{date}-{time.ms}-{seq}.
+type inboxMessage struct {
+	id   string
+	msg  map[string]interface{}
+	name string // filename with extension, used by --clear
+}
+
+// readInboxNewestFirst loads all inbox entries sorted newest-first.
+// Inbox filenames are {TYPE}-{ts}-{seq}.json. Plain alpha order groups by
+// type (BINARY<JSON<TEXT), scrambling chronology when types are mixed;
+// sorting by the portion after the first dash (timestamp+seq), descending,
+// puts the newest message first — which is what both agents and humans
+// want from an inbox.
+func readInboxNewestFirst(dir string) ([]inboxMessage, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		ni, nj := entries[i].Name(), entries[j].Name()
+		di, dj := strings.Index(ni, "-"), strings.Index(nj, "-")
+		if di < 0 || dj < 0 {
+			return ni > nj
+		}
+		return ni[di:] > nj[dj:]
+	})
+	var out []inboxMessage
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var m map[string]interface{}
+		if json.Unmarshal(data, &m) != nil {
+			continue
+		}
+		out = append(out, inboxMessage{
+			id:   strings.TrimSuffix(e.Name(), ".json"),
+			msg:  m,
+			name: e.Name(),
+		})
+	}
+	return out, nil
+}
+
+// inboxPreview collapses whitespace and caps the body for one-line display.
+// Rune-safe so multi-byte content isn't cut mid-character.
+func inboxPreview(data string, max int) string {
+	collapsed := strings.Join(strings.Fields(data), " ")
+	r := []rune(collapsed)
+	if len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return collapsed
+}
+
+// cmdInboxRead prints the full body of a single message by ID.
+func cmdInboxRead(dir, id string) {
+	if id != filepath.Base(id) || strings.Contains(id, "..") {
+		fatalCode("invalid_argument", "invalid message id %q", id)
+	}
+	name := id
+	if !strings.HasSuffix(name, ".json") {
+		name += ".json"
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		if os.IsNotExist(err) {
+			fatalCode("not_found", "no message %q — list ids with: pilotctl inbox", id)
+		}
+		fatalCode("internal", "read message: %v", err)
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		fatalCode("internal", "parse message: %v", err)
+	}
+	m["id"] = strings.TrimSuffix(name, ".json")
+	if jsonOutput {
+		output(m)
+		return
+	}
+	from, _ := m["from"].(string)
+	ts, _ := m["received_at"].(string)
+	msgType, _ := m["type"].(string)
+	bytes, _ := m["bytes"].(float64)
+	fmt.Printf("ID:    %s\nFrom:  %s\nWhen:  %s\nType:  %s\nBytes: %d\n\n", m["id"], from, ts, msgType, int(bytes))
+	body, _ := m["data"].(string)
+	fmt.Println(body)
+}
+
 // Messages are saved to ~/.pilot/inbox/ by the daemon's built-in service.
+//
+// Agent-first design: newest-first, bounded by default (--limit 10), full
+// bodies only on request (--latest, --full, read <id>), filterable by
+// sender (--from) and age (--since). Every mode is non-interactive and
+// stable under --json so agents can consume the output directly instead of
+// scraping ~/.pilot/inbox/ with shell one-liners.
 func cmdInbox(args []string) {
-	flags, _ := parseFlags(args)
-	traceTime := flagBool(flags, "trace")
+	flags, pos := parseFlags(args)
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -5352,35 +6070,48 @@ func cmdInbox(args []string) {
 	}
 	dir := filepath.Join(home, ".pilot", "inbox")
 
-	if flagBool(flags, "clear") {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				fatalCode("not_found", "inbox is empty")
-			}
-			fatalCode("internal", "read directory: %v", err)
+	// Subcommand: inbox read <id> — full body of one message.
+	if len(pos) > 0 && pos[0] == "read" {
+		if len(pos) < 2 {
+			fatalCode("invalid_argument", "usage: pilotctl inbox read <id>")
 		}
-		count := 0
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			os.Remove(filepath.Join(dir, e.Name()))
-			count++
-		}
-		if jsonOutput {
-			outputOK(map[string]interface{}{"cleared": count})
-		} else {
-			fmt.Printf("cleared %d message(s)\n", count)
-		}
+		cmdInboxRead(dir, pos[1])
 		return
 	}
 
-	entries, err := os.ReadDir(dir)
+	// --from accepts an address or a hostname. Hostname resolution needs the
+	// daemon; an address-shaped filter works even with the daemon stopped
+	// (the inbox is just files on disk).
+	fromFilter := flagString(flags, "from", "")
+	if fromFilter != "" {
+		if _, perr := protocol.ParseAddr(fromFilter); perr != nil {
+			d := connectDriver()
+			addr, rerr := parseAddrOrHostname(d, fromFilter)
+			d.Close()
+			if rerr != nil {
+				fatalCode("not_found", "cannot resolve --from %q: %v", fromFilter, rerr)
+			}
+			fromFilter = addr.String()
+		}
+	}
+
+	// --since accepts a duration (5m, 1h) or an RFC3339 timestamp.
+	var sinceCutoff time.Time
+	if s := flagString(flags, "since", ""); s != "" {
+		if d, derr := time.ParseDuration(s); derr == nil {
+			sinceCutoff = time.Now().Add(-d)
+		} else if t, terr := time.Parse(time.RFC3339, s); terr == nil {
+			sinceCutoff = t
+		} else {
+			fatalCode("invalid_argument", "--since must be a duration (5m, 1h) or an RFC3339 timestamp")
+		}
+	}
+
+	all, err := readInboxNewestFirst(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOutput {
-				output(map[string]interface{}{"messages": []interface{}{}, "total": 0})
+				output(map[string]interface{}{"messages": []interface{}{}, "total": 0, "shown": 0})
 			} else {
 				fmt.Println("inbox is empty")
 				fmt.Println("  messages appear here when someone sends: pilotctl send-message <your-hostname> --data \"hello\"")
@@ -5390,82 +6121,122 @@ func cmdInbox(args []string) {
 		fatalCode("internal", "read directory: %v", err)
 	}
 
-	// Inbox filenames are {type}-{ts-ms}-{seq}.json. Plain alpha order
-	// groups by type (binary<json<text), which inverts chronological order
-	// whenever message types are mixed. Sort by the timestamp+seq portion
-	// so the display order matches the receive order.
-	sort.Slice(entries, func(i, j int) bool {
-		ni := entries[i].Name()
-		nj := entries[j].Name()
-		di := strings.Index(ni, "-")
-		dj := strings.Index(nj, "-")
-		if di < 0 || dj < 0 {
-			return ni < nj
+	// Apply filters.
+	var filtered []inboxMessage
+	for _, im := range all {
+		if fromFilter != "" {
+			from, _ := im.msg["from"].(string)
+			if from != fromFilter {
+				continue
+			}
 		}
-		return ni[di:] < nj[dj:]
-	})
+		if !sinceCutoff.IsZero() {
+			ts, _ := im.msg["received_at"].(string)
+			t, terr := time.Parse(time.RFC3339Nano, ts)
+			if terr != nil || t.Before(sinceCutoff) {
+				continue
+			}
+		}
+		filtered = append(filtered, im)
+	}
 
-	var messages []map[string]interface{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	// --clear deletes the matched set (everything if no filters given).
+	// --before <dur> additionally restricts the clear to messages older
+	// than the duration, so `--clear --before 24h` keeps today's messages.
+	if flagBool(flags, "clear") {
+		var beforeCutoff time.Time
+		if b := flagString(flags, "before", ""); b != "" {
+			d, derr := time.ParseDuration(b)
+			if derr != nil {
+				fatalCode("invalid_argument", "--before must be a duration (24h, 30m)")
+			}
+			beforeCutoff = time.Now().Add(-d)
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
+		count := 0
+		for _, im := range filtered {
+			if !beforeCutoff.IsZero() {
+				ts, _ := im.msg["received_at"].(string)
+				t, terr := time.Parse(time.RFC3339Nano, ts)
+				if terr == nil && !t.Before(beforeCutoff) {
+					continue
+				}
+			}
+			if os.Remove(filepath.Join(dir, im.name)) == nil {
+				count++
+			}
 		}
-		var msg map[string]interface{}
-		if err := json.Unmarshal(data, &msg); err != nil {
-			continue
+		if jsonOutput {
+			outputOK(map[string]interface{}{"cleared": count, "remaining": len(all) - count})
+		} else {
+			fmt.Printf("cleared %d message(s), %d remaining\n", count, len(all)-count)
 		}
-		messages = append(messages, msg)
+		return
+	}
+
+	// --latest = full body of the single newest (post-filter) message.
+	full := flagBool(flags, "full")
+	limit := flagInt(flags, "limit", 10)
+	if flagBool(flags, "latest") {
+		limit, full = 1, true
+	}
+	total := len(filtered)
+	shown := filtered
+	if limit > 0 && len(shown) > limit {
+		shown = shown[:limit]
 	}
 
 	if jsonOutput {
+		msgs := make([]map[string]interface{}, 0, len(shown))
+		for _, im := range shown {
+			m := map[string]interface{}{
+				"id":          im.id,
+				"from":        im.msg["from"],
+				"received_at": im.msg["received_at"],
+				"type":        im.msg["type"],
+				"bytes":       im.msg["bytes"],
+			}
+			if body, _ := im.msg["data"].(string); full {
+				m["data"] = body
+			} else {
+				m["preview"] = inboxPreview(body, 120)
+			}
+			msgs = append(msgs, m)
+		}
 		output(map[string]interface{}{
-			"messages": messages,
-			"total":    len(messages),
+			"messages": msgs,
+			"total":    total,
+			"shown":    len(msgs),
 			"dir":      dir,
 		})
 		return
 	}
 
-	if len(messages) == 0 {
-		fmt.Println("inbox is empty")
-		fmt.Println("  messages appear here when someone sends: pilotctl send-message <your-hostname> --data \"hello\"")
+	if total == 0 {
+		fmt.Println("inbox is empty (no messages match the filters)")
 		return
 	}
 
-	fmt.Printf("Inbox (%d messages):\n\n", len(messages))
+	fmt.Printf("%s %s\n\n", sBold(fmt.Sprintf("Inbox — %d message(s)", total)), sDim(fmt.Sprintf("· showing %d newest", len(shown))))
 	now := time.Now()
-	for _, m := range messages {
-		msgType, _ := m["type"].(string)
-		from, _ := m["from"].(string)
-		ts, _ := m["received_at"].(string)
-		data, _ := m["data"].(string)
-		bytes, _ := m["bytes"].(float64)
-
-		var tsLine string
-		if traceTime {
-			t, err := time.Parse(time.RFC3339Nano, ts)
-			if err == nil {
-				ago := now.Sub(t)
-				tsLine = fmt.Sprintf("%s  (%s ago, %d bytes)", ts, fmtDuration(ago), int(bytes))
-			} else {
-				tsLine = ts
-			}
+	for _, im := range shown {
+		from, _ := im.msg["from"].(string)
+		ts, _ := im.msg["received_at"].(string)
+		msgType, _ := im.msg["type"].(string)
+		bytes, _ := im.msg["bytes"].(float64)
+		age := ""
+		if t, terr := time.Parse(time.RFC3339Nano, ts); terr == nil {
+			age = fmtDuration(now.Sub(t)) + " ago"
+		}
+		fmt.Printf("  %s\n", sAccent(im.id))
+		fmt.Printf("  %s\n", sDim(fmt.Sprintf("%s · %s · %s · %s", from, msgType, age, formatBytes(uint64(bytes)))))
+		body, _ := im.msg["data"].(string)
+		if full {
+			fmt.Printf("  %s\n\n", body)
 		} else {
-			tsLine = ts
+			fmt.Printf("  %s\n\n", inboxPreview(body, 120))
 		}
-
-		preview := data
-		if len(preview) > 80 {
-			preview = preview[:80] + "..."
-		}
-		fmt.Printf("  [%s] from %s type=%s\n", tsLine, from, msgType)
-		fmt.Printf("    %s\n", preview)
 	}
-	fmt.Printf("\nclear with: pilotctl inbox --clear\n")
+	fmt.Println(sDim("full body: pilotctl inbox read <id> · --latest · filters: --from --since --limit · clear: --clear [--before 24h]"))
 }
 
 // --- Network commands ---
@@ -5488,22 +6259,49 @@ func cmdNetworkList() {
 		return
 	}
 	// Member counts are admin-only at the registry. Without admin_token
-	// the registry omits the `members` field; render "—" so the column
-	// stays aligned and it's clear the count is hidden by policy rather
-	// than broken.
-	fmt.Printf("%-8s %-30s %-10s %s\n", "ID", "NAME", "JOIN RULE", "MEMBERS")
+	// the registry omits the `members` field for every network — in that
+	// case the column would be a wall of "—" that just looks broken, so
+	// we drop it entirely and say why in a footnote. When at least one
+	// network carries a count, the column stays ("—" marks the hidden ones).
+	memberCount := func(nm map[string]interface{}) (string, bool) {
+		if members, ok := nm["members"].([]interface{}); ok {
+			return fmt.Sprintf("%d", len(members)), true
+		}
+		if mc, ok := nm["members"].(float64); ok {
+			return fmt.Sprintf("%d", int(mc)), true
+		}
+		return "—", false
+	}
+	anyMembers := false
+	for _, n := range nets {
+		nm, _ := n.(map[string]interface{})
+		if _, ok := memberCount(nm); ok {
+			anyMembers = true
+			break
+		}
+	}
+	if anyMembers {
+		fmt.Printf("%-8s %-30s %-10s %s\n", "ID", "NAME", "JOIN RULE", "MEMBERS")
+	} else {
+		fmt.Printf("%-8s %-30s %s\n", "ID", "NAME", "JOIN RULE")
+	}
 	for _, n := range nets {
 		nm, _ := n.(map[string]interface{})
 		id := uint16(nm["id"].(float64))
 		name, _ := nm["name"].(string)
 		rule, _ := nm["join_rule"].(string)
-		memberStr := "—"
-		if members, ok := nm["members"].([]interface{}); ok {
-			memberStr = fmt.Sprintf("%d", len(members))
-		} else if mc, ok := nm["members"].(float64); ok {
-			memberStr = fmt.Sprintf("%d", int(mc))
+		// Pad before styling so ANSI escapes don't break column alignment.
+		nameCol := sAccent(fmt.Sprintf("%-30s", name))
+		ruleCol := sDim(fmt.Sprintf("%-10s", rule))
+		if anyMembers {
+			memberStr, _ := memberCount(nm)
+			fmt.Printf("%-8d %s %s %s\n", id, nameCol, ruleCol, memberStr)
+		} else {
+			fmt.Printf("%-8d %s %s\n", id, nameCol, ruleCol)
 		}
-		fmt.Printf("%-8d %-30s %-10s %s\n", id, name, rule, memberStr)
+	}
+	if !anyMembers {
+		fmt.Printf("\n%s\n", sDim("member counts hidden — admin only"))
 	}
 }
 
