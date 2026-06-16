@@ -253,6 +253,11 @@ func cmdSkillsDisable(args []string) {
 			"usage: pilotctl skills disable <skill-id|all>",
 			"skill id required")
 	}
+	if args[0] != "all" {
+		fatalHint("invalid_argument",
+			"only 'all' is supported; per-skill disable is not yet implemented",
+			"unknown skill id: %s", args[0])
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fatalCode("internal", "home dir: %v", err)
@@ -343,6 +348,11 @@ func cmdSkillsEnable(args []string) {
 		fatalHint("invalid_argument",
 			"usage: pilotctl skills enable <skill-id|all>",
 			"skill id required")
+	}
+	if args[0] != "all" {
+		fatalHint("invalid_argument",
+			"only 'all' is supported; per-skill enable is not yet implemented",
+			"unknown skill id: %s", args[0])
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
