@@ -25,7 +25,9 @@ jobs:
 
       - name: Build verifier
         run: |
-          git clone --depth 1 https://github.com/pilot-protocol/app-template /tmp/app-template
+          # Pin app-template to a released tag — this is a supply-chain trust gate,
+          # so the verifier it builds must not float on an unpinned upstream HEAD.
+          git clone --depth 1 --branch v0.1.0 https://github.com/pilot-protocol/app-template /tmp/app-template
           (cd /tmp/app-template && go build -o /tmp/pilot-app ./cmd/pilot-app)
 
       - name: Verify catalogue entries
