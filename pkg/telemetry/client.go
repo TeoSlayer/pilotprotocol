@@ -117,7 +117,10 @@ func (c *Client) Send(events ...Event) error {
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	message := make([]byte, 0, len(ts)+1+len(body))
+	// Build signed message as ts + newline + body.
+	// Avoid pre-allocated capacity hint: len() sum could overflow on 32-bit
+	// platforms with very large body values (CodeQL SAST).
+	message := make([]byte, 0, len(ts)+1)
 	message = append(message, ts...)
 	message = append(message, '\n')
 	message = append(message, body...)
