@@ -1219,6 +1219,21 @@ Reliability caveats (current implementation):
 	// falls through pilotctl's per-command help intercept and
 	// prints "No specific help" — confusing for an RC-shipped CLI.
 	"appstore": AppStoreHelpText,
+
+	"review": `Usage: pilotctl review <pilot|app-id> [--rating 1-5] [--text "..."]
+
+Submit a review or rating for Pilot Protocol or an installed app.
+Feedback is sent to the Feedback agent (node 16437), which
+aggregates it for the telemetry server (kind=review events).
+
+Flags:
+  --rating 1-5    numeric rating (star count)
+  --text "..."    free-form review text (max 4096 chars)
+
+Examples:
+  pilotctl review pilot --rating 5 --text "Great protocol, very fast"
+  pilotctl review my-app --rating 3
+`,
 }
 
 // printCommandHelp prints the help text for a command and exits.
@@ -1314,6 +1329,7 @@ Diagnostic commands:
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
   pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
+  pilotctl review <pilot|app-id> [--rating <n>] [--text "..."]   submit a review
 
 Agent tool discovery:
   pilotctl context
@@ -1420,6 +1436,10 @@ dispatch:
 
 	case "appstore":
 		cmdAppStore(cmdArgs)
+
+	case "review":
+		cmdReview(cmdArgs)
+
 		return
 
 	// Bootstrap
@@ -2042,6 +2062,13 @@ func contextCatalog() map[string]interface{} {
 				"args":        []string{"<address|hostname>", "<topic>", "--data <message>"},
 				"description": "Publish an event to a topic on a node's event stream (port 1002)",
 				"returns":     "target, topic, bytes",
+			},
+
+			// Reviews
+			"review": map[string]interface{}{
+				"args":        []string{"<pilot|app-id>", "[--rating 1-5]", "[--text ...]"},
+				"description": "Submit a rating/review for Pilot Protocol or an installed app",
+				"returns":     "target, rating, text, to_node",
 			},
 
 			// Diagnostics
