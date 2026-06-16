@@ -153,3 +153,32 @@ func TestCLISkillsDisable_RejectsNoArgs(t *testing.T) {
 		t.Errorf("expected 'usage' or 'skill id required' in stderr, got: %s", stderr)
 	}
 }
+
+// TestCLISkillsDisable_RejectsNonAll pins the PILOT-394 fix: pre-fix the
+// command accepted any <skill-id> but silently ran a global disable.
+// Now only "all" is accepted; anything else prints an error.
+func TestCLISkillsDisable_RejectsNonAll(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runCLI(t, []string{"skills", "disable", "foo"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit for 'disable foo', got 0\nstderr=%s", stderr)
+	}
+	low := strings.ToLower(stderr)
+	if !strings.Contains(low, "only 'all' is supported") {
+		t.Errorf("expected 'only all is supported' in stderr, got: %s", stderr)
+	}
+}
+
+// TestCLISkillsEnable_RejectsNonAll pins the PILOT-394 fix for the
+// enable side: only "all" is accepted; anything else prints an error.
+func TestCLISkillsEnable_RejectsNonAll(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runCLI(t, []string{"skills", "enable", "bar"}, nil)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit for 'enable bar', got 0\nstderr=%s", stderr)
+	}
+	low := strings.ToLower(stderr)
+	if !strings.Contains(low, "only 'all' is supported") {
+		t.Errorf("expected 'only all is supported' in stderr, got: %s", stderr)
+	}
+}
