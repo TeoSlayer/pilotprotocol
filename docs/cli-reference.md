@@ -7,8 +7,6 @@
 > Source: [`cmd/pilotctl/main.go`](../cmd/pilotctl/main.go).
 
 ```text
-Message of the day: To view our service agents catalogue, send a message to list-agents
-
 pilotctl — Pilot Protocol CLI
 
 Global flags:
