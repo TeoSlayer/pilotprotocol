@@ -1,6 +1,6 @@
 # Message of the day (MOTD)
 
-The message-of-the-day mechanism shows a short, operator-published banner
+The message-of-the-day mechanism shows a short, centrally-managed banner
 ahead of **every** `pilotctl` command, for one UTC calendar day at a time.
 It is used for network-wide notices: maintenance windows, incident updates,
 breaking-change heads-ups.
@@ -12,7 +12,9 @@ Message of the day: overlay maintenance 22:00 UTC — expect ~5min blips
 <normal pilotctl info output>
 ```
 
-When no message is published for the current UTC day, output is unchanged.
+When no message is active for the current UTC day, output is unchanged.
+Messages are managed centrally by the Pilot Protocol team; there is nothing
+to configure on a client to receive them.
 
 ## Design
 
@@ -33,53 +35,15 @@ So the work is split:
   offline across midnight) never shows yesterday's message.
 
 ```
- pilot-motd repo (motd.json)  ──poll──►  pilot-daemon  ──mirror──►  ~/.pilot/motd.json
-   the "DB": one JSON file                (only net I/O)              (the local variable)
-                                                                          │ read (no net, no IPC)
-                                                                          ▼
-                                          pilotctl <any command> ──► prepends banner
+ central feed  ──poll──►  pilot-daemon  ──mirror──►  ~/.pilot/motd.json
+  (managed by the         (only net I/O)              (the local variable)
+   Pilot team)                                            │ read (no net, no IPC)
+                                                          ▼
+                          pilotctl <any command> ──► prepends banner
 ```
 
 No new binary ships: the poll is a goroutine inside `pilot-daemon`, modelled
 on the existing skill-reconciler loop.
-
-## The feed (the "DB")
-
-The source of truth is a single static JSON file published from the
-[`pilot-motd`](https://github.com/pilot-protocol/pilot-motd) repository and
-served raw from its default branch:
-
-```
-https://raw.githubusercontent.com/pilot-protocol/pilot-motd/main/motd.json
-```
-
-Schema (`schema_version: 1`):
-
-```json
-{
-  "schema_version": 1,
-  "messages": [
-    { "date": "2026-06-15", "text": "overlay maintenance 22:00 UTC", "id": "maint-0615" }
-  ]
-}
-```
-
-- `date` is a **UTC** calendar day (`YYYY-MM-DD`). A message is active only on
-  that day. Future-dated entries are ignored until their day arrives, so you
-  can schedule ahead.
-- Keep at most one entry per day. If several share a day, the first non-blank
-  one wins.
-
-### Posting and clearing
-
-Committing to `pilot-motd` is the whole workflow — every daemon picks the
-change up on its next poll (raw GitHub CDN cache is a few minutes).
-
-- **Post:** add/replace today's entry in `messages`.
-- **Clear:** remove today's entry, set its `text` to `""`, or commit an empty
-  `{"schema_version":1,"messages":[]}`. Any of these clears the banner within
-  one poll interval — committing an empty MOTD updates the value just like
-  posting one does.
 
 ## Output behaviour
 
@@ -102,9 +66,19 @@ change up on its next poll (raw GitHub CDN cache is a few minutes).
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--motd-feed-url <url>` | the `pilot-motd` raw URL | feed location; **empty disables** polling entirely |
+| `--motd-feed-url <url>` | the central feed URL | feed location; **empty disables** polling entirely |
 | `--motd-interval <dur>` | `15m` | how often to re-fetch |
 | `$PILOT_MOTD_URL` | — | env override for the feed URL |
 
 The mirror lives next to the daemon identity (normally `~/.pilot/motd.json`),
 which is where `pilotctl` looks.
+
+## Semantics
+
+- **UTC days.** A message is active only on its UTC calendar day. `pilotctl`
+  re-checks the day on read, so a message never lingers past its UTC day.
+- **Self-clearing.** When the active message is withdrawn, the mirror is
+  cleared within one poll interval and the banner disappears on its own.
+- **Fail-safe.** Non-2xx responses and parse errors are non-fatal: the daemon
+  keeps its last good mirror and logs at debug level. An unknown
+  `schema_version` is rejected rather than mis-parsed.
