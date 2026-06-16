@@ -43,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,6 +52,7 @@ import (
 	"time"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 )
 
 // defaultCatalogueURL points at the canonical catalogue.json on main.
@@ -233,6 +235,26 @@ func cmdAppStoreSignCatalogue(args []string) {
 }
 
 func cmdAppStoreCatalogue(_ []string) {
+	// Emit a telemetry event for the catalogue page view (consent-gated —
+	// no-op when PILOT_TELEMETRY_URL is empty or identity.json is absent).
+	// Best-effort, non-blocking: a send failure is logged but doesn't
+	// prevent the catalogue from rendering.
+	{
+		url := os.Getenv("PILOT_TELEMETRY_URL")
+		if url == "" {
+			url = telemetry.DefaultEndpoint
+		}
+		identityPath := configDir() + "/identity.json"
+		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		err := client.Send(telemetry.Event{
+			Kind: "catalogue_viewed",
+			TS:   time.Now().UTC().Format(time.RFC3339),
+		})
+		if err != nil {
+			slog.Warn("telemetry send failed, catalogue still rendered", "err", err)
+		}
+	}
+
 	c, err := loadCatalogue()
 	if err != nil {
 		fatalHint("io_error",
