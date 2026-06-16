@@ -1,0 +1,33 @@
+# Deploy this to TeoSlayer/pilotprotocol/.github/workflows/catalogue-validate.yml
+# Gates every PR that edits the app-store catalogue index (SPEC §7.1).
+name: catalogue-validate
+
+on:
+  pull_request:
+    paths:
+      - "catalogue/catalogue.json"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base ref for the downgrade check
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Extract base catalogue (for downgrade check)
+        run: |
+          git show "origin/${{ github.base_ref }}:catalogue/catalogue.json" > /tmp/base-catalogue.json 2>/dev/null || echo '{"apps":[]}' > /tmp/base-catalogue.json
+
+      - name: Build verifier
+        run: |
+          git clone --depth 1 https://github.com/pilot-protocol/app-template /tmp/app-template
+          (cd /tmp/app-template && go build -o /tmp/pilot-app ./cmd/pilot-app)
+
+      - name: Verify catalogue entries
+        run: |
+          PILOT_CATALOGUE_BASE=/tmp/base-catalogue.json /tmp/pilot-app verify catalogue/catalogue.json
