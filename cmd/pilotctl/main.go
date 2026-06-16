@@ -105,6 +105,9 @@ func featureEnabled(name string) bool {
 func output(data interface{}) {
 	if jsonOutput {
 		envelope := map[string]interface{}{"status": "ok", "data": data}
+		if importantUpdate != "" {
+			envelope["important_update"] = importantUpdate
+		}
 		b, _ := json.Marshal(envelope)
 		fmt.Println(string(b))
 	} else {
@@ -128,12 +131,16 @@ func outputOK(fields map[string]interface{}) {
 func fatalCode(code string, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if jsonOutput {
-		b, _ := json.Marshal(map[string]string{
+		env := map[string]string{
 			"status":  "error",
 			"code":    code,
 			"message": msg,
 			"error":   msg,
-		})
+		}
+		if importantUpdate != "" {
+			env["important_update"] = importantUpdate
+		}
+		b, _ := json.Marshal(env)
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\n", msg)
@@ -171,13 +178,17 @@ func classifyDaemonError(err error) string {
 func fatalHint(code, hint, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if jsonOutput {
-		b, _ := json.Marshal(map[string]string{
+		env := map[string]string{
 			"status":  "error",
 			"code":    code,
 			"message": msg,
 			"error":   msg,
 			"hint":    hint,
-		})
+		}
+		if importantUpdate != "" {
+			env["important_update"] = importantUpdate
+		}
+		b, _ := json.Marshal(env)
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\nhint:  %s\n", msg, hint)
@@ -868,6 +879,8 @@ Flags:
   --no-encrypt                 disable tunnel encryption
   --foreground                 run in foreground (no fork; for systemd / shell wrappers)
   --wait <duration>            how long to wait for daemon to become ready (default: 15s)
+  --motd-feed-url <url>        message-of-the-day feed (empty to disable; env PILOT_MOTD_URL)
+  --motd-interval <duration>   message-of-the-day poll interval (default: 15m)
 `,
 	"daemon stop": `Usage: pilotctl daemon stop
 
@@ -1268,6 +1281,7 @@ Companion binaries:
 
 func main() {
 	loadFeatureFlags()
+	loadMOTD()
 
 	// Extract global flags before subcommand
 	var args []string
@@ -1281,6 +1295,12 @@ func main() {
 			args = append(args, a)
 		}
 	}
+
+	// Prepend the message-of-the-day banner (if any) ahead of every
+	// command's output. No-op in --json mode, where the message instead
+	// rides in each envelope's important_update field. Pure local read of
+	// ~/.pilot/motd.json — no network, no daemon call.
+	printMOTDBanner()
 
 	if len(args) < 1 {
 		usage()

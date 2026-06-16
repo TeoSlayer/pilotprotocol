@@ -1039,6 +1039,7 @@ func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 		"webhook_circuit_skips":     info.WebhookCircuitSkips,
 		"relay_peer_count":          info.RelayPeerCount,
 		"beacon_addr":               info.BeaconAddr,
+		"motd":                      info.MOTD,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("info marshal: %v", err))
