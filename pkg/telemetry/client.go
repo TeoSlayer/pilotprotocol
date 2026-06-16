@@ -119,7 +119,7 @@ func (c *Client) Send(events ...Event) error {
 	}
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	message := make([]byte, 0, len(ts)+1+len(body))
+	message := make([]byte, 0, len(ts)+1)
 	message = append(message, ts...)
 	message = append(message, '\n')
 	message = append(message, body...)
@@ -185,7 +185,7 @@ func SignMessage(priv ed25519.PrivateKey, body []byte) (ts, pubB64, sigB64 strin
 	}
 	pub := priv.Public().(ed25519.PublicKey)
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
-	message := make([]byte, 0, len(ts)+1+len(body))
+	message := make([]byte, 0, len(ts)+1)
 	message = append(message, ts...)
 	message = append(message, '\n')
 	message = append(message, body...)
