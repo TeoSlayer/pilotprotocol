@@ -114,12 +114,31 @@ ok "manifest signed, binary sha pinned"
 
 # ── step 3: stage a catalogue pointing at the local bundle ────────────
 
-step 3 "stage a catalogue file pointing at the bundle tarball"
+step 3 "stage a v2 catalogue + detail doc pointing at the bundle tarball"
 ( cd "$BUNDLE" && tar czf "$WORK/io.pilot.wallet-test.tar.gz" manifest.json bin/wallet )
 BUNDLE_SHA="$(shasum -a 256 "$WORK/io.pilot.wallet-test.tar.gz" | awk '{print $1}')"
+BUNDLE_SIZE="$(wc -c < "$WORK/io.pilot.wallet-test.tar.gz" | tr -d ' ')"
+# Per-app detail doc consumed by `appstore view`; pinned by metadata_sha256.
+mkdir -p "$WORK/apps/io.pilot.wallet"
+cat > "$WORK/apps/io.pilot.wallet/metadata.json" <<EOF
+{
+  "schema_version": 1,
+  "id": "io.pilot.wallet",
+  "display_name": "Wallet",
+  "tagline": "smoke-test detail doc",
+  "description_md": "Staged wallet listing for the app-store smoke test.",
+  "vendor": { "name": "Pilot Protocol" },
+  "source_url": "https://github.com/pilot-protocol/wallet",
+  "license": "AGPL-3.0-or-later",
+  "categories": ["payments"],
+  "changelog": [ { "version": "0.3.0", "date": "2026-06-08", "notes": ["smoke-test build"] } ],
+  "reviews": null
+}
+EOF
+META_SHA="$(shasum -a 256 "$WORK/apps/io.pilot.wallet/metadata.json" | awk '{print $1}')"
 cat > "$WORK/catalogue.json" <<EOF
 {
-  "version": 1,
+  "version": 2,
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "apps": [
     {
@@ -127,13 +146,21 @@ cat > "$WORK/catalogue.json" <<EOF
       "version": "0.3.0",
       "description": "smoke-test build",
       "bundle_url": "file://$WORK/io.pilot.wallet-test.tar.gz",
-      "bundle_sha256": "$BUNDLE_SHA"
+      "bundle_sha256": "$BUNDLE_SHA",
+      "display_name": "Wallet",
+      "vendor": "Pilot Protocol",
+      "categories": ["payments"],
+      "bundle_size": $BUNDLE_SIZE,
+      "source_url": "https://github.com/pilot-protocol/wallet",
+      "license": "AGPL-3.0-or-later",
+      "metadata_url": "file://$WORK/apps/io.pilot.wallet/metadata.json",
+      "metadata_sha256": "$META_SHA"
     }
   ]
 }
 EOF
 export PILOT_APPSTORE_CATALOG_URL="file://$WORK/catalogue.json"
-ok "catalogue staged at \$PILOT_APPSTORE_CATALOG_URL"
+ok "v2 catalogue + detail doc staged at \$PILOT_APPSTORE_CATALOG_URL"
 
 # ── step 4: start the daemon (which always loads the app-store) ───────
 
@@ -163,6 +190,20 @@ ok "catalogue lists wallet"
     || { cat "$WORK/install.out"; fail "install"; }
 grep -q "sha256 OK" "$WORK/install.out" || fail "install didn't verify sha256"
 ok "wallet installed (sha256 verified)"
+
+# catalogue listing should surface the v2 teaser + the `view` hint
+grep -q "Wallet (io.pilot.wallet)" "$WORK/cat.out" || fail "catalogue missing v2 display_name"
+grep -q "appstore view io.pilot.wallet" "$WORK/cat.out" || fail "catalogue missing view hint"
+ok "catalogue shows v2 teaser + view hint"
+
+# `view` merges catalogue + sha-pinned detail doc + the installed manifest
+"$WORK/pilotctl" appstore view io.pilot.wallet > "$WORK/view.out" 2>&1 \
+    || { cat "$WORK/view.out"; fail "view"; }
+grep -q "Wallet  (io.pilot.wallet)" "$WORK/view.out" || fail "view missing display name"
+grep -q "installed:" "$WORK/view.out" && grep -q "yes" "$WORK/view.out" || fail "view didn't report installed"
+grep -q "detail sha-verified" "$WORK/view.out" || fail "view didn't sha-verify the detail doc"
+grep -q "smoke-test detail doc" "$WORK/view.out" || fail "view missing detail tagline"
+ok "view merged catalogue + verified detail + local manifest"
 
 # ── step 6: wait for the daemon to spawn the wallet ───────────────────
 

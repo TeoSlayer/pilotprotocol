@@ -55,6 +55,8 @@ func cmdAppStore(args []string) {
 		cmdAppStoreCall(args[1:])
 	case "status":
 		cmdAppStoreStatus(args[1:])
+	case "view":
+		cmdAppStoreView(args[1:])
 	case "audit":
 		cmdAppStoreAudit(args[1:])
 	case "uninstall":
@@ -79,7 +81,7 @@ func cmdAppStore(args []string) {
 		appStoreHelp()
 	default:
 		fatalHint("invalid_argument",
-			"available: list, status, audit, uninstall, verify, install, gen-key, sign, catalogue, restart, caps, actions, call",
+			"available: list, status, view, audit, uninstall, verify, install, gen-key, sign, catalogue, restart, caps, actions, call",
 			"unknown appstore subcommand: %s", args[0])
 	}
 }
@@ -94,6 +96,10 @@ const AppStoreHelpText = `pilotctl appstore — list installed apps and call the
 Usage:
   pilotctl appstore list                     list installed apps + their methods
   pilotctl appstore status <id>              deep-dive on one app's pinned state
+  pilotctl appstore view <id> [--all-changelog]
+                                             detail page: description, vendor, changelog,
+                                             size, source, methods, permissions (works
+                                             whether or not the app is installed)
   pilotctl appstore audit <id> [--tail N] [--event NAME] [--since DURATION]
                                              show the supervisor lifecycle log
                                              event names: supervise-start, supervise-stop,

@@ -66,12 +66,34 @@ type catalogue struct {
 
 // catalogueEntry mirrors the JSON shape exactly. Adding a field here
 // means adding it to catalogue.json AND to catalogue/README.md.
+//
+// The first five fields are the v1 schema and are required. The
+// remaining fields are v2 additions: all optional, all omitempty, so a
+// v1 catalogue still decodes cleanly (the zero values render as
+// "absent"). The teaser fields surface in `pilotctl appstore catalogue`;
+// the metadata pin is consumed lazily by `pilotctl appstore view`.
 type catalogueEntry struct {
 	ID          string `json:"id"`
 	Version     string `json:"version"`
 	Description string `json:"description"`
 	BundleURL   string `json:"bundle_url"`
 	BundleSHA   string `json:"bundle_sha256"`
+
+	// --- v2 teaser fields (cheap, shown in the catalogue listing) ---
+	DisplayName string   `json:"display_name,omitempty"`
+	Vendor      string   `json:"vendor,omitempty"`
+	Categories  []string `json:"categories,omitempty"`
+	BundleSize  int64    `json:"bundle_size,omitempty"` // bytes of the downloadable tarball
+	SourceURL   string   `json:"source_url,omitempty"`  // OSS source, if any
+	License     string   `json:"license,omitempty"`     // SPDX id
+
+	// --- v2 detail-doc pin (consumed by `pilotctl appstore view`) ---
+	// MetadataURL points at the per-app metadata.json; MetadataSHA pins
+	// its bytes the same way BundleSHA pins the tarball. Empty MetadataURL
+	// means "no extended detail" — `view` falls back to teaser + local
+	// manifest.
+	MetadataURL string `json:"metadata_url,omitempty"`
+	MetadataSHA string `json:"metadata_sha256,omitempty"`
 }
 
 // catalogueURL returns the URL pilotctl should fetch the catalogue
@@ -103,8 +125,12 @@ func loadCatalogue() (*catalogue, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("parse catalogue: %w", err)
 	}
-	if c.Version != 1 {
-		return nil, fmt.Errorf("unsupported catalogue version %d (pilotctl understands version 1)", c.Version)
+	// v1 and v2 are both understood. v2 only adds optional fields, so a
+	// v2-aware pilotctl reads a v1 catalogue and an older pilotctl reads a
+	// v2 catalogue (ignoring the unknown fields) — the bump is backward
+	// AND forward compatible by construction.
+	if c.Version != 1 && c.Version != 2 {
+		return nil, fmt.Errorf("unsupported catalogue version %d (pilotctl understands versions 1 and 2)", c.Version)
 	}
 	return &c, nil
 }
@@ -127,8 +153,34 @@ func cmdAppStoreCatalogue(_ []string) {
 	fmt.Printf("Catalogue: %s (updated %s)\n\n", catalogueURL(), c.UpdatedAt)
 	fmt.Println("Installable apps:")
 	for _, e := range c.Apps {
-		fmt.Printf("\n  %s  v%s\n", e.ID, e.Version)
+		name := e.ID
+		if e.DisplayName != "" {
+			name = fmt.Sprintf("%s (%s)", e.DisplayName, e.ID)
+		}
+		fmt.Printf("\n  %s  v%s\n", name, e.Version)
+		// Teaser line: vendor · categories · license · size — only the
+		// parts a v2 entry actually carries. v1 entries skip it entirely.
+		var bits []string
+		if e.Vendor != "" {
+			bits = append(bits, e.Vendor)
+		}
+		if len(e.Categories) > 0 {
+			bits = append(bits, strings.Join(e.Categories, ", "))
+		}
+		if e.License != "" {
+			bits = append(bits, e.License)
+		}
+		if e.BundleSize > 0 {
+			bits = append(bits, formatBytes(uint64(e.BundleSize)))
+		}
+		if len(bits) > 0 {
+			fmt.Printf("    %s\n", strings.Join(bits, " · "))
+		}
 		fmt.Printf("    %s\n", e.Description)
+		// Point at the new detail view when extended metadata is published.
+		if e.MetadataURL != "" {
+			fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
+		}
 		fmt.Printf("    install: pilotctl appstore install %s\n", e.ID)
 	}
 }

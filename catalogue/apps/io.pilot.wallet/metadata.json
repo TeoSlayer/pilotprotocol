@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.wallet",
+  "display_name": "Wallet",
+  "tagline": "On-overlay USDC payments across Base, Ethereum, and Polygon",
+  "description_md": "The Pilot reference wallet brings x402 + EIP-3009 USDC payments to the overlay, with spend caps the supervisor enforces. One secp256k1 address works across all three USDC mainnets (Base, Ethereum, Polygon); per-chain RPC is configurable via PILOT_EVM_RPC_<chainID>.\n\nInstalling this app lets other apps and agents settle payments without leaving the network. Spend caps declared in the manifest are reviewed at install time and enforced on every signing operation — see `pilotctl appstore caps io.pilot.wallet`.",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "contact": "apps@pilotprotocol.network"
+  },
+  "homepage": "https://pilotprotocol.network",
+  "source_url": "https://github.com/pilot-protocol/wallet",
+  "license": "AGPL-3.0-or-later",
+  "categories": ["payments", "crypto", "finance"],
+  "keywords": ["usdc", "x402", "eip-3009", "evm", "base", "ethereum", "polygon", "payments"],
+  "size": {
+    "bundle_bytes": 9110758
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": ["go"]
+  },
+  "changelog": [
+    {
+      "version": "0.3.3",
+      "date": "2026-06-08",
+      "notes": [
+        "Default --evm-chains expands to 8453,1,137 so supervised wallets get all three USDC mainnets out of the box",
+        "PILOT_EVM_CHAINS env overrides the default chain set"
+      ]
+    },
+    {
+      "version": "0.3.2",
+      "date": "2026-06-08",
+      "notes": [
+        "Multichain EVM: same secp256k1 address across Base, Ethereum, Polygon",
+        "New wallet.evm.chains method; all evm.* methods accept an optional chain_id",
+        "Per-chain RPC via PILOT_EVM_RPC_<chainID>"
+      ]
+    },
+    {
+      "version": "0.3.1",
+      "date": "2026-06-08",
+      "notes": [
+        "Wired the wallet.evm.* methods into the binary (declared in v0.3.0 but unregistered)",
+        "Added --evm-identity, --evm-chain, --evm-rpc, --no-evm flags"
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-06-08",
+      "notes": [
+        "Signed wallet app bundle: ed25519-signed manifest, sha256-pinned binary"
+      ]
+    }
+  ],
+  "links": [
+    { "label": "Source", "url": "https://github.com/pilot-protocol/wallet" },
+    { "label": "Website", "url": "https://pilotprotocol.network" }
+  ],
+  "reviews": null,
+  "published_at": "2026-06-08T08:00:26Z",
+  "updated_at": "2026-06-08T09:16:19Z"
+}
