@@ -34,6 +34,8 @@ import (
 	"github.com/pilot-protocol/skillinject"
 	"github.com/pilot-protocol/trustedagents"
 	"github.com/pilot-protocol/webhook"
+
+	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
 )
 
 var version = "dev"
@@ -303,6 +305,9 @@ func main() {
 	if err := rt.Register(&appstoreAdapter{svc: appstore.NewService(appstore.Config{
 		InstallRoot:    appstoreInstallRoot,
 		RescanInterval: 2 * time.Second,
+		// Real catalogue trust anchor (replaces the all-zeros
+		// placeholder default): the embedded ed25519 catalogue key.
+		CatalogPubkey: []byte(catalogtrust.PublicKey()),
 	})}); err != nil {
 		log.Fatalf("register appstore: %v", err)
 	}

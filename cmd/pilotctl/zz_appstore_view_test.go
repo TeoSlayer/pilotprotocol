@@ -4,20 +4,38 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
 )
 
-// stageCatalogue writes a catalogue.json to a tempdir and points
-// PILOT_APPSTORE_CATALOG_URL at it via file://.
+// stageCatalogue writes a catalogue.json to a tempdir, signs it with an
+// ephemeral catalogue key (whose public half is swapped into the embedded
+// trust anchor for the duration of the test), writes the detached
+// <catalogue>.sig, and points PILOT_APPSTORE_CATALOG_URL at it via file://.
+//
+// loadCatalogue verifies fail-closed against the embedded key, so the
+// fixture MUST carry a valid signature — staging an unsigned fixture would
+// (correctly) be rejected. Signing with a per-test key, rather than
+// disabling the gate, keeps these tests exercising the real verification
+// path against a valid signature. The original embedded key is restored via
+// t.Cleanup so tests stay isolated.
 func stageCatalogue(t *testing.T, catJSON string) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "catalogue.json")
+	dir := t.TempDir()
+	p := filepath.Join(dir, "catalogue.json")
 	if err := os.WriteFile(p, []byte(catJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sig, restore := catalogtrust.SignWithEphemeralKey([]byte(catJSON))
+	t.Cleanup(restore)
+	if err := os.WriteFile(p+".sig", []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PILOT_APPSTORE_CATALOG_URL", "file://"+p)

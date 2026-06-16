@@ -69,6 +69,8 @@ func cmdAppStore(args []string) {
 		cmdAppStoreGenKey(args[1:])
 	case "sign":
 		cmdAppStoreSign(args[1:])
+	case "sign-catalogue", "sign-catalog":
+		cmdAppStoreSignCatalogue(args[1:])
 	case "catalogue", "catalog":
 		cmdAppStoreCatalogue(args[1:])
 	case "restart":
@@ -81,7 +83,7 @@ func cmdAppStore(args []string) {
 		appStoreHelp()
 	default:
 		fatalHint("invalid_argument",
-			"available: list, status, view, audit, uninstall, verify, install, gen-key, sign, catalogue, restart, caps, actions, call",
+			"available: list, status, view, audit, uninstall, verify, install, gen-key, sign, sign-catalogue, catalogue, restart, caps, actions, call",
 			"unknown appstore subcommand: %s", args[0])
 	}
 }
@@ -116,6 +118,8 @@ Usage:
   pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
   pilotctl appstore sign --key <key-file> <manifest>
                                              sign (or re-sign) a manifest's store.signature so the supervisor accepts it
+  pilotctl appstore sign-catalogue --key <key-file> <catalogue.json>
+                                             sign the catalogue, writing a detached <catalogue>.sig pilotctl verifies on load
   pilotctl appstore restart <id>             ask the daemon to clear crash-loop suspension and respawn this app
   pilotctl appstore caps <id>                show the manifest's spend caps and current rolling-window usage
   pilotctl appstore actions [--tail N] [--event NAME]
