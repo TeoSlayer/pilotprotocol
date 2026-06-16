@@ -40,9 +40,9 @@ func TestCmdInfoHumanOutput(t *testing.T) {
 	out := captureStdout(t, func() { cmdInfo(nil) })
 
 	for _, want := range []string{
-		"Pilot Protocol Daemon", "host-x", "Node ID:     42",
-		"Address:     0:0000.0000.002A", "Beacon:      b.example:9001",
-		"Identity:    persistent",
+		"pilot-daemon", "host-x", "node 42",
+		"0:0000.0000.002A", "beacon b.example:9001",
+		"persistent", "Ed25519 deadbeef…",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -88,7 +88,7 @@ func TestCmdHealthHumanOutput(t *testing.T) {
 	jsonOutput = false
 	out := captureStdout(t, func() { cmdHealth() })
 
-	for _, want := range []string{"Daemon Health", "Status:      ok", "Connections: 1"} {
+	for _, want := range []string{"pilot-daemon", "ok", "1 connection(s)", "peers"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in: %s", want, out)
 		}
@@ -154,9 +154,29 @@ func TestCmdPeersWithData(t *testing.T) {
 	jsonOutput = false
 	out := captureStdout(t, func() { cmdPeers(nil) })
 
-	for _, want := range []string{"NODE ID", "99", "yes (AES-256-GCM)", "yes (Ed25519)", "direct"} {
+	// Encrypted+authenticated peers are the norm — only the summary shows.
+	for _, want := range []string{"1 peer", "1 encrypted+authenticated", "0 relay", "1 direct"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in: %s", want, out)
+		}
+	}
+
+	// --all expands to the full table with the node id. The fake daemon
+	// serves a single connection, so spin up a fresh one.
+	d2 := newFakeDaemon(t)
+	d2.useDaemon(t)
+	d2.onJSON(tdCmdInfo, tdCmdInfoOK, `{
+		"node_id": 1, "address": "0:0000.0000.0001",
+		"uptime_secs": 0, "connections": 0, "ports": 0, "peers": 1,
+		"bytes_sent": 0, "bytes_recv": 0, "pkts_sent": 0, "pkts_recv": 0,
+		"peer_list": [
+			{"node_id": 99, "encrypted": true, "authenticated": true, "relay": false}
+		]
+	}`)
+	outAll := captureStdout(t, func() { cmdPeers([]string{"--all"}) })
+	for _, want := range []string{"NODE ID", "99", "yes", "direct"} {
+		if !strings.Contains(outAll, want) {
+			t.Errorf("missing %q in --all output: %s", want, outAll)
 		}
 	}
 }
@@ -555,8 +575,11 @@ func TestCmdPendingHasOne(t *testing.T) {
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
 	out := captureStdout(t, func() { cmdPending() })
-	if !strings.Contains(out, "NODE ID") || !strings.Contains(out, "hi") {
+	if !strings.Contains(out, "node 7") || !strings.Contains(out, "hi") {
 		t.Errorf("missing pending row: %s", out)
+	}
+	if !strings.Contains(out, "pilotctl approve 7") {
+		t.Errorf("missing inline approve hint: %s", out)
 	}
 }
 
@@ -567,7 +590,7 @@ func TestCmdTrustEmpty(t *testing.T) {
 	prev := jsonOutput
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
-	out := captureStdout(t, func() { cmdTrust() })
+	out := captureStdout(t, func() { cmdTrust(nil) })
 	if !strings.Contains(out, "no trusted peers") {
 		t.Errorf("missing 'no trusted peers': %s", out)
 	}
@@ -581,11 +604,15 @@ func TestCmdTrustHasEntries(t *testing.T) {
 	prev := jsonOutput
 	defer func() { jsonOutput = prev }()
 	jsonOutput = false
-	out := captureStdout(t, func() { cmdTrust() })
-	for _, want := range []string{"NODE ID", "MUTUAL", "9", "yes"} {
+	out := captureStdout(t, func() { cmdTrust(nil) })
+	for _, want := range []string{"Trusted peers — 1", "node 9", "net 1", "pilotctl untrust"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q: %s", want, out)
 		}
+	}
+	// Mutual trust is the norm — it must NOT be tagged.
+	if strings.Contains(out, "one-way") {
+		t.Errorf("mutual peer wrongly tagged one-way: %s", out)
 	}
 }
 

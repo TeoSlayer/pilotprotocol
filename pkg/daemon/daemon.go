@@ -196,8 +196,13 @@ const (
 	MaxZeroWindowProbes = 30
 )
 
-// RelayProbeInterval is how often we probe relay-flagged peers for direct connectivity.
-const RelayProbeInterval = 5 * time.Minute
+// RelayProbeInterval is how often we attempt to upgrade relay-flagged peers
+// to a direct path via coordinated hole-punching. Was 5m (far too slow — a
+// peer stuck on relay stayed there for minutes); tightened to 15s so a peer
+// that becomes direct-capable (or one that briefly flipped to relay under
+// load) is re-punched promptly. The punch + probe is cheap and only runs for
+// peers still flagged relay, so it self-limits once a peer is promoted.
+const RelayProbeInterval = 15 * time.Second
 
 // EndpointCacheTTL is how long a cached endpoint is considered fresh.
 // After this, the entry is stale but still usable as a fallback.
@@ -5204,28 +5209,85 @@ func (d *Daemon) relayProbeLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			relayPeers := d.tunnels.RelayPeerIDs()
-			for _, nodeID := range relayPeers {
-				// P1-010 fix: send a targeted direct probe without flipping
-				// the relay flag. If the peer's direct path has recovered, the
-				// response will arrive on tm.sock from their real address;
-				// handleEncrypted auto-clears relay mode on a successful
-				// direct decrypt. Concurrent traffic (key exchange replies,
-				// retransmits) continues going via relay during the probe.
-				probe := &protocol.Packet{
-					Version:  protocol.Version,
-					Flags:    protocol.FlagACK,
-					Protocol: protocol.ProtoControl,
-					Src:      d.Addr(),
-					Dst:      protocol.Addr{Network: 0, Node: nodeID},
-					SrcPort:  protocol.PortPing,
-					DstPort:  protocol.PortPing,
-					Seq:      1,
-				}
-				if err := d.tunnels.SendDirectProbe(nodeID, probe); err != nil {
-					slog.Debug("relay direct-probe skipped", "node_id", nodeID, "error", err)
-				}
+			for _, nodeID := range d.tunnels.RelayPeerIDs() {
+				go d.tryDirectUpgrade(nodeID)
 			}
+		}
+	}
+}
+
+// tryDirectUpgrade attempts to promote a relay-flagged peer to a direct path
+// via coordinated NAT hole-punching, then verifies on the rig that the path
+// actually carries traffic.
+//
+// Why this exists: the old relayProbeLoop sent a single one-way SendDirectProbe
+// and assumed the direct path "had recovered". Through a stateful firewall/NAT
+// a one-way probe is dropped — there is no conntrack pinhole until BOTH peers
+// send. So a relay tunnel never upgraded unless the peer was already publicly
+// reachable. Here we (1) coordinate a simultaneous punch via the beacon to
+// open the pinhole on both NATs, then (2) push several encrypted probes at the
+// peer's REAL address (not the beacon placeholder) so the peer's
+// ClearRelayOnDirect promotes the path (DirectClearsRequired=3 direct decrypts).
+func (d *Daemon) tryDirectUpgrade(nodeID uint32) {
+	// Only act on peers we have authoritative resolve info for. Punching a
+	// relay-only peer would leak its real IP via the beacon PunchCommand
+	// (see establishConnection), so require resolve info that says the peer
+	// is NOT relay-only before we punch or probe.
+	resp, ok := d.cachedResolve(nodeID)
+	if !ok {
+		// A relay tunnel established via beacon discovery never populated
+		// the resolve cache. Resolve fresh so we can target the peer's real
+		// address; without this the upgrade can never start.
+		if d.regConn == nil {
+			return
+		}
+		r, err := d.regConn.Resolve(nodeID, d.NodeID())
+		if err != nil {
+			return
+		}
+		d.cacheResolve(nodeID, r)
+		resp = r
+	}
+	if relayOnly, _ := resp["relay_only"].(bool); relayOnly {
+		return
+	}
+	realAddrStr, _ := resp["real_addr"].(string)
+	if realAddrStr == "" {
+		return
+	}
+	realAddr, err := net.ResolveUDPAddr("udp", realAddrStr)
+	if err != nil {
+		return
+	}
+
+	// A prior blackhole flip may have PINNED the peer to relay; ClearRelayOnDirect
+	// will not promote a pinned peer. Unpin it — we've confirmed above it is not
+	// registry relay-only, so direct is allowed to win on its merits.
+	if d.tunnels.IsRelayPinned(nodeID) {
+		d.tunnels.SetRelayPeerPinned(nodeID, false)
+	}
+
+	// Coordinate the punch (opens the conntrack pinhole on both NATs).
+	d.tunnels.RequestHolePunch(nodeID)
+
+	probe := &protocol.Packet{
+		Version:  protocol.Version,
+		Flags:    protocol.FlagACK,
+		Protocol: protocol.ProtoControl,
+		Src:      d.Addr(),
+		Dst:      protocol.Addr{Network: 0, Node: nodeID},
+		SrcPort:  protocol.PortPing,
+		DstPort:  protocol.PortPing,
+		Seq:      1,
+	}
+	// Give the punch a moment to land, then probe the real address a few
+	// times so at least DirectClearsRequired (=3) direct decrypts arrive
+	// while the pinhole is open.
+	for i := 0; i < 5; i++ {
+		time.Sleep(200 * time.Millisecond)
+		if err := d.tunnels.SendDirectProbeTo(nodeID, realAddr, probe); err != nil {
+			slog.Debug("direct upgrade probe skipped", "node_id", nodeID, "error", err)
+			return
 		}
 	}
 }

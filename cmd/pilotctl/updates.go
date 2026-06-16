@@ -114,22 +114,51 @@ func cmdUpdates(args []string) {
 			date = t.Format("2006-01-02")
 		}
 		title := strings.TrimSpace(it.Title)
-		fmt.Printf("• %s  %s\n", date, title)
+		fmt.Printf("• %s  %s\n", sAccent(date), title)
 		if len(it.Categories) > 0 {
-			fmt.Printf("    [%s]\n", strings.Join(it.Categories, ", "))
+			fmt.Printf("    %s\n", sDim("["+strings.Join(it.Categories, ", ")+"]"))
 		}
 		if d := strings.TrimSpace(it.Description); d != "" {
-			d = collapseWhitespace(d)
-			if len(d) > 200 {
-				d = d[:197] + "..."
-			}
-			fmt.Printf("    %s\n", d)
+			fmt.Printf("    %s\n", wrapText(collapseWhitespace(d), 100, 4))
 		}
 		if l := strings.TrimSpace(it.Link); l != "" {
-			fmt.Printf("    %s\n", l)
+			fmt.Printf("    %s\n", sDim(l))
 		}
 		fmt.Println()
 	}
+}
+
+// wrapText word-wraps s at word boundaries so no line exceeds width
+// columns (counting the indent), with a hanging indent: continuation
+// lines are prefixed with `indent` spaces to line up under a first line
+// the caller has already indented by the same amount. Words longer than
+// a full line are emitted unbroken — never split mid-word.
+func wrapText(s string, width, indent int) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+	pad := strings.Repeat(" ", indent)
+	var b strings.Builder
+	lineLen := indent // caller prints the first line's indent
+	for i, w := range words {
+		wl := len([]rune(w))
+		switch {
+		case i == 0:
+			b.WriteString(w)
+			lineLen += wl
+		case lineLen+1+wl > width:
+			b.WriteString("\n")
+			b.WriteString(pad)
+			b.WriteString(w)
+			lineLen = indent + wl
+		default:
+			b.WriteString(" ")
+			b.WriteString(w)
+			lineLen += 1 + wl
+		}
+	}
+	return b.String()
 }
 
 // filterAndTruncate applies the --scope category filter (case-insensitive,

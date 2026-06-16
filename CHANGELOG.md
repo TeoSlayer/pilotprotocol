@@ -7,6 +7,37 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [Unreleased]
+
+Reliable P2P data transfer across NAT. Tag intentionally held for review.
+
+### Added
+- **Chunked, ACK'd, resumable file transfer (`TypeFileStream`).** `pilotctl
+  send-file` now streams files in 48 KiB chunks with per-chunk ACKs, an
+  end-to-end SHA-256 integrity check, and automatic resume from the last
+  contiguous byte after an interrupted transfer. Replaces the single
+  atomic frame that stalled large transfers on any non-trivial path.
+  Backward compatible: falls back to the legacy `TypeFile` path when the
+  receiver is too old to answer the stream handshake. `--no-stream` forces
+  the legacy path.
+- **`pilotctl prefer-direct <peer>`** and **`send-file --prefer-direct`** —
+  drop a peer's tunnel + cached resolution so the next dial re-runs the
+  full resolve + NAT hole-punch flow and prefers the direct path.
+- `send-file` reports `transport`, `sha256`, and `throughput_mbps`; adds
+  `--timeout`.
+
+### Fixed
+- **NAT traversal now actually establishes (and holds) a direct path.** The
+  relay→direct upgrade sent a one-way probe that a stateful NAT/firewall
+  always dropped, so peers stayed on the beacon relay indefinitely. The
+  daemon now runs a beacon-coordinated hole-punch and immediately probes
+  the peer's real address to promote the path, retrying every 15 s (was
+  5 min). Result on the dual-NAT rig: relay→direct in ~8 s, held through a
+  50 MB transfer, ~7–15× the relay throughput.
+- **Dual-NAT key-exchange convergence.** Key exchange is now sent over both
+  the direct and relay paths, so two NAT'd peers reconverge in ~1 RTT
+  instead of waiting 28 s–3 min for blackhole detection.
+
 ## [1.11.2] - 2026-06-15
 
 ### Added
