@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // DefaultEndpoint is the production telemetry ingestion URL.
@@ -146,6 +148,32 @@ func (c *Client) Send(events ...Event) error {
 	// Drain body so the connection can be reused
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// NewClientFromIdentity creates a consent-gated telemetry client from an
+// Ed25519 identity file on disk and a telemetry URL. When url is empty
+// the client is a permanent no-op. Returns nil if the identity file does
+// not exist (first run).
+func NewClientFromIdentity(url, identityPath string, nodeID int64) *Client {
+	c := New(url, nodeID)
+	if c.disabled || url == "" {
+		return c
+	}
+
+	id, err := crypto.LoadIdentity(identityPath)
+	if err != nil {
+		slog.Warn("telemetry: can't load identity, staying disabled", "path", identityPath, "err", err)
+		return c
+	}
+	if id == nil {
+		slog.Debug("telemetry: no identity file yet, staying disabled", "path", identityPath)
+		return c
+	}
+
+	slog.Debug("telemetry: identity loaded, enabling client", "path", identityPath,
+		"pubkey", crypto.EncodePublicKey(id.PublicKey))
+	c.SetSigner(id.Sign, crypto.EncodePublicKey(id.PublicKey))
+	return c
 }
 
 // SignMessage implements the signing contract directly, without an HTTP
