@@ -36,6 +36,7 @@ import (
 	"github.com/pilot-protocol/webhook"
 
 	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 )
 
 var version = "dev"
@@ -100,6 +101,9 @@ func main() {
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	motdFeedURL := flag.String("motd-feed-url", motd.DefaultFeedURL, "message-of-the-day feed URL (empty to disable); overridden by $PILOT_MOTD_URL")
 	motdInterval := flag.Duration("motd-interval", 0, "message-of-the-day poll interval (default 15m)")
+	telemetryURL := flag.String("telemetry-url", os.Getenv("PILOT_TELEMETRY_URL"),
+		"telemetry endpoint URL (empty = consent off, hard no-op). "+
+			"Env: PILOT_TELEMETRY_URL. Default: "+telemetry.DefaultEndpoint+".")
 	flag.Parse()
 	if *adminToken == "" {
 		if v := os.Getenv("PILOT_ADMIN_TOKEN"); v != "" {
@@ -209,6 +213,7 @@ func main() {
 		CompatTLSTrust:        *tlsTrust,
 		MOTDFeedURL:           *motdFeedURL,
 		MOTDInterval:          *motdInterval,
+		TelemetryURL:          *telemetryURL,
 	})
 
 	// L11 plugin lifecycle (T7.1): composition root owns the
