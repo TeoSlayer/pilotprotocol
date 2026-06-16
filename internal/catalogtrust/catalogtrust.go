@@ -22,7 +22,7 @@ import (
 //	-ldflags "-X github.com/TeoSlayer/pilotprotocol/internal/catalogtrust.publicKeyB64=<b64>"
 //
 // The compiled-in default is the current production catalogue key.
-var publicKeyB64 = "5aCD92R0UoZ2lGW6PYZeRrDw63ZNBC5oJZxFB8RNOPQ="
+var publicKeyB64 = "iHdBWayA/hYjkwUOZopTXY70qOlR90d6ii/hin0ZMdI="
 
 // ErrNoKey is returned when the embedded key is missing or malformed.
 // Fail-closed: with no trust anchor, nothing verifies.
