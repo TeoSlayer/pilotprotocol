@@ -255,6 +255,10 @@ func cmdAppStoreCatalogue(_ []string) {
 			name = fmt.Sprintf("%s (%s)", e.DisplayName, e.ID)
 		}
 		fmt.Printf("\n  %s  v%s\n", name, e.Version)
+		// Headline: the catalogue's short one-line description acts as the
+		// headline/teaser. The full description lives in metadata.json and
+		// is shown by `pilotctl appstore view`.
+		fmt.Printf("    %s\n", e.Description)
 		// Teaser line: vendor · categories · license · size — only the
 		// parts a v2 entry actually carries. v1 entries skip it entirely.
 		var bits []string
@@ -273,11 +277,9 @@ func cmdAppStoreCatalogue(_ []string) {
 		if len(bits) > 0 {
 			fmt.Printf("    %s\n", strings.Join(bits, " · "))
 		}
-		fmt.Printf("    %s\n", e.Description)
-		// Point at the new detail view when extended metadata is published.
-		if e.MetadataURL != "" {
-			fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
-		}
+		// Always point at the detail view — even without extended metadata
+		// the view command shows local install facts.
+		fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
 		fmt.Printf("    install: pilotctl appstore install %s\n", e.ID)
 	}
 }
