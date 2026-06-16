@@ -1129,6 +1129,16 @@ Common keys:
 
 Print the pilotctl build version string.
 `,
+	"update": `Usage: pilotctl update [flags]
+
+Run the updater once — check for new releases and install if available.
+In manual mode (daemon not running), re-runs skill install so newly
+installed binaries have matching skill definitions.
+
+Flags:
+  --repo <name>   GitHub owner/repo for releases (default: TeoSlayer/pilotprotocol)
+  --pin <tag>     pin to a specific release tag (e.g. v1.10.5)
+`,
 	"updates": `Usage: pilotctl updates [flags]
 
 Show the latest Pilot Protocol changelog entries from the release feed.
@@ -1313,6 +1323,7 @@ Diagnostic commands:
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
+  pilotctl update [--pin <tag>]                        run the updater once — check and install new release
   pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
@@ -1408,6 +1419,10 @@ dispatch:
 
 	case "quickstart":
 		cmdQuickstart()
+		return
+
+	case "update":
+		cmdUpdate(cmdArgs)
 		return
 
 	case "updates":

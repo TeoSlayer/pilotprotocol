@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/pilot-protocol/common/driver"
+	"github.com/pilot-protocol/skillinject"
+	"github.com/pilot-protocol/updater"
 )
 
 // changelogFeedURL is the canonical RSS 2.0 feed for the public Pilot
@@ -202,6 +206,74 @@ func collapseWhitespace(s string) string {
 		prevSpace = false
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// cmdUpdate runs the updater once — checking for new releases, downloading and
+// installing if available. When the daemon is not running (manual mode), it
+// also re-runs skill install so newly installed binaries have matching skills.
+//
+// Flags:
+//	--repo <name>   : GitHub owner/repo for releases (default: TeoSlayer/pilotprotocol)
+//	--pin <tag>     : pin to a specific release tag (e.g. v1.10.5)
+//	(global) --json : emit machine-readable JSON
+func cmdUpdate(args []string) {
+	flags, _ := parseFlags(args)
+	repo := flagString(flags, "repo", "TeoSlayer/pilotprotocol")
+	pin := flagString(flags, "pin", "")
+
+	// Determine install directory: where the updater binary lives.
+	updaterBin, err := findCompanionBinary("pilot-updater", "PILOT_UPDATER_BIN")
+	if err != nil {
+		fatalCode("internal", "cannot locate pilot-updater binary: %v", err)
+	}
+	installDir := filepath.Dir(updaterBin)
+
+	u := updater.New(updater.Config{
+		CheckInterval:  0, // unused for RunOnce
+		Repo:           repo,
+		InstallDir:     installDir,
+		Version:        version,
+		PinnedVersion:  pin,
+	})
+
+	u.RunOnce()
+
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"install_dir": installDir,
+			"repo":        repo,
+			"pinned":      pin != "",
+		})
+		return
+	}
+	fmt.Printf("Update check complete. Install dir: %s\n", installDir)
+
+	// In manual mode (no daemon running), re-run skill install so skills
+	// match the (possibly updated) binaries.
+	if !daemonRunning() {
+		report, err := runTick()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skill install failed: %v\n", err)
+		} else {
+			c := report.Counts()
+			fmt.Printf("Skills: %d files checked (%d up-to-date, %d installed, %d errors)\n",
+				len(report.Outcomes),
+				c[skillinject.ActionNoop],
+				c[skillinject.ActionCreate]+c[skillinject.ActionRewrite],
+				c[skillinject.ActionError])
+		}
+	}
+}
+
+// daemonRunning checks whether the daemon socket is reachable.
+func daemonRunning() bool {
+	sock := getSocket()
+	d, err := driver.Connect(sock)
+	if err != nil {
+		return false
+	}
+	d.Close()
+	return true
 }
 
 // fetchChangelogFeed returns the cached feed body if it's fresh (< 5 min)
