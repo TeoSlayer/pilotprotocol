@@ -7,6 +7,29 @@ project uses [Semantic Versioning](https://semver.org/).
 Detailed per-release notes are on the
 [GitHub Releases page](https://github.com/TeoSlayer/pilotprotocol/releases).
 
+## [1.11.2] - 2026-06-15
+
+### Added
+- **Message of the day — a network-wide banner on every `pilotctl` command.**
+  The Pilot Protocol team can surface a short notice for a single UTC calendar
+  day. When a message is active it is prepended to the output of every
+  `pilotctl` command in text mode (`Message of the day: <text>`), carried as a
+  top-level `important_update` field in the `--json` envelope (including error
+  envelopes), and exposed as `motd` in `pilotctl info`. When no message is
+  active for the current UTC day, output is unchanged. (motd)
+- **Lightweight poll-and-mirror design — fast CLI, no per-command calls.** The
+  daemon is the only component that touches the network: a background loop
+  (`motdPollLoop`) fetches a central feed every `--motd-interval` (default
+  15m), selects the entry dated for the current UTC day, holds it in memory,
+  and mirrors it to `~/.pilot/motd.json`. `pilotctl` reads only that local
+  mirror — one file read, no network, no IPC — and re-validates the UTC day on
+  read, so a stale mirror never shows a message past its day. No new binary
+  ships; the poll is a goroutine inside `pilot-daemon`. A withdrawn message
+  self-clears within one poll interval. (motd)
+- **New daemon configuration.** Flags `--motd-feed-url <url>` (empty disables
+  polling entirely) and `--motd-interval <dur>`, plus the `PILOT_MOTD_URL`
+  environment override. Surfaced in `pilotctl daemon start` help. (motd)
+
 ## [1.11.1] - 2026-06-15
 
 ### Added
