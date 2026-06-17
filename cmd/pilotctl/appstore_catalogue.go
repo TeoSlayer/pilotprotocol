@@ -247,39 +247,10 @@ func cmdAppStoreCatalogue(_ []string) {
 		fmt.Println("catalogue is empty")
 		return
 	}
-	fmt.Printf("Catalogue: %s (updated %s)\n\n", catalogueURL(), c.UpdatedAt)
-	fmt.Println("Installable apps:")
 	for _, e := range c.Apps {
-		name := e.ID
-		if e.DisplayName != "" {
-			name = fmt.Sprintf("%s (%s)", e.DisplayName, e.ID)
-		}
-		fmt.Printf("\n  %s  v%s\n", name, e.Version)
-		// Teaser line: vendor · categories · license · size — only the
-		// parts a v2 entry actually carries. v1 entries skip it entirely.
-		var bits []string
-		if e.Vendor != "" {
-			bits = append(bits, e.Vendor)
-		}
-		if len(e.Categories) > 0 {
-			bits = append(bits, strings.Join(e.Categories, ", "))
-		}
-		if e.License != "" {
-			bits = append(bits, e.License)
-		}
-		if e.BundleSize > 0 {
-			bits = append(bits, formatBytes(uint64(e.BundleSize)))
-		}
-		if len(bits) > 0 {
-			fmt.Printf("    %s\n", strings.Join(bits, " · "))
-		}
-		fmt.Printf("    %s\n", e.Description)
-		// Point at the new detail view when extended metadata is published.
-		if e.MetadataURL != "" {
-			fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
-		}
-		fmt.Printf("    install: pilotctl appstore install %s\n", e.ID)
+		fmt.Printf("%-40s  %s\n", e.ID, e.Description)
 	}
+	fmt.Println("\nRun 'pilotctl appstore view <id>' for full details.")
 }
 
 // installSource tags how a bundle reached the install command.
