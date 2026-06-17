@@ -29,6 +29,7 @@ import (
 	"github.com/pilot-protocol/app-store/pkg/manifest"
 
 	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
+	"github.com/pilot-protocol/common/consent"
 )
 
 // installedAppFacts is the verified, local-only band of `view` — derived
@@ -179,27 +180,29 @@ func cmdAppStoreView(args []string) {
 			"app %q not found in catalogue or install root", appID)
 	}
 
-	// Emit a telemetry event for the detail view (consent-gated —
-	// no-op when PILOT_TELEMETRY_URL is empty or identity.json is absent).
-	// Best-effort: a send failure is logged but not fatal — the view
-	// itself already resolved and rendered below.
+	// Emit a telemetry event for the detail view.
+	// Consent-gated (telemetry flag, default on). Best-effort: a send
+	// failure is logged but not fatal — the view already resolved and rendered below.
 	{
-		url := os.Getenv("PILOT_TELEMETRY_URL")
-		if url == "" {
-			url = telemetry.DefaultEndpoint
-		}
-		payload, _ := json.Marshal(map[string]string{
-			"app_id": appID,
-		})
-		identityPath := configDir() + "/identity.json"
-		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
-		err := client.Send(telemetry.Event{
-			Kind:    "appstore_view",
-			TS:      time.Now().UTC().Format(time.RFC3339),
-			Payload: payload,
-		})
-		if err != nil {
-			slog.Warn("telemetry send failed, view still shown", "app", appID, "err", err)
+		home, _ := os.UserHomeDir()
+		if consent.GetConsent(home, "telemetry") {
+			url := os.Getenv("PILOT_TELEMETRY_URL")
+			if url == "" {
+				url = telemetry.DefaultEndpoint
+			}
+			payload, _ := json.Marshal(map[string]string{
+				"app_id": appID,
+			})
+			identityPath := configDir() + "/identity.json"
+			client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+			err := client.Send(telemetry.Event{
+				Kind:    "appstore_view",
+				TS:      time.Now().UTC().Format(time.RFC3339),
+				Payload: payload,
+			})
+			if err != nil {
+				slog.Warn("telemetry send failed, view still shown", "app", appID, "err", err)
+			}
 		}
 	}
 
