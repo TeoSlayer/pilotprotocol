@@ -248,8 +248,9 @@ func cmdAppStoreCatalogue(_ []string) {
 		identityPath := configDir() + "/identity.json"
 		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
 		err := client.Send(telemetry.Event{
-			Kind: "catalogue_viewed",
-			TS:   time.Now().UTC().Format(time.RFC3339),
+			Kind:    "catalogue_viewed",
+			TS:      time.Now().UTC().Format(time.RFC3339),
+			Payload: json.RawMessage(`{"surface":"catalogue"}`),
 		})
 		if err != nil {
 			slog.Warn("telemetry send failed, catalogue still rendered", "err", err)

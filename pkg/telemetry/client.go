@@ -98,6 +98,7 @@ func (c *Client) Send(events ...Event) error {
 	url := c.url
 	sign := c.sign
 	pubKeyB := c.pubKeyB
+	nodeID := c.nodeID
 	c.mu.Unlock()
 
 	if disabled || url == "" {
@@ -111,6 +112,15 @@ func (c *Client) Send(events ...Event) error {
 
 	if len(events) == 0 {
 		return nil
+	}
+
+	// Inject node ID into events that don't supply their own.
+	if nodeID != 0 {
+		for i := range events {
+			if events[i].NodeID == 0 {
+				events[i].NodeID = nodeID
+			}
+		}
 	}
 
 	body, err := json.Marshal(events)
