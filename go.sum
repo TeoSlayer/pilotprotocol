@@ -50,6 +50,8 @@ github.com/pilot-protocol/trustedagents v0.2.3 h1:QQJHYqzPrECJwkCev0xIDBMjd92uht
 github.com/pilot-protocol/trustedagents v0.2.3/go.mod h1:gDgEOC9lHmXSS9v45h80XxlmUS861soIrA0AsbXiSV4=
 github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f h1:1dyunPeEOriqTv1xbt0fuDwieA5V5NLU1nVSC2714jU=
 github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f/go.mod h1:/I0uhVk1SljAOEYmjTdI/6CP7UmemmV4WB22ai1FxUw=
+github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e h1:vFzuw5dUVi0igwI2PdVzDY8OnY6FDLzM05wzI75zUZ8=
+github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e/go.mod h1:/I0uhVk1SljAOEYmjTdI/6CP7UmemmV4WB22ai1FxUw=
 github.com/pilot-protocol/webhook v0.2.0 h1:3UFU9X2yBb0iKlPbzVcism+Z6yCrBBaOgdo9+vd4Wf4=
 github.com/pilot-protocol/webhook v0.2.0/go.mod h1:WVXhHFg+o0pHHk+4nXMCh1zl/ZAyZ3AXrtx6mNuZS6g=
 golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=

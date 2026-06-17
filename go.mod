@@ -16,7 +16,7 @@ require (
 	github.com/pilot-protocol/runtime v0.3.1
 	github.com/pilot-protocol/skillinject v0.2.2
 	github.com/pilot-protocol/trustedagents v0.2.3
-	github.com/pilot-protocol/updater v0.2.2-0.20260529065627-220ed5b8383f
+	github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e
 	github.com/pilot-protocol/webhook v0.2.0
 	golang.org/x/sys v0.45.0
 )
@@ -25,3 +25,5 @@ require (
 	github.com/expr-lang/expr v1.17.8 // indirect
 	golang.org/x/net v0.55.0 // indirect
 )
+
+replace github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e => github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e

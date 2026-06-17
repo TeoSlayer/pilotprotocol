@@ -76,6 +76,7 @@ Diagnostic commands:
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
+  pilotctl update [--pin <tag>]                        run the updater once — check and install new release
   pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
