@@ -133,6 +133,12 @@ type Config struct {
 	// Feature flags — ablation testing. All default false (current behavior).
 	BeaconRTTProbe bool // probe beacon RTT; override hash pick when >2× slower than best
 
+	// Telemetry consent gate. When set to the telemetry endpoint URL,
+	// the daemon initialises a telemetry client that emits signed events
+	// (install, usage, view, review). When empty (default), the client
+	// is a hard no-op: no dial, no buffering, no goroutines.
+	TelemetryURL string
+
 	// Compat-mode transport. Default empty ("" or "udp") = today's
 	// behavior: bind a UDP socket via udpio.Listen. Set "compat" to
 	// dial WSS to BeaconURL instead (for daemons in UDP-blocked
