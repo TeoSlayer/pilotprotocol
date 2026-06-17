@@ -18,9 +18,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/app-store/plugin/appstore"
 	"github.com/pilot-protocol/common/coreapi"
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 )
 
 type appstoreAdapter struct {

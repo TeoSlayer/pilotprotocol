@@ -213,6 +213,7 @@ func collapseWhitespace(s string) string {
 // also re-runs skill install so newly installed binaries have matching skills.
 //
 // Flags:
+//
 //	--repo <name>   : GitHub owner/repo for releases (default: TeoSlayer/pilotprotocol)
 //	--pin <tag>     : pin to a specific release tag (e.g. v1.10.5)
 //	(global) --json : emit machine-readable JSON
@@ -229,11 +230,11 @@ func cmdUpdate(args []string) {
 	installDir := filepath.Dir(updaterBin)
 
 	u := updater.New(updater.Config{
-		CheckInterval:  0, // unused for RunOnce
-		Repo:           repo,
-		InstallDir:     installDir,
-		Version:        version,
-		PinnedVersion:  pin,
+		CheckInterval: 0, // unused for RunOnce
+		Repo:          repo,
+		InstallDir:    installDir,
+		Version:       version,
+		PinnedVersion: pin,
 	})
 
 	u.RunOnce()
