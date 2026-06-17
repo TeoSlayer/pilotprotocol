@@ -21,12 +21,13 @@ import (
 //
 // Subcommands:
 //
-//	pilotctl skills                       — alias for `status`
-//	pilotctl skills status                — show per-tool install paths + state
-//	pilotctl skills paths                 — print just the install paths
-//	pilotctl skills check                 — run one reconcile pass right now
-//	pilotctl skills disable <skill|all>   — remove every file we wrote + opt out of future ticks
-//	pilotctl skills enable  <skill|all>   — opt back in + run one reconcile pass
+//	pilotctl skills                            — alias for `status`
+//	pilotctl skills status                     — show per-tool install paths + state
+//	pilotctl skills paths                      — print just the install paths
+//	pilotctl skills check                      — run one reconcile pass right now
+//	pilotctl skills disable <skill|all>        — remove every file we wrote + set mode disabled
+//	pilotctl skills enable  <skill|all>        — re-enable (auto mode) + run one reconcile pass
+//	pilotctl skills set-mode auto|manual|disabled — persist mode to ~/.pilot/config.json
 func cmdSkills(args []string) {
 	sub := "status"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
@@ -44,9 +45,11 @@ func cmdSkills(args []string) {
 		cmdSkillsDisable(args)
 	case "enable":
 		cmdSkillsEnable(args)
+	case "set-mode":
+		cmdSkillsSetMode(args)
 	default:
 		fatalHint("invalid_argument",
-			"available: status, paths, check, disable, enable",
+			"available: status, paths, check, disable, enable, set-mode",
 			"unknown skills subcommand: %s", sub)
 	}
 }
@@ -54,7 +57,9 @@ func cmdSkills(args []string) {
 func runTick() (*skillinject.Report, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return skillinject.Tick(ctx, skillinject.Config{})
+	// ForceTick bypasses the disabled-mode guard so update and explicit
+	// check commands work regardless of the current mode setting.
+	return skillinject.ForceTick(ctx, skillinject.Config{})
 }
 
 // cmdSkillsStatus runs one tick (fetching the manifest + entrypoint over
@@ -89,8 +94,16 @@ func cmdSkillsStatus(args []string) {
 		return
 	}
 
+	home, _ := os.UserHomeDir()
+	mode := skillinject.GetMode(home)
+	modeDesc := map[string]string{
+		skillinject.ModeAuto:     fmt.Sprintf("auto — reconciles every %s + on daemon start", skillinject.DefaultInterval),
+		skillinject.ModeManual:   "manual — installed once, updated only on `pilotctl update` or `pilotctl skills check`",
+		skillinject.ModeDisabled: "disabled — no skills injected",
+	}[mode]
+
 	fmt.Println(sBold("Pilot Protocol skill — install status"))
-	fmt.Println(sDim(fmt.Sprintf("Reconcile cadence: every %s (default), plus once on daemon startup · paths are auto-managed — manual edits revert on next tick", skillinject.DefaultInterval)))
+	fmt.Printf("Mode: %s\n", sDim(modeDesc))
 	fmt.Println()
 
 	if len(report.Outcomes) == 0 {
@@ -268,7 +281,7 @@ func cmdSkillsDisable(args []string) {
 	report, uErr := skillinject.Uninstall(ctx, skillinject.Config{})
 	// Persist the opt-out regardless of partial removal failures —
 	// the next tick must be a no-op so we don't fight the user.
-	persistErr := skillinject.SetEnabled(home, false)
+	persistErr := skillinject.SetMode(home, skillinject.ModeDisabled)
 
 	if jsonOutput {
 		out := map[string]interface{}{
@@ -358,8 +371,8 @@ func cmdSkillsEnable(args []string) {
 	if err != nil {
 		fatalCode("internal", "home dir: %v", err)
 	}
-	if err := skillinject.SetEnabled(home, true); err != nil {
-		fatalCode("internal", "persist enabled flag: %v", err)
+	if err := skillinject.SetMode(home, skillinject.ModeAuto); err != nil {
+		fatalCode("internal", "persist mode: %v", err)
 	}
 
 	report, err := runTick()
@@ -392,6 +405,44 @@ func cmdSkillsEnable(args []string) {
 	if len(report.Skipped) > 0 {
 		fmt.Printf("Not installed (skipped): %s\n", strings.Join(report.Skipped, ", "))
 	}
+}
+
+// cmdSkillsSetMode persists the skillinject mode to ~/.pilot/config.json.
+//
+//   - auto     — daemon ticks on its 15-minute cadence (always up to date)
+//   - manual   — ticks only on daemon startup, pilotctl update, or pilotctl skills check
+//   - disabled — no ticks, no files written; equivalent to pilotctl skills disable all
+func cmdSkillsSetMode(args []string) {
+	if len(args) == 0 {
+		fatalHint("invalid_argument",
+			"usage: pilotctl skills set-mode auto|manual|disabled",
+			"mode required")
+	}
+	mode := args[0]
+	switch mode {
+	case skillinject.ModeAuto, skillinject.ModeManual, skillinject.ModeDisabled:
+	default:
+		fatalHint("invalid_argument",
+			"valid modes: auto, manual, disabled",
+			"unknown mode: %s", mode)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fatalCode("internal", "home dir: %v", err)
+	}
+	if err := skillinject.SetMode(home, mode); err != nil {
+		fatalCode("internal", "persist mode: %v", err)
+	}
+	if jsonOutput {
+		outputOK(map[string]interface{}{"mode": mode})
+		return
+	}
+	modeDesc := map[string]string{
+		skillinject.ModeAuto:     "auto — daemon reconciles every 15 minutes and on each startup",
+		skillinject.ModeManual:   "manual — skills installed once; updated only on `pilotctl update` or `pilotctl skills check`",
+		skillinject.ModeDisabled: "disabled — no skills injected; run `pilotctl skills enable all` to re-enable",
+	}[mode]
+	fmt.Printf("Pilot Protocol skill mode set to %s\n%s\n", sBold(mode), sDim(modeDesc))
 }
 
 // skillInstallTools returns the agent tools that have the pilot skill

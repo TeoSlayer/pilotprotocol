@@ -27,6 +27,7 @@ import (
 	"github.com/TeoSlayer/pilotprotocol/internal/motd"
 	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
 	"github.com/TeoSlayer/pilotprotocol/internal/validate"
+	"github.com/pilot-protocol/common/consent"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/daemonapi"
 	"github.com/pilot-protocol/common/fsutil"
@@ -4212,6 +4213,11 @@ func (d *Daemon) SendDatagram(dstAddr protocol.Addr, dstPort uint16, data []byte
 // backbone (network 0); membership of the sender is NOT required — admin
 // tokens are root-level. Per-recipient outbound port policy still applies.
 func (d *Daemon) BroadcastDatagram(netID uint16, dstPort uint16, data []byte, adminToken string) error {
+	home, _ := os.UserHomeDir()
+	if !consent.GetConsent(home, "broadcasts") {
+		slog.Debug("broadcast dropped: broadcasts consent is off")
+		return nil
+	}
 	if d.config.AdminToken == "" {
 		return fmt.Errorf("broadcast denied: daemon has no admin token configured")
 	}

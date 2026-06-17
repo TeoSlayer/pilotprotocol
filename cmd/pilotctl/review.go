@@ -37,8 +37,10 @@ Examples:
   pilotctl review io.pilot.cosift --rating 4
   pilotctl review io.pilot.cosift --text "Very useful app"
 
-Reviews are sent to the telemetry endpoint (consent-gated — no-op when
-reviews consent is off or PILOT_TELEMETRY_URL is unset).
+Reviews are sent to the telemetry endpoint and are consent-gated: no-op
+when reviews consent is off (set {"consent": {"reviews": false}} in
+~/.pilot/config.json). When consent is on, falls back to the default
+endpoint if PILOT_TELEMETRY_URL is unset.
 `
 
 // cmdReview handles `pilotctl review <pilot|app-id> [--rating N] [--text "..."]`.

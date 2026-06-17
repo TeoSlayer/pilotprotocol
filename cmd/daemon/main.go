@@ -99,6 +99,8 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
+	sandbox := flag.Bool("sandbox", false, "restrict all file I/O to the sandbox directory (see -sandbox-dir)")
+	sandboxDir := flag.String("sandbox-dir", "", "confinement root when -sandbox is set (default: ~/.pilot)")
 	motdFeedURL := flag.String("motd-feed-url", motd.DefaultFeedURL, "message-of-the-day feed URL (empty to disable); overridden by $PILOT_MOTD_URL")
 	motdInterval := flag.Duration("motd-interval", 0, "message-of-the-day poll interval (default 15m)")
 	telemetryURL := flag.String("telemetry-url", os.Getenv("PILOT_TELEMETRY_URL"),
@@ -168,6 +170,39 @@ func main() {
 	}
 
 	logging.Setup(*logLevel, *logFormat)
+
+	// Sandbox: validate all configured file paths are under the confinement
+	// root before the daemon touches the filesystem. Network paths are unaffected.
+	if *sandbox {
+		sbDir := *sandboxDir
+		if sbDir == "" {
+			if home, err := os.UserHomeDir(); err == nil {
+				sbDir = filepath.Join(home, ".pilot")
+			}
+		}
+		abs, err := filepath.Abs(sbDir)
+		if err != nil {
+			log.Fatalf("sandbox: resolve sandbox-dir %q: %v", sbDir, err)
+		}
+		sbDir = abs
+		slog.Info("sandbox mode active", "dir", sbDir)
+		checkSandbox := func(label, path string) {
+			if path == "" {
+				return
+			}
+			abs, err := filepath.Abs(path)
+			if err != nil {
+				log.Fatalf("sandbox: resolve %s path %q: %v", label, path, err)
+			}
+			rel, err := filepath.Rel(sbDir, abs)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				log.Fatalf("sandbox violation: %s path %q escapes sandbox dir %q", label, path, sbDir)
+			}
+		}
+		checkSandbox("config", *configPath)
+		checkSandbox("identity", *identityPath)
+		checkSandbox("socket", *socketPath)
+	}
 
 	if registryFromEnv {
 		slog.Warn("PILOT_REGISTRY env var overrides compiled default — registry address redirected to " + *registryAddr + ". If this is unexpected, check the daemon's environment for tampering.")
