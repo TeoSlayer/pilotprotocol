@@ -1229,6 +1229,8 @@ Reliability caveats (current implementation):
 	// falls through pilotctl's per-command help intercept and
 	// prints "No specific help" — confusing for an RC-shipped CLI.
 	"appstore": AppStoreHelpText,
+
+	"review": reviewHelpText,
 }
 
 // printCommandHelp prints the help text for a command and exits.
@@ -1435,6 +1437,10 @@ dispatch:
 
 	case "appstore":
 		cmdAppStore(cmdArgs)
+		return
+
+	case "review":
+		cmdReview(cmdArgs)
 		return
 
 	// Bootstrap
