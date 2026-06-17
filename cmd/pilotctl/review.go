@@ -3,10 +3,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/pilot-protocol/common/consent"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 )
 
 // reviewHelpText is the canonical help block for `pilotctl review`.
@@ -30,8 +37,8 @@ Examples:
   pilotctl review io.pilot.cosift --rating 4
   pilotctl review io.pilot.cosift --text "Very useful app"
 
-Note: telemetry routing is not yet enabled (PILOT-411). This command
-validates input and confirms receipt; no data is transmitted.
+Reviews are sent to the telemetry endpoint (consent-gated — no-op when
+reviews consent is off or PILOT_TELEMETRY_URL is unset).
 `
 
 // cmdReview handles `pilotctl review <pilot|app-id> [--rating N] [--text "..."]`.
@@ -41,11 +48,8 @@ validates input and confirms receipt; no data is transmitted.
 //   - --rating, when present, must be an integer in [1, 5]
 //   - --text is free-form (no constraint)
 //
-// On valid input: prints a confirmation line and exits 0.
+// On valid input: routes to telemetry (consent-gated) then confirms.
 // On invalid input: prints an error + usage hint to stderr, exits 1.
-//
-// Telemetry routing (PILOT-411) is not yet implemented; this is a
-// validation + stub only.
 func cmdReview(args []string) {
 	flags, pos := parseFlags(args)
 
@@ -93,6 +97,33 @@ func cmdReview(args []string) {
 	}
 
 	reviewText := flagString(flags, "text", "")
+
+	// Route to telemetry if reviews consent is on (default on when absent).
+	// Best-effort: a send failure is logged but not fatal.
+	home, _ := os.UserHomeDir()
+	if consent.GetConsent(home, "reviews") {
+		url := os.Getenv("PILOT_TELEMETRY_URL")
+		if url == "" {
+			url = telemetry.DefaultEndpoint
+		}
+		identityPath := configDir() + "/identity.json"
+		payload := map[string]interface{}{"subject": subject}
+		if hasRating {
+			payload["rating"] = rating
+		}
+		if reviewText != "" {
+			payload["text"] = reviewText
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		if err := client.Send(telemetry.Event{
+			Kind:    "review",
+			TS:      time.Now().UTC().Format(time.RFC3339),
+			Payload: payloadBytes,
+		}); err != nil {
+			slog.Warn("review telemetry send failed, review still accepted", "subject", subject, "err", err)
+		}
+	}
 
 	if jsonOutput {
 		out := map[string]interface{}{

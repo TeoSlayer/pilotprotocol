@@ -18,6 +18,8 @@ github.com/pilot-protocol/common v0.4.8 h1:eS2Bc+XcZWJ/qhwwOZbXwIWhtNdOijuoEp716
 github.com/pilot-protocol/common v0.4.8/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/common v0.4.9-0.20260615113553-d5cbbfb3e5b6 h1:Us3qSMPTBHPDQXFPY07BoUanriw1rVzS6SAHcbddqzY=
 github.com/pilot-protocol/common v0.4.9-0.20260615113553-d5cbbfb3e5b6/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
+github.com/pilot-protocol/common v0.4.9-0.20260617090851-05b869280522 h1:QzAoRVpzatZCr7nUemEbqPgcWkQ5Ssb9q+vgfzqSB3U=
+github.com/pilot-protocol/common v0.4.9-0.20260617090851-05b869280522/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.0 h1:ldE6AyrES1uvdnn1NBl0KZ7C+SSWNtmeHHU3CQhwSCo=
 github.com/pilot-protocol/dataexchange v0.2.0/go.mod h1:JVy2+hr/IjzMPshxjExbGO/4SbJTs7ZJ7iYvT/ODF3Q=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98 h1:Bqgnf4CZC7aZJyDzz/E7agwXotArJg2FvFlNDqouhLo=

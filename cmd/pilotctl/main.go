@@ -4,12 +4,14 @@ package main
 
 import (
 	"bufio"
+	cryptorand "crypto/rand"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -21,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pilot-protocol/common/consent"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/protocol"
 	registry "github.com/pilot-protocol/common/registry/client"
@@ -4183,6 +4186,33 @@ func cmdSendMessage(args []string) {
 		})
 	}
 	tracef("outputOK")
+	maybePromptPilotReview()
+}
+
+// maybePromptPilotReview occasionally prints a Pilot review nudge to stderr
+// after a send-message completes. Gated by:
+//   - reviews consent (default on; no-op when off)
+//   - PILOT_FLAG_PILOT_REVIEW_PROMPT env / feature flag (default off)
+//   - 5% random roll
+//
+// Uses stderr so --json output on stdout is byte-identical when off.
+func maybePromptPilotReview() {
+	if !featureEnabled("pilot.review_prompt") {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	if !consent.GetConsent(home, "reviews") {
+		return
+	}
+	var seed [32]byte
+	if _, err := io.ReadFull(cryptorand.Reader, seed[:]); err != nil {
+		return
+	}
+	src := rand.New(rand.NewChaCha8(seed))
+	if src.Float64() >= 0.05 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "\nLike Pilot? Run 'pilotctl review pilot --rating N' to leave a review.")
 }
 
 func cmdSubscribe(args []string) {
