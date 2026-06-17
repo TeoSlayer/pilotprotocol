@@ -880,3 +880,90 @@ func TestCmdAppStoreDispatcher(t *testing.T) {
 	// no-args branch prints help to stderr
 	_ = captureStderr(t, func() { cmdAppStore(nil) })
 }
+
+// TestCmdAppStoreCatalogueTextOneLinePerApp asserts that text-mode output
+// prints exactly one line per app in the form "<id>   <description>" (PILOT-405).
+func TestCmdAppStoreCatalogueTextOneLinePerApp(t *testing.T) {
+	stageCatalogue(t, `{"version":2,"updated_at":"2026-06-17","apps":[
+		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"},
+		{"id":"io.pilot.cosift","version":"0.2.0","description":"Web search and answer agent","bundle_url":"https://x/b.tgz","bundle_sha256":"def"}
+	]}`)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+
+	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
+
+	// Each app must appear as a single line containing both id and description.
+	for _, want := range []string{
+		"io.pilot.wallet",
+		"Manages x402 payment credentials",
+		"io.pilot.cosift",
+		"Web search and answer agent",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in catalogue output:\n%s", want, out)
+		}
+	}
+
+	// Both apps must appear on their own lines (one line each, not merged).
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var appLines []string
+	for _, l := range lines {
+		if strings.Contains(l, "io.pilot.") {
+			appLines = append(appLines, l)
+		}
+	}
+	if len(appLines) != 2 {
+		t.Errorf("expected 2 app lines, got %d:\n%s", len(appLines), out)
+	}
+	// Each app line must contain the id and the description on the same line.
+	if !strings.Contains(appLines[0], "io.pilot.wallet") || !strings.Contains(appLines[0], "Manages x402") {
+		t.Errorf("first app line wrong: %q", appLines[0])
+	}
+	if !strings.Contains(appLines[1], "io.pilot.cosift") || !strings.Contains(appLines[1], "Web search") {
+		t.Errorf("second app line wrong: %q", appLines[1])
+	}
+}
+
+// TestCmdAppStoreCatalogueTextViewPointerHint asserts the view-pointer hint
+// appears at the end of text-mode catalogue output (PILOT-405).
+func TestCmdAppStoreCatalogueTextViewPointerHint(t *testing.T) {
+	stageCatalogue(t, `{"version":1,"updated_at":"2026-06-17","apps":[
+		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"}
+	]}`)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+
+	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
+
+	const hint = "Run 'pilotctl appstore view <id>' for full details."
+	if !strings.Contains(out, hint) {
+		t.Errorf("view-pointer hint missing from catalogue output:\n%s", out)
+	}
+}
+
+// TestCmdAppStoreCatalogueJSONUnchanged confirms --json output is unchanged:
+// it still emits a JSON array of catalogue entries (PILOT-405).
+func TestCmdAppStoreCatalogueJSONUnchanged(t *testing.T) {
+	stageCatalogue(t, `{"version":1,"updated_at":"2026-06-17","apps":[
+		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"}
+	]}`)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+
+	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
+
+	var apps []catalogueEntry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &apps); err != nil {
+		t.Fatalf("json output is not a valid array: %v\n%s", err, out)
+	}
+	if len(apps) != 1 || apps[0].ID != "io.pilot.wallet" {
+		t.Errorf("unexpected apps: %+v", apps)
+	}
+}
