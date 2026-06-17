@@ -274,10 +274,9 @@ func cmdAppStoreCatalogue(_ []string) {
 			fmt.Printf("    %s\n", strings.Join(bits, " · "))
 		}
 		fmt.Printf("    %s\n", e.Description)
-		// Point at the new detail view when extended metadata is published.
-		if e.MetadataURL != "" {
-			fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
-		}
+		// Always point at the detail view; `pilotctl appstore view <id>` works
+		// from the catalogue entry alone (rich metadata is optional).
+		fmt.Printf("    view:    pilotctl appstore view %s\n", e.ID)
 		fmt.Printf("    install: pilotctl appstore install %s\n", e.ID)
 	}
 }
