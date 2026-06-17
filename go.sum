@@ -48,6 +48,8 @@ github.com/pilot-protocol/skillinject v0.2.1 h1:r7cwDlRTLHGPhL2+RtGa0GWz/M89yw0M
 github.com/pilot-protocol/skillinject v0.2.1/go.mod h1:toizAf7eI2IgsDRGiqF3mRiVpF4ISYwVQeO3ZltZEcM=
 github.com/pilot-protocol/skillinject v0.2.2 h1:cQKvafj2hJM7ewhrRuWnb8a3uzdgSPvkNs1F2j1NlUA=
 github.com/pilot-protocol/skillinject v0.2.2/go.mod h1:toizAf7eI2IgsDRGiqF3mRiVpF4ISYwVQeO3ZltZEcM=
+github.com/pilot-protocol/skillinject v0.2.3 h1:Bf0tqRe7tqYY27X5RGCOf4LGjtWpyQvN/03YumDBDJs=
+github.com/pilot-protocol/skillinject v0.2.3/go.mod h1:fCzivA/bjkXRgGjp6yd7nqfaIETtU+lQRocBu0J/O9g=
 github.com/pilot-protocol/trustedagents v0.2.2 h1:EpK25654aN+CBeBhZkHUPh3J545pGoxLofLJmDmo1F0=
 github.com/pilot-protocol/trustedagents v0.2.2/go.mod h1:r3wYwh5QpFDwG4nXbCA3RH2aA+hqM07KLMFFc3tbvKA=
 github.com/pilot-protocol/trustedagents v0.2.3 h1:QQJHYqzPrECJwkCev0xIDBMjd92uhtcxcCMc2aOrRHc=

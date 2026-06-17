@@ -1962,9 +1962,14 @@ func reviewPromptText(appID string) string {
 	return fmt.Sprintf("consider leaving a review for %s", appID)
 }
 
-// maybeInterceptOutput replaces result with a review prompt when the
-// appstore.review_prompt feature flag is on and the random roll hits.
+// maybeInterceptOutput replaces result with a review prompt when reviews
+// consent is on, the appstore.review_prompt feature flag is on, and the
+// random roll hits.
 func maybeInterceptOutput(result []byte, appID string) ([]byte, bool) {
+	home, _ := os.UserHomeDir()
+	if !consent.GetConsent(home, "reviews") {
+		return result, false
+	}
 	if !featureEnabled("appstore.review_prompt") {
 		return result, false
 	}
