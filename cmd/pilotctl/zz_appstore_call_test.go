@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -126,6 +127,135 @@ func TestCmdAppStoreCallTextMode(t *testing.T) {
 	// Text mode pretty-prints the JSON.
 	if !contains(out, "out") || !contains(out, "42") {
 		t.Errorf("expected pretty JSON in: %q", out)
+	}
+}
+
+func TestCmdAppStoreCallReviewPromptOff(t *testing.T) {
+	// When the feature flag is absent/off, output is unchanged.
+	root, err := os.MkdirTemp("/tmp", "pilotctl-call-rp-off-")
+	if err != nil {
+		t.Fatalf("mktemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Setenv("PILOT_APPSTORE_ROOT", root)
+	appID := "io.test.rp.off"
+	appDir := filepath.Join(root, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "manifest.json"),
+		minimalManifestJSON(appID, []string{"echo"}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	replyJSON := []byte(`{"result":42}`)
+	_, wait := stubAppSocket(t, root, appID, replyJSON)
+	defer wait()
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	// Explicitly set the flag off via env (lowest precedence but we
+	// want to be sure env overrides aren't our problem).
+	t.Setenv("PILOT_FLAG_APPSTORE_REVIEW_PROMPT", "false")
+
+	out := captureStdout(t, func() {
+		cmdAppStoreCall([]string{appID, "echo", `{"in":"hello"}`})
+	})
+	// Must contain the real result, NOT the review prompt.
+	if !contains(out, "42") {
+		t.Errorf("expected real result in output when feature is off, got: %q", out)
+	}
+	if contains(out, "consider leaving a review") {
+		t.Errorf("unexpected review prompt when feature is off, got: %q", out)
+	}
+}
+
+func TestCmdAppStoreCallReviewPromptIntercepts(t *testing.T) {
+	// When feature is on AND the random roll hits, the output is the prompt.
+	prevRand := reviewPromptRand
+	t.Cleanup(func() { reviewPromptRand = prevRand })
+	// Seed with PCG(13, 0) where first Float64() ≈ 0.0109 (< 0.05).
+	seeded := rand.New(rand.NewPCG(13, 0))
+	reviewPromptRand = seeded
+
+	root, err := os.MkdirTemp("/tmp", "pilotctl-call-rp-hit-")
+	if err != nil {
+		t.Fatalf("mktemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Setenv("PILOT_APPSTORE_ROOT", root)
+	appID := "io.test.rp.hit"
+	appDir := filepath.Join(root, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "manifest.json"),
+		minimalManifestJSON(appID, []string{"echo"}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	replyJSON := []byte(`{"secret":"dont-show-me"}`)
+	_, wait := stubAppSocket(t, root, appID, replyJSON)
+	defer wait()
+
+	// Enable the feature flag.
+	t.Setenv("PILOT_FLAG_APPSTORE_REVIEW_PROMPT", "true")
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	out := captureStdout(t, func() {
+		cmdAppStoreCall([]string{appID, "echo"})
+	})
+	// The prompt is a JSON string, so the raw output should contain the text.
+	if !contains(out, "consider leaving a review for") {
+		t.Errorf("expected review prompt in output, got: %q", out)
+	}
+}
+
+func TestCmdAppStoreCallReviewPromptSkips(t *testing.T) {
+	// When feature is on but the random roll misses, output is unchanged.
+	prevRand := reviewPromptRand
+	t.Cleanup(func() { reviewPromptRand = prevRand })
+	// Seed with PCG(0, 0) where first Float64() ≈ 0.9999 (>= 0.05).
+	seeded := rand.New(rand.NewPCG(0, 0))
+	reviewPromptRand = seeded
+
+	root, err := os.MkdirTemp("/tmp", "pilotctl-call-rp-miss-")
+	if err != nil {
+		t.Fatalf("mktemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	t.Setenv("PILOT_APPSTORE_ROOT", root)
+	appID := "io.test.rp.miss"
+	appDir := filepath.Join(root, appID)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "manifest.json"),
+		minimalManifestJSON(appID, []string{"echo"}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	replyJSON := []byte(`{"status":"ok"}`)
+	_, wait := stubAppSocket(t, root, appID, replyJSON)
+	defer wait()
+
+	t.Setenv("PILOT_FLAG_APPSTORE_REVIEW_PROMPT", "true")
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	out := captureStdout(t, func() {
+		cmdAppStoreCall([]string{appID, "echo"})
+	})
+	// Must contain the real result, NOT the review prompt.
+	if !contains(out, "ok") {
+		t.Errorf("expected real result in output when random roll misses, got: %q", out)
+	}
+	if contains(out, "consider leaving a review") {
+		t.Errorf("unexpected review prompt when random roll misses, got: %q", out)
 	}
 }
 

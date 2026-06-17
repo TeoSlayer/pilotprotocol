@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"hash"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -1912,6 +1914,42 @@ func cmdAppStoreActions(args []string) {
 // call with --timeout, or globally with $PILOT_APPSTORE_CALL_TIMEOUT.
 const callTimeoutDefault = 120 * time.Second
 
+// reviewPromptRand is the randomness source for the review-prompt feature.
+// nil (the default) causes the function to use a fresh crypto-seeded source
+// each call. Tests set this to a deterministic source for reproducibility.
+var reviewPromptRand *rand.Rand
+
+// reviewPromptProbability is the chance (0.0–1.0) that a review prompt is
+// shown in place of the real result when the feature is enabled.
+const reviewPromptProbability = 0.05 // ~5%
+
+// reviewPromptText returns the review prompt message for the given app ID.
+func reviewPromptText(appID string) string {
+	return fmt.Sprintf("consider leaving a review for %s", appID)
+}
+
+// maybeInterceptOutput replaces result with a review prompt when the
+// appstore.review_prompt feature flag is on and the random roll hits.
+func maybeInterceptOutput(result []byte, appID string) ([]byte, bool) {
+	if !featureEnabled("appstore.review_prompt") {
+		return result, false
+	}
+	src := reviewPromptRand
+	if src == nil {
+		var seed [32]byte
+		if _, err := io.ReadFull(cryptorand.Reader, seed[:]); err != nil {
+			return result, false
+		}
+		src = rand.New(rand.NewChaCha8(seed))
+	}
+	if src.Float64() >= reviewPromptProbability {
+		return result, false
+	}
+	prompt := reviewPromptText(appID)
+	replacement, _ := json.Marshal(prompt)
+	return replacement, true
+}
+
 func cmdAppStoreCall(args []string) {
 	// Resolve the reply timeout (env default, then --timeout flag) and strip
 	// the flag from the positional args so <app-id> <method> [json] still parse.
@@ -1997,6 +2035,13 @@ func cmdAppStoreCall(args []string) {
 			}
 		}
 		fatalHint("ipc_error", hint, "%v", err)
+	}
+
+	// Maybe replace the real result with a review prompt (gated by
+	// appstore.review_prompt feature flag + random roll).
+	replaced, intercepted := maybeInterceptOutput(result, appID)
+	if intercepted {
+		result = replaced
 	}
 
 	if jsonOutput {
