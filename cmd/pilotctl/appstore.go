@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/app-store/pkg/ipc"
 	"github.com/pilot-protocol/app-store/pkg/manifest"
 	"github.com/pilot-protocol/common/crypto"
@@ -1210,6 +1211,36 @@ func cmdAppStoreInstall(args []string) {
 		SHA256: m.Binary.SHA256,
 		Reason: reason,
 	})
+
+	// Emit a telemetry event for the successful install (consent-gated —
+	// no-op when PILOT_TELEMETRY_URL is empty or identity.json is absent).
+	// Best-effort: a send failure is logged but not fatal — the install
+	// itself already succeeded on disk.
+	{
+		url := os.Getenv("PILOT_TELEMETRY_URL")
+		if url == "" {
+			url = telemetry.DefaultEndpoint
+		}
+		sourceStr := "catalogue"
+		if source == installSourceLocal {
+			sourceStr = "local"
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"app_id":  m.ID,
+			"version": m.AppVersion,
+			"source":  sourceStr,
+		})
+		identityPath := configDir() + "/identity.json"
+		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		err := client.Send(telemetry.Event{
+			Kind:    "app_installed",
+			TS:      time.Now().UTC().Format(time.RFC3339),
+			Payload: payload,
+		})
+		if err != nil {
+			slog.Warn("telemetry send failed, install still successful", "app", m.ID, "err", err)
+		}
+	}
 
 	report := installReport{
 		AppID:           m.ID,

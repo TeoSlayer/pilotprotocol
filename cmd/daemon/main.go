@@ -307,13 +307,29 @@ func main() {
 	if home, herr := os.UserHomeDir(); herr == nil {
 		appstoreInstallRoot = filepath.Join(home, ".pilot", "apps")
 	}
-	if err := rt.Register(&appstoreAdapter{svc: appstore.NewService(appstore.Config{
-		InstallRoot:    appstoreInstallRoot,
-		RescanInterval: 2 * time.Second,
-		// Real catalogue trust anchor (replaces the all-zeros
-		// placeholder default): the embedded ed25519 catalogue key.
-		CatalogPubkey: []byte(catalogtrust.PublicKey()),
-	})}); err != nil {
+	// The app-usage telemetry emitter shares the daemon's identity file
+	// and telemetry URL. When consent is off (empty URL) the client is
+	// a permanent no-op — no goroutines, no dials, no buffering.
+	idPath := *identityPath
+	if idPath == "" {
+		if home, herr := os.UserHomeDir(); herr == nil {
+			defaultID := filepath.Join(home, ".pilot", "identity.json")
+			if _, serr := os.Stat(defaultID); serr == nil {
+				idPath = defaultID
+			}
+		}
+	}
+	if err := rt.Register(&appstoreAdapter{
+		svc: appstore.NewService(appstore.Config{
+			InstallRoot:    appstoreInstallRoot,
+			RescanInterval: 2 * time.Second,
+			// Real catalogue trust anchor (replaces the all-zeros
+			// placeholder default): the embedded ed25519 catalogue key.
+			CatalogPubkey: []byte(catalogtrust.PublicKey()),
+		}),
+		telemetryURL: *telemetryURL,
+		identityPath: idPath,
+	}); err != nil {
 		log.Fatalf("register appstore: %v", err)
 	}
 

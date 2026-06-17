@@ -8,6 +8,8 @@ github.com/pilot-protocol/app-store v1.0.0-rc1.0.20260609015400-d02db7da3924 h1:
 github.com/pilot-protocol/app-store v1.0.0-rc1.0.20260609015400-d02db7da3924/go.mod h1:f0umeJxswDG8/CctHpSFMlr5GLtE2GlPKkijIQErZuc=
 github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260609061942-8852c785a264 h1:NL9rFdakbVQ0V7xfJbCk8RJZSaQ1AmvdhAJwFIouMsk=
 github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260609061942-8852c785a264/go.mod h1:zoCxHYoNdj0V44OkG3Yzcye0jnwZDVUcJgAvR5Z1kwc=
+github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72 h1:vDiQ7ZheKIzlNqfviu5zeQzGVTMP63k1hC5HodEuyeQ=
+github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72/go.mod h1:leZPtX43gE2JB7xeljexXri81g6qhdZfYExLtzI+bhg=
 github.com/pilot-protocol/beacon v0.2.5 h1:5+pkSPoA35r+u4Hfrph/ZfOltOyiy8lh1sCfK5XqXKs=
 github.com/pilot-protocol/beacon v0.2.5/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
 github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
@@ -16,6 +18,8 @@ github.com/pilot-protocol/common v0.4.8 h1:eS2Bc+XcZWJ/qhwwOZbXwIWhtNdOijuoEp716
 github.com/pilot-protocol/common v0.4.8/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/common v0.4.9-0.20260615113553-d5cbbfb3e5b6 h1:Us3qSMPTBHPDQXFPY07BoUanriw1rVzS6SAHcbddqzY=
 github.com/pilot-protocol/common v0.4.9-0.20260615113553-d5cbbfb3e5b6/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
+github.com/pilot-protocol/common v0.4.9-0.20260617090851-05b869280522 h1:QzAoRVpzatZCr7nUemEbqPgcWkQ5Ssb9q+vgfzqSB3U=
+github.com/pilot-protocol/common v0.4.9-0.20260617090851-05b869280522/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.0 h1:ldE6AyrES1uvdnn1NBl0KZ7C+SSWNtmeHHU3CQhwSCo=
 github.com/pilot-protocol/dataexchange v0.2.0/go.mod h1:JVy2+hr/IjzMPshxjExbGO/4SbJTs7ZJ7iYvT/ODF3Q=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98 h1:Bqgnf4CZC7aZJyDzz/E7agwXotArJg2FvFlNDqouhLo=
@@ -58,3 +62,5 @@ golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=
 golang.org/x/net v0.55.0/go.mod h1:L5U2KuzuOe1lY7Z+aWVIKK6qEeJXnXV9yzGA+WCHJww=
 golang.org/x/sys v0.45.0 h1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY=
 golang.org/x/sys v0.45.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
+golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=

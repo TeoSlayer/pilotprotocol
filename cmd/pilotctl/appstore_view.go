@@ -20,11 +20,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pilot-protocol/app-store/pkg/manifest"
+
+	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 )
 
 // installedAppFacts is the verified, local-only band of `view` — derived
@@ -173,6 +177,30 @@ func cmdAppStoreView(args []string) {
 		fatalHint("invalid_argument",
 			"try `pilotctl appstore catalogue` (installable) or `pilotctl appstore list` (installed)",
 			"app %q not found in catalogue or install root", appID)
+	}
+
+	// Emit a telemetry event for the detail view (consent-gated —
+	// no-op when PILOT_TELEMETRY_URL is empty or identity.json is absent).
+	// Best-effort: a send failure is logged but not fatal — the view
+	// itself already resolved and rendered below.
+	{
+		url := os.Getenv("PILOT_TELEMETRY_URL")
+		if url == "" {
+			url = telemetry.DefaultEndpoint
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"app_id": appID,
+		})
+		identityPath := configDir() + "/identity.json"
+		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		err := client.Send(telemetry.Event{
+			Kind:    "appstore_view",
+			TS:      time.Now().UTC().Format(time.RFC3339),
+			Payload: payload,
+		})
+		if err != nil {
+			slog.Warn("telemetry send failed, view still shown", "app", appID, "err", err)
+		}
 	}
 
 	report := buildAppViewReport(appID, entry, meta, facts)

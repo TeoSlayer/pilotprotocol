@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pilot-protocol/common/crypto"
 )
 
 // DefaultEndpoint is the production telemetry ingestion URL.
@@ -36,7 +38,7 @@ const (
 type Event struct {
 	EventID string          `json:"event_id"`
 	Kind    string          `json:"kind"`
-	TS      string          `json:"ts"`  // RFC3339; empty = server defaults to receive time
+	TS      string          `json:"ts"` // RFC3339; empty = server defaults to receive time
 	NodeID  int64           `json:"node_id,omitempty"`
 	Payload json.RawMessage `json:"payload"`
 }
@@ -44,13 +46,13 @@ type Event struct {
 // Client is a consent-gated telemetry sender. Zero value is a no-op.
 type Client struct {
 	mu       sync.Mutex
-	url      string       // empty = no-op
-	nodeID   int64        // node ID included in events
-	sign     signFunc     // ed25519 signer (set via SetSigner)
-	pubKeyB  string       // base64-encoded public key
-	once     sync.Once    // lazy init guard
-	initErr  error        // capture init failures
-	disabled bool         // true when url is empty
+	url      string    // empty = no-op
+	nodeID   int64     // node ID included in events
+	sign     signFunc  // ed25519 signer (set via SetSigner)
+	pubKeyB  string    // base64-encoded public key
+	once     sync.Once // lazy init guard
+	initErr  error     // capture init failures
+	disabled bool      // true when url is empty
 }
 
 type signFunc func(msg []byte) []byte
@@ -151,6 +153,32 @@ func (c *Client) Send(events ...Event) error {
 	return nil
 }
 
+// NewClientFromIdentity creates a consent-gated telemetry client from an
+// Ed25519 identity file on disk and a telemetry URL. When url is empty
+// the client is a permanent no-op. When the identity file does not exist
+// (first-run grace), Send calls are no-ops until the identity is created.
+func NewClientFromIdentity(url, identityPath string, nodeID int64) *Client {
+	c := New(url, nodeID)
+	if c.disabled {
+		return c
+	}
+
+	id, err := crypto.LoadIdentity(identityPath)
+	if err != nil {
+		slog.Warn("telemetry: can't load identity, staying disabled", "path", identityPath, "err", err)
+		return c
+	}
+	if id == nil {
+		slog.Debug("telemetry: no identity file yet, staying disabled", "path", identityPath)
+		return c
+	}
+
+	slog.Debug("telemetry: identity loaded, enabling client", "path", identityPath,
+		"pubkey", crypto.EncodePublicKey(id.PublicKey))
+	c.SetSigner(id.Sign, crypto.EncodePublicKey(id.PublicKey))
+	return c
+}
+
 // SignMessage implements the signing contract directly, without an HTTP
 // POST. Useful for tests and for components that want to sign arbitrary
 // byte payloads. Returns (timestamp, pubKeyB64, signatureB64, error).
@@ -160,7 +188,7 @@ func SignMessage(priv ed25519.PrivateKey, body []byte) (ts, pubB64, sigB64 strin
 	}
 	pub := priv.Public().(ed25519.PublicKey)
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
-	message := make([]byte, 0, len(ts)+1+len(body))
+	message := make([]byte, 0, len(ts)+1)
 	message = append(message, ts...)
 	message = append(message, '\n')
 	message = append(message, body...)
