@@ -92,7 +92,20 @@ pilotctl ping agent-alpha              # round-trip over the encrypted tunnel
 pilotctl bench agent-alpha             # 1 MB echo benchmark
 ```
 
-Once you have a trusted peer of your own, you can send and receive messages on any port:
+Once you have a trusted peer, agent-to-agent messaging uses the data exchange service on port 1001:
+
+```bash
+# Send a structured message (waits for reply by default)
+pilotctl send-message other-agent --data "hello"
+
+# Read messages delivered to your inbox
+pilotctl inbox
+
+# Read a specific message
+pilotctl inbox read <id>
+```
+
+For lower-level raw port messaging:
 
 ```bash
 # on the sender
@@ -127,7 +140,7 @@ $ pilotctl --json find nonexistent
 
 ## Programmatic access (SDKs)
 
-Once the daemon is running, you can interact with agents programmatically through the SDK instead of the CLI. All three SDKs wrap the same libpilot C FFI and expose the full agent surface — handshake, trust, send, receive, stream, and gateway — in the language of your choice.
+Once the daemon is running, you can interact with agents programmatically through the SDK instead of the CLI. All three SDKs communicate with the local Pilot daemon over its Unix socket IPC and expose the full agent surface — handshake, trust, send, receive, stream, and gateway — in the language of your choice.
 
 | Language | Package | Quickstart |
 |----------|---------|------------|
@@ -296,45 +309,180 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 ---
 
+## App Store
+
+Pilot includes a built-in app store for installing and calling local IPC apps:
+
+```bash
+pilotctl appstore catalogue                              # browse available apps
+pilotctl appstore view io.pilot.cosift                  # inspect before installing
+pilotctl appstore install io.pilot.cosift               # install an app
+pilotctl appstore list                                  # list installed apps
+pilotctl appstore call io.pilot.cosift cosift.help '{}'  # discover methods + latencies
+pilotctl appstore call io.pilot.cosift cosift.search '{"q":"raft consensus","k":"5"}'
+```
+
+Apps are signed (ed25519), verified at install and at every spawn. The daemon brokers all inter-app calls — an app can only be reached through the methods it declares in its manifest. See the [App Store docs](https://pilotprotocol.network/docs/app-store) for building, signing, and publishing apps.
+
+---
+
 ## Testing
 
 ```bash
 go test -parallel 4 -count=1 ./tests/
 ```
 
-1048 tests pass. The `-parallel 4` flag is required -- unlimited parallelism exhausts ports and causes dial timeouts.
+The `-parallel 4` flag is required — unlimited parallelism exhausts ports and causes dial timeouts.
 
 ---
 
-## Agent skill injection (transparency)
+## Privacy controls & consent
 
-The daemon runs an **open-source skill injector**
-([`pilot-protocol/skillinject`](https://github.com/pilot-protocol/skillinject),
-AGPL-3.0, registered in [`cmd/daemon/main.go`](cmd/daemon/main.go)). Every ~15
-minutes it keeps the core `SKILL.md` and a short "heartbeat" directive current
-in each detected agent tool's well-known directory (Claude Code, OpenClaw,
-PicoClaw, OpenHands, Hermes).
+Four features ship **on by default**. Each one improves Pilot — for you, for developers, or for the network — but each carries a cost you should understand before accepting it. None of them affect core messaging, routing, or encryption.
 
-**Why it's on by default.** The host gives an agent default tools
-(`web_search`, `curl`). Pilot is a third party, and an agent only captures the
-overlay's value if it *reaches for Pilot first* instead of defaulting to those
-tools. Keeping that directive present is what makes "pilot first" the default —
-the same reason a person sets a third-party browser as their system default.
-It's a strong nudge, never a lock-in, and we hold it to a transparency bar
-that matches the privilege of writing into someone else's agent:
+Full documentation, risk profiles, and per-feature commands: **[pilotprotocol.network/docs/consent](https://pilotprotocol.network/docs/consent)**
 
-- **Everything injected is open source.** The injected text and skills live in
-  [`TeoSlayer/pilot-skills`](https://github.com/TeoSlayer/pilot-skills); the
-  injector that installs them is
-  [`pilot-protocol/skillinject`](https://github.com/pilot-protocol/skillinject).
-  Bytes are fetched at runtime from those public repos — nothing is embedded
-  or hidden — and can be pinned to an Ed25519 signing key.
-- **Non-destructive.** It rewrites only its own marker block; operator-authored
-  content in heartbeat files is never touched.
-- **Opt-out anytime.** `pilotctl skills disable all` removes everything it
-  wrote and stops future ticks (state in `~/.pilot/config.json`); re-enable
-  with `pilotctl skills enable all`. Inspect what it manages with
-  `pilotctl skills status`.
+---
+
+### Telemetry — risk: low
+
+**What it does.** When you browse or install apps, a signed event (app ID + action) is sent to `telemetry.pilotprotocol.network`.
+
+**Who it helps.** App developers get signal on what's actually used; the catalogue surfaces quality apps over abandoned ones; you benefit from a curated store that improves based on real usage — not advertising.
+
+**What you're accepting.** The telemetry server receives the app ID, action type, and a signature from your Ed25519 key (pseudonymous unless you registered with `-email`). Your IP is visible during the TLS connection. No message contents or conversation data is ever sent.
+
+**To opt out:**
+```json
+{"consent": {"telemetry": false}}
+```
+Set in `~/.pilot/config.json`. The telemetry client becomes a hard no-op — no dial, no goroutine. Takes effect immediately for CLI commands.
+
+**Who should opt out:** Users with strict no-telemetry policies, high-sensitivity deployments, or automated pipelines where any outbound telemetry is undesirable.
+
+---
+
+### Broadcasts — risk: medium
+
+**What it does.** Network administrators can send a single authenticated datagram to every agent in a network simultaneously. Your daemon checks the admin token and forwards the payload to your agent.
+
+**Who it helps.** Fleet operators coordinate all agents in one command — config refreshes, rolling restarts, incident response — without O(N) individual messages. The only O(1) coordination mechanism in a large peer mesh.
+
+**What you're accepting.** Any party holding the network's admin token can deliver arbitrary data to your agent. The token's security is the bound: if it's leaked or held by someone you don't trust, an attacker can reach your agent.
+
+**To opt out:**
+```json
+{"consent": {"broadcasts": false}}
+```
+Incoming datagrams are silently dropped before reaching your agent. Restart the daemon for the change to take effect.
+
+**Who should opt out:** Solo users (no fleet, no admin — the feature offers you no benefit and you're accepting an attack surface for nothing). Users joining networks whose administrators they do not know or trust.
+
+---
+
+### Reviews — risk: low
+
+**What it does.** After ~5% of `pilotctl send-message` calls, a prompt appears on stderr inviting a review. After ~5% of `pilotctl appstore call` invocations, the output is replaced by a review prompt for that app. The explicit `pilotctl review <subject>` command sends a review directly.
+
+**Who it helps.** Community reviews surface quality signals before install. App developers get direct feedback. Review scores drive catalogue ranking — good apps get visibility, broken ones get deprioritized.
+
+**What you're accepting.** Review text is entirely user-authored and opt-in. The main operational risk is the 5% intercept corrupting stdout in scripts.
+
+```bash
+pilotctl review pilot --rating 5 --text "Works great"
+pilotctl review io.pilot.cosift --rating 4
+```
+
+**To opt out:**
+```json
+{"consent": {"reviews": false}}
+```
+No prompts, no intercepts, no data sent. Takes effect immediately.
+
+**Who should opt out:** Users running `pilotctl` in automation or pipelines where stdout must be clean. Users who don't want unsolicited prompts during normal operation.
+
+---
+
+### Skill injection — risk: medium
+
+**What it does.** The daemon writes a `SKILL.md` and heartbeat directive into the config directories of supported agent toolchains (Claude Code `~/.claude/CLAUDE.md`, Cursor `.cursor/rules`, OpenHands, OpenClaw, Hermes), telling those agents to reach for Pilot tools before falling back to `web_search` or `curl`.
+
+**Who it helps.** You get zero-config integration — agents automatically know Pilot is available for peer messaging, specialist queries, and app calls. The network gains more active agents on the mesh, enriching the ecosystem for everyone.
+
+**What you're accepting.** The injector fetches content at runtime from [`TeoSlayer/pilot-skills`](https://github.com/TeoSlayer/pilot-skills) and writes it to your agent's config directory. If that repository is compromised, injected content could influence your agent's behavior. In `auto` mode, updates land every 15 minutes without your review. In `manual` mode (the default), updates only apply when you explicitly run `pilotctl update`.
+
+**Three modes — choose your risk/convenience trade-off:**
+
+| Mode | Behavior |
+|------|----------|
+| `manual` *(default on fresh install)* | Install once at daemon start. Update only when you run `pilotctl update`. |
+| `auto` | Reconcile every 15 minutes. Always current. |
+| `disabled` | No injection. No updates. Removes existing injected files immediately. |
+
+```bash
+pilotctl skills status                 # show mode + managed file paths
+pilotctl skills set-mode manual        # install once, update on your terms
+pilotctl skills set-mode auto          # continuous 15-min updates
+pilotctl skills set-mode disabled      # remove everything, stop all ticks
+pilotctl update                        # force-apply latest skills now (all modes)
+```
+
+Mode is stored in `~/.pilot/config.json` under `skill_inject.mode`. Changes take effect immediately — no restart needed.
+
+Everything injected is open source: [`pilot-protocol/skillinject`](https://github.com/pilot-protocol/skillinject) (the injector), [`TeoSlayer/pilot-skills`](https://github.com/TeoSlayer/pilot-skills) (the content).
+
+**Who should opt out or use `manual`:** Users with strict agent config control requirements. Users in environments where any external write to config directories is a compliance issue.
+
+---
+
+### Daemon sandbox mode
+
+The `pilotd` daemon accepts a `-sandbox` flag that confines all filesystem access to a single directory. This is not a privacy feature — it does not change what data is sent — but it limits the blast radius if the daemon is compromised.
+
+```bash
+pilotd -sandbox                         # confine to ~/.pilot (default)
+pilotd -sandbox -sandbox-dir /opt/pilot # confine to a custom directory
+```
+
+Any explicitly-passed path that resolves outside the sandbox directory causes a fatal error at startup, before the daemon reads or writes anything. Unset path flags are automatically redirected inside the sandbox directory.
+
+---
+
+### Disable everything at once
+
+```json
+{
+  "consent": {
+    "telemetry":  false,
+    "broadcasts": false,
+    "reviews":    false
+  },
+  "skill_inject": {"mode": "disabled"}
+}
+```
+
+Set in `~/.pilot/config.json` and restart the daemon. Core networking is unaffected.
+
+---
+
+## Key environment variables
+
+Most daemon flags have an environment variable equivalent. Useful for containerized deployments and CI.
+
+| Variable | Flag equivalent | Purpose |
+|----------|----------------|---------|
+| `PILOT_REGISTRY` | `-registry` | Registry server address |
+| `PILOT_BEACON` | `-beacon` | Beacon server address |
+| `PILOT_SOCKET` | `-socket` | Unix socket path |
+| `PILOT_EMAIL` | `-email` | Account email |
+| `PILOT_HOSTNAME` | `-hostname` | Discovery hostname |
+| `PILOT_ADMIN_TOKEN` | `-admin-token` | Admin token for network operations |
+| `PILOT_MOTD_URL` | `-motd-feed-url` | Message-of-the-day feed URL |
+| `PILOT_TELEMETRY_URL` | `-telemetry-url` | Telemetry endpoint override |
+| `PILOT_SYN_WHITELIST` | `-syn-whitelist` | Nodes exempt from SYN rate limit |
+| `PILOT_REPLY_WHITELIST` | `-reply-whitelist` | Nodes exempt from reply rate limit |
+| `PILOT_REKEY_WHITELIST` | `-rekey-whitelist` | Nodes exempt from rekey rate limit |
+| `PILOT_FLAG_<NAME>` | — | Feature flag override (`true`/`false`) |
 
 ---
 
