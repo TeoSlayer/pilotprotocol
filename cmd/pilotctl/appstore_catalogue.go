@@ -246,7 +246,7 @@ func cmdAppStoreCatalogue(_ []string) {
 			url = telemetry.DefaultEndpoint
 		}
 		identityPath := configDir() + "/identity.json"
-		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		client := telemetry.NewClientFromIdentity(url, identityPath, nodeIDFromDaemon())
 		err := client.Send(telemetry.Event{
 			Kind:    "catalogue_viewed",
 			TS:      time.Now().UTC().Format(time.RFC3339),

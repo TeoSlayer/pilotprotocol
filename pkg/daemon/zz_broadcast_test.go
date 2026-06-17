@@ -4,6 +4,8 @@ package daemon
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -299,6 +301,35 @@ func TestBroadcastDatagramNetworkZeroForbidden(t *testing.T) {
 	err := d.BroadcastDatagram(0, 80, []byte("backbone"), "secret")
 	if err == nil {
 		t.Fatal("expected error for backbone broadcast, got nil")
+	}
+}
+
+// TestBroadcastDatagramConsentOff verifies the consent gate: when the user
+// has set consent.broadcasts=false in config.json, BroadcastDatagram drops
+// the datagram silently (returns nil) and no peer receives a packet.
+func TestBroadcastDatagramConsentOff(t *testing.T) {
+	// Cannot use t.Parallel — t.Setenv mutates a process-wide env var.
+	fx := setupBroadcastFixture(t, 1)
+	fx.d.config.AdminToken = "secret"
+
+	// Point HOME at a temp dir and write a config that opts out of broadcasts.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	pilotDir := filepath.Join(home, ".pilot")
+	if err := os.MkdirAll(pilotDir, 0700); err != nil {
+		t.Fatalf("mkdir .pilot: %v", err)
+	}
+	cfg := []byte(`{"consent":{"broadcasts":false}}`)
+	if err := os.WriteFile(filepath.Join(pilotDir, "config.json"), cfg, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := fx.d.BroadcastDatagram(fx.netID, 80, []byte("should-be-dropped"), "secret")
+	if err != nil {
+		t.Fatalf("BroadcastDatagram with consent off: want nil, got %v", err)
+	}
+	if pkt := readPacket(t, fx.peerConns[0], 150*time.Millisecond); pkt != nil {
+		t.Fatalf("packet delivered despite broadcasts consent=false: %s", pkt.Payload)
 	}
 }
 

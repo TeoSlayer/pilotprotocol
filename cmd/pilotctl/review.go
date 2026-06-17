@@ -117,7 +117,7 @@ func cmdReview(args []string) {
 			payload["text"] = reviewText
 		}
 		payloadBytes, _ := json.Marshal(payload)
-		client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+		client := telemetry.NewClientFromIdentity(url, identityPath, nodeIDFromDaemon())
 		if err := client.Send(telemetry.Event{
 			Kind:    "review",
 			TS:      time.Now().UTC().Format(time.RFC3339),

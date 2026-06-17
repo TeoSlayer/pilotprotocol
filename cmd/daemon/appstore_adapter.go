@@ -27,6 +27,7 @@ type appstoreAdapter struct {
 	svc          *appstore.Service
 	telemetryURL string
 	identityPath string
+	getNodeID    func() int64 // called at emit time, after daemon has registered
 }
 
 // telemetryEmitter wraps the consent-gated telemetry client to satisfy
@@ -34,7 +35,8 @@ type appstoreAdapter struct {
 // "app_usage" kind with the supervisor-provided fields as payload.
 // Best-effort: send errors are logged but never block the caller.
 type telemetryEmitter struct {
-	client *telemetry.Client
+	client    *telemetry.Client
+	getNodeID func() int64 // called lazily; valid after daemon has registered
 }
 
 func (e *telemetryEmitter) Emit(ev appstore.TelemetryEvent) {
@@ -45,9 +47,14 @@ func (e *telemetryEmitter) Emit(ev appstore.TelemetryEvent) {
 	if err != nil {
 		return
 	}
+	var nodeID int64
+	if e.getNodeID != nil {
+		nodeID = e.getNodeID()
+	}
 	_ = e.client.Send(telemetry.Event{
 		Kind:    "app_usage",
 		TS:      time.Now().UTC().Format(time.RFC3339),
+		NodeID:  nodeID,
 		Payload: payload,
 	})
 }
@@ -59,7 +66,7 @@ func (a *appstoreAdapter) Start(ctx context.Context, deps coreapi.Deps) error {
 	// When the URL is empty or identity is absent the client is a
 	// permanent no-op — the emitter never sends anything.
 	client := telemetry.NewClientFromIdentity(a.telemetryURL, a.identityPath, 0)
-	emitter := &telemetryEmitter{client: client}
+	emitter := &telemetryEmitter{client: client, getNodeID: a.getNodeID}
 
 	return a.svc.Start(ctx, appstore.Deps{
 		Streams:   deps.Streams,

@@ -1233,7 +1233,7 @@ func cmdAppStoreInstall(args []string) {
 				"source":  sourceStr,
 			})
 			identityPath := configDir() + "/identity.json"
-			client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+			client := telemetry.NewClientFromIdentity(url, identityPath, nodeIDFromDaemon())
 			err := client.Send(telemetry.Event{
 				Kind:    "app_installed",
 				TS:      time.Now().UTC().Format(time.RFC3339),

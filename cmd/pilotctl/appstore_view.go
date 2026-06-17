@@ -194,7 +194,7 @@ func cmdAppStoreView(args []string) {
 				"app_id": appID,
 			})
 			identityPath := configDir() + "/identity.json"
-			client := telemetry.NewClientFromIdentity(url, identityPath, 0)
+			client := telemetry.NewClientFromIdentity(url, identityPath, nodeIDFromDaemon())
 			err := client.Send(telemetry.Event{
 				Kind:    "appstore_view",
 				TS:      time.Now().UTC().Format(time.RFC3339),
