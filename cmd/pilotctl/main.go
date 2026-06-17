@@ -468,6 +468,22 @@ func connectDriver() *driver.Driver {
 	return d
 }
 
+// nodeIDFromDaemon returns the daemon's registered node ID for use in
+// telemetry events. Returns 0 silently if the daemon is unreachable.
+func nodeIDFromDaemon() int64 {
+	d, err := driver.Connect(getSocket())
+	if err != nil {
+		return 0
+	}
+	defer d.Close()
+	info, err := d.Info()
+	if err != nil {
+		return 0
+	}
+	nid, _ := info["node_id"].(float64)
+	return int64(nid)
+}
+
 func connectRegistry() *registry.Client {
 	addr := getRegistry()
 	rc, err := registry.Dial(addr)
