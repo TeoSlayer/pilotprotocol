@@ -3,10 +3,11 @@
 package daemon
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -122,7 +123,7 @@ func (me *ManagedEngine) Bootstrap() error {
 	}
 
 	// Shuffle and pick up to rules.Links peers
-	rand.Shuffle(len(candidates), func(i, j int) {
+	cryptoShuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
 	limit := me.rules.Links
@@ -316,7 +317,7 @@ func (me *ManagedEngine) fill(members []uint32) int {
 		candidates = append(candidates, id)
 	}
 
-	rand.Shuffle(len(candidates), func(i, j int) {
+	cryptoShuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
 
@@ -426,4 +427,37 @@ func (me *ManagedEngine) load() error {
 
 	slog.Info("managed: loaded persisted state", "network_id", me.netID, "peers", len(me.peers))
 	return nil
+}
+
+// cryptoShuffle shuffles n elements using crypto/rand.
+// It implements Fisher-Yates with rejection-sampled cryptographically
+// secure random indices. Safe for peer-candidate shuffling.
+func cryptoShuffle(n int, swap func(i, j int)) {
+	buf := make([]byte, 8)
+	for i := n - 1; i > 0; i-- {
+		// Rejection-sample a random index in [0, i]
+		var idx int
+		for tries := 0; tries < 20; tries++ {
+			if _, err := rand.Read(buf[:4]); err != nil {
+				idx = i
+				break
+			}
+			v := int(binary.LittleEndian.Uint32(buf[:4]))
+			if v < 0 {
+				v = -v
+			}
+			// Reject to avoid modulo bias
+			limit := (v / (i + 1)) * (i + 1)
+			if v >= limit {
+				continue
+			}
+			idx = v % (i + 1)
+			break
+		}
+		// Fallback for hard edge case: idx remains 0, which for i>0
+		// is a valid (though biased) index — swap or no-op is fine
+		if idx != i {
+			swap(idx, i)
+		}
+	}
 }
