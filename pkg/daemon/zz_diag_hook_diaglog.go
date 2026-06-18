@@ -4,7 +4,8 @@
 package daemon
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"sync/atomic"
 )
 
@@ -25,5 +26,9 @@ func diagShouldDropFrame() bool {
 	if r == 0 {
 		return false
 	}
-	return uint64(rand.Intn(1000)) < r
+	n, err := rand.Int(rand.Reader, big.NewInt(1000))
+	if err != nil {
+		return false
+	}
+	return uint64(n.Int64()) < r
 }
