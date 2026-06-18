@@ -26,6 +26,18 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
 - `send-file` reports `transport`, `sha256`, and `throughput_mbps`; adds
   `--timeout`.
 
+### Changed
+- **Message of the day now rides the pilot-changelog pipeline.** The daemon's
+  default MOTD source moved from the bespoke `pilot-motd` repo to
+  `pilot-changelog`'s `feed-motd.json` (the `scope: motd` per-scope output of
+  the existing changelog render pipeline). A MOTD is now authored as a
+  `scope: motd` changelog entry whose `date` is the UTC day it is active and
+  whose `title` is the banner text; motd entries are isolated from the human
+  changelog feeds (feed.json/RSS/site). No behavior change for users — the
+  banner, `important_update` field, and `motd` in `info` work exactly as
+  before; only the source feed and its shape changed. Override with
+  `--motd-feed-url` / `$PILOT_MOTD_URL` as before. (motd)
+
 ### Fixed
 - **NAT traversal now actually establishes (and holds) a direct path.** The
   relay→direct upgrade sent a one-way probe that a stateful NAT/firewall

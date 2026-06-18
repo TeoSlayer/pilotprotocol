@@ -29,7 +29,11 @@ So the work is split:
 - The **daemon** is the only component that touches the network. A background
   loop (`motdPollLoop`) fetches the feed every `--motd-interval` (default
   15m), selects the entry dated for the current UTC day, holds it in memory,
-  and **mirrors** it to `~/.pilot/motd.json`.
+  and **mirrors** it to `~/.pilot/motd.json`. The feed is the Pilot Protocol
+  changelog's message-of-the-day output (`feed-motd.json`): a `scope: motd`
+  per-scope feed where each entry's `date` is the active UTC day and its
+  `title` is the banner text. Banners are isolated from the human changelog
+  feeds, so they never appear as changelog news.
 - **`pilotctl`** reads only that local mirror — one file read — and
   re-validates the UTC day on read, so a stale mirror (e.g. the daemon was
   offline across midnight) never shows yesterday's message.

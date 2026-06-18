@@ -40,26 +40,26 @@ func TestParse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if len(f.Messages) != 0 {
-			t.Fatalf("want 0 messages, got %d", len(f.Messages))
+		if len(f.Entries) != 0 {
+			t.Fatalf("want 0 entries, got %d", len(f.Entries))
 		}
 	})
 	t.Run("good feed", func(t *testing.T) {
-		f, err := Parse([]byte(`{"schema_version":1,"messages":[{"date":"2026-06-15","text":"hi"}]}`))
+		f, err := Parse([]byte(`{"schema_version":1,"entries":[{"date":"2026-06-15","title":"hi"}]}`))
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if len(f.Messages) != 1 || f.Messages[0].Text != "hi" {
+		if len(f.Entries) != 1 || f.Entries[0].Text != "hi" {
 			t.Fatalf("unexpected feed: %+v", f)
 		}
 	})
 	t.Run("unknown schema version rejected", func(t *testing.T) {
-		if _, err := Parse([]byte(`{"schema_version":99,"messages":[]}`)); err == nil {
+		if _, err := Parse([]byte(`{"schema_version":99,"entries":[]}`)); err == nil {
 			t.Fatal("want error for schema_version 99")
 		}
 	})
 	t.Run("missing schema version tolerated", func(t *testing.T) {
-		if _, err := Parse([]byte(`{"messages":[]}`)); err != nil {
+		if _, err := Parse([]byte(`{"entries":[]}`)); err != nil {
 			t.Fatalf("unexpected err: %v", err)
 		}
 	})
@@ -70,9 +70,50 @@ func TestParse(t *testing.T) {
 	})
 }
 
+func TestParsePilotChangelogFeedShape(t *testing.T) {
+	// The real feed-motd.json from pilot-changelog carries the full changelog
+	// entry shape. The parser must pick up date+title and ignore the rest.
+	body := []byte(`{
+	  "schema_version": 1,
+	  "latest_entry_date": "2026-06-18",
+	  "window": "scope:motd",
+	  "include_private": false,
+	  "count": 1,
+	  "entries": [
+	    {
+	      "id": "2026-06-18-motd-catalogue",
+	      "date": "2026-06-18",
+	      "scope": "motd",
+	      "visibility": "public",
+	      "title": "To view our service agents catalogue, send a message to list-agents",
+	      "flagged": false,
+	      "links": [],
+	      "ids": [],
+	      "body": "Message-of-the-day banner active on 2026-06-18 (UTC).",
+	      "excerpt": "Message-of-the-day banner active on 2026-06-18 (UTC)."
+	    }
+	  ]
+	}`)
+	f, err := Parse(body)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	now := mustTime(t, "2026-06-18T09:00:00Z")
+	m, ok := SelectForToday(f, now)
+	if !ok {
+		t.Fatal("expected an active message")
+	}
+	if m.Text != "To view our service agents catalogue, send a message to list-agents" {
+		t.Fatalf("text = %q (should come from the entry title)", m.Text)
+	}
+	if m.Date != "2026-06-18" || m.ID != "2026-06-18-motd-catalogue" {
+		t.Fatalf("date/id not parsed: %+v", m)
+	}
+}
+
 func TestSelectForToday(t *testing.T) {
 	now := mustTime(t, "2026-06-15T12:00:00Z")
-	feed := Feed{SchemaVersion: 1, Messages: []Message{
+	feed := Feed{SchemaVersion: 1, Entries: []Message{
 		{Date: "2026-06-14", Text: "yesterday"},
 		{Date: "2026-06-15", Text: "today wins"},
 		{Date: "2026-06-15", Text: "second today, ignored"},
@@ -84,13 +125,13 @@ func TestSelectForToday(t *testing.T) {
 	}
 
 	t.Run("no entry today", func(t *testing.T) {
-		_, ok := SelectForToday(Feed{Messages: []Message{{Date: "2026-06-14", Text: "x"}}}, now)
+		_, ok := SelectForToday(Feed{Entries: []Message{{Date: "2026-06-14", Text: "x"}}}, now)
 		if ok {
 			t.Fatal("want no active message")
 		}
 	})
 	t.Run("blank text skipped", func(t *testing.T) {
-		_, ok := SelectForToday(Feed{Messages: []Message{{Date: "2026-06-15", Text: "  "}}}, now)
+		_, ok := SelectForToday(Feed{Entries: []Message{{Date: "2026-06-15", Text: "  "}}}, now)
 		if ok {
 			t.Fatal("blank text should not be active")
 		}
@@ -170,7 +211,7 @@ func TestFetch(t *testing.T) {
 
 	t.Run("serves and selects today", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"schema_version":1,"messages":[{"date":"2026-06-15","text":"served"}]}`))
+			w.Write([]byte(`{"schema_version":1,"entries":[{"date":"2026-06-15","title":"served"}]}`))
 		}))
 		defer srv.Close()
 		feed, err := Fetch(context.Background(), srv.Client(), srv.URL)
