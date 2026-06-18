@@ -417,7 +417,10 @@ func httpGet(raw string) (io.ReadCloser, error) {
 
 // untarUnder writes every entry in r under dst, refusing any path
 // that resolves outside dst (mirrors the supervisor's
-// resolveUnder guard on manifest.binary.path).
+// resolveUnder guard on manifest.binary.path). Each extracted file
+// is capped at maxExtractBytes to prevent decompression bomb attacks.
+const maxExtractBytes = 64 << 20 // 64 MiB per-file cap
+
 func untarUnder(r io.Reader, dst string) error {
 	tr := tar.NewReader(r)
 	for {
@@ -446,7 +449,7 @@ func untarUnder(r io.Reader, dst string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			if _, err := io.Copy(f, io.LimitReader(tr, maxExtractBytes)); err != nil {
 				_ = f.Close()
 				return err
 			}
