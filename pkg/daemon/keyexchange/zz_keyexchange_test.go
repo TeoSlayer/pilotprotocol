@@ -34,9 +34,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	icrypto "github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // ---------- helpers ----------

@@ -16,7 +16,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/routing"
 )
 
 // TestDialRelayFlipIsUnpinned verifies that the advisory relay flag

@@ -5,7 +5,7 @@ package keyexchange_test
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 func TestStoreLocalNodeID_RoundTrip(t *testing.T) {

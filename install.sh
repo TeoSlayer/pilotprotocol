@@ -2,7 +2,7 @@
 set -e
 
 # Pilot Protocol installer
-# Source:     https://github.com/TeoSlayer/pilotprotocol  (AGPL-3.0)
+# Source:     https://github.com/pilot-protocol/pilotprotocol  (AGPL-3.0)
 # Hosted at:  https://pilotprotocol.network/install.sh
 #
 # Usage:
@@ -12,7 +12,7 @@ set -e
 #
 # WHAT THIS SCRIPT DOES (read before piping to sh):
 #   1. Detects OS/arch (Linux/Darwin × amd64/arm64)
-#   2. Resolves the latest release tag from github.com/TeoSlayer/pilotprotocol/releases
+#   2. Resolves the latest release tag from github.com/pilot-protocol/pilotprotocol/releases
 #   3. Downloads the release tarball + checksums.txt from that release
 #   4. *** Verifies SHA-256 of the tarball against checksums.txt (aborts on mismatch) ***
 #   5. Extracts binaries to ~/.pilot/bin (per-user, NOT system-wide)
@@ -46,8 +46,8 @@ set -e
 #   - Require any account credential or signup to install
 #
 # Verifiable provenance:
-#   - Source repo:  https://github.com/TeoSlayer/pilotprotocol
-#   - Release page: https://github.com/TeoSlayer/pilotprotocol/releases
+#   - Source repo:  https://github.com/pilot-protocol/pilotprotocol
+#   - Release page: https://github.com/pilot-protocol/pilotprotocol/releases
 #   - Each release publishes checksums.txt next to the tarball.
 #   - This script downloads BOTH and verifies SHA-256 before extracting.
 #
@@ -56,7 +56,7 @@ set -e
 # checksums.txt" further down. The script aborts on mismatch with a clear
 # error.
 
-REPO="TeoSlayer/pilotprotocol"
+REPO="pilot-protocol/pilotprotocol"
 REGISTRY="${PILOT_REGISTRY:-registry.pilotprotocol.network:9000}"
 BEACON="${PILOT_BEACON:-registry.pilotprotocol.network:9001}"
 # PILOT-270: validate REGISTRY/BEACON to prevent JSON injection into config.json

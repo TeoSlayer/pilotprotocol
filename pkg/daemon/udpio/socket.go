@@ -48,8 +48,8 @@ import (
 
 	// TODO: fold internal/pool into this package once tests/fuzz_fsutil_pool_test.go
 	// is rewritten or relocated. See 03-INVARIANTS.md §6.5.
-	"github.com/TeoSlayer/pilotprotocol/internal/pool"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
+	"github.com/pilot-protocol/pilotprotocol/internal/pool"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
 )
 
 // ErrClosed is returned by Recv after Close has been called and any

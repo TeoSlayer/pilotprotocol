@@ -1155,7 +1155,7 @@ In manual mode (daemon not running), re-runs skill install so newly
 installed binaries have matching skill definitions.
 
 Flags:
-  --repo <name>   GitHub owner/repo for releases (default: TeoSlayer/pilotprotocol)
+  --repo <name>   GitHub owner/repo for releases (default: pilot-protocol/pilotprotocol)
   --pin <tag>     pin to a specific release tag (e.g. v1.10.5)
 `,
 	"updates": `Usage: pilotctl updates [flags]

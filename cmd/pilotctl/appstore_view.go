@@ -28,8 +28,8 @@ import (
 
 	"github.com/pilot-protocol/app-store/pkg/manifest"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/common/consent"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // installedAppFacts is the verified, local-only band of `view` — derived

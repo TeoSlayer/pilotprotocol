@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	icrypto "github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/protocol"
 	registryclient "github.com/pilot-protocol/common/registry/client"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // ======================

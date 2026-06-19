@@ -34,7 +34,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // canonicalJSON marshals v with stable key ordering (encoding/json

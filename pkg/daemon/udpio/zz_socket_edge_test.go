@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/udpio"
 )
 
 func TestListen_ResolveError(t *testing.T) {

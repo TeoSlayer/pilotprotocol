@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/routing"
 )
 
 var errFake = errors.New("synthetic send error")

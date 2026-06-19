@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/motd"
+	"github.com/pilot-protocol/pilotprotocol/internal/motd"
 )
 
 // withMOTD saves and restores the package-global banner/json state so these

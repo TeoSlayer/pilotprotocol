@@ -3,7 +3,7 @@
 package daemon
 
 import (
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/routing"
 )
 
 // Pre-extraction names re-exposed as thin shims over routing/.

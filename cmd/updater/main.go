@@ -18,7 +18,7 @@ var version = "dev"
 
 func main() {
 	installDir := flag.String("install-dir", "", "directory containing pilot binaries (required)")
-	repo := flag.String("repo", "TeoSlayer/pilotprotocol", "GitHub owner/repo for releases")
+	repo := flag.String("repo", "pilot-protocol/pilotprotocol", "GitHub owner/repo for releases")
 	pin := flag.String("pin", "", "pin to a specific release tag (e.g. v1.10.5); empty = follow latest")
 	interval := flag.Duration("interval", 1*time.Hour, "check interval")
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")

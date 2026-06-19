@@ -5,8 +5,8 @@ package daemon_test
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // TestZeroWindowAdvertisementNotHonored verifies that when the peer advertises
