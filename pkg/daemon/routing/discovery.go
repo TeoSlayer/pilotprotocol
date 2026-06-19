@@ -3,9 +3,10 @@
 package routing
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -273,5 +274,10 @@ func (s *BeaconSelectionState) ApplyRefreshDecision(d RefreshDecision) {
 // InitialJitter returns a duration in [0, BeaconRefreshJitter) for
 // avoiding thundering-herd on the registry at fleet restart.
 func InitialJitter() time.Duration {
-	return time.Duration(rand.Int63n(int64(BeaconRefreshJitter)))
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(BeaconRefreshJitter)))
+	if err != nil {
+		// Fallback: return 0 jitter on crypto failure (safe, just bad for thundering herd)
+		return 0
+	}
+	return time.Duration(n.Int64())
 }
