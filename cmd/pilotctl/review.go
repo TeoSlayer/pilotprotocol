@@ -13,7 +13,7 @@ import (
 
 	"github.com/pilot-protocol/common/consent"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // reviewHelpText is the canonical help block for `pilotctl review`.

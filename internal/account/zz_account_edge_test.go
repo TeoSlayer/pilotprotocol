@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/account"
+	"github.com/pilot-protocol/pilotprotocol/internal/account"
 )
 
 func TestSave_MkdirAllError(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/account"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/pilot-protocol/pilotprotocol/internal/account"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // Daemon now synthesises an email from the public-key fingerprint when none is

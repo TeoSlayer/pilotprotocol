@@ -32,8 +32,8 @@ import (
 	"errors"
 	"sync/atomic"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // DecryptResult is the outcome of DecryptFrame.

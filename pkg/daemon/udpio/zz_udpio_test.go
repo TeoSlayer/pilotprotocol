@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/udpio"
 )
 
 // recvWithTimeout drains one frame from sock or fails the test if the

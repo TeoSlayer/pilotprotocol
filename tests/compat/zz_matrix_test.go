@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
-	dwss "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	bwss "github.com/pilot-protocol/beacon/wss"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
+	dwss "github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport/wss"
 )
 
 // bridge ties together the new WSS surface and a synthetic "UDP side"

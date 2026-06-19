@@ -19,9 +19,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport/wss"
 )
 
 // fakeBeacon is an httptest.NewTLSServer that speaks the beacon WSS

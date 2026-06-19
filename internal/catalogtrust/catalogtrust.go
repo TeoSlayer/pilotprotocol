@@ -19,7 +19,7 @@ import (
 // publicKeyB64 is the base64-encoded ed25519 catalogue-signing public
 // key. Overridable at build time to rotate the key without a code change:
 //
-//	-ldflags "-X github.com/TeoSlayer/pilotprotocol/internal/catalogtrust.publicKeyB64=<b64>"
+//	-ldflags "-X github.com/pilot-protocol/pilotprotocol/internal/catalogtrust.publicKeyB64=<b64>"
 //
 // The compiled-in default is the current production catalogue key.
 var publicKeyB64 = "iHdBWayA/hYjkwUOZopTXY70qOlR90d6ii/hin0ZMdI="

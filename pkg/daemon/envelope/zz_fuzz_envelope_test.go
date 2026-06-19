@@ -8,8 +8,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/envelope"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // fuzzPeerSetup mirrors newPeerSetup() in zz_envelope_test.go but is

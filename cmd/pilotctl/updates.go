@@ -214,12 +214,12 @@ func collapseWhitespace(s string) string {
 //
 // Flags:
 //
-//	--repo <name>   : GitHub owner/repo for releases (default: TeoSlayer/pilotprotocol)
+//	--repo <name>   : GitHub owner/repo for releases (default: pilot-protocol/pilotprotocol)
 //	--pin <tag>     : pin to a specific release tag (e.g. v1.10.5)
 //	(global) --json : emit machine-readable JSON
 func cmdUpdate(args []string) {
 	flags, _ := parseFlags(args)
-	repo := flagString(flags, "repo", "TeoSlayer/pilotprotocol")
+	repo := flagString(flags, "repo", "pilot-protocol/pilotprotocol")
 	pin := flagString(flags, "pin", "")
 
 	// Determine install directory: where the updater binary lives.
