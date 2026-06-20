@@ -415,9 +415,17 @@ func httpGet(raw string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// maxUntarFileSize is the per-file limit for entries extracted by
+// untarUnder. 64 MiB covers legitimate bundles (the largest known
+// pilot app is ~4 MiB) while bounding decompression bombs that pass
+// the 1 MiB tarball download cap via a high compression ratio.
+const maxUntarFileSize int64 = 64 << 20 // 64 MiB
+
 // untarUnder writes every entry in r under dst, refusing any path
 // that resolves outside dst (mirrors the supervisor's
-// resolveUnder guard on manifest.binary.path).
+// resolveUnder guard on manifest.binary.path). Per-file extraction
+// is capped at maxUntarFileSize to prevent decompression bombs from
+// filling disk via extreme compression ratios.
 func untarUnder(r io.Reader, dst string) error {
 	tr := tar.NewReader(r)
 	for {
@@ -446,12 +454,26 @@ func untarUnder(r io.Reader, dst string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			lr := io.LimitReader(tr, maxUntarFileSize)
+			written, err := io.Copy(f, lr)
+			if err != nil {
 				_ = f.Close()
 				return err
 			}
-			if err := f.Close(); err != nil {
-				return err
+			overLimit := false
+			if written >= maxUntarFileSize {
+				// Read one more byte to check if the tar entry has leftover data.
+				// If it does, the file exceeds the per-file limit.
+				var probe [1]byte
+				if _, err := io.ReadFull(tr, probe[:]); err == nil {
+					overLimit = true
+				}
+				// err means the tar entry is exactly at the limit — that's fine.
+			}
+			_ = f.Close()
+			if overLimit {
+				os.Remove(out)
+				return fmt.Errorf("extracted file exceeds maxUntarFileSize (%d bytes): %q", maxUntarFileSize, hdr.Name)
 			}
 		default:
 			// Skip symlinks, devices, etc. — neither needed for a
