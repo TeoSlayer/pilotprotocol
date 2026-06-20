@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.sixtyfour",
+  "display_name": "Sixtyfour",
+  "tagline": "People- and company-intelligence: contact discovery, enrichment, and agentic research.",
+  "description_md": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
+  "vendor": {
+    "name": "Sixtyfour",
+    "publisher_pubkey": "ed25519:Jdb7+p9ekRD96GPlpx173dDt7dSIWgdDyLnVo2e4yi0="
+  },
+  "homepage": "https://sixtyfour.ai",
+  "source_url": "https://docs.sixtyfour.ai",
+  "license": "Proprietary",
+  "categories": [
+    "data",
+    "enrichment",
+    "sales-intelligence"
+  ],
+  "keywords": [
+    "enrichment",
+    "people",
+    "company",
+    "email",
+    "phone",
+    "lead",
+    "research",
+    "search"
+  ],
+  "size": {
+    "bundle_bytes": 4898153,
+    "installed_bytes": 8750172
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "sixtyfour.people_intelligence",
+      "summary": "People Intelligence: full, source-backed enrichment of a person from seed details."
+    },
+    {
+      "name": "sixtyfour.company_intelligence",
+      "summary": "Company Intelligence: full, source-backed company profile, optionally with people."
+    },
+    {
+      "name": "sixtyfour.find_email",
+      "summary": "Contact discovery: find a verified email for a person from partial details."
+    },
+    {
+      "name": "sixtyfour.find_phone",
+      "summary": "Contact discovery: find a phone number for a person from partial details."
+    },
+    {
+      "name": "sixtyfour.reverse_email",
+      "summary": "Reverse lookup: identify the person and company behind an email address."
+    },
+    {
+      "name": "sixtyfour.reverse_phone",
+      "summary": "Reverse lookup: identify the person and company behind a phone number."
+    },
+    {
+      "name": "sixtyfour.enrich_linkedin",
+      "summary": "Enrich a person directly from their LinkedIn profile URL."
+    },
+    {
+      "name": "sixtyfour.qa",
+      "summary": "Agentic QA researcher: answer free-form qualification questions about a person or company, with sources."
+    },
+    {
+      "name": "sixtyfour.research_agent",
+      "summary": "Research agent: autonomous multi-step research over an entity, returning structured findings with sources."
+    },
+    {
+      "name": "sixtyfour.filter_search",
+      "summary": "Filter Search: structured field-based search across the corpus; returns matching entities."
+    },
+    {
+      "name": "sixtyfour.deep_search",
+      "summary": "Deep Search (agentic): start a natural-language search. Returns a task_id; results are retrieved asynchronously (see caveats)."
+    },
+    {
+      "name": "sixtyfour.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "Version": "0.1.0",
+      "Date": "",
+      "Notes": [
+        "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed."
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://docs.sixtyfour.ai"
+    },
+    {
+      "label": "Website",
+      "url": "https://sixtyfour.ai"
+    }
+  ]
+}
