@@ -35,10 +35,13 @@ import (
 
 const (
 	// DefaultFeedURL is the canonical message-of-the-day source: the raw
-	// contents of motd.json on the pilot-motd repo's default branch. A
-	// commit there propagates to every daemon on its next poll (subject to
-	// GitHub's raw CDN cache, typically a few minutes).
-	DefaultFeedURL = "https://raw.githubusercontent.com/pilot-protocol/pilot-motd/main/motd.json"
+	// contents of feed-motd.json on the pilot-changelog repo's default
+	// branch. That feed is the `scope: motd` per-scope output of the
+	// changelog render pipeline — each entry's `date` is the UTC day the
+	// banner is active and its `title` is the banner text. Publishing or
+	// clearing a motd entry there propagates to every daemon on its next
+	// poll (subject to GitHub's raw CDN cache, typically a few minutes).
+	DefaultFeedURL = "https://raw.githubusercontent.com/TeoSlayer/pilot-changelog/main/feed-motd.json"
 
 	// DefaultInterval is how often the daemon re-fetches the feed when no
 	// interval is configured.
@@ -54,17 +57,21 @@ const (
 	maxFeedBytes = 64 * 1024
 )
 
-// Message is a single dated message-of-the-day entry.
+// Message is a single dated message-of-the-day entry. It maps a
+// pilot-changelog feed entry: the entry `date` is the UTC day the banner is
+// active, and the entry `title` is the banner text.
 type Message struct {
 	Date string `json:"date"` // UTC calendar day, "YYYY-MM-DD"
-	Text string `json:"text"`
+	Text string `json:"title"`
 	ID   string `json:"id,omitempty"`
 }
 
-// Feed is the on-the-wire shape served at the feed URL.
+// Feed is the on-the-wire shape served at the feed URL — the pilot-changelog
+// per-scope feed (feed-motd.json). Only the fields the daemon needs are
+// decoded; everything else (scope, visibility, body, excerpt, …) is ignored.
 type Feed struct {
 	SchemaVersion int       `json:"schema_version"`
-	Messages      []Message `json:"messages"`
+	Entries       []Message `json:"entries"`
 }
 
 // Mirror is the local materialized "variable" the CLI reads. It holds at
@@ -129,7 +136,7 @@ func Parse(body []byte) (Feed, error) {
 // non-blank one wins — operators are expected to keep one per day.
 func SelectForToday(f Feed, now time.Time) (Message, bool) {
 	today := DayKey(now)
-	for _, m := range f.Messages {
+	for _, m := range f.Entries {
 		if strings.TrimSpace(m.Date) == today && strings.TrimSpace(m.Text) != "" {
 			return m, true
 		}
