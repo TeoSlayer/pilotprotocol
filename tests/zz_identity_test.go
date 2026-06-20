@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/driver"
 	registryclient "github.com/pilot-protocol/common/registry/client"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // waitForSocketRemoval polls until the given unix socket file is removed,

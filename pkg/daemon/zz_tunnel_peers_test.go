@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/udpio"
 )
 
 func mustUDPAddr(t *testing.T, s string) *net.UDPAddr {

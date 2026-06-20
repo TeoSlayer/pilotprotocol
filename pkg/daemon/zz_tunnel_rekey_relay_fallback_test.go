@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // TestRekeyRelayFallbackFlipsAtThreshold pins the cross-layer policy:

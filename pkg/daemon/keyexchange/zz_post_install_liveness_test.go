@@ -24,7 +24,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 func TestPostInstallRecordsInboundLiveness(t *testing.T) {

@@ -34,11 +34,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/app-store/pkg/ipc"
 	"github.com/pilot-protocol/app-store/pkg/manifest"
 	"github.com/pilot-protocol/common/consent"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // cryptoSHA256 is named so the sha256 import isn't ambiguous-looking.

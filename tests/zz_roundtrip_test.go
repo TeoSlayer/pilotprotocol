@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // TestDaemonRoundtripHandshakeAndSendMessage (PILOT-163) is the smoke

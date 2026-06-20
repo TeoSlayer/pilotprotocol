@@ -39,10 +39,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/beacon"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 	registry "github.com/pilot-protocol/rendezvous"
 	pluginsruntime "github.com/pilot-protocol/runtime"
 )

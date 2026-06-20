@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/envelope"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // peerSetup holds two L5 Managers + Stores with mutually derived Crypto

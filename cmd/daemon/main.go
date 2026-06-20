@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/motd"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/config"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/logging"
+	"github.com/pilot-protocol/pilotprotocol/internal/motd"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
@@ -35,8 +35,8 @@ import (
 	"github.com/pilot-protocol/trustedagents"
 	"github.com/pilot-protocol/webhook"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 var version = "dev"

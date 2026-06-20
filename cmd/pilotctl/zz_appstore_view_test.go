@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
 )
 
 // stageCatalogue writes a catalogue.json to a tempdir, signs it with an

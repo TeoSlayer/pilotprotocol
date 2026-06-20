@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/account"
+	"github.com/pilot-protocol/pilotprotocol/internal/account"
 )
 
 func TestSaveAndLoad(t *testing.T) {

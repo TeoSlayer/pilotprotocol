@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // TestWaitForTrustSelf checks that a daemon always considers itself trusted.

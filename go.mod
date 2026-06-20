@@ -1,4 +1,4 @@
-module github.com/TeoSlayer/pilotprotocol
+module github.com/pilot-protocol/pilotprotocol
 
 go 1.25.10
 

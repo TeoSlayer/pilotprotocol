@@ -51,16 +51,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/common/consent"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // defaultCatalogueURL points at the canonical catalogue.json on main.
 // Override via $PILOT_APPSTORE_CATALOG_URL (use file:// for local
 // staging, https:// for everything else; plain http:// is rejected
 // off-loopback).
-const defaultCatalogueURL = "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/catalogue/catalogue.json"
+const defaultCatalogueURL = "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/catalogue.json"
 
 // catalogue is the parsed wire shape of catalogue.json. The schema is
 // versioned (catalogue.json's "version" field) so future migrations

@@ -45,8 +45,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
 )
 
 // DefaultIdlePingInterval is how often the daemon pings the beacon to

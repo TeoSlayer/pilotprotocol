@@ -23,10 +23,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/account"
-	"github.com/TeoSlayer/pilotprotocol/internal/motd"
-	"github.com/TeoSlayer/pilotprotocol/internal/transport/compat"
-	"github.com/TeoSlayer/pilotprotocol/internal/validate"
 	"github.com/pilot-protocol/common/consent"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/daemonapi"
@@ -34,6 +30,10 @@ import (
 	"github.com/pilot-protocol/common/protocol"
 	registry "github.com/pilot-protocol/common/registry/client"
 	registrywire "github.com/pilot-protocol/common/registry/wire"
+	"github.com/pilot-protocol/pilotprotocol/internal/account"
+	"github.com/pilot-protocol/pilotprotocol/internal/motd"
+	"github.com/pilot-protocol/pilotprotocol/internal/transport/compat"
+	"github.com/pilot-protocol/pilotprotocol/internal/validate"
 	"github.com/pilot-protocol/trustedagents"
 )
 
