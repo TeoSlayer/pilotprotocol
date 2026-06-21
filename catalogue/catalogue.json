@@ -10,7 +10,11 @@
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
       "display_name": "Wallet",
       "vendor": "Pilot Protocol",
-      "categories": ["payments", "crypto", "finance"],
+      "categories": [
+        "payments",
+        "crypto",
+        "finance"
+      ],
       "bundle_size": 9110758,
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
@@ -25,7 +29,11 @@
       "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0",
       "display_name": "Cosift",
       "vendor": "Pilot Protocol",
-      "categories": ["search", "research", "retrieval"],
+      "categories": [
+        "search",
+        "research",
+        "retrieval"
+      ],
       "bundle_size": 4774876,
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
@@ -36,16 +44,38 @@
       "id": "io.pilot.sixtyfour",
       "version": "0.1.0",
       "description": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0.tar.gz",
-      "bundle_sha256": "b259f6a3b84fe16043cb972985efcdcb3d568174ac3c8a4129d551ec8ca9a712",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868",
       "display_name": "Sixtyfour",
       "vendor": "Sixtyfour",
-      "categories": ["data", "enrichment", "sales-intelligence"],
+      "categories": [
+        "data",
+        "enrichment",
+        "sales-intelligence"
+      ],
       "bundle_size": 4898153,
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d"
+      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "54298610357c9d69060d066b75096bca43fc3014026cdbd7194b766ffc3a1ffc"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "98d44f7138843bf72665bf4a49b6157ed95bb64ae24f21f0577cbc51e3abd493"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "d970483e9cad84207f853d681cc810e954e236acd5e410b402880dc4d8304aa2"
+        }
+      }
     }
   ]
 }

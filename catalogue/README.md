@@ -58,13 +58,16 @@ fields stay required. `pilotctl` decodes the index directly into
 `catalogueEntry` in `cmd/pilotctl/appstore_catalogue.go` — any field added
 here must also land there.
 
-`bundles` (v3) is the per-platform map keyed by `"os/arch"`. When present,
-`install` picks the host's entry and **errors** if the host platform isn't
-listed (rather than installing a binary that can't exec). `bundle_url` /
-`bundle_sha256` stay as the back-compat primary (linux/amd64) that pre-v3
-clients fetch, so a `bundles`-bearing entry still installs on old `pilotctl`
-for that one platform. An entry that omits `bundles` behaves exactly as v1/v2
-(single-platform, top-level `bundle_url`).
+`bundles` is the per-platform map keyed by `"os/arch"`. It is an **optional v2
+field — keep `"version": 2`, do NOT bump to 3.** `loadCatalogue` fail-closes on
+any version other than 1 or 2, so a version-3 catalogue is rejected wholesale by
+every client; `bundles` follows the same optional-field rule as the other v2
+additions. When present, a bundles-aware client (`pilotctl` ≥ v1.12.0) picks the
+host's entry; older clients ignore the map and fetch the top-level `bundle_url`.
+`bundle_url` / `bundle_sha256` stay as the back-compat primary (linux/amd64) so a
+`bundles`-bearing entry still installs on pre-v1.12 `pilotctl` for that one
+platform. An entry that omits `bundles` behaves exactly as before (single-platform,
+top-level `bundle_url`).
 
 ## Detail schema (`apps/<id>/metadata.json`)
 
