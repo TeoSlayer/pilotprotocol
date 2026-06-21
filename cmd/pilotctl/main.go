@@ -1148,13 +1148,19 @@ Common keys:
 
 Print the pilotctl build version string.
 `,
-	"update": `Usage: pilotctl update [flags]
+	"update": `Usage: pilotctl update [subcommand|flags]
 
-Run the updater once — check for new releases and install if available.
-In manual mode (daemon not running), re-runs skill install so newly
-installed binaries have matching skill definitions.
+Automatic updates are OFF by default. Control them with:
+  pilotctl update status     show whether auto-update is on and the current version
+  pilotctl update enable     turn automatic updates ON
+  pilotctl update disable    turn automatic updates OFF (default)
 
-Flags:
+With no subcommand, runs the updater ONCE — a manual check that installs the
+latest release if available, regardless of the auto-update setting. In manual
+mode (daemon not running), re-runs skill install so newly installed binaries
+have matching skill definitions.
+
+Flags (one-shot mode):
   --repo <name>   GitHub owner/repo for releases (default: pilot-protocol/pilotprotocol)
   --pin <tag>     pin to a specific release tag (e.g. v1.10.5)
 `,

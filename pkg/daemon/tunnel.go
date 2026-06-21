@@ -791,6 +791,19 @@ var TunnelKeepaliveInterval = 25 * time.Second
 // "ping" packet. The encrypted payload still authenticates as us
 // (peer's AEAD verifies our nodeID AAD), so an attacker can't forge
 // keepalives to keep stale entries warm.
+// newKeepalivePacket builds the tiny ProtoControl/PortPing keepalive. It
+// stamps our own node id as the inner source: the receiver enforces
+// pkt.Src.Node == the AEAD-authenticated peer, so a zero-Src keepalive would
+// be dropped as spoofed and the peer's NAT mapping would then expire.
+func (tm *TunnelManager) newKeepalivePacket() *protocol.Packet {
+	return &protocol.Packet{
+		Version:  protocol.Version,
+		Protocol: protocol.ProtoControl,
+		DstPort:  protocol.PortPing,
+		Src:      protocol.Addr{Node: tm.loadNodeID()},
+	}
+}
+
 func (tm *TunnelManager) keepaliveSweep(now time.Time) int {
 	type peerInfo struct {
 		id   uint32
@@ -814,11 +827,7 @@ func (tm *TunnelManager) keepaliveSweep(now time.Time) int {
 
 	sent := 0
 	for _, p := range stale {
-		ka := &protocol.Packet{
-			Version:  protocol.Version,
-			Protocol: protocol.ProtoControl,
-			DstPort:  protocol.PortPing,
-		}
+		ka := tm.newKeepalivePacket()
 		plaintext, err := ka.Marshal()
 		if err != nil {
 			continue
