@@ -529,6 +529,7 @@ func TestHandleEncryptedValidDeliversToRecvCh(t *testing.T) {
 	// Build a real encrypted frame that handleEncrypted will accept:
 	// nonce = prefix(4) || counter(8) ; AAD = BE(peerNodeID)
 	pkt := newPacket("encrypted-payload")
+	pkt.Src.Node = peerNodeID // well-behaved peer: inner Src == authenticated peerNodeID
 	plaintext, err := pkt.Marshal()
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
@@ -557,6 +558,63 @@ func TestHandleEncryptedValidDeliversToRecvCh(t *testing.T) {
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("expected packet on recvCh")
+	}
+}
+
+// TestHandleEncryptedDropsSpoofedSrc proves the transport identity-binding
+// fix: a frame that authenticates under peerNodeID but carries a DIFFERENT
+// inner Src.Node is dropped, not delivered. Without the fix a node holding
+// one valid session could impersonate any other node to applications.
+func TestHandleEncryptedDropsSpoofedSrc(t *testing.T) {
+	t.Parallel()
+	tm := NewTunnelManager()
+	if err := tm.EnableEncryption(); err != nil {
+		t.Fatalf("EnableEncryption: %v", err)
+	}
+	curve := ecdh.X25519()
+	peerPriv, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("peer keygen: %v", err)
+	}
+	pc, err := tm.deriveSecret(peerPriv.PublicKey().Bytes())
+	if err != nil {
+		t.Fatalf("deriveSecret: %v", err)
+	}
+	const peerNodeID = uint32(0x11223344)
+	tm.mu.Lock()
+	tm.envelope.Install(peerNodeID, pc)
+	tm.mu.Unlock()
+
+	// Authenticated peer is 0x11223344, but the inner packet claims a
+	// DIFFERENT source node — a forged source.
+	pkt := newPacket("spoofed-payload")
+	pkt.Src.Node = 0x99999999 // != peerNodeID
+	plaintext, err := pkt.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	nonce := make([]byte, pc.AEAD.NonceSize())
+	copy(nonce[0:4], pc.NoncePrefix[:])
+	binary.BigEndian.PutUint64(nonce[4:12], 1)
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, peerNodeID)
+	ct := pc.AEAD.Seal(nil, nonce, plaintext, aad)
+
+	data := make([]byte, 4+12+len(ct))
+	binary.BigEndian.PutUint32(data[0:4], peerNodeID)
+	copy(data[4:16], nonce)
+	copy(data[16:], ct)
+
+	tm.handleEncrypted(data, mustUDPAddr(t, "127.0.0.1:5555"))
+
+	if got := atomic.LoadUint64(&tm.PktsRecv); got != 0 {
+		t.Fatalf("spoofed-Src frame must not count as received; PktsRecv = %d", got)
+	}
+	select {
+	case got := <-tm.RecvCh():
+		t.Fatalf("spoofed-Src frame must NOT be delivered, got payload %q", got.Packet.Payload)
+	case <-time.After(100 * time.Millisecond):
+		// correct: nothing delivered
 	}
 }
 
