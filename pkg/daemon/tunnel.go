@@ -1367,6 +1367,28 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		return
 	}
 
+	// Identity binding (transport security). The AEAD authenticated the
+	// frame-header peerNodeID: reaching this point proves the sender holds
+	// the session key bound to it. The inner packet's Src, by contrast, is
+	// plaintext the sender chose freely. Reject any frame whose inner
+	// Src.Node disagrees with the authenticated peerNodeID — otherwise a
+	// node holding one valid session could forge packets impersonating any
+	// other node to the SYN trust gate and to applications (which read
+	// conn.RemoteAddr().Node). Relay-delivered frames re-enter this path with
+	// peerNodeID taken from the inner secure frame's AEAD, never the beacon's
+	// untrusted srcNodeID, so the check covers direct and relayed traffic
+	// alike. Src.Network may vary across a node's networks; identity is the
+	// node id, so only .Node is compared.
+	if pkt.Src.Node != peerNodeID {
+		slog.Warn("tunnel: dropping frame with spoofed source node",
+			"authenticated_peer", peerNodeID, "claimed_src", pkt.Src.Node)
+		tm.publishEvent("security.src_spoofed", map[string]interface{}{
+			"authenticated_peer": peerNodeID,
+			"claimed_src":        pkt.Src.Node,
+		})
+		return
+	}
+
 	// v1.9.1 NAT-keepalive: drop tunnel-keepalive packets before recvCh
 	// delivery. They're authenticated (the AEAD verified the sender's
 	// nodeID AAD) so we still want all the side-effects below (recordInbound
