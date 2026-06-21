@@ -120,18 +120,62 @@ type bundleVariant struct {
 	BundleSHA string `json:"bundle_sha256"`
 }
 
+// canonicalPlatform normalizes a platform string to "os/arch" with os ∈
+// {darwin,linux,windows} and arch ∈ {amd64,arm64}. It accepts every naming
+// convention in the ecosystem so a catalogue keyed "macos-arm64" (the org/
+// homebrew/openclaw convention) and one keyed "darwin/arm64" (Go's
+// runtime.GOOS/GOARCH) both resolve to the same host. Unrecognized strings
+// are returned lower-cased with separators unified, so exact compares still
+// work. Examples: "macos-arm64"→"darwin/arm64", "aarch64-darwin"→
+// "darwin/arm64", "macos-arm"→"darwin/arm64", "linux-x86_64"→"linux/amd64".
+func canonicalPlatform(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.NewReplacer("/", "-", "_", "-", " ", "-").Replace(s)
+	var os, arch string
+	switch {
+	case strings.Contains(s, "darwin"), strings.Contains(s, "macos"), strings.Contains(s, "osx"), strings.Contains(s, "mac"):
+		os = "darwin"
+	case strings.Contains(s, "linux"):
+		os = "linux"
+	case strings.Contains(s, "windows"), strings.Contains(s, "win"):
+		os = "windows"
+	}
+	switch {
+	case strings.Contains(s, "arm64"), strings.Contains(s, "aarch64"), strings.Contains(s, "silicon"):
+		arch = "arm64"
+	case strings.Contains(s, "amd64"), strings.Contains(s, "x86-64"), strings.Contains(s, "x64"), strings.Contains(s, "intel"):
+		arch = "amd64"
+	case strings.Contains(s, "arm"): // bare "arm" (e.g. "macos-arm") = Apple Silicon
+		arch = "arm64"
+	}
+	if os != "" && arch != "" {
+		return os + "/" + arch
+	}
+	return s
+}
+
 // resolveBundle returns the tarball URL + sha256 to install on THIS host.
-// A v3 entry (Bundles populated) is strict: it picks the host's os/arch and
-// errors if that platform wasn't published, rather than silently fetching a
-// binary that can't exec. A v1/v2 entry (no Bundles) uses the single
-// top-level BundleURL/BundleSHA, exactly as before.
+// A v3 entry (Bundles populated) picks the host's os/arch — matching by
+// canonical platform so any naming convention (darwin/arm64, macos-arm64,
+// aarch64-darwin, …) resolves — and errors if that platform wasn't published,
+// rather than silently fetching a binary that can't exec. A v1/v2 entry (no
+// Bundles) uses the single top-level BundleURL/BundleSHA, exactly as before.
 func (e catalogueEntry) resolveBundle() (url, sha string, err error) {
 	if len(e.Bundles) == 0 {
 		return e.BundleURL, e.BundleSHA, nil
 	}
-	plat := runtime.GOOS + "/" + runtime.GOARCH
-	if v, ok := e.Bundles[plat]; ok && v.BundleURL != "" {
+	exact := runtime.GOOS + "/" + runtime.GOARCH
+	// Fast path: an exact Go-convention key (what older v3 catalogues use).
+	if v, ok := e.Bundles[exact]; ok && v.BundleURL != "" {
 		return v.BundleURL, v.BundleSHA, nil
+	}
+	// Tolerant path: match the host against each key by canonical platform,
+	// so "macos-arm64" et al. resolve on a darwin/arm64 host.
+	host := canonicalPlatform(exact)
+	for k, v := range e.Bundles {
+		if v.BundleURL != "" && canonicalPlatform(k) == host {
+			return v.BundleURL, v.BundleSHA, nil
+		}
 	}
 	avail := make([]string, 0, len(e.Bundles))
 	for k := range e.Bundles {
@@ -139,7 +183,7 @@ func (e catalogueEntry) resolveBundle() (url, sha string, err error) {
 	}
 	sort.Strings(avail)
 	return "", "", fmt.Errorf("%s has no bundle for this platform (%s); published platforms: %s",
-		e.ID, plat, strings.Join(avail, ", "))
+		e.ID, exact, strings.Join(avail, ", "))
 }
 
 // catalogueURL returns the URL pilotctl should fetch the catalogue
