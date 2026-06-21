@@ -32,6 +32,13 @@ ignores the v2 fields. **Always set `"version": 2` when using any v2 field.**
       "bundle_url": "https://<host>/<path>.tar.gz",
       "bundle_sha256": "<hex sha256 of the tarball>",
 
+      "bundles": {
+        "linux/amd64":  {"bundle_url": "https://<host>/<path>-linux-amd64.tar.gz",  "bundle_sha256": "<hex>"},
+        "linux/arm64":  {"bundle_url": "https://<host>/<path>-linux-arm64.tar.gz",  "bundle_sha256": "<hex>"},
+        "darwin/arm64": {"bundle_url": "https://<host>/<path>-darwin-arm64.tar.gz", "bundle_sha256": "<hex>"},
+        "darwin/amd64": {"bundle_url": "https://<host>/<path>-darwin-amd64.tar.gz", "bundle_sha256": "<hex>"}
+      },
+
       "display_name": "<human name, optional>",
       "vendor": "<vendor name, optional>",
       "categories": ["<optional>", "<tags>"],
@@ -50,6 +57,14 @@ Everything from `display_name` down is optional (`omitempty`). The five v1
 fields stay required. `pilotctl` decodes the index directly into
 `catalogueEntry` in `cmd/pilotctl/appstore_catalogue.go` — any field added
 here must also land there.
+
+`bundles` (v3) is the per-platform map keyed by `"os/arch"`. When present,
+`install` picks the host's entry and **errors** if the host platform isn't
+listed (rather than installing a binary that can't exec). `bundle_url` /
+`bundle_sha256` stay as the back-compat primary (linux/amd64) that pre-v3
+clients fetch, so a `bundles`-bearing entry still installs on old `pilotctl`
+for that one platform. An entry that omits `bundles` behaves exactly as v1/v2
+(single-platform, top-level `bundle_url`).
 
 ## Detail schema (`apps/<id>/metadata.json`)
 
