@@ -33,7 +33,7 @@ jobs:
     name: install.sh + updater enabled (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run install.sh (non-interactive)
         env:
@@ -72,7 +72,7 @@ jobs:
     name: install.sh + updater loaded (macos-latest)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run install.sh (non-interactive)
         env:
