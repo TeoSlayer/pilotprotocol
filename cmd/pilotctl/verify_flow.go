@@ -155,12 +155,22 @@ func cmdVerifyProvider(flags map[string]string, provider string) {
 
 	deadline := time.Now().Add(10 * time.Minute)
 	var badge, badgeSig string
+	// Tolerate transient poll failures (a dropped frame, a relay blip) rather
+	// than aborting a flow the user may have already half-completed. Only give
+	// up after several consecutive errors.
+	const maxPollErrors = 5
+	pollErrors := 0
 	for time.Now().Before(deadline) {
 		time.Sleep(5 * time.Second)
 		poll, err := verifierRoundtrip(d, vaddr, verifierRequest{Op: "poll", FlowID: begin.FlowID})
 		if err != nil {
-			fatalCode("connection_failed", "verify poll: %v", err)
+			pollErrors++
+			if pollErrors >= maxPollErrors {
+				fatalCode("connection_failed", "verify poll: %d consecutive failures: %v", pollErrors, err)
+			}
+			continue
 		}
+		pollErrors = 0
 		switch poll.Status {
 		case "ready":
 			badge, badgeSig = poll.Badge, poll.BadgeSig
