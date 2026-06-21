@@ -103,7 +103,11 @@ func main() {
 	sandboxDir := flag.String("sandbox-dir", "", "confinement root when -sandbox is set (default: ~/.pilot)")
 	motdFeedURL := flag.String("motd-feed-url", motd.DefaultFeedURL, "message-of-the-day feed URL (empty to disable); overridden by $PILOT_MOTD_URL")
 	motdInterval := flag.Duration("motd-interval", 0, "message-of-the-day poll interval (default 15m)")
-	telemetryURL := flag.String("telemetry-url", os.Getenv("PILOT_TELEMETRY_URL"),
+	telemetryURLDefault := os.Getenv("PILOT_TELEMETRY_URL")
+	if telemetryURLDefault == "" {
+		telemetryURLDefault = telemetry.DefaultEndpoint
+	}
+	telemetryURL := flag.String("telemetry-url", telemetryURLDefault,
 		"telemetry endpoint URL (empty = consent off, hard no-op). "+
 			"Env: PILOT_TELEMETRY_URL. Default: "+telemetry.DefaultEndpoint+".")
 	flag.Parse()
