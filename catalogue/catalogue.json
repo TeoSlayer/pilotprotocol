@@ -15,7 +15,8 @@
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
-      "metadata_sha256": "b0ed7dee416144c39d8938f4dbeaac8946be3290a6c44473d898a5945eb6cadb"
+      "metadata_sha256": "b0ed7dee416144c39d8938f4dbeaac8946be3290a6c44473d898a5945eb6cadb",
+      "platforms": {}
     },
     {
       "id": "io.pilot.cosift",
@@ -30,7 +31,8 @@
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
-      "metadata_sha256": "2b13511562dc1cfe09a6f53928149509a96ef893ee783fd1e055ed379b08b640"
+      "metadata_sha256": "2b13511562dc1cfe09a6f53928149509a96ef893ee783fd1e055ed379b08b640",
+      "platforms": {}
     },
     {
       "id": "io.pilot.sixtyfour",
@@ -45,7 +47,8 @@
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d"
+      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d",
+      "platforms": {}
     }
   ]
 }
