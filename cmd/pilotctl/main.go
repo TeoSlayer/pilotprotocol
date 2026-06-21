@@ -1532,6 +1532,10 @@ dispatch:
 		cmdSetPrivate(cmdArgs)
 	case "deregister":
 		cmdDeregister(cmdArgs)
+	case "verify":
+		cmdVerify(cmdArgs)
+	case "recovery":
+		cmdRecovery(cmdArgs)
 
 	// Discovery
 	case "find":
