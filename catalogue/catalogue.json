@@ -10,11 +10,7 @@
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
       "display_name": "Wallet",
       "vendor": "Pilot Protocol",
-      "categories": [
-        "payments",
-        "crypto",
-        "finance"
-      ],
+      "categories": ["payments", "crypto", "finance"],
       "bundle_size": 9110758,
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
@@ -29,11 +25,7 @@
       "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0",
       "display_name": "Cosift",
       "vendor": "Pilot Protocol",
-      "categories": [
-        "search",
-        "research",
-        "retrieval"
-      ],
+      "categories": ["search", "research", "retrieval"],
       "bundle_size": 4774876,
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
@@ -48,11 +40,7 @@
       "bundle_sha256": "b259f6a3b84fe16043cb972985efcdcb3d568174ac3c8a4129d551ec8ca9a712",
       "display_name": "Sixtyfour",
       "vendor": "Sixtyfour",
-      "categories": [
-        "data",
-        "enrichment",
-        "sales-intelligence"
-      ],
+      "categories": ["data", "enrichment", "sales-intelligence"],
       "bundle_size": 4898153,
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
