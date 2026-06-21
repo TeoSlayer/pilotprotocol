@@ -53,6 +53,10 @@ const (
 	tdCmdRotateKeyOK       byte = 0x26
 	tdCmdBroadcast         byte = 0x29
 	tdCmdBroadcastOK       byte = 0x2A
+	tdCmdSubmitBadge       byte = 0x2F
+	tdCmdSubmitBadgeOK     byte = 0x30
+	tdCmdEnrollRecovery    byte = 0x31
+	tdCmdEnrollRecoveryOK  byte = 0x32
 )
 
 // shortSock returns a /tmp/ps-XXX.sock path short enough for macOS's
