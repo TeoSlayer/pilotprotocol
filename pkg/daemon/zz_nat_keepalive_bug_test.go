@@ -202,6 +202,7 @@ func TestHandleEncryptedDropsKeepaliveBeforeRecvCh(t *testing.T) {
 		Version:  protocol.Version,
 		Protocol: protocol.ProtoControl,
 		DstPort:  protocol.PortPing,
+		Src:      protocol.Addr{Node: peerNodeID}, // inner Src == authenticated peerNodeID
 	}
 	plaintext, err := ka.Marshal()
 	if err != nil {
