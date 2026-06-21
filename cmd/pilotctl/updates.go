@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -16,6 +17,76 @@ import (
 	"github.com/pilot-protocol/skillinject"
 	"github.com/pilot-protocol/updater"
 )
+
+// autoUpdateStatePath is the JSON control file ({"enabled": bool}) shared with
+// the pilot-updater loop (passed as its --state-path). Automatic updates are
+// OFF by default: when the file is absent the updater applies nothing.
+func autoUpdateStatePath() string { return configDir() + "/auto-update.json" }
+
+// autoUpdateEnabled reports the persisted auto-update setting (default off).
+func autoUpdateEnabled() bool {
+	data, err := os.ReadFile(autoUpdateStatePath())
+	if err != nil {
+		return false
+	}
+	var s struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		return false
+	}
+	return s.Enabled
+}
+
+// cmdAutoUpdateSet turns automatic updates on or off (`pilotctl update
+// enable|disable`). The pilot-updater re-reads the file each tick, so this
+// takes effect without restarting it.
+func cmdAutoUpdateSet(on bool) {
+	path := autoUpdateStatePath()
+	_ = os.MkdirAll(configDir(), 0o755)
+	data, _ := json.MarshalIndent(map[string]bool{"enabled": on}, "", "  ")
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		fatalCode("internal", "write %s: %v", path, err)
+	}
+	if jsonOutput {
+		outputOK(map[string]interface{}{"auto_update": on})
+		return
+	}
+	if on {
+		fmt.Println("Automatic updates ENABLED. The updater will install new stable releases on its check interval.")
+		fmt.Println("Disable any time with: pilotctl update disable")
+	} else {
+		fmt.Println("Automatic updates DISABLED. Nothing will be installed automatically.")
+		fmt.Println("Run a one-time manual update with: pilotctl update")
+	}
+}
+
+// cmdAutoUpdateStatus shows whether automatic updates are on and the current
+// version (`pilotctl update status`).
+func cmdAutoUpdateStatus() {
+	on := autoUpdateEnabled()
+	if jsonOutput {
+		outputOK(map[string]interface{}{
+			"auto_update":     on,
+			"current_version": version,
+			"state_file":      autoUpdateStatePath(),
+		})
+		return
+	}
+	state := "disabled"
+	if on {
+		state = "enabled"
+	}
+	fmt.Printf("Automatic updates: %s\n", state)
+	fmt.Printf("Current version:   %s\n", version)
+	fmt.Printf("State file:        %s\n", autoUpdateStatePath())
+	if on {
+		fmt.Println("\nTurn off with:  pilotctl update disable")
+	} else {
+		fmt.Println("\nTurn on with:   pilotctl update enable")
+		fmt.Println("One-time check: pilotctl update")
+	}
+}
 
 // changelogFeedURL is the canonical RSS 2.0 feed for the public Pilot
 // Protocol changelog. Hosted on GitHub Pages from the pilot-changelog
@@ -218,6 +289,22 @@ func collapseWhitespace(s string) string {
 //	--pin <tag>     : pin to a specific release tag (e.g. v1.10.5)
 //	(global) --json : emit machine-readable JSON
 func cmdUpdate(args []string) {
+	// Auto-update control surface: `pilotctl update status|enable|disable`.
+	// Bare `pilotctl update` (or with --repo/--pin flags) runs a one-shot
+	// manual update, which works regardless of the auto-update setting.
+	if len(args) >= 1 {
+		switch args[0] {
+		case "status":
+			cmdAutoUpdateStatus()
+			return
+		case "enable", "on":
+			cmdAutoUpdateSet(true)
+			return
+		case "disable", "off":
+			cmdAutoUpdateSet(false)
+			return
+		}
+	}
 	flags, _ := parseFlags(args)
 	repo := flagString(flags, "repo", "pilot-protocol/pilotprotocol")
 	pin := flagString(flags, "pin", "")

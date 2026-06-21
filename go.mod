@@ -16,7 +16,7 @@ require (
 	github.com/pilot-protocol/runtime v0.3.1
 	github.com/pilot-protocol/skillinject v0.2.3
 	github.com/pilot-protocol/trustedagents v0.2.3
-	github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e
+	github.com/pilot-protocol/updater v0.2.2
 	github.com/pilot-protocol/webhook v0.2.0
 	golang.org/x/sys v0.46.0
 )
