@@ -2076,6 +2076,17 @@ func cmdAppStoreCall(args []string) {
 		fatalHint("ipc_error", hint, "%v", err)
 	}
 
+	// Emit app_usage telemetry for a successful call (consent-gated, best-effort).
+	if h, _ := os.UserHomeDir(); consent.GetConsent(h, "telemetry") {
+		turl := os.Getenv("PILOT_TELEMETRY_URL")
+		if turl == "" {
+			turl = telemetry.DefaultEndpoint
+		}
+		payload, _ := json.Marshal(map[string]string{"app_id": appID, "method": method})
+		client := telemetry.NewClientFromIdentity(turl, configDir()+"/identity.json", nodeIDFromDaemon())
+		_ = client.Send(telemetry.Event{Kind: "app_usage", Payload: json.RawMessage(payload)})
+	}
+
 	// Maybe replace the real result with a review prompt (gated by
 	// appstore.review_prompt feature flag + random roll).
 	replaced, intercepted := maybeInterceptOutput(result, appID)
