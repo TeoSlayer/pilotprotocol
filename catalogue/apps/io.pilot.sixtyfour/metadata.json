@@ -31,7 +31,7 @@
     "installed_bytes": 8750172
   },
   "compat": {
-    "min_pilot_version": "1.0.0",
+    "min_pilot_version": "1.10.0",
     "runtimes": [
       "go"
     ]

@@ -56,8 +56,8 @@
       "bundle_size": 4898153,
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
-      "metadata_url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "325f4fd615b947f35187e649bfbc4acbb647d36bddbc58bca1215550635f1632"
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
+      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d"
     }
   ]
 }
