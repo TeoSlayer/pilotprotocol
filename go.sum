@@ -1,7 +1,7 @@
 github.com/TeoSlayer/pilotprotocol v1.10.5 h1:2zIVdjLoGSBnRtzpKSFvM9J1tf4Vp1fNmsZGBbBWLus=
 github.com/TeoSlayer/pilotprotocol v1.10.5/go.mod h1:gabsXHzwAeIJGSU5zdwoeSolP5dWfPrmZZj6obS0sBw=
-github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
-github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
+github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
+github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM=
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
 github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72 h1:vDiQ7ZheKIzlNqfviu5zeQzGVTMP63k1hC5HodEuyeQ=
