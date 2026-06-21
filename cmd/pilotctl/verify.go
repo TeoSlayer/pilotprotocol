@@ -40,6 +40,7 @@ func nodeArgToID(s string) uint32 {
 //
 //	pilotctl verify                          # show your own verification status
 //	pilotctl verify status                   # same
+//	pilotctl verify --provider github        # self-service: device-flow via the verifier
 //	pilotctl verify --badge <badge> --badge-sig <sig>
 //	pilotctl verify --from cred.json        # {"badge":..,"badge_sig":..}
 func cmdVerify(args []string) {
@@ -48,6 +49,11 @@ func cmdVerify(args []string) {
 		return
 	}
 	flags, _ := parseFlags(args)
+	// Self-service device-flow: dial the verifier, run the browser flow, submit.
+	if provider := flagString(flags, "provider", ""); provider != "" {
+		cmdVerifyProvider(flags, provider)
+		return
+	}
 	badge := flagString(flags, "badge", "")
 	badgeSig := flagString(flags, "badge-sig", "")
 	if from := flagString(flags, "from", ""); from != "" {
