@@ -4,8 +4,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
+	"github.com/pilot-protocol/common/badgeverify"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/protocol"
 	registry "github.com/pilot-protocol/common/registry/client"
@@ -36,9 +38,15 @@ func nodeArgToID(s string) uint32 {
 // command hands them to the daemon, which proves ownership with the node key
 // and submits to the registry.
 //
+//	pilotctl verify                          # show your own verification status
+//	pilotctl verify status                   # same
 //	pilotctl verify --badge <badge> --badge-sig <sig>
 //	pilotctl verify --from cred.json        # {"badge":..,"badge_sig":..}
 func cmdVerify(args []string) {
+	if len(args) >= 1 && args[0] == "status" {
+		cmdVerifyStatus(args[1:])
+		return
+	}
 	flags, _ := parseFlags(args)
 	badge := flagString(flags, "badge", "")
 	badgeSig := flagString(flags, "badge-sig", "")
@@ -55,9 +63,11 @@ func cmdVerify(args []string) {
 			badgeSig = m.BadgeSig
 		}
 	}
+	// Bare `pilotctl verify` with nothing to submit is a status check — show
+	// the user whether they are verified and, if not, how to become verified.
 	if badge == "" || badgeSig == "" {
-		fatalCode("invalid_argument",
-			"usage: pilotctl verify --badge <badge> --badge-sig <sig>  (or --from cred.json)")
+		cmdVerifyStatus(args)
+		return
 	}
 	d := connectDriver()
 	defer d.Close()
@@ -66,6 +76,103 @@ func cmdVerify(args []string) {
 		fatalCode("connection_failed", "verify: %v", err)
 	}
 	output(resp)
+}
+
+// cmdVerifyStatus shows whether THIS node carries a verified-address badge.
+// The badge is read from the registry (untrusted transport) and then verified
+// OFFLINE against the pinned issuer key — we never take the registry's word for
+// it. When unverified, it prints how to get verified.
+//
+//	pilotctl verify status [--node <addr|id>]
+func cmdVerifyStatus(args []string) {
+	flags, _ := parseFlags(args)
+
+	var nodeID uint32
+	var address string
+	if n := flagString(flags, "node", ""); n != "" {
+		nodeID = nodeArgToID(n)
+	} else {
+		d := connectDriver()
+		info, err := d.Info()
+		d.Close()
+		if err != nil {
+			fatalCode("connection_failed",
+				"verify status: cannot reach the daemon (is it running?): %v", err)
+		}
+		if v, ok := info["node_id"].(float64); ok {
+			nodeID = uint32(v)
+		}
+		address, _ = info["address"].(string)
+	}
+
+	rc := connectRegistry()
+	defer rc.Close()
+	resp, err := rc.Lookup(nodeID)
+	if err != nil {
+		fatalCode("connection_failed", "verify status: registry lookup: %v", err)
+	}
+
+	badge, _ := resp["badge"].(string)
+	badgeSig, _ := resp["badge_sig"].(string)
+	provider, _ := resp["verification_provider"].(string)
+	verifiedAt, _ := resp["verified_at"].(string)
+
+	out := map[string]interface{}{"node_id": nodeID}
+	if address != "" {
+		out["address"] = address
+	}
+
+	status := "not_verified"
+	verified := false
+	var detail string
+	if badge != "" {
+		if _, verr := badgeverify.VerifyForNode(badge, badgeSig, nodeID); verr == nil {
+			status, verified = "verified", true
+		} else {
+			status, detail = "badge_present_unvalidated", verr.Error()
+		}
+	}
+	out["verified"] = verified
+	out["status"] = status
+	if provider != "" {
+		out["provider"] = provider
+	}
+	if verifiedAt != "" {
+		out["verified_at"] = verifiedAt
+	}
+	if status == "not_verified" {
+		out["how_to_verify"] = []string{
+			fmt.Sprintf("1. pilot-verify verify --provider github --node-id %d --github-client-id <client-id>", nodeID),
+			"   (authorize in your browser; it prints a badge + signature)",
+			"2. pilotctl verify --badge <badge> --badge-sig <sig>",
+		}
+	}
+	if detail != "" {
+		out["detail"] = detail
+	}
+
+	if jsonOutput {
+		output(out)
+		return
+	}
+	switch status {
+	case "verified":
+		line := fmt.Sprintf("✓ Verified via %s", provider)
+		if verifiedAt != "" {
+			line += fmt.Sprintf(" (since %s)", verifiedAt)
+		}
+		fmt.Println(line)
+	case "badge_present_unvalidated":
+		fmt.Printf("A %s badge is on file but could not be validated by this build.\n", provider)
+		fmt.Println("(the issuer key may not be pinned yet)")
+	default:
+		fmt.Println("Not verified.")
+		fmt.Println()
+		fmt.Println("To get a verified badge:")
+		fmt.Printf("  1. pilot-verify verify --provider github --node-id %d --github-client-id <client-id>\n", nodeID)
+		fmt.Println("     (authorize in your browser; it prints a badge + signature)")
+		fmt.Println("  2. pilotctl verify --badge <badge> --badge-sig <sig>")
+	}
 }
 
 // cmdRecovery dispatches the recovery subcommands.

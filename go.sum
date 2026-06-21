@@ -20,8 +20,8 @@ github.com/pilot-protocol/nameserver v0.2.1 h1:ACCa6WVkEoDZVctEe09WB24Lfobt/JoLD
 github.com/pilot-protocol/nameserver v0.2.1/go.mod h1:ze4VFe74xdbyqu5oFPt0YGRrRMMnHWb/AczJhirG+h4=
 github.com/pilot-protocol/policy v0.2.2 h1:Co8sqZ4lRQfFA0Ot8l33VhsEwfiEVqcPz+kHY49QbkM=
 github.com/pilot-protocol/policy v0.2.2/go.mod h1:jzsAO71uGlRVyduPrQmS/UeqSwUpeUO/CjykHm/IfXM=
-github.com/pilot-protocol/rendezvous v0.2.5-0.20260615154750-f09cf1a708b0 h1:kKeSXIEfE677+yanooStfSnneQ3dFCb22WPJbyj+yng=
-github.com/pilot-protocol/rendezvous v0.2.5-0.20260615154750-f09cf1a708b0/go.mod h1:Gv1BwKx5oBUZCMNpCxa9enBFa6uy9hHDSI2r28QdIrg=
+github.com/pilot-protocol/rendezvous v0.2.5 h1:PvApwKHU2DnvK8pA6K9RAohUomZNu6vX6ccIEoTogvo=
+github.com/pilot-protocol/rendezvous v0.2.5/go.mod h1:nUPZaM1R1x0iEKbTp1TuYqro2wgBArwT0E4wauR8I2E=
 github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrYElXZ1zs=
 github.com/pilot-protocol/runtime v0.3.1/go.mod h1:GfFEIji0w7H9SSNR9Wl2q72pd2OYN3PHY9Qhcbvyrqk=
 github.com/pilot-protocol/skillinject v0.2.3 h1:Bf0tqRe7tqYY27X5RGCOf4LGjtWpyQvN/03YumDBDJs=
