@@ -5,8 +5,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // TestEphemeralPortLeakOnSendDatagramError — §4.4 port-leak regression.

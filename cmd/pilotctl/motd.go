@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/motd"
+	"github.com/pilot-protocol/pilotprotocol/internal/motd"
 )
 
 // importantUpdate is the message-of-the-day text active for the current UTC

@@ -18,14 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
-	wssTransport "github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport/wss"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
 	"github.com/pilot-protocol/common/crypto"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/envelope"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/routing"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
+	wssTransport "github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport/wss"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/udpio"
 )
 
 // Type aliases letting existing pkg/daemon code (tests + L5/L7) refer
@@ -1364,6 +1364,28 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 	pkt, err := protocol.Unmarshal(plaintext)
 	if err != nil {
 		slog.Error("tunnel unmarshal error after decrypt", "peer_node_id", peerNodeID, "error", err)
+		return
+	}
+
+	// Identity binding (transport security). The AEAD authenticated the
+	// frame-header peerNodeID: reaching this point proves the sender holds
+	// the session key bound to it. The inner packet's Src, by contrast, is
+	// plaintext the sender chose freely. Reject any frame whose inner
+	// Src.Node disagrees with the authenticated peerNodeID — otherwise a
+	// node holding one valid session could forge packets impersonating any
+	// other node to the SYN trust gate and to applications (which read
+	// conn.RemoteAddr().Node). Relay-delivered frames re-enter this path with
+	// peerNodeID taken from the inner secure frame's AEAD, never the beacon's
+	// untrusted srcNodeID, so the check covers direct and relayed traffic
+	// alike. Src.Network may vary across a node's networks; identity is the
+	// node id, so only .Node is compared.
+	if pkt.Src.Node != peerNodeID {
+		slog.Warn("tunnel: dropping frame with spoofed source node",
+			"authenticated_peer", peerNodeID, "claimed_src", pkt.Src.Node)
+		tm.publishEvent("security.src_spoofed", map[string]interface{}{
+			"authenticated_peer": peerNodeID,
+			"claimed_src":        pkt.Src.Node,
+		})
 		return
 	}
 

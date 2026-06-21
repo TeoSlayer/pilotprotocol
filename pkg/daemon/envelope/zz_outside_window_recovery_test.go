@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/envelope"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/envelope"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // TestOutsideWindowCountIncrementsAndResets pins the bookkeeping: each

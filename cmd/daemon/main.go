@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/motd"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/config"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/logging"
+	"github.com/pilot-protocol/pilotprotocol/internal/motd"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
@@ -35,8 +35,8 @@ import (
 	"github.com/pilot-protocol/trustedagents"
 	"github.com/pilot-protocol/webhook"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 var version = "dev"
@@ -103,7 +103,11 @@ func main() {
 	sandboxDir := flag.String("sandbox-dir", "", "confinement root when -sandbox is set (default: ~/.pilot)")
 	motdFeedURL := flag.String("motd-feed-url", motd.DefaultFeedURL, "message-of-the-day feed URL (empty to disable); overridden by $PILOT_MOTD_URL")
 	motdInterval := flag.Duration("motd-interval", 0, "message-of-the-day poll interval (default 15m)")
-	telemetryURL := flag.String("telemetry-url", os.Getenv("PILOT_TELEMETRY_URL"),
+	telemetryURLDefault := os.Getenv("PILOT_TELEMETRY_URL")
+	if telemetryURLDefault == "" {
+		telemetryURLDefault = telemetry.DefaultEndpoint
+	}
+	telemetryURL := flag.String("telemetry-url", telemetryURLDefault,
 		"telemetry endpoint URL (empty = consent off, hard no-op). "+
 			"Env: PILOT_TELEMETRY_URL. Default: "+telemetry.DefaultEndpoint+".")
 	flag.Parse()

@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pilot-protocol/common/badgeverify"
 	"github.com/pilot-protocol/common/ipcutil"
 	"github.com/pilot-protocol/common/protocol"
 )
@@ -82,6 +84,16 @@ const (
 	// the full 14-31 s retry budget, filling the per-conn dispatch
 	// semaphore under burst load (§4.8 stress).
 	CmdCancel byte = 0x2B
+	// CmdSubmitBadge attaches a verified-address badge to this node and
+	// CmdEnrollRecovery records its opaque recovery commitment. Both carry a
+	// JSON payload of verifier-produced credentials; the daemon adds a
+	// signature by the current key proving ownership before forwarding to
+	// the registry. Optional — unverified nodes never send these. (Must
+	// match driver cmdSubmitBadge/cmdEnrollRecovery in common/driver.)
+	CmdSubmitBadge      byte = 0x2F
+	CmdSubmitBadgeOK    byte = 0x30
+	CmdEnrollRecovery   byte = 0x31
+	CmdEnrollRecoveryOK byte = 0x32
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -760,6 +772,10 @@ func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []by
 		s.handleRotateKey(conn, reqID)
 	case CmdPreferDirect:
 		s.handlePreferDirect(conn, reqID, payload)
+	case CmdSubmitBadge:
+		s.handleSubmitBadge(conn, reqID, payload)
+	case CmdEnrollRecovery:
+		s.handleEnrollRecovery(conn, reqID, payload)
 	default:
 		s.sendError(conn, reqID, fmt.Sprintf("unknown command: 0x%02X", cmd))
 	}
@@ -1433,6 +1449,99 @@ func (s *IPCServer) handleRotateKey(conn *ipcConn, reqID uint64) {
 	}
 	if err := conn.writeReply(CmdRotateKeyOK, reqID, data); err != nil {
 		slog.Debug("IPC rotate_key reply failed", "err", err)
+	}
+}
+
+// handleSubmitBadge attaches a verifier-produced badge to this node. The badge
+// and badge_sig come straight from the verifier sidecar; here the daemon adds
+// a signature by the CURRENT key over "submit_badge:<node_id>:<badge>" proving
+// it owns the address, then forwards both to the registry (which also verifies
+// the badge offline against the pinned issuer key).
+func (s *IPCServer) handleSubmitBadge(conn *ipcConn, reqID uint64, payload []byte) {
+	var req struct {
+		Badge    string `json:"badge"`
+		BadgeSig string `json:"badge_sig"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("submit_badge: bad payload: %v", err))
+		return
+	}
+	if req.Badge == "" || req.BadgeSig == "" {
+		s.sendError(conn, reqID, "submit_badge: badge and badge_sig required")
+		return
+	}
+	if s.daemon.regConn == nil {
+		s.sendError(conn, reqID, "submit_badge: registry connection unavailable")
+		return
+	}
+	nodeID := s.daemon.NodeID()
+	sig := s.daemon.Sign([]byte(fmt.Sprintf("submit_badge:%d:%s", nodeID, req.Badge)))
+	if sig == nil {
+		s.sendError(conn, reqID, "submit_badge: daemon has no identity")
+		return
+	}
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+	result, err := s.daemon.regConn.SubmitBadge(nodeID, req.Badge, req.BadgeSig, sigB64)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("submit_badge: %v", err))
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("submit_badge marshal: %v", err))
+		return
+	}
+	if err := conn.writeReply(CmdSubmitBadgeOK, reqID, data); err != nil {
+		slog.Debug("IPC submit_badge reply failed", "err", err)
+	}
+}
+
+// handleEnrollRecovery records this node's opaque recovery commitment so the
+// address can later be recovered if the current key is lost. The daemon signs
+// "enroll_recovery:<node_id>:<commitment>" with the current key; the commitment
+// is parsed from the verifier-produced enrollment so the raw external identity
+// never reaches the daemon.
+func (s *IPCServer) handleEnrollRecovery(conn *ipcConn, reqID uint64, payload []byte) {
+	var req struct {
+		Enrollment    string `json:"enrollment"`
+		EnrollmentSig string `json:"enrollment_sig"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery: bad payload: %v", err))
+		return
+	}
+	if req.Enrollment == "" || req.EnrollmentSig == "" {
+		s.sendError(conn, reqID, "enroll_recovery: enrollment and enrollment_sig required")
+		return
+	}
+	enr, err := badgeverify.ParseEnrollment(req.Enrollment)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery: bad enrollment: %v", err))
+		return
+	}
+	if s.daemon.regConn == nil {
+		s.sendError(conn, reqID, "enroll_recovery: registry connection unavailable")
+		return
+	}
+	nodeID := s.daemon.NodeID()
+	sig := s.daemon.Sign([]byte(fmt.Sprintf("enroll_recovery:%d:%s", nodeID, enr.Commitment)))
+	if sig == nil {
+		s.sendError(conn, reqID, "enroll_recovery: daemon has no identity")
+		return
+	}
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+	result, err := s.daemon.regConn.EnrollRecovery(nodeID, req.Enrollment, req.EnrollmentSig, sigB64)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery: %v", err))
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery marshal: %v", err))
+		return
+	}
+	if err := conn.writeReply(CmdEnrollRecoveryOK, reqID, data); err != nil {
+		slog.Debug("IPC enroll_recovery reply failed", "err", err)
 	}
 }
 

@@ -34,11 +34,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/app-store/pkg/ipc"
 	"github.com/pilot-protocol/app-store/pkg/manifest"
 	"github.com/pilot-protocol/common/consent"
 	"github.com/pilot-protocol/common/crypto"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // cryptoSHA256 is named so the sha256 import isn't ambiguous-looking.
@@ -2074,6 +2074,17 @@ func cmdAppStoreCall(args []string) {
 			}
 		}
 		fatalHint("ipc_error", hint, "%v", err)
+	}
+
+	// Emit app_usage telemetry for a successful call (consent-gated, best-effort).
+	if h, _ := os.UserHomeDir(); consent.GetConsent(h, "telemetry") {
+		turl := os.Getenv("PILOT_TELEMETRY_URL")
+		if turl == "" {
+			turl = telemetry.DefaultEndpoint
+		}
+		payload, _ := json.Marshal(map[string]string{"app_id": appID, "method": method})
+		client := telemetry.NewClientFromIdentity(turl, configDir()+"/identity.json", nodeIDFromDaemon())
+		_ = client.Send(telemetry.Event{Kind: "app_usage", Payload: json.RawMessage(payload)})
 	}
 
 	// Maybe replace the real result with a review prompt (gated by

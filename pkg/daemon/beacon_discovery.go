@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/routing"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/routing"
 )
 
 // probeBeaconsParallel sends a discover probe to each beacon in parallel

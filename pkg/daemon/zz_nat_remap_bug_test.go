@@ -99,6 +99,7 @@ func TestPeerNATRemapNotLearnedOnDecrypt(t *testing.T) {
 	// Build a real encrypted frame the way the peer would, then deliver
 	// it via handleEncrypted with from=addrNew (the post-remap source).
 	pkt := newPacket("post-nat-remap-payload")
+	pkt.Src.Node = peerNodeID // well-behaved peer: inner Src == authenticated peerNodeID
 	plaintext, err := pkt.Marshal()
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)

@@ -5,7 +5,7 @@ package validate_test
 import (
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/validate"
+	"github.com/pilot-protocol/pilotprotocol/internal/validate"
 )
 
 func TestEmailValid(t *testing.T) {

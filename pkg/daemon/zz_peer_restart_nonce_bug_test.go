@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/keyexchange"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/keyexchange"
 )
 
 // TestReplayNeverTriggersRekey pins the v1.9.2 invariant for *isolated*

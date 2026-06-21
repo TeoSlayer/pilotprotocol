@@ -43,4 +43,6 @@ jobs:
         # PR #120). Integration is now exclusively in nightly.yml.
         # -short skips 3 known-slow stress tests in pkg/daemon and
         # pkg/daemon/udpio; everything else runs.
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: go test -short -count=1 -timeout 600s ./pkg/... ./cmd/... ./internal/...

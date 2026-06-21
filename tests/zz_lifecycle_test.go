@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon"
 	"github.com/pilot-protocol/common/driver"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 )
 
 // TestDialClosedPort verifies that dialing a port with no listener returns an error (RST).

@@ -48,19 +48,21 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/TeoSlayer/pilotprotocol/internal/catalogtrust"
-	"github.com/TeoSlayer/pilotprotocol/pkg/telemetry"
 	"github.com/pilot-protocol/common/consent"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 // defaultCatalogueURL points at the canonical catalogue.json on main.
 // Override via $PILOT_APPSTORE_CATALOG_URL (use file:// for local
 // staging, https:// for everything else; plain http:// is rejected
 // off-loopback).
-const defaultCatalogueURL = "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/catalogue/catalogue.json"
+const defaultCatalogueURL = "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/catalogue.json"
 
 // catalogue is the parsed wire shape of catalogue.json. The schema is
 // versioned (catalogue.json's "version" field) so future migrations
@@ -87,6 +89,14 @@ type catalogueEntry struct {
 	BundleURL   string `json:"bundle_url"`
 	BundleSHA   string `json:"bundle_sha256"`
 
+	// --- v3 per-platform bundles ---
+	// Bundles maps "os/arch" (e.g. "darwin/arm64") → that platform's
+	// tarball + sha256. When present, install picks the host's entry;
+	// BundleURL/BundleSHA above are the back-compat primary (linux/amd64)
+	// that pre-v3 clients still fetch. A v1/v2 entry omits this map and
+	// install uses BundleURL as before.
+	Bundles map[string]bundleVariant `json:"bundles,omitempty"`
+
 	// --- v2 teaser fields (cheap, shown in the catalogue listing) ---
 	DisplayName string   `json:"display_name,omitempty"`
 	Vendor      string   `json:"vendor,omitempty"`
@@ -102,6 +112,34 @@ type catalogueEntry struct {
 	// manifest.
 	MetadataURL string `json:"metadata_url,omitempty"`
 	MetadataSHA string `json:"metadata_sha256,omitempty"`
+}
+
+// bundleVariant is one platform's downloadable tarball + its pinned sha256.
+type bundleVariant struct {
+	BundleURL string `json:"bundle_url"`
+	BundleSHA string `json:"bundle_sha256"`
+}
+
+// resolveBundle returns the tarball URL + sha256 to install on THIS host.
+// A v3 entry (Bundles populated) is strict: it picks the host's os/arch and
+// errors if that platform wasn't published, rather than silently fetching a
+// binary that can't exec. A v1/v2 entry (no Bundles) uses the single
+// top-level BundleURL/BundleSHA, exactly as before.
+func (e catalogueEntry) resolveBundle() (url, sha string, err error) {
+	if len(e.Bundles) == 0 {
+		return e.BundleURL, e.BundleSHA, nil
+	}
+	plat := runtime.GOOS + "/" + runtime.GOARCH
+	if v, ok := e.Bundles[plat]; ok && v.BundleURL != "" {
+		return v.BundleURL, v.BundleSHA, nil
+	}
+	avail := make([]string, 0, len(e.Bundles))
+	for k := range e.Bundles {
+		avail = append(avail, k)
+	}
+	sort.Strings(avail)
+	return "", "", fmt.Errorf("%s has no bundle for this platform (%s); published platforms: %s",
+		e.ID, plat, strings.Join(avail, ", "))
 }
 
 // catalogueURL returns the URL pilotctl should fetch the catalogue
@@ -328,13 +366,17 @@ func resolveInstallTarget(target string) (string, installSource, error) {
 // CDN substitute), and unpacks it into a tempdir whose path is
 // returned for the install path to consume.
 func fetchAndUnpackBundle(e catalogueEntry) (string, error) {
-	if e.BundleSHA == "" || e.BundleSHA == "REPLACE_AT_RELEASE_TIME" {
+	bundleURL, bundleSHA, err := e.resolveBundle()
+	if err != nil {
+		return "", err
+	}
+	if bundleSHA == "" || bundleSHA == "REPLACE_AT_RELEASE_TIME" {
 		return "", fmt.Errorf("catalogue entry %s has placeholder sha256 — the release pipeline hasn't filled this in yet", e.ID)
 	}
-	fmt.Printf("fetching %s ...\n", e.BundleURL)
-	body, err := openURL(e.BundleURL)
+	fmt.Printf("fetching %s ...\n", bundleURL)
+	body, err := openURL(bundleURL)
 	if err != nil {
-		return "", fmt.Errorf("fetch %s: %w", e.BundleURL, err)
+		return "", fmt.Errorf("fetch %s: %w", bundleURL, err)
 	}
 	defer body.Close()
 
@@ -352,8 +394,8 @@ func fetchAndUnpackBundle(e catalogueEntry) (string, error) {
 		return "", err
 	}
 	got := hex.EncodeToString(h.Sum(nil))
-	if got != e.BundleSHA {
-		return "", fmt.Errorf("bundle sha256 mismatch: want=%s got=%s — the cdn served different bytes than the catalogue pinned", e.BundleSHA, got)
+	if got != bundleSHA {
+		return "", fmt.Errorf("bundle sha256 mismatch: want=%s got=%s — the cdn served different bytes than the catalogue pinned", bundleSHA, got)
 	}
 	fmt.Printf("sha256 OK (%s)\n", got)
 
@@ -415,9 +457,17 @@ func httpGet(raw string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// maxUntarFileSize is the per-file limit for entries extracted by
+// untarUnder. 64 MiB covers legitimate bundles (the largest known
+// pilot app is ~4 MiB) while bounding decompression bombs that pass
+// the 1 MiB tarball download cap via a high compression ratio.
+const maxUntarFileSize int64 = 64 << 20 // 64 MiB
+
 // untarUnder writes every entry in r under dst, refusing any path
 // that resolves outside dst (mirrors the supervisor's
-// resolveUnder guard on manifest.binary.path).
+// resolveUnder guard on manifest.binary.path). Per-file extraction
+// is capped at maxUntarFileSize to prevent decompression bombs from
+// filling disk via extreme compression ratios.
 func untarUnder(r io.Reader, dst string) error {
 	tr := tar.NewReader(r)
 	for {
@@ -446,12 +496,26 @@ func untarUnder(r io.Reader, dst string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			lr := io.LimitReader(tr, maxUntarFileSize)
+			written, err := io.Copy(f, lr)
+			if err != nil {
 				_ = f.Close()
 				return err
 			}
-			if err := f.Close(); err != nil {
-				return err
+			overLimit := false
+			if written >= maxUntarFileSize {
+				// Read one more byte to check if the tar entry has leftover data.
+				// If it does, the file exceeds the per-file limit.
+				var probe [1]byte
+				if _, err := io.ReadFull(tr, probe[:]); err == nil {
+					overLimit = true
+				}
+				// err means the tar entry is exactly at the limit — that's fine.
+			}
+			_ = f.Close()
+			if overLimit {
+				os.Remove(out)
+				return fmt.Errorf("extracted file exceeds maxUntarFileSize (%d bytes): %q", maxUntarFileSize, hdr.Name)
 			}
 		default:
 			// Skip symlinks, devices, etc. — neither needed for a

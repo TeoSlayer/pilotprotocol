@@ -7,8 +7,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/transport"
-	"github.com/TeoSlayer/pilotprotocol/pkg/daemon/udpio"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/transport"
+	"github.com/pilot-protocol/pilotprotocol/pkg/daemon/udpio"
 )
 
 // TestUDPIOSocketSatisfiesTransport is a static-compile assertion that

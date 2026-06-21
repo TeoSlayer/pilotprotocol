@@ -6,7 +6,7 @@
       "id": "io.pilot.wallet",
       "version": "0.3.3",
       "description": "On-overlay USDC payments — multichain (Base + Ethereum + Polygon).",
-      "bundle_url": "https://github.com/TeoSlayer/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
+      "bundle_url": "https://github.com/pilot-protocol/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
       "display_name": "Wallet",
       "vendor": "Pilot Protocol",
@@ -14,7 +14,7 @@
       "bundle_size": 9110758,
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
-      "metadata_url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
       "metadata_sha256": "b0ed7dee416144c39d8938f4dbeaac8946be3290a6c44473d898a5945eb6cadb"
     },
     {
@@ -29,8 +29,23 @@
       "bundle_size": 4774876,
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
-      "metadata_url": "https://raw.githubusercontent.com/TeoSlayer/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
       "metadata_sha256": "2b13511562dc1cfe09a6f53928149509a96ef893ee783fd1e055ed379b08b640"
+    },
+    {
+      "id": "io.pilot.sixtyfour",
+      "version": "0.1.0",
+      "description": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0.tar.gz",
+      "bundle_sha256": "b259f6a3b84fe16043cb972985efcdcb3d568174ac3c8a4129d551ec8ca9a712",
+      "display_name": "Sixtyfour",
+      "vendor": "Sixtyfour",
+      "categories": ["data", "enrichment", "sales-intelligence"],
+      "bundle_size": 4898153,
+      "source_url": "https://docs.sixtyfour.ai",
+      "license": "Proprietary",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
+      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d"
     }
   ]
 }
