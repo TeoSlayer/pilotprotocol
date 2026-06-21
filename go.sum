@@ -8,8 +8,8 @@ github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72 
 github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72/go.mod h1:leZPtX43gE2JB7xeljexXri81g6qhdZfYExLtzI+bhg=
 github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
 github.com/pilot-protocol/beacon v0.2.6/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
-github.com/pilot-protocol/common v0.5.3 h1:CsBBmzuQn75G1MKVvKdLp77G9nf6fC7YGLZh8DVeZEI=
-github.com/pilot-protocol/common v0.5.3/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
+github.com/pilot-protocol/common v0.5.5 h1:mnv3q84alVaotGD+Qxfo4ECFEquqsUwrI3mjKIGUKFY=
+github.com/pilot-protocol/common v0.5.5/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98 h1:Bqgnf4CZC7aZJyDzz/E7agwXotArJg2FvFlNDqouhLo=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98/go.mod h1:tM9eyyruBdnxhhUtViasUjnAElwF/r5PQvCYKLdlTLY=
 github.com/pilot-protocol/eventstream v0.2.2 h1:E0IjveK7K+dsIbE/5hD3N821FkHzxVsx1tiAORMzt8k=
@@ -28,8 +28,8 @@ github.com/pilot-protocol/skillinject v0.2.3 h1:Bf0tqRe7tqYY27X5RGCOf4LGjtWpyQvN
 github.com/pilot-protocol/skillinject v0.2.3/go.mod h1:fCzivA/bjkXRgGjp6yd7nqfaIETtU+lQRocBu0J/O9g=
 github.com/pilot-protocol/trustedagents v0.2.3 h1:QQJHYqzPrECJwkCev0xIDBMjd92uhtcxcCMc2aOrRHc=
 github.com/pilot-protocol/trustedagents v0.2.3/go.mod h1:gDgEOC9lHmXSS9v45h80XxlmUS861soIrA0AsbXiSV4=
-github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e h1:vFzuw5dUVi0igwI2PdVzDY8OnY6FDLzM05wzI75zUZ8=
-github.com/pilot-protocol/updater v0.2.2-0.20260616131353-92a3a30a235e/go.mod h1:/I0uhVk1SljAOEYmjTdI/6CP7UmemmV4WB22ai1FxUw=
+github.com/pilot-protocol/updater v0.2.2 h1:uA+Gmbs3/sMoumtjwCMXUHo3TAKg51VRch88m0wUtZA=
+github.com/pilot-protocol/updater v0.2.2/go.mod h1:wn+HkjgChZ1QCCkOHBolAol42mxyyW/iz7oOFJLciT4=
 github.com/pilot-protocol/webhook v0.2.0 h1:3UFU9X2yBb0iKlPbzVcism+Z6yCrBBaOgdo9+vd4Wf4=
 github.com/pilot-protocol/webhook v0.2.0/go.mod h1:WVXhHFg+o0pHHk+4nXMCh1zl/ZAyZ3AXrtx6mNuZS6g=
 golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=

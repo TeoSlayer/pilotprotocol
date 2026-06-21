@@ -16,6 +16,18 @@ import (
 
 var version = "dev"
 
+// defaultStatePath returns the auto-update control file, matching pilotctl's
+// ~/.pilot/auto-update.json so `pilotctl update enable/disable` and this loop
+// share one source of truth. Empty if the home dir can't be resolved (the
+// updater then treats auto-update as disabled — opt-in).
+func defaultStatePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return home + "/.pilot/auto-update.json"
+}
+
 func main() {
 	installDir := flag.String("install-dir", "", "directory containing pilot binaries (required)")
 	repo := flag.String("repo", "pilot-protocol/pilotprotocol", "GitHub owner/repo for releases")
@@ -24,6 +36,7 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	statePath := flag.String("state-path", defaultStatePath(), "JSON control file {\"enabled\":bool} for automatic updates; auto-update is OFF until enabled (e.g. via `pilotctl update enable`)")
 	flag.Parse()
 
 	if *showVersion {
@@ -44,6 +57,7 @@ func main() {
 		InstallDir:    *installDir,
 		Version:       version,
 		PinnedVersion: *pin,
+		StatePath:     *statePath,
 	})
 
 	u.Start()

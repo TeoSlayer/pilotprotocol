@@ -233,6 +233,28 @@ func TestHandleEncryptedDropsKeepaliveBeforeRecvCh(t *testing.T) {
 	}
 }
 
+// TestKeepalivePacketStampsOwnSource pins the fix for the regression where the
+// transport src-binding check dropped NAT keepalives: keepaliveSweep left
+// Src.Node=0, but the receiver enforces pkt.Src.Node == the authenticated peer,
+// so a zero-Src keepalive was dropped and the NAT mapping then expired. The
+// keepalive must carry our own node id (= the peer id from the receiver's view).
+func TestKeepalivePacketStampsOwnSource(t *testing.T) {
+	t.Parallel()
+	tm := NewTunnelManager()
+	t.Cleanup(func() { tm.Close() })
+
+	const selfID uint32 = 0xAB00CD01
+	tm.SetNodeID(selfID)
+
+	ka := tm.newKeepalivePacket()
+	if ka.Src.Node != selfID {
+		t.Fatalf("keepalive Src.Node = %#x, want own id %#x — a zero/wrong Src is dropped by the receiver's spoof check, expiring the NAT mapping", ka.Src.Node, selfID)
+	}
+	if ka.Protocol != protocol.ProtoControl || ka.DstPort != protocol.PortPing {
+		t.Fatalf("keepalive shape wrong: protocol=%d dstport=%d", ka.Protocol, ka.DstPort)
+	}
+}
+
 // TestRecordOutboundSendStampsTimestamp pins the half of the fix that
 // already lands in RED: every successful writeFrame call must update
 // tm.lastOutboundSend[nodeID] so the eventual keepaliveSweep can tell

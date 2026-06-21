@@ -126,3 +126,52 @@ func TestNodeArgToID(t *testing.T) {
 		t.Errorf("address: got %d, want 99", got)
 	}
 }
+
+// TestCmdRecoveryRecoverInstallsNewIdentity covers the most destructive command:
+// keyless force-rotate via the registry, then install the new identity locally.
+func TestCmdRecoveryRecoverInstallsNewIdentity(t *testing.T) {
+	dir := t.TempDir()
+	newKey := filepath.Join(dir, "new.json")
+	id, err := crypto.GenerateIdentity()
+	if err != nil {
+		t.Fatalf("keygen: %v", err)
+	}
+	if err := crypto.SaveIdentity(newKey, id); err != nil {
+		t.Fatalf("save new key: %v", err)
+	}
+	newPub := crypto.EncodePublicKey(id.PublicKey)
+	idPath := filepath.Join(dir, "installed.json")
+
+	r := newFakeRegistry(t)
+	var gotPub, gotRecovery string
+	r.on("recover_identity", func(req map[string]interface{}) map[string]interface{} {
+		gotPub, _ = req["new_public_key"].(string)
+		gotRecovery, _ = req["recovery"].(string)
+		return map[string]interface{}{"type": "recover_identity_ok", "ok": true, "node_id": float64(99)}
+	})
+	useRegistry(t, r)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = true
+	_ = captureStdout(t, func() {
+		cmdRecovery([]string{"recover", "--node", "99", "--new-key", newKey,
+			"--recovery", "pilotrecover:v1:99:bmV3:Y29t:9999999999:nn:rec-v1", "--recovery-sig", "c2ln",
+			"--identity", idPath})
+	})
+
+	if gotRecovery == "" {
+		t.Fatal("registry never received recover_identity")
+	}
+	if gotPub != newPub {
+		t.Errorf("registry got new_public_key=%q, want the new-key pubkey %q", gotPub, newPub)
+	}
+	// The recovered key must be installed at the daemon identity path.
+	installed, err := crypto.LoadIdentity(idPath)
+	if err != nil {
+		t.Fatalf("new identity not installed at %s: %v", idPath, err)
+	}
+	if crypto.EncodePublicKey(installed.PublicKey) != newPub {
+		t.Errorf("installed identity does not match the recovered key")
+	}
+}
