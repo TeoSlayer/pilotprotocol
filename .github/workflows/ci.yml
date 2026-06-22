@@ -43,6 +43,19 @@ jobs:
         # PR #120). Integration is now exclusively in nightly.yml.
         # -short skips 3 known-slow stress tests in pkg/daemon and
         # pkg/daemon/udpio; everything else runs.
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: go test -short -count=1 -timeout 600s ./pkg/... ./cmd/... ./internal/...
+        #
+        # macOS runners hand out a $RUNNER_TEMP (/Users/runner/work/_temp)
+        # whose ACLs make t.TempDir() fail with "mkdir ...: permission
+        # denied" (a recurring GitHub macos-runner issue, seen on #304/
+        # #306/#308) — and a writable subdir under it inherits the same
+        # restriction, so pointing TMPDIR there is not enough. Use a fresh
+        # mktemp dir under /tmp instead, which is writable by the test
+        # process. Ubuntu keeps the default $RUNNER_TEMP behaviour.
+        run: |
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            TMPDIR="$(mktemp -d /tmp/gotmp.XXXXXX)"
+            export TMPDIR
+          else
+            export TMPDIR="${RUNNER_TEMP}"
+          fi
+          go test -short -count=1 -timeout 600s ./pkg/... ./cmd/... ./internal/...
