@@ -1196,18 +1196,18 @@ func cmdAppStoreInstall(args []string) {
 		src, serr := resolveUnder(bundleDir, aux)
 		dst, derr := resolveUnder(stagingDir, aux)
 		if serr != nil || derr != nil {
-			_ = os.RemoveAll(stagingDir)
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is appStoreRoot()/<m.ID>.staging (m.ID reverse-DNS validated), confined to the install root; cleanup of our own dir
 			fatalHint("internal_error", "aux install file path escaped the bundle/staging root", "resolve %s: %v / %v", aux, serr, derr)
 		}
-		if _, err := os.Stat(src); err != nil {
+		if _, err := os.Stat(src); err != nil { // #nosec G703 -- src is resolveUnder(bundleDir, <const aux>), proven to stay under the bundle root above; no traversal
 			continue // not an asset-delivering app
 		}
 		mode := os.FileMode(0o644)
 		if aux == "install.sh" {
 			mode = 0o755
 		}
-		if err := copyFile(src, dst, mode); err != nil {
-			_ = os.RemoveAll(stagingDir)
+		if err := copyFile(src, dst, mode); err != nil { // #nosec G703 -- src/dst are resolveUnder-confined (bundle/staging roots); aux is a constant allow-list entry, so neither can escape
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is the confined install-root staging dir; cleanup of our own dir
 			fatalHint("io_error", "check install root permissions", "copy %s: %v", aux, err)
 		}
 	}
