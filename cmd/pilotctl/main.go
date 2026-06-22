@@ -355,15 +355,15 @@ func saveConfig(cfg map[string]interface{}) error {
 	}()
 
 	if err := tmp.Chmod(0600); err != nil {
-		tmp.Close()
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Chmod error is the one returned
 		return err
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Write error is the one returned
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Sync error is the one returned
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -2834,7 +2834,7 @@ func cmdDaemonStop() {
 		if err != nil {
 			fatalCode("not_running", "daemon is not running")
 		}
-		d.Close()
+		d.Close() // #nosec G104 -- probe connection only; we just needed to confirm the socket is live
 		pid = discoverDaemonPID(socket)
 		if pid <= 0 {
 			fatalHint("not_running",
@@ -2846,7 +2846,7 @@ func cmdDaemonStop() {
 
 	if !processExists(pid) {
 		if !discovered {
-			os.Remove(pidFilePath())
+			os.Remove(pidFilePath()) // #nosec G104 -- best-effort removal of stale PID file; failure is non-fatal
 		}
 		fatalCode("not_running", "daemon is not running (cleaned up stale state)")
 	}
@@ -3062,6 +3062,7 @@ func discoverDaemonPID(socketPath string) int {
 	if socketPath == "" {
 		return 0
 	}
+	// #nosec G204 -- fixed argv (lsof -t -U -a); socketPath is our own config-derived daemon socket passed as a separate arg, no shell, no injection
 	out, err := exec.Command("lsof", "-t", "-U", "-a", socketPath).Output()
 	if err != nil {
 		return 0
