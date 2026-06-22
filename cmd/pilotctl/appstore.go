@@ -1159,6 +1159,7 @@ func cmdAppStoreInstall(args []string) {
 	// stagingDir ever diverge.
 	dstBin, err := resolveUnder(stagingDir, m.Binary.Path)
 	if err != nil {
+		// #nosec G703 -- stagingDir is appStoreRoot()/<m.ID>.staging; m.ID is reverse-DNS validated by m.Validate() above, so it cannot escape the install root
 		_ = os.RemoveAll(stagingDir)
 		fatalHint("invalid_argument",
 			"manifest binary.path must stay inside the staging dir",
@@ -1546,7 +1547,15 @@ func cmdAppStoreCaps(args []string) {
 			"missing app id")
 	}
 	appID := args[0]
-	appDir := filepath.Join(appStoreRoot(), appID)
+	// appID is user input; confine it to a single entry under the app
+	// store root so a crafted id (e.g. "../../etc") can't read or open
+	// files outside the install tree.
+	appDir, err := resolveUnder(appStoreRoot(), appID)
+	if err != nil {
+		fatalHint("invalid_argument",
+			"app ids are single directory names; try `pilotctl appstore list`",
+			"invalid app id %q: %v", appID, err)
+	}
 
 	mfRaw, err := os.ReadFile(filepath.Join(appDir, "manifest.json"))
 	if err != nil {
@@ -1827,6 +1836,7 @@ type capStateRecord struct {
 //     reporting even when a key is available — the wallet migrates it to
 //     an authenticated chain on its next write.
 func loadCapStateRecords(path string, hmacKey []byte) ([]capStateRecord, error) {
+	// #nosec G304 -- path is appDir/cap-state.jsonl where appDir is confined to the app store root by resolveUnder in the sole production caller
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
