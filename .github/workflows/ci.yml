@@ -44,18 +44,22 @@ jobs:
         # -short skips 3 known-slow stress tests in pkg/daemon and
         # pkg/daemon/udpio; everything else runs.
         #
-        # macOS runners hand out a $RUNNER_TEMP (/Users/runner/work/_temp)
-        # whose ACLs make t.TempDir() fail with "mkdir ...: permission
-        # denied" (a recurring GitHub macos-runner issue, seen on #304/
-        # #306/#308) — and a writable subdir under it inherits the same
-        # restriction, so pointing TMPDIR there is not enough. Use a fresh
-        # mktemp dir under /tmp instead, which is writable by the test
-        # process. Ubuntu keeps the default $RUNNER_TEMP behaviour.
+        # Both hosted runners have started handing out a $RUNNER_TEMP
+        # (/Users/runner/work/_temp on macOS, /home/runner/work/_temp on
+        # ubuntu) whose ACLs make t.TempDir() fail with "mkdir ...:
+        # permission denied" — a recurring GitHub-runner issue (seen on
+        # #304/#306/#308 for macOS and now hitting ubuntu too). A writable
+        # subdir under it inherits the same restriction, so redirecting
+        # TMPDIR *into* $RUNNER_TEMP is not enough; it must point at a
+        # freshly-created dir outside that tree. Create one under /tmp
+        # (writable by the test process on both Linux and macOS), chmod it
+        # so t.TempDir()'s sub-dirs are creatable, and point $TMPDIR there
+        # for THIS run block so go test's os.TempDir() -> t.TempDir()
+        # lands somewhere writable. No job/step-level `env: TMPDIR:` is set
+        # anywhere in this workflow, so nothing overrides this export.
         run: |
-          if [ "${RUNNER_OS}" = "macOS" ]; then
-            TMPDIR="$(mktemp -d /tmp/gotmp.XXXXXX)"
-            export TMPDIR
-          else
-            export TMPDIR="${RUNNER_TEMP}"
-          fi
+          TMPDIR="$(mktemp -d /tmp/gotmpXXXXXX 2>/dev/null || mktemp -d "${RUNNER_TEMP:-.}/gotmpXXXXXX")"
+          chmod 777 "$TMPDIR"
+          export TMPDIR
+          echo "using TMPDIR=$TMPDIR"
           go test -short -count=1 -timeout 600s ./pkg/... ./cmd/... ./internal/...
