@@ -124,7 +124,7 @@ type TunnelManager struct {
 	pendMu  sync.Mutex
 	pending map[uint32][][]byte // node_id → queued frames
 	// lastPendDropLog records when we last logged a "tunnel pending queue
-	// full; dropped oldest" warning for a peer. The drop counter
+	// full; dropped newest" warning for a peer. The drop counter
 	// (PendingDrops) still increments on every drop so metrics are exact;
 	// the log is throttled to one entry per peer per
 	// pendingDropLogInterval (5 s). Without throttling the warning fires
@@ -218,10 +218,15 @@ type srcKxBucket struct {
 }
 
 // ErrPendingDropped is returned by sendEncryptedToNode when the per-peer
-// pending queue was already at maxPendingPerPeer and the oldest queued
-// packet had to be dropped to make room for the new one. The CALLER's
-// packet is still queued — it will be sent as soon as key exchange
-// finishes — but an older packet was lost to back-pressure.
+// pending queue is already at maxPendingPerPeer. The queue flushes FIFO
+// once key exchange completes (see flushPending), so the OLDEST frames are
+// the connection-setup prefix (SYN, then the first application bytes). We
+// therefore drop the NEWEST frame — i.e. the caller's own packet is NOT
+// queued — to preserve that ordered prefix. Dropping the head instead would
+// strand the receiver: it can never reassemble an in-order stream whose
+// first bytes are missing, whereas a dropped tail segment is recovered by
+// the reliable-transport retransmit layer (dup-ack/RTO) once the queue
+// drains.
 //
 // Callers that distinguish this error from a hard failure can choose to
 // retry (the dial path does this; one of the SYN retransmits will land
@@ -273,7 +278,7 @@ func (tm *TunnelManager) allowKxFromSource(addr *net.UDPAddr) bool {
 	return false
 }
 
-var ErrPendingDropped = errors.New("pending queue full: oldest queued packet dropped while key exchange pending")
+var ErrPendingDropped = errors.New("pending queue full: newest packet dropped to preserve ordered prefix while key exchange pending")
 
 // RecvChSize is the capacity of the incoming packet channel.
 // Increased from 1024 to 8192 for 1M-node scale to prevent drops during
@@ -364,7 +369,7 @@ const (
 const rekeyRequestInterval = 3 * time.Second
 
 // pendingDropLogInterval throttles the "tunnel pending queue full;
-// dropped oldest" warning to one per peer per interval. The drop
+// dropped newest" warning to one per peer per interval. The drop
 // counter (PendingDrops) increments on every drop regardless, so
 // metric accuracy is unaffected.
 const pendingDropLogInterval = 5 * time.Second
@@ -1802,15 +1807,20 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		q := tm.pending[nodeID]
 		dropped := false
 		if len(q) >= maxPendingPerPeer {
-			// P1-008: queue full — drop oldest and surface the drop instead
-			// of silently masking loss. Callers see a non-fatal error so
-			// retx/application layers can react; the newest packet still
-			// gets queued because losing the freshest data would be worse.
-			q = q[1:]
+			// P1-008: queue full. flushPending replays FIFO, so the queued
+			// frames are this connection's ordered setup prefix (SYN, then
+			// the first application bytes). Drop the NEWEST frame — the
+			// incoming one — rather than the oldest, so that ordered prefix
+			// survives. A dropped tail segment is recovered by the reliable
+			// transport's retransmit (dup-ack/RTO) once the queue drains;
+			// a dropped head can never be reassembled in order by the peer.
+			// We do NOT append data. Caller sees a non-fatal error so
+			// retx/application layers can react.
 			dropped = true
 			atomic.AddUint64(&tm.PendingDrops, 1)
+		} else {
+			tm.pending[nodeID] = append(q, data)
 		}
-		tm.pending[nodeID] = append(q, data)
 		qlen := len(tm.pending[nodeID])
 		// Per-peer log throttle: emit at most one "queue full" warn per
 		// pendingDropLogInterval. The drop counter (PendingDrops) is
@@ -1830,15 +1840,15 @@ func (tm *TunnelManager) SendTo(addr *net.UDPAddr, nodeID uint32, pkt *protocol.
 		tm.pendMu.Unlock()
 		if dropped {
 			if shouldLog {
-				slog.Warn("tunnel pending queue full; dropped oldest",
+				slog.Warn("tunnel pending queue full; dropped newest to preserve ordered prefix",
 					"peer_node_id", nodeID,
 					"queue_len", qlen,
 					"limit", maxPendingPerPeer)
 			}
-			// The new packet IS queued (line above appended it). What was
-			// dropped is the oldest packet, not this one. Callers that
+			// The incoming packet was NOT queued (queue was full); the
+			// existing ordered prefix is preserved. Callers that
 			// errors.Is(err, ErrPendingDropped) can treat this as transient
-			// — a SYN retransmit will succeed once the queue drains.
+			// — a SYN/data retransmit will succeed once the queue drains.
 			return fmt.Errorf("%w (peer_node_id=%d)", ErrPendingDropped, nodeID)
 		}
 		return nil // queued, will be sent encrypted after key exchange
