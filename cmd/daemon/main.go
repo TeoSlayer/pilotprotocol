@@ -25,6 +25,7 @@ import (
 	// L11 plugin imports — cmd/daemon (L12) is the only place these
 	// are allowed. The daemon proper imports only pkg/coreapi
 	// interfaces.
+	"github.com/pilot-protocol/app-store/pkg/manifest"
 	"github.com/pilot-protocol/app-store/plugin/appstore"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
@@ -345,6 +346,22 @@ func main() {
 	appstoreInstallRoot := ""
 	if home, herr := os.UserHomeDir(); herr == nil {
 		appstoreInstallRoot = filepath.Join(home, ".pilot", "apps")
+	}
+	if r := os.Getenv("PILOT_APPSTORE_ROOT"); r != "" {
+		appstoreInstallRoot = r
+	}
+	// Trust anchor (G4′): the supervisor refuses to spawn a non-sideloaded app
+	// whose publisher is not on manifest.TrustedPublishers. Nothing populated it
+	// before, so enforcement skipped every catalogue app. Wire it from
+	// PILOT_TRUSTED_PUBLISHERS (comma-separated ed25519:<b64> ids) — in
+	// production this list is the reviewed publisher registry.
+	if tp := strings.TrimSpace(os.Getenv("PILOT_TRUSTED_PUBLISHERS")); tp != "" {
+		for _, p := range strings.Split(tp, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				manifest.TrustedPublishers = append(manifest.TrustedPublishers, p)
+			}
+		}
+		log.Printf("appstore: %d trusted publisher(s) loaded from PILOT_TRUSTED_PUBLISHERS", len(manifest.TrustedPublishers))
 	}
 	// The app-usage telemetry emitter shares the daemon's identity file
 	// and telemetry URL. When consent is off (empty URL) the client is

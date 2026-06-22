@@ -1184,6 +1184,34 @@ func cmdAppStoreInstall(args []string) {
 			"staged binary sha256 mismatch: manifest=%s staged=%s", m.Binary.SHA256, got)
 	}
 
+	// Carry the native-delivery install spec (and its human-readable script) into
+	// $APP when the bundle ships them. A cli adapter with assets reads
+	// $APP/install.json at startup to fetch + verify + stage its binaries from the
+	// R2 artifact registry. These files are covered by the bundle's sha (verified
+	// above at the tarball level), so copying them adds no new trust surface.
+	for _, aux := range []string{"install.json", "install.sh"} {
+		// Resolve both ends through the same containment guard the binary copy
+		// uses: aux is a constant allow-list entry, and resolveUnder cleans the
+		// join and verifies it stays under the root — so neither path can escape.
+		src, serr := resolveUnder(bundleDir, aux)
+		dst, derr := resolveUnder(stagingDir, aux)
+		if serr != nil || derr != nil {
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is appStoreRoot()/<m.ID>.staging (m.ID reverse-DNS validated), confined to the install root; cleanup of our own dir
+			fatalHint("internal_error", "aux install file path escaped the bundle/staging root", "resolve %s: %v / %v", aux, serr, derr)
+		}
+		if _, err := os.Stat(src); err != nil { // #nosec G703 -- src is resolveUnder(bundleDir, <const aux>), proven to stay under the bundle root above; no traversal
+			continue // not an asset-delivering app
+		}
+		mode := os.FileMode(0o644)
+		if aux == "install.sh" {
+			mode = 0o755
+		}
+		if err := copyFile(src, dst, mode); err != nil { // #nosec G703 -- src/dst are resolveUnder-confined (bundle/staging roots); aux is a constant allow-list entry, so neither can escape
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is the confined install-root staging dir; cleanup of our own dir
+			fatalHint("io_error", "check install root permissions", "copy %s: %v", aux, err)
+		}
+	}
+
 	if source == installSourceLocal {
 		// Plant the sentinel before the atomic rename so the moment
 		// the dir appears under InstallRoot it's already tagged
