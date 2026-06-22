@@ -934,9 +934,15 @@ func (d *Daemon) Start() error {
 	// "registry: signature verification failed" on every heartbeat.
 	if d.identity != nil {
 		rc.SetSigner(func(challenge string) string {
+			// Hold identityMu.RLock across Sign(): RotateKey zeros the old
+			// PrivateKey buffer in place under identityMu.Lock(). Releasing
+			// the lock before Sign() would let an in-flight signer read the
+			// very bytes RotateKey is concurrently zeroing (use-after-zero
+			// on signing material). RLock and Lock are mutually exclusive,
+			// so signing and zeroing can never overlap.
 			d.identityMu.RLock()
+			defer d.identityMu.RUnlock()
 			cur := d.identity
-			d.identityMu.RUnlock()
 			if cur == nil {
 				return ""
 			}
@@ -2311,27 +2317,33 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("rotate_key: registry: %w", err)
 	}
 
+	// Swap the identity AND zero the old private key under the SAME write
+	// Lock. Signer closures read the private key under identityMu.RLock()
+	// for the full duration of Sign(); RLock and Lock are mutually
+	// exclusive, so zeroing here can never overlap an in-flight Sign() of
+	// the old key. Doing the zero outside the Lock (the old behavior) raced
+	// with a signer that had captured the old identity before the swap.
+	//
+	// We zero the old key so it doesn't linger on the heap until GC — a
+	// long-lived daemon can keep it alive for hours. ed25519.PrivateKey is
+	// a []byte (seed || public).
 	d.identityMu.Lock()
 	d.identity = newID
-	d.identityMu.Unlock()
-
-	// Zero the old private key so it doesn't linger on the heap
-	// until GC — a long-lived daemon can keep it alive for hours.
-	// ed25519.PrivateKey is a []byte (seed || public).
 	for i := range current.PrivateKey {
 		current.PrivateKey[i] = 0
 	}
+	d.identityMu.Unlock()
 
 	d.tunnels.SetIdentity(newID)
 	// The signer installed in Start() reads d.identity under d.identityMu
 	// on every call, so this SetSigner re-bind is no longer load-bearing —
 	// kept for symmetry with the original RotateKey contract. The closure
-	// here also goes through the mutex to stay consistent if d.identity
-	// ever rotates again.
+	// here holds the RLock across Sign() (same invariant as Start's signer)
+	// so it is safe against a future rotation's in-place key zeroing.
 	d.regConn.SetSigner(func(c string) string {
 		d.identityMu.RLock()
+		defer d.identityMu.RUnlock()
 		cur := d.identity
-		d.identityMu.RUnlock()
 		if cur == nil {
 			return ""
 		}
