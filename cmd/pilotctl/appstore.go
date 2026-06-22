@@ -1190,7 +1190,15 @@ func cmdAppStoreInstall(args []string) {
 	// R2 artifact registry. These files are covered by the bundle's sha (verified
 	// above at the tarball level), so copying them adds no new trust surface.
 	for _, aux := range []string{"install.json", "install.sh"} {
-		src := filepath.Join(bundleDir, aux)
+		// Resolve both ends through the same containment guard the binary copy
+		// uses: aux is a constant allow-list entry, and resolveUnder cleans the
+		// join and verifies it stays under the root — so neither path can escape.
+		src, serr := resolveUnder(bundleDir, aux)
+		dst, derr := resolveUnder(stagingDir, aux)
+		if serr != nil || derr != nil {
+			_ = os.RemoveAll(stagingDir)
+			fatalHint("internal_error", "aux install file path escaped the bundle/staging root", "resolve %s: %v / %v", aux, serr, derr)
+		}
 		if _, err := os.Stat(src); err != nil {
 			continue // not an asset-delivering app
 		}
@@ -1198,7 +1206,7 @@ func cmdAppStoreInstall(args []string) {
 		if aux == "install.sh" {
 			mode = 0o755
 		}
-		if err := copyFile(src, filepath.Join(stagingDir, aux), mode); err != nil {
+		if err := copyFile(src, dst, mode); err != nil {
 			_ = os.RemoveAll(stagingDir)
 			fatalHint("io_error", "check install root permissions", "copy %s: %v", aux, err)
 		}
