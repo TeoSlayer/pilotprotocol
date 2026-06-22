@@ -94,7 +94,7 @@ func cmdAutoUpdateStatus() {
 // we can stay on the standard library only — no JSON-feed dep needed.
 //
 // Declared as a var (not const) so tests can point at httptest.Server.
-var changelogFeedURL = "https://teoslayer.github.io/pilot-changelog/feed.xml"
+var changelogFeedURL = "https://pilot-protocol.github.io/pilot-changelog/feed.xml"
 
 // rssDoc is the minimal RSS 2.0 shape we care about. Only fields needed
 // for the human-readable + JSON output are decoded; unknown elements are
