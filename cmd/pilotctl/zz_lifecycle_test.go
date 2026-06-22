@@ -19,6 +19,7 @@ func withTempHomeFull(t *testing.T) string {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	// Clear env overrides so the test exercises the loadConfig fallback path.
+	t.Setenv("PILOT_HOME", "")
 	t.Setenv("PILOT_SOCKET", "")
 	t.Setenv("PILOT_REGISTRY", "")
 	t.Setenv("PILOT_ADMIN_TOKEN", "")

@@ -87,13 +87,55 @@ func TestParseFlagsBasic(t *testing.T) {
 			wantPos: nil,
 		},
 		{
-			name: "flag value that starts with hyphen does not consume",
+			name: "negative-number value is consumed by preceding flag",
 			args: []string{"--count", "-1"},
 			wantFlag: map[string]string{
-				// next arg starts with '-' so we treat --count as bool
-				"count": "true",
+				// "-1" is a value, not a flag, so --count consumes it.
+				"count": "-1",
 			},
-			wantPos: []string{"-1"},
+			wantPos: nil,
+		},
+		{
+			name: "decimal-negative value is consumed",
+			args: []string{"--offset", "-3.14"},
+			wantFlag: map[string]string{
+				"offset": "-3.14",
+			},
+			wantPos: nil,
+		},
+		{
+			name: "bare-dash value (stdin) is consumed",
+			args: []string{"--file", "-"},
+			wantFlag: map[string]string{
+				"file": "-",
+			},
+			wantPos: nil,
+		},
+		{
+			name: "dash-digit value is consumed",
+			args: []string{"--rate", "-3x"},
+			wantFlag: map[string]string{
+				"rate": "-3x",
+			},
+			wantPos: nil,
+		},
+		{
+			name: "next long flag is not consumed as a value",
+			args: []string{"--data", "--trace"},
+			wantFlag: map[string]string{
+				"data":  "true",
+				"trace": "true",
+			},
+			wantPos: nil,
+		},
+		{
+			name: "next single-dash flag is not consumed as a value",
+			args: []string{"--data", "-email", "x@y.com"},
+			wantFlag: map[string]string{
+				"data":  "true",
+				"email": "x@y.com",
+			},
+			wantPos: nil,
 		},
 	}
 	for _, tc := range cases {

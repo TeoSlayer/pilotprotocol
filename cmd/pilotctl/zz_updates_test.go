@@ -151,6 +151,7 @@ func withTempHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("PILOT_HOME", "")
 	return dir
 }
 
