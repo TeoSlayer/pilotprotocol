@@ -1184,6 +1184,26 @@ func cmdAppStoreInstall(args []string) {
 			"staged binary sha256 mismatch: manifest=%s staged=%s", m.Binary.SHA256, got)
 	}
 
+	// Carry the native-delivery install spec (and its human-readable script) into
+	// $APP when the bundle ships them. A cli adapter with assets reads
+	// $APP/install.json at startup to fetch + verify + stage its binaries from the
+	// R2 artifact registry. These files are covered by the bundle's sha (verified
+	// above at the tarball level), so copying them adds no new trust surface.
+	for _, aux := range []string{"install.json", "install.sh"} {
+		src := filepath.Join(bundleDir, aux)
+		if _, err := os.Stat(src); err != nil {
+			continue // not an asset-delivering app
+		}
+		mode := os.FileMode(0o644)
+		if aux == "install.sh" {
+			mode = 0o755
+		}
+		if err := copyFile(src, filepath.Join(stagingDir, aux), mode); err != nil {
+			_ = os.RemoveAll(stagingDir)
+			fatalHint("io_error", "check install root permissions", "copy %s: %v", aux, err)
+		}
+	}
+
 	if source == installSourceLocal {
 		// Plant the sentinel before the atomic rename so the moment
 		// the dir appears under InstallRoot it's already tagged
