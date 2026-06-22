@@ -1,0 +1,36 @@
+# gitleaks configuration for the Pilot Protocol repo.
+#
+# Extends the upstream default ruleset (so every built-in high-signal rule
+# still fires) and adds a tightly-scoped allowlist for known false positives.
+# Used by BOTH the pre-commit hook and the CI `gitleaks` job so contributor
+# and CI scans agree.
+#
+# Every entry below is a documented false positive — NOT a real credential.
+# Keep this list minimal; prefer fixing a real leak over allowlisting it.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented false positives (placeholder docs + test comparisons)"
+
+paths = [
+  # Documentation/blog pages that show example API calls with PLACEHOLDER
+  # bearer tokens / "token": "<...>" payloads. These are illustrative snippets
+  # rendered to the website, not live secrets. Matched rules: curl-auth-header,
+  # generic-api-key.
+  '''web/src/pages/.*\.astro$''',
+
+  # Tunnel dup-keyexchange test compares X25519 public keys with expressions
+  # like `pc2.PeerX25519Key == pc1.PeerX25519Key`, which the generic-api-key
+  # heuristic misreads as an assigned secret. No literal key material is
+  # present — it is a field-to-field comparison in a unit test. Both the
+  # current (zz_-prefixed) and the historical filename are listed so a full
+  # history scan stays clean.
+  '''pkg/daemon/(zz_)?tunnel_dup_keyexchange_test\.go$''',
+]
+
+regexes = [
+  # Backstop for the same comparison expression, in case the file is renamed.
+  '''PeerX25519Key\s*==''',
+]

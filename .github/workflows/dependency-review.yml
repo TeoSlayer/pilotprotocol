@@ -1,0 +1,23 @@
+name: dependency-review
+
+# Flags dependency changes that introduce known-vulnerable or disallowed-license
+# modules, on the PR diff only. Complements govulncheck (which scans called paths
+# in the whole tree) by catching a bad dep at the moment it is added.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
