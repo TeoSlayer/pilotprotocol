@@ -550,6 +550,14 @@ func maybeAutoHandshake(d *driver.Driver, addr protocol.Addr, skip bool) {
 	}
 
 	// Branch 2 — peer is in the embedded trusted-agents allowlist.
+	//
+	// TODO(security/H4): IsTrusted keys on node_id only, with no pubkey
+	// binding. This call is outbound (we initiate toward addr), so the
+	// peer's authenticated pubkey is not in scope here — node_id match is
+	// all we can check. Pubkey pinning (IsTrustedWithKey) must be added in
+	// the upstream github.com/pilot-protocol/trustedagents module and wired
+	// at the inbound auto-accept path inside its NewService(), where the
+	// presented key IS available. See that repo, not this call site.
 	if name, ok := trustedagents.IsTrusted(addr.Node); ok {
 		if !jsonOutput {
 			fmt.Fprintf(os.Stderr, "establishing handshake with Trusted Agent %s (%s)...\n", name, addr)
@@ -1351,7 +1359,7 @@ Diagnostic commands:
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
   pilotctl update [--pin <tag>]                        run the updater once — check and install new release
-  pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
+  pilotctl updates [--count <n>] [--scope <scope>]   read https://pilot-protocol.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
   pilotctl context

@@ -41,7 +41,7 @@ const (
 	// banner is active and its `title` is the banner text. Publishing or
 	// clearing a motd entry there propagates to every daemon on its next
 	// poll (subject to GitHub's raw CDN cache, typically a few minutes).
-	DefaultFeedURL = "https://raw.githubusercontent.com/TeoSlayer/pilot-changelog/main/feed-motd.json"
+	DefaultFeedURL = "https://raw.githubusercontent.com/pilot-protocol/pilot-changelog/main/feed-motd.json"
 
 	// DefaultInterval is how often the daemon re-fetches the feed when no
 	// interval is configured.

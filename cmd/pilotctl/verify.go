@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/pilot-protocol/common/badgeverify"
 	"github.com/pilot-protocol/common/crypto"
@@ -311,6 +312,16 @@ func cmdRecoveryRecover(args []string) {
 	// The registry rotated the address to the new key; install it locally so
 	// the daemon can authenticate as the recovered node after a restart.
 	idPath := flagString(flags, "identity", configDir()+"/identity.json")
+	// Irreversible-overwrite guard: SaveIdentity replaces the live daemon
+	// identity in place. If one already exists, copy it aside first so a
+	// recovery run can never silently destroy the prior key. Refuse rather
+	// than overwrite blind if the backup can't be written.
+	if bak, err := backupIdentity(idPath); err != nil {
+		fatalCode("internal_error",
+			"recovery recover: refusing to overwrite existing identity %s: backup failed: %v", idPath, err)
+	} else if bak != "" && !jsonOutput {
+		fmt.Fprintf(os.Stderr, "backed up existing identity to %s\n", bak)
+	}
 	if err := crypto.SaveIdentity(idPath, id); err != nil {
 		fatalCode("internal_error",
 			"recovery recover: registry rotated key but installing new identity at %s failed: %v", idPath, err)
@@ -323,4 +334,26 @@ func cmdRecoveryRecover(args []string) {
 		"next":           "restart the daemon so it authenticates with the recovered key",
 		"registry":       resp,
 	})
+}
+
+// backupIdentity copies an existing identity file to
+// "<path>.bak-<unix-ts>" before it is overwritten by a recovery run.
+// Returns the backup path on success, "" if no file existed at path (so
+// there was nothing to back up), or an error if a file exists but the
+// backup could not be written — in which case the caller MUST refuse to
+// overwrite. Timestamped so repeated recovery attempts never clobber an
+// earlier backup. Crypto is untouched: this is a pure file copy.
+func backupIdentity(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	bakPath := fmt.Sprintf("%s.bak-%d", path, time.Now().Unix())
+	if err := os.WriteFile(bakPath, data, 0o600); err != nil {
+		return "", err
+	}
+	return bakPath, nil
 }

@@ -3374,6 +3374,12 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 	// a nil-deref. The on-wire SYN still goes out below; we just skip the
 	// proactive handshake when the plugin isn't loaded.
 	if d.handshakes != nil && !d.handshakes.IsTrusted(dstAddr.Node) {
+		// TODO(security/H4): IsTrusted keys on node_id only (no pubkey
+		// binding). This gate is outbound — we proactively initiate toward
+		// dstAddr — so the peer's authenticated pubkey is not in scope and
+		// node_id match is all we can check here. Pubkey pinning belongs in
+		// the upstream github.com/pilot-protocol/trustedagents module at its
+		// inbound auto-accept path, where the presented key is available.
 		if _, ok := trustedagents.IsTrusted(dstAddr.Node); ok {
 			// Route through HandshakeSendRequest (not the plugin's raw
 			// SendRequest) so the per-peer in-flight dedup catches the
