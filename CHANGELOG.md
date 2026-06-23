@@ -50,6 +50,136 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   the direct and relay paths, so two NAT'd peers reconverge in ~1 RTT
   instead of waiting 28 s–3 min for blackhole detection.
 
+## [1.12.0] - 2026-06-21
+
+### Added
+
+- **Consent-gated Ed25519 telemetry client (PILOT-400, #263).** The daemon now
+  includes a telemetry subsystem that emits signed events to
+  `telemetry.pilotprotocol.network`. Each daemon derives a stable Ed25519
+  identity (`seed = SHA-256(node_id)`), signs every event with three headers
+  (`X-Pilot-Timestamp`, `X-Pilot-Public-Key`, `X-Pilot-Signature`), and emits
+  only when the operator has given explicit consent. Consent is stored in
+  `~/.pilot/consent.json` and checked on every emission. (telemetry)
+
+- **Telemetry events: `app_installed`, `catalogue_viewed`, `app_detail_viewed`,
+  `app_usage` (PILOT-401, 402, 406, 407, #277).** Emitted at the appropriate
+  points in the app-store flow, each carrying `app_id` in the signed payload.
+  `app_usage` fires on every successful `pilotctl appstore call`. All events are
+  gated behind the consent check. (telemetry)
+
+- **`pilotctl update` — self-update command (PILOT-396, #262).** Checks the
+  latest GitHub release, downloads the matching binary for the current OS/arch,
+  verifies the SHA-256 checksum, and replaces the running binary. Respects
+  `--dry-run` and `--version <tag>`. (pilotctl)
+
+- **`pilotctl appstore review` — leave a signed review (PILOT-410, #276).**
+  `pilotctl appstore review <id> --subject <text> --rating <1-5>` submits a
+  signed review. Subject is capped at 140 characters; rating must be 1–5;
+  both validated client-side before the signed POST. (pilotctl)
+
+- **Agent-first CLI overhaul (#247).** `pilotctl send-message`, `list-agents`,
+  and related commands now produce bounded, human-readable output by default —
+  truncated at a configurable line count with specialist name + summary
+  highlighted. `--json` still emits raw envelopes. (pilotctl)
+
+- **Consent + sandbox controls.** `pilotctl consent` sub-commands
+  (`grant`/`revoke`/`show`) manage the consent file interactively.
+  `pilot-daemon --sandbox` prevents all outbound emission including telemetry.
+  `skillinject` gains `--mode=append|prepend|replace`. Install-time and review
+  flows show a consent-disclosure section before writing. (consent)
+
+- **Signed app-store catalogue + Pages catalogue site (#249).** Catalogue JSON
+  is now Ed25519-signed; `pilotctl appstore install` rejects any catalogue
+  whose signature fails. A static GitHub Pages site renders the catalogue as a
+  human-browsable app directory. CI validates catalogue schema on every PR
+  (#259). (app store)
+
+- **Catalogue list UX: name + headline only, with `view:` pointer (PILOT-404,
+  PILOT-405, #275).** `pilotctl appstore catalogue` shows one line per app
+  (`<id>  <display_name> — <headline>`) and a trailing `view:` pointer to
+  `pilotctl appstore view <id>`. (app store)
+
+- **Per-platform app bundles — v3 catalogue format (#296).** App manifests now
+  carry a `platforms` map (`linux/amd64`, `darwin/arm64`, etc.) so
+  `pilotctl appstore install` downloads only the binary matching the current
+  OS and architecture. The catalogue format is versioned at v3; older `pilotctl`
+  treats missing platform keys as a single universal bundle (backward compat).
+  (app store)
+
+- **`io.pilot.sixtyfour` v0.1.0 — new app in the catalogue (#289).** First
+  non-preview app published under the signed per-platform bundle format.
+
+- **Verified-badge client layer (#295).** Daemons can now request and cache a
+  cryptographic verification badge from the Pilot CA. The badge is exposed via
+  IPC and surfaced in `pilotctl info` and `pilotctl verify status`. Serves as
+  the groundwork for badge-gated specialist trust in a future release.
+
+- **`pilotctl verify status` with offline check (#297).** New sub-command
+  reports the local badge state (verified / unverified / expired) without a
+  network round-trip, with a `--how-to` flag that prints the steps to earn
+  verification. (pilotctl)
+
+### Fixed
+
+- **Decompression bomb protection in `untarUnder` (PILOT-418, #288).** App-store
+  bundle extractor now enforces a 256 MiB per-entry cap and a 1 GiB total cap;
+  oversized archives are rejected and partial extracts cleaned up. (security)
+
+- **`crypto/rand` replaces `math/rand` in three daemon files (PILOT-417, #283).**
+  Key-exchange nonces, ephemeral-port selection, and session-token generation
+  now use `crypto/rand.Read`. (security)
+
+- **`node_id` now populated in all telemetry events (#281, #282).** The telemetry
+  client was initialized before the daemon identity resolved, leaving `node_id`
+  empty. Client now reads it lazily. A missing `app_id` in `catalogue_viewed`
+  payload was also corrected.
+
+- **Consent gates added to all app-store telemetry paths (#278).** Several
+  app-store emission sites skipped the consent check. Each now calls
+  `consent.IsGranted()` and short-circuits if consent is absent or revoked.
+
+- **Review prompt output no longer captured by `pilotctl appstore call`
+  (PILOT-409, #268).** The stdio intercept is now scoped to the method's
+  structured-output phase only; LLM sub-call progress streams to the terminal.
+
+- **`pilotctl skills disable/enable` rejects non-`all` skill IDs (PILOT-394,
+  #260).** Previously silently matched nothing and exited 0. Now returns a
+  non-zero exit code with a clear message when no skills match.
+
+- **Default telemetry endpoint set to production.** The daemon no longer ships
+  with a localhost fallback; default is
+  `https://telemetry.pilotprotocol.network/v1/events`. The `PILOT_TELEMETRY_URL`
+  env override remains for staging.
+
+- **Inner packet `Src` bound to authenticated `peerNodeID` (#294).** Previously
+  the source node ID in the inner packet was taken from the unverified frame
+  header. It is now always overwritten with the node ID authenticated by the
+  key-exchange layer, preventing a peer from spoofing a different node's address
+  inside an established tunnel.
+
+### Changed
+
+- **MOTD sourced from `pilot-changelog` feed-motd.json (#285).** The poll loop
+  introduced in v1.11.2 now fetches from `pilot-changelog`'s `scope: motd`
+  output instead of the bespoke `pilot-motd` repo. No behavior change for users;
+  `--motd-feed-url` / `$PILOT_MOTD_URL` overrides still work. (motd)
+
+- **Module path renamed: `TeoSlayer` → `pilot-protocol` (#287).** All internal
+  imports updated from `github.com/TeoSlayer/pilotprotocol/...` to
+  `github.com/pilot-protocol/pilotprotocol/...`. The GitHub repository rename
+  provides a redirect for existing `go get` users.
+
+- **Catalogue CI moved into `web4` (#272).** App-store catalogue validation
+  now ships as a workflow inside this repo so catalogue PRs validate in place.
+
+### Infrastructure
+
+- `CODEOWNERS` restricted to `@TeoSlayer` only.
+- WAL torn-tail registry test reconciled with current protocol contract.
+- Daemon package tests now isolate `$HOME` to prevent cross-test interference
+  (#252).
+
 ## [1.11.2] - 2026-06-15
 
 ### Added
