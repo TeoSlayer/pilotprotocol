@@ -4,8 +4,8 @@ github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNU
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM=
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
-github.com/pilot-protocol/app-store v1.0.1 h1:17VPa02PhRRHAcspCg/CG+bBo5qUPrZQFi8hz66kAjE=
-github.com/pilot-protocol/app-store v1.0.1/go.mod h1:deltPnaQkiTgMcxWU+honz3+Bl2R1cthhuZra4pQ4PI=
+github.com/pilot-protocol/app-store v1.0.2-0.20260623192129-e23f6688adb8 h1:FJ9X25e//rRxmAzlJaXykjdagww2AjJUDC7wUloESrY=
+github.com/pilot-protocol/app-store v1.0.2-0.20260623192129-e23f6688adb8/go.mod h1:deltPnaQkiTgMcxWU+honz3+Bl2R1cthhuZra4pQ4PI=
 github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
 github.com/pilot-protocol/beacon v0.2.6/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
 github.com/pilot-protocol/common v0.5.5 h1:mnv3q84alVaotGD+Qxfo4ECFEquqsUwrI3mjKIGUKFY=
