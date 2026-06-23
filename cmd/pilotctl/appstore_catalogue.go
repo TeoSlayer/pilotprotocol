@@ -89,6 +89,12 @@ type catalogueEntry struct {
 	BundleURL   string `json:"bundle_url"`
 	BundleSHA   string `json:"bundle_sha256"`
 
+	// Publisher is the app's ed25519 publisher key ("ed25519:<base64>"). It is
+	// the trust pin: the daemon (internal/catalogue) reads it from the
+	// signature-verified catalogue and the app-store supervisor confirms each
+	// non-sideloaded app's manifest publisher matches it before spawning.
+	Publisher string `json:"publisher,omitempty"`
+
 	// --- v3 per-platform bundles ---
 	// Bundles maps "os/arch" (e.g. "darwin/arm64") → that platform's
 	// tarball + sha256. When present, install picks the host's entry;
