@@ -191,193 +191,29 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
 
   # ---------------------------------------------------------------------------
-  # Downstream fan-out. After the GitHub Release (binaries + checksums) is
-  # published, propagate THIS tag's version to every distribution channel:
-  # PyPI, npm, Homebrew. Each leg is independent: one failing channel does not
-  # block the others, but every failure is surfaced (the final "gate" step
-  # fails the job if any leg failed). Skipped for -rc/-beta prereleases.
+  # Downstream fan-out is NO LONGER driven from here.
   #
-  # Version-locking: every channel publishes ${GITHUB_REF_NAME} (the daemon
-  # tag), NOT the stale version sitting in each downstream repo's source.
+  # Each distribution channel now SELF-UPDATES by polling this repo's public
+  # latest release on a schedule, using only secrets already present in its
+  # own repo. This removes the need for any cross-repo PAT
+  # (RELEASE_DISPATCH_TOKEN, HOMEBREW_TAP_TOKEN) — a workflow's built-in
+  # GITHUB_TOKEN can write to its own repo but not sibling repos, which is why
+  # the old push-based fan-out needed PATs. The pull-based watchers below act
+  # with each repo's own token instead:
   #
-  # PyPI/npm are triggered via `gh workflow run publish.yml -f version=...`
-  # against the SDK repos. This MUST use a cross-repo PAT — a release created
-  # with GITHUB_TOKEN cannot trigger another repo's workflow, and GITHUB_TOKEN
-  # has no write scope on sibling repos. See RELEASE_DISPATCH_TOKEN below.
-  publish-downstream:
-    name: Publish to PyPI / npm / Homebrew
-    needs: release
-    if: ${{ !(contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta')) }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Compute version
-        id: ver
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}"   >> "$GITHUB_OUTPUT"
-
-      # --- PyPI -------------------------------------------------------------
-      - name: Dispatch sdk-python publish
-        id: pypi
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::error::RELEASE_DISPATCH_TOKEN is not set — cannot dispatch sdk-python"
-            exit 1
-          fi
-          gh workflow run publish.yml \
-            --repo pilot-protocol/sdk-python \
-            --ref main \
-            -f version="${{ steps.ver.outputs.version }}"
-          echo "Dispatched sdk-python publish @ ${{ steps.ver.outputs.version }}"
-
-      # --- npm --------------------------------------------------------------
-      - name: Dispatch sdk-node publish
-        id: npm
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::error::RELEASE_DISPATCH_TOKEN is not set — cannot dispatch sdk-node"
-            exit 1
-          fi
-          gh workflow run publish.yml \
-            --repo pilot-protocol/sdk-node \
-            --ref main \
-            -f version="${{ steps.ver.outputs.version }}"
-          echo "Dispatched sdk-node publish @ ${{ steps.ver.outputs.version }}"
-
-      # --- Homebrew ---------------------------------------------------------
-      # Regenerate the formula from this release's checksums + tag and push it
-      # to the tap. HOMEBREW_TAP_TOKEN must be a PAT with write access to the
-      # tap repo (the tap is in a different owner, so GITHUB_TOKEN can't push).
-      - name: Update Homebrew formula
-        id: brew
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          TAP_REPO: TeoSlayer/homebrew-pilot
-          FORMULA_PATH: Formula/pilotprotocol.rb
-        run: |
-          set -euo pipefail
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::error::HOMEBREW_TAP_TOKEN is not set — cannot update the tap"
-            exit 1
-          fi
-          TAG="${{ steps.ver.outputs.tag }}"
-          VERSION="${{ steps.ver.outputs.version }}"
-
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --clobber
-          cat checksums.txt
-
-          sum() { grep "pilot-$1.tar.gz" checksums.txt | awk '{print $1}'; }
-          DA=$(sum darwin-arm64); DX=$(sum darwin-amd64)
-          LA=$(sum linux-arm64);  LX=$(sum linux-amd64)
-          for v in "$DA" "$DX" "$LA" "$LX"; do
-            [ -n "$v" ] || { echo "::error::missing checksum in checksums.txt"; exit 1; }
-          done
-
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          cat > pilotprotocol.rb <<RUBY
-          class Pilotprotocol < Formula
-            desc "The network stack for AI agents - addresses, ports, tunnels, encryption, trust"
-            homepage "https://pilotprotocol.network"
-            version "${VERSION}"
-            license "AGPL-3.0"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "${base}/pilot-darwin-arm64.tar.gz"
-                sha256 "${DA}"
-              else
-                url "${base}/pilot-darwin-amd64.tar.gz"
-                sha256 "${DX}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "${base}/pilot-linux-arm64.tar.gz"
-                sha256 "${LA}"
-              else
-                url "${base}/pilot-linux-amd64.tar.gz"
-                sha256 "${LX}"
-              end
-            end
-
-            def install
-              bin.install "daemon" => "pilot-daemon"
-              bin.install "pilotctl" => "pilotctl"
-              bin.install "updater" => "pilot-updater"
-            end
-
-            def post_install
-              (var/"pilot").mkpath
-              config_dir = Pathname.new(Dir.home)/".pilot"
-              config_dir.mkpath
-              (config_dir/"bin").mkpath
-              (config_dir/"bin/.pilot-version").write "v#{version}\n"
-            end
-
-            def caveats
-              <<~EOS
-                Get started:
-                  pilotctl daemon start --hostname my-agent --email you@example.com
-                  pilotctl info
-                Docs: https://pilotprotocol.network/docs
-              EOS
-            end
-
-            service do
-              run [opt_bin/"pilot-daemon", "-socket", "/tmp/pilot.sock", "-encrypt"]
-              keep_alive crashed: true
-              log_path var/"log/pilot-daemon.log"
-              error_log_path var/"log/pilot-daemon.log"
-            end
-
-            test do
-              assert_match "pilotctl", shell_output("#{bin}/pilotctl --help 2>&1", 0)
-            end
-          end
-          RUBY
-          sed -i 's/^          //' pilotprotocol.rb
-          cat pilotprotocol.rb
-
-          CONTENT=$(base64 -w 0 pilotprotocol.rb)
-          SHA=$(gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" --jq '.sha' 2>/dev/null || echo "")
-          if [ -n "$SHA" ]; then
-            gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" -X PUT \
-              -f message="pilotprotocol ${TAG}" -f content="$CONTENT" -f sha="$SHA"
-          else
-            gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" -X PUT \
-              -f message="pilotprotocol ${TAG}" -f content="$CONTENT"
-          fi
-          echo "Updated ${TAP_REPO}/${FORMULA_PATH} -> ${TAG}"
-
-      # --- Surface failures -------------------------------------------------
-      - name: Fan-out gate
-        if: always()
-        run: |
-          echo "PyPI dispatch : ${{ steps.pypi.outcome }}"
-          echo "npm dispatch  : ${{ steps.npm.outcome }}"
-          echo "Homebrew      : ${{ steps.brew.outcome }}"
-          {
-            echo "## Downstream fan-out (${{ steps.ver.outputs.tag }})"
-            echo "| Channel | Result |"
-            echo "|---------|--------|"
-            echo "| PyPI (sdk-python dispatch) | ${{ steps.pypi.outcome }} |"
-            echo "| npm (sdk-node dispatch)    | ${{ steps.npm.outcome }} |"
-            echo "| Homebrew (tap formula)     | ${{ steps.brew.outcome }} |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ steps.pypi.outcome }}" != "success" ] || \
-             [ "${{ steps.npm.outcome }}" != "success" ] || \
-             [ "${{ steps.brew.outcome }}" != "success" ]; then
-            echo "::error::one or more downstream channels failed to dispatch/update"
-            exit 1
-          fi
+  #   - Homebrew tap  TeoSlayer/homebrew-pilot
+  #       .github/workflows/update-formula.yml  (schedule + workflow_dispatch)
+  #       regenerates Formula/pilotprotocol.rb from this release's public
+  #       checksums.txt and commits with its own GITHUB_TOKEN.
+  #
+  #   - npm SDK       pilot-protocol/sdk-node
+  #       .github/workflows/release-watch.yml    (schedule + workflow_dispatch)
+  #       dispatches its own publish.yml (NPM_TOKEN) at the new version.
+  #
+  #   - PyPI SDK      pilot-protocol/sdk-python
+  #       .github/workflows/release-watch.yml    (schedule + workflow_dispatch)
+  #       dispatches its own publish.yml (PYPI_API_TOKEN) at the new version.
+  #
+  # All three poll every ~30 min (workflow_dispatch is the instant manual
+  # path) and are idempotent. This release workflow's only job is to build
+  # the binaries and publish the GitHub Release — the watchers do the rest.
