@@ -4,11 +4,73 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// buildBundleTar returns a gzipped tar containing a single file, plus
+// its sha256 — a minimal valid bundle for fetchAndUnpackBundle tests.
+func buildBundleTar(t *testing.T, name string, payload []byte) (gzBytes []byte, sha string) {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Size: int64(len(payload)), Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.Bytes()
+	h := sha256.Sum256(out)
+	return out, hex.EncodeToString(h[:])
+}
+
+// TestFetchAndUnpackBundle_RejectsOversizedDownload is the item-3 cap:
+// the COMPRESSED bundle download must be bounded so a hostile CDN can't
+// stream an unbounded body and exhaust disk before the post-copy sha256
+// check ever runs. maxBundleBytes is lowered for the test so we don't
+// have to write 128 MiB.
+func TestFetchAndUnpackBundle_RejectsOversizedDownload(t *testing.T) {
+	orig := maxBundleBytes
+	defer func() { maxBundleBytes = orig }()
+
+	dir := t.TempDir()
+	gzBytes, sha := buildBundleTar(t, "bin/app", bytes.Repeat([]byte("A"), 4096))
+	tarPath := filepath.Join(dir, "bundle.tar.gz")
+	if err := os.WriteFile(tarPath, gzBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry := catalogueEntry{ID: "io.test.big", BundleURL: "file://" + tarPath, BundleSHA: sha}
+
+	// Cap below the bundle size → must refuse.
+	maxBundleBytes = int64(len(gzBytes) - 1)
+	if _, err := fetchAndUnpackBundle(entry); err == nil {
+		t.Fatal("oversized bundle accepted — download cap missing")
+	} else if !strings.Contains(err.Error(), "exceeds max size") {
+		t.Fatalf("err %q should mention exceeds max size", err.Error())
+	}
+
+	// Cap above the bundle size → unpacks normally.
+	maxBundleBytes = int64(len(gzBytes) + 1)
+	unpacked, err := fetchAndUnpackBundle(entry)
+	if err != nil {
+		t.Fatalf("within-cap bundle rejected: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(unpacked, "bin/app")); err != nil {
+		t.Fatalf("expected extracted bin/app: %v", err)
+	}
+}
 
 // TestUntarUnder_RejectsDecompressionBomb verifies that a tar entry
 // exceeding maxUntarFileSize is rejected (decompression bomb guard).

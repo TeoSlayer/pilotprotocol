@@ -346,6 +346,9 @@ func main() {
 	if home, herr := os.UserHomeDir(); herr == nil {
 		appstoreInstallRoot = filepath.Join(home, ".pilot", "apps")
 	}
+	if r := os.Getenv("PILOT_APPSTORE_ROOT"); r != "" {
+		appstoreInstallRoot = r
+	}
 	// The app-usage telemetry emitter shares the daemon's identity file
 	// and telemetry URL. When consent is off (empty URL) the client is
 	// a permanent no-op — no goroutines, no dials, no buffering.

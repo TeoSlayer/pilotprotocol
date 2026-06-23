@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +29,18 @@ func defaultStatePath() string {
 	return home + "/.pilot/auto-update.json"
 }
 
+// envBool reports whether the named environment variable is set to a truthy
+// value ("1", "true", "yes", case-insensitive). Used as the default for
+// --skip-attestation so the opt-out can be set without a CLI flag.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	installDir := flag.String("install-dir", "", "directory containing pilot binaries (required)")
 	repo := flag.String("repo", "pilot-protocol/pilotprotocol", "GitHub owner/repo for releases")
@@ -37,6 +50,13 @@ func main() {
 	logFormat := flag.String("log-format", "text", "log format (text, json)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	statePath := flag.String("state-path", defaultStatePath(), "JSON control file {\"enabled\":bool} for automatic updates; auto-update is OFF until enabled (e.g. via `pilotctl update enable`)")
+	// --skip-attestation opts out of SLSA provenance verification of
+	// checksums.txt. The updater module fails CLOSED if `gh` is absent (it
+	// cannot verify attestations), so a host genuinely without `gh` needs an
+	// explicit way to proceed. Default false: verification stays on in
+	// production. Mirrors the --state-path pattern with an env fallback.
+	skipAttestation := flag.Bool("skip-attestation", envBool("PILOT_UPDATER_SKIP_ATTESTATION"),
+		"skip SLSA attestation verification (default off); use only on hosts without `gh` available")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,12 +72,13 @@ func main() {
 	setupLogging(*logLevel, *logFormat)
 
 	u := updater.New(updater.Config{
-		CheckInterval: *interval,
-		Repo:          *repo,
-		InstallDir:    *installDir,
-		Version:       version,
-		PinnedVersion: *pin,
-		StatePath:     *statePath,
+		CheckInterval:   *interval,
+		Repo:            *repo,
+		InstallDir:      *installDir,
+		Version:         version,
+		PinnedVersion:   *pin,
+		StatePath:       *statePath,
+		SkipAttestation: *skipAttestation,
 	})
 
 	u.Start()
@@ -68,6 +89,9 @@ func main() {
 	)
 	if *pin != "" {
 		slog.Info("version pinned", "tag", *pin)
+	}
+	if *skipAttestation {
+		slog.Warn("SLSA attestation verification disabled (--skip-attestation); update provenance will NOT be checked")
 	}
 
 	sig := make(chan os.Signal, 1)

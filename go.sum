@@ -4,8 +4,8 @@ github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNU
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/expr-lang/expr v1.17.8 h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM=
 github.com/expr-lang/expr v1.17.8/go.mod h1:8/vRC7+7HBzESEqt5kKpYXxrxkr31SaO8r40VO/1IT4=
-github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72 h1:vDiQ7ZheKIzlNqfviu5zeQzGVTMP63k1hC5HodEuyeQ=
-github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72/go.mod h1:leZPtX43gE2JB7xeljexXri81g6qhdZfYExLtzI+bhg=
+github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260622235003-2f290c314a42 h1:5Yns67RaNxd2xwVJj7VY2+vXzo9zTbMgPM+CXgwiW1M=
+github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260622235003-2f290c314a42/go.mod h1:leZPtX43gE2JB7xeljexXri81g6qhdZfYExLtzI+bhg=
 github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
 github.com/pilot-protocol/beacon v0.2.6/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
 github.com/pilot-protocol/common v0.5.5 h1:mnv3q84alVaotGD+Qxfo4ECFEquqsUwrI3mjKIGUKFY=
@@ -28,8 +28,8 @@ github.com/pilot-protocol/skillinject v0.2.3 h1:Bf0tqRe7tqYY27X5RGCOf4LGjtWpyQvN
 github.com/pilot-protocol/skillinject v0.2.3/go.mod h1:fCzivA/bjkXRgGjp6yd7nqfaIETtU+lQRocBu0J/O9g=
 github.com/pilot-protocol/trustedagents v0.2.3 h1:QQJHYqzPrECJwkCev0xIDBMjd92uhtcxcCMc2aOrRHc=
 github.com/pilot-protocol/trustedagents v0.2.3/go.mod h1:gDgEOC9lHmXSS9v45h80XxlmUS861soIrA0AsbXiSV4=
-github.com/pilot-protocol/updater v0.2.2 h1:uA+Gmbs3/sMoumtjwCMXUHo3TAKg51VRch88m0wUtZA=
-github.com/pilot-protocol/updater v0.2.2/go.mod h1:wn+HkjgChZ1QCCkOHBolAol42mxyyW/iz7oOFJLciT4=
+github.com/pilot-protocol/updater v0.2.3 h1:9+Y2XvyEnfxjbguho8AIKLdEK+Gzj2I7lkad2qIu6JY=
+github.com/pilot-protocol/updater v0.2.3/go.mod h1:wn+HkjgChZ1QCCkOHBolAol42mxyyW/iz7oOFJLciT4=
 github.com/pilot-protocol/webhook v0.2.0 h1:3UFU9X2yBb0iKlPbzVcism+Z6yCrBBaOgdo9+vd4Wf4=
 github.com/pilot-protocol/webhook v0.2.0/go.mod h1:WVXhHFg+o0pHHk+4nXMCh1zl/ZAyZ3AXrtx6mNuZS6g=
 golang.org/x/net v0.55.0 h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=

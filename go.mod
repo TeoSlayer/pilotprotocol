@@ -1,10 +1,10 @@
 module github.com/pilot-protocol/pilotprotocol
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260616142430-8edfed7efa72
+	github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260622235003-2f290c314a42
 	github.com/pilot-protocol/beacon v0.2.6
 	github.com/pilot-protocol/common v0.5.5
 	github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98
@@ -16,7 +16,7 @@ require (
 	github.com/pilot-protocol/runtime v0.3.1
 	github.com/pilot-protocol/skillinject v0.2.3
 	github.com/pilot-protocol/trustedagents v0.2.3
-	github.com/pilot-protocol/updater v0.2.2
+	github.com/pilot-protocol/updater v0.2.3
 	github.com/pilot-protocol/webhook v0.2.0
 	golang.org/x/sys v0.46.0
 )

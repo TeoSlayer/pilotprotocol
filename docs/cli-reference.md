@@ -77,7 +77,7 @@ Diagnostic commands:
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
   pilotctl update [--pin <tag>]                        run the updater once — check and install new release
-  pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
+  pilotctl updates [--count <n>] [--scope <scope>]   read https://pilot-protocol.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
   pilotctl context

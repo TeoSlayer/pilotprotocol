@@ -1,0 +1,92 @@
+name: security
+
+# Supply-chain + SAST gates that complement the existing CodeQL ("Analyze Go")
+# and the gitleaks/detect-private-key pre-commit hook. Pre-commit only protects
+# contributors who installed the hook; these jobs run on every push and PR so a
+# direct push or an unhooked clone can't slip secrets or known-vuln deps past CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Known-vulnerability scan over imported packages AND the Go standard library
+  # the binaries actually call. GATING: a fresh CVE in a called path turns CI red.
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run govulncheck
+        env:
+          GOFLAGS: -mod=mod
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # Secret scan on the full history range of the push / PR. GATING: a committed
+  # token, key, or credential turns CI red even on a direct push to main, which
+  # the contributor-side pre-commit hook can't cover.
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The gitleaks GitHub Action (gitleaks/gitleaks-action) requires a paid
+      # GITLEAKS_LICENSE secret for ORGANIZATION repos and fails with "missing
+      # gitleaks license". The gitleaks binary itself is MIT-licensed and free,
+      # so we run a version-pinned binary release directly — same scan, no
+      # license gate. The repo's .gitleaks.toml allowlist is read by default.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run gitleaks (full history)
+        run: |
+          gitleaks git --no-banner --redact --verbose .
+
+  # gosec SAST. NON-GATING: the codebase carries pre-existing findings that are
+  # by-design for a local CLI (G304/G703 reading user-named files, G204/G702
+  # shelling out to git/$EDITOR with user input, G115 port/sequence int casts,
+  # G404 math/rand for non-crypto jitter, G104 best-effort cleanup). Rather than
+  # a giant cleanup PR or a dishonest blanket-disable, gosec uploads SARIF to the
+  # GitHub Security tab for triage — the same model CodeQL already uses here.
+  # New genuinely-dangerous patterns surface in the Security tab without flapping
+  # PR status. Flip continue-on-error off once the backlog is triaged.
+  gosec:
+    name: gosec (SARIF, non-gating)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run gosec
+        continue-on-error: true
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec@latest \
+            -no-fail -fmt sarif -out gosec.sarif ./...
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
