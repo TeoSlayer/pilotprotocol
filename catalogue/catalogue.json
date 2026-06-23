@@ -117,7 +117,8 @@
       "version": "0.3.1",
       "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
-      "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6"
+      "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
+      "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc="
     }
   ]
 }
