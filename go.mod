@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260622180016-07b4170265dc
+	github.com/pilot-protocol/app-store v1.0.1-beta.1.0.20260622235003-2f290c314a42
 	github.com/pilot-protocol/beacon v0.2.6
 	github.com/pilot-protocol/common v0.5.5
 	github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98
