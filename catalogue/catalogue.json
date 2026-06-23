@@ -111,6 +111,13 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smolmachines/metadata.json",
       "metadata_sha256": "f43493f690786b8adbe1ac1072bbec0b0d04e05d9a247e7b14e5d36c4e397a3b",
       "publisher": "ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="
+    },
+    {
+      "id": "io.telepat.ideon-free",
+      "version": "0.3.1",
+      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
+      "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6"
     }
   ]
 }
