@@ -231,35 +231,48 @@ func TestParseCapsFromGrantsMinuteWindow(t *testing.T) {
 
 func TestLoadCapStateRecordsMissingFile(t *testing.T) {
 	t.Parallel()
-	got := loadCapStateRecords(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), nil)
+	got, err := loadCapStateRecords(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), nil)
+	if err != nil {
+		t.Errorf("missing file should be nil error, got %v", err)
+	}
 	if got != nil {
 		t.Errorf("missing file should return nil, got %v", got)
 	}
 }
 
-func TestLoadCapStateRecordsSkipsMalformedLines(t *testing.T) {
+// TestLoadCapStateRecordsMalformedLineFailsClosed asserts the fail-closed
+// property: a garbage line is an error, NOT silently dropped. Silently
+// skipping let an attacker erase a real spend by overwriting it with
+// junk and have the reader under-report usage.
+func TestLoadCapStateRecordsMalformedLineFailsClosed(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cap-state.jsonl")
 	content := `{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5}
 not-json garbage line
-{"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":2}
-
 {"at":"2026-05-27T10:10:00Z","asset":"USDC","amount":7}
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	recs := loadCapStateRecords(path, nil)
-	if len(recs) != 3 {
-		t.Fatalf("got %d records, want 3 (malformed should be skipped): %+v", len(recs), recs)
+	// Both with and without a key, a malformed line must fail closed.
+	for _, key := range [][]byte{nil, bytes32(1)} {
+		recs, err := loadCapStateRecords(path, key)
+		if err == nil {
+			t.Fatalf("key!=nil:%v — malformed line silently accepted (got %d records, want error)", key != nil, len(recs))
+		}
+		if !strings.Contains(err.Error(), "malformed") {
+			t.Errorf("key!=nil:%v — err %q should mention malformed", key != nil, err.Error())
+		}
 	}
-	if recs[0].asset != "USDC" || recs[0].amount != 5 {
-		t.Errorf("first rec wrong: %+v", recs[0])
+}
+
+func bytes32(seed byte) []byte {
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = byte(i) + seed
 	}
-	if recs[2].asset != "USDC" || recs[2].amount != 7 {
-		t.Errorf("third rec wrong: %+v", recs[2])
-	}
+	return k
 }
 
 func TestLoadCapStateRecordsHMACChain(t *testing.T) {
@@ -281,33 +294,46 @@ func TestLoadCapStateRecordsHMACChain(t *testing.T) {
 	h2 := recordHMAC("2026-05-27T10:05:00Z", "ETH", 2, mustDecodeB64(h1))
 	h3 := recordHMAC("2026-05-27T10:10:00Z", "USDC", 7, mustDecodeB64(h2))
 
-	// Valid chain: 3 records.
+	// Valid chain: 3 records, no error.
 	os.WriteFile(path, []byte(fmt.Sprintf(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5,"hmac":"%s"}
 {"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":2,"hmac":"%s"}
 {"at":"2026-05-27T10:10:00Z","asset":"USDC","amount":7,"hmac":"%s"}
 `, h1, h2, h3)), 0o600)
-	if recs := loadCapStateRecords(path, key); len(recs) != 3 {
-		t.Fatalf("got %d records, want 3", len(recs))
+	recs, err := loadCapStateRecords(path, key)
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("valid chain: got %d records, err %v; want 3, nil", len(recs), err)
 	}
 
-	// Tampered: amount changed but HMAC not recomputed → skipped.
+	// Tampered: amount changed but HMAC not recomputed → fail closed.
 	os.WriteFile(path, []byte(fmt.Sprintf(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5,"hmac":"%s"}
 {"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":9999,"hmac":"%s"}
 `, h1, h2)), 0o600)
-	if recs := loadCapStateRecords(path, key); len(recs) != 1 {
-		t.Fatalf("got %d after tamper, want 1", len(recs))
+	if _, err := loadCapStateRecords(path, key); err == nil {
+		t.Fatal("tampered record accepted — integrity check missing (must fail closed)")
+	} else if !strings.Contains(err.Error(), "HMAC mismatch") {
+		t.Errorf("err %q should mention HMAC mismatch", err.Error())
 	}
 
-	// Backward-compat: no HMAC → pass through.
+	// Signed chain spliced with an unauthenticated record → fail closed.
+	os.WriteFile(path, []byte(fmt.Sprintf(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5,"hmac":"%s"}
+{"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":2}
+`, h1)), 0o600)
+	if _, err := loadCapStateRecords(path, key); err == nil {
+		t.Fatal("signed chain + plain record accepted — mixed-format tamper not caught")
+	}
+
+	// Wholly-legacy file (no HMAC) → accepted for read-only reporting.
 	os.WriteFile(path, []byte(`{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5}`+"\n"), 0o600)
-	if recs := loadCapStateRecords(path, key); len(recs) != 1 {
-		t.Fatalf("got %d for no-HMAC, want 1", len(recs))
+	recs, err = loadCapStateRecords(path, key)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("legacy file: got %d records, err %v; want 1, nil", len(recs), err)
 	}
 
-	// nil key → no verification (all pass through).
+	// nil key → no verification (HMAC field ignored, still accepted).
 	os.WriteFile(path, []byte(`{"at":"2026-05-27T10:00:00Z","asset":"ETH","amount":2,"hmac":"bogus"}`+"\n"), 0o600)
-	if recs := loadCapStateRecords(path, nil); len(recs) != 1 {
-		t.Fatalf("got %d with nil key, want 1", len(recs))
+	recs, err = loadCapStateRecords(path, nil)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("nil key: got %d records, err %v; want 1, nil", len(recs), err)
 	}
 }
 
@@ -325,6 +351,45 @@ func mustDecodeB64(s string) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// TestResolveUnderRejectsTraversal exercises the containment guard the
+// install staging path uses on manifest binary.path. A path that
+// resolves outside the bundle/staging dir (../../etc/x, an absolute
+// path, an empty path) must be refused; a legitimate nested relative
+// path must resolve inside the base.
+func TestResolveUnderRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+
+	rejected := []string{
+		"../../etc/x",
+		"../escape",
+		"a/../../escape",
+		"/etc/passwd",
+		"",
+	}
+	for _, rel := range rejected {
+		if got, err := resolveUnder(base, rel); err == nil {
+			t.Errorf("resolveUnder(%q) = %q, want error (must be contained)", rel, got)
+		}
+	}
+
+	accepted := map[string]string{
+		"bin/app":   filepath.Join(base, "bin/app"),
+		"app":       filepath.Join(base, "app"),
+		"a/b/c/bin": filepath.Join(base, "a/b/c/bin"),
+	}
+	for rel, want := range accepted {
+		got, err := resolveUnder(base, rel)
+		if err != nil {
+			t.Errorf("resolveUnder(%q) errored: %v", rel, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("resolveUnder(%q) = %q, want %q", rel, got, want)
+		}
+	}
 }
 
 func TestSHA256FileHandlesMissing(t *testing.T) {

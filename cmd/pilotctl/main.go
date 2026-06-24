@@ -52,8 +52,15 @@ func defaultSocket() string {
 }
 
 func configDir() string {
+	// PILOT_HOME, when set, overrides the location of the .pilot config
+	// directory — matching the override the other components honor and
+	// letting callers (tests, sandboxes, multi-identity setups) relocate
+	// state without rewriting $HOME.
+	if h := os.Getenv("PILOT_HOME"); h != "" {
+		return filepath.Join(h, defaultConfigDir)
+	}
 	home, _ := os.UserHomeDir()
-	return home + "/" + defaultConfigDir
+	return filepath.Join(home, defaultConfigDir)
 }
 
 func configPath() string       { return configDir() + "/" + defaultConfigFile }
@@ -275,11 +282,23 @@ func getRegistry() string {
 func loadConfig() map[string]interface{} {
 	f, err := os.Open(configPath())
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			// A missing config is normal (defaults apply); anything else —
+			// permission denied, an I/O error — is a real problem the user
+			// should hear about rather than silently get defaults for.
+			slog.Warn("could not read config; using defaults",
+				"path", configPath(), "error", err)
+		}
 		return map[string]interface{}{}
 	}
 	defer f.Close()
 	var cfg map[string]interface{}
 	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
+		// A corrupt config silently falling back to defaults can mask a
+		// truncated/half-written file and make admin_token/registry
+		// settings vanish without explanation. Surface it.
+		slog.Warn("config file is corrupt; using defaults",
+			"path", configPath(), "error", err)
 		return map[string]interface{}{}
 	}
 	return cfg
@@ -311,14 +330,50 @@ func saveConfig(cfg map[string]interface{}) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	f, err := os.Create(configPath())
+
+	// config.json holds secrets (admin_token, webhook, registry, etc.), so
+	// keep it 0600 and write it atomically: serialize to a temp file in the
+	// same directory, fsync, then rename over the target. A crash mid-write
+	// can never leave a truncated or world-readable config behind, and we do
+	// not inherit loose permissions from any pre-existing file.
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(cfg)
+	data = append(data, '\n')
+
+	tmp, err := os.CreateTemp(dir, defaultConfigFile+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Chmod error is the one returned
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Write error is the one returned
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close() // #nosec G104 -- best-effort cleanup on the error path; the Sync error is the one returned
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, configPath()); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // --- Arg parsing helpers ---
@@ -340,7 +395,7 @@ func parseFlags(args []string) (map[string]string, []string) {
 		if key != "" {
 			if idx := strings.Index(key, "="); idx >= 0 {
 				flags[key[:idx]] = key[idx+1:]
-			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			} else if i+1 < len(args) && isFlagValue(args[i+1]) {
 				flags[key] = args[i+1]
 				i++
 			} else {
@@ -351,6 +406,39 @@ func parseFlags(args []string) (map[string]string, []string) {
 		}
 	}
 	return flags, pos
+}
+
+// isFlagValue reports whether tok, appearing immediately after a flag key,
+// should be consumed as that flag's value rather than parsed as the next
+// flag. Values that begin with "-" used to be silently dropped (forcing
+// users onto --key=value); this lets "--key -value" work for the common
+// cases without making "--flag --next" ambiguous:
+//   - anything not starting with "-" is a value
+//   - a bare "-" (stdin sentinel) is a value
+//   - "-1", "-3.14" and other negative numbers are values
+//   - "-=foo" or "-3x" (a "-" followed by a digit) is a value, since those
+//     are not valid flag names
+//
+// A token shaped like a flag ("--name" or "-name") is treated as the next
+// flag, not a value — use --key=value to pass such a literal.
+func isFlagValue(tok string) bool {
+	if !strings.HasPrefix(tok, "-") {
+		return true
+	}
+	if tok == "-" {
+		return true
+	}
+	// "--something" is always a flag.
+	if strings.HasPrefix(tok, "--") {
+		return false
+	}
+	// Single dash: a value if the remainder is numeric ("-1", "-3.14") or
+	// begins with a digit ("-3x"); otherwise it looks like a "-name" flag.
+	rest := tok[1:]
+	if isNumericFlag(rest) {
+		return true
+	}
+	return rest[0] >= '0' && rest[0] <= '9'
 }
 
 // isNumericFlag reports whether s looks like a bare number (e.g. "1", "3.14"),
@@ -550,6 +638,14 @@ func maybeAutoHandshake(d *driver.Driver, addr protocol.Addr, skip bool) {
 	}
 
 	// Branch 2 — peer is in the embedded trusted-agents allowlist.
+	//
+	// TODO(security/H4): IsTrusted keys on node_id only, with no pubkey
+	// binding. This call is outbound (we initiate toward addr), so the
+	// peer's authenticated pubkey is not in scope here — node_id match is
+	// all we can check. Pubkey pinning (IsTrustedWithKey) must be added in
+	// the upstream github.com/pilot-protocol/trustedagents module and wired
+	// at the inbound auto-accept path inside its NewService(), where the
+	// presented key IS available. See that repo, not this call site.
 	if name, ok := trustedagents.IsTrusted(addr.Node); ok {
 		if !jsonOutput {
 			fmt.Fprintf(os.Stderr, "establishing handshake with Trusted Agent %s (%s)...\n", name, addr)
@@ -1148,13 +1244,19 @@ Common keys:
 
 Print the pilotctl build version string.
 `,
-	"update": `Usage: pilotctl update [flags]
+	"update": `Usage: pilotctl update [subcommand|flags]
 
-Run the updater once — check for new releases and install if available.
-In manual mode (daemon not running), re-runs skill install so newly
-installed binaries have matching skill definitions.
+Automatic updates are OFF by default. Control them with:
+  pilotctl update status     show whether auto-update is on and the current version
+  pilotctl update enable     turn automatic updates ON
+  pilotctl update disable    turn automatic updates OFF (default)
 
-Flags:
+With no subcommand, runs the updater ONCE — a manual check that installs the
+latest release if available, regardless of the auto-update setting. In manual
+mode (daemon not running), re-runs skill install so newly installed binaries
+have matching skill definitions.
+
+Flags (one-shot mode):
   --repo <name>   GitHub owner/repo for releases (default: pilot-protocol/pilotprotocol)
   --pin <tag>     pin to a specific release tag (e.g. v1.10.5)
 `,
@@ -1345,7 +1447,7 @@ Diagnostic commands:
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
   pilotctl update [--pin <tag>]                        run the updater once — check and install new release
-  pilotctl updates [--count <n>] [--scope <scope>]   read https://teoslayer.github.io/pilot-changelog/feed.xml
+  pilotctl updates [--count <n>] [--scope <scope>]   read https://pilot-protocol.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
   pilotctl context
@@ -2721,20 +2823,31 @@ func cmdDaemonStop() {
 	}
 
 	pid := readPID()
+	discovered := false
 	if pid <= 0 {
-		// Try socket
-		d, err := driver.Connect(getSocket())
+		// PID file is missing (manual start, lost file, crash). If the socket
+		// is live the daemon is still running — discover its PID from the
+		// socket owner and stop it instead of telling the user to kill it by
+		// hand.
+		socket := getSocket()
+		d, err := driver.Connect(socket)
 		if err != nil {
 			fatalCode("not_running", "daemon is not running")
 		}
-		d.Close()
-		fatalHint("not_running",
-			fmt.Sprintf("find and kill the process manually: lsof -U | grep %s", getSocket()),
-			"daemon socket is active but PID file is missing")
+		d.Close() // #nosec G104 -- probe connection only; we just needed to confirm the socket is live
+		pid = discoverDaemonPID(socket)
+		if pid <= 0 {
+			fatalHint("not_running",
+				fmt.Sprintf("find and kill the process manually: lsof -U | grep %s", socket),
+				"daemon socket is active but PID file is missing and the owning process could not be identified")
+		}
+		discovered = true
 	}
 
 	if !processExists(pid) {
-		os.Remove(pidFilePath())
+		if !discovered {
+			os.Remove(pidFilePath()) // #nosec G104 -- best-effort removal of stale PID file; failure is non-fatal
+		}
 		fatalCode("not_running", "daemon is not running (cleaned up stale state)")
 	}
 
@@ -2937,6 +3050,34 @@ func processExists(pid int) bool {
 	}
 	// On Unix, FindProcess always succeeds. Use Signal(0) to check.
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// discoverDaemonPID finds the PID of the process holding the daemon's Unix
+// socket. It is the fallback for `daemon stop` when the PID file is missing
+// (manual start, crash that lost the file, etc.) so we can stop the daemon
+// instead of punting to "kill it yourself". Returns 0 if the owner can't be
+// determined (e.g. lsof unavailable). Only same-UID processes are returned by
+// lsof for our own socket, so this can't be used to signal other users' procs.
+func discoverDaemonPID(socketPath string) int {
+	if socketPath == "" {
+		return 0
+	}
+	// #nosec G204 -- fixed argv (lsof -t -U -a); socketPath is our own config-derived daemon socket passed as a separate arg, no shell, no injection
+	out, err := exec.Command("lsof", "-t", "-U", "-a", socketPath).Output()
+	if err != nil {
+		return 0
+	}
+	self := os.Getpid()
+	for _, line := range strings.Fields(string(out)) {
+		pid, perr := strconv.Atoi(line)
+		if perr != nil || pid <= 0 || pid == self {
+			continue
+		}
+		if processExists(pid) {
+			return pid
+		}
+	}
+	return 0
 }
 
 // ===================== GATEWAY =====================
@@ -3193,14 +3334,19 @@ func cmdSetHostname(args []string) {
 		fatalCode("connection_failed", "set-hostname: %v", err)
 	}
 
-	// Persist to config.json so hostname survives daemon restart
+	// Persist to config.json so hostname survives daemon restart. Report a
+	// save failure rather than letting persisted config silently diverge
+	// from the running daemon.
 	cfg := loadConfig()
 	if hostname != "" {
 		cfg["hostname"] = hostname
 	} else {
 		delete(cfg, "hostname")
 	}
-	saveConfig(cfg)
+	if err := saveConfig(cfg); err != nil {
+		fatalCode("internal",
+			"hostname set on daemon but could not persist to %s: %v", configPath(), err)
+	}
 
 	if jsonOutput {
 		outputOK(map[string]interface{}{
@@ -3223,10 +3369,14 @@ func cmdClearHostname() {
 		fatalCode("connection_failed", "clear-hostname: %v", err)
 	}
 
-	// Persist to config.json so hostname stays cleared on daemon restart
+	// Persist to config.json so hostname stays cleared on daemon restart.
+	// Report a save failure rather than silently diverging from the daemon.
 	cfg := loadConfig()
 	delete(cfg, "hostname")
-	saveConfig(cfg)
+	if err := saveConfig(cfg); err != nil {
+		fatalCode("internal",
+			"hostname cleared on daemon but could not persist to %s: %v", configPath(), err)
+	}
 
 	if jsonOutput {
 		outputOK(map[string]interface{}{
@@ -3394,7 +3544,9 @@ func cmdConnect(args []string) {
 
 	// --message mode: send one message, read one response, exit
 	if message != "" {
-		conn, err := d.DialAddr(target, port)
+		// Honor --timeout on the dial itself so the daemon-side dial is
+		// cancelled (not left dangling) when the peer never answers.
+		conn, err := d.DialAddrTimeout(target, port, timeout)
 		if err != nil {
 			hint := classifyDaemonError(err)
 			if hint == "" {
@@ -3456,20 +3608,27 @@ func cmdConnect(args []string) {
 			"--message is required (interactive mode not supported)")
 	}
 
-	// Read all piped stdin
+	// Read all piped stdin. bufio.Scanner's default 64 KiB token limit
+	// would make a single long line fail silently, and scanner.Err() must be
+	// checked or read errors are swallowed. Raise the buffer and surface Err().
 	var stdinData []byte
 	scanner := bufio.NewScanner(os.Stdin)
+	const maxLine = 16 * 1024 * 1024 // 16 MiB per line
+	scanner.Buffer(make([]byte, 0, 64*1024), maxLine)
 	for scanner.Scan() {
 		if len(stdinData) > 0 {
 			stdinData = append(stdinData, '\n')
 		}
 		stdinData = append(stdinData, scanner.Bytes()...)
 	}
+	if err := scanner.Err(); err != nil {
+		fatalCode("invalid_argument", "reading stdin: %v", err)
+	}
 	if len(stdinData) == 0 {
 		fatalCode("invalid_argument", "no data on stdin — use --message or pipe data")
 	}
 
-	conn, err := d.DialAddr(target, port)
+	conn, err := d.DialAddrTimeout(target, port, timeout)
 	if err != nil {
 		fatalHint("connection_failed",
 			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),
@@ -4152,18 +4311,34 @@ func cmdSendMessage(args []string) {
 		if len(traceEvents) > 0 {
 			result["trace"] = traceEvents
 		}
-		outputOK(result)
 		if waitDur > 0 {
-			if !jsonOutput {
+			// Defer all output until the reply is in (or times out) so that
+			// --json emits a SINGLE document: a machine parser reading stdout
+			// must not see the send-result object followed by a second reply
+			// object. In JSON mode we fold the reply into one envelope; in
+			// human mode we still print the send result first, then the reply.
+			if jsonOutput {
+				stop := startWaitProgress("waiting for reply")
+				reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
+				stop()
+				if err != nil {
+					fatalCode("timeout", "%v", err)
+				}
+				result["reply"] = reply
+				outputOK(result)
+			} else {
+				outputOK(result)
 				fmt.Fprintf(os.Stderr, "waiting for reply from %s (up to %s)...\n", pos[0], waitDur)
+				stop := startWaitProgress("waiting for reply")
+				reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
+				stop()
+				if err != nil {
+					fatalCode("timeout", "%v", err)
+				}
+				output(reply)
 			}
-			stop := startWaitProgress("waiting for reply")
-			reply, err := waitForInboxReply(agentHint, inboxCutoff, waitDur)
-			stop()
-			if err != nil {
-				fatalCode("timeout", "%v", err)
-			}
-			output(reply)
+		} else {
+			outputOK(result)
 		}
 	} else if reuseConn {
 		// --reuse-conn: one dial shared across all N sends. Seq 0 pays dial
@@ -5246,29 +5421,15 @@ func cmdPing(args []string) {
 	// reuseConn mode: one shared connection across all iterations.
 	// nil = needs dial. Reconnects only on error to avoid the ~1.5×RTT
 	// TCP-handshake cost on packets 2+. Disabled by default (ablation flag).
-	type dialResult struct {
-		conn *driver.Conn
-		err  error
-	}
 	dialOnce := func() (*driver.Conn, time.Duration, error) {
-		ch := make(chan dialResult, 1)
-		go func() {
-			c, e := d.DialAddr(target, protocol.PortEcho)
-			ch <- dialResult{c, e}
-		}()
+		// DialAddrTimeout enforces the per-attempt budget at the daemon-IPC
+		// layer and cancels the dial on expiry, so a timed-out ping against a
+		// ghost peer doesn't leak a goroutine or leave a dangling daemon-side
+		// dial (the previous goroutine+select drained but could not cancel the
+		// underlying dial).
 		t0 := time.Now()
-		select {
-		case dr := <-ch:
-			return dr.conn, time.Since(t0), dr.err
-		case <-time.After(perAttempt):
-			// Drain the goroutine asynchronously.
-			go func() {
-				if dr := <-ch; dr.conn != nil {
-					dr.conn.Close()
-				}
-			}()
-			return nil, time.Since(t0), fmt.Errorf("dial timeout after %s", perAttempt)
-		}
+		c, e := d.DialAddrTimeout(target, protocol.PortEcho, perAttempt)
+		return c, time.Since(t0), e
 	}
 
 	var sharedConn *driver.Conn
@@ -5496,26 +5657,14 @@ func cmdTraceroute(args []string) {
 		fmt.Printf("TRACEROUTE %s\n", target)
 	}
 
+	// Tunnel negotiation against a slow or unreachable peer blocks silently
+	// for up to --timeout; show elapsed progress on a TTY. DialAddrTimeout
+	// cancels the underlying daemon dial on expiry so a timed-out traceroute
+	// does not leave a dangling connection behind in the daemon.
 	start := time.Now()
-	connDone := make(chan *driver.Conn)
-	var dialErr error
-	go func() {
-		conn, err := d.DialAddr(target, protocol.PortEcho)
-		dialErr = err
-		connDone <- conn
-	}()
-
-	// Tunnel negotiation against a slow or unreachable peer blocks here
-	// silently for up to --timeout; show elapsed progress on a TTY.
 	stopProgress := startWaitProgress(fmt.Sprintf("tracing %s", target))
-	var conn *driver.Conn
-	select {
-	case conn = <-connDone:
-		stopProgress()
-	case <-time.After(timeout):
-		stopProgress()
-		fatalCode("timeout", "dial timeout")
-	}
+	conn, dialErr := d.DialAddrTimeout(target, protocol.PortEcho, timeout)
+	stopProgress()
 
 	setupTime := time.Since(start)
 	if dialErr != nil {
@@ -5539,7 +5688,20 @@ func cmdTraceroute(args []string) {
 	for i := 0; i < 3; i++ {
 		pingStart := time.Now()
 		payload := fmt.Sprintf("trace-%d", i)
-		conn.Write([]byte(payload))
+		if _, werr := conn.Write([]byte(payload)); werr != nil {
+			// The connection dropped mid-trace: record the write failure and
+			// don't block in Read waiting for an echo that will never come.
+			rtt := time.Since(pingStart)
+			sample := map[string]interface{}{
+				"rtt_ms": float64(rtt.Microseconds()) / 1000.0,
+				"error":  werr.Error(),
+			}
+			rttSamples = append(rttSamples, sample)
+			if !jsonOutput {
+				fmt.Printf("     rtt=%v write error: %v\n", rtt, werr)
+			}
+			break
+		}
 
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
@@ -5583,6 +5745,30 @@ func cmdBench(args []string) {
 
 	timeout := flagDuration(flags, "timeout", 120*time.Second)
 
+	// Validate the size before touching the daemon so a nonsense size fails
+	// fast (and can't tie up the transport). Negatives/zero/NaN/Inf would
+	// underflow the int conversion or busy-loop the send; an absurd size
+	// would run the echo path indefinitely. Cap at a generous 4 GiB.
+	totalSize := 1024 * 1024
+	if len(pos) > 1 {
+		sizeMB, perr := strconv.ParseFloat(pos[1], 64)
+		if perr != nil {
+			fatalCode("invalid_argument", "invalid size: %v", perr)
+		}
+		const maxSizeMB = 4096.0
+		if !(sizeMB > 0) {
+			fatalCode("invalid_argument", "size must be a positive number of MB, got %q", pos[1])
+		}
+		if sizeMB > maxSizeMB {
+			fatalCode("invalid_argument", "size %g MB exceeds maximum of %g MB", sizeMB, maxSizeMB)
+		}
+		totalSize = int(sizeMB * 1024 * 1024)
+		if totalSize <= 0 {
+			fatalCode("invalid_argument", "size %q is too small to send", pos[1])
+		}
+	}
+	const chunkSize = 4096
+
 	d := connectDriver()
 	defer d.Close()
 
@@ -5592,21 +5778,11 @@ func cmdBench(args []string) {
 	}
 	maybeAutoHandshake(d, target, flagBool(flags, "no-auto-handshake"))
 
-	totalSize := 1024 * 1024
-	if len(pos) > 1 {
-		sizeMB, err := strconv.ParseFloat(pos[1], 64)
-		if err != nil {
-			fatalCode("invalid_argument", "invalid size: %v", err)
-		}
-		totalSize = int(sizeMB * 1024 * 1024)
-	}
-	const chunkSize = 4096
-
 	if !jsonOutput {
 		fmt.Printf("BENCH %s — sending %s via echo port\n", target, formatBytes(uint64(totalSize)))
 	}
 
-	conn, err := d.DialAddr(target, protocol.PortEcho)
+	conn, err := d.DialAddrTimeout(target, protocol.PortEcho, timeout)
 	if err != nil {
 		fatalHint("connection_failed",
 			fmt.Sprintf("check that %s is reachable: pilotctl ping %s", target, target),

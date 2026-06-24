@@ -89,6 +89,12 @@ type catalogueEntry struct {
 	BundleURL   string `json:"bundle_url"`
 	BundleSHA   string `json:"bundle_sha256"`
 
+	// Publisher is the app's ed25519 publisher key ("ed25519:<base64>"). It is
+	// the trust pin: the daemon (internal/catalogue) reads it from the
+	// signature-verified catalogue and the app-store supervisor confirms each
+	// non-sideloaded app's manifest publisher matches it before spawning.
+	Publisher string `json:"publisher,omitempty"`
+
 	// --- v3 per-platform bundles ---
 	// Bundles maps "os/arch" (e.g. "darwin/arm64") → that platform's
 	// tarball + sha256. When present, install picks the host's entry;
@@ -386,9 +392,22 @@ func fetchAndUnpackBundle(e catalogueEntry) (string, error) {
 	}
 	defer os.Remove(tmpTar.Name())
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmpTar, h), body); err != nil {
+	// Cap the compressed bundle download. Without this a hostile or
+	// compromised CDN could stream an unbounded body and exhaust disk
+	// before the sha256 check (which only runs after the full copy) ever
+	// fires. maxBundleBytes bounds the COMPRESSED tarball; untarUnder
+	// separately bounds each extracted file against decompression bombs.
+	// We read one byte past the cap to distinguish "exactly at limit"
+	// from "over limit" and fail closed on the latter.
+	limited := io.LimitReader(body, maxBundleBytes+1)
+	written, err := io.Copy(io.MultiWriter(tmpTar, h), limited)
+	if err != nil {
 		_ = tmpTar.Close()
 		return "", fmt.Errorf("download body: %w", err)
+	}
+	if written > maxBundleBytes {
+		_ = tmpTar.Close()
+		return "", fmt.Errorf("bundle exceeds max size (%d bytes): %s — refusing", maxBundleBytes, bundleURL)
 	}
 	if err := tmpTar.Close(); err != nil {
 		return "", err
@@ -457,10 +476,19 @@ func httpGet(raw string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// maxBundleBytes caps the COMPRESSED bundle tarball download in
+// fetchAndUnpackBundle. The largest known pilot app is ~4 MiB
+// uncompressed; 128 MiB leaves generous headroom for a multi-file
+// bundle while bounding an unbounded-body attack from a hostile or
+// compromised CDN that would otherwise fill disk before the post-copy
+// sha256 check runs. A var (not const) so tests can lower it without
+// writing 128 MiB to disk.
+var maxBundleBytes int64 = 128 << 20 // 128 MiB
+
 // maxUntarFileSize is the per-file limit for entries extracted by
 // untarUnder. 64 MiB covers legitimate bundles (the largest known
 // pilot app is ~4 MiB) while bounding decompression bombs that pass
-// the 1 MiB tarball download cap via a high compression ratio.
+// the bundle download cap via a high compression ratio.
 const maxUntarFileSize int64 = 64 << 20 // 64 MiB
 
 // untarUnder writes every entry in r under dst, refusing any path

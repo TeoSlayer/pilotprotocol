@@ -72,17 +72,19 @@ const (
 	// direct path doesn't recover within the normal retry budget.
 	CmdPreferDirect   byte = 0x2D
 	CmdPreferDirectOK byte = 0x2E
-	// CmdCancel: driver → daemon, "abandon the in-flight request that
-	// I sent under reqID X". The reqID embedded in the envelope header
-	// IS NOT the reqID being cancelled — that's encoded in the body
-	// payload as a uint64. The envelope's own reqID is the new request
-	// (CmdCancel); we don't reply, so it's effectively unused on the
-	// wire (typically 0 from the driver's send() path).
+	// CmdCancel: driver → daemon, "abandon the dial(s) I have in flight".
+	// The IPC envelope carries no per-request correlation token (the wire
+	// header is a single cmd byte — see IPCEnvelopeHeaderSize), so the
+	// daemon cannot identify a single request to cancel. CmdCancel
+	// therefore aborts ALL of the sending client's in-flight dials
+	// (conn.cancelAllDials). A driver only sends it after it has timed out
+	// and given up on its outstanding dial(s), so cancelling them all
+	// matches intent. The daemon sends no reply. Any payload is ignored.
 	//
 	// Issue #99: without this, a driver that timed out on a slow
-	// daemon dial left the daemon's dispatch goroutine grinding for
-	// the full 14-31 s retry budget, filling the per-conn dispatch
-	// semaphore under burst load (§4.8 stress).
+	// daemon dial left the daemon's dial loop grinding for the full
+	// 14-31 s retry budget, filling the per-conn dispatch semaphore
+	// under burst load (§4.8 stress).
 	CmdCancel byte = 0x2B
 	// CmdSubmitBadge attaches a verified-address badge to this node and
 	// CmdEnrollRecovery records its opaque recovery commitment. Both carry a
@@ -125,24 +127,33 @@ const (
 // stress to (*ipcConn).ipcWrite. See [[X-Tasks/backlog/26-ipc-write-mutex-contention]]
 // and [[X-Tasks/backlog/30-mutex-risk-map]] § fix #4.
 //
-// Wire format (issue #99):
+// Wire format:
 //
-//	[uint32-len][uint8-cmd][uint64-reqID][payload...]
+//	[uint32-len][uint8-cmd][payload...]
 //
-// reqID is a per-IPC-connection monotonic identifier the driver allocates
-// for each request expecting a reply. The daemon echoes the same reqID
-// back in the response, so the driver can demultiplex replies that may
-// arrive out of submission order (concurrent dispatch — see issue #99).
-// reqID==0 means "server-pushed, unsolicited" — used for cmdRecv,
+// There is NO request-ID on the wire — the per-message header is a single
+// command byte (IPCEnvelopeHeaderSize == 1). The reqID parameter threaded
+// through the handler signatures is always 0; it is a vestige of an
+// earlier design and is NOT transmitted or echoed. Because replies carry
+// no correlation token, the driver must NOT have more than one in-flight
+// request per command class that expects a reply on a single IPC
+// connection; the driver-side mitigation for this lives in common (it
+// serializes request/reply pairs per connection).
+//
+// TODO(ipc-correlation): a backward-compatible correlation token could be
+// added by introducing a new cmd that prefixes a uint64 token ahead of an
+// inner cmd, leaving the legacy single-byte framing untouched for old
+// clients. Not done here — it is a wire change and a client-side
+// mitigation is being handled in common instead.
+//
+// reqID==0 likewise tags server-pushed, unsolicited messages — cmdRecv,
 // cmdAccept, cmdRecvFrom, cmdCloseOK from the recvPusher path, and the
 // fan-out broadcast in DeliverDatagram. Drivers route those by cmd.
 //
-// Ordering: per-reqID, requests and their replies are paired (the driver
-// sees its own reply). Across requests, replies may interleave with each
-// other (concurrent dispatch). Server-pushed messages arrive in send
-// order on the writer goroutine. Per-conn ordering for traffic on a
-// single overlay connection (CmdRecv frames) is unchanged because the
-// recvPusher writes them sequentially.
+// Ordering: server-pushed messages arrive in send order on the writer
+// goroutine. Per-conn ordering for traffic on a single overlay connection
+// (CmdRecv frames) is preserved because the recvPusher writes them
+// sequentially.
 //
 // Concurrency model:
 //   - sendCh has capacity ipcSendBuffer (256). Producers (handleBind,
@@ -392,15 +403,30 @@ func (c *ipcConn) Close() error {
 		// doesn't keep grinding through retry budgets after the caller
 		// has already disconnected. Each cancel removes its connection
 		// from the daemon's conn table within milliseconds.
-		c.rmu.Lock()
-		cancels := c.dialCancels
-		c.dialCancels = make(map[uint64]context.CancelFunc)
-		c.rmu.Unlock()
-		for _, cancel := range cancels {
-			cancel()
-		}
+		c.cancelAllDials()
 	})
 	return nil
+}
+
+// cancelAllDials fires every in-flight dial cancel func without tearing
+// down the IPC connection, then clears the map. It returns the number of
+// dials it aborted. This is the daemon-side action behind CmdCancel: a
+// driver that has already timed out on a slow dial can ask the daemon to
+// stop grinding through its retry budget (~14-31 s) without disconnecting
+// the whole IPC connection. Because the wire envelope carries no per-
+// request correlation token (see IPCEnvelopeHeaderSize == 1), the daemon
+// cannot target a single dial, so CmdCancel aborts ALL of this client's
+// in-flight dials — which matches the spirit of the cmd: a client only
+// sends it after giving up on the request(s) it has outstanding.
+func (c *ipcConn) cancelAllDials() int {
+	c.rmu.Lock()
+	cancels := c.dialCancels
+	c.dialCancels = make(map[uint64]context.CancelFunc)
+	c.rmu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	return len(cancels)
 }
 
 // addDialCancel registers a context.CancelFunc for an in-flight dial.
@@ -670,9 +696,17 @@ func (s *IPCServer) handleClient(conn *ipcConn) {
 		reqID := uint64(0) // not transmitted on wire; kept for handler signatures
 		payload := msg[IPCEnvelopeHeaderSize:]
 
-		// CmdCancel: no-op (reqID is not on the wire; kept for wire
-		// compat with older clients that still send it).
+		// CmdCancel: abort this client's in-flight dials. The wire envelope
+		// carries no per-request correlation token (IPCEnvelopeHeaderSize
+		// == 1), so the daemon cannot target a single request — it cancels
+		// ALL of this client's in-flight dials. A driver only sends this
+		// after it has timed out and given up on its outstanding dial(s),
+		// so cancelling them all stops the daemon grinding the full retry
+		// budget. We do not reply (the driver isn't waiting on a reply).
 		if cmd == CmdCancel {
+			if n := conn.cancelAllDials(); n > 0 {
+				slog.Debug("IPC CmdCancel aborted in-flight dials", "count", n)
+			}
 			continue
 		}
 
@@ -846,10 +880,11 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize:])
 
-	// Per-dial cancellable context tied to this IPC connection's lifetime
-	// Cancellation: ipcConn.Close fires every dialCancels entry so a
-	// disconnected driver doesn't leave the daemon grinding through
-	// 14-31 s of retries.
+	// Per-dial cancellable context tied to this IPC connection's lifetime.
+	// Cancellation triggers: (a) ipcConn.Close fires every dialCancels
+	// entry when the driver disconnects; (b) CmdCancel fires them via
+	// conn.cancelAllDials when the driver explicitly abandons its dials.
+	// Either way the daemon stops grinding through 14-31 s of retries.
 	dialCtx, dialCancel := context.WithCancel(context.Background())
 	cancelID := conn.addDialCancel(dialCancel)
 	defer func() {
@@ -863,12 +898,12 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 		return
 	}
 
-	// If the driver cancelled (cmdCancel) AFTER the dial succeeded but
-	// BEFORE we got here, the resulting Connection is orphaned: the
-	// driver isn't tracking the connID and won't ever send CmdClose. We
-	// close it here to avoid leaking the conn table slot + a retxLoop
-	// goroutine. Issue #99: §4.8 stress with cmdCancel uncovered ~20
-	// retxLoops accumulating per rep from this race.
+	// If the driver cancelled (CmdCancel or disconnect) AFTER the dial
+	// succeeded but BEFORE we got here, the resulting Connection is
+	// orphaned: the driver isn't tracking the connID and won't ever send
+	// CmdClose. We close it here to avoid leaking the conn table slot + a
+	// retxLoop goroutine. Issue #99: §4.8 stress with cmdCancel uncovered
+	// ~20 retxLoops accumulating per rep from this race.
 	select {
 	case <-dialCtx.Done():
 		s.daemon.CloseConnection(c)
@@ -889,10 +924,10 @@ func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {
 		return
 	}
 
-	// Re-check cancellation after the reply has gone out: cmdCancel may
-	// have arrived during the window between the first cancel-check and
-	// the writeReply. The driver's waiter has already returned a
-	// "dial timeout" error, so its reply demux silently drops cmdDialOK
+	// Re-check cancellation after the reply has gone out: CmdCancel (or a
+	// disconnect) may have arrived during the window between the first
+	// cancel-check and the writeReply. The driver's waiter has already
+	// returned a "dial timeout" error, so its reply path drops cmdDialOK
 	// and the connection is orphaned with no Close() ever coming. Issue
 	// #99 §4.8 residual: this race left ~30 retxLoops alive per rep
 	// even after the orphan-close pre-check.
@@ -921,7 +956,13 @@ func (s *IPCServer) handleSend(conn *ipcConn, reqID uint64, payload []byte) {
 	if c == nil {
 		return
 	}
-	_ = s.daemon.SendData(c, data)
+	// CmdSend is fire-and-forget on the wire (a CmdError reply would
+	// corrupt the driver's pending channel), but a dropped stream-send
+	// error is invisible to operators. Log it so the failure is
+	// observable even though the caller can't be told directly.
+	if err := s.daemon.SendData(c, data); err != nil {
+		slog.Warn("IPC stream send failed", "conn_id", connID, "bytes", len(data), "err", err)
+	}
 }
 
 func (s *IPCServer) handleClose(conn *ipcConn, reqID uint64, payload []byte) {
@@ -954,7 +995,11 @@ func (s *IPCServer) handleSendTo(conn *ipcConn, reqID uint64, payload []byte) {
 	dstAddr := protocol.UnmarshalAddr(payload[0:protocol.AddrSize])
 	dstPort := binary.BigEndian.Uint16(payload[protocol.AddrSize : protocol.AddrSize+2])
 	data := payload[protocol.AddrSize+2:]
-	_ = s.daemon.SendDatagram(dstAddr, dstPort, data)
+	// Fire-and-forget like CmdSend (see handleSend) — no reply, but log a
+	// send error so a silently-failing datagram path is observable.
+	if err := s.daemon.SendDatagram(dstAddr, dstPort, data); err != nil {
+		slog.Warn("IPC datagram send failed", "dst", dstAddr.String(), "dst_port", dstPort, "bytes", len(data), "err", err)
+	}
 }
 
 // handleBroadcast services CmdBroadcast — admin-token-gated fan-out to a
@@ -1078,22 +1123,26 @@ func (s *IPCServer) handleInfo(conn *ipcConn, reqID uint64) {
 }
 
 func (s *IPCServer) handleHealth(conn *ipcConn, reqID uint64) {
-	info := s.daemon.Info()
+	// Health MUST be a purely-local check: it is the probe operators use to
+	// detect a stuck daemon, so it cannot depend on the registry. We read a
+	// HealthSnapshot (in-memory only) instead of Info(), which would call
+	// nodeNetworks()/the registry and let registry latency stall health.
+	h := s.daemon.HealthSnapshot()
 	data, err := json.Marshal(map[string]interface{}{
 		"status":                  "ok",
-		"uptime_seconds":          int64(info.Uptime.Seconds()),
-		"connections":             info.Connections,
-		"peers":                   info.Peers,
-		"bytes_sent":              info.BytesSent,
-		"bytes_recv":              info.BytesRecv,
-		"encrypted_peers":         info.EncryptedPeers,
-		"authenticated_peers":     info.AuthenticatedPeers,
-		"handshake_pending_count": info.HandshakePendingCount,
-		"relay_peer_count":        info.RelayPeerCount,
-		"accept_queue_drops":      info.AcceptQueueDrops,
-		"webhook_queue_dropped":   info.WebhookQueueDropped,
-		"webhook_circuit_skips":   info.WebhookCircuitSkips,
-		"beacon_addr":             info.BeaconAddr,
+		"uptime_seconds":          int64(h.Uptime.Seconds()),
+		"connections":             h.Connections,
+		"peers":                   h.Peers,
+		"bytes_sent":              h.BytesSent,
+		"bytes_recv":              h.BytesRecv,
+		"encrypted_peers":         h.EncryptedPeers,
+		"authenticated_peers":     h.AuthenticatedPeers,
+		"handshake_pending_count": h.HandshakePendingCount,
+		"relay_peer_count":        h.RelayPeerCount,
+		"accept_queue_drops":      h.AcceptQueueDrops,
+		"webhook_queue_dropped":   h.WebhookQueueDropped,
+		"webhook_circuit_skips":   h.WebhookCircuitSkips,
+		"beacon_addr":             h.BeaconAddr,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("health marshal: %v", err))

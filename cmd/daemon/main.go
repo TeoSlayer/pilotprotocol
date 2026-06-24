@@ -36,6 +36,7 @@ import (
 	"github.com/pilot-protocol/webhook"
 
 	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
+	"github.com/pilot-protocol/pilotprotocol/internal/catalogue"
 	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
@@ -346,6 +347,39 @@ func main() {
 	if home, herr := os.UserHomeDir(); herr == nil {
 		appstoreInstallRoot = filepath.Join(home, ".pilot", "apps")
 	}
+	if r := os.Getenv("PILOT_APPSTORE_ROOT"); r != "" {
+		appstoreInstallRoot = r
+	}
+	// Catalogue trust anchor: load the per-app publisher pins from the
+	// release-signed catalogue and feed them to the supervisor. A non-sideloaded
+	// app is spawned only if its manifest publisher matches the key the catalogue
+	// pins for its id (see appstore.Config.CataloguePublisher). The pins are
+	// cached on disk so a transient catalogue outage on restart doesn't fail-close
+	// every app; with neither a live catalogue nor a cache, apps fail closed.
+	cataloguePins := catalogue.NewProvider(
+		catalogue.URL(),
+		filepath.Join(filepath.Dir(appstoreInstallRoot), "catalogue-pins.json"),
+	)
+	if err := cataloguePins.Refresh(); err != nil {
+		if cataloguePins.LoadCache() {
+			log.Printf("appstore: catalogue refresh failed (%v); using %d cached publisher pin(s)", err, cataloguePins.Count())
+		} else {
+			log.Printf("appstore: catalogue refresh failed (%v) and no cache; catalogue apps fail closed until the next refresh succeeds", err)
+		}
+	} else {
+		log.Printf("appstore: loaded %d catalogue publisher pin(s)", cataloguePins.Count())
+	}
+	// Refresh the pins periodically so newly-catalogued apps become spawnable
+	// without a daemon restart. Daemon-lifetime loop; the process exit stops it.
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			if err := cataloguePins.Refresh(); err != nil {
+				log.Printf("appstore: catalogue pin refresh failed: %v (keeping previous pins)", err)
+			}
+		}
+	}()
 	// The app-usage telemetry emitter shares the daemon's identity file
 	// and telemetry URL. When consent is off (empty URL) the client is
 	// a permanent no-op — no goroutines, no dials, no buffering.
@@ -365,6 +399,10 @@ func main() {
 			// Real catalogue trust anchor (replaces the all-zeros
 			// placeholder default): the embedded ed25519 catalogue key.
 			CatalogPubkey: []byte(catalogtrust.PublicKey()),
+			// Per-app publisher pins from the release-signed catalogue: the
+			// supervisor confirms each non-sideloaded app's manifest publisher
+			// against this before spawning. nil/unpinned => fail closed.
+			CataloguePublisher: cataloguePins.Publisher,
 		}),
 		telemetryURL: *telemetryURL,
 		identityPath: idPath,

@@ -993,6 +993,33 @@ type installReport struct {
 // The daemon's supervisor only scans on Start, so an install while the
 // daemon is running is invisible until the next daemon restart — the
 // success message and JSON note callers about this.
+// resolveUnder joins rel onto base, cleans it, and verifies the result
+// is contained inside base. Returns an error otherwise.
+//
+// filepath.Join alone does NOT block traversal: a manifest with
+// binary.path = "../../etc/x" resolves outside the bundle/staging dir,
+// which would let a hostile manifest read an arbitrary host file as the
+// "binary" or plant a copy outside the staging tree. This mirrors the
+// supervisor's resolveUnder guard so the install path enforces the same
+// containment the supervisor relies on at spawn.
+func resolveUnder(base, rel string) (string, error) {
+	if rel == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("absolute path not permitted")
+	}
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("abs base: %w", err)
+	}
+	joined := filepath.Clean(filepath.Join(absBase, rel))
+	if joined != absBase && !strings.HasPrefix(joined, absBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes %s", rel, absBase)
+	}
+	return joined, nil
+}
+
 func cmdAppStoreInstall(args []string) {
 	if len(args) < 1 {
 		fatalHint("invalid_argument",
@@ -1076,7 +1103,12 @@ func cmdAppStoreInstall(args []string) {
 				"%v", err)
 		}
 	}
-	srcBin := filepath.Join(bundleDir, m.Binary.Path)
+	srcBin, err := resolveUnder(bundleDir, m.Binary.Path)
+	if err != nil {
+		fatalHint("invalid_argument",
+			"manifest binary.path must be a relative path inside the bundle; refusing a path that escapes the bundle dir",
+			"binary path %q escapes bundle: %v", m.Binary.Path, err)
+	}
 	if _, err := os.Stat(srcBin); err != nil {
 		fatalHint("invalid_argument",
 			fmt.Sprintf("manifest pins binary at %q", m.Binary.Path),
@@ -1122,7 +1154,17 @@ func cmdAppStoreInstall(args []string) {
 		fatalHint("io_error", "check install root permissions", "write manifest: %v", err)
 	}
 	// Place the binary at the manifest-declared path inside staging.
-	dstBin := filepath.Join(stagingDir, m.Binary.Path)
+	// Re-apply the containment guard against the staging root: defence
+	// in depth so the write target can't escape even if bundleDir and
+	// stagingDir ever diverge.
+	dstBin, err := resolveUnder(stagingDir, m.Binary.Path)
+	if err != nil {
+		// #nosec G703 -- stagingDir is appStoreRoot()/<m.ID>.staging; m.ID is reverse-DNS validated by m.Validate() above, so it cannot escape the install root
+		_ = os.RemoveAll(stagingDir)
+		fatalHint("invalid_argument",
+			"manifest binary.path must stay inside the staging dir",
+			"binary path %q escapes staging: %v", m.Binary.Path, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(dstBin), 0o700); err != nil {
 		_ = os.RemoveAll(stagingDir)
 		fatalHint("io_error", "check install root permissions", "mkdir binary parent: %v", err)
@@ -1140,6 +1182,34 @@ func cmdAppStoreInstall(args []string) {
 		fatalHint("integrity_error",
 			"the staged copy does not match the bundle — possible disk-level corruption",
 			"staged binary sha256 mismatch: manifest=%s staged=%s", m.Binary.SHA256, got)
+	}
+
+	// Carry the native-delivery install spec (and its human-readable script) into
+	// $APP when the bundle ships them. A cli adapter with assets reads
+	// $APP/install.json at startup to fetch + verify + stage its binaries from the
+	// R2 artifact registry. These files are covered by the bundle's sha (verified
+	// above at the tarball level), so copying them adds no new trust surface.
+	for _, aux := range []string{"install.json", "install.sh"} {
+		// Resolve both ends through the same containment guard the binary copy
+		// uses: aux is a constant allow-list entry, and resolveUnder cleans the
+		// join and verifies it stays under the root — so neither path can escape.
+		src, serr := resolveUnder(bundleDir, aux)
+		dst, derr := resolveUnder(stagingDir, aux)
+		if serr != nil || derr != nil {
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is appStoreRoot()/<m.ID>.staging (m.ID reverse-DNS validated), confined to the install root; cleanup of our own dir
+			fatalHint("internal_error", "aux install file path escaped the bundle/staging root", "resolve %s: %v / %v", aux, serr, derr)
+		}
+		if _, err := os.Stat(src); err != nil { // #nosec G703 -- src is resolveUnder(bundleDir, <const aux>), proven to stay under the bundle root above; no traversal
+			continue // not an asset-delivering app
+		}
+		mode := os.FileMode(0o644)
+		if aux == "install.sh" {
+			mode = 0o755
+		}
+		if err := copyFile(src, dst, mode); err != nil { // #nosec G703 -- src/dst are resolveUnder-confined (bundle/staging roots); aux is a constant allow-list entry, so neither can escape
+			_ = os.RemoveAll(stagingDir) // #nosec G703 -- stagingDir is the confined install-root staging dir; cleanup of our own dir
+			fatalHint("io_error", "check install root permissions", "copy %s: %v", aux, err)
+		}
 	}
 
 	if source == installSourceLocal {
@@ -1505,7 +1575,15 @@ func cmdAppStoreCaps(args []string) {
 			"missing app id")
 	}
 	appID := args[0]
-	appDir := filepath.Join(appStoreRoot(), appID)
+	// appID is user input; confine it to a single entry under the app
+	// store root so a crafted id (e.g. "../../etc") can't read or open
+	// files outside the install tree.
+	appDir, err := resolveUnder(appStoreRoot(), appID)
+	if err != nil {
+		fatalHint("invalid_argument",
+			"app ids are single directory names; try `pilotctl appstore list`",
+			"invalid app id %q: %v", appID, err)
+	}
 
 	mfRaw, err := os.ReadFile(filepath.Join(appDir, "manifest.json"))
 	if err != nil {
@@ -1528,7 +1606,15 @@ func cmdAppStoreCaps(args []string) {
 	// Derive HMAC key from daemon identity for cap-state integrity.
 	// Falls back to nil (no verification) if identity is unavailable.
 	hmacKey := loadCapStateHMACKey()
-	records := loadCapStateRecords(filepath.Join(appDir, "cap-state.jsonl"), hmacKey)
+	records, err := loadCapStateRecords(filepath.Join(appDir, "cap-state.jsonl"), hmacKey)
+	if err != nil {
+		// Fail closed: a tampered or corrupt spend log must surface as
+		// an error, not be papered over with an under-reported usage
+		// figure that makes an erased cap look healthy.
+		fatalHint("integrity_error",
+			"the wallet's cap-state spend log failed its integrity check; do not trust reported usage. Inspect cap-state.jsonl and, if the wallet's identity is intact, let the wallet rewrite it.",
+			"cap-state: %v", err)
+	}
 
 	now := time.Now()
 	reports := make([]capUsageReport, 0, len(caps))
@@ -1762,21 +1848,39 @@ type capStateRecord struct {
 	hmacOK bool
 }
 
-// loadCapStateRecords reads the wallet's persistent spend log.
-// When hmacKey is non-nil, records with a "hmac" field are verified
-// against the chained HMAC-SHA256; tampered records are skipped.
-// Records without "hmac" pass through (backward-compat).
-func loadCapStateRecords(path string, hmacKey []byte) []capStateRecord {
+// loadCapStateRecords reads the wallet's persistent spend log, failing
+// closed on any sign of corruption or tampering rather than silently
+// dropping records (which would under-report usage and make a tampered
+// or partially-erased cap look healthy).
+//
+// Behaviour:
+//   - a missing file is normal first-run state: returns (nil, nil);
+//   - a malformed JSON line is always an error — never silently skipped;
+//   - when hmacKey is non-nil and a line carries an "hmac" field, the
+//     chained HMAC-SHA256 must verify, else it's a tamper signal (error);
+//   - a file that mixes authenticated and unauthenticated records (only
+//     reachable by tampering with a signed chain) is rejected;
+//   - a wholly-unauthenticated (legacy) file is accepted for read-only
+//     reporting even when a key is available — the wallet migrates it to
+//     an authenticated chain on its next write.
+func loadCapStateRecords(path string, hmacKey []byte) ([]capStateRecord, error) {
+	// #nosec G304 -- path is appDir/cap-state.jsonl where appDir is confined to the app store root by resolveUnder in the sole production caller
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	defer f.Close()
 	var out []capStateRecord
 	var prevHMAC []byte
+	sawHMAC, sawPlain := false, false
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 4*1024), 1024*1024)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		raw := scanner.Bytes()
 		if len(raw) == 0 {
 			continue
@@ -1785,10 +1889,18 @@ func loadCapStateRecords(path string, hmacKey []byte) []capStateRecord {
 		// Parse the full JSON line including optional HMAC.
 		var line capStateJSON
 		if err := json.Unmarshal(raw, &line); err != nil {
-			continue
+			// Fail closed: a garbage line is corruption or tampering,
+			// not something to drop on the floor.
+			return nil, fmt.Errorf("malformed cap-state line %d in %s: %w", lineNo, path, err)
 		}
 
-		rec := capStateRecord{at: line.At, asset: line.Asset, amount: line.Amount, hmacOK: true}
+		if line.HMAC != "" {
+			sawHMAC = true
+		} else {
+			sawPlain = true
+		}
+
+		rec := capStateRecord{at: line.At, asset: line.Asset, amount: line.Amount, hmacOK: line.HMAC == ""}
 
 		// HMAC verification — only when key is available AND this line
 		// carries an HMAC field (post-migration or wallet-written).
@@ -1803,24 +1915,23 @@ func loadCapStateRecords(path string, hmacKey []byte) []capStateRecord {
 			expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 			if !hmac.Equal([]byte(expected), []byte(line.HMAC)) {
-				slog.Warn("cap-state record HMAC mismatch — skipping (possible tampering)",
-					"path", path,
-					"at", line.At.Format(time.RFC3339),
-				)
-				continue
+				return nil, fmt.Errorf("cap-state line %d in %s: HMAC mismatch — spend log tampered with or truncated", lineNo, path)
 			}
 			rec.hmacOK = true
 			prevHMAC, _ = base64.StdEncoding.DecodeString(line.HMAC)
-		} else if hmacKey != nil && line.HMAC == "" {
-			// Record without HMAC — backward-compat. Accept it,
-			// but reset the chain so the next HMAC-bearing record
-			// starts a fresh chain.
-			prevHMAC = nil
 		}
 
 		out = append(out, rec)
 	}
-	return out
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	// A signed chain with an unauthenticated record spliced in can only
+	// arise from tampering. Reject (only meaningful when we have a key).
+	if hmacKey != nil && sawHMAC && sawPlain {
+		return nil, fmt.Errorf("cap-state %s mixes authenticated and unauthenticated records — refusing (possible tampering)", path)
+	}
+	return out, nil
 }
 
 // ── actions ────────────────────────────────────────────────────────────

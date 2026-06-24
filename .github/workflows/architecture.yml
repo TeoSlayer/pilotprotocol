@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
 
       # check-layers extracted to pilot-protocol/check-layers; the
       # layer-import + test-import gates that used to live here now
@@ -26,11 +26,25 @@ jobs:
       # gateway, policy, webhook) extracted to its own sibling repo,
       # and the no_<plugin> build tags they exercised left with them.
 
+      - name: Race detector — all library packages (-short)
+        # Broad `-race` over the whole pkg/cmd/internal tree so a data race in
+        # any library — keyexchange frame parsing, envelope codecs, routing,
+        # transport — fails CI, not just the daemon lock graph below. -short
+        # skips the known-slow stress tests (run un-short in dedicated steps);
+        # -parallel 4 is the project convention to avoid port/socket exhaustion
+        # under the race detector's higher resource use. This step is also what
+        # keeps the rotate-key/sign regression (TestConcurrentRotateKeyAndSign
+        # in pkg/daemon) and the new keyexchange/IPC fuzz seed corpora under the
+        # race detector on every PR.
+        run: go test -race -short -parallel 4 -count=1 -timeout 12m ./pkg/... ./cmd/... ./internal/...
+
       - name: Lock-graph race detection (sec 4.8)
         # pkg/registry/ and pkg/secure/ extracted to pilot-protocol/{rendezvous,common}
         # in PR #155; lock-graph coverage for those layers now runs from
         # their own repos. pkg/daemon stays — that's where the daemon-side
         # lock graph (Store.mu, ReplayMu, SalvageMu, tm.mu, …) actually lives.
+        # Kept distinct from the broad step above because it runs WITHOUT -short
+        # so the pkg/daemon stress tests are race-checked too.
         run: go test -race -timeout 5m ./pkg/daemon/...
 
       - name: Lock-graph stress harness (sec 4.8) — TestConcurrentDialEncryptDecrypt

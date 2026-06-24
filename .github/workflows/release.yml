@@ -189,3 +189,31 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+
+  # ---------------------------------------------------------------------------
+  # Downstream fan-out is NO LONGER driven from here.
+  #
+  # Each distribution channel now SELF-UPDATES by polling this repo's public
+  # latest release on a schedule, using only secrets already present in its
+  # own repo. This removes the need for any cross-repo PAT
+  # (RELEASE_DISPATCH_TOKEN, HOMEBREW_TAP_TOKEN) — a workflow's built-in
+  # GITHUB_TOKEN can write to its own repo but not sibling repos, which is why
+  # the old push-based fan-out needed PATs. The pull-based watchers below act
+  # with each repo's own token instead:
+  #
+  #   - Homebrew tap  TeoSlayer/homebrew-pilot
+  #       .github/workflows/update-formula.yml  (schedule + workflow_dispatch)
+  #       regenerates Formula/pilotprotocol.rb from this release's public
+  #       checksums.txt and commits with its own GITHUB_TOKEN.
+  #
+  #   - npm SDK       pilot-protocol/sdk-node
+  #       .github/workflows/release-watch.yml    (schedule + workflow_dispatch)
+  #       dispatches its own publish.yml (NPM_TOKEN) at the new version.
+  #
+  #   - PyPI SDK      pilot-protocol/sdk-python
+  #       .github/workflows/release-watch.yml    (schedule + workflow_dispatch)
+  #       dispatches its own publish.yml (PYPI_API_TOKEN) at the new version.
+  #
+  # All three poll every ~30 min (workflow_dispatch is the instant manual
+  # path) and are idempotent. This release workflow's only job is to build
+  # the binaries and publish the GitHub Release — the watchers do the rest.
