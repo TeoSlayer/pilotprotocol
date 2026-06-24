@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/pilot-protocol/pilotprotocol/internal/catalogtrust"
 )
@@ -110,6 +111,82 @@ func TestProvider_RefreshPublisherAndCache(t *testing.T) {
 	}
 	if _, ok := p2.Publisher("io.pilot.smolmachines"); !ok {
 		t.Error("after LoadCache, the cached pin must be served")
+	}
+}
+
+func TestProvider_RefreshOnMissPicksUpNewlyPinnedApp(t *testing.T) {
+	dir := t.TempDir()
+	cat := filepath.Join(dir, "catalogue.json")
+	url := "file://" + cat
+
+	// writeSigned writes the catalogue body + a fresh valid .sig and returns a
+	// restore for the ephemeral key swap.
+	writeSigned := func(body string) func() {
+		if err := os.WriteFile(cat, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sig, restore := catalogtrust.SignWithEphemeralKey([]byte(body))
+		if err := os.WriteFile(cat+".sig", []byte(base64.StdEncoding.EncodeToString(sig)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return restore
+	}
+
+	const onlyA = `{"version":2,"apps":[{"id":"io.test.a","publisher":"ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="}]}`
+	const aAndB = `{"version":2,"apps":[
+		{"id":"io.test.a","publisher":"ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="},
+		{"id":"io.test.b","publisher":"ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="}]}`
+
+	restore1 := writeSigned(onlyA)
+
+	p := NewProvider(url, "")
+	p.minRefreshGap = 0 // allow a miss to refresh immediately (no cooldown in the test)
+	if err := p.Refresh(); err != nil {
+		t.Fatalf("initial Refresh: %v", err)
+	}
+	// Assert B is not pinned yet by reading the map directly — using Publisher here
+	// would kick off a background refresh that races the re-sign below (the test's
+	// signing key is process-global; production never swaps it at runtime).
+	p.mu.RLock()
+	_, hasB := p.pins["io.test.b"]
+	p.mu.RUnlock()
+	if hasB {
+		t.Fatal("io.test.b must not be pinned before it is added to the catalogue")
+	}
+	restore1() // no refresh in flight here; safe to restore the key
+
+	// Pin B in the catalogue (re-signed). A running daemon would not see it until
+	// the next periodic refresh — but a Publisher miss should refetch. From here on
+	// this is the only signing key live, so background refreshes don't race it.
+	restore2 := writeSigned(aAndB)
+	defer restore2()
+
+	p.Publisher("io.test.b") // miss → triggers background refresh
+	got := false
+	for i := 0; i < 200; i++ {
+		if _, ok := p.Publisher("io.test.b"); ok {
+			got = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !got {
+		t.Fatal("refresh-on-miss did not pick up the newly-pinned app within 1s")
+	}
+
+	// Drain: stop new refreshes and wait for any in-flight one to finish before the
+	// deferred restore swaps the global signing key (else the swap races the read).
+	p.refreshMu.Lock()
+	p.minRefreshGap = time.Hour
+	p.refreshMu.Unlock()
+	for i := 0; i < 200; i++ {
+		p.refreshMu.Lock()
+		inFlight := p.refreshInFlight
+		p.refreshMu.Unlock()
+		if !inFlight {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
