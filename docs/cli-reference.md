@@ -36,8 +36,7 @@ Discovery commands:
   pilotctl find <hostname>
   pilotctl set-hostname <hostname>
   pilotctl clear-hostname
-  pilotctl set-tags <tag1> [tag2] ...
-  pilotctl clear-tags
+  (discovery tags are operator setup: pilotctl extras set-tags / clear-tags)
 
 Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
@@ -54,7 +53,15 @@ Trust commands:
   pilotctl reject <node_id> [reason]
   pilotctl untrust <node_id>
   pilotctl pending
-  pilotctl trust
+  pilotctl trust [--search <substr>]                  live trust state (peers you trust)
+  pilotctl trusted                                    embedded directory of auto-approved service agents
+  pilotctl prefer-direct <node_id|address|hostname>   prefer a direct tunnel over the relay (daemon v1.12+)
+
+Identity & recovery:
+  pilotctl verify [status]                            show this node's verified-address badge state
+  pilotctl verify --provider <name>                   run a device-flow to get a verified-address badge
+  pilotctl recovery <enroll|new-key|recover> ...      enroll / rotate / reclaim the address if the key is lost
+  pilotctl review <pilot|app-id> [--rating <1-5>] [--text "..."]   rate Pilot or an installed app
 
 Management commands:
   pilotctl connections
@@ -76,8 +83,6 @@ Diagnostic commands:
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
-  pilotctl update [--pin <tag>]                        run the updater once — check and install new release
-  pilotctl updates [--count <n>] [--scope <scope>]   read https://pilot-protocol.github.io/pilot-changelog/feed.xml
 
 Agent tool discovery:
   pilotctl context
@@ -85,12 +90,21 @@ Agent tool discovery:
   pilotctl skills paths               print only the install paths (shell-friendly)
   pilotctl skills check               run one reconcile pass right now
 
-Gateway (requires root for ports <1024):
-  pilotctl gateway start [--subnet <cidr>] [--ports <list>] [<pilot-addr>...]
-  pilotctl gateway stop
-  pilotctl gateway map <pilot-addr> [local-ip]
-  pilotctl gateway unmap <local-ip>
-  pilotctl gateway list
+App store (install + call local capability apps; full help: pilotctl appstore help):
+  pilotctl appstore catalogue                         list apps available for one-command install
+  pilotctl appstore view <id> [--all-changelog]       app detail page (description, methods, permissions)
+  pilotctl appstore install <app-id> [--force]        install by catalogue ID (fetch + verify + extract)
+  pilotctl appstore list                              list installed apps + their IPC methods
+  pilotctl appstore call <id> <method> [json-args]    dispatch an IPC call into an app
+  pilotctl appstore status|caps|audit|restart|uninstall <id>
+
+Updates:
+  pilotctl update [status|enable|disable] [--pin <tag>]   self-update (auto-update OFF by default)
+  pilotctl updates [--count <n>] [--scope <scope>]        read the Pilot changelog feed
+
+Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
+  pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
+  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root for ports <1024)
 
 Environment:
   PILOT_REGISTRY     Registry address (default: 34.71.57.205:9000)
