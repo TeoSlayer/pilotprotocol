@@ -137,6 +137,38 @@
       "source_url": "https://github.com/pilot-protocol/catalog",
       "license": "MIT",
       "publisher": "ed25519:fc+G+FOz/LjcDXBGvguInq+w9fUCMi8JytYlOOCcCKQ="
+    },
+    {
+      "id": "io.pilot.miren",
+      "version": "0.1.0",
+      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand.",
+      "display_name": "Miren",
+      "vendor": "Miren",
+      "license": "Proprietary",
+      "source_url": "https://github.com/mirendev",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "c78f90b35ce57499f8b6e3a2ab96bc36cc88d449bb4134df8672add9c9b27efe",
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "5fe69b7f45e4981bb4bbc9ee1da398ef893cc112516b3de51467cb23604802e0"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "cb6f94633e3ea0878c246275907be4e6f5eaf3019252f4cc8b9c878fa3689053"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "c7260c9ad6b9969c1261c2db06b693b6db75f1c1c7e72a605f02a6d3aabf7e8d"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "c78f90b35ce57499f8b6e3a2ab96bc36cc88d449bb4134df8672add9c9b27efe"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
+      "metadata_sha256": "1522d29019acd3d131d6cb76c1100de4d6c9ae88b933740067540423bd2f4cdc",
+      "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
     }
   ]
 }
