@@ -74,16 +74,6 @@ Mailbox:
 Service Agents:
   pilotctl send-message list-agents --data "list all agents"
 
-Diagnostic commands:
-  pilotctl info
-  pilotctl health
-  pilotctl peers [--search <query>]
-  pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]
-  pilotctl traceroute <address> [--timeout <dur>]
-  pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
-  pilotctl listen <port> [--count <n>] [--timeout <dur>]
-  pilotctl broadcast <network_id> <message>
-
 Agent tool discovery:
   pilotctl context
   pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
@@ -105,6 +95,16 @@ Updates:
 Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
   pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
   pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root for ports <1024)
+
+Diagnostic commands:
+  pilotctl info
+  pilotctl health
+  pilotctl peers [--search <query>]
+  pilotctl ping <address|hostname> [--count <n>] [--timeout <dur>]
+  pilotctl traceroute <address> [--timeout <dur>]
+  pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
+  pilotctl listen <port> [--count <n>] [--timeout <dur>]
+  pilotctl broadcast <network_id> <message>
 
 Environment:
   PILOT_REGISTRY     Registry address (default: 34.71.57.205:9000)
