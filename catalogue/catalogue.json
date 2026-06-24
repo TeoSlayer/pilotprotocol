@@ -147,23 +147,23 @@
       "license": "Proprietary",
       "source_url": "https://github.com/mirendev",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "c78f90b35ce57499f8b6e3a2ab96bc36cc88d449bb4134df8672add9c9b27efe",
+      "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8",
       "bundles": {
         "darwin/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "5fe69b7f45e4981bb4bbc9ee1da398ef893cc112516b3de51467cb23604802e0"
+          "bundle_sha256": "f58164d5341b18e91c55f6ba463341835efdc90cd26025027215e08132ef3d0e"
         },
         "darwin/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "cb6f94633e3ea0878c246275907be4e6f5eaf3019252f4cc8b9c878fa3689053"
+          "bundle_sha256": "8059cf9989261b01a5101526e6e9f0c5d5578f7c0638633db87ee8ab911081ff"
         },
         "linux/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "c7260c9ad6b9969c1261c2db06b693b6db75f1c1c7e72a605f02a6d3aabf7e8d"
+          "bundle_sha256": "560693e2252e4cbb9e5c48d1a05554f1efe1899390012c6c1a1ad0b73a0a66c8"
         },
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "c78f90b35ce57499f8b6e3a2ab96bc36cc88d449bb4134df8672add9c9b27efe"
+          "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8"
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
