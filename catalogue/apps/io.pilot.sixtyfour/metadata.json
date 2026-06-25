@@ -88,9 +88,9 @@
   ],
   "changelog": [
     {
-      "Version": "0.1.0",
-      "Date": "",
-      "Notes": [
+      "version": "0.1.0",
+      "date": "",
+      "notes": [
         "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed."
       ]
     }
@@ -104,5 +104,7 @@
       "label": "Website",
       "url": "https://sixtyfour.ai"
     }
-  ]
+  ],
+  "published_at": "2026-06-21",
+  "updated_at": "2026-06-21"
 }
