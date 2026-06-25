@@ -19,7 +19,7 @@
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
-      "metadata_sha256": "b0ed7dee416144c39d8938f4dbeaac8946be3290a6c44473d898a5945eb6cadb",
+      "metadata_sha256": "e76572e13ab3ad45719276a2a14eb4dbc0477da256f65a12466da049dffec747",
       "publisher": "ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="
     },
     {
@@ -59,7 +59,7 @@
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "32512d7d401f0578e4aded373694c588b205bdea9f00d6d90618687b5df95e6d",
+      "metadata_sha256": "fa2a5460c95732a00be89431d1fc2bdbc482ddd1734ebcd556c0f0e578764fc4",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
