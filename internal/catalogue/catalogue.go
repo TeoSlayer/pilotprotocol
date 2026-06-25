@@ -146,27 +146,69 @@ type Provider struct {
 
 	mu   sync.RWMutex
 	pins map[string]string
+
+	// refresh-on-miss: an installed app with no pin is likely one that was
+	// pinned in the catalogue after our last periodic refresh. Rather than make
+	// it wait for the 10-minute tick (and be refused meanwhile), a pin miss
+	// triggers a rate-limited background refresh so the next supervisor scan
+	// can spawn it.
+	refreshMu       sync.Mutex
+	lastRefresh     time.Time
+	refreshInFlight bool
+	minRefreshGap   time.Duration
 }
+
+// missRefreshGap bounds how often a pin miss may trigger a catalogue refetch, so
+// a genuinely unpinned app can't cause a refresh storm.
+const missRefreshGap = 30 * time.Second
 
 // NewProvider builds a Provider for the catalogue at url, caching the last
 // verified pin set at cachePath (empty disables the cache).
 func NewProvider(url, cachePath string) *Provider {
-	return &Provider{url: url, cachePath: cachePath, pins: map[string]string{}}
+	return &Provider{url: url, cachePath: cachePath, pins: map[string]string{}, minRefreshGap: missRefreshGap}
 }
 
 // Publisher implements appstore.Config.CataloguePublisher: it returns the
-// catalogue-pinned publisher for appID and whether appID is pinned.
+// catalogue-pinned publisher for appID and whether appID is pinned. On a miss it
+// kicks off a rate-limited background refresh (see refreshOnMiss), so an app
+// that was pinned since the last periodic refresh becomes spawnable within a
+// scan cycle instead of after the next 10-minute tick.
 func (p *Provider) Publisher(appID string) (string, bool) {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
 	pub, ok := p.pins[appID]
+	p.mu.RUnlock()
+	if !ok {
+		p.refreshOnMiss()
+	}
 	return pub, ok
+}
+
+// refreshOnMiss launches a single background Refresh if one isn't already
+// running and the last refresh is older than minRefreshGap. Non-blocking: the
+// caller (a supervisor scan) never waits on the network.
+func (p *Provider) refreshOnMiss() {
+	p.refreshMu.Lock()
+	if p.refreshInFlight || time.Since(p.lastRefresh) < p.minRefreshGap {
+		p.refreshMu.Unlock()
+		return
+	}
+	p.refreshInFlight = true
+	p.refreshMu.Unlock()
+	go func() {
+		_ = p.Refresh()
+		p.refreshMu.Lock()
+		p.refreshInFlight = false
+		p.refreshMu.Unlock()
+	}()
 }
 
 // Refresh fetches + verifies the catalogue and atomically swaps in the new pin
 // set. On success it also writes the disk cache. On failure the previous pins
 // are kept (so a transient outage doesn't suddenly fail-close running apps).
 func (p *Provider) Refresh() error {
+	p.refreshMu.Lock()
+	p.lastRefresh = time.Now()
+	p.refreshMu.Unlock()
 	pins, err := LoadPublishers(p.url)
 	if err != nil {
 		return err

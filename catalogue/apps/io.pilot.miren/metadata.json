@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.miren",
+  "display_name": "Miren",
+  "tagline": "Operate the Miren PaaS from an agent: deploy apps, run the server, and debug them",
+  "description_md": "Miren is a deployment platform for small teams. This app is the app-store front door for the `miren` CLI, letting an agent drive a Miren PaaS over IPC.\n\nWhat an agent gets:\n- **Deploy lifecycle** — `miren.deploy` (non-interactive build + deploy), `miren.deploy.analyze` (detect the stack/services without building), and `miren.rollback`.\n- **Inspect apps** — `miren.apps`, `miren.app` (status), `miren.app.history`, and `miren.logs` (JSON).\n- **Server & diagnostics** — `miren.server.install`/`miren.server.status`, `miren.doctor`, `miren.whoami`, and `miren.debug.connection`/`miren.debug.advertise`.\n- **Full CLI surface** — `miren.exec` runs any verbatim `miren` argv (addon, auth, env, route, cluster, disk, sandbox, and more).\n\nGood to know:\n- Structured JSON is returned wherever the CLI offers it (e.g. pass `--json`).\n- Discover the live surface at runtime with `miren.help` — every method, its parameters, and its latency class (fast / med / slow).\n- Server-side commands need a configured cluster; without one, calls return a structured error (`{stdout,stderr,exit}`) telling the agent what to do next.\n- Runs on macOS and Linux (arm64 + amd64); the miren CLI is staged and sha-pinned on install.",
+  "vendor": {
+    "name": "Miren",
+    "url": "https://miren.dev",
+    "publisher_pubkey": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
+  },
+  "homepage": "https://miren.dev",
+  "source_url": "https://github.com/mirendev",
+  "license": "Proprietary",
+  "categories": [
+    "infrastructure",
+    "devops",
+    "platform"
+  ],
+  "keywords": [
+    "miren",
+    "paas",
+    "deploy",
+    "server",
+    "debug",
+    "infrastructure",
+    "devops",
+    "logs",
+    "apps",
+    "cli"
+  ],
+  "size": {
+    "bundle_bytes": 2850932,
+    "installed_bytes": 5020350
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "miren.exec",
+      "summary": "Run any miren subcommand. Payload is {\"args\":[...]} — the verbatim miren argv. Use this for the full CLI surface beyond the curated methods below (addon, auth, env, route, cluster, disk, sandbox, etc.). Run `miren help` or `miren <command> --help` for the surface. Example args: [\"app\",\"list\",\"--json\"]. Note: interactive subcommands (e.g. `app run`, `login`) and long-running ones (e.g. `server start`) are not suitable over IPC."
+    },
+    {
+      "name": "miren.apps",
+      "summary": "List all applications on the cluster (alias for `app list`)."
+    },
+    {
+      "name": "miren.app",
+      "summary": "Show the current status of one application. Provide the app name."
+    },
+    {
+      "name": "miren.app.history",
+      "summary": "Show an application's deployment history."
+    },
+    {
+      "name": "miren.logs",
+      "summary": "Read recent logs for an application as JSON."
+    },
+    {
+      "name": "miren.deploy",
+      "summary": "Build and deploy the app in the current directory (non-interactive, --force)."
+    },
+    {
+      "name": "miren.deploy.analyze",
+      "summary": "Analyze the app's detected stack/services without building or deploying."
+    },
+    {
+      "name": "miren.rollback",
+      "summary": "Roll an application back to its previous deployed version."
+    },
+    {
+      "name": "miren.doctor",
+      "summary": "Diagnose the miren environment and connectivity."
+    },
+    {
+      "name": "miren.whoami",
+      "summary": "Show the current authenticated user and cluster."
+    },
+    {
+      "name": "miren.server.install",
+      "summary": "Install the miren server as a systemd service on this host (Linux only)."
+    },
+    {
+      "name": "miren.server.status",
+      "summary": "Show miren server service status (Linux only)."
+    },
+    {
+      "name": "miren.debug.connection",
+      "summary": "Test connectivity and authentication with the miren server."
+    },
+    {
+      "name": "miren.debug.advertise",
+      "summary": "Show which addresses the server would advertise and why."
+    },
+    {
+      "name": "miren.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "Version": "0.1.0",
+      "Date": "",
+      "Notes": [
+        "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand."
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/mirendev"
+    },
+    {
+      "label": "Website",
+      "url": "https://miren.dev"
+    }
+  ]
+}
