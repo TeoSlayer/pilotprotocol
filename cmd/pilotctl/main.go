@@ -1352,6 +1352,49 @@ Reliability caveats (current implementation):
 	"appstore": AppStoreHelpText,
 
 	"review": reviewHelpText,
+
+	"quickstart": `Usage: pilotctl quickstart
+
+Guided 3-step getting-started walkthrough. Re-run after each step — it detects
+whether the daemon is already running and points you to the next action:
+  1. start the daemon          pilotctl daemon start
+  2. discover specialists      pilotctl send-message list-agents --data '...' --wait
+  3. handshake + query one     pilotctl handshake <hostname> ; pilotctl send-message ...
+`,
+
+	"verify": `Usage: pilotctl verify [status] [flags]
+
+Verified-address badges — prove a node controls a real, attested identity.
+
+  pilotctl verify                       show this node's verification state (alias: verify status)
+  pilotctl verify status [--node <id>]  check a specific node's badge
+  pilotctl verify --provider <name>     run a device-flow to become verified
+  pilotctl verify --badge <b> --badge-sig <s>   submit a badge you already hold
+  pilotctl verify --from <file>         submit a badge from a JSON credential file
+
+Badges are verified OFFLINE against the pinned issuer key — the registry's word
+is never trusted.
+`,
+
+	"recovery": `Usage: pilotctl recovery <enroll|new-key|recover> ...
+
+Recover a node's address if its identity key is lost.
+
+  pilotctl recovery enroll    record an opaque recovery commitment for this address
+  pilotctl recovery new-key   rotate to a fresh identity key
+  pilotctl recovery recover   reclaim the address using recovery material
+
+Enrollment + signatures come from the 'pilot-verify' tool.
+`,
+
+	"prefer-direct": `Usage: pilotctl prefer-direct <node_id|address|hostname>
+
+Reset routing state for a peer so the next connection prefers a direct
+(hole-punched) tunnel over the relay. Useful after a relay path got pinned.
+Requires daemon v1.12+.
+
+Returns: had_tunnel, was_relay_active, was_relay_pinned
+`,
 }
 
 // printCommandHelp prints the help text for a command and exits.
@@ -1406,8 +1449,7 @@ Discovery commands:
   pilotctl find <hostname>
   pilotctl set-hostname <hostname>
   pilotctl clear-hostname
-  pilotctl set-tags <tag1> [tag2] ...
-  pilotctl clear-tags
+  (discovery tags are operator setup: pilotctl extras set-tags / clear-tags)
 
 Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
@@ -1424,7 +1466,15 @@ Trust commands:
   pilotctl reject <node_id> [reason]
   pilotctl untrust <node_id>
   pilotctl pending
-  pilotctl trust
+  pilotctl trust [--search <substr>]                  live trust state (peers you trust)
+  pilotctl trusted                                    embedded directory of auto-approved service agents
+  pilotctl prefer-direct <node_id|address|hostname>   prefer a direct tunnel over the relay (daemon v1.12+)
+
+Identity & recovery:
+  pilotctl verify [status]                            show this node's verified-address badge state
+  pilotctl verify --provider <name>                   run a device-flow to get a verified-address badge
+  pilotctl recovery <enroll|new-key|recover> ...      enroll / rotate / reclaim the address if the key is lost
+  pilotctl review <pilot|app-id> [--rating <1-5>] [--text "..."]   rate Pilot or an installed app
 
 Management commands:
   pilotctl connections
@@ -1437,6 +1487,28 @@ Mailbox:
 Service Agents:
   pilotctl send-message list-agents --data "list all agents"
 
+Agent tool discovery:
+  pilotctl context
+  pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
+  pilotctl skills paths               print only the install paths (shell-friendly)
+  pilotctl skills check               run one reconcile pass right now
+
+App store (install + call local capability apps; full help: pilotctl appstore help):
+  pilotctl appstore catalogue                         list apps available for one-command install
+  pilotctl appstore view <id> [--all-changelog]       app detail page (description, methods, permissions)
+  pilotctl appstore install <app-id> [--force]        install by catalogue ID (fetch + verify + extract)
+  pilotctl appstore list                              list installed apps + their IPC methods
+  pilotctl appstore call <id> <method> [json-args]    dispatch an IPC call into an app
+  pilotctl appstore status|caps|audit|restart|uninstall <id>
+
+Updates:
+  pilotctl update [status|enable|disable] [--pin <tag>]   self-update (auto-update OFF by default)
+  pilotctl updates [--count <n>] [--scope <scope>]        read the Pilot changelog feed
+
+Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
+  pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
+  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root for ports <1024)
+
 Diagnostic commands:
   pilotctl info
   pilotctl health
@@ -1446,21 +1518,6 @@ Diagnostic commands:
   pilotctl bench <address|hostname> [size_mb] [--timeout <dur>]
   pilotctl listen <port> [--count <n>] [--timeout <dur>]
   pilotctl broadcast <network_id> <message>
-  pilotctl update [--pin <tag>]                        run the updater once — check and install new release
-  pilotctl updates [--count <n>] [--scope <scope>]   read https://pilot-protocol.github.io/pilot-changelog/feed.xml
-
-Agent tool discovery:
-  pilotctl context
-  pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
-  pilotctl skills paths               print only the install paths (shell-friendly)
-  pilotctl skills check               run one reconcile pass right now
-
-Gateway (requires root for ports <1024):
-  pilotctl gateway start [--subnet <cidr>] [--ports <list>] [<pilot-addr>...]
-  pilotctl gateway stop
-  pilotctl gateway map <pilot-addr> [local-ip]
-  pilotctl gateway unmap <local-ip>
-  pilotctl gateway list
 
 Environment:
   PILOT_REGISTRY     Registry address (default: 34.71.57.205:9000)
@@ -1996,8 +2053,8 @@ func cmdConfig(args []string) {
 // serve single-command lookups without holding the map at package scope.
 func contextCatalog() map[string]interface{} {
 	return map[string]interface{}{
-		"version": "1.3",
-		"note":    "Core commands cover everything an agent needs. Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is a separate installed binary.",
+		"version": "1.4",
+		"note":    "Core commands cover everything an agent needs. 'app_store' lists the 'pilotctl appstore <sub>' command family (install + call local capability apps). Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is a separate installed binary.",
 
 		// ── Core agent commands ──────────────────────────────────────────────
 		"commands": map[string]interface{}{
@@ -2016,6 +2073,31 @@ func contextCatalog() map[string]interface{} {
 				"args":        []string{},
 				"description": "Print the installed binary version",
 				"returns":     "version string",
+			},
+			"quickstart": map[string]interface{}{
+				"args":        []string{},
+				"description": "Guided 3-step getting-started walkthrough (start daemon → discover agents → handshake + query). Re-run after each step; detects daemon state",
+				"returns":     "quickstart [{step, title, command, description, done}]",
+			},
+			"update": map[string]interface{}{
+				"args":        []string{"[status|enable|disable]", "[--pin <tag>]"},
+				"description": "Self-update. Bare: run the updater once (check + install latest). Subcommands: status, enable, disable (auto-update is OFF by default)",
+				"returns":     "updated (bool), from, to | enabled (bool)",
+			},
+			"updates": map[string]interface{}{
+				"args":        []string{"[--count <n>]", "[--scope <scope>]"},
+				"description": "Read the Pilot changelog feed (release notes / important updates)",
+				"returns":     "entries [{title, scope, published, summary}]",
+			},
+			"skills": map[string]interface{}{
+				"args":        []string{"[status|paths|check|enable|disable|set-mode <mode>]"},
+				"description": "Manage SKILL.md install across detected agent tools. status (default), paths (shell-friendly), check (reconcile once), enable/disable, set-mode",
+				"returns":     "tools [{tool, path, installed}] | paths",
+			},
+			"review": map[string]interface{}{
+				"args":        []string{"<pilot|app-id>", "[--rating <1-5>]", "[--text <\"...\">]"},
+				"description": "Submit a rating/review for Pilot itself ('pilot') or for an installed app (e.g. io.pilot.cosift)",
+				"returns":     "ok, target, rating",
 			},
 
 			// Daemon lifecycle
@@ -2107,6 +2189,28 @@ func contextCatalog() map[string]interface{} {
 				"args":        []string{"<node_id>"},
 				"description": "Revoke trust for a peer",
 				"returns":     "node_id",
+			},
+			"trusted": map[string]interface{}{
+				"args":        []string{},
+				"description": "List the embedded trusted-agents directory — well-known service agents (list-agents, weather, etc.) auto-approved on first contact. For live trust state use 'trust'",
+				"returns":     "agents [{hostname, node_id}], total",
+			},
+			"prefer-direct": map[string]interface{}{
+				"args":        []string{"<node_id|address|hostname>"},
+				"description": "Reset routing state for a peer so the next connection prefers a direct (hole-punched) tunnel over the relay. Requires daemon v1.12+",
+				"returns":     "had_tunnel, was_relay_active, was_relay_pinned",
+			},
+
+			// Identity verification & key recovery
+			"verify": map[string]interface{}{
+				"args":        []string{"[status]", "[--node <addr|id>]", "[--provider <name>]", "[--badge <b> --badge-sig <s>]", "[--from <file>]"},
+				"description": "Verified-address badges. Bare 'verify' (or 'verify status') shows your verification state; '--provider <name>' runs a device-flow to get verified; '--badge/--badge-sig' (or '--from <file>') submits a badge",
+				"returns":     "verified (bool), node_id, address, issuer | submitted",
+			},
+			"recovery": map[string]interface{}{
+				"args":        []string{"<enroll|new-key|recover>", "..."},
+				"description": "Address recovery if the identity key is lost. enroll: record a recovery commitment; new-key: rotate to a fresh key; recover: reclaim the address with recovery material",
+				"returns":     "status, node_id, address",
 			},
 
 			// Networks (agent self-management)
@@ -2233,6 +2337,29 @@ func contextCatalog() map[string]interface{} {
 					"description": "List active gateway mappings",
 					"returns":     "mappings [{local_ip, pilot_addr}], total",
 				},
+			},
+		},
+
+		// ── App store ────────────────────────────────────────────────────────
+		// Invoke as: pilotctl appstore <subcommand> [args...]
+		"app_store": map[string]interface{}{
+			"description": "Install and call local capability apps that run on the daemon as typed IPC services. All invoked as: pilotctl appstore <subcommand>. Install root: $PILOT_APPSTORE_ROOT or ~/.pilot/apps.",
+			"subcommands": map[string]interface{}{
+				"catalogue":      map[string]interface{}{"args": []string{}, "description": "List apps available for one-command install (alias: catalog)"},
+				"view":           map[string]interface{}{"args": []string{"<id>", "[--all-changelog]"}, "description": "Detail page: description, vendor, changelog, size, source, methods, permissions (installed or not)"},
+				"install":        map[string]interface{}{"args": []string{"<app-id> [--force]", "| <bundle-dir> --local [--force]"}, "description": "Install by catalogue ID (fetch + verify + extract), or sideload a local bundle with --local"},
+				"list":           map[string]interface{}{"args": []string{}, "description": "List installed apps and the IPC methods each exposes"},
+				"call":           map[string]interface{}{"args": []string{"<id>", "<method>", "[json-args]", "[--timeout <dur>]"}, "description": "Dispatch an IPC call into an app (default timeout 120s; $PILOT_APPSTORE_CALL_TIMEOUT)"},
+				"status":         map[string]interface{}{"args": []string{"<id>"}, "description": "Deep-dive on one app's pinned state"},
+				"caps":           map[string]interface{}{"args": []string{"<id>"}, "description": "Show the manifest's spend caps and current rolling-window usage"},
+				"audit":          map[string]interface{}{"args": []string{"<id>", "[--tail <n>]", "[--event <name>]", "[--since <dur>]"}, "description": "Show the supervisor lifecycle log (spawn/exit/suspend/verify-fail)"},
+				"actions":        map[string]interface{}{"args": []string{"[--tail <n>]", "[--event <name>]"}, "description": "Show the pilotctl-side install/uninstall action log (survives app removal)"},
+				"restart":        map[string]interface{}{"args": []string{"<id>"}, "description": "Clear crash-loop suspension and respawn the app"},
+				"uninstall":      map[string]interface{}{"args": []string{"<id>", "--yes"}, "description": "Remove an installed app from the install root"},
+				"verify":         map[string]interface{}{"args": []string{"<bundle-dir>"}, "description": "sha256-check a pre-install bundle against its manifest"},
+				"gen-key":        map[string]interface{}{"args": []string{"<key-file>"}, "description": "Generate a fresh ed25519 publisher keypair (publisher tooling)"},
+				"sign":           map[string]interface{}{"args": []string{"--key <key-file>", "<manifest>"}, "description": "Sign (or re-sign) a manifest's store.signature (publisher tooling)"},
+				"sign-catalogue": map[string]interface{}{"args": []string{"--key <key-file>", "<catalogue.json>"}, "description": "Sign the catalogue, writing a detached .sig (alias: sign-catalog; publisher tooling)"},
 			},
 		},
 

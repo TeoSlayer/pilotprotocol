@@ -14,8 +14,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/pilot-protocol/common/badgeverify"
@@ -517,21 +517,40 @@ func (s *IPCServer) Start() error {
 	// Remove stale socket
 	os.Remove(s.socketPath)
 
-	// PILOT-246: Set umask before Listen so the Unix socket is created
-	// with 0600 permissions directly, eliminating the TOCTOU window
-	// between Listen and the explicit Chmod that follows.
-	oldUmask := syscall.Umask(0o177)
-	ln, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask) // restore immediately
+	// PILOT-246: Bind the socket inside a private, freshly-created 0700
+	// directory and atomically rename it into place. The socket therefore
+	// only ever becomes reachable at its final path once it already exists
+	// with restricted access — closing the TOCTOU window between Listen and
+	// the explicit Chmod below without touching the process-global umask.
+	//
+	// The previous implementation flipped syscall.Umask around Listen, but
+	// umask is process-wide (not goroutine-scoped): a concurrent file or
+	// directory creation elsewhere in the process would inherit the
+	// restrictive 0177 mask and be created unwritable. Under parallel tests
+	// this raced with t.TempDir(), whose nested mkdir then failed with
+	// "permission denied". Binding in a private dir is race-free and keeps
+	// the same security guarantee.
+	parent := filepath.Dir(s.socketPath)
+	stageDir, err := os.MkdirTemp(parent, ".pilot-sock-")
+	if err != nil {
+		return fmt.Errorf("create socket staging dir under %s: %w", parent, err)
+	}
+	defer os.RemoveAll(stageDir)
+	stagePath := filepath.Join(stageDir, filepath.Base(s.socketPath))
+
+	ln, err := net.Listen("unix", stagePath)
 	if err != nil {
 		return fmt.Errorf("listen unix %s: %w", s.socketPath, err)
 	}
-	// Restrict socket access to owner only (belt-and-suspenders —
-	// umask already ensures 0600 from creation, but explicit Chmod
-	// catches any platform where umask semantics differ).
-	if err := os.Chmod(s.socketPath, 0600); err != nil {
+	// Restrict socket access to owner only before it is reachable at the
+	// published path.
+	if err := os.Chmod(stagePath, 0600); err != nil {
 		ln.Close()
 		return fmt.Errorf("chmod socket %s: %w", s.socketPath, err)
+	}
+	if err := os.Rename(stagePath, s.socketPath); err != nil {
+		ln.Close()
+		return fmt.Errorf("publish socket %s: %w", s.socketPath, err)
 	}
 	s.listener = ln
 	slog.Info("IPC listening", "socket", s.socketPath)
