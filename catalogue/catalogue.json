@@ -169,6 +169,38 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
       "metadata_sha256": "1522d29019acd3d131d6cb76c1100de4d6c9ae88b933740067540423bd2f4cdc",
       "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
+    },
+    {
+      "id": "io.pilot.otto",
+      "version": "0.20.0",
+      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status — over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
+      "display_name": "Otto",
+      "vendor": "Telepat",
+      "license": "MIT",
+      "source_url": "https://github.com/telepat-io/otto",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
+      "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c",
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "d4704533374e302589a9cd5df7520c04bf9a1777cad2d45ed04e5b434e0f6793"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "99a3c303d8c026d91d81256b31ff8e0552ee146681c1d75135edeb27d1c7b573"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-arm64.tar.gz",
+          "bundle_sha256": "4bc493c015a75d304d80b72bee919d3f825959004a614e233bc8008953f2d1ee"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
+          "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
+      "metadata_sha256": "75371512242220f1c6cd99867c0e15ffaa2457ee00a0685c9f81037180ab79a8",
+      "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
     }
   ]
 }
