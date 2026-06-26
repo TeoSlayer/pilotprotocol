@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.plainweb",
+  "display_name": "Plainweb",
+  "tagline": "Any web page as clean Markdown — no HTML, no JS, one call",
+  "description_md": "Plainweb is a Pilot-owned URL→Markdown service: give it any web page and get back clean, accurate Markdown — no HTML, no JavaScript, just plain text structured as Markdown.\n\nWhat an agent gets:\n- **One call** — `plainweb.fetch(url)` fetches the page and returns it as Markdown (GFM tables, fenced code with language, task lists). The target URL goes straight in the path.\n- **Accurate extraction** — a cost-aware static→headless-Chrome fetch ladder (most pages never launch Chrome), go-readability primary (preserves code blocks and tables) with go-trafilatura fallback, converted via html-to-markdown v2.\n- **Scheme-less OK** — bare hosts like `example.com` are sanitized to `https://`.\n\nGood to know:\n- **Free and open — no API key required.** Public endpoints are open to every caller.\n- **Rate limit:** anonymous callers get **1000 requests/second** (burst 2000); a master key only elevates a caller past that limit.\n- The reply is `text/markdown`, returned by the adapter as `{ \"content_type\", \"content\" }` (the Markdown is in `content`).\n- In-house Pilot Protocol tool, deployed on Cloud Run.",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "publisher_pubkey": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
+  },
+  "homepage": "https://pilotprotocol.network",
+  "source_url": "https://github.com/pilot-protocol/plainweb",
+  "license": "Proprietary",
+  "categories": [
+    "web",
+    "content",
+    "markdown"
+  ],
+  "keywords": [
+    "plainweb",
+    "markdown",
+    "web",
+    "fetch",
+    "scrape",
+    "extract",
+    "readability",
+    "html",
+    "url",
+    "content"
+  ],
+  "size": {
+    "bundle_bytes": 5035085,
+    "installed_bytes": 9030752
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "plainweb.fetch",
+      "summary": "Fetch any web page and return it as clean Markdown — no HTML, no JavaScript. Pass the full target URL as `url`; it is placed verbatim in the request path (GET /\u003curl\u003e). Scheme-less hosts (e.g. example.com) are sanitized to https://. The reply is `{\"content_type\":\"text/markdown; charset=utf-8\",\"content\":\"\u003cmarkdown\u003e\"}`. Open and free — no API key needed."
+    },
+    {
+      "name": "plainweb.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "notes": [
+        "Released v1.0.0"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/pilot-protocol/plainweb"
+    },
+    {
+      "label": "Website",
+      "url": "https://pilotprotocol.network"
+    }
+  ]
+}
