@@ -201,6 +201,38 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
       "metadata_sha256": "75371512242220f1c6cd99867c0e15ffaa2457ee00a0685c9f81037180ab79a8",
       "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
+    },
+    {
+      "id": "io.pilot.plainweb",
+      "version": "1.0.0",
+      "description": "Plainweb - retrieve any web page in plain text: no HTML or JS returned, simply plain Markdown",
+      "display_name": "Plainweb",
+      "vendor": "Pilot Protocol",
+      "license": "Proprietary",
+      "source_url": "https://github.com/pilot-protocol/plainweb",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
+      "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41",
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "a857b4a6d2128a6030e3f0aa7f6e2cd4c67896e0ae5f4c7962350663e3289ac1"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "5ff73c98a4db92bd31b4b6b0237ce89eb33d2aa8875cbbfaf3bb486f15811f06"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-arm64.tar.gz",
+          "bundle_sha256": "cfbf133a871336df0020b4508aac83e6aa52f6b91ca883f7747a1e56bf76a90b"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
+          "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
+      "metadata_sha256": "8e46e027b1159df28230b8144bbebfbece51a2b3fa9ce7681f4a001a1216dc31",
+      "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
     }
   ]
 }
