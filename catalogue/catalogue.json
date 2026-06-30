@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-06-29T00:30:00Z",
+  "updated_at": "2026-06-29T01:00:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -243,27 +243,27 @@
       "license": "PostgreSQL",
       "source_url": "https://github.com/postgres/postgres",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
-      "bundle_sha256": "c6f4c0182500baaf1b9bc628a45dce2eef5c531c4c7c9db2dd7f2ac6d780a75e",
+      "bundle_sha256": "cfae19e5fa16eaff360232e22b2a4870c334e59d5310f29447c359dcd04995a2",
       "bundles": {
         "darwin/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "4c8fe7802e0600762e275c39efac5fbc81e5f0648b6dfea25cdeeeb36104e60f"
+          "bundle_sha256": "2ccd3891725176f5a7ea8e621b6d4d9e1b7a203668cf73c69f0763966aa669ba"
         },
         "darwin/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "6be2fa34695a0a81df2e39de60abd1e1b091d59e90f12298ed5f95f311bd6c60"
+          "bundle_sha256": "44495dba17e2fe2b1168c940b7e273ee39c8afc89caf1c3f6975274ecf569f37"
         },
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
-          "bundle_sha256": "c6f4c0182500baaf1b9bc628a45dce2eef5c531c4c7c9db2dd7f2ac6d780a75e"
+          "bundle_sha256": "cfae19e5fa16eaff360232e22b2a4870c334e59d5310f29447c359dcd04995a2"
         },
         "linux/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-arm64.tar.gz",
-          "bundle_sha256": "c41f479dea8531e7e0c6c335a4972f02106623a4db4709a7c67a69c4bf635843"
+          "bundle_sha256": "a93cb40c8c5aff844d6b9605ca1ebfe81a918ccaf03c3b89f7162eff0963cb86"
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
-      "metadata_sha256": "a6ae129171c4819d012815a5006ca5e9b7adc5fae52ee048023be16045ac9c47",
+      "metadata_sha256": "666b148d8524a52055943e80cfe21af947f8a7f13ad68f222d758dc544f07dc9",
       "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
     }
   ]
