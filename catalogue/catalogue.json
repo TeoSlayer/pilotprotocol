@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-06-24T14:00:00Z",
+  "updated_at": "2026-06-29T23:55:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -233,6 +233,38 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
       "metadata_sha256": "8e46e027b1159df28230b8144bbebfbece51a2b3fa9ce7681f4a001a1216dc31",
       "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
+    },
+    {
+      "id": "io.pilot.postgres",
+      "version": "0.1.0",
+      "description": "PostgreSQL 17.10 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql — aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
+      "display_name": "PostgreSQL",
+      "vendor": "Pilot Protocol",
+      "license": "PostgreSQL",
+      "source_url": "https://github.com/postgres/postgres",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/0.1.0/io.pilot.postgres-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "0918eeb9d252f7608c150490e6c7ea61f33df115557f641e22dbee1adaa0f7df",
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/0.1.0/io.pilot.postgres-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "42f5822e8fffbbdd5598b2bc1b1349caff76b3ae98464f8034a8b9abbc8eca2c"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/0.1.0/io.pilot.postgres-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "8b0a44a3f3401d085a389ffadd9a04e2b2ca9914769c0a96184dbb55e338c3b5"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/0.1.0/io.pilot.postgres-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "0918eeb9d252f7608c150490e6c7ea61f33df115557f641e22dbee1adaa0f7df"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/0.1.0/io.pilot.postgres-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "fa4389a857ebfa0bc483a3db634f2a441a6bf5abd42750944571f9f663508a61"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
+      "metadata_sha256": "6954510854a95c2d32c3f6b36329c3f1ca2cc7aab51d2c3e57f57e38e87d951a",
+      "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
     }
   ]
 }
