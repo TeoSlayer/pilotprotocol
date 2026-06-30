@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-06-29T02:00:00Z",
+  "updated_at": "2026-06-30T00:00:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -265,6 +265,36 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
       "metadata_sha256": "059a5e2b7d3d9d7fa72da563c68d90c242d20ca0cd4e7329a7dc5eb5326e142b",
       "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
+    },
+    {
+      "id": "io.pilot.agentphone",
+      "version": "0.1.0",
+      "description": "Give your agent a real phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST. Provision a number, create a calling agent, place a call and poll its transcript, send a text and poll for replies.",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "5d1e6dbc301d42a45e4a84fda2a9a75290ac2f6d4368ba97f58f6cb7f979892a",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "5d1e6dbc301d42a45e4a84fda2a9a75290ac2f6d4368ba97f58f6cb7f979892a"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "bbfff26f7ffef897773f4947e9539ff3da188cad4ec69aff29e0ed6f93596890"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "b5bf81ee5ff440bae870c2c6a8723473475eaa20b9b8db1bc500eaf929d5496b"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "412b44726220e7c52af5bd19955bdb6190f353c40f2a76ad0289aadf50ab428a"
+        },
+        "windows/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-windows-amd64.tar.gz",
+          "bundle_sha256": "66806810c5ebbe7eeea056d24b249f1440fb6021d7cf968ff43cc74defdfc884"
+        }
+      },
+      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
     }
   ]
 }
