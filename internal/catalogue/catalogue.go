@@ -128,7 +128,7 @@ func httpGet(raw string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close() // discarding on the error path; the status error below is what matters
 		return nil, fmt.Errorf("GET %s: status %d", raw, resp.StatusCode)
 	}
 	return resp.Body, nil

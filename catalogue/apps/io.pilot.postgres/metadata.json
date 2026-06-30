@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.postgres",
+  "display_name": "PostgreSQL",
+  "tagline": "Run and query PostgreSQL from an agent — local server lifecycle + psql, any libpq target",
+  "description_md": "# PostgreSQL (psql + local server) — native CLI for agents\n\nThis app installs the official **PostgreSQL 17.5.0** toolchain on the host and fronts it as typed methods. The bundle is a relocatable build of PostgreSQL 17.5.0 (from conda-forge, compiled from the upstream PostgreSQL sources) carrying the **complete client + server suite**: `psql`, `initdb`, `pg_ctl`, `postgres`, `createdb`, `dropdb`, `pg_isready`, `pg_dump`, `pg_restore`, `pg_dumpall`, `vacuumdb`, `pg_basebackup`. Every binary is sha-pinned and staged at install; a tiny `pg` dispatcher in the bundle routes each method to the right tool.\n\n## Two ways to use it\n\n**A) Talk to an existing PostgreSQL server.** Point the query methods at any reachable server with a libpq `uri` (or `PG*` env) — no local server needed:\n- `postgres.query` / `postgres.query_csv` — run SQL, get an aligned table or CSV.\n- `postgres.command` — backslash introspection (`\\dt`, `\\d table`, `\\du`, `\\l`, …).\n- `postgres.list` — list databases. `postgres.version` / `postgres.psql_help` — client version and full `--help`.\n\n**B) Run a database locally on this machine.** The app can provision and manage its own cluster — useful for an agent that needs a throwaway or embedded Postgres:\n\n1. **Configure (one-time):** `postgres.initdb` `{ \"datadir\": \"/path/to/pgdata\" }` — creates the cluster (superuser `postgres`, local `trust` auth).\n2. **Start:** `postgres.start` `{ \"datadir\": \"/path/to/pgdata\", \"port\": \"5599\" }` — boots the server on `127.0.0.1:5599` (+ a Unix socket in the datadir), waits until ready, logs to `<datadir>/postgres.log`.\n3. **Create a database:** `postgres.createdb` `{ \"port\": \"5599\", \"dbname\": \"appdb\" }`.\n4. **Use it:** `postgres.query` with `uri = \"host=127.0.0.1 port=5599 user=postgres dbname=appdb\"`.\n5. **Health / teardown:** `postgres.ready` `{ \"port\": \"5599\" }`, `postgres.status` `{ \"datadir\": \"...\" }`, `postgres.stop` `{ \"datadir\": \"...\" }`.\n\n## Configuration\n\nPostgreSQL is configuration-rich; the knobs this app exposes:\n\n- **`datadir`** — where the cluster lives. Pick a writable absolute path (e.g. `$HOME/.pilot/pgdata` or a tmp dir). One cluster can hold many databases.\n- **`port`** — TCP port for the local server (default convention `5599`). The server also listens on a Unix socket inside `datadir`.\n- **Auth** — local clusters are initialized with `trust` (no password) for convenience; for any networked use, set a password (`postgres.exec` → `psql ... -c \"ALTER ROLE postgres PASSWORD '...'\"`) and supply it via the `uri` or `PGPASSWORD`.\n- **Non-root for the server** — `postgres.initdb`/`postgres.start` run the PostgreSQL **server**, which refuses to run as the OS `root` user (a PostgreSQL safety rule). On a normal host the pilot daemon runs as your user, so this just works; only fully-root environments (e.g. some containers) need a non-root user. The query methods against a remote server are unaffected and run anywhere.\n- **`uri`** — a full libpq connection string, either `postgresql://user:secret@host:5432/dbname?sslmode=require` or `host=... port=... dbname=... user=... sslmode=...`.\n- **`PG*` env** — `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGSSLMODE`, `PGOPTIONS`, `PGCONNECT_TIMEOUT`, `PGAPPNAME`, `PGCLIENTENCODING` are passed through to the child, so `postgres.exec` can connect with no inline credentials.\n- **Anything else** — full `postgresql.conf`/server flags are reachable via `postgres.exec` (e.g. `pg_ctl ... -o \"-c shared_buffers=256MB\"`), and per-session settings via SQL `SET`.\n\n## Good to know\n\n- Output returns verbatim where it is already clean; on a non-zero exit (SQL error, server down) the reply is `{stdout, stderr, exit}` so the caller sees everything the tool produced.\n- Runs on **macOS and Linux** (arm64 + amd64); binaries are fetched from the Pilot artifact registry and sha-pinned on install. Free and open source under the **PostgreSQL License**.\n- `postgres.help` lists every method with its latency class; this is the self-describing discovery contract.\n\n## `psql --help`\n```\npsql is the PostgreSQL interactive terminal.\n\nUsage:\n  psql [OPTION]... [DBNAME [USERNAME]]\n\nGeneral options:\n  -c, --command=COMMAND    run only single command (SQL or internal) and exit\n  -d, --dbname=DBNAME      database name to connect to\n  -f, --file=FILENAME      execute commands from file, then exit\n  -l, --list               list available databases, then exit\n  -v, --set=, --variable=NAME=VALUE\n                           set psql variable NAME to VALUE\n                           (e.g., -v ON_ERROR_STOP=1)\n  -V, --version            output version information, then exit\n  -X, --no-psqlrc          do not read startup file (~/.psqlrc)\n  -1 (\"one\"), --single-transaction\n                           execute as a single transaction (if non-interactive)\n  -?, --help[=options]     show this help, then exit\n      --help=commands      list backslash commands, then exit\n      --help=variables     list special variables, then exit\n\nInput and output options:\n  -a, --echo-all           echo all input from script\n  -b, --echo-errors        echo failed commands\n  -e, --echo-queries       echo commands sent to server\n  -E, --echo-hidden        display queries that internal commands generate\n  -L, --log-file=FILENAME  send session log to file\n  -n, --no-readline        disable enhanced command line editing (readline)\n  -o, --output=FILENAME    send query results to file (or |pipe)\n  -q, --quiet              run quietly (no messages, only query output)\n  -s, --single-step        single-step mode (confirm each query)\n  -S, --single-line        single-line mode (end of line terminates SQL command)\n\nOutput format options:\n  -A, --no-align           unaligned table output mode\n      --csv                CSV (Comma-Separated Values) table output mode\n  -F, --field-separator=STRING\n                           field separator for unaligned output (default: \"|\")\n  -H, --html               HTML table output mode\n  -P, --pset=VAR[=ARG]     set printing option VAR to ARG (see \\pset command)\n  -R, --record-separator=STRING\n                           record separator for unaligned output (default: newline)\n  -t, --tuples-only        print rows only\n  -T, --table-attr=TEXT    set HTML table tag attributes (e.g., width, border)\n  -x, --expanded           turn on expanded table output\n  -z, --field-separator-zero\n                           set field separator for unaligned output to zero byte\n  -0, --record-separator-zero\n                           set record separator for unaligned output to zero byte\n\nConnection options:\n  -h, --host=HOSTNAME      database server host or socket directory\n  -p, --port=PORT          database server port\n  -U, --username=USERNAME  database user name\n  -w, --no-password        never prompt for password\n  -W, --password           force password prompt (should happen automatically)\n\nFor more information, type \"\\?\" (for internal commands) or \"\\help\" (for SQL\ncommands) from within psql, or consult the psql section in the PostgreSQL\ndocumentation.\n\nReport bugs to <pgsql-bugs@lists.postgresql.org>.\nPostgreSQL home page: <https://www.postgresql.org/>\n```\n",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "publisher_pubkey": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
+  },
+  "homepage": "https://www.postgresql.org/docs/17/",
+  "source_url": "https://github.com/postgres/postgres",
+  "license": "PostgreSQL",
+  "categories": [
+    "database",
+    "data",
+    "sql"
+  ],
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "psql",
+    "sql",
+    "database",
+    "query",
+    "client",
+    "server",
+    "initdb",
+    "libpq",
+    "dba"
+  ],
+  "size": {
+    "bundle_bytes": 5302666,
+    "installed_bytes": 139890688
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "postgres.initdb",
+      "summary": "Create (configure) a brand-new PostgreSQL data directory / cluster on this host — the one-time setup before a local server can start"
+    },
+    {
+      "name": "postgres.start",
+      "summary": "Start a local PostgreSQL server from an initialized `datadir`, listening on 127.0.0.1:`port` and on a Unix socket in `datadir`"
+    },
+    {
+      "name": "postgres.stop",
+      "summary": "Stop a running local server (fast shutdown) for the given `datadir`"
+    },
+    {
+      "name": "postgres.status",
+      "summary": "Report whether the server for `datadir` is running, with its PID and command line"
+    },
+    {
+      "name": "postgres.ready",
+      "summary": "Connection preflight: check whether a server is accepting connections on 127.0.0.1:`port`"
+    },
+    {
+      "name": "postgres.createdb",
+      "summary": "Create a new database named `dbname` on the local server at 127.0.0.1:`port` (owner postgres)"
+    },
+    {
+      "name": "postgres.query",
+      "summary": "Run a single SQL statement (or semicolon-separated batch) against a PostgreSQL server and return an aligned text table"
+    },
+    {
+      "name": "postgres.query_csv",
+      "summary": "Same as postgres.query but returns the result set as CSV (header + rows) — the right shape when an agent needs to parse output"
+    },
+    {
+      "name": "postgres.command",
+      "summary": "Run a single psql backslash meta-command for schema introspection"
+    },
+    {
+      "name": "postgres.list",
+      "summary": "List the databases on the server (owner, encoding, collation, access privileges) as an aligned table — a quick connectivity + inventory chec"
+    },
+    {
+      "name": "postgres.exec",
+      "summary": "Run any PostgreSQL client/server tool shipped in this bundle with a verbatim argv — the full surface beyond the curated methods"
+    },
+    {
+      "name": "postgres.psql_help",
+      "summary": "Return the complete `psql --help` text (all options of the PostgreSQL interactive terminal) straight from the delivered binary"
+    },
+    {
+      "name": "postgres.version",
+      "summary": "Print the delivered client version, e.g"
+    }
+  ],
+  "changelog": [
+    {
+      "version": "17.5.0",
+      "date": "2026-06-29",
+      "notes": [
+        "PostgreSQL 17.5.0 — app version matches the delivered PostgreSQL version.",
+        "Query any server (libpq uri or PG* env) or provision a local cluster (initdb -> start -> createdb -> query -> stop).",
+        "Full toolchain via postgres.exec passthrough (pg_dump, pg_isready, pg_restore, ...).",
+        "Relocatable on macOS and Linux (arm64+amd64); the server runs as a non-root user."
+      ]
+    }
+  ],
+  "links": {
+    "documentation": "https://www.postgresql.org/docs/17/",
+    "psql_reference": "https://www.postgresql.org/docs/17/app-psql.html"
+  }
+}

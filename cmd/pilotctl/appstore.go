@@ -69,6 +69,10 @@ func cmdAppStore(args []string) {
 		cmdAppStoreVerify(args[1:])
 	case "install":
 		cmdAppStoreInstall(args[1:])
+	case "outdated":
+		cmdAppStoreOutdated(args[1:])
+	case "upgrade":
+		cmdAppStoreUpgrade(args[1:])
 	case "gen-key":
 		cmdAppStoreGenKey(args[1:])
 	case "sign":
@@ -87,7 +91,7 @@ func cmdAppStore(args []string) {
 		appStoreHelp()
 	default:
 		fatalHint("invalid_argument",
-			"available: list, status, view, audit, uninstall, verify, install, gen-key, sign, sign-catalogue, catalogue, restart, caps, actions, call",
+			"available: list, status, view, audit, uninstall, verify, install, outdated, upgrade, gen-key, sign, sign-catalogue, catalogue, restart, caps, actions, call",
 			"unknown appstore subcommand: %s", args[0])
 	}
 }
@@ -119,6 +123,8 @@ Usage:
   pilotctl appstore install <bundle-dir> --local [--force]
                                              sideload a local bundle (sandbox: fs.read/fs.write
                                              under $APP, audit.log; no net, no key.sign, no hooks)
+  pilotctl appstore outdated                 list installed apps with a newer version in the catalogue
+  pilotctl appstore upgrade <id> | --all     re-install the catalogue's current version (verified; supervisor restarts)
   pilotctl appstore gen-key <key-file>       generate a fresh ed25519 publisher keypair; prints the public side
   pilotctl appstore sign --key <key-file> <manifest>
                                              sign (or re-sign) a manifest's store.signature so the supervisor accepts it
