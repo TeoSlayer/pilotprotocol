@@ -26,8 +26,8 @@ github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrY
 github.com/pilot-protocol/runtime v0.3.1/go.mod h1:GfFEIji0w7H9SSNR9Wl2q72pd2OYN3PHY9Qhcbvyrqk=
 github.com/pilot-protocol/skillinject v0.2.3 h1:Bf0tqRe7tqYY27X5RGCOf4LGjtWpyQvN/03YumDBDJs=
 github.com/pilot-protocol/skillinject v0.2.3/go.mod h1:fCzivA/bjkXRgGjp6yd7nqfaIETtU+lQRocBu0J/O9g=
-github.com/pilot-protocol/trustedagents v0.2.3 h1:QQJHYqzPrECJwkCev0xIDBMjd92uhtcxcCMc2aOrRHc=
-github.com/pilot-protocol/trustedagents v0.2.3/go.mod h1:gDgEOC9lHmXSS9v45h80XxlmUS861soIrA0AsbXiSV4=
+github.com/pilot-protocol/trustedagents v0.2.4 h1:NqYjU3eoxBzyzzlhTQY2vV4q0l5+4eaADAhrOD1OkQU=
+github.com/pilot-protocol/trustedagents v0.2.4/go.mod h1:Y3Eq/IOZqAUIbtzVBcxW4epkciaFAFAYkEyu/E7DXe4=
 github.com/pilot-protocol/updater v0.2.3 h1:9+Y2XvyEnfxjbguho8AIKLdEK+Gzj2I7lkad2qIu6JY=
 github.com/pilot-protocol/updater v0.2.3/go.mod h1:wn+HkjgChZ1QCCkOHBolAol42mxyyW/iz7oOFJLciT4=
 github.com/pilot-protocol/webhook v0.2.0 h1:3UFU9X2yBb0iKlPbzVcism+Z6yCrBBaOgdo9+vd4Wf4=
