@@ -295,6 +295,37 @@
         }
       },
       "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+    },
+    {
+      "id": "io.pilot.docker",
+      "version": "29.6.1",
+      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
+      "display_name": "Docker",
+      "vendor": "Pilot Protocol",
+      "license": "Apache-2.0",
+      "source_url": "https://github.com/moby/moby",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+      "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e",
+      "bundle_size": 5352665,
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+          "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-arm64.tar.gz",
+          "bundle_sha256": "2349cda00272b282a86c4c1000405afd0d7bee9522b137177c7e2a0772a9f5cc"
+        }
+      },
+      "categories": [
+        "devops",
+        "containers",
+        "runtime",
+        "data"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
+      "metadata_sha256": "887e3e9697e56146b01594d8b18595b5d6bb3e503d2728e38a5370c50e41e482",
+      "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
     }
   ]
 }
