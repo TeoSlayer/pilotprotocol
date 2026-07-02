@@ -136,7 +136,17 @@
       "bundle_size": 4674914,
       "source_url": "https://github.com/pilot-protocol/catalog",
       "license": "MIT",
-      "publisher": "ed25519:fc+G+FOz/LjcDXBGvguInq+w9fUCMi8JytYlOOCcCKQ="
+      "publisher": "ed25519:fc+G+FOz/LjcDXBGvguInq+w9fUCMi8JytYlOOCcCKQ=",
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
+          "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0-linux-amd64.tar.gz",
+          "bundle_sha256": "e59e0045075c78f6920b587d731f9f3690559719f0bf786ce3ad12a4c888f4b6"
+        }
+      }
     },
     {
       "id": "io.pilot.miren",
