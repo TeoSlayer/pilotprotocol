@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.aegis",
+  "display_name": "AEGIS",
+  "tagline": "Runtime firewall for AI agents — blocks prompt injection before your agent reads it",
+  "description_md": "# AEGIS — runtime firewall for AI agents\n\nAEGIS inspects untrusted content reaching your agent — inbox messages, tool results, web fetches, MCP responses, skill files, memory notes — and blocks **prompt injection, jailbreaks, and impersonation** before the agent ever sees it. Genuine status messages pass straight through.\n\n## How it works\n\nTwo layers. **L1** is Aho-Corasick pattern matching in pure Rust — microseconds, ~120 known attack families with homoglyph and leetspeak normalization and a sliding-window scan. **L2** is an optional local Qwen3-1.7B judge via llama.cpp — fully offline, no network. On a held-out labeled set: **90% recall, 95% precision, 92% F1**. An 880 KB binary with an HMAC-chained audit log at `~/.aegis/audit.jsonl`.\n\n## Using it\n\n- `aegis.scan \u003cpath\u003e` — one-shot scan of a file or directory.\n- `aegis.exec {\"args\":[\"scan-cmd\"],\"stdin\":...}` — the PreToolUse blocking gate (exit 0 allow / 2 block).\n- `aegis.exec {\"args\":[\"scan-result\"],\"stdin\":...}` — the PostToolUse non-blocking check (warns).\n- `aegis.status` / `aegis.targets` / `aegis.config` — audit log, protected surfaces, and configuration.\n\nThe L2 judge model (~1.8 GB) is optional — L1 patterns work without it.",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://aegis.pilotprotocol.network",
+    "contact": "apps@pilotprotocol.network",
+    "publisher_pubkey": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
+  },
+  "homepage": "https://aegis.pilotprotocol.network",
+  "source_url": "https://github.com/pilot-protocol/aegis",
+  "license": "MIT",
+  "categories": [
+    "security",
+    "firewall",
+    "guardrail"
+  ],
+  "keywords": [
+    "security",
+    "firewall",
+    "prompt-injection",
+    "jailbreak",
+    "guardrail",
+    "defense",
+    "offline"
+  ],
+  "size": {
+    "bundle_bytes": 5351198,
+    "installed_bytes": 9621928
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "aegis.scan",
+      "summary": "One-shot scan of one or more files or directories for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation. Returns the verdict per path. This is `aegis scan \u003cpath\u003e...`."
+    },
+    {
+      "name": "aegis.status",
+      "summary": "Tail the HMAC-chained audit log of recent verdicts. This is `aegis status`."
+    },
+    {
+      "name": "aegis.targets",
+      "summary": "List the agent surfaces AEGIS is protecting (inbox, tool results, skill files, memory, ...). This is `aegis targets`."
+    },
+    {
+      "name": "aegis.config",
+      "summary": "Show the effective AEGIS configuration (rules, thresholds, watch targets). This is `aegis config`."
+    },
+    {
+      "name": "aegis.version",
+      "summary": "Print the AEGIS version. This is `aegis version`."
+    },
+    {
+      "name": "aegis.exec",
+      "summary": "Run any AEGIS subcommand with a verbatim argv — the full surface beyond the curated methods. Payload is {\"args\":[\u003csubcommand\u003e, ...]} with optional {\"stdin\":\"...\"}. This is how you use the blocking gates: the PreToolUse gate {\"args\":[\"scan-cmd\"],\"stdin\":\"{\\\"tool_input\\\":{\\\"command\\\":\\\"...\\\"}}\"} exits 0 (allow) or 2 (block); the PostToolUse gate {\"args\":[\"scan-result\"],\"stdin\":\"{...}\"} warns without blocking. Also reaches init/daemon/install-models/install-hooks."
+    },
+    {
+      "name": "aegis.help",
+      "summary": "Print the AEGIS usage and subcommand list. This is `aegis --help`."
+    },
+    {
+      "name": "aegis.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.3",
+      "notes": [
+        "Released v0.1.3"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/pilot-protocol/aegis"
+    },
+    {
+      "label": "Website",
+      "url": "https://aegis.pilotprotocol.network"
+    }
+  ]
+}
