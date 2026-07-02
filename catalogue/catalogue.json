@@ -267,34 +267,74 @@
       "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
     },
     {
-      "id": "io.pilot.agentphone",
-      "version": "0.1.0",
-      "description": "Give your agent a real phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST. Provision a number, create a calling agent, place a call and poll its transcript, send a text and poll for replies.",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "5d1e6dbc301d42a45e4a84fda2a9a75290ac2f6d4368ba97f58f6cb7f979892a",
+      "id": "io.pilot.duckdb",
+      "version": "1.5.4",
+      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
+      "display_name": "DuckDB",
+      "vendor": "Pilot Protocol",
+      "license": "MIT",
+      "source_url": "https://github.com/duckdb/duckdb",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+      "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c",
+      "bundle_size": 5353407,
       "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "5d1e6dbc301d42a45e4a84fda2a9a75290ac2f6d4368ba97f58f6cb7f979892a"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "bbfff26f7ffef897773f4947e9539ff3da188cad4ec69aff29e0ed6f93596890"
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-arm64.tar.gz",
+          "bundle_sha256": "ae8b1a9f524cecd8d7b942af058dbc7cdd737ff29de7186bad6faff2a6b4940d"
         },
         "darwin/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "b5bf81ee5ff440bae870c2c6a8723473475eaa20b9b8db1bc500eaf929d5496b"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-amd64.tar.gz",
+          "bundle_sha256": "5825add7eb960111464eca50752b7edc2f658d26cdd51187d7e08a43364c9a62"
         },
-        "darwin/arm64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "412b44726220e7c52af5bd19955bdb6190f353c40f2a76ad0289aadf50ab428a"
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+          "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c"
         },
-        "windows/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/agentphone-v0.1.0/io.pilot.agentphone-0.1.0-windows-amd64.tar.gz",
-          "bundle_sha256": "66806810c5ebbe7eeea056d24b249f1440fb6021d7cf968ff43cc74defdfc884"
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-arm64.tar.gz",
+          "bundle_sha256": "54471ec4cf95071bba8d3c6f9e2dc134483df47ceaef291b5e6adea6bc89b31d"
         }
       },
-      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+      "categories": [
+        "database",
+        "data",
+        "sql",
+        "analytics"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
+      "metadata_sha256": "88700d57d93c9260bf358cd2c7bf79aebdc88cabedd00f2cbe2b1b599f03e38f",
+      "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
+    },
+    {
+      "id": "io.pilot.docker",
+      "version": "29.6.1",
+      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
+      "display_name": "Docker",
+      "vendor": "Pilot Protocol",
+      "license": "Apache-2.0",
+      "source_url": "https://github.com/moby/moby",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+      "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e",
+      "bundle_size": 5352665,
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+          "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-arm64.tar.gz",
+          "bundle_sha256": "2349cda00272b282a86c4c1000405afd0d7bee9522b137177c7e2a0772a9f5cc"
+        }
+      },
+      "categories": [
+        "devops",
+        "containers",
+        "runtime",
+        "data"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
+      "metadata_sha256": "887e3e9697e56146b01594d8b18595b5d6bb3e503d2728e38a5370c50e41e482",
+      "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
     },
     {
       "id": "io.pilot.redis",

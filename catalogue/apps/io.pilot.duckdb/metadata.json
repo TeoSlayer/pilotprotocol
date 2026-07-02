@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.duckdb",
+  "display_name": "DuckDB",
+  "tagline": "Run DuckDB from an agent — in-process analytical SQL over files, no server, no provisioning",
+  "description_md": "# DuckDB — in-process analytical SQL, native CLI for agents\n\nThis app installs the official **DuckDB 1.5.4** command-line shell on the host and fronts it as typed\nmethods. The bundle is the upstream DuckDB CLI binary (sha-pinned per OS/arch, fetched from the Pilot\nartifact registry at install) plus a tiny wrapper that serves a clean, complete `--help`.\n\nDuckDB is an **in-process** OLAP database — \"SQLite for analytics.\" There is **no server, no daemon, no\nport, no auth, and nothing to provision**: an agent opens an in-memory database (`:memory:`) or a single\n`.duckdb` file like any other file. That posture is exactly right for an autonomous agent working in its\nown sandbox with no cloud account.\n\n## Why an agent wants this\n\n- **Zero provisioning.** No `initdb`, no server lifecycle, no credentials, no \"is the daemon up?\" state.\n  Run SQL against `:memory:` or a file and you're done.\n- **Query files in place — the killer feature.** Point SQL straight at CSV, Parquet, or JSON on disk with\n  no load step: `SELECT region, sum(amount) FROM '/data/*.parquet' GROUP BY region`. The file *is* the table.\n- **Fast analytics on a laptop.** A columnar, vectorized engine: aggregations and joins over millions of\n  rows run quickly in a single process, in the agent's own context.\n- **Agent-friendly output.** Get results as an aligned table, **CSV**, **JSON**, or **Markdown** — pick the\n  shape that parses cleanly or drops straight into a report.\n- **Full SQL.** Window functions, CTEs, nested types (lists/structs/maps), `COPY` to/from Parquet/CSV, and\n  a rich function library.\n- **Self-contained + offline.** One binary, no dependencies; the core CSV/Parquet/JSON readers are built in,\n  so the common cases need no network and no extensions.\n\n## Methods\n\n- `duckdb.query` — run SQL, get an aligned `box` table (default). In-memory or against a file.\n- `duckdb.query_csv` / `duckdb.query_json` / `duckdb.query_markdown` — same, as CSV / JSON / Markdown.\n- `duckdb.file` — execute a `.sql` script file (migrations, ETL, multi-statement setup).\n- `duckdb.tables` — list every table and view (`SHOW ALL TABLES`).\n- `duckdb.schema` — print the `CREATE` DDL for the database (`.schema`).\n- `duckdb.exec` — run the CLI with a verbatim argv (+ optional stdin) for any flag, output mode, or\n  dot-command the curated methods don't cover (`.mode`, `.import`, `.export`, `.read`, `-init`, …).\n- `duckdb.cli_help` — the complete CLI help: every option **and** every dot-command, as clean text.\n- `duckdb.version` — the delivered DuckDB version. `duckdb.help` — the self-describing method list.\n\n## How to use it\n\n1. **Quick analysis (no setup):** `duckdb.query` `{ \"database\": \":memory:\", \"sql\": \"SELECT count(*) FROM '/data/events.parquet'\" }`.\n2. **Persistent database:** point `database` at a file path (`/work/app.duckdb`); it's created on first use and\n   persists. The same file holds many tables/schemas.\n3. **Parse the output:** use `duckdb.query_json` (array of row objects) or `duckdb.query_csv`.\n4. **Anything else:** `duckdb.exec` `{ \"args\": [\":memory:\", \"-cmd\", \".import /data/in.csv t\", \"-c\", \"SELECT count(*) FROM t\"] }`.\n\n## Configuration\n\n- **`database`** — `:memory:` (ephemeral, no provisioning) or an absolute path to a `.duckdb`/`.db` file\n  (created on first use, persists, holds many tables). Independent of this, the SQL can read/write CSV,\n  Parquet, and JSON files anywhere on disk.\n- **Output mode** — choose the method (`query` box / `query_csv` / `query_json` / `query_markdown`), or any\n  other mode via `duckdb.exec` (`-line`, `-html`, `-ascii`, `-jsonlines`, …).\n- **Extensions** — Parquet/CSV/JSON readers are built in. Network-backed extensions (e.g. `httpfs` for S3/HTTP\n  Parquet) are loadable via `duckdb.exec` (`INSTALL httpfs; LOAD httpfs;`) where the host allows egress; the\n  local-only path needs neither.\n- **Read-only** — open a database without write access via `duckdb.exec` (`-readonly`).\n\n## Good to know\n\n- Output returns verbatim where it's already clean; on a non-zero exit (SQL error) the reply is\n  `{stdout, stderr, exit}` so the caller sees everything the CLI produced.\n- Runs on **macOS and Linux** (arm64 + amd64); the binary is fetched from the Pilot artifact registry and\n  sha-pinned on install. Free and open source under the **MIT License**.\n- `duckdb.help` lists every method with its latency class — the self-describing discovery contract.\n\n## DuckDB CLI help (`duckdb.cli_help`)\n```\nDuckDB CLI — command-line options and meta-commands\n===================================================\n\nDuckDB is an in-process analytical SQL database (think \"SQLite for analytics\").\nThe CLI runs SQL against an in-memory database (use ':memory:') or a database\nfile, and can query CSV, Parquet, and JSON files directly with no import step,\ne.g.  SELECT * FROM 'data/*.parquet' WHERE ...  — the file IS the table.\n\nUSAGE: duckdb [OPTIONS] [DATABASE_FILE] [SQL]\n\nDATABASE_FILE is a DuckDB database; it is created if it does not exist.\nUse ':memory:' for an ephemeral in-memory database.\n\n------------------------------------------------------------------------------\nCOMMAND-LINE OPTIONS  (duckdb -help)\n------------------------------------------------------------------------------\n\nOPTIONS:\n  -ascii                  set output mode to 'ascii'\n  -bail                   stop after hitting an error\n  -batch                  force batch I/O'\n  -box                    set output mode to 'box'\n  -column                 set output mode to 'column'\n  -cmd COMMAND            run \"COMMAND\" before reading stdin\n  -csv                    set output mode to 'csv'\n  -c COMMAND              run \"COMMAND\" and exit\n  -dark-mode              use dark mode colors\n  -echo                   print commands before execution\n  -f FILENAME             read/process named file and exit\n  -init FILENAME          read/process named file\n  -header                 turn headers on\n  -h                      show help message\n  -help                   show help message\n  -html                   set output mode to HTML\n  -interactive            force interactive I/O\n  -json                   set output mode to 'json'\n  -jsonlines              set output mode to 'jsonlines'\n  -light-mode             use light mode colors\n  -line                   set output mode to 'line'\n  -list                   set output mode to 'list'\n  -markdown               set output mode to 'markdown'\n  -newline SEP            set output row separator. Default: '\\n'\n  -no-init                skip processing the init file\n  -no-stdin               exit after processing options instead of reading stdin\n  -noheader               turn headers off\n  -nullvalue TEXT         set text string for NULL values. Default 'NULL'\n  -quote                  set output mode to 'quote'\n  -readonly               open the database read-only\n  -s COMMAND              run \"COMMAND\" and exit\n  -safe                   enable safe-mode\n  -separator SEP          set output column separator. Default: '|'\n  -storage-version VER    database storage compatibility version to use. Default: 'v0.10.0'\n  -table                  set output mode to 'table'\n  -ui                     launches a web interface using the ui extension (configurable with .ui_command)\n  -unredacted             allow printing unredacted secrets\n  -unsigned               allow loading of unsigned extensions\n  -version                show DuckDB version\n\n------------------------------------------------------------------------------\nDOT-COMMANDS  (meta-commands; usable inside the shell or via -cmd \"...\")\n------------------------------------------------------------------------------\n.bail on|off                             Stop after hitting an error.  Default OFF\n.binary on|off                           Turn binary output on or off.  Default OFF\n.cd DIRECTORY                            Change the working directory to DIRECTORY\n.changes on|off                          Show number of rows changed by SQL\n.columns                                 Column-wise rendering of query results\n.decimal_sep SEP                         Sets the decimal separator used when rendering numbers. Only for duckbox mode.\n.databases                               List names and files of attached databases\n.dump ?TABLE?                            Render database content as SQL\n.display_colors [bold|underline]         Display all terminal colors and their names\n.echo on|off                             Turn command echo on or off\n.edit                                    Opens an external text editor to edit a query.\n.excel                                   Display the output of next command in spreadsheet\n.exit ?CODE?                             Exit this program with return-code CODE\n.headers on|off                          Turn display of headers on or off\n.help ?-all? ?PATTERN?                   Show help text for PATTERN\n.highlight on|off                        Toggle syntax highlighting in the shell on/off\n.highlight_colors OPTIONS                Configure highlighting colors\n.highlight_errors on|off                 Turn highlighting of errors on or off\n.highlight_mode mixed|dark|light         Toggle the highlight mode to dark or light mode\n.highlight_results on|off                Turn highlighting of results on or off\n.import FILE TABLE                       Import data from FILE into TABLE\n.indexes ?TABLE?                         Show names of indexes\n.last                                    Render the last result without truncating\n.large_number_rendering MODE             Toggle readable rendering of large numbers (duckbox only)\n.log FILE|off                            Turn logging on or off.  FILE can be stderr/stdout\n.maxrows COUNT                           Sets the maximum number of rows for display (default: 40). Only for duckbox mode.\n.maxwidth COUNT                          Sets the maximum width in characters. 0 defaults to terminal width. Only for duckbox mode.\n.mode MODE ?TABLE?                       Set output mode\n.multiline                               Sets the render mode to multi-line\n.nullvalue STRING                        Use STRING in place of NULL values\n.open ?OPTIONS? ?FILE?                   Close existing database and reopen FILE\n.once ?FILE?                             Output for the next SQL command only to FILE\n.output ?FILE?                           Send output to FILE or stdout if FILE is omitted\n.pager OPTIONS                           Control pager usage for output\n.print STRING...                         Print literal STRING\n.progress_bar OPTIONS                    Configure the progress bar display\n.prompt MAIN CONTINUE                    Replace the standard prompts\n.quit                                    Exit this program\n.read FILE                               Read input from FILE\n.read_line_version linenoise|fallback    Sets the library used for processing interactive input\n.render_completion on|off                Toggle displaying of completion prompts in the shell on/off\n.render_errors on|off                    Toggle rendering of errors in the shell on/off\n.rows                                    Row-wise rendering of query results (default)\n.safe_mode                               Enable safe-mode\n.separator COL ?ROW?                     Change the column and row separators\n.schema ?PATTERN?                        Show the CREATE statements matching PATTERN\n.shell CMD ARGS...                       Run CMD ARGS... in a system shell\n.show                                    Show the current values for various settings\n.singleline                              Sets the render mode to single-line\n.startup_text none|version|all           Start-up text to display. Set this as the first line in .duckdbrc\n.system CMD ARGS...                      Run CMD ARGS... in a system shell\n.tables ?TABLE?                          List names of tables matching LIKE pattern TABLE\n.thousand_sep SEP                        Sets the thousand separator used when rendering numbers. Only for duckbox mode.\n.timer on|off                            Turn SQL timer on or off\n.ui_command [command]                    Set the UI command\n.version                                 Show the version\n.width NUM1 NUM2 ...                     Set minimum column widths for columnar output\n\nRun .help --all for extended information\nRun .help shortcuts for keyboard shortcuts\n```\n",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "contact": "apps@pilotprotocol.network",
+    "publisher_pubkey": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
+  },
+  "homepage": "https://duckdb.org",
+  "source_url": "https://github.com/duckdb/duckdb",
+  "license": "MIT",
+  "categories": [
+    "database",
+    "data",
+    "sql",
+    "analytics"
+  ],
+  "keywords": [
+    "duckdb",
+    "sql",
+    "olap",
+    "analytics",
+    "parquet",
+    "csv",
+    "json",
+    "query",
+    "in-process",
+    "columnar",
+    "database",
+    "embedded"
+  ],
+  "size": {
+    "bundle_bytes": 5353407,
+    "installed_bytes": 9624599
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "duckdb.query",
+      "summary": "Run a SQL statement (or `;`-separated batch) and return an aligned `box` table — the default, human-readable shape. Works in-memory (`database=\":memory:\"`) or against a DuckDB file, and can query CSV/Parquet/JSON files in place, e.g. `SELECT region, sum(amount) FROM '/data/*.parquet' GROUP BY region`. This is `duckdb \u003cdatabase\u003e -box -c \u003csql\u003e`."
+    },
+    {
+      "name": "duckdb.query_csv",
+      "summary": "Same as duckdb.query but returns the result set as CSV (header + rows) — the right shape when an agent needs to parse the output. This is `duckdb \u003cdatabase\u003e -csv -c \u003csql\u003e`."
+    },
+    {
+      "name": "duckdb.query_json",
+      "summary": "Run SQL and return the result set as a JSON array of row objects — the most directly machine-parseable output. This is `duckdb \u003cdatabase\u003e -json -c \u003csql\u003e`."
+    },
+    {
+      "name": "duckdb.query_markdown",
+      "summary": "Run SQL and return the result set as a GitHub-flavored Markdown table — handy when the output is going straight into a report or PR comment. This is `duckdb \u003cdatabase\u003e -markdown -c \u003csql\u003e`."
+    },
+    {
+      "name": "duckdb.file",
+      "summary": "Execute a `.sql` script file against the database and exit — for multi-statement setups, migrations, or ETL scripts the agent has written to disk. This is `duckdb \u003cdatabase\u003e -f \u003cfile\u003e`."
+    },
+    {
+      "name": "duckdb.tables",
+      "summary": "List every table and view across all attached databases/schemas (name, database, schema, column list) as a `box` table — a quick inventory of what a DuckDB file holds. This is `duckdb \u003cdatabase\u003e -box -c \"SHOW ALL TABLES\"`."
+    },
+    {
+      "name": "duckdb.schema",
+      "summary": "Print the `CREATE` statements for every table, view, and index in the database — the DDL, via DuckDB's `.schema` meta-command. This is `duckdb \u003cdatabase\u003e -no-stdin -cmd \".schema\"`."
+    },
+    {
+      "name": "duckdb.exec",
+      "summary": "Run the DuckDB CLI with a verbatim argv — the full surface beyond the curated methods. Payload is {\"args\":[...]} (the args passed straight to `duckdb`) plus optional {\"stdin\":\"...\"} piped to the process. Use it for any flag or meta-command the curated methods don't cover: a different output mode (`-line`, `-html`, `-ascii`), reading a script with `-init`, a `.mode`/`.import`/`.read` dot-command via `-cmd`, or a multi-statement session over stdin. Examples: {\"args\":[\":memory:\",\"-line\",\"-c\",\"SELECT 1\"]}; {\"args\":[\"/data/app.duckdb\",\"-csv\",\"-cmd\",\".import /data/in.csv t\",\"-c\",\"SELECT count(*) FROM t\"]}; {\"args\":[\":memory:\"],\"stdin\":\"CREATE TABLE t(x int);\\nINSERT INTO t VALUES (1),(2);\\nSELECT sum(x) FROM t;\"}."
+    },
+    {
+      "name": "duckdb.cli_help",
+      "summary": "Return the complete DuckDB CLI help — every command-line option AND every dot-command (`.mode`, `.tables`, `.schema`, `.read`, `.import`, `.export`, `.timer`, …) — captured verbatim from the delivered binary and rendered as clean, color-free text. The full reference for what duckdb.query / duckdb.exec accept."
+    },
+    {
+      "name": "duckdb.version",
+      "summary": "Print the delivered DuckDB version, e.g. \"v1.5.4 (Variegata) 08e34c447b\". Needs no database. This is `duckdb -version`."
+    },
+    {
+      "name": "duckdb.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.5.4",
+      "notes": [
+        "Released v1.5.4"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/duckdb/duckdb"
+    },
+    {
+      "label": "Website",
+      "url": "https://duckdb.org"
+    }
+  ]
+}
