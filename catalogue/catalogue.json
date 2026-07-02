@@ -345,6 +345,45 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
       "metadata_sha256": "887e3e9697e56146b01594d8b18595b5d6bb3e503d2728e38a5370c50e41e482",
       "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
+    },
+    {
+      "id": "io.pilot.redis",
+      "version": "8.6.2",
+      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli — SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision — runs locally on this host.",
+      "display_name": "Redis",
+      "vendor": "Pilot Protocol",
+      "license": "AGPL-3.0",
+      "source_url": "https://github.com/redis/redis",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
+      "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8",
+      "bundle_size": 5354616,
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-arm64.tar.gz",
+          "bundle_sha256": "45329909a3bafb5ec31cb76602f955421c50210fd8903ccb7fb347165a3b786b"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-amd64.tar.gz",
+          "bundle_sha256": "7c5c9e5e2a621a3557781accbc746b52cde414700abe1ad8e1757407fa89d478"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
+          "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-arm64.tar.gz",
+          "bundle_sha256": "71eec03a7a0db3e8024ed1670c198424463407c21d24e6798e282d40a0f5a99b"
+        }
+      },
+      "categories": [
+        "database",
+        "cache",
+        "data",
+        "kv"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.redis/metadata.json",
+      "metadata_sha256": "7a2737afad2fe994f5deee9810557650727d5dd43c69e0f4018ea04a4fe14961",
+      "publisher": "ed25519:QXvscnyXJ5L/Bmy7oCo5dPC1HrEOGa7WFWBfH5ktejM="
     }
   ]
 }
