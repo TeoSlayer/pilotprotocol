@@ -84,7 +84,7 @@ func cmdVerifyRequest(args []string) {
 
 	d := connectDriver()
 	defer d.Close()
-	resp, err := d.VerifyEnvelopeMaxSkew(envelope, sig, standing, uint32(maxSkew))
+	resp, err := d.VerifyEnvelopeMaxSkew(envelope, sig, standing, uint32(maxSkew)) // #nosec G115 -- bounded to 0-86400 above
 	if err != nil {
 		fatalCode("connection_failed", "verify-request: %v", err)
 	}
