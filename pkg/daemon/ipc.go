@@ -527,8 +527,8 @@ func NewIPCServer(socketPath string, d *Daemon) *IPCServer {
 }
 
 func (s *IPCServer) Start() error {
-	// Remove stale socket
-	os.Remove(s.socketPath)
+	// Remove stale socket; a missing file is fine.
+	_ = os.Remove(s.socketPath)
 
 	// PILOT-246: Bind the socket inside a private, freshly-created 0700
 	// directory and atomically rename it into place. The socket therefore
@@ -558,11 +558,11 @@ func (s *IPCServer) Start() error {
 	// Restrict socket access to owner only before it is reachable at the
 	// published path.
 	if err := os.Chmod(stagePath, 0600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("chmod socket %s: %w", s.socketPath, err)
 	}
 	if err := os.Rename(stagePath, s.socketPath); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("publish socket %s: %w", s.socketPath, err)
 	}
 	s.listener = ln

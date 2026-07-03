@@ -42,6 +42,7 @@ func cmdSignRequest(args []string) {
 	}
 	switch {
 	case bodyFile != "":
+		// #nosec G304 -- bodyFile is an operator-supplied CLI flag; reading it is the command's purpose
 		data, err := os.ReadFile(bodyFile)
 		if err != nil {
 			fatalCode("invalid_argument", "sign-request: read %s: %v", bodyFile, err)
@@ -77,8 +78,8 @@ func cmdVerifyRequest(args []string) {
 	}
 	standing := flagBool(flags, "standing")
 	maxSkew := flagInt(flags, "max-skew", 0)
-	if maxSkew < 0 {
-		fatalCode("invalid_argument", "verify-request: --max-skew must be >= 0")
+	if maxSkew < 0 || maxSkew > 86400 {
+		fatalCode("invalid_argument", "verify-request: --max-skew must be 0-86400 seconds")
 	}
 
 	d := connectDriver()
