@@ -302,18 +302,35 @@ if [ -n "$TAG" ]; then
         if tar --version 2>/dev/null | grep -q 'GNU tar'; then
             TAR_SAFE="--no-same-owner --no-same-permissions"
         fi
-        # macOS bsdtar can fail silently on GitHub gzip archives.
-        # Try tar -xzf first; fall back to gunzip|tar on failure.
-        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
+        # macOS bsdtar can fail silently on GitHub gzip archives
+        # (e.g. darwin-arm64 — bsdtar reads the gzip format header
+        # differently and may produce no output without reporting
+        # an error). Try tar -xzf first; fall back to gunzip|tar on
+        # failure. Both stderr paths are preserved in TAR_ERR so the
+        # final error message includes diagnostic output.
+        TAR_ERR=$(mktemp "${TMPDIR}/tar_err.XXXXXX")
+        EXTRACT_OK=false
+        if tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>"$TAR_ERR" && [ -f "$TMPDIR/pilotctl" ]; then
+            EXTRACT_OK=true
+        else
             echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
-            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x $TAR_SAFE -C "$TMPDIR"
+            if gunzip -c "$TMPDIR/$ARCHIVE" 2>"$TAR_ERR" | tar -x $TAR_SAFE -C "$TMPDIR" 2>>"$TAR_ERR"; then
+                if [ -f "$TMPDIR/pilotctl" ]; then
+                    EXTRACT_OK=true
+                fi
+            fi
         fi
-        if [ ! -f "$TMPDIR/pilotctl" ]; then
+        if [ "$EXTRACT_OK" != true ]; then
             echo "Error: failed to extract binaries from ${ARCHIVE}"
+            if [ -s "$TAR_ERR" ]; then
+                echo "  Diagnostic output from extract tool:"
+                sed 's/^/    /' "$TAR_ERR"
+            fi
             echo "Try downloading manually from:"
             echo "  ${URL}"
             exit 1
         fi
+        rm -f "$TAR_ERR"
     else
         TAG=""
     fi
