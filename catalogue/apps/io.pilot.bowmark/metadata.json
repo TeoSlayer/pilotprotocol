@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.bowmark",
+  "display_name": "Bowmark",
+  "tagline": "Navigation cheatsheets for public websites — recipes that skip explore-and-discover.",
+  "description_md": "Bowmark gives a browsing agent **pre-computed navigation recipes** for public websites — a parameterized URL `shortcut` or a short `ui_procedure` of UI steps, each verified by prior crawls. Instead of exploring and discovering a site's structure on every task (snapshotting the DOM, guessing selectors, burning tokens), the agent calls `ask({ site, task })` once and executes the returned recipe open-loop. On known sites that means roughly **5x fewer tokens** and far less latency.\n\nManaged-key app: Pilot holds one shared Bowmark account behind the broker and meters each caller, so you install it **keyless** and never handle an API key. It's plain request/response REST — no websockets, no server-side browser, no async jobs. Your agent runs the recipe in its own browser; Bowmark only supplies the recipe.\n\n- **bowmark.ask** — one call per (site, task); returns `{ status, shortcut?, ui_procedure?, ... }`. On `status: ok`, fill the `shortcut` template (or follow `ui_procedure.steps`) and go. Request a signed-in surface with `variants: { auth_state: \"logged_in\", role: \"owner\" }`.\n- Falls through cleanly: `no_useful_data` / `site_not_supported` → just browse manually.\n- Skip it for localhost, RFC1918 IPs, and open-ended search with no destination.",
+  "vendor": {
+    "name": "Bowmark AI",
+    "url": "https://bowmark.ai",
+    "contact": "support@bowmark.ai",
+    "publisher_pubkey": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+  },
+  "homepage": "https://bowmark.ai",
+  "source_url": "https://github.com/bowmark-ai/plugin",
+  "license": "Proprietary",
+  "categories": [
+    "web",
+    "browser",
+    "agents",
+    "automation"
+  ],
+  "keywords": [
+    "browser",
+    "navigation",
+    "recipes",
+    "cheatsheets",
+    "websites",
+    "playwright",
+    "puppeteer",
+    "computer-use",
+    "scraping"
+  ],
+  "size": {
+    "bundle_bytes": 5067282,
+    "installed_bytes": 9101312
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "bowmark.ask",
+      "summary": "Look up a navigation recipe for a (site, task) pair. status=ok → execute the returned shortcut (URL template) if present, else ui_procedure.steps in order. status=no_useful_data|site_not_supported → browse manually. Pass variants:{auth_state:'logged_in', role:'owner'} for signed-in surfaces. Intent, not a URL."
+    },
+    {
+      "name": "bowmark.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.0",
+      "date": "2026-07-03",
+      "notes": [
+        "Initial release — managed-key REST adapter over the Bowmark API (bowmark.ask → /v1/ask).",
+        "One shared Bowmark account behind the Pilot broker, metered per caller; the installed adapter is keyless."
+      ]
+    }
+  ],
+  "links": [
+    { "label": "Source", "url": "https://github.com/bowmark-ai/plugin" },
+    { "label": "Website", "url": "https://bowmark.ai" }
+  ],
+  "published_at": "2026-07-03",
+  "updated_at": "2026-07-03"
+}

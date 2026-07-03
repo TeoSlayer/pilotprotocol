@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-07-02T00:00:00Z",
+  "updated_at": "2026-07-03T00:00:00Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
@@ -461,6 +461,45 @@
         "cloud"
       ],
       "publisher": "ed25519:54rnZ8+dN9V2cxZMJLMQKt36oYP/CfhF/zIgJMkjLIQ="
+    },
+    {
+      "id": "io.pilot.bowmark",
+      "version": "0.1.0",
+      "description": "Pre-computed navigation recipes for public websites — parameterized URL shortcuts and short UI procedures verified by prior crawls, so a browsing agent skips explore-and-discover and cuts tokens. Managed-key: Pilot holds one Bowmark account behind the broker and meters each caller; the installed adapter is keyless.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "261904427c361be46887d3b4d9a4d7fff0c2d7bf6a243ae1fe9faa7008f4543a",
+      "display_name": "Bowmark",
+      "vendor": "Bowmark AI",
+      "categories": [
+        "web",
+        "browser",
+        "agents",
+        "automation"
+      ],
+      "bundle_size": 5067282,
+      "source_url": "https://github.com/bowmark-ai/plugin",
+      "license": "Proprietary",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
+      "metadata_sha256": "f3922ff6e3b4ad342ce48c64b48a20e63484714ea3f1ee6bdb447e3b97421d39",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "261904427c361be46887d3b4d9a4d7fff0c2d7bf6a243ae1fe9faa7008f4543a"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "10fcf7d054894b605ffc215ee9cc5b5b7b48c7c4f5fb1e84432f5fafe8055ed6"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "39628c86798cd1264c9731025990aab1287b59e26d9f446b8aa462a85c0f9b2a"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "9ece66424e40cccc245f0135412fbbd67fdf5c2af4c2f7163f9499336ed9f8b7"
+        }
+      },
+      "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
     }
   ]
 }
