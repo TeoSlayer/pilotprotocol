@@ -1137,6 +1137,39 @@ Use this for a clean shutdown when you no longer want this node to be reachable.
 Note: daemon stop does NOT deregister — the 5-minute TTL reaps inactive nodes
 automatically. Only use deregister if you want immediate removal.
 `,
+	"sign-request": `Usage: pilotctl sign-request --audience <a> (--body-file <f> | --body-hash <64hex> | --body '<string>')
+
+Sign a request-signature envelope (reqsig) proving a request originates from
+this node. The daemon constructs the envelope itself — its own address, the
+current timestamp, a fresh nonce, the body hash and the audience — and signs
+the canonical form with the node's Ed25519 identity key. It never signs
+caller-supplied raw strings.
+
+Exactly one body source is required:
+  --body-file <f>       hash the file's bytes (sha256)
+  --body '<string>'     hash the literal string
+  --body-hash <64hex>   use a precomputed sha256 body hash
+
+Prints {envelope, signature, address}. Attach envelope + signature to the
+request; the consuming service verifies them against this node's registered
+public key (or via: pilotctl verify-request).
+`,
+	"verify-request": `Usage: pilotctl verify-request --envelope '<canonical>' --signature '<b64>' [--standing] [--max-skew <secs>]
+
+Verify a request-signature envelope produced by a peer's sign-request. The
+daemon parses the envelope, checks freshness, resolves the claimed node's
+public key (local key cache first, registry on miss) and verifies the
+signature.
+
+Flags:
+  --standing            also report the signer's registry standing when
+                        available (online, last_seen_unix, key_generation,
+                        network_member)
+  --max-skew <secs>     freshness window in seconds (default 300)
+
+Prints the daemon's verdict. Exit code 1 when the envelope does not verify
+(reply carries valid:false plus a reason).
+`,
 	"rotate-key": `Usage: pilotctl rotate-key
 
 Generate a new Ed25519 keypair and register it with the registry.
@@ -1476,6 +1509,10 @@ Identity & recovery:
   pilotctl recovery <enroll|new-key|recover> ...      enroll / rotate / reclaim the address if the key is lost
   pilotctl review <pilot|app-id> [--rating <1-5>] [--text "..."]   rate Pilot or an installed app
 
+Request signing (prove a request originates from this node):
+  pilotctl sign-request --audience <a> (--body-file <f> | --body-hash <64hex> | --body '<string>')
+  pilotctl verify-request --envelope '<canonical>' --signature '<b64>' [--standing] [--max-skew <secs>]
+
 Management commands:
   pilotctl connections
   pilotctl disconnect <conn_id>
@@ -1695,6 +1732,10 @@ dispatch:
 		cmdVerify(cmdArgs)
 	case "recovery":
 		cmdRecovery(cmdArgs)
+	case "sign-request":
+		cmdSignRequest(cmdArgs)
+	case "verify-request":
+		cmdVerifyRequest(cmdArgs)
 
 	// Discovery
 	case "find":
@@ -2157,6 +2198,16 @@ func contextCatalog() map[string]interface{} {
 				"args":        []string{},
 				"description": "Rotate this node's Ed25519 identity key",
 				"returns":     "node_id, address, new public_key",
+			},
+			"sign-request": map[string]interface{}{
+				"args":        []string{"--audience <a>", "(--body-file <f> | --body-hash <64hex> | --body <string>)"},
+				"description": "Sign a request-signature envelope (reqsig) proving a request originates from this node",
+				"returns":     "envelope, signature, address",
+			},
+			"verify-request": map[string]interface{}{
+				"args":        []string{"--envelope <canonical>", "--signature <b64>", "[--standing]", "[--max-skew <secs>]"},
+				"description": "Verify a peer's request-signature envelope; exit code 1 when invalid",
+				"returns":     "valid, node_id, address, verified_via, trusted [, online, last_seen_unix, key_generation, network_member]",
 			},
 
 			// Trust

@@ -16,7 +16,7 @@ func TestSemverCompare(t *testing.T) {
 		{"1.0.0", "1.0.1", -1},
 		{"1.2.0", "1.1.9", 1},
 		{"2.0.0", "1.9.9", 1},
-		{"1.2", "1.2.0", 0},       // missing component == 0
+		{"1.2", "1.2.0", 0},        // missing component == 0
 		{"1.2.3-rc.1", "1.2.3", 0}, // prerelease ignored in the core compare
 		{"0.10.0", "0.9.0", 1},     // numeric, not lexical
 	}
