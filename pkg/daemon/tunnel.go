@@ -885,6 +885,13 @@ func (tm *TunnelManager) getPeerPubKey(nodeID uint32) (ed25519.PublicKey, error)
 	return tm.kx.GetPeerPubKey(nodeID)
 }
 
+// hasPeerPubKey reports whether a peer's Ed25519 public key is already
+// cached (no registry fetch). Thin shim over
+// keyexchange.Manager.HasPeerPubKey.
+func (tm *TunnelManager) hasPeerPubKey(nodeID uint32) bool {
+	return tm.kx.HasPeerPubKey(nodeID)
+}
+
 // Listen starts the UDP listener for incoming tunnel traffic. This is
 // the default path used when the daemon is launched without
 // -transport=compat. The transport is *udpio.Socket; behavior is

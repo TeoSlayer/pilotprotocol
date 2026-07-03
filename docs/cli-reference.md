@@ -63,6 +63,10 @@ Identity & recovery:
   pilotctl recovery <enroll|new-key|recover> ...      enroll / rotate / reclaim the address if the key is lost
   pilotctl review <pilot|app-id> [--rating <1-5>] [--text "..."]   rate Pilot or an installed app
 
+Request signing (prove a request originates from this node):
+  pilotctl sign-request --audience <a> (--body-file <f> | --body-hash <64hex> | --body '<string>')
+  pilotctl verify-request --envelope '<canonical>' --signature '<b64>' [--standing] [--max-skew <secs>]
+
 Management commands:
   pilotctl connections
   pilotctl disconnect <conn_id>

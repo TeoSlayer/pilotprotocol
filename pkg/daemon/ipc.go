@@ -21,6 +21,7 @@ import (
 	"github.com/pilot-protocol/common/badgeverify"
 	"github.com/pilot-protocol/common/ipcutil"
 	"github.com/pilot-protocol/common/protocol"
+	"github.com/pilot-protocol/common/reqsig"
 )
 
 // IPC commands (daemon ↔ driver)
@@ -96,6 +97,18 @@ const (
 	CmdSubmitBadgeOK    byte = 0x30
 	CmdEnrollRecovery   byte = 0x31
 	CmdEnrollRecoveryOK byte = 0x32
+	// CmdSignEnvelope asks the daemon to sign a request-signature envelope
+	// (common/reqsig) naming its OWN address, and CmdVerifyEnvelope checks a
+	// peer-produced envelope + signature against the peer's registered
+	// Ed25519 key. The daemon CONSTRUCTS the envelope itself — network/node
+	// from its own address, timestamp = now — and signs only the reqsig
+	// canonical form; there is deliberately no path that signs a
+	// caller-supplied raw string. (Must match driver
+	// cmdSignEnvelope/cmdVerifyEnvelope in common/driver.)
+	CmdSignEnvelope     byte = 0x33
+	CmdSignEnvelopeOK   byte = 0x34
+	CmdVerifyEnvelope   byte = 0x35
+	CmdVerifyEnvelopeOK byte = 0x36
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -514,8 +527,8 @@ func NewIPCServer(socketPath string, d *Daemon) *IPCServer {
 }
 
 func (s *IPCServer) Start() error {
-	// Remove stale socket
-	os.Remove(s.socketPath)
+	// Remove stale socket; a missing file is fine.
+	_ = os.Remove(s.socketPath)
 
 	// PILOT-246: Bind the socket inside a private, freshly-created 0700
 	// directory and atomically rename it into place. The socket therefore
@@ -545,11 +558,11 @@ func (s *IPCServer) Start() error {
 	// Restrict socket access to owner only before it is reachable at the
 	// published path.
 	if err := os.Chmod(stagePath, 0600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("chmod socket %s: %w", s.socketPath, err)
 	}
 	if err := os.Rename(stagePath, s.socketPath); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("publish socket %s: %w", s.socketPath, err)
 	}
 	s.listener = ln
@@ -829,6 +842,10 @@ func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []by
 		s.handleSubmitBadge(conn, reqID, payload)
 	case CmdEnrollRecovery:
 		s.handleEnrollRecovery(conn, reqID, payload)
+	case CmdSignEnvelope:
+		s.handleSignEnvelope(conn, reqID, payload)
+	case CmdVerifyEnvelope:
+		s.handleVerifyEnvelope(conn, reqID, payload)
 	default:
 		s.sendError(conn, reqID, fmt.Sprintf("unknown command: 0x%02X", cmd))
 	}
@@ -1610,6 +1627,225 @@ func (s *IPCServer) handleEnrollRecovery(conn *ipcConn, reqID uint64, payload []
 	}
 	if err := conn.writeReply(CmdEnrollRecoveryOK, reqID, data); err != nil {
 		slog.Debug("IPC enroll_recovery reply failed", "err", err)
+	}
+}
+
+// handleSignEnvelope services CmdSignEnvelope. The daemon constructs the
+// reqsig.Envelope ITSELF — Network/Node from its own registered address,
+// Timestamp = now, Nonce generated here unless the caller supplied one — and
+// signs only the canonical string reqsig produces from those fields. There is
+// deliberately NO code path that signs a caller-supplied raw string: the IPC
+// socket admits any same-UID process, so refusing raw-string signing is the
+// boundary that keeps a local process from using the daemon as a signing
+// oracle for protocol-internal messages (heartbeats, key exchange, badges —
+// see reqsig's domain prefix).
+func (s *IPCServer) handleSignEnvelope(conn *ipcConn, reqID uint64, payload []byte) {
+	var req struct {
+		Audience string `json:"audience"`
+		BodyHash string `json:"body_hash"`
+		BodyB64  string `json:"body_b64"`
+		Nonce    string `json:"nonce"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("sign_envelope: bad payload: %v", err))
+		return
+	}
+	if req.Audience == "" {
+		s.sendError(conn, reqID, "sign_envelope: audience required")
+		return
+	}
+	bodyHash := req.BodyHash
+	if req.BodyB64 != "" {
+		if bodyHash != "" {
+			s.sendError(conn, reqID, "sign_envelope: body_hash and body_b64 are mutually exclusive")
+			return
+		}
+		body, err := base64.StdEncoding.DecodeString(req.BodyB64)
+		if err != nil {
+			s.sendError(conn, reqID, fmt.Sprintf("sign_envelope: body_b64 not base64: %v", err))
+			return
+		}
+		bodyHash = reqsig.HashBody(body)
+	}
+	if bodyHash == "" {
+		s.sendError(conn, reqID, "sign_envelope: body_hash or body_b64 required")
+		return
+	}
+	nonce := req.Nonce
+	if nonce == "" {
+		var err error
+		if nonce, err = reqsig.NewNonce(); err != nil {
+			s.sendError(conn, reqID, fmt.Sprintf("sign_envelope: %v", err))
+			return
+		}
+	}
+	addr := s.daemon.Addr()
+	if addr.Node == 0 {
+		addr.Node = s.daemon.NodeID()
+	}
+	if addr.Node == 0 {
+		s.sendError(conn, reqID, "sign_envelope: daemon not registered (no address)")
+		return
+	}
+	env := reqsig.Envelope{
+		Network:   addr.Network,
+		Node:      addr.Node,
+		Timestamp: time.Now().Unix(),
+		Nonce:     nonce,
+		BodyHash:  bodyHash,
+		Audience:  req.Audience,
+	}
+	// Canonical() enforces every field-level rule (audience charset,
+	// nonce/body-hash shape). Daemon.Sign rather than reqsig.Sign so the
+	// signature happens under identityMu — a concurrent RotateKey cannot
+	// zero the private-key buffer mid-signature.
+	canonical, err := env.Canonical()
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("sign_envelope: %v", err))
+		return
+	}
+	sig := s.daemon.Sign([]byte(canonical))
+	if sig == nil {
+		s.sendError(conn, reqID, "sign_envelope: daemon has no identity")
+		return
+	}
+	data, err := json.Marshal(map[string]interface{}{
+		"type":      "sign_envelope_ok",
+		"envelope":  canonical,
+		"signature": base64.StdEncoding.EncodeToString(sig),
+		"address":   addr.String(),
+	})
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("sign_envelope marshal: %v", err))
+		return
+	}
+	if err := conn.writeReply(CmdSignEnvelopeOK, reqID, data); err != nil {
+		slog.Debug("IPC sign_envelope reply failed", "err", err)
+	}
+}
+
+// handleVerifyEnvelope services CmdVerifyEnvelope: parse → freshness →
+// resolve the claimed node's Ed25519 key (local keyexchange cache first,
+// registry on miss) → signature check. A failed check replies
+// CmdVerifyEnvelopeOK with valid:false plus a reason rather than CmdError —
+// IPC callers are same-UID processes, so unlike the public registry endpoint
+// the failure reasons here are deliberately detailed.
+func (s *IPCServer) handleVerifyEnvelope(conn *ipcConn, reqID uint64, payload []byte) {
+	var req struct {
+		Envelope      string  `json:"envelope"`
+		Signature     string  `json:"signature"`
+		MaxSkewSecs   float64 `json:"max_skew_secs"`
+		CheckStanding bool    `json:"check_standing"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("verify_envelope: bad payload: %v", err))
+		return
+	}
+	if req.Envelope == "" || req.Signature == "" {
+		s.sendError(conn, reqID, "verify_envelope: envelope and signature required")
+		return
+	}
+	reject := func(reason string) {
+		data, err := json.Marshal(map[string]interface{}{
+			"type":   "verify_envelope_ok",
+			"valid":  false,
+			"reason": reason,
+		})
+		if err != nil {
+			s.sendError(conn, reqID, fmt.Sprintf("verify_envelope marshal: %v", err))
+			return
+		}
+		if err := conn.writeReply(CmdVerifyEnvelopeOK, reqID, data); err != nil {
+			slog.Debug("IPC verify_envelope reply failed", "err", err)
+		}
+	}
+
+	e, err := reqsig.Parse(req.Envelope)
+	if err != nil {
+		reject(err.Error())
+		return
+	}
+	if err := reqsig.CheckFresh(e, time.Now(), time.Duration(req.MaxSkewSecs)*time.Second); err != nil {
+		reject(err.Error())
+		return
+	}
+	if s.daemon.tunnels == nil {
+		reject("no key source available")
+		return
+	}
+	// Record how the key resolves BEFORE looking it up: a cache hit means
+	// the key was already pinned locally (key exchange or a prior verify);
+	// on a miss getPeerPubKey falls through to the registry and memoizes.
+	verifiedVia := "registry"
+	if s.daemon.tunnels.hasPeerPubKey(e.Node) {
+		verifiedVia = "cache"
+	}
+	pub, err := s.daemon.tunnels.getPeerPubKey(e.Node)
+	if err != nil {
+		reject(fmt.Sprintf("public key for node %d unavailable: %v", e.Node, err))
+		return
+	}
+	if _, err := reqsig.Verify(pub, req.Envelope, req.Signature); err != nil {
+		reject(err.Error())
+		return
+	}
+
+	resp := map[string]interface{}{
+		"type":         "verify_envelope_ok",
+		"valid":        true,
+		"node_id":      e.Node,
+		"address":      protocol.Addr{Network: e.Network, Node: e.Node}.String(),
+		"verified_via": verifiedVia,
+		"trusted":      s.daemon.handshakes != nil && s.daemon.handshakes.IsTrusted(e.Node),
+	}
+	if req.CheckStanding {
+		s.addEnvelopeStanding(resp, e)
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		s.sendError(conn, reqID, fmt.Sprintf("verify_envelope marshal: %v", err))
+		return
+	}
+	if err := conn.writeReply(CmdVerifyEnvelopeOK, reqID, data); err != nil {
+		slog.Debug("IPC verify_envelope reply failed", "err", err)
+	}
+}
+
+// addEnvelopeStanding decorates a successful verify reply with the signer's
+// registry standing. Best-effort: with no registry (regConn nil /
+// ErrNoRegistry) or a failed lookup it adds nothing, and each field is
+// emitted only when the registry actually returned it — last_seen_unix /
+// key_generation are being added to lookup responses in a parallel work
+// stream, so older registries simply omit them.
+func (s *IPCServer) addEnvelopeStanding(resp map[string]interface{}, e reqsig.Envelope) {
+	if s.daemon.regConn == nil {
+		return
+	}
+	lk, err := s.daemon.regConn.Lookup(e.Node)
+	if err != nil {
+		return
+	}
+	if v, ok := lk["last_seen_unix"].(float64); ok {
+		lastSeen := int64(v)
+		resp["last_seen_unix"] = lastSeen
+		d := time.Now().Unix() - lastSeen
+		if d < 0 {
+			d = -d
+		}
+		resp["online"] = d <= 180
+	}
+	if v, ok := lk["key_generation"].(float64); ok {
+		resp["key_generation"] = uint32(v)
+	}
+	if nets, ok := lk["networks"].([]interface{}); ok {
+		member := false
+		for _, n := range nets {
+			if f, ok := n.(float64); ok && uint16(f) == e.Network {
+				member = true
+				break
+			}
+		}
+		resp["network_member"] = member
 	}
 }
 
