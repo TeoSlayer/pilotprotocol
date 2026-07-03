@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.smol",
+  "display_name": "Smol Machines",
+  "tagline": "Fast, hardware-isolated microVMs — local and cloud",
+  "description_md": "Smol Machines — fast, hardware-isolated Linux microVMs for agents, now with a **cloud plane**. Spin up sub-second, real-hypervisor-isolated microVMs locally with the smolvm CLI (not shared-kernel containers), then **push a VM to the cloud** with one method.\n\n**Local (free, offline):**\n- Run untrusted or AI-generated code safely, networking off by default\n- Give an agent a real Linux shell — stateful, isolated\n- Ephemeral `machine run` or persistent VMs; portable `.smolmachine` artifacts via `pack`\n- GPU/Vulkan compute, headless-browser automation, CI-style jobs\n\n**Cloud (per-user, metered):**\n- `smol.push` sends a local VM (or an OCI image) to the smol cloud\n- Pilot provisions your **own** cloud key automatically on install — no account, no API key to manage\n- Your cloud machines are **isolated per user** and metered against your **free credit**; `smol.balance` shows what's left, `smol.list` shows only your machines\n\nDiscover the live method surface with smol.help, which lists each method's parameters and latency class. The master cloud key never leaves Pilot's broker; you only ever hold your own scoped key.",
+  "vendor": {
+    "name": "smol machines",
+    "url": "https://smolmachines.com",
+    "contact": "apps@pilotprotocol.network",
+    "publisher_pubkey": "ed25519:54rnZ8+dN9V2cxZMJLMQKt36oYP/CfhF/zIgJMkjLIQ="
+  },
+  "homepage": "https://smolmachines.com",
+  "source_url": "https://github.com/smol-machines/smolvm",
+  "license": "Apache-2.0",
+  "categories": [
+    "dev",
+    "virtualization",
+    "security"
+  ],
+  "keywords": [
+    "microvm",
+    "sandbox",
+    "vm",
+    "isolation",
+    "gpu",
+    "ci",
+    "cloud"
+  ],
+  "size": {
+    "bundle_bytes": 5401194,
+    "installed_bytes": 9706567
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "smol.exec",
+      "summary": "Run ANY smolvm subcommand in a fast, hardware-isolated Linux microVM LOCALLY. Payload is {\"args\":[...]} (verbatim smolvm argv) with optional {\"stdin\":\"...\"}. This one method exposes the whole smolvm CLI — for the complete agent reference call smol.exec {\"args\":[\"--help\"]}, and for any subcommand call smol.exec {\"args\":[\"\u003cgroup\u003e\",\"--help\"]}.\n\nCOMMAND SURFACE:\n• machine run — create an EPHEMERAL VM, run one command, tear down (nothing persists). e.g. [\"machine\",\"run\",\"--net\",\"--image\",\"alpine\",\"--\",\"sh\",\"-c\",\"echo hi\"].\n• machine create | start | stop | delete — lifecycle of a PERSISTENT named VM (--name, default \"default\").\n• machine exec — run a command in a persistent VM; FILESYSTEM CHANGES PERSIST across sessions (package installs stick). e.g. [\"machine\",\"exec\",\"--name\",\"myvm\",\"--\",\"apk\",\"add\",\"python3\"].\n• machine status | ls | images | monitor — read-only introspection (do NOT stop a running VM).\n• machine cp — copy files host↔VM (HOST:GUEST). machine update — change mounts/ports/env/cpu/memory on a STOPPED VM. machine prune — reclaim layers (prune --all needs the VM stopped).\n• pack create -o \u003cout\u003e — build a portable, self-contained .smolmachine executable; pack run — run one. machine create --from \u003cartifact\u003e.smolmachine for fast start.\n• serve start --listen \u003caddr\u003e — HTTP API server (POST/GET /api/v1/machines…); serve openapi — the spec.\n• config — manage registries + defaults.\n\nKEY FLAGS: --net (networking is OFF by default), --image \u003coci ref | ./archive.tar | ./rootfs/ | -\u003e, -v HOST:GUEST[:ro] (mount; -v host:/workspace replaces the default workspace), -p HOST:GUEST (port), --gpu, --ssh-agent (forward host SSH agent; keys never enter the VM), --secret-env GUEST=HOST / --secret-file GUEST=/abs / -s Smolfile (inject secrets by reference), --from \u003cartifact\u003e, --cpus, --memory.\n\nDEFAULTS: network off; cpus 4; memory 8192 MiB; storage 20 GiB; name \"default\". Elastic memory/CPU via virtio balloon.\n\nNOT SUPPORTED OVER IPC: interactive sessions (-it / machine shell) and long-running serve (no attached TTY)."
+    },
+    {
+      "name": "smol.version",
+      "summary": "Report the local smolvm engine version. This is `smolvm --version`."
+    },
+    {
+      "name": "smol.provision",
+      "summary": "Provision (or fetch) this Pilot user's proprietary smol cloud key and free credit balance. Runs automatically on install and on smol.help — you rarely call it directly. The key is bound to your Pilot identity, stored only in your app's private secrets, and used to push and isolate your cloud VMs. Returns {key, credits}."
+    },
+    {
+      "name": "smol.balance",
+      "summary": "Report your remaining smol cloud credit balance. Returns {credits}."
+    },
+    {
+      "name": "smol.push",
+      "summary": "Push a VM to the smol cloud as YOU (your provisioned key) and START it running. Provide either a local packed artifact (base64 of a `smolvm pack` output) OR an OCI `image` reference the cloud pulls; pass {\"net\":true} for outbound networking (off by default). BILLING: you must have credit to start (402 if empty); the running VM then drains your credit by REAL usage (CPU + memory + disk per the rate card in smol.help) and the broker STOPS it when your credit runs out. The machine is tagged as owned by you, so no other user can see or touch it. Returns the created machine."
+    },
+    {
+      "name": "smol.list",
+      "summary": "List YOUR smol cloud machines (only yours — the broker filters by owner). Free (no credit). Returns an array of machines."
+    },
+    {
+      "name": "smol.key",
+      "summary": "Get your current smol cloud key (the per-user credential bound to your Pilot identity). Idempotent — safe to call anytime. The key is also cached in your app's private secrets. Returns {key, credits}."
+    },
+    {
+      "name": "smol.rotate",
+      "summary": "Rotate your smol cloud key if it leaked. Your OLD key stops working immediately and a NEW key is issued — your credit and cloud machines are NOT affected (only the key changes). Returns {key, credits, rotated}."
+    },
+    {
+      "name": "smol.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.2.0",
+      "notes": [
+        "Released v1.2.0"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/smol-machines/smolvm"
+    },
+    {
+      "label": "Website",
+      "url": "https://smolmachines.com"
+    }
+  ]
+}

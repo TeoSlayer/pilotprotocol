@@ -418,6 +418,49 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
       "metadata_sha256": "ca71da633a5608af201ba08409f4376c672d92fa6adc570c41d409d51967ffc3",
       "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
+    },
+    {
+      "id": "io.pilot.smol",
+      "version": "1.2.0",
+      "description": "Smol Machines — fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
+      "display_name": "Smol Machines",
+      "vendor": "smol machines",
+      "license": "Apache-2.0",
+      "source_url": "https://github.com/smol-machines/smolvm",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
+      "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b",
+      "bundle_size": 5401194,
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "51b0fb9d23bb762fb363196e48a991c5bfe4c703945565584b02d5363d7b8ee2"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
+          "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-arm64.tar.gz",
+          "bundle_sha256": "62cd9b719824fd0b4500505d3a9588d945563549816f55b0e718f41faf9b39d3"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smol/metadata.json",
+      "metadata_sha256": "fd3299f6eef46a539145425eae4ec74bd561d132b679e2558984f066f78d7291",
+      "categories": [
+        "dev",
+        "virtualization",
+        "security"
+      ],
+      "keywords": [
+        "microvm",
+        "sandbox",
+        "vm",
+        "isolation",
+        "gpu",
+        "ci",
+        "cloud"
+      ],
+      "publisher": "ed25519:54rnZ8+dN9V2cxZMJLMQKt36oYP/CfhF/zIgJMkjLIQ="
     }
   ]
 }
