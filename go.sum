@@ -8,8 +8,8 @@ github.com/pilot-protocol/app-store v1.0.2 h1:oK7cNl3e/gfxVhhkUFKNLRN256+7sDSBw8
 github.com/pilot-protocol/app-store v1.0.2/go.mod h1:deltPnaQkiTgMcxWU+honz3+Bl2R1cthhuZra4pQ4PI=
 github.com/pilot-protocol/beacon v0.2.6 h1:grxwaVyPRUT0W6coyjYfNkO0rpzOIrwrKn94S21DuVE=
 github.com/pilot-protocol/beacon v0.2.6/go.mod h1:I/UhEv097g1z/qtAVDZbEhf3R5tzM0Dp71vGHah52A4=
-github.com/pilot-protocol/common v0.5.6 h1:0A3W3HUQSPryGyh+zA89hEHHLcYVd9v9Vgk8EzOqpQI=
-github.com/pilot-protocol/common v0.5.6/go.mod h1:yrAwPXGVMbXU+SADvOCmbdXjK/wJ3uA0KshyLvRlej4=
+github.com/pilot-protocol/common v0.5.7 h1:GY6KhB+PwV713HAAhVrVEZJN9e5DsnbfElPiOAEpzJE=
+github.com/pilot-protocol/common v0.5.7/go.mod h1:Y6yaOsywr8J4aGvyoyuOtDpwZTheFM7GOjDt6Y/ZB9I=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98 h1:Bqgnf4CZC7aZJyDzz/E7agwXotArJg2FvFlNDqouhLo=
 github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98/go.mod h1:tM9eyyruBdnxhhUtViasUjnAElwF/r5PQvCYKLdlTLY=
 github.com/pilot-protocol/eventstream v0.2.2 h1:E0IjveK7K+dsIbE/5hD3N821FkHzxVsx1tiAORMzt8k=
