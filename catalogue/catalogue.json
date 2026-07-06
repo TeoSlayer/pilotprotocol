@@ -500,6 +500,44 @@
         }
       },
       "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+    },
+    {
+      "id": "io.pilot.sqlite",
+      "version": "3.45.2",
+      "description": "SQLite 3.45.2 as a native SQL database for agents: a zero-server, single-file, transactional (OLTP) SQL engine delivered to the host and fronted as typed methods. Run SQL against a .db file or an in-memory database and get rows back as JSON, run a multi-statement script, introspect the schema and table list, and reach the full sqlite3 CLI (every dot-command and flag — .dump, .import, .backup, CSV/table/markdown output, …) via a verbatim-argv passthrough. The durable, on-disk complement to DuckDB's in-memory analytics — real transactional SQL locally with no server, no provisioning, and no cloud account.",
+      "display_name": "SQLite",
+      "vendor": "Pilot Protocol",
+      "license": "blessing",
+      "source_url": "https://sqlite.org/src",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
+      "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8",
+      "bundle_size": 5352486,
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-arm64.tar.gz",
+          "bundle_sha256": "572872403d2f46f497104dc4e1ce6b9553cc42cac8552aedc71f3295920e9d57"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-amd64.tar.gz",
+          "bundle_sha256": "762b4841304d8098f6ef69066f36e54f73f9635deacdff191ebfb52f4a147f7a"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
+          "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-arm64.tar.gz",
+          "bundle_sha256": "114a31ec88fb26a4674501179218e55bab74237a24865bf38f37d2aa44f4ed2d"
+        }
+      },
+      "categories": [
+        "database",
+        "data",
+        "sql"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sqlite/metadata.json",
+      "metadata_sha256": "9756ef368b02f9808596dc8c640776ba079cdf6119bd334f00efe7d53a1b42d8",
+      "publisher": "ed25519:ebjc66COLR1OBuDZn9gCuePChW8Qxxcxm7RDYAgSLv8="
     }
   ]
 }
