@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "updated_at": "2026-07-03T00:00:00Z",
+  "updated_at": "2026-07-06T21:36:22Z",
   "apps": [
     {
       "id": "io.pilot.wallet",
       "version": "0.3.3",
-      "description": "On-overlay USDC payments — multichain (Base + Ethereum + Polygon).",
+      "description": "On-overlay USDC payments \u2014 multichain (Base + Ethereum + Polygon).",
       "bundle_url": "https://github.com/pilot-protocol/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
       "display_name": "Wallet",
@@ -83,7 +83,7 @@
     {
       "id": "io.pilot.smolmachines",
       "version": "1.2.0",
-      "description": "Smol Machines — spin up fast, hardware-isolated Linux microVMs on demand (sub-second boot, real hypervisor isolation) to safely run untrusted code, GPU tasks, or headless browser automation in a disposable sandbox.",
+      "description": "Smol Machines \u2014 spin up fast, hardware-isolated Linux microVMs on demand (sub-second boot, real hypervisor isolation) to safely run untrusted code, GPU tasks, or headless browser automation in a disposable sandbox.",
       "display_name": "Smol Machines",
       "vendor": "smol machines",
       "license": "Apache-2.0",
@@ -115,7 +115,7 @@
     {
       "id": "io.telepat.ideon-free",
       "version": "0.3.1",
-      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
+      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write \u2014 no payment.",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
       "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
       "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc="
@@ -123,7 +123,7 @@
     {
       "id": "io.pilot.slipstream",
       "version": "1.0.0",
-      "description": "SLIPSTREAM — Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
+      "description": "SLIPSTREAM \u2014 Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
       "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5",
       "display_name": "Slipstream",
@@ -151,7 +151,7 @@
     {
       "id": "io.pilot.miren",
       "version": "0.1.0",
-      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand.",
+      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity \u2014 plus a passthrough exec for any miren subcommand.",
       "display_name": "Miren",
       "vendor": "Miren",
       "license": "Proprietary",
@@ -183,7 +183,7 @@
     {
       "id": "io.pilot.otto",
       "version": "0.20.0",
-      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status — over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
+      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status \u2014 over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
       "display_name": "Otto",
       "vendor": "Telepat",
       "license": "MIT",
@@ -247,7 +247,7 @@
     {
       "id": "io.pilot.postgres",
       "version": "17.5.0",
-      "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql — aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
+      "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql \u2014 aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
       "display_name": "PostgreSQL",
       "vendor": "Pilot Protocol",
       "license": "PostgreSQL",
@@ -279,7 +279,7 @@
     {
       "id": "io.pilot.duckdb",
       "version": "1.5.4",
-      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
+      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step \u2014 results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
       "display_name": "DuckDB",
       "vendor": "Pilot Protocol",
       "license": "MIT",
@@ -318,7 +318,7 @@
     {
       "id": "io.pilot.docker",
       "version": "29.6.1",
-      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
+      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers \u2014 run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
       "display_name": "Docker",
       "vendor": "Pilot Protocol",
       "license": "Apache-2.0",
@@ -349,7 +349,7 @@
     {
       "id": "io.pilot.redis",
       "version": "8.6.2",
-      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli — SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision — runs locally on this host.",
+      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli \u2014 SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision \u2014 runs locally on this host.",
       "display_name": "Redis",
       "vendor": "Pilot Protocol",
       "license": "AGPL-3.0",
@@ -388,7 +388,7 @@
     {
       "id": "io.pilot.aegis",
       "version": "0.1.3",
-      "description": "AEGIS 0.1.3 — a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
+      "description": "AEGIS 0.1.3 \u2014 a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
       "display_name": "AEGIS",
       "vendor": "Pilot Protocol",
       "license": "MIT",
@@ -422,7 +422,7 @@
     {
       "id": "io.pilot.smol",
       "version": "1.2.0",
-      "description": "Smol Machines — fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
+      "description": "Smol Machines \u2014 fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
       "display_name": "Smol Machines",
       "vendor": "smol machines",
       "license": "Apache-2.0",
@@ -465,7 +465,7 @@
     {
       "id": "io.pilot.bowmark",
       "version": "0.1.0",
-      "description": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately. Call ask({site, task}) before any browser action to get a ready-to-run cheatsheet — a parameterized URL shortcut and/or a short UI procedure to execute open-loop — instead of exploring the DOM; then report_outcome to keep them fresh. Free to use — no signup, no API key.",
+      "description": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately. Call ask({site, task}) before any browser action to get a ready-to-run cheatsheet \u2014 a parameterized URL shortcut and/or a short UI procedure to execute open-loop \u2014 instead of exploring the DOM; then report_outcome to keep them fresh. Free to use \u2014 no signup, no API key.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
       "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997",
       "display_name": "Bowmark",
@@ -500,6 +500,46 @@
         }
       },
       "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+    },
+    {
+      "id": "io.pilot.orthogonal",
+      "version": "0.1.0",
+      "description": "Connect your agent to Orthogonal \u2014 one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
+      "display_name": "Orthogonal",
+      "vendor": "Orthogonal",
+      "license": "MIT",
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "a773c017d0f9b4498db2123473541dece29b8367a34387d52ca5abc7c2932c7e",
+      "bundle_size": 5076601,
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "55a0645bbf8506040d88231e392bc43c517385f64875e1718090b403bf05809b"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "404cc4588b38e5eb2341cad160b07d39a34f6ca7dd7f4cdaafc56e03dd54bfcd"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "a773c017d0f9b4498db2123473541dece29b8367a34387d52ca5abc7c2932c7e"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "2882a4db3250bb0e3e63ee1f3d7746eadad823b9e1c6bebf8aa96b8c1f18e9a9"
+        }
+      },
+      "categories": [
+        "data",
+        "search",
+        "enrichment",
+        "scraping",
+        "ai"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
+      "metadata_sha256": "e3094041d1bc38841c7fe82ce7596b409dbed25f8a81722a5456898b7360d554",
+      "publisher": "ed25519:8zcpGtp5sUw3sjLptDR9W/btumEaOv3DO3tTWN/+PCk="
     }
   ]
 }
