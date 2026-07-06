@@ -2,8 +2,8 @@
   "schema_version": 1,
   "id": "io.pilot.bowmark",
   "display_name": "Bowmark",
-  "tagline": "Navigation cheatsheets for public websites — recipes that skip explore-and-discover.",
-  "description_md": "Bowmark gives a browsing agent **pre-computed navigation recipes** for public websites — a parameterized URL `shortcut` or a short `ui_procedure` of UI steps, each verified by prior crawls. Instead of exploring and discovering a site's structure on every task (snapshotting the DOM, guessing selectors, burning tokens), the agent calls `ask({ site, task })` once and executes the returned recipe open-loop. On known sites that means roughly **5x fewer tokens** and far less latency.\n\nManaged-key app: Pilot holds one shared Bowmark account behind the broker and meters each caller, so you install it **keyless** and never handle an API key. It's plain request/response REST — no websockets, no server-side browser, no async jobs. Your agent runs the recipe in its own browser; Bowmark only supplies the recipe.\n\n## Methods\n\n- **bowmark.ask** `{ site, task, variants?, scopeHint? }` — look up a recipe. On `status: ok` you get an `id` plus a `shortcut` (a URL `template` with `{name}` slots + `parameters`) and/or a `ui_procedure.steps` list (each step has an `action`, `locator`, `value`, and may carry `precondition`, `irreversible`, or `requires_user_input` flags). Fill the slots from your task, execute open-loop, and don't snapshot the DOM to re-verify what the recipe already documents.\n- **bowmark.report_outcome** `{ envelope_id, success, evidence }` — after running a recipe, report whether it executed cleanly. This feeds the re-crawl loop that keeps recipes healthy, so it matters: report `success: false` on any deviation (a retry, a JS-eval fallback, an extra click) even if you still got the answer. `evidence.what_happened` describes how the *recipe* behaved, not the task result.\n\n## Syntax & edge cases\n\n- `site` is a registrable domain, optionally with a product surface: `google.com`, `docs.stripe.com`, `google.com/maps` — a matching path acts as an implicit scope hint.\n- `task` is plain-English **intent**, never a URL.\n- Request the signed-in surface with `variants: { auth_state: \"logged_in\", role: \"owner\" }` (also `locale` / `region` / `currency`); the assumed facets come back on `variants_assumed`.\n- Non-`ok` statuses: `no_useful_data` / `site_not_supported` / `synth_invalid` → browse manually; `ambiguous_scope` → retry with `scopeHint` = one of `error.scope_options[].pattern`; `rate_limited` → back off until `error.retry_after` (only NEW recipe synthesis is capped — cached recipes still answer). On a `503` (`embedder_unavailable` / `synth_unavailable`), retry once after `Retry-After`.\n- Skip Bowmark for localhost, RFC1918 IPs, and open-ended search with no destination.",
+  "tagline": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately.",
+  "description_md": "Bowmark gives agents a **pre-computed cheatsheet** for the task at hand. A cheatsheet is a compact, ready-to-run answer for one task on one site: a parameterized URL `shortcut` and/or a short `ui_procedure` of UI steps. Instead of burning tokens re-reading a site's DOM and guessing its way through the page, your agent calls `ask({ site, task })` and gets the exact path back. It spends less, finishes sooner, and lands on the right action the first time.\n\nManaged-key app: Pilot holds one shared Bowmark account behind the broker and meters each caller, so you install it **keyless** and never handle an API key. It's plain request/response REST — no websockets, no server-side browser, no async jobs. Your agent runs the cheatsheet in its own browser; Bowmark only supplies the path.\n\n## Methods\n\n- **bowmark.ask** `{ site, task }` — give it a site and a plain-English task (e.g. \"find Apple's latest 10-K\") and it returns the cheatsheet: a URL `shortcut` (a `template` with `{name}` slots you fill from your task, then navigate) and/or a `ui_procedure.steps` list to follow in order, plus an `id`. Call it before any browser action, in place of exploring the page yourself; execute the cheatsheet open-loop rather than re-reading the DOM.\n- **bowmark.report_outcome** `{ envelope_id, success }` — after running a cheatsheet, report whether every step ran exactly as written. Honest results keep the cheatsheets fresh: a failure triggers a re-crawl that repairs the path for the next agent, so report `success: false` on any deviation (a retry, a raw-JS fallback, an extra click) even if you still got the answer.\n\n## Syntax & edge cases\n\n- `site` is a registrable domain, optionally with a product surface: `google.com`, `docs.stripe.com`, `google.com/maps` — a matching path acts as an implicit scope hint.\n- `task` is plain-English **intent**, never a URL.\n- Request the signed-in surface with `variants: { auth_state: \"logged_in\", role: \"owner\" }` (also `locale` / `region` / `currency`); the assumed facets come back on `variants_assumed`.\n- A `ui_procedure` step may be flagged `irreversible` (confirm with the user first) or `requires_user_input` (stop and ask the user — a password, payment, or personal detail).\n- Non-`ok` statuses: `no_useful_data` / `site_not_supported` / `synth_invalid` → browse manually; `ambiguous_scope` → retry with `scopeHint` = one of `error.scope_options[].pattern`; `rate_limited` → back off until `error.retry_after` (only NEW cheatsheet synthesis is capped — known ones still answer). On a `503`, retry once after `Retry-After`.\n- Skip Bowmark for localhost, RFC1918 IPs, and open-ended search with no destination.",
   "vendor": {
     "name": "Bowmark AI",
     "url": "https://bowmark.ai",
@@ -22,8 +22,8 @@
   "keywords": [
     "browser",
     "navigation",
-    "recipes",
     "cheatsheets",
+    "recipes",
     "websites",
     "playwright",
     "puppeteer",
@@ -31,7 +31,7 @@
     "scraping"
   ],
   "size": {
-    "bundle_bytes": 5070051,
+    "bundle_bytes": 5070050,
     "installed_bytes": 9105408
   },
   "compat": {
@@ -43,21 +43,21 @@
   "methods": [
     {
       "name": "bowmark.ask",
-      "summary": "Look up a navigation recipe for a (site, task) pair — a URL shortcut or short UI procedure verified by prior crawls. status=ok → execute it open-loop; no_useful_data/site_not_supported → browse manually; ambiguous_scope → retry with scopeHint; rate_limited → back off. Pass variants:{auth_state:'logged_in', role:'owner'} for signed-in surfaces. Intent, not a URL."
+      "summary": "Give it a site and a plain-English task (e.g. 'find Apple's latest 10-K') and it returns a ready-to-run cheatsheet — a URL shortcut to fill and navigate and/or a short ui_procedure of steps. Call it before any browser action, in place of exploring the page yourself, and execute the cheatsheet open-loop. status=ok returns an id; no_useful_data/site_not_supported → browse manually; ambiguous_scope → retry with scopeHint; rate_limited → back off. Pass variants:{auth_state:'logged_in'} for signed-in surfaces. Intent, not a URL."
     },
     {
       "name": "bowmark.report_outcome",
-      "summary": "After running a recipe from ask, report how it executed (envelope_id, success, evidence). success=true only if every step ran as written; false on any retry/JS-eval/extra click. Feeds the re-crawl loop that keeps recipes healthy."
+      "summary": "After running a cheatsheet from ask, report whether every step ran exactly as written (envelope_id + success, optional evidence). success=true only if it ran clean — no retries, no raw-JS fallback, no extra clicks; false on any deviation, even if you still got the answer. Honest results trigger a re-crawl that keeps the cheatsheet fresh for the next agent."
     },
     {
       "name": "bowmark.help",
-      "summary": "Discovery: every method with params, kind, and latency class."
+      "summary": "Discovery: every method with params, latency, and description."
     }
   ],
   "changelog": [
     {
       "version": "0.1.0",
-      "date": "2026-07-03",
+      "date": "2026-07-06",
       "notes": [
         "Initial release — managed-key REST adapter over the Bowmark API (bowmark.ask → /v1/ask, bowmark.report_outcome → /v1/outcomes).",
         "One shared Bowmark account behind the Pilot broker, metered per caller; the installed adapter is keyless."
@@ -68,6 +68,6 @@
     { "label": "Source", "url": "https://github.com/bowmark-ai/plugin" },
     { "label": "Website", "url": "https://bowmark.ai" }
   ],
-  "published_at": "2026-07-03",
-  "updated_at": "2026-07-03"
+  "published_at": "2026-07-06",
+  "updated_at": "2026-07-06"
 }
