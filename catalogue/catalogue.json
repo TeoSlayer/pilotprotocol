@@ -500,6 +500,38 @@
         }
       },
       "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+    },
+    {
+      "id": "io.pilot.agentphone",
+      "version": "0.3.0",
+      "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST, metered per user against a $5 budget.",
+      "display_name": "AgentPhone",
+      "vendor": "AgentPhone",
+      "license": "Apache-2.0",
+      "source_url": "https://github.com/AgentPhone-AI/skills",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.0/io.pilot.agentphone-0.3.0-linux-amd64.tar.gz",
+      "bundle_sha256": "7b7792c7df26be0a1f8bf516b46d4629a31a975fbc4b7586555688cb735471a0",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.0/io.pilot.agentphone-0.3.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "155c5413edd960932d9d70421e7f80d8f6a5f35f492d723e98f3d02a52e9c53d"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.0/io.pilot.agentphone-0.3.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "93e4a0c334d45de63c7d96befed9af8a1aa7fb841f54a4d137ec679331a32f6a"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.0/io.pilot.agentphone-0.3.0-linux-amd64.tar.gz",
+          "bundle_sha256": "7b7792c7df26be0a1f8bf516b46d4629a31a975fbc4b7586555688cb735471a0"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.0/io.pilot.agentphone-0.3.0-linux-arm64.tar.gz",
+          "bundle_sha256": "c40b977bd0e1b28d770911c97bb0bfe342bd6ebe1a375c583e4c440c6836ff78"
+        }
+      },
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
+      "metadata_sha256": "9099d15e6008aaf0506c4dc91607644b201a866f78f5db2343f85413de7a6ee1",
+      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
     }
   ]
 }
