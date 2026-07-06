@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.bowmark",
+  "display_name": "Bowmark",
+  "tagline": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately.",
+  "description_md": "Bowmark gives agents a **pre-computed cheatsheet** for the task at hand. A cheatsheet is a compact, ready-to-run answer for one task on one site: a parameterized URL `shortcut` and/or a short `ui_procedure` of UI steps. Instead of burning tokens re-reading a site's DOM and guessing its way through the page, your agent calls `ask({ site, task })` and gets the exact path back. It spends less, finishes sooner, and lands on the right action the first time.\n\nBowmark is **free to use** — no signup and no API key to manage. It's plain request/response REST — no websockets, no server-side browser, no async jobs. Your agent runs the cheatsheet in its own browser; Bowmark only supplies the path.\n\n## Methods\n\n- **bowmark.ask** `{ site, task }` — give it a site and a plain-English task (e.g. \"find Apple's latest 10-K\") and it returns the cheatsheet: a URL `shortcut` (a `template` with `{name}` slots you fill from your task, then navigate) and/or a `ui_procedure.steps` list to follow in order, plus an `id`. Call it before any browser action, in place of exploring the page yourself; execute the cheatsheet open-loop rather than re-reading the DOM.\n- **bowmark.report_outcome** `{ envelope_id, success }` — after running a cheatsheet, report whether every step ran exactly as written. Honest results keep the cheatsheets fresh: a failure triggers a re-crawl that repairs the path for the next agent, so report `success: false` on any deviation (a retry, a raw-JS fallback, an extra click) even if you still got the answer.\n\n## Syntax & edge cases\n\n- `site` is a registrable domain, optionally with a product surface: `google.com`, `docs.stripe.com`, `google.com/maps` — a matching path acts as an implicit scope hint.\n- `task` is plain-English **intent**, never a URL.\n- Request the signed-in surface with `variants: { auth_state: \"logged_in\", role: \"owner\" }` (also `locale` / `region` / `currency`); the assumed facets come back on `variants_assumed`.\n- A `ui_procedure` step may be flagged `irreversible` (confirm with the user first) or `requires_user_input` (stop and ask the user — a password, payment, or personal detail).\n- Non-`ok` statuses: `no_useful_data` / `site_not_supported` / `synth_invalid` → browse manually; `ambiguous_scope` → retry with `scopeHint` = one of `error.scope_options[].pattern`; `rate_limited` → back off until `error.retry_after` (only NEW cheatsheet synthesis is capped — known ones still answer). On a `503`, retry once after `Retry-After`.\n- Skip Bowmark for localhost, RFC1918 IPs, and open-ended search with no destination.",
+  "vendor": {
+    "name": "Bowmark AI",
+    "url": "https://bowmark.ai",
+    "contact": "support@bowmark.ai",
+    "publisher_pubkey": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+  },
+  "homepage": "https://bowmark.ai",
+  "source_url": "https://github.com/bowmark-ai/plugin",
+  "license": "Proprietary",
+  "categories": [
+    "web",
+    "browser",
+    "agents",
+    "automation"
+  ],
+  "keywords": [
+    "browser",
+    "navigation",
+    "cheatsheets",
+    "recipes",
+    "websites",
+    "playwright",
+    "puppeteer",
+    "computer-use",
+    "scraping"
+  ],
+  "size": {
+    "bundle_bytes": 5070050,
+    "installed_bytes": 9105408
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "bowmark.ask",
+      "summary": "Give it a site and a plain-English task (e.g. 'find Apple's latest 10-K') and it returns a ready-to-run cheatsheet — a URL shortcut to fill and navigate and/or a short ui_procedure of steps. Call it before any browser action, in place of exploring the page yourself, and execute the cheatsheet open-loop. status=ok returns an id; no_useful_data/site_not_supported → browse manually; ambiguous_scope → retry with scopeHint; rate_limited → back off. Pass variants:{auth_state:'logged_in'} for signed-in surfaces. Intent, not a URL."
+    },
+    {
+      "name": "bowmark.report_outcome",
+      "summary": "After running a cheatsheet from ask, report whether every step ran exactly as written (envelope_id + success, optional evidence). success=true only if it ran clean — no retries, no raw-JS fallback, no extra clicks; false on any deviation, even if you still got the answer. Honest results trigger a re-crawl that keeps the cheatsheet fresh for the next agent."
+    },
+    {
+      "name": "bowmark.help",
+      "summary": "Discovery: every method with params, latency, and description."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.0",
+      "date": "2026-07-06",
+      "notes": [
+        "Initial release — REST adapter over the Bowmark API: bowmark.ask (/v1/ask) and bowmark.report_outcome (/v1/outcomes).",
+        "Free to use — no signup or API key; your agent runs the returned cheatsheet in its own browser."
+      ]
+    }
+  ],
+  "links": [
+    { "label": "Source", "url": "https://github.com/bowmark-ai/plugin" },
+    { "label": "Website", "url": "https://bowmark.ai" }
+  ],
+  "published_at": "2026-07-06",
+  "updated_at": "2026-07-06"
+}
