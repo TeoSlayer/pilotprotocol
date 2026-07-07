@@ -157,12 +157,10 @@ func cmdAppStoreView(args []string) {
 	var entry *catalogueEntry
 	var meta *appMetadata
 	if c, err := loadCatalogue(); err == nil {
-		for i := range c.Apps {
-			if c.Apps[i].ID == appID {
-				entry = &c.Apps[i]
-				break
-			}
-		}
+		// Follow a rename tombstone so `view <old-id>` resolves to (and displays)
+		// the renamed app, with a deprecation warning. Local install facts above
+		// stay keyed to the requested id so an existing old-id install still shows.
+		_, entry, _ = resolveRenamed(c, appID)
 		if entry != nil {
 			if m, err := loadAppMetadata(*entry); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: could not load detail metadata: %v\n", err)

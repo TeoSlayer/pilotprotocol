@@ -82,34 +82,10 @@
     },
     {
       "id": "io.pilot.smolmachines",
-      "version": "1.2.0",
-      "description": "Smol Machines — spin up fast, hardware-isolated Linux microVMs on demand (sub-second boot, real hypervisor isolation) to safely run untrusted code, GPU tasks, or headless browser automation in a disposable sandbox.",
-      "display_name": "Smol Machines",
-      "vendor": "smol machines",
-      "license": "Apache-2.0",
-      "source_url": "https://github.com/smol-machines/smolvm",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smolmachines/1.2.0/io.pilot.smolmachines-1.2.0-linux-amd64.tar.gz",
-      "bundle_sha256": "44141c68524081f4ef6b439f4bb18e949b91900db1d93bf88c6178aaaac917e6",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smolmachines/1.2.0/io.pilot.smolmachines-1.2.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "b6e6b1604b96939966e4fbe9daaa7f1a994e073e168a1be69c6be55498d3d62c"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smolmachines/1.2.0/io.pilot.smolmachines-1.2.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "06835bbdfabe684bc302c75dbafcc27e820c462bde0bedfc7b78d6e2593443e8"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smolmachines/1.2.0/io.pilot.smolmachines-1.2.0-linux-arm64.tar.gz",
-          "bundle_sha256": "1df2c5d0ff9b5ad1db4773278da4f52e60cd77fb9169955c5e81f316da610d3c"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smolmachines/1.2.0/io.pilot.smolmachines-1.2.0-linux-amd64.tar.gz",
-          "bundle_sha256": "44141c68524081f4ef6b439f4bb18e949b91900db1d93bf88c6178aaaac917e6"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smolmachines/metadata.json",
-      "metadata_sha256": "f43493f690786b8adbe1ac1072bbec0b0d04e05d9a247e7b14e5d36c4e397a3b",
+      "renamed_to": "io.pilot.smol",
+      "hidden": true,
+      "display_name": "Smol Machines (renamed → io.pilot.smol)",
+      "description": "Renamed to io.pilot.smol. Install io.pilot.smol — it is the same app plus a cloud plane. This tombstone entry is retained only to keep already-installed copies running and to redirect the old id; it is not listed and is not installable.",
       "publisher": "ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="
     },
     {

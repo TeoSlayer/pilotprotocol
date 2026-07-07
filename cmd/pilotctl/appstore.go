@@ -2152,6 +2152,20 @@ func cmdAppStoreCall(args []string) {
 
 	sockPath := filepath.Join(appStoreRoot(), appID, "app.sock")
 	if _, err := os.Stat(sockPath); err != nil {
+		// No local socket for this id. It may be a rename tombstone — an id that
+		// was renamed and never installed here. Consult the catalogue (best-effort,
+		// offline-tolerant) and, if so, warn with a switch hint before failing.
+		// We do NOT silently retarget to the new app's socket: the method
+		// namespace changes with the rename (e.g. smolmachines.* → smol.*), so a
+		// verbatim old method would only 404 there. An existing old-id install
+		// keeps its own socket at this path, so this branch never fires for it.
+		if c, lerr := loadCatalogue(); lerr == nil {
+			if canonicalID, _, renamed := resolveRenamed(c, appID); renamed {
+				fatalHint("invalid_argument",
+					fmt.Sprintf("install %q (`pilotctl appstore install %s`) and call its methods — see `pilotctl appstore view %s`", canonicalID, canonicalID, canonicalID),
+					"app %q was renamed to %q", appID, canonicalID)
+			}
+		}
 		fatalHint("io_error",
 			"is the daemon running and has it supervised this app yet?",
 			"socket %s not present: %v", sockPath, err)

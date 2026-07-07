@@ -47,7 +47,10 @@ ignores the v2 fields. **Always set `"version": 2` when using any v2 field.**
       "license": "<SPDX id>",
 
       "metadata_url": "https://<host>/apps/<id>/metadata.json",
-      "metadata_sha256": "<hex sha256 of metadata.json>"
+      "metadata_sha256": "<hex sha256 of metadata.json>",
+
+      "renamed_to": "<canonical id>, optional",
+      "hidden": false
     }
   ]
 }
@@ -57,6 +60,26 @@ Everything from `display_name` down is optional (`omitempty`). The five v1
 fields stay required. `pilotctl` decodes the index directly into
 `catalogueEntry` in `cmd/pilotctl/appstore_catalogue.go` — any field added
 here must also land there.
+
+### Renaming an app (`renamed_to` + `hidden`)
+
+Both are optional v2 fields (**keep `"version": 2`**). To rename an app id
+`old → new` without breaking existing installs, do NOT delete the old entry —
+the daemon supervisor pins each installed app's publisher key from its
+catalogue entry and **fail-closes (stops) an installed app whose id has no
+pin**. Instead, replace the old entry's body with a **tombstone**: keep `id`
+and `publisher` (so existing installs keep their pin and keep running), set
+`"renamed_to": "<new id>"`, and set `"hidden": true`. Drop `bundle_url` /
+`bundles` / `metadata_url` (the tombstone is not installable) and delete the old
+`apps/<old-id>/` detail dir. Then add the full new entry under the new id and
+re-sign.
+
+A bundles-aware `pilotctl` then, for the old id: omits it from `catalogue`,
+and on `install`/`view`/`call` prints a deprecation warning and routes to
+`renamed_to`. `hidden` alone (without `renamed_to`) just omits an entry from the
+listing while keeping it resolvable. Older clients ignore both fields (they see
+a normal, pin-only entry). One hop only — a `renamed_to` that points at another
+tombstone is a bug and is not chased.
 
 `bundles` is the per-platform map keyed by `"os/arch"`. It is an **optional v2
 field — keep `"version": 2`, do NOT bump to 3.** `loadCatalogue` fail-closes on
