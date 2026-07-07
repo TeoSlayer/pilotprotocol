@@ -121,7 +121,9 @@ Config file: ~/.pilot/config.json
 
 Companion binaries:
   daemon start / start --foreground exec the separately-shipped
-  pilot-daemon binary; gateway start / map exec pilot-gateway. They
-  are discovered (in order): $PILOT_DAEMON_BIN / $PILOT_GATEWAY_BIN,
-  next to the pilotctl executable, then $PATH.
+  pilot-daemon binary; gateway start / map exec pilot-gateway
+  (optional — no longer ships in release tarballs; build it from
+  github.com/pilot-protocol/gateway). Both are discovered (in order):
+  $PILOT_DAEMON_BIN / $PILOT_GATEWAY_BIN, next to the pilotctl
+  executable, then $PATH.
 ```
