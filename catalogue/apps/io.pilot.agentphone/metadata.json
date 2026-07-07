@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.agentphone",
+  "display_name": "AgentPhone",
+  "tagline": "A real phone number for your agent — voice calls, SMS/iMessage, and conversations over REST",
+  "description_md": "# AgentPhone — a real phone number for your AI agent\n\nAgentPhone gives your agent its **own real US/Canada phone number**: place and receive **voice calls**, send and receive **SMS \u0026 iMessage**, and hold threaded **conversations** with real people — all over plain REST. This is the managed Pilot front door: you bring **nothing** (no signup, no API key). Pilot holds one AgentPhone master key behind the broker and gives **each Pilot user a $5 budget**; calls and texts debit against it, and once it's spent the paid endpoints return `402 Payment Required` (reads stay free).\n\n## What you can do\n\n- **Call people.** `agentphone.place_call` with a `systemPrompt` runs an autonomous voice call — the phone rings in ~1–2s and the AI holds the conversation. Book a reservation, chase a shipment, return a missed call, or call another agent.\n- **Text people.** `agentphone.send_message` delivers over **iMessage** when both sides support it (unlocking threaded replies, tapback reactions, send effects, typing indicators, group chats) and transparently falls back to **SMS/MMS** otherwise — same call either way.\n- **Answer \u0026 follow up.** Poll `agentphone.list_number_messages` / `agentphone.list_conversation_messages` for inbound texts and `agentphone.get_call` for call transcripts — **no websockets required**.\n- **Manage your setup.** Buy/release numbers, create and tune agents (voice, model tier, system prompt, ambience), keep an address book of contacts, and attach numbers to agents.\n\n## How it works (no signup step)\n\nBecause this is the **managed** app, the AgentPhone account already exists behind the Pilot broker — you skip the `/v0/agent/sign-up` + `/v0/agent/verify` flow entirely. Just call the `/v1` methods below; the broker authenticates you as your Pilot identity, injects the master key, meters your spend, and forwards to `https://api.agentphone.ai`.\n\n**Async, poll-based (no streaming):**\n1. `agentphone.place_call` → returns a call `id` immediately; the call runs in the background.\n2. Poll `agentphone.get_call` every few seconds until `status` is `completed` or `failed`, then read `transcripts[]` (or `agentphone.get_transcript`).\n3. For inbound SMS, poll `agentphone.list_number_messages` with the `after` cursor and filter `direction == \"inbound\"`.\n\n## Critical gotchas (read once)\n\n- **You cannot call 911**, N11 numbers, or crisis lines — they're blocked. If your human has an emergency, tell them to dial directly.\n- **Released numbers are gone forever** — no refund for the unused month. Confirm before `agentphone.release_number`.\n- **Always use E.164**: `+14155551234` ✓ — never `(415) 555-1234` or `415-555-1234`. Assume `+1` for a bare US number and confirm if it matters.\n- **Inbound calls need hosted mode OR a webhook.** Create agents with `voiceMode: \"hosted\"` explicitly (the backend defaults to `webhook`, which fails inbound if no webhook is set).\n- **iMessage-only features** (reactions, send effects, typing, backgrounds, contact cards) are silently ignored on SMS — check the response `channel`.\n- **Don't spam.** Unsolicited bulk calls/texts are illegal and get the account suspended.\n\n## Cost \u0026 the $5 budget\n\nReads are free. Spending operations debit your per-user $5 Pilot budget: buying a number (**$3.00/mo**), placing a call (**per-minute**), and sending a text (**~$0.01–0.02**). When a call would overdraw, the broker returns `402` before anything is charged, and every response carries your remaining balance in the `X-Pilot-Credits-Remaining` header (micro-dollars).\n\nEvery method's parameters, kind, and latency class are discoverable at runtime via `agentphone.help`.\n",
+  "vendor": {
+    "name": "AgentPhone",
+    "url": "https://agentphone.ai",
+    "contact": "founders@agentphone.to",
+    "publisher_pubkey": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+  },
+  "homepage": "https://agentphone.ai",
+  "source_url": "https://github.com/AgentPhone-AI/skills",
+  "license": "Apache-2.0",
+  "categories": [
+    "communication",
+    "phone",
+    "voice",
+    "messaging"
+  ],
+  "keywords": [
+    "phone",
+    "sms",
+    "imessage",
+    "voice",
+    "calls",
+    "telephony",
+    "conversations",
+    "agent"
+  ],
+  "size": {
+    "bundle_bytes": 5130424,
+    "installed_bytes": 9363452
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "agentphone.usage",
+      "summary": "Account status: plan, phone-number hold limit (used/limit/remaining), and message/call/webhook stats. Call this first to orient in a session. Read-only; no charge."
+    },
+    {
+      "name": "agentphone.usage_daily",
+      "summary": "Daily usage breakdown for the last N days (max 365). Read-only."
+    },
+    {
+      "name": "agentphone.usage_monthly",
+      "summary": "Monthly usage aggregation. Read-only."
+    },
+    {
+      "name": "agentphone.usage_by_number",
+      "summary": "Usage broken down per phone number. Read-only."
+    },
+    {
+      "name": "agentphone.usage_by_agent",
+      "summary": "Usage broken down per agent over a period. Read-only."
+    },
+    {
+      "name": "agentphone.list_voices",
+      "summary": "List available text-to-speech voices (voice_id, voice_name, provider, gender, accent, preview_audio_url) across ElevenLabs, Cartesia, OpenAI, and platform voices. gender/accent/preview may be null — do not crash on missing fields. Use voice_id when creating/updating an agent. Read-only."
+    },
+    {
+      "name": "agentphone.list_agents",
+      "summary": "List your agents (phone personas: name, voiceMode, model tier, system prompt, attached numbers). You get one starter agent on account setup — ALWAYS list before creating another. Read-only."
+    },
+    {
+      "name": "agentphone.create_agent",
+      "summary": "Create an agent (phone persona). For AI-driven use pass voiceMode:\"hosted\" explicitly (the backend defaults to \"webhook\", which needs a configured webhook or inbound calls fail). systemPrompt is required for hosted. Pick a voice from agentphone.list_voices. Free (no telephony spend)."
+    },
+    {
+      "name": "agentphone.get_agent",
+      "summary": "Get one agent's full config and its attached numbers. Read-only."
+    },
+    {
+      "name": "agentphone.update_agent",
+      "summary": "Update an agent — only the fields you send change. Any create field is updatable (systemPrompt, voice, modelTier, …). Free."
+    },
+    {
+      "name": "agentphone.delete_agent",
+      "summary": "Delete an agent. Irreversible — clears the agent's references on its numbers/conversations/calls (those are NOT deleted). Confirm with your human first. Free."
+    },
+    {
+      "name": "agentphone.attach_number",
+      "summary": "Attach an existing number to an agent so the agent can call/text from it. Free."
+    },
+    {
+      "name": "agentphone.detach_number",
+      "summary": "Detach a number from an agent (the number is kept, just unassigned). Free."
+    },
+    {
+      "name": "agentphone.list_agent_conversations",
+      "summary": "List an agent's conversation threads, newest activity first (data[], hasMore, total). Read-only."
+    },
+    {
+      "name": "agentphone.list_agent_calls",
+      "summary": "List an agent's calls (data[], hasMore, total). Read-only."
+    },
+    {
+      "name": "agentphone.list_numbers",
+      "summary": "List your active phone numbers (id, phoneNumber, country, status, agentId). Read-only."
+    },
+    {
+      "name": "agentphone.buy_number",
+      "summary": "Provision a new US/CA phone number. COSTS $3.00 from your $5 Pilot budget (402 if it would overdraw). The provisioned number is saved to this host's ~/.pilot/.agentphone so you can recall it later with agentphone.mynumber — no need to store it yourself. Optionally attach to an agent and request an area code."
+    },
+    {
+      "name": "agentphone.get_number",
+      "summary": "Get one phone number by id (any status, including released). Read-only."
+    },
+    {
+      "name": "agentphone.release_number",
+      "summary": "Release (delete) a number. IRREVERSIBLE — the number returns to the carrier pool; no refund for the unused month. Confirm with your human first. Free to call."
+    },
+    {
+      "name": "agentphone.list_number_messages",
+      "summary": "List messages on a number (inbound + outbound), newest first, cursor-paginated. THE non-websocket way to detect SMS replies: poll with the `after` cursor and filter direction==\"inbound\". Read-only."
+    },
+    {
+      "name": "agentphone.list_number_calls",
+      "summary": "List calls on a number. Read-only."
+    },
+    {
+      "name": "agentphone.get_contact_card",
+      "summary": "Get the iMessage contact card shown on a number (firstName, lastName, displayName, hasAvatar). iMessage only. Read-only."
+    },
+    {
+      "name": "agentphone.set_contact_card",
+      "summary": "Create/replace the iMessage contact card on a number (name + avatar shown to recipients). iMessage only. Free."
+    },
+    {
+      "name": "agentphone.delete_contact_card",
+      "summary": "Remove the iMessage contact card from a number. Free."
+    },
+    {
+      "name": "agentphone.send_message",
+      "summary": "Send an SMS/iMessage. COSTS MONEY (~$0.01–0.02, debited from your $5 budget → 402 if over). Auto-delivers over iMessage when both sides support it, else SMS/MMS — the response `channel` (sms|mms|imessage) tells you how it went. E.164 for `to_number` (or a group id grp_… for an iMessage group). iMessage-only extras (send_style, reply_to_message_id) are silently ignored on SMS."
+    },
+    {
+      "name": "agentphone.react",
+      "summary": "Send a tapback reaction to a message. iMessage ONLY — returns 400 on SMS. Free."
+    },
+    {
+      "name": "agentphone.list_calls",
+      "summary": "List calls for the account (filter by status/direction). Read-only."
+    },
+    {
+      "name": "agentphone.place_call",
+      "summary": "Place an OUTBOUND voice call. COSTS MONEY (per-minute, ~$0.05+, debited from your $5 budget → 402 if over). With `systemPrompt` the AI runs the call autonomously (recommended); without it, each turn is POSTed to the agent's webhook. Returns a call id IMMEDIATELY (async) — the phone rings in a second or two. Then POLL agentphone.get_call every few seconds until status is completed/failed to read the transcript. Cannot call 911 / N11 / crisis lines (blocked)."
+    },
+    {
+      "name": "agentphone.get_call",
+      "summary": "Get a call and its embedded transcripts[]. THE poll target for a call outcome (no websockets): call every few seconds until status is completed or failed (in-progress means partial/empty transcript). Also carries durationSeconds, startedAt, endedAt. Read-only."
+    },
+    {
+      "name": "agentphone.end_call",
+      "summary": "Terminate an in-progress call. status/endedAt settle shortly after via the provider — keep polling agentphone.get_call until terminal. Free."
+    },
+    {
+      "name": "agentphone.get_transcript",
+      "summary": "Get the full ordered transcript of a call as plain JSON (user utterance + agent response per turn). This is the REST/polling alternative to the SSE live-transcript stream — the adapter never uses the stream. Read-only."
+    },
+    {
+      "name": "agentphone.list_conversations",
+      "summary": "List conversation threads (one per external contact or iMessage group), sorted by lastMessageAt desc (data[], hasMore, total). Read-only."
+    },
+    {
+      "name": "agentphone.get_conversation",
+      "summary": "Get one conversation with its recent messages (participant, isGroup, group roster, messageCount, metadata). Read-only."
+    },
+    {
+      "name": "agentphone.update_conversation",
+      "summary": "Update a conversation's `metadata` (attach custom AI context/state to the thread). Free."
+    },
+    {
+      "name": "agentphone.list_conversation_messages",
+      "summary": "List a conversation's messages, cursor-paginated (data[], hasMore). Poll with `after` to catch new inbound replies in a thread. Read-only."
+    },
+    {
+      "name": "agentphone.typing",
+      "summary": "Show a typing indicator before you reply. iMessage only, best-effort, auto-expires (no stop call). Free."
+    },
+    {
+      "name": "agentphone.set_background",
+      "summary": "Set a chat background image for a conversation. iMessage only. Free."
+    },
+    {
+      "name": "agentphone.clear_background",
+      "summary": "Clear a conversation's chat background. iMessage only. Free."
+    },
+    {
+      "name": "agentphone.list_contacts",
+      "summary": "List saved contacts (data[], hasMore, total); `search` filters by name/phone. Read-only."
+    },
+    {
+      "name": "agentphone.create_contact",
+      "summary": "Save a contact so you can look them up by name later. phoneNumber is normalized to E.164; returns 409 if the phone already exists. Free."
+    },
+    {
+      "name": "agentphone.get_contact",
+      "summary": "Get one contact by id. Read-only."
+    },
+    {
+      "name": "agentphone.update_contact",
+      "summary": "Update a contact — only the fields you send change (phone is re-normalized; 409 on conflict). Free."
+    },
+    {
+      "name": "agentphone.delete_contact",
+      "summary": "Delete a contact. Confirm with your human first. Free."
+    },
+    {
+      "name": "agentphone.get_webhook",
+      "summary": "Get the account-level webhook config. Read-only. (Polling is the default event model for this adapter; webhooks are optional.)"
+    },
+    {
+      "name": "agentphone.set_webhook",
+      "summary": "Set the account-level webhook URL (returns a signing `secret`; a new one each call). NOTE: on the shared Pilot AgentPhone account this is a GLOBAL setting — prefer per-agent webhooks or polling. Free."
+    },
+    {
+      "name": "agentphone.delete_webhook",
+      "summary": "Remove the account-level webhook. Global on the shared account — use with care. Free."
+    },
+    {
+      "name": "agentphone.list_webhook_deliveries",
+      "summary": "List recent webhook delivery attempts (items[], total). Read-only."
+    },
+    {
+      "name": "agentphone.webhook_delivery_stats",
+      "summary": "Aggregated webhook delivery stats over the last N hours (success/failed/pending, byEventType, byHour). Read-only."
+    },
+    {
+      "name": "agentphone.test_webhook",
+      "summary": "Send a synthetic test event to verify your endpoint is reachable and verifying signatures. Free."
+    },
+    {
+      "name": "agentphone.get_agent_webhook",
+      "summary": "Get an agent-specific webhook (overrides the account default for that agent). Read-only."
+    },
+    {
+      "name": "agentphone.set_agent_webhook",
+      "summary": "Set an agent-specific webhook URL (overrides the account default for THIS agent only — safer than the account-level webhook on a shared account). Free."
+    },
+    {
+      "name": "agentphone.delete_agent_webhook",
+      "summary": "Delete an agent-specific webhook (the agent falls back to the account default). Free."
+    },
+    {
+      "name": "agentphone.mynumber",
+      "summary": "Recall the phone number(s) THIS daemon provisioned (local, no backend call, free). Reads ~/.pilot/.agentphone, populated automatically by agentphone.buy_number. Returns {entries:[{id,phoneNumber,status,agentId,...}]} — empty if this host hasn't provisioned one yet. Use it to find 'my number' without listing the shared account."
+    },
+    {
+      "name": "agentphone.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.3.0",
+      "notes": [
+        "Released v0.3.0"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/AgentPhone-AI/skills"
+    },
+    {
+      "label": "Website",
+      "url": "https://agentphone.ai"
+    }
+  ]
+}
