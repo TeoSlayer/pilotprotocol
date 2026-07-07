@@ -538,6 +538,46 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sqlite/metadata.json",
       "metadata_sha256": "9756ef368b02f9808596dc8c640776ba079cdf6119bd334f00efe7d53a1b42d8",
       "publisher": "ed25519:ebjc66COLR1OBuDZn9gCuePChW8Qxxcxm7RDYAgSLv8="
+    },
+    {
+      "id": "io.pilot.orthogonal",
+      "version": "0.1.0",
+      "description": "Connect your agent to Orthogonal — one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
+      "display_name": "Orthogonal",
+      "vendor": "Orthogonal",
+      "license": "MIT",
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "a773c017d0f9b4498db2123473541dece29b8367a34387d52ca5abc7c2932c7e",
+      "bundle_size": 5076601,
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "55a0645bbf8506040d88231e392bc43c517385f64875e1718090b403bf05809b"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "404cc4588b38e5eb2341cad160b07d39a34f6ca7dd7f4cdaafc56e03dd54bfcd"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "a773c017d0f9b4498db2123473541dece29b8367a34387d52ca5abc7c2932c7e"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.0/io.pilot.orthogonal-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "2882a4db3250bb0e3e63ee1f3d7746eadad823b9e1c6bebf8aa96b8c1f18e9a9"
+        }
+      },
+      "categories": [
+        "data",
+        "search",
+        "enrichment",
+        "scraping",
+        "ai"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
+      "metadata_sha256": "e3094041d1bc38841c7fe82ce7596b409dbed25f8a81722a5456898b7360d554",
+      "publisher": "ed25519:8zcpGtp5sUw3sjLptDR9W/btumEaOv3DO3tTWN/+PCk="
     }
   ]
 }
