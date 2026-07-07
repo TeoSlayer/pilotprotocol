@@ -708,11 +708,16 @@ echo "  pilotctl daemon start --hostname my-agent    # email already saved"
 echo "  pilotctl info"
 echo "  pilotctl ping <other-agent>"
 echo ""
-echo "Bridge IP traffic (requires root for ports < 1024):"
-echo ""
-echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
-echo "  curl http://10.4.0.1:3000/status"
-echo ""
+# pilot-gateway no longer ships in release tarballs (extracted to the
+# sibling pilot-protocol/gateway repo) — only show the bridge hint when
+# the binary actually exists on this host.
+if [ -f "$BIN_DIR/pilot-gateway" ]; then
+    echo "Bridge IP traffic (requires root for ports < 1024):"
+    echo ""
+    echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
+    echo "  curl http://10.4.0.1:3000/status"
+    echo ""
+fi
 echo "Agent skill auto-injection:"
 echo ""
 echo "  The daemon scans every 15 minutes and injects the Pilot Protocol"

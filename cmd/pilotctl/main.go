@@ -1567,9 +1567,11 @@ Config file: ~/.pilot/config.json
 
 Companion binaries:
   daemon start / start --foreground exec the separately-shipped
-  pilot-daemon binary; gateway start / map exec pilot-gateway. They
-  are discovered (in order): $PILOT_DAEMON_BIN / $PILOT_GATEWAY_BIN,
-  next to the pilotctl executable, then $PATH.
+  pilot-daemon binary; gateway start / map exec pilot-gateway
+  (optional — no longer ships in release tarballs; build it from
+  github.com/pilot-protocol/gateway). Both are discovered (in order):
+  $PILOT_DAEMON_BIN / $PILOT_GATEWAY_BIN, next to the pilotctl
+  executable, then $PATH.
 `)
 	os.Exit(2)
 }
@@ -2095,7 +2097,7 @@ func cmdConfig(args []string) {
 func contextCatalog() map[string]interface{} {
 	return map[string]interface{}{
 		"version": "1.4",
-		"note":    "Core commands cover everything an agent needs. 'app_store' lists the 'pilotctl appstore <sub>' command family (install + call local capability apps). Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is a separate installed binary.",
+		"note":    "Core commands cover everything an agent needs. 'app_store' lists the 'pilotctl appstore <sub>' command family (install + call local capability apps). Use 'pilotctl extras <cmd>' for operator/admin operations. 'pilot-gateway' is an optional companion binary (not shipped in release tarballs; build from github.com/pilot-protocol/gateway).",
 
 		// ── Core agent commands ──────────────────────────────────────────────
 		"commands": map[string]interface{}{
@@ -2361,7 +2363,7 @@ func contextCatalog() map[string]interface{} {
 		// ── pilot-gateway binary ─────────────────────────────────────────────
 		"pilot_gateway": map[string]interface{}{
 			"binary":      "pilot-gateway",
-			"description": "IP gateway — bridges standard TCP/IP applications to Pilot Protocol addresses. Separate binary installed alongside pilotctl.",
+			"description": "IP gateway — bridges standard TCP/IP applications to Pilot Protocol addresses. Optional companion binary: not shipped in release tarballs, build from github.com/pilot-protocol/gateway.",
 			"commands": map[string]interface{}{
 				"start": map[string]interface{}{
 					"args":        []string{"[--subnet <cidr>]", "[--ports <list>]", "[<pilot-addr>...]"},
@@ -2597,7 +2599,9 @@ func daemonBinaryPath() string {
 func gatewayBinaryPath() string {
 	path, err := findCompanionBinary("pilot-gateway", "PILOT_GATEWAY_BIN")
 	if err != nil {
-		fatalCode("internal", "%v", err)
+		fatalHint("not_found",
+			"pilot-gateway no longer ships in release tarballs — build it from github.com/pilot-protocol/gateway, place it next to pilotctl or on $PATH, or set PILOT_GATEWAY_BIN",
+			"%v", err)
 	}
 	return path
 }
