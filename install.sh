@@ -8,7 +8,16 @@ set -e
 # Usage:
 #   Install:    curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   RC build:   PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
+#   Compat:     PILOT_TRANSPORT=compat curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
+#
+#
+# ENVIRONMENT VARIABLES:
+#   PILOT_TRANSPORT     Set "compat" to force WSS/443 transport for UDP-blocked networks.
+#   PILOT_RC            Set to 1 to install the latest pre-release (RC build).
+#   PILOT_EMAIL         Skip the email prompt by providing it inline.
+#   PILOT_HOSTNAME      Set a custom hostname for the daemon.
+#   PILOT_PUBLIC        Set to 1 to register the daemon as a public node.
 #
 # WHAT THIS SCRIPT DOES (read before piping to sh):
 #   1. Detects OS/arch (Linux/Darwin × amd64/arm64)
@@ -456,6 +465,10 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -n "$PILOT_PUBLIC" ]; then
         PUBLIC_FLAG="-public"
     fi
+    TRANSPORT_FLAG=""
+    if [ -n "$PILOT_TRANSPORT" ]; then
+        TRANSPORT_FLAG="-transport $PILOT_TRANSPORT"
+    fi
     sudo tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
 [Unit]
 Description=Pilot Protocol Daemon
@@ -472,7 +485,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -socket /tmp/pilot.sock \\
   -identity ${PILOT_DIR}/identity.json \\
   -email ${EMAIL} \\
-  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
+  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG} ${TRANSPORT_FLAG}
 Restart=always
 RestartSec=5
 
@@ -533,6 +546,11 @@ if [ "$OS" = "darwin" ]; then
     fi
     if [ -n "$PILOT_PUBLIC" ]; then
         EXTRA_ARGS="${EXTRA_ARGS}        <string>-public</string>
+"
+    fi
+    if [ -n "$PILOT_TRANSPORT" ]; then
+        EXTRA_ARGS="${EXTRA_ARGS}        <string>-transport</string>
+        <string>${PILOT_TRANSPORT}</string>
 "
     fi
     cat > "$PLIST" <<PLIST
