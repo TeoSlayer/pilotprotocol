@@ -8,7 +8,16 @@ set -e
 # Usage:
 #   Install:    curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   RC build:   PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
+#   Compat:     PILOT_TRANSPORT=compat curl -fsSL https://pilotprotocol.network/install.sh | sh
 #   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
+#
+#
+# ENVIRONMENT VARIABLES:
+#   PILOT_TRANSPORT     Set "compat" to force WSS/443 transport for UDP-blocked networks.
+#   PILOT_RC            Set to 1 to install the latest pre-release (RC build).
+#   PILOT_EMAIL         Skip the email prompt by providing it inline.
+#   PILOT_HOSTNAME      Set a custom hostname for the daemon.
+#   PILOT_PUBLIC        Set to 1 to register the daemon as a public node.
 #
 # WHAT THIS SCRIPT DOES (read before piping to sh):
 #   1. Detects OS/arch (Linux/Darwin × amd64/arm64)
@@ -302,18 +311,35 @@ if [ -n "$TAG" ]; then
         if tar --version 2>/dev/null | grep -q 'GNU tar'; then
             TAR_SAFE="--no-same-owner --no-same-permissions"
         fi
-        # macOS bsdtar can fail silently on GitHub gzip archives.
-        # Try tar -xzf first; fall back to gunzip|tar on failure.
-        if ! tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>/dev/null || [ ! -f "$TMPDIR/pilotctl" ]; then
+        # macOS bsdtar can fail silently on GitHub gzip archives
+        # (e.g. darwin-arm64 — bsdtar reads the gzip format header
+        # differently and may produce no output without reporting
+        # an error). Try tar -xzf first; fall back to gunzip|tar on
+        # failure. Both stderr paths are preserved in TAR_ERR so the
+        # final error message includes diagnostic output.
+        TAR_ERR=$(mktemp "${TMPDIR}/tar_err.XXXXXX")
+        EXTRACT_OK=false
+        if tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>"$TAR_ERR" && [ -f "$TMPDIR/pilotctl" ]; then
+            EXTRACT_OK=true
+        else
             echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
-            gunzip -c "$TMPDIR/$ARCHIVE" | tar -x $TAR_SAFE -C "$TMPDIR"
+            if gunzip -c "$TMPDIR/$ARCHIVE" 2>"$TAR_ERR" | tar -x $TAR_SAFE -C "$TMPDIR" 2>>"$TAR_ERR"; then
+                if [ -f "$TMPDIR/pilotctl" ]; then
+                    EXTRACT_OK=true
+                fi
+            fi
         fi
-        if [ ! -f "$TMPDIR/pilotctl" ]; then
+        if [ "$EXTRACT_OK" != true ]; then
             echo "Error: failed to extract binaries from ${ARCHIVE}"
+            if [ -s "$TAR_ERR" ]; then
+                echo "  Diagnostic output from extract tool:"
+                sed 's/^/    /' "$TAR_ERR"
+            fi
             echo "Try downloading manually from:"
             echo "  ${URL}"
             exit 1
         fi
+        rm -f "$TAR_ERR"
     else
         TAG=""
     fi
@@ -456,6 +482,10 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     if [ -n "$PILOT_PUBLIC" ]; then
         PUBLIC_FLAG="-public"
     fi
+    TRANSPORT_FLAG=""
+    if [ -n "$PILOT_TRANSPORT" ]; then
+        TRANSPORT_FLAG="-transport $PILOT_TRANSPORT"
+    fi
     sudo tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
 [Unit]
 Description=Pilot Protocol Daemon
@@ -472,7 +502,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -socket /tmp/pilot.sock \\
   -identity ${PILOT_DIR}/identity.json \\
   -email ${EMAIL} \\
-  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
+  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG} ${TRANSPORT_FLAG}
 Restart=always
 RestartSec=5
 
@@ -533,6 +563,11 @@ if [ "$OS" = "darwin" ]; then
     fi
     if [ -n "$PILOT_PUBLIC" ]; then
         EXTRA_ARGS="${EXTRA_ARGS}        <string>-public</string>
+"
+    fi
+    if [ -n "$PILOT_TRANSPORT" ]; then
+        EXTRA_ARGS="${EXTRA_ARGS}        <string>-transport</string>
+        <string>${PILOT_TRANSPORT}</string>
 "
     fi
     cat > "$PLIST" <<PLIST
