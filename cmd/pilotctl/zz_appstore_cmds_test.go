@@ -882,10 +882,11 @@ func TestCmdAppStoreDispatcher(t *testing.T) {
 }
 
 // TestCmdAppStoreCatalogueTextOneLinePerApp asserts that text-mode output
-// prints exactly one line per app in the form "<id>   <description>" (PILOT-405).
+// prints one line per app: "<id>   <headline>   view: pilotctl appstore view <id>".
+// When display_name is present, it is used as headline; otherwise description.
 func TestCmdAppStoreCatalogueTextOneLinePerApp(t *testing.T) {
 	stageCatalogue(t, `{"version":2,"updated_at":"2026-06-17","apps":[
-		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"},
+		{"id":"io.pilot.wallet","version":"1.0.0","display_name":"Wallet","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"},
 		{"id":"io.pilot.cosift","version":"0.2.0","description":"Web search and answer agent","bundle_url":"https://x/b.tgz","bundle_sha256":"def"}
 	]}`)
 
@@ -895,12 +896,14 @@ func TestCmdAppStoreCatalogueTextOneLinePerApp(t *testing.T) {
 
 	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
 
-	// Each app must appear as a single line containing both id and description.
+	// Each app must have id, headline (display_name or description), and view pointer.
 	for _, want := range []string{
 		"io.pilot.wallet",
-		"Manages x402 payment credentials",
+		"Wallet",
+		"view: pilotctl appstore view io.pilot.wallet",
 		"io.pilot.cosift",
 		"Web search and answer agent",
+		"view: pilotctl appstore view io.pilot.cosift",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in catalogue output:\n%s", want, out)
@@ -918,8 +921,8 @@ func TestCmdAppStoreCatalogueTextOneLinePerApp(t *testing.T) {
 	if len(appLines) != 2 {
 		t.Errorf("expected 2 app lines, got %d:\n%s", len(appLines), out)
 	}
-	// Each app line must contain the id and the description on the same line.
-	if !strings.Contains(appLines[0], "io.pilot.wallet") || !strings.Contains(appLines[0], "Manages x402") {
+	// First app uses display_name as headline; second falls back to description.
+	if !strings.Contains(appLines[0], "io.pilot.wallet") || !strings.Contains(appLines[0], "Wallet") {
 		t.Errorf("first app line wrong: %q", appLines[0])
 	}
 	if !strings.Contains(appLines[1], "io.pilot.cosift") || !strings.Contains(appLines[1], "Web search") {
@@ -927,9 +930,9 @@ func TestCmdAppStoreCatalogueTextOneLinePerApp(t *testing.T) {
 	}
 }
 
-// TestCmdAppStoreCatalogueTextViewPointerHint asserts the view-pointer hint
-// appears at the end of text-mode catalogue output (PILOT-405).
-func TestCmdAppStoreCatalogueTextViewPointerHint(t *testing.T) {
+// TestCmdAppStoreCatalogueTextViewPointer asserts the view pointer appears
+// on each app line in text-mode catalogue output (PILOT-405).
+func TestCmdAppStoreCatalogueTextViewPointer(t *testing.T) {
 	stageCatalogue(t, `{"version":1,"updated_at":"2026-06-17","apps":[
 		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"}
 	]}`)
@@ -940,9 +943,9 @@ func TestCmdAppStoreCatalogueTextViewPointerHint(t *testing.T) {
 
 	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
 
-	const hint = "Run 'pilotctl appstore view <id>' for full details."
-	if !strings.Contains(out, hint) {
-		t.Errorf("view-pointer hint missing from catalogue output:\n%s", out)
+	const pointer = "view: pilotctl appstore view io.pilot.wallet"
+	if !strings.Contains(out, pointer) {
+		t.Errorf("view pointer missing from catalogue output:\n%s", out)
 	}
 }
 

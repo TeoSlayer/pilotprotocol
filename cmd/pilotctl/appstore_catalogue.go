@@ -316,9 +316,12 @@ func cmdAppStoreCatalogue(_ []string) {
 		return
 	}
 	for _, e := range c.Apps {
-		fmt.Printf("%-40s  %s\n", e.ID, e.Description)
+		headline := e.Description
+		if e.DisplayName != "" {
+			headline = e.DisplayName
+		}
+		fmt.Printf("%-40s  %-30s  view: pilotctl appstore view %s\n", e.ID, headline, e.ID)
 	}
-	fmt.Println("\nRun 'pilotctl appstore view <id>' for full details.")
 }
 
 // installSource tags how a bundle reached the install command.
