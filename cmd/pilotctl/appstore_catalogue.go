@@ -118,6 +118,22 @@ type catalogueEntry struct {
 	// manifest.
 	MetadataURL string `json:"metadata_url,omitempty"`
 	MetadataSHA string `json:"metadata_sha256,omitempty"`
+
+	// --- rename / deprecation redirect ---
+	// RenamedTo, when non-empty, marks this entry as a tombstone: the app was
+	// renamed to the given catalogue id. The entry is kept (not deleted) only to
+	// preserve the publisher pin for already-installed copies — the daemon
+	// supervisor fail-closes an installed app whose id has no catalogue pin — and
+	// to redirect id resolution. `install`/`view`/`call` of this id warn and route
+	// to RenamedTo; it is omitted from the `catalogue` listing (see Hidden).
+	// Older clients that don't know this field simply ignore it (omitempty keeps
+	// v1/v2 wire-compat). At most one hop is followed — a chain is a catalogue bug.
+	RenamedTo string `json:"renamed_to,omitempty"`
+
+	// Hidden, when true, omits this entry from the `catalogue` listing. It is
+	// still resolvable by id (for redirect and back-compat). A RenamedTo tombstone
+	// is treated as hidden regardless of this flag.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // bundleVariant is one platform's downloadable tarball + its pinned sha256.
@@ -307,15 +323,25 @@ func cmdAppStoreCatalogue(_ []string) {
 			"check $PILOT_APPSTORE_CATALOG_URL (currently: "+catalogueURL()+")",
 			"%v", err)
 	}
+	// Tombstones (renamed_to) and explicitly hidden entries are not offered in
+	// the listing — they exist only to preserve publisher pins and to redirect
+	// old ids. They remain resolvable by `view`/`install`/`call`.
+	visible := make([]catalogueEntry, 0, len(c.Apps))
+	for _, e := range c.Apps {
+		if e.Hidden || e.RenamedTo != "" {
+			continue
+		}
+		visible = append(visible, e)
+	}
 	if jsonOutput {
-		_ = json.NewEncoder(os.Stdout).Encode(c.Apps)
+		_ = json.NewEncoder(os.Stdout).Encode(visible)
 		return
 	}
-	if len(c.Apps) == 0 {
+	if len(visible) == 0 {
 		fmt.Println("catalogue is empty")
 		return
 	}
-	for _, e := range c.Apps {
+	for _, e := range visible {
 		fmt.Printf("%-40s  %s\n", e.ID, e.Description)
 	}
 	fmt.Println("\nRun 'pilotctl appstore view <id>' for full details.")
@@ -338,12 +364,43 @@ const (
 	installSourceLocal
 )
 
+// findEntry returns a pointer to the catalogue entry with the given id, or nil.
+// The pointer aliases c.Apps' backing array, so it stays valid for reads as long
+// as c does.
+func (c *catalogue) findEntry(id string) *catalogueEntry {
+	for i := range c.Apps {
+		if c.Apps[i].ID == id {
+			return &c.Apps[i]
+		}
+	}
+	return nil
+}
+
+// resolveRenamed follows a rename tombstone. Given a requested id, it returns the
+// canonical id and its entry (or nil if the canonical id is absent), plus whether
+// a rename was followed. When the id is not a tombstone it returns (id, its own
+// entry-or-nil, false). On a followed rename it prints a one-time deprecation
+// warning to stderr. Only one hop is followed — a tombstone that points at another
+// tombstone is a catalogue bug and is not chased, avoiding any loop.
+func resolveRenamed(c *catalogue, id string) (canonicalID string, entry *catalogueEntry, renamed bool) {
+	e := c.findEntry(id)
+	if e == nil || e.RenamedTo == "" {
+		return id, e, false
+	}
+	canonical := e.RenamedTo
+	fmt.Fprintf(os.Stderr,
+		"warn: app %q has been renamed to %q — use %q instead. The old id is deprecated: it no longer receives updates and will be removed.\n",
+		id, canonical, canonical)
+	return canonical, c.findEntry(canonical), true
+}
+
 // resolveInstallTarget turns the user's `target` arg into a local
 // bundle directory the existing install code can consume, plus a
 // source tag indicating which trust regime the bundle came from. If
 // `target` matches a catalogue ID, the catalogue entry is fetched,
-// verified, and unpacked. Otherwise `target` is treated as a local
-// path and the caller is expected to apply sideload policy.
+// verified, and unpacked. A `target` that matches a rename tombstone
+// warns and installs the canonical app instead. Otherwise `target` is
+// treated as a local path and the caller applies sideload policy.
 func resolveInstallTarget(target string) (string, installSource, error) {
 	c, err := loadCatalogue()
 	if err != nil {
@@ -353,11 +410,15 @@ func resolveInstallTarget(target string) (string, installSource, error) {
 		// the user knows their URL or env override might be the issue.
 		fmt.Fprintf(os.Stderr, "warn: catalogue lookup failed (%v); proceeding with local-path interpretation\n", err)
 	} else {
-		for _, e := range c.Apps {
-			if target == e.ID {
-				dir, err := fetchAndUnpackBundle(e)
-				return dir, installSourceCatalogue, err
-			}
+		// resolveRenamed also handles the plain (non-renamed) match: it
+		// returns the exact entry when `target` isn't a tombstone.
+		canonicalID, entry, renamed := resolveRenamed(c, target)
+		if renamed && entry == nil {
+			return "", installSourceLocal, fmt.Errorf("app %q was renamed to %q, but %q is missing from the catalogue", target, canonicalID, canonicalID)
+		}
+		if entry != nil {
+			dir, err := fetchAndUnpackBundle(*entry)
+			return dir, installSourceCatalogue, err
 		}
 	}
 	info, err := os.Stat(target)
