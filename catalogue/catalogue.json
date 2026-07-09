@@ -45,7 +45,7 @@
     {
       "id": "io.pilot.sixtyfour",
       "version": "0.1.0",
-      "description": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
+      "description": "Find a person's verified email or phone, reverse-lookup an email or phone number, and enrich people & companies with source-backed data — start with sixtyfour.find_email / find_phone / people_intelligence. People- and company-intelligence returned as structured JSON; metered per use against a $5 budget.",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
       "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868",
       "display_name": "Sixtyfour",
@@ -84,6 +84,12 @@
       "id": "io.pilot.smolmachines",
       "version": "1.2.0",
       "description": "Smol Machines — spin up fast, hardware-isolated Linux microVMs on demand (sub-second boot, real hypervisor isolation) to safely run untrusted code, GPU tasks, or headless browser automation in a disposable sandbox.",
+      "categories": [
+        "dev",
+        "virtualization",
+        "sandbox",
+        "security"
+      ],
       "display_name": "Smol Machines",
       "vendor": "smol machines",
       "license": "Apache-2.0",
@@ -116,6 +122,11 @@
       "id": "io.telepat.ideon-free",
       "version": "0.3.1",
       "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
+      "categories": [
+        "content",
+        "writing",
+        "generation"
+      ],
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
       "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
       "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc="
@@ -152,6 +163,12 @@
       "id": "io.pilot.miren",
       "version": "0.1.0",
       "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand.",
+      "categories": [
+        "devops",
+        "paas",
+        "deploy",
+        "infra"
+      ],
       "display_name": "Miren",
       "vendor": "Miren",
       "license": "Proprietary",
@@ -184,6 +201,12 @@
       "id": "io.pilot.otto",
       "version": "0.20.0",
       "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status — over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
+      "categories": [
+        "web",
+        "browser",
+        "automation",
+        "scraping"
+      ],
       "display_name": "Otto",
       "vendor": "Telepat",
       "license": "MIT",
@@ -216,6 +239,12 @@
       "id": "io.pilot.plainweb",
       "version": "1.0.0",
       "description": "Plainweb - retrieve any web page in plain text: no HTML or JS returned, simply plain Markdown",
+      "categories": [
+        "web",
+        "scraping",
+        "markdown",
+        "retrieval"
+      ],
       "display_name": "Plainweb",
       "vendor": "Pilot Protocol",
       "license": "Proprietary",
@@ -248,6 +277,12 @@
       "id": "io.pilot.postgres",
       "version": "17.5.0",
       "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql — aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
+      "categories": [
+        "database",
+        "sql",
+        "data",
+        "rdbms"
+      ],
       "display_name": "PostgreSQL",
       "vendor": "Pilot Protocol",
       "license": "PostgreSQL",
@@ -583,6 +618,12 @@
       "id": "io.pilot.agentphone",
       "version": "0.3.0",
       "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST, metered per user against a $5 budget.",
+      "categories": [
+        "comms",
+        "voice",
+        "sms",
+        "telephony"
+      ],
       "display_name": "AgentPhone",
       "vendor": "AgentPhone",
       "license": "Apache-2.0",
