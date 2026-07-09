@@ -1633,7 +1633,7 @@ dispatch:
 		goto dispatch
 
 	case "version":
-		fmt.Println(version)
+		output(version)
 		return
 
 	case "quickstart":
