@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.tldr",
+  "display_name": "tldr",
+  "tagline": "Simplified man pages for ~7,350+ CLIs — instant, example-first command recall for agents",
+  "description_md": "# tldr — simplified man pages for almost every CLI, native for agents\n\nThis app installs the official **tldr-pages** client **tlrc v1.13.1** on the host and fronts it as typed\nmethods. tldr is *\"simplified, community-driven man pages\"* — concise, **example-first** cheat-sheets for\n**~7,350+ command-line tools**, the practical opposite of a dense `man` page. Instead of scrolling a manual,\nan agent asks `tldr docker` and gets the handful of commands it actually needs, each with a one-line\ndescription. The bundle is the upstream tlrc binary (sha-pinned per OS/arch, fetched from the Pilot artifact\nregistry at install) plus a tiny wrapper that serves a complete, color-free command-palette reference.\n\n**Open source, and every command is tested.** The tlrc client is **MIT**; the pages are written by the\ntldr-pages community and licensed **CC-BY-4.0**. The full page catalog (~3 MiB) auto-downloads on first use\nand then works offline.\n\n## Why an agent wants this\n\n- **Recall any CLI instantly.** `tldr \u003ctool\u003e` returns the 5–10 invocations that matter — no manual to parse,\n  no web search. The dictionary of man pages, for the whole toolbox an agent builds and deploys with.\n- **Discover tools by task.** `tldr.search \u003ckeyword\u003e` does first-class full-text search across the catalog\n  (\"compress\", \"screenshot\", \"certificate\"); `tldr.list` prints the whole directory of documented commands.\n- **Machine-parseable.** `tldr.raw` returns raw Markdown so an agent can lift the exact example lines\n  programmatically; `tldr.get` returns clean rendered text for humans-in-the-loop.\n- **Self-contained + offline.** One static binary, no dependencies; after the first fetch, lookups need no\n  network. Runs on macOS and Linux (arm64 + amd64).\n- **The complete palette.** Every flag is reachable — platform overrides, languages, list/search, render a\n  local page — via curated methods plus a verbatim-argv `tldr.exec` passthrough.\n\n## What it documents (a taste — all verbatim from real tldr pages)\n\n**Version control \u0026 GitHub**\n- `git` — Clone a repository: `git clone https://example.com/repo.git` · View status: `git status`\n- `gh` — Clone a repo: `gh repo clone owner/repository` · List open issues: `gh issue list`\n\n**Containers, orchestration \u0026 IaC**\n- `docker` — List all containers: `docker ps -a` · Run a named container: `docker run --name name image`\n- `kubectl` — Wide resource listing: `kubectl get pods -o wide` · Everything: `kubectl get all`\n- `terraform` — Initialize: `terraform init` · Format config: `terraform fmt`\n- `ansible` — Ping a host group: `ansible group -m ping` · Gather facts: `ansible group -m setup`\n- `helm` — Create a chart: `helm create chart_name` · Add a repo: `helm repo add repository_name`\n\n**Cloud**\n- `aws` — Configure SSO: `aws configure sso` · Who am I: `aws sts get-caller-identity`\n- `ssh` — Connect: `ssh username@remote_host` · With an identity key: `ssh username@remote_host -i key`\n\n**Languages \u0026 package managers**\n- `npm` — Install deps: `npm install` · A pinned version: `npm install package@version`\n- `cargo` — Install a crate: `cargo install crate_name` · List installed: `cargo install --list`\n- `go` — Run a file: `go run file.go` · Build a binary: `go build -o executable file.go`\n\n**Data \u0026 text**\n- `jq` — Pretty-print JSON: `jq '.' file.json`\n- `sed` — Replace text: `command | sed 's/apple/mango/g'` · First line: `command | sed -n '1p'`\n- `awk` — Print a column: `awk '{print $5}' file` · Last field, comma-separated: `awk -F ',' '{print $NF}' file`\n- `grep` — Recursive search: `grep -rI \"pattern\" path/to/dir`\n- `psql` — Connect: `psql -h host -p port -U username database`\n\n**Networking, files \u0026 archives**\n- `curl` — GET a URL: `curl https://example.com` · Save to a file: `curl -O https://example.com/file.zip`\n- `rsync` — Archive-mode copy: `rsync -a path/to/source path/to/destination`\n- `tar` — Create a gzipped archive: `tar czf target.tar.gz file1 file2`\n- `find` — By extension: `find path/to/dir -name '*.ext'`\n- `openssl` — Self-signed cert: `openssl req -new -x509 -key private.key -out certificate.crt -days 365`\n- `ffmpeg` — Extract audio: `ffmpeg -i video.mp4 -vn sound.mp3`\n\n**System \u0026 services (Linux)**\n- `systemctl` — Failed units: `systemctl --failed` · Manage a service: `systemctl start|stop|status unit`\n- `journalctl` — Follow a unit's logs: `journalctl -u unit -f`\n\n…and ~7,300 more, across `common`, `linux`, `osx`, `windows`, `android`, and `sunos`.\n\n## Methods\n\n- `tldr.get` — a command's cheat-sheet as clean text.\n- `tldr.raw` — a page as raw Markdown (machine-parseable).\n- `tldr.search` — full-text search across the whole catalog for a keyword.\n- `tldr.list` — the directory of every documented command for this platform.\n- `tldr.info` — cache path / age / languages / page count.\n- `tldr.update` — refresh the local page cache.\n- `tldr.render` — render a local tldr-format `.md` page.\n- `tldr.exec` — run the client with a verbatim argv (any flag: `--platform`, `-L`, `--list-all`, …) + optional stdin.\n- `tldr.cli_help` — the complete command-palette reference as clean text.\n- `tldr.version` — the delivered client + spec version. `tldr.help` — the self-describing method list.\n\n## How to use it\n\n1. **Recall a tool (no setup):** `tldr.get` `{ \"command\": \"tar\" }` → the tar cheat-sheet. First call auto-downloads the cache.\n2. **Multi-word page:** `tldr.get` `{ \"command\": \"git-commit\" }` (hyphen-joined) or `tldr.exec` `{ \"args\": [\"git\",\"commit\"] }`.\n3. **Find a tool by task:** `tldr.search` `{ \"keyword\": \"compress\" }` → every page mentioning compression.\n4. **Browse the catalog:** `tldr.list` → all documented commands for this platform.\n5. **Anything else:** `tldr.exec` `{ \"args\": [\"--platform\",\"linux\",\"systemctl\"] }` to force a platform.\n\n## Good to know\n\n- The page cache (~3 MiB, ~7,350+ pages) auto-downloads on first use and refreshes when stale; progress goes\n  to stderr so method output on stdout stays clean. Use `tldr.update` to refresh, `--offline` (via `tldr.exec`)\n  to pin the current cache.\n- On a non-zero exit the reply is `{stdout, stderr, exit}` so the caller sees everything the CLI produced.\n- Runs on **macOS and Linux** (arm64 + amd64); the binary is fetched from the Pilot artifact registry and\n  sha-pinned on install. Client license **MIT** (tlrc); pages content **CC-BY-4.0**, © tldr-pages contributors.\n- `tldr.help` lists every method with its latency class — the self-describing discovery contract.\n\n## tldr command palette (`tldr.cli_help`)\n```\ntldr — simplified, community-driven man pages (io.pilot.tldr)\n================================================================================\nPowered by tlrc v1.13.1, the official tldr-pages client (tldr client spec v2.3).\ntldr gives you concise, example-first help for ~7,350+ command-line tools — a\npractical cheat-sheet for almost every CLI an agent uses to build, deploy, and\noperate software. Open source: the tlrc client is MIT; the pages are authored by\nthe tldr-pages community and licensed CC-BY-4.0. Every command below is tested.\n\nUSAGE\n--------------------------------------------------------------------------------\n  tldr [OPTIONS] [PAGE]...\n\n  PAGE            The command to look up, e.g. `tar`, `docker`, `kubectl`.\n                  Multi-word pages: join with a hyphen  -\u003e  `git-commit`,\n                  `docker-compose`, `gh-repo`  (or pass the words as separate\n                  arguments via the passthrough method: [\"git\",\"commit\"]).\n\nOPERATIONS  (choose at most one per invocation)\n--------------------------------------------------------------------------------\n  \u003cPAGE\u003e                       Show the tldr page for a command (rendered).\n  -u, --update                 Update the local page cache (downloads only the\n                               languages that changed). Needs network.\n  -l, --list                   List every page for the current platform (plus\n                               the cross-platform `common` set) — a directory of\n                               all documented tools, one name per line.\n  -a, --list-all               List every page across ALL platforms.\n  -s, --search \u003cKEYWORD\u003e       Search page CONTENTS for a keyword and print each\n                               match as `language  platform  page`. First-class\n                               full-text search across the whole catalog.\n      --list-platforms         List the available platforms.\n      --list-languages         List the installed languages.\n  -i, --info                   Show cache info: path, age, installed languages,\n                               and total page count.\n  -r, --render \u003cFILE\u003e          Render a local tldr page file (`.md`) — preview a\n                               page you are authoring or one you fetched.\n      --clean-cache            Interactively delete the cache directory contents.\n      --gen-config             Print the default config (TOML) to stdout.\n      --config-path            Print the default config path (creates the dir).\n  -v, --version                Print the client + spec version.\n  -h, --help                   Print this complete command-palette reference.\n\nMODIFIERS  (change how an operation behaves)\n--------------------------------------------------------------------------------\n  -p, --platform \u003cPLATFORM\u003e    Force a platform instead of the host's.\n                               Values: linux, osx (macOS), windows, android,\n                               sunos, common.  Default: the OS you are on.\n  -L, --language \u003cCODE\u003e        Force a language (repeatable), e.g. `-L es`,\n                               `-L fr`, `-L ja`. Default: config, else $LANG.\n      --short-options          Prefer short option forms in placeholders (-s).\n      --long-options           Prefer long option forms in placeholders (--long).\n      --edit                   Show a GitHub \"edit this page\" link for the page.\n  -o, --offline                Never touch the network, even if the cache is\n                               stale (use the pages already downloaded).\n  -c, --compact                Strip empty lines from the output.\n      --no-compact             Keep empty lines (overrides --compact).\n  -R, --raw                    Print the page as raw Markdown (no rendering) —\n                               the most machine-parseable form.\n      --no-raw                 Render instead of raw (overrides --raw).\n  -q, --quiet                  Suppress status/progress messages and warnings.\n      --verbose                Print debug info (repeatable).\n      --color \u003cWHEN\u003e           Color output: auto (default), always, never.\n      --config \u003cFILE\u003e          Use an alternative config file path.\n\nPLATFORM VALUES\n--------------------------------------------------------------------------------\n  common   Cross-platform tools (the largest bucket: git, docker, curl, jq, ...)\n  linux    Linux-specific pages (systemctl, journalctl, apt, ip, ...)\n  osx      macOS-specific pages (brew, pbcopy, launchctl, ...)\n  windows  Windows-specific pages (choco, taskkill, ...)\n  android  Android tool pages (adb, pm, ...)\n  sunos    illumos / SunOS pages\n\nCACHE \u0026 OFFLINE\n--------------------------------------------------------------------------------\n  The page cache auto-downloads on first use (a ~3 MiB archive of ~7,350+ pages)\n  and thereafter refreshes automatically when it goes stale. After the first\n  fetch, lookups (`get`, `raw`, `search`, `list`, `info`, `render`) are fully\n  local and offline. Progress messages are written to stderr, so method output\n  on stdout stays clean. Use --offline to pin the current cache and --update to\n  refresh on demand. Cache path: `tldr --info`.\n\nEXAMPLES\n--------------------------------------------------------------------------------\n  tldr tar                     # show the tar cheat-sheet\n  tldr git-commit              # multi-word page (hyphen-joined)\n  tldr --raw docker            # raw Markdown for docker\n  tldr --search compress       # find every page mentioning \"compress\"\n  tldr --list                  # directory of all tools for this platform\n  tldr --list-all              # every page across all platforms\n  tldr --platform linux systemctl   # force the linux page\n  tldr --update                # refresh the cache\n  tldr --info                  # cache path / age / page count\n\nLICENSING\n--------------------------------------------------------------------------------\n  Client (tlrc): MIT — https://github.com/tldr-pages/tlrc\n  Pages content: CC-BY-4.0, (c) tldr-pages contributors —\n                 https://github.com/tldr-pages/tldr\n  Project home:  https://tldr.sh\n\n```\n",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "contact": "apps@pilotprotocol.network",
+    "publisher_pubkey": "ed25519:PWQdFC8oGtlYsGhVtjMcR1CfOKKa0O3TtKtFD8vrD90="
+  },
+  "homepage": "https://tldr.sh",
+  "source_url": "https://github.com/tldr-pages/tldr",
+  "license": "MIT",
+  "categories": [
+    "developer-tools",
+    "documentation",
+    "cli"
+  ],
+  "keywords": [
+    "tldr",
+    "tldr-pages",
+    "tlrc",
+    "man-pages",
+    "cheatsheet",
+    "cli-reference",
+    "documentation",
+    "examples",
+    "terminal",
+    "offline-docs",
+    "command-examples"
+  ],
+  "size": {
+    "bundle_bytes": 5355931,
+    "installed_bytes": 9629519
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "tldr.get",
+      "summary": "Look up a command's tldr page and return the concise, example-first cheat-sheet as clean text (color stripped). The fastest way to recall exactly how to invoke a CLI. This is `tldr --quiet --color never \u003ccommand\u003e`. The page cache auto-downloads on first use."
+    },
+    {
+      "name": "tldr.raw",
+      "summary": "Return a page as raw Markdown (unrendered) — the most machine-parseable form, ideal for an agent that wants to extract the example commands programmatically. This is `tldr --quiet --raw \u003ccommand\u003e`."
+    },
+    {
+      "name": "tldr.search",
+      "summary": "Full-text search across the entire tldr catalog for a keyword and return each matching page as `language  platform  page`. First-class content search — find the right tool when you only know the task (\"compress\", \"screenshot\", \"json\"). This is `tldr --quiet --search \u003ckeyword\u003e`."
+    },
+    {
+      "name": "tldr.list",
+      "summary": "List every documented command for the current platform plus the cross-platform `common` set — a directory of all tools tldr covers, one name per line. Pair with tldr.search to explore the catalog. This is `tldr --quiet --list`. (Use tldr.exec with [\"--list-all\"] for every platform.)"
+    },
+    {
+      "name": "tldr.info",
+      "summary": "Show cache information: the on-disk cache path, its age, the installed languages, and the total page count. This is `tldr --info`."
+    },
+    {
+      "name": "tldr.update",
+      "summary": "Refresh the local page cache from the tldr-pages archive (downloads only the languages that changed). Needs network; the cache also auto-downloads on first use, so this is only for an explicit refresh. This is `tldr --update`."
+    },
+    {
+      "name": "tldr.render",
+      "summary": "Render a local tldr page file (a `.md` in tldr format) as clean text — preview a page you are authoring or one written elsewhere. This is `tldr --quiet --color never --render \u003cfile\u003e`."
+    },
+    {
+      "name": "tldr.exec",
+      "summary": "Run the tldr client with a verbatim argv — the full surface beyond the curated methods. Payload is {\"args\":[...]} forwarded straight to `tldr`, plus optional {\"stdin\":\"...\"}. Use it for any flag or combination the curated methods don't cover: `--platform linux systemctl` to force a platform, `--list-all`/`--list-platforms`/`--list-languages`, `-L es` for another language, `--short-options`/`--long-options`, `--edit`, `--offline`, `--gen-config`, or a multi-word page as separate args. Examples: {\"args\":[\"--platform\",\"linux\",\"systemctl\"]}; {\"args\":[\"--list-all\"]}; {\"args\":[\"git\",\"commit\"]}; {\"args\":[\"-L\",\"es\",\"tar\"]}."
+    },
+    {
+      "name": "tldr.cli_help",
+      "summary": "Return the complete tldr command-palette reference — every operation and modifier flag, its values and defaults, the platform list, cache/offline behavior, search \u0026 directory usage, worked examples, and licensing — as clean, color-free text. The full contract for what tldr.get / tldr.exec accept. This is `tldr --help`."
+    },
+    {
+      "name": "tldr.version",
+      "summary": "Print the delivered client and tldr-client-spec version, e.g. \"tlrc v1.13.1 (implementing the tldr client specification v2.3)\". Needs no cache. This is `tldr --version`."
+    },
+    {
+      "name": "tldr.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.13.1",
+      "notes": [
+        "Released v1.13.1"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/tldr-pages/tldr"
+    },
+    {
+      "label": "Website",
+      "url": "https://tldr.sh"
+    }
+  ]
+}

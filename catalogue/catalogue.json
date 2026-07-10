@@ -610,6 +610,44 @@
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
       "metadata_sha256": "9099d15e6008aaf0506c4dc91607644b201a866f78f5db2343f85413de7a6ee1",
       "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+    },
+    {
+      "id": "io.pilot.tldr",
+      "version": "1.13.1",
+      "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
+      "display_name": "tldr",
+      "vendor": "Pilot Protocol",
+      "license": "MIT",
+      "source_url": "https://github.com/tldr-pages/tldr",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+      "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
+      "bundle_size": 5355931,
+      "bundles": {
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-arm64.tar.gz",
+          "bundle_sha256": "9cd334fcedbb486c08eb26205d80caf0f63754f8bd3909e0149ee24dcc709a56"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-amd64.tar.gz",
+          "bundle_sha256": "b1505b6eb762be844f7005803b222ef1b9abec879f1621bcfb1d3f8122eedbd2"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+          "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-arm64.tar.gz",
+          "bundle_sha256": "7379ce8068d5031e38d7e7489e81d45123d62ae3ee814c1d2c8231a421e229c8"
+        }
+      },
+      "categories": [
+        "developer-tools",
+        "documentation",
+        "cli"
+      ],
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
+      "metadata_sha256": "e04a45195593a9652b2b5fbe32bb97393088e227c53a171e781ef5e4b33de3a1",
+      "publisher": "ed25519:PWQdFC8oGtlYsGhVtjMcR1CfOKKa0O3TtKtFD8vrD90="
     }
   ]
 }
