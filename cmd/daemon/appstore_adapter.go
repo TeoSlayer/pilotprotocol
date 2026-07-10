@@ -15,67 +15,28 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"time"
 
 	"github.com/pilot-protocol/app-store/plugin/appstore"
 	"github.com/pilot-protocol/common/coreapi"
-	"github.com/pilot-protocol/pilotprotocol/pkg/telemetry"
 )
 
 type appstoreAdapter struct {
-	svc          *appstore.Service
-	telemetryURL string
-	identityPath string
-	getNodeID    func() int64 // called at emit time, after daemon has registered
-}
-
-// telemetryEmitter wraps the consent-gated telemetry client to satisfy
-// the appstore.TelemetryEmitter interface. Events are sent as
-// "app_usage" kind with the supervisor-provided fields as payload.
-// Best-effort: send errors are logged but never block the caller.
-type telemetryEmitter struct {
-	client    *telemetry.Client
-	getNodeID func() int64 // called lazily; valid after daemon has registered
-}
-
-func (e *telemetryEmitter) Emit(ev appstore.TelemetryEvent) {
-	if e == nil || e.client == nil {
-		return
-	}
-	payload, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-	var nodeID int64
-	if e.getNodeID != nil {
-		nodeID = e.getNodeID()
-	}
-	_ = e.client.Send(telemetry.Event{
-		Kind:    "app_usage",
-		TS:      time.Now().UTC().Format(time.RFC3339),
-		NodeID:  nodeID,
-		Payload: payload,
-	})
+	svc *appstore.Service
 }
 
 func (a *appstoreAdapter) Name() string { return a.svc.Name() }
 func (a *appstoreAdapter) Order() int   { return a.svc.Order() }
 func (a *appstoreAdapter) Start(ctx context.Context, deps coreapi.Deps) error {
-	// Build a consent-gated telemetry client for app-usage events.
-	// When the URL is empty or identity is absent the client is a
-	// permanent no-op — the emitter never sends anything.
-	client := telemetry.NewClientFromIdentity(a.telemetryURL, a.identityPath, 0)
-	emitter := &telemetryEmitter{client: client, getNodeID: a.getNodeID}
-
+	// No Telemetry emitter: app_usage events were removed entirely
+	// (2026-07-10) — what an agent calls is nobody's business. A nil
+	// emitter is documented no-op in the appstore module.
 	return a.svc.Start(ctx, appstore.Deps{
-		Streams:   deps.Streams,
-		Identity:  deps.Identity,
-		Resolver:  deps.Resolver,
-		Events:    deps.Events,
-		Logger:    deps.Logger,
-		Trust:     deps.Trust,
-		Telemetry: emitter,
+		Streams:  deps.Streams,
+		Identity: deps.Identity,
+		Resolver: deps.Resolver,
+		Events:   deps.Events,
+		Logger:   deps.Logger,
+		Trust:    deps.Trust,
 	})
 }
 func (a *appstoreAdapter) Stop(ctx context.Context) error { return a.svc.Stop(ctx) }
