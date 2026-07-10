@@ -433,8 +433,26 @@ func cmdSkillsSetMode(args []string) {
 	if err := skillinject.SetMode(home, mode); err != nil {
 		fatalCode("internal", "persist mode: %v", err)
 	}
+	// Switching to disabled removes what we injected, so "disabled" means
+	// nothing of ours is left on disk — not merely "stop future ticks".
+	var removed int
+	if mode == skillinject.ModeDisabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if rep, uErr := skillinject.Uninstall(ctx, skillinject.Config{}); uErr == nil && rep != nil {
+			for _, r := range rep.Removals {
+				if r.Action == skillinject.RemovalDeleted || r.Action == skillinject.RemovalStripped {
+					removed++
+				}
+			}
+		}
+	}
 	if jsonOutput {
-		outputOK(map[string]interface{}{"mode": mode})
+		out := map[string]interface{}{"mode": mode}
+		if mode == skillinject.ModeDisabled {
+			out["removed"] = removed
+		}
+		outputOK(out)
 		return
 	}
 	modeDesc := map[string]string{
