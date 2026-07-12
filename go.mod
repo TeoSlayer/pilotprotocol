@@ -18,7 +18,7 @@ require (
 	github.com/pilot-protocol/trustedagents v0.2.4
 	github.com/pilot-protocol/updater v0.2.3
 	github.com/pilot-protocol/webhook v0.2.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
