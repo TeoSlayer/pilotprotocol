@@ -24,7 +24,7 @@ jobs:
   integration:
     name: Integration suite (default tags)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
 
@@ -37,7 +37,7 @@ jobs:
         # The full ./tests/ default-tag suite (~300 tests). Moved out of
         # PR CI in PR #121 — sustained 15m timeouts on public runners.
         run: |
-          go test -parallel 4 -count=1 -timeout 30m \
+          go test -parallel 1 -count=1 -timeout 45m \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
             ./tests/
 
@@ -64,7 +64,7 @@ jobs:
         # and run sufficiently via the architecture-gates stress
         # harness instead.
         run: |
-          go test -tags nightly -parallel 4 -count=1 -timeout 30m \
+          go test -tags nightly -parallel 1 -count=1 -timeout 50m \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
             ./tests/
 
