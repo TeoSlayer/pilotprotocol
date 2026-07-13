@@ -41,3 +41,4 @@ jobs:
       version: ${{ inputs.version || github.event.client_payload.version }}
       is_prerelease: ${{ inputs.is_prerelease == true || github.event.client_payload.is_prerelease == true }}
       stable_only: true
+    secrets: inherit
