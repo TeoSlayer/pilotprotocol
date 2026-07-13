@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.mysql",
+  "display_name": "Mysql",
+  "tagline": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely local",
+  "description_md": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
+  "vendor": {
+    "name": "Pilot Protocol",
+    "url": "https://pilotprotocol.network",
+    "contact": "apps@pilotprotocol.network",
+    "agent_usage": "Agents run a full local MySQL: mysql.initialize lays down a data directory, mysql.start/stop bring a server up (detached) / down on 127.0.0.1:<port>, mysql.ping probes it, mysql.createdb makes databases, mysql.query (aligned table) / mysql.query_tsv (TSV) run SQL, mysql.databases/mysql.tables introspect, mysql.dump backs up via mysqldump, and mysql.exec runs any bundled tool with a verbatim argv (+ optional stdin). Output is text/TSV, or {stdout,stderr,exit} on a non-zero exit.",
+    "capabilities": "Delivers the official MySQL 9.7.1 server (mysqld) + client suite (mysql, mysqladmin, mysqldump, mysqlshow) as a sha-pinned, relocatable per-OS/arch bundle with a mysqlctl dispatcher that wires basedir/plugin-dir/error-messages to the staged location. A real client/server RDBMS: InnoDB transactions, foreign keys, triggers, stored routines, JSON, window functions, full-text — run locally with no server to provision and no cloud account. Repackaged from the conda-forge MySQL build; GPL-2.0.",
+    "publisher_pubkey": "ed25519:cTZr4unmAHK/r8fS+TVQ4QiCIORimYe+y+bIdiUUfAY="
+  },
+  "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
+  "license": "",
+  "categories": [],
+  "size": {
+    "bundle_bytes": 5359647
+  },
+  "methods": [
+    {
+      "name": "mysql.initialize",
+      "summary": "Initialize a new MySQL data directory (system tables + an insecure `root@localhost` with an empty password) — the one-time setup before the first start. This is `mysqld --initialize-insecure --datadir=<datadir>`. The bundle's basedir/plugin-dir/error-messages are wired in automatically."
+    },
+    {
+      "name": "mysql.start",
+      "summary": "Start a local MySQL server from a data directory, listening on 127.0.0.1:<port>. Runs detached (`--daemonize`) and returns once the server is accepting connections. This is `mysqld --daemonize --datadir=<datadir> --socket=<datadir>/mysql.sock --port=<port> --bind-address=127.0.0.1 --mysqlx=OFF --pid-file=<datadir>/mysqld.pid --log-error=<datadir>/mysqld.err`."
+    },
+    {
+      "name": "mysql.stop",
+      "summary": "Stop the local server listening on <port> (a clean shutdown). This is `mysqladmin -h 127.0.0.1 -P <port> -u root shutdown`."
+    },
+    {
+      "name": "mysql.ping",
+      "summary": "Check whether the server on <port> is up and accepting connections (liveness probe). This is `mysqladmin -h 127.0.0.1 -P <port> -u root ping`."
+    },
+    {
+      "name": "mysql.createdb",
+      "summary": "Create a database on the running server (no-op if it already exists). This is `mysql -h 127.0.0.1 -P <port> -u root -e \"CREATE DATABASE IF NOT EXISTS <dbname>\"`."
+    },
+    {
+      "name": "mysql.query",
+      "summary": "Run SQL against a database and return an aligned ASCII table — the default, human-readable shape. May contain multiple `;`-separated statements. This is `mysql -h 127.0.0.1 -P <port> -u root -D <database> --table -e <sql>`."
+    },
+    {
+      "name": "mysql.query_tsv",
+      "summary": "Same as mysql.query but returns tab-separated values (header + rows) via `--batch` — the machine-parseable shape. This is `mysql -h 127.0.0.1 -P <port> -u root -D <database> --batch -e <sql>`."
+    },
+    {
+      "name": "mysql.databases",
+      "summary": "List the databases on the server (`SHOW DATABASES`). This is `mysql -h 127.0.0.1 -P <port> -u root --table -e \"SHOW DATABASES\"`."
+    },
+    {
+      "name": "mysql.tables",
+      "summary": "List the tables in a database (`SHOW TABLES`). This is `mysql -h 127.0.0.1 -P <port> -u root -D <database> --table -e \"SHOW TABLES\"`."
+    },
+    {
+      "name": "mysql.dump",
+      "summary": "Dump a database as SQL (schema + data) with mysqldump — a portable logical backup the agent can save or replay. This is `mysqldump -h 127.0.0.1 -P <port> -u root --no-tablespaces <database>`."
+    },
+    {
+      "name": "mysql.exec",
+      "summary": "Run any bundled MySQL tool with a verbatim argv — the full surface beyond the curated methods. Payload is {\"args\":[tool, ...]} where tool is one of `mysql`, `mysqld`, `mysqladmin`, `mysqldump`, `mysqlshow`, plus optional {\"stdin\":\"...\"} piped to the process. Examples: {\"args\":[\"mysql\",\"--protocol=TCP\",\"-h\",\"127.0.0.1\",\"-P\",\"13306\",\"-u\",\"root\",\"-D\",\"app\",\"--vertical\",\"-e\",\"SELECT * FROM t\\\\G\"]}; {\"args\":[\"mysqlshow\",\"--protocol=TCP\",\"-h\",\"127.0.0.1\",\"-P\",\"13306\",\"-u\",\"root\",\"app\"]}; {\"args\":[\"mysql\",\"--protocol=TCP\",\"-h\",\"127.0.0.1\",\"-P\",\"13306\",\"-u\",\"root\",\"-D\",\"app\"],\"stdin\":\"SOURCE /work/schema.sql;\"}."
+    },
+    {
+      "name": "mysql.mysql_help",
+      "summary": "Return the full `mysql` client help — every command-line option — captured from the delivered binary. The reference for what mysql.query / mysql.exec accept."
+    },
+    {
+      "name": "mysql.version",
+      "summary": "Print the delivered MySQL version, e.g. \"mysql  Ver 9.7.1 for … (conda-forge)\". This is `mysql --version`."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "9.7.1",
+      "notes": [
+        "Published v 9.7.1"
+      ]
+    }
+  ]
+}
