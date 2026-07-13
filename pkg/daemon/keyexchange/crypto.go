@@ -262,6 +262,36 @@ func (c *Crypto) CheckAndRecordNonce(counter uint64) bool {
 	return true
 }
 
+// WouldAcceptNonce reports whether counter would be accepted by
+// CheckAndRecordNonce WITHOUT mutating any replay state. It is the
+// read-only pre-check L6 (envelope) runs before the (expensive) AEAD-Open:
+// obvious replays / out-of-window frames are rejected here so the crypto
+// work is skipped, but — crucially — nothing is recorded. The replay
+// window is only advanced by CheckAndRecordNonce, and L6 calls that ONLY
+// after AEAD.Open authenticates the frame. This ordering is what stops a
+// forged high-counter frame (which fails AEAD) from pinning MaxRecvNonce
+// and wedging every subsequent genuine frame out of the window.
+//
+// Must be called with c.ReplayMu held. The logic mirrors the accept/reject
+// verdicts of CheckAndRecordNonce exactly, minus the writes.
+func (c *Crypto) WouldAcceptNonce(counter uint64) bool {
+	if c.MaxRecvNonce == 0 {
+		return true // first packet ever
+	}
+	if counter > c.MaxRecvNonce {
+		return true // new maximum
+	}
+	// counter <= MaxRecvNonce
+	if c.MaxRecvNonce-counter >= ReplayWindowSize {
+		return false // too old (outside window)
+	}
+	bit := counter % ReplayWindowSize
+	if c.ReplayBitmap[bit/64]&(1<<(bit%64)) != 0 {
+		return false // already seen (replay)
+	}
+	return true
+}
+
 // SetReplayBit sets the replay-window bit corresponding to counter.
 // Must be called with c.ReplayMu held.
 func (c *Crypto) SetReplayBit(counter uint64) {
