@@ -638,6 +638,40 @@
         }
       },
       "publisher": "ed25519:8zcpGtp5sUw3sjLptDR9W/btumEaOv3DO3tTWN/+PCk="
+    },
+    {
+      "id": "io.pilot.mysql",
+      "version": "9.7.1",
+      "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
+      "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
+      "display_name": "Mysql",
+      "vendor": "Pilot Protocol",
+      "categories": [],
+      "bundle_size": 5359647,
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
+      "license": "",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
+      "metadata_sha256": "b051e9af0bcc334065539cb8870de59e4ff62ca4515cde39bc6b13fbde285a62",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
+          "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-arm64.tar.gz",
+          "bundle_sha256": "b37777304ef1976c783e2ad1f667cd8b0188c5a39d5bfe45880ec2baca007fa3"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-amd64.tar.gz",
+          "bundle_sha256": "1cdf637b8dae34b57503ee2dfbd8a6e24eb587c90233edd5718976e9db60120e"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-arm64.tar.gz",
+          "bundle_sha256": "2d6007afea3c6e59aea914c551631c39624ded6cf988dd2252d0dab092e88c21"
+        }
+      },
+      "publisher": "ed25519:cTZr4unmAHK/r8fS+TVQ4QiCIORimYe+y+bIdiUUfAY="
     }
   ]
 }
