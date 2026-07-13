@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.insforge",
+  "display_name": "Insforge",
+  "tagline": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backe",
+  "description_md": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backend in one call — no email, no browser: a dedicated Postgres database, authentication, S3-style storage, Deno edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Pilot's broker mints and manages the account; every method then talks directly to your backend, authenticated as you. Free to provision — pay only for what your backend uses.",
+  "vendor": {
+    "name": "InsForge",
+    "url": "https://insforge.dev",
+    "contact": "info@insforge.dev",
+    "agent_usage": "insforge.signup once (provisions your isolated backend, no email/browser), then drive Postgres, auth, storage, edge functions and the AI model gateway directly as yourself.",
+    "capabilities": "database, auth, storage, edge-functions, ai-gateway, hosting",
+    "publisher_pubkey": "ed25519:W1qwuLpHlwdOlisnk7RdzP4zO2IbNKUFz7Saa69AgTA="
+  },
+  "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
+  "license": "",
+  "categories": [],
+  "size": {
+    "bundle_bytes": 5113957
+  },
+  "methods": [
+    {
+      "name": "insforge.signup",
+      "summary": "Provision your OWN isolated InsForge backend in ONE call — no email, no browser, no human step. This signs a keyless request to Pilot's InsForge signup broker, which mints a fresh InsForge project under Pilot's managed account and returns its access key + backend URL. The adapter caches {api_key, backend_url} to $APP/secrets.json, and from then on EVERY other insforge.* method talks directly to YOUR backend, authenticated as you. You get a dedicated Postgres database, authentication, S3-style storage, edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Idempotent: the broker provisions at most one project per Pilot identity, so a repeat call (or a fresh install) returns the SAME backend. Run this ONCE before any other method. FREE to provision — you pay only for the resources your backend actually uses (see per-method costs and insforge.help). Retrieve your backend URL + key any time via insforge.account. Takes no arguments."
+    },
+    {
+      "name": "insforge.account",
+      "summary": "Retrieve your provisioned InsForge backend — its backend_url, your api_key, and project id — plus a signed_up flag. Local, instant, FREE (reads $APP/secrets.json; no backend call). Use it to confirm you're provisioned or to read your key/URL (e.g. to call the backend from your own code). If signed_up is false, call insforge.signup first."
+    },
+    {
+      "name": "insforge.metadata",
+      "summary": "Get your backend's full configuration — auth providers/SMTP, database tables, storage buckets, edge functions, realtime, and AI models — in one call. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.db_list_tables",
+      "summary": "List all database tables with their schemas (columns, types, constraints). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.db_create_table",
+      "summary": "Create a Postgres table. Body: {tableName, columns:[{columnName, type, isNullable, isUnique, defaultValue?}]} — type is one of string, integer, float, boolean, datetime, date, uuid, json. An id (uuid) + createdAt/updatedAt are added automatically. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_query",
+      "summary": "Query records from a table with PostgREST-style filtering, sorting, pagination. Path: table name. Query params: limit (1-1000, default 100), offset, order (e.g. createdAt.desc), select (comma columns), and any {field}=<op>.<value> filter (op: eq, neq, gt, gte, lt, lte, like, ilike, in, is). Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_insert",
+      "summary": "Insert one or more records into a table. Path: table name. Body: a JSON array of row objects (e.g. [{\"title\":\"hi\"}]) — always an array, even for one row. Returns the inserted rows with generated ids. Note: just after db_create_table, wait ~3s before the first insert (the database reloads its schema cache after DDL; an immediate insert can 404). Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_update",
+      "summary": "Update records matching PostgREST filters. Path: table name. Pass filter(s) as query params ({field}=eq.<value>) and the new column values in the body. Returns the updated rows. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_delete",
+      "summary": "Delete records matching PostgREST filters. Path: table name. Pass filter(s) as query params ({field}=eq.<value>). Returns the deleted rows. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_sql",
+      "summary": "Run raw parameterized SQL against your Postgres database. Body: {query, params?}. Powerful — use for joins, aggregates, DDL, migrations. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_list_buckets",
+      "summary": "List your storage buckets. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.storage_create_bucket",
+      "summary": "Create a storage bucket. Body: {bucketName, isPublic}. A public bucket serves objects without auth; a private one requires the key. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.storage_list_objects",
+      "summary": "List objects in a bucket (paginated). Path: bucket name. Query: limit, offset, prefix. Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_download",
+      "summary": "Download an object (returns its content). Path: bucket + object key. Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_delete",
+      "summary": "Delete an object. Path: bucket + object key. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.auth_config",
+      "summary": "Get your backend's auth configuration (enabled OAuth providers, JWT settings, SMTP). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.auth_list_users",
+      "summary": "List the end-users registered in your backend's auth (paginated). Query: limit, offset. Auth users count toward MAU (50,000 free, then $0.00325 per monthly active user)."
+    },
+    {
+      "name": "insforge.functions_list",
+      "summary": "List your deployed edge functions (Deno/TypeScript) and the runtime status. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.function_invoke",
+      "summary": "Invoke a deployed edge function by slug. Path: function slug. Body: the JSON payload passed to the function. Each invocation counts toward edge-function calls (100,000 free, then $0.01 per 1,000)."
+    },
+    {
+      "name": "insforge.ai_gateway_key",
+      "summary": "Get your project's Model Gateway OpenRouter API key (sk-or-...). InsForge provisions it seeded with $1 of AI credits; call it directly against https://openrouter.ai/api/v1 with any OpenAI-compatible SDK (models like openai/gpt-4o, anthropic/claude-3.5-haiku). Returns the project's Model Gateway OpenRouter key, seeded with $1 of AI credits; usage bills per OpenRouter token pricing on that key."
+    },
+    {
+      "name": "insforge.secrets_list",
+      "summary": "List your backend's secrets/keys (names + metadata; values are not returned). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.get",
+      "summary": "Escape hatch: GET any backend API path under /api. Path param is the sub-path (e.g. \"database/tables\", \"storage/config\"); extra fields become query params. Covers endpoints not given a dedicated method. Cost depends on the endpoint — see insforge.help."
+    },
+    {
+      "name": "insforge.post",
+      "summary": "Escape hatch: POST any backend API path under /api. Path param is the sub-path; the rest of the payload is sent as the JSON body. Covers endpoints not given a dedicated method. Cost depends on the endpoint."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "notes": [
+        "Published v 1.0.0"
+      ]
+    }
+  ]
+}
