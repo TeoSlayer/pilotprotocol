@@ -2791,8 +2791,12 @@ func cmdDaemonStart(args []string) {
 		if err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist).Run(); err != nil {
 			fatalCode("internal", "launchctl bootstrap: %v", err)
 		}
-		// Poll socket until daemon is responsive.
-		waitDeadline := time.Now().Add(10 * time.Second)
+		// Poll socket until daemon is responsive. 30s, not 10s: a daemon
+		// with installed app-store apps spawns them before IPC comes up,
+		// which can push readiness past 10s on a loaded machine — and a
+		// premature "not ready" here reads as a failed start even though
+		// launchd keeps supervising and the daemon finishes booting fine.
+		waitDeadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(waitDeadline) {
 			if d, err := driver.Connect(getSocket()); err == nil {
 				if _, err := d.Info(); err == nil {
@@ -2808,7 +2812,9 @@ func cmdDaemonStart(args []string) {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		fatalCode("timeout", "launchd loaded the agent but the socket did not become ready within 10s")
+		fatalHint("timeout",
+			"launchd is still supervising it — check `pilotctl daemon status` and the daemon log",
+			"launchd loaded the agent but the socket did not become ready within 30s")
 	}
 
 	// Check if already running

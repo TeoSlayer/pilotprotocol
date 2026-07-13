@@ -182,6 +182,14 @@ type TunnelManager struct {
 	PktsRecv    uint64
 	EncryptOK   uint64
 	EncryptFail uint64
+	// LastRecvNano is the unix-nano timestamp of the last datagram the
+	// read loop pulled off the socket — ANY datagram, including beacon
+	// replies and key-exchange frames that never reach PktsRecv. The rx
+	// watchdog reads both: PktsRecv stalling flags a wedge; LastRecvNano
+	// tells it whether the raw socket path is dead too (NAT mapping gone)
+	// or only the session layer (decrypt/key desync). Stamped at Listen /
+	// ConnectCompat so the age is measured from transport start, not epoch.
+	LastRecvNano int64
 	// P1-008: packets dropped from the per-peer pending queue while waiting
 	// for key exchange. Exposed so operators can tell a congested overlay
 	// apart from a silent crypto stall.
@@ -911,6 +919,7 @@ func (tm *TunnelManager) Listen(addr string) error {
 	}
 	tm.sock = sock
 	tm.routing.SetSocket(sock)
+	atomic.StoreInt64(&tm.LastRecvNano, time.Now().UnixNano())
 
 	tm.readWg.Add(1)
 	go tm.readLoop()
@@ -960,6 +969,7 @@ func (tm *TunnelManager) ConnectCompat(ctx context.Context, cfg ConnectCompatCon
 	}
 	tm.sock = wssTr
 	tm.routing.SetSocket(wssTr)
+	atomic.StoreInt64(&tm.LastRecvNano, time.Now().UnixNano())
 	// In compat mode every outbound L2 frame must travel beacon-wrapped:
 	// the WSS pipe terminates at the beacon, not at peers, so raw frames
 	// would be received as unknown beacon-protocol packets and dropped.
@@ -989,6 +999,17 @@ func (tm *TunnelManager) Close() error {
 		close(tm.recvCh) // unblock routeLoop (H5 fix — prevents goroutine leak)
 	})
 	return connErr
+}
+
+// LastRecvTime returns the time of the last datagram received on the
+// transport socket (any frame type), or the zero Time before Listen /
+// ConnectCompat has run.
+func (tm *TunnelManager) LastRecvTime() time.Time {
+	nano := atomic.LoadInt64(&tm.LastRecvNano)
+	if nano == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nano)
 }
 
 func (tm *TunnelManager) LocalAddr() net.Addr {
@@ -1047,6 +1068,7 @@ func (tm *TunnelManager) readLoopOneIter() (cont bool, stopped bool) {
 		}
 		return false, true
 	}
+	atomic.StoreInt64(&tm.LastRecvNano, time.Now().UnixNano())
 
 	n := len(frame)
 	if n < 1 {
