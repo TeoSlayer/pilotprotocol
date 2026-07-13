@@ -672,6 +672,40 @@
         }
       },
       "publisher": "ed25519:cTZr4unmAHK/r8fS+TVQ4QiCIORimYe+y+bIdiUUfAY="
+    },
+    {
+      "id": "io.pilot.didit",
+      "version": "1.0.0",
+      "description": "Full Didit identity-verification platform over one HTTPS app — KYC/ID, liveness, face match, AML, proof-of-address, database validation, email/phone OTP, plus hosted sessions, workflows, users, billing, blocklists, questionnaires and webhooks. didit.signup mints your own Didit API key in ONE call with no email and no code (Pilot's broker handles the whole signup), caches it locally, and then every method authenticates as you and bills to your own Didit balance (500 free full-KYC checks/month).",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
+      "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
+      "display_name": "Didit",
+      "vendor": "Didit",
+      "categories": [],
+      "bundle_size": 5130067,
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
+      "license": "",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
+      "metadata_sha256": "30ad4d9ac274e010c6c75de612a74021633d4fcb1e845d14923b391315246614",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
+          "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-arm64.tar.gz",
+          "bundle_sha256": "090b73c669f4df41e3994441edd261bfd4ec511c806899a28571d8d99a675c6c"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "03275275e7838ca9b8be39d7355462271a8d23ad32a60ea4cb87b1f7b6cbf5a0"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "5910ff8f2af94f8545d49fa6c0a179c75c4334bd54fb37a3feb7ee197ad551c5"
+        }
+      },
+      "publisher": "ed25519:ii6QAc8qZB4NvbOXqnLfnv+OhPqepuK0BISAv9jM5x0="
     }
   ]
 }
