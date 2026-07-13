@@ -1,0 +1,43 @@
+name: cascade
+
+# web4 is the Zone-2 artifact hub: cascades from upstream releases
+# arrive as repository_dispatch events and coalesce into a single
+# daily bump PR via pilot-protocol/release's reusable release-bump
+# workflow — a maintainer merges and tags when a new binary release
+# is warranted. Never auto-tags.
+#
+# This receiver was missing since the cascade system landed, so
+# upstream releases (e.g. app-store v1.0.1, 2026-06-23) never produced
+# a bump PR here.
+
+on:
+  repository_dispatch:
+    types: [bump-upstream]
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: 'Upstream Go module (e.g. github.com/pilot-protocol/app-store)'
+        required: true
+        type: string
+      version:
+        description: 'Upstream version (e.g. v1.0.1)'
+        required: true
+        type: string
+      is_prerelease:
+        description: 'true if upstream is a beta/rc'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    uses: pilot-protocol/release/.github/workflows/release-bump.yml@main
+    with:
+      upstream: ${{ inputs.upstream || github.event.client_payload.upstream }}
+      version: ${{ inputs.version || github.event.client_payload.version }}
+      is_prerelease: ${{ inputs.is_prerelease == true || github.event.client_payload.is_prerelease == true }}
+      stable_only: true
