@@ -51,12 +51,13 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	statePath := flag.String("state-path", defaultStatePath(), "JSON control file {\"enabled\":bool} for automatic updates; auto-update is OFF until enabled (e.g. via `pilotctl update enable`)")
 	// --skip-attestation opts out of SLSA provenance verification of
-	// checksums.txt. The updater module fails CLOSED if `gh` is absent (it
-	// cannot verify attestations), so a host genuinely without `gh` needs an
-	// explicit way to proceed. Default false: verification stays on in
-	// production. Mirrors the --state-path pattern with an env fallback.
+	// checksums.txt. Verification is performed in-process via sigstore-go (no
+	// `gh` CLI or external tooling required) and fails CLOSED if provenance
+	// cannot be established. This flag exists only for test/air-gapped
+	// environments; leave it off in production. Default false: verification
+	// stays on. Mirrors the --state-path pattern with an env fallback.
 	skipAttestation := flag.Bool("skip-attestation", envBool("PILOT_UPDATER_SKIP_ATTESTATION"),
-		"skip SLSA attestation verification (default off); use only on hosts without `gh` available")
+		"skip SLSA attestation verification (default off); for test/air-gapped use only — production verifies in-process, no `gh` needed")
 	flag.Parse()
 
 	if *showVersion {
