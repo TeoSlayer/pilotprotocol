@@ -71,15 +71,16 @@ const DefaultRecvBuffer = 256
 // channel; everything after auth_ok is binary frames carrying raw
 // Pilot packets.
 type authChallengeMsg struct {
-	Type  string `json:"type"`  // "auth_challenge"
-	Nonce string `json:"nonce"` // 32 random bytes, hex-encoded
+	Type      string `json:"type"`  // "auth_challenge"
+	Nonce     string `json:"nonce"` // 32 random bytes, hex-encoded
+	Timestamp int64  `json:"ts"`    // Unix epoch seconds, server-issued (replay window)
 }
 
 type authReplyMsg struct {
 	Type      string `json:"type"` // "auth_reply"
 	NodeID    uint32 `json:"node_id"`
 	PublicKey string `json:"public_key"` // base64 Ed25519 pubkey
-	Sig       string `json:"sig"`        // base64 Ed25519 signature over "compat_auth:"+node_id+":"+nonce
+	Sig       string `json:"sig"`        // base64 Ed25519 signature over "compat_auth:"+node_id+":"+ts+":"+nonce
 }
 
 type authOKMsg struct {
@@ -274,10 +275,11 @@ func (t *Transport) runAuth(ctx context.Context, conn *websocket.Conn) error {
 		return fmt.Errorf("malformed challenge: type=%q nonce-len=%d", ch.Type, len(ch.Nonce))
 	}
 
-	// Sign "compat_auth:<nodeID>:<nonce>" — same shape the beacon
-	// verifies. Binding nodeID + nonce into the signed bytes prevents
-	// replay across different daemon identities.
-	msg := fmt.Sprintf("compat_auth:%d:%s", t.cfg.NodeID, ch.Nonce)
+	// Sign "compat_auth:<nodeID>:<ts>:<nonce>" — same shape the beacon
+	// verifies (beacon >= v0.2.6). Binding nodeID + server timestamp +
+	// nonce into the signed bytes prevents replay across identities and
+	// bounds the auth to the server's freshness window.
+	msg := fmt.Sprintf("compat_auth:%d:%d:%s", t.cfg.NodeID, ch.Timestamp, ch.Nonce)
 	sig := t.cfg.Identity.Sign([]byte(msg))
 
 	reply := authReplyMsg{

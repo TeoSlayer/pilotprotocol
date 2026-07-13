@@ -81,6 +81,10 @@ func TestDashboardHTTPEndpoints(t *testing.T) {
 
 	r := registry.New("127.0.0.1:9001")
 	defer r.Close()
+	// /api/stats is admin-gated (rich payload moved behind requireAdminToken;
+	// anonymous callers use /api/public-stats). Authenticate as an operator.
+	const adminToken = "dash-http-admin-token"
+	r.SetAdminToken(adminToken)
 
 	// Find a free port for the dashboard
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -96,8 +100,9 @@ func TestDashboardHTTPEndpoints(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var resp *http.Response
+	statsURL := fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, adminToken)
 	for i := 0; i < 20; i++ {
-		resp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		resp, err = client.Get(statsURL)
 		if err == nil {
 			break
 		}
@@ -163,6 +168,9 @@ func TestDashboardNoIPLeak(t *testing.T) {
 	go r.ListenAndServe("127.0.0.1:0")
 	<-r.Ready()
 	defer r.Close()
+	// /api/stats is admin-gated; authenticate as an operator.
+	const adminToken = "dash-leak-admin-token"
+	r.SetAdminToken(adminToken)
 
 	addr := r.Addr().String()
 	dashRegisterNode(t, addr, "leak-test")
@@ -180,8 +188,9 @@ func TestDashboardNoIPLeak(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var resp *http.Response
+	statsURL := fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, adminToken)
 	for i := 0; i < 20; i++ {
-		resp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		resp, err = client.Get(statsURL)
 		if err == nil {
 			break
 		}
@@ -219,6 +228,11 @@ func TestDashboardAPIShape(t *testing.T) {
 	defer r.Close()
 
 	r.SetDashboardToken("shape-test-token")
+	// /api/stats is admin-gated; operators reach it with the admin token.
+	// The dashboard `token` param still toggles per-network (authenticated)
+	// fields on top of the admin gate.
+	const adminToken = "shape-admin-token"
+	r.SetAdminToken(adminToken)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -234,9 +248,9 @@ func TestDashboardAPIShape(t *testing.T) {
 
 	fetch := func(token string) map[string]interface{} {
 		t.Helper()
-		url := fmt.Sprintf("http://%s/api/stats", dashAddr)
+		url := fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, adminToken)
 		if token != "" {
-			url += "?token=" + token
+			url += "&token=" + token
 		}
 		var resp *http.Response
 		for i := 0; i < 20; i++ {
@@ -404,9 +418,9 @@ func TestDashboardBannerEndpoint(t *testing.T) {
 		t.Fatalf("GET banner = %q, want %q", getResp.Banner, newBanner)
 	}
 
-	// 6. The new banner must surface in the public /api/stats payload so
-	//    the dashboard HTML renders it.
-	statsResp, err := client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+	// 6. The new banner must surface in the /api/stats payload so the
+	//    dashboard HTML renders it (admin-gated; authenticate as operator).
+	statsResp, err := client.Get(fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, adminToken))
 	if err != nil {
 		t.Fatalf("GET stats: %v", err)
 	}

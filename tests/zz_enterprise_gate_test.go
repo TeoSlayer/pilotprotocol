@@ -147,7 +147,7 @@ func TestEnterpriseGateInvite(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	ownerID, _ := registerTestNode(t, rc)
+	ownerID, ownerIdentity := registerTestNode(t, rc)
 	targetID, _ := registerTestNode(t, rc)
 
 	// Create an enterprise invite-only network (only way to get invite rule)
@@ -157,7 +157,9 @@ func TestEnterpriseGateInvite(t *testing.T) {
 	}
 	netID := uint16(resp["network_id"].(float64))
 
-	// This should succeed (enterprise network)
+	// This should succeed (enterprise network). InviteToNetwork always signs
+	// (common@v0.5.7); sign as the owner/inviter.
+	setClientSigner(rc, ownerIdentity)
 	_, err = rc.InviteToNetwork(netID, ownerID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite on enterprise network should succeed: %v", err)
@@ -638,7 +640,7 @@ func TestDeleteNetworkCleansInvites(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	owner, _ := registerTestNode(t, rc)
+	owner, ownerIdentity := registerTestNode(t, rc)
 	target, targetID := registerTestNode(t, rc)
 
 	// Create invite-only enterprise network
@@ -648,7 +650,9 @@ func TestDeleteNetworkCleansInvites(t *testing.T) {
 	}
 	netID := uint16(resp["network_id"].(float64))
 
-	// Send invite to target
+	// Send invite to target. InviteToNetwork always signs (common@v0.5.7);
+	// sign as the owner/inviter.
+	setClientSigner(rc, ownerIdentity)
 	if _, err := rc.InviteToNetwork(netID, owner, target, TestAdminToken); err != nil {
 		t.Fatalf("invite: %v", err)
 	}
@@ -1824,7 +1828,10 @@ func TestAuditEnrichedTagsAndPolicy(t *testing.T) {
 	}
 }
 
-// TestAdminKicksAdmin verifies that an admin can kick another admin.
+// TestAdminKicksAdmin verifies the admin-kick privilege policy: an admin
+// may NOT kick another admin (privilege-escalation guard, PILOT-266), but
+// the owner may kick an admin. Admins may still be blocked from kicking the
+// owner.
 func TestAdminKicksAdmin(t *testing.T) {
 	t.Parallel()
 	env := NewTestEnv(t)
@@ -1897,13 +1904,26 @@ func TestAdminKicksAdmin(t *testing.T) {
 		t.Fatalf("promote admin2: %v", err)
 	}
 
-	// Admin1 kicks Admin2 (admin kicking admin — should succeed)
+	// Admin1 kicks Admin2 (admin kicking admin — must be REJECTED by the
+	// privilege-escalation guard added in PILOT-266).
 	setClientSigner(rc, admin1Identity)
 	_, err = rc.KickMember(netID, admin1ID, admin2ID, TestAdminToken)
-	if err != nil {
-		t.Fatalf("admin1 kick admin2: %v", err)
+	if err == nil {
+		t.Fatal("expected error: an admin must not be able to kick another admin")
 	}
-	t.Log("admin successfully kicked another admin")
+	if !strings.Contains(err.Error(), "admins cannot kick other admins") {
+		t.Fatalf("expected 'admins cannot kick other admins' error, got: %v", err)
+	}
+	t.Logf("admin correctly blocked from kicking another admin: %v", err)
+
+	// Owner kicks Admin2 (owner kicking admin — should succeed). This keeps
+	// the successful-kick code path under test.
+	setClientSigner(rc, ownerIdentity)
+	_, err = rc.KickMember(netID, ownerID, admin2ID, TestAdminToken)
+	if err != nil {
+		t.Fatalf("owner kick admin2: %v", err)
+	}
+	t.Log("owner successfully kicked an admin")
 
 	// Verify admin2 is no longer in the network
 	resp, err = rc.ListNodes(netID, TestAdminToken)
@@ -1919,6 +1939,7 @@ func TestAdminKicksAdmin(t *testing.T) {
 	}
 
 	// Admin cannot kick owner
+	setClientSigner(rc, admin1Identity)
 	_, err = rc.KickMember(netID, admin1ID, ownerID, TestAdminToken)
 	if err == nil {
 		t.Fatal("expected error kicking owner")

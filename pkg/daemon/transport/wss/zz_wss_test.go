@@ -106,9 +106,11 @@ func (fb *fakeBeacon) handle(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Send auth challenge with a fixed nonce so we can assert on it.
+	// Send auth challenge with a fixed nonce + timestamp so we can assert
+	// on the signed payload (beacon >= v0.2.6 binds ts into the signature).
 	nonce := "deadbeef12345678deadbeef12345678"
-	ch := map[string]string{"type": "auth_challenge", "nonce": nonce}
+	const ts int64 = 1700000000
+	ch := map[string]interface{}{"type": "auth_challenge", "nonce": nonce, "ts": ts}
 	chBytes, _ := json.Marshal(ch)
 	if err := conn.Write(ctx, websocket.MessageText, chBytes); err != nil {
 		fb.t.Logf("fake beacon: write challenge: %v", err)
@@ -154,7 +156,7 @@ func (fb *fakeBeacon) handle(w http.ResponseWriter, r *http.Request) {
 		conn.Close(websocket.StatusPolicyViolation, "bad sig b64")
 		return
 	}
-	signed := fmt.Sprintf("compat_auth:%d:%s", reply.NodeID, nonce)
+	signed := fmt.Sprintf("compat_auth:%d:%d:%s", reply.NodeID, ts, nonce)
 	if !ed25519.Verify(ed25519.PublicKey(pubBytes), []byte(signed), sigBytes) {
 		conn.Close(websocket.StatusPolicyViolation, "sig verify failed")
 		return

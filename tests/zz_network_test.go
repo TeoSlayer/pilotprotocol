@@ -253,7 +253,7 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	nodeA, _ := registerTestNode(t, rc)
+	nodeA, idA := registerTestNode(t, rc)
 	nodeB, idB := registerTestNode(t, rc)
 	nodeC, idC := registerTestNode(t, rc)
 
@@ -276,9 +276,10 @@ func TestNetworkInviteJoinRule(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error with non-member inviter, got nil")
 	}
-	rc.SetSigner(nil)
 
-	// A (member) invites B via new consent flow
+	// A (member) invites B via new consent flow. InviteToNetwork always
+	// signs (common@v0.5.7); sign as the inviter (A).
+	setClientSigner(rc, idA)
 	_, err = rc.InviteToNetwork(netID, nodeA, nodeB, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite B: %v", err)
