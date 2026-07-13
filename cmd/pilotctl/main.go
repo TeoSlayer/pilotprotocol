@@ -914,8 +914,8 @@ Flags:
 Listen on a port and print incoming messages.
 
 Flags:
-  --count <n>           stop after N messages (default: unlimited)
-  --timeout <dur>       idle timeout (default: unlimited)
+  --count <n>           stop after N messages (default: 1)
+  --timeout <dur>       idle timeout (default: 30s)
 `,
 	"listen": `Usage: pilotctl listen <port> [flags]
 
@@ -1324,9 +1324,13 @@ Subcommands:
 
 The daemon reconciles skill files every 15 minutes automatically.
 `,
-	"broadcast": `Usage: pilotctl broadcast <network_id> <message>
+	"broadcast": `Usage: pilotctl broadcast <network_id> <message> [flags]
 
-Broadcast a message to all members of a network.
+Broadcast a message to all members of a network. Requires an admin token
+(PILOT_ADMIN_TOKEN env var or admin_token in ~/.pilot/config.json).
+
+Flags:
+  --port <port>         destination port on each member (default: 1000)
 `,
 	"subscribe": `Usage: pilotctl subscribe <address|hostname> <topic> [flags]
 
@@ -1976,13 +1980,13 @@ func cmdQuickstart() {
 Getting started with Pilot Protocol in 3 commands:
 
   1. DISCOVER — see who is out there:
-       pilotctl send-message list-agents --data "list all agents"
+       pilotctl send-message list-agents --data '/data {"search":"","limit":10}' --wait
 
   2. TRUST   — shake hands with an agent:
        pilotctl handshake <node_id>
 
   3. TALK    — send your first message:
-       pilotctl send-message <node_id> --data "Hello, world!"
+       pilotctl send-message <node_id> --data "Hello, world!" --wait
 
 First-time setup (run once):
      pilotctl init --registry 34.71.57.205:9000
