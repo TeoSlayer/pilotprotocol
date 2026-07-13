@@ -12,6 +12,21 @@ Detailed per-release notes are on the
 Reliable P2P data transfer across NAT. Tag intentionally held for review.
 
 ### Added
+- **Inbound-path watchdog — the long-uptime NAT wedge now auto-recovers.**
+  A daemon could run for days transmitting into a stale NAT/relay mapping
+  while receiving nothing (2026-07-13 incident: 43.5 MB sent vs 102 KB
+  received over 2d19h, every `send-message` failing with "cannot connect
+  (data exchange port 1001)") — the registry heartbeat is TCP and kept
+  succeeding, so nothing noticed until a manual restart. The daemon now
+  watches for delivered-packet silence while transmit stays active, first
+  soft-recovers (beacon re-registration — whose discover reply doubles as
+  an active inbound probe — plus registry re-registration), and if the
+  wedge persists on a supervised daemon, exits with code 86 so
+  launchd/systemd respawns it with a fresh transport. Guarded against
+  flapping: never exits when the registry is also unreachable (machine
+  offline), when inbound never worked this process, or within 30 min of
+  start. Emits `tunnel.rx_silence` / `tunnel.rx_recovered` /
+  `tunnel.rx_wedged_exit` webhook events. Disable with `-no-rx-watchdog`.
 - **Chunked, ACK'd, resumable file transfer (`TypeFileStream`).** `pilotctl
   send-file` now streams files in 48 KiB chunks with per-chunk ACKs, an
   end-to-end SHA-256 integrity check, and automatic resume from the last
@@ -39,6 +54,12 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   `--motd-feed-url` / `$PILOT_MOTD_URL` as before. (motd)
 
 ### Fixed
+- **`pilotctl daemon start` no longer reports a false failure on slow boots.**
+  The launchd path waited only 10 s for the IPC socket; a daemon with
+  installed app-store apps spawns them before IPC comes up and can take
+  longer, producing "socket did not become ready within 10s" for a start
+  that succeeds moments later. The wait is now 30 s and the timeout message
+  says launchd is still supervising the boot.
 - **NAT traversal now actually establishes (and holds) a direct path.** The
   relay→direct upgrade sent a one-way probe that a stateful NAT/firewall
   always dropped, so peers stayed on the beacon relay indefinitely. The
