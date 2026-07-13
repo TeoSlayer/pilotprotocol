@@ -507,7 +507,7 @@ func TestPhase2IntegrationInviteAuditWebhook(t *testing.T) {
 	defer rc.Close()
 
 	// Shared creator node
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 
 	// Open network for auto-join (Unit 4)
 	openResp, err := rc.CreateNetwork(creatorID, "integration-open-net", "open", "", TestAdminToken, false)
@@ -535,7 +535,9 @@ func TestPhase2IntegrationInviteAuditWebhook(t *testing.T) {
 		cfg.AdminToken = TestAdminToken
 	})
 
-	// Invite B to invite-only network (Unit 3)
+	// Invite B to invite-only network (Unit 3). InviteToNetwork always signs
+	// (common@v0.5.7); sign as the creator/inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(invNetID, creatorID, infoB.Daemon.NodeID(), TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite B: %v", err)

@@ -25,7 +25,7 @@ func TestInviteRequiresAcceptance(t *testing.T) {
 	defer cleanup()
 
 	// Creator node
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create invite network: %v", err)
@@ -37,6 +37,8 @@ func TestInviteRequiresAcceptance(t *testing.T) {
 	targetID, targetIdentity := registerTestNode(t, rc)
 
 	// Send invite
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite to network: %v", err)
@@ -99,7 +101,7 @@ func TestInviteReject(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "reject-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -109,6 +111,8 @@ func TestInviteReject(t *testing.T) {
 	targetID, targetIdentity := registerTestNode(t, rc)
 
 	// Invite
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
@@ -146,7 +150,7 @@ func TestInviteDedup(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "dedup-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -156,6 +160,8 @@ func TestInviteDedup(t *testing.T) {
 	targetID, targetIdentity := registerTestNode(t, rc)
 
 	// Invite twice
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("first invite: %v", err)
@@ -177,13 +183,16 @@ func TestInviteDedup(t *testing.T) {
 	}
 }
 
-// TestInviteRequiresAdmin verifies that invite_to_network requires admin token.
+// TestInviteRequiresAdmin verifies the invite authorization contract when no
+// admin token is supplied: the network owner may invite using only their
+// signature (ownership authorizes the invite), but an unauthorized outsider
+// (neither owner/admin nor bearing an admin token) is rejected.
 func TestInviteRequiresAdmin(t *testing.T) {
 	t.Parallel()
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "admin-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -191,13 +200,24 @@ func TestInviteRequiresAdmin(t *testing.T) {
 	netID := uint16(resp["network_id"].(float64))
 
 	targetID, _ := registerTestNode(t, rc)
+	outsiderID, outsiderIdentity := registerTestNode(t, rc)
 
-	// Try invite without admin token
-	_, err = rc.InviteToNetwork(netID, creatorID, targetID, "")
-	if err == nil {
-		t.Fatal("expected error when inviting without admin token, got nil")
+	// Owner invites via signature only (no admin token) — must succeed,
+	// ownership is sufficient authorization. InviteToNetwork always signs
+	// (common@v0.5.7); sign as the owner.
+	setClientSigner(rc, creatorIdentity)
+	if _, err = rc.InviteToNetwork(netID, creatorID, targetID, ""); err != nil {
+		t.Fatalf("owner invite via signature should succeed: %v", err)
 	}
-	t.Logf("correctly rejected: %v", err)
+
+	// Unauthorized outsider invites via signature only (no admin token) —
+	// must be rejected: not owner/admin and no admin token.
+	setClientSigner(rc, outsiderIdentity)
+	if _, err = rc.InviteToNetwork(netID, outsiderID, targetID, ""); err == nil {
+		t.Fatal("expected error when a non-authorized node invites without admin token, got nil")
+	} else {
+		t.Logf("outsider correctly rejected: %v", err)
+	}
 }
 
 // TestInviteNonMemberCantInvite verifies that a non-member cannot invite others.
@@ -213,10 +233,13 @@ func TestInviteNonMemberCantInvite(t *testing.T) {
 	}
 	netID := uint16(resp["network_id"].(float64))
 
-	outsiderID, _ := registerTestNode(t, rc)
+	outsiderID, outsiderIdentity := registerTestNode(t, rc)
 	targetID, _ := registerTestNode(t, rc)
 
 	// Try invite from non-member (without admin token — uses signature only)
+	// InviteToNetwork always signs (common@v0.5.7); sign as the outsider so the
+	// request reaches the registry and is rejected for non-membership.
+	setClientSigner(rc, outsiderIdentity)
 	_, err = rc.InviteToNetwork(netID, outsiderID, targetID, "")
 	if err == nil {
 		t.Fatal("expected error when non-member invites via signature, got nil")
@@ -250,7 +273,7 @@ func TestInvitePersistence(t *testing.T) {
 		t.Fatalf("dial registry 1: %v", err)
 	}
 
-	creatorID, _ := registerTestNode(t, rc1)
+	creatorID, creatorIdentity := registerTestNode(t, rc1)
 	resp, err := rc1.CreateNetwork(creatorID, "persist-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -259,6 +282,8 @@ func TestInvitePersistence(t *testing.T) {
 
 	targetID, targetIdentity := registerTestNode(t, rc1)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc1, creatorIdentity)
 	_, err = rc1.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
@@ -306,7 +331,7 @@ func TestInviteInboxClearedAfterPoll(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "inbox-clear-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -314,6 +339,8 @@ func TestInviteInboxClearedAfterPoll(t *testing.T) {
 	netID := uint16(resp["network_id"].(float64))
 
 	targetID, targetIdentity := registerTestNode(t, rc)
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
@@ -385,9 +412,12 @@ func TestInviteToNonExistentNetwork(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	inviterID, _ := registerTestNode(t, rc)
+	inviterID, inviterIdentity := registerTestNode(t, rc)
 	targetID, _ := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter so the
+	// request reaches the registry and fails with network-not-found.
+	setClientSigner(rc, inviterIdentity)
 	_, err := rc.InviteToNetwork(9999, inviterID, targetID, TestAdminToken)
 	if err == nil {
 		t.Fatal("expected error when inviting to non-existent network, got nil")
@@ -401,7 +431,7 @@ func TestInviteTargetAlreadyMember(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "already-member-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -411,12 +441,16 @@ func TestInviteTargetAlreadyMember(t *testing.T) {
 	targetID, targetIdentity := registerTestNode(t, rc)
 
 	// Invite and accept to make target a member
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	setClientSigner(rc, targetIdentity)
 	rc.PollInvites(targetID)
 	rc.RespondInvite(targetID, netID, true)
 
-	// Try to invite again — should fail since target is now a member
+	// Try to invite again — should fail since target is now a member.
+	// Restore the inviter's signer (the target's signer was set above).
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err == nil {
 		t.Fatal("expected error when inviting node that is already a member, got nil")
@@ -430,7 +464,7 @@ func TestInviteOpenNetworkRejected(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "open-invite-test", "open", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create open network: %v", err)
@@ -439,6 +473,9 @@ func TestInviteOpenNetworkRejected(t *testing.T) {
 
 	targetID, _ := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter so the
+	// request reaches the registry and is rejected for a non-invite-only network.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err == nil {
 		t.Fatal("expected error when inviting to non-invite-only network, got nil")
@@ -452,8 +489,11 @@ func TestInviteMultipleNetworksAcceptAll(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	targetID, targetIdentity := registerTestNode(t, rc)
+
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 
 	const numNetworks = 3
 	netIDs := make([]uint16, numNetworks)
@@ -515,12 +555,16 @@ func TestInviteConcurrentAccepts(t *testing.T) {
 
 	regAddr := reg.Addr().String()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "concurrent-accept-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 	netID := uint16(resp["network_id"].(float64))
+
+	// InviteToNetwork always signs (common@v0.5.7); the creator issues all invites
+	// on rc, so keep the creator's signer on rc for the duration of the loop.
+	setClientSigner(rc, creatorIdentity)
 
 	const n = 5
 	nodes := make([]struct {
@@ -582,8 +626,11 @@ func TestInviteInboxCapEnforced(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	targetID, _ := registerTestNode(t, rc)
+
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 
 	const cap = 100
 	for i := 0; i < cap; i++ {
@@ -618,7 +665,7 @@ func TestInviteChain(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "chain-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -629,6 +676,8 @@ func TestInviteChain(t *testing.T) {
 	nodeB, identityB := registerTestNode(t, rc)
 
 	// Creator → A
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter (creator).
+	setClientSigner(rc, creatorIdentity)
 	rc.InviteToNetwork(netID, creatorID, nodeA, TestAdminToken)
 	setClientSigner(rc, identityA)
 	rc.PollInvites(nodeA)
@@ -697,7 +746,7 @@ func TestInviteDoubleAcceptRace(t *testing.T) {
 
 	regAddr := reg.Addr().String()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "double-accept-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -706,6 +755,8 @@ func TestInviteDoubleAcceptRace(t *testing.T) {
 
 	targetID, targetIdentity := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
@@ -772,7 +823,7 @@ func TestInviteAfterTargetDeregister(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "deregister-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -781,6 +832,8 @@ func TestInviteAfterTargetDeregister(t *testing.T) {
 
 	targetID, targetIdentity := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
@@ -814,7 +867,7 @@ func TestInviteNetworkDeletedWhilePending(t *testing.T) {
 	rc, _, cleanup := startTestRegistryWithAdmin(t)
 	defer cleanup()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "delete-while-pending", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -823,6 +876,8 @@ func TestInviteNetworkDeletedWhilePending(t *testing.T) {
 
 	targetID, targetIdentity := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)
