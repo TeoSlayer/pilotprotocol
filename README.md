@@ -300,7 +300,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 **Uninstall:** `curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall`
 
-**From source** (requires Go 1.25+): `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
+**From source** (requires Go 1.25+): `git clone https://github.com/pilot-protocol/pilotprotocol.git && cd pilotprotocol && make build`
 
 </details>
 
