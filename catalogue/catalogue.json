@@ -706,6 +706,40 @@
         }
       },
       "publisher": "ed25519:ii6QAc8qZB4NvbOXqnLfnv+OhPqepuK0BISAv9jM5x0="
+    },
+    {
+      "id": "io.pilot.tldr",
+      "version": "1.13.1",
+      "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+      "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
+      "display_name": "Tldr",
+      "vendor": "Pilot Protocol",
+      "categories": [],
+      "bundle_size": 5355931,
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
+      "license": "",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
+      "metadata_sha256": "3b686d075a69b2b85e9cb5caa61207adb8f870ffa5d01eb1f16e256a11068198",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+          "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-arm64.tar.gz",
+          "bundle_sha256": "7379ce8068d5031e38d7e7489e81d45123d62ae3ee814c1d2c8231a421e229c8"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-amd64.tar.gz",
+          "bundle_sha256": "b1505b6eb762be844f7005803b222ef1b9abec879f1621bcfb1d3f8122eedbd2"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-arm64.tar.gz",
+          "bundle_sha256": "9cd334fcedbb486c08eb26205d80caf0f63754f8bd3909e0149ee24dcc709a56"
+        }
+      },
+      "publisher": "ed25519:PWQdFC8oGtlYsGhVtjMcR1CfOKKa0O3TtKtFD8vrD90="
     }
   ]
 }
