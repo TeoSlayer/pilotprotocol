@@ -12,7 +12,7 @@ Thank you for your interest in contributing to Pilot Protocol. This document cov
 ### Setup
 
 ```bash
-git clone git@github.com:TeoSlayer/pilotprotocol.git
+git clone git@github.com:pilot-protocol/pilotprotocol.git
 cd pilotprotocol
 go build ./...
 ```

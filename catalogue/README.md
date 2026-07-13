@@ -195,7 +195,7 @@ build time without a code change:
 
 ```bash
 go build -ldflags \
-  "-X github.com/TeoSlayer/pilotprotocol/internal/catalogtrust.publicKeyB64=<new-b64-pubkey>" \
+  "-X github.com/pilot-protocol/pilotprotocol/internal/catalogtrust.publicKeyB64=<new-b64-pubkey>" \
   ./cmd/pilotctl ./cmd/daemon
 ```
 
