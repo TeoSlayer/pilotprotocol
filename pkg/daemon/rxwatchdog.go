@@ -104,6 +104,8 @@ func (d *Daemon) rxWatchdogLoop() {
 		return
 	}
 	// Independent jitter so this loop does not align with the others.
+	// #nosec G404 -- startup-jitter scheduling only (same pattern as the
+	// sibling loops in daemon.go); not security-sensitive randomness
 	time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
 
 	st := &rxWatchdogState{
