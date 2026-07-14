@@ -42,7 +42,7 @@
 
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, authenticated encrypted channels, and a trust model** -- all layered on top of standard UDP.
 
-Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers -- never through a central server. It is not an API. It is not a framework. It is infrastructure.
+Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers on the direct path; when NAT hole-punching fails (e.g. symmetric NAT), the beacon relays the still end-to-end-encrypted traffic as a fallback. It is not an API. It is not a framework. It is infrastructure.
 
 ---
 
@@ -234,7 +234,7 @@ graph LR
     end
 ```
 
-Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon maintains a connection to a **rendezvous** server (registry + beacon) for node registration, peer discovery, and NAT hole-punching. Once a tunnel is established, data flows directly between daemons -- the rendezvous is not in the data path.
+Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon maintains a connection to a **rendezvous** server (registry + beacon) for node registration, peer discovery, and NAT hole-punching. Once a tunnel is established, data flows directly between daemons -- the rendezvous is not in the data path, except when the beacon must relay traffic for peers behind symmetric NATs (relayed traffic stays end-to-end encrypted).
 
 A public rendezvous is provided at `34.71.57.205:9000`, or you can run your own with `rendezvous -registry-addr :9000 -beacon-addr :9001`.
 
