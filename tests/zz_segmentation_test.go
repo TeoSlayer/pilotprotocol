@@ -14,6 +14,7 @@ import (
 // is automatically segmented into MSS-sized chunks by the daemon and
 // reassembled correctly on the receiver side.
 func TestLargeWriteSegmentation(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

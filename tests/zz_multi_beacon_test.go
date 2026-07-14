@@ -166,6 +166,7 @@ func TestMultiBeaconCommaSeparatedRegisters(t *testing.T) {
 // them. We don't assert WHICH beacon each picked (that's an internal
 // detail) — we assert that traffic survives the multi-beacon configuration.
 func TestMultiBeaconTwoDaemonsExchangeTraffic(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	b1 := startBeacon(t)
 	b2 := startBeacon(t)

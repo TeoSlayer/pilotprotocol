@@ -111,6 +111,7 @@ func startCompatDaemon(t *testing.T, regAddr, beaconAddr, wssURL, email string) 
 // SYN in BeaconMsgRelay — pre-fix, this dial timed out because the
 // raw frame was dropped at the beacon as unknown protocol.
 func TestCompatDaemonDialUDPPeerThroughWSS(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	// Two-step bootstrap: the beacon's WSS auth needs the registry's

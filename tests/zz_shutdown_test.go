@@ -109,6 +109,7 @@ func TestGracefulShutdown(t *testing.T) {
 }
 
 func TestConnectionCleanupOnShutdown(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

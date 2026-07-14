@@ -19,6 +19,7 @@ import (
 // 3. Both sides read and verify the other's sequence numbers
 // 4. Run for 100 blocks each direction, verify no data corruption
 func TestConcurrentBidirectionalReadWrite(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

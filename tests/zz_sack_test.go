@@ -58,6 +58,7 @@ func TestSACKEncoding(t *testing.T) {
 // TestSACKTransfer verifies that large transfers with SACK enabled complete correctly.
 // This test sends a 128KB payload through an echo server and verifies integrity.
 func TestSACKTransfer(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

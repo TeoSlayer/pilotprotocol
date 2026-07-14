@@ -99,11 +99,15 @@ func TestSetTagsSignatureRequired(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error without signature")
 	}
-	// The server returns "signature required for authenticated node" but the
-	// handleMessage wrapper may convert it to "request failed". Either indicates
-	// the unsigned request was rejected.
+	// The unsigned request must be rejected. It may be rejected server-side
+	// ("signature required for authenticated node", possibly wrapped as
+	// "request failed") OR client-side — the registry client now refuses to
+	// send an authenticated mutation with "no signer configured" before it
+	// reaches the wire. All three mean the same thing: no unsigned SetTags.
 	errStr := err.Error()
-	if !strings.Contains(errStr, "signature") && !strings.Contains(errStr, "request failed") {
+	if !strings.Contains(errStr, "signature") &&
+		!strings.Contains(errStr, "request failed") &&
+		!strings.Contains(errStr, "no signer") {
 		t.Fatalf("expected signature/auth error, got: %v", err)
 	}
 }
@@ -235,6 +239,7 @@ func TestSetTagsPersistence(t *testing.T) {
 }
 
 func TestSetTagsDashboardAPI(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")

@@ -11,6 +11,7 @@ import (
 // into larger segments. We send many tiny writes and verify the receiver gets
 // the data correctly (the coalescing is transparent to the application).
 func TestNagleCoalescing(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

@@ -513,6 +513,7 @@ func TestCmdPing(t *testing.T) {
 // ======================
 
 func TestCmdHandshakePendingApproveReject(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -792,6 +793,7 @@ func TestCmdRespondHandshakeUnsigned(t *testing.T) {
 // ======================
 
 func TestCmdListen(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 	a := env.AddDaemon()

@@ -18,6 +18,7 @@ import (
 // TestIPv6EndToEnd verifies that all Pilot components work over IPv6 loopback.
 // The registry binds on [::1] and tunnels communicate over IPv6.
 func TestIPv6EndToEnd(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	if os.Getenv("CI") != "" {
 		t.Skip("skipping in CI: IPv6 UDP routing unavailable on GitHub Actions runners")

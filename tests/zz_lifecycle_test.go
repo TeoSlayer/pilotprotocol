@@ -151,6 +151,7 @@ func TestSimultaneousClose(t *testing.T) {
 
 // TestMultipleListeners verifies a daemon can listen on multiple ports simultaneously.
 func TestMultipleListeners(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -326,6 +327,7 @@ func TestConnectionAfterPeerRestart(t *testing.T) {
 
 // TestTimeWaitCleanup verifies connections are cleaned up after TIME_WAIT.
 func TestTimeWaitCleanup(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

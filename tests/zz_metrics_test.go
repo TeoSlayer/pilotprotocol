@@ -111,6 +111,7 @@ func metricsRegisterNodeWithIdentity(t *testing.T, addr string) (*icrypto.Identi
 }
 
 func TestMetricsEndpointExists(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -147,6 +148,7 @@ func TestMetricsEndpointExists(t *testing.T) {
 }
 
 func TestMetricsRequestCounting(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -205,6 +207,7 @@ func TestMetricsRequestCounting(t *testing.T) {
 }
 
 func TestMetricsGauges(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -270,6 +273,7 @@ func TestMetricsGauges(t *testing.T) {
 }
 
 func TestMetricsErrorCounting(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -314,6 +318,7 @@ func TestMetricsErrorCounting(t *testing.T) {
 }
 
 func TestMetricsEnterprise(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -440,6 +445,7 @@ func extractLine(body, prefix string) string {
 
 // TestPerNetworkMetrics verifies Grafana-ready per-network labeled metrics.
 func TestPerNetworkMetrics(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
