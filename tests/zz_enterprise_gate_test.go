@@ -564,6 +564,7 @@ func TestAdminDeregister(t *testing.T) {
 // TestClearKeyExpiry verifies that a key expiry can be cleared, re-enabling
 // heartbeats that would otherwise be blocked.
 func TestClearKeyExpiry(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	clk := newTestClock()
@@ -4476,6 +4477,7 @@ func TestJoinMaxMembersEnforced(t *testing.T) {
 // TestRegistryWebhookDispatch verifies that the registry dispatches audit events
 // to a configured webhook URL.
 func TestRegistryWebhookDispatch(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	// Collect webhook events
@@ -4612,6 +4614,7 @@ func TestRegistryWebhookRequiresAdmin(t *testing.T) {
 // - ExternalID persistence across restart
 // - Backwards compatibility (old nodes without identity still work)
 func TestExternalIdentityIntegration(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	tmpDir, err := os.MkdirTemp("/tmp", "w4-identity-")
