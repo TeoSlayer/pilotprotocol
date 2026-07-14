@@ -15,6 +15,7 @@ import (
 )
 
 func TestHandshakeMutualAutoApprove(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	// Two nodes send handshake requests to each other → auto-approved (mutual)
 
@@ -257,6 +258,7 @@ func TestHandshakePendingApproveReject(t *testing.T) {
 }
 
 func TestHandshakeNetworkTrust(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	// Two nodes on the same non-backbone network should auto-approve handshakes
 
@@ -358,6 +360,7 @@ func TestHandshakeNetworkTrust(t *testing.T) {
 
 // TestHandshakeRevokeTrust verifies trust can be revoked after being established.
 func TestHandshakeRevokeTrust(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

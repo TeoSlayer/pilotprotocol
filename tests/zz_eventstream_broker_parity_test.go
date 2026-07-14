@@ -206,6 +206,7 @@ func TestBrokerParityNormal(t *testing.T) {
 // We assert: delivered < 400 (rate-limit fired) AND delivered ≥ 150
 // (burst was honored — not catastrophically dropping everything).
 func TestBrokerParityRateLimit(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -744,6 +745,7 @@ func TestBrokerParityLockContention(t *testing.T) {
 // publishes 5 events. The webhook collector must observe 5
 // pubsub.published events for our topic.
 func TestBrokerParityWebhooks(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	collector := newWebhookCollector()
 	defer collector.Close()
