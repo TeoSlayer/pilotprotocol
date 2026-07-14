@@ -49,6 +49,7 @@ func TestSYNFromUntrustedNodeRejected(t *testing.T) {
 // TestSYNFromTrustedNodeAccepted verifies that after establishing mutual trust
 // via handshake, two daemons can connect.
 func TestSYNFromTrustedNodeAccepted(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -169,6 +170,7 @@ func TestSYNFromSameNetworkAccepted(t *testing.T) {
 // TestSYNRejectionWebhook verifies that a syn.rejected webhook event is emitted
 // when an untrusted node attempts to connect.
 func TestSYNRejectionWebhook(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	collector := newWebhookCollector()
 	defer collector.Close()
