@@ -746,33 +746,33 @@
       "version": "1.0.0",
       "description": "Email infrastructure for AI agents. primitive.signup provisions a free account + a managed *.primitive.email inbox in ONE call (no email, no code) and caches the API key locally; from then on the adapter injects it on every call and the agent sends, receives, replies to, and searches real email over one REST API. 57 methods reachable on the free plan; Functions, Wake, x402 payments and custom domains are marked gated until you upgrade.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "fb0ad9f056ed8f5be238bc3d9175ff327bede1ee306522cd6497484370046852",
+      "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f",
       "display_name": "Primitive",
       "vendor": "Primitive",
       "categories": [
         "communications"
       ],
-      "bundle_size": 5239847,
+      "bundle_size": 5241262,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.primitive",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.primitive/metadata.json",
-      "metadata_sha256": "2a12e454310d7afa5beffac02d62aa262948adda1aa4fd9d1108915fc47e4e98",
+      "metadata_sha256": "38edbf643443b5ebfb8ae4645bd26408dbbb6babacbfbc64f63ba03074bb096c",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "fb0ad9f056ed8f5be238bc3d9175ff327bede1ee306522cd6497484370046852"
+          "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f"
         },
         "linux/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "9b381caa211c95bd64cff0c1039342887693fb5abf701a0c0368b04693dab421"
+          "bundle_sha256": "f16140b21501723ec5e1035716c686a5077a6768cda4e2ed910a0e32f443a917"
         },
         "darwin/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "0fd638e164fdb73268023e17b5ba35fd044c6a5216b7ec021125cd0c2ae4a0f0"
+          "bundle_sha256": "d4353482cb03a6af98a008533e0a7d118eb8317694baa1385cd2849750104df9"
         },
         "darwin/arm64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "4f1c06b70d9f17e2395abc4fe383efa4bd1047af53c6758316390db2e85a033f"
+          "bundle_sha256": "7a5cf1c8205c879de191040d8418f3078a7aee5a6003b620a83af9d66418ae9f"
         }
       },
       "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
