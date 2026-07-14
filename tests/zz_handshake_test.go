@@ -428,6 +428,7 @@ func TestHandshakeRevokeTrust(t *testing.T) {
 
 // TestHandshakeTrustPersistence verifies trust survives daemon restart.
 func TestHandshakeTrustPersistence(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -490,6 +491,7 @@ func TestHandshakeTrustPersistence(t *testing.T) {
 
 // TestHandshakeRejectReason verifies rejection includes a reason.
 func TestHandshakeRejectReason(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -557,6 +559,7 @@ func TestHandshakeRejectReason(t *testing.T) {
 
 // TestHandshakeTrustLoadVerify tests that loadTrust correctly populates trust state from file.
 func TestHandshakeTrustLoadVerify(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

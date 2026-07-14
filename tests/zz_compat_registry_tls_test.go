@@ -149,6 +149,7 @@ func TestCompatRegistryTLSPinned(t *testing.T) {
 // production path against a real Let's Encrypt cert relies on this
 // rejection to detect MITM attempts.
 func TestCompatRegistryTrustSystemRejectsBadCert(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	// Bring up a TLS registry with an auto self-signed cert (untrusted

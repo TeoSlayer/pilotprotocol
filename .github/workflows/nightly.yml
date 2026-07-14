@@ -11,6 +11,20 @@ name: nightly
 #
 # A failure here does NOT block PRs but DOES post-mortem regressions
 # the PR-CI Test step let through.
+#
+# REAL-NETWORK TESTS SELF-SKIP ON HOSTED RUNNERS:
+#   A subset of ./tests/ spins up real multi-daemon UDP/NAT/WSS/HTTP
+#   networking that GitHub's hosted ubuntu-latest runners cannot sustain
+#   (they fail with dial/deadline/datagram timeouts even though the code
+#   is correct). Those tests call requireRealNetwork(t) — see
+#   tests/zz_realnet_gate_test.go — which t.Skip()s them whenever
+#   GITHUB_ACTIONS=true and PILOT_REAL_NETWORK is not set to "1". They
+#   appear as visible SKIPs in the log here, and still run in full:
+#     - locally (GITHUB_ACTIONS unset), and
+#     - on a self-hosted runner, or any runner, with PILOT_REAL_NETWORK=1.
+#   The go test commands below deliberately do NOT set PILOT_REAL_NETWORK,
+#   so these tests skip here. To exercise them on CI, move this workflow
+#   to a self-hosted runner and add PILOT_REAL_NETWORK=1 to the env.
 
 on:
   schedule:

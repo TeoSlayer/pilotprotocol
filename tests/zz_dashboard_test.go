@@ -77,6 +77,7 @@ func TestDashboardStatsWithNodes(t *testing.T) {
 }
 
 func TestDashboardHTTPEndpoints(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
@@ -312,6 +313,7 @@ func TestDashboardAPIShape(t *testing.T) {
 // dashboard renderer. Pinning the lockdown so a future regression that
 // re-opens the GET path fails this test.
 func TestDashboardBannerEndpoint(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	const adminToken = "banner-test-admin-token"

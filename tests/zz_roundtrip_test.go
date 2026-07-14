@@ -34,6 +34,7 @@ import (
 // long-running rekey, registry failover, plugin shutdown. Those have
 // dedicated tests; this one is the smoke gate.
 func TestDaemonRoundtripHandshakeAndSendMessage(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	env := NewTestEnv(t)

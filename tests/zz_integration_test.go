@@ -460,6 +460,7 @@ func TestIntegration_CEFExportRoundTrip(t *testing.T) {
 // to the identity webhook, and the external_id is stored on the node.
 
 func TestIntegration_IdentityWebhookVerification(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	idp := newIdentityProviderMock(true, "user@corp.example.com", "")
@@ -512,6 +513,7 @@ func TestIntegration_IdentityWebhookVerification(t *testing.T) {
 // ============================================================
 
 func TestIntegration_IdentityWebhookRejection(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	idp := newIdentityProviderMock(false, "", "invalid token signature")
@@ -564,6 +566,7 @@ func TestIntegration_IdentityWebhookRejection(t *testing.T) {
 // histogram buckets.
 
 func TestIntegration_PrometheusMetricsScrape(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
@@ -668,6 +671,7 @@ func TestIntegration_PrometheusMetricsScrape(t *testing.T) {
 // ============================================================
 
 func TestIntegration_HealthzEndpoint(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
@@ -974,6 +978,7 @@ func TestIntegration_BlueprintProvisioningE2E(t *testing.T) {
 // TDD: Configure webhook to a 500-returning server, verify events land in DLQ.
 
 func TestIntegration_WebhookDLQWithRealServer(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	var requestCount int
@@ -1064,6 +1069,7 @@ func TestIntegration_WebhookDLQWithRealServer(t *testing.T) {
 // ============================================================
 
 func TestIntegration_MetricsReflectOperations(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
@@ -1377,6 +1383,7 @@ func TestIntegration_SplunkHECAuditEvents(t *testing.T) {
 // with RS256, and validate it through the registry.
 
 func TestIntegration_RS256JWTValidation(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	// Generate RSA key pair
@@ -1474,6 +1481,7 @@ func createRS256JWT(t *testing.T, key *rsa.PrivateKey, claims map[string]interfa
 // for every single validation (caching should reduce calls).
 
 func TestIntegration_JWKSCaching(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	secret := []byte("caching-test-secret-key-123456")

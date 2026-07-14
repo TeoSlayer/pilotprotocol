@@ -11,6 +11,7 @@ import (
 // TestDriverListenAccept tests the full driver Listen → Accept → Read/Write path
 // and verifies Listener.Addr, Conn.LocalAddr, Conn.RemoteAddr, pilotAddr.Network.
 func TestDriverListenAccept(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 	a := env.AddDaemon()

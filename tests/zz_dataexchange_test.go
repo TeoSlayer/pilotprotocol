@@ -16,6 +16,7 @@ import (
 )
 
 func TestDataExchange(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

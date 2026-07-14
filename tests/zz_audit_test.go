@@ -45,6 +45,7 @@ func (b *syncLogBuf) snapshot() *bytes.Buffer {
 
 // TestAuditLogAPI tests the get_audit_log API endpoint (the ring buffer, not slog).
 func TestAuditLogAPI(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")

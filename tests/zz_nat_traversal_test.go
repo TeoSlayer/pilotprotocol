@@ -127,6 +127,7 @@ func TestBeaconPunchRequest(t *testing.T) {
 // TestBeaconRelay verifies relay mode: data goes through beacon when
 // peers can't communicate directly (simulates symmetric NAT).
 func TestBeaconRelay(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

@@ -407,6 +407,7 @@ func TestSnapshotSaveLoad(t *testing.T) {
 
 // TestManualSnapshotTrigger validates the manual snapshot trigger via HTTP endpoint.
 func TestManualSnapshotTrigger(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	snapDir := t.TempDir()
 	snapPath := filepath.Join(snapDir, "registry-snapshot.json")

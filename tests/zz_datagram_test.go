@@ -14,6 +14,7 @@ import (
 
 // TestUnicastDatagram verifies point-to-point datagram delivery.
 func TestUnicastDatagram(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -134,6 +135,7 @@ func TestBroadcastExcludesSender(t *testing.T) {
 // TestDatagramPortFiltering verifies datagrams to wrong port are not delivered
 // to a specific port listener.
 func TestDatagramPortFiltering(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 
@@ -177,6 +179,7 @@ func TestDatagramPortFiltering(t *testing.T) {
 
 // TestMultipleDatagrams verifies multiple datagrams delivered in order.
 func TestMultipleDatagrams(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

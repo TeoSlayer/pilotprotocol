@@ -126,8 +126,14 @@ func TestWaitForTrustFastPathAfterTrust(t *testing.T) {
 	if !trusted {
 		t.Errorf("WaitForTrust(trusted, 0) = false, want true (trust already established)")
 	}
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("WaitForTrust(trusted, 0) took %v, want <200ms (should be fast path)", elapsed)
+	// Fast path: already-trusted returns without entering the poll loop
+	// (the slow path uses a multi-second timeout — see
+	// TestWaitForTrustBlocksUntilApproved's 5000ms). 200ms was too tight and
+	// flaked under CI/full-suite load (observed 269ms); 2s still cleanly
+	// distinguishes an immediate return from any polling while tolerating a
+	// loaded machine.
+	if elapsed > 2*time.Second {
+		t.Errorf("WaitForTrust(trusted, 0) took %v, want <2s (should be fast path, not polling)", elapsed)
 	}
 }
 

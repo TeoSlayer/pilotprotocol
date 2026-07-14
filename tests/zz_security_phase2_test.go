@@ -83,6 +83,7 @@ func TestRateLimiterBucketCapEvictsStaleEntries(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRegistryNodeCountCapRejectsAtMax(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	s := startTestServer(t)
 	defer s.Close()
@@ -169,6 +170,7 @@ func TestRegistryNodeCountCapAllowsReRegistration(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBeaconNodeCapRejectsNewAtMax(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	// We can't easily set the cap from outside (it's a const), so we test
 	// the TTL reaping behavior instead. With maxBeaconNodes=100_000 we can't
@@ -228,6 +230,7 @@ func TestRelayOversizedPayloadDropped(t *testing.T) {
 }
 
 func TestRelayNormalSizePayloadDelivered(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	s, addr := startTestBeacon(t)
 	defer s.Close()
@@ -422,6 +425,7 @@ func TestSecurityPhase2NormalRegistrationStillWorks(t *testing.T) {
 }
 
 func TestSecurityPhase2NormalBeaconDiscoverStillWorks(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	s, addr := startTestBeacon(t)
 	defer s.Close()
