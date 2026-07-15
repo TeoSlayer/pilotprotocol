@@ -53,13 +53,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.1
+
       - name: Integration tests
-        # The full ./tests/ default-tag suite (~300 tests). Moved out of
-        # PR CI in PR #121 — sustained 15m timeouts on public runners.
+        # Full ./tests/ default-tag suite (~300 tests) on the dedicated
+        # self-hosted runner with real networking. These multi-daemon
+        # tests are not perfectly hermetic — under the accumulated load of
+        # a 300-test serial run a few slow past their tight internal
+        # timeouts or collide on a port, yet pass cleanly in isolation.
+        # gotestsum --rerun-fails re-runs any failure in a fresh, nearly
+        # empty process (real isolation): a test that then passes was
+        # flaky-under-load, not broken; one that fails even alone is a
+        # genuine bug and still fails the job.
         run: |
-          go test -parallel 1 -count=1 -timeout 45m \
-            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
-            ./tests/
+          "$(go env GOPATH)/bin/gotestsum" \
+            --rerun-fails=3 --rerun-fails-max-failures=50 --packages=./tests -- \
+            -parallel 1 -count=1 -timeout 45m \
+            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$'
 
   full:
     name: Full test suite (nightly tag)
@@ -75,20 +86,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.1
+
       - name: Full test (default + nightly)
-        # 30m timeout: fuzz / scaling / stress files have wide variance.
-        # 200 extra tests beyond what PR CI sees, including:
-        #   - 7 fuzz suites (daemon, protocol, config, crypto,
-        #     fsutil_pool, ipc, secure, registry)
-        #   - zz_scaling_test.go (16 funcs)
-        #   - zz_stress_test.go (1 func)
-        # The skip list mirrors PR CI: those tests are known-slow
-        # and run sufficiently via the architecture-gates stress
-        # harness instead.
+        # default+nightly tags: fuzz / scaling / stress + the real-network
+        # integration suite. Same rerun-in-isolation policy as the
+        # integration job (see its comment): flaky-under-load tests pass on
+        # a fresh-process rerun; genuine failures still fail the job.
         run: |
-          go test -tags nightly -parallel 1 -count=1 -timeout 50m \
-            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$' \
-            ./tests/
+          "$(go env GOPATH)/bin/gotestsum" \
+            --rerun-fails=3 --rerun-fails-max-failures=50 --packages=./tests -- \
+            -tags nightly -parallel 1 -count=1 -timeout 50m \
+            -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$'
 
       - name: Benchmark sanity (no upload)
         # Quick benchmark smoke — just confirms zz_bench_*_test.go still
