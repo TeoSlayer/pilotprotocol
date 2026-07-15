@@ -277,45 +277,6 @@
       "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
     },
     {
-      "id": "io.pilot.duckdb",
-      "version": "1.5.4",
-      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
-      "display_name": "DuckDB",
-      "vendor": "Pilot Protocol",
-      "license": "MIT",
-      "source_url": "https://github.com/duckdb/duckdb",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
-      "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c",
-      "bundle_size": 5353407,
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-arm64.tar.gz",
-          "bundle_sha256": "ae8b1a9f524cecd8d7b942af058dbc7cdd737ff29de7186bad6faff2a6b4940d"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-amd64.tar.gz",
-          "bundle_sha256": "5825add7eb960111464eca50752b7edc2f658d26cdd51187d7e08a43364c9a62"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
-          "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-arm64.tar.gz",
-          "bundle_sha256": "54471ec4cf95071bba8d3c6f9e2dc134483df47ceaef291b5e6adea6bc89b31d"
-        }
-      },
-      "categories": [
-        "database",
-        "data",
-        "sql",
-        "analytics"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
-      "metadata_sha256": "88700d57d93c9260bf358cd2c7bf79aebdc88cabedd00f2cbe2b1b599f03e38f",
-      "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
-    },
-    {
       "id": "io.pilot.docker",
       "version": "29.6.1",
       "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
@@ -776,6 +737,40 @@
         }
       },
       "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+    },
+    {
+      "id": "io.pilot.duckdb",
+      "version": "1.5.4",
+      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+      "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c",
+      "display_name": "Duckdb",
+      "vendor": "Pilot Protocol",
+      "categories": [],
+      "bundle_size": 5353407,
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.duckdb",
+      "license": "",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
+      "metadata_sha256": "b89ad3120e03fe29dc69799a3b00015c0bcb2abb98de1c893872e2033e723cf1",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+          "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-arm64.tar.gz",
+          "bundle_sha256": "54471ec4cf95071bba8d3c6f9e2dc134483df47ceaef291b5e6adea6bc89b31d"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-amd64.tar.gz",
+          "bundle_sha256": "5825add7eb960111464eca50752b7edc2f658d26cdd51187d7e08a43364c9a62"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-arm64.tar.gz",
+          "bundle_sha256": "ae8b1a9f524cecd8d7b942af058dbc7cdd737ff29de7186bad6faff2a6b4940d"
+        }
+      },
+      "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
     }
   ]
 }

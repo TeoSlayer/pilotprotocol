@@ -46,31 +46,31 @@
   "methods": [
     {
       "name": "duckdb.query",
-      "summary": "Run a SQL statement (or `;`-separated batch) and return an aligned `box` table — the default, human-readable shape. Works in-memory (`database=\":memory:\"`) or against a DuckDB file, and can query CSV/Parquet/JSON files in place, e.g. `SELECT region, sum(amount) FROM '/data/*.parquet' GROUP BY region`. This is `duckdb \u003cdatabase\u003e -box -c \u003csql\u003e`."
+      "summary": "Run a SQL statement (or `;`-separated batch) and return an aligned `box` table — the default, human-readable shape. Works in-memory (`database=\":memory:\"`) or against a DuckDB file, and can query CSV/Parquet/JSON files in place, e.g. `SELECT region, sum(amount) FROM '/data/*.parquet' GROUP BY region`. This is `duckdb <database> -box -c <sql>`."
     },
     {
       "name": "duckdb.query_csv",
-      "summary": "Same as duckdb.query but returns the result set as CSV (header + rows) — the right shape when an agent needs to parse the output. This is `duckdb \u003cdatabase\u003e -csv -c \u003csql\u003e`."
+      "summary": "Same as duckdb.query but returns the result set as CSV (header + rows) — the right shape when an agent needs to parse the output. This is `duckdb <database> -csv -c <sql>`."
     },
     {
       "name": "duckdb.query_json",
-      "summary": "Run SQL and return the result set as a JSON array of row objects — the most directly machine-parseable output. This is `duckdb \u003cdatabase\u003e -json -c \u003csql\u003e`."
+      "summary": "Run SQL and return the result set as a JSON array of row objects — the most directly machine-parseable output. This is `duckdb <database> -json -c <sql>`."
     },
     {
       "name": "duckdb.query_markdown",
-      "summary": "Run SQL and return the result set as a GitHub-flavored Markdown table — handy when the output is going straight into a report or PR comment. This is `duckdb \u003cdatabase\u003e -markdown -c \u003csql\u003e`."
+      "summary": "Run SQL and return the result set as a GitHub-flavored Markdown table — handy when the output is going straight into a report or PR comment. This is `duckdb <database> -markdown -c <sql>`."
     },
     {
       "name": "duckdb.file",
-      "summary": "Execute a `.sql` script file against the database and exit — for multi-statement setups, migrations, or ETL scripts the agent has written to disk. This is `duckdb \u003cdatabase\u003e -f \u003cfile\u003e`."
+      "summary": "Execute a `.sql` script file against the database and exit — for multi-statement setups, migrations, or ETL scripts the agent has written to disk. This is `duckdb <database> -f <file>`."
     },
     {
       "name": "duckdb.tables",
-      "summary": "List every table and view across all attached databases/schemas (name, database, schema, column list) as a `box` table — a quick inventory of what a DuckDB file holds. This is `duckdb \u003cdatabase\u003e -box -c \"SHOW ALL TABLES\"`."
+      "summary": "List every table and view across all attached databases/schemas (name, database, schema, column list) as a `box` table — a quick inventory of what a DuckDB file holds. This is `duckdb <database> -box -c \"SHOW ALL TABLES\"`."
     },
     {
       "name": "duckdb.schema",
-      "summary": "Print the `CREATE` statements for every table, view, and index in the database — the DDL, via DuckDB's `.schema` meta-command. This is `duckdb \u003cdatabase\u003e -no-stdin -cmd \".schema\"`."
+      "summary": "Print the `CREATE` statements for every table, view, and index in the database — the DDL, via DuckDB's `.schema` meta-command. This is `duckdb <database> -no-stdin -cmd \".schema\"`."
     },
     {
       "name": "duckdb.exec",
@@ -106,5 +106,51 @@
       "label": "Website",
       "url": "https://duckdb.org"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.duckdb",
+    "title": "Full usage demo",
+    "when_to_use": "When you need an in-process OLAP/SQL engine to query CSV, Parquet or JSON files and crunch analytics locally with zero server — not for concurrent writes or a long-lived shared database.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Run your first query (no provisioning — in-memory)",
+      "command": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
+      "expect": "an aligned box table with one column `answer` and value 42"
+    },
+    "examples": [
+      {
+        "title": "Aggregate a CSV file in place — no import step",
+        "goal": "Group and count straight over a file on disk",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query_json '{\"database\":\":memory:\",\"sql\":\"SELECT country, count(*) AS n FROM read_csv_auto('/data/users.csv') GROUP BY 1 ORDER BY n DESC\"}'",
+        "expect": "JSON array of row objects, e.g. [{\"country\":\"US\",\"n\":120},{\"country\":\"DE\",\"n\":44}]"
+      },
+      {
+        "title": "Create and populate a persistent table",
+        "goal": "Persist data to a .duckdb file on disk",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\"/work/sales.duckdb\",\"sql\":\"CREATE TABLE IF NOT EXISTS sales(id INT, amt DECIMAL); INSERT INTO sales VALUES (1,9.99),(2,4.50); SELECT sum(amt) AS total FROM sales\"}'",
+        "expect": "box table with total = 14.49; the sales table survives in /work/sales.duckdb"
+      },
+      {
+        "title": "Read a Parquet file as Markdown",
+        "goal": "Preview columnar data formatted for a report",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query_markdown '{\"database\":\":memory:\",\"sql\":\"SELECT * FROM read_parquet('/data/events.parquet') LIMIT 5\"}'",
+        "expect": "a GitHub-flavored Markdown table of the first 5 rows"
+      },
+      {
+        "title": "List tables in a database",
+        "goal": "See what exists before querying",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.tables '{\"database\":\"/work/sales.duckdb\"}'",
+        "expect": "one row per table/view: name, database, schema"
+      }
+    ],
+    "gotchas": [
+      "File paths (read_csv_auto, read_parquet, .duckdb files) resolve inside the app sandbox, not your shell CWD.",
+      "`database` is required on every query — use \":memory:\" for throwaway work or an absolute .duckdb path to persist.",
+      ":memory: databases vanish when the call returns; nothing is saved.",
+      "Single-writer engine: great for analytics, not for many concurrent writers."
+    ],
+    "next": [
+      "io.pilot.duckdb duckdb.help '{}'"
+    ]
+  }
 }
