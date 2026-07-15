@@ -393,21 +393,21 @@
       "vendor": "Pilot Protocol",
       "license": "MIT",
       "source_url": "https://github.com/pilot-protocol/aegis",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-      "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6",
-      "bundle_size": 5351198,
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+      "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216",
+      "bundle_size": 5354471,
       "bundles": {
         "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-          "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+          "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216"
         },
         "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
-          "bundle_sha256": "ad2b5c81feca75fee144b995f857b208d2cd4d772ede2e06fea6b94b02074bed"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
+          "bundle_sha256": "751aee6d4df38a51eaaaee200dcb61347cbd22c32709613515917172d0af8175"
         },
         "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
-          "bundle_sha256": "e582c8e72d2024794d635fe23a1216cd83ee0fe6daabc462a84f5eddd4c1e65f"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
+          "bundle_sha256": "bbd42e0fc33b55d04034e3836972e011a368548685b06f72908f84db70f7b8c9"
         }
       },
       "categories": [
@@ -416,7 +416,7 @@
         "guardrail"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
-      "metadata_sha256": "ca71da633a5608af201ba08409f4376c672d92fa6adc570c41d409d51967ffc3",
+      "metadata_sha256": "b3a02a652838b9c961e379dcd871859c45efdb09f97b877e77b7b236736d46c7",
       "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
     },
     {
