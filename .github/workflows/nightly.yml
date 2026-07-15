@@ -37,8 +37,14 @@ permissions:
 jobs:
   integration:
     name: Integration suite (default tags)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, pilot-nightly]
     timeout-minutes: 55
+    env:
+      # Dedicated GCP e2-standard-4 self-hosted runner (pilot-nightly-runner).
+      # PILOT_REAL_NETWORK=1 disables the requireRealNetwork skip so the FULL
+      # meaningful suite runs — the multi-daemon UDP/NAT/WSS/HTTP integration
+      # tests that hosted runners starve on complete fine on this dedicated box.
+      PILOT_REAL_NETWORK: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -57,8 +63,10 @@ jobs:
 
   full:
     name: Full test suite (nightly tag)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, pilot-nightly]
     timeout-minutes: 60
+    env:
+      PILOT_REAL_NETWORK: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -88,3 +96,60 @@ jobs:
         # benchstat against a fresh laptop run, not GitHub runners.
         run: |
           go test -run='^$' -bench='.' -benchtime=1x -count=1 -timeout 20m ./tests/
+
+  # ---------------------------------------------------------------------------
+  # Nightly beta release: if BOTH test jobs pass, tag a nightly prerelease.
+  # The tag push (as the pilot-release-bot App, so it actually triggers
+  # workflows) fires release.yml, which builds + publishes the cross-platform
+  # binaries as a GitHub prerelease. release-watch tracks -nightly tags without
+  # cascading (prereleases are not fanned out). One tag per UTC day; a second
+  # green run the same day is a no-op.
+  # ---------------------------------------------------------------------------
+  nightly-beta:
+    name: Nightly beta release
+    needs: [integration, full]
+    # Only cut a release from main (a branch test-run must not tag).
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mint App token
+        # Default GITHUB_TOKEN-pushed tags do NOT trigger workflows (recursion
+        # guard), so release.yml would never fire. The App token has no such
+        # restriction. Falls back to no-op when the secrets aren't present.
+        id: app
+        if: ${{ secrets.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Tag nightly prerelease
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          # Next patch above the highest stable tag, suffixed -nightly.<UTC date>.
+          stable=$(git tag -l 'v*' --sort=-v:refname \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          stable=${stable:-v0.0.0}
+          IFS='.' read -r M m p <<<"${stable#v}"
+          date=$(date -u +%Y%m%d)
+          tag="v${M}.${m}.$((p + 1))-nightly.${date}"
+
+          if git ls-remote --tags origin "refs/tags/${tag}" | grep -q "$tag"; then
+            echo "::notice::${tag} already exists — nightly beta already cut today"
+            exit 0
+          fi
+
+          git config user.name  "pilot-release-bot"
+          git config user.email "release-bot@pilotprotocol.network"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git tag "$tag"
+          git push origin "$tag"
+          echo "::notice::pushed nightly prerelease tag ${tag} → release.yml will build + publish"

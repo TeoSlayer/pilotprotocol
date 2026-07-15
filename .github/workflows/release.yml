@@ -188,7 +188,7 @@ jobs:
             release/checksums.txt
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-nightly') }}
 
   # ---------------------------------------------------------------------------
   # Downstream fan-out is NO LONGER driven from here.
