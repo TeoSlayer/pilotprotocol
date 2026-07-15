@@ -173,3 +173,58 @@ func TestRxWatchdogHardExitWithheldWhenNeverProgressedOrYoung(t *testing.T) {
 		t.Fatalf("exit fired despite guards (code %d)", *exitCode)
 	}
 }
+
+// TestRxWatchdogPartialWedgeDialTimeouts pins the 2026-07-15 regression:
+// rx keeps trickling (PktsRecv advances every tick from keepalives) so the
+// rx-silence check never fires, but every outbound DialConnection times out
+// — the overlay is dark and the old watchdog stayed quiet. The dial-timeout
+// counter must now drive the same soft-recovery, and rx trickle must NOT be
+// treated as healthy while the outbound path is wedged.
+func TestRxWatchdogPartialWedgeDialTimeouts(t *testing.T) {
+	t.Parallel()
+	d := newRxWatchdogTestDaemon(t)
+	now := time.Now()
+
+	atomic.StoreUint64(&d.tunnels.PktsRecv, 50)
+	st := &rxWatchdogState{lastProgress: now, recvSeen: 49}
+	if got := d.rxWatchdogTick(st, now); got != rxActionProgress {
+		t.Fatalf("baseline healthy: action = %q, want %q", got, rxActionProgress)
+	}
+
+	d.consecutiveDialTimeouts.Store(dialWedgeThreshold)
+	atomic.AddUint64(&d.tunnels.PktsRecv, 3) // trickle: recv advanced
+	if got := d.rxWatchdogTick(st, now.Add(30*time.Second)); got != rxActionSoftRecover {
+		t.Fatalf("partial wedge (rx trickle + dial timeouts): action = %q, want %q", got, rxActionSoftRecover)
+	}
+	if c := d.consecutiveDialTimeouts.Load(); c != 0 {
+		t.Fatalf("dial counter after soft recovery = %d, want 0", c)
+	}
+
+	d.consecutiveDialTimeouts.Store(dialWedgeThreshold - 1)
+	atomic.AddUint64(&d.tunnels.PktsRecv, 3)
+	if got := d.rxWatchdogTick(st, now.Add(60*time.Second)); got != rxActionProgress {
+		t.Fatalf("post-recovery (dial timeouts below threshold): action = %q, want %q", got, rxActionProgress)
+	}
+}
+
+// TestRxWatchdogPartialWedgeHardExit verifies a persistent dial-wedge (rx
+// healthy, registry reachable) escalates to the supervisor-respawn exit.
+func TestRxWatchdogPartialWedgeHardExit(t *testing.T) {
+	d := newRxWatchdogTestDaemon(t)
+	exitCode := swapExitForTest(t)
+	now := time.Now()
+	d.lastRegistryOKNano.Store(now.UnixNano())
+
+	atomic.StoreUint64(&d.tunnels.PktsRecv, 100)
+	d.consecutiveDialTimeouts.Store(dialWedgeThreshold)
+	st := &rxWatchdogState{
+		lastProgress: now, recvSeen: 100, sentAtProgress: 0,
+		softAttempts: rxWatchdogSoftMax,
+	}
+	if got := d.rxWatchdogTick(st, now); got != rxActionExit {
+		t.Fatalf("persistent dial wedge: action = %q, want %q", got, rxActionExit)
+	}
+	if *exitCode != rxWedgeExitCode {
+		t.Fatalf("exit code = %d, want %d", *exitCode, rxWedgeExitCode)
+	}
+}
