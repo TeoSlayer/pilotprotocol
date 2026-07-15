@@ -133,8 +133,16 @@ func nextStepsDisabled() bool {
 // nil: a missing cache is the NORMAL case (an app installed before this feature,
 // or one that never published a graph), not an error worth a word to the user.
 func loadNextStepsGraph(appID string) *nextStepsGraph {
-	path := filepath.Join(appStoreRoot(), appID, nextStepsFileName)
-	f, err := os.Open(path) // #nosec G304 -- appStoreRoot()/<appID>/next-steps.json, the same confined app dir manifest.json is read from
+	// appID arrives straight from argv, so filepath.Join alone is not enough:
+	// `pilotctl appstore call ../../etc/x ...` would resolve outside the install
+	// root and we would happily read (and print) whatever we found. resolveUnder
+	// is the same containment guard install and the supervisor use.
+	dir, err := resolveUnder(appStoreRoot(), appID)
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(dir, nextStepsFileName)
+	f, err := os.Open(path) // #nosec G304 -- path is confined to appStoreRoot() by resolveUnder above
 	if err != nil {
 		return nil
 	}
@@ -356,7 +364,14 @@ func cacheNextSteps(appDir string, g *nextStepsGraph) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(appDir, nextStepsFileName), data, 0o600)
+	// Confine the write to the install root for the same reason the read is
+	// confined: appDir is derived from an app id, and a graph is never worth
+	// writing a byte outside the tree the app store owns.
+	out, err := resolveUnder(appStoreRoot(), filepath.Base(appDir))
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(out, nextStepsFileName), data, 0o600) // #nosec G304 -- confined by resolveUnder
 }
 
 // fetchNextStepsForInstall pulls the graph out of the catalogue metadata for an

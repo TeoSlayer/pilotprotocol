@@ -319,3 +319,54 @@ func TestResolveOnLiveMissingParamError(t *testing.T) {
 		t.Fatal("an unrelated error must not match")
 	}
 }
+
+// TestLoadNextStepsGraphRefusesTraversal is a security regression test. appID
+// comes straight from argv (`pilotctl appstore call <app-id> ...`), so a
+// filepath.Join on it is a path traversal: gosec flagged exactly this as G703.
+// Without resolveUnder, a crafted id would make pilotctl read a file outside the
+// install root and print pieces of it back as "next steps".
+func TestLoadNextStepsGraphRefusesTraversal(t *testing.T) {
+	root := withAppRoot(t)
+
+	// Plant a valid graph OUTSIDE the install root, and a traversal that would
+	// reach it if the id were joined naively.
+	outside := t.TempDir()
+	rel, err := filepath.Rel(root, outside)
+	if err != nil {
+		t.Skipf("no relative path between temp dirs: %v", err)
+	}
+	// The planted graph's `app` MUST equal the traversing id, or the
+	// app-id-mismatch check rejects the file first and this test passes for the
+	// wrong reason — masking the very traversal it exists to catch. (It did:
+	// re-introducing the naive filepath.Join left the first draft of this test
+	// green.) With `app` matching, the ONLY thing that can stop the load is the
+	// containment guard.
+	escaped := strings.Replace(testGraphJSON, "io.pilot.testapp", rel, 1)
+	if err := os.WriteFile(filepath.Join(outside, nextStepsFileName), []byte(escaped), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if g := loadNextStepsGraph(rel); g != nil {
+		t.Fatalf("a traversing app id (%q) must not load a graph from outside the install root", rel)
+	}
+
+	for _, bad := range []string{"../evil", "../../etc", "/etc/passwd", ""} {
+		if g := loadNextStepsGraph(bad); g != nil {
+			t.Errorf("app id %q must not resolve to a graph", bad)
+		}
+	}
+}
+
+// The write side is confined for the same reason: a graph is never worth writing
+// a byte outside the tree the app store owns.
+func TestCacheNextStepsRefusesTraversal(t *testing.T) {
+	root := withAppRoot(t)
+	outside := t.TempDir()
+	var g nextStepsGraph
+	if err := json.Unmarshal([]byte(testGraphJSON), &g); err != nil {
+		t.Fatal(err)
+	}
+	cacheNextSteps(filepath.Join(root, "..", filepath.Base(outside)), &g)
+	if _, err := os.Stat(filepath.Join(outside, nextStepsFileName)); err == nil {
+		t.Fatal("cacheNextSteps wrote outside the install root")
+	}
+}
