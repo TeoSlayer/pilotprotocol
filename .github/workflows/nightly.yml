@@ -54,7 +54,7 @@ jobs:
           cache: true
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.1
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Integration tests
         # Full ./tests/ default-tag suite (~300 tests) on the dedicated
@@ -87,7 +87,7 @@ jobs:
           cache: true
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.1
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Full test (default + nightly)
         # default+nightly tags: fuzz / scaling / stress + the real-network
