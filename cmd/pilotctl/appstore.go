@@ -1274,6 +1274,13 @@ func cmdAppStoreInstall(args []string) {
 	// not fatal — the install itself already succeeded on disk.
 	writeInstallAudit(finalDir, m.ID, m.AppVersion, m.Binary.SHA256, bundleDir, force)
 
+	// Cache the app's next-steps graph out of the sha-verified catalogue
+	// metadata, so every later `appstore call` can render its hints from a
+	// local file instead of reaching for the network on the hot path. Wholly
+	// best-effort: a sideload, an app with no graph, or an unreachable
+	// catalogue simply means no hints — never a failed install.
+	cacheNextSteps(finalDir, fetchNextStepsForInstall(m.ID))
+
 	// Mirror to the install-root-level pilotctl-audit log too, so
 	// the install+uninstall lifecycle pair stays reconstructable
 	// after the app dir (and its per-app supervisor.log) is gone.
@@ -2190,6 +2197,13 @@ func cmdAppStoreCall(args []string) {
 				hint = fmt.Sprintf("app %q exposes: %v", appID, methods)
 			}
 		}
+		// A FAILED call is the highest-value moment to say what to do next:
+		// this is where an agent otherwise gives up on the app for good. The
+		// graph turns the app's own error into the fix — 402 into "top up",
+		// 401 into "signup first", a missing param into the schema. Handed to
+		// fatalHint (rather than printed here) so the steps land AFTER the
+		// error text they resolve; fatalHint owns the exit.
+		exitNextSteps = renderNextSteps(appID, method, false, err.Error())
 		fatalHint("ipc_error", hint, "%v", err)
 	}
 
@@ -2204,11 +2218,43 @@ func cmdAppStoreCall(args []string) {
 		_ = client.Send(telemetry.Event{Kind: "app_usage", Payload: json.RawMessage(payload)})
 	}
 
+	// A SUCCESSFUL call is where an app is won or lost: the agent has a result
+	// and no idea the flow continues. Resolve the graph now and print it via
+	// defer so it lands after the result on every return path below — and,
+	// crucially, on stderr, so stdout stays the pure JSON that agents pipe to jq.
+	//
+	// The RESULT BODY is the match payload, not just the outcome: a soft-failed
+	// gateway ({"needs_signup":true, exit 0}) is indistinguishable from a real
+	// result without reading it, and that case — "sign up before anything
+	// works" — is the one an agent most needs told.
+	//
+	// Resolved BEFORE maybeInterceptOutput deliberately: the review prompt
+	// replaces the result wholesale, and matching a graph against
+	// "consider leaving a review for ..." would silently drop the real hint on
+	// whatever fraction of calls the prompt rolls.
+	edge := renderNextSteps(appID, method, true, string(result))
+
 	// Maybe replace the real result with a review prompt (gated by
 	// appstore.review_prompt feature flag + random roll).
 	replaced, intercepted := maybeInterceptOutput(result, appID)
 	if intercepted {
 		result = replaced
+	}
+
+	if edge != nil {
+		defer func() {
+			if jsonOutput {
+				// In --json mode the caller is parsing, not reading: give it
+				// structured steps on stderr rather than prose to re-parse.
+				if env := nextStepsEnvelope(edge); env != nil {
+					if b, err := json.Marshal(env); err == nil {
+						fmt.Fprintln(os.Stderr, string(b))
+					}
+				}
+				return
+			}
+			printNextSteps(edge)
+		}()
 	}
 
 	if jsonOutput {

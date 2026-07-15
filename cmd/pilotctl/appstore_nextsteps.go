@@ -1,0 +1,363 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Call-time "next steps" rendering — the dynamic context an agent sees after
+// EVERY `pilotctl appstore call`, on success and on failure.
+//
+// The problem: an autonomous agent installs an app and then stops caring. The
+// product demo (appstore_demo.go) addresses the install→first-call step, once.
+// This addresses every call after it: when a call lands, the agent is told the
+// small set of RECOMMENDED commands for where it now stands — the next step in
+// the flow on success, and the specific fix on failure (402 → top up, 401 →
+// signup, missing param → the schema).
+//
+// # Where the data comes from, and why the call path never touches the network
+//
+// The graph is authored in submission.json beside product_demo and flows
+// verbatim into the catalogue's metadata.json, whose bytes are pinned by
+// metadata_sha256 under the catalogue signature. At install we cache the graph
+// to $APP/next-steps.json (see cacheNextSteps). Every call then resolves against
+// that local file: no fetch, no DNS, no added latency, and it works offline. A
+// call is the hottest path in the app store — it must not grow a network
+// dependency to print a hint.
+//
+// # Trust
+//
+// The cached bytes came out of the sha-verified metadata.json, so this adds no
+// new trust surface. $APP is already the app's own confined directory holding
+// its signed manifest; a graph is strictly less privileged than the manifest
+// sitting next to it — it produces text, never an action. Nothing here ever
+// executes a recommended command; it prints it for the agent to decide on.
+//
+// # Failure posture
+//
+// Everything is additive and best-effort, and every entry point is guarded: an
+// absent, unreadable, malformed, future-schema, or simply unmatched graph means
+// the call behaves EXACTLY as it does today. A hint is a nicety; a call is not.
+// Under no circumstances may this file's code turn a working call into a failed
+// one — hence the recover() in renderNextSteps and the silent error drops.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// nextStepsFileName is the per-app cache written at install, read at call.
+const nextStepsFileName = "next-steps.json"
+
+// maxNextStepsBytes bounds the cached graph read. A graph is a flow summary of a
+// few KB; anything near this ceiling is not a graph and is not worth parsing on
+// the call path.
+const maxNextStepsBytes = 256 << 10
+
+// maxThenRendered hard-caps recommendations per edge at render time, even if a
+// graph somehow shipped with more (validation is authoring-side and this is a
+// different binary — never trust the file to have been gated).
+const maxThenRendered = 3
+
+// nextStepsGraph mirrors the FROZEN `next_steps` object authors write in
+// submission.json and that flows verbatim into catalogue metadata.json. It is a
+// deliberate duplicate of app-template's internal/nextsteps types — the same
+// call the ProductDemo mirror makes in appstore_demo.go. pilotctl must not
+// depend on the app-template module, and a frozen wire contract is exactly the
+// thing it is safe to restate.
+type nextStepsGraph struct {
+	Schema int             `json:"schema"`
+	App    string          `json:"app"`
+	Edges  []nextStepsEdge `json:"edges"`
+}
+
+// nextStepsEdge is one rule: "the agent ran From and it went On — recommend Then".
+type nextStepsEdge struct {
+	From string `json:"from"`
+	On   string `json:"on"`
+	// Match is a regex over the call's OUTCOME PAYLOAD: the error text on
+	// failure, the JSON RESULT BODY on success.
+	//
+	// Matching the success body is load-bearing, not a nicety. The most
+	// important case in the feature — "you must call <ns>.signup first" — is not
+	// an error: the scaffold's requireKey wrapper soft-fails an unauthenticated
+	// call with exit 0 and
+	//   {"ok":false,"needs_signup":true,"activate":"primitive.signup"}
+	// so an outcome-only matcher would see a plain success and stay silent,
+	// precisely for the cold agent who most needs the gateway named.
+	Match string          `json:"match,omitempty"`
+	Code  int             `json:"code,omitempty"`
+	Why   string          `json:"why,omitempty"`
+	Then  []nextStepsStep `json:"then"`
+}
+
+// nextStepsStep is one recommended command and the reason to run it.
+type nextStepsStep struct {
+	Cmd  string `json:"cmd"`
+	Why  string `json:"why"`
+	Kind string `json:"kind,omitempty"`
+}
+
+const (
+	nextStepsWildcard   = "*"
+	nextStepsOutcomeOK  = "ok"
+	nextStepsOutcomeErr = "err"
+	nextStepsKindGate   = "gateway"
+	nextStepsKindRecov  = "recovery"
+)
+
+// nextStepsStatusRe reads the backend status out of an adapter error. The
+// generated HTTP adapter formats every non-2xx as
+//
+//	backend: POST /v1/run -> 402: {"error":"insufficient credit ..."}
+//
+// (internal/scaffold/templates/client_http.go.tmpl), so the status is present in
+// the text today even though there is no structured error code on the wire yet.
+// This regex is the bridge; when apps grow a machine-readable code, this is the
+// only place that has to learn about it.
+var nextStepsStatusRe = regexp.MustCompile(`->\s*(\d{3})\b`)
+
+// nextStepsDisabled reports whether the operator turned the feature off.
+// PILOT_NEXT_STEPS=off is the escape hatch for anyone who finds the banner
+// noisy in a tight loop — an unconditional per-call print with no off switch is
+// how a helpful feature becomes one people route around.
+func nextStepsDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PILOT_NEXT_STEPS"))) {
+	case "off", "0", "false", "no":
+		return true
+	}
+	return false
+}
+
+// loadNextStepsGraph reads the cached graph for an app. Every failure returns
+// nil: a missing cache is the NORMAL case (an app installed before this feature,
+// or one that never published a graph), not an error worth a word to the user.
+func loadNextStepsGraph(appID string) *nextStepsGraph {
+	path := filepath.Join(appStoreRoot(), appID, nextStepsFileName)
+	f, err := os.Open(path) // #nosec G304 -- appStoreRoot()/<appID>/next-steps.json, the same confined app dir manifest.json is read from
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || st.Size() > maxNextStepsBytes {
+		return nil
+	}
+	var g nextStepsGraph
+	if err := json.NewDecoder(f).Decode(&g); err != nil {
+		return nil
+	}
+	// Schema 1 is the only shape this binary understands. A newer graph must be
+	// IGNORED rather than half-read: printing a guessed-at hint is worse than
+	// printing none.
+	if g.Schema != 1 || g.App != appID {
+		return nil
+	}
+	return &g
+}
+
+// resolveNextStepsEdge picks the single best edge for a completed call, or nil
+// when the graph has nothing to say (the common, silent case).
+//
+// Specificity decides, not file order: a rule naming the exact method beats the
+// wildcard, and a rule that also pins the error (code, then match) beats one
+// that does not. Ties go to first-in-file, so an author can force a winner by
+// ordering. This mirrors nextsteps.Graph.Resolve in app-template — the two are
+// kept in lockstep by TestResolveMatchesAppTemplateSemantics.
+func resolveNextStepsEdge(g *nextStepsGraph, method string, ok bool, payload string) *nextStepsEdge {
+	if g == nil {
+		return nil
+	}
+	want := nextStepsOutcomeErr
+	if ok {
+		want = nextStepsOutcomeOK
+	}
+	best, bestScore := -1, -1
+	for i := range g.Edges {
+		e := &g.Edges[i]
+		if e.On != want {
+			continue
+		}
+		score := 0
+		switch e.From {
+		case method:
+			score += 4
+		case nextStepsWildcard:
+		default:
+			continue // names a different method
+		}
+		// An edge that declares a discriminator and does not match is not
+		// applicable at all — it must NOT fall back to winning on its From
+		// bonus, or an unrelated failure would print a confidently wrong fix.
+		if e.Code != 0 {
+			if !nextStepsMatchesCode(payload, e.Code) {
+				continue
+			}
+			score += 2
+		} else if e.Match != "" {
+			re, err := regexp.Compile("(?i)" + e.Match)
+			if err != nil || !re.MatchString(payload) {
+				continue
+			}
+			score++
+		}
+		if score > bestScore {
+			bestScore, best = score, i
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	return &g.Edges[best]
+}
+
+func nextStepsMatchesCode(payload string, code int) bool {
+	m := nextStepsStatusRe.FindStringSubmatch(payload)
+	return m != nil && m[1] == fmt.Sprintf("%d", code)
+}
+
+// renderNextStepsText builds the block printed after a call. The budget is
+// brutal because this lands after EVERY call: a few lines, or the agent learns
+// to skip it and the feature has made things worse than silence.
+//
+//	next: budget exhausted — top up before retrying
+//	  1. pilotctl appstore call io.pilot.wallet wallet.balance '{}'
+//	     why: check remaining USDC (fixes the error above)
+func renderNextStepsText(e *nextStepsEdge) string {
+	if e == nil || len(e.Then) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if w := oneLineNS(e.Why); w != "" {
+		fmt.Fprintf(&b, "next: %s\n", w)
+	} else {
+		b.WriteString("next:\n")
+	}
+	for i, s := range e.Then {
+		if i >= maxThenRendered {
+			break
+		}
+		cmd := strings.TrimSpace(s.Cmd)
+		if cmd == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "  %d. %s\n", i+1, cmd)
+		if w := oneLineNS(s.Why); w != "" {
+			fmt.Fprintf(&b, "     why: %s%s\n", w, nextStepsKindSuffix(s.Kind))
+		}
+	}
+	return b.String()
+}
+
+// nextStepsKindSuffix marks the two kinds an agent must not read past: a gateway
+// is non-optional, and a recovery step is the fix for the error just printed.
+// The ordinary forward step is unmarked — "the next useful thing" needs no label.
+func nextStepsKindSuffix(kind string) string {
+	switch kind {
+	case nextStepsKindGate:
+		return " (required first)"
+	case nextStepsKindRecov:
+		return " (fixes the error above)"
+	default:
+		return ""
+	}
+}
+
+func oneLineNS(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// exitNextSteps is drained by fatalHint so a FAILED call prints its recovery
+// steps after the error, not before it. fatalHint owns the process exit, so a
+// caller cannot print anything after it — the same reason motd's
+// importantUpdate is a package var consumed there. Set it immediately before
+// fatalHint; it is inert everywhere else.
+var exitNextSteps *nextStepsEdge
+
+// renderNextSteps resolves and returns the block for a completed call, and is
+// the ONLY entry point the call path uses. It is recover()-guarded and
+// fail-silent by construction: a hint is a nicety, a call is not, and no bug in
+// graph handling may ever turn a working call into a failed one.
+func renderNextSteps(appID, method string, ok bool, payload string) *nextStepsEdge {
+	if nextStepsDisabled() {
+		return nil
+	}
+	var edge *nextStepsEdge
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				edge = nil
+			}
+		}()
+		edge = resolveNextStepsEdge(loadNextStepsGraph(appID), method, ok, payload)
+	}()
+	return edge
+}
+
+// printNextSteps writes the block for a SUCCESSFUL call to stderr.
+//
+// stderr, never stdout — this is the load-bearing decision in the whole file.
+// stdout carries the call's JSON result and agents pipe it straight into jq;
+// one line of prose there corrupts the parse and breaks the very workflow this
+// feature exists to encourage. stderr is still captured by every agent harness,
+// so the hint is seen without ever touching the data contract.
+func printNextSteps(e *nextStepsEdge) {
+	if txt := renderNextStepsText(e); txt != "" {
+		fmt.Fprint(os.Stderr, txt)
+	}
+}
+
+// nextStepsJSON is the machine-readable form attached to --json output, so an
+// agent parsing the envelope gets structured steps rather than prose to re-parse.
+type nextStepsJSON struct {
+	Why   string          `json:"why,omitempty"`
+	Steps []nextStepsStep `json:"steps"`
+}
+
+func nextStepsEnvelope(e *nextStepsEdge) *nextStepsJSON {
+	if e == nil || len(e.Then) == 0 {
+		return nil
+	}
+	steps := e.Then
+	if len(steps) > maxThenRendered {
+		steps = steps[:maxThenRendered]
+	}
+	return &nextStepsJSON{Why: oneLineNS(e.Why), Steps: steps}
+}
+
+// cacheNextSteps writes the graph from the (already sha-verified) catalogue
+// metadata into the installed app dir, so the call path is a local read.
+//
+// Best-effort by design: a failure here must never fail an install that has
+// otherwise fully succeeded. The cost of no cache is no hints; the cost of a
+// failed install is a broken app.
+func cacheNextSteps(appDir string, g *nextStepsGraph) {
+	if g == nil || len(g.Edges) == 0 {
+		return
+	}
+	data, err := json.MarshalIndent(g, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(appDir, nextStepsFileName), data, 0o600)
+}
+
+// fetchNextStepsForInstall pulls the graph out of the catalogue metadata for an
+// app id. Best-effort and quiet: an app with no catalogue entry (a sideload), no
+// metadata_url, or an unreachable host simply gets no graph. It is called once
+// per install, never on the call path.
+func fetchNextStepsForInstall(appID string) *nextStepsGraph {
+	c, err := loadCatalogue()
+	if err != nil {
+		return nil
+	}
+	for i := range c.Apps {
+		if c.Apps[i].ID != appID {
+			continue
+		}
+		m, err := loadAppMetadata(c.Apps[i])
+		if err != nil || m == nil {
+			return nil
+		}
+		return m.NextSteps
+	}
+	return nil
+}

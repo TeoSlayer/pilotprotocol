@@ -188,7 +188,7 @@ func classifyDaemonError(err error) string {
 func fatalHint(code, hint, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if jsonOutput {
-		env := map[string]string{
+		env := map[string]any{
 			"status":  "error",
 			"code":    code,
 			"message": msg,
@@ -198,10 +198,19 @@ func fatalHint(code, hint, format string, args ...interface{}) {
 		if importantUpdate != "" {
 			env["important_update"] = importantUpdate
 		}
+		// Structured recovery steps for a failed `appstore call` (nil for every
+		// other exit). Additive: existing keys keep their shape and value.
+		if ns := nextStepsEnvelope(exitNextSteps); ns != nil {
+			env["next_steps"] = ns
+		}
 		b, _ := json.Marshal(env)
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\nhint:  %s\n", msg, hint)
+		// Printed last, after the error it resolves — the reason this is a
+		// package var drained here rather than a print at the call site: only
+		// fatalHint knows where the output ends, because only it exits.
+		printNextSteps(exitNextSteps)
 	}
 	os.Exit(1)
 }

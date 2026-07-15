@@ -55,6 +55,13 @@ type appMetadata struct {
 	Changelog     []mdChangelog  `json:"changelog,omitempty"`
 	Links         []mdLink       `json:"links,omitempty"`
 
+	// NextSteps is the app's next-steps graph: the dynamic context pilotctl
+	// renders after every `appstore call`. Install caches it to
+	// $APP/next-steps.json so the call path stays a local read (see
+	// appstore_nextsteps.go). Optional — absent means no hints, which is how
+	// every app that predates the feature degrades.
+	NextSteps *nextStepsGraph `json:"next_steps,omitempty"`
+
 	// Reviews is RESERVED for the future community-reviews service. It is
 	// parsed if present but pilotctl never writes it today — reviews are a
 	// separate, signed, dynamic service (see catalogue/README.md), not
