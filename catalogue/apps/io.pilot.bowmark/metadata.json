@@ -31,7 +31,7 @@
     "scraping"
   ],
   "size": {
-    "bundle_bytes": 5070050,
+    "bundle_bytes": 5070051,
     "installed_bytes": 9105408
   },
   "compat": {
@@ -65,9 +65,74 @@
     }
   ],
   "links": [
-    { "label": "Source", "url": "https://github.com/bowmark-ai/plugin" },
-    { "label": "Website", "url": "https://bowmark.ai" }
+    {
+      "label": "Source",
+      "url": "https://github.com/bowmark-ai/plugin"
+    },
+    {
+      "label": "Website",
+      "url": "https://bowmark.ai"
+    }
   ],
   "published_at": "2026-07-06",
-  "updated_at": "2026-07-06"
+  "updated_at": "2026-07-06",
+  "product_demo": {
+    "skill": "io.pilot.bowmark",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent is about to act on a known public website — call bowmark.ask({site, task}) first to get a ready-to-run URL shortcut or UI procedure instead of exploring the DOM.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Get a navigation cheatsheet for a site + task",
+      "command": "pilotctl appstore call io.pilot.bowmark bowmark.ask '{\"site\":\"sec.gov\",\"task\":\"find Apple's latest 10-K filing\"}'",
+      "expect": "{\"status\":\"ok\",\"id\":\"...\",\"shortcut\":{\"template\":\"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker}&type=10-K\"}}"
+    },
+    "examples": [
+      {
+        "title": "Ask for a UI procedure on a product surface",
+        "goal": "Scope with a path to skip the ambiguous_scope round-trip",
+        "command": "pilotctl appstore call io.pilot.bowmark bowmark.ask '{\"site\":\"google.com/maps\",\"task\":\"get directions from SFO to downtown\"}'",
+        "expect": "{\"status\":\"ok\",\"id\":\"...\",\"ui_procedure\":{\"steps\":[...]}}"
+      },
+      {
+        "title": "Request the signed-in surface",
+        "command": "pilotctl appstore call io.pilot.bowmark bowmark.ask '{\"site\":\"github.com\",\"task\":\"create a new private repo\",\"variants\":{\"auth_state\":\"logged_in\",\"role\":\"owner\"}}'",
+        "expect": "{\"status\":\"ok\",\"id\":\"...\",\"ui_procedure\":{\"steps\":[...]},\"variants_assumed\":{...}}"
+      },
+      {
+        "title": "Report the outcome to keep cheatsheets fresh",
+        "goal": "success=true only if every step ran clean — no retries or extra clicks",
+        "command": "pilotctl appstore call io.pilot.bowmark bowmark.report_outcome '{\"envelope_id\":\"<id-from-ask>\",\"success\":true}'",
+        "expect": "{\"id\":\"...\"}"
+      }
+    ],
+    "cost": {
+      "unit": "requests (managed key, currently unmetered)",
+      "free_budget": "managed — no per-user charge today",
+      "hard_cap_usd": 0,
+      "operations": [
+        {
+          "op": "bowmark.ask",
+          "price": "free",
+          "note": "the nav-recipe call (POST /v1/ask); managed key, no per-op meter currently"
+        },
+        {
+          "op": "bowmark.report_outcome",
+          "price": "free",
+          "note": "feedback that triggers a re-crawl; no charge"
+        }
+      ],
+      "worked_total": "Managed key with quota 0 — there is no per-user dollar charge today; both methods are free to call."
+    },
+    "gotchas": [
+      "Put intent in `task`, never a URL — 'find Apple's latest 10-K', not a link.",
+      "Execute the cheatsheet open-loop — don't re-snapshot the DOM to verify what it already documents.",
+      "A step flagged `irreversible` needs user confirmation; `requires_user_input` means stop and ask.",
+      "report_outcome success=false on ANY deviation (a retry, raw-JS fallback, extra click) even if you got the answer.",
+      "Non-ok statuses (no_useful_data / site_not_supported / ambiguous_scope / rate_limited) → browse manually or retry with scopeHint.",
+      "Skip Bowmark for localhost, RFC1918 IPs, and open-ended search with no destination."
+    ],
+    "next": [
+      "io.pilot.bowmark bowmark.help '{}'"
+    ]
+  }
 }
