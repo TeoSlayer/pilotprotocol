@@ -68,15 +68,15 @@
     },
     {
       "name": "docker.pull",
-      "summary": "Pull an image from a registry. This is `docker pull \u003cimage\u003e`."
+      "summary": "Pull an image from a registry. This is `docker pull <image>`."
     },
     {
       "name": "docker.run",
-      "summary": "Run a container from `image` with its default command and remove it on exit (`docker run --rm \u003cimage\u003e`). For flags/commands (detached, ports, volumes, a custom command) use docker.exec, e.g. {\"args\":[\"run\",\"-d\",\"-p\",\"8080:80\",\"nginx\"]}."
+      "summary": "Run a container from `image` with its default command and remove it on exit (`docker run --rm <image>`). For flags/commands (detached, ports, volumes, a custom command) use docker.exec, e.g. {\"args\":[\"run\",\"-d\",\"-p\",\"8080:80\",\"nginx\"]}."
     },
     {
       "name": "docker.logs",
-      "summary": "Fetch the logs of a container. This is `docker logs \u003ccontainer\u003e`."
+      "summary": "Fetch the logs of a container. This is `docker logs <container>`."
     },
     {
       "name": "docker.exec",
@@ -108,5 +108,54 @@
       "label": "Website",
       "url": "https://www.docker.com"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.docker",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to run real OCI containers on a Linux host — pull images and run/build/exec containers via a local Docker Engine — without Docker Desktop.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Boot a local Docker Engine",
+      "command": "pilotctl appstore call io.pilot.docker docker.engine_start '{}'",
+      "expect": "engine ready on a private socket under DOCKER_DIR (default /tmp/pilot-docker)"
+    },
+    "examples": [
+      {
+        "title": "Client + server versions",
+        "command": "pilotctl appstore call io.pilot.docker docker.version '{}'",
+        "expect": "docker version text (Client + Server sections)"
+      },
+      {
+        "title": "Pull an image",
+        "command": "pilotctl appstore call io.pilot.docker docker.pull '{\"image\":\"hello-world\"}'",
+        "expect": "pull progress ending in Status: Downloaded newer image for hello-world:latest"
+      },
+      {
+        "title": "Run a container (--rm, default cmd)",
+        "command": "pilotctl appstore call io.pilot.docker docker.run '{\"image\":\"hello-world\"}'",
+        "expect": "\"Hello from Docker!\" banner; container is removed on exit"
+      },
+      {
+        "title": "Any docker command via verbatim argv",
+        "goal": "Run nginx detached with a published port",
+        "command": "pilotctl appstore call io.pilot.docker docker.exec '{\"args\":[\"run\",\"-d\",\"-p\",\"8080:80\",\"nginx\"]}'",
+        "expect": "the new container id on stdout"
+      },
+      {
+        "title": "List containers",
+        "command": "pilotctl appstore call io.pilot.docker docker.ps '{}'",
+        "expect": "table of containers (running + stopped), this is docker ps -a"
+      }
+    ],
+    "gotchas": [
+      "LINUX-ONLY: there is no native macOS dockerd (Docker Desktop hides a Linux VM), so this app cannot start an engine on macOS.",
+      "docker.engine_start needs root — dockerd manages namespaces/cgroups; run on a Linux host/VM/privileged container.",
+      "Call docker.engine_start once before other methods, or set DOCKER_HOST to target an existing daemon and skip it.",
+      "docker.run uses --rm and the image's default command; for flags, ports, detached, or build/exec use docker.exec.",
+      "On a non-zero exit the reply is {stdout, stderr, exit}."
+    ],
+    "next": [
+      "io.pilot.docker docker.help '{}'"
+    ]
+  }
 }
