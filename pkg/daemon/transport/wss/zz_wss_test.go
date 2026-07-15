@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,6 +60,19 @@ type fakeBeacon struct {
 	// the underlying TCP without completing the WS upgrade — same
 	// shape as nginx returning 502 while the beacon process restarts.
 	failNextDials int
+
+	// stallConns, when >0, makes handle() go SILENTLY HALF-OPEN after
+	// completing auth on that many connections (counter decrements): it
+	// stops calling conn.Read, so the coder/websocket library never
+	// auto-responds to the client's keepalive pings, while the TCP stays
+	// up. This is the half-open beacon link the F3 idle-ping-timeout fix
+	// must detect and reconnect around.
+	stallConns atomic.Int32
+
+	// authCount counts connections that completed auth. Lets tests wait
+	// for a reconnect (authCount advancing past 1) without polling
+	// client internals.
+	authCount atomic.Int32
 }
 
 func newFakeBeacon(t *testing.T, expectedNodeID uint32) *fakeBeacon {
@@ -165,6 +179,20 @@ func (fb *fakeBeacon) handle(w http.ResponseWriter, r *http.Request) {
 	// Send auth_ok.
 	okBytes, _ := json.Marshal(map[string]string{"type": "auth_ok"})
 	if err := conn.Write(ctx, websocket.MessageText, okBytes); err != nil {
+		return
+	}
+	fb.authCount.Add(1)
+
+	// Half-open simulation: go silent (never Read → never auto-pong)
+	// while holding the TCP open, so the client's bounded idle ping must
+	// time out and force a reconnect. Bounded so the goroutine can't
+	// outlive the test if the client's close doesn't cancel r.Context().
+	if fb.stallConns.Load() > 0 {
+		fb.stallConns.Add(-1)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(3 * time.Second):
+		}
 		return
 	}
 
@@ -641,6 +669,77 @@ func TestIdlePing_KeepsConnectionAlive(t *testing.T) {
 	want := append([]byte("echo:"), payload...)
 	if string(frame) != string(want) {
 		t.Errorf("Recv = %q; want %q", frame, want)
+	}
+}
+
+// TestIdlePing_HalfOpenConnTriggersReconnect exercises the F3 fix: when
+// a beacon conn goes silently half-open (keepalive pings get no pong),
+// the bounded idle ping times out, forces the dead conn closed, and the
+// supervisor reconnects — restoring Send/Recv. Before the fix the ping
+// blocked on lifetimeCtx forever while holding writeMu, so the half-open
+// link was never detected and every Send wedged behind it.
+func TestIdlePing_HalfOpenConnTriggersReconnect(t *testing.T) {
+	t.Parallel()
+	id := mustID(t)
+	fb := newFakeBeacon(t, 1)
+	fb.stallConns.Store(1) // first post-auth conn goes half-open
+
+	tr, err := wss.Dial(context.Background(), wss.Config{
+		URL:              fb.url(),
+		TLSConfig:        fb.tlsConfig(),
+		Identity:         id,
+		NodeID:           1,
+		IdlePingInterval: 40 * time.Millisecond,
+		IdlePingTimeout:  60 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer tr.Close()
+
+	// The first conn never pongs: idle ping fires (~40ms), waits up to
+	// 60ms, times out, forces reconnect. A second successful auth means
+	// a fresh healthy conn is up.
+	deadline := time.Now().Add(5 * time.Second)
+	for fb.authCount.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("no reconnect after half-open conn (authCount=%d) — idle ping did not detect the dead link",
+				fb.authCount.Load())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Round-trip on the reconnected conn. Retry Send past the brief
+	// ErrReconnecting window; guard Recv with its own timeout so a
+	// regression can't hang the test.
+	var sendOK bool
+	for time.Now().Before(deadline) {
+		if _, err := tr.Send([]byte("after-reconnect"), nil); err == nil {
+			sendOK = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sendOK {
+		t.Fatal("Send never succeeded after reconnect")
+	}
+
+	type recvRes struct {
+		b   []byte
+		err error
+	}
+	ch := make(chan recvRes, 1)
+	go func() { b, _, err := tr.Recv(); ch <- recvRes{b, err} }()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			t.Fatalf("Recv after reconnect: %v", r.err)
+		}
+		if want := "echo:after-reconnect"; string(r.b) != want {
+			t.Errorf("Recv = %q; want %q", r.b, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Recv timed out after reconnect — transport did not recover")
 	}
 }
 
