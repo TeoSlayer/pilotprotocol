@@ -386,40 +386,6 @@
       "publisher": "ed25519:QXvscnyXJ5L/Bmy7oCo5dPC1HrEOGa7WFWBfH5ktejM="
     },
     {
-      "id": "io.pilot.aegis",
-      "version": "0.1.3",
-      "description": "AEGIS 0.1.3 — a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
-      "display_name": "AEGIS",
-      "vendor": "Pilot Protocol",
-      "license": "MIT",
-      "source_url": "https://github.com/pilot-protocol/aegis",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-      "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6",
-      "bundle_size": 5351198,
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-          "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
-          "bundle_sha256": "ad2b5c81feca75fee144b995f857b208d2cd4d772ede2e06fea6b94b02074bed"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
-          "bundle_sha256": "e582c8e72d2024794d635fe23a1216cd83ee0fe6daabc462a84f5eddd4c1e65f"
-        }
-      },
-      "categories": [
-        "security",
-        "firewall",
-        "guardrail"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
-      "metadata_sha256": "ca71da633a5608af201ba08409f4376c672d92fa6adc570c41d409d51967ffc3",
-      "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
-    },
-    {
       "id": "io.pilot.smol",
       "version": "1.2.0",
       "description": "Smol Machines — fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
@@ -776,6 +742,36 @@
         }
       },
       "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+    },
+    {
+      "id": "io.pilot.aegis",
+      "version": "0.1.3",
+      "description": "AEGIS is a runtime firewall for AI agents: scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. An 880 KB, fully-offline Rust binary — L1 Aho-Corasick pattern matching (microseconds) plus an optional local judge model. 90% recall / 95% precision on a held-out set.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+      "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6",
+      "display_name": "Aegis",
+      "vendor": "Pilot Protocol",
+      "categories": [],
+      "bundle_size": 5351198,
+      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.aegis",
+      "license": "",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
+      "metadata_sha256": "2960f2bfb5a5e27ec370fc02f51bd2746283dc093759dc8b211e77a23799d144",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+          "bundle_sha256": "ae40da40610e3d57fccb90365c7ccc45f64b7baa93b5eb7baa9b233003513eb6"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
+          "bundle_sha256": "ad2b5c81feca75fee144b995f857b208d2cd4d772ede2e06fea6b94b02074bed"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
+          "bundle_sha256": "e582c8e72d2024794d635fe23a1216cd83ee0fe6daabc462a84f5eddd4c1e65f"
+        }
+      },
+      "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
     }
   ]
 }
