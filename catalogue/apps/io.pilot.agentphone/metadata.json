@@ -3,7 +3,7 @@
   "id": "io.pilot.agentphone",
   "display_name": "AgentPhone",
   "tagline": "A real phone number for your agent — voice calls, SMS/iMessage, and conversations over REST",
-  "description_md": "# AgentPhone — a real phone number for your AI agent\n\nAgentPhone gives your agent its **own real US/Canada phone number**: place and receive **voice calls**, send and receive **SMS \u0026 iMessage**, and hold threaded **conversations** with real people — all over plain REST. This is the managed Pilot front door: you bring **nothing** (no signup, no API key). Pilot holds one AgentPhone master key behind the broker and gives **each Pilot user a $5 budget**; calls and texts debit against it, and once it's spent the paid endpoints return `402 Payment Required` (reads stay free).\n\n## What you can do\n\n- **Call people.** `agentphone.place_call` with a `systemPrompt` runs an autonomous voice call — the phone rings in ~1–2s and the AI holds the conversation. Book a reservation, chase a shipment, return a missed call, or call another agent.\n- **Text people.** `agentphone.send_message` delivers over **iMessage** when both sides support it (unlocking threaded replies, tapback reactions, send effects, typing indicators, group chats) and transparently falls back to **SMS/MMS** otherwise — same call either way.\n- **Answer \u0026 follow up.** Poll `agentphone.list_number_messages` / `agentphone.list_conversation_messages` for inbound texts and `agentphone.get_call` for call transcripts — **no websockets required**.\n- **Manage your setup.** Buy/release numbers, create and tune agents (voice, model tier, system prompt, ambience), keep an address book of contacts, and attach numbers to agents.\n\n## How it works (no signup step)\n\nBecause this is the **managed** app, the AgentPhone account already exists behind the Pilot broker — you skip the `/v0/agent/sign-up` + `/v0/agent/verify` flow entirely. Just call the `/v1` methods below; the broker authenticates you as your Pilot identity, injects the master key, meters your spend, and forwards to `https://api.agentphone.ai`.\n\n**Async, poll-based (no streaming):**\n1. `agentphone.place_call` → returns a call `id` immediately; the call runs in the background.\n2. Poll `agentphone.get_call` every few seconds until `status` is `completed` or `failed`, then read `transcripts[]` (or `agentphone.get_transcript`).\n3. For inbound SMS, poll `agentphone.list_number_messages` with the `after` cursor and filter `direction == \"inbound\"`.\n\n## Critical gotchas (read once)\n\n- **You cannot call 911**, N11 numbers, or crisis lines — they're blocked. If your human has an emergency, tell them to dial directly.\n- **Released numbers are gone forever** — no refund for the unused month. Confirm before `agentphone.release_number`.\n- **Always use E.164**: `+14155551234` ✓ — never `(415) 555-1234` or `415-555-1234`. Assume `+1` for a bare US number and confirm if it matters.\n- **Inbound calls need hosted mode OR a webhook.** Create agents with `voiceMode: \"hosted\"` explicitly (the backend defaults to `webhook`, which fails inbound if no webhook is set).\n- **iMessage-only features** (reactions, send effects, typing, backgrounds, contact cards) are silently ignored on SMS — check the response `channel`.\n- **Don't spam.** Unsolicited bulk calls/texts are illegal and get the account suspended.\n\n## Cost \u0026 the $5 budget\n\nReads are free. Spending operations debit your per-user $5 Pilot budget: buying a number (**$3.00/mo**), placing a call (**per-minute**), and sending a text (**~$0.01–0.02**). When a call would overdraw, the broker returns `402` before anything is charged, and every response carries your remaining balance in the `X-Pilot-Credits-Remaining` header (micro-dollars).\n\nEvery method's parameters, kind, and latency class are discoverable at runtime via `agentphone.help`.\n",
+  "description_md": "# AgentPhone — a real phone number for your AI agent\n\nAgentPhone gives your agent its **own real US/Canada phone number**: place and receive **voice calls**, send and receive **SMS & iMessage**, and hold threaded **conversations** with real people — all over plain REST. This is the managed Pilot front door: you bring **nothing** (no signup, no API key). Pilot holds one AgentPhone master key behind the broker and gives **each Pilot user a $5 budget**; calls and texts debit against it, and once it's spent the paid endpoints return `402 Payment Required` (reads stay free).\n\n## What you can do\n\n- **Call people.** `agentphone.place_call` with a `systemPrompt` runs an autonomous voice call — the phone rings in ~1–2s and the AI holds the conversation. Book a reservation, chase a shipment, return a missed call, or call another agent.\n- **Text people.** `agentphone.send_message` delivers over **iMessage** when both sides support it (unlocking threaded replies, tapback reactions, send effects, typing indicators, group chats) and transparently falls back to **SMS/MMS** otherwise — same call either way.\n- **Answer & follow up.** Poll `agentphone.list_number_messages` / `agentphone.list_conversation_messages` for inbound texts and `agentphone.get_call` for call transcripts — **no websockets required**.\n- **Manage your setup.** Buy/release numbers, create and tune agents (voice, model tier, system prompt, ambience), keep an address book of contacts, and attach numbers to agents.\n\n## How it works (no signup step)\n\nBecause this is the **managed** app, the AgentPhone account already exists behind the Pilot broker — you skip the `/v0/agent/sign-up` + `/v0/agent/verify` flow entirely. Just call the `/v1` methods below; the broker authenticates you as your Pilot identity, injects the master key, meters your spend, and forwards to `https://api.agentphone.ai`.\n\n**Async, poll-based (no streaming):**\n1. `agentphone.place_call` → returns a call `id` immediately; the call runs in the background.\n2. Poll `agentphone.get_call` every few seconds until `status` is `completed` or `failed`, then read `transcripts[]` (or `agentphone.get_transcript`).\n3. For inbound SMS, poll `agentphone.list_number_messages` with the `after` cursor and filter `direction == \"inbound\"`.\n\n## Critical gotchas (read once)\n\n- **You cannot call 911**, N11 numbers, or crisis lines — they're blocked. If your human has an emergency, tell them to dial directly.\n- **Released numbers are gone forever** — no refund for the unused month. Confirm before `agentphone.release_number`.\n- **Always use E.164**: `+14155551234` ✓ — never `(415) 555-1234` or `415-555-1234`. Assume `+1` for a bare US number and confirm if it matters.\n- **Inbound calls need hosted mode OR a webhook.** Create agents with `voiceMode: \"hosted\"` explicitly (the backend defaults to `webhook`, which fails inbound if no webhook is set).\n- **iMessage-only features** (reactions, send effects, typing, backgrounds, contact cards) are silently ignored on SMS — check the response `channel`.\n- **Don't spam.** Unsolicited bulk calls/texts are illegal and get the account suspended.\n\n## Cost & the $5 budget\n\nReads are free. Spending operations debit your per-user $5 Pilot budget: buying a number (**$3.00/mo**), placing a call (**per-minute**), and sending a text (**~$0.01–0.02**). When a call would overdraw, the broker returns `402` before anything is charged, and every response carries your remaining balance in the `X-Pilot-Credits-Remaining` header (micro-dollars).\n\nEvery method's parameters, kind, and latency class are discoverable at runtime via `agentphone.help`.\n",
   "vendor": {
     "name": "AgentPhone",
     "url": "https://agentphone.ai",
@@ -274,5 +274,86 @@
       "label": "Website",
       "url": "https://agentphone.ai"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.agentphone",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs to place a real phone call or send an SMS/iMessage to a person — bookings, reminders, follow-ups, chasing a shipment or a missed call.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Orient — check your account and $5 budget (free read)",
+      "command": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'",
+      "expect": "{\"plan\":\"managed\",\"numbers\":{\"used\":0,\"limit\":1},\"stats\":{...}}",
+      "cost": "$0.00 (read)"
+    },
+    "examples": [
+      {
+        "title": "Find your starter agent (free read)",
+        "goal": "Get the agentId you place calls / send texts as",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.list_agents '{}'",
+        "expect": "{\"data\":[{\"id\":\"agent_...\",\"name\":\"Assistant\",\"voiceMode\":\"hosted\"}]}",
+        "cost": "$0.00 (read)"
+      },
+      {
+        "title": "Place an autonomous voice call",
+        "goal": "The AI dials and holds the conversation from your prompt",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.place_call '{\"agentId\":\"agent_123\",\"toNumber\":\"+14155551234\",\"systemPrompt\":\"Confirm the 7pm reservation for two under Alex.\"}'",
+        "expect": "{\"id\":\"call_...\",\"status\":\"queued\"}",
+        "cost": "$0.10",
+        "note": "Returns immediately; poll agentphone.get_call for the transcript."
+      },
+      {
+        "title": "Poll the call transcript (free read)",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.get_call '{\"call_id\":\"call_...\"}'",
+        "expect": "{\"status\":\"completed\",\"durationSeconds\":42,\"transcripts\":[...]}",
+        "cost": "$0.00 (read)"
+      },
+      {
+        "title": "Send a text (iMessage → SMS fallback)",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.send_message '{\"agent_id\":\"agent_123\",\"to_number\":\"+14155551234\",\"body\":\"On my way, 5 min out.\"}'",
+        "expect": "{\"id\":\"msg_...\",\"channel\":\"imessage\"}",
+        "cost": "$0.02"
+      }
+    ],
+    "cost": {
+      "unit": "micro-USD (1000000 = $1.00)",
+      "free_budget": "$5.00 per Pilot user",
+      "hard_cap_usd": 5.0,
+      "operations": [
+        {
+          "op": "agentphone.place_call",
+          "price": "$0.10",
+          "note": "per call (per-minute, ~$0.05+ for a short call)"
+        },
+        {
+          "op": "agentphone.send_message",
+          "price": "$0.02",
+          "note": "per SMS/iMessage"
+        },
+        {
+          "op": "agentphone.buy_number",
+          "price": "$3.00",
+          "note": "per month; released numbers are gone forever, no refund"
+        },
+        {
+          "op": "agentphone.usage / list_* / get_call / get_transcript",
+          "price": "$0.00",
+          "note": "all reads are free"
+        }
+      ],
+      "worked_total": "This demo spends $0.12 of your $5.00 budget (1 call + 1 text; the two reads are free).",
+      "check_balance": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'"
+    },
+    "gotchas": [
+      "Always use E.164 numbers (+14155551234) — never (415) 555-1234.",
+      "You cannot dial 911, N11, or crisis lines — they are blocked.",
+      "402 Payment Required means your $5.00 budget is spent — reads still work.",
+      "place_call/send_message need an agent with a number attached — list_agents / list_numbers first.",
+      "Calls are async: place_call returns a call id, then poll get_call until status is completed/failed.",
+      "iMessage-only extras (reactions, send effects) are silently ignored on SMS — check the response channel."
+    ],
+    "next": [
+      "io.pilot.agentphone agentphone.help '{}'"
+    ]
+  }
 }
