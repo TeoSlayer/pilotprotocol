@@ -159,11 +159,30 @@ func loadNextStepsGraph(appID string) *nextStepsGraph {
 // resolveNextStepsEdge picks the single best edge for a completed call, or nil
 // when the graph has nothing to say (the common, silent case).
 //
-// Specificity decides, not file order: a rule naming the exact method beats the
-// wildcard, and a rule that also pins the error (code, then match) beats one
-// that does not. Ties go to first-in-file, so an author can force a winner by
-// ordering. This mirrors nextsteps.Graph.Resolve in app-template — the two are
-// kept in lockstep by TestResolveMatchesAppTemplateSemantics.
+// Specificity decides, not file order. The governing rule:
+//
+//	AN EDGE THAT MATCHED THE ACTUAL SITUATION BEATS ONE THAT MERELY MATCHED
+//	THE METHOD NAME.
+//
+// So every discriminated edge outranks every undiscriminated one, however exact
+// its From:
+//
+//	from exact + code   (7)
+//	*          + code   (6)
+//	from exact + match  (5)
+//	*          + match  (4)
+//	from exact          (1)   "you called this method", nothing more
+//	*                   (0)   the catch-all
+//
+// The gap between 4 and 1 is load-bearing. A signup app's gateway edge is
+// `*` + match on {"needs_signup":true} (the soft-fail is exit 0, so it cannot key
+// on the outcome). If a bare From-exact flow edge could outrank it, a COLD agent
+// calling primitive.send_email would be told "now read your inbox" instead of
+// "sign up first" — the exact failure this feature exists to prevent.
+//
+// This MUST stay in lockstep with nextsteps.Graph.Resolve in app-template, which
+// validates the graphs this resolves; TestResolveMatchesAppTemplateSemantics
+// pins the shared cases.
 func resolveNextStepsEdge(g *nextStepsGraph, method string, ok bool, payload string) *nextStepsEdge {
 	if g == nil {
 		return nil
@@ -181,7 +200,7 @@ func resolveNextStepsEdge(g *nextStepsGraph, method string, ok bool, payload str
 		score := 0
 		switch e.From {
 		case method:
-			score += 4
+			score++ // a named method is the WEAKEST signal — see the ordering above
 		case nextStepsWildcard:
 		default:
 			continue // names a different method
@@ -193,13 +212,13 @@ func resolveNextStepsEdge(g *nextStepsGraph, method string, ok bool, payload str
 			if !nextStepsMatchesCode(payload, e.Code) {
 				continue
 			}
-			score += 2
+			score += 6 // matched the situation, and pinned an exact status
 		} else if e.Match != "" {
 			re, err := regexp.Compile("(?i)" + e.Match)
 			if err != nil || !re.MatchString(payload) {
 				continue
 			}
-			score++
+			score += 4 // matched the situation
 		}
 		if score > bestScore {
 			bestScore, best = score, i

@@ -278,6 +278,11 @@ func TestResolveMatchesAppTemplateSemantics(t *testing.T) {
 		{"unrelated method falls back to wildcard", "demoapp.other", true, `{"ok":true}`, "wildcard-ok"},
 		// The signup soft-fail: exit 0, and the discriminator is in the BODY.
 		{"needs_signup body beats bare wildcard ok", "demoapp.get", true, `{"needs_signup":true}`, "wildcard-ok-match"},
+		// THE case this suite originally missed, which let the two resolvers drift:
+		// a bare exact-from edge must NOT shadow a wildcard gateway edge that
+		// actually matched. `demoapp.signup` has an exact ok edge; a cold agent
+		// calling it with a needs_signup body must still be routed to the gateway.
+		{"discriminated wildcard beats bare exact-from", "demoapp.signup", true, `{"needs_signup":true}`, "wildcard-ok-match"},
 		{"real 402 selects the code edge", "demoapp.run", false, liveX402Err, "wildcard-code"},
 		{"429 does not select the 402 edge", "demoapp.run", false, liveQuotaErr, ""},
 		{"exact method + match wins", "demoapp.send", false, liveMissingParamErr, "exact-err-match"},
