@@ -350,6 +350,21 @@ type Daemon struct {
 	// signature) from "whole network unreachable" (restart just loops).
 	lastRegistryOKNano atomic.Int64
 
+	// lastDialOKNano / consecutiveDialTimeouts feed the rx watchdog's
+	// PARTIAL-wedge detector. A daemon can be "up" with rx trickling —
+	// a couple of keepalive packets from existing peers keep PktsRecv
+	// advancing, so the rx-silence check stays quiet — yet be unable to
+	// open a single new outbound data-exchange connection: every
+	// DialConnection returns ErrDialTimeout. Observed 2026-07-15, the
+	// overlay went dark (pilot-director + list-agents both unreachable)
+	// and the watchdog did NOT fire because the keepalive trickle reset
+	// its silence timer every tick; only a manual daemon restart cleared
+	// it. consecutiveDialTimeouts counts back-to-back dial timeouts
+	// (reset to 0 on any successful dial); a run of them to distinct
+	// peers means our outbound path is wedged, not that one peer is dead.
+	lastDialOKNano          atomic.Int64
+	consecutiveDialTimeouts atomic.Uint64
+
 	startTime       time.Time
 	stopCh          chan struct{}         // closed on Stop() to signal goroutines
 	beaconSelection *beaconSelectionState // multi-beacon discovery state
@@ -3674,6 +3689,10 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				if st == StateEstablished {
 					d.startRetxLoop(conn)
 				}
+				// A completed handshake proves the outbound path is alive —
+				// clears the rx-watchdog's partial-wedge signal.
+				d.lastDialOKNano.Store(time.Now().UnixNano())
+				d.consecutiveDialTimeouts.Store(0)
 				return conn, nil
 			}
 			if st == StateClosed {
@@ -3720,6 +3739,10 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
 					d.tunnels.SetRelayPeer(dstAddr.Node, false)
 				}
+				// Full direct+relay retry budget exhausted with no SYN-ACK.
+				// Feeds the rx-watchdog's partial-wedge detector: a run of
+				// these to distinct peers means our outbound is wedged.
+				d.consecutiveDialTimeouts.Add(1)
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)

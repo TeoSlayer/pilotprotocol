@@ -55,6 +55,16 @@ const (
 	// nothing to send) never triggers.
 	rxSilenceMinSentDelta = 30
 
+	// dialWedgeThreshold: consecutive DialConnection timeouts (each a full
+	// direct+relay retry budget with no SYN-ACK) that mark the outbound
+	// path as wedged. A run this long means separate dials to (typically)
+	// distinct peers all failed — implausible unless our own send path is
+	// dead, not the peers. This is the PARTIAL wedge the rx-silence check
+	// misses: rx keeps trickling (keepalives) so silence never trips, but
+	// no new connection can be opened. 4 = at least four back-to-back
+	// user-visible dial failures with zero successes in between.
+	dialWedgeThreshold = 4
+
 	// rxWatchdogSoftMax is how many consecutive soft recoveries run
 	// before the watchdog considers the hard exit.
 	rxWatchdogSoftMax = 3
@@ -136,10 +146,18 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 
 	recv := atomic.LoadUint64(&d.tunnels.PktsRecv)
 	sent := atomic.LoadUint64(&d.tunnels.PktsSent)
+	dialTimeouts := d.consecutiveDialTimeouts.Load()
 
-	if recv != st.recvSeen {
+	rxProgressed := recv != st.recvSeen
+	// PARTIAL wedge: the outbound path is dead — a run of DialConnection
+	// timeouts to (typically) distinct peers with zero successes between
+	// them — even though rx is still trickling. rx progress alone no
+	// longer counts as healthy while this holds.
+	dialWedged := dialTimeouts >= dialWedgeThreshold
+
+	if rxProgressed && !dialWedged {
 		if st.softAttempts > 0 {
-			slog.Info("inbound path recovered",
+			slog.Info("transport recovered",
 				"silent_for", now.Sub(st.lastProgress).Truncate(time.Second).String(),
 				"soft_attempts", st.softAttempts)
 			d.publishEvent("tunnel.rx_recovered", map[string]any{
@@ -154,10 +172,29 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 		return rxActionProgress
 	}
 
+	// Keep the rx-silence measure honest even when we don't reset the soft
+	// counter: if rx trickled forward (dial-wedged case), advance the
+	// baseline so `silence` reflects real inbound stall, not the trickle.
+	if rxProgressed {
+		st.recvSeen = recv
+		st.sentAtProgress = sent
+		st.lastProgress = now
+	}
+
 	silence := now.Sub(st.lastProgress)
 	sentDelta := sent - st.sentAtProgress
-	if silence < rxSilenceThreshold || sentDelta < rxSilenceMinSentDelta {
+	rxSilentWedge := silence >= rxSilenceThreshold && sentDelta >= rxSilenceMinSentDelta
+
+	if !rxSilentWedge && !dialWedged {
 		return rxActionNone
+	}
+
+	wedgeReason := "inbound-silent"
+	if dialWedged {
+		wedgeReason = "outbound-dial-wedged"
+		if rxSilentWedge {
+			wedgeReason = "inbound-silent+outbound-dial-wedged"
+		}
 	}
 
 	// rawRxAge separates "socket path dead" (old) from "session layer
@@ -169,24 +206,36 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 
 	if st.softAttempts < rxWatchdogSoftMax {
 		st.softAttempts++
-		slog.Warn("inbound path silent while transmitting — attempting soft recovery",
+		slog.Warn("transport wedged while transmitting — attempting soft recovery",
+			"reason", wedgeReason,
 			"silent_for", silence.Truncate(time.Second).String(),
 			"pkts_sent_during_silence", sentDelta,
+			"dial_timeouts", dialTimeouts,
 			"raw_rx_age", rawRxAge.Truncate(time.Second).String(),
 			"attempt", st.softAttempts,
 			"max_soft_attempts", rxWatchdogSoftMax)
 		d.publishEvent("tunnel.rx_silence", map[string]any{
+			"reason":                   wedgeReason,
 			"silent_for_seconds":       int64(silence.Seconds()),
 			"pkts_sent_during_silence": sentDelta,
+			"dial_timeouts":            dialTimeouts,
 			"raw_rx_age_seconds":       int64(rawRxAge.Seconds()),
 			"attempt":                  st.softAttempts,
 		})
-		// The beacon's discover reply is itself an inbound datagram, so
-		// this doubles as an active probe of the rx path.
+		// Re-register with the beacon (re-punches our NAT mapping; the
+		// discover reply also doubles as an active inbound probe) and the
+		// registry. This is what a manual restart effectively did to clear
+		// the partial wedge.
 		d.tunnels.RegisterWithBeacon()
 		if d.regConn != nil {
 			d.reRegister()
 		}
+		// Reset the dial counter so the next real dial re-tests the path:
+		// if recovery worked the next dial succeeds (counter stays 0); if
+		// not, failures re-accumulate to threshold and softAttempts climbs
+		// toward the hard exit. Avoids a stale counter forcing an exit when
+		// no new dials have happened to confirm the wedge persists.
+		d.consecutiveDialTimeouts.Store(0)
 		return rxActionSoftRecover
 	}
 
@@ -212,15 +261,19 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 			"silent_for", silence.Truncate(time.Second).String(),
 			"uptime", uptime.Truncate(time.Second).String())
 	default:
-		slog.Error("inbound path wedged — exiting for supervisor respawn",
+		slog.Error("transport wedged — exiting for supervisor respawn",
+			"reason", wedgeReason,
 			"silent_for", silence.Truncate(time.Second).String(),
 			"pkts_sent_during_silence", sentDelta,
+			"dial_timeouts", dialTimeouts,
 			"raw_rx_age", rawRxAge.Truncate(time.Second).String(),
 			"soft_attempts", st.softAttempts,
 			"exit_code", rxWedgeExitCode)
 		d.publishEvent("tunnel.rx_wedged_exit", map[string]any{
+			"reason":                   wedgeReason,
 			"silent_for_seconds":       int64(silence.Seconds()),
 			"pkts_sent_during_silence": sentDelta,
+			"dial_timeouts":            dialTimeouts,
 			"soft_attempts":            st.softAttempts,
 			"exit_code":                rxWedgeExitCode,
 		})
