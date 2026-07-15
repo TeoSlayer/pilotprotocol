@@ -1,0 +1,503 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.primitive",
+  "display_name": "Primitive",
+  "tagline": "Email for AI agents — provision a managed inbox in one call, then send, receive, reply, and search real email over a single REST API.",
+  "description_md": "# Primitive — email infrastructure for AI agents\n\n[Primitive](https://www.primitive.dev) gives an agent a real, working email identity with **no SMTP credentials, no DNS, and no human in the loop**. One call to `primitive.signup` provisions a free account plus a managed `*.primitive.email` inbox (verified by construction). From then on the adapter **injects your API key on every call automatically** — you never see, store, or pass it. The key is minted by Primitive and cached locally under `~/.pilot`; call `primitive.signup` once and every other method authenticates as you.\n\n## What you can do on the free plan\n- **Send** outbound mail (`primitive.send_email`), **reply** on-thread (`primitive.reply_to_email`), and **batch-send** (`primitive.send_mail_batch`), with attachments and idempotency keys.\n- **Receive** at your managed inbox: list, get, search, download raw MIME + attachments, and follow conversations (`primitive.list_emails`, `primitive.search_emails`, `primitive.get_email`, `primitive.get_conversation`). Long-poll for new mail with `?since=\u003ccursor\u003e\u0026wait=30`.\n- **Route \u0026 filter** inbound mail (`primitive.create_route`, `primitive.create_filter`), register **webhook endpoints** (`primitive.create_endpoint`), and read **inbox readiness** (`primitive.get_inbox_status`).\n- **Primitive Memories** — durable JSON key-value state across turns, retries, and inbound messages (`primitive.set_memory`, `primitive.get_memory`, `primitive.search_memories`).\n- **Semantic search** across received and sent mail (`primitive.semantic_search`).\n\n## Auth model\n`primitive.signup` is the only step. It POSTs Primitive's emailless account endpoint, which returns a `prim_` API key and a provisioned inbox; the adapter caches both to `secrets.json` and injects the key on the `Authorization` header of every subsequent call. It is **idempotent** — a host that already has a key keeps it (a repeat call never mints a new identity). Any method called before signup **soft-fails with exact activation instructions** instead of erroring.\n\n## Not on the free plan\nFour families need an account upgrade and are clearly marked in `primitive.help` under a free-plan disclaimer: **Functions** (hosted JavaScript on inbound mail — developer plan), **Wake** schedules, **x402** USDC payments over email (invite-only), and **custom Domains** (transactional send/receive from your own domain with managed SPF/DKIM/DMARC). They are implemented and callable, but return a plan/entitlement error until the account is upgraded at [primitive.dev](https://www.primitive.dev).\n",
+  "vendor": {
+    "name": "Primitive",
+    "url": "https://www.primitive.dev",
+    "contact": "https://www.primitive.dev",
+    "publisher_pubkey": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+  },
+  "homepage": "https://www.primitive.dev",
+  "source_url": "https://docs.primitive.dev/docs",
+  "license": "Proprietary",
+  "categories": [
+    "communications"
+  ],
+  "keywords": [
+    "email",
+    "smtp",
+    "inbox",
+    "agents",
+    "mail",
+    "primitive",
+    "send",
+    "receive"
+  ],
+  "size": {
+    "bundle_bytes": 5241262,
+    "installed_bytes": 9879653
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "primitive.signup",
+      "summary": "Provision your own Primitive account and a managed *.primitive.email inbox in ONE call — no email, no code, no human step. Zero arguments required. This POSTs to Primitive's emailless account endpoint, which returns a fresh API key (prim_...) and a provisioned inbox address; the adapter caches the key to $APP/secrets.json and INJECTS it on the Authorization header of every other primitive.* call automatically — you never see, store, or pass the key. Idempotent: if this host already has a key it is kept (a repeat call does NOT mint a new identity). Run this ONCE before anything else. FREE — the account is on the reply-capable 'agent' plan; you can send to other Primitive-managed addresses and reply to anyone who mails you. If you call any method before signing up, it soft-fails with these exact instructions."
+    },
+    {
+      "name": "primitive.get_account",
+      "summary": "Get account info. Retrieve the authenticated organization's account: organization identity, current plan, usage, and onboarding state"
+    },
+    {
+      "name": "primitive.update_account",
+      "summary": "Update account settings. Update the mutable account settings (such as display name and notification preferences) for the authenticated organization"
+    },
+    {
+      "name": "primitive.get_storage_stats",
+      "summary": "Get storage usage. Return stored-email storage usage and the remaining quota for the authenticated organization"
+    },
+    {
+      "name": "primitive.get_webhook_secret",
+      "summary": "Get webhook signing secret. Returns the webhook signing secret for your account. If no secret exists yet, one is generated automatically on first access."
+    },
+    {
+      "name": "primitive.rotate_webhook_secret",
+      "summary": "Rotate webhook signing secret. Generates a new webhook signing secret, replacing the current one. Rate limited to once per 60 minutes."
+    },
+    {
+      "name": "primitive.list_domains",
+      "summary": "List all domains. Returns all verified and unverified domains for your organization, sorted by creation date (newest first). Each domain includes a `verified` boolean to distinguish between the two states."
+    },
+    {
+      "name": "primitive.add_domain",
+      "summary": "Claim a new domain. Creates an unverified domain claim and returns the exact DNS records to publish in `dns_records`. Publish those records before calling the verify endpoint."
+    },
+    {
+      "name": "primitive.update_domain",
+      "summary": "Update domain settings. Update a verified domain's settings. Only verified domains can be updated."
+    },
+    {
+      "name": "primitive.delete_domain",
+      "summary": "Delete a domain. Remove a domain from the organization. Inbound mail for its addresses stops being accepted"
+    },
+    {
+      "name": "primitive.verify_domain",
+      "summary": "Verify domain ownership. Checks DNS records required for inbound routing, ownership, and outbound authentication: MX, ownership TXT, SPF, DKIM, DMARC, and TLS-RPT. On success, the domain is promoted from unverified to verified."
+    },
+    {
+      "name": "primitive.download_domain_zone_file",
+      "summary": "Download domain DNS zone file. Downloads a BIND-format DNS zone file containing the DNS records required for a domain claim. Agents should offer this after `addDomain` when users want to import DNS records instead of copying each record manually"
+    },
+    {
+      "name": "primitive.get_inbox_status",
+      "summary": "Get inbound inbox readiness. Returns one consolidated view of domain verification, webhook/function processing routes, deployed functions, and recent inbound mail. Agents should use this before guiding users through inbound email setup"
+    },
+    {
+      "name": "primitive.list_emails",
+      "summary": "List inbound emails. Returns a paginated list of INBOUND emails received at your verified domains. Outbound messages sent via /send-mail are not included; this endpoint is the inbox view, not a unified send/receive history."
+    },
+    {
+      "name": "primitive.search_emails",
+      "summary": "Search inbound emails. Searches inbound emails with structured filters and optional full-text matching across parsed email fields. This endpoint is optimized for filtered inbox views and CLI polling workflows: callers that only need new accepted mail can pass `sort=received_at_asc`, `snippet=false`, `include_facets=false`, and a `date_from` timestamp."
+    },
+    {
+      "name": "primitive.get_email",
+      "summary": "Get inbound email by id. Returns the full record for an inbound email received at one of your verified domains, including the parsed text and HTML bodies, threading metadata, SMTP envelope detail, webhook delivery state, and a `replies` array for any outbound sends recorded as replies to this inbound. For listing inbound emails (with cursor pagination, statu"
+    },
+    {
+      "name": "primitive.delete_email",
+      "summary": "Delete an email. Permanently delete a received email and its stored content. This cannot be undone"
+    },
+    {
+      "name": "primitive.download_raw_email",
+      "summary": "Download raw email. Downloads the raw RFC 822 email file (.eml). Authenticates via a signed download token (provided in webhook payloads) or a valid session."
+    },
+    {
+      "name": "primitive.download_attachments",
+      "summary": "Download email attachments. Downloads all attachments as a gzip-compressed tar archive. Authenticates via a signed download token (provided in webhook payloads) or a valid session."
+    },
+    {
+      "name": "primitive.reply_to_email",
+      "summary": "Reply to an inbound email. Sends an outbound reply to the inbound email identified by `id`. Threading headers (`In-Reply-To`, `References`), recipient derivation (Reply-To, then From, then bare sender), and the `Re:` subject prefix are all derived server-side from the stored inbound row."
+    },
+    {
+      "name": "primitive.replay_email_webhooks",
+      "summary": "Replay email webhooks. Re-delivers the webhook payload for this email to all active endpoints matching the email's domain. Rate limited per-email (short cooldown between successive replays of the same email) and per-org (burst + sustained windows), sharing an org-wide budget with delivery replays."
+    },
+    {
+      "name": "primitive.discard_email_content",
+      "summary": "Discard email content. Permanently deletes the email's raw bytes, parsed body (text + HTML), and attachments while preserving metadata (sender, recipient, subject, timestamps, hashes, attachment manifest) for audit logs. Idempotent: a second call returns success with `already_discarded: true` and does no work."
+    },
+    {
+      "name": "primitive.get_conversation",
+      "summary": "Get the conversation an email belongs to. Returns the full conversation the given inbound email belongs to, as ordered, ready-to-prompt turns WITH bodies. It resolves the thread from the email and returns every message oldest-first, so an agent that received an email can pass `messages` straight to a chat model in one call instead of walking `/threads/{id}`"
+    },
+    {
+      "name": "primitive.list_endpoints",
+      "summary": "List webhook endpoints. Returns all active (non-deleted) webhook endpoints"
+    },
+    {
+      "name": "primitive.create_endpoint",
+      "summary": "Create a webhook endpoint. Creates a new webhook endpoint. If a deactivated endpoint with the same URL and domain exists, it is reactivated instead."
+    },
+    {
+      "name": "primitive.update_endpoint",
+      "summary": "Update a webhook endpoint. Updates an active webhook endpoint. If the URL is changed, the old endpoint is deactivated and a new one is created (or an existing deactivated endpoint with the new URL is reactivated)."
+    },
+    {
+      "name": "primitive.delete_endpoint",
+      "summary": "Delete a webhook endpoint. Delete a webhook endpoint. Inbound messages are no longer delivered to it"
+    },
+    {
+      "name": "primitive.test_endpoint",
+      "summary": "Send a test webhook. Sends a sample `email.received` event to the endpoint. The request includes SSRF protection (private IP rejection and DNS pinning)."
+    },
+    {
+      "name": "primitive.list_filters",
+      "summary": "List filter rules. Returns all whitelist and blocklist filter rules"
+    },
+    {
+      "name": "primitive.create_filter",
+      "summary": "Create a filter rule. Creates a new whitelist or blocklist filter. Per-domain filters require a Pro plan."
+    },
+    {
+      "name": "primitive.update_filter",
+      "summary": "Update a filter rule. Toggle a filter's enabled state"
+    },
+    {
+      "name": "primitive.delete_filter",
+      "summary": "Delete a filter rule. Delete an inbound routing filter rule. Messages already processed by the rule are unaffected"
+    },
+    {
+      "name": "primitive.list_wake_schedules",
+      "summary": "List wake schedules. Returns the org's wake.dispatch schedules"
+    },
+    {
+      "name": "primitive.create_wake_schedule",
+      "summary": "Create a wake schedule. Create a cron schedule that sends a wake.dispatch command to one of your own function addresses. `from` and `to` must differ (no self-dispatch); the cron expression and IANA timezone are validated and the first fire time is computed without firing immediately."
+    },
+    {
+      "name": "primitive.get_wake_schedule",
+      "summary": "Get a wake schedule. Get a wake schedule"
+    },
+    {
+      "name": "primitive.update_wake_schedule",
+      "summary": "Update a wake schedule. Update a schedule's command, args, cadence, addresses, note, or enabled state. Changing the cadence (or re-enabling) recomputes the next fire time."
+    },
+    {
+      "name": "primitive.delete_wake_schedule",
+      "summary": "Delete a wake schedule. Delete a wake schedule"
+    },
+    {
+      "name": "primitive.run_wake_schedule",
+      "summary": "Run a wake schedule now. Fire the schedule immediately, sending one wake.dispatch via the same signed-send path as a scheduled fire. Does not change the schedule's next fire time."
+    },
+    {
+      "name": "primitive.list_wake_authorizations",
+      "summary": "List wake authorizations. Returns the per-target allowlist grants that authorize which senders may wake a function. Optionally filter by the target endpoint."
+    },
+    {
+      "name": "primitive.create_wake_authorization",
+      "summary": "Create a wake authorization. Grant a sender domain (and optionally a specific address and command set) permission to wake a target function. The domain must be fully-qualified."
+    },
+    {
+      "name": "primitive.update_wake_authorization",
+      "summary": "Update a wake authorization. Toggle a wake authorization's enabled state"
+    },
+    {
+      "name": "primitive.delete_wake_authorization",
+      "summary": "Delete a wake authorization. Delete a wake authorization"
+    },
+    {
+      "name": "primitive.list_wake_dispatches",
+      "summary": "List recent wake dispatches. Read-only audit of recent wake.dispatch interactions for the org"
+    },
+    {
+      "name": "primitive.list_routes",
+      "summary": "List recipient routes. Returns the org's recipient routing rules in evaluation order. Each rule binds a recipient address pattern to one endpoint; inbound mail resolves to a single destination at delivery time."
+    },
+    {
+      "name": "primitive.create_route",
+      "summary": "Create a recipient route. Binds a recipient pattern to a destination. Provide exactly one of `endpoint_id` (an existing endpoint) or `function_id`."
+    },
+    {
+      "name": "primitive.reorder_routes",
+      "summary": "Reorder recipient routes. Update the priority of one or more routes in a single call"
+    },
+    {
+      "name": "primitive.simulate_route",
+      "summary": "Simulate routing for a recipient. Resolves where an inbound email to `recipient` would be delivered, with a trace of every rule evaluated and why. Read-only; creates nothing."
+    },
+    {
+      "name": "primitive.update_route",
+      "summary": "Update a recipient route. Update a recipient route"
+    },
+    {
+      "name": "primitive.delete_route",
+      "summary": "Delete a recipient route. Delete a recipient route"
+    },
+    {
+      "name": "primitive.list_deliveries",
+      "summary": "List webhook deliveries. Returns a paginated list of webhook delivery attempts. Each delivery includes a nested `email` object with sender, recipient, and subject."
+    },
+    {
+      "name": "primitive.replay_delivery",
+      "summary": "Replay a webhook delivery. Re-sends the stored webhook payload from a previous delivery attempt. If the original endpoint is still active, it is targeted."
+    },
+    {
+      "name": "primitive.get_send_permissions",
+      "summary": "List send-permission rules. Returns a flat list of rules describing every recipient the caller may send to. Each rule has a `type`, a kind-specific payload, and a human-readable `description`."
+    },
+    {
+      "name": "primitive.send_email",
+      "summary": "Send outbound email. Sends an outbound email through Primitive's outbound relay. By default the request returns once the relay accepts the message for delivery."
+    },
+    {
+      "name": "primitive.semantic_search",
+      "summary": "Semantic search across received and sent mail. Ranked search across both received and sent mail. The `mode` field selects the ranking strategy: - `keyword`: lexical full-text matching only (no embeddings)."
+    },
+    {
+      "name": "primitive.list_sent_emails",
+      "summary": "List outbound sent emails. Returns a paginated list of OUTBOUND emails the caller's org has sent via /send-mail (and /emails/{id}/reply, which forwards through /send-mail). Includes every recorded attempt, including gate-denied attempts that the agent never called and rows still in `queued` state."
+    },
+    {
+      "name": "primitive.get_sent_email",
+      "summary": "Get a sent email by id. Returns the full sent-email record by id, including `body_text` and `body_html` (omitted from the listing endpoint to keep paginated responses small). Use this when diagnosing a specific send, e.g."
+    },
+    {
+      "name": "primitive.get_thread",
+      "summary": "Get a conversation thread by id. Returns a conversation thread: its metadata plus the inbound and outbound messages that belong to it, interleaved in time order (oldest first). A thread spans both received emails and your sends, so an agent can reconstruct an entire back-and-forth from one call instead of walking reply headers."
+    },
+    {
+      "name": "primitive.list_functions",
+      "summary": "List functions. Returns every active (non-deleted) function in the org, newest first. Each entry carries deploy status and timestamps."
+    },
+    {
+      "name": "primitive.create_function",
+      "summary": "Deploy a function. Creates and deploys a new function. The handler must be a single ESM module whose default export is an object with an async `fetch(request, env)` method (Workers-style)."
+    },
+    {
+      "name": "primitive.get_function",
+      "summary": "Get a function. Returns the full record for a function, including its current source code and the deploy status / error from the most recent deploy attempt."
+    },
+    {
+      "name": "primitive.update_function",
+      "summary": "Update and redeploy a function. Replaces the function's source code with the body's `code` and triggers a redeploy. Same size limits as `POST /functions`."
+    },
+    {
+      "name": "primitive.delete_function",
+      "summary": "Delete a function. Delete a hosted inbound function. It stops running on future inbound messages"
+    },
+    {
+      "name": "primitive.test_function",
+      "summary": "Send a test invocation. Sends a real test email from a Primitive-controlled sender to a local-part on one of the org's verified inbound domains. By default the recipient is a synthetic `__primitive_function_test+\u003crandom\u003e@\u003cdomain\u003e` address on a domain selected to route to the function."
+    },
+    {
+      "name": "primitive.get_function_test_run_trace",
+      "summary": "Get a function test run trace. Returns the current end-to-end trace for a function test run. The trace is intentionally partial while the test is still in flight: callers can poll this endpoint and watch it fill in from send -\u003e inbound -\u003e webhook deliveries -\u003e outbound requests, logs, and replies."
+    },
+    {
+      "name": "primitive.get_org_routing_topology",
+      "summary": "Get the org's function routing topology. Returns a single snapshot of how inbound mail is routed across this org's active domains and functions: which active domain has which function bound, the org's fallback function (if any), and every deployed function with no route bound. Use this to answer \"which of my functions actually receive mail?\" diagnostically."
+    },
+    {
+      "name": "primitive.get_function_routing",
+      "summary": "Get a function's current route binding. Returns the endpoint binding for the function, or null when no route is currently bound. The binding identifies whether the function receives mail for a specific domain (scoped) or for any active domain that has no scoped binding (fallback)."
+    },
+    {
+      "name": "primitive.set_function_route",
+      "summary": "Bind a route to a function. Binds inbound mail to this function. The route target is either a specific verified domain (scoped) or the org's fallback (any active domain with no scoped binding)."
+    },
+    {
+      "name": "primitive.unset_function_route",
+      "summary": "Unbind any route from a function. Deactivates every active endpoint bound to this function. The function stays deployed but stops receiving inbound mail."
+    },
+    {
+      "name": "primitive.list_function_secrets",
+      "summary": "List a function's secrets. Returns metadata for every secret bound to the function, with managed entries (provisioned by Primitive) listed first and user-set entries listed alphabetically after. **Values are never returned.** Secret writes are write-only."
+    },
+    {
+      "name": "primitive.create_function_secret",
+      "summary": "Create or update a secret. Idempotent insert-or-update keyed on `(function_id, key)`. Returns 201 the first time the key is set, 200 on subsequent updates."
+    },
+    {
+      "name": "primitive.set_function_secret",
+      "summary": "Set a secret by key. Path-keyed companion to `POST /functions/{id}/secrets`. Idempotent: returns 201 the first time the key is set, 200 on subsequent updates."
+    },
+    {
+      "name": "primitive.delete_function_secret",
+      "summary": "Delete a secret. Removes the secret. The binding stays live in the running handler until the next deploy refreshes the binding set (`PUT /functions/{id}` with the existing code is sufficient)."
+    },
+    {
+      "name": "primitive.list_org_secrets",
+      "summary": "List org-level (global) secrets. Returns metadata for every org-level secret. Org secrets apply to every function in the org and are read as `env.\u003cKEY\u003e` in handlers."
+    },
+    {
+      "name": "primitive.create_org_secret",
+      "summary": "Create or update an org secret. Idempotent insert-or-update keyed on `(org_id, key)`. Returns 201 the first time the key is set, 200 on subsequent updates."
+    },
+    {
+      "name": "primitive.set_org_secret",
+      "summary": "Set an org secret by key. Path-keyed companion to `POST /org/secrets`. Idempotent: returns 201 the first time the key is set, 200 on subsequent updates."
+    },
+    {
+      "name": "primitive.delete_org_secret",
+      "summary": "Delete an org secret. Removes the org secret. Functions keep the previous value until each is redeployed."
+    },
+    {
+      "name": "primitive.list_function_logs",
+      "summary": "List a function's execution logs. Returns the most recent `function_logs` rows for the function, newest first. Each row is a single `console.log` / `console.error` invocation captured from the running handler."
+    },
+    {
+      "name": "primitive.set_memory",
+      "summary": "Set a memory. Create or update a durable JSON memory under an org or function scope. Function-authenticated requests use their own Function id and cannot override it."
+    },
+    {
+      "name": "primitive.get_memory",
+      "summary": "Get a memory. Fetch one active memory by key and scope. Omit scope parameters to use automatic scope resolution."
+    },
+    {
+      "name": "primitive.delete_memory",
+      "summary": "Delete a memory. Delete one active memory by key and scope. Function-authenticated requests use their own Function id and cannot override it."
+    },
+    {
+      "name": "primitive.search_memories",
+      "summary": "Search memories. List active memories in a scope by lexicographic key prefix. Results are ordered by key ascending."
+    },
+    {
+      "name": "primitive.register_payout_address",
+      "summary": "Register a payout address. Register (or update) the default payout address your org receives x402 payments at, for a given network. You prove control of the address with an org-bound `personal_sign` signature over the message produced by the SDK helper `buildPayoutRegistrationMessage`."
+    },
+    {
+      "name": "primitive.list_payout_addresses",
+      "summary": "List payout addresses. List your org's registered payout addresses, newest first"
+    },
+    {
+      "name": "primitive.create_email_challenge",
+      "summary": "Create an email-native payment challenge. Issue an x402 payment challenge over a real email thread (the payee side). Unlike `createChallenge` (which mints a synthetic challenge id), this sends the challenge as an email from `from` to `to` and binds the payment to that DKIM-authenticated thread."
+    },
+    {
+      "name": "primitive.create_challenge",
+      "summary": "Create a payment challenge. Create an x402 payment challenge (the payee side of a payment). The `pay_to` address is resolved server-side from your registered default payout address for the network, never from the request."
+    },
+    {
+      "name": "primitive.get_challenge",
+      "summary": "Get a payment challenge. Fetch a challenge you created, to poll its `status` and settlement receipt (`settle_tx`). Scoped to the challenger org that created it."
+    },
+    {
+      "name": "primitive.pay_challenge",
+      "summary": "Pay a payment challenge. Settle a challenge addressed to your org as payer. The request body carries a signed x402 `PaymentPayload`: an EIP-3009 `transferWithAuthorization` signed locally with your own key, whose nonce is bound to the challenge via the SDK's `deriveEip3009Nonce`."
+    },
+    {
+      "name": "primitive.get_spend_policy",
+      "summary": "Get your spend policy. Read your org's outbound spend policy: the kill-switch, per-payment and per-day caps, and the payee allowlist. Returns the defaults (no limits, not paused) when no policy has been set."
+    },
+    {
+      "name": "primitive.update_spend_policy",
+      "summary": "Update your spend policy. Update your org's spend policy. Applied as a merge: only the fields you include change, and omitted fields keep their current value, so a partial update can't silently reset the kill-switch."
+    },
+    {
+      "name": "primitive.list_declined_payments",
+      "summary": "List declined payments. The 50 most recent payments your org's spend policy declined, newest first. Use this to see why an outbound payment was refused (a cap, the payee allowlist, or the kill-switch) instead of only reading the dashboard."
+    },
+    {
+      "name": "primitive.list_registries",
+      "summary": "List the registries you own. List the registries you own"
+    },
+    {
+      "name": "primitive.create_registry",
+      "summary": "Create a registry. Create a registry"
+    },
+    {
+      "name": "primitive.get_registry",
+      "summary": "Get a public registry's metadata. Get a public registry's metadata"
+    },
+    {
+      "name": "primitive.update_registry",
+      "summary": "Update a registry you own. Update a registry you own"
+    },
+    {
+      "name": "primitive.delete_registry",
+      "summary": "Delete a registry you own. Removes the registry from discovery and frees its slug for re-creation"
+    },
+    {
+      "name": "primitive.list_registry_agents",
+      "summary": "List agents in a registry. List agents in a registry"
+    },
+    {
+      "name": "primitive.publish_agent",
+      "summary": "Publish an agent into a registry. Publish an agent into a registry"
+    },
+    {
+      "name": "primitive.resolve_registry_handle",
+      "summary": "Resolve a registry handle to its agent. Resolve a registry handle to its agent"
+    },
+    {
+      "name": "primitive.unpublish_agent",
+      "summary": "Unpublish an agent from a registry. Unpublish an agent from a registry"
+    },
+    {
+      "name": "primitive.list_registry_requests",
+      "summary": "List pending publication requests. List pending publication requests"
+    },
+    {
+      "name": "primitive.decide_registry_request",
+      "summary": "Approve or reject a publication request. Approve or reject a publication request"
+    },
+    {
+      "name": "primitive.define_agent",
+      "summary": "Define an agent identity. Define an agent identity"
+    },
+    {
+      "name": "primitive.get_agent",
+      "summary": "Get an agent's public profile by address. Get an agent's public profile by address"
+    },
+    {
+      "name": "primitive.list_templates",
+      "summary": "List function templates. List approved Function templates available for browsing and installation. Results are cacheable and paginated with `data.next_cursor`"
+    },
+    {
+      "name": "primitive.get_template",
+      "summary": "Get a function template. Fetch one approved Function template by slug, including its manifest snapshot and README. The stored source files used for install are not returned"
+    },
+    {
+      "name": "primitive.install_template",
+      "summary": "Install a function template. Start a one-shot deploy of an approved deploy-mode Function template. The response returns an install record immediately; poll `GET /templates/installs/{id}` for progress"
+    },
+    {
+      "name": "primitive.get_template_install",
+      "summary": "Get template install status. Fetch the current state of a template install. Reads may advance the self-test phase when a reply effect has been observed"
+    },
+    {
+      "name": "primitive.send_mail_batch",
+      "summary": "Send a batch of emails in one request. Send up to 100 independent messages in a single call. Each message uses the same body schema and the same send path as `POST /send-mail`, so auth, validation, rate limiting, and idempotency apply per message."
+    },
+    {
+      "name": "primitive.ask",
+      "summary": "Ask about Primitive — NLWeb query (no authentication). Microsoft NLWeb natural-language query endpoint. POST `{ \"q\": \"...\" }`."
+    },
+    {
+      "name": "primitive.get_health",
+      "summary": "Service health check. Liveness probe for the API. Returns 200 with a small status payload whenever the service is up."
+    },
+    {
+      "name": "primitive.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "notes": [
+        "Released v1.0.0"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://docs.primitive.dev/docs"
+    },
+    {
+      "label": "Website",
+      "url": "https://www.primitive.dev"
+    }
+  ]
+}
