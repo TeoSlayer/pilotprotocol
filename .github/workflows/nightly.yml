@@ -38,7 +38,7 @@ jobs:
   integration:
     name: Integration suite (default tags)
     runs-on: [self-hosted, pilot-nightly]
-    timeout-minutes: 55
+    timeout-minutes: 50
     env:
       # Dedicated GCP e2-standard-4 self-hosted runner (pilot-nightly-runner).
       # PILOT_REAL_NETWORK=1 disables the requireRealNetwork skip so the FULL
@@ -69,13 +69,13 @@ jobs:
         run: |
           "$(go env GOPATH)/bin/gotestsum" \
             --rerun-fails=3 --rerun-fails-max-failures=50 --packages=./tests -- \
-            -parallel 1 -count=1 -timeout 45m \
+            -parallel 6 -count=1 -timeout 40m \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$'
 
   full:
     name: Full test suite (nightly tag)
     runs-on: [self-hosted, pilot-nightly]
-    timeout-minutes: 60
+    timeout-minutes: 55
     env:
       PILOT_REAL_NETWORK: "1"
     steps:
@@ -97,7 +97,7 @@ jobs:
         run: |
           "$(go env GOPATH)/bin/gotestsum" \
             --rerun-fails=3 --rerun-fails-max-failures=50 --packages=./tests -- \
-            -tags nightly -parallel 1 -count=1 -timeout 50m \
+            -tags nightly -parallel 6 -count=1 -timeout 45m \
             -skip 'TestMultipleLargeWrites|TestConcurrentDialEncryptDecrypt|TestHTTPPrivateWithTrust|TestInviteInboxCapEnforced|TestConnectionLimits|TestRC6PeerRestartRecoveryEndToEnd|TestEndToEndRelay|TestNameserverOverwriteA|TestNameserverPersistence|TestNameserverRegisterN|TestNameserver$'
 
       - name: Benchmark sanity (no upload)
