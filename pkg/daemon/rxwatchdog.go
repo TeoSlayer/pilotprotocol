@@ -352,6 +352,8 @@ func recentRxWedgeExits(path string, now time.Time, window time.Duration) []int6
 	if path == "" {
 		return nil
 	}
+	// #nosec G304 -- path is derived from the daemon's own configured
+	// IdentityPath (rxWedgeExitLogPath), not from any peer/user input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
