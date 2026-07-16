@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The error strings below are VERBATIM, captured from a live daemon on this
@@ -368,5 +369,90 @@ func TestCacheNextStepsRefusesTraversal(t *testing.T) {
 	cacheNextSteps(filepath.Join(root, "..", filepath.Base(outside)), &g)
 	if _, err := os.Stat(filepath.Join(outside, nextStepsFileName)); err == nil {
 		t.Fatal("cacheNextSteps wrote outside the install root")
+	}
+}
+
+// ── self-heal (ensureNextStepsFresh) ─────────────────────────────────────────
+
+func TestMarkerFresh(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "m")
+	if markerFresh(p, time.Hour) {
+		t.Fatal("absent marker must not be fresh")
+	}
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !markerFresh(p, time.Hour) {
+		t.Fatal("just-written marker must be fresh")
+	}
+	if markerFresh(p, time.Nanosecond) {
+		t.Fatal("marker older than a nanosecond TTL must be stale")
+	}
+}
+
+// A recent authoritative check must short-circuit — no fetch, no new markers.
+// This is the steady-state guarantee: the call path stays a local stat.
+func TestEnsureFreshSkipsWhenChecked(t *testing.T) {
+	root := withAppRoot(t)
+	dir := filepath.Join(root, "io.pilot.testapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	touchMarker(dir, nsCheckedMarker)
+	// Point the catalogue at an unreachable URL: if a fetch were attempted it
+	// would fail and drop a retry marker. A fresh checked marker must prevent that.
+	t.Setenv("PILOT_APPSTORE_CATALOG_URL", "http://127.0.0.1:1/nope.json")
+	ensureNextStepsFresh("io.pilot.testapp")
+	if _, err := os.Stat(filepath.Join(dir, nsRetryMarker)); err == nil {
+		t.Fatal("a fresh checked marker must short-circuit before any fetch")
+	}
+}
+
+// With no markers and an unreachable catalogue, the fetch fails and a retry
+// marker is written so the next call backs off instead of re-fetching.
+func TestEnsureFreshWritesRetryOnFailure(t *testing.T) {
+	root := withAppRoot(t)
+	dir := filepath.Join(root, "io.pilot.testapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PILOT_APPSTORE_CATALOG_URL", "http://127.0.0.1:1/nope.json")
+	ensureNextStepsFresh("io.pilot.testapp")
+	if !markerFresh(filepath.Join(dir, nsRetryMarker), time.Minute) {
+		t.Fatal("a failed fetch must drop a retry marker for back-off")
+	}
+	// A fresh retry marker must then short-circuit a second call.
+	// (Re-running must not clobber into a checked marker.)
+	ensureNextStepsFresh("io.pilot.testapp")
+	if markerFresh(filepath.Join(dir, nsCheckedMarker), time.Minute) {
+		t.Fatal("a still-failing fetch must not produce an authoritative checked marker")
+	}
+}
+
+func TestEnsureFreshDisabledIsNoOp(t *testing.T) {
+	root := withAppRoot(t)
+	dir := filepath.Join(root, "io.pilot.testapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PILOT_NEXT_STEPS", "off")
+	t.Setenv("PILOT_APPSTORE_CATALOG_URL", "http://127.0.0.1:1/nope.json")
+	ensureNextStepsFresh("io.pilot.testapp")
+	for _, m := range []string{nsCheckedMarker, nsRetryMarker} {
+		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+			t.Fatalf("disabled self-heal must write no %s marker", m)
+		}
+	}
+}
+
+// A traversing app id must not let the healer write or delete outside the root.
+func TestEnsureFreshRefusesTraversal(t *testing.T) {
+	withAppRoot(t)
+	t.Setenv("PILOT_APPSTORE_CATALOG_URL", "http://127.0.0.1:1/nope.json")
+	ensureNextStepsFresh("../../../tmp") // must resolveUnder-reject and no-op
+	if _, err := os.Stat("/tmp/" + nsRetryMarker); err == nil {
+		os.Remove("/tmp/" + nsRetryMarker)
+		t.Fatal("traversal id must not write a marker outside the install root")
 	}
 }
