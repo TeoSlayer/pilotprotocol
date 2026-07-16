@@ -454,7 +454,7 @@ echo "Config written to ${PILOT_DIR}/config.json"
 
 # --- Set up system service ---
 
-if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     CAN_SUDO=false
     if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
         CAN_SUDO=true
@@ -530,7 +530,10 @@ WantedBy=multi-user.target
 USVC
     fi
 
-    sudo systemctl daemon-reload
+    # Never let a systemctl call abort the install under `set -e`. Even with
+    # the booted-systemd gate above, daemon-reload/enable can fail on partial
+    # or degraded systemd hosts — the binaries and skill injection still matter.
+    sudo systemctl daemon-reload || true
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
 
@@ -542,13 +545,22 @@ USVC
     # registry overrides) that the operator may want to set before
     # first start.
     if [ -f "$BIN_DIR/pilot-updater" ]; then
-        sudo systemctl enable --now pilot-updater
-        echo "  Started: pilot-updater (auto-updates enabled)"
+        if sudo systemctl enable --now pilot-updater; then
+            echo "  Started: pilot-updater (auto-updates enabled)"
+        else
+            echo "  Note: could not enable pilot-updater via systemd (non-fatal)."
+        fi
     fi
     echo "  Start daemon: sudo systemctl enable --now pilot-daemon"
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
+elif [ "$OS" = "linux" ]; then
+    # systemd is not the init system here (container / WSL / CI runner).
+    # There is no service to install — tell the agent the portable start path
+    # instead of silently leaving it with no daemon.
+    echo "No systemd detected (container / WSL / CI) — start the daemon manually:"
+    echo "  pilotctl daemon start"
 fi
 
 if [ "$OS" = "darwin" ]; then
@@ -736,10 +748,12 @@ echo "                  + heartbeat ref in ~/.claude/CLAUDE.md"
 echo "    OpenClaw      ~/.openclaw/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.openclaw/workspace/AGENTS.md"
 echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilotctl/SKILL.md"
-echo "                  + heartbeat ref in ~/.picoclaw/workspace/AGENT.md"
+echo "                  + heartbeat ref in ~/.picoclaw/workspace/HEARTBEAT.md"
 echo "    OpenHands     ~/.openhands/microagents/pilotctl.md (self-heartbeat)"
 echo "    Hermes        ~/.hermes/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.hermes/SOUL.md"
+echo "    Goose         ~/.config/goose/skills/pilotctl/SKILL.md"
+echo "                  + heartbeat ref in ~/.config/goose/.goosehints"
 echo ""
 echo "  Inspect / force a refresh anytime:"
 echo "    pilotctl skills           # status of every install path"
