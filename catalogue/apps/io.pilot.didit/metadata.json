@@ -183,5 +183,185 @@
         "Published v 1.0.0"
       ]
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.didit",
+    "title": "Full usage demo",
+    "when_to_use": "When you need KYC/ID, liveness, face-match, AML, or email/phone OTP verification and want your own Didit key minted in one call with no email and no code.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Mint your own Didit key in one call (no email, no code)",
+      "command": "pilotctl appstore call io.pilot.didit didit.signup '{}'",
+      "expect": "{\"signed_up\":true,\"email\":\"...@...\",\"api_key\":\"...\"}",
+      "note": "Run this ONCE. It caches your key locally; every other didit.* call then authenticates as you. Idempotent per Pilot identity, so a repeat call returns the same account."
+    },
+    "examples": [
+      {
+        "title": "Build a KYC workflow (ID + liveness + face match)",
+        "command": "pilotctl appstore call io.pilot.didit didit.create_workflow '{\"workflow_label\":\"KYC\",\"features\":[{\"feature\":\"OCR\"},{\"feature\":\"LIVENESS\",\"config\":{\"face_liveness_method\":\"PASSIVE\"}},{\"feature\":\"FACE_MATCH\"}]}'",
+        "expect": "{\"uuid\":\"wf_...\"}"
+      },
+      {
+        "title": "Start a hosted session and get the user URL",
+        "command": "pilotctl appstore call io.pilot.didit didit.create_session '{\"workflow_id\":\"wf_...\",\"vendor_data\":\"user-123\"}'",
+        "expect": "{\"session_id\":\"...\",\"url\":\"https://verify.didit.me/...\",\"status\":\"Not Started\"}",
+        "note": "Send the user to url; they complete verification there, so you never handle document images. Poll get_decision or set a webhook."
+      },
+      {
+        "title": "Read the decision + extracted data",
+        "command": "pilotctl appstore call io.pilot.didit didit.get_decision '{\"session_id\":\"...\"}'",
+        "expect": "{\"status\":\"Approved\",\"id_verifications\":[...],\"face_matches\":[...]}"
+      },
+      {
+        "title": "Standalone AML screening (no session)",
+        "command": "pilotctl appstore call io.pilot.didit didit.aml '{\"full_name\":\"Jane Doe\",\"entity_type\":\"person\",\"country\":\"USA\"}'",
+        "expect": "{\"matches\":[...],\"total_hits\":0}"
+      },
+      {
+        "title": "Check your Didit credit balance",
+        "command": "pilotctl appstore call io.pilot.didit didit.billing_balance '{}'",
+        "expect": "{\"balance\":12.50,\"auto_refill_enabled\":false}"
+      }
+    ],
+    "gotchas": [
+      "Run didit.signup once before anything else — every other method authenticates with the key it caches; a 401 means you skipped it.",
+      "Verification calls bill to YOUR own Didit account/balance (the key signup minted), not to Pilot — top up with didit.billing_topup (min $50); 500 full-KYC checks/month are free.",
+      "signup is idempotent per Pilot identity: a repeat call (or a fresh install) returns the SAME account, not a new one.",
+      "create_workflow takes a features ARRAY in completion order and uses a strict field whitelist — any undeclared key (e.g. workflow_type) is a 400.",
+      "Image-upload checks (ID scan, liveness, face match, PoA) run only via the hosted create_session flow, not as direct methods."
+    ],
+    "next": [
+      "io.pilot.didit didit.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.didit",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "no Didit account on this host yet — this call did not fail, it soft-failed: every didit.* method returns needs_signup until you sign up once",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.signup '{}'",
+            "why": "free, zero-argument, idempotent: the broker registers a Didit account and handles the emailed OTP for you, then caches the api_key",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "Didit rejected this host's api_key — it is missing, revoked, or shadowed by an empty DIDIT_API_KEY",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.signup '{}'",
+            "why": "re-runs the one-call provisioning; idempotent per Pilot identity, so you get back the same account rather than a second one",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "didit.create_workflow",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called didit.create_workflow but this host has no account yet — the call soft-failed and no workflow was created; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "didit.create_session",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called didit.create_session but this host has no account yet — the call soft-failed and no session was created and no user was charged; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "didit.signup",
+        "on": "ok",
+        "why": "the account is live with 500 free full-KYC checks/month — a workflow is the reusable template every hosted session runs",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.create_workflow '{\"workflow_label\":\"full-kyc\",\"features\":[{\"feature\":\"OCR\"},{\"feature\":\"LIVENESS\",\"config\":{\"face_liveness_method\":\"PASSIVE\"}},{\"feature\":\"FACE_MATCH\"}]}'",
+            "why": "free to create; returns the uuid you pass to create_session. `features` is an ordered array and the API rejects any undeclared key",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "didit.create_workflow",
+        "on": "ok",
+        "why": "you have a workflow uuid — a session turns it into a URL you send the user to, so you never handle document images",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.create_session '{\"workflow_id\":\"THE-UUID-FROM-create_workflow\",\"vendor_data\":\"user-123\"}'",
+            "why": "returns {session_id, url}; send the user to url. Cost is the sum of the workflow's features, charged when they complete it",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "didit.create_session",
+        "on": "ok",
+        "why": "the session is open — the decision only exists once the user finishes at the hosted url; poll it or set a webhook",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.get_decision '{\"session_id\":\"THE-session_id-FROM-create_session\"}'",
+            "why": "free: the full decision plus extracted data. Approved/Declined/In Review are terminal; image URLs expire after 60 minutes",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.update_webhook '{\"webhook_url\":\"https://example.com/didit-hook\"}'",
+            "why": "set this once instead of polling — Didit posts the decision to you when the user finishes. Free, no console needed",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 402,
+        "why": "your Didit balance is out of credit — this is your own balance at Didit, not Pilot credit, so top it up there",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.billing_balance '{}'",
+            "why": "free: confirms what is left and whether auto-refill is on before you spend again",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.billing_topup '{\"amount_in_dollars\":50}'",
+            "why": "free call that returns a Stripe checkout_session_url for a human to pay ($50 minimum); the charge does not go through Pilot",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "didit.create_workflow",
+        "on": "err",
+        "code": 400,
+        "why": "the v3 workflow API uses a strict field whitelist — any undeclared key (e.g. workflow_type) is a 400, as is a features value outside the enum",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.didit didit.create_workflow '{\"workflow_label\":\"full-kyc\",\"features\":[{\"feature\":\"OCR\"},{\"feature\":\"LIVENESS\",\"config\":{\"face_liveness_method\":\"PASSIVE\"}},{\"feature\":\"FACE_MATCH\"}]}'",
+            "why": "a minimal accepted body: only declared keys, `features` an ordered array of {feature, config?}",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
 }

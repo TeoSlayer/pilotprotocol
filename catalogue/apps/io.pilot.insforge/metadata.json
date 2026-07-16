@@ -119,5 +119,178 @@
         "Published v 1.0.0"
       ]
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.insforge",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs its own isolated cloud backend — Postgres, auth, S3-style storage, edge functions, and an AI gateway key — provisioned in a single call.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Provision your own isolated backend in one call (no email, no browser)",
+      "command": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+      "expect": "{\"signed_up\":true,\"backend_url\":\"https://...insforge.dev\",\"api_key\":\"...\"}",
+      "note": "Run this ONCE. It caches your backend URL + key; every other insforge.* call then talks directly to YOUR backend. Idempotent per Pilot identity."
+    },
+    "examples": [
+      {
+        "title": "Create a Postgres table",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_create_table '{\"tableName\":\"notes\",\"columns\":[{\"columnName\":\"title\",\"type\":\"string\",\"isNullable\":false}]}'",
+        "expect": "{\"tableName\":\"notes\",\"columns\":[...]}",
+        "note": "id (uuid) + createdAt/updatedAt are added automatically. Wait ~3s before the first insert (schema cache reload)."
+      },
+      {
+        "title": "Insert rows (always a JSON array)",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_insert '{\"table\":\"notes\",\"records\":[{\"title\":\"hello\"}]}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\",\"createdAt\":\"...\"}]"
+      },
+      {
+        "title": "Query with filters + ordering",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_query '{\"table\":\"notes\",\"order\":\"createdAt.desc\",\"limit\":10}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\"}]"
+      },
+      {
+        "title": "Get your seeded AI Model Gateway key",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.ai_gateway_key '{}'",
+        "expect": "{\"api_key\":\"sk-or-...\"}",
+        "note": "OpenRouter key seeded with $1 of credits — call it against https://openrouter.ai/api/v1 with any OpenAI-compatible SDK."
+      },
+      {
+        "title": "Inspect the whole backend config",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.metadata '{}'",
+        "expect": "{\"database\":{...},\"storage\":{...},\"functions\":{...},\"auth\":{...}}"
+      }
+    ],
+    "gotchas": [
+      "Run insforge.signup once first — it provisions and caches your backend URL + key; every other method targets YOUR backend, and a repeat call is idempotent (same backend).",
+      "Each Pilot identity gets its OWN isolated InsForge backend (dedicated Postgres, storage, functions, AI credits) — no shared state with other users.",
+      "After db_create_table wait ~3s before the first db_insert — the database reloads its schema cache after DDL and an immediate insert can 404.",
+      "db_insert always takes a JSON array of row objects, even for a single row.",
+      "Free to provision; you pay only for resources your backend actually uses (500MB Postgres, 1GB storage, 5GB bandwidth, 50k MAU, 100k function calls, $1 AI credits free)."
+    ],
+    "next": [
+      "io.pilot.insforge insforge.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.insforge",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "no backend provisioned on this host yet — this call did not fail, it soft-failed: every insforge.* method returns needs_signup until you sign up once",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent: mints your OWN isolated backend (Postgres, auth, storage, functions) and caches its url + key",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "your backend rejected this host's api_key — it is missing, revoked, or shadowed by an empty INSFORGE_API_KEY",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "re-runs the one-call provisioning; idempotent per Pilot identity, so you get the SAME backend back rather than a second project",
+            "kind": "gateway"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.account '{}'",
+            "why": "local and free: shows the cached backend_url and signed_up flag, so you can tell 'never provisioned' from 'key no longer accepted'",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_create_table",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called insforge.db_create_table but this host has no account yet — the call soft-failed and no table was created; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called insforge.db_insert but this host has no account yet — the call soft-failed and no rows were written; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "insforge.signup",
+        "on": "ok",
+        "why": "your backend is live — it starts empty, so the first useful move is to give it a table",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_create_table '{\"tableName\":\"notes\",\"columns\":[{\"columnName\":\"title\",\"type\":\"string\",\"isNullable\":false}]}'",
+            "why": "id, createdAt and updatedAt are added for you; 500 MB of Postgres is free. type is one of string/integer/float/boolean/datetime/date/uuid/json",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.metadata '{}'",
+            "why": "free: the whole backend's configuration — tables, buckets, functions, auth, AI models — in one call if you would rather look before writing",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_create_table",
+        "on": "ok",
+        "why": "the table exists, but Postgres reloads its schema cache after DDL — wait ~3s before the first insert or it 404s",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_insert '{\"table\":\"notes\",\"records\":[{\"title\":\"first note\"}]}'",
+            "why": "`records` is ALWAYS an array, even for one row; returns the inserted rows with their generated ids",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "ok",
+        "why": "rows are in — read them back with PostgREST-style filters, or drop to raw SQL for joins and aggregates",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_query '{\"table\":\"notes\",\"limit\":10,\"order\":\"createdAt.desc\"}'",
+            "why": "newest first; add any {field}=<op>.<value> filter (eq, neq, gt, like, ilike, in, is)",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_sql '{\"query\":\"SELECT count(*) FROM notes\"}'",
+            "why": "raw parameterized SQL against your own Postgres — the escape hatch for joins, aggregates and migrations",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "err",
+        "code": 404,
+        "why": "a 404 on insert almost always means the schema cache has not caught up with a just-created table, not that the table is missing",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_list_tables '{}'",
+            "why": "free: confirms the table and its columns really exist. If it is listed, wait ~3s and re-run the insert unchanged",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
 }

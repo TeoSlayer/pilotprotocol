@@ -7,8 +7,7 @@
   "vendor": {
     "name": "Pilot Protocol",
     "url": "https://pilotprotocol.network",
-    "contact": "apps@pilotprotocol.network",
-    "publisher_pubkey": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
+    "contact": "apps@pilotprotocol.network"
   },
   "homepage": "https://duckdb.org",
   "source_url": "https://github.com/duckdb/duckdb",
@@ -34,8 +33,8 @@
     "embedded"
   ],
   "size": {
-    "bundle_bytes": 5353407,
-    "installed_bytes": 9624599
+    "bundle_bytes": 0,
+    "installed_bytes": 0
   },
   "compat": {
     "min_pilot_version": "1.0.0",
@@ -151,55 +150,6 @@
     ],
     "next": [
       "io.pilot.duckdb duckdb.help '{}'"
-    ]
-  },
-  "next_steps": {
-    "schema": 1,
-    "app": "io.pilot.duckdb",
-    "edges": [
-      {
-        "from": "*",
-        "on": "err",
-        "match": "missing required param",
-        "why": "duckdb needs an explicit database on every query — there is no default",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
-            "why": "pass database (:memory: for throwaway analytics, or an absolute .duckdb path to persist) plus sql",
-            "kind": "recovery"
-          }
-        ]
-      },
-      {
-        "from": "duckdb.query",
-        "on": "ok",
-        "match": "Catalog Error",
-        "why": "the call exited 0 but DuckDB rejected the SQL — that table is not in this database (a file on disk is queried by PATH in the SQL, e.g. read_csv_auto('/tmp/in.csv'), never by table name)",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.duckdb duckdb.tables '{\"database\":\"/tmp/sales.duckdb\"}'",
-            "why": "list the tables this database actually holds, with their columns",
-            "kind": "recovery"
-          }
-        ]
-      },
-      {
-        "from": "duckdb.query",
-        "on": "ok",
-        "why": "the box table is for humans — an agent usually wants a parseable shape or a place to keep the data",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.duckdb duckdb.query_json '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
-            "why": "same query, JSON rows instead of ASCII art — pipe it straight into jq",
-            "kind": "flow"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\"/tmp/sales.duckdb\",\"sql\":\"CREATE TABLE IF NOT EXISTS sales(id INT, amt DECIMAL); INSERT INTO sales VALUES (1,9.99); SELECT sum(amt) AS total FROM sales\"}'",
-            "why": "persist results: :memory: vanishes when the call returns, an absolute .duckdb path survives",
-            "kind": "flow"
-          }
-        ]
-      }
     ]
   }
 }

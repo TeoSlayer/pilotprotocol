@@ -3,7 +3,7 @@
   "id": "io.pilot.wallet",
   "display_name": "Wallet",
   "tagline": "On-overlay USDC payments across Base, Ethereum, and Polygon",
-  "description_md": "The Pilot reference wallet brings x402 + EIP-3009 USDC payments to the overlay, with spend caps the supervisor enforces. One secp256k1 address works across all three USDC mainnets (Base, Ethereum, Polygon); per-chain RPC is configurable via PILOT_EVM_RPC_<chainID>.\n\nInstalling this app lets other apps and agents settle payments without leaving the network. Spend caps declared in the manifest are reviewed at install time and enforced on every signing operation — see `pilotctl appstore caps io.pilot.wallet`.",
+  "description_md": "The Pilot reference wallet brings x402 + EIP-3009 USDC payments to the overlay, with spend caps the supervisor enforces. One secp256k1 address works across all three USDC mainnets (Base, Ethereum, Polygon); per-chain RPC is configurable via PILOT_EVM_RPC_\u003cchainID\u003e.\n\nInstalling this app lets other apps and agents settle payments without leaving the network. Spend caps declared in the manifest are reviewed at install time and enforced on every signing operation — see `pilotctl appstore caps io.pilot.wallet`.",
   "vendor": {
     "name": "Pilot Protocol",
     "url": "https://pilotprotocol.network",
@@ -12,16 +12,93 @@
   "homepage": "https://pilotprotocol.network",
   "source_url": "https://github.com/pilot-protocol/wallet",
   "license": "AGPL-3.0-or-later",
-  "categories": ["payments", "crypto", "finance"],
-  "keywords": ["usdc", "x402", "eip-3009", "evm", "base", "ethereum", "polygon", "payments"],
+  "categories": [
+    "payments",
+    "crypto",
+    "finance"
+  ],
+  "keywords": [
+    "usdc",
+    "x402",
+    "eip-3009",
+    "evm",
+    "base",
+    "ethereum",
+    "polygon",
+    "payments"
+  ],
   "size": {
     "bundle_bytes": 9110758,
     "installed_bytes": 0
   },
   "compat": {
     "min_pilot_version": "1.0.0",
-    "runtimes": ["go"]
+    "runtimes": [
+      "go"
+    ]
   },
+  "methods": [
+    {
+      "name": "wallet.balance",
+      "summary": "USDC balance for a given asset (pass {\"asset\":\"USDC\"})."
+    },
+    {
+      "name": "wallet.balances",
+      "summary": "Every non-zero asset balance at once."
+    },
+    {
+      "name": "wallet.address",
+      "summary": "The wallet's receive address (secp256k1)."
+    },
+    {
+      "name": "wallet.request",
+      "summary": "Create an x402 payment request (a Challenge) another party can pay."
+    },
+    {
+      "name": "wallet.pay",
+      "summary": "Sign an x402 Challenge to authorize a USDC payment (EIP-3009)."
+    },
+    {
+      "name": "wallet.verify",
+      "summary": "Verify an x402 Challenge + signed authorization."
+    },
+    {
+      "name": "wallet.settle",
+      "summary": "Settle an authorized payment on-chain."
+    },
+    {
+      "name": "wallet.topup",
+      "summary": "Fund the wallet from a source (e.g. a dev faucet)."
+    },
+    {
+      "name": "wallet.history",
+      "summary": "Recent transactions (optional asset/limit/since filters)."
+    },
+    {
+      "name": "wallet.spend_caps",
+      "summary": "The spend caps the supervisor enforces on every signing op."
+    },
+    {
+      "name": "wallet.evm.address",
+      "summary": "EVM receive address for a chain."
+    },
+    {
+      "name": "wallet.evm.balance",
+      "summary": "USDC balance on a specific EVM chain."
+    },
+    {
+      "name": "wallet.evm.satisfy",
+      "summary": "Satisfy an x402 payment on an EVM chain (sign EIP-3009)."
+    },
+    {
+      "name": "wallet.evm.verify",
+      "summary": "Verify an EVM payment authorization."
+    },
+    {
+      "name": "wallet.evm.chains",
+      "summary": "Configured EVM chains with per-chain USDC balances (Base/Ethereum/Polygon)."
+    }
+  ],
   "changelog": [
     {
       "version": "0.3.3",
@@ -37,7 +114,7 @@
       "notes": [
         "Multichain EVM: same secp256k1 address across Base, Ethereum, Polygon",
         "New wallet.evm.chains method; all evm.* methods accept an optional chain_id",
-        "Per-chain RPC via PILOT_EVM_RPC_<chainID>"
+        "Per-chain RPC via PILOT_EVM_RPC_\u003cchainID\u003e"
       ]
     },
     {
@@ -57,10 +134,157 @@
     }
   ],
   "links": [
-    { "label": "Source", "url": "https://github.com/pilot-protocol/wallet" },
-    { "label": "Website", "url": "https://pilotprotocol.network" }
+    {
+      "label": "Source",
+      "url": "https://github.com/pilot-protocol/wallet"
+    },
+    {
+      "label": "Website",
+      "url": "https://pilotprotocol.network"
+    }
   ],
   "reviews": null,
+  "product_demo": {
+    "skill": "io.pilot.wallet",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs to hold or move USDC on-overlay — check balances, get its address, pay another agent, or read its spend caps — across Base, Ethereum, and Polygon.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Check your USDC balance",
+      "command": "pilotctl appstore call io.pilot.wallet wallet.balance '{\"asset\":\"USDC\"}'",
+      "expect": "{\"asset\":\"USDC\",\"amount\":\"12.50\"}"
+    },
+    "examples": [
+      {
+        "title": "Get your receive address",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.address '{}'",
+        "expect": "{\"address\":\"0x...\"}"
+      },
+      {
+        "title": "Per-chain USDC balances (Base/Ethereum/Polygon)",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.evm.chains '{}'",
+        "expect": "{\"chains\":[{\"chain_id\":8453,\"balance\":\"10.00\"}]}"
+      },
+      {
+        "title": "Review the spend caps the supervisor enforces",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.spend_caps '{}'",
+        "expect": "{\"caps\":[{\"asset\":\"USDC\",\"limit\":\"50.00\",\"window_sec\":86400}]}"
+      },
+      {
+        "title": "Every non-zero asset balance at once",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.balances '{}'",
+        "expect": "{\"balances\":{\"USDC\":\"12.50\"}}"
+      }
+    ],
+    "gotchas": [
+      "Spend caps are declared in the manifest and enforced by the supervisor on every signing op — a pay over the cap is rejected.",
+      "One secp256k1 address works across all three USDC mainnets; use the wallet.evm.* methods for per-chain detail.",
+      "wallet.balance takes an asset (e.g. \"USDC\"); wallet.balances returns them all."
+    ],
+    "next": [
+      "io.pilot.wallet wallet.balances '{}'",
+      "io.pilot.wallet wallet.spend_caps '{}'"
+    ]
+  },
   "published_at": "2026-06-08T08:00:26Z",
-  "updated_at": "2026-06-08T09:16:19Z"
+  "updated_at": "2026-06-08T09:16:19Z",
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.wallet",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "required|missing|-> 400|-> 422",
+        "why": "most wallet methods need an asset tag (USDC) or a challenge object — a bare call is rejected",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.balance '{\"asset\":\"USDC\"}'",
+            "why": "the simplest valid call — names the asset every balance/topup/request needs",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "wallet.balance",
+        "on": "ok",
+        "why": "you know your balance — fund it if low, or share your address to get paid",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.topup '{\"asset\":\"USDC\",\"amount\":500,\"source\":\"dev:faucet\"}'",
+            "why": "fund from the dev faucet — amount is in minor units (500 = 5.00 USDC)",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.address '{}'",
+            "why": "your secp256k1 receive address — hand it to whoever is paying you",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.topup",
+        "on": "ok",
+        "why": "funded — confirm the new balance, then invoice a counterparty or pay a challenge",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.balance '{\"asset\":\"USDC\"}'",
+            "why": "confirm the credit landed before you transact",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.request '{\"amount\":100,\"asset\":\"USDC\",\"expires_in_seconds\":3600,\"memo\":\"invoice\"}'",
+            "why": "issue an x402 Challenge others can pay you against",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.request",
+        "on": "ok",
+        "why": "you issued a Challenge — hand it to the payer; when they return a signed_auth, verify then settle it on-chain",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.pay '{\"challenge\":{\"id\":\"<the challenge object wallet.request returned>\"}}'",
+            "why": "the PAYER signs the Challenge (EIP-3009) — pass the full challenge object from wallet.request",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.settle '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<from wallet.pay>\"}}'",
+            "why": "settle on-chain once you hold both the challenge and the payer's signed_auth",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.pay",
+        "on": "ok",
+        "why": "you signed the Challenge — the recipient now verifies locally, then settles it on-chain",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.verify '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<the signed_auth wallet.pay returned>\"}}'",
+            "why": "recipient verifies the authorization locally — no round-trip; pass the signed_auth from wallet.pay",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.settle '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<from wallet.pay>\"}}'",
+            "why": "submit the authorized payment on-chain to move the USDC",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.evm.chains",
+        "on": "ok",
+        "why": "these are your configured USDC chains (Base/Ethereum/Polygon) — check a per-chain balance",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.evm.balance '{\"chain_id\":8453}'",
+            "why": "USDC balance on Base (chain_id 8453); omit chain_id for the primary chain",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
+  }
 }

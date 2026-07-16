@@ -7,8 +7,7 @@
   "vendor": {
     "name": "AgentPhone",
     "url": "https://agentphone.ai",
-    "contact": "founders@agentphone.to",
-    "publisher_pubkey": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+    "contact": "founders@agentphone.to"
   },
   "homepage": "https://agentphone.ai",
   "source_url": "https://github.com/AgentPhone-AI/skills",
@@ -30,8 +29,8 @@
     "agent"
   ],
   "size": {
-    "bundle_bytes": 5130424,
-    "installed_bytes": 9363452
+    "bundle_bytes": 0,
+    "installed_bytes": 0
   },
   "compat": {
     "min_pilot_version": "1.10.0",
@@ -318,7 +317,7 @@
     "cost": {
       "unit": "micro-USD (1000000 = $1.00)",
       "free_budget": "$5.00 per Pilot user",
-      "hard_cap_usd": 5.0,
+      "hard_cap_usd": 5,
       "operations": [
         {
           "op": "agentphone.place_call",
@@ -354,129 +353,6 @@
     ],
     "next": [
       "io.pilot.agentphone agentphone.help '{}'"
-    ]
-  },
-  "next_steps": {
-    "schema": 1,
-    "app": "io.pilot.agentphone",
-    "edges": [
-      {
-        "from": "*",
-        "on": "err",
-        "code": 402,
-        "why": "your per-user $5 budget is spent — buy_number ($3), place_call (~$0.05+/min) and send_message (~$0.02) are blocked. The grant is one-time: there is no top-up or balance call. Reads stay free.",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'",
-            "why": "free — the closest thing to a balance: plan, number hold limit, and your call/message stats",
-            "kind": "recovery"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.mynumber '{}'",
-            "why": "free, local — a number you already bought is still yours; recall it instead of buying again",
-            "kind": "recovery"
-          }
-        ]
-      },
-      {
-        "from": "*",
-        "on": "err",
-        "code": 429,
-        "why": "a rate/identity limit, NOT an empty budget — per-caller quota or the per-IP identity cap. Your credit is intact; back off and retry rather than trying to pay.",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.mynumber '{}'",
-            "why": "reads this host's local record with no backend call, so it works while you are rate-limited",
-            "kind": "recovery"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'",
-            "why": "retry this free read after a short back-off to see whether the limit has cleared",
-            "kind": "recovery"
-          }
-        ]
-      },
-      {
-        "from": "*",
-        "on": "ok",
-        "why": "the flow is: find your agent, give it a number, then text or call from it",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.list_agents '{}'",
-            "why": "free — you get a starter agent on setup; its id is required by send_message and place_call",
-            "kind": "flow"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.mynumber '{}'",
-            "why": "free, local — shows whether this host already provisioned a number (empty means you need buy_number)",
-            "kind": "flow"
-          }
-        ]
-      },
-      {
-        "from": "agentphone.list_agents",
-        "on": "ok",
-        "why": "an agent can only call or text once a number is attached to it",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.list_numbers '{}'",
-            "why": "free — if a number is already listed, attach it rather than paying $3 for another",
-            "kind": "flow"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.buy_number '{\"country\":\"US\",\"agentId\":\"agent_123\"}'",
-            "why": "only when you hold none: COSTS $3.00 of your $5 budget and attaches the number to that agent",
-            "kind": "flow"
-          }
-        ]
-      },
-      {
-        "from": "agentphone.buy_number",
-        "on": "ok",
-        "why": "you now have a real US/CA number attached — this is the point of the app",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.send_message '{\"agent_id\":\"agent_123\",\"to_number\":\"+14155551234\",\"body\":\"On my way, 5 min out.\"}'",
-            "why": "cheapest paid action (~$0.02): iMessage with SMS fallback; the response channel says how it went",
-            "kind": "flow"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.place_call '{\"agentId\":\"agent_123\",\"toNumber\":\"+14155551234\",\"systemPrompt\":\"Confirm the 7pm reservation for two under Alex.\"}'",
-            "why": "~$0.05+/min: the AI dials and holds the conversation itself; returns a call id immediately",
-            "kind": "flow"
-          }
-        ]
-      },
-      {
-        "from": "agentphone.place_call",
-        "on": "ok",
-        "why": "place_call is async — it returned a call id, not a result. Nothing has been said yet.",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.get_call '{\"call_id\":\"call_123\"}'",
-            "why": "free — poll with the id you just got every few seconds until status is completed/failed to read the transcript",
-            "kind": "flow"
-          }
-        ]
-      },
-      {
-        "from": "agentphone.send_message",
-        "on": "err",
-        "match": "missing required param",
-        "why": "send_message needs agent_id + to_number + body, and the agent must have a number attached",
-        "then": [
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.list_agents '{}'",
-            "why": "free — the agent_id you are missing, plus its attached numbers",
-            "kind": "recovery"
-          },
-          {
-            "cmd": "pilotctl appstore call io.pilot.agentphone agentphone.send_message '{\"agent_id\":\"agent_123\",\"to_number\":\"+14155551234\",\"body\":\"On my way, 5 min out.\"}'",
-            "why": "the complete shape — E.164 for to_number, never (415) 555-1234",
-            "kind": "recovery"
-          }
-        ]
-      }
     ]
   }
 }
