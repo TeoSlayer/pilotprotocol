@@ -1342,6 +1342,14 @@ func cmdAppStoreInstall(args []string) {
 	}
 	fmt.Println("note: the daemon rescans the install root periodically —")
 	fmt.Println("      this app will be picked up within ~30s (no daemon restart needed)")
+
+	// Last step: if this catalogue app ships a product demo in its
+	// sha-verified metadata, print it and drop a SKILL.md so the agent can
+	// drive the app right away. Best-effort and additive — no demo, or any
+	// failure fetching/rendering it, leaves the install above untouched.
+	if source == installSourceCatalogue {
+		maybeShowProductDemo(m.ID)
+	}
 }
 
 // pilotctlAuditFileName is the JSONL log of operator-initiated

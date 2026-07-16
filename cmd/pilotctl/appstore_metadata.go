@@ -55,6 +55,13 @@ type appMetadata struct {
 	Changelog     []mdChangelog  `json:"changelog,omitempty"`
 	Links         []mdLink       `json:"links,omitempty"`
 
+	// ProductDemo is the optional, example-driven usage guide (see
+	// appstore_demo.go). When present it is rendered at the last step of a
+	// successful install and written as a SKILL.md; when absent (the common
+	// case) install is unaffected. It rides inside this already-sha-verified
+	// doc, so it adds no new trust surface.
+	ProductDemo *ProductDemo `json:"product_demo,omitempty"`
+
 	// Reviews is RESERVED for the future community-reviews service. It is
 	// parsed if present but pilotctl never writes it today — reviews are a
 	// separate, signed, dynamic service (see catalogue/README.md), not
