@@ -16,6 +16,44 @@ import (
 type installedApp struct {
 	ID         string
 	AppVersion string
+	// BundleSHA is the catalogue bundle sha this app was installed from, recorded
+	// at install into $APP/.bundle-sha256. Empty for a sideload or an app
+	// installed before this was recorded (the pre-feature fleet) — in which case
+	// a same-version republish can't be detected until the next install/upgrade
+	// writes the marker, and only a version bump flags it. That graceful
+	// degradation is deliberate: no marker → behave exactly as before.
+	BundleSHA string
+}
+
+// bundleSHAMarker records, in an installed app dir, the catalogue bundle sha the
+// app was installed from — the signal `outdated` uses to catch a same-version
+// republish.
+const bundleSHAMarker = ".bundle-sha256"
+
+// recordInstalledBundleSHA writes the catalogue's host-appropriate bundle sha for
+// appID into the installed app dir. Best-effort: a failure just means a
+// same-version republish won't be auto-detected for this app (it still installs
+// fine and version bumps are still caught).
+func recordInstalledBundleSHA(appDir, appID string) {
+	c, err := loadCatalogue()
+	if err != nil {
+		return
+	}
+	for i := range c.Apps {
+		if c.Apps[i].ID != appID {
+			continue
+		}
+		_, sha, err := c.Apps[i].resolveBundle()
+		if err != nil || sha == "" {
+			return
+		}
+		out, err := resolveUnder(appStoreRoot(), filepath.Base(appDir))
+		if err != nil {
+			return
+		}
+		_ = os.WriteFile(filepath.Join(out, bundleSHAMarker), []byte(sha), 0o600) // #nosec G304 G703 -- path re-confined to the install root by resolveUnder
+		return
+	}
 }
 
 // scanInstalledApps reads the install root and returns each installed app's id
@@ -40,7 +78,10 @@ func scanInstalledApps() ([]installedApp, error) {
 		if err != nil {
 			continue
 		}
-		apps = append(apps, installedApp{ID: m.ID, AppVersion: m.AppVersion})
+		bsha, _ := os.ReadFile(filepath.Join(root, e.Name(), bundleSHAMarker))
+		apps = append(apps, installedApp{
+			ID: m.ID, AppVersion: m.AppVersion, BundleSHA: strings.TrimSpace(string(bsha)),
+		})
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
 	return apps, nil
@@ -51,6 +92,10 @@ type outdatedApp struct {
 	ID        string `json:"id"`
 	Installed string `json:"installed"`
 	Available string `json:"available"`
+	// Reason is why the app is outdated: "version" (a newer app_version) or
+	// "rebuilt" (a same-version republish — the catalogue bundle changed under a
+	// version we already have). Both upgrade the same way.
+	Reason string `json:"reason,omitempty"`
 }
 
 // findOutdated cross-references installed apps against the signed catalogue and
@@ -66,17 +111,48 @@ func findOutdated() ([]outdatedApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	latest := make(map[string]string, len(cat.Apps))
+	entries := make(map[string]catalogueEntry, len(cat.Apps))
 	for _, e := range cat.Apps {
-		latest[e.ID] = e.Version
+		entries[e.ID] = e
 	}
 	var out []outdatedApp
 	for _, a := range installed {
-		if v, ok := latest[a.ID]; ok && semverCompare(v, a.AppVersion) > 0 {
-			out = append(out, outdatedApp{ID: a.ID, Installed: a.AppVersion, Available: v})
+		e, ok := entries[a.ID]
+		if !ok {
+			continue
+		}
+		// resolveBundle picks THIS host's platform bundle, matching what install
+		// recorded; an error/empty sha just disables republish detection for the app.
+		catBundleSHA := ""
+		if _, sha, err := e.resolveBundle(); err == nil {
+			catBundleSHA = sha
+		}
+		if reason := outdatedReason(a.AppVersion, e.Version, a.BundleSHA, catBundleSHA); reason != "" {
+			out = append(out, outdatedApp{ID: a.ID, Installed: a.AppVersion, Available: e.Version, Reason: reason})
 		}
 	}
 	return out, nil
+}
+
+// outdatedReason decides whether an installed app is outdated relative to the
+// catalogue, and why. It is the pure core of findOutdated, split out so the
+// version-vs-rebuilt logic is testable without a signed catalogue.
+//
+//   - "version": the catalogue has a newer app_version.
+//   - "rebuilt": SAME app_version, but the catalogue bundle sha differs from the
+//     one recorded at install — a republished adapter (the aegis argv-fix shape)
+//     that a version compare alone misses. Requires both shas; a pre-feature
+//     install with no recorded sha degrades to version-only detection.
+//   - "": up to date (or not enough information to say otherwise).
+func outdatedReason(installedVer, catVer, installedBundleSHA, catBundleSHA string) string {
+	switch cmp := semverCompare(catVer, installedVer); {
+	case cmp > 0:
+		return "version"
+	case cmp == 0 && installedBundleSHA != "" && catBundleSHA != "" && catBundleSHA != installedBundleSHA:
+		return "rebuilt"
+	default:
+		return ""
+	}
 }
 
 // cmdAppStoreOutdated lists installed apps that have a newer version in the
@@ -95,9 +171,13 @@ func cmdAppStoreOutdated(_ []string) {
 		fmt.Println("all installed apps are up to date")
 		return
 	}
-	fmt.Printf("%-32s %-12s %-12s\n", "APP", "INSTALLED", "AVAILABLE")
+	fmt.Printf("%-32s %-12s %-12s %s\n", "APP", "INSTALLED", "AVAILABLE", "WHY")
 	for _, o := range out {
-		fmt.Printf("%-32s %-12s %-12s\n", o.ID, o.Installed, o.Available)
+		why := o.Reason
+		if why == "rebuilt" {
+			why = "rebuilt (same version, new bundle)"
+		}
+		fmt.Printf("%-32s %-12s %-12s %s\n", o.ID, o.Installed, o.Available, why)
 	}
 	fmt.Printf("\nupgrade with: pilotctl appstore upgrade <id>   (or --all)\n")
 }

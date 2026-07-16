@@ -1281,6 +1281,15 @@ func cmdAppStoreInstall(args []string) {
 	// catalogue simply means no hints — never a failed install.
 	cacheNextSteps(finalDir, fetchNextStepsForInstall(m.ID))
 
+	// Record the catalogue bundle sha we just installed so `outdated`/`upgrade`
+	// can detect a SAME-VERSION republish — a rebuilt adapter shipped under an
+	// unchanged app_version (the aegis argv-fix shape) that a version compare
+	// alone silently misses. Catalogue installs only; a sideload has no
+	// catalogue bundle to compare against. Best-effort.
+	if source == installSourceCatalogue {
+		recordInstalledBundleSHA(finalDir, m.ID)
+	}
+
 	// Mirror to the install-root-level pilotctl-audit log too, so
 	// the install+uninstall lifecycle pair stays reconstructable
 	// after the app dir (and its per-app supervisor.log) is gone.
