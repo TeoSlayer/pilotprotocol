@@ -13,25 +13,62 @@
   "homepage": "https://pilotprotocol.network",
   "source_url": "https://github.com/pilot-protocol/cosift",
   "license": "MIT",
-  "categories": ["search", "research", "retrieval"],
-  "keywords": ["search", "rag", "answer", "research", "web", "retrieval"],
+  "categories": [
+    "search",
+    "research",
+    "retrieval"
+  ],
+  "keywords": [
+    "search",
+    "rag",
+    "answer",
+    "research",
+    "web",
+    "retrieval"
+  ],
   "size": {
     "bundle_bytes": 4774876,
     "installed_bytes": 8641298
   },
   "compat": {
     "min_pilot_version": "1.0.0",
-    "runtimes": ["go"]
+    "runtimes": [
+      "go"
+    ]
   },
   "methods": [
-    { "name": "cosift.search", "summary": "Keyword + semantic search over the crawled corpus" },
-    { "name": "cosift.find_similar", "summary": "Find documents similar to a given result" },
-    { "name": "cosift.contents", "summary": "Fetch the full contents of a document" },
-    { "name": "cosift.answer", "summary": "Single-shot grounded answer with citations" },
-    { "name": "cosift.research", "summary": "Multi-step research report over the corpus" },
-    { "name": "cosift.stats", "summary": "Corpus and index statistics" },
-    { "name": "cosift.health", "summary": "Service health check" },
-    { "name": "cosift.help", "summary": "Discovery: methods, params, and latency classes" }
+    {
+      "name": "cosift.search",
+      "summary": "Keyword + semantic search over the crawled corpus"
+    },
+    {
+      "name": "cosift.find_similar",
+      "summary": "Find documents similar to a given result"
+    },
+    {
+      "name": "cosift.contents",
+      "summary": "Fetch the full contents of a document"
+    },
+    {
+      "name": "cosift.answer",
+      "summary": "Single-shot grounded answer with citations"
+    },
+    {
+      "name": "cosift.research",
+      "summary": "Multi-step research report over the corpus"
+    },
+    {
+      "name": "cosift.stats",
+      "summary": "Corpus and index statistics"
+    },
+    {
+      "name": "cosift.health",
+      "summary": "Service health check"
+    },
+    {
+      "name": "cosift.help",
+      "summary": "Discovery: methods, params, and latency classes"
+    }
   ],
   "changelog": [
     {
@@ -44,8 +81,14 @@
     }
   ],
   "links": [
-    { "label": "Source", "url": "https://github.com/pilot-protocol/cosift" },
-    { "label": "Website", "url": "https://pilotprotocol.network" }
+    {
+      "label": "Source",
+      "url": "https://github.com/pilot-protocol/cosift"
+    },
+    {
+      "label": "Website",
+      "url": "https://pilotprotocol.network"
+    }
   ],
   "reviews": null,
   "published_at": "2026-06-09T23:01:53Z",
@@ -57,35 +100,37 @@
     "metered": false,
     "quickstart": {
       "goal": "Search the corpus",
-      "command": "pilotctl appstore call io.pilot.cosift cosift.search '{\"query\":\"retrieval augmented generation\"}'",
-      "expect": "{\"results\":[{\"id\":\"...\",\"title\":\"...\",\"score\":0.87}]}"
+      "command": "pilotctl appstore call io.pilot.cosift cosift.search '{\"q\":\"retrieval augmented generation\"}'",
+      "expect": "{\"results\":[{\"url\":\"...\",\"title\":\"...\",\"score\":0.87,\"excerpt\":\"...\"}]}"
     },
     "examples": [
       {
-        "title": "Get a grounded answer with citations",
-        "command": "pilotctl appstore call io.pilot.cosift cosift.answer '{\"query\":\"what is a vector database?\"}'",
-        "expect": "{\"answer\":\"...\",\"citations\":[{\"id\":\"...\",\"url\":\"...\"}]}"
+        "title": "Grounded answer with citations",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.answer '{\"q\":\"what is a vector database?\"}'",
+        "expect": "{\"answer\":\"...\",\"citations\":[{\"url\":\"...\"}]}"
       },
       {
-        "title": "Fetch a document's full contents",
-        "command": "pilotctl appstore call io.pilot.cosift cosift.contents '{\"id\":\"\u003cresult-id-from-search\u003e\"}'",
-        "expect": "{\"id\":\"...\",\"text\":\"...\"}"
+        "title": "Cleaned page text for a URL",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.contents '{\"url\":\"https://example.com/a-result-url\"}'",
+        "expect": "{\"url\":\"...\",\"text\":\"...\"}",
+        "note": "Pass a url from a cosift.search result (or {\"urls\":[...]} for a batch)."
       },
       {
         "title": "Multi-step research report",
-        "command": "pilotctl appstore call io.pilot.cosift cosift.research '{\"query\":\"compare RAG vs fine-tuning for support bots\"}'",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.research '{\"q\":\"compare RAG vs fine-tuning for support bots\"}'",
         "expect": "{\"report\":\"...\",\"citations\":[...]}",
-        "note": "Slow — a multi-step pass over the corpus."
+        "note": "Slow — plan → multi-retrieval → synthesized report."
       },
       {
         "title": "Corpus statistics",
         "command": "pilotctl appstore call io.pilot.cosift cosift.stats '{}'",
-        "expect": "{\"documents\":123456,\"last_crawl\":\"...\"}"
+        "expect": "{\"documents\":123456}"
       }
     ],
     "gotchas": [
-      "cosift.research is multi-step and slow — prefer cosift.answer for a single-shot cited answer.",
-      "Answers and reports are grounded in the crawled corpus, not the live web — use cosift.stats to see coverage."
+      "The query param is q (not query); cosift.contents takes a url (or urls[]), not an id.",
+      "cosift.research is multi-step and slow (~8-30s) — prefer cosift.answer for a single-shot cited answer.",
+      "Answers are grounded in the crawled corpus, not the live web — cosift.stats shows coverage."
     ],
     "next": [
       "io.pilot.cosift cosift.help '{}'"

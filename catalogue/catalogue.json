@@ -19,7 +19,7 @@
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
-      "metadata_sha256": "0ff09c54f1714cb27a621853e3134d894d3d7d41941e3f54be50c7542133f8f4",
+      "metadata_sha256": "200b384a3ce7eb2c5ad3fbf9940e00cb9056e5e6558aaa698d10c54f9f3f4894",
       "publisher": "ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="
     },
     {
@@ -39,7 +39,7 @@
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
-      "metadata_sha256": "7ce2981d189c4d0fb2c5c1022439e53f73133c3651d4f75bd5cf1606110354d1",
+      "metadata_sha256": "0dc202fbfacfd37690e279b7c3c9c0375b41e7060d48fd340a05ef6e11af06bc",
       "publisher": "ed25519:EjoZEiV+j6oNZLRWNEEf8lEnC8XBkrvBAk4fxuZLLyU="
     },
     {
@@ -126,7 +126,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.slipstream/metadata.json",
-      "metadata_sha256": "ecbb94dcbc3e872b7cfa40e7e706221904d6efb4a3a415de95cf57c95cc074c3"
+      "metadata_sha256": "943cbbc1cf3055e01c3842f3b108708669562ec7faf532c0e099f5921d5cb94c"
     },
     {
       "id": "io.pilot.miren",

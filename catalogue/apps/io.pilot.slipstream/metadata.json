@@ -31,76 +31,77 @@
   "methods": [
     {
       "name": "slipstream.leaderboard",
-      "summary": "Top Polymarket smart-money traders ranked by PnL and win-rate."
+      "summary": "Smart-money leaderboard: top wallets by skill/ROI/PnL."
     },
     {
       "name": "slipstream.signals",
-      "summary": "Live smart-money trade signals."
+      "summary": "Live smart-money signals: markets the skilled wallets are entering."
     },
     {
       "name": "slipstream.tape",
-      "summary": "Recent smart-money trade tape."
+      "summary": "The tape: recent individual smart-money fills (time, wallet, side, size σ)."
     },
     {
       "name": "slipstream.markets",
-      "summary": "Tracked Polymarket markets."
+      "summary": "Markets ranked by smart-money exposure and flow."
     },
     {
       "name": "slipstream.wallet",
-      "summary": "Detail for a specific smart-money wallet."
+      "summary": "Per-wallet positions and history for a given address."
     },
     {
       "name": "slipstream.skilled",
-      "summary": "The set of skilled / consistently-profitable traders."
+      "summary": "Skilled-trader filter: wallets above an alpha/probability threshold."
     },
     {
       "name": "slipstream.opportunities",
-      "summary": "Ranked trading opportunities derived from smart-money flow."
+      "summary": "Live opportunities: open markets ranked by an opportunity score."
     },
     {
       "name": "slipstream.stats",
-      "summary": "Coverage and data-freshness statistics."
+      "summary": "Service stats: trades tracked, wallets ranked, 1h volume."
     },
     {
       "name": "slipstream.help",
-      "summary": "Discovery: every method with params, kind, and latency class."
+      "summary": "This document — every method with params, kind, and duration class."
     }
   ],
   "product_demo": {
     "skill": "io.pilot.slipstream",
     "title": "Full usage demo",
-    "when_to_use": "When you need Polymarket smart-money intelligence — the top-trader leaderboard, live signals, the trade tape, markets, and ranked opportunities.",
+    "when_to_use": "When you need Polymarket smart-money intelligence — the top-trader leaderboard, live signals, the trade tape, markets ranked by flow, and live opportunities.",
     "metered": false,
     "quickstart": {
-      "goal": "Top smart-money traders",
+      "goal": "Top smart-money wallets",
       "command": "pilotctl appstore call io.pilot.slipstream slipstream.leaderboard '{}'",
-      "expect": "{\"traders\":[{\"wallet\":\"0x...\",\"pnl\":\"+142000\",\"winrate\":0.68}]}"
+      "expect": "{\"leaders\":[{\"wallet\":\"0x...\",\"skill\":0.82,\"roi\":1.4,\"pnl\":\"142000\"}]}"
     },
     "examples": [
       {
-        "title": "Live smart-money signals",
+        "title": "Live signals (markets skilled wallets are entering)",
         "command": "pilotctl appstore call io.pilot.slipstream slipstream.signals '{}'",
-        "expect": "{\"signals\":[{\"market\":\"...\",\"side\":\"YES\",\"conviction\":0.8}]}"
+        "expect": "{\"signals\":[{\"market\":\"...\",\"side\":\"YES\"}]}"
       },
       {
-        "title": "Ranked opportunities",
+        "title": "Live opportunities ranked by score",
         "command": "pilotctl appstore call io.pilot.slipstream slipstream.opportunities '{}'",
-        "expect": "{\"opportunities\":[{\"market\":\"...\",\"edge\":0.12}]}"
+        "expect": "{\"opportunities\":[{\"market\":\"...\",\"score\":0.9}]}"
       },
       {
-        "title": "Recent trade tape",
+        "title": "The tape — recent smart-money fills",
         "command": "pilotctl appstore call io.pilot.slipstream slipstream.tape '{}'",
-        "expect": "{\"trades\":[{\"wallet\":\"0x...\",\"market\":\"...\",\"size\":\"5000\"}]}"
+        "expect": "{\"fills\":[{\"wallet\":\"0x...\",\"side\":\"YES\",\"size_sigma\":2.1}]}"
       },
       {
-        "title": "Tracked markets",
+        "title": "Markets ranked by smart-money exposure",
         "command": "pilotctl appstore call io.pilot.slipstream slipstream.markets '{}'",
-        "expect": "{\"markets\":[{\"id\":\"...\",\"question\":\"...\"}]}"
+        "expect": "{\"markets\":[{\"id\":\"...\",\"flow\":\"...\"}]}"
       }
     ],
     "gotchas": [
-      "Read-only market intelligence — Slipstream does not place trades.",
-      "Data covers Polymarket smart-money wallets; use slipstream.stats for coverage + freshness."
+      "Read-only market intelligence — Slipstream tracks Polymarket smart-money, it does not place trades.",
+      "Every request is Ed25519-signed with your Pilot identity; the API rejects unsigned callers.",
+      "All list methods take an optional limit (default 100; opportunities 50); slipstream.wallet needs an addr."
     ],
     "next": [
       "io.pilot.slipstream slipstream.help '{}'"
