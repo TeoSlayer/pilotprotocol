@@ -106,10 +106,16 @@
       ]
     }
   ],
-  "links": {
-    "documentation": "https://www.postgresql.org/docs/17/",
-    "psql_reference": "https://www.postgresql.org/docs/17/app-psql.html"
-  },
+  "links": [
+    {
+      "label": "Documentation",
+      "url": "https://www.postgresql.org/docs/17/"
+    },
+    {
+      "label": "psql reference",
+      "url": "https://www.postgresql.org/docs/17/app-psql.html"
+    }
+  ],
   "product_demo": {
     "skill": "io.pilot.postgres",
     "title": "Full usage demo",
