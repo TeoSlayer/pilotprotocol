@@ -135,5 +135,59 @@
     "next": [
       "io.pilot.sqlite sqlite.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.sqlite",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "sqlite needs an explicit database — there is no default",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sqlite sqlite.query '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
+            "why": "pass database (:memory: for a scratch db, or an absolute path like /tmp/app.db to persist) plus sql",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "sqlite.query",
+        "on": "ok",
+        "match": "no such table",
+        "why": "the call exited 0 but SQLite rejected the SQL — the table is not in this database file (a different path is a different database)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sqlite sqlite.tables '{\"database\":\"/tmp/app.db\"}'",
+            "why": "list what this database file actually holds — check the name and the database path",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.sqlite sqlite.script '{\"database\":\"/tmp/app.db\",\"sql\":\"CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users(name) VALUES ('ada');\"}'",
+            "why": "if the table is simply missing, create it — sqlite.script runs DDL + DML in one call",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "sqlite.query",
+        "on": "ok",
+        "why": "rows came back — the usual next moves",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sqlite sqlite.script '{\"database\":\"/tmp/app.db\",\"sql\":\"CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users(name) VALUES ('ada');\"}'",
+            "why": "persist real data: :memory: vanishes when the call returns, an absolute path survives across calls",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.sqlite sqlite.schema '{\"database\":\"/tmp/app.db\"}'",
+            "why": "read the DDL of an existing database file before querying it",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }

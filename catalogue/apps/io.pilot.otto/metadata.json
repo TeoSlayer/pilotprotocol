@@ -170,5 +170,58 @@
     "next": [
       "io.pilot.otto otto.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.otto",
+    "edges": [
+      {
+        "from": "otto.status",
+        "on": "ok",
+        "match": "nodes\\\\?\"?\\s*:\\s*\\[\\s*\\]",
+        "why": "the relay is up but no Chrome node is paired — every page command (extract, screenshot, test) will fail until one is online",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.otto otto.authcode '{}'",
+            "why": "shows the pairing codes the relay is waiting on once Chrome has the Otto extension loaded",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.otto otto.exec '{\"args\":[\"pair\",\"<code-from-authcode>\"]}'",
+            "why": "approves a pending code and brings the browser node online",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "otto.status",
+        "on": "ok",
+        "why": "relay + browser node are up — you can drive a real tab now",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.otto otto.extract '{\"url\":\"https://example.com\"}'",
+            "why": "read a page as markdown through the live tab — the main reason to use otto over a headless fetch",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.otto otto.commands '{}'",
+            "why": "lists the site commands the node exposes (e.g. reddit.com getPosts) — run one with otto.test",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "otto.commands",
+        "on": "ok",
+        "why": "pick a command from the list and run it against its site",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.otto otto.test '{\"site\":\"reddit.com\",\"command\":\"getPosts\",\"payload\":\"{\\\"limit\\\":10}\"}'",
+            "why": "runs a registered site command in a real tab; payload is a JSON object STRING (use \"{}\" for none)",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }

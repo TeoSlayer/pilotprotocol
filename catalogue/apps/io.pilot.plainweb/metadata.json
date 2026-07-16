@@ -103,5 +103,24 @@
     "next": [
       "io.pilot.plainweb plainweb.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.plainweb",
+    "edges": [
+      {
+        "from": "plainweb.fetch",
+        "on": "err",
+        "match": "missing required path parameter",
+        "why": "fetch needs the page to read passed as url",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.plainweb plainweb.fetch '{\"url\":\"https://example.com\"}'",
+            "why": "url is the full page URL; the scheme is optional (example.com is sanitized to https://). Markdown comes back in the content field",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

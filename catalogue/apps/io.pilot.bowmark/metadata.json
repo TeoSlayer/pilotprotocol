@@ -128,5 +128,63 @@
     "next": [
       "io.pilot.bowmark bowmark.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.bowmark",
+    "edges": [
+      {
+        "from": "bowmark.ask",
+        "on": "ok",
+        "match": "\"status\"\\s*:\\s*\"ok\"",
+        "why": "cheatsheet in hand — run it open-loop, then report back: the report is what keeps this path working for the next agent",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.bowmark bowmark.report_outcome '{\"envelope_id\":\"<id-from-ask>\",\"success\":true}'",
+            "why": "pass the id from this ask; success=true ONLY if every step ran clean — false triggers a re-crawl that repairs the path",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "bowmark.ask",
+        "on": "ok",
+        "match": "\"status\"\\s*:\\s*\"ambiguous_scope\"",
+        "why": "the site has several product surfaces and bowmark needs to know which one you mean",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.bowmark bowmark.ask '{\"site\":\"google.com\",\"task\":\"get directions from SFO to downtown\",\"scopeHint\":\"/maps\"}'",
+            "why": "re-ask with one of error.scope_options[].pattern verbatim as scopeHint (or fold it into site, e.g. google.com/maps)",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "bowmark.ask",
+        "on": "err",
+        "code": 400,
+        "why": "ask rejected the body — site and task are both required",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.bowmark bowmark.ask '{\"site\":\"sec.gov\",\"task\":\"find the latest 10-K filing for Apple\"}'",
+            "why": "site is a bare registrable domain (no scheme); task is plain-English intent, never a URL",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "bowmark.report_outcome",
+        "on": "err",
+        "code": 400,
+        "why": "report_outcome rejected the body — envelope_id and success are both required",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.bowmark bowmark.report_outcome '{\"envelope_id\":\"<id-from-ask>\",\"success\":true}'",
+            "why": "envelope_id is the id from a status:ok ask (a miss has no id — don't report those); success is a bool",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

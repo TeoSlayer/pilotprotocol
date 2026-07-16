@@ -169,5 +169,42 @@
     "next": [
       "io.pilot.miren miren.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.miren",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "no clusters?\\s+configured",
+        "why": "miren has no cluster to talk to yet — every command soft-fails like this with exit 0, so read the envelope's stdout/stderr, not the exit code",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.exec '{\"args\":[\"cluster\",\"add\",\"--cluster\",\"prod\",\"--address\",\"<cluster-host>:8443\"]}'",
+            "why": "point miren at your cluster — the one setup step that unblocks every other method (`miren login` is interactive and unusable over IPC)",
+            "kind": "gateway"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.doctor '{}'",
+            "why": "prints exactly which of config/server/auth is still missing, plus the get-started commands",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "a required param was omitted — the app/name param must be an application that exists on your cluster",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.apps '{}'",
+            "why": "lists the applications on the cluster so you can pass a real one as name (miren.app) or app (miren.logs)",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

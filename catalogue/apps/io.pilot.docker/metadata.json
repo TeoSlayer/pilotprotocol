@@ -157,5 +157,79 @@
     "next": [
       "io.pilot.docker docker.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.docker",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "cannot connect to the docker daemon|is the docker daemon running",
+        "why": "no engine — every docker method needs a running dockerd, and this app ships its own on a private socket rather than borrowing Docker Desktop's",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.engine_start '{}'",
+            "why": "boot the local engine once, then retry — needs root, and Linux only (there is no native macOS dockerd)",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "cannot connect to the docker daemon|is the docker daemon running",
+        "why": "no engine — the CLI failed inside a successful call, so the daemon error is \"exit\":1 + stderr in the body rather than a failed call",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.engine_start '{}'",
+            "why": "boot the local engine once, then retry — needs root, and Linux only (there is no native macOS dockerd)",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "docker.engine_start",
+        "on": "ok",
+        "why": "engine up on the private socket — you only do this once per host",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.pull '{\"image\":\"hello-world\"}'",
+            "why": "pull an image into the fresh engine — its image store starts empty",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "docker.pull",
+        "on": "ok",
+        "why": "image is local — run it, or reach the full docker surface via docker.exec",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.run '{\"image\":\"hello-world\"}'",
+            "why": "run it with --rm and the image's default command — the one-shot case",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.exec '{\"args\":[\"run\",\"-d\",\"-p\",\"8080:80\",\"nginx\"]}'",
+            "why": "docker.run takes no flags — for ports, detached or build, pass verbatim argv via docker.exec",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "docker.pull and docker.run need an explicit image; docker.logs needs a container",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.docker docker.pull '{\"image\":\"hello-world\"}'",
+            "why": "pass image as name:tag (tag defaults to latest) — the corrected shape of the call above",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

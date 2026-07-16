@@ -539,5 +539,110 @@
     "next": [
       "io.pilot.primitive primitive.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.primitive",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "no account on this host yet — this call did not fail, it soft-failed: every primitive.* method returns needs_signup until you sign up once",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.signup '{}'",
+            "why": "free, zero-argument, idempotent: provisions an account plus a managed *.primitive.email inbox and caches the key locally",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "the backend rejected this host's API key — it is missing, revoked, or shadowed by an empty PRIMITIVE_API_KEY",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.signup '{}'",
+            "why": "re-runs the one-call provisioning; idempotent, so a host that already holds a valid key keeps it and one with none gets it",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "primitive.send_email",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called primitive.send_email but this host has no account yet — the call soft-failed and nothing was sent; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "primitive.signup",
+        "on": "ok",
+        "why": "you now have an inbox and a key — the key is injected on every call from here, you never pass it",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.send_email '{\"from\":\"agent@YOUR-SUBDOMAIN.primitive.email\",\"to\":\"someone@example.com\",\"subject\":\"hello from a Pilot agent\",\"body_text\":\"Sent through io.pilot.primitive.\"}'",
+            "why": "send your first mail — put the *.primitive.email address signup just returned in `from`; `to` must be reply-capable on the free agent plan",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.list_emails '{\"limit\":10}'",
+            "why": "read the other half: the inbound mail your new inbox has received",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "primitive.send_email",
+        "on": "ok",
+        "why": "the relay accepted it — replies land in your inbox, so read them from here",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.list_emails '{\"limit\":10}'",
+            "why": "newest inbound mail first; pass `wait` to long-poll instead of spinning on it",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.search_emails '{\"q\":\"hello\",\"limit\":10}'",
+            "why": "filtered inbox view once you have volume — full-text plus sender/subject/date filters",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "primitive.send_email",
+        "on": "err",
+        "match": "missing required param",
+        "why": "send_email needs all three of from, to and subject — there is no default sender",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.send_email '{\"from\":\"agent@YOUR-SUBDOMAIN.primitive.email\",\"to\":\"someone@example.com\",\"subject\":\"hello from a Pilot agent\",\"body_text\":\"Sent through io.pilot.primitive.\"}'",
+            "why": "same call with every required field; `from` must be your own *.primitive.email address (primitive.get_account shows it)",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 429,
+        "why": "rate limited — this is your plan's throughput, not a missing key; back off rather than re-signing up",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.primitive primitive.get_account '{}'",
+            "why": "shows the current plan and usage so you can see which limit you hit before retrying",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

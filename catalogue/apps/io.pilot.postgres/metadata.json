@@ -161,5 +161,94 @@
     "next": [
       "io.pilot.postgres postgres.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.postgres",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "Connection refused",
+        "why": "no server is listening yet — postgres is a real RDBMS, so it must be brought up before any query (note this exits 0: the failure is inside the payload, not the exit code)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.initdb '{\"datadir\":\"/tmp/pgdata\"}'",
+            "why": "one-time: create the cluster. Skip if the datadir already exists — initdb refuses a non-empty directory",
+            "kind": "gateway"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.start '{\"datadir\":\"/tmp/pgdata\",\"port\":\"5599\"}'",
+            "why": "start the server on 127.0.0.1:5599 — every query needs this, once per host boot",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "postgres.query/command/list connect by libpq conninfo, not a bare port",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.query '{\"uri\":\"host=127.0.0.1 port=5599 user=postgres dbname=postgres\",\"sql\":\"SELECT 42 AS answer\"}'",
+            "why": "pass uri as a full conninfo string plus sql; dbname=postgres always exists after initdb",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.start '{\"datadir\":\"/tmp/pgdata\",\"port\":\"5599\"}'",
+            "why": "that uri only resolves against a running server — start one first if nothing is listening on the port yet",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "database\\s+\\\\?\"[^\"\\\\]+\\\\?\"\\s+does not exist",
+        "why": "the server is up but that database was never created",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.createdb '{\"port\":\"5599\",\"dbname\":\"shop\"}'",
+            "why": "create the database, then re-run the query with dbname=shop in the uri",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.list '{\"uri\":\"host=127.0.0.1 port=5599 user=postgres dbname=postgres\"}'",
+            "why": "list the databases that do exist on this server",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "postgres.initdb",
+        "on": "ok",
+        "why": "the cluster exists but nothing is running yet",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.start '{\"datadir\":\"/tmp/pgdata\",\"port\":\"5599\"}'",
+            "why": "start the server from the datadir you just created — initdb alone accepts no connections",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "postgres.start",
+        "on": "ok",
+        "why": "server is up — create a database and run SQL",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.createdb '{\"port\":\"5599\",\"dbname\":\"shop\"}'",
+            "why": "a fresh cluster only has the postgres/template databases — make one for your data",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.postgres postgres.query '{\"uri\":\"host=127.0.0.1 port=5599 user=postgres dbname=shop\",\"sql\":\"CREATE TABLE IF NOT EXISTS items(id INT PRIMARY KEY, name TEXT); INSERT INTO items VALUES (1,'pen') ON CONFLICT DO NOTHING; SELECT * FROM items\"}'",
+            "why": "round-trip real data: DDL, insert and select in one call",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }

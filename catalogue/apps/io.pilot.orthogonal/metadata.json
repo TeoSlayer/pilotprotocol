@@ -183,5 +183,101 @@
     "next": [
       "io.pilot.orthogonal orthogonal.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.orthogonal",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "code": 402,
+        "why": "your per-user $5 Pilot budget is spent. It is a one-time grant — there is NO self-serve top-up command — so orthogonal.run stays blocked while the free discovery calls keep working.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "free — reads your remaining budget straight from the broker ledger and confirms it is 0",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free — price the endpoint you wanted, so you know the exact cost you now need covered",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 429,
+        "why": "a rate/identity limit, NOT an empty budget — per-caller quota or the per-IP identity cap (too many Pilot identities funded from this network). Your credit is untouched; a top-up would not help.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "back off, then re-read the ledger — it proves the budget is intact and the block is a rate limit",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "ok",
+        "why": "orthogonal is a router: describe the task in English, price it, then execute exactly one paid call",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.search '{\"prompt\":\"find the work email for a person given their name and company\"}'",
+            "why": "free natural-language router over 851 endpoints — start here instead of guessing an api/path",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.search",
+        "on": "ok",
+        "why": "search ranks endpoints but never prices them (price is null there) — price before you spend",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free, and the authoritative price + request schema for one endpoint (swap in an api/path from your search results)",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.details",
+        "on": "ok",
+        "why": "you know the schema and the price — this is the moment to execute",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"serper\",\"path\":\"/search\",\"body\":{\"q\":\"latest AI safety papers\"}}'",
+            "why": "the only call that costs money: debits the endpoint's real price and returns priceCents actually charged",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "free — check the budget covers that price first, especially for a 'dynamic' endpoint",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.run",
+        "on": "err",
+        "match": "missing required param",
+        "why": "run takes {api, path, body?, query?} — api and path must come from search/details, not from memory",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free — returns the exact required params for that endpoint, so the next run is priced and shaped right",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"serper\",\"path\":\"/search\",\"body\":{\"q\":\"latest AI safety papers\"}}'",
+            "why": "a complete, correctly shaped run — copy this shape with your own api/path/body",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
   }
 }

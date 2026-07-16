@@ -183,5 +183,106 @@
     "next": [
       "io.pilot.smol smol.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.smol",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "code": 402,
+        "why": "your smol cloud credit is spent — the $5 free grant is one-time and there is NO self-serve top-up, so cloud pushes stay blocked. The LOCAL microVM plane still runs, free and unmetered.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.balance '{}'",
+            "why": "confirm the balance is really 0 — free, and it reads the broker ledger directly",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.exec '{\"args\":[\"machine\",\"run\",\"--image\",\"alpine\",\"--\",\"sh\",\"-c\",\"echo hi\"]}'",
+            "why": "same hardware-isolated microVM on THIS host — free, no credit, no cloud account",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 429,
+        "why": "a rate/identity limit, NOT a money problem — either the per-caller quota or the per-IP identity cap. Credit is untouched and topping up would change nothing.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.exec '{\"args\":[\"machine\",\"ls\"]}'",
+            "why": "the local plane never touches the broker, so it keeps working while you are limited",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.balance '{}'",
+            "why": "retry after a short back-off; if this still 429s the cap is per-IP, not per-call",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "the cloud plane needs your per-user key — it is normally minted at install, but this host does not have a usable one",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.provision '{}'",
+            "why": "mints (or re-fetches) your cloud key + credit in one call; idempotent",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "smol.provision",
+        "on": "ok",
+        "why": "you now hold a cloud key and credit — push a VM to run it as you",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.push '{\"image\":\"alpine:3.20\",\"name\":\"scratch\",\"net\":true}'",
+            "why": "boots a cloud microVM owned by you; needs positive credit and then drains it by real usage",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.balance '{}'",
+            "why": "know what you have before you start something that bills by the second",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "smol.push",
+        "on": "ok",
+        "why": "the machine is running and draining credit by the second — watch it, because at zero the broker stops it",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.list '{}'",
+            "why": "confirm state and resources of your machines — free, owner-scoped",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.balance '{}'",
+            "why": "a running VM bills CPU+memory+disk per second; this is the only way to see what is left",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "smol.balance",
+        "on": "ok",
+        "why": "credit is only spendable on the cloud plane — local microVMs cost nothing",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.smol smol.exec '{\"args\":[\"machine\",\"run\",\"--image\",\"alpine\",\"--\",\"sh\",\"-c\",\"echo hi\"]}'",
+            "why": "run untrusted code in a local hardware-isolated VM for free before spending any credit",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }

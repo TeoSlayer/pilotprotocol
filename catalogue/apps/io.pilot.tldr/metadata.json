@@ -114,5 +114,77 @@
     "next": [
       "io.pilot.tldr tldr.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.tldr",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "page not found",
+        "why": "no such page — note the call exited 0; the failure is \"exit\":1 in the body. Usually the page NAME, not the cache: multi-word pages must be hyphen-joined (\"git commit\" is not a page, \"git-commit\" is)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.search '{\"keyword\":\"commit\"}'",
+            "why": "find the real page name by content — the third column of each hit is exactly what tldr.get wants",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.update '{}'",
+            "why": "only if the name is right: refresh the local page cache, which the app also suggests",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "tldr needs the page to look up — there is no default",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.get '{\"command\":\"tar\"}'",
+            "why": "pass command (the page name) — this is the corrected shape of the call above",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "tldr.search",
+        "on": "ok",
+        "match": "no pages matched",
+        "why": "the keyword matched no page contents — search is literal, so a narrower term finds less, not more",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.search '{\"keyword\":\"compress\"}'",
+            "why": "retry with one broader, single word — \"compress\" not \"compress a folder\"",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.list '{}'",
+            "why": "or browse every page name for this platform when you do not know the vocabulary",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "tldr.search",
+        "on": "ok",
+        "why": "each hit is `language platform page` — the page column is the lookup key",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.get '{\"command\":\"tar\"}'",
+            "why": "fetch a hit's cheat-sheet as clean text — the point of the search",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.tldr tldr.raw '{\"command\":\"tar\"}'",
+            "why": "or take it as raw Markdown when you want to lift the example lines programmatically",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }
