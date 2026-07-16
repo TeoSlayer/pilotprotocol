@@ -135,5 +135,75 @@
     "next": [
       "io.pilot.cosift cosift.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.cosift",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing .* parameter|-> 400",
+        "why": "a required parameter was missing — cosift needs q (search/answer/research) or url (contents/find_similar)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.search '{\"q\":\"ed25519 signature verification\"}'",
+            "why": "the canonical entry — pass q (NOT query); returns ranked hits with url + excerpt",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "cosift.search",
+        "on": "ok",
+        "why": "you have ranked hits — get a grounded answer, go deeper, or read a hit's full text",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.answer '{\"q\":\"what is ed25519 used for?\"}'",
+            "why": "single-shot LLM answer with citations over the same corpus (~3s)",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.research '{\"q\":\"tradeoffs of ed25519 vs ecdsa\"}'",
+            "why": "multi-step research report (~8-30s) when one answer is not enough",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.contents '{\"url\":\"https://www.ietf.org/archive/id/draft-bjh21-ssh-ed25519-01.xml\"}'",
+            "why": "cleaned full text of a hit — pass any url from the hits array",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "cosift.answer",
+        "on": "ok",
+        "why": "grounded answer + sources returned — read a cited source or escalate to a full report",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.contents '{\"url\":\"https://www.ietf.org/archive/id/draft-bjh21-ssh-ed25519-01.xml\"}'",
+            "why": "full text of a cited source — pass a url from the sources array",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.research '{\"q\":\"tradeoffs of ed25519 vs ecdsa\"}'",
+            "why": "escalate to multi-step research when a single answer is thin",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "cosift.contents",
+        "on": "ok",
+        "why": "you have one document's text — find more like it in the corpus",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.cosift cosift.find_similar '{\"url\":\"https://www.ietf.org/archive/id/draft-bjh21-ssh-ed25519-01.xml\"}'",
+            "why": "documents most similar to this url (embedder, ~2-3s)",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -19,7 +19,7 @@
       "source_url": "https://github.com/pilot-protocol/wallet",
       "license": "AGPL-3.0-or-later",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
-      "metadata_sha256": "200b384a3ce7eb2c5ad3fbf9940e00cb9056e5e6558aaa698d10c54f9f3f4894",
+      "metadata_sha256": "feed58970092e4ddb53d9a4d60923ff11e94af51c9ffd67e5c111e5cad5bd7f1",
       "publisher": "ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="
     },
     {
@@ -39,7 +39,7 @@
       "source_url": "https://github.com/pilot-protocol/cosift",
       "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
-      "metadata_sha256": "0dc202fbfacfd37690e279b7c3c9c0375b41e7060d48fd340a05ef6e11af06bc",
+      "metadata_sha256": "c59a9cdb16d031872a27bb64c02bb16682ae06da68d95e1a749c0e9873d16be8",
       "publisher": "ed25519:EjoZEiV+j6oNZLRWNEEf8lEnC8XBkrvBAk4fxuZLLyU="
     },
     {
@@ -59,7 +59,7 @@
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "a72d6130f9cbaf97ab0aa66f2c3387fe2143a3e6dbc0e096234e0c654b02427f",
+      "metadata_sha256": "38fee7a4658a5bfded1074600c320f68413ea0cf30a0f72e727cf19b7f4569e2",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
@@ -126,7 +126,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.slipstream/metadata.json",
-      "metadata_sha256": "943cbbc1cf3055e01c3842f3b108708669562ec7faf532c0e099f5921d5cb94c"
+      "metadata_sha256": "13e93fef4ed7921c7d7655e378b6766662e697fde27828a017f481176ce91da9"
     },
     {
       "id": "io.pilot.miren",

@@ -187,5 +187,104 @@
     ]
   },
   "published_at": "2026-06-08T08:00:26Z",
-  "updated_at": "2026-06-08T09:16:19Z"
+  "updated_at": "2026-06-08T09:16:19Z",
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.wallet",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "required|missing|-> 400|-> 422",
+        "why": "most wallet methods need an asset tag (USDC) or a challenge object — a bare call is rejected",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.balance '{\"asset\":\"USDC\"}'",
+            "why": "the simplest valid call — names the asset every balance/topup/request needs",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "wallet.balance",
+        "on": "ok",
+        "why": "you know your balance — fund it if low, or share your address to get paid",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.topup '{\"asset\":\"USDC\",\"amount\":500,\"source\":\"dev:faucet\"}'",
+            "why": "fund from the dev faucet — amount is in minor units (500 = 5.00 USDC)",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.address '{}'",
+            "why": "your secp256k1 receive address — hand it to whoever is paying you",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.topup",
+        "on": "ok",
+        "why": "funded — confirm the new balance, then invoice a counterparty or pay a challenge",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.balance '{\"asset\":\"USDC\"}'",
+            "why": "confirm the credit landed before you transact",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.request '{\"amount\":100,\"asset\":\"USDC\",\"expires_in_seconds\":3600,\"memo\":\"invoice\"}'",
+            "why": "issue an x402 Challenge others can pay you against",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.request",
+        "on": "ok",
+        "why": "you issued a Challenge — hand it to the payer; when they return a signed_auth, verify then settle it on-chain",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.pay '{\"challenge\":{\"id\":\"<the challenge object wallet.request returned>\"}}'",
+            "why": "the PAYER signs the Challenge (EIP-3009) — pass the full challenge object from wallet.request",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.settle '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<from wallet.pay>\"}}'",
+            "why": "settle on-chain once you hold both the challenge and the payer's signed_auth",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.pay",
+        "on": "ok",
+        "why": "you signed the Challenge — the recipient now verifies locally, then settles it on-chain",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.verify '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<the signed_auth wallet.pay returned>\"}}'",
+            "why": "recipient verifies the authorization locally — no round-trip; pass the signed_auth from wallet.pay",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.settle '{\"challenge\":{\"id\":\"<from wallet.request>\"},\"signed_auth\":{\"challenge_id\":\"<from wallet.pay>\"}}'",
+            "why": "submit the authorized payment on-chain to move the USDC",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "wallet.evm.chains",
+        "on": "ok",
+        "why": "these are your configured USDC chains (Base/Ethereum/Polygon) — check a per-chain balance",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.wallet wallet.evm.balance '{\"chain_id\":8453}'",
+            "why": "USDC balance on Base (chain_id 8453); omit chain_id for the primary chain",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
+  }
 }

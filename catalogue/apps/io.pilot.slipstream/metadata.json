@@ -106,5 +106,85 @@
     "next": [
       "io.pilot.slipstream slipstream.help '{}'"
     ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.slipstream",
+    "edges": [
+      {
+        "from": "slipstream.wallet",
+        "on": "err",
+        "match": "addr|required|missing|-> 400",
+        "why": "slipstream.wallet needs a specific address; every other method is a no-arg list",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.leaderboard '{\"limit\":20}'",
+            "why": "get real 0x… addresses first — take one from the leaders array",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.wallet '{\"addr\":\"0x<wallet from slipstream.leaderboard>\"}'",
+            "why": "re-run with a real addr copied from the leaderboard",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "slipstream.leaderboard",
+        "on": "ok",
+        "why": "you have the top smart-money wallets — filter to the highest skill, see what they are entering, or drill into one",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.skilled '{\"limit\":20}'",
+            "why": "narrow to wallets above the alpha/probability threshold",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.signals '{}'",
+            "why": "live markets these skilled wallets are entering now",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.wallet '{\"addr\":\"0x<a wallet from the leaders array>\"}'",
+            "why": "positions + history for one leader — addr comes from the leaderboard",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "slipstream.opportunities",
+        "on": "ok",
+        "why": "ranked open markets — confirm smart money is actually flowing in before acting",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.signals '{}'",
+            "why": "which of these markets skilled wallets are entering",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.tape '{\"limit\":50}'",
+            "why": "the recent individual fills behind the flow (wallet, side, size σ)",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "slipstream.signals",
+        "on": "ok",
+        "why": "markets skilled wallets are entering — see the raw fills and rank the field",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.tape '{\"limit\":50}'",
+            "why": "recent smart-money fills behind the signals",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.slipstream slipstream.markets '{\"limit\":20}'",
+            "why": "markets ranked by smart-money exposure and flow",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
   }
 }
