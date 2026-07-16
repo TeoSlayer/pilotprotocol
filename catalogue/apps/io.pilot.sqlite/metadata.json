@@ -89,5 +89,51 @@
       "label": "Website",
       "url": "https://sqlite.org"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.sqlite",
+    "title": "Full usage demo",
+    "when_to_use": "When you need a zero-config embedded relational database in a single file (or :memory:) for local structured data with SQL — not a networked server and not high-concurrency writes.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Run your first query (in-memory, no file)",
+      "command": "pilotctl appstore call io.pilot.sqlite sqlite.query '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
+      "expect": "JSON rows: [{\"answer\":42}]"
+    },
+    "examples": [
+      {
+        "title": "Create a table and insert rows",
+        "goal": "Build a schema and load data into a file db",
+        "command": "pilotctl appstore call io.pilot.sqlite sqlite.script '{\"database\":\"/work/app.db\",\"sql\":\"CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users(name) VALUES ('ada'),('lin');\"}'",
+        "expect": "no rows; the users table now persists in /work/app.db"
+      },
+      {
+        "title": "Query the rows back",
+        "goal": "Read data as JSON",
+        "command": "pilotctl appstore call io.pilot.sqlite sqlite.query '{\"database\":\"/work/app.db\",\"sql\":\"SELECT id, name FROM users ORDER BY id\"}'",
+        "expect": "[{\"id\":1,\"name\":\"ada\"},{\"id\":2,\"name\":\"lin\"}]"
+      },
+      {
+        "title": "List tables",
+        "goal": "See what exists in the file",
+        "command": "pilotctl appstore call io.pilot.sqlite sqlite.tables '{\"database\":\"/work/app.db\"}'",
+        "expect": "table/view names, e.g. users"
+      },
+      {
+        "title": "Dump the schema (DDL)",
+        "goal": "Inspect the CREATE statements",
+        "command": "pilotctl appstore call io.pilot.sqlite sqlite.schema '{\"database\":\"/work/app.db\"}'",
+        "expect": "CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT);"
+      }
+    ],
+    "gotchas": [
+      "Database file paths resolve inside the app sandbox, not your shell CWD.",
+      ":memory: is ephemeral — it vanishes when the call returns; use an absolute .db path to persist.",
+      "A file `database` is created automatically if it does not exist.",
+      "sqlite.query returns rows as JSON objects keyed by column name."
+    ],
+    "next": [
+      "io.pilot.sqlite sqlite.help '{}'"
+    ]
+  }
 }

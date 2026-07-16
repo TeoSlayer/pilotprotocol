@@ -109,5 +109,57 @@
   "links": {
     "documentation": "https://www.postgresql.org/docs/17/",
     "psql_reference": "https://www.postgresql.org/docs/17/app-psql.html"
+  },
+  "product_demo": {
+    "skill": "io.pilot.postgres",
+    "title": "Full usage demo",
+    "when_to_use": "When you need a full PostgreSQL server RDBMS — rich SQL, extensions, concurrent clients over a libpq connection — rather than an in-process file db; requires a one-time initdb + start.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Confirm the client works (no server needed)",
+      "command": "pilotctl appstore call io.pilot.postgres postgres.version '{}'",
+      "expect": "the delivered client version, e.g. \"psql (PostgreSQL) 17.10\""
+    },
+    "examples": [
+      {
+        "title": "Create a data directory",
+        "goal": "One-time cluster init",
+        "command": "pilotctl appstore call io.pilot.postgres postgres.initdb '{\"datadir\":\"/work/pgdata\"}'",
+        "expect": "a new initialized cluster at /work/pgdata"
+      },
+      {
+        "title": "Start the server",
+        "goal": "Bring up the cluster on a port",
+        "command": "pilotctl appstore call io.pilot.postgres postgres.start '{\"datadir\":\"/work/pgdata\",\"port\":\"5599\"}'",
+        "expect": "server accepting connections on 127.0.0.1:5599"
+      },
+      {
+        "title": "Create a database",
+        "goal": "Add a database to connect to",
+        "command": "pilotctl appstore call io.pilot.postgres postgres.createdb '{\"port\":\"5599\",\"dbname\":\"shop\"}'",
+        "expect": "database `shop` created, owned by postgres"
+      },
+      {
+        "title": "Create a table, insert, and select",
+        "goal": "Round-trip data over a libpq conninfo",
+        "command": "pilotctl appstore call io.pilot.postgres postgres.query '{\"uri\":\"host=127.0.0.1 port=5599 user=postgres dbname=shop\",\"sql\":\"CREATE TABLE items(id INT PRIMARY KEY, name TEXT); INSERT INTO items VALUES (1,'pen'); SELECT * FROM items\"}'",
+        "expect": "one row: id=1, name=pen"
+      },
+      {
+        "title": "Describe tables with a psql meta-command",
+        "goal": "Introspect the schema",
+        "command": "pilotctl appstore call io.pilot.postgres postgres.command '{\"uri\":\"host=127.0.0.1 port=5599 user=postgres dbname=shop\",\"command\":\"\\\\dt\"}'",
+        "expect": "a list of relations including `items`"
+      }
+    ],
+    "gotchas": [
+      "Order matters: postgres.initdb once (datadir must be new/empty), then postgres.start before any query.",
+      "query/command/list take a libpq `uri`, e.g. \"host=127.0.0.1 port=5599 user=postgres dbname=shop\", not a bare port.",
+      "The default superuser is `postgres`; connections are 127.0.0.1 only.",
+      "datadir paths resolve inside the app sandbox, not your shell CWD."
+    ],
+    "next": [
+      "io.pilot.postgres postgres.help '{}'"
+    ]
   }
 }

@@ -59,7 +59,7 @@
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "fa2a5460c95732a00be89431d1fc2bdbc482ddd1734ebcd556c0f0e578764fc4",
+      "metadata_sha256": "a72d6130f9cbaf97ab0aa66f2c3387fe2143a3e6dbc0e096234e0c654b02427f",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
@@ -118,7 +118,9 @@
       "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
       "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
-      "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc="
+      "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc=",
+      "metadata_sha256": "cbd6adae25a432d33dea9d4a047645b1e6d920a4bae2c4897b9f14fe2c004347",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.telepat.ideon-free/metadata.json"
     },
     {
       "id": "io.pilot.slipstream",
@@ -177,7 +179,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
-      "metadata_sha256": "1522d29019acd3d131d6cb76c1100de4d6c9ae88b933740067540423bd2f4cdc",
+      "metadata_sha256": "dfc4662187f5bb138f7892562190b51bb25a47e5f41493d805c7938b3ba01bfc",
       "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
     },
     {
@@ -209,7 +211,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
-      "metadata_sha256": "75371512242220f1c6cd99867c0e15ffaa2457ee00a0685c9f81037180ab79a8",
+      "metadata_sha256": "40ad1ccee9ff275c7596f722955feed08fd3cc4cb817df89da5ba2ad733060ba",
       "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
     },
     {
@@ -241,7 +243,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
-      "metadata_sha256": "8e46e027b1159df28230b8144bbebfbece51a2b3fa9ce7681f4a001a1216dc31",
+      "metadata_sha256": "c7f6aa401dba319d414f3600a7fb2e44bf25032f3a05d9dafe2ffd3cee3ab0e5",
       "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
     },
     {
@@ -273,7 +275,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
-      "metadata_sha256": "059a5e2b7d3d9d7fa72da563c68d90c242d20ca0cd4e7329a7dc5eb5326e142b",
+      "metadata_sha256": "c9115db97f62615f46beda638ca7af8f615a3636946b1b21a7f8212aa296e86f",
       "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
     },
     {
@@ -312,7 +314,7 @@
         "analytics"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
-      "metadata_sha256": "88700d57d93c9260bf358cd2c7bf79aebdc88cabedd00f2cbe2b1b599f03e38f",
+      "metadata_sha256": "e94cedc835392a2a8e7b4838da90e5e98dfc4dd230d1609b937c9c7d192a6303",
       "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
     },
     {
@@ -343,7 +345,7 @@
         "data"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
-      "metadata_sha256": "887e3e9697e56146b01594d8b18595b5d6bb3e503d2728e38a5370c50e41e482",
+      "metadata_sha256": "a7583377c8346ddaae2227a1938fe92f4504617b7bdc12c147c2bff478b95331",
       "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
     },
     {
@@ -382,7 +384,7 @@
         "kv"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.redis/metadata.json",
-      "metadata_sha256": "7a2737afad2fe994f5deee9810557650727d5dd43c69e0f4018ea04a4fe14961",
+      "metadata_sha256": "a74fdeae42e8cc6b68a60cdfdf0864029fccaffdbe071db1060fd0d11f5b9369",
       "publisher": "ed25519:QXvscnyXJ5L/Bmy7oCo5dPC1HrEOGa7WFWBfH5ktejM="
     },
     {
@@ -416,7 +418,7 @@
         "guardrail"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
-      "metadata_sha256": "ca71da633a5608af201ba08409f4376c672d92fa6adc570c41d409d51967ffc3",
+      "metadata_sha256": "07af4a03e59525377eeab8c2a67da02d408c544764d3295365de5feb756c908e",
       "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
     },
     {
@@ -445,7 +447,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smol/metadata.json",
-      "metadata_sha256": "fd3299f6eef46a539145425eae4ec74bd561d132b679e2558984f066f78d7291",
+      "metadata_sha256": "a968c762cd5e00510c4c7cb06cafe75b86efd91c6553773f28f5ad04098ab93a",
       "categories": [
         "dev",
         "virtualization",
@@ -480,7 +482,7 @@
       "source_url": "https://github.com/bowmark-ai/plugin",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "c90576c9fa3a62100e263215ff771dc4b92966bced0be237e530f20c2d346c7e",
+      "metadata_sha256": "2333263b4eb2de7085340d1b4cd8168a37c99a9bd1f5d6029d51e20d9c7f2698",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
@@ -536,7 +538,7 @@
         "sql"
       ],
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sqlite/metadata.json",
-      "metadata_sha256": "9756ef368b02f9808596dc8c640776ba079cdf6119bd334f00efe7d53a1b42d8",
+      "metadata_sha256": "92f72a3b51d6d19cbdc19072031e46418ab39b6b1ef3fa2a166b2a9ec860381a",
       "publisher": "ed25519:ebjc66COLR1OBuDZn9gCuePChW8Qxxcxm7RDYAgSLv8="
     },
     {
@@ -568,7 +570,7 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
-      "metadata_sha256": "9099d15e6008aaf0506c4dc91607644b201a866f78f5db2343f85413de7a6ee1",
+      "metadata_sha256": "a849cce8e8dd2a6982924c218f751615b4a41eb12a808fcdaf56467e71c36e84",
       "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
     },
     {
@@ -584,7 +586,7 @@
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
       "license": "",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.insforge/metadata.json",
-      "metadata_sha256": "ec561a568909eae0b16524af0458a802325728b2103614fbf9b1b600334d1969",
+      "metadata_sha256": "da9cbc28e6f2ac9a3add239d022e06c2886655744526b2c75ae6d39e4e8a5f28",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-amd64.tar.gz",
@@ -618,7 +620,7 @@
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
       "license": "",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
-      "metadata_sha256": "6a584e8c637da3e6f2ffeb9b71cbca1d2f05122511b0c45ff72b126d52363da5",
+      "metadata_sha256": "a961580ee4a8ef599b5f251f82c8821f4e9f23146a9d901e64f63d47fbec1694",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
@@ -652,7 +654,7 @@
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
       "license": "",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
-      "metadata_sha256": "b051e9af0bcc334065539cb8870de59e4ff62ca4515cde39bc6b13fbde285a62",
+      "metadata_sha256": "b07977ee77f8abf61895648aff1dda85cb9555d59b444a06561e0b413aea1ecc",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
@@ -686,7 +688,7 @@
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
       "license": "",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
-      "metadata_sha256": "30ad4d9ac274e010c6c75de612a74021633d4fcb1e845d14923b391315246614",
+      "metadata_sha256": "5e73bc2c2b54efaf91b1b9ad354a5f9803afb5c505539b86326125c92f2cc86b",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
@@ -720,7 +722,7 @@
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
       "license": "",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
-      "metadata_sha256": "3b686d075a69b2b85e9cb5caa61207adb8f870ffa5d01eb1f16e256a11068198",
+      "metadata_sha256": "9635a48b73da70be4559f9d9163711d01dec21e69fe6d074824b527bebf64de9",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",

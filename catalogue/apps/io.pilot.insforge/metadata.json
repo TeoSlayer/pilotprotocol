@@ -119,5 +119,56 @@
         "Published v 1.0.0"
       ]
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.insforge",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs its own isolated cloud backend — Postgres, auth, S3-style storage, edge functions, and an AI gateway key — provisioned in a single call.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Provision your own isolated backend in one call (no email, no browser)",
+      "command": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+      "expect": "{\"signed_up\":true,\"backend_url\":\"https://...insforge.dev\",\"api_key\":\"...\"}",
+      "note": "Run this ONCE. It caches your backend URL + key; every other insforge.* call then talks directly to YOUR backend. Idempotent per Pilot identity."
+    },
+    "examples": [
+      {
+        "title": "Create a Postgres table",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_create_table '{\"tableName\":\"notes\",\"columns\":[{\"columnName\":\"title\",\"type\":\"string\",\"isNullable\":false}]}'",
+        "expect": "{\"tableName\":\"notes\",\"columns\":[...]}",
+        "note": "id (uuid) + createdAt/updatedAt are added automatically. Wait ~3s before the first insert (schema cache reload)."
+      },
+      {
+        "title": "Insert rows (always a JSON array)",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_insert '{\"table\":\"notes\",\"records\":[{\"title\":\"hello\"}]}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\",\"createdAt\":\"...\"}]"
+      },
+      {
+        "title": "Query with filters + ordering",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_query '{\"table\":\"notes\",\"order\":\"createdAt.desc\",\"limit\":10}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\"}]"
+      },
+      {
+        "title": "Get your seeded AI Model Gateway key",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.ai_gateway_key '{}'",
+        "expect": "{\"api_key\":\"sk-or-...\"}",
+        "note": "OpenRouter key seeded with $1 of credits — call it against https://openrouter.ai/api/v1 with any OpenAI-compatible SDK."
+      },
+      {
+        "title": "Inspect the whole backend config",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.metadata '{}'",
+        "expect": "{\"database\":{...},\"storage\":{...},\"functions\":{...},\"auth\":{...}}"
+      }
+    ],
+    "gotchas": [
+      "Run insforge.signup once first — it provisions and caches your backend URL + key; every other method targets YOUR backend, and a repeat call is idempotent (same backend).",
+      "Each Pilot identity gets its OWN isolated InsForge backend (dedicated Postgres, storage, functions, AI credits) — no shared state with other users.",
+      "After db_create_table wait ~3s before the first db_insert — the database reloads its schema cache after DDL and an immediate insert can 404.",
+      "db_insert always takes a JSON array of row objects, even for a single row.",
+      "Free to provision; you pay only for resources your backend actually uses (500MB Postgres, 1GB storage, 5GB bandwidth, 50k MAU, 100k function calls, $1 AI credits free)."
+    ],
+    "next": [
+      "io.pilot.insforge insforge.help '{}'"
+    ]
+  }
 }

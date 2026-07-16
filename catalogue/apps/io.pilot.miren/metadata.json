@@ -119,5 +119,55 @@
       "label": "Website",
       "url": "https://miren.dev"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.miren",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to operate a Miren PaaS from an agent — deploy or roll back apps and inspect their status, history, and logs — over IPC.",
+    "metered": false,
+    "quickstart": {
+      "goal": "List the applications on your cluster",
+      "command": "pilotctl appstore call io.pilot.miren miren.apps '{}'",
+      "expect": "{\"stdout\":\"[{\\\"name\\\":\\\"web\\\",\\\"status\\\":\\\"running\\\"}]\",\"exit\":0}",
+      "note": "Needs a configured cluster; if none is set up, output is a structured {stdout,stderr,exit} error telling you what to do next."
+    },
+    "examples": [
+      {
+        "title": "Show one app's status",
+        "command": "pilotctl appstore call io.pilot.miren miren.app '{\"name\":\"web\"}'",
+        "expect": "{\"stdout\":\"...status...\",\"exit\":0}"
+      },
+      {
+        "title": "Read recent logs as JSON",
+        "command": "pilotctl appstore call io.pilot.miren miren.logs '{\"app\":\"web\"}'",
+        "expect": "{\"stdout\":\"[{\\\"ts\\\":...,\\\"msg\\\":...}]\",\"exit\":0}"
+      },
+      {
+        "title": "Build + deploy the app in the current directory",
+        "command": "pilotctl appstore call io.pilot.miren miren.deploy '{}'",
+        "expect": "{\"stdout\":\"...deployed...\",\"exit\":0}",
+        "note": "Non-interactive (--force); deploys the CURRENT working directory."
+      },
+      {
+        "title": "Roll back to the previous version",
+        "command": "pilotctl appstore call io.pilot.miren miren.rollback '{}'",
+        "expect": "{\"stdout\":\"...rolled back...\",\"exit\":0}"
+      },
+      {
+        "title": "Reach any miren subcommand (passthrough)",
+        "command": "pilotctl appstore call io.pilot.miren miren.exec '{\"args\":[\"env\",\"list\",\"--app\",\"web\",\"--json\"]}'",
+        "expect": "{\"stdout\":\"{...}\",\"exit\":0}"
+      }
+    ],
+    "gotchas": [
+      "Server-side commands need a configured cluster; without one they return a structured {stdout,stderr,exit} error explaining the next step — not a crash.",
+      "miren.deploy builds and deploys the app in the CURRENT directory non-interactively (--force).",
+      "Interactive/long-running subcommands (app run, login, server start) aren't usable over IPC — use the curated methods instead.",
+      "Pass --json inside miren.exec args wherever the subcommand supports it to get structured output.",
+      "server install / server status are Linux-only."
+    ],
+    "next": [
+      "io.pilot.miren miren.help '{}'"
+    ]
+  }
 }

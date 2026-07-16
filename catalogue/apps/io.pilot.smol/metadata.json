@@ -92,5 +92,96 @@
       "label": "Website",
       "url": "https://smolmachines.com"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.smol",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to run untrusted or AI-generated code in a throwaway, hardware-isolated Linux microVM — locally for free, or pushed to the cloud when it needs to keep running.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Confirm the local engine works (free, on your machine)",
+      "command": "pilotctl appstore call io.pilot.smol smol.version '{}'",
+      "expect": "{\"version\":\"1.2.0\"}",
+      "cost": "$0.00 (local)"
+    },
+    "examples": [
+      {
+        "title": "Run code in an ephemeral local microVM (free)",
+        "goal": "Boot alpine, run one command, tear down — nothing persists",
+        "command": "pilotctl appstore call io.pilot.smol smol.exec '{\"args\":[\"machine\",\"run\",\"--image\",\"alpine\",\"--\",\"sh\",\"-c\",\"echo hi\"]}'",
+        "expect": "{\"stdout\":\"hi\\n\",\"exit_code\":0}",
+        "cost": "$0.00 (local)"
+      },
+      {
+        "title": "Check your cloud credit (free)",
+        "command": "pilotctl appstore call io.pilot.smol smol.balance '{}'",
+        "expect": "{\"credits\":5000000}",
+        "cost": "$0.00 (free)"
+      },
+      {
+        "title": "Push a VM to the smol cloud and start it",
+        "goal": "Runs as you, metered by real CPU/memory/disk usage",
+        "command": "pilotctl appstore call io.pilot.smol smol.push '{\"image\":\"alpine:3.20\",\"net\":true}'",
+        "expect": "{\"machine\":{\"id\":\"m_...\",\"status\":\"running\",\"name\":\"...\"}}",
+        "cost": "≈$0.01 for a 30s 1-vCPU run",
+        "note": "Compute is time-based: billed per second from the rate card until you stop it or credit runs out."
+      },
+      {
+        "title": "List only your cloud machines (free)",
+        "command": "pilotctl appstore call io.pilot.smol smol.list '{}'",
+        "expect": "[{\"id\":\"m_...\",\"status\":\"running\"}]",
+        "cost": "$0.00 (free)"
+      }
+    ],
+    "cost": {
+      "unit": "micro-USD (1000000 = $1.00), billed by real cloud compute time",
+      "free_budget": "$5.00 of cloud credit per Pilot user",
+      "hard_cap_usd": 5.0,
+      "operations": [
+        {
+          "op": "smol.exec / smol.version / smol.help",
+          "price": "$0.00",
+          "note": "local methods run on your machine — free"
+        },
+        {
+          "op": "smol.provision / key / rotate / balance / list",
+          "price": "$0.00",
+          "note": "cloud account reads — free"
+        },
+        {
+          "op": "smol.push (CPU)",
+          "price": "$0.0432/cpu-hour",
+          "note": "needs positive credit to start (402 if empty)"
+        },
+        {
+          "op": "smol.push (memory)",
+          "price": "$0.0162/gb-hour",
+          "note": "drains by the second while the VM runs"
+        },
+        {
+          "op": "smol.push (disk)",
+          "price": "$0.0001/gb-hour",
+          "note": "storage while the VM exists"
+        },
+        {
+          "op": "smol.push (egress)",
+          "price": "$0.05/gb",
+          "note": "outbound network transfer"
+        }
+      ],
+      "worked_total": "Local runs are free; the one cloud push here is ≈$0.01 for a short 1-vCPU run — well under your $5.00. The broker stops your VMs when credit runs out.",
+      "check_balance": "pilotctl appstore call io.pilot.smol smol.balance '{}'"
+    },
+    "gotchas": [
+      "Local methods (smol.exec/version/help) are always free; only cloud smol.push spends credit.",
+      "Networking is OFF by default — pass {\"net\":true} for outbound internet, locally and in the cloud.",
+      "smol.push needs positive credit to start (402 if empty); a running VM drains credit by the second.",
+      "When your credit runs out the broker STOPS your running cloud VMs — check smol.balance.",
+      "Interactive sessions (-it / machine shell) and long-running serve are NOT supported over IPC.",
+      "Cloud machines are isolated per user — smol.list shows only yours."
+    ],
+    "next": [
+      "io.pilot.smol smol.help '{}'"
+    ]
+  }
 }

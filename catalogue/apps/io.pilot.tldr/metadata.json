@@ -67,5 +67,52 @@
         "Published v 1.13.1"
       ]
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.tldr",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to recall exactly how to invoke a CLI — get a command's example-first cheat-sheet, or find the right tool by task — instead of parsing a man page or web searching.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Look up a command's cheat-sheet",
+      "command": "pilotctl appstore call io.pilot.tldr tldr.get '{\"command\":\"tar\"}'",
+      "expect": "clean-text tldr page for tar with the handful of example invocations that matter"
+    },
+    "examples": [
+      {
+        "title": "Raw Markdown (machine-parseable)",
+        "command": "pilotctl appstore call io.pilot.tldr tldr.raw '{\"command\":\"docker\"}'",
+        "expect": "the docker page as unrendered Markdown, ideal for lifting example lines programmatically"
+      },
+      {
+        "title": "Multi-word page (hyphen-joined)",
+        "command": "pilotctl appstore call io.pilot.tldr tldr.get '{\"command\":\"git-commit\"}'",
+        "expect": "the git commit cheat-sheet"
+      },
+      {
+        "title": "Find a tool by task",
+        "command": "pilotctl appstore call io.pilot.tldr tldr.search '{\"keyword\":\"compress\"}'",
+        "expect": "each matching page as `language  platform  page`"
+      },
+      {
+        "title": "Browse the whole catalog",
+        "command": "pilotctl appstore call io.pilot.tldr tldr.list '{}'",
+        "expect": "every documented command for this platform + the common set, one name per line"
+      },
+      {
+        "title": "Force a platform via verbatim argv",
+        "command": "pilotctl appstore call io.pilot.tldr tldr.exec '{\"args\":[\"--platform\",\"linux\",\"systemctl\"]}'",
+        "expect": "the linux systemctl page even on macOS"
+      }
+    ],
+    "gotchas": [
+      "The page cache (~3 MiB, ~7,350+ pages) auto-downloads on first use and then works offline.",
+      "Multi-word pages: hyphen-join (\"git-commit\") or pass the words as argv via tldr.exec ([\"git\",\"commit\"]).",
+      "tldr.raw returns raw Markdown (best for extraction); tldr.get returns clean rendered text.",
+      "On a non-zero exit the reply is {stdout, stderr, exit}."
+    ],
+    "next": [
+      "io.pilot.tldr tldr.help '{}'"
+    ]
+  }
 }

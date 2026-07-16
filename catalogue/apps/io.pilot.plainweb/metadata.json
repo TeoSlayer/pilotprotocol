@@ -66,5 +66,42 @@
       "label": "Website",
       "url": "https://pilotprotocol.network"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.plainweb",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to read a public web page as clean Markdown (no HTML, no JS) in one call — for summarizing, extracting, or feeding article content to a model.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Fetch a URL as Markdown",
+      "command": "pilotctl appstore call io.pilot.plainweb plainweb.fetch '{\"url\":\"https://example.com\"}'",
+      "expect": "{\"content_type\":\"text/markdown; charset=utf-8\",\"content\":\"# Example Domain\\n...\"}"
+    },
+    "examples": [
+      {
+        "title": "Scheme-less host (sanitized to https://)",
+        "command": "pilotctl appstore call io.pilot.plainweb plainweb.fetch '{\"url\":\"en.wikipedia.org/wiki/Markdown\"}'",
+        "expect": "{\"content\":\"# Markdown\\n\\nMarkdown is a lightweight markup language...\"}"
+      },
+      {
+        "title": "Read an article for summarization",
+        "command": "pilotctl appstore call io.pilot.plainweb plainweb.fetch '{\"url\":\"https://go.dev/doc/effective_go\"}'",
+        "expect": "clean Markdown of the page (GFM tables, fenced code) in the content field"
+      },
+      {
+        "title": "Front page of a news/link site",
+        "command": "pilotctl appstore call io.pilot.plainweb plainweb.fetch '{\"url\":\"https://news.ycombinator.com\"}'",
+        "expect": "{\"content_type\":\"text/markdown; charset=utf-8\",\"content\":\"...\"}"
+      }
+    ],
+    "gotchas": [
+      "The target URL goes verbatim into the request path (GET /\u003curl\u003e); pass it as the url param.",
+      "Scheme-less hosts (e.g. example.com) are sanitized to https://.",
+      "The Markdown body is in the content field of the reply, not the top level.",
+      "Free and open — no API key required."
+    ],
+    "next": [
+      "io.pilot.plainweb plainweb.help '{}'"
+    ]
+  }
 }

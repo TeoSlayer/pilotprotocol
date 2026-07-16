@@ -120,5 +120,55 @@
       "label": "Website",
       "url": "https://docs.telepat.io/otto"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.otto",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to drive a real Chrome tab from an agent — extract a page as markdown/HTML, run site commands (Reddit/LinkedIn/HN/Google), or screenshot — via a paired browser extension, not a headless farm.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Preflight — check the relay and connected browser nodes",
+      "command": "pilotctl appstore call io.pilot.otto otto.status '{}'",
+      "expect": "{\"stdout\":\"{\\\"pid\\\":...,\\\"nodes\\\":[\\\"node-1\\\"]}\",\"exit\":0}",
+      "note": "An empty nodes list means no Chrome extension node is paired/online — page commands will fail until one is."
+    },
+    "examples": [
+      {
+        "title": "Extract a page as markdown",
+        "command": "pilotctl appstore call io.pilot.otto otto.extract '{\"url\":\"https://example.com\"}'",
+        "expect": "{\"stdout\":\"{\\\"markdown\\\":\\\"# Example...\\\"}\",\"exit\":0}"
+      },
+      {
+        "title": "List the site commands a node exposes",
+        "command": "pilotctl appstore call io.pilot.otto otto.commands '{}'",
+        "expect": "{\"stdout\":\"[{\\\"site\\\":\\\"reddit.com\\\",\\\"command\\\":\\\"getPosts\\\"}]\",\"exit\":0}"
+      },
+      {
+        "title": "Run a registered site command",
+        "command": "pilotctl appstore call io.pilot.otto otto.test '{\"site\":\"reddit.com\",\"command\":\"getPosts\",\"payload\":\"{\\\"limit\\\":10}\"}'",
+        "expect": "{\"stdout\":\"{\\\"posts\\\":[...]}\",\"exit\":0}",
+        "note": "payload is a JSON object STRING (use {} for none)."
+      },
+      {
+        "title": "Screenshot a page (base64 PNG in the envelope)",
+        "command": "pilotctl appstore call io.pilot.otto otto.screenshot '{\"url\":\"https://example.com\"}'",
+        "expect": "{\"stdout\":\"{\\\"image_base64\\\":\\\"iVBOR...\\\"}\",\"exit\":0}"
+      },
+      {
+        "title": "Extract in a specific format",
+        "command": "pilotctl appstore call io.pilot.otto otto.extract.format '{\"url\":\"https://example.com\",\"format\":\"clean_html\"}'",
+        "expect": "{\"stdout\":\"{\\\"clean_html\\\":\\\"\u003carticle\u003e...\\\"}\",\"exit\":0}"
+      }
+    ],
+    "gotchas": [
+      "Preflight with otto.status — an empty nodes list means no Chrome extension node is paired/online and page commands will fail.",
+      "Requires the host stack up: a running relay (otto start), Chrome with the Otto extension loaded + paired, and a logged-in controller.",
+      "otto.test payload is a JSON object STRING (use {} for none), e.g. \"{\\\"limit\\\":10}\" — not a bare object.",
+      "Page commands (extract, screenshot, test) are slow — each opens a real tab, acts, then closes it.",
+      "Free and open source (MIT) — no payment, no per-call limit."
+    ],
+    "next": [
+      "io.pilot.otto otto.help '{}'"
+    ]
+  }
 }
