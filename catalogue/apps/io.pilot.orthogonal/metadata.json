@@ -102,5 +102,182 @@
       "label": "Website",
       "url": "https://orthogonal.com"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.orthogonal",
+    "title": "Full usage demo",
+    "when_to_use": "When you need a paid third-party API (contact/lead enrichment, work-email or phone finding, web/social scraping, AI search, company/people data) but don't want to sign up for or manage that provider's key.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Discover which API can do your task (free natural-language router)",
+      "command": "pilotctl appstore call io.pilot.orthogonal orthogonal.search '{\"prompt\":\"find the work email for a person given their name and company\"}'",
+      "expect": "{\"results\":[{\"api\":\"tomba\",\"path\":\"/email-finder\",\"method\":\"GET\",\"score\":0.94}]}",
+      "cost": "$0.00 (free)"
+    },
+    "examples": [
+      {
+        "title": "Price an endpoint before you run it (free)",
+        "goal": "Get the exact dollar price + full request schema",
+        "command": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"tomba\",\"path\":\"/email-finder\"}'",
+        "expect": "{\"price\":\"$0.01\",\"params\":{...}}",
+        "cost": "$0.00 (free)"
+      },
+      {
+        "title": "Execute the endpoint (the ONLY paid call)",
+        "goal": "Dispatch to the provider; billed the real per-call price",
+        "command": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"tomba\",\"path\":\"/email-finder\",\"query\":{\"full_name\":\"Ada Lovelace\",\"domain\":\"acme.com\"}}'",
+        "expect": "{\"data\":{\"email\":\"ada@acme.com\"},\"priceCents\":1}",
+        "cost": "dynamic — see cost.operations",
+        "note": "priceCents in the response is the exact amount charged; X-Pilot-Credits-Remaining is your remaining budget."
+      },
+      {
+        "title": "A web-search run (cheap endpoint)",
+        "command": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"serper\",\"path\":\"/search\",\"body\":{\"q\":\"latest AI safety papers\"}}'",
+        "expect": "{\"data\":{\"organic\":[...]},\"priceCents\":0.2}",
+        "cost": "dynamic — see cost.operations"
+      },
+      {
+        "title": "Check your remaining budget (free)",
+        "command": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+        "expect": "{\"balance\":\"$4.99\",\"credits_remaining\":4988000}",
+        "cost": "$0.00 (free)"
+      }
+    ],
+    "cost": {
+      "unit": "micro-USD (1000000 = $1.00); dynamic — each run priced by the target endpoint",
+      "free_budget": "$5.00 per Pilot user",
+      "hard_cap_usd": 5.0,
+      "operations": [
+        {
+          "op": "orthogonal.run",
+          "price": "dynamic",
+          "note": "billed the target endpoint's real price; response priceCents (¢) × 10000 = micro-USD debited. Range $0.001–$3.50; 104 endpoints are 'dynamic' (priced only from the response)."
+        },
+        {
+          "op": "orthogonal.search",
+          "price": "$0.00",
+          "note": "natural-language API router — free"
+        },
+        {
+          "op": "orthogonal.details / integrate / list",
+          "price": "$0.00",
+          "note": "discovery, pricing and code-snippet reads — free"
+        },
+        {
+          "op": "orthogonal.balance",
+          "price": "$0.00",
+          "note": "your per-user remaining budget — free"
+        }
+      ],
+      "worked_total": "Discovery/pricing/balance are free; each /v1/run debits its response priceCents from your $5.00 budget (the demo's two runs total ≈$0.012). At $0 the run call returns 402 while free reads keep working.",
+      "check_balance": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'"
+    },
+    "gotchas": [
+      "Only orthogonal.run costs money — search, details, integrate, list and balance are all free.",
+      "Prices are null in search/list; orthogonal.details is the authoritative price source — call it first.",
+      "104 endpoints are 'dynamic' (priced only from the run response) — a single run can spend the last of your budget.",
+      "402 Payment Required means your $5.00 is spent; free discovery calls keep working.",
+      "Per-IP identity cap (5): you can't farm fresh $5 budgets by minting new pilot identities.",
+      "run takes {api, path, body?, query?} — body is the provider request body, query its query-string params."
+    ],
+    "next": [
+      "io.pilot.orthogonal orthogonal.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.orthogonal",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "code": 402,
+        "why": "your per-user $5 Pilot budget is spent. It is a one-time grant — there is NO self-serve top-up command — so orthogonal.run stays blocked while the free discovery calls keep working.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "free — reads your remaining budget straight from the broker ledger and confirms it is 0",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free — price the endpoint you wanted, so you know the exact cost you now need covered",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 429,
+        "why": "a rate/identity limit, NOT an empty budget — per-caller quota or the per-IP identity cap (too many Pilot identities funded from this network). Your credit is untouched; a top-up would not help.",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "back off, then re-read the ledger — it proves the budget is intact and the block is a rate limit",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "ok",
+        "why": "orthogonal is a router: describe the task in English, price it, then execute exactly one paid call",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.search '{\"prompt\":\"find the work email for a person given their name and company\"}'",
+            "why": "free natural-language router over 851 endpoints — start here instead of guessing an api/path",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.search",
+        "on": "ok",
+        "why": "search ranks endpoints but never prices them (price is null there) — price before you spend",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free, and the authoritative price + request schema for one endpoint (swap in an api/path from your search results)",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.details",
+        "on": "ok",
+        "why": "you know the schema and the price — this is the moment to execute",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"serper\",\"path\":\"/search\",\"body\":{\"q\":\"latest AI safety papers\"}}'",
+            "why": "the only call that costs money: debits the endpoint's real price and returns priceCents actually charged",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.balance '{}'",
+            "why": "free — check the budget covers that price first, especially for a 'dynamic' endpoint",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "orthogonal.run",
+        "on": "err",
+        "match": "missing required param",
+        "why": "run takes {api, path, body?, query?} — api and path must come from search/details, not from memory",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.details '{\"api\":\"serper\",\"path\":\"/search\"}'",
+            "why": "free — returns the exact required params for that endpoint, so the next run is priced and shaped right",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.orthogonal orthogonal.run '{\"api\":\"serper\",\"path\":\"/search\",\"body\":{\"q\":\"latest AI safety papers\"}}'",
+            "why": "a complete, correctly shaped run — copy this shape with your own api/path/body",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
 }

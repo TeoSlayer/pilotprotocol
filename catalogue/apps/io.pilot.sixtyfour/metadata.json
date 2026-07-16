@@ -106,5 +106,156 @@
     }
   ],
   "published_at": "2026-06-21",
-  "updated_at": "2026-06-21"
+  "updated_at": "2026-06-21",
+  "product_demo": {
+    "skill": "io.pilot.sixtyfour",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to find or verify a person's email/phone, enrich a person or company into structured JSON, or answer free-form qualification questions about them with sources.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Find a verified work email from partial details",
+      "command": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.find_email '{\"name\":\"Ada Lovelace\",\"company\":\"acme.com\"}'",
+      "expect": "{\"email\":\"ada@acme.com\",\"confidence\":0.9,\"sources\":[...]}"
+    },
+    "examples": [
+      {
+        "title": "Full person enrichment",
+        "goal": "Source-backed profile from a seed email",
+        "command": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.people_intelligence '{\"email\":\"ada@acme.com\"}'",
+        "expect": "{\"name\":\"Ada Lovelace\",\"title\":\"CTO\",\"linkedin\":\"...\",\"sources\":[...]}"
+      },
+      {
+        "title": "Company profile",
+        "command": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.company_intelligence '{\"domain\":\"acme.com\"}'",
+        "expect": "{\"name\":\"Acme\",\"industry\":\"...\",\"headcount\":120,\"sources\":[...]}"
+      },
+      {
+        "title": "Reverse lookup from an email",
+        "command": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.reverse_email '{\"email\":\"ada@acme.com\"}'",
+        "expect": "{\"person\":{...},\"company\":{...}}"
+      },
+      {
+        "title": "Agentic QA on an entity",
+        "goal": "Answer free-form qualification questions with sources",
+        "command": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.qa '{\"company\":\"acme.com\",\"question\":\"Do they sell to enterprises?\"}'",
+        "expect": "{\"answer\":\"...\",\"sources\":[...]}"
+      }
+    ],
+    "cost": {
+      "unit": "requests (50 free per Pilot user)",
+      "free_budget": "50 requests per Pilot user",
+      "hard_cap_usd": 0,
+      "operations": [
+        {
+          "op": "sixtyfour.find_email / find_phone",
+          "price": "1 request",
+          "note": "each contact-discovery call spends 1 of your 50 requests"
+        },
+        {
+          "op": "sixtyfour.people_intelligence / company_intelligence",
+          "price": "1 request",
+          "note": "each enrichment call spends 1 request"
+        },
+        {
+          "op": "sixtyfour.reverse_email / reverse_phone / enrich_linkedin",
+          "price": "1 request",
+          "note": "each lookup spends 1 request"
+        },
+        {
+          "op": "sixtyfour.qa / research_agent / filter_search / deep_search",
+          "price": "1 request",
+          "note": "each agentic call spends 1 request"
+        }
+      ],
+      "worked_total": "Metered in requests, not dollars: this demo spends 5 of your 50 free requests. At 0 remaining, calls return 402."
+    },
+    "gotchas": [
+      "Quota is 50 REQUESTS per Pilot user, not a dollar budget — every enrichment/discovery call spends 1.",
+      "402 Payment Required means your 50 free requests are used up.",
+      "Every returned field is source-backed — inspect the sources[] before trusting a value.",
+      "deep_search is async: it returns a task_id and results are retrieved separately.",
+      "Provide as many seed details as you have (name + company, email, domain) for higher-confidence hits."
+    ],
+    "next": [
+      "io.pilot.sixtyfour sixtyfour.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.sixtyfour",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "match": "required|missing|-> 400|-> 422",
+        "why": "sixtyfour methods take NESTED objects, not flat fields — find_email/find_phone need {lead:{…}}, people_intelligence needs {lead_info,struct}",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.find_email '{\"lead\":{\"name\":\"Jane Doe\",\"company\":\"Acme\"}}'",
+            "why": "cheapest entry — resolve a verified email from partial details; note lead is an object",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 402,
+        "why": "the per-user grant is metered and now spent — there is no self-serve top-up; only discovery stays free",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.help '{}'",
+            "why": "free — re-read which methods are cheapest (find_email/enrich_linkedin are med, the rest slow)",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "sixtyfour.find_email",
+        "on": "ok",
+        "why": "you resolved a contact — enrich the full person or qualify them against criteria",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.people_intelligence '{\"lead_info\":{\"name\":\"Jane Doe\",\"company\":\"Acme\"},\"struct\":{\"title\":\"current job title\",\"seniority\":\"seniority level\"}}'",
+            "why": "full source-backed enrichment — struct declares the fields you want back",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.qa '{\"data\":{\"name\":\"Jane Doe\",\"company\":\"Acme\"},\"qualification_criteria\":[{\"criteria_name\":\"decision_maker\",\"description\":\"Is this person a decision maker?\"}]}'",
+            "why": "qualify the contact against your criteria, with sources",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "sixtyfour.people_intelligence",
+        "on": "ok",
+        "why": "full profile in hand — get a phone number or qualify them against your criteria",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.find_phone '{\"lead\":{\"name\":\"Jane Doe\",\"company\":\"Acme\"}}'",
+            "why": "add a phone number to the enriched person",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.qa '{\"data\":{\"name\":\"Jane Doe\",\"company\":\"Acme\"},\"qualification_criteria\":[{\"criteria_name\":\"icp_fit\",\"description\":\"Does this person fit our ICP?\"}]}'",
+            "why": "score the enriched person against qualification criteria, with sources",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "sixtyfour.reverse_email",
+        "on": "ok",
+        "why": "you identified who is behind an email — enrich the full person from that identity",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.sixtyfour sixtyfour.people_intelligence '{\"lead_info\":{\"email\":\"jane@acme.com\"},\"struct\":{\"title\":\"current job title\",\"company\":\"employer\"}}'",
+            "why": "full enrichment seeded from the resolved email",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
+  }
 }
