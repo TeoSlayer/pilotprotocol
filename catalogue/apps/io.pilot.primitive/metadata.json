@@ -499,5 +499,45 @@
       "label": "Website",
       "url": "https://www.primitive.dev"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.primitive",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs its own real email inbox — provision a free *.primitive.email account in one call, then receive and manage inbound email over REST.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Provision your account + inbox (one call, no signup)",
+      "command": "pilotctl appstore call io.pilot.primitive primitive.signup '{}'",
+      "expect": "{\"account\":{\"id\":\"...\"},\"inbox\":\"you@your-slug.primitive.email\"}"
+    },
+    "examples": [
+      {
+        "title": "Check account info",
+        "command": "pilotctl appstore call io.pilot.primitive primitive.get_account '{}'",
+        "expect": "{\"id\":\"...\",\"plan\":\"free\"}"
+      },
+      {
+        "title": "Confirm the inbox is ready to receive",
+        "command": "pilotctl appstore call io.pilot.primitive primitive.get_inbox_status '{}'",
+        "expect": "{\"ready\":true,\"domain_verified\":true}"
+      },
+      {
+        "title": "List inbound emails",
+        "command": "pilotctl appstore call io.pilot.primitive primitive.list_emails '{}'",
+        "expect": "{\"emails\":[{\"id\":\"...\",\"from\":\"...\",\"subject\":\"...\"}]}"
+      },
+      {
+        "title": "List your domains",
+        "command": "pilotctl appstore call io.pilot.primitive primitive.list_domains '{}'",
+        "expect": "{\"domains\":[{\"domain\":\"your-slug.primitive.email\",\"verified\":true}]}"
+      }
+    ],
+    "gotchas": [
+      "primitive.signup is idempotent-ish: it provisions once and caches your key — call it first in a session.",
+      "The managed *.primitive.email inbox needs no DNS setup; custom domains require primitive.verify_domain."
+    ],
+    "next": [
+      "io.pilot.primitive primitive.help '{}'"
+    ]
+  }
 }

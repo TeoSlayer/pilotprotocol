@@ -3,7 +3,7 @@
   "id": "io.pilot.wallet",
   "display_name": "Wallet",
   "tagline": "On-overlay USDC payments across Base, Ethereum, and Polygon",
-  "description_md": "The Pilot reference wallet brings x402 + EIP-3009 USDC payments to the overlay, with spend caps the supervisor enforces. One secp256k1 address works across all three USDC mainnets (Base, Ethereum, Polygon); per-chain RPC is configurable via PILOT_EVM_RPC_<chainID>.\n\nInstalling this app lets other apps and agents settle payments without leaving the network. Spend caps declared in the manifest are reviewed at install time and enforced on every signing operation — see `pilotctl appstore caps io.pilot.wallet`.",
+  "description_md": "The Pilot reference wallet brings x402 + EIP-3009 USDC payments to the overlay, with spend caps the supervisor enforces. One secp256k1 address works across all three USDC mainnets (Base, Ethereum, Polygon); per-chain RPC is configurable via PILOT_EVM_RPC_\u003cchainID\u003e.\n\nInstalling this app lets other apps and agents settle payments without leaving the network. Spend caps declared in the manifest are reviewed at install time and enforced on every signing operation — see `pilotctl appstore caps io.pilot.wallet`.",
   "vendor": {
     "name": "Pilot Protocol",
     "url": "https://pilotprotocol.network",
@@ -12,16 +12,97 @@
   "homepage": "https://pilotprotocol.network",
   "source_url": "https://github.com/pilot-protocol/wallet",
   "license": "AGPL-3.0-or-later",
-  "categories": ["payments", "crypto", "finance"],
-  "keywords": ["usdc", "x402", "eip-3009", "evm", "base", "ethereum", "polygon", "payments"],
+  "categories": [
+    "payments",
+    "crypto",
+    "finance"
+  ],
+  "keywords": [
+    "usdc",
+    "x402",
+    "eip-3009",
+    "evm",
+    "base",
+    "ethereum",
+    "polygon",
+    "payments"
+  ],
   "size": {
     "bundle_bytes": 9110758,
     "installed_bytes": 0
   },
   "compat": {
     "min_pilot_version": "1.0.0",
-    "runtimes": ["go"]
+    "runtimes": [
+      "go"
+    ]
   },
+  "methods": [
+    {
+      "name": "wallet.balance",
+      "summary": "USDC balance for the default asset/chain."
+    },
+    {
+      "name": "wallet.balances",
+      "summary": "USDC balances across all configured chains."
+    },
+    {
+      "name": "wallet.address",
+      "summary": "The wallet's receive address (secp256k1)."
+    },
+    {
+      "name": "wallet.request",
+      "summary": "Create an x402 payment request another party can pay."
+    },
+    {
+      "name": "wallet.pay",
+      "summary": "Pay an x402 request or send USDC to a recipient."
+    },
+    {
+      "name": "wallet.verify",
+      "summary": "Verify a received payment / x402 authorization."
+    },
+    {
+      "name": "wallet.settle",
+      "summary": "Settle an authorized payment on-chain (EIP-3009)."
+    },
+    {
+      "name": "wallet.topup",
+      "summary": "Fund / top up the wallet."
+    },
+    {
+      "name": "wallet.history",
+      "summary": "Recent payment history (requests, pays, settlements)."
+    },
+    {
+      "name": "wallet.spend_caps",
+      "summary": "The spend caps declared in the manifest and enforced by the supervisor on every signing op."
+    },
+    {
+      "name": "wallet.evm.address",
+      "summary": "EVM receive address for a given chain."
+    },
+    {
+      "name": "wallet.evm.balance",
+      "summary": "USDC balance on a specific EVM chain."
+    },
+    {
+      "name": "wallet.evm.satisfy",
+      "summary": "Satisfy an x402 payment on an EVM chain (sign EIP-3009)."
+    },
+    {
+      "name": "wallet.evm.verify",
+      "summary": "Verify an EVM payment authorization."
+    },
+    {
+      "name": "wallet.evm.chains",
+      "summary": "Configured EVM chains with per-chain USDC balances (Base/Ethereum/Polygon)."
+    },
+    {
+      "name": "wallet.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
   "changelog": [
     {
       "version": "0.3.3",
@@ -37,7 +118,7 @@
       "notes": [
         "Multichain EVM: same secp256k1 address across Base, Ethereum, Polygon",
         "New wallet.evm.chains method; all evm.* methods accept an optional chain_id",
-        "Per-chain RPC via PILOT_EVM_RPC_<chainID>"
+        "Per-chain RPC via PILOT_EVM_RPC_\u003cchainID\u003e"
       ]
     },
     {
@@ -57,10 +138,56 @@
     }
   ],
   "links": [
-    { "label": "Source", "url": "https://github.com/pilot-protocol/wallet" },
-    { "label": "Website", "url": "https://pilotprotocol.network" }
+    {
+      "label": "Source",
+      "url": "https://github.com/pilot-protocol/wallet"
+    },
+    {
+      "label": "Website",
+      "url": "https://pilotprotocol.network"
+    }
   ],
   "reviews": null,
+  "product_demo": {
+    "skill": "io.pilot.wallet",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs to hold or move USDC on-overlay — check balances, get its address, pay another agent, or read its spend caps — across Base, Ethereum, and Polygon.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Check your USDC balance",
+      "command": "pilotctl appstore call io.pilot.wallet wallet.balance '{}'",
+      "expect": "{\"asset\":\"USDC\",\"available\":\"12.50\"}"
+    },
+    "examples": [
+      {
+        "title": "Get your receive address",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.address '{}'",
+        "expect": "{\"address\":\"0x...\"}"
+      },
+      {
+        "title": "Per-chain USDC balances (Base/Ethereum/Polygon)",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.evm.chains '{}'",
+        "expect": "{\"chains\":[{\"chain_id\":8453,\"balance\":\"10.00\"}]}"
+      },
+      {
+        "title": "Review the spend caps the supervisor enforces",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.spend_caps '{}'",
+        "expect": "{\"caps\":[{\"window\":\"daily\",\"limit\":\"50.00\",\"used\":\"1.20\"}]}"
+      },
+      {
+        "title": "Recent payment history",
+        "command": "pilotctl appstore call io.pilot.wallet wallet.history '{}'",
+        "expect": "{\"entries\":[{\"kind\":\"pay\",\"amount\":\"0.50\",\"to\":\"...\"}]}"
+      }
+    ],
+    "gotchas": [
+      "Spend caps are declared in the manifest and enforced on every signing op — a pay over the cap is rejected.",
+      "One secp256k1 address works across all three USDC mainnets; use the wallet.evm.* methods for per-chain detail."
+    ],
+    "next": [
+      "io.pilot.wallet wallet.help '{}'"
+    ]
+  },
   "published_at": "2026-06-08T08:00:26Z",
   "updated_at": "2026-06-08T09:16:19Z"
 }

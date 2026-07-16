@@ -49,5 +49,46 @@
   ],
   "reviews": null,
   "published_at": "2026-06-09T23:01:53Z",
-  "updated_at": "2026-06-09T23:30:00Z"
+  "updated_at": "2026-06-09T23:30:00Z",
+  "product_demo": {
+    "skill": "io.pilot.cosift",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to search, fetch, or get a grounded/cited answer over Cosift's crawled public-web corpus — instead of scraping pages yourself.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Search the corpus",
+      "command": "pilotctl appstore call io.pilot.cosift cosift.search '{\"query\":\"retrieval augmented generation\"}'",
+      "expect": "{\"results\":[{\"id\":\"...\",\"title\":\"...\",\"score\":0.87}]}"
+    },
+    "examples": [
+      {
+        "title": "Get a grounded answer with citations",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.answer '{\"query\":\"what is a vector database?\"}'",
+        "expect": "{\"answer\":\"...\",\"citations\":[{\"id\":\"...\",\"url\":\"...\"}]}"
+      },
+      {
+        "title": "Fetch a document's full contents",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.contents '{\"id\":\"\u003cresult-id-from-search\u003e\"}'",
+        "expect": "{\"id\":\"...\",\"text\":\"...\"}"
+      },
+      {
+        "title": "Multi-step research report",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.research '{\"query\":\"compare RAG vs fine-tuning for support bots\"}'",
+        "expect": "{\"report\":\"...\",\"citations\":[...]}",
+        "note": "Slow — a multi-step pass over the corpus."
+      },
+      {
+        "title": "Corpus statistics",
+        "command": "pilotctl appstore call io.pilot.cosift cosift.stats '{}'",
+        "expect": "{\"documents\":123456,\"last_crawl\":\"...\"}"
+      }
+    ],
+    "gotchas": [
+      "cosift.research is multi-step and slow — prefer cosift.answer for a single-shot cited answer.",
+      "Answers and reports are grounded in the crawled corpus, not the live web — use cosift.stats to see coverage."
+    ],
+    "next": [
+      "io.pilot.cosift cosift.help '{}'"
+    ]
+  }
 }
