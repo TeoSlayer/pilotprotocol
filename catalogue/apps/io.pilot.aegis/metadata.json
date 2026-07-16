@@ -28,8 +28,8 @@
     "offline"
   ],
   "size": {
-    "bundle_bytes": 5351198,
-    "installed_bytes": 9621928
+    "bundle_bytes": 5354471,
+    "installed_bytes": 9622093
   },
   "compat": {
     "min_pilot_version": "1.0.0",
