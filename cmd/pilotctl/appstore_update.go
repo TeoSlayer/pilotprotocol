@@ -78,7 +78,9 @@ func scanInstalledApps() ([]installedApp, error) {
 		if err != nil {
 			continue
 		}
-		bsha, _ := os.ReadFile(filepath.Join(root, e.Name(), bundleSHAMarker))
+		// Same confinement as the manifest read just above: root is the install
+		// root and e.Name() a direntry within it, joined to a fixed marker name.
+		bsha, _ := os.ReadFile(filepath.Join(root, e.Name(), bundleSHAMarker)) // #nosec G304 G703 -- install-root + direntry + constant filename
 		apps = append(apps, installedApp{
 			ID: m.ID, AppVersion: m.AppVersion, BundleSHA: strings.TrimSpace(string(bsha)),
 		})
