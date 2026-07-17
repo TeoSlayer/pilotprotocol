@@ -34,35 +34,35 @@ func TestAutoUpdateEnabledGate(t *testing.T) {
 	}
 }
 
-// TestAppAutoUpgradeOptOut pins the APP_UPDATE_OPT_OUT gate: app auto-upgrade is
+// TestAppAutoUpgradeOptOut pins the PILOT_APP_UPDATE_OPT_OUT gate: app auto-upgrade is
 // ON by default, off when the operator opts out, and back on when they opt in
 // again. PILOT_UPDATER_NO_APP_UPGRADE is honored as a back-compat alias.
 func TestAppAutoUpgradeOptOut(t *testing.T) {
 	// Default: both unset → enabled.
-	t.Setenv("APP_UPDATE_OPT_OUT", "")
+	t.Setenv("PILOT_APP_UPDATE_OPT_OUT", "")
 	t.Setenv("PILOT_UPDATER_NO_APP_UPGRADE", "")
 	if !appAutoUpgradeEnabled() {
 		t.Fatal("default (both env vars unset) must enable app auto-upgrade")
 	}
 
-	// Opt out via APP_UPDATE_OPT_OUT (each truthy spelling).
+	// Opt out via PILOT_APP_UPDATE_OPT_OUT (each truthy spelling).
 	for _, v := range []string{"true", "1", "yes", "on", "TRUE"} {
-		t.Setenv("APP_UPDATE_OPT_OUT", v)
+		t.Setenv("PILOT_APP_UPDATE_OPT_OUT", v)
 		if appAutoUpgradeEnabled() {
-			t.Errorf("APP_UPDATE_OPT_OUT=%q must disable app auto-upgrade", v)
+			t.Errorf("PILOT_APP_UPDATE_OPT_OUT=%q must disable app auto-upgrade", v)
 		}
 	}
 
 	// Explicit opt-in values keep it enabled — this is what "switch back on".
 	for _, v := range []string{"false", "0", "", "no"} {
-		t.Setenv("APP_UPDATE_OPT_OUT", v)
+		t.Setenv("PILOT_APP_UPDATE_OPT_OUT", v)
 		if !appAutoUpgradeEnabled() {
-			t.Errorf("APP_UPDATE_OPT_OUT=%q must keep app auto-upgrade enabled", v)
+			t.Errorf("PILOT_APP_UPDATE_OPT_OUT=%q must keep app auto-upgrade enabled", v)
 		}
 	}
 
 	// Back-compat alias still disables.
-	t.Setenv("APP_UPDATE_OPT_OUT", "false")
+	t.Setenv("PILOT_APP_UPDATE_OPT_OUT", "false")
 	t.Setenv("PILOT_UPDATER_NO_APP_UPGRADE", "1")
 	if appAutoUpgradeEnabled() {
 		t.Error("legacy PILOT_UPDATER_NO_APP_UPGRADE=1 must still disable app auto-upgrade")

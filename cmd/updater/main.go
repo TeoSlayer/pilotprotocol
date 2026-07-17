@@ -48,9 +48,9 @@ func envBool(name string) bool {
 // appAutoUpgradeEnabled reports whether the updater should run the app
 // auto-upgrade loop (the periodic `pilotctl appstore upgrade --all`).
 //
-// This is the app-update opt-out gate. By default (APP_UPDATE_OPT_OUT unset or
+// This is the app-update opt-out gate. By default (PILOT_APP_UPDATE_OPT_OUT unset or
 // "false") the updater checks for and installs app updates for all installed
-// apps. Set APP_UPDATE_OPT_OUT=true to stop it — installed apps then stay at
+// apps. Set PILOT_APP_UPDATE_OPT_OUT=true to stop it — installed apps then stay at
 // the version you installed until you opt back in (unset the variable or set it
 // to false) and restart the updater. Binary updates to the pilot daemon/CLI are
 // never affected by this gate.
@@ -58,7 +58,7 @@ func envBool(name string) bool {
 // PILOT_UPDATER_NO_APP_UPGRADE is honored as a back-compat alias for the same
 // opt-out. Either variable being truthy disables the loop.
 func appAutoUpgradeEnabled() bool {
-	return !envBool("APP_UPDATE_OPT_OUT") && !envBool("PILOT_UPDATER_NO_APP_UPGRADE")
+	return !envBool("PILOT_APP_UPDATE_OPT_OUT") && !envBool("PILOT_UPDATER_NO_APP_UPGRADE")
 }
 
 func main() {
@@ -116,13 +116,13 @@ func main() {
 	// fleet without anyone running upgrade by hand. Each upgrade re-runs the full
 	// catalogue-signature + manifest-signature + trust-anchor gate that install
 	// does, so this adds automation, not trust. Opt out with
-	// APP_UPDATE_OPT_OUT=true for hosts that want binary-only updates; see
+	// PILOT_APP_UPDATE_OPT_OUT=true for hosts that want binary-only updates; see
 	// appAutoUpgradeEnabled. The pilot daemon/CLI binaries keep updating.
 	if appAutoUpgradeEnabled() {
 		go appUpgradeLoop(*installDir, *statePath, *interval)
 		slog.Info("app auto-upgrade loop started", "interval", interval.String())
 	} else {
-		slog.Info("app auto-upgrade opted out (APP_UPDATE_OPT_OUT); apps stay at their installed versions, pilot binaries still update")
+		slog.Info("app auto-upgrade opted out (PILOT_APP_UPDATE_OPT_OUT); apps stay at their installed versions, pilot binaries still update")
 	}
 	if *pin != "" {
 		slog.Info("version pinned", "tag", *pin)
