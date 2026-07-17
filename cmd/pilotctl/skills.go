@@ -62,13 +62,28 @@ func runTick() (*skillinject.Report, error) {
 	return skillinject.ForceTick(ctx, skillinject.Config{})
 }
 
+// planTick performs a read-only dry run: same manifest fetch + classification
+// as a real tick, but writes nothing to disk. Each Outcome carries the current
+// on-disk State and the Action the next real tick WOULD take. Use this for
+// display surfaces (status, paths, info summary) so that merely *looking* at
+// skill state never mutates the filesystem — and never reports a file as
+// "absent — next: create" in the same breath that a mutating tick just created
+// it (the pre-write-state skew that ForceTick-backed status suffered from).
+func planTick() (*skillinject.Report, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return skillinject.Plan(ctx, skillinject.Config{})
+}
+
 // cmdSkillsStatus runs one tick (fetching the manifest + entrypoint over
 // HTTPS) and prints a per-tool summary line (statusDot + what, if anything,
 // the next tick would change). Per-file detail lines are behind --verbose.
 func cmdSkillsStatus(args []string) {
 	flags, _ := parseFlags(args)
 	verbose := flagBool(flags, "verbose")
-	report, err := runTick()
+	// Read-only: status must not write. Plan reports the true on-disk state
+	// plus the action the next daemon tick would take.
+	report, err := planTick()
 	if err != nil {
 		fatalCode("internal", "skills tick: %v", err)
 	}
@@ -111,9 +126,10 @@ func cmdSkillsStatus(args []string) {
 		fmt.Println("Supported (auto-detected by directory presence):")
 		fmt.Println("  - Claude Code (~/.claude)")
 		fmt.Println("  - OpenClaw    (~/.openclaw)")
-		fmt.Println("  - Cursor      (~/.cursor)")
+		fmt.Println("  - PicoClaw    (~/.picoclaw)")
 		fmt.Println("  - OpenHands   (~/.openhands)")
 		fmt.Println("  - Hermes      (~/.hermes)")
+		fmt.Println("  - Goose       (~/.config/goose)")
 		return
 	}
 
@@ -182,7 +198,8 @@ func cmdSkillsStatus(args []string) {
 // cmdSkillsPaths prints just the install paths — one per line, no decoration —
 // suitable for shell pipelines (`pilotctl skills paths | xargs ls -la`).
 func cmdSkillsPaths(_ []string) {
-	report, err := runTick()
+	// Read-only: printing paths must not write to disk.
+	report, err := planTick()
 	if err != nil {
 		fatalCode("internal", "skills tick: %v", err)
 	}
@@ -450,7 +467,9 @@ func cmdSkillsSetMode(args []string) {
 // on the host. Same data source as `pilotctl skills`, collapsed to one
 // entry per tool.
 func skillInstallTools() []string {
-	report, err := runTick()
+	// Read-only: this feeds display surfaces (e.g. `pilotctl info`); it must
+	// not write to disk as a side effect of being looked at.
+	report, err := planTick()
 	if err != nil || report == nil || len(report.Outcomes) == 0 {
 		return nil
 	}
@@ -471,7 +490,8 @@ func skillInstallTools() []string {
 // printSkillInstallSummary surfaces the agent skill install paths.
 // Quiet (no header) when no agent tools are detected on the host.
 func printSkillInstallSummary() {
-	report, err := runTick()
+	// Read-only: summary display for `pilotctl info` — no writes.
+	report, err := planTick()
 	if err != nil || report == nil || len(report.Outcomes) == 0 {
 		return
 	}

@@ -9,7 +9,10 @@ Detailed per-release notes are on the
 
 ## [Unreleased]
 
-Reliable P2P data transfer across NAT. Tag intentionally held for review.
+## [1.12.8] - 2026-07-16
+
+Reliable P2P data transfer across NAT, plus cold-start onboarding fixes: agents
+now reach the network on their first install instead of stalling before it.
 
 ### Added
 - **Inbound-path watchdog — the long-uptime NAT wedge now auto-recovers.**
@@ -40,6 +43,16 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   full resolve + NAT hole-punch flow and prefers the direct path.
 - `send-file` reports `transport`, `sha256`, and `throughput_mbps`; adds
   `--timeout`.
+- **Goose joins skill injection.** `pilotctl skills` now lists the real
+  injection targets — Claude Code, OpenClaw, PicoClaw, OpenHands, Hermes, and
+  Goose — instead of naming Cursor, which was never a target. (The daemon's
+  runtime inject-manifest adds `~/.config/goose` with its heartbeat in
+  `.goosehints`.)
+- **Installer GET STARTED walkthrough.** The post-install output now walks a new
+  operator through the send-`--wait` / read-newest-inbox idiom, pilot-director
+  (live data), list-agents (known specialists), the app store (local
+  capabilities), and peers/trust — with copy-paste examples — instead of a
+  four-line hint.
 
 ### Changed
 - **Message of the day now rides the pilot-changelog pipeline.** The daemon's
@@ -52,6 +65,13 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   banner, `important_update` field, and `motd` in `info` work exactly as
   before; only the source feed and its shape changed. Override with
   `--motd-feed-url` / `$PILOT_MOTD_URL` as before. (motd)
+- **`pilotctl skills` and `pilotctl skills paths` are now read-only.** They ran a
+  mutating reconcile and then reported the *pre-write* state, so the first
+  `pilotctl skills` on a fresh host both created the skill files and labelled them
+  "absent — next: create" — a false failure an agent reads as a broken install.
+  They now use the injector's read-only dry run: nothing is written just by
+  looking, and the reported state reflects what is actually on disk. The mutating
+  `skills check` / `skills enable` are unchanged.
 
 ### Fixed
 - **`pilotctl daemon start` no longer reports a false failure on slow boots.**
@@ -70,6 +90,19 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
 - **Dual-NAT key-exchange convergence.** Key exchange is now sent over both
   the direct and relay paths, so two NAT'd peers reconverge in ~1 RTT
   instead of waiting 28 s–3 min for blackhole detection.
+- **The installer now reaches the skill-injection step on the hosts agents
+  actually run on.** Where `systemctl` exists but systemd is not PID 1
+  (containers, WSL, CI), the systemd setup ran `systemctl daemon-reload`, which
+  returns non-zero — and under `set -e` aborted the install ~200 lines before the
+  `pilotctl skills check` first pass, so injection fired on 0 of the tested cold
+  starts. The systemd block is now gated on a booted system
+  (`[ -d /run/systemd/system ]`), its calls can no longer abort the script, and a
+  non-systemd host is told to run `pilotctl daemon start`.
+- **Headless installs no longer die at the email prompt.** A non-interactive
+  install (piped, no controlling terminal) blocked on `read … < /dev/tty` and
+  exited `rc=2`; email is now prompted only when a TTY is present, otherwise the
+  daemon auto-synthesizes its `<fingerprint>@nodes.pilotprotocol.network`
+  identity. `PILOT_EMAIL` is documented for headless installs.
 
 ## [1.12.0] - 2026-06-21
 

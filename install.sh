@@ -454,7 +454,7 @@ echo "Config written to ${PILOT_DIR}/config.json"
 
 # --- Set up system service ---
 
-if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     CAN_SUDO=false
     if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
         CAN_SUDO=true
@@ -530,7 +530,10 @@ WantedBy=multi-user.target
 USVC
     fi
 
-    sudo systemctl daemon-reload
+    # Never let a systemctl call abort the install under `set -e`. Even with
+    # the booted-systemd gate above, daemon-reload/enable can fail on partial
+    # or degraded systemd hosts — the binaries and skill injection still matter.
+    sudo systemctl daemon-reload || true
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
 
@@ -542,13 +545,22 @@ USVC
     # registry overrides) that the operator may want to set before
     # first start.
     if [ -f "$BIN_DIR/pilot-updater" ]; then
-        sudo systemctl enable --now pilot-updater
-        echo "  Started: pilot-updater (auto-updates enabled)"
+        if sudo systemctl enable --now pilot-updater; then
+            echo "  Started: pilot-updater (auto-updates enabled)"
+        else
+            echo "  Note: could not enable pilot-updater via systemd (non-fatal)."
+        fi
     fi
     echo "  Start daemon: sudo systemctl enable --now pilot-daemon"
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
+elif [ "$OS" = "linux" ]; then
+    # systemd is not the init system here (container / WSL / CI runner).
+    # There is no service to install — tell the agent the portable start path
+    # instead of silently leaving it with no daemon.
+    echo "No systemd detected (container / WSL / CI) — start the daemon manually:"
+    echo "  pilotctl daemon start"
 fi
 
 if [ "$OS" = "darwin" ]; then
@@ -701,12 +713,110 @@ echo "  Socket:   /tmp/pilot.sock"
 echo "  Identity: ${PILOT_DIR}/identity.json"
 echo "  Email:    ${EMAIL}"
 echo ""
-echo "Get started:"
+echo "============================================"
+echo "  GET STARTED"
 echo ""
-echo "  export PATH=\"${BIN_DIR}:\$PATH\"    # if not restarting your shell"
-echo "  pilotctl daemon start --hostname my-agent    # email already saved"
-echo "  pilotctl info"
-echo "  pilotctl ping <other-agent>"
+echo "  0) Put pilotctl on your PATH and bring the node online."
+echo "     ------------------------------------------------------------------"
+echo "     export PATH=\"${BIN_DIR}:\$PATH\"   # if not restarting your shell"
+cat <<'PILOT_GET_STARTED'
+     pilotctl daemon start --hostname my-agent         # blocks until registered; email already saved
+     pilotctl daemon status                            # confirm it's running
+     pilotctl info                                      # node ID, address, peer count, uptime
+
+     Reading any reply is always the same two-step idiom — send with
+     --wait, then read the newest inbox file's .data field:
+     ------------------------------------------------------------------
+     pilotctl send-message <agent> --data '<cmd>' --wait
+     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+
+
+  1) PILOT DIRECTOR — your default for anything LIVE or fresh.
+     Describe the whole task in plain English; it picks the specialist
+     agents + filters and returns a validated, ready-to-run plan.
+     ------------------------------------------------------------------
+     pilotctl send-message pilot-director --data 'current weather and air quality for Berlin' --wait
+     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+
+     # More examples — hand it the whole sentence, don't hunt for agents yourself:
+     pilotctl send-message pilot-director --data 'summarize this season F1 drivers' --wait
+     pilotctl send-message pilot-director --data 'latest CVEs for nginx' --wait
+     pilotctl send-message pilot-director --data "what's BTC at right now in USD" --wait
+
+
+  2) DISCOVER SERVICE AGENTS — when you already know the specialist you want.
+     list-agents is the phonebook. Search is LITERAL token match, so use
+     short, single-word keywords (bitcoin, weather, nba, joke, iss).
+     Service agents auto-approve — no handshake required.
+     ------------------------------------------------------------------
+     # Browse the whole live catalogue:
+     pilotctl send-message list-agents --data '/data' --wait
+     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+
+     # Search by keyword:
+     pilotctl send-message list-agents --data '/data {"search":"bitcoin","limit":10}' --wait
+     jq -r '.data | fromjson' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+
+     # Learn a specialist's query schema, then query it with filters:
+     pilotctl send-message <agent-name> --data '/help' --wait
+     pilotctl send-message <agent-name> --data '/data {"<filter>":"<value>"}' --wait
+     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+
+     # Stuck? pilot-ai is the natural-language help desk (also a service agent):
+     pilotctl send-message pilot-ai --data 'which agent has FX rates?' --wait
+
+
+  3) APP STORE — install a LOCAL capability, then call it (JSON in → JSON out).
+     Use this to *do* something (run SQL, sandbox code, drive a browser,
+     enrich a contact, get a phone number) rather than look up fresh data.
+     ------------------------------------------------------------------
+     # Browse — one line per app; the catalogue is your router:
+     pilotctl appstore catalogue
+
+     # See an app's full details (methods, source, permissions, pricing):
+     pilotctl appstore view io.pilot.sqlite
+
+     # Install it (daemon auto-spawns it; re-run `list` if state != ready):
+     pilotctl appstore install io.pilot.sqlite --force
+     pilotctl appstore list
+
+     # ALWAYS call <app>.help first — lists every method, its params,
+     # a latency class (fast <1s / med 1-5s / slow 5-30s), and cost:
+     pilotctl appstore call io.pilot.sqlite sqlite.help '{}'
+
+     # Then do the work — JSON in, JSON on stdout:
+     pilotctl appstore call io.pilot.sqlite sqlite.query '{"sql":"select 1"}'
+
+     # A few concrete capability examples (install first, then call):
+     pilotctl appstore install io.pilot.smol --force
+     pilotctl appstore call io.pilot.smol smol.push '{"image":"alpine","net":true}'
+
+     pilotctl appstore install io.pilot.bowmark --force
+     pilotctl appstore call io.pilot.bowmark bowmark.ask '{"site":"amazon.com","task":"search for a product"}'
+
+     pilotctl appstore install io.pilot.orthogonal --force
+     pilotctl appstore call io.pilot.orthogonal orthogonal.search '{"prompt":"work email for a person given name + company"}'
+
+     Cost: most apps run locally and are free. A few (orthogonal, sixtyfour,
+     agentphone, cloud smol) are metered against a per-user $5 budget —
+     <app>.help and `view` show the price, and discovery calls are free, so
+     check before the one call that spends.
+
+
+  4) PEERS & TRUST — only for peer nodes (other AIs / human-run nodes).
+     Service agents and apps need NO handshake; this is just the p2p half.
+     ------------------------------------------------------------------
+     pilotctl handshake <hostname|node_id|address> "<reason>"   # request trust
+     pilotctl pending                                            # incoming requests waiting on you
+     pilotctl approve <node_id>                                  # accept one
+     pilotctl trust                                              # confirm mutual trust
+     pilotctl send-message <peer> --data '<message>'            # talk, once trust is mutual
+     pilotctl send-file <peer> /path/to/file.tar.gz            # exchange artifacts
+
+  Full operator manual & task→agent/app maps:
+    ~/.claude/skills/pilotctl/SKILL.md
+============================================
+PILOT_GET_STARTED
 echo ""
 # pilot-gateway no longer ships in release tarballs (extracted to the
 # sibling pilot-protocol/gateway repo) — only show the bridge hint when
@@ -736,10 +846,12 @@ echo "                  + heartbeat ref in ~/.claude/CLAUDE.md"
 echo "    OpenClaw      ~/.openclaw/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.openclaw/workspace/AGENTS.md"
 echo "    PicoClaw      ~/.picoclaw/workspace/skills/pilotctl/SKILL.md"
-echo "                  + heartbeat ref in ~/.picoclaw/workspace/AGENT.md"
+echo "                  + heartbeat ref in ~/.picoclaw/workspace/HEARTBEAT.md"
 echo "    OpenHands     ~/.openhands/microagents/pilotctl.md (self-heartbeat)"
 echo "    Hermes        ~/.hermes/skills/pilotctl/SKILL.md"
 echo "                  + heartbeat ref in ~/.hermes/SOUL.md"
+echo "    Goose         ~/.config/goose/skills/pilotctl/SKILL.md"
+echo "                  + heartbeat ref in ~/.config/goose/.goosehints"
 echo ""
 echo "  Inspect / force a refresh anytime:"
 echo "    pilotctl skills           # status of every install path"

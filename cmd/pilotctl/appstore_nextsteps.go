@@ -44,6 +44,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // nextStepsFileName is the per-app cache written at install, read at call.
@@ -371,7 +372,7 @@ func cacheNextSteps(appDir string, g *nextStepsGraph) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(out, nextStepsFileName), data, 0o600) // #nosec G304 -- confined by resolveUnder
+	_ = os.WriteFile(filepath.Join(out, nextStepsFileName), data, 0o600) // #nosec G304 G703 -- path re-confined to the install root by resolveUnder above
 }
 
 // fetchNextStepsForInstall pulls the graph out of the catalogue metadata for an
@@ -379,19 +380,152 @@ func cacheNextSteps(appDir string, g *nextStepsGraph) {
 // metadata_url, or an unreachable host simply gets no graph. It is called once
 // per install, never on the call path.
 func fetchNextStepsForInstall(appID string) *nextStepsGraph {
+	g, _ := fetchNextStepsAuthoritative(appID)
+	return g
+}
+
+// fetchNextStepsAuthoritative fetches the app's graph from the catalogue and
+// reports whether the answer is AUTHORITATIVE — i.e. whether the catalogue and
+// (if present) the metadata doc were actually reached. It is the distinction
+// ensureNextStepsFresh needs: a nil graph with ok=true means "this app has no
+// graph, stop asking for a while", whereas ok=false means "we couldn't reach the
+// catalogue, try again soon". Collapsing the two (as a bare *graph return does)
+// would either re-fetch every call forever or give up on a transient blip.
+func fetchNextStepsAuthoritative(appID string) (graph *nextStepsGraph, ok bool) {
 	c, err := loadCatalogue()
 	if err != nil {
-		return nil
+		return nil, false // could not reach/verify the catalogue
 	}
 	for i := range c.Apps {
 		if c.Apps[i].ID != appID {
 			continue
 		}
 		m, err := loadAppMetadata(c.Apps[i])
-		if err != nil || m == nil {
-			return nil
+		if err != nil {
+			return nil, false // entry found but the detail fetch/verify failed
 		}
-		return m.NextSteps
+		if m == nil {
+			return nil, true // no metadata doc = authoritatively no graph
+		}
+		return m.NextSteps, true
 	}
-	return nil
+	return nil, true // not in the catalogue (e.g. a sideload) = authoritatively none
+}
+
+// ── lazy self-heal ───────────────────────────────────────────────────────────
+//
+// The graph is cached at install, but the installed FLEET predates most graphs,
+// and a republished graph never touches an existing cache. Without healing, the
+// feature only reaches apps installed AFTER their graph shipped — a blocker.
+//
+// ensureNextStepsFresh closes that gap from the call path, off the render:
+//   - steady state is a single stat of a freshness marker → returns immediately,
+//     no network (the hot-path-is-local guarantee holds for all but the rare
+//     re-check);
+//   - when the TTL has elapsed it spends ONE bounded fetch, so an app installed
+//     before its graph existed renders on its very next call, and a republished
+//     graph propagates within the TTL;
+//   - a fetch that can't reach the catalogue backs off briefly rather than
+//     re-trying every call.
+const (
+	// nextStepsFreshTTL bounds how often we re-consult the catalogue per app.
+	// Graphs change rarely; a half-day is plenty fresh and keeps fetches rare.
+	nextStepsFreshTTL = 12 * time.Hour
+	// nextStepsRetryCool caps re-tries after a failed fetch so an offline host
+	// doesn't spend the fetch budget on every call.
+	nextStepsRetryCool = 2 * time.Minute
+	// nextStepsFetchBudget bounds the ONE inline fetch on the call path. Generous
+	// for a ~15 KiB metadata doc from a CDN, tight enough that a slow/hung host
+	// never noticeably delays the app call. On a miss past this budget the app
+	// simply renders no hint this once and the next call (past the retry cool)
+	// tries again.
+	nextStepsFetchBudget = 400 * time.Millisecond
+	nsCheckedMarker      = ".next-steps.checked" // mtime = last authoritative check
+	nsRetryMarker        = ".next-steps.retry"   // mtime = last failed fetch
+)
+
+// ensureNextStepsFresh is called once per `appstore call`, before the IPC call,
+// so the cache is current for whichever outcome renders. It never blocks longer
+// than nextStepsFetchBudget and never errors out of the call.
+func ensureNextStepsFresh(appID string) {
+	if nextStepsDisabled() {
+		return
+	}
+	dir, err := resolveUnder(appStoreRoot(), appID)
+	if err != nil {
+		return
+	}
+	// Recent authoritative answer (a cached graph, or a confirmed absence) → done.
+	if markerFresh(filepath.Join(dir, nsCheckedMarker), nextStepsFreshTTL) {
+		return
+	}
+	// Recently failed → back off rather than re-fetch on every call.
+	if markerFresh(filepath.Join(dir, nsRetryMarker), nextStepsRetryCool) {
+		return
+	}
+	g, ok := fetchNextStepsTimed(appID, nextStepsFetchBudget)
+	if !ok {
+		touchMarker(dir, nsRetryMarker) // couldn't reach the catalogue; short cooldown
+		return
+	}
+	if g != nil && len(g.Edges) > 0 {
+		cacheNextSteps(dir, g)
+	} else {
+		// The catalogue authoritatively has no graph for this app now — drop any
+		// stale cache so we never render a graph the catalogue stopped publishing.
+		removeUnderAppDir(dir, nextStepsFileName)
+	}
+	touchMarker(dir, nsCheckedMarker)
+	removeUnderAppDir(dir, nsRetryMarker)
+}
+
+// fetchNextStepsTimed runs the authoritative fetch under a hard deadline. On
+// timeout it reports ok=false (treated as a transient failure) and lets the
+// goroutine finish and fall off on its own — it never writes anything, so an
+// abandoned fetch can't race the cache.
+func fetchNextStepsTimed(appID string, budget time.Duration) (*nextStepsGraph, bool) {
+	type res struct {
+		g  *nextStepsGraph
+		ok bool
+	}
+	ch := make(chan res, 1)
+	go func() {
+		g, ok := fetchNextStepsAuthoritative(appID)
+		ch <- res{g, ok}
+	}()
+	select {
+	case r := <-ch:
+		return r.g, r.ok
+	case <-time.After(budget):
+		return nil, false
+	}
+}
+
+// markerFresh reports whether a marker file exists and is younger than ttl.
+func markerFresh(path string, ttl time.Duration) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return time.Since(fi.ModTime()) < ttl
+}
+
+// touchMarker writes/updates a freshness marker in the app dir (mtime = now).
+func touchMarker(dir, name string) {
+	out, err := resolveUnder(appStoreRoot(), filepath.Base(dir))
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(out, name), []byte(time.Now().UTC().Format(time.RFC3339)), 0o600) // #nosec G304 G703 -- path re-confined to the install root by resolveUnder above
+}
+
+// removeUnderAppDir deletes a file inside an installed app dir, re-confining the
+// path to the install root (the same guard the read and write paths use) so a
+// crafted app id can never delete outside the tree the app store owns.
+func removeUnderAppDir(dir, name string) {
+	out, err := resolveUnder(appStoreRoot(), filepath.Base(dir))
+	if err != nil {
+		return
+	}
+	_ = os.Remove(filepath.Join(out, name)) // #nosec G304 G703 -- path re-confined to the install root by resolveUnder above
 }

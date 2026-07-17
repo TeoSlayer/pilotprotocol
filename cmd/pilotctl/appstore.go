@@ -1281,6 +1281,15 @@ func cmdAppStoreInstall(args []string) {
 	// catalogue simply means no hints — never a failed install.
 	cacheNextSteps(finalDir, fetchNextStepsForInstall(m.ID))
 
+	// Record the catalogue bundle sha we just installed so `outdated`/`upgrade`
+	// can detect a SAME-VERSION republish — a rebuilt adapter shipped under an
+	// unchanged app_version (the aegis argv-fix shape) that a version compare
+	// alone silently misses. Catalogue installs only; a sideload has no
+	// catalogue bundle to compare against. Best-effort.
+	if source == installSourceCatalogue {
+		recordInstalledBundleSHA(finalDir, m.ID)
+	}
+
 	// Mirror to the install-root-level pilotctl-audit log too, so
 	// the install+uninstall lifecycle pair stays reconstructable
 	// after the app dir (and its per-app supervisor.log) is gone.
@@ -2194,6 +2203,13 @@ func cmdAppStoreCall(args []string) {
 			fatalHint("invalid_argument", "json-args must be valid JSON", "%v", err)
 		}
 	}
+	// Lazily self-heal the cached graph before the call so it is current for
+	// whichever outcome renders — this is what lets an app installed before its
+	// graph existed (or a republished graph) reach the fleet without a manual
+	// reinstall. Off the render path, bounded, best-effort: steady state is a
+	// single stat and returns instantly (see ensureNextStepsFresh).
+	ensureNextStepsFresh(appID)
+
 	var result json.RawMessage
 	if err := ipc.Call(conn, method, argsValue, &result); err != nil {
 		hint := fmt.Sprintf("the app %q rejected or could not handle %q", appID, method)
