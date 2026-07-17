@@ -480,6 +480,7 @@ Most daemon flags have an environment variable equivalent. Useful for containeri
 | `PILOT_REPLY_WHITELIST` | `-reply-whitelist` | Nodes exempt from reply rate limit |
 | `PILOT_REKEY_WHITELIST` | `-rekey-whitelist` | Nodes exempt from rekey rate limit |
 | `PILOT_FLAG_<NAME>` | — | Feature flag override (`true`/`false`) |
+| `APP_UPDATE_OPT_OUT` | — | Opt out of automatic **app-store** updates. Set to `true` and the `pilot-updater` stops checking for and installing app updates — installed apps stay at their current version. Unset or `false` (the default) keeps app auto-updates on. Pilot daemon/CLI binary updates are unaffected. Read by `pilot-updater` at startup, so set it in the updater's service environment and restart the updater to change it. (Legacy alias: `PILOT_UPDATER_NO_APP_UPGRADE`.) |
 
 ---
 

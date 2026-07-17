@@ -9,6 +9,25 @@ Detailed per-release notes are on the
 
 ## [Unreleased]
 
+## [1.12.9] - 2026-07-17
+
+### Added
+- **Opt out of automatic app-store updates with `APP_UPDATE_OPT_OUT`.** The
+  `pilot-updater` keeps installed apps current by periodically running
+  `pilotctl appstore upgrade --all`. Set `APP_UPDATE_OPT_OUT=true` in the
+  updater's environment and it stops checking for and installing app updates —
+  installed apps stay at the version you installed. Unset it or set it to
+  `false` (the default) to switch app auto-updates back on. Pilot daemon/CLI
+  binary updates are never affected. Honors the existing
+  `PILOT_UPDATER_NO_APP_UPGRADE` as a back-compat alias.
+
+### Fixed
+- **The `pilotctl skills disable` opt-out now survives updates and explicit
+  reconciles.** A forced reconcile — `pilotctl skills check`, `pilotctl update`,
+  or an installer re-run — bypassed the disabled flag and re-injected skills a
+  user had turned off. The opt-out is now a hard gate on every write path; only
+  the read-only `pilotctl skills` status still previews. (skillinject)
+
 ## [1.12.8] - 2026-07-16
 
 Reliable P2P data transfer across NAT, plus cold-start onboarding fixes: agents
