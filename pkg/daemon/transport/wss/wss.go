@@ -55,6 +55,16 @@ import (
 // long enough not to flood the link.
 const DefaultIdlePingInterval = 30 * time.Second
 
+// DefaultIdlePingTimeout bounds how long a single idle keepalive ping
+// may wait for its pong before the connection is treated as half-open.
+// On a silently-dead conn (stale NAT/relay mapping, half-open TCP) the
+// pong never arrives; without this bound the ping blocks forever, the
+// keepalive loop wedges, and the daemon never notices the beacon is
+// gone. Kept well under DefaultIdlePingInterval so a slow-but-live link
+// is not falsely reconnected. This is the WSS-transport analogue of the
+// L4 rx-watchdog: detect a silently-dead inbound path and recover it.
+const DefaultIdlePingTimeout = 10 * time.Second
+
 // DefaultDialTimeout caps the time we spend on a single dial attempt
 // (DNS + TCP + TLS + WS upgrade + auth challenge). Beyond this we
 // fail fast and let the reconnect loop try again.
@@ -109,6 +119,10 @@ type Config struct {
 
 	// IdlePingInterval overrides DefaultIdlePingInterval.
 	IdlePingInterval time.Duration
+
+	// IdlePingTimeout overrides DefaultIdlePingTimeout — the per-ping
+	// deadline that turns a silently-dead conn into a reconnect.
+	IdlePingTimeout time.Duration
 
 	// DialTimeout overrides DefaultDialTimeout.
 	DialTimeout time.Duration
@@ -192,6 +206,9 @@ func Dial(ctx context.Context, cfg Config) (*Transport, error) {
 	}
 	if cfg.IdlePingInterval == 0 {
 		cfg.IdlePingInterval = DefaultIdlePingInterval
+	}
+	if cfg.IdlePingTimeout == 0 {
+		cfg.IdlePingTimeout = DefaultIdlePingTimeout
 	}
 	if cfg.DialTimeout == 0 {
 		cfg.DialTimeout = DefaultDialTimeout
@@ -552,6 +569,16 @@ func (t *Transport) drainReads(conn *websocket.Conn) {
 // to keep the WSS connection alive through proxy idle timeouts. Runs until
 // Close() fires via lifetimeCtx. Skips pings while the supervisor is
 // reconnecting (conn == nil).
+//
+// Each ping is bounded by IdlePingTimeout. A pong that never arrives —
+// the signature of a silently half-open conn (stale NAT/relay mapping,
+// half-open TCP the kernel hasn't torn down) — would otherwise block
+// this loop forever while it holds writeMu, freezing every Send behind
+// it and leaving the dead beacon conn undetected. On a ping error we
+// force the conn closed: that unblocks the supervisor's drainReads Read,
+// which drives the reconnect. Without this, a half-open beacon link is
+// invisible to the transport (Send only fails once there is traffic to
+// send, and drainReads sits blocked on a Read that never returns).
 func (t *Transport) idlePing() {
 	ticker := time.NewTicker(t.cfg.IdlePingInterval)
 	defer ticker.Stop()
@@ -569,11 +596,27 @@ func (t *Transport) idlePing() {
 			if conn == nil {
 				continue
 			}
+			pingCtx, cancel := context.WithTimeout(t.lifetimeCtx, t.cfg.IdlePingTimeout)
 			t.writeMu.Lock()
-			err := conn.Ping(t.lifetimeCtx)
+			err := conn.Ping(pingCtx)
 			t.writeMu.Unlock()
+			cancel()
 			if err != nil {
-				slog.Debug("wss transport: idle ping failed", "err", err)
+				if t.closed.Load() {
+					return
+				}
+				// Half-open conn: the pong timed out. Force the conn
+				// closed so the supervisor's blocked drainReads Read
+				// returns an error and the reconnect sequence fires.
+				// Also clear t.conn so Send fails fast meanwhile.
+				slog.Warn("wss transport: idle ping timed out — forcing reconnect",
+					"err", err, "timeout", t.cfg.IdlePingTimeout)
+				t.connMu.Lock()
+				if t.conn == conn {
+					t.conn = nil
+				}
+				t.connMu.Unlock()
+				_ = conn.Close(websocket.StatusPolicyViolation, "idle ping timeout")
 			}
 		}
 	}

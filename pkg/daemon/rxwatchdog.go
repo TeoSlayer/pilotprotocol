@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -82,6 +84,21 @@ const (
 	// Non-zero so launchd KeepAlive/SuccessfulExit=false respawns; a
 	// distinctive value so `pilotctl`/operators can attribute the restart.
 	rxWedgeExitCode = 86
+
+	// rxWedgeLoopWindow bounds how far back the restart-loop circuit
+	// breaker counts prior hard exits. Exits older than this don't count.
+	rxWedgeLoopWindow = 2 * time.Hour
+
+	// rxWedgeLoopMax is how many hard exits within rxWedgeLoopWindow are
+	// tolerated before the breaker OPENS and further exits are withheld.
+	// The hard exit assumes a restart CLEARS the wedge (stale NAT/relay
+	// mapping). When it doesn't — a NAT/firewall/topology change a
+	// restart can't fix — the daemon would otherwise boot-loop every
+	// ~30-40 min forever (wedge → 3 soft attempts → exit → respawn →
+	// wedge → …), each restart dropping every live tunnel for nothing.
+	// After this many restarts the breaker keeps the daemon UP and
+	// soft-recovering instead, and surfaces the condition for an operator.
+	rxWedgeLoopMax = 3
 )
 
 // rxWatchdogExit is swapped by tests to observe the hard escalation
@@ -107,6 +124,7 @@ const (
 	rxActionSoftRecover  rxWatchdogAction = "soft-recover"
 	rxActionExitWithheld rxWatchdogAction = "exit-withheld"
 	rxActionExit         rxWatchdogAction = "exit"
+	rxActionRestartLoop  rxWatchdogAction = "restart-loop-withheld"
 )
 
 func (d *Daemon) rxWatchdogLoop() {
@@ -261,6 +279,30 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 			"silent_for", silence.Truncate(time.Second).String(),
 			"uptime", uptime.Truncate(time.Second).String())
 	default:
+		// Restart-loop circuit breaker. The hard exit is premised on a
+		// restart CLEARING the wedge; when it doesn't (a NAT/firewall/
+		// topology change no restart can fix), exiting just boot-loops
+		// the daemon and drops every live tunnel each cycle. If we have
+		// already respawned rxWedgeLoopMax times within rxWedgeLoopWindow
+		// (tracked in a sidecar file next to the identity so it survives
+		// the respawn), stop exiting: stay up, keep soft-recovering, and
+		// surface the condition for an operator.
+		exitLog := rxWedgeExitLogPath(d.config.IdentityPath)
+		if recent := recentRxWedgeExits(exitLog, now, rxWedgeLoopWindow); len(recent) >= rxWedgeLoopMax {
+			slog.Error("transport wedged but restart-loop detected — withholding exit, staying up to soft-recover",
+				"reason", wedgeReason,
+				"recent_exits", len(recent),
+				"window", rxWedgeLoopWindow.String(),
+				"silent_for", silence.Truncate(time.Second).String())
+			d.publishEvent("tunnel.rx_wedge_restart_loop", map[string]any{
+				"reason":             wedgeReason,
+				"recent_exits":       len(recent),
+				"window_seconds":     int64(rxWedgeLoopWindow.Seconds()),
+				"silent_for_seconds": int64(silence.Seconds()),
+			})
+			st.softAttempts = 0
+			return rxActionRestartLoop
+		}
 		slog.Error("transport wedged — exiting for supervisor respawn",
 			"reason", wedgeReason,
 			"silent_for", silence.Truncate(time.Second).String(),
@@ -277,6 +319,9 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 			"soft_attempts":            st.softAttempts,
 			"exit_code":                rxWedgeExitCode,
 		})
+		// Record this exit BEFORE calling exit so the respawned process
+		// sees it in the recent-exits count.
+		recordRxWedgeExit(exitLog, now, rxWedgeLoopWindow)
 		rxWatchdogExit(rxWedgeExitCode)
 		return rxActionExit
 	}
@@ -284,4 +329,67 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 	// later ticks instead of re-evaluating the exit every 30s.
 	st.softAttempts = 0
 	return rxActionExitWithheld
+}
+
+// rxWedgeExitLogPath returns the sidecar file that records recent hard-
+// exit timestamps, stored next to the identity file so the count
+// survives the respawn. An empty identityPath (no persistence) returns
+// "", which disables the restart-loop breaker — the daemon behaves
+// exactly as before (always allowed to exit).
+func rxWedgeExitLogPath(identityPath string) string {
+	if identityPath == "" {
+		return ""
+	}
+	return identityPath + ".rxwedge"
+}
+
+// recentRxWedgeExits reads hard-exit timestamps from path and returns
+// those within window of now. A missing or unreadable file yields an
+// empty slice (breaker closed — exit allowed); malformed lines are
+// skipped. Never errors: a read problem must not itself block a
+// legitimate wedge exit.
+func recentRxWedgeExits(path string, now time.Time, window time.Duration) []int64 {
+	if path == "" {
+		return nil
+	}
+	// #nosec G304 -- path is derived from the daemon's own configured
+	// IdentityPath (rxWedgeExitLogPath), not from any peer/user input.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	cutoff := now.Add(-window).UnixNano()
+	var recent []int64
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		ts, err := strconv.ParseInt(line, 10, 64)
+		if err != nil {
+			continue
+		}
+		if ts >= cutoff {
+			recent = append(recent, ts)
+		}
+	}
+	return recent
+}
+
+// recordRxWedgeExit appends now to the exit log (pruned to window) so the
+// respawned process sees an accurate recent-exit count. Best-effort: a
+// failed write just under-counts, degrading to the prior always-restart
+// behavior — never worse.
+func recordRxWedgeExit(path string, now time.Time, window time.Duration) {
+	if path == "" {
+		return
+	}
+	recent := recentRxWedgeExits(path, now, window)
+	recent = append(recent, now.UnixNano())
+	var b strings.Builder
+	for _, ts := range recent {
+		b.WriteString(strconv.FormatInt(ts, 10))
+		b.WriteByte('\n')
+	}
+	_ = os.WriteFile(path, []byte(b.String()), 0o600)
 }

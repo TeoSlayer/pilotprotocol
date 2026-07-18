@@ -1825,10 +1825,42 @@ func (d *Daemon) NodeID() uint32 {
 // them for SYN-handler enforcement. Called at startup and after IPC joins.
 func (d *Daemon) loadNetworkPolicies() {
 	nets := d.nodeNetworks()
-	policies := make(map[uint16][]uint16, len(nets))
+
+	// Snapshot the current cache so a transient GetNetworkPolicy error
+	// carries the last-known policy FORWARD instead of dropping it.
+	// Dropping an entry makes isPortAllowed fall through to allow-all
+	// (empty list == no restriction), so a restricted network would go
+	// silently unrestricted on any registry hiccup — a fail-OPEN hole.
+	// A restriction is relaxed only by an explicit successful response
+	// that no longer lists it, never by a failed lookup.
+	d.netPolicyMu.RLock()
+	prior := make(map[uint16][]uint16, len(d.netPolicies))
+	for k, v := range d.netPolicies {
+		prior[k] = v
+	}
+	d.netPolicyMu.RUnlock()
+
+	results := make([]netPolicyResult, 0, len(nets))
 	for _, netID := range nets {
-		resp, err := d.regConn.GetNetworkPolicy(netID)
+		var resp map[string]interface{}
+		var err error
+		// Bounded retry so a transient blip on the very first load (when
+		// there is no prior to fall back to) still self-heals quickly.
+		for attempt := 0; attempt < 3; attempt++ {
+			if resp, err = d.regConn.GetNetworkPolicy(netID); err == nil {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 		if err != nil {
+			_, hadPrior := prior[netID]
+			slog.Warn("network policy load failed — retaining last-known policy, not failing open",
+				"net_id", netID, "had_prior", hadPrior, "err", err)
+			d.publishEvent("network.policy_load_failed", map[string]any{
+				"net_id":    netID,
+				"had_prior": hadPrior,
+			})
+			results = append(results, netPolicyResult{netID: netID, err: err})
 			continue
 		}
 		portsRaw, _ := resp["allowed_ports"].([]interface{})
@@ -1838,13 +1870,43 @@ func (d *Daemon) loadNetworkPolicies() {
 				ports = append(ports, uint16(f))
 			}
 		}
-		if len(ports) > 0 {
-			policies[netID] = ports
-		}
+		results = append(results, netPolicyResult{netID: netID, ports: ports})
 	}
+
+	newPolicies := mergeNetworkPolicies(prior, results)
 	d.netPolicyMu.Lock()
-	d.netPolicies = policies
+	d.netPolicies = newPolicies
 	d.netPolicyMu.Unlock()
+}
+
+// netPolicyResult is one network's port-policy fetch outcome, fed to
+// mergeNetworkPolicies.
+type netPolicyResult struct {
+	netID uint16
+	ports []uint16
+	err   error
+}
+
+// mergeNetworkPolicies computes the new port-policy cache from the fetch
+// results and the prior cache. A FAILED fetch retains the prior policy
+// (fail-CLOSED — a transient registry error must not drop a restriction
+// and silently relax the network to allow-all); a SUCCESSFUL fetch is
+// stored verbatim, including an empty list, which explicitly means "no
+// restriction" and is the only thing that relaxes an existing policy.
+// Pure function so the fail-closed invariant is unit-testable without a
+// live registry.
+func mergeNetworkPolicies(prior map[uint16][]uint16, results []netPolicyResult) map[uint16][]uint16 {
+	policies := make(map[uint16][]uint16, len(results))
+	for _, r := range results {
+		if r.err != nil {
+			if p, ok := prior[r.netID]; ok {
+				policies[r.netID] = p
+			}
+			continue
+		}
+		policies[r.netID] = r.ports
+	}
+	return policies
 }
 
 // isPortAllowed checks whether dstPort is permitted by the network's AllowedPorts
