@@ -886,6 +886,74 @@ func isTunnelKeepalive(pkt *protocol.Packet) bool {
 		len(pkt.Payload) == 0
 }
 
+// ReadyPeerIDs returns a snapshot of peers that have an established
+// crypto session (pc.Ready). These are the peers the path watchdog
+// health-checks: a Ready peer exchanges keepalives both ways every
+// TunnelKeepaliveInterval, so sustained inbound silence from one is a
+// per-peer path-death signal, not idleness.
+func (tm *TunnelManager) ReadyPeerIDs() []uint32 {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	ids := make([]uint32, 0, len(tm.peers))
+	for nodeID := range tm.peers {
+		if pc := tm.envelope.Get(nodeID); pc != nil && pc.Ready {
+			ids = append(ids, nodeID)
+		}
+	}
+	return ids
+}
+
+// LastInboundDecrypt is the tunnel-level shim over
+// keyexchange.Manager.LastInboundDecrypt for the path watchdog.
+func (tm *TunnelManager) LastInboundDecrypt(peerNodeID uint32) (time.Time, bool) {
+	return tm.kx.LastInboundDecrypt(peerNodeID)
+}
+
+// pathProbePayload marks a path-watch probe. MUST be non-empty:
+// isTunnelKeepalive on every deployed version (v1.10.0+) only swallows
+// EMPTY ProtoControl/PortPing frames, so a payload-carrying probe passes
+// the peer's keepalive filter, reaches handleControlPacket, and gets a
+// pong back — from old and new peers alike. The pong (or any other
+// authenticated inbound frame) bumps lastInboundDecrypt, which is the
+// liveness signal the path watchdog reads. No new wire format.
+var pathProbePayload = []byte("pathprobe.v1")
+
+// SendPathProbe sends one pong-soliciting ping to a Ready peer over the
+// existing encrypted session. Returns an error if the peer has no
+// session or the write fails. The reply needs no dedicated handling:
+// the pong is an encrypted frame, and decrypting it refreshes the
+// peer's lastInboundDecrypt — proving the bidirectional path.
+//
+// SrcPort is PortPing so the peer's pong comes back with
+// DstPort==PortPing + FlagACK, which handleControlPacket ignores by
+// design (anti-amplification) — the application layer never sees it.
+func (tm *TunnelManager) SendPathProbe(peerNodeID uint32) error {
+	tm.mu.RLock()
+	addr := tm.peers[peerNodeID]
+	tm.mu.RUnlock()
+	if addr == nil {
+		return fmt.Errorf("path probe: no address for peer %d", peerNodeID)
+	}
+	pc := tm.envelope.Get(peerNodeID)
+	if pc == nil || !pc.Ready {
+		return fmt.Errorf("path probe: no ready session for peer %d", peerNodeID)
+	}
+	probe := &protocol.Packet{
+		Version:  protocol.Version,
+		Protocol: protocol.ProtoControl,
+		SrcPort:  protocol.PortPing,
+		DstPort:  protocol.PortPing,
+		Src:      protocol.Addr{Node: tm.loadNodeID()},
+		Payload:  pathProbePayload,
+	}
+	plaintext, err := probe.Marshal()
+	if err != nil {
+		return fmt.Errorf("path probe marshal: %w", err)
+	}
+	frame := tm.encryptFrame(pc, plaintext)
+	return tm.writeFrame(peerNodeID, addr, frame)
+}
+
 // getPeerPubKey returns the cached Ed25519 public key for a peer,
 // fetching from registry on cache miss. Thin shim over
 // keyexchange.Manager.GetPeerPubKey.

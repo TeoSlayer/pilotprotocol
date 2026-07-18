@@ -147,6 +147,16 @@ type Config struct {
 	// (watchdog on) — the wedge otherwise requires a manual restart.
 	DisableRxWatchdog bool
 
+	// DisablePathWatch turns off the per-peer path watchdog
+	// (pathwatch.go). The watchdog detects a SINGLE peer's NAT/relay
+	// mapping dying while other peers stay healthy (so the global
+	// rx-watchdog never fires), probes the peer with pong-soliciting
+	// pings that every deployed daemon version answers, and on
+	// sustained silence resets that one peer's path in place (same
+	// sequence as `pilotctl prefer-direct`) instead of requiring a
+	// full daemon restart. Default false (watchdog on).
+	DisablePathWatch bool
+
 	// Telemetry consent gate. When set to the telemetry endpoint URL,
 	// the daemon initialises a telemetry client that emits signed events
 	// (install, usage, view, review). When empty (default), the client
@@ -1227,6 +1237,12 @@ func (d *Daemon) Start() error {
 	// a dead NAT mapping" wedge and recovers — see rxwatchdog.go.
 	d.bgWG.Add(1)
 	go func() { defer d.bgWG.Done(); d.rxWatchdogLoop() }()
+
+	// 8c. Start per-peer path watchdog (L4). Detects a single peer's
+	// NAT/relay mapping dying while others stay healthy and resets that
+	// peer's path in place — see pathwatch.go.
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.pathWatchLoop() }()
 
 	// 9. Start idle connection sweeper
 	d.bgWG.Add(1)

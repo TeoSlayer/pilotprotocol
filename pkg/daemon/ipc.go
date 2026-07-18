@@ -1225,106 +1225,19 @@ func (s *IPCServer) handlePreferDirect(conn *ipcConn, reqID uint64, payload []by
 	}
 	nodeID := binary.BigEndian.Uint32(payload)
 
-	d := s.daemon
-	hadTunnel := d.tunnels.HasPeer(nodeID)
-	wasRelayActive := d.tunnels.IsRelayPeer(nodeID)
-	wasRelayPinned := d.tunnels.IsRelayPinned(nodeID)
-
-	// Unpin relay so the next successful direct receive can promote the
-	// peer out via the routing layer's ClearRelayOnDirect path. We do NOT
-	// unset the active relay flag — that would cause our proactive PILA
-	// below to be sprayed at the peer's direct (NAT'd, unreachable)
-	// endpoint and lost. Keeping relay active means the PILA reaches
-	// the peer through the beacon, restores crypto state, and the
-	// routing layer can then promote the path on its own merits.
-	//
-	// Reproduces the Mac↔GCP-VM dual-NAT case where direct never works:
-	// unsetting relay there forced the next dial onto a dead direct
-	// path and stalled send-file at the dataexchange timeout (~17 s)
-	// before the routing layer's silence detector could re-flip.
-	if wasRelayPinned {
-		d.tunnels.SetRelayPeerPinned(nodeID, false)
-	}
-
-	// Drop the cached resolve / endpoint so the next ensureTunnel hits
-	// the registry fresh. Without this, ensureTunnel would short-circuit
-	// on HasPeer=true and reuse the existing (relay-mediated) tunnel.
-	d.forgetPeerResolution(nodeID)
-
-	// Drop the tunnel + per-peer state so ensureTunnel re-runs the full
-	// resolve + punch flow on the next dial. RemovePeer is safe under
-	// concurrent traffic — see TunnelManager.RemovePeer's docstring for the
-	// per-peer metadata it cleans up.
-	//
-	// SIDE EFFECT we have to undo: RemovePeer calls routing.RemovePeer,
-	// which wipes relayPeers and relayPinned. For a peer where the only
-	// working transport is relay (the Mac↔GCP-VM dual-NAT case), this is
-	// catastrophic — the proactive PILA we push at the end of this handler
-	// would then be sprayed at the peer's direct address and lost. We
-	// captured the original relay state above; re-apply it after the wipe
-	// so writeFrame still picks the working path.
-	if hadTunnel {
-		d.tunnels.RemovePeer(nodeID)
-	}
-	if wasRelayActive {
-		d.tunnels.SetRelayPeer(nodeID, true)
-		// Note: we deliberately do NOT restore relayPinned. The point of
-		// prefer-direct is to give the next direct receive a chance to
-		// promote the path out of relay; restoring the pin would defeat
-		// that. Relay active without pin = "use relay for now, but a
-		// direct packet from this peer will demote the relay flag".
-	}
-
-	// Clear the per-peer cooldowns that survive RemovePeer.
-	//
-	// rekeyMu.lastRekeyReq lives on TunnelManager and is NOT touched by
-	// tunnels.RemovePeer. Without this, the next "encrypted packet but no
-	// key" from the peer hits the 3-second gate (rekeyRequestInterval)
-	// and silently skips the PILA reply. That blank window is exactly
-	// when send-file is about to dial — losing it means another retransmit
-	// cycle before recovery.
-	d.tunnels.ClearLastRekeyReq(nodeID)
-	// rekeyGaveUp similarly survives RemovePeer (kx.RemovePeer doesn't
-	// clear it because giving up doesn't imply the peer is gone). After
-	// an operator-initiated reset, treat the peer as fresh — let
-	// MarkPendingRekey arm a new retransmit cycle without the 5-second
-	// cooldown delay.
-	d.tunnels.ClearRekeyGaveUp(nodeID)
-
-	// Proactively push a fresh PILA. Without this, recovery waits for the
-	// peer to send us their next packet, which can take up to the peer's
-	// own keepalive cadence (currently ~30s in the worst case). Doing it
-	// from here makes prefer-direct recovery deterministic: by the time
-	// the IPC reply lands, our PILA has already left the wire.
-	//
-	// Sequence:
-	//   1. ensureTunnel re-resolves the peer's address from the registry
-	//      (RemovePeer just wiped tm.peers, so sendKeyExchangeToNode would
-	//      otherwise have no destination and silently no-op).
-	//   2. sendKeyExchangeToNode builds the signed PILA and writes it
-	//      out via tm.writeFrame, picking direct vs relay based on the
-	//      freshly-set routing state.
-	//
-	// Both steps are best-effort. If the registry is unreachable or the
-	// peer has no public endpoint registered, we still report tunnel
-	// state was reset and the caller can fall back to relay-pinned
-	// behaviour on retry.
-	pilaPushed := false
-	resolveErr := ""
-	if err := d.ensureTunnel(nodeID); err != nil {
-		resolveErr = err.Error()
-	} else {
-		d.tunnels.sendKeyExchangeToNode(nodeID)
-		pilaPushed = true
-	}
+	// The reset + re-establish sequence is shared with the per-peer path
+	// watchdog (pathwatch.go) — see resetPeerPath for the full rationale
+	// of each step (relay-state preservation, cooldown clears, proactive
+	// PILA push).
+	res := s.daemon.resetPeerPath(nodeID)
 
 	data, err := json.Marshal(map[string]interface{}{
 		"node_id":          nodeID,
-		"had_tunnel":       hadTunnel,
-		"was_relay_active": wasRelayActive,
-		"was_relay_pinned": wasRelayPinned,
-		"pila_pushed":      pilaPushed,
-		"resolve_error":    resolveErr,
+		"had_tunnel":       res.HadTunnel,
+		"was_relay_active": res.WasRelayActive,
+		"was_relay_pinned": res.WasRelayPinned,
+		"pila_pushed":      res.PilaPushed,
+		"resolve_error":    res.ResolveErr,
 	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("prefer_direct marshal: %v", err))
