@@ -563,6 +563,17 @@ func (m *Manager) LastInboundDecryptHas(peerNodeID uint32) bool {
 	return ok
 }
 
+// LastInboundDecrypt returns the timestamp of the last successful
+// decrypt from peerNodeID. ok=false means no decrypt has ever been
+// recorded this process. Used by the per-peer path watchdog to measure
+// how long a peer's inbound path has been silent.
+func (m *Manager) LastInboundDecrypt(peerNodeID uint32) (time.Time, bool) {
+	m.rkPendingMu.Lock()
+	defer m.rkPendingMu.Unlock()
+	t, ok := m.lastInboundDecrypt[peerNodeID]
+	return t, ok
+}
+
 // InboundDecryptStale returns true if we haven't successfully
 // decrypted any packet from peerNodeID within the staleness window.
 func (m *Manager) InboundDecryptStale(peerNodeID uint32) bool {
