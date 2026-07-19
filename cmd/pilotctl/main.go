@@ -2832,12 +2832,22 @@ func cmdDaemonStart(args []string) {
 
 	// Check if already running
 	if pid := readPID(); pid > 0 {
-		if processExists(pid) {
+		if pidLooksLikeDaemon(pid) {
 			fatalHint("already_exists",
 				"stop it first with: pilotctl daemon stop",
 				"daemon is already running (pid %d)", pid)
 		}
-		// Stale PID file — clean up silently
+		// Stale PID file (dead daemon, or the PID was recycled by an
+		// unrelated process) — clean up silently.
+		os.Remove(pidFilePath())
+	} else if _, err := os.Stat(pidFilePath()); err == nil {
+		// The file exists but holds no usable PID (empty, garbage, or the
+		// literal "0" a pre-fix --foreground start left behind and never
+		// replaced). That is never a live daemon — but before this branch
+		// existed, the O_EXCL claim below failed on it with "PID file
+		// locked" FOREVER, turning any crash of a --foreground daemon
+		// (systemd units) into a permanent restart loop that respawn
+		// could not clear. Remove it so the claim can proceed.
 		os.Remove(pidFilePath())
 	}
 
@@ -2875,6 +2885,14 @@ func cmdDaemonStart(args []string) {
 	// handling matches what the user expects from systemd unit files
 	// or shell wrappers.
 	if flagBool(flags, "foreground") {
+		// Record OUR pid as the daemon's: syscall.Exec replaces the
+		// process image but keeps the PID, so after the exec this IS the
+		// daemon's pid. Without this the file kept the "0" placeholder
+		// from the claim above forever — `status` showed "pid file
+		// stale", and after any crash the next start found a file with
+		// no usable PID and died on the O_EXCL claim ("PID file
+		// locked"), an unrecoverable restart loop under systemd.
+		_ = os.WriteFile(pidFilePath(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600)
 		// syscall.Exec needs argv[0] to be the binary name. Pass the
 		// full env. Inject PILOT_ADMIN_TOKEN so the daemon doesn't
 		// need the token on its argv (PILOT-290).
@@ -3045,7 +3063,10 @@ func cmdDaemonStop() {
 		discovered = true
 	}
 
-	if !processExists(pid) {
+	if !pidLooksLikeDaemon(pid) {
+		// Dead, or the PID now belongs to an UNRELATED process (reuse
+		// after reboot/rollover). Either way we must not signal it —
+		// SIGTERM/SIGKILL below would hit a bystander.
 		if !discovered {
 			os.Remove(pidFilePath()) // #nosec G104 -- best-effort removal of stale PID file; failure is non-fatal
 		}
@@ -3092,7 +3113,7 @@ func cmdDaemonStatus(args []string) {
 
 	pid := readPID()
 	running := false
-	if pid > 0 && processExists(pid) {
+	if pidLooksLikeDaemon(pid) {
 		running = true
 	}
 
@@ -3251,6 +3272,45 @@ func processExists(pid int) bool {
 	}
 	// On Unix, FindProcess always succeeds. Use Signal(0) to check.
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// pidLooksLikeDaemon reports whether pid is alive AND its command line
+// looks like a pilot daemon. Signal(0) alone (processExists) matches ANY
+// process that inherited the number after a reboot or PID rollover —
+// which made `daemon start` refuse ("already running") and, worse, let
+// `daemon stop` SIGTERM an innocent process. Every pidfile consumer
+// that acts on the PID goes through this instead.
+//
+// If the process is alive but its cmdline can't be inspected, we return
+// false: for `start` the live-socket probe is the authoritative
+// double-start guard anyway, and for `stop` the socket-owner discovery
+// path takes over — both fail safe.
+func pidLooksLikeDaemon(pid int) bool {
+	if pid <= 0 || !processExists(pid) {
+		return false
+	}
+	var cmdline string
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		cmdline = strings.ReplaceAll(string(data), "\x00", " ")
+	} else {
+		// #nosec G204 -- fixed argv; pid is an integer we formatted ourselves
+		out, psErr := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+		if psErr != nil {
+			return false
+		}
+		cmdline = string(out)
+	}
+	// Match on the executable's base name, not a substring — a substring
+	// like "daemon" would match containerd/systemd-journald and make the
+	// stop path lethal to bystanders. Accept the two names the binary
+	// ships under: "pilot-daemon" (installs) and "daemon" (raw release
+	// archive / `make build` output).
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 {
+		return false
+	}
+	base := filepath.Base(fields[0])
+	return base == "pilot-daemon" || base == "daemon"
 }
 
 // discoverDaemonPID finds the PID of the process holding the daemon's Unix
