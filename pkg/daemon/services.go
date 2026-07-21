@@ -145,7 +145,9 @@ func (d *Daemon) startEchoService() error {
 	if err != nil {
 		return err
 	}
+	d.bgWG.Add(1)
 	go func() {
+		defer d.bgWG.Done()
 		for {
 			select {
 			case conn, ok := <-ln.AcceptCh:

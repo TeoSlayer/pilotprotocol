@@ -179,3 +179,36 @@ func TestStartEchoServiceAcceptLoopExitsOnUnbind(t *testing.T) {
 	// detached goroutine but Sleep gives it a chance to drain.
 	time.Sleep(100 * time.Millisecond)
 }
+
+// --- startEchoService increments bgWG and stopCh drains it ---
+
+func TestStartEchoServiceBGWaitGroupTracksAcceptLoop(t *testing.T) {
+	t.Parallel()
+	d := New(Config{})
+
+	if err := d.startEchoService(); err != nil {
+		t.Fatalf("startEchoService: %v", err)
+	}
+
+	// Close stopCh — accept loop should exit via <-d.stopCh and
+	// defer d.bgWG.Done() fires, draining the WaitGroup.
+	close(d.stopCh)
+
+	if !wgDrained(&d.bgWG, 2*time.Second) {
+		t.Fatal("bgWG not drained within 2s after stopCh close")
+	}
+}
+
+func wgDrained(wg *sync.WaitGroup, timeout time.Duration) bool {
+	ch := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
