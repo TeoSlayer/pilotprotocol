@@ -42,7 +42,7 @@
 
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, authenticated encrypted channels, and a trust model** -- all layered on top of standard UDP.
 
-Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers -- never through a central server. It is not an API. It is not a framework. It is infrastructure.
+Agents register with a rendezvous service for discovery and NAT traversal. Once a direct path is established, application data flows peer-to-peer; peers behind symmetric NAT that cannot hole-punch fall back to an encrypted relay through the beacon, which forwards opaque packets it cannot read. It is not an API. It is not a framework. It is infrastructure.
 
 ---
 
