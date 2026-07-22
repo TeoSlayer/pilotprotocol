@@ -719,7 +719,13 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	// Pre-check blackhole heuristic so we can log flips with the same
 	// detail the pre-extraction code emitted.
 	wasRelay := tm.routing.IsRelayPeer(nodeID)
-	silentFor := time.Since(tm.routing.LastDirectRecv(nodeID))
+	lastDirect := tm.routing.LastDirectRecv(nodeID)
+	// A peer that never had a direct receive has a zero timestamp;
+	// time.Since(zero) is ~292 years (MaxInt64 ns) and printed a bogus
+	// "silent_for=2562047h47m16s" on every relay flip (T7). Track the
+	// "never" case so the log renders honestly.
+	neverDirect := lastDirect.IsZero()
+	silentFor := time.Since(lastDirect)
 	preMisses := tm.routing.BlackholeMissCount(nodeID)
 
 	counters := routing.CounterTarget{
@@ -732,10 +738,14 @@ func (tm *TunnelManager) writeFrame(nodeID uint32, addr *net.UDPAddr, frame []by
 	// already mutated state; check post-conditions to log the same event
 	// the pre-extraction code logged.
 	if !wasRelay && tm.routing.IsRelayPeer(nodeID) {
-		if preMisses >= 0 && silentFor > directBlackholeThreshold {
+		if preMisses >= 0 && (neverDirect || silentFor > directBlackholeThreshold) {
+			silentStr := silentFor.Truncate(time.Second).String()
+			if neverDirect {
+				silentStr = "never" // no prior direct receive — don't print MaxInt64
+			}
 			slog.Info("direct path silent, flipping to relay",
 				"peer_node_id", nodeID,
-				"silent_for", silentFor.String(),
+				"silent_for", silentStr,
 				"misses", preMisses+1)
 		} else if err != nil && isICMPUnreachable(err) {
 			slog.Info("direct path ICMP-unreachable, flipping to relay",
