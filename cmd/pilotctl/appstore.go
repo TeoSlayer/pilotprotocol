@@ -762,8 +762,16 @@ func cmdAppStoreUninstall(args []string) {
 			"refusing to uninstall %q without --yes", appID)
 	}
 
+	// appID is user input; confine it under the app-store root so a
+	// crafted id (e.g. "../../something") can't RemoveAll outside the
+	// install tree. Same guard the install/verify paths use.
 	root := appStoreRoot()
-	dir := filepath.Join(root, appID)
+	dir, err := resolveUnder(root, appID)
+	if err != nil {
+		fatalHint("invalid_argument",
+			"app ids are single directory names; try `pilotctl appstore list`",
+			"invalid app id %q: %v", appID, err)
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
