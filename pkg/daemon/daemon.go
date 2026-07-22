@@ -468,6 +468,11 @@ type Daemon struct {
 	netPolicyMu sync.RWMutex
 	netPolicies map[uint16][]uint16
 
+	// gaveUpResetMu guards lastGaveUpReset, the per-peer cooldown for
+	// rekey-gave-up-triggered path resets (onRekeyGaveUp).
+	gaveUpResetMu   sync.Mutex
+	lastGaveUpReset map[uint32]time.Time
+
 	// Managed network engines: netID -> engine (older "managed network"
 	// feature — doesn't reference pkg/policy, stays in pkg/daemon).
 	managedMu sync.Mutex
@@ -550,12 +555,16 @@ func New(cfg Config) *Daemon {
 		epCache:       make(map[uint32]*endpointEntry),
 		resolveCache:  make(map[uint32]*resolveEntry),
 		hostnameCache: make(map[string]*hostnameCacheEntry),
-		netPolicies:   make(map[uint16][]uint16),
+		netPolicies:     make(map[uint16][]uint16),
+		lastGaveUpReset: make(map[uint32]time.Time),
 		managed:       make(map[uint16]*ManagedEngine),
 		memberTags:    make(map[uint16][]string),
 	}
 	d.ctx, d.cancelCtx = context.WithCancel(context.Background())
 	d.bus = newInProcessBus(d.NodeID)
+	// Event-driven T2 recovery: reset a peer's path the moment the rekey
+	// machinery gives up on it (see onRekeyGaveUp / pathwatch.go).
+	d.tunnels.SetRekeyGaveUpHook(d.onRekeyGaveUp)
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	// HandshakeService is wired post-construction by the composition
 	// root via RegisterHandshakeService (T3.3 — handshake plugin moved

@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -226,40 +227,52 @@ func TestResetPeerPathPreservesRelayActive(t *testing.T) {
 	}
 }
 
-// TestPathWatchRekeyGaveUpResetsImmediately pins the T2 fast-path: a peer
-// whose rekey machinery has given up is a dead session, so the watchdog
-// resets it on the current tick instead of waiting out the inbound-
-// silence probe budget — but still honours the post-reset cooldown.
-func TestPathWatchRekeyGaveUpResetsImmediately(t *testing.T) {
-	const peer = 91
-	d := newPathWatchTestDaemon(t, peer)
-	resets := swapPathResetForTest(t)
-	now := time.Now()
 
-	// A gave-up peer is inbound-silent (that's why it desynced). Set
-	// silence PAST the threshold but leave probesSent=0: without the fast
-	// path this tick would only send the first probe (probesSent 0->1);
-	// with it, the gave-up signal resets immediately. Asserting Reset with
-	// probesSent still 0 proves the fast path beats the probe budget.
-	d.tunnels.kx.SetLastInboundDecryptForTest(peer, now.Add(-2*pathSilenceThreshold))
-	d.tunnels.kx.MarkRekeyGaveUpForTest(peer)
 
-	st := &pathPeerState{}
-	if got := d.pathWatchPeer(peer, st, now); got != pathActionReset {
-		t.Fatalf("rekey-gave-up action = %q, want %q (should reset now, not probe)", got, pathActionReset)
-	}
-	if len(*resets) != 1 || (*resets)[0] != peer {
-		t.Fatalf("resets = %v, want [%d]", *resets, peer)
-	}
-	if st.lastResetAt.IsZero() {
-		t.Fatal("reset must stamp cooldown")
-	}
 
-	// Immediately after, still gave-up but inside cooldown → no second reset.
-	if got := d.pathWatchPeer(peer, st, now.Add(time.Second)); got != pathActionCooldown {
-		t.Fatalf("in-cooldown action = %q, want %q (no reset storm)", got, pathActionCooldown)
+// TestOnRekeyGaveUpResetsWithCooldown pins the event-driven T2 recovery:
+// the rekey-gave-up hook resets a peer's path, and a per-peer cooldown
+// prevents a persistently-desynced/offline peer from storming resolves.
+// The 2026-07-22 live test proved the earlier poll-from-pathwatch
+// approach never fired (a desynced peer isn't Ready, so pathwatch never
+// scanned it) — this hook fires straight from the giveup site.
+func TestOnRekeyGaveUpResetsWithCooldown(t *testing.T) {
+	d := &Daemon{
+		tunnels:         NewTunnelManager(),
+		startTime:       time.Now(),
+		stopCh:          make(chan struct{}),
+		lastGaveUpReset: make(map[uint32]time.Time),
 	}
-	if len(*resets) != 1 {
-		t.Fatalf("cooldown must suppress a second reset, resets=%v", *resets)
+	var resets []uint32
+	var mu sync.Mutex
+	prev := gaveUpResetPeer
+	gaveUpResetPeer = func(_ *Daemon, id uint32) peerPathReset {
+		mu.Lock()
+		resets = append(resets, id)
+		mu.Unlock()
+		return peerPathReset{}
+	}
+	t.Cleanup(func() { gaveUpResetPeer = prev })
+
+	const peer = 77
+	d.onRekeyGaveUp(peer) // fires an async reset
+	// second giveup immediately: cooldown must suppress it
+	d.onRekeyGaveUp(peer)
+
+	// let the async reset goroutine run
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(resets)
+		mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(resets) != 1 || resets[0] != peer {
+		t.Fatalf("resets = %v, want exactly [%d] (cooldown must suppress the 2nd giveup)", resets, peer)
 	}
 }

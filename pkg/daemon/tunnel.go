@@ -163,6 +163,10 @@ type TunnelManager struct {
 	// (preserves the leaf-lock invariant from 03-INVARIANTS.md §3).
 	routing *routing.Manager
 
+	// onRekeyGaveUp is the daemon-owned handler fired when the rekey
+	// machinery abandons a peer (see SetRekeyGaveUpHook / resetPeerPath).
+	onRekeyGaveUp func(nodeID uint32)
+
 	// Event bus — replaces inline tm.webhook.Emit calls. Set via
 	// SetEventBus from daemon during construction. May be nil in
 	// tests; tm.publishEvent handles that. Webhook delivery is a
@@ -314,7 +318,19 @@ func NewTunnelManager() *TunnelManager {
 	tm.kx.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx.SetPostInstallHook(tm.onKeyInstalled)
 	tm.kx.SetPreRetransmitHook(tm.maybeForceRelayOnRekey)
+	tm.kx.SetOnGaveUpHook(func(nodeID uint32) {
+		if fn := tm.onRekeyGaveUp; fn != nil {
+			fn(nodeID)
+		}
+	})
 	return tm
+}
+
+// SetRekeyGaveUpHook wires the daemon's handler for the rekey-gave-up
+// event (owned by the daemon because recovery is a path reset). Called
+// once during daemon setup.
+func (tm *TunnelManager) SetRekeyGaveUpHook(fn func(nodeID uint32)) {
+	tm.onRekeyGaveUp = fn
 }
 
 // maybeForceRelayOnRekey is the cross-layer policy bridge between the
