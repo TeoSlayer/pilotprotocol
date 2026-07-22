@@ -735,13 +735,13 @@ cat <<'PILOT_GET_STARTED'
      Describe the whole task in plain English; it picks the specialist
      agents + filters and returns a validated, ready-to-run plan.
      ------------------------------------------------------------------
-     pilotctl send-message pilot-director --data 'current weather and air quality for Berlin' --wait
+     pilotctl send-message pilot-mom --data 'current weather and air quality for Berlin' --wait
      jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
 
      # More examples — hand it the whole sentence, don't hunt for agents yourself:
-     pilotctl send-message pilot-director --data 'summarize this season F1 drivers' --wait
-     pilotctl send-message pilot-director --data 'latest CVEs for nginx' --wait
-     pilotctl send-message pilot-director --data "what's BTC at right now in USD" --wait
+     pilotctl send-message pilot-mom --data 'summarize this season F1 drivers' --wait
+     pilotctl send-message pilot-mom --data 'latest CVEs for nginx' --wait
+     pilotctl send-message pilot-mom --data "what's BTC at right now in USD" --wait
 
 
   2) DISCOVER SERVICE AGENTS — when you already know the specialist you want.
