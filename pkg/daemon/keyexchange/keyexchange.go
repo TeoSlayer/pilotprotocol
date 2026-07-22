@@ -262,6 +262,7 @@ type Manager struct {
 	publisher   EventPublisher
 	postInstall PostInstallHook
 	preRetx     PreRetransmitHook
+	onGaveUp    func(nodeID uint32)
 }
 
 // New returns a fresh Manager. The Manager installs into store; pass
@@ -305,6 +306,14 @@ func (m *Manager) SetPostInstallHook(h PostInstallHook) { m.postInstall = h }
 // policy (e.g. force the peer onto the relay path) without leaking
 // routing concerns into the keyexchange package.
 func (m *Manager) SetPreRetransmitHook(h PreRetransmitHook) { m.preRetx = h }
+
+// SetOnGaveUpHook wires a callback fired once per peer at the moment the
+// rekey machinery gives up (MaxRekeyAttempts retransmits to a stale
+// cached endpoint, all unanswered). The daemon uses this to trigger a
+// full path reset (fresh resolve + hole-punch) — the ONLY thing that
+// recovers a desynced peer, since it is no longer Ready and so is invisible
+// to the inbound-silence path watchdog. Invoked outside rkPendingMu.
+func (m *Manager) SetOnGaveUpHook(h func(nodeID uint32)) { m.onGaveUp = h }
 
 // SetLocalNodeIDFn supplies the closure used to read our own node ID
 // (atomic read living in the daemon).

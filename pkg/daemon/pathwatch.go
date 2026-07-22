@@ -149,34 +149,12 @@ func (d *Daemon) pathWatchPeer(nodeID uint32, st *pathPeerState, now time.Time) 
 	if !ok {
 		// Session marked Ready but no decrypt recorded yet — key
 		// exchange just completed. Leave it to the rekey machinery.
+		// (A DESYNCED peer with no usable key is not Ready and so is not
+		// scanned here at all — that case is handled event-driven by the
+		// rekey-gave-up hook, onRekeyGaveUp, not by this silence loop.)
 		return pathActionSkip
 	}
 	silence := now.Sub(last)
-
-	// Fast path for the T2 desync (2026-07-20 probe): when the rekey
-	// machinery has GIVEN UP on a peer, the session is unambiguously dead
-	// — both sides hold mismatched keys and every inbound frame is
-	// dropped undecryptable. Plain rekey-retransmit can't recover it (it
-	// resends the key exchange to the same stale cached endpoint); a path
-	// reset can, because it re-resolves a fresh endpoint and re-punches.
-	// Reset immediately rather than waiting out the ~85s inbound-silence
-	// probe budget — but still honour the post-reset cooldown so a truly
-	// offline peer can't cause a reset storm.
-	inCooldown := !st.lastResetAt.IsZero() && now.Sub(st.lastResetAt) < pathResetCooldown
-	if d.tunnels.PeerInRekeyGaveUp(nodeID) && !inCooldown {
-		slog.Warn("path watchdog: peer rekey gave up (session desync) — resetting path now",
-			"peer_node_id", nodeID,
-			"silent_for", silence.Truncate(time.Second).String())
-		d.publishEvent("tunnel.path_suspect", map[string]any{
-			"peer_node_id":       nodeID,
-			"silent_for_seconds": int64(silence.Seconds()),
-			"reason":             "rekey_gave_up",
-		})
-		pathWatchResetPeer(d, nodeID)
-		st.probesSent = 0
-		st.lastResetAt = now
-		return pathActionReset
-	}
 
 	if silence < pathSilenceThreshold {
 		if st.probesSent > 0 {
@@ -196,7 +174,7 @@ func (d *Daemon) pathWatchPeer(nodeID uint32, st *pathPeerState, now time.Time) 
 
 	// Inside the post-reset cooldown: don't re-probe/re-reset a peer
 	// that is likely just offline.
-	if inCooldown {
+	if !st.lastResetAt.IsZero() && now.Sub(st.lastResetAt) < pathResetCooldown {
 		return pathActionCooldown
 	}
 
@@ -295,4 +273,60 @@ func (d *Daemon) resetPeerPath(nodeID uint32) peerPathReset {
 		res.PilaPushed = true
 	}
 	return res
+}
+
+// gaveUpResetCooldown bounds how often a single peer's path is reset in
+// response to a rekey-gave-up event. The rekey machinery re-arms roughly
+// every RekeyRetransmitInterval*MaxRekeyAttempts + rekeyGaveUpCooldown
+// (~30s) for a persistently-desynced peer; this cooldown prevents a
+// genuinely-offline peer from triggering a resolve/punch every cycle.
+const gaveUpResetCooldown = 30 * time.Second
+
+// onRekeyGaveUp is the daemon-owned handler wired to the keyexchange
+// gave-up hook (SetRekeyGaveUpHook). A peer the rekey machinery has
+// abandoned is desynced — no usable key, so it is NOT Ready and the
+// inbound-silence path watchdog never scans it. This is the recovery
+// path: reset the peer (drop cached endpoint + tunnel, re-resolve fresh,
+// re-punch, push a fresh PILA) so a working session can re-establish.
+// Runs the reset asynchronously (it does registry I/O) and rate-limits
+// per peer so a flapping/offline peer can't storm resolves. Fired from
+// the keyexchange retransmit loop goroutine.
+func (d *Daemon) onRekeyGaveUp(nodeID uint32) {
+	now := time.Now()
+	d.gaveUpResetMu.Lock()
+	if last, ok := d.lastGaveUpReset[nodeID]; ok && now.Sub(last) < gaveUpResetCooldown {
+		d.gaveUpResetMu.Unlock()
+		return
+	}
+	d.lastGaveUpReset[nodeID] = now
+	// Opportunistic prune so the map can't grow without bound.
+	if len(d.lastGaveUpReset) > 1024 {
+		for id, t := range d.lastGaveUpReset {
+			if now.Sub(t) > 5*gaveUpResetCooldown {
+				delete(d.lastGaveUpReset, id)
+			}
+		}
+	}
+	d.gaveUpResetMu.Unlock()
+
+	go func() {
+		defer recoverLayer("L4", "onRekeyGaveUp", d.bus, nil)
+		res := gaveUpResetPeer(d, nodeID)
+		slog.Warn("rekey gave up (session desync) — reset peer path",
+			"peer_node_id", nodeID,
+			"had_tunnel", res.HadTunnel,
+			"was_relay_active", res.WasRelayActive,
+			"pila_pushed", res.PilaPushed,
+			"resolve_error", res.ResolveErr)
+		d.publishEvent("tunnel.path_suspect", map[string]any{
+			"peer_node_id": nodeID,
+			"reason":       "rekey_gave_up",
+		})
+	}()
+}
+
+// gaveUpResetPeer is swapped by tests to observe the reset without a live
+// registry/beacon (mirrors pathWatchResetPeer).
+var gaveUpResetPeer = func(d *Daemon, nodeID uint32) peerPathReset {
+	return d.resetPeerPath(nodeID)
 }

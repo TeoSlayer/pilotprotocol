@@ -73,6 +73,17 @@ func (m *Manager) RekeyRetransmitTick() {
 	}
 	m.rkPendingMu.Unlock()
 
+	// Fire the gave-up hook for each peer we just abandoned — OUTSIDE the
+	// lock (the daemon's handler does registry I/O). This is the only
+	// recovery signal for a desynced peer: it is no longer Ready, so the
+	// inbound-silence path watchdog can't see it; the hook triggers a full
+	// path reset (fresh resolve + hole-punch).
+	if m.onGaveUp != nil {
+		for _, id := range toGiveUp {
+			m.onGaveUp(id)
+		}
+	}
+
 	// Cap retransmits per tick to prevent UDP flooding when many peers
 	// are pending simultaneously. Remaining entries are retried next tick.
 	if len(toRetry) > maxRetransmitsPerTick {
