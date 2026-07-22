@@ -225,3 +225,41 @@ func TestResetPeerPathPreservesRelayActive(t *testing.T) {
 		t.Fatal("expected resolve error with no registry connection")
 	}
 }
+
+// TestPathWatchRekeyGaveUpResetsImmediately pins the T2 fast-path: a peer
+// whose rekey machinery has given up is a dead session, so the watchdog
+// resets it on the current tick instead of waiting out the inbound-
+// silence probe budget — but still honours the post-reset cooldown.
+func TestPathWatchRekeyGaveUpResetsImmediately(t *testing.T) {
+	const peer = 91
+	d := newPathWatchTestDaemon(t, peer)
+	resets := swapPathResetForTest(t)
+	now := time.Now()
+
+	// A gave-up peer is inbound-silent (that's why it desynced). Set
+	// silence PAST the threshold but leave probesSent=0: without the fast
+	// path this tick would only send the first probe (probesSent 0->1);
+	// with it, the gave-up signal resets immediately. Asserting Reset with
+	// probesSent still 0 proves the fast path beats the probe budget.
+	d.tunnels.kx.SetLastInboundDecryptForTest(peer, now.Add(-2*pathSilenceThreshold))
+	d.tunnels.kx.MarkRekeyGaveUpForTest(peer)
+
+	st := &pathPeerState{}
+	if got := d.pathWatchPeer(peer, st, now); got != pathActionReset {
+		t.Fatalf("rekey-gave-up action = %q, want %q (should reset now, not probe)", got, pathActionReset)
+	}
+	if len(*resets) != 1 || (*resets)[0] != peer {
+		t.Fatalf("resets = %v, want [%d]", *resets, peer)
+	}
+	if st.lastResetAt.IsZero() {
+		t.Fatal("reset must stamp cooldown")
+	}
+
+	// Immediately after, still gave-up but inside cooldown → no second reset.
+	if got := d.pathWatchPeer(peer, st, now.Add(time.Second)); got != pathActionCooldown {
+		t.Fatalf("in-cooldown action = %q, want %q (no reset storm)", got, pathActionCooldown)
+	}
+	if len(*resets) != 1 {
+		t.Fatalf("cooldown must suppress a second reset, resets=%v", *resets)
+	}
+}
