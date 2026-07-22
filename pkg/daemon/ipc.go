@@ -876,7 +876,9 @@ func (s *IPCServer) handleBind(conn *ipcConn, reqID uint64, payload []byte) {
 
 	// Start pushing accepted connections to this client. CmdAccept frames
 	// are server-pushed (reqID=0) and demuxed by the driver on local port.
+	s.daemon.bgWG.Add(1)
 	go func() {
+		defer s.daemon.bgWG.Done()
 		for c := range ln.AcceptCh {
 			conn.trackConn(c.ID)
 			// H12 fix: include local port for per-port demux
