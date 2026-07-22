@@ -69,11 +69,11 @@ func main() {
 	identityPath := flag.String("identity", "", "path to persist Ed25519 identity (enables stable identity across restarts)")
 	email := flag.String("email", "", "email address for account identification and key recovery")
 	owner := flag.String("owner", "", "(deprecated: use -email) owner identifier for key rotation recovery")
-	keepalive := flag.Duration("keepalive", 0, "keepalive probe interval (default 30s)")
+	keepalive := flag.Duration("keepalive", 0, "keepalive probe interval (default 60s)")
 	idleTimeout := flag.Duration("idle-timeout", 0, "idle connection timeout (default 120s)")
 	synRate := flag.Int("syn-rate-limit", 0, "max SYN packets per second (default 100)")
 	maxConnsPerPort := flag.Int("max-conns-per-port", 0, "max connections per port (default 1024)")
-	maxConnsTotal := flag.Int("max-conns-total", 0, "max total connections (default 4096)")
+	maxConnsTotal := flag.Int("max-conns-total", 0, "max total connections (default 65536)")
 	// PILOT-343/344/345 rate-limit whitelists. Comma-separated trusted-peer
 	// node IDs (decimal uint32). Env fallbacks let deployments configure
 	// without editing flag strings. Empty default preserves backwards
