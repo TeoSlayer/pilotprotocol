@@ -428,6 +428,16 @@ func (tm *TunnelManager) ClearRekeyGaveUp(peerNodeID uint32) {
 	tm.kx.ClearRekeyGaveUp(peerNodeID)
 }
 
+// PeerInRekeyGaveUp reports whether the rekey machinery has given up on
+// this peer (retransmitted the key-exchange to a stale cached endpoint
+// MaxRekeyAttempts times without success). It is the fast, unambiguous
+// "session is dead" signal the per-peer path watchdog uses to reset a
+// desynced peer immediately, instead of waiting out the inbound-silence
+// probe budget. Thin shim over keyexchange.Manager.
+func (tm *TunnelManager) PeerInRekeyGaveUp(peerNodeID uint32) bool {
+	return tm.kx.PeerInRekeyGaveUp(peerNodeID)
+}
+
 // ClearLastRekeyReq drops the per-peer rate-limit timestamp recorded by
 // maybeRequestRekey. After a forced reset (pilotctl prefer-direct) the
 // next "encrypted packet but no key" event must be allowed to fire a

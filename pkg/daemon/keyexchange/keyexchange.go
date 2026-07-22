@@ -554,6 +554,14 @@ func (m *Manager) SetLastInboundDecryptForTest(peerNodeID uint32, t time.Time) {
 	m.rkPendingMu.Unlock()
 }
 
+// MarkRekeyGaveUpForTest stamps the give-up map so PeerInRekeyGaveUp
+// returns true. Test-only.
+func (m *Manager) MarkRekeyGaveUpForTest(peerNodeID uint32) {
+	m.rkPendingMu.Lock()
+	m.rekeyGaveUp[peerNodeID] = time.Now()
+	m.rkPendingMu.Unlock()
+}
+
 // LastInboundDecryptHas reports whether we've recorded any successful
 // decrypt timestamp for the peer.
 func (m *Manager) LastInboundDecryptHas(peerNodeID uint32) bool {

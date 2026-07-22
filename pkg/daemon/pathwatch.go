@@ -152,6 +152,32 @@ func (d *Daemon) pathWatchPeer(nodeID uint32, st *pathPeerState, now time.Time) 
 		return pathActionSkip
 	}
 	silence := now.Sub(last)
+
+	// Fast path for the T2 desync (2026-07-20 probe): when the rekey
+	// machinery has GIVEN UP on a peer, the session is unambiguously dead
+	// — both sides hold mismatched keys and every inbound frame is
+	// dropped undecryptable. Plain rekey-retransmit can't recover it (it
+	// resends the key exchange to the same stale cached endpoint); a path
+	// reset can, because it re-resolves a fresh endpoint and re-punches.
+	// Reset immediately rather than waiting out the ~85s inbound-silence
+	// probe budget — but still honour the post-reset cooldown so a truly
+	// offline peer can't cause a reset storm.
+	inCooldown := !st.lastResetAt.IsZero() && now.Sub(st.lastResetAt) < pathResetCooldown
+	if d.tunnels.PeerInRekeyGaveUp(nodeID) && !inCooldown {
+		slog.Warn("path watchdog: peer rekey gave up (session desync) — resetting path now",
+			"peer_node_id", nodeID,
+			"silent_for", silence.Truncate(time.Second).String())
+		d.publishEvent("tunnel.path_suspect", map[string]any{
+			"peer_node_id":       nodeID,
+			"silent_for_seconds": int64(silence.Seconds()),
+			"reason":             "rekey_gave_up",
+		})
+		pathWatchResetPeer(d, nodeID)
+		st.probesSent = 0
+		st.lastResetAt = now
+		return pathActionReset
+	}
+
 	if silence < pathSilenceThreshold {
 		if st.probesSent > 0 {
 			slog.Info("path watchdog: peer path recovered",
@@ -170,7 +196,7 @@ func (d *Daemon) pathWatchPeer(nodeID uint32, st *pathPeerState, now time.Time) 
 
 	// Inside the post-reset cooldown: don't re-probe/re-reset a peer
 	// that is likely just offline.
-	if !st.lastResetAt.IsZero() && now.Sub(st.lastResetAt) < pathResetCooldown {
+	if inCooldown {
 		return pathActionCooldown
 	}
 
