@@ -376,6 +376,7 @@ func FuzzDataExchangeFilenameValidation(f *testing.F) {
 // ---------------------------------------------------------------------------
 
 func TestResolveTOCTOUConcurrency(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	s := startTestServer(t)
 	defer s.Close()

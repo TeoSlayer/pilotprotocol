@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "id": "io.telepat.ideon-free",
+  "display_name": "Ideon-free",
+  "description_md": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
+  "vendor": {
+    "name": ""
+  },
+  "size": {
+    "bundle_bytes": 0,
+    "installed_bytes": 0
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "ideon-free.help",
+      "summary": "Discovery: every method with params, kind, and latency class."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.3.1",
+      "notes": [
+        "Released v0.3.1"
+      ]
+    }
+  ],
+  "product_demo": {
+    "skill": "io.telepat.ideon-free",
+    "title": "Full usage demo",
+    "when_to_use": "When you need a finished long-form Markdown article generated from a one-line idea — kick off generation, then poll for the completed title, slug, and body. Free, no payment.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Start an article generation job",
+      "command": "pilotctl appstore call io.telepat.ideon-free ideon-free.generate '{\"idea\":\"How vector databases work\"}'",
+      "expect": "{\"jobId\":\"\u003cuuid\u003e\"}"
+    },
+    "examples": [
+      {
+        "title": "Generate with style + length hints",
+        "command": "pilotctl appstore call io.telepat.ideon-free ideon-free.generate '{\"idea\":\"A beginner guide to Rust ownership\",\"style\":\"tutorial\",\"length\":\"long\"}'",
+        "expect": "{\"jobId\":\"\u003cuuid\u003e\"}"
+      },
+      {
+        "title": "Poll while still running",
+        "command": "pilotctl appstore call io.telepat.ideon-free ideon-free.poll '{\"jobId\":\"\u003cuuid\u003e\"}'",
+        "expect": "{\"jobId\":\"\u003cuuid\u003e\",\"status\":\"pending\"}"
+      },
+      {
+        "title": "Poll once finished",
+        "command": "pilotctl appstore call io.telepat.ideon-free ideon-free.poll '{\"jobId\":\"\u003cuuid\u003e\"}'",
+        "expect": "{\"status\":\"done\",\"ok\":true,\"title\":\"...\",\"slug\":\"...\",\"article\":\"# ...markdown...\"}"
+      }
+    ],
+    "gotchas": [
+      "Generation is async: generate returns a jobId immediately; poll it until status is \"done\" (~60–90s for a real run).",
+      "poll returns status \"pending\" until ready, then the finished Markdown in the article field.",
+      "An unknown or expired jobId polls back status \"error\".",
+      "Free — a thin adapter over Ideon's ideon_write (backend ideon-mcp.telepat.io), rate-limited to 30 calls/min."
+    ],
+    "next": [
+      "io.telepat.ideon-free ideon-free.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.telepat.ideon-free",
+    "edges": [
+      {
+        "from": "ideon-free.generate",
+        "on": "ok",
+        "why": "generation is async — this returned a jobId, not an article; the article only exists once you poll",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.telepat.ideon-free ideon-free.poll '{\"jobId\":\"\u003cjobId-from-generate\u003e\"}'",
+            "why": "poll the jobId just returned; status goes pending -\u003e done, then the Markdown is in the article field",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "ideon-free.poll",
+        "on": "ok",
+        "match": "\"status\"\\s*:\\s*\"pending\"",
+        "why": "still generating — this is the normal path, not a failure; poll again",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.telepat.ideon-free ideon-free.poll '{\"jobId\":\"\u003cjobId-from-generate\u003e\"}'",
+            "why": "poll the same jobId again after a short wait — a full article typically lands within ~30-90s",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "ideon-free.poll",
+        "on": "ok",
+        "match": "\"error\"\\s*:\\s*\"unknown jobId\"",
+        "why": "that jobId is gone — jobs live in memory, so a restart drops them (note this exits 0: read status, not the exit code)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.telepat.ideon-free ideon-free.generate '{\"idea\":\"How vector databases work\"}'",
+            "why": "the job cannot be recovered — start a new one and poll the fresh jobId",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "ideon-free.generate",
+        "on": "err",
+        "match": "missing idea",
+        "why": "generate needs the one-line idea to write about",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.telepat.ideon-free ideon-free.generate '{\"idea\":\"How vector databases work\",\"style\":\"tutorial\",\"length\":\"long\"}'",
+            "why": "idea is required; style/intent/length are optional hints",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "ideon-free.poll",
+        "on": "err",
+        "match": "missing jobId",
+        "why": "poll needs the jobId that generate returned",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.telepat.ideon-free ideon-free.poll '{\"jobId\":\"\u003cjobId-from-generate\u003e\"}'",
+            "why": "pass the jobId from the generate response; if you don't have one, call ideon-free.generate first",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
+}

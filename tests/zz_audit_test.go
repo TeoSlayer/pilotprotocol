@@ -45,6 +45,7 @@ func (b *syncLogBuf) snapshot() *bytes.Buffer {
 
 // TestAuditLogAPI tests the get_audit_log API endpoint (the ring buffer, not slog).
 func TestAuditLogAPI(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")
@@ -361,7 +362,7 @@ func TestAuditInviteActions(t *testing.T) {
 	}
 	defer rc.Close()
 
-	creatorID, _ := registerTestNode(t, rc)
+	creatorID, creatorIdentity := registerTestNode(t, rc)
 	resp, err := rc.CreateNetwork(creatorID, "audit-invite-net", "invite", "", TestAdminToken, true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -370,6 +371,8 @@ func TestAuditInviteActions(t *testing.T) {
 
 	targetID, targetIdentity := registerTestNode(t, rc)
 
+	// InviteToNetwork always signs (common@v0.5.7); sign as the inviter.
+	setClientSigner(rc, creatorIdentity)
 	_, err = rc.InviteToNetwork(netID, creatorID, targetID, TestAdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)

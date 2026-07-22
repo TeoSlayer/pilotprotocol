@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.duckdb",
+  "display_name": "DuckDB",
+  "description_md": "fixture",
+  "product_demo": {
+    "skill": "io.pilot.duckdb",
+    "title": "Full usage demo",
+    "when_to_use": "When you need an in-process OLAP/SQL engine to query CSV, Parquet or JSON files and crunch analytics locally with zero server — not for concurrent writes or a long-lived shared database.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Run your first query (no provisioning — in-memory)",
+      "command": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\":memory:\",\"sql\":\"SELECT 42 AS answer\"}'",
+      "expect": "an aligned box table with one column `answer` and value 42"
+    },
+    "examples": [
+      {
+        "title": "Aggregate a CSV file in place — no import step",
+        "goal": "Group and count straight over a file on disk",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query_json '{\"database\":\":memory:\",\"sql\":\"SELECT country, count(*) AS n FROM read_csv_auto('/data/users.csv') GROUP BY 1 ORDER BY n DESC\"}'",
+        "expect": "JSON array of row objects, e.g. [{\"country\":\"US\",\"n\":120},{\"country\":\"DE\",\"n\":44}]"
+      },
+      {
+        "title": "Create and populate a persistent table",
+        "goal": "Persist data to a .duckdb file on disk",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query '{\"database\":\"/work/sales.duckdb\",\"sql\":\"CREATE TABLE IF NOT EXISTS sales(id INT, amt DECIMAL); INSERT INTO sales VALUES (1,9.99),(2,4.50); SELECT sum(amt) AS total FROM sales\"}'",
+        "expect": "box table with total = 14.49; the sales table survives in /work/sales.duckdb"
+      },
+      {
+        "title": "Read a Parquet file as Markdown",
+        "goal": "Preview columnar data formatted for a report",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.query_markdown '{\"database\":\":memory:\",\"sql\":\"SELECT * FROM read_parquet('/data/events.parquet') LIMIT 5\"}'",
+        "expect": "a GitHub-flavored Markdown table of the first 5 rows"
+      },
+      {
+        "title": "List tables in a database",
+        "goal": "See what exists before querying",
+        "command": "pilotctl appstore call io.pilot.duckdb duckdb.tables '{\"database\":\"/work/sales.duckdb\"}'",
+        "expect": "one row per table/view: name, database, schema"
+      }
+    ],
+    "gotchas": [
+      "File paths (read_csv_auto, read_parquet, .duckdb files) resolve inside the app sandbox, not your shell CWD.",
+      "`database` is required on every query — use \":memory:\" for throwaway work or an absolute .duckdb path to persist.",
+      ":memory: databases vanish when the call returns; nothing is saved.",
+      "Single-writer engine: great for analytics, not for many concurrent writers."
+    ],
+    "next": [
+      "io.pilot.duckdb duckdb.help '{}'"
+    ]
+  }
+}

@@ -58,6 +58,31 @@ func TestCmdSkillsStatusDisabledTextMode(t *testing.T) {
 	}
 }
 
+// TestCmdSkillsStatus_SupportedListAccurate pins the injected-target list the
+// status view prints when no agent tools are detected. It must match the
+// injection manifest's actual targets: PicoClaw and Goose are real targets,
+// Cursor is not (it was never in the manifest). Assertions are guarded on the
+// "no tools detected" branch so the test stays robust if the host happens to
+// have an agent-tool dir.
+func TestCmdSkillsStatus_SupportedListAccurate(t *testing.T) {
+	preDisableSkills(t)
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+	out := captureStdout(t, func() { cmdSkillsStatus(nil) })
+	if !strings.Contains(out, "Supported (auto-detected") {
+		t.Skip("host has agent tools detected; supported-list branch not exercised")
+	}
+	for _, want := range []string{"Goose", "PicoClaw"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("supported list missing %q (a real injection target):\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Cursor") {
+		t.Errorf("supported list still names Cursor, which is not an injection target:\n%s", out)
+	}
+}
+
 func TestCmdSkillsPathsDisabled(t *testing.T) {
 	preDisableSkills(t)
 	prev := jsonOutput

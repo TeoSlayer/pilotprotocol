@@ -233,6 +233,7 @@ func TestRegistrySnapshotChecksum(t *testing.T) {
 // TestRegistryConnectionLimit verifies that the server rejects new connections
 // when the maximum connection count is reached.
 func TestRegistryConnectionLimit(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")

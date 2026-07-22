@@ -119,5 +119,92 @@
       "label": "Website",
       "url": "https://miren.dev"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.miren",
+    "title": "Full usage demo",
+    "when_to_use": "When you need to operate a Miren PaaS from an agent — deploy or roll back apps and inspect their status, history, and logs — over IPC.",
+    "metered": false,
+    "quickstart": {
+      "goal": "List the applications on your cluster",
+      "command": "pilotctl appstore call io.pilot.miren miren.apps '{}'",
+      "expect": "{\"stdout\":\"[{\\\"name\\\":\\\"web\\\",\\\"status\\\":\\\"running\\\"}]\",\"exit\":0}",
+      "note": "Needs a configured cluster; if none is set up, output is a structured {stdout,stderr,exit} error telling you what to do next."
+    },
+    "examples": [
+      {
+        "title": "Show one app's status",
+        "command": "pilotctl appstore call io.pilot.miren miren.app '{\"name\":\"web\"}'",
+        "expect": "{\"stdout\":\"...status...\",\"exit\":0}"
+      },
+      {
+        "title": "Read recent logs as JSON",
+        "command": "pilotctl appstore call io.pilot.miren miren.logs '{\"app\":\"web\"}'",
+        "expect": "{\"stdout\":\"[{\\\"ts\\\":...,\\\"msg\\\":...}]\",\"exit\":0}"
+      },
+      {
+        "title": "Build + deploy the app in the current directory",
+        "command": "pilotctl appstore call io.pilot.miren miren.deploy '{}'",
+        "expect": "{\"stdout\":\"...deployed...\",\"exit\":0}",
+        "note": "Non-interactive (--force); deploys the CURRENT working directory."
+      },
+      {
+        "title": "Roll back to the previous version",
+        "command": "pilotctl appstore call io.pilot.miren miren.rollback '{}'",
+        "expect": "{\"stdout\":\"...rolled back...\",\"exit\":0}"
+      },
+      {
+        "title": "Reach any miren subcommand (passthrough)",
+        "command": "pilotctl appstore call io.pilot.miren miren.exec '{\"args\":[\"env\",\"list\",\"--app\",\"web\",\"--json\"]}'",
+        "expect": "{\"stdout\":\"{...}\",\"exit\":0}"
+      }
+    ],
+    "gotchas": [
+      "Server-side commands need a configured cluster; without one they return a structured {stdout,stderr,exit} error explaining the next step — not a crash.",
+      "miren.deploy builds and deploys the app in the CURRENT directory non-interactively (--force).",
+      "Interactive/long-running subcommands (app run, login, server start) aren't usable over IPC — use the curated methods instead.",
+      "Pass --json inside miren.exec args wherever the subcommand supports it to get structured output.",
+      "server install / server status are Linux-only."
+    ],
+    "next": [
+      "io.pilot.miren miren.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.miren",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "no clusters?\\s+configured",
+        "why": "miren has no cluster to talk to yet — every command soft-fails like this with exit 0, so read the envelope's stdout/stderr, not the exit code",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.exec '{\"args\":[\"cluster\",\"add\",\"--cluster\",\"prod\",\"--address\",\"<cluster-host>:8443\"]}'",
+            "why": "point miren at your cluster — the one setup step that unblocks every other method (`miren login` is interactive and unusable over IPC)",
+            "kind": "gateway"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.doctor '{}'",
+            "why": "prints exactly which of config/server/auth is still missing, plus the get-started commands",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "a required param was omitted — the app/name param must be an application that exists on your cluster",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.miren miren.apps '{}'",
+            "why": "lists the applications on the cluster so you can pass a real one as name (miren.app) or app (miren.logs)",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.agentphone",
+  "display_name": "AgentPhone",
+  "description_md": "fixture",
+  "product_demo": {
+    "skill": "io.pilot.agentphone",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs to place a real phone call or send an SMS/iMessage to a person — bookings, reminders, follow-ups, chasing a shipment or a missed call.",
+    "metered": true,
+    "quickstart": {
+      "goal": "Orient — check your account and $5 budget (free read)",
+      "command": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'",
+      "expect": "{\"plan\":\"managed\",\"numbers\":{\"used\":0,\"limit\":1},\"stats\":{...}}",
+      "cost": "$0.00 (read)"
+    },
+    "examples": [
+      {
+        "title": "Find your starter agent (free read)",
+        "goal": "Get the agentId you place calls / send texts as",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.list_agents '{}'",
+        "expect": "{\"data\":[{\"id\":\"agent_...\",\"name\":\"Assistant\",\"voiceMode\":\"hosted\"}]}",
+        "cost": "$0.00 (read)"
+      },
+      {
+        "title": "Place an autonomous voice call",
+        "goal": "The AI dials and holds the conversation from your prompt",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.place_call '{\"agentId\":\"agent_123\",\"toNumber\":\"+14155551234\",\"systemPrompt\":\"Confirm the 7pm reservation for two under Alex.\"}'",
+        "expect": "{\"id\":\"call_...\",\"status\":\"queued\"}",
+        "cost": "$0.10",
+        "note": "Returns immediately; poll agentphone.get_call for the transcript."
+      },
+      {
+        "title": "Poll the call transcript (free read)",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.get_call '{\"call_id\":\"call_...\"}'",
+        "expect": "{\"status\":\"completed\",\"durationSeconds\":42,\"transcripts\":[...]}",
+        "cost": "$0.00 (read)"
+      },
+      {
+        "title": "Send a text (iMessage → SMS fallback)",
+        "command": "pilotctl appstore call io.pilot.agentphone agentphone.send_message '{\"agent_id\":\"agent_123\",\"to_number\":\"+14155551234\",\"body\":\"On my way, 5 min out.\"}'",
+        "expect": "{\"id\":\"msg_...\",\"channel\":\"imessage\"}",
+        "cost": "$0.02"
+      }
+    ],
+    "cost": {
+      "unit": "micro-USD (1000000 = $1.00)",
+      "free_budget": "$5.00 per Pilot user",
+      "hard_cap_usd": 5.0,
+      "operations": [
+        {
+          "op": "agentphone.place_call",
+          "price": "$0.10",
+          "note": "per call (per-minute, ~$0.05+ for a short call)"
+        },
+        {
+          "op": "agentphone.send_message",
+          "price": "$0.02",
+          "note": "per SMS/iMessage"
+        },
+        {
+          "op": "agentphone.buy_number",
+          "price": "$3.00",
+          "note": "per month; released numbers are gone forever, no refund"
+        },
+        {
+          "op": "agentphone.usage / list_* / get_call / get_transcript",
+          "price": "$0.00",
+          "note": "all reads are free"
+        }
+      ],
+      "worked_total": "This demo spends $0.12 of your $5.00 budget (1 call + 1 text; the two reads are free).",
+      "check_balance": "pilotctl appstore call io.pilot.agentphone agentphone.usage '{}'"
+    },
+    "gotchas": [
+      "Always use E.164 numbers (+14155551234) — never (415) 555-1234.",
+      "You cannot dial 911, N11, or crisis lines — they are blocked.",
+      "402 Payment Required means your $5.00 budget is spent — reads still work.",
+      "place_call/send_message need an agent with a number attached — list_agents / list_numbers first.",
+      "Calls are async: place_call returns a call id, then poll get_call until status is completed/failed.",
+      "iMessage-only extras (reactions, send effects) are silently ignored on SMS — check the response channel."
+    ],
+    "next": [
+      "io.pilot.agentphone agentphone.help '{}'"
+    ]
+  }
+}

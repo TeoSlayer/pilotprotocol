@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.insforge",
+  "display_name": "Insforge",
+  "tagline": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backe",
+  "description_md": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backend in one call — no email, no browser: a dedicated Postgres database, authentication, S3-style storage, Deno edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Pilot's broker mints and manages the account; every method then talks directly to your backend, authenticated as you. Free to provision — pay only for what your backend uses.",
+  "vendor": {
+    "name": "InsForge",
+    "url": "https://insforge.dev",
+    "contact": "info@insforge.dev",
+    "agent_usage": "insforge.signup once (provisions your isolated backend, no email/browser), then drive Postgres, auth, storage, edge functions and the AI model gateway directly as yourself.",
+    "capabilities": "database, auth, storage, edge-functions, ai-gateway, hosting",
+    "publisher_pubkey": "ed25519:W1qwuLpHlwdOlisnk7RdzP4zO2IbNKUFz7Saa69AgTA="
+  },
+  "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
+  "license": "",
+  "categories": [],
+  "size": {
+    "bundle_bytes": 5113957
+  },
+  "methods": [
+    {
+      "name": "insforge.signup",
+      "summary": "Provision your OWN isolated InsForge backend in ONE call — no email, no browser, no human step. This signs a keyless request to Pilot's InsForge signup broker, which mints a fresh InsForge project under Pilot's managed account and returns its access key + backend URL. The adapter caches {api_key, backend_url} to $APP/secrets.json, and from then on EVERY other insforge.* method talks directly to YOUR backend, authenticated as you. You get a dedicated Postgres database, authentication, S3-style storage, edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Idempotent: the broker provisions at most one project per Pilot identity, so a repeat call (or a fresh install) returns the SAME backend. Run this ONCE before any other method. FREE to provision — you pay only for the resources your backend actually uses (see per-method costs and insforge.help). Retrieve your backend URL + key any time via insforge.account. Takes no arguments."
+    },
+    {
+      "name": "insforge.account",
+      "summary": "Retrieve your provisioned InsForge backend — its backend_url, your api_key, and project id — plus a signed_up flag. Local, instant, FREE (reads $APP/secrets.json; no backend call). Use it to confirm you're provisioned or to read your key/URL (e.g. to call the backend from your own code). If signed_up is false, call insforge.signup first."
+    },
+    {
+      "name": "insforge.metadata",
+      "summary": "Get your backend's full configuration — auth providers/SMTP, database tables, storage buckets, edge functions, realtime, and AI models — in one call. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.db_list_tables",
+      "summary": "List all database tables with their schemas (columns, types, constraints). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.db_create_table",
+      "summary": "Create a Postgres table. Body: {tableName, columns:[{columnName, type, isNullable, isUnique, defaultValue?}]} — type is one of string, integer, float, boolean, datetime, date, uuid, json. An id (uuid) + createdAt/updatedAt are added automatically. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_query",
+      "summary": "Query records from a table with PostgREST-style filtering, sorting, pagination. Path: table name. Query params: limit (1-1000, default 100), offset, order (e.g. createdAt.desc), select (comma columns), and any {field}=<op>.<value> filter (op: eq, neq, gt, gte, lt, lte, like, ilike, in, is). Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_insert",
+      "summary": "Insert one or more records into a table. Path: table name. Body: a JSON array of row objects (e.g. [{\"title\":\"hi\"}]) — always an array, even for one row. Returns the inserted rows with generated ids. Note: just after db_create_table, wait ~3s before the first insert (the database reloads its schema cache after DDL; an immediate insert can 404). Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_update",
+      "summary": "Update records matching PostgREST filters. Path: table name. Pass filter(s) as query params ({field}=eq.<value>) and the new column values in the body. Returns the updated rows. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_delete",
+      "summary": "Delete records matching PostgREST filters. Path: table name. Pass filter(s) as query params ({field}=eq.<value>). Returns the deleted rows. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.db_sql",
+      "summary": "Run raw parameterized SQL against your Postgres database. Body: {query, params?}. Powerful — use for joins, aggregates, DDL, migrations. Rows count toward Postgres storage (500 MB free, then $0.125/GB); reads toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_list_buckets",
+      "summary": "List your storage buckets. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.storage_create_bucket",
+      "summary": "Create a storage bucket. Body: {bucketName, isPublic}. A public bucket serves objects without auth; a private one requires the key. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.storage_list_objects",
+      "summary": "List objects in a bucket (paginated). Path: bucket name. Query: limit, offset, prefix. Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_download",
+      "summary": "Download an object (returns its content). Path: bucket + object key. Counts toward bandwidth (5 GB free, then $0.09/GB)."
+    },
+    {
+      "name": "insforge.storage_delete",
+      "summary": "Delete an object. Path: bucket + object key. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.auth_config",
+      "summary": "Get your backend's auth configuration (enabled OAuth providers, JWT settings, SMTP). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.auth_list_users",
+      "summary": "List the end-users registered in your backend's auth (paginated). Query: limit, offset. Auth users count toward MAU (50,000 free, then $0.00325 per monthly active user)."
+    },
+    {
+      "name": "insforge.functions_list",
+      "summary": "List your deployed edge functions (Deno/TypeScript) and the runtime status. FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.function_invoke",
+      "summary": "Invoke a deployed edge function by slug. Path: function slug. Body: the JSON payload passed to the function. Each invocation counts toward edge-function calls (100,000 free, then $0.01 per 1,000)."
+    },
+    {
+      "name": "insforge.ai_gateway_key",
+      "summary": "Get your project's Model Gateway OpenRouter API key (sk-or-...). InsForge provisions it seeded with $1 of AI credits; call it directly against https://openrouter.ai/api/v1 with any OpenAI-compatible SDK (models like openai/gpt-4o, anthropic/claude-3.5-haiku). Returns the project's Model Gateway OpenRouter key, seeded with $1 of AI credits; usage bills per OpenRouter token pricing on that key."
+    },
+    {
+      "name": "insforge.secrets_list",
+      "summary": "List your backend's secrets/keys (names + metadata; values are not returned). FREE (control-plane / metadata)."
+    },
+    {
+      "name": "insforge.get",
+      "summary": "Escape hatch: GET any backend API path under /api. Path param is the sub-path (e.g. \"database/tables\", \"storage/config\"); extra fields become query params. Covers endpoints not given a dedicated method. Cost depends on the endpoint — see insforge.help."
+    },
+    {
+      "name": "insforge.post",
+      "summary": "Escape hatch: POST any backend API path under /api. Path param is the sub-path; the rest of the payload is sent as the JSON body. Covers endpoints not given a dedicated method. Cost depends on the endpoint."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "notes": [
+        "Published v 1.0.0"
+      ]
+    }
+  ],
+  "product_demo": {
+    "skill": "io.pilot.insforge",
+    "title": "Full usage demo",
+    "when_to_use": "When your agent needs its own isolated cloud backend — Postgres, auth, S3-style storage, edge functions, and an AI gateway key — provisioned in a single call.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Provision your own isolated backend in one call (no email, no browser)",
+      "command": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+      "expect": "{\"signed_up\":true,\"backend_url\":\"https://...insforge.dev\",\"api_key\":\"...\"}",
+      "note": "Run this ONCE. It caches your backend URL + key; every other insforge.* call then talks directly to YOUR backend. Idempotent per Pilot identity."
+    },
+    "examples": [
+      {
+        "title": "Create a Postgres table",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_create_table '{\"tableName\":\"notes\",\"columns\":[{\"columnName\":\"title\",\"type\":\"string\",\"isNullable\":false}]}'",
+        "expect": "{\"tableName\":\"notes\",\"columns\":[...]}",
+        "note": "id (uuid) + createdAt/updatedAt are added automatically. Wait ~3s before the first insert (schema cache reload)."
+      },
+      {
+        "title": "Insert rows (always a JSON array)",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_insert '{\"table\":\"notes\",\"records\":[{\"title\":\"hello\"}]}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\",\"createdAt\":\"...\"}]"
+      },
+      {
+        "title": "Query with filters + ordering",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.db_query '{\"table\":\"notes\",\"order\":\"createdAt.desc\",\"limit\":10}'",
+        "expect": "[{\"id\":\"...\",\"title\":\"hello\"}]"
+      },
+      {
+        "title": "Get your seeded AI Model Gateway key",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.ai_gateway_key '{}'",
+        "expect": "{\"api_key\":\"sk-or-...\"}",
+        "note": "OpenRouter key seeded with $1 of credits — call it against https://openrouter.ai/api/v1 with any OpenAI-compatible SDK."
+      },
+      {
+        "title": "Inspect the whole backend config",
+        "command": "pilotctl appstore call io.pilot.insforge insforge.metadata '{}'",
+        "expect": "{\"database\":{...},\"storage\":{...},\"functions\":{...},\"auth\":{...}}"
+      }
+    ],
+    "gotchas": [
+      "Run insforge.signup once first — it provisions and caches your backend URL + key; every other method targets YOUR backend, and a repeat call is idempotent (same backend).",
+      "Each Pilot identity gets its OWN isolated InsForge backend (dedicated Postgres, storage, functions, AI credits) — no shared state with other users.",
+      "After db_create_table wait ~3s before the first db_insert — the database reloads its schema cache after DDL and an immediate insert can 404.",
+      "db_insert always takes a JSON array of row objects, even for a single row.",
+      "Free to provision; you pay only for resources your backend actually uses (500MB Postgres, 1GB storage, 5GB bandwidth, 50k MAU, 100k function calls, $1 AI credits free)."
+    ],
+    "next": [
+      "io.pilot.insforge insforge.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.insforge",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "no backend provisioned on this host yet — this call did not fail, it soft-failed: every insforge.* method returns needs_signup until you sign up once",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent: mints your OWN isolated backend (Postgres, auth, storage, functions) and caches its url + key",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "your backend rejected this host's api_key — it is missing, revoked, or shadowed by an empty INSFORGE_API_KEY",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "re-runs the one-call provisioning; idempotent per Pilot identity, so you get the SAME backend back rather than a second project",
+            "kind": "gateway"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.account '{}'",
+            "why": "local and free: shows the cached backend_url and signed_up flag, so you can tell 'never provisioned' from 'key no longer accepted'",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_create_table",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called insforge.db_create_table but this host has no account yet — the call soft-failed and no table was created; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "ok",
+        "match": "\"needs_signup\"\\s*:\\s*true",
+        "why": "you called insforge.db_insert but this host has no account yet — the call soft-failed and no rows were written; sign up once and it works from then on",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.signup '{}'",
+            "why": "free, zero-argument, idempotent — then re-run the call above unchanged",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "insforge.signup",
+        "on": "ok",
+        "why": "your backend is live — it starts empty, so the first useful move is to give it a table",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_create_table '{\"tableName\":\"notes\",\"columns\":[{\"columnName\":\"title\",\"type\":\"string\",\"isNullable\":false}]}'",
+            "why": "id, createdAt and updatedAt are added for you; 500 MB of Postgres is free. type is one of string/integer/float/boolean/datetime/date/uuid/json",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.metadata '{}'",
+            "why": "free: the whole backend's configuration — tables, buckets, functions, auth, AI models — in one call if you would rather look before writing",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_create_table",
+        "on": "ok",
+        "why": "the table exists, but Postgres reloads its schema cache after DDL — wait ~3s before the first insert or it 404s",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_insert '{\"table\":\"notes\",\"records\":[{\"title\":\"first note\"}]}'",
+            "why": "`records` is ALWAYS an array, even for one row; returns the inserted rows with their generated ids",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "ok",
+        "why": "rows are in — read them back with PostgREST-style filters, or drop to raw SQL for joins and aggregates",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_query '{\"table\":\"notes\",\"limit\":10,\"order\":\"createdAt.desc\"}'",
+            "why": "newest first; add any {field}=<op>.<value> filter (eq, neq, gt, like, ilike, in, is)",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_sql '{\"query\":\"SELECT count(*) FROM notes\"}'",
+            "why": "raw parameterized SQL against your own Postgres — the escape hatch for joins, aggregates and migrations",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "insforge.db_insert",
+        "on": "err",
+        "code": 404,
+        "why": "a 404 on insert almost always means the schema cache has not caught up with a just-created table, not that the table is missing",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.insforge insforge.db_list_tables '{}'",
+            "why": "free: confirms the table and its columns really exist. If it is listed, wait ~3s and re-run the insert unchanged",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  }
+}

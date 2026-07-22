@@ -136,6 +136,27 @@ type Config struct {
 	// Feature flags — ablation testing. All default false (current behavior).
 	BeaconRTTProbe bool // probe beacon RTT; override hash pick when >2× slower than best
 
+	// DisableRxWatchdog turns off the inbound-path watchdog (rxwatchdog.go).
+	// The watchdog detects the long-uptime wedge where the daemon keeps
+	// transmitting but the inbound UDP path has silently died (stale NAT /
+	// relay mapping — 2026-07-13 incident: 43.5 MB sent vs 102 KB received
+	// over 2d19h, every send-message failing with "cannot connect"). It
+	// first soft-recovers (beacon + registry re-registration) and, if the
+	// wedge persists on a supervised daemon, exits non-zero so
+	// launchd/systemd respawns with a clean transport. Default false
+	// (watchdog on) — the wedge otherwise requires a manual restart.
+	DisableRxWatchdog bool
+
+	// DisablePathWatch turns off the per-peer path watchdog
+	// (pathwatch.go). The watchdog detects a SINGLE peer's NAT/relay
+	// mapping dying while other peers stay healthy (so the global
+	// rx-watchdog never fires), probes the peer with pong-soliciting
+	// pings that every deployed daemon version answers, and on
+	// sustained silence resets that one peer's path in place (same
+	// sequence as `pilotctl prefer-direct`) instead of requiring a
+	// full daemon restart. Default false (watchdog on).
+	DisablePathWatch bool
+
 	// Telemetry consent gate. When set to the telemetry endpoint URL,
 	// the daemon initialises a telemetry client that emits signed events
 	// (install, usage, view, review). When empty (default), the client
@@ -331,6 +352,28 @@ type Daemon struct {
 	// during Start; torn down before tunnels in doStop. (T4.3.)
 	netSubMu   sync.Mutex
 	netSubStop func()
+
+	// lastRegistryOKNano is the unix-nano time of the last successful
+	// registry interaction (initial registration, heartbeat, or
+	// re-registration). The rx watchdog uses it to distinguish "data
+	// plane wedged, control plane fine" (restart helps — the incident
+	// signature) from "whole network unreachable" (restart just loops).
+	lastRegistryOKNano atomic.Int64
+
+	// lastDialOKNano / consecutiveDialTimeouts feed the rx watchdog's
+	// PARTIAL-wedge detector. A daemon can be "up" with rx trickling —
+	// a couple of keepalive packets from existing peers keep PktsRecv
+	// advancing, so the rx-silence check stays quiet — yet be unable to
+	// open a single new outbound data-exchange connection: every
+	// DialConnection returns ErrDialTimeout. Observed 2026-07-15, the
+	// overlay went dark (pilot-director + list-agents both unreachable)
+	// and the watchdog did NOT fire because the keepalive trickle reset
+	// its silence timer every tick; only a manual daemon restart cleared
+	// it. consecutiveDialTimeouts counts back-to-back dial timeouts
+	// (reset to 0 on any successful dial); a run of them to distinct
+	// peers means our outbound path is wedged, not that one peer is dead.
+	lastDialOKNano          atomic.Int64
+	consecutiveDialTimeouts atomic.Uint64
 
 	startTime       time.Time
 	stopCh          chan struct{}         // closed on Stop() to signal goroutines
@@ -653,6 +696,12 @@ func (d *Daemon) SetRekeyWhitelist(nodeIDs []uint32) {
 }
 
 func (d *Daemon) Start() error {
+	// Stamp startTime before any background goroutine launches — the rx
+	// watchdog reads it from its own goroutine for the min-uptime guard,
+	// and the historical assignment at the bottom of Start left a window
+	// where a loop could read the zero value.
+	d.startTime = time.Now()
+
 	// Warm the hostname cache from disk before the IPC server comes up,
 	// so the first send-message after restart hits the cache instead of
 	// pounding regConn for a fresh resolve_hostname.
@@ -1056,6 +1105,7 @@ func (d *Daemon) Start() error {
 	d.addrMu.Unlock()
 
 	slog.Info("daemon registered", "node_id", d.nodeID, "addr", d.addr, "endpoint", registrationAddr)
+	d.lastRegistryOKNano.Store(time.Now().UnixNano())
 
 	// T4.1: webhook is now a bus subscriber owned by plugins/webhook.
 	// cmd/daemon (composition root) constructs the plugin and starts
@@ -1183,6 +1233,17 @@ func (d *Daemon) Start() error {
 	d.bgWG.Add(1)
 	go func() { defer d.bgWG.Done(); d.observabilityHeartbeatLoop() }()
 
+	// 8b. Start inbound-path watchdog (L4). Detects the "transmitting into
+	// a dead NAT mapping" wedge and recovers — see rxwatchdog.go.
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.rxWatchdogLoop() }()
+
+	// 8c. Start per-peer path watchdog (L4). Detects a single peer's
+	// NAT/relay mapping dying while others stay healthy and resets that
+	// peer's path in place — see pathwatch.go.
+	d.bgWG.Add(1)
+	go func() { defer d.bgWG.Done(); d.pathWatchLoop() }()
+
 	// 9. Start idle connection sweeper
 	d.bgWG.Add(1)
 	go func() { defer d.bgWG.Done(); d.idleSweepLoop() }()
@@ -1260,7 +1321,6 @@ func (d *Daemon) Start() error {
 	// runtime.StartPlugins(ctx) AFTER this Start returns. This
 	// inversion is T7.1: pkg/daemon no longer imports pkg/coreapi.
 
-	d.startTime = time.Now()
 	slog.Info("daemon running", "node_id", d.nodeID, "addr", d.addr)
 	return nil
 }
@@ -1781,10 +1841,42 @@ func (d *Daemon) NodeID() uint32 {
 // them for SYN-handler enforcement. Called at startup and after IPC joins.
 func (d *Daemon) loadNetworkPolicies() {
 	nets := d.nodeNetworks()
-	policies := make(map[uint16][]uint16, len(nets))
+
+	// Snapshot the current cache so a transient GetNetworkPolicy error
+	// carries the last-known policy FORWARD instead of dropping it.
+	// Dropping an entry makes isPortAllowed fall through to allow-all
+	// (empty list == no restriction), so a restricted network would go
+	// silently unrestricted on any registry hiccup — a fail-OPEN hole.
+	// A restriction is relaxed only by an explicit successful response
+	// that no longer lists it, never by a failed lookup.
+	d.netPolicyMu.RLock()
+	prior := make(map[uint16][]uint16, len(d.netPolicies))
+	for k, v := range d.netPolicies {
+		prior[k] = v
+	}
+	d.netPolicyMu.RUnlock()
+
+	results := make([]netPolicyResult, 0, len(nets))
 	for _, netID := range nets {
-		resp, err := d.regConn.GetNetworkPolicy(netID)
+		var resp map[string]interface{}
+		var err error
+		// Bounded retry so a transient blip on the very first load (when
+		// there is no prior to fall back to) still self-heals quickly.
+		for attempt := 0; attempt < 3; attempt++ {
+			if resp, err = d.regConn.GetNetworkPolicy(netID); err == nil {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 		if err != nil {
+			_, hadPrior := prior[netID]
+			slog.Warn("network policy load failed — retaining last-known policy, not failing open",
+				"net_id", netID, "had_prior", hadPrior, "err", err)
+			d.publishEvent("network.policy_load_failed", map[string]any{
+				"net_id":    netID,
+				"had_prior": hadPrior,
+			})
+			results = append(results, netPolicyResult{netID: netID, err: err})
 			continue
 		}
 		portsRaw, _ := resp["allowed_ports"].([]interface{})
@@ -1794,13 +1886,43 @@ func (d *Daemon) loadNetworkPolicies() {
 				ports = append(ports, uint16(f))
 			}
 		}
-		if len(ports) > 0 {
-			policies[netID] = ports
-		}
+		results = append(results, netPolicyResult{netID: netID, ports: ports})
 	}
+
+	newPolicies := mergeNetworkPolicies(prior, results)
 	d.netPolicyMu.Lock()
-	d.netPolicies = policies
+	d.netPolicies = newPolicies
 	d.netPolicyMu.Unlock()
+}
+
+// netPolicyResult is one network's port-policy fetch outcome, fed to
+// mergeNetworkPolicies.
+type netPolicyResult struct {
+	netID uint16
+	ports []uint16
+	err   error
+}
+
+// mergeNetworkPolicies computes the new port-policy cache from the fetch
+// results and the prior cache. A FAILED fetch retains the prior policy
+// (fail-CLOSED — a transient registry error must not drop a restriction
+// and silently relax the network to allow-all); a SUCCESSFUL fetch is
+// stored verbatim, including an empty list, which explicitly means "no
+// restriction" and is the only thing that relaxes an existing policy.
+// Pure function so the fail-closed invariant is unit-testable without a
+// live registry.
+func mergeNetworkPolicies(prior map[uint16][]uint16, results []netPolicyResult) map[uint16][]uint16 {
+	policies := make(map[uint16][]uint16, len(results))
+	for _, r := range results {
+		if r.err != nil {
+			if p, ok := prior[r.netID]; ok {
+				policies[r.netID] = p
+			}
+			continue
+		}
+		policies[r.netID] = r.ports
+	}
+	return policies
 }
 
 // isPortAllowed checks whether dstPort is permitted by the network's AllowedPorts
@@ -3645,6 +3767,10 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				if st == StateEstablished {
 					d.startRetxLoop(conn)
 				}
+				// A completed handshake proves the outbound path is alive —
+				// clears the rx-watchdog's partial-wedge signal.
+				d.lastDialOKNano.Store(time.Now().UnixNano())
+				d.consecutiveDialTimeouts.Store(0)
 				return conn, nil
 			}
 			if st == StateClosed {
@@ -3691,6 +3817,10 @@ func (d *Daemon) dialConnectionLocked(ctx context.Context, dstAddr protocol.Addr
 				if relayActivatedHere && !d.tunnels.IsRelayPinned(dstAddr.Node) {
 					d.tunnels.SetRelayPeer(dstAddr.Node, false)
 				}
+				// Full direct+relay retry budget exhausted with no SYN-ACK.
+				// Feeds the rx-watchdog's partial-wedge detector: a run of
+				// these to distinct peers means our outbound is wedged.
+				d.consecutiveDialTimeouts.Add(1)
 				return nil, protocol.ErrDialTimeout
 			}
 			// Resend SYN (uses relay if relayActive)
@@ -4950,6 +5080,7 @@ func (d *Daemon) trustRepublishLoop() {
 				}
 				consecutiveFailures = 0
 				reregBackoff = 100 * time.Millisecond
+				d.lastRegistryOKNano.Store(time.Now().UnixNano())
 			}
 		}
 	}
@@ -5102,6 +5233,7 @@ func (d *Daemon) reRegister() {
 	nodeID := d.nodeID
 	slog.Info("re-registered", "node_id", nodeID, "addr", d.addr)
 	d.addrMu.Unlock()
+	d.lastRegistryOKNano.Store(time.Now().UnixNano())
 	d.publishEvent("node.reregistered", map[string]interface{}{
 		"address": d.addr.String(),
 	})

@@ -238,7 +238,9 @@ func TestRBACAdminCanInvite(t *testing.T) {
 	}
 	netID := uint16(netResp["network_id"].(float64))
 
-	// Use admin token to invite admin-to-be and member-to-be (bootstrapping)
+	// Use admin token to invite admin-to-be and member-to-be (bootstrapping).
+	// InviteToNetwork always signs (common@v0.5.7); sign as the owner/inviter.
+	setClientSigner(rc, id1)
 	_, err = rc.InviteToNetwork(netID, ownerID, adminID, env.AdminToken)
 	if err != nil {
 		t.Fatalf("invite admin: %v", err)
@@ -627,7 +629,9 @@ func TestRBACInviteAcceptGetsRole(t *testing.T) {
 	}
 	netID := uint16(netResp["network_id"].(float64))
 
-	// Owner invites target (admin token for bootstrap)
+	// Owner invites target (admin token for bootstrap). InviteToNetwork
+	// always signs (common@v0.5.7); sign as the owner/inviter.
+	setClientSigner(rc, id1)
 	_, err = rc.InviteToNetwork(netID, ownerID, targetID, env.AdminToken)
 	if err != nil {
 		t.Fatalf("invite: %v", err)

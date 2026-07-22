@@ -61,3 +61,35 @@ func TestScanInstalledApps(t *testing.T) {
 }
 
 const hex64 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+func TestOutdatedReason(t *testing.T) {
+	cases := []struct {
+		name                                       string
+		instVer, catVer, instSHA, catSHA, expected string
+	}{
+		{"newer version", "1.0.0", "1.1.0", "aaa", "bbb", "version"},
+		{"newer version even if sha same", "1.0.0", "1.1.0", "aaa", "aaa", "version"},
+		{"same version, bundle rebuilt", "0.1.3", "0.1.3", "aaa", "bbb", "rebuilt"},
+		{"same version, same bundle → up to date", "0.1.3", "0.1.3", "aaa", "aaa", ""},
+		{"same version, no recorded sha (pre-feature) → up to date", "0.1.3", "0.1.3", "", "bbb", ""},
+		{"same version, catalogue sha unknown → up to date", "0.1.3", "0.1.3", "aaa", "", ""},
+		{"older installed than catalogue is 'version'", "2.0.0", "2.0.1", "aaa", "bbb", "version"},
+		{"installed newer than catalogue → not outdated", "1.2.0", "1.1.0", "aaa", "bbb", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := outdatedReason(c.instVer, c.catVer, c.instSHA, c.catSHA); got != c.expected {
+				t.Fatalf("outdatedReason(inst=%s,cat=%s,iSHA=%s,cSHA=%s)=%q want %q",
+					c.instVer, c.catVer, c.instSHA, c.catSHA, got, c.expected)
+			}
+		})
+	}
+}
+
+// The aegis case, concretely: a same-version republish MUST be flagged as
+// rebuilt so `upgrade --all` picks up the fixed bundle without a version bump.
+func TestOutdatedReasonCatchesSameVersionRepublish(t *testing.T) {
+	if outdatedReason("0.1.3", "0.1.3", "ae40da40oldsha", "c8416c11newsha") != "rebuilt" {
+		t.Fatal("a rebuilt same-version bundle must be flagged 'rebuilt' (the aegis argv-fix case)")
+	}
+}

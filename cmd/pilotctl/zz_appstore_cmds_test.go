@@ -946,6 +946,55 @@ func TestCmdAppStoreCatalogueTextViewPointerHint(t *testing.T) {
 	}
 }
 
+// TestCmdAppStoreCatalogueDisplayNameHeadline asserts that text-mode
+// output uses the DisplayName (headline) field when present, not the
+// full Description. This is the core behaviour change for PILOT-405:
+// list shows short headline, `view` shows full detail.
+func TestCmdAppStoreCatalogueDisplayNameHeadline(t *testing.T) {
+	stageCatalogue(t, `{"version":2,"updated_at":"2026-06-17","apps":[
+		{"id":"io.pilot.wallet","version":"1.0.0","display_name":"Pilot Wallet","description":"Manages x402 payment credentials and token allowances for the daemon","metadata_url":"https://x/meta.json","metadata_sha256":"abc","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"}
+	]}`)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+
+	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
+
+	// The headline (DisplayName) must appear, not the full description.
+	if !strings.Contains(out, "Pilot Wallet") {
+		t.Errorf("DisplayName missing from catalogue output (should be headline):\n%s", out)
+	}
+	// The full Description must NOT appear — only the headline.
+	if strings.Contains(out, "token allowances") {
+		t.Errorf("full Description leaked into catalogue output:\n%s", out)
+	}
+	// View pointer hint must still be present.
+	if !strings.Contains(out, "Run 'pilotctl appstore view <id>' for full details.") {
+		t.Errorf("view-pointer hint missing from catalogue output:\n%s", out)
+	}
+}
+
+// TestCmdAppStoreCatalogueDisplayNameFallback asserts that when
+// DisplayName is absent, the Description field is used as the
+// headline (back-compat for v1 catalogue entries).
+func TestCmdAppStoreCatalogueDisplayNameFallback(t *testing.T) {
+	stageCatalogue(t, `{"version":1,"updated_at":"2026-06-17","apps":[
+		{"id":"io.pilot.wallet","version":"1.0.0","description":"Manages x402 payment credentials","bundle_url":"https://x/a.tgz","bundle_sha256":"abc"}
+	]}`)
+
+	prev := jsonOutput
+	defer func() { jsonOutput = prev }()
+	jsonOutput = false
+
+	out := captureStdout(t, func() { cmdAppStoreCatalogue(nil) })
+
+	// Without DisplayName, Description should still appear.
+	if !strings.Contains(out, "Manages x402 payment credentials") {
+		t.Errorf("Description missing from catalogue output:\n%s", out)
+	}
+}
+
 // TestCmdAppStoreCatalogueJSONUnchanged confirms --json output is unchanged:
 // it still emits a JSON array of catalogue entries (PILOT-405).
 func TestCmdAppStoreCatalogueJSONUnchanged(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestSecureChannel(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 	env := NewTestEnv(t)
 

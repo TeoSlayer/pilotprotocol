@@ -17,6 +17,7 @@ import (
 // TestRegistryHealthEndpoint verifies that the registry /healthz endpoint returns
 // valid JSON with status "ok", version, uptime_seconds, and nodes_online.
 func TestRegistryHealthEndpoint(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	// Start a registry server
@@ -115,6 +116,7 @@ func TestRegistryHealthEndpoint(t *testing.T) {
 
 // TestRegistryHealthEndpointNoNodes verifies that /healthz works with zero nodes.
 func TestRegistryHealthEndpointNoNodes(t *testing.T) {
+	requireRealNetwork(t)
 	t.Parallel()
 
 	reg := registry.New("127.0.0.1:9001")

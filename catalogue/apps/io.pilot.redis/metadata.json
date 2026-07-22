@@ -104,5 +104,111 @@
       "label": "Website",
       "url": "https://redis.io"
     }
-  ]
+  ],
+  "product_demo": {
+    "skill": "io.pilot.redis",
+    "title": "Full usage demo",
+    "when_to_use": "When you need a fast in-memory key/value store for caching, counters, session state, queues or ephemeral shared data — not for relational queries or durable structured storage.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Confirm the client works (no server needed)",
+      "command": "pilotctl appstore call io.pilot.redis redis.version '{}'",
+      "expect": "the delivered client version, e.g. \"redis-cli 8.6.2\""
+    },
+    "examples": [
+      {
+        "title": "Start a local server",
+        "goal": "Bring up Redis before any data ops",
+        "command": "pilotctl appstore call io.pilot.redis redis.start '{\"port\":\"6399\",\"dir\":\"/tmp\"}'",
+        "expect": "server daemonized on 127.0.0.1:6399; pidfile/logfile/RDB written under /tmp"
+      },
+      {
+        "title": "Set a key",
+        "goal": "Store a string value",
+        "command": "pilotctl appstore call io.pilot.redis redis.set '{\"port\":\"6399\",\"key\":\"session:42\",\"value\":\"active\"}'",
+        "expect": "OK"
+      },
+      {
+        "title": "Get the key back",
+        "goal": "Read the value you just wrote",
+        "command": "pilotctl appstore call io.pilot.redis redis.get '{\"port\":\"6399\",\"key\":\"session:42\"}'",
+        "expect": "active"
+      },
+      {
+        "title": "Set a TTL via the raw CLI",
+        "goal": "Expire a cache entry after 60s using redis.exec",
+        "command": "pilotctl appstore call io.pilot.redis redis.exec '{\"args\":[\"redis-cli\",\"-p\",\"6399\",\"EXPIRE\",\"session:42\",\"60\"]}'",
+        "expect": "(integer) 1 — the key will auto-delete after 60 seconds"
+      },
+      {
+        "title": "Count keys",
+        "goal": "Check how many keys the db holds",
+        "command": "pilotctl appstore call io.pilot.redis redis.dbsize '{\"port\":\"6399\"}'",
+        "expect": "(integer) 1"
+      }
+    ],
+    "gotchas": [
+      "You must redis.start a server before ping/set/get/dbsize — only redis.version works with no server.",
+      "port is a string (\"6399\"), and each server needs its own port + writable dir.",
+      "redis.stop does no final save; use redis.exec with SAVE first if you need the RDB persisted.",
+      "redis.set/get handle plain strings; for lists, hashes, EXPIRE etc. drop to redis.exec with a verbatim argv."
+    ],
+    "next": [
+      "io.pilot.redis redis.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.redis",
+    "edges": [
+      {
+        "from": "*",
+        "on": "ok",
+        "match": "Could not connect to Redis",
+        "why": "no server is listening yet — every data op needs one running first (note this exits 0: the failure is inside the payload, not the exit code)",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.redis redis.start '{\"port\":\"6399\",\"dir\":\"/tmp\"}'",
+            "why": "start a daemonized server on 127.0.0.1:6399; dir must be an existing writable directory for its pidfile/log/RDB",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "*",
+        "on": "err",
+        "match": "missing required param",
+        "why": "every redis method addresses a server by port — there is no default",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.redis redis.set '{\"port\":\"6399\",\"key\":\"session:42\",\"value\":\"active\"}'",
+            "why": "pass port (a string) alongside the method's own params",
+            "kind": "recovery"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.redis redis.start '{\"port\":\"6399\",\"dir\":\"/tmp\"}'",
+            "why": "that port only answers if a server is running — start one first if you have not",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "redis.start",
+        "on": "ok",
+        "why": "server is up — write and read keys against the same port",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.redis redis.set '{\"port\":\"6399\",\"key\":\"session:42\",\"value\":\"active\"}'",
+            "why": "store a string value; redis.get reads it back",
+            "kind": "flow"
+          },
+          {
+            "cmd": "pilotctl appstore call io.pilot.redis redis.exec '{\"args\":[\"redis-cli\",\"-p\",\"6399\",\"LPUSH\",\"mylist\",\"a\",\"b\",\"c\"]}'",
+            "why": "set/get only do strings — lists, hashes, TTLs, streams and every other command go through redis.exec",
+            "kind": "flow"
+          }
+        ]
+      }
+    ]
+  }
 }

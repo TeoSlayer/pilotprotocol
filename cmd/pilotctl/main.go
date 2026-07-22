@@ -188,7 +188,7 @@ func classifyDaemonError(err error) string {
 func fatalHint(code, hint, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if jsonOutput {
-		env := map[string]string{
+		env := map[string]any{
 			"status":  "error",
 			"code":    code,
 			"message": msg,
@@ -198,10 +198,19 @@ func fatalHint(code, hint, format string, args ...interface{}) {
 		if importantUpdate != "" {
 			env["important_update"] = importantUpdate
 		}
+		// Structured recovery steps for a failed `appstore call` (nil for every
+		// other exit). Additive: existing keys keep their shape and value.
+		if ns := nextStepsEnvelope(exitNextSteps); ns != nil {
+			env["next_steps"] = ns
+		}
 		b, _ := json.Marshal(env)
 		fmt.Fprintln(os.Stderr, string(b))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: %s\nhint:  %s\n", msg, hint)
+		// Printed last, after the error it resolves — the reason this is a
+		// package var drained here rather than a print at the call site: only
+		// fatalHint knows where the output ends, because only it exits.
+		printNextSteps(exitNextSteps)
 	}
 	os.Exit(1)
 }
@@ -914,8 +923,8 @@ Flags:
 Listen on a port and print incoming messages.
 
 Flags:
-  --count <n>           stop after N messages (default: unlimited)
-  --timeout <dur>       idle timeout (default: unlimited)
+  --count <n>           stop after N messages (default: 1)
+  --timeout <dur>       idle timeout (default: 30s)
 `,
 	"listen": `Usage: pilotctl listen <port> [flags]
 
@@ -1324,9 +1333,13 @@ Subcommands:
 
 The daemon reconciles skill files every 15 minutes automatically.
 `,
-	"broadcast": `Usage: pilotctl broadcast <network_id> <message>
+	"broadcast": `Usage: pilotctl broadcast <network_id> <message> [flags]
 
-Broadcast a message to all members of a network.
+Broadcast a message to all members of a network. Requires an admin token
+(PILOT_ADMIN_TOKEN env var or admin_token in ~/.pilot/config.json).
+
+Flags:
+  --port <port>         destination port on each member (default: 1000)
 `,
 	"subscribe": `Usage: pilotctl subscribe <address|hostname> <topic> [flags]
 
@@ -1976,13 +1989,13 @@ func cmdQuickstart() {
 Getting started with Pilot Protocol in 3 commands:
 
   1. DISCOVER — see who is out there:
-       pilotctl send-message list-agents --data "list all agents"
+       pilotctl send-message list-agents --data '/data {"search":"","limit":10}' --wait
 
   2. TRUST   — shake hands with an agent:
        pilotctl handshake <node_id>
 
   3. TALK    — send your first message:
-       pilotctl send-message <node_id> --data "Hello, world!"
+       pilotctl send-message <node_id> --data "Hello, world!" --wait
 
 First-time setup (run once):
      pilotctl init --registry 34.71.57.205:9000
@@ -2791,8 +2804,12 @@ func cmdDaemonStart(args []string) {
 		if err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist).Run(); err != nil {
 			fatalCode("internal", "launchctl bootstrap: %v", err)
 		}
-		// Poll socket until daemon is responsive.
-		waitDeadline := time.Now().Add(10 * time.Second)
+		// Poll socket until daemon is responsive. 30s, not 10s: a daemon
+		// with installed app-store apps spawns them before IPC comes up,
+		// which can push readiness past 10s on a loaded machine — and a
+		// premature "not ready" here reads as a failed start even though
+		// launchd keeps supervising and the daemon finishes booting fine.
+		waitDeadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(waitDeadline) {
 			if d, err := driver.Connect(getSocket()); err == nil {
 				if _, err := d.Info(); err == nil {
@@ -2808,17 +2825,29 @@ func cmdDaemonStart(args []string) {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		fatalCode("timeout", "launchd loaded the agent but the socket did not become ready within 10s")
+		fatalHint("timeout",
+			"launchd is still supervising it — check `pilotctl daemon status` and the daemon log",
+			"launchd loaded the agent but the socket did not become ready within 30s")
 	}
 
 	// Check if already running
 	if pid := readPID(); pid > 0 {
-		if processExists(pid) {
+		if pidLooksLikeDaemon(pid) {
 			fatalHint("already_exists",
 				"stop it first with: pilotctl daemon stop",
 				"daemon is already running (pid %d)", pid)
 		}
-		// Stale PID file — clean up silently
+		// Stale PID file (dead daemon, or the PID was recycled by an
+		// unrelated process) — clean up silently.
+		os.Remove(pidFilePath())
+	} else if _, err := os.Stat(pidFilePath()); err == nil {
+		// The file exists but holds no usable PID (empty, garbage, or the
+		// literal "0" a pre-fix --foreground start left behind and never
+		// replaced). That is never a live daemon — but before this branch
+		// existed, the O_EXCL claim below failed on it with "PID file
+		// locked" FOREVER, turning any crash of a --foreground daemon
+		// (systemd units) into a permanent restart loop that respawn
+		// could not clear. Remove it so the claim can proceed.
 		os.Remove(pidFilePath())
 	}
 
@@ -2856,6 +2885,14 @@ func cmdDaemonStart(args []string) {
 	// handling matches what the user expects from systemd unit files
 	// or shell wrappers.
 	if flagBool(flags, "foreground") {
+		// Record OUR pid as the daemon's: syscall.Exec replaces the
+		// process image but keeps the PID, so after the exec this IS the
+		// daemon's pid. Without this the file kept the "0" placeholder
+		// from the claim above forever — `status` showed "pid file
+		// stale", and after any crash the next start found a file with
+		// no usable PID and died on the O_EXCL claim ("PID file
+		// locked"), an unrecoverable restart loop under systemd.
+		_ = os.WriteFile(pidFilePath(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600)
 		// syscall.Exec needs argv[0] to be the binary name. Pass the
 		// full env. Inject PILOT_ADMIN_TOKEN so the daemon doesn't
 		// need the token on its argv (PILOT-290).
@@ -3026,7 +3063,10 @@ func cmdDaemonStop() {
 		discovered = true
 	}
 
-	if !processExists(pid) {
+	if !pidLooksLikeDaemon(pid) {
+		// Dead, or the PID now belongs to an UNRELATED process (reuse
+		// after reboot/rollover). Either way we must not signal it —
+		// SIGTERM/SIGKILL below would hit a bystander.
 		if !discovered {
 			os.Remove(pidFilePath()) // #nosec G104 -- best-effort removal of stale PID file; failure is non-fatal
 		}
@@ -3073,7 +3113,7 @@ func cmdDaemonStatus(args []string) {
 
 	pid := readPID()
 	running := false
-	if pid > 0 && processExists(pid) {
+	if pidLooksLikeDaemon(pid) {
 		running = true
 	}
 
@@ -3232,6 +3272,45 @@ func processExists(pid int) bool {
 	}
 	// On Unix, FindProcess always succeeds. Use Signal(0) to check.
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// pidLooksLikeDaemon reports whether pid is alive AND its command line
+// looks like a pilot daemon. Signal(0) alone (processExists) matches ANY
+// process that inherited the number after a reboot or PID rollover —
+// which made `daemon start` refuse ("already running") and, worse, let
+// `daemon stop` SIGTERM an innocent process. Every pidfile consumer
+// that acts on the PID goes through this instead.
+//
+// If the process is alive but its cmdline can't be inspected, we return
+// false: for `start` the live-socket probe is the authoritative
+// double-start guard anyway, and for `stop` the socket-owner discovery
+// path takes over — both fail safe.
+func pidLooksLikeDaemon(pid int) bool {
+	if pid <= 0 || !processExists(pid) {
+		return false
+	}
+	var cmdline string
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		cmdline = strings.ReplaceAll(string(data), "\x00", " ")
+	} else {
+		// #nosec G204 -- fixed argv; pid is an integer we formatted ourselves
+		out, psErr := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+		if psErr != nil {
+			return false
+		}
+		cmdline = string(out)
+	}
+	// Match on the executable's base name, not a substring — a substring
+	// like "daemon" would match containerd/systemd-journald and make the
+	// stop path lethal to bystanders. Accept the two names the binary
+	// ships under: "pilot-daemon" (installs) and "daemon" (raw release
+	// archive / `make build` output).
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 {
+		return false
+	}
+	base := filepath.Base(fields[0])
+	return base == "pilot-daemon" || base == "daemon"
 }
 
 // discoverDaemonPID finds the PID of the process holding the daemon's Unix

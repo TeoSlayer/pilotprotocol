@@ -42,7 +42,7 @@
 
 The internet was built for humans. AI agents have no address, no identity, no way to be reached. Pilot Protocol is an overlay network that gives agents what the internet gave devices: **a permanent address, authenticated encrypted channels, and a trust model** -- all layered on top of standard UDP.
 
-Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers -- never through a central server. It is not an API. It is not a framework. It is infrastructure.
+Agents register with a rendezvous service for discovery and NAT traversal. Application data flows directly between peers on the direct path; when NAT hole-punching fails (e.g. symmetric NAT), the beacon relays the still end-to-end-encrypted traffic as a fallback. It is not an API. It is not a framework. It is infrastructure.
 
 ---
 
@@ -234,7 +234,7 @@ graph LR
     end
 ```
 
-Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon maintains a connection to a **rendezvous** server (registry + beacon) for node registration, peer discovery, and NAT hole-punching. Once a tunnel is established, data flows directly between daemons -- the rendezvous is not in the data path.
+Your agent talks to a local **daemon** over a Unix socket. The daemon handles tunnel encryption, NAT traversal, packet routing, congestion control, and built-in services. The daemon maintains a connection to a **rendezvous** server (registry + beacon) for node registration, peer discovery, and NAT hole-punching. Once a tunnel is established, data flows directly between daemons -- the rendezvous is not in the data path, except when the beacon must relay traffic for peers behind symmetric NATs (relayed traffic stays end-to-end encrypted).
 
 A public rendezvous is provided at `34.71.57.205:9000`, or you can run your own with `rendezvous -registry-addr :9000 -beacon-addr :9001`.
 
@@ -300,7 +300,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 **Uninstall:** `curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall`
 
-**From source** (requires Go 1.25+): `git clone https://github.com/TeoSlayer/pilotprotocol.git && cd pilotprotocol && make build`
+**From source** (requires Go 1.25+): `git clone https://github.com/pilot-protocol/pilotprotocol.git && cd pilotprotocol && make build`
 
 </details>
 
@@ -480,6 +480,7 @@ Most daemon flags have an environment variable equivalent. Useful for containeri
 | `PILOT_REPLY_WHITELIST` | `-reply-whitelist` | Nodes exempt from reply rate limit |
 | `PILOT_REKEY_WHITELIST` | `-rekey-whitelist` | Nodes exempt from rekey rate limit |
 | `PILOT_FLAG_<NAME>` | — | Feature flag override (`true`/`false`) |
+| `PILOT_APP_UPDATE_OPT_OUT` | — | Opt out of automatic **app-store** updates. Set to `true` and the `pilot-updater` stops checking for and installing app updates — installed apps stay at their current version. Unset or `false` (the default) keeps app auto-updates on. Pilot daemon/CLI binary updates are unaffected. Read by `pilot-updater` at startup, so set it in the updater's service environment and restart the updater to change it. (Legacy alias: `PILOT_UPDATER_NO_APP_UPGRADE`.) |
 
 ---
 

@@ -9,9 +9,44 @@ Detailed per-release notes are on the
 
 ## [Unreleased]
 
-Reliable P2P data transfer across NAT. Tag intentionally held for review.
+### Added
+- **Opt out of automatic app-store updates with `PILOT_APP_UPDATE_OPT_OUT`.** The
+  `pilot-updater` keeps installed apps current by periodically running
+  `pilotctl appstore upgrade --all`. Set `PILOT_APP_UPDATE_OPT_OUT=true` in the
+  updater's environment and it stops checking for and installing app updates —
+  installed apps stay at the version you installed. Unset it or set it to
+  `false` (the default) to switch app auto-updates back on. Pilot daemon/CLI
+  binary updates are never affected. Honors the existing
+  `PILOT_UPDATER_NO_APP_UPGRADE` as a back-compat alias.
+
+### Fixed
+- **The `pilotctl skills disable` opt-out now survives updates and explicit
+  reconciles.** A forced reconcile — `pilotctl skills check`, `pilotctl update`,
+  or an installer re-run — bypassed the disabled flag and re-injected skills a
+  user had turned off. The opt-out is now a hard gate on every write path; only
+  the read-only `pilotctl skills` status still previews. (skillinject)
+
+## [1.12.8] - 2026-07-16
+
+Reliable P2P data transfer across NAT, plus cold-start onboarding fixes: agents
+now reach the network on their first install instead of stalling before it.
 
 ### Added
+- **Inbound-path watchdog — the long-uptime NAT wedge now auto-recovers.**
+  A daemon could run for days transmitting into a stale NAT/relay mapping
+  while receiving nothing (2026-07-13 incident: 43.5 MB sent vs 102 KB
+  received over 2d19h, every `send-message` failing with "cannot connect
+  (data exchange port 1001)") — the registry heartbeat is TCP and kept
+  succeeding, so nothing noticed until a manual restart. The daemon now
+  watches for delivered-packet silence while transmit stays active, first
+  soft-recovers (beacon re-registration — whose discover reply doubles as
+  an active inbound probe — plus registry re-registration), and if the
+  wedge persists on a supervised daemon, exits with code 86 so
+  launchd/systemd respawns it with a fresh transport. Guarded against
+  flapping: never exits when the registry is also unreachable (machine
+  offline), when inbound never worked this process, or within 30 min of
+  start. Emits `tunnel.rx_silence` / `tunnel.rx_recovered` /
+  `tunnel.rx_wedged_exit` webhook events. Disable with `-no-rx-watchdog`.
 - **Chunked, ACK'd, resumable file transfer (`TypeFileStream`).** `pilotctl
   send-file` now streams files in 48 KiB chunks with per-chunk ACKs, an
   end-to-end SHA-256 integrity check, and automatic resume from the last
@@ -25,6 +60,16 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   full resolve + NAT hole-punch flow and prefers the direct path.
 - `send-file` reports `transport`, `sha256`, and `throughput_mbps`; adds
   `--timeout`.
+- **Goose joins skill injection.** `pilotctl skills` now lists the real
+  injection targets — Claude Code, OpenClaw, PicoClaw, OpenHands, Hermes, and
+  Goose — instead of naming Cursor, which was never a target. (The daemon's
+  runtime inject-manifest adds `~/.config/goose` with its heartbeat in
+  `.goosehints`.)
+- **Installer GET STARTED walkthrough.** The post-install output now walks a new
+  operator through the send-`--wait` / read-newest-inbox idiom, pilot-director
+  (live data), list-agents (known specialists), the app store (local
+  capabilities), and peers/trust — with copy-paste examples — instead of a
+  four-line hint.
 
 ### Changed
 - **Message of the day now rides the pilot-changelog pipeline.** The daemon's
@@ -37,8 +82,21 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
   banner, `important_update` field, and `motd` in `info` work exactly as
   before; only the source feed and its shape changed. Override with
   `--motd-feed-url` / `$PILOT_MOTD_URL` as before. (motd)
+- **`pilotctl skills` and `pilotctl skills paths` are now read-only.** They ran a
+  mutating reconcile and then reported the *pre-write* state, so the first
+  `pilotctl skills` on a fresh host both created the skill files and labelled them
+  "absent — next: create" — a false failure an agent reads as a broken install.
+  They now use the injector's read-only dry run: nothing is written just by
+  looking, and the reported state reflects what is actually on disk. The mutating
+  `skills check` / `skills enable` are unchanged.
 
 ### Fixed
+- **`pilotctl daemon start` no longer reports a false failure on slow boots.**
+  The launchd path waited only 10 s for the IPC socket; a daemon with
+  installed app-store apps spawns them before IPC comes up and can take
+  longer, producing "socket did not become ready within 10s" for a start
+  that succeeds moments later. The wait is now 30 s and the timeout message
+  says launchd is still supervising the boot.
 - **NAT traversal now actually establishes (and holds) a direct path.** The
   relay→direct upgrade sent a one-way probe that a stateful NAT/firewall
   always dropped, so peers stayed on the beacon relay indefinitely. The
@@ -49,6 +107,19 @@ Reliable P2P data transfer across NAT. Tag intentionally held for review.
 - **Dual-NAT key-exchange convergence.** Key exchange is now sent over both
   the direct and relay paths, so two NAT'd peers reconverge in ~1 RTT
   instead of waiting 28 s–3 min for blackhole detection.
+- **The installer now reaches the skill-injection step on the hosts agents
+  actually run on.** Where `systemctl` exists but systemd is not PID 1
+  (containers, WSL, CI), the systemd setup ran `systemctl daemon-reload`, which
+  returns non-zero — and under `set -e` aborted the install ~200 lines before the
+  `pilotctl skills check` first pass, so injection fired on 0 of the tested cold
+  starts. The systemd block is now gated on a booted system
+  (`[ -d /run/systemd/system ]`), its calls can no longer abort the script, and a
+  non-systemd host is told to run `pilotctl daemon start`.
+- **Headless installs no longer die at the email prompt.** A non-interactive
+  install (piped, no controlling terminal) blocked on `read … < /dev/tty` and
+  exited `rc=2`; email is now prompted only when a TTY is present, otherwise the
+  daemon auto-synthesizes its `<fingerprint>@nodes.pilotprotocol.network`
+  identity. `PILOT_EMAIL` is documented for headless installs.
 
 ## [1.12.0] - 2026-06-21
 

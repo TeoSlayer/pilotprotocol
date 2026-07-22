@@ -69,6 +69,24 @@ host's entry; older clients ignore the map and fetch the top-level `bundle_url`.
 platform. An entry that omits `bundles` behaves exactly as before (single-platform,
 top-level `bundle_url`).
 
+### Renaming an app (`renamed_to` + `hidden`)
+
+`renamed_to` and `hidden` are optional v2 fields (**keep `"version": 2`**). To
+rename an app id `old → new` without breaking existing installs, do NOT delete
+the old entry — the daemon supervisor pins each installed app's publisher key
+from its catalogue entry and **fail-closes (stops) an installed app whose id has
+no pin**. Instead, replace the old entry's body with a **tombstone**: keep `id`
+and `publisher` (so existing installs keep their pin and keep running), set
+`"renamed_to": "<new id>"`, set `"hidden": true`, drop `bundle_url` / `bundles` /
+`metadata_url` (the tombstone is not installable), and delete the old
+`apps/<old-id>/` detail dir. The full new entry lives under the new id, and the
+catalogue is re-signed. A bundles-aware `pilotctl` then omits the old id from the
+listing and, on `install`/`view`/`call`, prints a deprecation warning and routes
+to `renamed_to`. `hidden` alone (without `renamed_to`) just omits an entry from
+the listing while keeping it resolvable. Older clients ignore both fields. One
+hop only — a `renamed_to` that points at another tombstone is a bug and is not
+chased.
+
 ## Detail schema (`apps/<id>/metadata.json`)
 
 Fetched only by `pilotctl appstore view <id>`, verified against the index's
@@ -195,7 +213,7 @@ build time without a code change:
 
 ```bash
 go build -ldflags \
-  "-X github.com/TeoSlayer/pilotprotocol/internal/catalogtrust.publicKeyB64=<new-b64-pubkey>" \
+  "-X github.com/pilot-protocol/pilotprotocol/internal/catalogtrust.publicKeyB64=<new-b64-pubkey>" \
   ./cmd/pilotctl ./cmd/daemon
 ```
 

@@ -316,7 +316,11 @@ func cmdAppStoreCatalogue(_ []string) {
 		return
 	}
 	for _, e := range c.Apps {
-		fmt.Printf("%-40s  %s\n", e.ID, e.Description)
+		headline := e.DisplayName
+		if headline == "" {
+			headline = e.Description
+		}
+		fmt.Printf("%-40s  %s\n", e.ID, headline)
 	}
 	fmt.Println("\nRun 'pilotctl appstore view <id>' for full details.")
 }
