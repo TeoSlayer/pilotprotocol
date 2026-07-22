@@ -762,8 +762,6 @@ cat <<'PILOT_GET_STARTED'
      pilotctl send-message <agent-name> --data '/data {"<filter>":"<value>"}' --wait
      jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
 
-     # Stuck? pilot-ai is the natural-language help desk (also a service agent):
-     pilotctl send-message pilot-ai --data 'which agent has FX rates?' --wait
 
 
   3) APP STORE — install a LOCAL capability, then call it (JSON in → JSON out).
