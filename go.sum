@@ -18,8 +18,8 @@ github.com/pilot-protocol/handshake v0.2.2 h1:t2z+AIoaxxfOVxciyWEa/T6y2RP0WbP5qc
 github.com/pilot-protocol/handshake v0.2.2/go.mod h1:LNp71o9ImbwRNOeBFCI0BmsND7oFiyJPFTd90yFzGGA=
 github.com/pilot-protocol/nameserver v0.2.1 h1:ACCa6WVkEoDZVctEe09WB24Lfobt/JoLDGIqX2MEnss=
 github.com/pilot-protocol/nameserver v0.2.1/go.mod h1:ze4VFe74xdbyqu5oFPt0YGRrRMMnHWb/AczJhirG+h4=
-github.com/pilot-protocol/policy v0.2.2 h1:Co8sqZ4lRQfFA0Ot8l33VhsEwfiEVqcPz+kHY49QbkM=
-github.com/pilot-protocol/policy v0.2.2/go.mod h1:jzsAO71uGlRVyduPrQmS/UeqSwUpeUO/CjykHm/IfXM=
+github.com/pilot-protocol/policy v0.2.3 h1:sonEBL82oGjj1zyMQjJJ5cw+0KQdjS1sgHiLmIVWb8g=
+github.com/pilot-protocol/policy v0.2.3/go.mod h1:ALQdPalluwdzd3AbqbR+iNU5jJc/aG79n9ym0vhhF7w=
 github.com/pilot-protocol/rendezvous v0.2.5 h1:PvApwKHU2DnvK8pA6K9RAohUomZNu6vX6ccIEoTogvo=
 github.com/pilot-protocol/rendezvous v0.2.5/go.mod h1:nUPZaM1R1x0iEKbTp1TuYqro2wgBArwT0E4wauR8I2E=
 github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrYElXZ1zs=
