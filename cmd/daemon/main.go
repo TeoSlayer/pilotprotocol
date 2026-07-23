@@ -83,6 +83,7 @@ func main() {
 	rekeyWhitelist := flag.String("rekey-whitelist", "", "PILOT-345: comma-separated trusted peer node IDs that bypass the tunnel-rekey interval and 4096 cap. Env: PILOT_REKEY_WHITELIST.")
 	timeWait := flag.Duration("time-wait", 0, "TIME_WAIT duration (default 10s)")
 	public := flag.Bool("public", false, "make this node's endpoint publicly visible (default: private)")
+	strictDataplaneTrust := flag.Bool("strict-dataplane-trust", false, "WS1: refuse key-exchange/control-plane interaction with untrusted peers on a private node. Default false (not enforcing, wire-compatible with old agents). Env: PILOT_STRICT_DATAPLANE_TRUST=1.")
 	relayOnly := flag.Bool("relay-only", false, "hide real_addr from peers; reach this node only via beacon-relay path. Privacy stance: peers cannot enumerate this daemon's public IP. Trade-off: relay adds one beacon hop. Default false (current direct-first behavior).")
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
@@ -239,6 +240,7 @@ func main() {
 		MaxTotalConnections:   *maxConnsTotal,
 		TimeWaitDuration:      *timeWait,
 		Public:                *public,
+		StrictDataPlaneTrust:  *strictDataplaneTrust || os.Getenv("PILOT_STRICT_DATAPLANE_TRUST") == "1",
 		RelayOnly:             *relayOnly,
 		Hostname:              *hostname,
 		DisableEcho:           *noEcho,
