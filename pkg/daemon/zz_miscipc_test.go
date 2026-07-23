@@ -39,7 +39,7 @@ func miscTestDaemon(t *testing.T) (*Daemon, uint32) {
 	})
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 	d.setNodeID_testhelper(nodeID)
 	t.Cleanup(func() {

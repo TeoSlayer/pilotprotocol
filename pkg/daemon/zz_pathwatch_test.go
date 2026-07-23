@@ -227,9 +227,6 @@ func TestResetPeerPathPreservesRelayActive(t *testing.T) {
 	}
 }
 
-
-
-
 // TestOnRekeyGaveUpResetsWithCooldown pins the event-driven T2 recovery:
 // the rekey-gave-up hook resets a peer's path, and a per-peer cooldown
 // prevents a persistently-desynced/offline peer from storming resolves.

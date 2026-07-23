@@ -167,6 +167,9 @@ type TunnelManager struct {
 	// machinery abandons a peer (see SetRekeyGaveUpHook / resetPeerPath).
 	onRekeyGaveUp func(nodeID uint32)
 
+	trustGate   func(nodeID uint32) bool
+	peerTrustFn func(nodeID uint32) bool
+
 	// Event bus — replaces inline tm.webhook.Emit calls. Set via
 	// SetEventBus from daemon during construction. May be nil in
 	// tests; tm.publishEvent handles that. Webhook delivery is a
@@ -323,6 +326,12 @@ func NewTunnelManager() *TunnelManager {
 			fn(nodeID)
 		}
 	})
+	tm.kx.SetTrustFn(func(nodeID uint32) bool {
+		if fn := tm.peerTrustFn; fn != nil {
+			return fn(nodeID)
+		}
+		return true
+	})
 	return tm
 }
 
@@ -331,6 +340,14 @@ func NewTunnelManager() *TunnelManager {
 // once during daemon setup.
 func (tm *TunnelManager) SetRekeyGaveUpHook(fn func(nodeID uint32)) {
 	tm.onRekeyGaveUp = fn
+}
+
+func (tm *TunnelManager) SetTrustGate(fn func(nodeID uint32) bool) {
+	tm.trustGate = fn
+}
+
+func (tm *TunnelManager) SetPeerTrustFn(fn func(nodeID uint32) bool) {
+	tm.peerTrustFn = fn
 }
 
 // maybeForceRelayOnRekey is the cross-layer policy bridge between the
@@ -1265,6 +1282,12 @@ func (tm *TunnelManager) handleAuthKeyExchange(data []byte, from *net.UDPAddr, f
 		slog.Debug("auth key exchange rate-limited (source IP)", "from", from)
 		return
 	}
+	if len(data) >= 4 {
+		peerNodeID := binary.BigEndian.Uint32(data[0:4])
+		if fn := tm.trustGate; fn != nil && !fn(peerNodeID) {
+			return
+		}
+	}
 	tm.kx.HandleAuthFrame(data, from, fromRelay)
 }
 
@@ -1288,6 +1311,12 @@ func (tm *TunnelManager) handleKeyExchange(data []byte, from *net.UDPAddr, fromR
 	if !fromRelay && !tm.allowKxFromSource(from) {
 		slog.Debug("key exchange rate-limited (source IP)", "from", from)
 		return
+	}
+	if len(data) >= 4 {
+		peerNodeID := binary.BigEndian.Uint32(data[0:4])
+		if fn := tm.trustGate; fn != nil && !fn(peerNodeID) {
+			return
+		}
 	}
 	tm.kx.HandleUnauthFrame(data, from, fromRelay)
 }
@@ -1426,7 +1455,7 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		slog.Warn("tunnel nonce replay detected",
 			"peer_node_id", peerNodeID, "counter", res.Counter, "max", res.MaxRecvNonce)
 		tm.publishEvent("security.nonce_replay", map[string]interface{}{
-			"peer_node_id": peerNodeID, "counter": res.Counter,
+			"peer_hash": redactID(fmt.Sprintf("%d", peerNodeID)), "counter": res.Counter,
 		})
 		// ErrReplay means the frame authenticated (valid AEAD) but the
 		// nonce counter was already seen. Two distinct causes share this
@@ -1530,8 +1559,8 @@ func (tm *TunnelManager) handleEncrypted(data []byte, from *net.UDPAddr) {
 		slog.Warn("tunnel: dropping frame with spoofed source node",
 			"authenticated_peer", peerNodeID, "claimed_src", pkt.Src.Node)
 		tm.publishEvent("security.src_spoofed", map[string]interface{}{
-			"authenticated_peer": peerNodeID,
-			"claimed_src":        pkt.Src.Node,
+			"authenticated_peer_hash": redactID(fmt.Sprintf("%d", peerNodeID)),
+			"claimed_src_hash":        redactID(fmt.Sprintf("%d", pkt.Src.Node)),
 		})
 		return
 	}

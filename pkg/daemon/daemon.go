@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
@@ -68,6 +69,28 @@ func isRegistryRejectingUsErr(err error) bool {
 	return false
 }
 
+const registryCallDeadline = 8 * time.Second
+
+var errRegistryCallTimedOut = errors.New("registry: call timed out, connection likely half-open")
+
+func withRegistryDeadline(timeout time.Duration, fn func() (map[string]interface{}, error)) (map[string]interface{}, error) {
+	type registryCallResult struct {
+		resp map[string]interface{}
+		err  error
+	}
+	resultCh := make(chan registryCallResult, 1)
+	go func() {
+		resp, err := fn()
+		resultCh <- registryCallResult{resp: resp, err: err}
+	}()
+	select {
+	case r := <-resultCh:
+		return r.resp, r.err
+	case <-time.After(timeout):
+		return nil, errRegistryCallTimedOut
+	}
+}
+
 var (
 	zeroTime     = func() time.Time { return time.Time{} }
 	fixedTimeout = func() time.Time { return time.Now().Add(5 * time.Second) }
@@ -117,7 +140,8 @@ type Config struct {
 	WebhookRetryBackoff time.Duration // initial retry backoff for webhook POSTs (default 1s)
 
 	// Trust
-	TrustAutoApprove bool // automatically approve all incoming handshake requests
+	TrustAutoApprove     bool // automatically approve all incoming handshake requests
+	StrictDataPlaneTrust bool
 
 	// Fleet enrollment
 	AdminToken string   // admin token for network operations (empty = disabled)
@@ -306,7 +330,7 @@ type Daemon struct {
 	// rotation eliminates the shared-buffer hazard without changing the
 	// existing RLock/RUnlock pattern for non-rotating Sign callers.
 	rotateKeyMu sync.Mutex
-	regConn     *registry.Client
+	regConn     atomic.Pointer[registry.Client]
 	tunnels     *TunnelManager
 	ports       *PortManager
 	ipc         *IPCServer
@@ -545,26 +569,28 @@ func (c *Config) timeWaitDuration() time.Duration {
 
 func New(cfg Config) *Daemon {
 	d := &Daemon{
-		config:        cfg,
-		tunnels:       NewTunnelManager(),
-		ports:         NewPortManager(),
-		stopCh:        make(chan struct{}),
-		synTokens:     cfg.synRateLimit(),
-		synLastFill:   time.Now(),
-		perSrcSYN:     make(map[uint32]*srcSYNBucket),
-		epCache:       make(map[uint32]*endpointEntry),
-		resolveCache:  make(map[uint32]*resolveEntry),
-		hostnameCache: make(map[string]*hostnameCacheEntry),
+		config:          cfg,
+		tunnels:         NewTunnelManager(),
+		ports:           NewPortManager(),
+		stopCh:          make(chan struct{}),
+		synTokens:       cfg.synRateLimit(),
+		synLastFill:     time.Now(),
+		perSrcSYN:       make(map[uint32]*srcSYNBucket),
+		epCache:         make(map[uint32]*endpointEntry),
+		resolveCache:    make(map[uint32]*resolveEntry),
+		hostnameCache:   make(map[string]*hostnameCacheEntry),
 		netPolicies:     make(map[uint16][]uint16),
 		lastGaveUpReset: make(map[uint32]time.Time),
-		managed:       make(map[uint16]*ManagedEngine),
-		memberTags:    make(map[uint16][]string),
+		managed:         make(map[uint16]*ManagedEngine),
+		memberTags:      make(map[uint16][]string),
 	}
 	d.ctx, d.cancelCtx = context.WithCancel(context.Background())
 	d.bus = newInProcessBus(d.NodeID)
 	// Event-driven T2 recovery: reset a peer's path the moment the rekey
 	// machinery gives up on it (see onRekeyGaveUp / pathwatch.go).
 	d.tunnels.SetRekeyGaveUpHook(d.onRekeyGaveUp)
+	d.tunnels.SetTrustGate(d.admitDataPlanePeer)
+	d.tunnels.SetPeerTrustFn(d.isTrustedPeer)
 	d.ipc = NewIPCServer(cfg.SocketPath, d)
 	// HandshakeService is wired post-construction by the composition
 	// root via RegisterHandshakeService (T3.3 — handshake plugin moved
@@ -951,87 +977,11 @@ func (d *Daemon) Start() error {
 	//    to do here.
 
 	// 4. Register with the registry (always with client-generated key).
-	// Retry the initial dial with bounded backoff: in real deployments the
-	// registry may not be listening yet at daemon startup (systemd ordering,
-	// DNAT rules that install a beat after the container starts, etc.). A
-	// hard fail here forces the supervisor to restart us; a short internal
-	// retry is cheaper and avoids a "connection refused" flap storm.
-	var rc *registry.Client
-	var err error
-	const maxRegistryDialAttempts = 10
-	// regConnPoolSize is the number of TCP conns the daemon keeps open to
-	// the registry. With a single conn (the historical default) every
-	// regConn.Send serialises on one mutex — issue #93. 4 conns is enough
-	// to absorb the steady-state burst (heartbeat + per-resolve prewarm +
-	// persistHostnameCache fan-out) and small enough that a few hundred
-	// daemons against one registry server stay well under the registry's
-	// per-host backpressure threshold.
-	const regConnPoolSize = 4
-	registryDialBackoff := 500 * time.Millisecond
-	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
-		if d.config.RegistryTLS {
-			trust := d.config.RegistryTrust
-			if trust == "" {
-				// Back-compat: RegistryTLS=true used to imply pinning;
-				// require fingerprint if the operator didn't pick a
-				// trust store explicitly.
-				trust = "pinned"
-			}
-			switch trust {
-			case "pinned":
-				if d.config.RegistryFingerprint == "" {
-					return fmt.Errorf("registry TLS with -registry-trust=pinned requires RegistryFingerprint")
-				}
-				rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
-			case "system":
-				// OS x509 root store — for registry.pilotprotocol.network
-				// served by Let's Encrypt + nginx SNI routing on 443.
-				rc, err = registry.DialTLSPool(d.config.RegistryAddr, &tls.Config{MinVersion: tls.VersionTLS12}, regConnPoolSize)
-			default:
-				return fmt.Errorf("invalid -registry-trust %q: must be 'pinned' or 'system'", trust)
-			}
-		} else {
-			rc, err = registry.DialPool(d.config.RegistryAddr, regConnPoolSize)
-		}
-		if err == nil {
-			break
-		}
-		if attempt == maxRegistryDialAttempts {
-			return fmt.Errorf("registry dial (after %d attempts): %w", attempt, err)
-		}
-		slog.Warn("registry dial failed, retrying",
-			"attempt", attempt, "max", maxRegistryDialAttempts,
-			"backoff", registryDialBackoff, "error", err)
-		time.Sleep(registryDialBackoff)
-		if registryDialBackoff < 5*time.Second {
-			registryDialBackoff *= 2
-		}
+	rc, err := d.dialRegistryClient()
+	if err != nil {
+		return err
 	}
-	d.regConn = rc
-
-	// H3 fix: set signer for authenticated registry operations.
-	// Read d.identity under d.identityMu on every call so RotateKey (or any
-	// future rebind of d.identity) is picked up without re-installing the
-	// signer. Capturing the pointer at SetSigner time would diverge from
-	// node.PublicKey on the registry after a rotation, producing the symptom
-	// "registry: signature verification failed" on every heartbeat.
-	if d.identity != nil {
-		rc.SetSigner(func(challenge string) string {
-			// Hold identityMu.RLock across Sign(): RotateKey zeros the old
-			// PrivateKey buffer in place under identityMu.Lock(). Releasing
-			// the lock before Sign() would let an in-flight signer read the
-			// very bytes RotateKey is concurrently zeroing (use-after-zero
-			// on signing material). RLock and Lock are mutually exclusive,
-			// so signing and zeroing can never overlap.
-			d.identityMu.RLock()
-			defer d.identityMu.RUnlock()
-			cur := d.identity
-			if cur == nil {
-				return ""
-			}
-			return base64.StdEncoding.EncodeToString(cur.Sign([]byte(challenge)))
-		})
-	}
+	d.regConn.Store(rc)
 
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
 	resp, err := rc.RegisterWithKeyOpts(registry.RegisterOpts{
@@ -1179,7 +1129,7 @@ func (d *Daemon) Start() error {
 
 	// Set node visibility
 	if d.config.Public {
-		if _, err := d.regConn.SetVisibility(d.nodeID, true); err != nil {
+		if _, err := d.reg().SetVisibility(d.nodeID, true); err != nil {
 			slog.Warn("failed to set public visibility", "error", err)
 		} else {
 			slog.Info("node visibility set", "visibility", "public")
@@ -1188,7 +1138,7 @@ func (d *Daemon) Start() error {
 
 	// Set hostname if configured
 	if d.config.Hostname != "" {
-		if _, err := d.regConn.SetHostname(d.nodeID, d.config.Hostname); err != nil {
+		if _, err := d.reg().SetHostname(d.nodeID, d.config.Hostname); err != nil {
 			slog.Warn("failed to set hostname", "hostname", d.config.Hostname, "error", err)
 		} else {
 			slog.Info("hostname set", "hostname", d.config.Hostname)
@@ -1510,7 +1460,7 @@ func (d *Daemon) autoJoinNetworks() {
 		return
 	}
 	for _, netID := range d.config.Networks {
-		_, err := d.regConn.JoinNetwork(d.nodeID, netID, "", 0, d.config.AdminToken)
+		_, err := d.reg().JoinNetwork(d.nodeID, netID, "", 0, d.config.AdminToken)
 		if err != nil {
 			slog.Warn("auto-join failed", "network_id", netID, "error", err)
 			continue
@@ -1622,8 +1572,8 @@ func (d *Daemon) doStop() {
 	// (including persisted deny/grudge lists). The 5-minute heartbeat TTL
 	// reaps truly-dead nodes; users who explicitly want to leave call
 	// `pilotctl deregister` via IPC (CmdDeregister) which is unaffected.
-	if d.regConn != nil {
-		d.regConn.Close()
+	if d.reg() != nil {
+		d.reg().Close()
 	}
 
 	d.stopPolicyRunners()
@@ -1681,7 +1631,7 @@ func (d *Daemon) doStop() {
 
 // startManaged detects managed networks this node belongs to and starts engines.
 func (d *Daemon) startManaged() {
-	resp, err := d.regConn.ListNetworks()
+	resp, err := d.reg().ListNetworks()
 	if err != nil {
 		slog.Debug("managed: cannot list networks", "err", err)
 		return
@@ -1808,7 +1758,10 @@ func (d *Daemon) nodeNetworks() []uint16 {
 // Used by reconcileMembership where stale cache hides genuine join/leave
 // deltas, and by paths that must observe an up-to-the-millisecond list.
 func (d *Daemon) nodeNetworksFresh() []uint16 {
-	resp, err := d.regConn.Lookup(d.NodeID())
+	rc := d.reg()
+	resp, err := withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+		return rc.Lookup(d.NodeID())
+	})
 	if err != nil {
 		return nil
 	}
@@ -1872,7 +1825,7 @@ func (d *Daemon) loadNetworkPolicies() {
 		// Bounded retry so a transient blip on the very first load (when
 		// there is no prior to fall back to) still self-heals quickly.
 		for attempt := 0; attempt < 3; attempt++ {
-			if resp, err = d.regConn.GetNetworkPolicy(netID); err == nil {
+			if resp, err = d.reg().GetNetworkPolicy(netID); err == nil {
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -2112,10 +2065,10 @@ func (d *Daemon) PublishEvent(topic string, payload map[string]any) {
 func (d *Daemon) AdminToken() string { return d.config.AdminToken }
 
 func (d *Daemon) RegConnListNodes(netID uint16, token string) (map[string]any, error) {
-	if d.regConn == nil {
+	if d.reg() == nil {
 		return nil, fmt.Errorf("registry connection not initialized")
 	}
-	return d.regConn.ListNodes(netID, token)
+	return d.reg().ListNodes(netID, token)
 }
 
 // TrustedPeers returns the trust records held by the registered
@@ -2249,7 +2202,79 @@ func (d *Daemon) TrustAutoApprove() bool { return d.config.TrustAutoApprove }
 // RequestHandshake / RespondHandshake / PollHandshakes against the
 // same client the daemon uses elsewhere — there is no separate
 // connection or auth context.
-func (d *Daemon) RegistryClient() *registry.Client { return d.regConn }
+func (d *Daemon) RegistryClient() *registry.Client { return d.reg() }
+
+func (d *Daemon) reg() *registry.Client {
+	return d.regConn.Load()
+}
+
+func (d *Daemon) dialRegistryClient() (*registry.Client, error) {
+	var rc *registry.Client
+	var err error
+	const maxRegistryDialAttempts = 10
+	const regConnPoolSize = 4
+	registryDialBackoff := 500 * time.Millisecond
+	for attempt := 1; attempt <= maxRegistryDialAttempts; attempt++ {
+		if d.config.RegistryTLS {
+			trust := d.config.RegistryTrust
+			if trust == "" {
+				trust = "pinned"
+			}
+			switch trust {
+			case "pinned":
+				if d.config.RegistryFingerprint == "" {
+					return nil, fmt.Errorf("registry TLS with -registry-trust=pinned requires RegistryFingerprint")
+				}
+				rc, err = registry.DialTLSPinned(d.config.RegistryAddr, d.config.RegistryFingerprint)
+			case "system":
+				rc, err = registry.DialTLSPool(d.config.RegistryAddr, &tls.Config{MinVersion: tls.VersionTLS12}, regConnPoolSize)
+			default:
+				return nil, fmt.Errorf("invalid -registry-trust %q: must be 'pinned' or 'system'", trust)
+			}
+		} else {
+			rc, err = registry.DialPool(d.config.RegistryAddr, regConnPoolSize)
+		}
+		if err == nil {
+			break
+		}
+		if attempt == maxRegistryDialAttempts {
+			return nil, fmt.Errorf("registry dial (after %d attempts): %w", attempt, err)
+		}
+		slog.Warn("registry dial failed, retrying",
+			"attempt", attempt, "max", maxRegistryDialAttempts,
+			"backoff", registryDialBackoff, "error", err)
+		time.Sleep(registryDialBackoff)
+		if registryDialBackoff < 5*time.Second {
+			registryDialBackoff *= 2
+		}
+	}
+
+	if d.identity != nil {
+		rc.SetSigner(func(challenge string) string {
+			d.identityMu.RLock()
+			defer d.identityMu.RUnlock()
+			cur := d.identity
+			if cur == nil {
+				return ""
+			}
+			return base64.StdEncoding.EncodeToString(cur.Sign([]byte(challenge)))
+		})
+	}
+	return rc, nil
+}
+
+func (d *Daemon) forceReconnectRegistry() error {
+	newConn, err := d.dialRegistryClient()
+	if err != nil {
+		return err
+	}
+	old := d.regConn.Swap(newConn)
+	if old != nil {
+		go old.Close()
+	}
+	slog.Warn("registry connection force-reconnected after half-open detection", "addr", d.config.RegistryAddr)
+	return nil
+}
 
 // peerTagsFor returns the merged tag set for a peer as seen by the policy
 // evaluator: policy-runner local tags (assigned via the `tag` action) unioned
@@ -2314,7 +2339,7 @@ func (d *Daemon) GetMemberTags(netID uint16) []string {
 
 // loadPolicyRunners loads expr policies for all joined networks at startup.
 func (d *Daemon) loadPolicyRunners() {
-	resp, err := d.regConn.ListNetworks()
+	resp, err := d.reg().ListNetworks()
 	if err != nil {
 		slog.Debug("policy: cannot list networks", "err", err)
 		return
@@ -2349,7 +2374,7 @@ func (d *Daemon) loadPolicyRunners() {
 		}
 
 		// Fetch the full policy
-		resp, err := d.regConn.GetExprPolicy(netID)
+		resp, err := d.reg().GetExprPolicy(netID)
 		if err != nil {
 			slog.Warn("policy: cannot fetch expr_policy", "network_id", netID, "err", err)
 			continue
@@ -2440,7 +2465,7 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	if current == nil {
 		return nil, fmt.Errorf("rotate_key: daemon has no identity")
 	}
-	if d.regConn == nil {
+	if d.reg() == nil {
 		return nil, fmt.Errorf("rotate_key: registry connection unavailable")
 	}
 
@@ -2457,7 +2482,7 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	sig := current.Sign([]byte(challenge))
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
 
-	resp, err := d.regConn.RotateKey(nodeID, sigB64, newPubB64)
+	resp, err := d.reg().RotateKey(nodeID, sigB64, newPubB64)
 	if err != nil {
 		return nil, fmt.Errorf("rotate_key: registry: %w", err)
 	}
@@ -2485,7 +2510,7 @@ func (d *Daemon) RotateKey() (map[string]interface{}, error) {
 	// kept for symmetry with the original RotateKey contract. The closure
 	// here holds the RLock across Sign() (same invariant as Start's signer)
 	// so it is safe against a future rotation's in-place key zeroing.
-	d.regConn.SetSigner(func(c string) string {
+	d.reg().SetSigner(func(c string) string {
 		d.identityMu.RLock()
 		defer d.identityMu.RUnlock()
 		cur := d.identity
@@ -2961,6 +2986,30 @@ func (d *Daemon) routePacketWithRecover(pkt *protocol.Packet, from *net.UDPAddr)
 	d.handlePacket(pkt, from)
 }
 
+func redactID(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
+}
+
+func (d *Daemon) isTrustedPeer(srcNode uint32) bool {
+	trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
+	if !trusted && d.reg() != nil {
+		var err error
+		trusted, err = d.reg().CheckTrust(d.NodeID(), srcNode)
+		if err != nil {
+			slog.Warn("registry trust check failed (data-plane)", "src_node", srcNode, "err", err)
+		}
+	}
+	return trusted
+}
+
+func (d *Daemon) admitDataPlanePeer(srcNode uint32) bool {
+	if !d.config.StrictDataPlaneTrust || d.config.Public {
+		return true
+	}
+	return d.isTrustedPeer(srcNode)
+}
+
 func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
 	// D14 mitigation: when encryption is enabled, only auto-add peers that have an
 	// established crypto context (proving prior key exchange). This prevents peer table
@@ -2970,7 +3019,7 @@ func (d *Daemon) handlePacket(pkt *protocol.Packet, from *net.UDPAddr) {
 		if !d.config.Encrypt || d.tunnels.HasCrypto(pkt.Src.Node) {
 			d.tunnels.AddPeer(pkt.Src.Node, from)
 			d.publishEvent("tunnel.peer_added", map[string]interface{}{
-				"peer_node_id": pkt.Src.Node, "endpoint": from.String(),
+				"peer_node_id": pkt.Src.Node,
 			})
 		}
 	}
@@ -3040,10 +3089,10 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		if !d.config.Public {
 			srcNode := pkt.Src.Node
 			trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
-			if !trusted && d.regConn != nil {
+			if !trusted && d.reg() != nil {
 				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
 				var err error
-				trusted, err = d.regConn.CheckTrust(d.NodeID(), srcNode)
+				trusted, err = d.reg().CheckTrust(d.NodeID(), srcNode)
 				if err != nil {
 					slog.Warn("registry trust check failed (SYN)", "src_node", srcNode, "err", err)
 				}
@@ -3051,9 +3100,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 			if !trusted {
 				slog.Warn("SYN rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
 				d.publishEvent("syn.rejected", map[string]interface{}{
-					"src_node_id": srcNode,
-					"src_addr":    pkt.Src.String(),
-					"dst_port":    pkt.DstPort,
+					"dst_port": pkt.DstPort,
 				})
 				return // silent drop — no RST to avoid leaking node existence
 			}
@@ -3088,7 +3135,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		if !synWhitelisted && !d.allowSYN() {
 			slog.Warn("SYN rate limit exceeded", "src_addr", pkt.Src, "src_port", pkt.SrcPort)
 			d.publishEvent("security.syn_rate_limited", map[string]interface{}{
-				"src_addr": pkt.Src.String(), "src_port": pkt.SrcPort,
+				"src_addr_hash": redactID(pkt.Src.String()), "src_port": pkt.SrcPort,
 			})
 			return // silently drop — don't even RST (avoid amplification)
 		}
@@ -3468,9 +3515,9 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 	if !d.config.Public {
 		srcNode := pkt.Src.Node
 		trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
-		if !trusted && d.regConn != nil {
+		if !trusted && d.reg() != nil {
 			var err error
-			trusted, err = d.regConn.CheckTrust(d.NodeID(), srcNode)
+			trusted, err = d.reg().CheckTrust(d.NodeID(), srcNode)
 			if err != nil {
 				slog.Warn("registry trust check failed (datagram)", "src_node", srcNode, "err", err)
 			}
@@ -3478,9 +3525,7 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 		if !trusted {
 			slog.Warn("datagram rejected: untrusted source", "src_node", srcNode, "src_addr", pkt.Src, "dst_port", pkt.DstPort)
 			d.publishEvent("datagram.rejected", map[string]interface{}{
-				"src_node_id": srcNode,
-				"src_addr":    pkt.Src.String(),
-				"dst_port":    pkt.DstPort,
+				"dst_port": pkt.DstPort,
 			})
 			return
 		}
@@ -3515,6 +3560,9 @@ func (d *Daemon) handleControlPacket(pkt *protocol.Packet) {
 		// the same effect — a probe is its own pong, no further reply is
 		// expected. See pkg/daemon/daemon.go:3175-3194 (relayProbeLoop).
 		if pkt.HasFlag(protocol.FlagACK) {
+			return
+		}
+		if !d.admitDataPlanePeer(pkt.Src.Node) {
 			return
 		}
 		// Ping request — send pong back
@@ -4511,9 +4559,9 @@ func (d *Daemon) broadcastDatagram(netID uint16, srcPort, dstPort uint16, data [
 	var resp map[string]interface{}
 	var err error
 	if adminToken != "" {
-		resp, err = d.regConn.ListNodes(netID, adminToken)
+		resp, err = d.reg().ListNodes(netID, adminToken)
 	} else {
-		resp, err = d.regConn.ListNodes(netID)
+		resp, err = d.reg().ListNodes(netID)
 	}
 	if err != nil {
 		return fmt.Errorf("list nodes for broadcast: %w", err)
@@ -4925,7 +4973,10 @@ func (d *Daemon) ensureTunnel(nodeID uint32) error {
 	if !cached {
 		// Cache miss — resolve from registry
 		var err error
-		resp, err = d.regConn.Resolve(nodeID, d.NodeID())
+		rc := d.reg()
+		resp, err = withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+			return rc.Resolve(nodeID, d.NodeID())
+		})
 		if err != nil {
 			// Registry unreachable — fall back to cached endpoint
 			if ep, ok := d.cachedEndpoint(nodeID); ok {
@@ -5053,12 +5104,24 @@ func (d *Daemon) trustRepublishLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			if d.regConn == nil {
+			rc := d.reg()
+			if rc == nil {
 				continue
 			}
-			_, err := d.regConn.Heartbeat(d.NodeID())
+			_, err := withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+				return rc.Heartbeat(d.NodeID())
+			})
 			if err != nil {
 				consecutiveFailures++
+				if errors.Is(err, errRegistryCallTimedOut) {
+					slog.Warn("heartbeat timed out — registry connection likely half-open, forcing reconnect",
+						"consecutive_failures", consecutiveFailures, "deadline", registryCallDeadline)
+					if rcErr := d.forceReconnectRegistry(); rcErr != nil {
+						slog.Warn("registry force-reconnect failed", "error", rcErr)
+					} else {
+						consecutiveFailures = HeartbeatReregThresh
+					}
+				}
 				// If the registry rejects our identity (node not found, or a
 				// signature-verification failure because someone else claimed
 				// our node ID) re-register on this cycle instead of waiting
@@ -5134,7 +5197,7 @@ func (d *Daemon) handshakePollLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			if d.regConn == nil {
+			if d.reg() == nil {
 				continue
 			}
 			d.pollRelayedHandshakes()
@@ -5202,7 +5265,7 @@ func (d *Daemon) reRegister() {
 	d.identityMu.RLock()
 	pubKeyB64 := crypto.EncodePublicKey(d.identity.PublicKey)
 	d.identityMu.RUnlock()
-	resp, err := d.regConn.RegisterWithKeyOpts(registry.RegisterOpts{
+	resp, err := d.reg().RegisterWithKeyOpts(registry.RegisterOpts{
 		ListenAddr: registrationAddr,
 		PublicKey:  pubKeyB64,
 		Owner:      d.config.Owner,
@@ -5258,12 +5321,12 @@ func (d *Daemon) reRegister() {
 
 	// Restore visibility and hostname after re-registration
 	if d.config.Public {
-		if _, err := d.regConn.SetVisibility(nodeID, true); err != nil {
+		if _, err := d.reg().SetVisibility(nodeID, true); err != nil {
 			slog.Warn("re-registration: failed to restore visibility", "error", err)
 		}
 	}
 	if d.config.Hostname != "" {
-		if _, err := d.regConn.SetHostname(nodeID, d.config.Hostname); err != nil {
+		if _, err := d.reg().SetHostname(nodeID, d.config.Hostname); err != nil {
 			slog.Warn("re-registration: failed to restore hostname", "error", err)
 		}
 	}
@@ -5280,7 +5343,7 @@ func (d *Daemon) reRegister() {
 			if d.stopping() {
 				return
 			}
-			if _, err := d.regConn.ReportTrust(nodeID, rec.NodeID); err != nil {
+			if _, err := d.reg().ReportTrust(nodeID, rec.NodeID); err != nil {
 				slog.Debug("re-registration: failed to re-sync trust pair", "peer", rec.NodeID, "error", err)
 			}
 		}
@@ -5347,10 +5410,10 @@ func (d *Daemon) hostnameReannounceLoop() {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			if d.config.Hostname == "" || d.regConn == nil {
+			if d.config.Hostname == "" || d.reg() == nil {
 				continue
 			}
-			if _, err := d.regConn.SetHostname(d.NodeID(), d.config.Hostname); err != nil {
+			if _, err := d.reg().SetHostname(d.NodeID(), d.config.Hostname); err != nil {
 				slog.Debug("hostname reannounce failed", "hostname", d.config.Hostname, "error", err)
 			}
 		}
@@ -5519,10 +5582,13 @@ func (d *Daemon) tryDirectUpgrade(nodeID uint32) {
 		// A relay tunnel established via beacon discovery never populated
 		// the resolve cache. Resolve fresh so we can target the peer's real
 		// address; without this the upgrade can never start.
-		if d.regConn == nil {
+		rc := d.reg()
+		if rc == nil {
 			return
 		}
-		r, err := d.regConn.Resolve(nodeID, d.NodeID())
+		r, err := withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+			return rc.Resolve(nodeID, d.NodeID())
+		})
 		if err != nil {
 			return
 		}
@@ -5622,7 +5688,7 @@ func (d *Daemon) networkSyncLoop() {
 // a snapshot. It does NOT start or stop policy runners or managed
 // engines directly — those are bus subscribers' responsibility (T4.3).
 func (d *Daemon) reconcileMembership() {
-	if d.regConn == nil {
+	if d.reg() == nil {
 		return
 	}
 
@@ -5656,7 +5722,7 @@ func (d *Daemon) reconcileMembership() {
 	// joined-event payloads will then carry network_id only and
 	// subscribers can fall back to lazy fetch.
 	var networkList []interface{}
-	if listResp, err := d.regConn.ListNetworks(); err == nil {
+	if listResp, err := d.reg().ListNetworks(); err == nil {
 		networkList, _ = listResp["networks"].([]interface{})
 	}
 	listByID := make(map[uint16]map[string]interface{}, len(networkList))
@@ -5739,7 +5805,7 @@ func (d *Daemon) buildJoinPayload(netID uint16, n map[string]interface{}) map[st
 			// to re-issue the L8 RPC. Same lazy-fetch the old
 			// syncPolicyRunners did, but moved up into the publisher
 			// so the policy-plugin subscriber stays L8-free.
-			if pResp, err := d.regConn.GetExprPolicy(netID); err == nil {
+			if pResp, err := d.reg().GetExprPolicy(netID); err == nil {
 				if v, ok := pResp["expr_policy"]; ok && v != nil {
 					payload["expr_policy"] = v
 				}
@@ -5765,7 +5831,7 @@ func (d *Daemon) refreshMemberTagsAndDiff(nets []uint16) map[uint16][]string {
 		if netID == 0 {
 			continue
 		}
-		resp, err := d.regConn.GetMemberTags(netID, nodeID)
+		resp, err := d.reg().GetMemberTags(netID, nodeID)
 		if err != nil {
 			continue
 		}
@@ -5938,7 +6004,7 @@ func (d *Daemon) loadNetworkSnapshot() {
 
 // lookupPeerPubKey fetches a peer's Ed25519 public key from the registry.
 func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
-	resp, err := d.regConn.Lookup(nodeID)
+	resp, err := d.reg().Lookup(nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("lookup node %d: %w", nodeID, err)
 	}
@@ -5954,7 +6020,7 @@ func (d *Daemon) lookupPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 // pollRelayedHandshakes checks the registry for handshake requests and
 // responses relayed to this node and processes them.
 func (d *Daemon) pollRelayedHandshakes() {
-	resp, err := d.regConn.PollHandshakes(d.NodeID())
+	resp, err := d.reg().PollHandshakes(d.NodeID())
 	if err != nil {
 		slog.Debug("poll handshakes failed", "error", err)
 		return

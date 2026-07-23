@@ -262,7 +262,7 @@ func (d *Daemon) resetPeerPath(nodeID uint32) peerPathReset {
 
 	// Guarded for watchdog-driven callers in minimal configurations
 	// (tests, registry-less setups): the IPC path always has a regConn.
-	if d.regConn == nil {
+	if d.reg() == nil {
 		res.ResolveErr = "no registry connection"
 		return res
 	}

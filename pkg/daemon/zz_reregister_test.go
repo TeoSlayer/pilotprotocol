@@ -34,7 +34,7 @@ func TestReRegisterHappyPathUpdatesNodeIDAndAddr(t *testing.T) {
 	d := New(Config{
 		ListenAddr: "127.0.0.1:5400",
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 
 	d.reRegister()
@@ -63,7 +63,7 @@ func TestReRegisterPublicInvokesSetVisibility(t *testing.T) {
 		ListenAddr: "127.0.0.1:5401",
 		Public:     true,
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 
 	d.reRegister()
@@ -90,7 +90,7 @@ func TestReRegisterWithHostnameInvokesSetHostname(t *testing.T) {
 		ListenAddr: "127.0.0.1:5402",
 		Hostname:   "test-host",
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 
 	d.reRegister()
@@ -112,7 +112,7 @@ func TestReRegisterWithTrustedPeersReSyncs(t *testing.T) {
 	d := New(Config{
 		ListenAddr: "127.0.0.1:5403",
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 	// Install a fake handshake service with a seeded trusted peer to
 	// exercise the trust-resync branch. The real manager moved to
@@ -145,7 +145,7 @@ func TestReRegisterEndpointBranchTaken(t *testing.T) {
 	d := New(Config{
 		Endpoint: "1.2.3.4:4000",
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 
 	d.reRegister()
@@ -165,7 +165,7 @@ func TestReRegisterFailurePreservesNodeID(t *testing.T) {
 		t.Fatalf("gen identity: %v", err)
 	}
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 	// Seed a pre-existing node ID to confirm it isn't clobbered on failure.
 	d.setNodeID_testhelper(0xBEEF1234)

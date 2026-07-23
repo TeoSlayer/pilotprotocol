@@ -51,7 +51,7 @@ func TestStartManagedStartsEngineForMemberManagedNetwork(t *testing.T) {
 	netID := uint16(createResp["network_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(nodeID)
 	defer d.stopManaged()
 
@@ -95,7 +95,7 @@ func TestStartManagedSkipsNonMemberManagedNetwork(t *testing.T) {
 	selfNodeID := uint32(selfResp["node_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	defer d.stopManaged()
 
@@ -134,7 +134,7 @@ func TestManagedEngineBootstrapDoesNotDeadlockWithPersist(t *testing.T) {
 	netID := uint16(createResp["network_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(nodeID)
 
 	rules := &registry.NetworkRules{Links: 10, Cycle: "24h", Prune: 2, PruneBy: "age", Fill: 2, FillHow: "random"}
@@ -188,7 +188,7 @@ func TestAutoJoinNetworksJoinsConfiguredNetwork(t *testing.T) {
 		AdminToken: "admin-token",
 		Networks:   []uint16{netID},
 	})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	d.autoJoinNetworks()
 

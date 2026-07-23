@@ -54,12 +54,12 @@ import (
 
 func registerSelfOnRegistry(t *testing.T, d *Daemon) uint32 {
 	t.Helper()
-	if d.regConn == nil {
+	if d.reg() == nil {
 		t.Fatal("registerSelfOnRegistry: d.regConn must be set first")
 	}
 	id, _ := crypto.GenerateIdentity()
 	d.identity = id
-	resp, err := d.regConn.RegisterWithKey("127.0.0.1:5000", crypto.EncodePublicKey(id.PublicKey), "", nil)
+	resp, err := d.reg().RegisterWithKey("127.0.0.1:5000", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register self: %v", err)
 	}
@@ -67,7 +67,7 @@ func registerSelfOnRegistry(t *testing.T, d *Daemon) uint32 {
 	d.setNodeID_testhelper(nodeID)
 	// Bind the signer so subsequent registry calls that require a signature
 	// (heartbeat, rotate_key, poll_handshakes) succeed.
-	d.regConn.SetSigner(func(challenge string) string {
+	d.reg().SetSigner(func(challenge string) string {
 		d.identityMu.RLock()
 		cur := d.identity
 		d.identityMu.RUnlock()
@@ -161,7 +161,7 @@ func TestPollRelayedHandshakesEmptyNoOp(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	// No panic, no side effect. The empty-list branches are still walked.
@@ -200,7 +200,7 @@ func TestPollRelayedHandshakesWithServiceNoOp(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	svc := &covRecordingHandshakeService{}
@@ -229,7 +229,7 @@ func TestLoadPolicyRunnersNoNetworksNoOp(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	// Nothing to load, but the function still walks the registry response.
@@ -244,7 +244,7 @@ func TestLoadPolicyRunnersSkipsNetworksWithoutPolicy(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	// Create a network without expr policy — loadPolicyRunners must skip it
@@ -268,7 +268,7 @@ func TestRotateKeyHappyPath(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	oldKey := d.identity.PublicKey
@@ -317,7 +317,7 @@ func TestReconcileMembershipPublishesJoinedEvent(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	// Subscribe to the bus BEFORE creating the network so we don't miss
@@ -349,7 +349,7 @@ func TestReconcileMembershipPublishesLeftEvent(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	if _, err := rc.CreateNetwork(selfID, "leave-test-net", "open", "", "admin-token", false); err != nil {
@@ -531,7 +531,7 @@ func TestBeaconRefreshTickFirstTickEmptyList(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.beaconSelection = newBeaconSelectionState([]string{"bootstrap.example:9001"})
 	id, _ := crypto.GenerateIdentity()
 	d.identity = id
@@ -562,7 +562,7 @@ func TestBeaconRefreshLoopOneTickAndExit(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.beaconSelection = newBeaconSelectionState([]string{"127.0.0.1:9001"})
 	id, _ := crypto.GenerateIdentity()
 	d.identity = id
@@ -637,7 +637,7 @@ func TestManagedEngineForceCycleHappyPath(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	// Need a network to fetch members for.
@@ -683,7 +683,7 @@ func TestLoadPolicyRunnersStartsRunnerForNetworkWithPolicy(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	createResp, err := rc.CreateNetwork(selfID, "policy-net", "open", "", "admin-token", false)
@@ -768,7 +768,7 @@ func TestManagedEngineStartBootstrapAndStop(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	createResp, err := rc.CreateNetwork(selfID, "managed-start-net", "open", "", "admin-token", false)
@@ -806,7 +806,7 @@ func TestHandleRotateKeyHappyPath(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	s := d.ipc
@@ -892,7 +892,7 @@ func TestLoadNetworkPoliciesNoNetworksNoOp(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 	d.loadNetworkPolicies()
 }
@@ -909,7 +909,7 @@ func TestReRegisterHappyPath(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	// reRegister runs synchronously and should succeed against a healthy
@@ -1167,7 +1167,7 @@ func TestHandleManagedCycleReturnsResult(t *testing.T) {
 	reg.SetAdminToken("admin-token")
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	selfID := registerSelfOnRegistry(t, d)
 
 	createResp, err := rc.CreateNetwork(selfID, "managed-cycle-net", "open", "", "admin-token", false)

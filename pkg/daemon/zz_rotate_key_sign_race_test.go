@@ -35,7 +35,7 @@ func TestConcurrentRotateKeyAndSign(t *testing.T) {
 	t.Cleanup(func() { rc.Close() })
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	registerSelfOnRegistry(t, d)
 
 	// The exact signer closure the daemon installs in Start() / RotateKey:

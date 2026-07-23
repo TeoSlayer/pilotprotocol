@@ -16,7 +16,7 @@ import (
 func TestEnsureTunnelAlreadyHasPeerReturnsNilWithoutResolve(t *testing.T) {
 	t.Parallel()
 	d := New(Config{})
-	// regConn stays nil; if ensureTunnel reached resolve it would panic on d.regConn.Resolve.
+	// regConn stays nil; if ensureTunnel reached resolve it would panic on d.reg().Resolve.
 	d.tunnels.AddPeer(42, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9000})
 
 	if err := d.ensureTunnel(42); err != nil {
@@ -80,7 +80,7 @@ func TestEnsureTunnelRegistryFailsFallsBackToCachedEndpoint(t *testing.T) {
 	rc.Close() // closed client → Resolve errors
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	// Prime the endpoint cache so the fallback branch activates.
 	d.cacheEndpoint(123, "127.0.0.1:41414")
@@ -100,7 +100,7 @@ func TestEnsureTunnelRegistryFailsNoCachedEndpointErrors(t *testing.T) {
 	rc.Close() // closed client → Resolve errors
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	err := d.ensureTunnel(456)
 	if err == nil {
@@ -121,7 +121,7 @@ func TestEnsureTunnelRegistryFailsCachedEndpointUnresolvableErrors(t *testing.T)
 	rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	// Invalid UDP address string — triggers net.ResolveUDPAddr error inside fallback.
 	d.cacheEndpoint(321, "not a host:port")
@@ -158,7 +158,7 @@ func TestDialConnectionEnsureTunnelFailurePropagates(t *testing.T) {
 	rc.Close() // closed client → Resolve errors
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	dst := protocol.Addr{Network: 1, Node: 0xDEADBEEF}
 	conn, err := d.DialConnection(dst, 80)
@@ -210,7 +210,7 @@ func TestDialConnectionAllowedPortStillHitsEnsureTunnel(t *testing.T) {
 	rc.Close() // make ensureTunnel fail quickly
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	d.netPolicyMu.Lock()
 	d.netPolicies[11] = []uint16{80}
@@ -236,7 +236,7 @@ func TestDialConnectionEnsureTunnelFailureBoundedLatency(t *testing.T) {
 	rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	done := make(chan error, 1)
 	go func() {

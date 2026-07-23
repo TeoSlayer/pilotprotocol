@@ -283,7 +283,7 @@ func TestHandleInfoReturnsValidJSON(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(nodeID)
 
 	s := d.ipc
@@ -327,7 +327,7 @@ func TestHandleHealthReturnsValidJSON(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(nodeID)
 
 	s := d.ipc

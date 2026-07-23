@@ -70,7 +70,7 @@ func TestInfoBasicFieldsWithoutRegistry(t *testing.T) {
 	defer rc.Close()
 
 	d := New(Config{Version: "testv1"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.startTime = time.Now().Add(-2 * time.Second)
 	d.setNodeID_testhelper(0xABCD0001)
 

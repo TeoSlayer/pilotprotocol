@@ -36,7 +36,7 @@ func netTestDaemon(t *testing.T) (*Daemon, uint32) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.identity = id
 	d.setNodeID_testhelper(nodeID)
 	// Wire the signer so registry calls requiring signatures work.
@@ -59,7 +59,7 @@ func TestHandleNetworkListRepliesOK(t *testing.T) {
 	t.Parallel()
 	d, selfID := netTestDaemon(t)
 	// Pre-create one network so the list is non-empty.
-	if _, err := d.regConn.CreateNetwork(selfID, "alpha", "open", "", "admin-token", false); err != nil {
+	if _, err := d.reg().CreateNetwork(selfID, "alpha", "open", "", "admin-token", false); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 
@@ -93,12 +93,12 @@ func TestHandleNetworkJoinValidRepliesOK(t *testing.T) {
 	// (self-created networks auto-add creator as a member, which makes a later
 	// join fail with "already in network").
 	otherID, _ := crypto.GenerateIdentity()
-	otherResp, err := d.regConn.RegisterWithKey("127.0.0.1:5602", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
+	otherResp, err := d.reg().RegisterWithKey("127.0.0.1:5602", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("other register: %v", err)
 	}
 	otherNodeID := uint32(otherResp["node_id"].(float64))
-	createResp, err := d.regConn.CreateNetwork(otherNodeID, "joinable", "open", "", "admin-token", false)
+	createResp, err := d.reg().CreateNetwork(otherNodeID, "joinable", "open", "", "admin-token", false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestHandleNetworkJoinBadNetworkIDSendsError(t *testing.T) {
 func TestHandleNetworkLeaveValidRepliesOK(t *testing.T) {
 	t.Parallel()
 	d, selfID := netTestDaemon(t)
-	createResp, err := d.regConn.CreateNetwork(selfID, "toleave", "open", "", "admin-token", false)
+	createResp, err := d.reg().CreateNetwork(selfID, "toleave", "open", "", "admin-token", false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestHandleNetworkLeaveValidRepliesOK(t *testing.T) {
 func TestHandleNetworkMembersValidRepliesOK(t *testing.T) {
 	t.Parallel()
 	d, selfID := netTestDaemon(t)
-	createResp, err := d.regConn.CreateNetwork(selfID, "member-net", "open", "", "admin-token", false)
+	createResp, err := d.reg().CreateNetwork(selfID, "member-net", "open", "", "admin-token", false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestHandleNetworkInviteValidRepliesOK(t *testing.T) {
 	t.Parallel()
 	d, selfID := netTestDaemon(t)
 	// Create an enterprise invite-only network so InviteToNetwork is meaningful.
-	createResp, err := d.regConn.CreateNetwork(selfID, "closed", "invite", "", "admin-token", true)
+	createResp, err := d.reg().CreateNetwork(selfID, "closed", "invite", "", "admin-token", true)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestHandleNetworkInviteValidRepliesOK(t *testing.T) {
 
 	// Register a second node to invite.
 	otherID, _ := crypto.GenerateIdentity()
-	otherResp, err := d.regConn.RegisterWithKey("127.0.0.1:5601", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
+	otherResp, err := d.reg().RegisterWithKey("127.0.0.1:5601", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("other register: %v", err)
 	}
