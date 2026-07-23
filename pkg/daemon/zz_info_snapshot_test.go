@@ -66,7 +66,8 @@ func TestNodeNetworksLookupErrorReturnsNil(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client, config: Config{AdminToken: "tok"}, nodeID: 99}
+	d := &Daemon{config: Config{AdminToken: "tok"}, nodeID: 99}
+	d.regConn.Store(client)
 	if got := d.nodeNetworks(); got != nil {
 		t.Errorf("error from registry must yield nil slice, got %v", got)
 	}
@@ -84,7 +85,8 @@ func TestNodeNetworksParsesFloat64Entries(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client, nodeID: 99}
+	d := &Daemon{nodeID: 99}
+	d.regConn.Store(client)
 	got := d.nodeNetworks()
 	want := []uint16{5, 7, 65535}
 	if len(got) != len(want) {
@@ -104,7 +106,8 @@ func TestNodeNetworksMissingFieldReturnsEmpty(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client, nodeID: 99}
+	d := &Daemon{nodeID: 99}
+	d.regConn.Store(client)
 	got := d.nodeNetworks()
 	if len(got) != 0 {
 		t.Errorf("missing networks field must yield empty, got %v", got)
@@ -122,7 +125,8 @@ func TestLookupPeerPubKeyLookupError(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client}
+	d := &Daemon{}
+	d.regConn.Store(client)
 	key, err := d.lookupPeerPubKey(42)
 	if err == nil {
 		t.Error("expected error on registry lookup failure")
@@ -139,7 +143,8 @@ func TestLookupPeerPubKeyMissingField(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client}
+	d := &Daemon{}
+	d.regConn.Store(client)
 	_, err := d.lookupPeerPubKey(42)
 	if err == nil {
 		t.Error("expected error when public_key field missing")
@@ -155,7 +160,8 @@ func TestLookupPeerPubKeyEmptyString(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client}
+	d := &Daemon{}
+	d.regConn.Store(client)
 	_, err := d.lookupPeerPubKey(42)
 	if err == nil {
 		t.Error("expected error on empty public_key")
@@ -178,7 +184,8 @@ func TestLookupPeerPubKeyHappyPath(t *testing.T) {
 	})
 	defer cleanup()
 
-	d := &Daemon{regConn: client}
+	d := &Daemon{}
+	d.regConn.Store(client)
 	got, err := d.lookupPeerPubKey(42)
 	if err != nil {
 		t.Fatalf("lookupPeerPubKey: %v", err)
@@ -305,7 +312,7 @@ func TestInfoReturnsSnapshotForFreshDaemon(t *testing.T) {
 		Version:  "v0.0.0-test",
 		Encrypt:  false,
 	})
-	d.regConn = client
+	d.regConn.Store(client)
 	d.nodeID = 7
 	d.addr.Network = 0
 	d.addr.Node = 7
@@ -359,7 +366,7 @@ func TestInfoHasIdentityTrueWhenIdentityPathSet(t *testing.T) {
 	})
 	defer cleanup()
 	d := New(Config{IdentityPath: "/does/not/exist/id.json"})
-	d.regConn = client
+	d.regConn.Store(client)
 	info := d.Info()
 	if !info.Identity {
 		t.Error("Identity should be true when IdentityPath is set")
@@ -376,7 +383,7 @@ func TestInfoIncludesNetworkMembershipsSkippingBackbone(t *testing.T) {
 	defer cleanup()
 
 	d := New(Config{})
-	d.regConn = client
+	d.regConn.Store(client)
 	d.nodeID = 12
 	info := d.Info()
 	// Network 0 is backbone → filtered. Expect 2 memberships.

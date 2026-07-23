@@ -352,7 +352,7 @@ func (me *ManagedEngine) fetchMembers() ([]uint32, error) {
 	backoff := 1 * time.Second
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		resp, err := me.daemon.regConn.ListNodes(me.netID, me.daemon.config.AdminToken)
+		resp, err := me.daemon.reg().ListNodes(me.netID, me.daemon.config.AdminToken)
 		if err == nil {
 			nodesRaw, ok := resp["nodes"].([]interface{})
 			if !ok {

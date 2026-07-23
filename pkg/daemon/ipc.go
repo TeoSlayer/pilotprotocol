@@ -1280,7 +1280,10 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, reqID uint64, payload [
 		s.daemon.hostnameCacheMu.RUnlock()
 	}
 
-	result, err := s.daemon.regConn.ResolveHostname(hostname)
+	rc := s.daemon.reg()
+	result, err := withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+		return rc.ResolveHostname(hostname)
+	})
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("resolve_hostname: %v", err))
 		return
@@ -1309,7 +1312,10 @@ func (s *IPCServer) handleResolveHostname(conn *ipcConn, reqID uint64, payload [
 	if nodeIDVal, ok := result["node_id"].(float64); ok {
 		nodeID := uint32(nodeIDVal)
 		go func() {
-			resolveResp, err := s.daemon.regConn.Resolve(nodeID, s.daemon.NodeID())
+			prewarmRC := s.daemon.reg()
+			resolveResp, err := withRegistryDeadline(registryCallDeadline, func() (map[string]interface{}, error) {
+				return prewarmRC.Resolve(nodeID, s.daemon.NodeID())
+			})
 			if err != nil {
 				slog.Debug("hostname resolve prewarm failed", "node_id", nodeID, "err", err)
 				return
@@ -1340,7 +1346,7 @@ func (s *IPCServer) handleSetHostname(conn *ipcConn, reqID uint64, payload []byt
 	s.daemon.addrMu.RLock()
 	prevHostname := s.daemon.config.Hostname
 	s.daemon.addrMu.RUnlock()
-	result, err := s.daemon.regConn.SetHostname(s.daemon.NodeID(), hostname)
+	result, err := s.daemon.reg().SetHostname(s.daemon.NodeID(), hostname)
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("set_hostname: %v", err))
 		return
@@ -1376,7 +1382,7 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, reqID uint64, payload []b
 		return
 	}
 	public := payload[0] == 1
-	result, err := s.daemon.regConn.SetVisibility(s.daemon.NodeID(), public)
+	result, err := s.daemon.reg().SetVisibility(s.daemon.NodeID(), public)
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("set_visibility: %v", err))
 		return
@@ -1396,7 +1402,7 @@ func (s *IPCServer) handleSetVisibility(conn *ipcConn, reqID uint64, payload []b
 }
 
 func (s *IPCServer) handleDeregister(conn *ipcConn, reqID uint64) {
-	result, err := s.daemon.regConn.Deregister(s.daemon.NodeID())
+	result, err := s.daemon.reg().Deregister(s.daemon.NodeID())
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("deregister: %v", err))
 		return
@@ -1421,7 +1427,7 @@ func (s *IPCServer) handleSetTags(conn *ipcConn, reqID uint64, payload []byte) {
 		s.sendError(conn, reqID, "set_tags: maximum 3 tags allowed")
 		return
 	}
-	result, err := s.daemon.regConn.SetTags(s.daemon.NodeID(), tags)
+	result, err := s.daemon.reg().SetTags(s.daemon.NodeID(), tags)
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("set_tags: %v", err))
 		return
@@ -1470,7 +1476,7 @@ func (s *IPCServer) handleSubmitBadge(conn *ipcConn, reqID uint64, payload []byt
 		s.sendError(conn, reqID, "submit_badge: badge and badge_sig required")
 		return
 	}
-	if s.daemon.regConn == nil {
+	if s.daemon.reg() == nil {
 		s.sendError(conn, reqID, "submit_badge: registry connection unavailable")
 		return
 	}
@@ -1481,7 +1487,7 @@ func (s *IPCServer) handleSubmitBadge(conn *ipcConn, reqID uint64, payload []byt
 		return
 	}
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
-	result, err := s.daemon.regConn.SubmitBadge(nodeID, req.Badge, req.BadgeSig, sigB64)
+	result, err := s.daemon.reg().SubmitBadge(nodeID, req.Badge, req.BadgeSig, sigB64)
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("submit_badge: %v", err))
 		return
@@ -1519,7 +1525,7 @@ func (s *IPCServer) handleEnrollRecovery(conn *ipcConn, reqID uint64, payload []
 		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery: bad enrollment: %v", err))
 		return
 	}
-	if s.daemon.regConn == nil {
+	if s.daemon.reg() == nil {
 		s.sendError(conn, reqID, "enroll_recovery: registry connection unavailable")
 		return
 	}
@@ -1530,7 +1536,7 @@ func (s *IPCServer) handleEnrollRecovery(conn *ipcConn, reqID uint64, payload []
 		return
 	}
 	sigB64 := base64.StdEncoding.EncodeToString(sig)
-	result, err := s.daemon.regConn.EnrollRecovery(nodeID, req.Enrollment, req.EnrollmentSig, sigB64)
+	result, err := s.daemon.reg().EnrollRecovery(nodeID, req.Enrollment, req.EnrollmentSig, sigB64)
 	if err != nil {
 		s.sendError(conn, reqID, fmt.Sprintf("enroll_recovery: %v", err))
 		return
@@ -1733,10 +1739,10 @@ func (s *IPCServer) handleVerifyEnvelope(conn *ipcConn, reqID uint64, payload []
 // key_generation are being added to lookup responses in a parallel work
 // stream, so older registries simply omit them.
 func (s *IPCServer) addEnvelopeStanding(resp map[string]interface{}, e reqsig.Envelope) {
-	if s.daemon.regConn == nil {
+	if s.daemon.reg() == nil {
 		return
 	}
-	lk, err := s.daemon.regConn.Lookup(e.Node)
+	lk, err := s.daemon.reg().Lookup(e.Node)
 	if err != nil {
 		return
 	}
@@ -1969,7 +1975,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 
 	switch sub {
 	case SubNetworkList:
-		result, err := s.daemon.regConn.ListNetworks()
+		result, err := s.daemon.reg().ListNetworks()
 		if err != nil {
 			s.sendError(conn, reqID, fmt.Sprintf("network list: %v", err))
 			return
@@ -1988,7 +1994,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 		if len(rest) > 2 {
 			token = string(rest[2:])
 		}
-		result, err := s.daemon.regConn.JoinNetwork(
+		result, err := s.daemon.reg().JoinNetwork(
 			s.daemon.NodeID(), netID, token, 0, s.daemon.config.AdminToken,
 		)
 		if err != nil {
@@ -2025,7 +2031,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
-		result, err := s.daemon.regConn.LeaveNetwork(
+		result, err := s.daemon.reg().LeaveNetwork(
 			s.daemon.NodeID(), netID, s.daemon.config.AdminToken,
 		)
 		if err != nil {
@@ -2051,7 +2057,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 			return
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
-		result, err := s.daemon.regConn.ListNodes(netID, s.daemon.config.AdminToken)
+		result, err := s.daemon.reg().ListNodes(netID, s.daemon.config.AdminToken)
 		if err != nil {
 			s.sendError(conn, reqID, fmt.Sprintf("network members: %v", err))
 			return
@@ -2067,7 +2073,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
 		targetID := binary.BigEndian.Uint32(rest[2:6])
-		result, err := s.daemon.regConn.InviteToNetwork(
+		result, err := s.daemon.reg().InviteToNetwork(
 			netID, s.daemon.NodeID(), targetID, s.daemon.config.AdminToken,
 		)
 		if err != nil {
@@ -2078,7 +2084,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 		s.ipcWriteNetworkOK(conn, reqID, data)
 
 	case SubNetworkPollInvites:
-		result, err := s.daemon.regConn.PollInvites(s.daemon.NodeID())
+		result, err := s.daemon.reg().PollInvites(s.daemon.NodeID())
 		if err != nil {
 			s.sendError(conn, reqID, fmt.Sprintf("network poll-invites: %v", err))
 			return
@@ -2094,7 +2100,7 @@ func (s *IPCServer) handleNetwork(conn *ipcConn, reqID uint64, payload []byte) {
 		}
 		netID := binary.BigEndian.Uint16(rest[0:2])
 		accept := rest[2] == 1
-		result, err := s.daemon.regConn.RespondInvite(
+		result, err := s.daemon.reg().RespondInvite(
 			s.daemon.NodeID(), netID, accept,
 		)
 		if err != nil {
@@ -2353,7 +2359,7 @@ func (s *IPCServer) handleManaged(conn *ipcConn, reqID uint64, payload []byte) {
 
 		switch action {
 		case 0x00: // get
-			resp, err := s.daemon.regConn.GetMemberTags(tagNetID, targetNodeID)
+			resp, err := s.daemon.reg().GetMemberTags(tagNetID, targetNodeID)
 			if err != nil {
 				s.sendError(conn, reqID, fmt.Sprintf("member-tags get: %v", err))
 				return
@@ -2370,7 +2376,7 @@ func (s *IPCServer) handleManaged(conn *ipcConn, reqID uint64, payload []byte) {
 				s.sendError(conn, reqID, fmt.Sprintf("member-tags set: invalid tags JSON: %v", err))
 				return
 			}
-			resp, err := s.daemon.regConn.SetMemberTags(tagNetID, targetNodeID, tags, s.daemon.config.AdminToken)
+			resp, err := s.daemon.reg().SetMemberTags(tagNetID, targetNodeID, tags, s.daemon.config.AdminToken)
 			if err != nil {
 				s.sendError(conn, reqID, fmt.Sprintf("member-tags set: %v", err))
 				return

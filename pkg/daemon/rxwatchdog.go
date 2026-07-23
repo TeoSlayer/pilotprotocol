@@ -245,7 +245,7 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 		// registry. This is what a manual restart effectively did to clear
 		// the partial wedge.
 		d.tunnels.RegisterWithBeacon()
-		if d.regConn != nil {
+		if d.reg() != nil {
 			d.reRegister()
 		}
 		// Reset the dial counter so the next real dial re-tests the path:

@@ -150,12 +150,15 @@ func (m *Manager) HandleAuthFrame(data []byte, from *net.UDPAddr, fromRelay bool
 			slog.Info("encrypted tunnel established", "auth", true,
 				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 		}
-		m.publish("tunnel.established", map[string]any{
-			"peer_node_id":  peerNodeID,
+		authEstablishedEvent := map[string]any{
 			"authenticated": true,
 			"relay":         fromRelay,
 			"rekeyed":       keyChanged,
-		})
+		}
+		if m.trustFn == nil || m.trustFn(peerNodeID) {
+			authEstablishedEvent["peer_node_id"] = peerNodeID
+		}
+		m.publish("tunnel.established", authEstablishedEvent)
 
 		if m.postInstall != nil {
 			m.postInstall(PostInstallEvent{
@@ -295,12 +298,15 @@ func (m *Manager) HandleUnauthFrame(data []byte, from *net.UDPAddr, fromRelay bo
 			slog.Info("encrypted tunnel established",
 				"peer_node_id", peerNodeID, "endpoint", from, "relay", fromRelay)
 		}
-		m.publish("tunnel.established", map[string]any{
-			"peer_node_id":  peerNodeID,
+		unauthEstablishedEvent := map[string]any{
 			"authenticated": false,
 			"relay":         fromRelay,
 			"rekeyed":       keyChanged,
-		})
+		}
+		if m.trustFn == nil || m.trustFn(peerNodeID) {
+			unauthEstablishedEvent["peer_node_id"] = peerNodeID
+		}
+		m.publish("tunnel.established", unauthEstablishedEvent)
 
 		if m.postInstall != nil {
 			m.postInstall(PostInstallEvent{

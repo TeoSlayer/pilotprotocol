@@ -112,7 +112,7 @@ func TestNetworkJoinedEventEmitted(t *testing.T) {
 	}
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	initBusForTest(d)
 
@@ -174,7 +174,7 @@ func TestNetworkLeftEventEmitted(t *testing.T) {
 	}
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	initBusForTest(d)
 
@@ -240,7 +240,7 @@ func TestNetworkTagsChangedEventEmitted(t *testing.T) {
 	}
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	initBusForTest(d)
 
@@ -336,7 +336,7 @@ func TestNetworkTagsChangedSuppressedWhenNoDelta(t *testing.T) {
 	}
 
 	d := New(Config{AdminToken: "admin-token"})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 	initBusForTest(d)
 

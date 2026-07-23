@@ -48,7 +48,7 @@ func setupBroadcastFixture(t *testing.T, peerCount int) *broadcastFixture {
 	netID := uint16(createResp["network_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	d.setNodeID_testhelper(selfNodeID)
 
 	if err := d.tunnels.Listen("127.0.0.1:0"); err != nil {

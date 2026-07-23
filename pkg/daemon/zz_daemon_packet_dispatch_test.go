@@ -20,7 +20,6 @@ func newPacketDaemon(t *testing.T, client *registry.Client) (*Daemon, *net.UDPCo
 		nodeID:       42,
 		tunnels:      NewTunnelManager(),
 		ports:        NewPortManager(),
-		regConn:      client,
 		resolveCache: make(map[uint32]*resolveEntry),
 		epCache:      make(map[uint32]*endpointEntry),
 		netPolicies:  make(map[uint16][]uint16),
@@ -31,6 +30,7 @@ func newPacketDaemon(t *testing.T, client *registry.Client) (*Daemon, *net.UDPCo
 		perSrcSYN:    make(map[uint32]*srcSYNBucket),
 		stopCh:       make(chan struct{}),
 	}
+	d.regConn.Store(client)
 	d.ipc = NewIPCServer("", d)
 	if err := d.tunnels.Listen("127.0.0.1:0"); err != nil {
 		t.Fatalf("tunnel listen: %v", err)

@@ -201,7 +201,7 @@ func TestBroadcastDatagramRegistryClosedReturnsError(t *testing.T) {
 	rc.Close() // force ListNodes to fail
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	err := d.broadcastDatagram(5, 1000, 80, []byte("x"), "")
 	if err == nil {
@@ -218,7 +218,7 @@ func TestLookupPeerPubKeyRegistryClosedReturnsError(t *testing.T) {
 	rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	_, err := d.lookupPeerPubKey(42)
 	if err == nil {
@@ -233,7 +233,7 @@ func TestLookupPeerPubKeyUnknownNodeReturnsError(t *testing.T) {
 	defer rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	_, err := d.lookupPeerPubKey(999999) // never registered
 	if err == nil {
@@ -255,7 +255,7 @@ func TestLookupPeerPubKeySuccessReturnsKey(t *testing.T) {
 	nodeID := uint32(resp["node_id"].(float64))
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 
 	got, err := d.lookupPeerPubKey(nodeID)
 	if err != nil {

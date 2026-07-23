@@ -263,6 +263,7 @@ type Manager struct {
 	postInstall PostInstallHook
 	preRetx     PreRetransmitHook
 	onGaveUp    func(nodeID uint32)
+	trustFn     func(nodeID uint32) bool
 }
 
 // New returns a fresh Manager. The Manager installs into store; pass
@@ -314,6 +315,8 @@ func (m *Manager) SetPreRetransmitHook(h PreRetransmitHook) { m.preRetx = h }
 // recovers a desynced peer, since it is no longer Ready and so is invisible
 // to the inbound-silence path watchdog. Invoked outside rkPendingMu.
 func (m *Manager) SetOnGaveUpHook(h func(nodeID uint32)) { m.onGaveUp = h }
+
+func (m *Manager) SetTrustFn(f func(nodeID uint32) bool) { m.trustFn = f }
 
 // SetLocalNodeIDFn supplies the closure used to read our own node ID
 // (atomic read living in the daemon).

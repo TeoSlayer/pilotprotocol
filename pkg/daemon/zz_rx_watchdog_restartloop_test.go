@@ -135,9 +135,9 @@ func TestRecentRxWedgeExits_WindowAndMalformed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id.rxwedge")
 	content := strings.Join([]string{
 		strconv.FormatInt(now.Add(-1*time.Minute).UnixNano(), 10), // in window
-		"garbage-not-a-number",                                    // skipped
-		strconv.FormatInt(now.Add(-3*time.Hour).UnixNano(), 10),   // outside window
-		"",                                                        // skipped
+		"garbage-not-a-number",                                  // skipped
+		strconv.FormatInt(now.Add(-3*time.Hour).UnixNano(), 10), // outside window
+		"", // skipped
 		strconv.FormatInt(now.Add(-5*time.Minute).UnixNano(), 10), // in window
 	}, "\n")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

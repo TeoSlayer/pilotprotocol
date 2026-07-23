@@ -31,7 +31,7 @@ func TestInfoZerosWebhookCountersWhenNoManagerRegistered(t *testing.T) {
 	defer rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	t.Cleanup(func() { d.tunnels.Close() })
 
 	atomic.StoreUint64(&d.AcceptQueueDrops, 7)
@@ -55,7 +55,7 @@ func TestInfoSurfacesWebhookCountersFromManager(t *testing.T) {
 	defer rc.Close()
 
 	d := New(Config{})
-	d.regConn = rc
+	d.regConn.Store(rc)
 	t.Cleanup(func() { d.tunnels.Close() })
 
 	wm := &infoFakeWebhookManager{stats: WebhookStats{Dropped: 13, CircuitSkips: 42}}

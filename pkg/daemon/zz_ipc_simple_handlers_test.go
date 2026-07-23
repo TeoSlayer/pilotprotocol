@@ -21,7 +21,6 @@ func newSimpleHandlerDaemon(t *testing.T, client *registry.Client) (*Daemon, *IP
 		nodeID:        7,
 		tunnels:       NewTunnelManager(),
 		ports:         NewPortManager(),
-		regConn:       client,
 		resolveCache:  make(map[uint32]*resolveEntry),
 		epCache:       make(map[uint32]*endpointEntry),
 		hostnameCache: make(map[string]*hostnameCacheEntry),
@@ -30,6 +29,7 @@ func newSimpleHandlerDaemon(t *testing.T, client *registry.Client) (*Daemon, *IP
 		memberTags:    make(map[uint16][]string),
 		startTime:     time.Now(),
 	}
+	d.regConn.Store(client)
 	d.ipc = NewIPCServer("", d)
 	return d, d.ipc
 }

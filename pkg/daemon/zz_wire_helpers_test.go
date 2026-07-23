@@ -22,13 +22,13 @@ func newWireDaemon(t *testing.T, client *registry.Client) (*Daemon, *net.UDPConn
 		nodeID:       42,
 		tunnels:      NewTunnelManager(),
 		ports:        NewPortManager(),
-		regConn:      client,
 		resolveCache: make(map[uint32]*resolveEntry),
 		epCache:      make(map[uint32]*endpointEntry),
 		netPolicies:  make(map[uint16][]uint16),
 		managed:      make(map[uint16]*ManagedEngine),
 		memberTags:   make(map[uint16][]string),
 	}
+	d.regConn.Store(client)
 	if err := d.tunnels.Listen("127.0.0.1:0"); err != nil {
 		t.Fatalf("tunnel listen: %v", err)
 	}
@@ -189,17 +189,18 @@ func TestAutoJoinNetworksJoinsEachAndContinuesOnError(t *testing.T) {
 // that only need regConn and should not pay for UDP binds.
 func newWireDaemonBare(t *testing.T, client *registry.Client) *Daemon {
 	t.Helper()
-	return &Daemon{
+	d := &Daemon{
 		nodeID:       42,
 		tunnels:      NewTunnelManager(),
 		ports:        NewPortManager(),
-		regConn:      client,
 		resolveCache: make(map[uint32]*resolveEntry),
 		epCache:      make(map[uint32]*endpointEntry),
 		netPolicies:  make(map[uint16][]uint16),
 		managed:      make(map[uint16]*ManagedEngine),
 		memberTags:   make(map[uint16][]string),
 	}
+	d.regConn.Store(client)
+	return d
 }
 
 // --- sendRST ---------------------------------------------------------------

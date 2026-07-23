@@ -447,7 +447,7 @@ func TestObservabilityHeartbeatLoopPublishesAgentHeartbeat(t *testing.T) {
 func TestTrustRepublishLoopFiresAndStops(t *testing.T) {
 	t.Parallel()
 	d := New(Config{KeepaliveInterval: 50 * time.Millisecond})
-	// regConn is nil — each tick hits the `if d.regConn == nil { continue }`
+	// regConn is nil — each tick hits the `if d.reg() == nil { continue }`
 	// branch. We're only verifying the loop body executes without panicking
 	// and exits on stopCh.
 	done := make(chan struct{})

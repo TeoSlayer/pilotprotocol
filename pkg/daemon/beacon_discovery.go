@@ -105,7 +105,7 @@ func initialJitter() time.Duration {
 // (We don't run this on every tick — only at first-tick to keep the
 // hot path simple.)
 func (d *Daemon) beaconRefreshLoop() {
-	if d.beaconSelection == nil || d.regConn == nil || d.identity == nil {
+	if d.beaconSelection == nil || d.reg() == nil || d.identity == nil {
 		// Nothing to refresh — single-beacon static config without
 		// identity/registry. Exit cleanly.
 		return
@@ -152,14 +152,14 @@ func (d *Daemon) beaconRefreshTick(firstTick bool) {
 	// equal to interface nil, so fetchBeaconList's `client == nil`
 	// guard wouldn't catch it — and (*Client).Send panics on a nil
 	// receiver. Bail early from this tick if no registry connection.
-	if d.regConn == nil {
+	if d.reg() == nil {
 		if firstTick {
 			slog.Debug("beacon discovery skipped (no registry connection)")
 		}
 		return
 	}
 
-	discovered, err := fetchBeaconList(d.regConn)
+	discovered, err := fetchBeaconList(d.reg())
 	if err != nil {
 		// On the FIRST tick, try the on-disk cache as a fallback —
 		// the registry may have been briefly unreachable at startup.
