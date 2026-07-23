@@ -362,7 +362,7 @@ func cmdSkillsDisable(args []string) {
 	} else {
 		fmt.Println()
 		fmt.Println("Opt-out persisted at ~/.pilot/config.json — future ticks are no-ops.")
-		fmt.Println("To re-enable: pilotctl skills enable")
+		fmt.Println("To re-enable: pilotctl skills enable all")
 	}
 }
 
