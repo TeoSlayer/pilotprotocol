@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -90,6 +92,7 @@ func main() {
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
 	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "write inbox message payloads as a raw base64 `data_b64` field in place of the UTF-8 `data` field — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
+	noSkillinject := flag.Bool("no-skillinject", false, "disable built-in skill-injection service (agent context injection). Env: PILOT_NO_SKILLINJECT=1.")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
@@ -297,8 +300,21 @@ func main() {
 	//   - It only rewrites its own marker block, never operator content.
 	//   - Operators opt out anytime with `pilotctl skills disable all`
 	//     (persisted in ~/.pilot/config.json); see cmd/pilotctl/skills.go.
-	if err := rt.Register(skillinject.NewService(skillinject.Config{})); err != nil {
-		log.Fatalf("register skillinject: %v", err)
+	if !*noSkillinject && os.Getenv("PILOT_NO_SKILLINJECT") != "1" {
+		skillinjectCfg := skillinject.Config{}
+		if pk := os.Getenv("PILOT_SKILLINJECT_MANIFEST_PUBKEY"); pk != "" {
+			raw, err := base64.StdEncoding.DecodeString(pk)
+			if err != nil {
+				log.Fatalf("PILOT_SKILLINJECT_MANIFEST_PUBKEY: invalid base64 encoding")
+			}
+			if len(raw) != ed25519.PublicKeySize {
+				log.Fatalf("PILOT_SKILLINJECT_MANIFEST_PUBKEY: must be a %d-byte ed25519 key", ed25519.PublicKeySize)
+			}
+			skillinjectCfg.ManifestPublicKey = ed25519.PublicKey(raw)
+		}
+		if err := rt.Register(skillinject.NewService(skillinjectCfg)); err != nil {
+			log.Fatalf("register skillinject: %v", err)
+		}
 	}
 
 	if !*noDataExchange {

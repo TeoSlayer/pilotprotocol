@@ -486,18 +486,26 @@ func TestHandleEncryptedReplayIsRejected(t *testing.T) {
 	pc.ReplayBitmap[bit/64] |= 1 << (bit % 64)
 	pc.ReplayMu.Unlock()
 
-	// Craft an encrypted packet claiming counter=5 — will be rejected as replay.
-	data := make([]byte, 4+12+16)
+	// Craft a GENUINE encrypted frame at counter=5. It authenticates, then is
+	// rejected as an in-window replay. PPA-006: replay classification is
+	// post-AEAD, so only an authenticated frame reaches the ErrReplay path.
+	nonce := make([]byte, pc.AEAD.NonceSize())
+	copy(nonce[0:4], pc.NoncePrefix[:])
+	binary.BigEndian.PutUint64(nonce[4:12], 5)
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, peerNodeID)
+	ct := pc.AEAD.Seal(nil, nonce, []byte("replayed"), aad)
+	data := make([]byte, 4+12+len(ct))
 	binary.BigEndian.PutUint32(data[0:4], peerNodeID)
-	copy(data[4:8], pc.NoncePrefix[:])
-	binary.BigEndian.PutUint64(data[8:16], 5)
+	copy(data[4:16], nonce)
+	copy(data[16:], ct)
 
 	beforeFail := atomic.LoadUint64(&tm.EncryptFail)
 	beforeRecv := atomic.LoadUint64(&tm.PktsRecv)
 	tm.handleEncrypted(data, &net.UDPAddr{})
-	// Replay path returns BEFORE decrypt, so EncryptFail must NOT increment
+	// Authenticated replay: AEAD.Open succeeds, so EncryptFail must NOT move.
 	if atomic.LoadUint64(&tm.EncryptFail) != beforeFail {
-		t.Fatalf("EncryptFail should not move on replay; got %d want %d",
+		t.Fatalf("EncryptFail should not move on authenticated replay; got %d want %d",
 			atomic.LoadUint64(&tm.EncryptFail), beforeFail)
 	}
 	if atomic.LoadUint64(&tm.PktsRecv) != beforeRecv {

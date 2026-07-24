@@ -144,6 +144,9 @@ const (
 	// window plus most peer-side retransmits caused by an early ACK
 	// being dropped.
 	DuplicateHandshakeDebounce = 250 * time.Millisecond
+
+	NegativePubKeyCacheTTL = 3 * time.Second
+	MaxNegPubKeyEntries    = 4096
 )
 
 // PendingRekeyState tracks a key-exchange we sent and are waiting on.
@@ -226,6 +229,7 @@ type Manager struct {
 	// peerPubKeys caches Ed25519 keys fetched via verifyFunc.
 	pubKeysMu   sync.RWMutex
 	peerPubKeys map[uint32]ed25519.PublicKey
+	negPubKeys  map[uint32]time.Time
 
 	// rkPendingMu is the LEAF lock guarding pendingRekey +
 	// lastInboundDecrypt + rekeyGaveUp. NEVER held while taking any
@@ -276,6 +280,7 @@ func New(store *Store) *Manager {
 	return &Manager{
 		env:                  store,
 		peerPubKeys:          make(map[uint32]ed25519.PublicKey),
+		negPubKeys:           make(map[uint32]time.Time),
 		pendingRekey:         make(map[uint32]*PendingRekeyState),
 		lastInboundDecrypt:   make(map[uint32]time.Time),
 		rekeyGaveUp:          make(map[uint32]time.Time),
@@ -392,14 +397,22 @@ func (m *Manager) publish(topic string, payload map[string]any) {
 }
 
 // GetPeerPubKey returns the cached Ed25519 public key for a peer,
-// fetching from the registry (via verifyFunc) on cache miss.
+// fetching from the registry (via verifyFunc) on cache miss. A recent
+// failed lookup is negatively cached (NegativePubKeyCacheTTL) so a flood
+// of frames for an unresolved node ID does not re-hit the registry — and
+// re-run the Ed25519 path — on every frame.
 func (m *Manager) GetPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 	m.pubKeysMu.RLock()
 	if pk, ok := m.peerPubKeys[nodeID]; ok {
 		m.pubKeysMu.RUnlock()
 		return pk, nil
 	}
+	negAt, negOK := m.negPubKeys[nodeID]
 	m.pubKeysMu.RUnlock()
+
+	if negOK && time.Since(negAt) < NegativePubKeyCacheTTL {
+		return nil, errPubKeyUnresolved
+	}
 
 	m.idMu.RLock()
 	fn := m.verifyFunc
@@ -410,12 +423,32 @@ func (m *Manager) GetPeerPubKey(nodeID uint32) (ed25519.PublicKey, error) {
 
 	pk, err := fn(nodeID)
 	if err != nil {
+		m.recordNegPubKey(nodeID)
 		return nil, err
 	}
 	m.pubKeysMu.Lock()
 	m.peerPubKeys[nodeID] = pk
+	delete(m.negPubKeys, nodeID)
 	m.pubKeysMu.Unlock()
 	return pk, nil
+}
+
+func (m *Manager) recordNegPubKey(nodeID uint32) {
+	now := time.Now()
+	m.pubKeysMu.Lock()
+	if _, ok := m.negPubKeys[nodeID]; !ok && len(m.negPubKeys) >= MaxNegPubKeyEntries {
+		for id, at := range m.negPubKeys {
+			if now.Sub(at) >= NegativePubKeyCacheTTL {
+				delete(m.negPubKeys, id)
+			}
+		}
+		if len(m.negPubKeys) >= MaxNegPubKeyEntries {
+			m.pubKeysMu.Unlock()
+			return
+		}
+	}
+	m.negPubKeys[nodeID] = now
+	m.pubKeysMu.Unlock()
 }
 
 // SetPeerPubKey installs a cache entry directly. Used by handle paths
@@ -668,6 +701,7 @@ func (m *Manager) SetReplyWhitelistMatchAll(on bool) {
 func (m *Manager) RemovePeer(nodeID uint32) {
 	m.pubKeysMu.Lock()
 	delete(m.peerPubKeys, nodeID)
+	delete(m.negPubKeys, nodeID)
 	m.pubKeysMu.Unlock()
 
 	m.rkPendingMu.Lock()
