@@ -410,9 +410,6 @@ func main() {
 			// against this before spawning. nil/unpinned => fail closed.
 			CataloguePublisher: cataloguePins.Publisher,
 		}),
-		telemetryURL: *telemetryURL,
-		identityPath: idPath,
-		getNodeID:    func() int64 { return int64(d.NodeID()) },
 	}); err != nil {
 		log.Fatalf("register appstore: %v", err)
 	}
