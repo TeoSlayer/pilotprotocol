@@ -16,7 +16,7 @@ Getting started:
   pilotctl quickstart             3-command getting-started flow
 
 Bootstrap:
-  pilotctl init --registry <addr> [--hostname <name>] [--beacon <addr>]
+  pilotctl init [--registry <addr>] [--hostname <name>] [--beacon <addr>] [--socket <path>]
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
@@ -44,6 +44,7 @@ Communication commands:
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
   pilotctl send-file <address|hostname> <filepath>
   pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--count <n>] [--reuse-conn] [--wait <dur>]
+  pilotctl dgram <address|hostname> <port> --data <msg>
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
 
@@ -54,7 +55,7 @@ Trust commands:
   pilotctl untrust <node_id>
   pilotctl pending
   pilotctl trust [--search <substr>]                  live trust state (peers you trust)
-  pilotctl trusted                                    embedded directory of auto-approved service agents
+  pilotctl trusted list                               embedded directory of auto-approved service agents
   pilotctl prefer-direct <node_id|address|hostname>   prefer a direct tunnel over the relay (daemon v1.12+)
 
 Identity & recovery:
@@ -83,6 +84,8 @@ Agent tool discovery:
   pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
   pilotctl skills paths               print only the install paths (shell-friendly)
   pilotctl skills check               run one reconcile pass right now
+  pilotctl skills enable|disable all  turn skill injection on/off (only 'all' is implemented)
+  pilotctl skills set-mode auto|manual|disabled   persist the reconcile mode
 
 App store (install + call local capability apps; full help: pilotctl appstore help):
   pilotctl appstore catalogue                         list apps available for one-command install
@@ -98,7 +101,7 @@ Updates:
 
 Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
   pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
-  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root for ports <1024)
+  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root — creates loopback interface aliases)
 
 Diagnostic commands:
   pilotctl info

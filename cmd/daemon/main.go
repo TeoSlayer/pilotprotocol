@@ -88,7 +88,7 @@ func main() {
 	hostname := flag.String("hostname", "", "hostname for discovery (lowercase alphanumeric + hyphens, max 63 chars)")
 	noEcho := flag.Bool("no-echo", false, "disable built-in echo service (port 7)")
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
-	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "include raw base64 payload (`data_b64`) alongside `data` in inbox messages — needed only for binary payloads (e.g. zlib-compressed envelopes)")
+	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "write inbox message payloads as a raw base64 `data_b64` field in place of the UTF-8 `data` field — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")

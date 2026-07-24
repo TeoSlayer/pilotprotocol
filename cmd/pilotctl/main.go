@@ -889,7 +889,7 @@ Examples:
 Measure throughput to a remote node via the echo port.
 
 Flags:
-  --timeout <dur>       overall deadline (default: 30s)
+  --timeout <dur>       overall deadline (default: 120s)
 
 Examples:
   pilotctl bench my-agent
@@ -1049,14 +1049,16 @@ Flags:
   --check     silent health check — exits 0 if daemon is responsive, 1 otherwise
               useful in scripts: pilotctl daemon status --check || pilotctl daemon start
 `,
-	"init": `Usage: pilotctl init --registry <addr> [flags]
+	"init": `Usage: pilotctl init [flags]
 
 Initialize the local pilot config at ~/.pilot/config.json.
+All flags are optional; unset values are written with their defaults.
 
 Flags:
-  --registry <addr>     registry address (required)
+  --registry <addr>     registry address (default: 34.71.57.205:9000)
   --beacon <addr>       beacon address
-  --hostname <name>     hostname to register
+  --hostname <name>     hostname to register (default: none)
+  --socket <path>       daemon socket path (default: /tmp/pilot.sock)
 `,
 	"network": `Usage: pilotctl network <subcommand> [flags]
 
@@ -1064,18 +1066,20 @@ Manage overlay networks.
 
 Subcommands:
   list                  list networks this node belongs to
-  create <name>         create a new network
+  create --name <name>  create a new network
   join <id>             join a network
   leave <id>            leave a network
   members <id>          list members of a network
   invite <id> <node>    invite a node to a network
   invites               list pending invitations
   accept <id>           accept an invitation
+  reject <id>           reject an invitation
   delete <id>           delete a network (owner only)
   rename <id> <name>    rename a network (owner only)
   promote <id> <node>   promote a member to admin
   demote <id> <node>    demote an admin to member
   kick <id> <node>      remove a member from a network
+  role <id> <node>      show a member's role in a network
   policy <id>           show or set network policy
 `,
 
@@ -1105,7 +1109,7 @@ See also: pilotctl pending   — incoming requests waiting for your approval
           pilotctl handshake — initiate trust with a new peer
           pilotctl untrust   — revoke trust with a node
 `,
-	"trusted": `Usage: pilotctl trusted
+	"trusted": `Usage: pilotctl trusted list
 
 List nodes in the embedded trusted-agents directory (service agents that are
 auto-approved on first contact, without requiring manual pilotctl approve).
@@ -1307,7 +1311,7 @@ Flags (one-shot mode):
 Show the latest Pilot Protocol changelog entries from the release feed.
 
 Flags:
-  --count <n>      number of entries to show (default: 5)
+  --count <n>      number of entries to show (default: 10)
   --scope <name>   filter by scope tag (e.g. protocol, cli, networks)
 `,
 	"context": `Usage: pilotctl context [command]
@@ -1322,16 +1326,22 @@ name. With a command name (e.g. 'pilotctl context send-message' or
 `,
 	"skills": `Usage: pilotctl skills [subcommand]
 
-Manage the SKILL.md files the daemon installs for each detected agent tool
-(Claude Code, OpenClaw, PicoClaw). The skill file teaches the agent how to
-use pilotctl without manual setup.
+Manage the SKILL.md files the daemon installs for each detected agent
+toolchain (the supported set is fetched at runtime from the pilot-skills
+repository). The skill file teaches the agent how to use pilotctl without
+manual setup.
 
 Subcommands:
   status [--verbose]   (default) per-tool install state; --verbose adds per-file detail
   paths                print install paths only — one per line, shell-friendly
   check                run one reconcile pass right now (re-installs if missing/outdated)
+  disable all          remove every managed file + persist the opt-out
+                       (only 'all' is accepted; per-skill disable is not yet implemented)
+  enable all           re-enable (auto mode) + run one reconcile pass
+                       (only 'all' is accepted; per-skill enable is not yet implemented)
+  set-mode auto|manual|disabled   persist the reconcile mode to ~/.pilot/config.json
 
-The daemon reconciles skill files every 15 minutes automatically.
+The daemon reconciles skill files every 15 minutes automatically (in auto mode).
 `,
 	"broadcast": `Usage: pilotctl broadcast <network_id> <message> [flags]
 
@@ -1356,8 +1366,9 @@ Publish a message to a topic on a remote node.
 	"send-file": `Usage: pilotctl send-file <address|hostname> <filepath> [--timeout <dur>] [--prefer-direct]
 
 Send a file to a remote node via the data-exchange stream. Files are
-capped at 256 MiB (the data-exchange frame ceiling) unless both daemons
-have raised PILOT_DATAEXCHANGE_MAX_FRAME — see the dataexchange package.
+capped at 1 GiB (the default data-exchange frame ceiling) unless both
+daemons have changed PILOT_DATAEXCHANGE_MAX_FRAME (accepted range
+64 KiB to 2 GiB) — see the dataexchange package.
 
 Flags:
   --timeout <dur>       give up if the receiver does not ACK within this
@@ -1401,11 +1412,12 @@ Reliability caveats (current implementation):
 
 	"quickstart": `Usage: pilotctl quickstart
 
-Guided 3-step getting-started walkthrough. Re-run after each step — it detects
-whether the daemon is already running and points you to the next action:
-  1. start the daemon          pilotctl daemon start
-  2. discover specialists      pilotctl send-message list-agents --data '...' --wait
-  3. handshake + query one     pilotctl handshake <hostname> ; pilotctl send-message ...
+Print a fixed 3-step getting-started cheat-sheet (DISCOVER, TRUST, TALK)
+plus the one-time setup commands (init + daemon start). Static output —
+it does not inspect daemon state:
+  1. DISCOVER — pilotctl send-message list-agents --data '...' --wait
+  2. TRUST    — pilotctl handshake <node_id>
+  3. TALK     — pilotctl send-message <node_id> --data "Hello, world!" --wait
 `,
 
 	"verify": `Usage: pilotctl verify [status] [flags]
@@ -1475,7 +1487,7 @@ Getting started:
   pilotctl quickstart             3-command getting-started flow
 
 Bootstrap:
-  pilotctl init --registry <addr> [--hostname <name>] [--beacon <addr>]
+  pilotctl init [--registry <addr>] [--hostname <name>] [--beacon <addr>] [--socket <path>]
   pilotctl config [--set key=value]
 
 Daemon lifecycle:
@@ -1503,6 +1515,7 @@ Communication commands:
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
   pilotctl send-file <address|hostname> <filepath>
   pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--count <n>] [--reuse-conn] [--wait <dur>]
+  pilotctl dgram <address|hostname> <port> --data <msg>
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
   pilotctl publish <address|hostname> <topic> --data <message>
 
@@ -1513,7 +1526,7 @@ Trust commands:
   pilotctl untrust <node_id>
   pilotctl pending
   pilotctl trust [--search <substr>]                  live trust state (peers you trust)
-  pilotctl trusted                                    embedded directory of auto-approved service agents
+  pilotctl trusted list                               embedded directory of auto-approved service agents
   pilotctl prefer-direct <node_id|address|hostname>   prefer a direct tunnel over the relay (daemon v1.12+)
 
 Identity & recovery:
@@ -1542,6 +1555,8 @@ Agent tool discovery:
   pilotctl skills [status]            show where the daemon installs SKILL.md per detected agent tool
   pilotctl skills paths               print only the install paths (shell-friendly)
   pilotctl skills check               run one reconcile pass right now
+  pilotctl skills enable|disable all  turn skill injection on/off (only 'all' is implemented)
+  pilotctl skills set-mode auto|manual|disabled   persist the reconcile mode
 
 App store (install + call local capability apps; full help: pilotctl appstore help):
   pilotctl appstore catalogue                         list apps available for one-command install
@@ -1557,7 +1572,7 @@ Updates:
 
 Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
   pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
-  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root for ports <1024)
+  pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root — creates loopback interface aliases)
 
 Diagnostic commands:
   pilotctl info
@@ -2132,8 +2147,8 @@ func contextCatalog() map[string]interface{} {
 			},
 			"quickstart": map[string]interface{}{
 				"args":        []string{},
-				"description": "Guided 3-step getting-started walkthrough (start daemon → discover agents → handshake + query). Re-run after each step; detects daemon state",
-				"returns":     "quickstart [{step, title, command, description, done}]",
+				"description": "Print a fixed 3-step getting-started cheat-sheet (discover agents → handshake → send a message) plus one-time setup commands. Static output; does not inspect daemon state",
+				"returns":     "static banner text (no JSON structure)",
 			},
 			"update": map[string]interface{}{
 				"args":        []string{"[status|enable|disable]", "[--pin <tag>]"},
@@ -2257,7 +2272,7 @@ func contextCatalog() map[string]interface{} {
 				"returns":     "node_id",
 			},
 			"trusted": map[string]interface{}{
-				"args":        []string{},
+				"args":        []string{"list"},
 				"description": "List the embedded trusted-agents directory — well-known service agents (list-agents, weather, etc.) auto-approved on first contact. For live trust state use 'trust'",
 				"returns":     "agents [{hostname, node_id}], total",
 			},
@@ -2321,8 +2336,8 @@ func contextCatalog() map[string]interface{} {
 				"returns":     "network_id, status",
 			},
 			"network create": map[string]interface{}{
-				"args":        []string{"<name>", "[--managed]", "[--policy <file>]"},
-				"description": "Create a new network. Use --managed for policy-governed networks",
+				"args":        []string{"--name <name>", "[--join-rule open|token|invite]", "[--token <T>]", "[--enterprise]", "[--rules <json>|--rules-file <path>]"},
+				"description": "Create a new network. Pass --rules/--rules-file for policy-governed (managed) networks",
 				"returns":     "network_id, name, managed (bool)",
 			},
 
