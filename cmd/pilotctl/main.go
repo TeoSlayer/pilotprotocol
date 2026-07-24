@@ -288,6 +288,23 @@ func getRegistry() string {
 	return "34.71.57.205:9000"
 }
 
+// getBeacon mirrors getRegistry for the beacon address: env override,
+// then config, then the production beacon — the same default compiled
+// into pilot-daemon itself (cmd/daemon). Keeping the two in lockstep
+// matters because pilotctl always passes an explicit --beacon to the
+// daemon, so a divergent fallback here would silently override the
+// daemon's own correct default.
+func getBeacon() string {
+	if v := os.Getenv("PILOT_BEACON"); v != "" {
+		return v
+	}
+	cfg := loadConfig()
+	if s, ok := cfg["beacon"].(string); ok && s != "" {
+		return s
+	}
+	return "34.71.57.205:9001"
+}
+
 func loadConfig() map[string]interface{} {
 	f, err := os.Open(configPath())
 	if err != nil {
@@ -2026,7 +2043,7 @@ func cmdInit(args []string) {
 	flags, _ := parseFlags(args)
 
 	registryAddr := flagString(flags, "registry", "34.71.57.205:9000")
-	beaconAddr := flagString(flags, "beacon", "127.0.0.1:9001")
+	beaconAddr := flagString(flags, "beacon", "34.71.57.205:9001")
 	hostname := flagString(flags, "hostname", "")
 	socketPath := flagString(flags, "socket", defaultSocket())
 
@@ -2662,7 +2679,7 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adm
 		if b, ok := cfg["beacon"].(string); ok {
 			beaconAddr = b
 		} else {
-			beaconAddr = "127.0.0.1:9001"
+			beaconAddr = getBeacon()
 		}
 	}
 	listenAddr := flagString(flags, "listen", ":0")
