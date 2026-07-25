@@ -2991,8 +2991,45 @@ func redactID(s string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// keyBoundHandshakeService is the optional half of HandshakeService for
+// trust stores that record which peer key each grant was made against.
+// Implementations that predate it (test fakes, older plugin builds) are
+// answered by node ID alone via handshakeTrusts.
+type keyBoundHandshakeService interface {
+	IsTrustedWithKey(nodeID uint32, pubKeyB64 string) bool
+}
+
+// cachedPeerKeyB64 returns the peer's Ed25519 key as base64, matching
+// crypto.EncodePublicKey, or "" when none is cached. Cache-only — no
+// registry lookup — so it is safe to call per packet.
+func (d *Daemon) cachedPeerKeyB64(nodeID uint32) string {
+	if d.tunnels == nil {
+		return ""
+	}
+	pk, ok := d.tunnels.peerPubKeyCached(nodeID)
+	if !ok || len(pk) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(pk)
+}
+
+// handshakeTrusts consults the handshake trust store for srcNode,
+// passing along the peer's currently-known key so the store can check
+// it against the key the grant was bound to. A node ID whose key has
+// changed since trust was granted does not inherit that trust.
+func (d *Daemon) handshakeTrusts(srcNode uint32) bool {
+	if d.handshakes == nil {
+		return false
+	}
+	kb, ok := d.handshakes.(keyBoundHandshakeService)
+	if !ok {
+		return d.handshakes.IsTrusted(srcNode)
+	}
+	return kb.IsTrustedWithKey(srcNode, d.cachedPeerKeyB64(srcNode))
+}
+
 func (d *Daemon) isTrustedPeer(srcNode uint32) bool {
-	trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
+	trusted := d.handshakeTrusts(srcNode)
 	if !trusted && d.reg() != nil {
 		var err error
 		trusted, err = d.reg().CheckTrust(d.NodeID(), srcNode)
@@ -3088,7 +3125,7 @@ func (d *Daemon) handleStreamPacket(pkt *protocol.Packet) {
 		// Runs before rate limiting so untrusted sources cannot waste rate-limit tokens.
 		if !d.config.Public {
 			srcNode := pkt.Src.Node
-			trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
+			trusted := d.handshakeTrusts(srcNode)
 			if !trusted && d.reg() != nil {
 				// Fall back to registry trust check (covers admin-set trust pairs + shared networks)
 				var err error
@@ -3514,7 +3551,7 @@ func (d *Daemon) handleDatagramPacket(pkt *protocol.Packet) {
 	// Trust gate: private nodes only accept datagrams from trusted or same-network peers
 	if !d.config.Public {
 		srcNode := pkt.Src.Node
-		trusted := d.handshakes != nil && d.handshakes.IsTrusted(srcNode)
+		trusted := d.handshakeTrusts(srcNode)
 		if !trusted && d.reg() != nil {
 			var err error
 			trusted, err = d.reg().CheckTrust(d.NodeID(), srcNode)

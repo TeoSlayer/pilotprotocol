@@ -170,7 +170,7 @@ func (d *Daemon) handleEchoConn(conn *Connection) {
 	// private nodes filter inbound by trust). On private daemons, refuse to
 	// echo for untrusted peers; self-pings are always allowed.
 	if !d.config.Public && d.handshakes != nil && conn.RemoteAddr.Node != d.NodeID() {
-		if !d.handshakes.IsTrusted(conn.RemoteAddr.Node) {
+		if !d.handshakeTrusts(conn.RemoteAddr.Node) {
 			slog.Debug("echo refused: peer not trusted (private node)",
 				"peer_node_id", conn.RemoteAddr.Node)
 			d.CloseConnection(conn)
