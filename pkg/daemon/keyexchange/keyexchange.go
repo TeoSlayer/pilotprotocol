@@ -451,6 +451,16 @@ func (m *Manager) recordNegPubKey(nodeID uint32) {
 	m.pubKeysMu.Unlock()
 }
 
+// PeerPubKeyCached returns the cached Ed25519 public key for a peer and
+// whether one is present. Unlike GetPeerPubKey it never falls back to
+// verifyFunc, so packet-path callers cannot block on a registry RPC.
+func (m *Manager) PeerPubKeyCached(nodeID uint32) (ed25519.PublicKey, bool) {
+	m.pubKeysMu.RLock()
+	defer m.pubKeysMu.RUnlock()
+	pk, ok := m.peerPubKeys[nodeID]
+	return pk, ok
+}
+
 // SetPeerPubKey installs a cache entry directly. Used by handle paths
 // after verifying a packet-carried Ed25519 pubkey against the registry.
 func (m *Manager) SetPeerPubKey(nodeID uint32, pk ed25519.PublicKey) {

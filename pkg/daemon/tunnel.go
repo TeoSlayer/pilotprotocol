@@ -1066,6 +1066,13 @@ func (tm *TunnelManager) getPeerPubKey(nodeID uint32) (ed25519.PublicKey, error)
 	return tm.kx.GetPeerPubKey(nodeID)
 }
 
+// peerPubKeyCached returns a peer's Ed25519 public key from the cache
+// only, never falling back to the registry. Thin shim over
+// keyexchange.Manager.PeerPubKeyCached.
+func (tm *TunnelManager) peerPubKeyCached(nodeID uint32) (ed25519.PublicKey, bool) {
+	return tm.kx.PeerPubKeyCached(nodeID)
+}
+
 // hasPeerPubKey reports whether a peer's Ed25519 public key is already
 // cached (no registry fetch). Thin shim over
 // keyexchange.Manager.HasPeerPubKey.
