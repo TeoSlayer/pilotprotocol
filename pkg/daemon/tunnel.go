@@ -182,6 +182,9 @@ type TunnelManager struct {
 	kxRateLimMu sync.Mutex
 	kxRateLim   map[string]*srcKxBucket
 
+	relayKxMu  sync.Mutex
+	relayKxLim map[uint32]*srcKxBucket
+
 	// Metrics
 	BytesSent   uint64
 	BytesRecv   uint64
@@ -226,6 +229,10 @@ const perSourceKxLimit = 5
 // maxPerSrcKxEntries caps the tracked source IP map to prevent unbounded
 // growth from address scanning.
 const maxPerSrcKxEntries = 4096
+
+const perRelaySrcKxLimit = 5
+const maxRelayKxEntries = 4096
+const relayKxPruneAge = 10 * time.Second
 
 type srcKxBucket struct {
 	tokens   int
@@ -293,6 +300,50 @@ func (tm *TunnelManager) allowKxFromSource(addr *net.UDPAddr) bool {
 	return false
 }
 
+func (tm *TunnelManager) allowKxFromRelaySrc(srcNodeID uint32) bool {
+	tm.relayKxMu.Lock()
+	defer tm.relayKxMu.Unlock()
+
+	now := time.Now()
+	b, ok := tm.relayKxLim[srcNodeID]
+	if !ok {
+		if len(tm.relayKxLim) >= maxRelayKxEntries {
+			tm.pruneRelayKxLocked(now)
+			if len(tm.relayKxLim) >= maxRelayKxEntries {
+				return false
+			}
+		}
+		tm.relayKxLim[srcNodeID] = &srcKxBucket{tokens: perRelaySrcKxLimit - 1, lastFill: now}
+		return true
+	}
+
+	elapsed := now.Sub(b.lastFill)
+	if elapsed > 0 {
+		refill := int(elapsed.Seconds() * float64(perRelaySrcKxLimit))
+		if refill > 0 {
+			b.tokens += refill
+			if b.tokens > perRelaySrcKxLimit {
+				b.tokens = perRelaySrcKxLimit
+			}
+			b.lastFill = now
+		}
+	}
+
+	if b.tokens > 0 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
+func (tm *TunnelManager) pruneRelayKxLocked(now time.Time) {
+	for id, b := range tm.relayKxLim {
+		if now.Sub(b.lastFill) >= relayKxPruneAge {
+			delete(tm.relayKxLim, id)
+		}
+	}
+}
+
 var ErrPendingDropped = errors.New("pending queue full: newest packet dropped to preserve ordered prefix while key exchange pending")
 
 // RecvChSize is the capacity of the incoming packet channel.
@@ -312,6 +363,7 @@ func NewTunnelManager() *TunnelManager {
 		done:            make(chan struct{}),
 		routing:         routing.New(),
 		kxRateLim:       make(map[string]*srcKxBucket),
+		relayKxLim:      make(map[uint32]*srcKxBucket),
 	}
 	tm.routing.SetLocalNodeIDFn(tm.loadNodeID)
 	tm.kx = keyexchange.New(store)
@@ -1232,6 +1284,9 @@ func (tm *TunnelManager) readLoopOneIter() (cont bool, stopped bool) {
 
 	case protocol.TunnelMagic:
 		// Plaintext packet
+		if tm.encrypt {
+			return true, false
+		}
 		if n < 4+protocol.PacketHeaderSize() {
 			return true, false
 		}
@@ -2142,12 +2197,21 @@ func (tm *TunnelManager) handleBeaconMessage(data []byte, from *net.UDPAddr) {
 	if len(data) < 1 {
 		return
 	}
+	fromBeacon := tm.routing.ForceRelay() || tm.routing.IsFromBeacon(from)
 	switch data[0] {
 	case protocol.BeaconMsgDiscoverReply:
 		slog.Debug("beacon discover reply on tunnel socket", "from", from)
 	case protocol.BeaconMsgPunchCommand:
+		if !fromBeacon {
+			slog.Warn("dropping punch command from non-beacon source", "from", from)
+			return
+		}
 		tm.handlePunchCommand(data[1:])
 	case protocol.BeaconMsgRelayDeliver:
+		if !fromBeacon {
+			slog.Warn("dropping relay-deliver from non-beacon source", "from", from)
+			return
+		}
 		tm.handleRelayDeliver(data[1:])
 	default:
 		slog.Debug("unknown beacon message on tunnel socket", "type", data[0], "from", from)
@@ -2269,12 +2333,23 @@ func (tm *TunnelManager) handleRelayDeliver(data []byte) {
 	magic := [4]byte{payload[0], payload[1], payload[2], payload[3]}
 	switch magic {
 	case protocol.TunnelMagicAuthEx:
+		if !tm.allowKxFromRelaySrc(srcNodeID) {
+			slog.Debug("relay auth key exchange rate-limited (src node)", "src_node_id", srcNodeID)
+			return
+		}
 		tm.handleAuthKeyExchange(payload[4:], srcAddr, true)
 	case protocol.TunnelMagicKeyEx:
+		if !tm.allowKxFromRelaySrc(srcNodeID) {
+			slog.Debug("relay key exchange rate-limited (src node)", "src_node_id", srcNodeID)
+			return
+		}
 		tm.handleKeyExchange(payload[4:], srcAddr, true)
 	case protocol.TunnelMagicSecure:
 		tm.handleEncrypted(payload[4:], srcAddr)
 	case protocol.TunnelMagic:
+		if tm.encrypt {
+			return
+		}
 		if len(payload) < 4+protocol.PacketHeaderSize() {
 			return
 		}

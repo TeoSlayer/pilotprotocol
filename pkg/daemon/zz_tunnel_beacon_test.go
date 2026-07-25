@@ -247,6 +247,10 @@ func TestHandleBeaconMessagePunchCommandSendsPunchFrames(t *testing.T) {
 	}
 	defer tm.Close()
 
+	// PPA-005: punch commands are honored only from the configured beacon.
+	beaconAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9}
+	tm.SetBeaconAddr(beaconAddr.String())
+
 	// Target peer that will receive the punches.
 	target := mustListenUDP(t)
 	defer target.Close()
@@ -261,7 +265,7 @@ func TestHandleBeaconMessagePunchCommandSendsPunchFrames(t *testing.T) {
 	copy(data[2:6], ip4)
 	binary.BigEndian.PutUint16(data[6:8], uint16(targetAddr.Port))
 
-	tm.handleBeaconMessage(data, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9})
+	tm.handleBeaconMessage(data, beaconAddr)
 
 	// Target should receive 3 punches (TunnelMagicPunch = PILP, 4 bytes).
 	count := 0

@@ -549,10 +549,18 @@ func TestSecurityNonceReplayEventHashesPeerID(t *testing.T) {
 	sub, unsub := d.bus.Subscribe("security.nonce_replay")
 	defer unsub()
 
-	data := make([]byte, 4+12+16)
+	// PPA-006: the nonce_replay signal is post-AEAD, so it must be driven by
+	// a GENUINE authenticated frame at the already-seen counter, not junk.
+	nonce := make([]byte, pc.AEAD.NonceSize())
+	copy(nonce[0:4], pc.NoncePrefix[:])
+	binary.BigEndian.PutUint64(nonce[4:12], 5)
+	aad := make([]byte, 4)
+	binary.BigEndian.PutUint32(aad, peerNodeID)
+	ct := pc.AEAD.Seal(nil, nonce, []byte("replayed"), aad)
+	data := make([]byte, 4+12+len(ct))
 	binary.BigEndian.PutUint32(data[0:4], peerNodeID)
-	copy(data[4:8], pc.NoncePrefix[:])
-	binary.BigEndian.PutUint64(data[8:16], 5)
+	copy(data[4:16], nonce)
+	copy(data[16:], ct)
 
 	d.tunnels.handleEncrypted(data, &net.UDPAddr{})
 
