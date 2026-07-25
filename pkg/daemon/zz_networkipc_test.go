@@ -53,6 +53,18 @@ func netTestDaemon(t *testing.T) (*Daemon, uint32) {
 	return d, nodeID
 }
 
+func registerForeignNode(t *testing.T, d *Daemon, addr string, id *crypto.Identity) uint32 {
+	t.Helper()
+	rc := d.reg()
+	rc.SetSigner(func(ch string) string { return base64.StdEncoding.EncodeToString(id.Sign([]byte(ch))) })
+	defer rc.SetSigner(func(ch string) string { return base64.StdEncoding.EncodeToString(d.identity.Sign([]byte(ch))) })
+	resp, err := rc.RegisterWithKey(addr, crypto.EncodePublicKey(id.PublicKey), "", nil)
+	if err != nil {
+		t.Fatalf("register foreign node: %v", err)
+	}
+	return uint32(resp["node_id"].(float64))
+}
+
 // --- SubNetworkList ---
 
 func TestHandleNetworkListRepliesOK(t *testing.T) {
@@ -93,11 +105,7 @@ func TestHandleNetworkJoinValidRepliesOK(t *testing.T) {
 	// (self-created networks auto-add creator as a member, which makes a later
 	// join fail with "already in network").
 	otherID, _ := crypto.GenerateIdentity()
-	otherResp, err := d.reg().RegisterWithKey("127.0.0.1:5602", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
-	if err != nil {
-		t.Fatalf("other register: %v", err)
-	}
-	otherNodeID := uint32(otherResp["node_id"].(float64))
+	otherNodeID := registerForeignNode(t, d, "127.0.0.1:5602", otherID)
 	createResp, err := d.reg().CreateNetwork(otherNodeID, "joinable", "open", "", "admin-token", false)
 	if err != nil {
 		t.Fatalf("create network: %v", err)
@@ -227,11 +235,7 @@ func TestHandleNetworkInviteValidRepliesOK(t *testing.T) {
 
 	// Register a second node to invite.
 	otherID, _ := crypto.GenerateIdentity()
-	otherResp, err := d.reg().RegisterWithKey("127.0.0.1:5601", crypto.EncodePublicKey(otherID.PublicKey), "", nil)
-	if err != nil {
-		t.Fatalf("other register: %v", err)
-	}
-	targetNodeID := uint32(otherResp["node_id"].(float64))
+	targetNodeID := registerForeignNode(t, d, "127.0.0.1:5601", otherID)
 
 	s := d.ipc
 	ic, client := newIPCTestConn(t)
