@@ -353,6 +353,168 @@ func mustDecodeB64(s string) []byte {
 	return b
 }
 
+// capStateChainWriter returns a helper that writes a cap-state file
+// holding the first n records of a fixed chained sequence.
+func capStateChainWriter(path string, key []byte) func(n int) {
+	type entry struct {
+		at     string
+		asset  string
+		amount uint64
+	}
+	entries := []entry{
+		{"2026-05-27T10:00:00Z", "USDC", 5},
+		{"2026-05-27T10:05:00Z", "ETH", 2},
+		{"2026-05-27T10:10:00Z", "USDC", 7},
+		{"2026-05-27T10:15:00Z", "USDC", 3},
+	}
+	return func(n int) {
+		var body strings.Builder
+		var prev []byte
+		for i := 0; i < n; i++ {
+			e := entries[i]
+			canonical, _ := json.Marshal(capStateJSONNoHMAC{
+				At: mustParseTime(e.at), Asset: e.asset, Amount: e.amount,
+			})
+			mac := hmac.New(sha256.New, key)
+			mac.Write(canonical)
+			mac.Write(prev)
+			sum := mac.Sum(nil)
+			prev = sum
+			fmt.Fprintf(&body, "{\"at\":%q,\"asset\":%q,\"amount\":%d,\"hmac\":%q}\n",
+				e.at, e.asset, e.amount, base64.StdEncoding.EncodeToString(sum))
+		}
+		if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+			panic(err)
+		}
+	}
+}
+
+// TestLoadCapStateRecordsAnchoredDetectsTruncation covers the anchor
+// side of the loader: every prefix of a chained log verifies line by
+// line, so only the anchor distinguishes a log that grew from one that
+// was rewound to an earlier prefix.
+func TestLoadCapStateRecordsAnchoredDetectsTruncation(t *testing.T) {
+	t.Parallel()
+	key := bytes32(7)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cap-state.jsonl")
+	write := capStateChainWriter(path, key)
+
+	// First read of a 3-record chain adopts an anchor.
+	write(3)
+	recs, err := loadCapStateRecordsAnchored(path, key)
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("first read: got %d records, err %v; want 3, nil", len(recs), err)
+	}
+	anchorPath := capStateAnchorPath(path)
+	if _, err := os.Stat(anchorPath); err != nil {
+		t.Fatalf("anchor not adopted on first read: %v", err)
+	}
+
+	// Re-reading the same file is stable.
+	if recs, err := loadCapStateRecordsAnchored(path, key); err != nil || len(recs) != 3 {
+		t.Fatalf("re-read: got %d records, err %v; want 3, nil", len(recs), err)
+	}
+
+	// Appending advances the anchor.
+	write(4)
+	if recs, err := loadCapStateRecordsAnchored(path, key); err != nil || len(recs) != 4 {
+		t.Fatalf("append: got %d records, err %v; want 4, nil", len(recs), err)
+	}
+
+	// Rewinding to an earlier prefix still verifies record by record...
+	write(2)
+	if recs, err := loadCapStateRecords(path, key); err != nil || len(recs) != 2 {
+		t.Fatalf("prefix should verify per-record: got %d records, err %v", len(recs), err)
+	}
+	// ...but must be rejected against the anchor.
+	if _, err := loadCapStateRecordsAnchored(path, key); err == nil {
+		t.Fatal("rewound log accepted — anchor did not catch the shorter chain")
+	} else if !strings.Contains(err.Error(), "entries removed") {
+		t.Errorf("err %q should report removed entries", err.Error())
+	}
+
+	// An emptied log is caught the same way.
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := loadCapStateRecordsAnchored(path, key); err == nil {
+		t.Fatal("emptied log accepted — anchor did not catch it")
+	}
+
+	// So is an anchor whose MAC has been edited.
+	write(4)
+	if err := os.WriteFile(anchorPath, []byte(`{"v":1,"count":1,"tail":"AAAA","mac":"AAAA"}`), 0o600); err != nil {
+		t.Fatalf("write anchor: %v", err)
+	}
+	if _, err := loadCapStateRecordsAnchored(path, key); err == nil {
+		t.Fatal("forged anchor accepted — MAC not checked")
+	} else if !strings.Contains(err.Error(), "MAC mismatch") {
+		t.Errorf("err %q should mention MAC mismatch", err.Error())
+	}
+}
+
+// TestLoadCapStateRecordsAnchoredLegacyStillLoads pins the backward
+// compatibility contract: files that predate the anchor keep loading,
+// and no anchor is written for an unauthenticated log.
+func TestLoadCapStateRecordsAnchoredLegacyStillLoads(t *testing.T) {
+	t.Parallel()
+	key := bytes32(3)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cap-state.jsonl")
+
+	// Legacy: no hmac fields at all, key available.
+	legacy := `{"at":"2026-05-27T10:00:00Z","asset":"USDC","amount":5}
+{"at":"2026-05-27T10:05:00Z","asset":"ETH","amount":2}
+`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	recs, err := loadCapStateRecordsAnchored(path, key)
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("legacy file: got %d records, err %v; want 2, nil", len(recs), err)
+	}
+	if _, err := os.Stat(capStateAnchorPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("anchor written for an unauthenticated log (stat err %v)", err)
+	}
+
+	// Missing file stays first-run state.
+	if recs, err := loadCapStateRecordsAnchored(filepath.Join(dir, "nope.jsonl"), key); err != nil || recs != nil {
+		t.Fatalf("missing file: got %v, err %v; want nil, nil", recs, err)
+	}
+
+	// No key: anchor logic is skipped entirely.
+	write := capStateChainWriter(path, key)
+	write(3)
+	if recs, err := loadCapStateRecordsAnchored(path, nil); err != nil || len(recs) != 3 {
+		t.Fatalf("nil key: got %d records, err %v; want 3, nil", len(recs), err)
+	}
+}
+
+// TestLoadCapStateRecordsStrictAnchorFlag checks that rejecting an
+// anchorless authenticated chain is off unless the flag is set.
+func TestLoadCapStateRecordsStrictAnchorFlag(t *testing.T) {
+	key := bytes32(11)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cap-state.jsonl")
+	capStateChainWriter(path, key)(2)
+
+	// Default (flag unset): adopt.
+	t.Setenv(capStateAnchorEnv, "")
+	if recs, err := loadCapStateRecordsAnchored(path, key); err != nil || len(recs) != 2 {
+		t.Fatalf("default: got %d records, err %v; want 2, nil", len(recs), err)
+	}
+	if err := os.Remove(capStateAnchorPath(path)); err != nil {
+		t.Fatalf("remove anchor: %v", err)
+	}
+
+	// Flag set: an anchorless authenticated chain is refused.
+	t.Setenv(capStateAnchorEnv, "1")
+	if _, err := loadCapStateRecordsAnchored(path, key); err == nil {
+		t.Fatal("strict mode accepted an anchorless authenticated chain")
+	}
+}
+
 // TestResolveUnderRejectsTraversal exercises the containment guard the
 // install staging path uses on manifest binary.path. A path that
 // resolves outside the bundle/staging dir (../../etc/x, an absolute

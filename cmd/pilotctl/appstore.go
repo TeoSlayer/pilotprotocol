@@ -1644,7 +1644,7 @@ func cmdAppStoreCaps(args []string) {
 	// Derive HMAC key from daemon identity for cap-state integrity.
 	// Falls back to nil (no verification) if identity is unavailable.
 	hmacKey := loadCapStateHMACKey()
-	records, err := loadCapStateRecords(filepath.Join(appDir, "cap-state.jsonl"), hmacKey)
+	records, err := loadCapStateRecordsAnchored(filepath.Join(appDir, "cap-state.jsonl"), hmacKey)
 	if err != nil {
 		// Fail closed: a tampered or corrupt spend log must surface as
 		// an error, not be papered over with an under-reported usage
@@ -1879,11 +1879,14 @@ type capStateJSONNoHMAC struct {
 
 // capStateRecord is the local pilotctl-side projection of one
 // cap-state.jsonl line. hmacOK is true when HMAC verified or absent.
+// chain holds this record's decoded chained HMAC, or nil when the
+// record carries no HMAC (or no key was supplied).
 type capStateRecord struct {
 	at     time.Time
 	asset  string
 	amount uint64
 	hmacOK bool
+	chain  []byte
 }
 
 // loadCapStateRecords reads the wallet's persistent spend log, failing
@@ -1957,6 +1960,7 @@ func loadCapStateRecords(path string, hmacKey []byte) ([]capStateRecord, error) 
 			}
 			rec.hmacOK = true
 			prevHMAC, _ = base64.StdEncoding.DecodeString(line.HMAC)
+			rec.chain = prevHMAC
 		}
 
 		out = append(out, rec)
@@ -1970,6 +1974,174 @@ func loadCapStateRecords(path string, hmacKey []byte) ([]capStateRecord, error) 
 		return nil, fmt.Errorf("cap-state %s mixes authenticated and unauthenticated records — refusing (possible tampering)", path)
 	}
 	return out, nil
+}
+
+// capStateAnchorSuffix is appended to the cap-state path to name the
+// sidecar anchor file that sits beside it.
+const capStateAnchorSuffix = ".anchor"
+
+// capStateAnchorEnv, when set to a truthy value, makes a missing anchor
+// beside an authenticated chain an error instead of something to adopt.
+// Default (unset) is adopt-on-first-sight.
+const capStateAnchorEnv = "PILOT_CAP_STATE_STRICT_ANCHOR"
+
+// capStateAnchor is the sidecar record of how far the authenticated
+// cap-state chain had advanced the last time it was read: how many
+// chained records there were and the chain value of the last of them.
+// MAC binds those two fields together under the same key the chain
+// itself uses, so the anchor cannot be rewritten without the key.
+type capStateAnchor struct {
+	Version int    `json:"v"`
+	Count   int    `json:"count"`
+	Tail    string `json:"tail"`
+	MAC     string `json:"mac"`
+}
+
+// capStateAnchorMAC computes the keyed MAC over an anchor's fields.
+func capStateAnchorMAC(key []byte, version, count int, tail string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("pilot-cap-state-anchor-v1"))
+	fmt.Fprintf(mac, "|%d|%d|%s", version, count, tail)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// capStateAnchorPath names the sidecar anchor for a cap-state file.
+func capStateAnchorPath(path string) string { return path + capStateAnchorSuffix }
+
+// capStateStrictAnchor reports whether the strict-anchor flag is set.
+func capStateStrictAnchor() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(capStateAnchorEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// loadCapStateAnchor reads the sidecar anchor. A missing file is normal
+// first-run state and returns (nil, nil). A file that is unparseable,
+// of an unknown version, or whose MAC does not verify is an error.
+func loadCapStateAnchor(path string, key []byte) (*capStateAnchor, error) {
+	// #nosec G304 -- derived from the cap-state path, which the sole production caller confines to the app store root
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var a capStateAnchor
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, fmt.Errorf("malformed cap-state anchor %s: %w", path, err)
+	}
+	if a.Version != 1 {
+		return nil, fmt.Errorf("cap-state anchor %s: unsupported version %d", path, a.Version)
+	}
+	want := capStateAnchorMAC(key, a.Version, a.Count, a.Tail)
+	if !hmac.Equal([]byte(want), []byte(a.MAC)) {
+		return nil, fmt.Errorf("cap-state anchor %s: MAC mismatch", path)
+	}
+	return &a, nil
+}
+
+// writeCapStateAnchor writes the sidecar anchor atomically.
+func writeCapStateAnchor(path string, key []byte, count int, tail string) error {
+	blob, err := json.Marshal(capStateAnchor{
+		Version: 1, Count: count, Tail: tail,
+		MAC: capStateAnchorMAC(key, 1, count, tail),
+	})
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(blob, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// loadCapStateRecordsAnchored loads the spend log and cross-checks it
+// against the sidecar anchor left by the previous read.
+//
+// The per-record chain only commits to the records that precede each
+// record, so any prefix of a valid chain is itself a valid chain: a log
+// rewound to an earlier prefix verifies line by line and simply reports
+// less usage. The anchor closes that by committing separately to the
+// record count and to the final chain value, so a shorter or diverging
+// log is rejected instead of accepted.
+//
+// Behaviour:
+//   - with no key, or with no authenticated records, the anchor is not
+//     consulted and records are returned as-is (legacy files keep working);
+//   - an authenticated chain with no anchor beside it is accepted and an
+//     anchor is written for it, unless PILOT_CAP_STATE_STRICT_ANCHOR is
+//     set (default unset), in which case it is an error;
+//   - fewer authenticated records than the anchor recorded is an error;
+//   - a record at the anchored position whose chain value differs from
+//     the anchored one is an error;
+//   - a strictly longer chain that still matches at the anchored
+//     position advances the anchor.
+//
+// Anchor writes are best-effort: a read-only install tree degrades to
+// the previous behaviour rather than failing the command.
+func loadCapStateRecordsAnchored(path string, hmacKey []byte) ([]capStateRecord, error) {
+	records, err := loadCapStateRecords(path, hmacKey)
+	if err != nil {
+		return nil, err
+	}
+	if hmacKey == nil {
+		return records, nil
+	}
+
+	// Measure the authenticated prefix and remember its chain value.
+	count, tail := 0, ""
+	for _, r := range records {
+		if len(r.chain) == 0 {
+			break
+		}
+		count++
+		tail = base64.StdEncoding.EncodeToString(r.chain)
+	}
+
+	anchorPath := capStateAnchorPath(path)
+	anchor, err := loadCapStateAnchor(anchorPath, hmacKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if count == 0 {
+		// Nothing authenticated to anchor to: legacy or empty log. An
+		// anchor that recorded records is still a mismatch.
+		if anchor != nil && anchor.Count > 0 {
+			return nil, fmt.Errorf("cap-state %s: anchor records %d authenticated entries, none present now", path, anchor.Count)
+		}
+		return records, nil
+	}
+
+	if anchor == nil {
+		if capStateStrictAnchor() {
+			return nil, fmt.Errorf("cap-state %s: no anchor beside an authenticated chain (%s is set)", path, capStateAnchorEnv)
+		}
+		_ = writeCapStateAnchor(anchorPath, hmacKey, count, tail)
+		return records, nil
+	}
+
+	if count < anchor.Count {
+		return nil, fmt.Errorf("cap-state %s: %d authenticated records present, anchor records %d — entries removed", path, count, anchor.Count)
+	}
+	if anchor.Count > 0 {
+		at := base64.StdEncoding.EncodeToString(records[anchor.Count-1].chain)
+		if !hmac.Equal([]byte(at), []byte(anchor.Tail)) {
+			return nil, fmt.Errorf("cap-state %s: record %d does not match the anchored chain value — log rewritten", path, anchor.Count)
+		}
+	}
+	if count > anchor.Count {
+		_ = writeCapStateAnchor(anchorPath, hmacKey, count, tail)
+	}
+	return records, nil
 }
 
 // ── actions ────────────────────────────────────────────────────────────
