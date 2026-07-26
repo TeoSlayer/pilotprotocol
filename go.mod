@@ -5,11 +5,11 @@ go 1.25.12
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/pilot-protocol/app-store v1.0.2
-	github.com/pilot-protocol/beacon v0.2.7
-	github.com/pilot-protocol/common v0.5.10
+	github.com/pilot-protocol/beacon v0.2.8
+	github.com/pilot-protocol/common v0.5.11
 	github.com/pilot-protocol/dataexchange v0.2.1-beta.1.0.20260615113607-fac933edea98
 	github.com/pilot-protocol/eventstream v0.2.2
-	github.com/pilot-protocol/handshake v0.2.5
+	github.com/pilot-protocol/handshake v0.2.6
 	github.com/pilot-protocol/nameserver v0.2.1
 	github.com/pilot-protocol/policy v0.2.3
 	github.com/pilot-protocol/rendezvous v0.2.5
