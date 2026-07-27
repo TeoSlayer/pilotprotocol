@@ -243,6 +243,9 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
+	// /api/stats is admin-gated (rich payload sits behind requireAdminToken);
+	// configure a token so the operator view is reachable from this test.
+	r.SetAdminToken(TestAdminToken)
 	go r.ListenAndServe("127.0.0.1:0")
 	<-r.Ready()
 	defer r.Close()
@@ -280,8 +283,9 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var httpResp *http.Response
+	statsURL := fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, TestAdminToken)
 	for i := 0; i < 20; i++ {
-		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		httpResp, err = client.Get(statsURL)
 		if err == nil {
 			break
 		}
@@ -291,6 +295,10 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 		t.Fatalf("dashboard did not start: %v", err)
 	}
 	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/stats = %d, want 200", httpResp.StatusCode)
+	}
 
 	var stats registry.DashboardStats
 	body, _ := io.ReadAll(httpResp.Body)
@@ -326,8 +334,11 @@ func TestSetTagsDashboardNoHostname(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var httpResp *http.Response
+	// The anonymous surface is /api/public-stats; /api/stats is admin-gated
+	// and would answer 401, which would satisfy the assertion below without
+	// ever inspecting a real payload.
 	for i := 0; i < 20; i++ {
-		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/public-stats", dashAddr))
 		if err == nil {
 			break
 		}
@@ -338,8 +349,15 @@ func TestSetTagsDashboardNoHostname(t *testing.T) {
 	}
 	defer httpResp.Body.Close()
 
+	if httpResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/public-stats = %d, want 200", httpResp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(httpResp.Body)
 	bodyStr := string(body)
+	if len(bodyStr) == 0 {
+		t.Fatal("empty /api/public-stats body — assertion would pass vacuously")
+	}
 
 	// Dashboard JSON should NOT contain hostname field
 	if strings.Contains(bodyStr, "\"hostname\"") {
@@ -369,8 +387,9 @@ func TestSetTagsDashboardNoIPLeak(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var httpResp *http.Response
+	// Anonymous surface — see the note in TestSetTagsDashboardNoHostname.
 	for i := 0; i < 20; i++ {
-		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/public-stats", dashAddr))
 		if err == nil {
 			break
 		}
@@ -381,8 +400,15 @@ func TestSetTagsDashboardNoIPLeak(t *testing.T) {
 	}
 	defer httpResp.Body.Close()
 
+	if httpResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/public-stats = %d, want 200", httpResp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(httpResp.Body)
 	bodyStr := string(body)
+	if len(bodyStr) == 0 {
+		t.Fatal("empty /api/public-stats body — assertions would pass vacuously")
+	}
 
 	if strings.Contains(bodyStr, "127.0.0.1") {
 		t.Fatal("API response leaks 127.0.0.1")
