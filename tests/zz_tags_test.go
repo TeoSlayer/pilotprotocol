@@ -243,6 +243,9 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 	t.Parallel()
 
 	r := registry.New("127.0.0.1:9001")
+	// /api/stats is admin-gated (rich payload sits behind requireAdminToken);
+	// configure a token so the operator view is reachable from this test.
+	r.SetAdminToken(TestAdminToken)
 	go r.ListenAndServe("127.0.0.1:0")
 	<-r.Ready()
 	defer r.Close()
@@ -280,8 +283,9 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 	var client http.Client
 	client.Timeout = 2 * time.Second
 	var httpResp *http.Response
+	statsURL := fmt.Sprintf("http://%s/api/stats?admin_token=%s", dashAddr, TestAdminToken)
 	for i := 0; i < 20; i++ {
-		httpResp, err = client.Get(fmt.Sprintf("http://%s/api/stats", dashAddr))
+		httpResp, err = client.Get(statsURL)
 		if err == nil {
 			break
 		}
@@ -291,6 +295,10 @@ func TestSetTagsDashboardAPI(t *testing.T) {
 		t.Fatalf("dashboard did not start: %v", err)
 	}
 	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/stats = %d, want 200", httpResp.StatusCode)
+	}
 
 	var stats registry.DashboardStats
 	body, _ := io.ReadAll(httpResp.Body)
