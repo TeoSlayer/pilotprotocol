@@ -849,8 +849,23 @@ USVC
     sudo systemctl daemon-reload || true
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
-    echo "  Start:   sudo systemctl start pilot-daemon pilot-updater"
-    echo "  Enable:  sudo systemctl enable pilot-daemon pilot-updater"
+
+    # Auto-enable + start the updater so future releases land without
+    # operator action. The unit file alone is not enough — without this,
+    # fresh installs sit on whatever release shipped at install time and
+    # never see security/perf fixes, while ~/.pilot/auto-update.json and
+    # the consent block above both tell the operator auto-updates are ON.
+    # The daemon is left as opt-in because it has operator-tunable flags
+    # (-public, -hostname, registry overrides) that the operator may want
+    # to set before first start.
+    if [ -f "$BIN_DIR/pilot-updater" ]; then
+        if sudo systemctl enable --now pilot-updater; then
+            echo "  Started: pilot-updater (auto-updates enabled)"
+        else
+            echo "  Note: could not enable pilot-updater via systemd (non-fatal)."
+        fi
+    fi
+    echo "  Start daemon: sudo systemctl enable --now pilot-daemon"
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
@@ -945,8 +960,24 @@ UPLIST
 
     echo "  Service: network.pilotprotocol.pilot-daemon"
     echo "  Service: network.pilotprotocol.pilot-updater (auto-updates)"
-    echo "  Start:   launchctl load $PLIST"
-    echo "  Stop:    launchctl unload $PLIST"
+
+    # Auto-load the updater LaunchAgent so future releases land without
+    # operator action. Without this, install.sh writes the plist but leaves
+    # it cold — fresh installs sit on whatever release shipped at install
+    # time and never see security/perf fixes. Symmetric with the Linux
+    # `systemctl enable --now pilot-updater` branch above.
+    #
+    # unload-then-load makes re-running install.sh (the upgrade path)
+    # idempotent: any stale running agent is replaced cleanly. -w persists
+    # the load across reboots. The daemon is left as opt-in for the same
+    # reason as the Linux branch.
+    if [ -f "$BIN_DIR/pilot-updater" ] && [ -f "$UPLIST" ]; then
+        launchctl unload "$UPLIST" 2>/dev/null || true
+        launchctl load -w "$UPLIST"
+        echo "  Started: pilot-updater (auto-updates enabled)"
+    fi
+    echo "  Start daemon: launchctl load -w $PLIST"
+    echo "  Stop daemon:  launchctl unload $PLIST"
 fi
 
 # --- Add to PATH ---
