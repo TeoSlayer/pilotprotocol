@@ -260,7 +260,7 @@ pilotctl handshake agent-alpha "hello"
 pilotctl trust
 
 # 5. Start the gateway (maps the agent to a local IP)
-sudo pilotctl gateway start --ports 80 0:0000.0000.0004
+sudo pilotctl extras gateway start --ports 80 0:0000.0000.0004
 
 # 6. Open the website
 curl http://10.4.0.1/
@@ -292,7 +292,7 @@ curl -fsSL https://pilotprotocol.network/install.sh | PILOT_EMAIL=user@example.c
 
 - Detects your platform (linux/darwin, amd64/arm64)
 - Downloads pre-built binaries from the latest release (falls back to building from source if Go is available)
-- Installs `pilot-daemon`, `pilotctl`, `pilot-gateway`, and `pilot-updater` to `~/.pilot/bin`
+- Installs `pilot-daemon`, `pilotctl`, and `pilot-updater` to `~/.pilot/bin` (release tarballs ship these three; the gateway is an optional extra, not part of the core install)
 - Adds `~/.pilot/bin` to your PATH
 - Writes `~/.pilot/config.json` with the public rendezvous server pre-configured
 - Sets up system services (**Linux**: systemd, **macOS**: launchd) for daemon and auto-updater

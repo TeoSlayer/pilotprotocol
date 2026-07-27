@@ -29,6 +29,33 @@ permissions:
   contents: read
 
 jobs:
+  # This repo's install.sh is a COPY. The script users actually run comes from
+  # https://pilotprotocol.network/install.sh, which the pilot-release Worker
+  # serves out of R2, sourced from pilot-protocol/release:install.sh.
+  #
+  # On 2026-07-27 this copy was found 3 days and ~16KB behind canonical, still
+  # carrying three defects fixed upstream: PATH invisible to non-interactive
+  # shells, a post-install guide telling users to run `jq` (never installed),
+  # and `pilotctl gateway ...` invocations that hard-error because gateway is
+  # extras-only in the core CLI. The two jobs below happily passed the whole
+  # time, because they only ever asserted that the updater got enabled.
+  #
+  # Testing a copy that no user runs is theatre. Fail the build if it drifts.
+  canonical-drift:
+    name: install.sh matches pilot-protocol/release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Diff against canonical install.sh
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/pilot-protocol/release/main/install.sh" -o canonical.sh
+          if ! diff -u canonical.sh install.sh; then
+            echo "::error::install.sh has drifted from pilot-protocol/release:install.sh (the source of truth served at https://pilotprotocol.network/install.sh). Fix: cp the canonical script over install.sh."
+            exit 1
+          fi
+          echo "install.sh is byte-identical to canonical"
+
   install-linux:
     name: install.sh + updater enabled (ubuntu-latest)
     runs-on: ubuntu-latest
