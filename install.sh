@@ -364,6 +364,23 @@ case "$OS" in
     *) echo "Error: unsupported OS: $OS"; exit 1 ;;
 esac
 
+# --- Privilege helper ---
+#
+# Every privileged step (systemd units, service start/stop, /usr/local/bin
+# symlinks) goes through this gate. It NEVER prompts: sudo is used only when
+# `sudo -n` already succeeds without a password, and no prefix at all is used
+# when we are already root — minimal containers frequently ship no sudo binary,
+# so an unconditional `sudo systemctl ...` would fail there under PILOT_ALLOW_ROOT.
+# CAN_PRIV says whether privileged steps can run at all.
+PILOT_SUDO=""
+CAN_PRIV=false
+if [ "$(id -u)" = "0" ]; then
+    CAN_PRIV=true
+elif sudo -n true 2>/dev/null; then
+    PILOT_SUDO="sudo"
+    CAN_PRIV=true
+fi
+
 echo ""
 echo "  Pilot Protocol"
 echo "  The network stack for AI agents."
@@ -377,28 +394,48 @@ echo ""
 
 EMAIL="${PILOT_EMAIL:-}"
 
-# On fresh install, email is required (like certbot)
+# Recover an email this host already has. account.json is written by the daemon,
+# config.json by a previous run of this installer. Doing this on EVERY run — not
+# just fresh installs — matters because the service unit is now regenerated on
+# re-run: without it an upgrade would silently drop the address the operator
+# configured at first install.
+#
+# Synthesised @nodes.pilotprotocol.network placeholders are deliberately NOT
+# recovered. The daemon re-derives the identical value from the same identity
+# key, so baking one into the unit adds nothing — and it would turn a soft
+# default into a hard override that outranks the account file, silently
+# defeating a later `pilotctl set-email`.
+if [ -z "$EMAIL" ]; then
+    for _ef in "$PILOT_DIR/account.json" "$PILOT_DIR/config.json"; do
+        if [ -f "$_ef" ]; then
+            EMAIL=$(grep '"email"' "$_ef" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
+        fi
+        case "$EMAIL" in
+            *@nodes.pilotprotocol.network) EMAIL="" ;;
+        esac
+        if [ -n "$EMAIL" ]; then
+            break
+        fi
+    done
+fi
+
+# On a fresh install with no email anywhere, ask for one — but only when there
+# is a terminal to ask.
 if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
-    # Check if account.json already has an email
-    if [ -f "$PILOT_DIR/account.json" ]; then
-        EMAIL=$(grep '"email"' "$PILOT_DIR/account.json" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
+    # Interactive (TTY): prompt. Non-interactive (piped into a headless
+    # agent, no controlling terminal): do NOT block on /dev/tty — the
+    # daemon auto-synthesizes a <fingerprint>@nodes.pilotprotocol.network
+    # identity when email is empty, so a missing email must not abort.
+    if [ -t 0 ]; then
+        printf "  Email (for account recovery): "
+        read -r EMAIL < /dev/tty
     fi
     if [ -z "$EMAIL" ]; then
-        # Interactive (TTY): prompt. Non-interactive (piped into a headless
-        # agent, no controlling terminal): do NOT block on /dev/tty — the
-        # daemon auto-synthesizes a <fingerprint>@nodes.pilotprotocol.network
-        # identity when email is empty, so a missing email must not abort.
         if [ -t 0 ]; then
-            printf "  Email (for account recovery): "
-            read EMAIL < /dev/tty
-        fi
-        if [ -z "$EMAIL" ]; then
-            if [ -t 0 ]; then
-                echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
-                exit 1
-            else
-                echo "  Note: no email provided (non-interactive). Set PILOT_EMAIL= for account recovery."
-            fi
+            echo "  Error: email is required. Set PILOT_EMAIL or enter when prompted."
+            exit 1
+        else
+            echo "  Note: no email provided (non-interactive). Set PILOT_EMAIL= for account recovery."
         fi
     fi
 fi
@@ -433,7 +470,16 @@ fi
 # --- Download or build ---
 
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+
+# Clean up both the download staging dir and any `<binary>.new.<pid>` file left
+# behind by an interrupted atomic install (see install_bin below). The staging
+# files live next to the real binaries so that rename(2) stays within one
+# filesystem; they must never survive a failed run.
+pilot_cleanup() {
+    rm -rf "$TMPDIR"
+    rm -f "$BIN_DIR"/*.new."$$" 2>/dev/null || true
+}
+trap pilot_cleanup EXIT
 
 ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
 
@@ -658,29 +704,115 @@ fi
 echo "Installing binaries..."
 mkdir -p "$BIN_DIR"
 
-# Handle both naming conventions (release: daemon/gateway, source: pilot-daemon/pilot-gateway)
+# Resolve every staged binary BEFORE touching the installed ones. Both naming
+# conventions are accepted (release tarball: daemon/gateway; source build:
+# pilot-daemon/pilot-gateway). If the payload is incomplete we abort here, with
+# the existing install still fully intact — never half-way through a copy loop.
+STAGED_DAEMON=""
 if [ -f "$TMPDIR/daemon" ]; then
-    cp "$TMPDIR/daemon" "$BIN_DIR/pilot-daemon"
-else
-    cp "$TMPDIR/pilot-daemon" "$BIN_DIR/pilot-daemon"
+    STAGED_DAEMON="$TMPDIR/daemon"
+elif [ -f "$TMPDIR/pilot-daemon" ]; then
+    STAGED_DAEMON="$TMPDIR/pilot-daemon"
 fi
-cp "$TMPDIR/pilotctl" "$BIN_DIR/pilotctl"
+STAGED_CTL=""
+if [ -f "$TMPDIR/pilotctl" ]; then
+    STAGED_CTL="$TMPDIR/pilotctl"
+fi
+if [ -z "$STAGED_DAEMON" ] || [ -z "$STAGED_CTL" ]; then
+    echo "Error: the downloaded payload is missing pilot-daemon and/or pilotctl." >&2
+    echo "       Nothing was replaced — your existing install is untouched." >&2
+    exit 1
+fi
 # gateway is optional: extracted to a sibling repo, no longer ships in
 # release tarballs (release.yml BINS=daemon/pilotctl/updater) and the
 # source build only runs when ./cmd/gateway is present in the checkout.
+STAGED_GATEWAY=""
 if [ -f "$TMPDIR/gateway" ]; then
-    cp "$TMPDIR/gateway" "$BIN_DIR/pilot-gateway"
+    STAGED_GATEWAY="$TMPDIR/gateway"
 elif [ -f "$TMPDIR/pilot-gateway" ]; then
-    cp "$TMPDIR/pilot-gateway" "$BIN_DIR/pilot-gateway"
+    STAGED_GATEWAY="$TMPDIR/pilot-gateway"
 fi
+STAGED_UPDATER=""
 if [ -f "$TMPDIR/updater" ]; then
-    cp "$TMPDIR/updater" "$BIN_DIR/pilot-updater"
+    STAGED_UPDATER="$TMPDIR/updater"
 elif [ -f "$TMPDIR/pilot-updater" ]; then
-    cp "$TMPDIR/pilot-updater" "$BIN_DIR/pilot-updater"
+    STAGED_UPDATER="$TMPDIR/pilot-updater"
 fi
-chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl"
-[ -f "$BIN_DIR/pilot-gateway" ] && chmod 755 "$BIN_DIR/pilot-gateway"
-[ -f "$BIN_DIR/pilot-updater" ] && chmod 755 "$BIN_DIR/pilot-updater"
+
+# --- Stop managed services before swapping binaries ---
+#
+# The installer now auto-enables and STARTS pilot-updater, so on any re-run
+# (the advertised upgrade path) its binary is a live executable image. Two
+# problems follow, and both are fixed here:
+#
+#   1. `cp` over a running executable fails with ETXTBSY ("Text file busy"),
+#      which under `set -e` aborted the whole re-run mid-install — binaries
+#      partially replaced, unit file never rewritten.
+#   2. Even a successful swap does nothing until the process re-execs; the
+#      running service keeps the old image.
+#
+# We stop what is running, remember it, and restart it after the units have
+# been regenerated. install_bin below independently defeats ETXTBSY via
+# rename(2), which also covers daemons we do not manage (e.g. one started with
+# `pilotctl daemon start` on a systemd-less host).
+RESTART_SYSTEMD=""
+RESTART_LAUNCHD=""
+
+if [ "$OS" = "linux" ] && [ "$CAN_PRIV" = true ] \
+   && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    for _svc in pilot-daemon pilot-updater; do
+        _state=$(systemctl is-active "$_svc" 2>/dev/null || true)
+        _want=""
+        case "$_state" in
+            active|activating|reloading)
+                _want=1 ;;
+            failed)
+                # A unit crashlooping on a bad ExecStart — exactly what the
+                # empty `-email` produced — alternates between activating and
+                # failed. Repairing its unit has to bring it back up, so an
+                # ENABLED failed unit counts as "should be running" too. A unit
+                # the operator deliberately disabled is left alone.
+                if systemctl is-enabled --quiet "$_svc" 2>/dev/null; then
+                    _want=1
+                fi ;;
+        esac
+        if [ -n "$_want" ]; then
+            RESTART_SYSTEMD="${RESTART_SYSTEMD}${RESTART_SYSTEMD:+ }${_svc}"
+            # shellcheck disable=SC2086 # $PILOT_SUDO is "" or "sudo" — intentional split
+            $PILOT_SUDO systemctl stop "$_svc" 2>/dev/null || true
+            echo "  Stopped ${_svc} (will restart after upgrade)"
+        fi
+    done
+fi
+if [ "$OS" = "darwin" ]; then
+    for _label in network.pilotprotocol.pilot-daemon network.pilotprotocol.pilot-updater; do
+        _lp="$HOME/Library/LaunchAgents/${_label}.plist"
+        if [ -f "$_lp" ] && launchctl list 2>/dev/null | grep -q "$_label"; then
+            RESTART_LAUNCHD="${RESTART_LAUNCHD}${RESTART_LAUNCHD:+ }${_label}"
+            launchctl unload "$_lp" 2>/dev/null || true
+            echo "  Unloaded ${_label} (will reload after upgrade)"
+        fi
+    done
+fi
+
+# install_bin SRC DEST — put SRC at DEST atomically.
+#
+# Writes to a temp file in the SAME directory (so rename(2) never crosses a
+# filesystem) and renames it into place. Renaming over a busy executable is
+# always allowed: the old inode is simply unlinked and any process still
+# running it keeps its own copy. That makes this immune to ETXTBSY and means a
+# failure part-way through can never leave a truncated binary at the real path.
+install_bin() {
+    _ib_tmp="${2}.new.$$"
+    cp "$1" "$_ib_tmp"
+    chmod 755 "$_ib_tmp"
+    mv -f "$_ib_tmp" "$2"
+}
+
+install_bin "$STAGED_DAEMON" "$BIN_DIR/pilot-daemon"
+install_bin "$STAGED_CTL" "$BIN_DIR/pilotctl"
+[ -n "$STAGED_GATEWAY" ] && install_bin "$STAGED_GATEWAY" "$BIN_DIR/pilot-gateway"
+[ -n "$STAGED_UPDATER" ] && install_bin "$STAGED_UPDATER" "$BIN_DIR/pilot-updater"
 
 # --- Symlink into /usr/local/bin so NON-INTERACTIVE shells can find pilotctl ---
 #
@@ -737,27 +869,13 @@ if [ "$LINK_OK" = true ]; then
     echo "  pilotctl now resolves in non-interactive shells (bash -c, cron, CI, agents)"
 fi
 
-# --- Update: stop here, skip config/service/PATH setup ---
-
-if [ "$UPDATING" = true ]; then
-    # Write version file for the auto-updater
-    [ -n "$TAG" ] && echo "$TAG" > "$BIN_DIR/.pilot-version"
-    echo ""
-    echo "Updated to ${TAG:-source}:"
-    echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
-    echo "  pilotctl         ${BIN_DIR}/pilotctl"
-    [ -f "$BIN_DIR/pilot-gateway" ] && echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
-    [ -f "$BIN_DIR/pilot-updater" ] && echo "  pilot-updater    ${BIN_DIR}/pilot-updater"
-    echo ""
-    echo "Restart the daemon to use the new version:"
-    echo "  pilotctl daemon stop && pilotctl daemon start"
-    echo ""
-    exit 0
-fi
-
 # --- Fresh install: write config ---
+#
+# config.json is written ONLY on a fresh install. A re-run must never clobber
+# registry/beacon/consent settings the operator edited by hand.
 
-cat > "$PILOT_DIR/config.json" <<CONF
+if [ "$UPDATING" != true ]; then
+    cat > "$PILOT_DIR/config.json" <<CONF
 {
   "registry": "${REGISTRY}",
   "beacon": "${BEACON}",
@@ -767,39 +885,68 @@ cat > "$PILOT_DIR/config.json" <<CONF
   "email": "${EMAIL}"
 }
 CONF
-
-echo "Config written to ${PILOT_DIR}/config.json"
+    echo "Config written to ${PILOT_DIR}/config.json"
+fi
 
 # Enable background auto-updates by default (opt-out). The install output and
 # the systemd/launchd units below promise the updater keeps binaries current;
 # the pilot-updater treats a MISSING control file as "disabled", so without
 # this a fresh node would run an updater that never applies anything. Written
-# only on a fresh install so an operator who later runs `pilotctl update
+# only when the file is absent so an operator who later runs `pilotctl update
 # disable` is never silently re-enabled. Turn off any time with
 # `pilotctl update disable`.
-if [ ! -f "$PILOT_DIR/auto-update.json" ]; then
+if [ "$UPDATING" != true ] && [ ! -f "$PILOT_DIR/auto-update.json" ]; then
     printf '{\n  "enabled": true\n}\n' > "$PILOT_DIR/auto-update.json"
     echo "Auto-updates ENABLED (opt-out) — disable with: pilotctl update disable"
 fi
 
 # --- Set up system service ---
+#
+# The units are (re)generated on EVERY run, fresh install or upgrade. That is
+# what makes re-running the installer a real repair path: a host whose unit was
+# written by an older, buggy installer gets a correct one without uninstalling.
 
 if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    CAN_SUDO=false
-    if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null; then
-        CAN_SUDO=true
-    fi
-    if [ "$CAN_SUDO" = true ]; then
+    if [ "$CAN_PRIV" = true ]; then
     echo "Setting up systemd service..."
+    DAEMON_UNIT=/etc/systemd/system/pilot-daemon.service
+
+    # Preserve operator flags baked into an existing unit when the matching env
+    # var is not supplied on THIS run. Regenerating the unit must not silently
+    # strip a -hostname or -public the operator set at first install.
+    if [ -z "${PILOT_HOSTNAME:-}" ] && [ -f "$DAEMON_UNIT" ]; then
+        PILOT_HOSTNAME=$(grep -o -- '-hostname [^ \\]*' "$DAEMON_UNIT" 2>/dev/null \
+            | head -1 | cut -d' ' -f2)
+        if [ -n "$PILOT_HOSTNAME" ]; then
+            validate_safe "hostname (existing unit)" "$PILOT_HOSTNAME" "._-"
+        fi
+    fi
+    if [ -z "${PILOT_PUBLIC:-}" ] && [ -f "$DAEMON_UNIT" ] \
+       && grep -q -- '-public' "$DAEMON_UNIT" 2>/dev/null; then
+        PILOT_PUBLIC=1
+    fi
+
+    # EVERY optional argument is emitted as a complete flag+value pair or not at
+    # all. Emitting a bare `-email` with an empty value made Go's flag parser
+    # swallow the NEXT flag as the email value, so the daemon died on
+    # `invalid email: email address must contain @` every 5s forever and
+    # `-encrypt` was silently consumed. An omitted -email is well-defined: the
+    # daemon falls back to ~/.pilot/account.json and, failing that, synthesises
+    # <fingerprint>@nodes.pilotprotocol.network.
+    EMAIL_FLAG=""
+    if [ -n "$EMAIL" ]; then
+        EMAIL_FLAG="-email $EMAIL"
+    fi
     HOSTNAME_FLAG=""
-    if [ -n "$PILOT_HOSTNAME" ]; then
+    if [ -n "${PILOT_HOSTNAME:-}" ]; then
         HOSTNAME_FLAG="-hostname $PILOT_HOSTNAME"
     fi
     PUBLIC_FLAG=""
-    if [ -n "$PILOT_PUBLIC" ]; then
+    if [ -n "${PILOT_PUBLIC:-}" ]; then
         PUBLIC_FLAG="-public"
     fi
-    sudo tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
+    # shellcheck disable=SC2086 # $PILOT_SUDO is "" or "sudo" — intentional split
+    $PILOT_SUDO tee "$DAEMON_UNIT" >/dev/null <<SVC
 [Unit]
 Description=Pilot Protocol Daemon
 After=network-online.target
@@ -814,8 +961,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -listen :4000 \\
   -socket /tmp/pilot.sock \\
   -identity ${PILOT_DIR}/identity.json \\
-  -email ${EMAIL} \\
-  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
+  -encrypt ${EMAIL_FLAG} ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
 Restart=always
 RestartSec=5
 
@@ -824,7 +970,8 @@ WantedBy=multi-user.target
 SVC
     # Auto-updater service
     if [ -f "$BIN_DIR/pilot-updater" ]; then
-    sudo tee /etc/systemd/system/pilot-updater.service >/dev/null <<USVC
+    # shellcheck disable=SC2086
+    $PILOT_SUDO tee /etc/systemd/system/pilot-updater.service >/dev/null <<USVC
 [Unit]
 Description=Pilot Protocol Auto-Updater
 After=network-online.target
@@ -846,7 +993,8 @@ USVC
     # daemon-reload can fail on hosts where systemctl exists but systemd is
     # not PID 1 (older containers, chroots). Never let it abort the install
     # under `set -e` — the binaries and skill injection still matter.
-    sudo systemctl daemon-reload || true
+    # shellcheck disable=SC2086
+    $PILOT_SUDO systemctl daemon-reload || true
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
 
@@ -855,17 +1003,37 @@ USVC
     # fresh installs sit on whatever release shipped at install time and
     # never see security/perf fixes, while ~/.pilot/auto-update.json and
     # the consent block above both tell the operator auto-updates are ON.
-    # The daemon is left as opt-in because it has operator-tunable flags
-    # (-public, -hostname, registry overrides) that the operator may want
-    # to set before first start.
+    # `enable --now` is idempotent, so this is also what restarts the updater
+    # we stopped above to swap its binary.
+    # The daemon is left as opt-in on a FRESH install because it has
+    # operator-tunable flags (-public, -hostname, registry overrides) that the
+    # operator may want to set before first start; on a re-run anything that
+    # was already running is restored below.
     if [ -f "$BIN_DIR/pilot-updater" ]; then
-        if sudo systemctl enable --now pilot-updater; then
+        # shellcheck disable=SC2086
+        if $PILOT_SUDO systemctl enable --now pilot-updater; then
             echo "  Started: pilot-updater (auto-updates enabled)"
         else
             echo "  Note: could not enable pilot-updater via systemd (non-fatal)."
         fi
     fi
-    echo "  Start daemon: sudo systemctl enable --now pilot-daemon"
+
+    # Restart whatever we stopped to swap binaries, now that the units are
+    # regenerated and reloaded. A restart failure is reported, never fatal.
+    # shellcheck disable=SC2086 # intentional word-split on the service list
+    for _svc in $RESTART_SYSTEMD; do
+        # shellcheck disable=SC2086
+        if $PILOT_SUDO systemctl start "$_svc" 2>/dev/null; then
+            echo "  Restarted: ${_svc}"
+        else
+            echo "  Note: could not restart ${_svc} — start it with: sudo systemctl start ${_svc}"
+        fi
+    done
+
+    case " $RESTART_SYSTEMD " in
+        *" pilot-daemon "*) ;;
+        *) echo "  Start daemon: sudo systemctl enable --now pilot-daemon" ;;
+    esac
     else
     echo "  Skipped systemd setup (run as root or with passwordless sudo to enable)"
     fi
@@ -881,13 +1049,42 @@ if [ "$OS" = "darwin" ]; then
     PLIST_DIR="$HOME/Library/LaunchAgents"
     PLIST="$PLIST_DIR/network.pilotprotocol.pilot-daemon.plist"
     mkdir -p "$PLIST_DIR"
+
+    # Preserve operator flags already present in an existing plist when the
+    # matching env var is not supplied on THIS run — the plist is regenerated
+    # on every run, and an upgrade must not silently strip them. In
+    # ProgramArguments the value of a flag is the <string> immediately after it.
+    if [ -z "${PILOT_HOSTNAME:-}" ] && [ -f "$PLIST" ]; then
+        PILOT_HOSTNAME=$(awk '
+            found { sub(/^[[:space:]]*<string>/, ""); sub(/<\/string>[[:space:]]*$/, ""); print; exit }
+            index($0, "<string>-hostname</string>") { found = 1 }
+        ' "$PLIST" 2>/dev/null)
+        if [ -n "$PILOT_HOSTNAME" ]; then
+            validate_safe "hostname (existing plist)" "$PILOT_HOSTNAME" "._-"
+        fi
+    fi
+    if [ -z "${PILOT_PUBLIC:-}" ] && [ -f "$PLIST" ] \
+       && grep -q '<string>-public</string>' "$PLIST" 2>/dev/null; then
+        PILOT_PUBLIC=1
+    fi
+
+    # Same empty-argument hazard as the systemd unit: emit each optional
+    # argument as a complete flag+value pair or not at all. An `-email` with an
+    # empty <string> value passes a blank argv element to the daemon; omitting
+    # it lets the daemon do the documented thing instead — fall back to
+    # ~/.pilot/account.json, then synthesise a fingerprint identity.
     EXTRA_ARGS=""
-    if [ -n "$PILOT_HOSTNAME" ]; then
+    if [ -n "$EMAIL" ]; then
+        EXTRA_ARGS="${EXTRA_ARGS}        <string>-email</string>
+        <string>${EMAIL}</string>
+"
+    fi
+    if [ -n "${PILOT_HOSTNAME:-}" ]; then
         EXTRA_ARGS="${EXTRA_ARGS}        <string>-hostname</string>
         <string>${PILOT_HOSTNAME}</string>
 "
     fi
-    if [ -n "$PILOT_PUBLIC" ]; then
+    if [ -n "${PILOT_PUBLIC:-}" ]; then
         EXTRA_ARGS="${EXTRA_ARGS}        <string>-public</string>
 "
     fi
@@ -911,8 +1108,6 @@ if [ "$OS" = "darwin" ]; then
         <string>/tmp/pilot.sock</string>
         <string>-identity</string>
         <string>${PILOT_DIR}/identity.json</string>
-        <string>-email</string>
-        <string>${EMAIL}</string>
         <string>-encrypt</string>
 ${EXTRA_ARGS}    </array>
     <key>RunAtLoad</key>
@@ -976,8 +1171,30 @@ UPLIST
         launchctl load -w "$UPLIST"
         echo "  Started: pilot-updater (auto-updates enabled)"
     fi
-    echo "  Start daemon: launchctl load -w $PLIST"
-    echo "  Stop daemon:  launchctl unload $PLIST"
+
+    # Reload the daemon agent if it was loaded before we swapped its binary,
+    # so it actually picks up the new image and the regenerated plist.
+    # shellcheck disable=SC2086 # intentional word-split on the label list
+    for _label in $RESTART_LAUNCHD; do
+        [ "$_label" = "network.pilotprotocol.pilot-updater" ] && continue
+        _lp="$PLIST_DIR/${_label}.plist"
+        if [ -f "$_lp" ]; then
+            launchctl unload "$_lp" 2>/dev/null || true
+            if launchctl load -w "$_lp" 2>/dev/null; then
+                echo "  Reloaded: ${_label}"
+            else
+                echo "  Note: could not reload ${_label} — run: launchctl load -w ${_lp}"
+            fi
+        fi
+    done
+
+    case " $RESTART_LAUNCHD " in
+        *" network.pilotprotocol.pilot-daemon "*) ;;
+        *)
+            echo "  Start daemon: launchctl load -w $PLIST"
+            echo "  Stop daemon:  launchctl unload $PLIST"
+            ;;
+    esac
 fi
 
 # --- Add to PATH ---
@@ -1048,6 +1265,29 @@ fi
 
 # Write version file for the auto-updater
 [ -n "$TAG" ] && echo "$TAG" > "$BIN_DIR/.pilot-version"
+
+# --- Upgrade: short summary, skip the first-run onboarding text ---
+#
+# Everything above this point (binary swap, unit/plist regeneration, service
+# restart, PATH) runs on BOTH paths, so a re-run is a complete repair: it is
+# what gets a host off a stale pinned version AND off a unit written by an
+# older installer. Only the first-run onboarding is skipped.
+if [ "$UPDATING" = true ]; then
+    echo ""
+    echo "Updated to ${TAG:-source}:"
+    echo "  pilot-daemon    ${BIN_DIR}/pilot-daemon"
+    echo "  pilotctl         ${BIN_DIR}/pilotctl"
+    [ -f "$BIN_DIR/pilot-gateway" ] && echo "  pilot-gateway    ${BIN_DIR}/pilot-gateway"
+    [ -f "$BIN_DIR/pilot-updater" ] && echo "  pilot-updater    ${BIN_DIR}/pilot-updater"
+    echo ""
+    if [ -z "$RESTART_SYSTEMD" ] && [ -z "$RESTART_LAUNCHD" ]; then
+        echo "No managed service was running. If you run the daemon yourself,"
+        echo "restart it to pick up the new version:"
+        echo "  pilotctl daemon stop && pilotctl daemon start"
+        echo ""
+    fi
+    exit 0
+fi
 
 echo ""
 echo "Installed:"
