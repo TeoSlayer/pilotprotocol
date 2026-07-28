@@ -274,8 +274,20 @@ func (tm *TunnelManager) allowKxFromSource(addr *net.UDPAddr) bool {
 	b, ok := tm.kxRateLim[key]
 	now := time.Now()
 	if !ok {
+		// Prune before rejecting. Without this the map only ever grows:
+		// there was no delete for kxRateLim anywhere, so once
+		// maxPerSrcKxEntries distinct source IPs had EVER sent a PILA/PILK
+		// frame, every subsequent new source IP was refused forever and key
+		// exchange with any new peer was permanently dead until restart.
+		// A peer spraying spoofed source IPs filled all 4096 slots in a
+		// single burst, turning a rate limiter into a self-inflicted
+		// denial of service. Mirrors pruneRelayKxLocked, which the sibling
+		// relay limiter has had all along.
 		if len(tm.kxRateLim) >= maxPerSrcKxEntries {
-			return false
+			tm.pruneKxRateLimLocked(now)
+			if len(tm.kxRateLim) >= maxPerSrcKxEntries {
+				return false
+			}
 		}
 		tm.kxRateLim[key] = &srcKxBucket{tokens: perSourceKxLimit - 1, lastFill: now}
 		return true
@@ -334,6 +346,22 @@ func (tm *TunnelManager) allowKxFromRelaySrc(srcNodeID uint32) bool {
 		return true
 	}
 	return false
+}
+
+// pruneKxRateLimLocked drops per-source-IP key-exchange buckets that have
+// been idle longer than relayKxPruneAge. Caller must hold kxRateLimMu.
+//
+// A bucket idle that long has fully refilled (perSourceKxLimit tokens per
+// second, so it refills in well under a second), which makes dropping it
+// exactly equivalent to keeping it — the next frame from that IP
+// re-creates it with a full budget. So pruning costs no rate-limiting
+// accuracy and is purely a reclaim.
+func (tm *TunnelManager) pruneKxRateLimLocked(now time.Time) {
+	for ip, b := range tm.kxRateLim {
+		if now.Sub(b.lastFill) >= relayKxPruneAge {
+			delete(tm.kxRateLim, ip)
+		}
+	}
 }
 
 func (tm *TunnelManager) pruneRelayKxLocked(now time.Time) {
