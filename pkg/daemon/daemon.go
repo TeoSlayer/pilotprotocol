@@ -78,15 +78,25 @@ func withRegistryDeadline(timeout time.Duration, fn func() (map[string]interface
 		resp map[string]interface{}
 		err  error
 	}
+	// Buffered so the worker can always deposit its result and exit even
+	// after we have given up — otherwise it would park on the send
+	// forever, retaining its stack and the decoded response map.
 	resultCh := make(chan registryCallResult, 1)
 	go func() {
 		resp, err := fn()
 		resultCh <- registryCallResult{resp: resp, err: err}
 	}()
+
+	// time.After leaks its timer until the duration elapses. On a wedged
+	// registry conn this path runs repeatedly, so use an explicitly
+	// stopped timer instead of pinning one 8s timer per call.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case r := <-resultCh:
 		return r.resp, r.err
-	case <-time.After(timeout):
+	case <-timer.C:
 		return nil, errRegistryCallTimedOut
 	}
 }
