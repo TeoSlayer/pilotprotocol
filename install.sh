@@ -6,28 +6,44 @@ set -e
 # Hosted at:  https://pilotprotocol.network/install.sh
 #
 # Usage:
-#   Install:    curl -fsSL https://pilotprotocol.network/install.sh | sh
-#   RC build:   PILOT_RC=1 curl -fsSL https://pilotprotocol.network/install.sh | sh
-#   Compat:     PILOT_TRANSPORT=compat curl -fsSL https://pilotprotocol.network/install.sh | sh
-#   Uninstall:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
+#   Install:        curl -fsSL https://pilotprotocol.network/install.sh | sh
+#   Pin a version:  curl -fsSL https://pilotprotocol.network/install.sh | sh -s -- --version v1.13.6
+#   Beta channel:   curl -fsSL https://pilotprotocol.network/install.sh | sh -s -- --channel beta
+#   Uninstall:      curl -fsSL https://pilotprotocol.network/install.sh | sh -s uninstall
 #
+# Flags:
+#   --version <tag>    Install a specific tag. Warns when older than latest stable.
+#   --channel <name>   stable (default) or beta. `edge` is accepted as an alias
+#                      for beta (the newest prerelease channel). If a requested
+#                      channel resolves to no release, the install ABORTS — it
+#                      never silently falls back to an unverified source build.
+#   --yes / -y         Skip the older-version confirmation prompt.
+#   --no-warn          Suppress the older-version warning entirely.
 #
-# ENVIRONMENT VARIABLES:
-#   PILOT_TRANSPORT     Set "compat" to force WSS/443 transport for UDP-blocked networks.
-#   PILOT_RC            Set to 1 to install the latest pre-release (RC build).
-#   PILOT_EMAIL         Skip the email prompt by providing it inline.
-#   PILOT_HOSTNAME      Set a custom hostname for the daemon.
-#   PILOT_PUBLIC        Set to 1 to register the daemon as a public node.
+# Legacy env vars (still honored, lower precedence than flags):
+#   PILOT_RELEASE_TAG=vX.Y.Z   Same as --version.
+#   PILOT_RC=1                 Same as --channel beta.
+#   PILOT_EMAIL=you@host       Account-recovery email. Provide it inline for
+#                              non-interactive/headless installs (no TTY prompt).
+#                              If omitted headless, the daemon auto-synthesizes a
+#                              <fingerprint>@nodes.pilotprotocol.network identity.
 #
 # WHAT THIS SCRIPT DOES (read before piping to sh):
 #   1. Detects OS/arch (Linux/Darwin × amd64/arm64)
 #   2. Resolves the latest release tag from github.com/pilot-protocol/pilotprotocol/releases
 #   3. Downloads the release tarball + checksums.txt from that release
-#   4. *** Verifies SHA-256 of the tarball against checksums.txt (aborts on mismatch) ***
+#   4. *** Verifies SHA-256 of the tarball against checksums.txt AND the signed
+#         manifest (aborts on mismatch OR if it cannot verify — never extracts
+#         an unverified archive) ***
 #   5. Extracts binaries to ~/.pilot/bin (per-user, NOT system-wide)
-#   6. Adds ~/.pilot/bin to PATH via your shell profile
-#   7. On Linux with sudo: installs systemd unit for the daemon + auto-updater
-#   8. On macOS with sudo: installs LaunchDaemons for the daemon + auto-updater
+#   6. Adds ~/.pilot/bin to PATH in your shell profiles (~/.profile, ~/.bashrc,
+#      ~/.zshenv, ~/.zshrc, ~/.bash_profile when it already exists)
+#   7. Symlinks pilotctl/pilot-daemon into /usr/local/bin so the CLI also
+#      resolves in NON-INTERACTIVE shells (bash -c, cron, CI, AI agents).
+#      Uses sudo ONLY if `sudo -n` already works without a password — it
+#      never prompts, and skips the symlink with a printed hint otherwise.
+#   8. On Linux with sudo: installs systemd unit for the daemon + auto-updater
+#   9. On macOS with sudo: installs LaunchDaemons for the daemon + auto-updater
 #
 # IDENTITY & EMAIL (optional):
 #   - The daemon registers a stable Ed25519 keypair with a rendezvous server
@@ -50,8 +66,11 @@ set -e
 #   - Send any personal data anywhere (the install script only fetches the
 #     release tarball from GitHub; the daemon registers its public key + a
 #     synthetic or user-supplied email with the rendezvous server, nothing else)
-#   - Modify files outside $HOME/.pilot, /etc/systemd (Linux) or
-#     /Library/LaunchDaemons (macOS), and your shell profile
+#   - Modify files outside $HOME/.pilot, your shell profiles, the
+#     /usr/local/bin symlinks described above, /etc/systemd (Linux) or
+#     /Library/LaunchDaemons (macOS)
+#   - Prompt for a sudo password (sudo is used only when `sudo -n` already
+#     succeeds without one; otherwise every privileged step is skipped)
 #   - Require any account credential or signup to install
 #
 # Verifiable provenance:
@@ -66,19 +85,103 @@ set -e
 # error.
 
 REPO="pilot-protocol/pilotprotocol"
-REGISTRY="${PILOT_REGISTRY:-registry.pilotprotocol.network:9000}"
-BEACON="${PILOT_BEACON:-registry.pilotprotocol.network:9001}"
-# PILOT-270: validate REGISTRY/BEACON to prevent JSON injection into config.json
-if ! echo "$REGISTRY" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
-    echo "Error: REGISTRY contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
-    exit 1
-fi
-if ! echo "$BEACON" | grep -qE '^[a-zA-Z0-9.:_-]+$'; then
-    echo "Error: BEACON contains invalid characters (only a-z A-Z 0-9 . : _ - allowed)"
-    exit 1
-fi
+REGISTRY="${PILOT_REGISTRY:-34.71.57.205:9000}"
+BEACON="${PILOT_BEACON:-34.71.57.205:9001}"
 PILOT_DIR="$HOME/.pilot"
 BIN_DIR="$PILOT_DIR/bin"
+
+# validate_safe LABEL VALUE EXTRA — abort if VALUE contains any character
+# outside [A-Za-z0-9] plus the punctuation in EXTRA. These values are
+# interpolated UNQUOTED into config.json, the sudo-tee'd systemd unit, and the
+# launchd plist; without this a value containing a quote, angle bracket,
+# newline, or space could break out of the JSON string, inject extra daemon
+# flags into a root-owned unit, or corrupt the plist. We reject rather than
+# escape so the failure is loud and the generated files stay simple. EXTRA must
+# keep '-' last so tr treats it literally, not as a range.
+validate_safe() {
+    _vs_label="$1"; _vs_val="$2"; _vs_extra="$3"
+    # Delete every allowed character; anything left is disallowed. A trailing
+    # space is appended before the delete so that $()'s trailing-newline
+    # stripping cannot hide a lone newline in the leftover (a newline is never
+    # an allowed character, so it must be caught). Space is likewise never
+    # allowed, so a clean value leaves exactly that single trailing space.
+    _vs_bad=$(printf '%s ' "$_vs_val" | tr -d "A-Za-z0-9${_vs_extra}")
+    if [ "$_vs_bad" != " " ]; then
+        echo "Error: ${_vs_label} contains unsupported characters." >&2
+        echo "       Value:   ${_vs_val}" >&2
+        echo "       Allowed: letters, digits, and these: ${_vs_extra}" >&2
+        exit 1
+    fi
+}
+
+# Registry/beacon are host:port endpoints — validate before they reach the
+# daemon command line in the systemd unit / plist.
+validate_safe "registry (PILOT_REGISTRY)" "$REGISTRY" ".:-"
+validate_safe "beacon (PILOT_BEACON)" "$BEACON" ".:-"
+
+# Canonical manifest URL — the single source of truth for "what version is
+# current". Republished by web4 release.yml on every tag. Override only for
+# testing PR-preview manifests.
+MANIFEST_URL="${PILOT_MANIFEST_URL:-https://pilotprotocol.network/.well-known/latest.json}"
+
+# --- Parse CLI flags ---
+# Flags are parsed BEFORE the root check so that `install.sh --yes uninstall`
+# (and similar combinations) still recognize the `uninstall` positional.
+PILOT_REQUESTED_VERSION=""
+PILOT_REQUESTED_CHANNEL=""
+PILOT_YES=0
+PILOT_NO_WARN=0
+PILOT_POSITIONAL=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --version)
+            if [ $# -lt 2 ]; then echo "Error: --version requires a value" >&2; exit 2; fi
+            PILOT_REQUESTED_VERSION="$2"; shift 2 ;;
+        --version=*)
+            PILOT_REQUESTED_VERSION="${1#--version=}"; shift ;;
+        --channel)
+            if [ $# -lt 2 ]; then echo "Error: --channel requires a value" >&2; exit 2; fi
+            PILOT_REQUESTED_CHANNEL="$2"; shift 2 ;;
+        --channel=*)
+            PILOT_REQUESTED_CHANNEL="${1#--channel=}"; shift ;;
+        --yes|-y)
+            PILOT_YES=1; shift ;;
+        --no-warn)
+            PILOT_NO_WARN=1; shift ;;
+        -h|--help)
+            sed -n '4,21p' "$0" 2>/dev/null || echo "See https://pilotprotocol.network/install.sh"
+            exit 0 ;;
+        --)
+            shift
+            while [ $# -gt 0 ]; do PILOT_POSITIONAL="$PILOT_POSITIONAL $1"; shift; done
+            break ;;
+        -*)
+            echo "Error: unknown flag: $1" >&2
+            echo "       Run with --help for usage." >&2
+            exit 2 ;;
+        *)
+            PILOT_POSITIONAL="$PILOT_POSITIONAL $1"; shift ;;
+    esac
+done
+
+# Validate channel value early so we fail fast. `edge` is a back-compat alias
+# for `beta`: the manifest publishes channels.stable and channels.beta only, so
+# a literal `edge` lookup would resolve empty and (previously) silently fall
+# through to an unverified source build. Normalise it to `beta` here.
+if [ "$PILOT_REQUESTED_CHANNEL" = "edge" ]; then
+    PILOT_REQUESTED_CHANNEL="beta"
+fi
+if [ -n "$PILOT_REQUESTED_CHANNEL" ] \
+   && [ "$PILOT_REQUESTED_CHANNEL" != "stable" ] \
+   && [ "$PILOT_REQUESTED_CHANNEL" != "beta" ]; then
+    echo "Error: --channel must be 'stable' or 'beta' (got: $PILOT_REQUESTED_CHANNEL)" >&2
+    exit 2
+fi
+
+# Restore positional args so the existing uninstall handler still uses $1.
+# shellcheck disable=SC2086 # intentional word-split on PILOT_POSITIONAL
+set -- $PILOT_POSITIONAL
 
 # Refuse to run as root — daemon must run as the invoking user so identity.json
 # and received files land under that user's home, not /root.
@@ -88,6 +191,71 @@ if [ "${1:-}" != "uninstall" ] && [ "$(id -u)" = "0" ] && [ -z "${PILOT_ALLOW_RO
     echo "       Set PILOT_ALLOW_ROOT=1 to override (not recommended)."
     exit 1
 fi
+
+# --- Manifest + version helpers ---
+
+# fetch_manifest writes the manifest JSON to $1 and returns 0 on success.
+# Soft-fails (returns 1) so callers fall back to the GitHub-redirect path
+# when the manifest host is unreachable.
+fetch_manifest() {
+    curl -fsSL --max-time 10 "$MANIFEST_URL" -o "$1" 2>/dev/null
+}
+
+# manifest_field "<path>" "<file>" extracts a string field. Supports nested
+# paths like "channels.stable" with a one-level sed slice — POSIX shell only,
+# no jq dependency. Returns empty if the field is absent.
+manifest_field() {
+    _mf_field="$1"; _mf_file="$2"
+    case "$_mf_field" in
+        *.*)
+            _mf_outer="${_mf_field%%.*}"
+            _mf_inner="${_mf_field#*.}"
+            sed -n "/\"${_mf_outer}\"[[:space:]]*:[[:space:]]*{/,/^[[:space:]]*}/p" "$_mf_file" \
+              | grep "\"${_mf_inner}\"" | head -1 \
+              | sed -E "s/.*\"${_mf_inner}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/"
+            ;;
+        *)
+            grep "\"${_mf_field}\"" "$_mf_file" | head -1 \
+              | sed -E "s/.*\"${_mf_field}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\\1/"
+            ;;
+    esac
+}
+
+# manifest_platform_sha256 "<os>-<arch>" "<file>" extracts the per-platform
+# sha256 from the manifest's "platforms" map, e.g. the hash inside
+#   "platforms": { "darwin-arm64": { "url": "...", "sha256": "abc..." } }
+# Returns empty if the platform block or its sha256 is absent. This is a second,
+# independent integrity anchor (served from pilotprotocol.network) alongside the
+# release's checksums.txt (served from GitHub).
+manifest_platform_sha256() {
+    _mp_plat="$1"; _mp_file="$2"
+    sed -n "/\"${_mp_plat}\"[[:space:]]*:[[:space:]]*{/,/}/p" "$_mp_file" \
+      | grep '"sha256"' | head -1 \
+      | sed -E 's/.*"sha256"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/'
+}
+
+# version_compare a b emits -1 / 0 / 1 for a<b / a==b / a>b.
+# Honors semver: a prerelease tag ("X.Y.Z-rcN") is LOWER than the same base
+# without it ("X.Y.Z"). Plain `sort -V` gets this backwards on hyphenated
+# suffixes, so we split on "-" and compare the base versions first, then
+# break ties on the prerelease suffix.
+version_compare() {
+    _vc_a="${1#v}"; _vc_b="${2#v}"
+    if [ "$_vc_a" = "$_vc_b" ]; then echo 0; return; fi
+    _vc_a_base="${_vc_a%%-*}"; _vc_b_base="${_vc_b%%-*}"
+    if [ "$_vc_a_base" = "$_vc_b_base" ]; then
+        _vc_a_pre=0; case "$_vc_a" in *-*) _vc_a_pre=1 ;; esac
+        _vc_b_pre=0; case "$_vc_b" in *-*) _vc_b_pre=1 ;; esac
+        if [ "$_vc_a_pre" = "1" ] && [ "$_vc_b_pre" = "0" ]; then printf '%s\n' -1; return; fi
+        if [ "$_vc_a_pre" = "0" ] && [ "$_vc_b_pre" = "1" ]; then echo 1; return; fi
+        _vc_a_suf="${_vc_a#*-}"; _vc_b_suf="${_vc_b#*-}"
+        _vc_older=$(printf '%s\n%s\n' "$_vc_a_suf" "$_vc_b_suf" | sort -V | head -1)
+        if [ "$_vc_older" = "$_vc_a_suf" ]; then printf '%s\n' -1; else echo 1; fi
+        return
+    fi
+    _vc_older=$(printf '%s\n%s\n' "$_vc_a_base" "$_vc_b_base" | sort -V | head -1)
+    if [ "$_vc_older" = "$_vc_a_base" ]; then printf '%s\n' -1; else echo 1; fi
+}
 
 # --- Uninstall ---
 
@@ -101,11 +269,38 @@ if [ "${1}" = "uninstall" ]; then
     # Stop daemon
     if [ -x "$BIN_DIR/pilotctl" ]; then
         "$BIN_DIR/pilotctl" daemon stop 2>/dev/null || true
-        "$BIN_DIR/pilotctl" gateway stop 2>/dev/null || true
+        # Gateway is extras-only in the core CLI: plain `pilotctl gateway stop`
+        # hard-errors ("gateway commands are not in the core CLI"), so the
+        # gateway was never actually stopped on uninstall.
+        "$BIN_DIR/pilotctl" extras gateway stop 2>/dev/null || true
     elif command -v pilotctl >/dev/null 2>&1; then
         pilotctl daemon stop 2>/dev/null || true
-        pilotctl gateway stop 2>/dev/null || true
+        pilotctl extras gateway stop 2>/dev/null || true
     fi
+
+    # Remove the /usr/local/bin symlinks the installer creates. Without this a
+    # dangling `pilotctl` stays on the default PATH after uninstall and fails
+    # with a confusing "No such file or directory". Only ever unlinks a SYMLINK
+    # that actually points into this user's ~/.pilot/bin — an unrelated real
+    # file of the same name is left alone. Same `sudo -n` gate as install: no
+    # password prompt, skip silently when we cannot write.
+    UNLINK_DIR="/usr/local/bin"
+    UNLINK_SUDO=""
+    if [ ! -w "$UNLINK_DIR" ] && sudo -n true 2>/dev/null; then
+        UNLINK_SUDO="sudo"
+    fi
+    for _b in pilotctl pilot-daemon pilot-gateway pilot-updater; do
+        if [ -L "$UNLINK_DIR/$_b" ]; then
+            case "$(readlink "$UNLINK_DIR/$_b" 2>/dev/null)" in
+                "$BIN_DIR"/*)
+                    # shellcheck disable=SC2086 # "" or "sudo" — intentional split
+                    if $UNLINK_SUDO rm -f "$UNLINK_DIR/$_b" 2>/dev/null; then
+                        echo "  Removed ${UNLINK_DIR}/${_b}"
+                    fi
+                    ;;
+            esac
+        fi
+    done
 
     # Remove system services (daemon + updater)
     if [ "$OS" = "linux" ]; then
@@ -117,7 +312,11 @@ if [ "${1}" = "uninstall" ]; then
                     sudo rm -f "/etc/systemd/system/${svc}.service"
                 fi
             done
-            sudo systemctl daemon-reload
+            # Never let daemon-reload abort the uninstall under `set -e`: on a
+            # host with sudo but no systemd (container / WSL / CI) systemctl is
+            # missing or fails, and the abort left ~/.pilot in place after the
+            # user asked to uninstall. Matches the install-side handling below.
+            sudo systemctl daemon-reload 2>/dev/null || true
             echo "  Removed systemd services"
         else
             echo "  Skipped systemd removal (run with sudo to remove)"
@@ -136,10 +335,6 @@ if [ "${1}" = "uninstall" ]; then
     fi
 
     # Remove pilot directory (binaries, config, identity, received files)
-    if [ -h "$PILOT_DIR" ]; then
-        echo "  Refusing to uninstall: $PILOT_DIR is a symlink"
-        exit 1
-    fi
     if [ -d "$PILOT_DIR" ]; then
         rm -rf "$PILOT_DIR"
         echo "  Removed $PILOT_DIR"
@@ -182,16 +377,17 @@ echo ""
 
 EMAIL="${PILOT_EMAIL:-}"
 
-# On fresh install, email is required for account recovery.
-# - Interactive (TTY): prompt for it.
-# - Non-interactive (piped): skip the prompt; the user sets PILOT_EMAIL=
-#   or accepts no-recovery mode.
+# On fresh install, email is required (like certbot)
 if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
     # Check if account.json already has an email
     if [ -f "$PILOT_DIR/account.json" ]; then
         EMAIL=$(grep '"email"' "$PILOT_DIR/account.json" 2>/dev/null | head -1 | cut -d'"' -f4 || true)
     fi
     if [ -z "$EMAIL" ]; then
+        # Interactive (TTY): prompt. Non-interactive (piped into a headless
+        # agent, no controlling terminal): do NOT block on /dev/tty — the
+        # daemon auto-synthesizes a <fingerprint>@nodes.pilotprotocol.network
+        # identity when email is empty, so a missing email must not abort.
         if [ -t 0 ]; then
             printf "  Email (for account recovery): "
             read EMAIL < /dev/tty
@@ -207,13 +403,20 @@ if [ -z "$EMAIL" ] && [ ! -x "$BIN_DIR/pilotctl" ]; then
     fi
 fi
 
-# --- Validate email (prevent shell/XML injection) ---
-
+# The email is interpolated unquoted into config.json (a JSON string), the
+# systemd unit ExecStart, and the launchd plist. Reject anything that could
+# break out of those contexts (quotes, backslash, angle brackets, spaces,
+# newlines). Standard email punctuation is allowed. Empty is fine here — an
+# existing install without a new email keeps whatever it had.
 if [ -n "$EMAIL" ]; then
-    if ! echo "$EMAIL" | grep -qE '^[A-Za-z0-9@._+-]+$'; then
-        echo "  Error: EMAIL contains invalid characters (only A-Z a-z 0-9 @ . _ + - allowed)"
-        exit 1
-    fi
+    validate_safe "email (PILOT_EMAIL)" "$EMAIL" "@.+_%-"
+fi
+
+# PILOT_HOSTNAME becomes a `-hostname <value>` argument in the root-owned
+# systemd unit and the plist. A value with whitespace would inject additional
+# daemon flags; validate it to hostname-safe characters.
+if [ -n "${PILOT_HOSTNAME:-}" ]; then
+    validate_safe "hostname (PILOT_HOSTNAME)" "$PILOT_HOSTNAME" "._-"
 fi
 
 # --- Detect existing installation ---
@@ -234,12 +437,47 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 ARCHIVE="pilot-${OS}-${ARCH}.tar.gz"
 
-# Resolve the latest release tag.
-# - Default path uses the unauthenticated /releases/latest/download/ redirect,
-#   which is not subject to the 60/hr api.github.com rate limit.
-# - PILOT_RC=1 still hits the API because pre-releases need the listing endpoint.
-if [ "${PILOT_RC:-}" = "1" ]; then
-    TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4 || true)
+# Resolve the release tag. Precedence (highest to lowest):
+#   1. --version <tag>            explicit pin via flag
+#   2. PILOT_RELEASE_TAG env       legacy explicit pin (back-compat)
+#   3. --channel <name>            manifest channel lookup
+#   4. PILOT_RC=1 env              legacy "beta" channel (back-compat)
+#   5. Manifest "latest_stable"    preferred for the default install
+#   6. GitHub /releases/latest redirect — fallback when the manifest host
+#      is unreachable. Unauthenticated CDN, not subject to the 60/hr
+#      api.github.com rate limit.
+MANIFEST_FILE="$TMPDIR/manifest.json"
+HAVE_MANIFEST=0
+if fetch_manifest "$MANIFEST_FILE"; then
+    HAVE_MANIFEST=1
+fi
+
+if [ -n "$PILOT_REQUESTED_VERSION" ]; then
+    TAG="$PILOT_REQUESTED_VERSION"
+elif [ -n "${PILOT_RELEASE_TAG:-}" ]; then
+    TAG="$PILOT_RELEASE_TAG"
+elif [ -n "$PILOT_REQUESTED_CHANNEL" ] && [ "$HAVE_MANIFEST" = "1" ]; then
+    TAG=$(manifest_field "channels.${PILOT_REQUESTED_CHANNEL}" "$MANIFEST_FILE")
+elif [ "${PILOT_RC:-}" = "1" ] && [ "$HAVE_MANIFEST" = "1" ]; then
+    TAG=$(manifest_field "channels.beta" "$MANIFEST_FILE")
+elif [ "${PILOT_RC:-}" = "1" ]; then
+    # Manifest unreachable; fall back to api.github.com for the newest tag.
+    API_BODY="$TMPDIR/releases.json"
+    API_CODE=$(curl -sSL -o "$API_BODY" -w '%{http_code}' "https://api.github.com/repos/${REPO}/releases" 2>/dev/null || echo "000")
+    if [ "$API_CODE" = "403" ]; then
+        echo "Error: GitHub API rate-limited (403) while resolving the latest pre-release." >&2
+        echo "  Workarounds:" >&2
+        echo "    - retry in ~1 hour, OR" >&2
+        echo "    - pin the tag:  --version vX.Y.Z-rcN" >&2
+        echo "  Refusing to silently source-build an unstamped binary." >&2
+        exit 1
+    fi
+    if [ "$API_CODE" = "200" ]; then
+        TAG=$(grep '"tag_name"' "$API_BODY" | head -1 | cut -d'"' -f4 || true)
+    fi
+    rm -f "$API_BODY"
+elif [ "$HAVE_MANIFEST" = "1" ]; then
+    TAG=$(manifest_field "latest_stable" "$MANIFEST_FILE")
 else
     TAG=$(curl -fsSI "https://github.com/${REPO}/releases/latest/download/${ARCHIVE}" 2>/dev/null \
         | grep -i '^location:' \
@@ -247,100 +485,137 @@ else
         | tr -d '\r' | head -1)
 fi
 
+# Fail loudly if the user explicitly asked for a released version/channel but it
+# resolved to nothing. Silently dropping to the unpinned, UNVERIFIED source
+# build below would give the user a binary they never asked for, with none of
+# the provenance guarantees of a release. Only the fully-automatic default path
+# (no explicit request) is allowed to fall back to a source build.
+if [ -z "$TAG" ]; then
+    if [ -n "$PILOT_REQUESTED_VERSION" ]; then
+        echo "Error: requested version '$PILOT_REQUESTED_VERSION' could not be resolved to a release." >&2
+        exit 1
+    fi
+    if [ -n "${PILOT_RELEASE_TAG:-}" ]; then
+        echo "Error: PILOT_RELEASE_TAG='$PILOT_RELEASE_TAG' could not be resolved to a release." >&2
+        exit 1
+    fi
+    if [ -n "$PILOT_REQUESTED_CHANNEL" ]; then
+        echo "Error: channel '$PILOT_REQUESTED_CHANNEL' resolved to no release (manifest reachable: $HAVE_MANIFEST)." >&2
+        echo "       Refusing to fall back to an unverified source build for an explicit channel request." >&2
+        exit 1
+    fi
+    if [ "${PILOT_RC:-}" = "1" ]; then
+        echo "Error: the beta/prerelease channel resolved to no release." >&2
+        echo "       Refusing to fall back to an unverified source build for an explicit channel request." >&2
+        exit 1
+    fi
+fi
+
+# Warn when the resolved tag is older than the manifest's latest_stable.
+# A confirmation prompt fires only when stdin is a TTY *and* --yes was not
+# passed; non-interactive pipes (curl | sh) get the warning text without a
+# prompt and proceed, so existing automation does not break.
+if [ -n "$TAG" ] && [ "$HAVE_MANIFEST" = "1" ] && [ "$PILOT_NO_WARN" = "0" ]; then
+    LATEST_STABLE=$(manifest_field "latest_stable" "$MANIFEST_FILE")
+    if [ -n "$LATEST_STABLE" ] && [ "$TAG" != "$LATEST_STABLE" ]; then
+        CMP=$(version_compare "$TAG" "$LATEST_STABLE")
+        if [ "$CMP" = "-1" ]; then
+            echo "" >&2
+            echo "Warning: ${TAG} is older than the latest stable release (${LATEST_STABLE})." >&2
+            echo "         Older versions miss security fixes. To install the latest stable," >&2
+            echo "         re-run without --version, or pass --version ${LATEST_STABLE}." >&2
+            if [ "$PILOT_YES" != "1" ] && [ -t 0 ]; then
+                printf "Continue installing %s anyway? [y/N] " "$TAG" >&2
+                read -r _confirm
+                case "$_confirm" in
+                    y|Y|yes|YES) ;;
+                    *) echo "Aborted." >&2; exit 1 ;;
+                esac
+            fi
+            echo "" >&2
+        fi
+    fi
+fi
+
 if [ -n "$TAG" ]; then
     URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
     CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
     echo "Downloading ${TAG}..."
     if curl -fsSL "$URL" -o "$TMPDIR/$ARCHIVE" 2>/dev/null; then
-        # Verify SHA-256 against release checksums.txt when available
+        # --- Verify SHA-256 (fail closed) ---
+        # This block NEVER extracts an archive it could not verify. Two
+        # independent anchors are used:
+        #   EXPECTED_CKS  — from the release's checksums.txt (GitHub)
+        #   EXPECTED_MAN  — the per-platform sha256 in the signed manifest
+        #                   (pilotprotocol.network)
+        # When both are present they must AGREE (defends against a compromise
+        # of either single source). At least one must be present, a working
+        # SHA-256 tool must exist, and the computed hash must match — otherwise
+        # the install aborts. (Previously a missing checksums.txt, a missing
+        # archive line, or the absence of shasum/sha256sum silently extracted
+        # the archive UNVERIFIED.)
+        EXPECTED_CKS=""
         if curl -fsSL "$CHECKSUMS_URL" -o "$TMPDIR/checksums.txt" 2>/dev/null; then
-            # Verify checksums.txt provenance via GitHub SLSA attestation.
-            # The release workflow (release.yml) attests checksums.txt via
-            # actions/attest-build-provenance@v4 (PILOT-120).
-            #
-            # Attestation is supplemental — the SHA-256 check below is the
-            # primary integrity gate. We warn but do NOT abort on attestation
-            # failure: gh might be missing, an older version that doesn't
-            # know about attestations, the sigstore TUF root might be
-            # unreachable, or there could be a transient verification hiccup
-            # on the runner. Forcing a hard abort here blocked every CI
-            # install-test run on 2026-06-06 even though the release was
-            # genuinely valid and the SHA-256 would have passed.
-            #
-            # Set PILOT_STRICT_ATTESTATION=1 to opt back into the hard-abort
-            # behaviour for high-trust environments where any attestation
-            # hiccup should fail closed.
-            if command -v gh >/dev/null 2>&1; then
-                if gh attestation verify "$TMPDIR/checksums.txt" --repo "$REPO" 2>/dev/null; then
-                    echo "  Verified checksums.txt attestation"
-                else
-                    if [ "${PILOT_STRICT_ATTESTATION:-}" = "1" ]; then
-                        echo "Error: checksums.txt attestation verification failed (strict mode)"
-                        echo "  The file may have been tampered with. Aborting."
-                        exit 1
-                    fi
-                    echo "  Note: attestation verify did not succeed — continuing with SHA-256 check only"
-                    echo "  (re-run with PILOT_STRICT_ATTESTATION=1 to fail closed)"
-                fi
-            else
-                echo "  Note: gh CLI not found — skipping attestation verification"
-                echo "  Install gh: https://cli.github.com/"
-            fi
-            EXPECTED=$(grep " ${ARCHIVE}\$" "$TMPDIR/checksums.txt" | awk '{print $1}')
-            if [ -n "$EXPECTED" ]; then
-                if command -v shasum >/dev/null 2>&1; then
-                    ACTUAL=$(shasum -a 256 "$TMPDIR/$ARCHIVE" | awk '{print $1}')
-                elif command -v sha256sum >/dev/null 2>&1; then
-                    ACTUAL=$(sha256sum "$TMPDIR/$ARCHIVE" | awk '{print $1}')
-                else
-                    ACTUAL=""
-                fi
-                if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
-                    echo "Error: checksum mismatch for ${ARCHIVE}"
-                    echo "  expected: $EXPECTED"
-                    echo "  actual:   $ACTUAL"
-                    exit 1
-                fi
-                [ -n "$ACTUAL" ] && echo "  Verified SHA-256"
-            fi
+            EXPECTED_CKS=$(grep " ${ARCHIVE}\$" "$TMPDIR/checksums.txt" | awk '{print $1}')
         fi
-        # GNU tar preserves ownership and permissions from the archive by
-        # default (including setuid/setgid bits). BSD tar ignores ownership
-        # without root, so these flags are only needed on GNU tar.
-        TAR_SAFE=""
-        if tar --version 2>/dev/null | grep -q 'GNU tar'; then
-            TAR_SAFE="--no-same-owner --no-same-permissions"
+        EXPECTED_MAN=""
+        if [ "$HAVE_MANIFEST" = "1" ]; then
+            EXPECTED_MAN=$(manifest_platform_sha256 "${OS}-${ARCH}" "$MANIFEST_FILE")
         fi
-        # macOS bsdtar can fail silently on GitHub gzip archives
-        # (e.g. darwin-arm64 — bsdtar reads the gzip format header
-        # differently and may produce no output without reporting
-        # an error). Try tar -xzf first; fall back to gunzip|tar on
-        # failure. Both stderr paths are preserved in TAR_ERR so the
-        # final error message includes diagnostic output.
-        TAR_ERR=$(mktemp "${TMPDIR}/tar_err.XXXXXX")
-        EXTRACT_OK=false
-        if tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" $TAR_SAFE 2>"$TAR_ERR" && [ -f "$TMPDIR/pilotctl" ]; then
-            EXTRACT_OK=true
-        else
-            echo "  tar -xzf failed or produced no output; trying gunzip fallback..."
-            if gunzip -c "$TMPDIR/$ARCHIVE" 2>"$TAR_ERR" | tar -x $TAR_SAFE -C "$TMPDIR" 2>>"$TAR_ERR"; then
-                if [ -f "$TMPDIR/pilotctl" ]; then
-                    EXTRACT_OK=true
-                fi
-            fi
-        fi
-        if [ "$EXTRACT_OK" != true ]; then
-            echo "Error: failed to extract binaries from ${ARCHIVE}"
-            if [ -s "$TAR_ERR" ]; then
-                echo "  Diagnostic output from extract tool:"
-                sed 's/^/    /' "$TAR_ERR"
-            fi
-            echo "Try downloading manually from:"
-            echo "  ${URL}"
+
+        # Cross-check the two anchors when both are available.
+        if [ -n "$EXPECTED_CKS" ] && [ -n "$EXPECTED_MAN" ] \
+           && [ "$EXPECTED_CKS" != "$EXPECTED_MAN" ]; then
+            echo "Error: integrity anchors disagree for ${ARCHIVE}" >&2
+            echo "  checksums.txt: $EXPECTED_CKS" >&2
+            echo "  manifest:      $EXPECTED_MAN" >&2
+            echo "  Refusing to install." >&2
             exit 1
         fi
-        rm -f "$TAR_ERR"
+
+        # Pick the expected hash (prefer checksums.txt; fall back to manifest).
+        EXPECTED="$EXPECTED_CKS"
+        [ -z "$EXPECTED" ] && EXPECTED="$EXPECTED_MAN"
+        if [ -z "$EXPECTED" ]; then
+            echo "Error: no SHA-256 available for ${ARCHIVE}." >&2
+            echo "  checksums.txt was missing/incomplete and the manifest carried no hash." >&2
+            echo "  Refusing to install an unverified binary." >&2
+            exit 1
+        fi
+
+        # Compute the actual hash; a missing tool is a hard failure, not a skip.
+        if command -v shasum >/dev/null 2>&1; then
+            ACTUAL=$(shasum -a 256 "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+        elif command -v sha256sum >/dev/null 2>&1; then
+            ACTUAL=$(sha256sum "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+        else
+            echo "Error: no SHA-256 tool (shasum or sha256sum) found." >&2
+            echo "  Cannot verify ${ARCHIVE}; refusing to install unverified." >&2
+            echo "  Install coreutils (sha256sum) or perl (shasum) and retry." >&2
+            exit 1
+        fi
+        if [ -z "$ACTUAL" ]; then
+            echo "Error: failed to compute SHA-256 of ${ARCHIVE}." >&2
+            exit 1
+        fi
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "Error: checksum mismatch for ${ARCHIVE}" >&2
+            echo "  expected: $EXPECTED" >&2
+            echo "  actual:   $ACTUAL" >&2
+            exit 1
+        fi
+        if [ -n "$EXPECTED_CKS" ] && [ -n "$EXPECTED_MAN" ]; then
+            echo "  Verified SHA-256 (checksums.txt + manifest)"
+        elif [ -n "$EXPECTED_CKS" ]; then
+            echo "  Verified SHA-256 (checksums.txt)"
+        else
+            echo "  Verified SHA-256 (manifest)"
+        fi
+        tar -xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR" --strip-components=1
     else
+        # Archive download failed. Only the automatic default path may fall
+        # back to a source build; an explicit request already hard-failed
+        # above, so reaching here means no version/channel was pinned.
         TAG=""
     fi
 fi
@@ -407,15 +682,59 @@ chmod 755 "$BIN_DIR/pilot-daemon" "$BIN_DIR/pilotctl"
 [ -f "$BIN_DIR/pilot-gateway" ] && chmod 755 "$BIN_DIR/pilot-gateway"
 [ -f "$BIN_DIR/pilot-updater" ] && chmod 755 "$BIN_DIR/pilot-updater"
 
-# --- Symlink to /usr/local/bin if writable, otherwise skip ---
+# --- Symlink into /usr/local/bin so NON-INTERACTIVE shells can find pilotctl ---
+#
+# This symlink is the only thing that makes `pilotctl` resolve from a
+# non-interactive shell. `bash -c 'pilotctl version'` reads NEITHER ~/.bashrc
+# (bash skips it entirely for -c) NOR ~/.profile (login shells only), and
+# Debian/Ubuntu's stock ~/.bashrc returns early for non-interactive shells
+# anyway. So a PATH line in a shell rc file is invisible to scripts, cron, CI
+# and AI agents shelling out — which are this CLI's primary callers. A binary
+# on the default system PATH is visible to all of them.
+#
+# Escalation order (never prompts, never escalates beyond what this installer
+# already does elsewhere):
+#   1. write directly when /usr/local/bin is already writable
+#   2. `sudo -n` — the SAME passwordless-sudo gate the systemd block below
+#      uses. If sudo would prompt, we do not use it.
+#   3. give up and print the exact command for the user to run themselves.
 
 LINK_DIR="/usr/local/bin"
+LINK_SUDO=""
+LINK_OK=false
+
 if [ -d "$LINK_DIR" ] && [ -w "$LINK_DIR" ]; then
-    ln -sfn "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon"
-    ln -sfn "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl"
-    [ -f "$BIN_DIR/pilot-gateway" ] && ln -sfn "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway"
-    [ -f "$BIN_DIR/pilot-updater" ] && ln -sfn "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater"
-    echo "  Symlinked to ${LINK_DIR}"
+    LINK_OK=true
+elif sudo -n true 2>/dev/null; then
+    LINK_SUDO="sudo"
+    LINK_OK=true
+    if [ ! -d "$LINK_DIR" ]; then
+        sudo mkdir -p "$LINK_DIR" 2>/dev/null || LINK_OK=false
+    fi
+fi
+
+if [ "$LINK_OK" = true ]; then
+    # shellcheck disable=SC2086 # $LINK_SUDO is "" or "sudo" — intentional split
+    $LINK_SUDO ln -sf "$BIN_DIR/pilot-daemon" "$LINK_DIR/pilot-daemon" 2>/dev/null || LINK_OK=false
+    # shellcheck disable=SC2086
+    $LINK_SUDO ln -sf "$BIN_DIR/pilotctl" "$LINK_DIR/pilotctl" 2>/dev/null || LINK_OK=false
+    if [ -f "$BIN_DIR/pilot-gateway" ]; then
+        # shellcheck disable=SC2086
+        $LINK_SUDO ln -sf "$BIN_DIR/pilot-gateway" "$LINK_DIR/pilot-gateway" 2>/dev/null || true
+    fi
+    if [ -f "$BIN_DIR/pilot-updater" ]; then
+        # shellcheck disable=SC2086
+        $LINK_SUDO ln -sf "$BIN_DIR/pilot-updater" "$LINK_DIR/pilot-updater" 2>/dev/null || true
+    fi
+fi
+
+if [ "$LINK_OK" = true ]; then
+    if [ -n "$LINK_SUDO" ]; then
+        echo "  Symlinked to ${LINK_DIR} (via passwordless sudo)"
+    else
+        echo "  Symlinked to ${LINK_DIR}"
+    fi
+    echo "  pilotctl now resolves in non-interactive shells (bash -c, cron, CI, agents)"
 fi
 
 # --- Update: stop here, skip config/service/PATH setup ---
@@ -445,12 +764,23 @@ cat > "$PILOT_DIR/config.json" <<CONF
   "socket": "/tmp/pilot.sock",
   "encrypt": true,
   "identity": "${PILOT_DIR}/identity.json",
-  "email": "${EMAIL}",
-  "skill_inject": {"mode": "manual"}
+  "email": "${EMAIL}"
 }
 CONF
 
 echo "Config written to ${PILOT_DIR}/config.json"
+
+# Enable background auto-updates by default (opt-out). The install output and
+# the systemd/launchd units below promise the updater keeps binaries current;
+# the pilot-updater treats a MISSING control file as "disabled", so without
+# this a fresh node would run an updater that never applies anything. Written
+# only on a fresh install so an operator who later runs `pilotctl update
+# disable` is never silently re-enabled. Turn off any time with
+# `pilotctl update disable`.
+if [ ! -f "$PILOT_DIR/auto-update.json" ]; then
+    printf '{\n  "enabled": true\n}\n' > "$PILOT_DIR/auto-update.json"
+    echo "Auto-updates ENABLED (opt-out) — disable with: pilotctl update disable"
+fi
 
 # --- Set up system service ---
 
@@ -461,30 +791,13 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/syst
     fi
     if [ "$CAN_SUDO" = true ]; then
     echo "Setting up systemd service..."
-    # PILOT-150: hostname is interpolated unquoted into the systemd unit's
-    # ExecStart line. systemd word-splits on whitespace, so a hostname
-    # like "my host" would arrive at the daemon as `-hostname my` (the
-    # `host` token becomes a separate, ignored arg). Reject anything
-    # outside the RFC 1123 hostname charset early instead.
     HOSTNAME_FLAG=""
     if [ -n "$PILOT_HOSTNAME" ]; then
-        case "$PILOT_HOSTNAME" in
-            *[!A-Za-z0-9.-]* )
-                echo "Error: PILOT_HOSTNAME contains characters outside [A-Za-z0-9.-] — got: $PILOT_HOSTNAME"
-                echo "  RFC 1123 hostnames are restricted to that charset. Refusing to write"
-                echo "  a systemd unit that would silently truncate at the first whitespace."
-                exit 1
-                ;;
-        esac
         HOSTNAME_FLAG="-hostname $PILOT_HOSTNAME"
     fi
     PUBLIC_FLAG=""
     if [ -n "$PILOT_PUBLIC" ]; then
         PUBLIC_FLAG="-public"
-    fi
-    TRANSPORT_FLAG=""
-    if [ -n "$PILOT_TRANSPORT" ]; then
-        TRANSPORT_FLAG="-transport $PILOT_TRANSPORT"
     fi
     sudo tee /etc/systemd/system/pilot-daemon.service >/dev/null <<SVC
 [Unit]
@@ -502,7 +815,7 @@ ExecStart=${BIN_DIR}/pilot-daemon \\
   -socket /tmp/pilot.sock \\
   -identity ${PILOT_DIR}/identity.json \\
   -email ${EMAIL} \\
-  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG} ${TRANSPORT_FLAG}
+  -encrypt ${HOSTNAME_FLAG} ${PUBLIC_FLAG}
 Restart=always
 RestartSec=5
 
@@ -530,20 +843,21 @@ WantedBy=multi-user.target
 USVC
     fi
 
-    # Never let a systemctl call abort the install under `set -e`. Even with
-    # the booted-systemd gate above, daemon-reload/enable can fail on partial
-    # or degraded systemd hosts — the binaries and skill injection still matter.
+    # daemon-reload can fail on hosts where systemctl exists but systemd is
+    # not PID 1 (older containers, chroots). Never let it abort the install
+    # under `set -e` — the binaries and skill injection still matter.
     sudo systemctl daemon-reload || true
     echo "  Service: pilot-daemon.service"
     echo "  Service: pilot-updater.service (auto-updates)"
 
     # Auto-enable + start the updater so future releases land without
-    # operator action. The plist/unit file alone is not enough — without
-    # this, fresh installs sit on whatever release shipped at install
-    # time and never see security/perf fixes. The daemon is left as
-    # opt-in because it has operator-tunable flags (-public, -hostname,
-    # registry overrides) that the operator may want to set before
-    # first start.
+    # operator action. The unit file alone is not enough — without this,
+    # fresh installs sit on whatever release shipped at install time and
+    # never see security/perf fixes, while ~/.pilot/auto-update.json and
+    # the consent block above both tell the operator auto-updates are ON.
+    # The daemon is left as opt-in because it has operator-tunable flags
+    # (-public, -hostname, registry overrides) that the operator may want
+    # to set before first start.
     if [ -f "$BIN_DIR/pilot-updater" ]; then
         if sudo systemctl enable --now pilot-updater; then
             echo "  Started: pilot-updater (auto-updates enabled)"
@@ -575,11 +889,6 @@ if [ "$OS" = "darwin" ]; then
     fi
     if [ -n "$PILOT_PUBLIC" ]; then
         EXTRA_ARGS="${EXTRA_ARGS}        <string>-public</string>
-"
-    fi
-    if [ -n "$PILOT_TRANSPORT" ]; then
-        EXTRA_ARGS="${EXTRA_ARGS}        <string>-transport</string>
-        <string>${PILOT_TRANSPORT}</string>
 "
     fi
     cat > "$PLIST" <<PLIST
@@ -653,45 +962,86 @@ UPLIST
     echo "  Service: network.pilotprotocol.pilot-updater (auto-updates)"
 
     # Auto-load the updater LaunchAgent so future releases land without
-    # operator action. Without this, install.sh writes the plist but
-    # leaves it cold — fresh installs sit on whatever release shipped
-    # at install time and never see security/perf fixes. Symmetric with
-    # the Linux `systemctl enable --now pilot-updater` branch above.
+    # operator action. Without this, install.sh writes the plist but leaves
+    # it cold — fresh installs sit on whatever release shipped at install
+    # time and never see security/perf fixes. Symmetric with the Linux
+    # `systemctl enable --now pilot-updater` branch above.
     #
-    # unload-then-load makes re-running install.sh (upgrade path)
-    # idempotent: any stale running agent is replaced cleanly. -w
-    # persists the load across reboots. The daemon is left as opt-in
-    # for the same reason as the Linux branch.
+    # unload-then-load makes re-running install.sh (the upgrade path)
+    # idempotent: any stale running agent is replaced cleanly. -w persists
+    # the load across reboots. The daemon is left as opt-in for the same
+    # reason as the Linux branch.
     if [ -f "$BIN_DIR/pilot-updater" ] && [ -f "$UPLIST" ]; then
         launchctl unload "$UPLIST" 2>/dev/null || true
         launchctl load -w "$UPLIST"
         echo "  Started: pilot-updater (auto-updates enabled)"
     fi
     echo "  Start daemon: launchctl load -w $PLIST"
+    echo "  Stop daemon:  launchctl unload $PLIST"
 fi
 
 # --- Add to PATH ---
+#
+# Writing to ONE rc file picked from $SHELL is not enough. The file that a
+# given shell reads depends on how it was started:
+#   ~/.profile       login sh/bash — sets PATH once for the whole session, so
+#                    every child process (including `bash -c`) inherits it
+#   ~/.bash_profile  bash login shells; when present it SHADOWS ~/.profile,
+#                    so we must append there too (but never create it — doing
+#                    so would newly shadow a working ~/.profile)
+#   ~/.bashrc        interactive bash only (Debian/Ubuntu's stock copy
+#                    `return`s immediately for non-interactive shells)
+#   ~/.zshenv        zsh — read for EVERY invocation, including `zsh -c`
+#   ~/.zshrc         interactive zsh
+# Together with the /usr/local/bin symlink above this covers login shells,
+# interactive shells and non-interactive shells.
 
-IN_PATH=false
-case ":$PATH:" in
-    *":${BIN_DIR}:"*) IN_PATH=true ;;
-esac
+PATH_FILES=""
 
-if [ "$IN_PATH" = false ]; then
-    SHELL_NAME=$(basename "$SHELL" 2>/dev/null || echo "sh")
-    case "$SHELL_NAME" in
-        zsh)  RC="$HOME/.zshrc" ;;
-        bash) RC="$HOME/.bashrc" ;;
-        *)    RC="$HOME/.profile" ;;
-    esac
-    if [ -f "$RC" ] && grep -q "$BIN_DIR" "$RC" 2>/dev/null; then
-        : # already in rc file
-    else
-        echo "" >> "$RC"
-        echo "# Pilot Protocol" >> "$RC"
-        echo "export PATH=\"${BIN_DIR}:\$PATH\"" >> "$RC"
-        echo "  Added ${BIN_DIR} to PATH in ${RC}"
+pilot_add_path() {
+    _ap_rc="$1"
+    if [ -e "$_ap_rc" ] && grep -qF "$BIN_DIR" "$_ap_rc" 2>/dev/null; then
+        return 0
     fi
+    {
+        echo ""
+        echo "# Pilot Protocol"
+        echo "export PATH=\"${BIN_DIR}:\$PATH\""
+    } >> "$_ap_rc" 2>/dev/null || return 1
+    PATH_FILES="${PATH_FILES}${PATH_FILES:+, }${_ap_rc}"
+    return 0
+}
+
+pilot_add_path "$HOME/.profile" || true
+if [ -f "$HOME/.bash_profile" ]; then
+    pilot_add_path "$HOME/.bash_profile" || true
+fi
+pilot_add_path "$HOME/.bashrc" || true
+if command -v zsh >/dev/null 2>&1 || [ -f "$HOME/.zshrc" ] || [ -f "$HOME/.zshenv" ]; then
+    # .zshenv is the only zsh file read by `zsh -c` (non-interactive).
+    pilot_add_path "$HOME/.zshenv" || true
+    if [ -f "$HOME/.zshrc" ]; then
+        pilot_add_path "$HOME/.zshrc" || true
+    fi
+fi
+
+if [ -n "$PATH_FILES" ]; then
+    echo "  Added ${BIN_DIR} to PATH in: ${PATH_FILES}"
+fi
+
+# If we could not put a binary on the default system PATH, say so loudly and
+# give the exact command — otherwise `bash -c 'pilotctl version'` keeps
+# failing for this user until they start a new login shell.
+if [ "$LINK_OK" != true ]; then
+    echo ""
+    echo "  NOTE: could not write ${LINK_DIR} (not writable, and no passwordless sudo)."
+    echo "        Shell profiles were updated, but non-interactive shells"
+    echo "        (bash -c '...', cron, CI, AI agents shelling out) will not see"
+    echo "        pilotctl until you start a new LOGIN shell. To fix it now:"
+    echo ""
+    echo "          sudo ln -sf ${BIN_DIR}/pilotctl     ${LINK_DIR}/pilotctl"
+    echo "          sudo ln -sf ${BIN_DIR}/pilot-daemon ${LINK_DIR}/pilot-daemon"
+    echo ""
 fi
 
 # --- Verify ---
@@ -718,25 +1068,30 @@ echo "  GET STARTED"
 echo ""
 echo "  0) Put pilotctl on your PATH and bring the node online."
 echo "     ------------------------------------------------------------------"
-echo "     export PATH=\"${BIN_DIR}:\$PATH\"   # if not restarting your shell"
+echo "     export PATH=\"${BIN_DIR}:\$PATH\"   # only needed in THIS shell, before you open a new one"
 cat <<'PILOT_GET_STARTED'
      pilotctl daemon start --hostname my-agent         # blocks until registered; email already saved
      pilotctl daemon status                            # confirm it's running
      pilotctl info                                      # node ID, address, peer count, uptime
 
      Reading any reply is always the same two-step idiom — send with
-     --wait, then read the newest inbox file's .data field:
+     --wait, then print the newest reply. No jq, no extra dependency:
      ------------------------------------------------------------------
      pilotctl send-message <agent> --data '<cmd>' --wait
-     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+     pilotctl inbox --latest              # full body of the newest reply
+
+     # Other ways to read the inbox:
+     pilotctl inbox                       # 10 newest, one-line previews
+     pilotctl inbox --from pilot-mom --limit 3
+     pilotctl --json inbox --latest       # machine-readable envelope
 
 
-  1) PILOT DIRECTOR — your default for anything LIVE or fresh.
+  1) MOM (pilot-mom) — your default for anything LIVE or fresh.
      Describe the whole task in plain English; it picks the specialist
      agents + filters and returns a validated, ready-to-run plan.
      ------------------------------------------------------------------
      pilotctl send-message pilot-mom --data 'current weather and air quality for Berlin' --wait
-     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+     pilotctl inbox --latest
 
      # More examples — hand it the whole sentence, don't hunt for agents yourself:
      pilotctl send-message pilot-mom --data 'summarize this season F1 drivers' --wait
@@ -751,16 +1106,16 @@ cat <<'PILOT_GET_STARTED'
      ------------------------------------------------------------------
      # Browse the whole live catalogue:
      pilotctl send-message list-agents --data '/data' --wait
-     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+     pilotctl inbox --latest
 
      # Search by keyword:
      pilotctl send-message list-agents --data '/data {"search":"bitcoin","limit":10}' --wait
-     jq -r '.data | fromjson' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+     pilotctl inbox --latest
 
      # Learn a specialist's query schema, then query it with filters:
      pilotctl send-message <agent-name> --data '/help' --wait
      pilotctl send-message <agent-name> --data '/data {"<filter>":"<value>"}' --wait
-     jq -r '.data' "$(ls -1t ~/.pilot/inbox/*.json | head -1)"
+     pilotctl inbox --latest
 
 
 
@@ -822,7 +1177,7 @@ echo ""
 if [ -f "$BIN_DIR/pilot-gateway" ]; then
     echo "Bridge IP traffic (requires root for ports < 1024):"
     echo ""
-    echo "  sudo ${BIN_DIR}/pilotctl gateway start --ports 80,3000 <pilot-addr>"
+    echo "  sudo ${BIN_DIR}/pilotctl extras gateway start --ports 80,3000 <pilot-addr>"
     echo "  curl http://10.4.0.1:3000/status"
     echo ""
 fi
@@ -855,15 +1210,6 @@ echo "  Inspect / force a refresh anytime:"
 echo "    pilotctl skills           # status of every install path"
 echo "    pilotctl skills check     # run one reconcile pass right now"
 echo ""
-echo "  Don't want skills injected? You can opt out at any time:"
-echo "    pilotctl skills disable   # removes every file above + future ticks are no-ops"
-echo "    pilotctl skills enable    # re-installs and re-enables the 15-minute reconcile"
-echo ""
-echo "  'disable' strips only the marker block from co-inhabited files"
-echo "  (CLAUDE.md, AGENTS.md, AGENT.md, SOUL.md) — your other content is preserved."
-echo ""
-# --- Consent disclosure ---
-
 echo "============================================"
 echo "  CONSENT & PRIVACY"
 echo ""
@@ -892,16 +1238,26 @@ echo "  Enter to skip, or just use pilot again normally. Your rating and"
 echo "  optional text are the only data sent."
 echo "  To disable: set consent.reviews = false in config.json (below)."
 echo ""
-echo "  SKILL INJECTION (on by default, manual mode)"
+echo "  SKILL INJECTION (on by default, auto mode)"
 echo "  Automatically installs the Pilot Protocol skill into supported"
 echo "  agent toolchains (Claude Code, Cursor, OpenHands, etc.) so agents"
-echo "  on this host can discover and call Pilot services. In MANUAL mode"
-echo "  (the default), skills are installed once now and refreshed only"
-echo "  when you run 'pilotctl update'. Switch to AUTO mode for continuous"
-echo "  background updates, or disable entirely:"
+echo "  on this host can discover and call Pilot services. In AUTO mode"
+echo "  (the default), a background reconcile pass refreshes the injected"
+echo "  skills every 15 minutes. Switch to MANUAL to install once and"
+echo "  refresh only when you run 'pilotctl update', or disable entirely:"
 echo "    pilotctl skills set-mode auto      # always up to date"
 echo "    pilotctl skills set-mode manual    # install once, update on upgrade"
 echo "    pilotctl skills disable all        # remove skills, stop injection"
+echo ""
+echo "  AUTO-UPDATES (on by default)"
+echo "  The pilot-updater service checks GitHub for new stable releases and"
+echo "  installs them automatically. Every update is integrity-checked: the"
+echo "  release checksums are verified against a GitHub SLSA provenance"
+echo "  attestation (bound to the exact release tag) before anything is"
+echo "  replaced — an unverifiable update is refused, not applied."
+echo "    pilotctl update disable    # turn auto-updates off"
+echo "    pilotctl update enable     # turn them back on"
+echo "    pilotctl update status     # show current setting + version"
 echo ""
 echo "  To opt out of telemetry, broadcasts, or reviews, edit:"
 echo "    ${PILOT_DIR}/config.json"
@@ -912,10 +1268,13 @@ echo "      \"consent\": {"
 echo "        \"telemetry\": false,"
 echo "        \"broadcasts\": false,"
 echo "        \"reviews\": false"
-echo "      }"
+echo "      },"
+echo "      \"skill_inject\": { \"mode\": \"disabled\" }"
 echo "    }"
 echo ""
 echo "  Changes to config.json take effect on daemon restart."
+echo ""
+echo "  Full details: https://pilotprotocol.network/docs/consent"
 echo ""
 echo "============================================"
 echo ""
