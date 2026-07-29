@@ -871,10 +871,23 @@ fi
 
 # --- Fresh install: write config ---
 #
-# config.json is written ONLY on a fresh install. A re-run must never clobber
-# registry/beacon/consent settings the operator edited by hand.
-
-if [ "$UPDATING" != true ]; then
+# config.json is written ONLY when there isn't one already. A re-run must never
+# clobber registry/beacon/consent settings the operator edited by hand.
+#
+# The UPDATING check alone did not deliver that promise: UPDATING is derived
+# purely from `[ -x "$BIN_DIR/pilotctl" ]`, i.e. whether the BINARY exists. A
+# host with a hand-edited ~/.pilot/config.json but no binary — binaries removed
+# for a clean reinstall, config restored from backup, or a config pre-seeded
+# before first install — took the "fresh install" branch and had its config
+# silently overwritten.
+#
+# That also made consent settings impossible to set BEFORE first start:
+# pre-seeding {"consent":{...}} or {"skill_inject":{"mode":"disabled"}} was
+# erased by this write, and the erase happened before the first skills pass
+# further below. Guarding on the file itself makes the documented opt-outs
+# reachable at install time instead of only after the fact. Defaults are
+# unchanged — a host with no config still gets the standard one.
+if [ "$UPDATING" != true ] && [ ! -f "$PILOT_DIR/config.json" ]; then
     cat > "$PILOT_DIR/config.json" <<CONF
 {
   "registry": "${REGISTRY}",
