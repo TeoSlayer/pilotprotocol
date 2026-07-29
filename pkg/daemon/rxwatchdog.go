@@ -48,6 +48,17 @@ const (
 	// rxWatchdogTickInterval is how often the watchdog samples counters.
 	rxWatchdogTickInterval = 30 * time.Second
 
+	// suspendGapThreshold is how late a tick must be before the watchdog
+	// concludes this process was not running — a laptop sleeping, a paused
+	// VM, a migrated hypervisor guest.
+	//
+	// 4x the tick interval: far beyond scheduler jitter or a slow tick, but
+	// still under the shortest realistic lid-close. Deliberately measured
+	// from observed ticker lateness rather than any OS power API, so it
+	// works identically on macOS, Linux and inside a VM, and needs no
+	// platform-specific code (there was none in the tree at all).
+	suspendGapThreshold = 4 * rxWatchdogTickInterval
+
 	// rxSilenceThreshold is how long PktsRecv must stall (with tx active)
 	// before the first soft recovery fires.
 	rxSilenceThreshold = 3 * time.Minute
@@ -113,6 +124,19 @@ type rxWatchdogState struct {
 	recvSeen       uint64    // PktsRecv at lastProgress
 	sentAtProgress uint64    // PktsSent at lastProgress
 	softAttempts   int       // consecutive soft recoveries this silence
+
+	// suspendSeen records that the host suspended during this process's
+	// lifetime. It permanently unlocks the "never progressed" guard.
+	//
+	// That guard withholds the hard exit when PktsRecv has not advanced
+	// once this process, on the theory that restarting would reproduce the
+	// same state and boot-loop. Sound for a host that never had working
+	// inbound — and wrong after a resume, where the transport worked
+	// before the gap and a restart is exactly what recovers it. In the
+	// field this guard was the dominant blocker: of 344 withheld restarts
+	// on one laptop, 301 were "never progressed" and only 4 were the
+	// registry check.
+	suspendSeen bool
 }
 
 // rxWatchdogAction names what a tick did — returned for tests and logs.
@@ -143,14 +167,81 @@ func (d *Daemon) rxWatchdogLoop() {
 	}
 	ticker := time.NewTicker(rxWatchdogTickInterval)
 	defer ticker.Stop()
+	lastTick := time.Now()
 	for {
 		select {
 		case <-d.stopCh:
 			return
 		case <-ticker.C:
-			d.rxWatchdogTick(st, time.Now())
+			now := time.Now()
+			if gap := now.Sub(lastTick); gap >= suspendGapThreshold {
+				d.rxWatchdogResume(st, now, gap)
+			}
+			lastTick = now
+			d.rxWatchdogTick(st, now)
 		}
 	}
+}
+
+// rxWatchdogResume handles coming back from a host suspend (laptop lid
+// closed, VM paused, hypervisor migration).
+//
+// This is the gap the watchdog had. On resume every UDP path is stale —
+// the NAT mapping the beacon punched is gone, the peer sessions are dead,
+// and the pooled registry conn is half-open. Nothing in the daemon noticed:
+// there was no suspend/resume awareness anywhere in the tree (no
+// IORegisterForSystemPower, no wake notification, nothing), so recovery had
+// to wait for the ordinary rx-silence path — which then deadlocked against
+// its own safety guard (see the active probe in rxWatchdogTick).
+//
+// Detection is deliberately clock-agnostic: a ticker set to fire every
+// rxWatchdogTickInterval that instead fires suspendGapThreshold late means
+// this process was not running. Whether that was a laptop sleeping, a
+// paused VM, or brutal CPU starvation does not matter — in every case the
+// transport state predating the gap is untrustworthy and re-establishing it
+// is both correct and cheap.
+//
+// Two actions, neither of which restarts anything:
+//
+//  1. Re-punch and re-register: RegisterWithBeacon refreshes the NAT
+//     mapping (its discover reply doubles as an inbound probe) and the
+//     registry gets a fresh conn, since the pooled one did not survive the
+//     suspend and has no liveness ping of its own.
+//  2. Reset the wedge baseline. The pre-suspend counters describe a
+//     different epoch: PktsRecv/PktsSent are frozen at their pre-sleep
+//     values while lastProgress is hours old, so the very first tick after
+//     resume would otherwise read as a multi-hour rx silence and burn soft
+//     attempts on a wedge that had not been given a chance to recover yet.
+func (d *Daemon) rxWatchdogResume(st *rxWatchdogState, now time.Time, gap time.Duration) {
+	defer recoverLayer("L4", "rxWatchdogResume", d.bus, nil)
+
+	slog.Warn("host resumed from suspend — re-establishing transport",
+		"gap", gap.Truncate(time.Second).String(),
+		"tick_interval", rxWatchdogTickInterval.String())
+	d.publishEvent("tunnel.host_resumed", map[string]any{
+		"gap_seconds": int64(gap.Seconds()),
+	})
+
+	d.tunnels.RegisterWithBeacon()
+	if d.reg() != nil {
+		// The pooled registry conn cannot have survived the suspend, and it
+		// has no half-open detection of its own, so force a fresh one rather
+		// than waiting for a request to hang on the dead socket.
+		if err := d.forceReconnectRegistry(); err != nil {
+			slog.Warn("registry reconnect after resume failed", "error", err)
+		} else {
+			d.reRegister()
+		}
+	}
+
+	// Fresh epoch: re-baseline so the first post-resume tick measures
+	// recovery, not the suspend.
+	st.recvSeen = atomic.LoadUint64(&d.tunnels.PktsRecv)
+	st.sentAtProgress = atomic.LoadUint64(&d.tunnels.PktsSent)
+	st.lastProgress = now
+	st.softAttempts = 0
+	st.suspendSeen = true
+	d.consecutiveDialTimeouts.Store(0)
 }
 
 // rxWatchdogTick runs one watchdog iteration. Extracted for testability —
@@ -263,9 +354,14 @@ func (d *Daemon) rxWatchdogTick(st *rxWatchdogState, now time.Time) (action rxWa
 	}
 	uptime := now.Sub(d.startTime)
 	switch {
-	case st.recvSeen == 0:
+	case st.recvSeen == 0 && !st.suspendSeen:
 		// Never received a tunnel packet this process — a restart would
 		// reproduce the same state (boot loop). Keep soft-recovering.
+		//
+		// Skipped once the host has suspended: after a resume, "no inbound
+		// yet this process" is a symptom of the gap, not evidence that
+		// inbound can never work here, and a restart is precisely what
+		// clears it.
 		slog.Warn("inbound path silent and never progressed — withholding restart, will keep soft-recovering",
 			"silent_for", silence.Truncate(time.Second).String())
 	case registryAge < 0 || registryAge > rxWedgeRegistryFresh:
