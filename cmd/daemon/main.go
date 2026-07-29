@@ -94,6 +94,7 @@ func main() {
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
 	noSkillinject := flag.Bool("no-skillinject", false, "disable built-in skill-injection service (agent context injection). Env: PILOT_NO_SKILLINJECT=1.")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
+	webhookSecret := flag.String("webhook-secret", "", "HMAC-SHA256 pre-shared secret for webhook payload signing (empty = no signature). Env: PILOT_WEBHOOK_SECRET.")
 	adminToken := flag.String("admin-token", "", "admin token for network operations")
 	networks := flag.String("networks", "", "comma-separated network IDs to auto-join at startup")
 	trustAutoApprove := flag.Bool("trust-auto-approve", false, "automatically approve all incoming trust handshakes")
@@ -348,7 +349,7 @@ func main() {
 	// bus, the plugin subscribes and POSTs to the configured URL. URL
 	// hot-swap (IPC's `set-webhook`) routes through SetURL on the
 	// plugin via the daemon's WebhookManager interface.
-	webhookSvc := webhook.NewService(*webhookURL)
+	webhookSvc := webhook.NewService(*webhookURL, webhook.WithSecret(*webhookSecret))
 	if err := rt.Register(webhookSvc); err != nil {
 		log.Fatalf("register webhook: %v", err)
 	}
