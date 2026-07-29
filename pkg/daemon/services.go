@@ -30,11 +30,49 @@ type connAdapter struct {
 	// to 0 on the first successful WriteEvent. Atomic because publish()
 	// runs concurrently across publishers without holding a write lock.
 	publishFailures atomic.Uint32
+
+	// readDeadline is the absolute time at which a blocked Read gives up,
+	// as UnixNano; 0 means "no deadline" (block forever, the historical
+	// behaviour). Stored atomically because SetReadDeadline may be called
+	// from a different goroutine than the one parked in Read.
+	//
+	// Without this, Read blocks on <-RecvBuf with no way out. That made
+	// dataexchange's slowloris guard dead code in-daemon: it gates its
+	// idle teardown on a `conn.(readDeadliner)` type assertion, which no
+	// in-daemon stream satisfied, so DefaultIdleTimeout was never applied
+	// and a peer that opened a connection and then went silent pinned the
+	// handler goroutine plus the whole Connection (~43 KiB of buffers and
+	// stacks) forever. See TestConnAdapterReadDeadline.
+	readDeadline atomic.Int64
 }
 
 func newConnAdapter(d *Daemon, conn *Connection) *connAdapter {
 	return &connAdapter{conn: conn, daemon: d}
 }
+
+// SetReadDeadline implements the optional deadline surface that
+// dataexchange (and any other frame reader) probes for. A zero time
+// clears the deadline. Satisfying this interface is what re-arms the
+// idle timeout for in-daemon plugin connections.
+func (a *connAdapter) SetReadDeadline(t time.Time) error {
+	if t.IsZero() {
+		a.readDeadline.Store(0)
+		return nil
+	}
+	a.readDeadline.Store(t.UnixNano())
+	return nil
+}
+
+// errReadDeadlineExceeded is returned by Read when the deadline set via
+// SetReadDeadline elapses. It reports Timeout() == true so callers that
+// distinguish timeouts from hard failures (net.Error) behave correctly.
+type errReadDeadlineExceeded struct{}
+
+func (errReadDeadlineExceeded) Error() string   { return "pilot: read deadline exceeded" }
+func (errReadDeadlineExceeded) Timeout() bool   { return true }
+func (errReadDeadlineExceeded) Temporary() bool { return true }
+
+var _ net.Error = errReadDeadlineExceeded{}
 
 func (a *connAdapter) Read(p []byte) (int, error) {
 	// Drain leftover buffer first
@@ -43,7 +81,24 @@ func (a *connAdapter) Read(p []byte) (int, error) {
 		a.buf = a.buf[n:]
 		return n, nil
 	}
-	data, ok := <-a.conn.RecvBuf
+
+	var data []byte
+	var ok bool
+	if dl := a.readDeadline.Load(); dl != 0 {
+		d := time.Until(time.Unix(0, dl))
+		if d <= 0 {
+			return 0, errReadDeadlineExceeded{}
+		}
+		timer := time.NewTimer(d)
+		select {
+		case data, ok = <-a.conn.RecvBuf:
+			timer.Stop()
+		case <-timer.C:
+			return 0, errReadDeadlineExceeded{}
+		}
+	} else {
+		data, ok = <-a.conn.RecvBuf
+	}
 	if !ok {
 		return 0, io.EOF
 	}
@@ -122,8 +177,14 @@ func (p pilotAddr) String() string {
 	return fmt.Sprintf("%s:%d", p.addr.String(), p.port)
 }
 
-func (a *connAdapter) SetDeadline(t time.Time) error      { return nil }
-func (a *connAdapter) SetReadDeadline(t time.Time) error  { return nil }
+// SetDeadline sets the read deadline. The write side has its own bound
+// (connAdapterWriteDeadline), so only the read half is honoured here.
+func (a *connAdapter) SetDeadline(t time.Time) error { return a.SetReadDeadline(t) }
+
+// SetWriteDeadline is not implemented: Write already fails after
+// connAdapterWriteDeadline against a persistently-full send buffer.
+// It returns nil (rather than an error) to preserve net.Conn semantics
+// for callers that set both deadlines unconditionally.
 func (a *connAdapter) SetWriteDeadline(t time.Time) error { return nil }
 
 // startBuiltinServices starts all enabled built-in port services.
