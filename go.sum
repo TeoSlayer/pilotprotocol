@@ -255,6 +255,8 @@ github.com/pilot-protocol/rendezvous v0.2.7 h1:676cSBYGpkkg5FK6AioGLarixPrTwlky5
 github.com/pilot-protocol/rendezvous v0.2.7/go.mod h1:sv0TuqAosOCe3f3EIuZ9lmrNaHJTqyy5k/UGFqHskB4=
 github.com/pilot-protocol/runtime v0.3.1 h1:+W9ww0dZY/FgOBtCmIOV3w5L5Z4Upt/RIsrYElXZ1zs=
 github.com/pilot-protocol/runtime v0.3.1/go.mod h1:GfFEIji0w7H9SSNR9Wl2q72pd2OYN3PHY9Qhcbvyrqk=
+github.com/pilot-protocol/runtime v0.3.2 h1:21lgUfYNvpls0Vd3V2v9lfs13G7mT8pcT3D2QzcMueE=
+github.com/pilot-protocol/runtime v0.3.2/go.mod h1:CXEmjKF/HozhIxn9QZxO13Lxdnkok3XKEkYS/jFjQKs=
 github.com/pilot-protocol/skillinject v0.2.4-0.20260717204101-902f745138da h1:supBO6UzykRn5Ta5pCLXjTvAPqTKOgfr2ZpZQugBNuI=
 github.com/pilot-protocol/skillinject v0.2.4-0.20260717204101-902f745138da/go.mod h1:+jEW+uCFkA6TnmZc41Ev5oczXCbOHD0NqVWG8RzjwXQ=
 github.com/pilot-protocol/trustedagents v0.2.5 h1:zdeezxalidXanOkEcdsageyAp6jVbfhAnPumREbEZt0=
