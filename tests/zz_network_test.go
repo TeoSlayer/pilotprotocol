@@ -437,8 +437,8 @@ func TestListNodes(t *testing.T) {
 	defer cleanup()
 
 	nodeA, _ := registerTestNode(t, rc)
-	nodeB, _ := registerTestNode(t, rc)
-	nodeC, _ := registerTestNode(t, rc)
+	nodeB, identityB := registerTestNode(t, rc)
+	nodeC, identityC := registerTestNode(t, rc)
 
 	resp, err := rc.CreateNetwork(nodeA, "members-test", "open", "", TestAdminToken, false)
 	if err != nil {
@@ -446,8 +446,14 @@ func TestListNodes(t *testing.T) {
 	}
 	netID := uint16(resp["network_id"].(float64))
 
-	rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken)
-	rc.JoinNetwork(nodeC, netID, "", 0, TestAdminToken)
+	setClientSigner(rc, identityB)
+	if _, err := rc.JoinNetwork(nodeB, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join node B: %v", err)
+	}
+	setClientSigner(rc, identityC)
+	if _, err := rc.JoinNetwork(nodeC, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join node C: %v", err)
+	}
 
 	nodesResp, err := rc.ListNodes(netID)
 	if err != nil {
