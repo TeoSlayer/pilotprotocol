@@ -204,9 +204,24 @@ const (
 	MaxSegmentSize = 4096                         // MTU for virtual segments
 	RecvBufSize    = 512                          // receive buffer channel capacity (segments)
 	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 2 MB max receive window
-	MaxOOOBuf      = 128                          // max out-of-order segments buffered per connection
-	AcceptQueueLen = 64                           // listener accept channel capacity
-	SendBufLen     = 256                          // send buffer channel capacity (segments)
+	// MaxOOOBuf must be able to hold a full congestion window of segments
+	// (MaxCongWin / MaxSegmentSize = 256). If it is smaller, a single lost
+	// segment with more than MaxOOOBuf segments in flight makes the receiver
+	// silently drop every subsequent in-window segment (DeliverInOrder's
+	// buffer bound), amplifying one loss into a whole-window loss and
+	// collapsing throughput. 512 = RecvBufSize, so the OOO buffer can cover
+	// the entire advertised receive window (2 MB).
+	MaxOOOBuf = 512
+
+	// InitialSSThresh caps the slow-start phase at 128 KB. The previous
+	// value (MaxCongWin/2 = 512 KB) let slow start double straight into a
+	// half-megabyte burst within one RTT, overrunning relay/path queues and
+	// causing mass loss on every large transfer. Above this threshold the
+	// window grows by ~1 MSS per RTT (congestion avoidance), probing for
+	// extra bandwidth instead of doubling into it.
+	InitialSSThresh = 32 * MaxSegmentSize
+	AcceptQueueLen  = 64  // listener accept channel capacity
+	SendBufLen      = 256 // send buffer channel capacity (segments)
 
 	// MaxNagleBuf caps the per-connection NagleBuf at 64 segments
 	// (256 KB). v1.9.1 fix: SendData previously appended without bound,
@@ -487,7 +502,7 @@ func (pm *PortManager) NewConnection(localPort uint16, remoteAddr protocol.Addr,
 		SendBuf:      make(chan []byte, SendBufLen),
 		RecvBuf:      make(chan []byte, RecvBufSize),
 		CongWin:      InitialCongWin,
-		SSThresh:     MaxCongWin / 2,
+		SSThresh:     InitialSSThresh,
 		WindowCh:     make(chan struct{}, 1),
 		NagleCh:      make(chan struct{}, 1),
 		PeerRecvWin:  -1, // sentinel: no window advertisement received yet
@@ -1060,8 +1075,26 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 			// step 6a: retransmit the first unacknowledged segment immediately.
 			// Without this, the next lost segment is not retransmitted until
 			// the 100ms RTO tick — up to one full RTO of unnecessary delay.
-			c.fastRetransmit(recvAck)
+			// Extended beyond the single-segment step 6a: also resend further
+			// un-SACKed segments below the SACK frontier (known-lost), up to
+			// a cwnd of data, so a multi-segment loss heals in a few RTTs
+			// instead of one segment per ACK (see retransmitLost).
+			c.retransmitLost(recvAck, c.CongWin/MaxSegmentSize)
 		}
+	} else if wasInRecovery && c.InRecovery {
+		// Partial ACK during TIMEOUT-based recovery (FastRecovery=false).
+		// Historically nothing was retransmitted here: with the window
+		// collapsed to 1 SMSS the sender cannot send new data to elicit dup
+		// ACKs, so the only recovery driver left was the RTO timer at one
+		// segment per (exponentially backed-off, up to 10 s) RTO — a
+		// multi-segment loss drained at ~1 segment per several seconds.
+		// Real TCP recovers from a timeout by retransmitting ACK-clocked out
+		// of slow start (RFC 5681 §3.1); do the same: each partial ACK
+		// proves the path is moving and pays for the next window of
+		// retransmissions. AIMD growth for this ACK (below) is unaffected —
+		// timeout-recovery partial ACKs grow cwnd via slow start, so the
+		// retransmission budget doubles per RTT until the hole is filled.
+		c.retransmitLost(recvAck, c.CongWin/MaxSegmentSize)
 	}
 
 	// Congestion window growth (Appropriate Byte Counting, RFC 3465).
@@ -1136,22 +1169,73 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 // The caller gates all congestion-state adjustments on the return value so
 // that a no-op does not produce phantom fast-recovery state.
 func (c *Connection) fastRetransmit(recvAck uint32) bool {
-	if len(c.Unacked) == 0 || c.RetxSend == nil {
-		return false
+	return c.retransmitLost(recvAck, 1) > 0
+}
+
+// maxRetxBurst caps how many segments one ACK event may retransmit via
+// retransmitLost. The congestion window is the primary bound; this constant
+// keeps a single partial ACK arriving with a large recovery window from
+// dumping hundreds of retransmissions onto an already-lossy path in one
+// burst.
+const maxRetxBurst = 32
+
+// retransmitLost retransmits up to maxSegs lost segments and returns how
+// many were sent. The first un-SACKed segment is always eligible (it is the
+// cumulative-ACK gap head — the dup ACKs or partial ACK that got us here
+// prove it is missing). Beyond the head, only un-SACKed segments BELOW the
+// highest SACKed sequence are retransmitted: the peer has explicitly
+// acknowledged data after them, so they are lost with high confidence
+// (RFC 6675 IsLost rationale). Segments above the SACK frontier may simply
+// still be in flight and are left to the RTO timer.
+//
+// Mirrors retransmitUnacked's retry-budget guard for the head segment:
+// when the head is out of attempts, nothing is sent (returns 0) and
+// retransmitUnacked fires the RST on its next tick. Later entries at budget
+// are skipped rather than aborting the whole pass.
+//
+// Must be called with RetxMu held.
+func (c *Connection) retransmitLost(recvAck uint32, maxSegs int) int {
+	if len(c.Unacked) == 0 || c.RetxSend == nil || maxSegs <= 0 {
+		return 0
+	}
+	if maxSegs > maxRetxBurst {
+		maxSegs = maxRetxBurst
 	}
 
-	// Find the first unacked segment that hasn't been SACKed
+	// SACK frontier: end of the highest SACKed segment, if any.
+	var frontier uint32
+	haveFrontier := false
+	for _, e := range c.Unacked {
+		if e.sacked {
+			end := e.seq + uint32(len(e.data))
+			if !haveFrontier || seqAfter(end, frontier) {
+				frontier = end
+				haveFrontier = true
+			}
+		}
+	}
+
+	now := time.Now()
+	sent := 0
 	for _, e := range c.Unacked {
 		if e.sacked {
 			continue
 		}
-		// Mirror retransmitUnacked's guard: don't send if the retry budget is
-		// exhausted.  retransmitUnacked will fire RST on the next RTO tick.
 		if e.attempts >= MaxRetxAttempts {
-			return false
+			if sent == 0 {
+				// Head segment out of retries: preserve the historical
+				// fastRetransmit contract — no send, no recovery entry;
+				// retransmitUnacked will RST on the next RTO tick.
+				return 0
+			}
+			continue
+		}
+		// Beyond the head, only retransmit below the SACK frontier.
+		if sent > 0 && (!haveFrontier || !seqAfter(frontier, e.seq)) {
+			break
 		}
 		e.attempts++
-		e.sentAt = time.Now()
+		e.sentAt = now
 		// FIN entries must be resent as FlagFIN with no payload; data entries
 		// use FlagACK with their payload (mirrors retransmitUnacked's isFIN check).
 		flags := protocol.FlagACK
@@ -1175,9 +1259,12 @@ func (c *Connection) fastRetransmit(recvAck uint32) bool {
 			Payload:  payload,
 		}
 		c.RetxSend(pkt)
-		return true
+		sent++
+		if sent >= maxSegs {
+			break
+		}
 	}
-	return false
+	return sent
 }
 
 func (c *Connection) updateRTT(rtt time.Duration) {
