@@ -579,13 +579,23 @@ func Load(path string) (*Runtime, error) {
 		}
 		runtime.fleetControlPath = filepath.Join(directory, ".enterprise-fleet-control.json")
 		if config.Fleet.StateSyncEnabled {
+			// state_directory must be explicit and distinct from the config
+			// directory. The prior empty->"." default pointed the scan root at
+			// the directory holding enterprise-control.json, so scanFleetState
+			// would ship 256KB previews of any operator-added text file there
+			// as signed telemetry. Fail closed rather than expose them.
 			stateDirectory := strings.TrimSpace(config.Fleet.StateDirectory)
 			if stateDirectory == "" {
-				stateDirectory = "."
+				return nil, fmt.Errorf("enterprise control: fleet state sync is enabled but state_directory is empty; set it to a dedicated directory distinct from the enterprise-control config directory")
 			}
 			stateRoot, resolveErr := resolveBundlePath(directory, stateDirectory)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("enterprise control: fleet state directory: %w", resolveErr)
+			}
+			if absState, absErr := filepath.Abs(stateRoot); absErr == nil {
+				if absConfig, cfgErr := filepath.Abs(directory); cfgErr == nil && absState == absConfig {
+					return nil, fmt.Errorf("enterprise control: fleet state_directory must be distinct from the enterprise-control config directory (%s)", directory)
+				}
 			}
 			if err := secureDirectory(stateRoot); err != nil {
 				return nil, fmt.Errorf("enterprise control: fleet state directory: %w", err)
