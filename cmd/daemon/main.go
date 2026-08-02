@@ -712,9 +712,17 @@ func synchronizeFleetControl(ctx context.Context, controls *enterprisecontrol.Ru
 				}
 			}
 		case authority.FleetCommandRestartRuntime:
-			lifecycle = "restart"
+			if controls.LifecycleCommandAlreadyApplied(command) {
+				outcome, detail = "rejected", "already_applied"
+			} else {
+				lifecycle = "restart"
+			}
 		case authority.FleetCommandShutdownRuntime:
-			lifecycle = "shutdown"
+			if controls.LifecycleCommandAlreadyApplied(command) {
+				outcome, detail = "rejected", "already_applied"
+			} else {
+				lifecycle = "shutdown"
+			}
 		default:
 			outcome, detail = "rejected", "command_not_allowlisted"
 		}
@@ -723,6 +731,13 @@ func synchronizeFleetControl(ctx context.Context, controls *enterprisecontrol.Ru
 			continue
 		}
 		if outcome == "succeeded" && lifecycle != "" {
+			// Persist the idempotency record BEFORE acting, and fail closed if
+			// it can't be written — otherwise a replayed signed command could
+			// loop across every poll and across the restart it triggers.
+			if err := controls.MarkLifecycleCommandApplied(command); err != nil {
+				slog.Error("persist lifecycle idempotency record failed; refusing to act to avoid a replay loop", "command_id", command.ID, "err", err)
+				continue
+			}
 			select {
 			case remoteLifecycleRequests <- lifecycle:
 			default:
