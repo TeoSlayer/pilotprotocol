@@ -186,9 +186,16 @@ type retxEntry struct {
 	seq        uint32
 	sentAt     time.Time // timer anchor; reset by RFC 6298 §5.3 and on retransmit
 	origSentAt time.Time // original send time for RTT measurement; never reset
-	attempts   int
-	sacked     bool // true if covered by a SACK block (don't retransmit)
-	isFIN      bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
+	attempts   int       // total transmissions (Karn's algorithm + retx budget guard)
+	// rtoAttempts counts only RTO-timer retransmissions and alone feeds the
+	// give-up RST decision. ACK-clocked retransmissions (fast retransmit,
+	// retransmitLost bursts) are triggered BY arriving ACKs — proof the
+	// path is alive — so they must never push a live connection toward the
+	// MaxRetxAttempts RST. Only the RTO timer firing repeatedly with no ACK
+	// progress is evidence of a dead peer.
+	rtoAttempts int
+	sacked      bool // true if covered by a SACK block (don't retransmit)
+	isFIN       bool // true for the FIN sentinel entry (retransmit as FlagFIN, not data)
 }
 
 // recvSegment is an out-of-order received segment waiting for reassembly.
@@ -1036,6 +1043,11 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		if !e.sacked {
 			e.sentAt = ackNow
 		}
+		// New cumulative ACK = the peer is alive and progressing. Reset the
+		// give-up counter so RST fires only after MaxRetxAttempts RTO
+		// retransmissions with NO ACK progress at all (a genuinely dead
+		// peer), not cumulatively across a long-but-moving recovery.
+		e.rtoAttempts = 0
 	}
 
 	// Congestion-window deflation and fast-retransmit on ACKs in/after fast

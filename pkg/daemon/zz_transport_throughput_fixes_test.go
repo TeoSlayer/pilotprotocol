@@ -211,6 +211,70 @@ func TestTimeoutRecoveryHoleDrainsInBoundedRounds(t *testing.T) {
 	}
 }
 
+// TestAckClockedRetransmitsNeverTriggerRST pins the give-up semantics: the
+// MaxRetxAttempts RST budget counts only RTO-timer retransmissions
+// (rtoAttempts), never ACK-clocked ones. Found live in the A/B rig: a
+// spurious RTO put the connection in timeout recovery, each partial ACK
+// retransmitted the head (inflating attempts), and within 8×RTOMin ≈ 1.6 s
+// the RTO tick RST'd a connection whose ACKs were arriving fine.
+func TestAckClockedRetransmitsNeverTriggerRST(t *testing.T) {
+	t.Parallel()
+	d := New(Config{})
+	c := newAckTestConn(t)
+	var pkts []*protocol.Packet
+	c.RetxSend = func(p *protocol.Packet) { q := *p; pkts = append(pkts, &q) }
+	c.Mu.Lock()
+	c.State = StateEstablished
+	c.Mu.Unlock()
+	// Head segment already retransmitted 8× by the ACK-clocked path
+	// (attempts inflated) but never by the RTO timer (rtoAttempts 0).
+	c.Unacked = []*retxEntry{{
+		seq: 1000, data: make([]byte, MaxSegmentSize),
+		attempts: MaxRetxAttempts, rtoAttempts: 0,
+		sentAt: time.Now().Add(-2 * InitialRTO), origSentAt: time.Now().Add(-2 * InitialRTO),
+	}}
+	c.RTO = InitialRTO
+
+	d.retransmitUnacked(c)
+
+	for _, p := range pkts {
+		if p.Flags&protocol.FlagRST != 0 {
+			t.Fatalf("RTO tick sent RST for a segment with rtoAttempts=0 — " +
+				"ACK-clocked retransmissions must not consume the give-up budget")
+		}
+	}
+	c.Mu.Lock()
+	st := c.State
+	c.Mu.Unlock()
+	if st != StateEstablished {
+		t.Fatalf("connection state = %v, want Established (no give-up)", st)
+	}
+}
+
+// TestNewAckResetsRTOGiveUpBudget: any new cumulative ACK proves the peer is
+// alive, so the per-segment RTO give-up counter must reset — RST fires only
+// after MaxRetxAttempts consecutive ACK-free RTO retransmissions.
+func TestNewAckResetsRTOGiveUpBudget(t *testing.T) {
+	t.Parallel()
+	c := newAckTestConn(t)
+	c.RetxSend = func(*protocol.Packet) {}
+	const mss = MaxSegmentSize
+	c.LastAck = 1000
+	c.Unacked = []*retxEntry{
+		{seq: 1000, data: make([]byte, mss), attempts: 1, sentAt: time.Now(), origSentAt: time.Now()},
+		{seq: 1000 + mss, data: make([]byte, mss), attempts: 5, rtoAttempts: 5, sentAt: time.Now(), origSentAt: time.Now()},
+	}
+
+	c.ProcessAck(1000+mss, true) // acks the first segment — progress
+
+	if len(c.Unacked) != 1 {
+		t.Fatalf("Unacked = %d entries, want 1", len(c.Unacked))
+	}
+	if got := c.Unacked[0].rtoAttempts; got != 0 {
+		t.Fatalf("surviving segment rtoAttempts = %d after new ACK, want 0 (budget reset on progress)", got)
+	}
+}
+
 // TestOOOBufferCoversFullCongestionWindow pins the structural relation that
 // caused the loss amplification: the receiver must be able to buffer at
 // least a full congestion window of out-of-order segments, or one lost
