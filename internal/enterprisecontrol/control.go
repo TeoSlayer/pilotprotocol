@@ -256,6 +256,7 @@ type Runtime struct {
 	rolloutInterval                time.Duration
 	fleetInterval                  time.Duration
 	fleetControlPath               string
+	lifecycleGuardPath             string
 	fleetControl                   authority.FleetNodeControl
 	fleetControlFound              bool
 	fleetStateEnabled              bool
@@ -578,6 +579,7 @@ func Load(path string) (*Runtime, error) {
 			runtime.fleetInterval = 30 * time.Second
 		}
 		runtime.fleetControlPath = filepath.Join(directory, ".enterprise-fleet-control.json")
+		runtime.lifecycleGuardPath = filepath.Join(directory, ".enterprise-lifecycle-applied.json")
 		if config.Fleet.StateSyncEnabled {
 			// state_directory must be explicit and distinct from the config
 			// directory. The prior empty->"." default pointed the scan root at
@@ -973,6 +975,52 @@ func (runtime *Runtime) FleetCommands(ctx context.Context) ([]authority.FleetCom
 		verified = append(verified, command)
 	}
 	return verified, nil
+}
+
+// lifecycleGuardState records the last authority-signed lifecycle command that
+// was applied. It defeats replay of a captured restart/shutdown command: a
+// compromised or MITM'd authority connection could otherwise re-present a
+// still-valid signed command every poll (and after the restart it caused) for
+// up to its 24h TTL, since the daemon's result report is dropped by the
+// attacker so server-side de-duplication never engages. IssuedAt is a
+// monotonic high-water; LastID guards an exact same-second re-send.
+type lifecycleGuardState struct {
+	IssuedAt int64  `json:"issued_at"`
+	LastID   string `json:"last_id"`
+}
+
+// LifecycleCommandAlreadyApplied reports whether a signed lifecycle command has
+// already been acted on (by monotonic issue time or exact id). Missing or
+// unreadable state reads as "not applied" (first boot); durability rests on the
+// fail-closed MarkLifecycleCommandApplied step.
+func (runtime *Runtime) LifecycleCommandAlreadyApplied(command authority.FleetCommand) bool {
+	if runtime == nil || runtime.lifecycleGuardPath == "" {
+		return false
+	}
+	state, err := readSecureJSON[lifecycleGuardState](runtime.lifecycleGuardPath)
+	if err != nil {
+		return false
+	}
+	return command.IssuedAt <= state.IssuedAt || (command.ID != "" && command.ID == state.LastID)
+}
+
+// MarkLifecycleCommandApplied durably records a lifecycle command as applied
+// BEFORE the daemon acts on it, so the action cannot loop across polls or the
+// restart it triggers. The caller must treat an error as fatal to the action
+// (fail closed) rather than proceed unrecorded.
+func (runtime *Runtime) MarkLifecycleCommandApplied(command authority.FleetCommand) error {
+	if runtime == nil || runtime.lifecycleGuardPath == "" {
+		return fmt.Errorf("enterprise control: lifecycle guard not configured")
+	}
+	state, err := readSecureJSON[lifecycleGuardState](runtime.lifecycleGuardPath)
+	if err != nil {
+		state = lifecycleGuardState{}
+	}
+	if command.IssuedAt > state.IssuedAt {
+		state.IssuedAt = command.IssuedAt
+	}
+	state.LastID = command.ID
+	return writeSecureJSON(runtime.lifecycleGuardPath, state)
 }
 
 // ReportFleetCommandResult signs an allowlisted-command outcome. The remote
