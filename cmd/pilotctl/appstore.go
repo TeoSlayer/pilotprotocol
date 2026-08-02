@@ -1138,6 +1138,11 @@ func cmdAppStoreInstall(args []string) {
 			"run `pilotctl appstore verify` for a side-by-side; this bundle is tampered or built from a different source than the manifest claims",
 			"binary sha256 mismatch: manifest=%s actual=%s", m.Binary.SHA256, got)
 	}
+	if err := validateHostExecutable(srcBin); err != nil {
+		fatalHint("platform_mismatch",
+			"this catalogue bundle is not executable on the current host; use a release that publishes a matching per-platform bundle",
+			"refusing incompatible app binary: %v", err)
+	}
 
 	root := appStoreRoot()
 	finalDir := filepath.Join(root, m.ID)

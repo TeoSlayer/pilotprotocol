@@ -18,9 +18,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pilot-protocol/common/authority"
 	"github.com/pilot-protocol/common/config"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/logging"
+	"github.com/pilot-protocol/pilotprotocol/internal/enterprisecontrol"
 	"github.com/pilot-protocol/pilotprotocol/internal/motd"
 	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 
@@ -44,8 +46,11 @@ import (
 
 var version = "dev"
 
+var remoteLifecycleRequests = make(chan string, 1)
+
 func main() {
 	configPath := flag.String("config", "", "path to config file (JSON)")
+	securityProfile := flag.String("security-profile", envString("PILOT_SECURITY_PROFILE", securityProfileCompatible), "locked security profile: compatible or enterprise")
 	registryDefault := "34.71.57.205:9000"
 	registryFromEnv := false
 	if v := os.Getenv("PILOT_REGISTRY"); v != "" {
@@ -92,6 +97,7 @@ func main() {
 	noDataExchange := flag.Bool("no-dataexchange", false, "disable built-in data exchange service (port 1001)")
 	dataExchangeB64 := flag.Bool("dataexchange-b64", false, "write inbox message payloads as a raw base64 `data_b64` field in place of the UTF-8 `data` field — needed only for binary payloads (e.g. zlib-compressed envelopes)")
 	noEventStream := flag.Bool("no-eventstream", false, "disable built-in event stream service (port 1002)")
+	enterpriseControlPath := flag.String("enterprise-control", "", "path to signed enterprise control attachment (root pin, trust bundle, policy bundle, and governed transport rules)")
 	noSkillinject := flag.Bool("no-skillinject", false, "disable built-in skill-injection service (agent context injection). Env: PILOT_NO_SKILLINJECT=1.")
 	webhookURL := flag.String("webhook", "", "HTTP(S) endpoint for event notifications (empty = disabled)")
 	webhookSecret := flag.String("webhook-secret", "", "HMAC-SHA256 pre-shared secret for webhook payload signing (empty = no signature). Env: PILOT_WEBHOOK_SECRET.")
@@ -181,6 +187,32 @@ func main() {
 		}
 	}
 
+	profileOptions := daemonSecurityOptions{
+		RegistryAddr:                    *registryAddr,
+		RegistryTLS:                     *registryTLS,
+		RegistryFingerprint:             *registryFingerprint,
+		RegistryTrust:                   *registryTrust,
+		Encrypt:                         *encrypt,
+		StrictDataPlaneTrust:            *strictDataplaneTrust || os.Getenv("PILOT_STRICT_DATAPLANE_TRUST") == "1",
+		IdentityPath:                    *identityPath,
+		TrustAutoApprove:                *trustAutoApprove,
+		DisableSkillinject:              *noSkillinject || os.Getenv("PILOT_NO_SKILLINJECT") == "1",
+		SkillinjectVerificationKeyFound: os.Getenv("PILOT_SKILLINJECT_MANIFEST_PUBKEY") != "" || os.Getenv("PILOT_SKILLINJECT_PUBKEY") != "",
+		MOTDFeedURL:                     *motdFeedURL,
+		WebhookURL:                      *webhookURL,
+		EnterpriseControlPath:           *enterpriseControlPath,
+		DisableDataExchange:             *noDataExchange,
+		DisableEventStream:              *noEventStream,
+	}
+	if err := applyDaemonSecurityProfile(*securityProfile, &profileOptions); err != nil {
+		log.Fatalf("security profile: %v", err)
+	}
+	*registryTLS = profileOptions.RegistryTLS
+	*encrypt = profileOptions.Encrypt
+	*strictDataplaneTrust = profileOptions.StrictDataPlaneTrust
+	*noSkillinject = profileOptions.DisableSkillinject
+	*motdFeedURL = profileOptions.MOTDFeedURL
+
 	logging.Setup(*logLevel, *logFormat)
 
 	// Sandbox: validate all configured file paths are under the confinement
@@ -214,6 +246,21 @@ func main() {
 		checkSandbox("config", *configPath)
 		checkSandbox("identity", *identityPath)
 		checkSandbox("socket", *socketPath)
+		checkSandbox("enterprise-control", *enterpriseControlPath)
+	}
+
+	var enterpriseControls *enterprisecontrol.Runtime
+	if *enterpriseControlPath != "" {
+		var err error
+		enterpriseControls, err = enterprisecontrol.Load(*enterpriseControlPath)
+		if err != nil {
+			log.Fatalf("enterprise control: %v", err)
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(*securityProfile), securityProfileEnterprise) {
+		if err := enterpriseControls.RequireEnabledServiceGates(!*noDataExchange, !*noEventStream); err != nil {
+			log.Fatalf("enterprise control: %v", err)
+		}
 	}
 
 	if registryFromEnv {
@@ -319,15 +366,23 @@ func main() {
 	}
 
 	if !*noDataExchange {
-		if err := rt.Register(dataexchange.NewService(dataexchange.ServiceConfig{
+		dataExchangeConfig := dataexchange.ServiceConfig{
 			IncludeBase64: *dataExchangeB64,
-		})); err != nil {
+		}
+		if err := enterpriseControls.ApplyDataExchange(&dataExchangeConfig); err != nil {
+			log.Fatalf("configure dataexchange enterprise control: %v", err)
+		}
+		if err := rt.Register(dataexchange.NewService(dataExchangeConfig)); err != nil {
 			log.Fatalf("register dataexchange: %v", err)
 		}
 	}
 
 	if !*noEventStream {
-		if err := rt.Register(eventstream.NewService()); err != nil {
+		eventStreamService := eventstream.NewService()
+		if err := enterpriseControls.ApplyEventStream(eventStreamService); err != nil {
+			log.Fatalf("configure eventstream enterprise control: %v", err)
+		}
+		if err := rt.Register(eventStreamService); err != nil {
 			log.Fatalf("register eventstream: %v", err)
 		}
 	}
@@ -340,6 +395,9 @@ func main() {
 
 	// Manual trust-handshake (port 444) — extracted from pkg/daemon in T3.3.
 	hsSvc := handshake.NewService(runtime.NewHandshakeRuntime(dapi))
+	if actionHook := enterpriseControls.ActionHook(); actionHook != nil {
+		hsSvc.Manager().SetActionHook(actionHook)
+	}
 	if err := rt.Register(hsSvc); err != nil {
 		log.Fatalf("register handshake: %v", err)
 	}
@@ -452,10 +510,110 @@ func main() {
 		log.Fatalf("daemon start: %v", err)
 	}
 
-	// Wait for signal
+	rolloutRefreshCtx, rolloutRefreshCancel := context.WithCancel(context.Background())
+	if enterpriseControls.HasRollout() {
+		if err := enterpriseControls.RefreshRollout(rolloutRefreshCtx); err != nil {
+			slog.Warn("enterprise rollout refresh failed; retaining current local policy", "err", err)
+		}
+		go func() {
+			ticker := time.NewTicker(enterpriseControls.RolloutInterval())
+			defer ticker.Stop()
+			for {
+				select {
+				case <-rolloutRefreshCtx.Done():
+					return
+				case <-ticker.C:
+					if err := enterpriseControls.RefreshRollout(rolloutRefreshCtx); err != nil {
+						slog.Warn("enterprise rollout refresh failed; retaining current local policy", "err", err)
+					}
+				}
+			}
+		}()
+	}
+
+	fleetControlCtx, fleetControlCancel := context.WithCancel(context.Background())
+	if enterpriseControls.HasFleetControl() {
+		synchronizeFleetControl(fleetControlCtx, enterpriseControls, d)
+		go func() {
+			ticker := time.NewTicker(enterpriseControls.FleetReportInterval())
+			defer ticker.Stop()
+			for {
+				select {
+				case <-fleetControlCtx.Done():
+					return
+				case <-ticker.C:
+					synchronizeFleetControl(fleetControlCtx, enterpriseControls, d)
+				}
+			}
+		}()
+	}
+	if enterpriseControls.HasFleetStateSync() {
+		synchronizeFleetState(fleetControlCtx, enterpriseControls)
+		go func() {
+			ticker := time.NewTicker(enterpriseControls.FleetStateSyncInterval())
+			defer ticker.Stop()
+			for {
+				select {
+				case <-fleetControlCtx.Done():
+					return
+				case <-ticker.C:
+					synchronizeFleetState(fleetControlCtx, enterpriseControls)
+				}
+			}
+		}()
+	}
+
+	receiptExportCtx, receiptExportCancel := context.WithCancel(context.Background())
+	if enterpriseControls.HasReceiptExport() {
+		if err := enterpriseControls.ExportReceiptsOnce(receiptExportCtx); err != nil {
+			slog.Warn("enterprise receipt export failed; local evidence remains durable", "err", err)
+		}
+		go func() {
+			ticker := time.NewTicker(enterpriseControls.ReceiptExportInterval())
+			defer ticker.Stop()
+			for {
+				select {
+				case <-receiptExportCtx.Done():
+					return
+				case <-ticker.C:
+					if err := enterpriseControls.ExportReceiptsOnce(receiptExportCtx); err != nil {
+						slog.Warn("enterprise receipt export failed; local evidence remains durable", "err", err)
+					}
+				}
+			}
+		}()
+	}
+
+	// SIGHUP advances only the already-pinned signed authority state. It does
+	// not reload daemon flags, root pins, or resource mappings, which remain a
+	// deliberate restart-time administrative change.
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	restartRequested := false
+shutdownLoop:
+	for {
+		select {
+		case received := <-sig:
+			if received == syscall.SIGHUP {
+				if enterpriseControls == nil {
+					slog.Warn("enterprise control reload ignored: no attachment is configured")
+				} else if err := enterpriseControls.Reload(); err != nil {
+					slog.Error("enterprise control reload rejected; keeping current signed state", "err", err)
+				} else {
+					slog.Info("enterprise control reloaded")
+				}
+				continue
+			}
+			break shutdownLoop
+		case lifecycle := <-remoteLifecycleRequests:
+			restartRequested = lifecycle == "restart"
+			break shutdownLoop
+		}
+	}
+	signal.Stop(sig)
+	rolloutRefreshCancel()
+	receiptExportCancel()
+	fleetControlCancel()
 
 	// Order matters: Daemon.Stop publishes daemon.shutting_down to the
 	// bus before tearing down ports/IPC/tunnels. Plugins (notably
@@ -471,6 +629,125 @@ func main() {
 		slog.Warn("plugin shutdown error", "err", err)
 	}
 	stopCancel()
+	if restartRequested {
+		executable, err := os.Executable()
+		if err != nil {
+			slog.Error("resolve daemon executable for remote restart", "err", err)
+			return
+		}
+		slog.Info("restarting daemon after graceful shutdown")
+		if err := syscall.Exec(executable, os.Args, os.Environ()); err != nil {
+			slog.Error("remote daemon restart failed", "err", err)
+		}
+	}
+}
+
+// synchronizeFleetControl reports bounded local health and runs only the
+// fixed, authority-signed maintenance commands. It intentionally has no
+// generic process execution, file access, shell, or network-dial capability.
+func synchronizeFleetControl(ctx context.Context, controls *enterprisecontrol.Runtime, daemonInstance *daemon.Daemon) {
+	health := daemonInstance.HealthSnapshot()
+	info := daemonInstance.Info()
+	reconciliation, reconciliationErr := controls.ReconcileFleetControl(ctx, info.Version)
+	if reconciliationErr != nil {
+		slog.Warn("fleet desired-state reconciliation failed", "err", reconciliationErr)
+	} else if reconciliation.Found && reconciliation.Status != "applied" {
+		slog.Warn("fleet desired state requires attention", "revision", reconciliation.Control.Revision, "detail", reconciliation.DetailCode)
+	}
+	if reconciliation.Found {
+		if err := controls.ReportFleetControlAcknowledgement(ctx, reconciliation, info.Version); err != nil {
+			slog.Warn("fleet desired-state acknowledgement failed", "revision", reconciliation.Control.Revision, "err", err)
+		}
+	}
+	status := enterprisecontrol.FleetNodeStatus{
+		NodeID:         info.NodeID,
+		AgentVersion:   info.Version,
+		UptimeSeconds:  uint64(health.Uptime.Seconds()),
+		Connections:    uint32(health.Connections),
+		Peers:          uint32(health.Peers),
+		EncryptedPeers: uint32(health.EncryptedPeers),
+		BytesSent:      health.BytesSent,
+		BytesReceived:  health.BytesRecv,
+		PolicyRevision: controls.CurrentPolicyRevision(ctx),
+	}
+	if err := controls.ReportFleetStatus(ctx, status); err != nil {
+		slog.Warn("fleet status report failed", "err", err)
+	}
+	commands, err := controls.FleetCommands(ctx)
+	if err != nil {
+		slog.Warn("fleet command poll failed", "err", err)
+		return
+	}
+	for _, command := range commands {
+		outcome, detail := "succeeded", ""
+		lifecycle := ""
+		switch command.Kind {
+		case authority.FleetCommandRefreshPolicy:
+			if err := controls.RefreshRollout(ctx); err != nil {
+				outcome, detail = "failed", "rollout_refresh_failed"
+			}
+		case authority.FleetCommandExportReceipts:
+			if !controls.HasReceiptExport() {
+				outcome, detail = "rejected", "receipt_export_unconfigured"
+			} else if err := controls.ExportReceiptsOnce(ctx); err != nil {
+				outcome, detail = "failed", "receipt_export_failed"
+			}
+		case authority.FleetCommandReloadControl:
+			if err := controls.Reload(); err != nil {
+				outcome, detail = "failed", "control_reload_failed"
+			}
+		case authority.FleetCommandSyncState:
+			if !controls.HasFleetStateSync() {
+				outcome, detail = "rejected", "state_sync_unconfigured"
+			} else if _, err := controls.SyncFleetState(ctx); err != nil {
+				outcome, detail = "failed", "state_sync_failed"
+			}
+		case authority.FleetCommandDiagnostics:
+			// The signed health report above is the bounded diagnostic
+			// payload. Include the .pilot mirror when that optional channel
+			// is enabled, without returning logs or environment values.
+			if controls.HasFleetStateSync() {
+				if _, err := controls.SyncFleetState(ctx); err != nil {
+					outcome, detail = "failed", "diagnostics_sync_failed"
+				}
+			}
+		case authority.FleetCommandRestartRuntime:
+			lifecycle = "restart"
+		case authority.FleetCommandShutdownRuntime:
+			lifecycle = "shutdown"
+		default:
+			outcome, detail = "rejected", "command_not_allowlisted"
+		}
+		if err := controls.ReportFleetCommandResult(ctx, command.ID, outcome, detail); err != nil {
+			slog.Warn("fleet command result report failed", "command_id", command.ID, "err", err)
+			continue
+		}
+		if outcome == "succeeded" && lifecycle != "" {
+			select {
+			case remoteLifecycleRequests <- lifecycle:
+			default:
+				slog.Warn("fleet lifecycle request already pending", "command_id", command.ID)
+			}
+		}
+	}
+}
+
+func synchronizeFleetState(ctx context.Context, controls *enterprisecontrol.Runtime) {
+	result, err := controls.SyncFleetState(ctx)
+	if err != nil {
+		slog.Warn("fleet .pilot state synchronization failed", "err", err)
+		return
+	}
+	if result.AppliedMutations > 0 || result.RejectedMutations > 0 {
+		slog.Info("fleet .pilot state synchronized", "revision", result.Revision, "entries", result.Entries, "applied_mutations", result.AppliedMutations, "rejected_mutations", result.RejectedMutations)
+	}
+}
+
+func envString(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // webhookManagerAdapter bridges *webhook.Service to the daemon's

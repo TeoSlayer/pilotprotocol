@@ -234,7 +234,11 @@ func TestRegistrySnapshotChecksum(t *testing.T) {
 // when the maximum connection count is reached.
 func TestRegistryConnectionLimit(t *testing.T) {
 	requireRealNetwork(t)
-	t.Parallel()
+	// Keep this test serial. It deliberately holds the registry's complete
+	// connection allowance open and verifies an immediate rejection. Running
+	// it beside the package's high-volume real-network stress cases can exhaust
+	// the host's ephemeral ports and turn this deterministic registry check into
+	// an operating-system resource race.
 
 	reg := registry.New("127.0.0.1:9001")
 	// Set a very low connection limit for testing

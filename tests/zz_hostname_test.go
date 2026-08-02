@@ -40,6 +40,8 @@ func startTestRegistry(t *testing.T) (*registryclient.Client, *registry.Server, 
 func registerTestNode(t *testing.T, rc *registryclient.Client) (uint32, *crypto.Identity) {
 	t.Helper()
 	id, _ := crypto.GenerateIdentity()
+	setClientSigner(rc, id)
+	defer rc.SetSigner(nil)
 	resp, err := rc.RegisterWithKey("", crypto.EncodePublicKey(id.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node: %v", err)

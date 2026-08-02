@@ -62,13 +62,8 @@ func runTick() (*skillinject.Report, error) {
 	return skillinject.ForceTick(ctx, skillinject.Config{})
 }
 
-// planTick performs a read-only dry run: same manifest fetch + classification
-// as a real tick, but writes nothing to disk. Each Outcome carries the current
-// on-disk State and the Action the next real tick WOULD take. Use this for
-// display surfaces (status, paths, info summary) so that merely *looking* at
-// skill state never mutates the filesystem — and never reports a file as
-// "absent — next: create" in the same breath that a mutating tick just created
-// it (the pre-write-state skew that ForceTick-backed status suffered from).
+// planTick performs a read-only dry run. Disabled mode returns without remote
+// access; enabled modes fetch and classify without writing to disk.
 func planTick() (*skillinject.Report, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

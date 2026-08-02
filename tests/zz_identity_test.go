@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -287,9 +288,10 @@ func TestKeyRotationRequiresSignature(t *testing.T) {
 	d1.Stop()
 }
 
-func TestOwnerBasedReRegistration(t *testing.T) {
+func TestOwnerCannotReplaceLostIdentityWithoutRecovery(t *testing.T) {
 	t.Parallel()
-	// Test that a daemon with owner can re-register after losing its identity file
+	// An owner/email string is not proof of key possession. Losing the identity
+	// must require the explicit recover_identity flow.
 	env := NewTestEnv(t)
 
 	identityDir := t.TempDir()
@@ -330,32 +332,10 @@ func TestOwnerBasedReRegistration(t *testing.T) {
 		IdentityPath: identityPath,
 		Email:        "agent@example.com",
 	})
-	if err := d2.Start(); err != nil {
-		t.Fatalf("daemon restart: %v", err)
+	if err := d2.Start(); err == nil {
+		d2.Stop()
+		t.Fatal("daemon replaced a registered identity using only the owner email")
+	} else if !strings.Contains(err.Error(), "recover_identity") {
+		t.Fatalf("restart error should direct operator to recovery: %v", err)
 	}
-	defer d2.Stop()
-
-	drv2, err := driver.Connect(sockPath)
-	if err != nil {
-		t.Fatalf("connect driver 2: %v", err)
-	}
-	info2, err := drv2.Info()
-	if err != nil {
-		t.Fatalf("info 2: %v", err)
-	}
-	drv2.Close()
-
-	nodeID2 := int(info2["node_id"].(float64))
-	pubKey2 := info2["public_key"].(string)
-
-	// Same node_id (owner recovery), but new keypair
-	if nodeID2 != nodeID1 {
-		t.Errorf("node_id should be same after owner recovery: %d -> %d", nodeID1, nodeID2)
-	}
-	if pubKey2 == pubKey1 {
-		t.Error("public key should change after identity file loss + owner recovery")
-	}
-
-	t.Logf("owner recovery: node_id=%d (same=%v), new_pubkey=%s...",
-		nodeID2, nodeID2 == nodeID1, pubKey2[:16])
 }

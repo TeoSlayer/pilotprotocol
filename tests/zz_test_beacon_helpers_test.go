@@ -37,7 +37,11 @@ func sendUDP(t *testing.T, addr *net.UDPAddr, data []byte) []byte {
 		t.Fatalf("dial: %v", err)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	// A package-wide run executes the real-network tests in parallel with the
+	// daemon and external-delivery suites. Give the scheduler enough room to
+	// service this UDP round trip; 200 ms made a healthy beacon look broken
+	// under full-suite load even though focused repetitions always passed.
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
 
 	if _, err := conn.Write(data); err != nil {
 		t.Fatalf("write: %v", err)
