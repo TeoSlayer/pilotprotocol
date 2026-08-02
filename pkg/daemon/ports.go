@@ -204,31 +204,42 @@ type recvSegment struct {
 	data []byte
 }
 
-// Default window parameters
+// Default window parameters.
+//
+// Sizing rationale (throughput = window / RTT): the overlay's typical
+// relay path RTT is ~200 ms, so a 1 MB window capped goodput at ~5 MB/s
+// and a small slow-start threshold capped short transfers well below
+// that. With the receiver able to buffer a FULL congestion window out of
+// order and loss recovery ACK-clocked (see retransmitLost), large windows
+// are safe: overshoot loss heals in a few RTTs instead of collapsing the
+// transfer, so the constants below favor bandwidth.
 const (
 	InitialCongWin = 10 * MaxSegmentSize          // 40 KB initial congestion window (IW10, RFC 6928)
-	MaxCongWin     = 1024 * 1024                  // 1 MB max congestion window
+	MaxCongWin     = 4 * 1024 * 1024              // 4 MB max congestion window (~18 MB/s at 214 ms RTT)
 	MaxSegmentSize = 4096                         // MTU for virtual segments
-	RecvBufSize    = 512                          // receive buffer channel capacity (segments)
-	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 2 MB max receive window
+	RecvBufSize    = 1024                         // receive buffer channel capacity (segments)
+	MaxRecvWin     = RecvBufSize * MaxSegmentSize // 4 MB max receive window
 	// MaxOOOBuf must be able to hold a full congestion window of segments
-	// (MaxCongWin / MaxSegmentSize = 256). If it is smaller, a single lost
+	// (MaxCongWin / MaxSegmentSize). If it is smaller, a single lost
 	// segment with more than MaxOOOBuf segments in flight makes the receiver
 	// silently drop every subsequent in-window segment (DeliverInOrder's
 	// buffer bound), amplifying one loss into a whole-window loss and
-	// collapsing throughput. 512 = RecvBufSize, so the OOO buffer can cover
-	// the entire advertised receive window (2 MB).
-	MaxOOOBuf = 512
+	// collapsing throughput. 1024 = RecvBufSize, so the OOO buffer can cover
+	// the entire advertised receive window (4 MB). Memory is only consumed
+	// under actual loss, bounded at 4 MB per connection.
+	MaxOOOBuf = 1024
 
-	// InitialSSThresh caps the slow-start phase at 128 KB. The previous
-	// value (MaxCongWin/2 = 512 KB) let slow start double straight into a
-	// half-megabyte burst within one RTT, overrunning relay/path queues and
-	// causing mass loss on every large transfer. Above this threshold the
-	// window grows by ~1 MSS per RTT (congestion avoidance), probing for
-	// extra bandwidth instead of doubling into it.
-	InitialSSThresh = 32 * MaxSegmentSize
-	AcceptQueueLen  = 64  // listener accept channel capacity
-	SendBufLen      = 256 // send buffer channel capacity (segments)
+	// InitialSSThresh hands slow start over to congestion avoidance at
+	// 512 KB. High enough that short transfers ramp fast (a 1 MB transfer
+	// spends its whole life in slow start), low enough that the exponential
+	// phase cannot burst a full MaxCongWin into path queues in one RTT.
+	// Beyond it, congestion avoidance probes at ~1 MSS per RTT and real
+	// loss halves SSThresh as usual — the receiver's window-sized OOO
+	// buffer plus ACK-clocked retransmission make that overshoot cheap
+	// (a few RTTs) rather than fatal (multi-minute RTO crawl).
+	InitialSSThresh = MaxCongWin / 8
+	AcceptQueueLen  = 64   // listener accept channel capacity
+	SendBufLen      = 1024 // send buffer channel capacity (segments) — covers a full cwnd
 
 	// MaxNagleBuf caps the per-connection NagleBuf at 64 segments
 	// (256 KB). v1.9.1 fix: SendData previously appended without bound,
