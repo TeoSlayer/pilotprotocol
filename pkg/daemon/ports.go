@@ -229,17 +229,25 @@ const (
 	// under actual loss, bounded at 4 MB per connection.
 	MaxOOOBuf = 1024
 
-	// InitialSSThresh hands slow start over to congestion avoidance at
-	// 512 KB. High enough that short transfers ramp fast (a 1 MB transfer
-	// spends its whole life in slow start), low enough that the exponential
-	// phase cannot burst a full MaxCongWin into path queues in one RTT.
-	// Beyond it, congestion avoidance probes at ~1 MSS per RTT and real
-	// loss halves SSThresh as usual — the receiver's window-sized OOO
-	// buffer plus ACK-clocked retransmission make that overshoot cheap
-	// (a few RTTs) rather than fatal (multi-minute RTO crawl).
-	InitialSSThresh = MaxCongWin / 8
-	AcceptQueueLen  = 64   // listener accept channel capacity
-	SendBufLen      = 1024 // send buffer channel capacity (segments) — covers a full cwnd
+	// InitialSSThresh is the hard upper stop for slow start. The PRIMARY
+	// slow-start exit is adaptive: HyStart-style RTT-rise detection (RFC
+	// 9406, see ProcessAck) hands over to congestion avoidance as soon as
+	// the path's queue visibly starts filling, at whatever window the path
+	// actually supports. This constant only bounds the exponential phase
+	// on paths where no RTT signal appears (e.g. fixed-latency links with
+	// tail-drop queues); real loss then halves SSThresh as usual, which
+	// the window-sized OOO buffer plus ACK-clocked retransmission make
+	// cheap (a few RTTs) rather than fatal.
+	InitialSSThresh = MaxCongWin / 2
+
+	// HyStart++ (RFC 9406, simplified) slow-start exit parameters: after
+	// at least hsMinSamples RTT samples in a round, if the round's min RTT
+	// exceeds the previous round's min by eta = clamp(lastMin/8, hsEtaMin,
+	// hsEtaMax), the queue is building — set SSThresh = CongWin and enter
+	// congestion avoidance at the discovered capacity.
+	hsMinSamples   = 8
+	AcceptQueueLen = 64   // listener accept channel capacity
+	SendBufLen     = 1024 // send buffer channel capacity (segments) — covers a full cwnd
 
 	// MaxNagleBuf caps the per-connection NagleBuf at 64 segments
 	// (256 KB). v1.9.1 fix: SendData previously appended without bound,
@@ -252,6 +260,9 @@ const (
 	// 256 KB accommodates the largest single data-exchange frame
 	// (64 KB) with headroom, while still bounding per-connection memory.
 	MaxNagleBuf = 64 * MaxSegmentSize
+
+	hsEtaMin = 4 * time.Millisecond  // min RTT-rise to trigger HyStart exit
+	hsEtaMax = 16 * time.Millisecond // max RTT-rise threshold
 )
 
 // RTO parameters (RFC 6298)
@@ -298,6 +309,13 @@ type Connection struct {
 	RetxSend      func(*protocol.Packet) // callback to send retransmitted packets
 	WindowCh      chan struct{}          // signaled when window opens up
 	PeerRecvWin   int                    // peer's advertised receive window (-1 = not yet received, 0 = explicit zero-window)
+	// HyStart++ slow-start exit state (RFC 9406, simplified; RetxMu).
+	// Rounds are delimited by snd_nxt at round start: when the cumulative
+	// ACK passes hsRoundEnd, one full flight has been acknowledged.
+	hsRoundEnd   uint32        // ack that ends the current round (0 = uninitialized)
+	hsCurrMinRTT time.Duration // min clean RTT sample seen this round
+	hsLastMinRTT time.Duration // min clean RTT sample of the previous round
+	hsSamples    int           // clean RTT samples seen this round
 	// Nagle algorithm (write coalescing)
 	NagleBuf []byte        // pending small write data
 	NagleMu  sync.Mutex    // protects NagleBuf
@@ -1012,6 +1030,7 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 	// and inflates RTTVAR with within-batch variance that is not path-level.
 	var remaining []*retxEntry
 	rttUpdated := false
+	var rttSample time.Duration
 	for _, e := range c.Unacked {
 		endSeq := e.seq + uint32(len(e.data))
 		if seqAfterOrEqual(ack, endSeq) {
@@ -1033,6 +1052,7 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 				rtt := time.Since(rttAnchor)
 				c.updateRTT(rtt)
 				rttUpdated = true
+				rttSample = rtt
 			}
 		} else {
 			// Retain sacked state for remaining entries (RFC 2018 §5):
@@ -1059,6 +1079,40 @@ func (c *Connection) ProcessAck(ack uint32, pureACK bool) {
 		// retransmissions with NO ACK progress at all (a genuinely dead
 		// peer), not cumulatively across a long-but-moving recovery.
 		e.rtoAttempts = 0
+	}
+
+	// HyStart++ (RFC 9406, simplified): while in slow start, watch for the
+	// round-over-round min-RTT rise that signals the bottleneck queue is
+	// starting to fill, and hand over to congestion avoidance at the
+	// discovered window instead of doubling past capacity into mass loss.
+	// Simplification vs the full RFC: no CSS (conservative slow start)
+	// interlude — on trigger we exit directly (SSThresh = CongWin), which
+	// is slightly conservative but avoids a second state machine.
+	if c.CongWin < c.SSThresh && !c.InRecovery {
+		if c.hsRoundEnd == 0 || seqAfterOrEqual(ack, c.hsRoundEnd) {
+			c.hsLastMinRTT = c.hsCurrMinRTT
+			c.hsCurrMinRTT = 0
+			c.hsSamples = 0
+			c.hsRoundEnd = sendSeq // current snd_nxt: acked ⇒ round over
+		}
+		if rttUpdated {
+			c.hsSamples++
+			if c.hsCurrMinRTT == 0 || rttSample < c.hsCurrMinRTT {
+				c.hsCurrMinRTT = rttSample
+			}
+			if c.hsSamples >= hsMinSamples && c.hsLastMinRTT > 0 {
+				eta := c.hsLastMinRTT / 8
+				if eta < hsEtaMin {
+					eta = hsEtaMin
+				}
+				if eta > hsEtaMax {
+					eta = hsEtaMax
+				}
+				if c.hsCurrMinRTT >= c.hsLastMinRTT+eta {
+					c.SSThresh = c.CongWin
+				}
+			}
+		}
 	}
 
 	// Congestion-window deflation and fast-retransmit on ACKs in/after fast

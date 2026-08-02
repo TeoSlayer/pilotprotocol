@@ -289,14 +289,67 @@ func TestOOOBufferCoversFullCongestionWindow(t *testing.T) {
 	}
 }
 
-// TestInitialSSThreshBoundsSlowStartBurst pins the slow-start exit point:
-// slow start doubling must hand over to congestion avoidance well before
-// the burst reaches the whole-path collapse regime observed at ~550 KB.
+// TestInitialSSThreshBoundsSlowStartBurst pins the slow-start hard stop:
+// with HyStart RTT-rise detection as the primary (adaptive) exit, the
+// static threshold is only a backstop — but it must still exist, below
+// the full window, for paths that give no RTT signal before tail-drop.
 func TestInitialSSThreshBoundsSlowStartBurst(t *testing.T) {
 	t.Parallel()
-	if InitialSSThresh > MaxCongWin/4 {
-		t.Fatalf("InitialSSThresh (%d) > MaxCongWin/4 (%d): slow start may "+
-			"double straight into a path-collapsing burst before congestion "+
-			"avoidance takes over", InitialSSThresh, MaxCongWin/4)
+	if InitialSSThresh > MaxCongWin/2 {
+		t.Fatalf("InitialSSThresh (%d) > MaxCongWin/2 (%d): slow start could "+
+			"double a full MaxCongWin into path queues in one RTT with no "+
+			"hard stop before the ceiling", InitialSSThresh, MaxCongWin/2)
+	}
+}
+
+// TestHyStartExitsSlowStartOnRTTRise: while in slow start, a round whose
+// min RTT rises by >= eta over the previous round's min (with enough
+// samples) must set SSThresh = CongWin — exiting at discovered capacity
+// instead of doubling to the static threshold (RFC 9406 rationale).
+func TestHyStartExitsSlowStartOnRTTRise(t *testing.T) {
+	t.Parallel()
+	c := newAckTestConn(t)
+	c.RetxSend = func(*protocol.Packet) {}
+	const mss = MaxSegmentSize
+	c.CongWin = 20 * mss
+	c.SSThresh = InitialSSThresh
+	c.LastAck = 1000
+
+	// Feed ACK rounds with controlled RTT samples: origSentAt in the past
+	// determines the sample. Round 1: ~30 ms baseline. Round 2: ~60 ms
+	// (queue building). Each entry acked individually = one sample each.
+	seq := uint32(1000)
+	feedRound := func(rtt time.Duration) {
+		for i := 0; i < hsMinSamples+1; i++ {
+			c.Unacked = []*retxEntry{{
+				seq: seq, data: make([]byte, mss), attempts: 1,
+				sentAt: time.Now(), origSentAt: time.Now().Add(-rtt),
+			}}
+			// Force round boundaries to line up: hsRoundEnd is snd_nxt at
+			// round start; keep SendSeq one flight ahead.
+			c.Mu.Lock()
+			c.SendSeq = seq + uint32((hsMinSamples+1))*mss
+			c.Mu.Unlock()
+			seq += mss
+			c.ProcessAck(seq, true)
+		}
+	}
+	feedRound(30 * time.Millisecond) // establishes hsLastMinRTT ≈ 30 ms
+	feedRound(30 * time.Millisecond) // stable round — must NOT exit
+	if c.SSThresh != InitialSSThresh {
+		t.Fatalf("stable RTT triggered HyStart exit: SSThresh=%d", c.SSThresh)
+	}
+	// ACK rounds don't align with feed batches (rollover happens mid-batch
+	// and the first raised-RTT round inherits earlier low samples), so feed
+	// several rounds of elevated RTT — at least one full 8-sample round of
+	// pure 60 ms measurements must occur and trigger the exit.
+	feedRound(60 * time.Millisecond)
+	feedRound(60 * time.Millisecond)
+	feedRound(60 * time.Millisecond) // RTT rise >> eta — must exit by now
+	if c.SSThresh == InitialSSThresh {
+		t.Fatalf("60ms-over-30ms RTT rise did not trigger HyStart slow-start exit")
+	}
+	if c.SSThresh > c.CongWin {
+		t.Fatalf("HyStart exit set SSThresh=%d above CongWin=%d", c.SSThresh, c.CongWin)
 	}
 }
