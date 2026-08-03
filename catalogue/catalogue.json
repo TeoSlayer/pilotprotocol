@@ -5,7 +5,7 @@
     {
       "id": "io.pilot.wallet",
       "version": "0.3.3",
-      "description": "On-overlay USDC payments \u2014 multichain (Base + Ethereum + Polygon).",
+      "description": "On-overlay USDC payments — multichain (Base + Ethereum + Polygon).",
       "bundle_url": "https://github.com/pilot-protocol/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
       "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
       "display_name": "Wallet",
@@ -84,14 +84,14 @@
       "id": "io.pilot.smolmachines",
       "renamed_to": "io.pilot.smol",
       "hidden": true,
-      "display_name": "Smol Machines (renamed \u2192 io.pilot.smol)",
-      "description": "Renamed to io.pilot.smol. Install io.pilot.smol \u2014 it is the same app plus a cloud plane. This tombstone entry is retained only to keep already-installed copies running and to redirect the old id; it is not listed and is not installable.",
+      "display_name": "Smol Machines (renamed → io.pilot.smol)",
+      "description": "Renamed to io.pilot.smol. Install io.pilot.smol — it is the same app plus a cloud plane. This tombstone entry is retained only to keep already-installed copies running and to redirect the old id; it is not listed and is not installable.",
       "publisher": "ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="
     },
     {
       "id": "io.telepat.ideon-free",
       "version": "0.3.1",
-      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write \u2014 no payment.",
+      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
       "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
       "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc=",
@@ -101,7 +101,7 @@
     {
       "id": "io.pilot.slipstream",
       "version": "1.0.0",
-      "description": "SLIPSTREAM \u2014 Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
+      "description": "SLIPSTREAM — Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
       "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5",
       "display_name": "Slipstream",
@@ -131,7 +131,7 @@
     {
       "id": "io.pilot.miren",
       "version": "0.1.0",
-      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity \u2014 plus a passthrough exec for any miren subcommand.",
+      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand.",
       "display_name": "Miren",
       "vendor": "Miren",
       "license": "Proprietary",
@@ -163,7 +163,7 @@
     {
       "id": "io.pilot.otto",
       "version": "0.20.0",
-      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status \u2014 over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
+      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status — over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
       "display_name": "Otto",
       "vendor": "Telepat",
       "license": "MIT",
@@ -227,7 +227,7 @@
     {
       "id": "io.pilot.postgres",
       "version": "17.5.0",
-      "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql \u2014 aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
+      "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql — aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
       "display_name": "PostgreSQL",
       "vendor": "Pilot Protocol",
       "license": "PostgreSQL",
@@ -259,7 +259,7 @@
     {
       "id": "io.pilot.duckdb",
       "version": "1.5.4",
-      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step \u2014 results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
+      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
       "display_name": "DuckDB",
       "vendor": "Pilot Protocol",
       "license": "MIT",
@@ -298,7 +298,7 @@
     {
       "id": "io.pilot.docker",
       "version": "29.6.1",
-      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers \u2014 run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
+      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
       "display_name": "Docker",
       "vendor": "Pilot Protocol",
       "license": "Apache-2.0",
@@ -329,7 +329,7 @@
     {
       "id": "io.pilot.redis",
       "version": "8.6.2",
-      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli \u2014 SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision \u2014 runs locally on this host.",
+      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli — SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision — runs locally on this host.",
       "display_name": "Redis",
       "vendor": "Pilot Protocol",
       "license": "AGPL-3.0",
@@ -368,7 +368,7 @@
     {
       "id": "io.pilot.aegis",
       "version": "0.1.3",
-      "description": "AEGIS 0.1.3 \u2014 a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
+      "description": "AEGIS 0.1.3 — a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
       "display_name": "AEGIS",
       "vendor": "Pilot Protocol",
       "license": "MIT",
@@ -402,7 +402,7 @@
     {
       "id": "io.pilot.smol",
       "version": "1.2.0",
-      "description": "Smol Machines \u2014 fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
+      "description": "Smol Machines — fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
       "display_name": "Smol Machines",
       "vendor": "smol machines",
       "license": "Apache-2.0",
@@ -444,10 +444,10 @@
     },
     {
       "id": "io.pilot.bowmark",
-      "version": "0.1.0",
-      "description": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately. Call ask({site, task}) before any browser action to get a ready-to-run cheatsheet \u2014 a parameterized URL shortcut and/or a short UI procedure to execute open-loop \u2014 instead of exploring the DOM; then report_outcome to keep them fresh. Free to use \u2014 no signup, no API key.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997",
+      "version": "1.0.0",
+      "description": "Live data from real websites, including the values that only appear after somebody operates the page: prices, stock, fares, quotes, and anything behind a form or a login. Call bowmark.get_library({query}) for the typed function library, then send a short JavaScript script to bowmark.run({script}) and Bowmark executes it on the real sites.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-amd64.tar.gz",
+      "bundle_sha256": "3b4800e811bb684f29b1b9a7ff76d72b364655bc3d2ca0744f50f77331256d04",
       "display_name": "Bowmark",
       "vendor": "Bowmark AI",
       "categories": [
@@ -456,27 +456,27 @@
         "agents",
         "automation"
       ],
-      "bundle_size": 5070051,
+      "bundle_size": 5072418,
       "source_url": "https://github.com/bowmark-ai/plugin",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "88baa37ef7213eac493a1197b1578f495c30d613951f16a87b67e5d1322c9a30",
+      "metadata_sha256": "39f5154497976ef3fde212ef4bc5a65f701d8e55465e47627665bc5755fa474b",
       "bundles": {
         "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-amd64.tar.gz",
+          "bundle_sha256": "3b4800e811bb684f29b1b9a7ff76d72b364655bc3d2ca0744f50f77331256d04"
         },
         "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "aeb587e89701bdc121717893562bfe50578a9b7235373fa93fd4c868ddacb928"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-arm64.tar.gz",
+          "bundle_sha256": "d5fb05bb39cbe727de7733c18ac4619de93c48771de9e0a8a2e7068d3ecb322e"
         },
         "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "c30336813659d2647164b519cd987a0a2b4d362bc985a30e3842903ab5fdb7e7"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "be84e356e53bbabd920b0f9e276718faf6259ad932e09d8b0c56a8b66f3129d2"
         },
         "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "ac71dfcbf72966eec95e3f8b6e4577c10a7fef62952b771e9dc765080613a23b"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "325c554e66fbf0fb97ecf7d2d0a8e445dd6ae6198cc03f4ea6921ceefa21e447"
         }
       },
       "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
@@ -484,7 +484,7 @@
     {
       "id": "io.pilot.sqlite",
       "version": "3.45.2",
-      "description": "SQLite 3.45.2 as a native SQL database for agents: a zero-server, single-file, transactional (OLTP) SQL engine delivered to the host and fronted as typed methods. Run SQL against a .db file or an in-memory database and get rows back as JSON, run a multi-statement script, introspect the schema and table list, and reach the full sqlite3 CLI (every dot-command and flag \u2014 .dump, .import, .backup, CSV/table/markdown output, \u2026) via a verbatim-argv passthrough. The durable, on-disk complement to DuckDB's in-memory analytics \u2014 real transactional SQL locally with no server, no provisioning, and no cloud account.",
+      "description": "SQLite 3.45.2 as a native SQL database for agents: a zero-server, single-file, transactional (OLTP) SQL engine delivered to the host and fronted as typed methods. Run SQL against a .db file or an in-memory database and get rows back as JSON, run a multi-statement script, introspect the schema and table list, and reach the full sqlite3 CLI (every dot-command and flag — .dump, .import, .backup, CSV/table/markdown output, …) via a verbatim-argv passthrough. The durable, on-disk complement to DuckDB's in-memory analytics — real transactional SQL locally with no server, no provisioning, and no cloud account.",
       "display_name": "SQLite",
       "vendor": "Pilot Protocol",
       "license": "blessing",
@@ -522,7 +522,7 @@
     {
       "id": "io.pilot.agentphone",
       "version": "0.3.1",
-      "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations \u2014 all over REST, metered per user against a $5 budget.",
+      "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST, metered per user against a $5 budget.",
       "display_name": "AgentPhone",
       "vendor": "AgentPhone",
       "license": "Apache-2.0",
@@ -554,7 +554,7 @@
     {
       "id": "io.pilot.insforge",
       "version": "1.0.0",
-      "description": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backend in one call \u2014 no email, no browser: a dedicated Postgres database, authentication, S3-style storage, Deno edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Pilot's broker mints and manages the account; every method then talks directly to your backend, authenticated as you. Free to provision \u2014 pay only for what your backend uses.",
+      "description": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backend in one call — no email, no browser: a dedicated Postgres database, authentication, S3-style storage, Deno edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Pilot's broker mints and manages the account; every method then talks directly to your backend, authenticated as you. Free to provision — pay only for what your backend uses.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-amd64.tar.gz",
       "bundle_sha256": "9e1d05248b99dd66e1482aeda23ece61b2b110601c7848e3fb716f4a79ba47b6",
       "display_name": "Insforge",
@@ -588,7 +588,7 @@
     {
       "id": "io.pilot.orthogonal",
       "version": "0.1.1",
-      "description": "Connect your agent to Orthogonal \u2014 one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
+      "description": "Connect your agent to Orthogonal — one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
       "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7",
       "display_name": "Orthogonal",
@@ -622,7 +622,7 @@
     {
       "id": "io.pilot.mysql",
       "version": "9.7.1",
-      "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL \u2014 results as an aligned table or TSV \u2014 with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
+      "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
       "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
       "display_name": "Mysql",
@@ -656,7 +656,7 @@
     {
       "id": "io.pilot.didit",
       "version": "1.0.0",
-      "description": "Full Didit identity-verification platform over one HTTPS app \u2014 KYC/ID, liveness, face match, AML, proof-of-address, database validation, email/phone OTP, plus hosted sessions, workflows, users, billing, blocklists, questionnaires and webhooks. didit.signup mints your own Didit API key in ONE call with no email and no code (Pilot's broker handles the whole signup), caches it locally, and then every method authenticates as you and bills to your own Didit balance (500 free full-KYC checks/month).",
+      "description": "Full Didit identity-verification platform over one HTTPS app — KYC/ID, liveness, face match, AML, proof-of-address, database validation, email/phone OTP, plus hosted sessions, workflows, users, billing, blocklists, questionnaires and webhooks. didit.signup mints your own Didit API key in ONE call with no email and no code (Pilot's broker handles the whole signup), caches it locally, and then every method authenticates as you and bills to your own Didit balance (500 free full-KYC checks/month).",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
       "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
       "display_name": "Didit",
@@ -690,7 +690,7 @@
     {
       "id": "io.pilot.tldr",
       "version": "1.13.1",
-      "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, \u2026) via a verbatim-argv passthrough. Open source \u2014 MIT client, CC-BY-4.0 pages \u2014 self-contained and offline after the first fetch, on macOS and Linux.",
+      "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
       "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
       "display_name": "Tldr",
