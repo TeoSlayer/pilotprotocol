@@ -1,761 +1,748 @@
 {
-  "version": 2,
-  "updated_at": "2026-07-03T00:00:00Z",
-  "apps": [
-    {
-      "id": "io.pilot.wallet",
-      "version": "0.3.3",
-      "description": "On-overlay USDC payments \u2014 multichain (Base + Ethereum + Polygon).",
-      "bundle_url": "https://github.com/pilot-protocol/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
-      "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
-      "display_name": "Wallet",
-      "vendor": "Pilot Protocol",
-      "categories": [
-        "payments",
-        "crypto",
-        "finance"
-      ],
-      "bundle_size": 9110758,
-      "source_url": "https://github.com/pilot-protocol/wallet",
-      "license": "AGPL-3.0-or-later",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
-      "metadata_sha256": "feed58970092e4ddb53d9a4d60923ff11e94af51c9ffd67e5c111e5cad5bd7f1",
-      "publisher": "ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="
+ "version": 2,
+ "updated_at": "2026-08-03T22:50:02Z",
+ "apps": [
+  {
+   "id": "io.pilot.wallet",
+   "version": "0.3.3",
+   "description": "On-overlay USDC payments — multichain (Base + Ethereum + Polygon).",
+   "bundle_url": "https://github.com/pilot-protocol/pilotprotocol/releases/download/wallet-v0.3.3/io.pilot.wallet-0.3.3.tar.gz",
+   "bundle_sha256": "8d30b4331bc025c327dd2d8610362984cc9365843176e21b96a2637d8e18ff54",
+   "display_name": "Wallet",
+   "vendor": "Pilot Protocol",
+   "categories": [
+    "payments",
+    "crypto",
+    "finance"
+   ],
+   "bundle_size": 9110758,
+   "source_url": "https://github.com/pilot-protocol/wallet",
+   "license": "AGPL-3.0-or-later",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.wallet/metadata.json",
+   "metadata_sha256": "feed58970092e4ddb53d9a4d60923ff11e94af51c9ffd67e5c111e5cad5bd7f1",
+   "publisher": "ed25519:VF8fdEP/Oe2aWN3ozQ7Ar22137tHb7dkSw0hlzlk/os="
+  },
+  {
+   "id": "io.pilot.cosift",
+   "version": "0.1.2",
+   "description": "cosift search / answer / research over the public web corpus (with cosift.help discovery).",
+   "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/cosift-v0.1.2/io.pilot.cosift-0.1.2.tar.gz",
+   "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0",
+   "display_name": "Cosift",
+   "vendor": "Pilot Protocol",
+   "categories": [
+    "search",
+    "research",
+    "retrieval"
+   ],
+   "bundle_size": 4774876,
+   "source_url": "https://github.com/pilot-protocol/cosift",
+   "license": "MIT",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
+   "metadata_sha256": "c59a9cdb16d031872a27bb64c02bb16682ae06da68d95e1a749c0e9873d16be8",
+   "publisher": "ed25519:EjoZEiV+j6oNZLRWNEEf8lEnC8XBkrvBAk4fxuZLLyU="
+  },
+  {
+   "id": "io.pilot.sixtyfour",
+   "version": "0.1.0",
+   "description": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
+   "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
+   "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868",
+   "display_name": "Sixtyfour",
+   "vendor": "Sixtyfour",
+   "categories": [
+    "data",
+    "enrichment",
+    "sales-intelligence"
+   ],
+   "bundle_size": 4898153,
+   "source_url": "https://docs.sixtyfour.ai",
+   "license": "Proprietary",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
+   "metadata_sha256": "38fee7a4658a5bfded1074600c320f68413ea0cf30a0f72e727cf19b7f4569e2",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
+     "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868"
     },
-    {
-      "id": "io.pilot.cosift",
-      "version": "0.1.2",
-      "description": "cosift search / answer / research over the public web corpus (with cosift.help discovery).",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/cosift-v0.1.2/io.pilot.cosift-0.1.2.tar.gz",
-      "bundle_sha256": "faf60deeaa9a29298b447f7f0276f1bd4523af86390cf65c677452dc9718d5a0",
-      "display_name": "Cosift",
-      "vendor": "Pilot Protocol",
-      "categories": [
-        "search",
-        "research",
-        "retrieval"
-      ],
-      "bundle_size": 4774876,
-      "source_url": "https://github.com/pilot-protocol/cosift",
-      "license": "MIT",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.cosift/metadata.json",
-      "metadata_sha256": "c59a9cdb16d031872a27bb64c02bb16682ae06da68d95e1a749c0e9873d16be8",
-      "publisher": "ed25519:EjoZEiV+j6oNZLRWNEEf8lEnC8XBkrvBAk4fxuZLLyU="
+    "linux/arm64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-arm64.tar.gz",
+     "bundle_sha256": "54298610357c9d69060d066b75096bca43fc3014026cdbd7194b766ffc3a1ffc"
     },
-    {
-      "id": "io.pilot.sixtyfour",
-      "version": "0.1.0",
-      "description": "Sixtyfour is the app-store front door for the Sixtyfour people-intelligence and company-intelligence API. It gives an agent contact discovery (find email / find phone), reverse lookups from an email or phone, full person and company enrichment, and an agentic QA researcher that answers free-form questions about a person or company. All returned as clean structured JSON, every field source-backed.",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868",
-      "display_name": "Sixtyfour",
-      "vendor": "Sixtyfour",
-      "categories": [
-        "data",
-        "enrichment",
-        "sales-intelligence"
-      ],
-      "bundle_size": 4898153,
-      "source_url": "https://docs.sixtyfour.ai",
-      "license": "Proprietary",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
-      "metadata_sha256": "38fee7a4658a5bfded1074600c320f68413ea0cf30a0f72e727cf19b7f4569e2",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "7508bb88b18a7d4b7302a9e14c9874c3bc23d8e4ed5edd0d45140a2479e07868"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "54298610357c9d69060d066b75096bca43fc3014026cdbd7194b766ffc3a1ffc"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "98d44f7138843bf72665bf4a49b6157ed95bb64ae24f21f0577cbc51e3abd493"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "d970483e9cad84207f853d681cc810e954e236acd5e410b402880dc4d8304aa2"
-        }
-      },
-      "publisher": "ed25519:VoVCiQKPr73di2MlUd091a2Y6TCj/edSbCwRDtnYquI="
+    "darwin/arm64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "98d44f7138843bf72665bf4a49b6157ed95bb64ae24f21f0577cbc51e3abd493"
     },
-    {
-      "id": "io.pilot.smolmachines",
-      "renamed_to": "io.pilot.smol",
-      "hidden": true,
-      "display_name": "Smol Machines (renamed \u2192 io.pilot.smol)",
-      "description": "Renamed to io.pilot.smol. Install io.pilot.smol \u2014 it is the same app plus a cloud plane. This tombstone entry is retained only to keep already-installed copies running and to redirect the old id; it is not listed and is not installable.",
-      "publisher": "ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="
-    },
-    {
-      "id": "io.telepat.ideon-free",
-      "version": "0.3.1",
-      "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write \u2014 no payment.",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
-      "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
-      "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc=",
-      "metadata_sha256": "cbd6adae25a432d33dea9d4a047645b1e6d920a4bae2c4897b9f14fe2c004347",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.telepat.ideon-free/metadata.json"
-    },
-    {
-      "id": "io.pilot.slipstream",
-      "version": "1.0.0",
-      "description": "SLIPSTREAM \u2014 Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
-      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
-      "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5",
-      "display_name": "Slipstream",
-      "vendor": "Pilot Protocol",
-      "categories": [
-        "finance",
-        "markets",
-        "intelligence"
-      ],
-      "bundle_size": 4674914,
-      "source_url": "https://github.com/pilot-protocol/catalog",
-      "license": "MIT",
-      "publisher": "ed25519:fc+G+FOz/LjcDXBGvguInq+w9fUCMi8JytYlOOCcCKQ=",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
-          "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "e59e0045075c78f6920b587d731f9f3690559719f0bf786ce3ad12a4c888f4b6"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.slipstream/metadata.json",
-      "metadata_sha256": "13e93fef4ed7921c7d7655e378b6766662e697fde27828a017f481176ce91da9"
-    },
-    {
-      "id": "io.pilot.miren",
-      "version": "0.1.0",
-      "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity \u2014 plus a passthrough exec for any miren subcommand.",
-      "display_name": "Miren",
-      "vendor": "Miren",
-      "license": "Proprietary",
-      "source_url": "https://github.com/mirendev",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "f58164d5341b18e91c55f6ba463341835efdc90cd26025027215e08132ef3d0e"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "8059cf9989261b01a5101526e6e9f0c5d5578f7c0638633db87ee8ab911081ff"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "560693e2252e4cbb9e5c48d1a05554f1efe1899390012c6c1a1ad0b73a0a66c8"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
-      "metadata_sha256": "3fe0a4e6628271b963f4e3ddf9cb7bbcf6bf41377eb2a8d29b7e82e3b7153990",
-      "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
-    },
-    {
-      "id": "io.pilot.otto",
-      "version": "0.20.0",
-      "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status \u2014 over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
-      "display_name": "Otto",
-      "vendor": "Telepat",
-      "license": "MIT",
-      "source_url": "https://github.com/telepat-io/otto",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
-      "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "d4704533374e302589a9cd5df7520c04bf9a1777cad2d45ed04e5b434e0f6793"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "99a3c303d8c026d91d81256b31ff8e0552ee146681c1d75135edeb27d1c7b573"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-arm64.tar.gz",
-          "bundle_sha256": "4bc493c015a75d304d80b72bee919d3f825959004a614e233bc8008953f2d1ee"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
-          "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
-      "metadata_sha256": "d3078d3b7e33720d186d9f0f2967b98ee6de7bd2af7d404b160cf98c0278db59",
-      "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
-    },
-    {
-      "id": "io.pilot.plainweb",
-      "version": "1.0.0",
-      "description": "Plainweb - retrieve any web page in plain text: no HTML or JS returned, simply plain Markdown",
-      "display_name": "Plainweb",
-      "vendor": "Pilot Protocol",
-      "license": "Proprietary",
-      "source_url": "https://github.com/pilot-protocol/plainweb",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "a857b4a6d2128a6030e3f0aa7f6e2cd4c67896e0ae5f4c7962350663e3289ac1"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "5ff73c98a4db92bd31b4b6b0237ce89eb33d2aa8875cbbfaf3bb486f15811f06"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "cfbf133a871336df0020b4508aac83e6aa52f6b91ca883f7747a1e56bf76a90b"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
-      "metadata_sha256": "054bdbbda3caf578d9e11c6a80d402d0b113c7619c199b518c5dea8a044c7f0d",
-      "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
-    },
-    {
-      "id": "io.pilot.postgres",
-      "version": "17.5.0",
-      "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql \u2014 aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
-      "display_name": "PostgreSQL",
-      "vendor": "Pilot Protocol",
-      "license": "PostgreSQL",
-      "source_url": "https://github.com/postgres/postgres",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
-      "bundle_sha256": "1c416d9d6c46e26eedacda6f5cf0c9cece47608de2506d99ad0a0a63181c0b78",
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "1e3adb6ca1f8d223d608fb4d9e010335c9aa4e71c3a608f11596ecf072d17515"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "c31cd0ac5f0e5f5c9d8e31ae3b225b72b42ee859cbb83ef562d187b9e47252db"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
-          "bundle_sha256": "1c416d9d6c46e26eedacda6f5cf0c9cece47608de2506d99ad0a0a63181c0b78"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-arm64.tar.gz",
-          "bundle_sha256": "4819474971f36de6458b4053ca207b0251477b84cc3c878a660c592a263a72d5"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
-      "metadata_sha256": "0ab00cf5dd92c9da2920f655b3d4f7bfc1f72aedc2f56489062415fff9534987",
-      "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
-    },
-    {
-      "id": "io.pilot.duckdb",
-      "version": "1.5.4",
-      "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step \u2014 results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
-      "display_name": "DuckDB",
-      "vendor": "Pilot Protocol",
-      "license": "MIT",
-      "source_url": "https://github.com/duckdb/duckdb",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
-      "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c",
-      "bundle_size": 5353407,
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-arm64.tar.gz",
-          "bundle_sha256": "ae8b1a9f524cecd8d7b942af058dbc7cdd737ff29de7186bad6faff2a6b4940d"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-amd64.tar.gz",
-          "bundle_sha256": "5825add7eb960111464eca50752b7edc2f658d26cdd51187d7e08a43364c9a62"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
-          "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-arm64.tar.gz",
-          "bundle_sha256": "54471ec4cf95071bba8d3c6f9e2dc134483df47ceaef291b5e6adea6bc89b31d"
-        }
-      },
-      "categories": [
-        "database",
-        "data",
-        "sql",
-        "analytics"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
-      "metadata_sha256": "66245c92569cd063f7b86d6c5a10067d01142ae7116e9cc78f41ece1e72efb7b",
-      "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
-    },
-    {
-      "id": "io.pilot.docker",
-      "version": "29.6.1",
-      "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers \u2014 run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
-      "display_name": "Docker",
-      "vendor": "Pilot Protocol",
-      "license": "Apache-2.0",
-      "source_url": "https://github.com/moby/moby",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
-      "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e",
-      "bundle_size": 5352665,
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
-          "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-arm64.tar.gz",
-          "bundle_sha256": "2349cda00272b282a86c4c1000405afd0d7bee9522b137177c7e2a0772a9f5cc"
-        }
-      },
-      "categories": [
-        "devops",
-        "containers",
-        "runtime",
-        "data"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
-      "metadata_sha256": "be4b01bb8226f7b24ccf4ec321289140d88f34aa70d18cf66e05e1720757bd1f",
-      "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
-    },
-    {
-      "id": "io.pilot.redis",
-      "version": "8.6.2",
-      "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli \u2014 SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision \u2014 runs locally on this host.",
-      "display_name": "Redis",
-      "vendor": "Pilot Protocol",
-      "license": "AGPL-3.0",
-      "source_url": "https://github.com/redis/redis",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
-      "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8",
-      "bundle_size": 5354616,
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-arm64.tar.gz",
-          "bundle_sha256": "45329909a3bafb5ec31cb76602f955421c50210fd8903ccb7fb347165a3b786b"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-amd64.tar.gz",
-          "bundle_sha256": "7c5c9e5e2a621a3557781accbc746b52cde414700abe1ad8e1757407fa89d478"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
-          "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-arm64.tar.gz",
-          "bundle_sha256": "71eec03a7a0db3e8024ed1670c198424463407c21d24e6798e282d40a0f5a99b"
-        }
-      },
-      "categories": [
-        "database",
-        "cache",
-        "data",
-        "kv"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.redis/metadata.json",
-      "metadata_sha256": "99435d341585786017b7c7a28ba0391c6a21a1e22927cdfad88cf4ab9a141e2c",
-      "publisher": "ed25519:QXvscnyXJ5L/Bmy7oCo5dPC1HrEOGa7WFWBfH5ktejM="
-    },
-    {
-      "id": "io.pilot.aegis",
-      "version": "0.1.3",
-      "description": "AEGIS 0.1.3 \u2014 a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
-      "display_name": "AEGIS",
-      "vendor": "Pilot Protocol",
-      "license": "MIT",
-      "source_url": "https://github.com/pilot-protocol/aegis",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-      "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216",
-      "bundle_size": 5354471,
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
-          "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
-          "bundle_sha256": "751aee6d4df38a51eaaaee200dcb61347cbd22c32709613515917172d0af8175"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
-          "bundle_sha256": "bbd42e0fc33b55d04034e3836972e011a368548685b06f72908f84db70f7b8c9"
-        }
-      },
-      "categories": [
-        "security",
-        "firewall",
-        "guardrail"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
-      "metadata_sha256": "b894d3edf0c1451d36a9ff50b888eba7826ac519fee888c9e1fcd3b44ce70c9b",
-      "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
-    },
-    {
-      "id": "io.pilot.smol",
-      "version": "1.2.0",
-      "description": "Smol Machines \u2014 fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
-      "display_name": "Smol Machines",
-      "vendor": "smol machines",
-      "license": "Apache-2.0",
-      "source_url": "https://github.com/smol-machines/smolvm",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
-      "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b",
-      "bundle_size": 5401194,
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "51b0fb9d23bb762fb363196e48a991c5bfe4c703945565584b02d5363d7b8ee2"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
-          "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-arm64.tar.gz",
-          "bundle_sha256": "62cd9b719824fd0b4500505d3a9588d945563549816f55b0e718f41faf9b39d3"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smol/metadata.json",
-      "metadata_sha256": "22ad16602236e18951a55410c3c602e4ab9c542aff704c0e9f32b6b15f68517f",
-      "categories": [
-        "dev",
-        "virtualization",
-        "security"
-      ],
-      "keywords": [
-        "microvm",
-        "sandbox",
-        "vm",
-        "isolation",
-        "gpu",
-        "ci",
-        "cloud"
-      ],
-      "publisher": "ed25519:54rnZ8+dN9V2cxZMJLMQKt36oYP/CfhF/zIgJMkjLIQ="
-    },
-    {
-      "id": "io.pilot.bowmark",
-      "version": "0.1.0",
-      "description": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately. Call ask({site, task}) before any browser action to get a ready-to-run cheatsheet \u2014 a parameterized URL shortcut and/or a short UI procedure to execute open-loop \u2014 instead of exploring the DOM; then report_outcome to keep them fresh. Free to use \u2014 no signup, no API key.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
-      "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997",
-      "display_name": "Bowmark",
-      "vendor": "Bowmark AI",
-      "categories": [
-        "web",
-        "browser",
-        "agents",
-        "automation"
-      ],
-      "bundle_size": 5070051,
-      "source_url": "https://github.com/bowmark-ai/plugin",
-      "license": "Proprietary",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "88baa37ef7213eac493a1197b1578f495c30d613951f16a87b67e5d1322c9a30",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
-          "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-arm64.tar.gz",
-          "bundle_sha256": "aeb587e89701bdc121717893562bfe50578a9b7235373fa93fd4c868ddacb928"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "c30336813659d2647164b519cd987a0a2b4d362bc985a30e3842903ab5fdb7e7"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "ac71dfcbf72966eec95e3f8b6e4577c10a7fef62952b771e9dc765080613a23b"
-        }
-      },
-      "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
-    },
-    {
-      "id": "io.pilot.sqlite",
-      "version": "3.45.2",
-      "description": "SQLite 3.45.2 as a native SQL database for agents: a zero-server, single-file, transactional (OLTP) SQL engine delivered to the host and fronted as typed methods. Run SQL against a .db file or an in-memory database and get rows back as JSON, run a multi-statement script, introspect the schema and table list, and reach the full sqlite3 CLI (every dot-command and flag \u2014 .dump, .import, .backup, CSV/table/markdown output, \u2026) via a verbatim-argv passthrough. The durable, on-disk complement to DuckDB's in-memory analytics \u2014 real transactional SQL locally with no server, no provisioning, and no cloud account.",
-      "display_name": "SQLite",
-      "vendor": "Pilot Protocol",
-      "license": "blessing",
-      "source_url": "https://sqlite.org/src",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
-      "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8",
-      "bundle_size": 5352486,
-      "bundles": {
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-arm64.tar.gz",
-          "bundle_sha256": "572872403d2f46f497104dc4e1ce6b9553cc42cac8552aedc71f3295920e9d57"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-amd64.tar.gz",
-          "bundle_sha256": "762b4841304d8098f6ef69066f36e54f73f9635deacdff191ebfb52f4a147f7a"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
-          "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-arm64.tar.gz",
-          "bundle_sha256": "114a31ec88fb26a4674501179218e55bab74237a24865bf38f37d2aa44f4ed2d"
-        }
-      },
-      "categories": [
-        "database",
-        "data",
-        "sql"
-      ],
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sqlite/metadata.json",
-      "metadata_sha256": "215a29194e9352ce71c0d61eec80fd1e0381434c91438c52839c6e417b1c6622",
-      "publisher": "ed25519:ebjc66COLR1OBuDZn9gCuePChW8Qxxcxm7RDYAgSLv8="
-    },
-    {
-      "id": "io.pilot.agentphone",
-      "version": "0.3.1",
-      "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations \u2014 all over REST, metered per user against a $5 budget.",
-      "display_name": "AgentPhone",
-      "vendor": "AgentPhone",
-      "license": "Apache-2.0",
-      "source_url": "https://github.com/AgentPhone-AI/skills",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-amd64.tar.gz",
-      "bundle_sha256": "d99e8d998b05075931af79376ce4cdb22b8ced435c65f551671fc62f87994d76",
-      "bundles": {
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-darwin-amd64.tar.gz",
-          "bundle_sha256": "f49a04ff21ce05727b54e4644dc91f54e24e67396198014b6104714a7c1d1d74"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-darwin-arm64.tar.gz",
-          "bundle_sha256": "a14b6184004bafc4921213172d635139035a7e2588f440f7d6a09a7fc442ff3a"
-        },
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-amd64.tar.gz",
-          "bundle_sha256": "d99e8d998b05075931af79376ce4cdb22b8ced435c65f551671fc62f87994d76"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-arm64.tar.gz",
-          "bundle_sha256": "cd6f64a77866bf048d110f58a285316e89e90b8af1f64389ff0484259af8cb36"
-        }
-      },
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
-      "metadata_sha256": "d1b5fea717be1a3c21fc3fcf38c23362b8a727502e822c23dd3c831dab950823",
-      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
-    },
-    {
-      "id": "io.pilot.insforge",
-      "version": "1.0.0",
-      "description": "The agent-native cloud (an AWS for agents) as ONE Pilot app. insforge.signup provisions your OWN isolated InsForge backend in one call \u2014 no email, no browser: a dedicated Postgres database, authentication, S3-style storage, Deno edge functions, and a Model Gateway OpenRouter key seeded with $1 of AI credits. Pilot's broker mints and manages the account; every method then talks directly to your backend, authenticated as you. Free to provision \u2014 pay only for what your backend uses.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "9e1d05248b99dd66e1482aeda23ece61b2b110601c7848e3fb716f4a79ba47b6",
-      "display_name": "Insforge",
-      "vendor": "InsForge",
-      "categories": [],
-      "bundle_size": 5113957,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
-      "license": "",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.insforge/metadata.json",
-      "metadata_sha256": "0e6be7219bf8172323bbbc8a60742159e8c7e6f1a9de18521a69b53164f11b1c",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "9e1d05248b99dd66e1482aeda23ece61b2b110601c7848e3fb716f4a79ba47b6"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "84c0eaa5fa1870cbf40f73f184a7f83ea0965967d5088a7a0326314f1ec85d0b"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "add93c823f74be7712add44d384b21bd76bbc2af6d6d0b8d0ae1860da6f456b2"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "62320c247ae07187ed89ccec5de519bb1627489353877424f14c17a2729d2330"
-        }
-      },
-      "publisher": "ed25519:W1qwuLpHlwdOlisnk7RdzP4zO2IbNKUFz7Saa69AgTA="
-    },
-    {
-      "id": "io.pilot.orthogonal",
-      "version": "0.1.1",
-      "description": "Connect your agent to Orthogonal \u2014 one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
-      "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7",
-      "display_name": "Orthogonal",
-      "vendor": "Orthogonal",
-      "categories": [],
-      "bundle_size": 5073695,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
-      "license": "",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
-      "metadata_sha256": "1f75f953e0ee3db5dfc11103dc1c6ba4c70362ee52fa351898a699c88b771b39",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
-          "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-arm64.tar.gz",
-          "bundle_sha256": "e1d70fa3f9b49f3d2d92717b63db4ac84b525d24bd7c102ce64de62beb57a6f6"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-darwin-amd64.tar.gz",
-          "bundle_sha256": "dbfdd6624a04a9fa6cdec86c9b5cfad1cdb3fda455bd58eeae6e03d59b4e9305"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-darwin-arm64.tar.gz",
-          "bundle_sha256": "25bb06edfca365b201fd137c46cb06a340c8df98ec43181d57f7214c555a55e9"
-        }
-      },
-      "publisher": "ed25519:8zcpGtp5sUw3sjLptDR9W/btumEaOv3DO3tTWN/+PCk="
-    },
-    {
-      "id": "io.pilot.mysql",
-      "version": "9.7.1",
-      "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL \u2014 results as an aligned table or TSV \u2014 with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
-      "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
-      "display_name": "Mysql",
-      "vendor": "Pilot Protocol",
-      "categories": [],
-      "bundle_size": 5359647,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
-      "license": "",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
-      "metadata_sha256": "3349fa791d2379ba5b484b96425cf137b1f108382ae6193f62e76c6ffeadfb63",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
-          "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-arm64.tar.gz",
-          "bundle_sha256": "b37777304ef1976c783e2ad1f667cd8b0188c5a39d5bfe45880ec2baca007fa3"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-amd64.tar.gz",
-          "bundle_sha256": "1cdf637b8dae34b57503ee2dfbd8a6e24eb587c90233edd5718976e9db60120e"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-arm64.tar.gz",
-          "bundle_sha256": "2d6007afea3c6e59aea914c551631c39624ded6cf988dd2252d0dab092e88c21"
-        }
-      },
-      "publisher": "ed25519:cTZr4unmAHK/r8fS+TVQ4QiCIORimYe+y+bIdiUUfAY="
-    },
-    {
-      "id": "io.pilot.didit",
-      "version": "1.0.0",
-      "description": "Full Didit identity-verification platform over one HTTPS app \u2014 KYC/ID, liveness, face match, AML, proof-of-address, database validation, email/phone OTP, plus hosted sessions, workflows, users, billing, blocklists, questionnaires and webhooks. didit.signup mints your own Didit API key in ONE call with no email and no code (Pilot's broker handles the whole signup), caches it locally, and then every method authenticates as you and bills to your own Didit balance (500 free full-KYC checks/month).",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
-      "display_name": "Didit",
-      "vendor": "Didit",
-      "categories": [],
-      "bundle_size": 5130067,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
-      "license": "",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
-      "metadata_sha256": "678ca368b4c2ed6f9f526f35d7a3de07f5a196abccdf76247b281afef9e47978",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "090b73c669f4df41e3994441edd261bfd4ec511c806899a28571d8d99a675c6c"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "03275275e7838ca9b8be39d7355462271a8d23ad32a60ea4cb87b1f7b6cbf5a0"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "5910ff8f2af94f8545d49fa6c0a179c75c4334bd54fb37a3feb7ee197ad551c5"
-        }
-      },
-      "publisher": "ed25519:ii6QAc8qZB4NvbOXqnLfnv+OhPqepuK0BISAv9jM5x0="
-    },
-    {
-      "id": "io.pilot.tldr",
-      "version": "1.13.1",
-      "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, \u2026) via a verbatim-argv passthrough. Open source \u2014 MIT client, CC-BY-4.0 pages \u2014 self-contained and offline after the first fetch, on macOS and Linux.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
-      "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
-      "display_name": "Tldr",
-      "vendor": "Pilot Protocol",
-      "categories": [],
-      "bundle_size": 5355931,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
-      "license": "",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
-      "metadata_sha256": "548e514a25962da0dcced8ead25c7ceb3690c31784a9ab31f061d185dcbd1662",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
-          "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-arm64.tar.gz",
-          "bundle_sha256": "7379ce8068d5031e38d7e7489e81d45123d62ae3ee814c1d2c8231a421e229c8"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-amd64.tar.gz",
-          "bundle_sha256": "b1505b6eb762be844f7005803b222ef1b9abec879f1621bcfb1d3f8122eedbd2"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-arm64.tar.gz",
-          "bundle_sha256": "9cd334fcedbb486c08eb26205d80caf0f63754f8bd3909e0149ee24dcc709a56"
-        }
-      },
-      "publisher": "ed25519:PWQdFC8oGtlYsGhVtjMcR1CfOKKa0O3TtKtFD8vrD90="
-    },
-    {
-      "id": "io.pilot.primitive",
-      "version": "1.0.0",
-      "description": "Email infrastructure for AI agents. primitive.signup provisions a free account + a managed *.primitive.email inbox in ONE call (no email, no code) and caches the API key locally; from then on the adapter injects it on every call and the agent sends, receives, replies to, and searches real email over one REST API. 57 methods reachable on the free plan; Functions, Wake, x402 payments and custom domains are marked gated until you upgrade.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f",
-      "display_name": "Primitive",
-      "vendor": "Primitive",
-      "categories": [
-        "communications"
-      ],
-      "bundle_size": 5241262,
-      "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.primitive",
-      "license": "Proprietary",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.primitive/metadata.json",
-      "metadata_sha256": "9ad9da6b767a561ca7e7ad2bd168b452ee73c3d7fe9337d7b6111baa767a777e",
-      "bundles": {
-        "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f"
-        },
-        "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "f16140b21501723ec5e1035716c686a5077a6768cda4e2ed910a0e32f443a917"
-        },
-        "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "d4353482cb03a6af98a008533e0a7d118eb8317694baa1385cd2849750104df9"
-        },
-        "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "7a5cf1c8205c879de191040d8418f3078a7aee5a6003b620a83af9d66418ae9f"
-        }
-      },
-      "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+    "darwin/amd64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/sixtyfour-v0.1.0/io.pilot.sixtyfour-0.1.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "d970483e9cad84207f853d681cc810e954e236acd5e410b402880dc4d8304aa2"
     }
-  ]
+   },
+   "publisher": "ed25519:VoVCiQKPr73di2MlUd091a2Y6TCj/edSbCwRDtnYquI="
+  },
+  {
+   "id": "io.pilot.smolmachines",
+   "renamed_to": "io.pilot.smol",
+   "hidden": true,
+   "display_name": "Smol Machines (renamed → io.pilot.smol)",
+   "description": "Renamed to io.pilot.smol. Install io.pilot.smol — it is the same app plus a cloud plane. This tombstone entry is retained only to keep already-installed copies running and to redirect the old id; it is not listed and is not installable.",
+   "publisher": "ed25519:3QJm6H6OdjtfrF+Es1lrRjfFmdtq2tGvVSWxia63vcI="
+  },
+  {
+   "id": "io.telepat.ideon-free",
+   "version": "0.3.1",
+   "description": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
+   "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
+   "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
+   "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc=",
+   "metadata_sha256": "cbd6adae25a432d33dea9d4a047645b1e6d920a4bae2c4897b9f14fe2c004347",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.telepat.ideon-free/metadata.json"
+  },
+  {
+   "id": "io.pilot.slipstream",
+   "version": "1.0.0",
+   "description": "SLIPSTREAM — Polymarket smart-money leaderboard, signals, tape & opportunities (Ed25519-signed API).",
+   "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
+   "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5",
+   "display_name": "Slipstream",
+   "vendor": "Pilot Protocol",
+   "categories": [
+    "finance",
+    "markets",
+    "intelligence"
+   ],
+   "bundle_size": 4674914,
+   "source_url": "https://github.com/pilot-protocol/catalog",
+   "license": "MIT",
+   "publisher": "ed25519:fc+G+FOz/LjcDXBGvguInq+w9fUCMi8JytYlOOCcCKQ=",
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0.tar.gz",
+     "bundle_sha256": "8f19c06c886b97abb1272e8f657773950bee747c58dab8493d454742313ef2f5"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/slipstream-v1.0.0/io.pilot.slipstream-1.0.0-linux-amd64.tar.gz",
+     "bundle_sha256": "e59e0045075c78f6920b587d731f9f3690559719f0bf786ce3ad12a4c888f4b6"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.slipstream/metadata.json",
+   "metadata_sha256": "13e93fef4ed7921c7d7655e378b6766662e697fde27828a017f481176ce91da9"
+  },
+  {
+   "id": "io.pilot.miren",
+   "version": "0.1.0",
+   "description": "Operate the Miren PaaS from an agent: deploy and roll back apps; inspect status, logs, and history; run the server; and diagnose connectivity — plus a passthrough exec for any miren subcommand.",
+   "display_name": "Miren",
+   "vendor": "Miren",
+   "license": "Proprietary",
+   "source_url": "https://github.com/mirendev",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
+   "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8",
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "f58164d5341b18e91c55f6ba463341835efdc90cd26025027215e08132ef3d0e"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "8059cf9989261b01a5101526e6e9f0c5d5578f7c0638633db87ee8ab911081ff"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-arm64.tar.gz",
+     "bundle_sha256": "560693e2252e4cbb9e5c48d1a05554f1efe1899390012c6c1a1ad0b73a0a66c8"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.miren/0.1.0/io.pilot.miren-0.1.0-linux-amd64.tar.gz",
+     "bundle_sha256": "ee82df03a6bd27ac1fb6bc41ca1a0663135853ed526742e7756e15333e4bddb8"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
+   "metadata_sha256": "3fe0a4e6628271b963f4e3ddf9cb7bbcf6bf41377eb2a8d29b7e82e3b7153990",
+   "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
+  },
+  {
+   "id": "io.pilot.otto",
+   "version": "0.20.0",
+   "description": "Drive real Chrome tabs from an agent: extract page content as markdown or HTML, run site commands (Reddit, LinkedIn, Hacker News, Google), screenshot pages, and inspect relay and node status — over a relay to a browser extension, no headless farm. Plus a passthrough exec for any otto subcommand.",
+   "display_name": "Otto",
+   "vendor": "Telepat",
+   "license": "MIT",
+   "source_url": "https://github.com/telepat-io/otto",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
+   "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c",
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "d4704533374e302589a9cd5df7520c04bf9a1777cad2d45ed04e5b434e0f6793"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "99a3c303d8c026d91d81256b31ff8e0552ee146681c1d75135edeb27d1c7b573"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-arm64.tar.gz",
+     "bundle_sha256": "4bc493c015a75d304d80b72bee919d3f825959004a614e233bc8008953f2d1ee"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.otto/0.20.0/io.pilot.otto-0.20.0-linux-amd64.tar.gz",
+     "bundle_sha256": "cb66099d0545f37cedd4aa7faf9aa186a1d704ec88e2e9cea4c12aa636c43a2c"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
+   "metadata_sha256": "d3078d3b7e33720d186d9f0f2967b98ee6de7bd2af7d404b160cf98c0278db59",
+   "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
+  },
+  {
+   "id": "io.pilot.plainweb",
+   "version": "1.0.0",
+   "description": "Plainweb - retrieve any web page in plain text: no HTML or JS returned, simply plain Markdown",
+   "display_name": "Plainweb",
+   "vendor": "Pilot Protocol",
+   "license": "Proprietary",
+   "source_url": "https://github.com/pilot-protocol/plainweb",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
+   "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41",
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "a857b4a6d2128a6030e3f0aa7f6e2cd4c67896e0ae5f4c7962350663e3289ac1"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "5ff73c98a4db92bd31b4b6b0237ce89eb33d2aa8875cbbfaf3bb486f15811f06"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-arm64.tar.gz",
+     "bundle_sha256": "cfbf133a871336df0020b4508aac83e6aa52f6b91ca883f7747a1e56bf76a90b"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.plainweb/1.0.0/io.pilot.plainweb-1.0.0-linux-amd64.tar.gz",
+     "bundle_sha256": "1ea656cfd3561cb458e3e924001cb0f6ce9509c56a858b96478dc1c7e1fa9f41"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
+   "metadata_sha256": "054bdbbda3caf578d9e11c6a80d402d0b113c7619c199b518c5dea8a044c7f0d",
+   "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
+  },
+  {
+   "id": "io.pilot.postgres",
+   "version": "17.5.0",
+   "description": "PostgreSQL 17.5.0 as a native CLI for agents: stand up and manage a local Postgres server (initdb / start / stop / createdb) and run SQL with psql — aligned-table or CSV results, backslash schema introspection, database listing, and the full client/server toolchain (pg_dump, pg_restore, pg_isready, ...) via a verbatim-argv passthrough. Connects to a local or remote server via a libpq connection string or PG* env.",
+   "display_name": "PostgreSQL",
+   "vendor": "Pilot Protocol",
+   "license": "PostgreSQL",
+   "source_url": "https://github.com/postgres/postgres",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
+   "bundle_sha256": "1c416d9d6c46e26eedacda6f5cf0c9cece47608de2506d99ad0a0a63181c0b78",
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "1e3adb6ca1f8d223d608fb4d9e010335c9aa4e71c3a608f11596ecf072d17515"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "c31cd0ac5f0e5f5c9d8e31ae3b225b72b42ee859cbb83ef562d187b9e47252db"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-amd64.tar.gz",
+     "bundle_sha256": "1c416d9d6c46e26eedacda6f5cf0c9cece47608de2506d99ad0a0a63181c0b78"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.postgres/17.5.0/io.pilot.postgres-17.5.0-linux-arm64.tar.gz",
+     "bundle_sha256": "4819474971f36de6458b4053ca207b0251477b84cc3c878a660c592a263a72d5"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
+   "metadata_sha256": "0ab00cf5dd92c9da2920f655b3d4f7bfc1f72aedc2f56489062415fff9534987",
+   "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
+  },
+  {
+   "id": "io.pilot.duckdb",
+   "version": "1.5.4",
+   "description": "DuckDB 1.5.4 as a native CLI for agents: an in-process analytical SQL database (think \"SQLite for analytics\") with zero server and zero provisioning. Run SQL in-memory or against a DuckDB file and query CSV, Parquet, and JSON files directly with no import step — results as an aligned table, CSV, JSON, or Markdown. Schema/table introspection, run a .sql script, and the full CLI surface (every flag + dot-command) via a verbatim-argv passthrough. Ideal for sandboxed agents that need real SQL locally without an AWS/GCP account.",
+   "display_name": "DuckDB",
+   "vendor": "Pilot Protocol",
+   "license": "MIT",
+   "source_url": "https://github.com/duckdb/duckdb",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+   "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c",
+   "bundle_size": 5353407,
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-arm64.tar.gz",
+     "bundle_sha256": "ae8b1a9f524cecd8d7b942af058dbc7cdd737ff29de7186bad6faff2a6b4940d"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-darwin-amd64.tar.gz",
+     "bundle_sha256": "5825add7eb960111464eca50752b7edc2f658d26cdd51187d7e08a43364c9a62"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-amd64.tar.gz",
+     "bundle_sha256": "faf00a9211ede5cbe50884e522a472aab76ec7812cf8c6c3c39589f4f7f65a4c"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.duckdb/1.5.4/io.pilot.duckdb-1.5.4-linux-arm64.tar.gz",
+     "bundle_sha256": "54471ec4cf95071bba8d3c6f9e2dc134483df47ceaef291b5e6adea6bc89b31d"
+    }
+   },
+   "categories": [
+    "database",
+    "data",
+    "sql",
+    "analytics"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.duckdb/metadata.json",
+   "metadata_sha256": "66245c92569cd063f7b86d6c5a10067d01142ae7116e9cc78f41ece1e72efb7b",
+   "publisher": "ed25519:goaIo9+EvuMcRZnkum08HY83QScUWLRtqe0KG/uGljs="
+  },
+  {
+   "id": "io.pilot.docker",
+   "version": "29.6.1",
+   "description": "Docker 29.6.1 as a native CLI for agents (Linux): delivers the Docker Engine (dockerd + containerd + runc) and the docker CLI, sha-pinned. Start a local engine (docker.engine_start), then pull images and run containers — run/ps/images/pull/logs, plus build, exec, networks, volumes, and any docker command via a verbatim-argv passthrough. Real containers on a real Linux host, no Docker Desktop.",
+   "display_name": "Docker",
+   "vendor": "Pilot Protocol",
+   "license": "Apache-2.0",
+   "source_url": "https://github.com/moby/moby",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+   "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e",
+   "bundle_size": 5352665,
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-amd64.tar.gz",
+     "bundle_sha256": "410dd4bf4747ca4518ec98962c93e6be8f598ee93c87773b332d86514acb593e"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.docker/29.6.1/io.pilot.docker-29.6.1-linux-arm64.tar.gz",
+     "bundle_sha256": "2349cda00272b282a86c4c1000405afd0d7bee9522b137177c7e2a0772a9f5cc"
+    }
+   },
+   "categories": [
+    "devops",
+    "containers",
+    "runtime",
+    "data"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.docker/metadata.json",
+   "metadata_sha256": "be4b01bb8226f7b24ccf4ec321289140d88f34aa70d18cf66e05e1720757bd1f",
+   "publisher": "ed25519:pzka4ROsoHKaQLgBQG+WlUGgtAVzgNy4WUvKzoysLRo="
+  },
+  {
+   "id": "io.pilot.redis",
+   "version": "8.6.2",
+   "description": "Redis 8.6.2 as a native CLI for agents: stand up a local in-memory data store (redis.start) and talk to it with redis-cli — SET/GET, PING, INFO, DBSIZE, and ANY Redis command (lists, hashes, sets, sorted sets, streams, pub/sub, transactions) via a verbatim-argv passthrough. Server lifecycle (start/stop), health checks, and the full redis-cli/redis-server toolchain (redis-benchmark, redis-check-rdb, ...). No server to provision — runs locally on this host.",
+   "display_name": "Redis",
+   "vendor": "Pilot Protocol",
+   "license": "AGPL-3.0",
+   "source_url": "https://github.com/redis/redis",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
+   "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8",
+   "bundle_size": 5354616,
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-arm64.tar.gz",
+     "bundle_sha256": "45329909a3bafb5ec31cb76602f955421c50210fd8903ccb7fb347165a3b786b"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-darwin-amd64.tar.gz",
+     "bundle_sha256": "7c5c9e5e2a621a3557781accbc746b52cde414700abe1ad8e1757407fa89d478"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-amd64.tar.gz",
+     "bundle_sha256": "69512a192ce9e8f36d2ec102d0c5d9cde0ac4621d4349052277714dab89215d8"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.redis/8.6.2/io.pilot.redis-8.6.2-linux-arm64.tar.gz",
+     "bundle_sha256": "71eec03a7a0db3e8024ed1670c198424463407c21d24e6798e282d40a0f5a99b"
+    }
+   },
+   "categories": [
+    "database",
+    "cache",
+    "data",
+    "kv"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.redis/metadata.json",
+   "metadata_sha256": "99435d341585786017b7c7a28ba0391c6a21a1e22927cdfad88cf4ab9a141e2c",
+   "publisher": "ed25519:QXvscnyXJ5L/Bmy7oCo5dPC1HrEOGa7WFWBfH5ktejM="
+  },
+  {
+   "id": "io.pilot.aegis",
+   "version": "0.1.3",
+   "description": "AEGIS 0.1.3 — a runtime firewall for AI agents (native CLI): scan files, commands, and tool results for prompt injection, jailbreaks, homoglyph/leetspeak obfuscation, and impersonation before your agent acts on them. L1 Aho-Corasick patterns plus an optional local Qwen3-1.7B judge, fully offline; an 880 KB binary. The scan-cmd/scan-result blocking gates run via aegis.exec (allow 0 / block 2); plus aegis.scan / status / targets / config.",
+   "display_name": "AEGIS",
+   "vendor": "Pilot Protocol",
+   "license": "MIT",
+   "source_url": "https://github.com/pilot-protocol/aegis",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+   "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216",
+   "bundle_size": 5354471,
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-amd64.tar.gz",
+     "bundle_sha256": "c8416c110afe05af32615a0c3b9b67cd17a31ecdfeb66578a972fc832aeb5216"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-linux-arm64.tar.gz",
+     "bundle_sha256": "751aee6d4df38a51eaaaee200dcb61347cbd22c32709613515917172d0af8175"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.aegis/0.1.3/rev2/io.pilot.aegis-0.1.3-darwin-arm64.tar.gz",
+     "bundle_sha256": "bbd42e0fc33b55d04034e3836972e011a368548685b06f72908f84db70f7b8c9"
+    }
+   },
+   "categories": [
+    "security",
+    "firewall",
+    "guardrail"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.aegis/metadata.json",
+   "metadata_sha256": "b894d3edf0c1451d36a9ff50b888eba7826ac519fee888c9e1fcd3b44ce70c9b",
+   "publisher": "ed25519:+nt58BA0gpPYuyaeG2GwfTI79j8IHP+zra5GvRQv0N0="
+  },
+  {
+   "id": "io.pilot.smol",
+   "version": "1.2.0",
+   "description": "Smol Machines — fast, hardware-isolated Linux microVMs, now local AND cloud. Create/run sub-second microVMs locally with the smolvm CLI, then push a VM to the smol cloud with smol.push. Pilot provisions a per-user cloud key automatically; cloud VMs are isolated per user and billed by real usage against $5 free credit.",
+   "display_name": "Smol Machines",
+   "vendor": "smol machines",
+   "license": "Apache-2.0",
+   "source_url": "https://github.com/smol-machines/smolvm",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
+   "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b",
+   "bundle_size": 5401194,
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "51b0fb9d23bb762fb363196e48a991c5bfe4c703945565584b02d5363d7b8ee2"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-amd64.tar.gz",
+     "bundle_sha256": "2cbe990b5aac26e1a27fc9de97fbb0061386c4ee603a275182cfdaf62b9df29b"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.smol/1.2.0/io.pilot.smol-1.2.0-linux-arm64.tar.gz",
+     "bundle_sha256": "62cd9b719824fd0b4500505d3a9588d945563549816f55b0e718f41faf9b39d3"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.smol/metadata.json",
+   "metadata_sha256": "22ad16602236e18951a55410c3c602e4ab9c542aff704c0e9f32b6b15f68517f",
+   "categories": [
+    "dev",
+    "virtualization",
+    "security"
+   ],
+   "keywords": [
+    "microvm",
+    "sandbox",
+    "vm",
+    "isolation",
+    "gpu",
+    "ci",
+    "cloud"
+   ],
+   "publisher": "ed25519:54rnZ8+dN9V2cxZMJLMQKt36oYP/CfhF/zIgJMkjLIQ="
+  },
+  {
+   "id": "io.pilot.bowmark",
+   "version": "0.1.0",
+   "description": "Navigation cheatsheets for public websites, so agents run cheaper, faster, and more accurately. Call ask({site, task}) before any browser action to get a ready-to-run cheatsheet — a parameterized URL shortcut and/or a short UI procedure to execute open-loop — instead of exploring the DOM; then report_outcome to keep them fresh. Free to use — no signup, no API key.",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
+   "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997",
+   "display_name": "Bowmark",
+   "vendor": "Bowmark AI",
+   "categories": [
+    "web",
+    "browser",
+    "agents",
+    "automation"
+   ],
+   "bundle_size": 5070051,
+   "source_url": "https://github.com/bowmark-ai/plugin",
+   "license": "Proprietary",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
+   "metadata_sha256": "88baa37ef7213eac493a1197b1578f495c30d613951f16a87b67e5d1322c9a30",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-amd64.tar.gz",
+     "bundle_sha256": "af6f94bd8dd1ec2143d6d791205539f3b8ebeab94585d6f29552747de32cf997"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-linux-arm64.tar.gz",
+     "bundle_sha256": "aeb587e89701bdc121717893562bfe50578a9b7235373fa93fd4c868ddacb928"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "c30336813659d2647164b519cd987a0a2b4d362bc985a30e3842903ab5fdb7e7"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/0.1.0/io.pilot.bowmark-0.1.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "ac71dfcbf72966eec95e3f8b6e4577c10a7fef62952b771e9dc765080613a23b"
+    }
+   },
+   "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
+  },
+  {
+   "id": "io.pilot.sqlite",
+   "version": "3.45.2",
+   "description": "SQLite 3.45.2 as a native SQL database for agents: a zero-server, single-file, transactional (OLTP) SQL engine delivered to the host and fronted as typed methods. Run SQL against a .db file or an in-memory database and get rows back as JSON, run a multi-statement script, introspect the schema and table list, and reach the full sqlite3 CLI (every dot-command and flag — .dump, .import, .backup, CSV/table/markdown output, …) via a verbatim-argv passthrough. The durable, on-disk complement to DuckDB's in-memory analytics — real transactional SQL locally with no server, no provisioning, and no cloud account.",
+   "display_name": "SQLite",
+   "vendor": "Pilot Protocol",
+   "license": "blessing",
+   "source_url": "https://sqlite.org/src",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
+   "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8",
+   "bundle_size": 5352486,
+   "bundles": {
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-arm64.tar.gz",
+     "bundle_sha256": "572872403d2f46f497104dc4e1ce6b9553cc42cac8552aedc71f3295920e9d57"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-darwin-amd64.tar.gz",
+     "bundle_sha256": "762b4841304d8098f6ef69066f36e54f73f9635deacdff191ebfb52f4a147f7a"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-amd64.tar.gz",
+     "bundle_sha256": "8d77490b7f8695db93762e6035e0f110565b8b0658a91bb8b240f24d70b7c0e8"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.sqlite/3.45.2/io.pilot.sqlite-3.45.2-linux-arm64.tar.gz",
+     "bundle_sha256": "114a31ec88fb26a4674501179218e55bab74237a24865bf38f37d2aa44f4ed2d"
+    }
+   },
+   "categories": [
+    "database",
+    "data",
+    "sql"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sqlite/metadata.json",
+   "metadata_sha256": "215a29194e9352ce71c0d61eec80fd1e0381434c91438c52839c6e417b1c6622",
+   "publisher": "ed25519:ebjc66COLR1OBuDZn9gCuePChW8Qxxcxm7RDYAgSLv8="
+  },
+  {
+   "id": "io.pilot.agentphone",
+   "version": "0.3.1",
+   "description": "Give your AI agent a real US/Canada phone number: place and receive voice calls, send and receive SMS/iMessage, and hold threaded conversations — all over REST, metered per user against a $5 budget.",
+   "display_name": "AgentPhone",
+   "vendor": "AgentPhone",
+   "license": "Apache-2.0",
+   "source_url": "https://github.com/AgentPhone-AI/skills",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-amd64.tar.gz",
+   "bundle_sha256": "d99e8d998b05075931af79376ce4cdb22b8ced435c65f551671fc62f87994d76",
+   "bundles": {
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-darwin-amd64.tar.gz",
+     "bundle_sha256": "f49a04ff21ce05727b54e4644dc91f54e24e67396198014b6104714a7c1d1d74"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-darwin-arm64.tar.gz",
+     "bundle_sha256": "a14b6184004bafc4921213172d635139035a7e2588f440f7d6a09a7fc442ff3a"
+    },
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-amd64.tar.gz",
+     "bundle_sha256": "d99e8d998b05075931af79376ce4cdb22b8ced435c65f551671fc62f87994d76"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.agentphone/0.3.1/io.pilot.agentphone-0.3.1-linux-arm64.tar.gz",
+     "bundle_sha256": "cd6f64a77866bf048d110f58a285316e89e90b8af1f64389ff0484259af8cb36"
+    }
+   },
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
+   "metadata_sha256": "452d988a4814c3e92f2af095e7a02466a150f088478dda819fec2d6c724fbb9a",
+   "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+  },
+  {
+   "id": "io.pilot.orthogonal",
+   "version": "0.1.1",
+   "description": "Connect your agent to Orthogonal — one key fronting 58 paid APIs / 851 endpoints (lead & contact enrichment, email & phone finding, web & social scraping, AI search, company/people/jobs data, weather, voice). Describe a task in plain English and Orthogonal's router returns the exact APIs to call; execute any of them through a single run, billed at the real per-call price and metered against a per-user $5 budget. Discovery, pricing and balance calls are free.",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
+   "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7",
+   "display_name": "Orthogonal",
+   "vendor": "Orthogonal",
+   "categories": [],
+   "bundle_size": 5073695,
+   "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
+   "license": "",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
+   "metadata_sha256": "1f75f953e0ee3db5dfc11103dc1c6ba4c70362ee52fa351898a699c88b771b39",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
+     "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-arm64.tar.gz",
+     "bundle_sha256": "e1d70fa3f9b49f3d2d92717b63db4ac84b525d24bd7c102ce64de62beb57a6f6"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-darwin-amd64.tar.gz",
+     "bundle_sha256": "dbfdd6624a04a9fa6cdec86c9b5cfad1cdb3fda455bd58eeae6e03d59b4e9305"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-darwin-arm64.tar.gz",
+     "bundle_sha256": "25bb06edfca365b201fd137c46cb06a340c8df98ec43181d57f7214c555a55e9"
+    }
+   },
+   "publisher": "ed25519:8zcpGtp5sUw3sjLptDR9W/btumEaOv3DO3tTWN/+PCk="
+  },
+  {
+   "id": "io.pilot.mysql",
+   "version": "9.7.1",
+   "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
+   "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
+   "display_name": "Mysql",
+   "vendor": "Pilot Protocol",
+   "categories": [],
+   "bundle_size": 5359647,
+   "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
+   "license": "",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
+   "metadata_sha256": "3349fa791d2379ba5b484b96425cf137b1f108382ae6193f62e76c6ffeadfb63",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
+     "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-arm64.tar.gz",
+     "bundle_sha256": "b37777304ef1976c783e2ad1f667cd8b0188c5a39d5bfe45880ec2baca007fa3"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-amd64.tar.gz",
+     "bundle_sha256": "1cdf637b8dae34b57503ee2dfbd8a6e24eb587c90233edd5718976e9db60120e"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-darwin-arm64.tar.gz",
+     "bundle_sha256": "2d6007afea3c6e59aea914c551631c39624ded6cf988dd2252d0dab092e88c21"
+    }
+   },
+   "publisher": "ed25519:cTZr4unmAHK/r8fS+TVQ4QiCIORimYe+y+bIdiUUfAY="
+  },
+  {
+   "id": "io.pilot.didit",
+   "version": "1.0.0",
+   "description": "Full Didit identity-verification platform over one HTTPS app — KYC/ID, liveness, face match, AML, proof-of-address, database validation, email/phone OTP, plus hosted sessions, workflows, users, billing, blocklists, questionnaires and webhooks. didit.signup mints your own Didit API key in ONE call with no email and no code (Pilot's broker handles the whole signup), caches it locally, and then every method authenticates as you and bills to your own Didit balance (500 free full-KYC checks/month).",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
+   "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
+   "display_name": "Didit",
+   "vendor": "Didit",
+   "categories": [],
+   "bundle_size": 5130067,
+   "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
+   "license": "",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
+   "metadata_sha256": "678ca368b4c2ed6f9f526f35d7a3de07f5a196abccdf76247b281afef9e47978",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
+     "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-arm64.tar.gz",
+     "bundle_sha256": "090b73c669f4df41e3994441edd261bfd4ec511c806899a28571d8d99a675c6c"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "03275275e7838ca9b8be39d7355462271a8d23ad32a60ea4cb87b1f7b6cbf5a0"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "5910ff8f2af94f8545d49fa6c0a179c75c4334bd54fb37a3feb7ee197ad551c5"
+    }
+   },
+   "publisher": "ed25519:ii6QAc8qZB4NvbOXqnLfnv+OhPqepuK0BISAv9jM5x0="
+  },
+  {
+   "id": "io.pilot.tldr",
+   "version": "1.13.1",
+   "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+   "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
+   "display_name": "Tldr",
+   "vendor": "Pilot Protocol",
+   "categories": [],
+   "bundle_size": 5355931,
+   "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
+   "license": "",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
+   "metadata_sha256": "548e514a25962da0dcced8ead25c7ceb3690c31784a9ab31f061d185dcbd1662",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
+     "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-arm64.tar.gz",
+     "bundle_sha256": "7379ce8068d5031e38d7e7489e81d45123d62ae3ee814c1d2c8231a421e229c8"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-amd64.tar.gz",
+     "bundle_sha256": "b1505b6eb762be844f7005803b222ef1b9abec879f1621bcfb1d3f8122eedbd2"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-darwin-arm64.tar.gz",
+     "bundle_sha256": "9cd334fcedbb486c08eb26205d80caf0f63754f8bd3909e0149ee24dcc709a56"
+    }
+   },
+   "publisher": "ed25519:PWQdFC8oGtlYsGhVtjMcR1CfOKKa0O3TtKtFD8vrD90="
+  },
+  {
+   "id": "io.pilot.primitive",
+   "version": "1.0.0",
+   "description": "Email infrastructure for AI agents. primitive.signup provisions a free account + a managed *.primitive.email inbox in ONE call (no email, no code) and caches the API key locally; from then on the adapter injects it on every call and the agent sends, receives, replies to, and searches real email over one REST API. 57 methods reachable on the free plan; Functions, Wake, x402 payments and custom domains are marked gated until you upgrade.",
+   "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
+   "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f",
+   "display_name": "Primitive",
+   "vendor": "Primitive",
+   "categories": [
+    "communications"
+   ],
+   "bundle_size": 5241262,
+   "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.primitive",
+   "license": "Proprietary",
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.primitive/metadata.json",
+   "metadata_sha256": "9ad9da6b767a561ca7e7ad2bd168b452ee73c3d7fe9337d7b6111baa767a777e",
+   "bundles": {
+    "linux/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-amd64.tar.gz",
+     "bundle_sha256": "a57023ab5b593516c16f935f987f7693e2fc70bfc3cc336e1a0872e475e32b6f"
+    },
+    "linux/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-linux-arm64.tar.gz",
+     "bundle_sha256": "f16140b21501723ec5e1035716c686a5077a6768cda4e2ed910a0e32f443a917"
+    },
+    "darwin/amd64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-amd64.tar.gz",
+     "bundle_sha256": "d4353482cb03a6af98a008533e0a7d118eb8317694baa1385cd2849750104df9"
+    },
+    "darwin/arm64": {
+     "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.primitive/1.0.0/io.pilot.primitive-1.0.0-darwin-arm64.tar.gz",
+     "bundle_sha256": "7a5cf1c8205c879de191040d8418f3078a7aee5a6003b620a83af9d66418ae9f"
+    }
+   },
+   "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+  },
+  {
+   "id": "io.pilot.firecrawl",
+   "version": "0.1.0",
+   "description": "Web scraping, crawling, search, and agentic extraction — the full Firecrawl v2 API, keyless.",
+   "display_name": "Firecrawl",
+   "vendor": "Firecrawl",
+   "license": "MIT",
+   "source_url": "https://github.com/pilot-protocol/firecrawl-app",
+   "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/firecrawl-v0.1.0/io.pilot.firecrawl-0.1.0.tar.gz",
+   "bundle_sha256": "66e2d1e69d106a4e4daff40fae86b7172d07fc52691d074ebc391314c85fcb68",
+   "bundle_size": 4901773,
+   "categories": [
+    "web",
+    "search",
+    "data",
+    "scraping"
+   ],
+   "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.firecrawl/metadata.json",
+   "metadata_sha256": "bdd8298f1857f08d746caea7df2c7ade055ca5cb6d8ba1a045ab6362b8413df1",
+   "publisher": "ed25519:65ICQnQrQIPNc6nHARupXf+J7B8pYOXq29kCMqqHRsQ="
+  }
+ ]
 }
