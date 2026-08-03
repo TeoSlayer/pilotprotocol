@@ -741,7 +741,7 @@
     "scraping"
    ],
    "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.firecrawl/metadata.json",
-   "metadata_sha256": "bdd8298f1857f08d746caea7df2c7ade055ca5cb6d8ba1a045ab6362b8413df1",
+   "metadata_sha256": "0d1e1166f7838499f04a411c3049639332abbfe1c3913f14f66a7b01ada6eb81",
    "publisher": "ed25519:65ICQnQrQIPNc6nHARupXf+J7B8pYOXq29kCMqqHRsQ="
   }
  ]
