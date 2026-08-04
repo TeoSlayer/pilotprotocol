@@ -460,7 +460,7 @@
       "source_url": "https://github.com/bowmark-ai/plugin",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "39f5154497976ef3fde212ef4bc5a65f701d8e55465e47627665bc5755fa474b",
+      "metadata_sha256": "ce82188936ec3eae513fdd1b0a929d3528a0618fcf3861906e3c28376f140845",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-amd64.tar.gz",

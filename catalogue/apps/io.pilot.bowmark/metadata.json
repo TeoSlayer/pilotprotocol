@@ -51,12 +51,18 @@
       "summary": "Executes your script on the real websites and returns what came back. Call bowmark.get_library FIRST: it gives the exact function names, argument shapes and return types. The language is plain async JavaScript. `bowmark` is a ready global with no import, every call is awaited, and you get real control flow: if, loops, array methods, and Promise.all for fan-out. `return` a value to get it back, `log(...)` for progress lines. `bowmark` is the ONLY I/O: no fetch, no process, no filesystem, no import or require. Write a plain async body, not a wrapping function, and keep it small and deterministic, because it runs in a hard sandbox with CPU, memory and wall-clock ceilings. `script` is the only argument; there is no site argument. Returns {ok, status, result, logs, error, ms}. CHECK `status` BEFORE `ok`: ok | partial (the script ran and the result is real and usable but narrower than asked, ok stays true, and incomplete.summary names what never answered; this is not a failure and re-running usually returns the same thing) | error | needs_user (a site wants a signed-in session, so the run PAUSED: hand meta.handoff.url to the user, wait, then re-send the identical script). Bowmark drives the sites server side, so your agent never opens a browser."
     },
     {
-      "name": "bowmark.balance",
-      "summary": "Your remaining Pilot budget for this app, read free from the broker's per-user credit ledger — returns {\"balance\":\"$X.XX\",\"credits_remaining\":<micro-$>,\"credits_seed\":<micro-$>,\"unit\":\"micro_usd\",\"scope\":\"per-pilot-user\"}. This is YOUR budget, not the shared account's. No partner API call, no charge, and never a 402. The same figure also rides on the X-Pilot-Credits-Remaining header of every metered response; call this when you just want to check what's left before a spend."
+      "name": "bowmark.help",
+      "summary": "Discovery: every method with params, latency, and description."
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/bowmark-ai/plugin"
     },
     {
-      "name": "bowmark.help",
-      "summary": "Discovery: every method with params, kind, and latency class."
+      "label": "Website",
+      "url": "https://bowmark.ai"
     }
   ],
   "changelog": [
@@ -76,16 +82,6 @@
         "Initial release — REST adapter over the Bowmark API: bowmark.ask (/v1/ask) and bowmark.report_outcome (/v1/outcomes).",
         "Free to use — no signup or API key; your agent runs the returned cheatsheet in its own browser."
       ]
-    }
-  ],
-  "links": [
-    {
-      "label": "Source",
-      "url": "https://github.com/bowmark-ai/plugin"
-    },
-    {
-      "label": "Website",
-      "url": "https://bowmark.ai"
     }
   ],
   "product_demo": {
@@ -205,5 +201,5 @@
     ]
   },
   "published_at": "2026-07-06",
-  "updated_at": "2026-08-03T23:59:00Z"
+  "updated_at": "2026-08-03"
 }
