@@ -444,10 +444,10 @@
     },
     {
       "id": "io.pilot.bowmark",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Live data from real websites, including the values that only appear after somebody operates the page: prices, stock, fares, quotes, and anything behind a form or a login. Call bowmark.get_library({query}) for the typed function library, then send a short JavaScript script to bowmark.run({script}) and Bowmark executes it on the real sites.",
-      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-amd64.tar.gz",
-      "bundle_sha256": "3b4800e811bb684f29b1b9a7ff76d72b364655bc3d2ca0744f50f77331256d04",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-linux-amd64.tar.gz",
+      "bundle_sha256": "b08735619328a76e06f608445958d752c857ca072b9d45f8176c85e081e39bf4",
       "display_name": "Bowmark",
       "vendor": "Bowmark AI",
       "categories": [
@@ -456,27 +456,27 @@
         "agents",
         "automation"
       ],
-      "bundle_size": 5072418,
+      "bundle_size": 5072454,
       "source_url": "https://github.com/bowmark-ai/plugin",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "ce82188936ec3eae513fdd1b0a929d3528a0618fcf3861906e3c28376f140845",
+      "metadata_sha256": "2d979d11d9007b38002c8b609a18c3e8998333c4b31e32ce8b4fe781e7375548",
       "bundles": {
         "linux/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-amd64.tar.gz",
-          "bundle_sha256": "3b4800e811bb684f29b1b9a7ff76d72b364655bc3d2ca0744f50f77331256d04"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-linux-amd64.tar.gz",
+          "bundle_sha256": "b08735619328a76e06f608445958d752c857ca072b9d45f8176c85e081e39bf4"
         },
         "linux/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-linux-arm64.tar.gz",
-          "bundle_sha256": "d5fb05bb39cbe727de7733c18ac4619de93c48771de9e0a8a2e7068d3ecb322e"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-linux-arm64.tar.gz",
+          "bundle_sha256": "9e35c5ba7e05da0124a5d289a9bff44f19915d3394fbfd7d24ac27ed9a4a1e7b"
         },
         "darwin/arm64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-darwin-arm64.tar.gz",
-          "bundle_sha256": "be84e356e53bbabd920b0f9e276718faf6259ad932e09d8b0c56a8b66f3129d2"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-darwin-arm64.tar.gz",
+          "bundle_sha256": "f59b40676a5f1960d2692590d12d434e784f5b26886c36746ccb59e7b3c36db5"
         },
         "darwin/amd64": {
-          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.0/io.pilot.bowmark-1.0.0-darwin-amd64.tar.gz",
-          "bundle_sha256": "325c554e66fbf0fb97ecf7d2d0a8e445dd6ae6198cc03f4ea6921ceefa21e447"
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-darwin-amd64.tar.gz",
+          "bundle_sha256": "1217c6e3b975b9c4cfac25517c1f53f800f7d32ec27f5f4651b2d9f3ce4c350a"
         }
       },
       "publisher": "ed25519:Lmf0vzz0CNPu94pbqsbD/ueSuOaKsGc0xU/DoL+Yu7c="
