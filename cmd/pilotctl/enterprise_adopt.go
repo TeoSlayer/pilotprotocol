@@ -291,7 +291,7 @@ func installEnrolledAttachment(outputDirectory string, claim authorityhttp.NodeE
 	if claim.Options.FleetControl {
 		config.Fleet = &enterprisecontrol.FleetConfig{
 			ReportIntervalSeconds: 5, AgentVersion: "pilot-onboarding/" + claim.HarnessID + "/" + claim.RunID,
-			HarnessID: claim.HarnessID, HarnessVersion: "managed", ConnectorVersion: "pilot-mcp-0.2.0",
+			HarnessID: claim.HarnessID, HarnessVersion: "managed", ConnectorVersion: "pilot-core-managed-0.1.3",
 			StateSyncEnabled: claim.Options.StateSync, StateSyncIntervalSeconds: 2,
 		}
 		if claim.Options.StateSync {

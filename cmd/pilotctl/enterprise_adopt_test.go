@@ -108,6 +108,13 @@ func TestAdoptEnterpriseNodeClaimsAndInstallsVerifiedAttachment(t *testing.T) {
 	if _, err := enterprisecontrol.Load(result.ControlPath); err != nil {
 		t.Fatalf("installed attachment did not verify: %v", err)
 	}
+	controlBody, err := os.ReadFile(result.ControlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(controlBody), "pilot-mcp") || !strings.Contains(string(controlBody), `"connector_version": "pilot-core-managed-0.1.3"`) {
+		t.Fatalf("core adoption has the wrong connector ownership: %s", controlBody)
+	}
 	if err := filepath.Walk(outputDirectory, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr == nil && !info.IsDir() {
 			body, readErr := os.ReadFile(path)
