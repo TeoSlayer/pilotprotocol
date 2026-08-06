@@ -1055,6 +1055,7 @@ Flags:
   --wait <duration>            how long to wait for daemon to become ready (default: 15s)
   --motd-feed-url <url>        message-of-the-day feed (empty to disable; env PILOT_MOTD_URL)
   --motd-interval <duration>   message-of-the-day poll interval (default: 15m)
+  --enterprise-control <path>  owner-only managed control attachment
 `,
 	"daemon stop": `Usage: pilotctl daemon stop
 
@@ -2737,6 +2738,12 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adm
 		}
 	}
 	trustAutoApprove := flagBool(flags, "trust-auto-approve")
+	enterpriseControl := flagString(flags, "enterprise-control", "")
+	if enterpriseControl == "" {
+		if value, ok := cfg["enterprise_control"].(string); ok {
+			enterpriseControl = strings.TrimSpace(value)
+		}
+	}
 
 	daemonArgs = []string{
 		"--registry", registryAddr,
@@ -2774,6 +2781,9 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adm
 	}
 	if trustAutoApprove {
 		daemonArgs = append(daemonArgs, "--trust-auto-approve")
+	}
+	if enterpriseControl != "" {
+		daemonArgs = append(daemonArgs, "--enterprise-control", enterpriseControl)
 	}
 	return daemonArgs, socketPath, adminToken
 }

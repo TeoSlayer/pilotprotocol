@@ -23,7 +23,7 @@ import (
 	"github.com/pilot-protocol/common/decisionpolicy"
 )
 
-const enterpriseHelpText = `Usage: pilotctl enterprise <status|dashboard-url|trust|policy|mandate|receipt|workflow> --endpoint <URL> --tenant <tenant> [flags]
+const enterpriseHelpText = `Usage: pilotctl enterprise <adopt|status|dashboard-url|trust|policy|mandate|receipt|workflow|hook> [flags]
 
 Read the signed enterprise control state from an authority, or produce its
 read-only dashboard URL. The policy subcommands submit already-signed
@@ -66,6 +66,13 @@ Workflow operations:
   pilotctl enterprise workflow list [--limit <1-1000>] [flags]
   pilotctl enterprise workflow status --id <transaction-id> [flags]
   pilotctl enterprise workflow cancel --id <transaction-id> --reason <reason> [flags]
+
+External agent hooks (JSON request on stdin; normally invoked by pilot-mcp):
+  pilotctl --json enterprise hook pre [--control <enterprise-control.json>]
+  pilotctl --json enterprise hook post [--control <enterprise-control.json>]
+
+One-time managed adoption (normally invoked by pilot-mcp setup):
+  PILOT_ENROLLMENT_TOKEN=... pilotctl --json enterprise adopt --endpoint https://management.example
 `
 
 // cmdEnterprise is a read-only operator surface over the authority's signed
@@ -73,9 +80,11 @@ Workflow operations:
 // operations; this CLI deliberately does not turn a terminal into a bypass.
 func cmdEnterprise(args []string) {
 	if len(args) == 0 {
-		fatalHint("invalid_argument", "available: pilotctl enterprise status | dashboard-url | trust | policy | mandate | receipt | workflow", "missing enterprise subcommand")
+		fatalHint("invalid_argument", "available: pilotctl enterprise adopt | status | dashboard-url | trust | policy | mandate | receipt | workflow", "missing enterprise subcommand")
 	}
 	switch args[0] {
+	case "adopt":
+		cmdEnterpriseAdopt(args[1:])
 	case "status":
 		cmdEnterpriseStatus(args[1:])
 	case "dashboard-url":
@@ -90,8 +99,10 @@ func cmdEnterprise(args []string) {
 		cmdEnterpriseReceipt(args[1:])
 	case "workflow":
 		cmdEnterpriseWorkflow(args[1:])
+	case "hook":
+		cmdEnterpriseHook(args[1:])
 	default:
-		fatalHint("invalid_argument", "available: status, dashboard-url, trust, policy, mandate, receipt, workflow", "unknown enterprise subcommand: %s", args[0])
+		fatalHint("invalid_argument", "available: adopt, status, dashboard-url, trust, policy, mandate, receipt, workflow, hook", "unknown enterprise subcommand: %s", args[0])
 	}
 }
 

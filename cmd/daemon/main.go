@@ -162,6 +162,11 @@ func main() {
 		}
 		config.ApplyToFlags(cfg)
 	}
+	if *enterpriseControlPath == "" {
+		if discovered, ok := discoverManagedEnterpriseControl(); ok {
+			*enterpriseControlPath = discovered
+		}
+	}
 
 	// Compat-mode 443-only defaults. When -transport=compat is selected
 	// and the operator hasn't explicitly overridden -registry/-registry-tls/
@@ -640,6 +645,19 @@ shutdownLoop:
 			slog.Error("remote daemon restart failed", "err", err)
 		}
 	}
+}
+
+func discoverManagedEnterpriseControl() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	path := filepath.Join(home, ".pilot", "managed", "enterprise-control.json")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return "", false
+	}
+	return path, true
 }
 
 // synchronizeFleetControl reports bounded local health and runs only the

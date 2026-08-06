@@ -5,7 +5,6 @@ package daemon
 import (
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -23,8 +22,9 @@ func TestIPCServer_MaxClientsCap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow: opens many sockets")
 	}
-	tmp := t.TempDir()
-	sockPath := filepath.Join(tmp, "pilot.sock")
+	// Keep the path below Darwin's short sockaddr_un.sun_path limit.
+	// t.TempDir includes the full test name and can exceed that limit.
+	sockPath := shortSockPath(t)
 
 	d := New(Config{SocketPath: sockPath})
 	s := NewIPCServer(sockPath, d)

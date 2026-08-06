@@ -55,8 +55,16 @@ func TestIPv6EndToEnd(t *testing.T) {
 	registryAddr := r.Addr().String()
 	t.Logf("registry on %s (IPv6)", registryAddr)
 
+	// Keep IPC paths below Darwin's short sockaddr_un.sun_path limit. The
+	// directory produced by t.TempDir includes this long test name, and daemon
+	// startup creates an additional staging component beside it.
+	tmpDir, err := os.MkdirTemp("", "w4-ipv6-")
+	if err != nil {
+		t.Fatalf("create short IPC directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+
 	// Helper to start a daemon with tunnel on [::1]
-	tmpDir := t.TempDir()
 	startDaemon := func(idx int) (*daemon.Daemon, *driver.Driver) {
 		t.Helper()
 		sockPath := fmt.Sprintf("%s/d%d.sock", tmpDir, idx)
