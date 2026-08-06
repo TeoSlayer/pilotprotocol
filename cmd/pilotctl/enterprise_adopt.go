@@ -111,17 +111,17 @@ func adoptEnterpriseNode(ctx context.Context, options enterpriseAdoptOptions) (e
 	if err != nil {
 		return enterpriseAdoptResult{}, err
 	}
-	policy, err := fetchEnrollmentPolicy(ctx, client, endpoint, claim.TenantID, claim.AgentID)
+	policy, err := decodeEnrollmentPolicy(claim.Policy)
 	if err != nil {
 		return enterpriseAdoptResult{}, err
 	}
-	if policy.Bundle.TenantID != claim.TenantID || policy.Bundle.Revision < credential.Trust.PolicyRevision {
-		return enterpriseAdoptResult{}, fmt.Errorf("active policy does not satisfy the enrolled trust floor")
+	if policy.TenantID != claim.TenantID || policy.Revision < credential.Trust.PolicyRevision || policy.RevocationEpoch < credential.Trust.RevocationEpoch {
+		return enterpriseAdoptResult{}, fmt.Errorf("bootstrap policy does not satisfy the enrolled trust floor")
 	}
-	if err := policy.Bundle.Validate(); err != nil {
-		return enterpriseAdoptResult{}, fmt.Errorf("validate active policy: %w", err)
+	if err := policy.Validate(); err != nil {
+		return enterpriseAdoptResult{}, fmt.Errorf("validate bootstrap policy: %w", err)
 	}
-	controlPath, err := installEnrolledAttachment(options.OutputDirectory, claim, credential, root, seed, policy.Bundle)
+	controlPath, err := installEnrolledAttachment(options.OutputDirectory, claim, credential, root, seed, policy)
 	if err != nil {
 		return enterpriseAdoptResult{}, err
 	}
@@ -162,7 +162,7 @@ func claimNodeEnrollment(ctx context.Context, client *http.Client, endpoint, tok
 	if err := decoder.Decode(&claim); err != nil {
 		return authorityhttp.NodeEnrollmentClaimResponse{}, fmt.Errorf("decode node enrollment: %w", err)
 	}
-	if claim.Version != authorityhttp.NodeEnrollmentVersion || claim.EnrollmentID == "" || claim.TenantID == "" || claim.AgentID == "" || claim.HarnessID == "" || claim.RunID == "" || claim.ClaimedAt <= 0 || len(claim.Credential) == 0 || claim.PublicOrigin != endpoint || !claim.Options.FleetControl {
+	if claim.Version != authorityhttp.NodeEnrollmentVersion || claim.EnrollmentID == "" || claim.TenantID == "" || claim.AgentID == "" || claim.HarnessID == "" || claim.RunID == "" || claim.ClaimedAt <= 0 || len(claim.Credential) == 0 || len(claim.Policy) == 0 || claim.PublicOrigin != endpoint || !claim.Options.FleetControl {
 		return authorityhttp.NodeEnrollmentClaimResponse{}, fmt.Errorf("node enrollment response is incomplete or mismatched")
 	}
 	if _, err := normalizedManagedEndpoint(claim.FederationEndpoint); err != nil {
@@ -208,27 +208,17 @@ func validateEnrolledCredential(claim authorityhttp.NodeEnrollmentClaimResponse)
 	return credential, root, seed, nil
 }
 
-func fetchEnrollmentPolicy(ctx context.Context, client *http.Client, endpoint, tenantID, agentID string) (authorityhttp.ActivePolicyEnvelope, error) {
-	query := url.Values{"tenant_id": []string{tenantID}, "agent_id": []string{agentID}}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/v1/policy-current?"+query.Encode(), nil)
-	if err != nil {
-		return authorityhttp.ActivePolicyEnvelope{}, err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return authorityhttp.ActivePolicyEnvelope{}, fmt.Errorf("fetch active policy: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return authorityhttp.ActivePolicyEnvelope{}, fmt.Errorf("active policy returned HTTP %d", response.StatusCode)
-	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 2<<20))
+func decodeEnrollmentPolicy(raw json.RawMessage) (authority.PolicyBundle, error) {
+	decoder := json.NewDecoder(io.LimitReader(bytes.NewReader(raw), 2<<20))
 	decoder.DisallowUnknownFields()
-	var active authorityhttp.ActivePolicyEnvelope
-	if err := decoder.Decode(&active); err != nil {
-		return authorityhttp.ActivePolicyEnvelope{}, fmt.Errorf("decode active policy: %w", err)
+	var policy authority.PolicyBundle
+	if err := decoder.Decode(&policy); err != nil {
+		return authority.PolicyBundle{}, fmt.Errorf("decode bootstrap policy: %w", err)
 	}
-	return active, nil
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return authority.PolicyBundle{}, fmt.Errorf("decode bootstrap policy: trailing data")
+	}
+	return policy, nil
 }
 
 func installEnrolledAttachment(outputDirectory string, claim authorityhttp.NodeEnrollmentClaimResponse, credential enrolledNodeCredential, root ed25519.PublicKey, seed []byte, policy authority.PolicyBundle) (string, error) {
