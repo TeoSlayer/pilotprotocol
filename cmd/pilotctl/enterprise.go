@@ -67,11 +67,11 @@ Workflow operations:
   pilotctl enterprise workflow status --id <transaction-id> [flags]
   pilotctl enterprise workflow cancel --id <transaction-id> --reason <reason> [flags]
 
-External agent hooks (JSON request on stdin; normally invoked by pilot-mcp):
+External agent hooks (JSON request on stdin; invoked by an optional harness adapter):
   pilotctl --json enterprise hook pre [--control <enterprise-control.json>]
   pilotctl --json enterprise hook post [--control <enterprise-control.json>]
 
-One-time managed adoption (normally invoked by pilot-mcp setup):
+One-time managed adoption (a core Pilot operation; no MCP server is required):
   PILOT_ENROLLMENT_TOKEN=... pilotctl --json enterprise adopt --endpoint https://management.example
 `
 
