@@ -64,6 +64,10 @@ func TestAdoptEnterpriseNodeClaimsAndInstallsVerifiedAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	policyRaw, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	const token = "one-time-test-token"
 	var server *httptest.Server
@@ -78,14 +82,8 @@ func TestAdoptEnterpriseNodeClaimsAndInstallsVerifiedAttachment(t *testing.T) {
 			_ = json.NewEncoder(writer).Encode(authorityhttp.NodeEnrollmentClaimResponse{
 				Version: authorityhttp.NodeEnrollmentVersion, EnrollmentID: "enrollment-123", TenantID: "tenant-a", AgentID: "agent-003",
 				HarnessID: "gemini", DisplayName: "Finance agent", RunID: "run-123456", PublicOrigin: server.URL, FederationEndpoint: server.URL,
-				Options: authorityhttp.NodeEnrollmentOptions{ActionControl: true, FleetControl: true, StateSync: true}, Credential: credential, ClaimedAt: now.Unix(),
+				Options: authorityhttp.NodeEnrollmentOptions{ActionControl: true, FleetControl: true, StateSync: true}, Credential: credential, Policy: policyRaw, ClaimedAt: now.Unix(),
 			})
-		case "/v1/policy-current":
-			if request.URL.Query().Get("tenant_id") != "tenant-a" || request.URL.Query().Get("agent_id") != "agent-003" {
-				http.Error(writer, "bad scope", http.StatusBadRequest)
-				return
-			}
-			_ = json.NewEncoder(writer).Encode(authorityhttp.ActivePolicyEnvelope{Bundle: policy})
 		default:
 			http.NotFound(writer, request)
 		}
