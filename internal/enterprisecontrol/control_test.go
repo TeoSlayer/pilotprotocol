@@ -1219,8 +1219,14 @@ func TestRolloutRefreshStagesCandidateThenInstallsOnlyAuthorityActivePolicy(t *t
 	if err := runtime.RefreshRollout(context.Background()); err != nil {
 		t.Fatalf("install active policy: %v", err)
 	}
-	if len(acknowledgements) != 1 || acknowledgements[0] != authority.PolicyAckStaged {
-		t.Fatalf("activation changed staged acknowledgement evidence = %v", acknowledgements)
+	if len(acknowledgements) != 2 || acknowledgements[0] != authority.PolicyAckStaged || acknowledgements[1] != authority.PolicyAckEnforced {
+		t.Fatalf("activation acknowledgement evidence = %v", acknowledgements)
+	}
+	if err := runtime.RefreshRollout(context.Background()); err != nil {
+		t.Fatalf("idempotent active refresh: %v", err)
+	}
+	if len(acknowledgements) != 2 {
+		t.Fatalf("active refresh resubmitted delivered acknowledgement = %v", acknowledgements)
 	}
 	allowed := signedFrameForControl(t, fixture, &dataexchange.Frame{Type: dataexchange.TypeBinary, Payload: []byte("active")}, 2)
 	if err := dataConfig.GovernedVerifier.VerifyGovernedFrame(context.Background(), coreapi.Addr{}, allowed); err != nil {
@@ -1239,6 +1245,12 @@ func TestRolloutRefreshStagesCandidateThenInstallsOnlyAuthorityActivePolicy(t *t
 	}
 	if err := restartedData.GovernedVerifier.VerifyGovernedFrame(context.Background(), coreapi.Addr{}, allowed); err != nil {
 		t.Fatalf("persisted authority-active policy was not restored: %v", err)
+	}
+	if err := restarted.RefreshRollout(context.Background()); err != nil {
+		t.Fatalf("restart active refresh: %v", err)
+	}
+	if len(acknowledgements) != 2 {
+		t.Fatalf("restart resubmitted delivered acknowledgement = %v", acknowledgements)
 	}
 }
 
