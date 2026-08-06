@@ -399,15 +399,18 @@ func (recorder transportReceiptRecorder) newResultReceipt(intent decision.Intent
 // attachment. The root pin is configured out of band; this state prevents a
 // later daemon restart from accepting an older, still-valid signed bundle.
 type controlState struct {
-	TenantID               string `json:"tenant_id"`
-	TrustRevision          uint64 `json:"trust_revision"`
-	TrustPolicyRevision    uint64 `json:"trust_policy_revision"`
-	TrustRevocationEpoch   uint64 `json:"trust_revocation_epoch"`
-	PolicyRevision         uint64 `json:"policy_revision"`
-	PolicyRevocationEpoch  uint64 `json:"policy_revocation_epoch"`
-	MandateRevision        uint64 `json:"mandate_revision,omitempty"`
-	MandateRevocationEpoch uint64 `json:"mandate_revocation_epoch,omitempty"`
-	MandateHash            string `json:"mandate_hash,omitempty"`
+	TenantID                string `json:"tenant_id"`
+	TrustRevision           uint64 `json:"trust_revision"`
+	TrustPolicyRevision     uint64 `json:"trust_policy_revision"`
+	TrustRevocationEpoch    uint64 `json:"trust_revocation_epoch"`
+	PolicyRevision          uint64 `json:"policy_revision"`
+	PolicyRevocationEpoch   uint64 `json:"policy_revocation_epoch"`
+	MandateRevision         uint64 `json:"mandate_revision,omitempty"`
+	MandateRevocationEpoch  uint64 `json:"mandate_revocation_epoch,omitempty"`
+	MandateHash             string `json:"mandate_hash,omitempty"`
+	EnforcementPublication  string `json:"enforcement_publication,omitempty"`
+	EnforcementObservedAt   int64  `json:"enforcement_observed_at,omitempty"`
+	EnforcementAckDelivered bool   `json:"enforcement_ack_delivered,omitempty"`
 }
 
 // Load parses the strict JSON attachment at path, resolves its relative
@@ -771,6 +774,11 @@ func (runtime *Runtime) reloadLocked() error {
 	nextState.TrustRevision = trustBundle.Revision
 	nextState.TrustPolicyRevision = trustBundle.PolicyRevision
 	nextState.TrustRevocationEpoch = trustBundle.RevocationEpoch
+	if nextState.PolicyRevision != policyBundle.Revision {
+		nextState.EnforcementPublication = ""
+		nextState.EnforcementObservedAt = 0
+		nextState.EnforcementAckDelivered = false
+	}
 	nextState.PolicyRevision = policyBundle.Revision
 	nextState.PolicyRevocationEpoch = policyBundle.RevocationEpoch
 	if err := saveControlState(runtime.statePath, nextState); err != nil {
@@ -1523,11 +1531,11 @@ func (runtime *Runtime) installTrustLocked(bundle authority.TrustBundle) error {
 	if err := state.acceptsTrust(runtime.tenantID, bundle); err != nil {
 		return err
 	}
-	nextState := controlState{
-		TenantID: runtime.tenantID, TrustRevision: bundle.Revision, TrustPolicyRevision: bundle.PolicyRevision,
-		TrustRevocationEpoch: bundle.RevocationEpoch, PolicyRevision: state.PolicyRevision, PolicyRevocationEpoch: state.PolicyRevocationEpoch,
-		MandateRevision: state.MandateRevision, MandateRevocationEpoch: state.MandateRevocationEpoch, MandateHash: state.MandateHash,
-	}
+	nextState := state
+	nextState.TenantID = runtime.tenantID
+	nextState.TrustRevision = bundle.Revision
+	nextState.TrustPolicyRevision = bundle.PolicyRevision
+	nextState.TrustRevocationEpoch = bundle.RevocationEpoch
 	if err := runtime.trust.InstallWithCommit(bundle, func() error {
 		if err := writeSecureJSON(runtime.trustPath, bundle); err != nil {
 			return fmt.Errorf("enterprise control: persist current trust: %w", err)
@@ -1568,6 +1576,7 @@ func (runtime *Runtime) stageCandidateLocked(ctx context.Context, candidate auth
 
 func (runtime *Runtime) installActivePolicyLocked(ctx context.Context, active authorityhttp.ActivePolicyEnvelope) error {
 	publication, policy, activation := active.Publication, active.Bundle, active.Activation
+	observedAt := time.Now()
 	if policy.TenantID != runtime.tenantID || publication.TenantID != runtime.tenantID || !publicationTargetsAgent(publication, runtime.rolloutAgentID) {
 		return fmt.Errorf("enterprise control: active policy tenant binding mismatch")
 	}
@@ -1581,7 +1590,7 @@ func (runtime *Runtime) installActivePolicyLocked(ctx context.Context, active au
 	if err := activation.VerifyFor(publication, policy, issuer, time.Now()); err != nil {
 		return fmt.Errorf("enterprise control: verify active policy activation: %w", err)
 	}
-	if activation.ActivatesAt > time.Now().Unix() {
+	if activation.ActivatesAt > observedAt.Unix() {
 		return fmt.Errorf("enterprise control: active policy activation time has not arrived")
 	}
 	trust, err := runtime.trust.Current(ctx, runtime.tenantID)
@@ -1595,10 +1604,17 @@ func (runtime *Runtime) installActivePolicyLocked(ctx context.Context, active au
 	if err := state.accepts(runtime.tenantID, trust, policy); err != nil {
 		return err
 	}
-	nextState := controlState{
-		TenantID: runtime.tenantID, TrustRevision: trust.Revision, TrustPolicyRevision: trust.PolicyRevision,
-		TrustRevocationEpoch: trust.RevocationEpoch, PolicyRevision: policy.Revision, PolicyRevocationEpoch: policy.RevocationEpoch,
-		MandateRevision: state.MandateRevision, MandateRevocationEpoch: state.MandateRevocationEpoch, MandateHash: state.MandateHash,
+	nextState := state
+	nextState.TenantID = runtime.tenantID
+	nextState.TrustRevision = trust.Revision
+	nextState.TrustPolicyRevision = trust.PolicyRevision
+	nextState.TrustRevocationEpoch = trust.RevocationEpoch
+	nextState.PolicyRevision = policy.Revision
+	nextState.PolicyRevocationEpoch = policy.RevocationEpoch
+	if nextState.EnforcementPublication != publication.ID {
+		nextState.EnforcementPublication = publication.ID
+		nextState.EnforcementObservedAt = observedAt.Unix()
+		nextState.EnforcementAckDelivered = false
 	}
 	if err := runtime.policies.InstallWithCommit(ctx, policy, func() error {
 		if err := writeSecureJSON(runtime.policyPath, policy); err != nil {
@@ -1607,6 +1623,23 @@ func (runtime *Runtime) installActivePolicyLocked(ctx context.Context, active au
 		return saveControlState(runtime.statePath, nextState)
 	}); err != nil {
 		return fmt.Errorf("enterprise control: install active policy: %w", err)
+	}
+	if nextState.EnforcementAckDelivered {
+		return nil
+	}
+	ack, err := authority.NewPolicyAcknowledgement(publication, runtime.rolloutAgentID, authority.PolicyAckEnforced, time.Unix(nextState.EnforcementObservedAt, 0), runtime.rolloutKeyID)
+	if err != nil {
+		return fmt.Errorf("enterprise control: create enforced acknowledgement: %w", err)
+	}
+	if err := ack.Sign(runtime.rolloutPrivate); err != nil {
+		return fmt.Errorf("enterprise control: sign enforced acknowledgement: %w", err)
+	}
+	if _, err := runtime.rolloutClient.Acknowledge(ctx, ack); err != nil {
+		return fmt.Errorf("enterprise control: submit enforced acknowledgement: %w", err)
+	}
+	nextState.EnforcementAckDelivered = true
+	if err := saveControlState(runtime.statePath, nextState); err != nil {
+		return fmt.Errorf("enterprise control: persist enforced acknowledgement: %w", err)
 	}
 	return nil
 }
@@ -2139,6 +2172,9 @@ func loadControlState(path string) (controlState, error) {
 	}
 	if (state.MandateRevision == 0) != (state.MandateHash == "") || (state.MandateRevision == 0) != (state.MandateRevocationEpoch == 0) || (state.MandateHash != "" && !lowerHex(state.MandateHash, 64)) {
 		return controlState{}, fmt.Errorf("enterprise control: persisted mandate state is invalid")
+	}
+	if (state.EnforcementPublication == "") != (state.EnforcementObservedAt == 0) || state.EnforcementAckDelivered && state.EnforcementPublication == "" || state.EnforcementPublication != "" && !identifier(state.EnforcementPublication) {
+		return controlState{}, fmt.Errorf("enterprise control: persisted enforcement acknowledgement is invalid")
 	}
 	return state, nil
 }
