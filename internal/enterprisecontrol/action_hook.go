@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pilot-protocol/common/actioncontinuation"
@@ -29,6 +30,32 @@ type actionHookState struct {
 	continuationLease string
 }
 
+// ExternalActionAttempt is the restart-safe, content-free portion of a
+// managed action preflight. Native agent harnesses invoke pre- and post-hooks
+// in separate processes, so the opaque actionHookState cannot remain only in
+// memory. The exact request and response bodies are deliberately excluded:
+// they travel to the hosted federation endpoint during the corresponding
+// hook and are never written to this record.
+//
+// The signed Intent and Decision are retained so ImportExternalActionAttempt
+// can authenticate the record against the locally pinned trust bundle before
+// it is allowed to produce receipts, activity, or a federation result.
+type ExternalActionAttempt struct {
+	Version           uint16               `json:"version"`
+	Envelope          actionhook.Envelope  `json:"envelope"`
+	Preflight         actionhook.Preflight `json:"preflight"`
+	Selected          bool                 `json:"selected"`
+	Managed           bool                 `json:"managed"`
+	Federated         bool                 `json:"federated"`
+	ExchangeID        string               `json:"exchange_id,omitempty"`
+	Intent            decision.Intent      `json:"intent"`
+	Decision          decision.Decision    `json:"decision"`
+	ContinuationID    string               `json:"continuation_id,omitempty"`
+	ContinuationLease string               `json:"continuation_lease,omitempty"`
+}
+
+const externalActionAttemptVersion uint16 = 1
+
 // ActionHook returns this attachment as a universal hook only when an
 // operator explicitly selected a non-off profile. A nil return is the hard
 // compatibility boundary used by unmanaged nodes.
@@ -49,6 +76,99 @@ func (runtime *Runtime) ActionArtifacts(preflight actionhook.Preflight) (decisio
 		return decision.Intent{}, decision.Decision{}, false
 	}
 	return state.intent, state.result, true
+}
+
+// ExportExternalActionAttempt converts process-local hook state into a
+// bounded record suitable for a protected local outbox. It returns false for
+// unselected and local/observe-only actions because AfterAction has no remote
+// evidence to complete for those cases.
+func (runtime *Runtime) ExportExternalActionAttempt(envelope actionhook.Envelope, preflight actionhook.Preflight) (ExternalActionAttempt, bool, error) {
+	if runtime == nil {
+		return ExternalActionAttempt{}, false, fmt.Errorf("enterprise control: runtime is nil")
+	}
+	if err := envelope.Validate(); err != nil {
+		return ExternalActionAttempt{}, false, err
+	}
+	state, ok := preflight.State.(actionHookState)
+	if !ok || !state.selected || !state.managed {
+		return ExternalActionAttempt{}, false, nil
+	}
+	// Content and the adapter-local resume token never cross the persistence
+	// boundary. PayloadHash still binds the disclosure that was evaluated.
+	envelope.FederatedContent = nil
+	envelope.ResumeToken = ""
+	preflight.State = nil
+	record := ExternalActionAttempt{
+		Version: externalActionAttemptVersion, Envelope: envelope, Preflight: preflight,
+		Selected: state.selected, Managed: state.managed, Federated: state.federated,
+		ExchangeID: state.exchangeID, Intent: state.intent, Decision: state.result,
+		ContinuationID: state.continuationID, ContinuationLease: state.continuationLease,
+	}
+	if _, _, err := runtime.ImportExternalActionAttempt(record); err != nil {
+		return ExternalActionAttempt{}, false, err
+	}
+	return record, true, nil
+}
+
+// ImportExternalActionAttempt reconstructs the opaque state needed by
+// AfterAction. It authenticates both signed wire objects at their historical
+// issuance times, then checks their tenant, agent, action, resource, and
+// payload bindings against the persisted envelope. This prevents a corrupted
+// outbox record from manufacturing evidence for another action.
+func (runtime *Runtime) ImportExternalActionAttempt(record ExternalActionAttempt) (actionhook.Envelope, actionhook.Preflight, error) {
+	if runtime == nil || runtime.trust == nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: runtime is not initialized")
+	}
+	if record.Version != externalActionAttemptVersion || !record.Selected || !record.Managed {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: invalid external action attempt")
+	}
+	if record.Envelope.FederatedContent != nil || record.Envelope.ResumeToken != "" {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external action attempt contains process-local content")
+	}
+	if err := record.Envelope.Validate(); err != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, err
+	}
+	if err := record.Intent.Validate(); err != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external intent: %w", err)
+	}
+	if err := record.Decision.Validate(); err != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external decision: %w", err)
+	}
+	runtime.mu.Lock()
+	tenantID, agentID := runtime.tenantID, runtime.actionAgentID
+	runtime.mu.Unlock()
+	if record.Intent.TenantID != tenantID || record.Intent.AgentID != agentID ||
+		record.Intent.Action != record.Envelope.Action || record.Intent.Resource != record.Envelope.Resource ||
+		record.Intent.PayloadHash != record.Envelope.PayloadHash {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external action attempt binding mismatch")
+	}
+	intentAt := time.Unix(record.Intent.IssuedAt, 0).UTC()
+	intentKey, err := runtime.trust.IntentKeyAt(record.Intent.TenantID, record.Intent.AgentID, record.Intent.KeyID, intentAt)
+	if err != nil || record.Intent.Verify(intentKey, intentAt) != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external intent signature is invalid")
+	}
+	decisionAt := time.Unix(record.Decision.IssuedAt, 0).UTC()
+	decisionKey, err := runtime.trust.DecisionKeyAt(record.Decision.TenantID, record.Decision.KeyID, decisionAt)
+	if err != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external decision key: %w", err)
+	}
+	if err := record.Decision.VerifyFor(record.Intent, decisionKey, decisionAt); err != nil {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external decision signature: %w", err)
+	}
+	if record.Preflight.Outcome != record.Decision.Outcome || record.Preflight.ObserveOnly ||
+		record.Preflight.Reference.IntentID != record.Intent.ID || record.Preflight.Reference.DecisionID != record.Decision.ID ||
+		record.Preflight.Reference.ExchangeID != record.ExchangeID {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: external preflight binding mismatch")
+	}
+	if record.Federated && record.ExchangeID == "" {
+		return actionhook.Envelope{}, actionhook.Preflight{}, fmt.Errorf("enterprise control: federated external attempt is missing an exchange")
+	}
+	record.Preflight.State = actionHookState{
+		selected: true, managed: true, federated: record.Federated,
+		exchangeID: record.ExchangeID, intent: record.Intent, result: record.Decision,
+		continuationID: record.ContinuationID, continuationLease: record.ContinuationLease,
+	}
+	return record.Envelope, record.Preflight, nil
 }
 
 // BeforeAction evaluates only explicitly selected actions. Local enforcement
@@ -246,7 +366,7 @@ func (runtime *Runtime) resumeAction(ctx context.Context, envelope actionhook.En
 		_, _ = store.Finish(context.Background(), claimed.ID, lease, false, "workflow_execution_failed")
 		return actionhook.Preflight{}, true, fmt.Errorf("enterprise control: execute approved workflow: %w", err)
 	}
-	if err := runtime.enforcer.Verify(ctx, intent, result); err != nil {
+	if err := runtime.verifyApprovedWorkflowDecision(ctx, intent, result, workflow); err != nil {
 		_, _ = store.Finish(context.Background(), claimed.ID, lease, false, "decision_verification_failed")
 		return actionhook.Preflight{}, true, fmt.Errorf("enterprise control: verify approved workflow decision: %w", err)
 	}
@@ -254,13 +374,97 @@ func (runtime *Runtime) resumeAction(ctx context.Context, envelope actionhook.En
 		Outcome: result.Outcome, Reasons: append([]string(nil), result.Reasons...), Constraints: append([]decision.Constraint(nil), result.Constraints...),
 		Reference: actionhook.DecisionReference{
 			IntentID: intent.ID, DecisionID: result.ID, PolicyRevision: result.PolicyRevision, ProviderID: result.ProviderID,
-			ApprovalTransaction: continuation.ApprovalTransaction, ApprovalExpiresAt: continuation.ExpiresAt,
+			ExchangeID: reference.ExchangeID, ApprovalTransaction: continuation.ApprovalTransaction, ApprovalExpiresAt: continuation.ExpiresAt,
 		},
 		State: actionHookState{
 			selected: true, managed: true, federated: reference.ExchangeID != "", exchangeID: reference.ExchangeID, intent: intent, result: result,
 			continuationID: claimed.ID, continuationLease: lease,
 		},
 	}, true, nil
+}
+
+// verifyApprovedWorkflowDecision is the only path on which an `allow` or
+// `constrain` result may follow a local `approval_required` ceiling. The
+// ordinary Enforcer.Verify correctly rejects that as an authority expansion;
+// here the expansion is instead justified by the exact, locally persisted
+// transaction ID checked by workflowMatchesContinuation and by the complete
+// signed approval chain below. This method never accepts a free-standing
+// provider allow as a substitute for that chain.
+func (runtime *Runtime) verifyApprovedWorkflowDecision(ctx context.Context, intent decision.Intent, result decision.Decision, workflow decisionhttp.WorkflowRecord) error {
+	if runtime == nil || runtime.trust == nil || workflow.Certificate == nil {
+		return fmt.Errorf("approved workflow verification is unavailable")
+	}
+	now := time.Now().UTC()
+	if runtime.enforcer != nil && runtime.enforcer.Now != nil {
+		now = runtime.enforcer.Now().UTC()
+	}
+	intentKey, err := runtime.trust.IntentKey(ctx, intent.TenantID, intent.AgentID, intent.KeyID)
+	if err != nil {
+		return fmt.Errorf("resolve execution intent key: %w", err)
+	}
+	if err := intent.Verify(intentKey, now); err != nil {
+		return fmt.Errorf("execution intent: %w", err)
+	}
+	resultKey, err := runtime.trust.DecisionKey(ctx, intent.TenantID, result.KeyID)
+	if err != nil {
+		return fmt.Errorf("resolve workflow decision key: %w", err)
+	}
+	if err := result.VerifyFor(intent, resultKey, now); err != nil {
+		return fmt.Errorf("workflow decision: %w", err)
+	}
+	minimumPolicy, minimumRevocation, err := runtime.trust.MinimumState(ctx, intent.TenantID)
+	if err != nil {
+		return fmt.Errorf("resolve minimum authority state: %w", err)
+	}
+	if result.PolicyRevision < minimumPolicy || workflow.Certificate.PolicyRevision < minimumPolicy {
+		return fmt.Errorf("stale approved policy revision")
+	}
+	if result.RevocationEpoch < minimumRevocation || workflow.Certificate.RevocationEpoch < minimumRevocation {
+		return fmt.Errorf("stale approved revocation epoch")
+	}
+
+	transactionKey, err := runtime.trust.DecisionKeyAt(
+		workflow.Transaction.TenantID, workflow.Transaction.KeyID, time.Unix(workflow.Transaction.CreatedAt, 0),
+	)
+	if err != nil {
+		return fmt.Errorf("resolve approval transaction key: %w", err)
+	}
+	if err := workflow.Transaction.Verify(transactionKey, now); err != nil {
+		return fmt.Errorf("approval transaction: %w", err)
+	}
+	if err := workflow.Transaction.MatchesIntent(intent); err != nil {
+		return err
+	}
+	approvalKeys := make(map[string]ed25519.PublicKey, len(workflow.Votes))
+	for _, vote := range workflow.Votes {
+		key, keyErr := runtime.trust.ApprovalKeyAt(vote.TenantID, vote.KeyID, time.Unix(vote.IssuedAt, 0))
+		if keyErr != nil {
+			return fmt.Errorf("resolve historical approval key %s: %w", vote.KeyID, keyErr)
+		}
+		approvalKeys[vote.KeyID] = key
+	}
+	certificate := *workflow.Certificate
+	certificateKey, err := runtime.trust.DecisionKeyAt(certificate.TenantID, certificate.KeyID, time.Unix(certificate.FinalizedAt, 0))
+	if err != nil {
+		return fmt.Errorf("resolve approval certificate key: %w", err)
+	}
+	if err := certificate.VerifyFor(workflow.Transaction, workflow.Votes, approvalKeys, certificateKey, now); err != nil {
+		return fmt.Errorf("approval certificate: %w", err)
+	}
+	if intent.IssuedAt < certificate.FinalizedAt-int64(decision.MaxClockSkew/time.Second) || intent.ExpiresAt > certificate.ExpiresAt {
+		return fmt.Errorf("execution intent is outside the approval certificate window")
+	}
+	certificateHash, err := certificate.Hash()
+	if err != nil {
+		return err
+	}
+	if result.Outcome != certificate.Outcome || !slices.Equal(result.Constraints, certificate.Constraints) ||
+		result.PolicyRevision != certificate.PolicyRevision || result.RevocationEpoch != certificate.RevocationEpoch ||
+		result.ProviderID != certificate.ProviderID || result.ExpiresAt > certificate.ExpiresAt ||
+		len(result.Reasons) != 1 || result.Reasons[0] != "workflow:"+certificateHash {
+		return fmt.Errorf("workflow decision does not match the approval certificate")
+	}
+	return nil
 }
 
 func workflowMatchesContinuation(workflow decisionhttp.WorkflowRecord, continuation actioncontinuation.Record) bool {

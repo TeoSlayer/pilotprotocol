@@ -157,6 +157,10 @@ type RolloutConfig struct {
 // signed allowlisted commands; it never opens an inbound remote shell.
 type FleetConfig struct {
 	ReportIntervalSeconds    int64  `json:"report_interval_seconds,omitempty"`
+	AgentVersion             string `json:"agent_version,omitempty"`
+	HarnessID                string `json:"harness_id,omitempty"`
+	HarnessVersion           string `json:"harness_version,omitempty"`
+	ConnectorVersion         string `json:"connector_version,omitempty"`
 	StateSyncEnabled         bool   `json:"state_sync_enabled,omitempty"`
 	StateDirectory           string `json:"state_directory,omitempty"`
 	StateSyncIntervalSeconds int64  `json:"state_sync_interval_seconds,omitempty"`
@@ -166,15 +170,18 @@ type FleetConfig struct {
 // operator console. It excludes endpoint addresses, identities, payloads,
 // prompts, local paths, and environment values.
 type FleetNodeStatus struct {
-	NodeID         uint32
-	AgentVersion   string
-	UptimeSeconds  uint64
-	Connections    uint32
-	Peers          uint32
-	EncryptedPeers uint32
-	BytesSent      uint64
-	BytesReceived  uint64
-	PolicyRevision uint64
+	NodeID           uint32
+	AgentVersion     string
+	HarnessID        string
+	HarnessVersion   string
+	ConnectorVersion string
+	UptimeSeconds    uint64
+	Connections      uint32
+	Peers            uint32
+	EncryptedPeers   uint32
+	BytesSent        uint64
+	BytesReceived    uint64
+	PolicyRevision   uint64
 }
 
 // OutboundDecisionConfig lets a local sender request a short-lived signed
@@ -255,6 +262,10 @@ type Runtime struct {
 	rolloutPrivate                 ed25519.PrivateKey
 	rolloutInterval                time.Duration
 	fleetInterval                  time.Duration
+	fleetAgentVersion              string
+	fleetHarnessID                 string
+	fleetHarnessVersion            string
+	fleetConnectorVersion          string
 	fleetControlPath               string
 	lifecycleGuardPath             string
 	fleetControl                   authority.FleetNodeControl
@@ -578,6 +589,10 @@ func Load(path string) (*Runtime, error) {
 		if runtime.fleetInterval == 0 {
 			runtime.fleetInterval = 30 * time.Second
 		}
+		runtime.fleetAgentVersion = config.Fleet.AgentVersion
+		runtime.fleetHarnessID = config.Fleet.HarnessID
+		runtime.fleetHarnessVersion = config.Fleet.HarnessVersion
+		runtime.fleetConnectorVersion = config.Fleet.ConnectorVersion
 		runtime.fleetControlPath = filepath.Join(directory, ".enterprise-fleet-control.json")
 		runtime.lifecycleGuardPath = filepath.Join(directory, ".enterprise-lifecycle-applied.json")
 		if config.Fleet.StateSyncEnabled {
@@ -935,13 +950,65 @@ func (runtime *Runtime) ReportFleetStatus(ctx context.Context, status FleetNodeS
 	client := runtime.rolloutClient
 	tenantID, agentID, keyID := runtime.tenantID, runtime.rolloutAgentID, runtime.rolloutKeyID
 	privateKey := append(ed25519.PrivateKey(nil), runtime.rolloutPrivate...)
+	profile, registry, receiptCapable := runtime.actionProfile, runtime.actionRegistry, runtime.receipts != nil
+	reportedAgentVersion, reportedHarnessID := runtime.fleetAgentVersion, runtime.fleetHarnessID
+	reportedHarnessVersion, reportedConnectorVersion := runtime.fleetHarnessVersion, runtime.fleetConnectorVersion
 	runtime.mu.Unlock()
 	now := time.Now().UTC()
+	if reportedAgentVersion != "" {
+		status.AgentVersion = reportedAgentVersion
+	}
+	if reportedHarnessID != "" {
+		status.HarnessID = reportedHarnessID
+	}
+	if reportedHarnessVersion != "" {
+		status.HarnessVersion = reportedHarnessVersion
+	}
+	if reportedConnectorVersion != "" {
+		status.ConnectorVersion = reportedConnectorVersion
+	}
+	harnessID := strings.TrimSpace(status.HarnessID)
+	if harnessID == "" {
+		harnessID = "pilot-native"
+	}
+	harnessVersion := strings.TrimSpace(status.HarnessVersion)
+	if harnessVersion == "" {
+		harnessVersion = status.AgentVersion
+		if harnessVersion == "" {
+			harnessVersion = "unknown"
+		}
+	}
+	connectorVersion := strings.TrimSpace(status.ConnectorVersion)
+	if connectorVersion == "" {
+		connectorVersion = "unknown"
+	}
+	capabilities := make([]actionregistry.AdapterCapability, 0)
+	if registry != nil && profile.Mode.Normalize() != actionregistry.ModeOff {
+		for _, definition := range registry.Definitions() {
+			if !profile.AppliesTo(registry, definition.Name) {
+				continue
+			}
+			enforce := profile.Mode.Enforces()
+			managed := profile.Mode.Managed()
+			capabilities = append(capabilities, actionregistry.AdapterCapability{
+				Action: definition.Name, AdapterID: "pilot-action-hook", AdapterVersion: connectorVersion,
+				Observe: true, Enforce: enforce, Suspend: enforce && managed && definition.Suspendable,
+				Resume: enforce && managed && definition.Resumable, Receipt: receiptCapable,
+			})
+		}
+	}
+	version := authority.FleetReportVersion
+	if len(capabilities) > 0 {
+		version = authority.FleetReportVersionV2
+	}
 	report := authority.FleetNodeReport{
-		Version: authority.FleetReportVersion, TenantID: tenantID, AgentID: agentID, NodeID: status.NodeID,
+		Version: version, TenantID: tenantID, AgentID: agentID, NodeID: status.NodeID,
 		AgentVersion: status.AgentVersion, ObservedAt: now.Unix(), UptimeSeconds: status.UptimeSeconds,
 		Connections: status.Connections, Peers: status.Peers, EncryptedPeers: status.EncryptedPeers,
 		BytesSent: status.BytesSent, BytesReceived: status.BytesReceived, PolicyRevision: status.PolicyRevision, KeyID: keyID,
+	}
+	if version == authority.FleetReportVersionV2 {
+		report.HarnessID, report.HarnessVersion, report.ConnectorVersion, report.Capabilities = harnessID, harnessVersion, connectorVersion, capabilities
 	}
 	if err := report.Sign(privateKey); err != nil {
 		return err
@@ -1866,6 +1933,9 @@ func validateConfig(config Config) error {
 		}
 		if filepath.IsAbs(config.Fleet.StateDirectory) {
 			return fmt.Errorf("enterprise control: fleet.state_directory must be relative")
+		}
+		if len(config.Fleet.AgentVersion) > 128 || strings.ContainsAny(config.Fleet.AgentVersion, "\r\n\x00") || config.Fleet.HarnessID != "" && !identifier(config.Fleet.HarnessID) || len(config.Fleet.HarnessVersion) > 128 || strings.ContainsAny(config.Fleet.HarnessVersion, "\r\n\x00") || config.Fleet.ConnectorVersion != "" && !identifier(config.Fleet.ConnectorVersion) {
+			return fmt.Errorf("enterprise control: fleet runtime and harness markers are invalid")
 		}
 	}
 	if config.OutboundDecisions != nil {

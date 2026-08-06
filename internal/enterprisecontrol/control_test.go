@@ -197,7 +197,8 @@ func TestManagedActionApprovalSuspendsAndResumesExactlyOnce(t *testing.T) {
 	}
 	document.Rules = append([]decisionpolicy.Rule{{
 		ID: "allow-trust-accept", Agents: []string{"sender-a"}, Actions: []string{"trust.accept"},
-		ResourcePrefixes: []string{"agent:"}, Risks: allRisks(), Outcome: decision.Allow,
+		ResourcePrefixes: []string{"agent:"}, Risks: allRisks(), Outcome: decision.ApprovalRequired,
+		Approval: &decisionpolicy.ApprovalPlan{ApproverKeyIDs: []string{"approval-key"}, RequiredApprovals: 1, ValiditySeconds: 3600, Outcome: decision.Allow},
 	}}, document.Rules...)
 	payload, err := json.Marshal(document)
 	if err != nil {
